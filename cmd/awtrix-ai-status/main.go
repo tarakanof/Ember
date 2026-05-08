@@ -288,15 +288,22 @@ func (a *App) renderLocked(now time.Time) Render {
 	doneTTL := time.Duration(a.cfg.Display.DoneTTLSeconds) * time.Second
 	for key, session := range a.sessions {
 		age := now.Sub(session.UpdatedAt)
+		var reaped bool
 		switch session.State {
 		case "done", "error":
-			if age > doneTTL {
-				delete(a.sessions, key)
-			}
+			reaped = age > doneTTL
 		default:
-			if age > staleAfter {
-				delete(a.sessions, key)
-			}
+			reaped = age > staleAfter
+		}
+		if reaped {
+			a.logger.Warn("session reaped",
+				"source", session.Source,
+				"tool", session.Tool,
+				"session", session.Session,
+				"state", session.State,
+				"age_seconds", int(age.Seconds()),
+			)
+			delete(a.sessions, key)
 		}
 	}
 
