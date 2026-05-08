@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -249,4 +250,62 @@ func TestPerStateStalenessLingersDoneAndError(t *testing.T) {
 	if _, ok := app.sessions["src/claude/f"]; !ok {
 		t.Errorf("error at 28s should linger (DoneTTL=30)")
 	}
+}
+
+func TestRenderDoneLingersWhenAlone(t *testing.T) {
+	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	render := app.Upsert(StatusRequest{
+		Source: "dt-mbp", Tool: "claude", Session: "x",
+		State: "done", Message: "build green",
+	})
+	if render.Done != 1 {
+		t.Errorf("Done = %d, want 1", render.Done)
+	}
+	// Per-session label for single-session done group:
+	if !contains(render.Text, "build green") && !contains(render.Text, "done") {
+		t.Errorf("Text = %q, want a per-session done label", render.Text)
+	}
+	if render.Color != "#707070" {
+		t.Errorf("Color = %q, want grey #707070", render.Color)
+	}
+}
+
+func TestRenderIdleSessionNeverWins(t *testing.T) {
+	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	render := app.Upsert(StatusRequest{
+		Source: "dt-mbp", Tool: "claude", Session: "x",
+		State: "idle",
+	})
+	if render.Text != "AI idle" {
+		t.Errorf("Text = %q, want AI idle (idle never wins)", render.Text)
+	}
+}
+
+func TestRenderAggregateLabelForMultipleWaiting(t *testing.T) {
+	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "1", State: "waiting"})
+	render := app.Upsert(StatusRequest{Source: "b", Tool: "claude", Session: "2", State: "waiting"})
+	if render.Waiting != 2 {
+		t.Errorf("Waiting = %d, want 2", render.Waiting)
+	}
+	if !contains(render.Text, "W2") {
+		t.Errorf("Text = %q, want aggregate including W2", render.Text)
+	}
+}
+
+func TestRenderAggregateMixedGroups(t *testing.T) {
+	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "1", State: "waiting"})
+	app.Upsert(StatusRequest{Source: "b", Tool: "claude", Session: "2", State: "waiting"})
+	app.Upsert(StatusRequest{Source: "c", Tool: "claude", Session: "3", State: "running"})
+	app.Upsert(StatusRequest{Source: "d", Tool: "claude", Session: "4", State: "running"})
+	render := app.Upsert(StatusRequest{Source: "e", Tool: "claude", Session: "5", State: "running"})
+	if !contains(render.Text, "W2") || !contains(render.Text, "R3") {
+		t.Errorf("Text = %q, want aggregate AI W2 R3", render.Text)
+	}
+}
+
+// helper
+func contains(haystack, needle string) bool {
+	return strings.Contains(haystack, needle)
 }

@@ -221,6 +221,7 @@ type Render struct {
 	Waiting     int    `json:"waiting"`
 	Running     int    `json:"running"`
 	Errors      int    `json:"errors"`
+	Done        int    `json:"done"`
 	ActiveTotal int    `json:"active_total"`
 	Message     string `json:"message,omitempty"`
 }
@@ -307,9 +308,7 @@ func (a *App) renderLocked(now time.Time) Render {
 		}
 	}
 
-	var waiting []Session
-	var running []Session
-	var errored []Session
+	var waiting, running, errored, done []Session
 	for _, session := range a.sessions {
 		switch session.State {
 		case "waiting":
@@ -318,56 +317,58 @@ func (a *App) renderLocked(now time.Time) Render {
 			running = append(running, session)
 		case "error":
 			errored = append(errored, session)
+		case "done":
+			done = append(done, session)
 		}
+		// idle sessions are intentionally not bucketed — they never win a render slot
 	}
 
 	sortSessions(waiting)
 	sortSessions(running)
 	sortSessions(errored)
+	sortSessions(done)
 
+	activeTotal := len(waiting) + len(running) + len(errored)
+
+	// Pick winning group by priority.
+	var winningGroup []Session
+	var color string
 	switch {
 	case len(waiting) > 0:
-		msg := firstMessage(waiting[0], "approval")
-		return Render{
-			Text:        compactText("WAIT " + msg),
-			Color:       "#FF3300",
-			Waiting:     len(waiting),
-			Running:     len(running),
-			Errors:      len(errored),
-			ActiveTotal: len(waiting) + len(running) + len(errored),
-			Message:     msg,
-		}
+		winningGroup = waiting
+		color = "#FF3300"
 	case len(errored) > 0:
-		msg := firstMessage(errored[0], "error")
-		return Render{
-			Text:        compactText("ERR " + labelFor(errored[0]) + " " + msg),
-			Color:       "#FF3300",
-			Waiting:     0,
-			Running:     len(running),
-			Errors:      len(errored),
-			ActiveTotal: len(running) + len(errored),
-			Message:     msg,
-		}
-	case len(running) == 1:
-		return Render{
-			Text:        compactText(labelFor(running[0]) + " run"),
-			Color:       "#00A3FF",
-			Running:     1,
-			ActiveTotal: 1,
-			Message:     running[0].Message,
-		}
-	case len(running) > 1:
-		return Render{
-			Text:        fmt.Sprintf("AI R%d", len(running)),
-			Color:       "#00A3FF",
-			Running:     len(running),
-			ActiveTotal: len(running),
-		}
+		winningGroup = errored
+		color = "#FF3300"
+	case len(running) > 0:
+		winningGroup = running
+		color = "#00A3FF"
+	case len(done) > 0:
+		winningGroup = done
+		color = "#707070"
 	default:
 		return Render{
-			Text:  a.cfg.Display.IdleText,
-			Color: "#707070",
+			Text:        a.cfg.Display.IdleText,
+			Color:       "#707070",
+			Done:        len(done),
+			ActiveTotal: activeTotal,
 		}
+	}
+
+	text := perSessionLabel(winningGroup[0])
+	if len(winningGroup) >= 2 {
+		text = aggregateLabel(len(waiting), len(running), len(errored), len(done))
+	}
+
+	return Render{
+		Text:        compactText(text),
+		Color:       color,
+		Waiting:     len(waiting),
+		Running:     len(running),
+		Errors:      len(errored),
+		Done:        len(done),
+		ActiveTotal: activeTotal,
+		Message:     winningGroup[0].Message,
 	}
 }
 
@@ -404,6 +405,42 @@ func compactText(text string) string {
 		return text
 	}
 	return text[:77] + "..."
+}
+
+func perSessionLabel(s Session) string {
+	switch s.State {
+	case "waiting":
+		return "WAIT " + firstMessage(s, "approval")
+	case "error":
+		return "ERR " + labelFor(s) + " " + firstMessage(s, "error")
+	case "running":
+		return labelFor(s) + " run"
+	case "done":
+		msg := firstMessage(s, "")
+		if msg != "" {
+			return labelFor(s) + " done " + msg
+		}
+		return labelFor(s) + " done"
+	default:
+		return labelFor(s)
+	}
+}
+
+func aggregateLabel(waiting, running, errored, done int) string {
+	parts := []string{"AI"}
+	if waiting > 0 {
+		parts = append(parts, fmt.Sprintf("W%d", waiting))
+	}
+	if errored > 0 {
+		parts = append(parts, fmt.Sprintf("E%d", errored))
+	}
+	if running > 0 {
+		parts = append(parts, fmt.Sprintf("R%d", running))
+	}
+	if done > 0 {
+		parts = append(parts, fmt.Sprintf("D%d", done))
+	}
+	return strings.Join(parts, " ")
 }
 
 func (a *App) Publish(ctx context.Context) error {
