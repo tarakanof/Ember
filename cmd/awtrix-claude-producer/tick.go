@@ -10,6 +10,7 @@ import (
 )
 
 func runTick() {
+	rotateProducerLogs()
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
 		os.Exit(0)

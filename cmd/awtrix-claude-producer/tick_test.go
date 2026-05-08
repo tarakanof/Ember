@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -60,5 +65,75 @@ func TestTick_StaleMarker_RemovedAndDeleted(t *testing.T) {
 	}
 	if _, err := os.Stat(markerP); !os.IsNotExist(err) {
 		t.Errorf("stale marker should be removed")
+	}
+}
+
+// TestTick_NoResurrectionUnderConcurrentStop is the canonical Ghost Heartbeat
+// acceptance test: a tick is enumerating a marker concurrently with a Stop
+// hook deleting it. Lock-based ordering must guarantee no POST is observed
+// after the DELETE.
+func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	body := []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running","message":"Bash"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _ := loadConfig()
+	var sawPostAfterDelete atomic.Bool
+	var deleteSeen atomic.Bool
+
+	// Replace harness handler with one that detects POST-after-DELETE
+	h.srv.Close()
+	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodDelete:
+			deleteSeen.Store(true)
+			h.deletes.Add(1)
+		case http.MethodPost:
+			h.posts.Add(1)
+			if deleteSeen.Load() {
+				sawPostAfterDelete.Store(true)
+			}
+		}
+		w.WriteHeader(204)
+	}))
+	defer h.srv.Close()
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	envContent := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(envContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ = loadConfig()
+
+	// Concurrent goroutines: one running tick, one running Stop hook.
+	// Repeat several times to amplify any race window.
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		// Re-create marker for each iteration (Stop deletes it)
+		if err := os.WriteFile(markerP, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			dispatchTick(context.Background(), cfg)
+		}()
+		go func() {
+			defer wg.Done()
+			in := hookInput{HookEventName: "Stop", SessionID: "abc", CWD: "/repo"}
+			b, _ := json.Marshal(in)
+			dispatchHook(context.Background(), "stop", b, cfg)
+		}()
+		wg.Wait()
+	}
+
+	if sawPostAfterDelete.Load() {
+		t.Errorf("Ghost Heartbeat: POST observed after DELETE on at least one iteration")
 	}
 }

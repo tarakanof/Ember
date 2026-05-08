@@ -35,6 +35,7 @@ func runHook(args []string) {
 	if len(args) < 1 {
 		os.Exit(0)
 	}
+	rotateProducerLogs()
 	event := args[0]
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {

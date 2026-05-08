@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 const (
@@ -21,4 +22,14 @@ func rotateLogIfLarge(path string, threshold int64) {
 		_ = os.Rename(from, to)
 	}
 	_ = os.Rename(path, path+".1")
+}
+
+func rotateProducerLogs() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	for _, name := range []string{"awtrix-claude-producer.log", "awtrix-ai-status-tick.log"} {
+		rotateLogIfLarge(filepath.Join(home, "Library", "Logs", name), logRotateThreshold)
+	}
 }
