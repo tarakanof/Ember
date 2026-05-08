@@ -45,5 +45,4 @@ Configuration:
 }
 
 // Stubs filled in by later tasks.
-func runUninstall() { fmt.Fprintln(os.Stderr, "uninstall: not yet implemented"); os.Exit(2) }
-func runDoctor()    { fmt.Fprintln(os.Stderr, "doctor: not yet implemented"); os.Exit(2) }
+func runDoctor() { fmt.Fprintln(os.Stderr, "doctor: not yet implemented"); os.Exit(2) }
