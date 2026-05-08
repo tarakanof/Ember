@@ -148,12 +148,18 @@ func (h *prefsHandler) renderError(w http.ResponseWriter, r *http.Request, nonce
 	if info, err := os.Stat(h.envPath); err == nil {
 		mt = info.ModTime().UnixNano()
 	}
-	src := r.PostFormValue("STATUS_SOURCE")
-	if src == "" {
+	// Echo the submitted values back when the field is present in the form,
+	// even when empty — so a user who intentionally cleared a field doesn't
+	// see it silently restored to the disk value.
+	var src, srvURL string
+	if _, ok := r.PostForm["STATUS_SOURCE"]; ok {
+		src = r.PostFormValue("STATUS_SOURCE")
+	} else {
 		src = rec.get("STATUS_SOURCE")
 	}
-	srvURL := r.PostFormValue("STATUS_SERVER_URL")
-	if srvURL == "" {
+	if _, ok := r.PostForm["STATUS_SERVER_URL"]; ok {
+		srvURL = r.PostFormValue("STATUS_SERVER_URL")
+	} else {
 		srvURL = rec.get("STATUS_SERVER_URL")
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

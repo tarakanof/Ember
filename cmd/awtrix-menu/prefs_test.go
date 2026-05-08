@@ -380,6 +380,48 @@ func TestPrefs_PostValidationError_PreservesSubmittedValues(t *testing.T) {
 	}
 }
 
+func TestPrefs_PostValidationError_PreservesIntentionallyClearedField(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	// Disk has both fields populated.
+	if err := os.WriteFile(envPath, []byte("STATUS_SOURCE=on-disk\nSTATUS_SERVER_URL=http://on-disk\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	// User intentionally cleared STATUS_SOURCE (required) and submits — the
+	// validation error must re-render with the field empty, NOT silently
+	// restoring the on-disk value.
+	postForm := url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {strconv.FormatInt(mtime, 10)},
+		"STATUS_SOURCE":     {""},
+		"STATUS_SERVER_URL": {"http://kept"},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", srv.URL)
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 400 {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if strings.Contains(s, `value="on-disk"`) {
+		t.Errorf("rendered form silently restored cleared source from disk; body=%s", s)
+	}
+	if !strings.Contains(s, `value="http://kept"`) {
+		t.Errorf("rendered form lost the kept server URL; body=%s", s)
+	}
+}
+
 // helper used in tests
 func fmtInt64(n int64) string {
 	return strconv.FormatInt(n, 10)
