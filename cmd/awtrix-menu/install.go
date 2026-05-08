@@ -37,6 +37,9 @@ func install() error {
 	if err := os.MkdirAll(filepath.Join(home, "Library", "Logs"), 0o700); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Join(home, ".config", "awtrix-ai-status"), 0o700); err != nil {
+		return err
+	}
 	plistPath := filepath.Join(plistDir, menuLabel+".plist")
 	plist := generatePlist(bin, home, uid)
 	if err := os.WriteFile(plistPath, plist, 0o644); err != nil {
