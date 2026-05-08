@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -45,5 +47,45 @@ func TestMarkerAndLockPaths(t *testing.T) {
 	got = lockPath("/state/dir", "abc")
 	if got != "/state/dir/abc.lock" {
 		t.Errorf("lockPath = %q", got)
+	}
+}
+
+func TestWriteAndReadMarker(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.json")
+	body := []byte(`{"source":"dt-mbp","tool":"claude","session":"x","state":"running"}`)
+	if err := writeMarker(path, body); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readMarker(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(body) {
+		t.Errorf("got %q, want %q", got, body)
+	}
+}
+
+func TestWriteMarker_NoTempFileLeftBehind(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.json")
+	if err := writeMarker(path, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "session.json" {
+			t.Errorf("unexpected leftover file: %s", e.Name())
+		}
+	}
+}
+
+func TestReadMarker_Missing(t *testing.T) {
+	_, err := readMarker(filepath.Join(t.TempDir(), "nope.json"))
+	if !os.IsNotExist(err) {
+		t.Errorf("missing file should yield IsNotExist, got %v", err)
 	}
 }

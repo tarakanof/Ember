@@ -35,3 +35,38 @@ func markerPath(stateDir, sessionID string) string {
 func lockPath(stateDir, sessionID string) string {
 	return filepath.Join(stateDir, sessionID+".lock")
 }
+
+// writeMarker writes body to markerPath atomically via temp+rename.
+// The temp file lives in the same directory so rename is atomic on POSIX.
+func writeMarker(markerPath string, body []byte) error {
+	dir := filepath.Dir(markerPath)
+	tmp, err := os.CreateTemp(dir, ".tmp-*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpName) }
+	if _, err := tmp.Write(body); err != nil {
+		tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Rename(tmpName, markerPath); err != nil {
+		cleanup()
+		return err
+	}
+	return nil
+}
+
+func readMarker(markerPath string) ([]byte, error) {
+	return os.ReadFile(markerPath)
+}
