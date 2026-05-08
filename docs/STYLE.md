@@ -324,10 +324,14 @@ When writing producer hooks (sub-project B/C):
 - Subject ≤ 70 characters, imperative mood, no trailing period: `Add bearer-token auth on write endpoints`.
 - Body wraps at 72 characters and explains *why*, not *what* (the diff already shows what).
 - One logical change per commit. If you need "and" in the subject, you have two commits.
-- Reference the relevant spec/plan file path in the commit body when applicable.
-- Co-Authored-By trailer for AI-assisted commits (Claude / Codex / Gemini).
+- Reference the relevant spec/plan file path in the commit body when applicable, even though those files are not tracked (see below) — the references serve as local-context pointers for the author.
+- **No `Co-Authored-By` trailers** for AI-assisted commits. Author attribution stays with the human pushing the commit.
 - Never amend a pushed commit.
 - Never `--no-verify`. If a hook fails, fix the underlying issue.
+
+### Superpowers artifacts are not tracked
+
+Files under `docs/superpowers/` (specs, plans, brainstorm notes produced by superpowers-skill workflows) are gitignored. They live on the contributor's local disk and inform the work, but the repo itself ships only the implementation, `docs/STYLE.md`, `README.md`, and `AGENTS.md`.
 
 ---
 
