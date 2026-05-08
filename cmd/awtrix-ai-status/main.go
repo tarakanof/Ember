@@ -166,6 +166,26 @@ func (r StatusRequest) normalized() Session {
 	}
 }
 
+func (r StatusRequest) validate() error {
+	if strings.TrimSpace(r.Source) == "" {
+		return errors.New("source is required")
+	}
+	if strings.TrimSpace(r.Tool) == "" {
+		return errors.New("tool is required")
+	}
+	if strings.TrimSpace(r.Session) == "" {
+		return errors.New("session is required")
+	}
+	state := strings.ToLower(strings.TrimSpace(r.State))
+	if state == "" {
+		return errors.New("state is required")
+	}
+	if !validState(state) {
+		return fmt.Errorf("invalid state %q (must be one of idle, running, waiting, done, error)", state)
+	}
+	return nil
+}
+
 func validState(state string) bool {
 	switch state {
 	case "idle", "running", "waiting", "done", "error":
@@ -473,6 +493,10 @@ func (a *App) routes() http.Handler {
 func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	var req StatusRequest
 	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := req.validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

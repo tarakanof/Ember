@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -99,4 +103,71 @@ func TestPublishWritesCustomAppAndIndicators(t *testing.T) {
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func newTestServer(t *testing.T, cfg Config) (*App, *httptest.Server) {
+	t.Helper()
+	app := NewApp(cfg, &recordingPublisher{}, testLogger())
+	srv := httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+	return app, srv
+}
+
+func postJSON(t *testing.T, srv *httptest.Server, path string, body any, headers map[string]string) *http.Response {
+	t.Helper()
+	buf, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, srv.URL+path, bytes.NewReader(buf))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+func TestPostStatusRejectsMissingFields(t *testing.T) {
+	_, srv := newTestServer(t, defaultConfig())
+
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{"empty source", map[string]any{"source": "", "tool": "claude", "session": "x", "state": "running"}},
+		{"empty tool", map[string]any{"source": "dt-mbp", "tool": "", "session": "x", "state": "running"}},
+		{"empty session", map[string]any{"source": "dt-mbp", "tool": "claude", "session": "", "state": "running"}},
+		{"empty state", map[string]any{"source": "dt-mbp", "tool": "claude", "session": "x", "state": ""}},
+		{"unknown state", map[string]any{"source": "dt-mbp", "tool": "claude", "session": "x", "state": "potato"}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			resp := postJSON(t, srv, "/v1/status", c.body, nil)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestPostStatusAcceptsValidRequest(t *testing.T) {
+	_, srv := newTestServer(t, defaultConfig())
+	resp := postJSON(t, srv, "/v1/status", map[string]any{
+		"source":  "dt-mbp",
+		"tool":    "claude",
+		"session": "awtrix",
+		"state":   "running",
+	}, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
 }
