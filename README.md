@@ -4,11 +4,10 @@ Small status aggregator for showing Claude/Codex activity on an AWTRIX3 clock.
 
 The service is intentionally light:
 
-- one Go binary
-- no runtime dependencies
-- no Go package dependencies beyond the standard library
-- configurable AWTRIX output over HTTP or MQTT
-- HTTP input endpoint for laptop-side agents
+- one Go binary, stdlib only
+- single AWTRIX HTTP transport
+- bearer-token auth on write endpoints
+- HTTP input endpoint for laptop-side producers
 
 ## Current Target
 
@@ -20,7 +19,7 @@ The first target clock discovered in Home Assistant:
 
 ## Local Go
 
-This project is currently built with the Homebrew Go toolchain:
+Built with the Homebrew Go toolchain:
 
 ```sh
 go version
@@ -31,69 +30,88 @@ go version
 
 ```sh
 cp config.example.json config.json
-go run ./cmd/awtrix-ai-status -config config.json
+STATUS_TOKEN=dev-token go run ./cmd/awtrix-ai-status -config config.json
 ```
 
-Post a demo status:
+Post a demo running status:
 
 ```sh
 curl -X POST http://localhost:8080/v1/status \
+  -H 'Authorization: Bearer dev-token' \
   -H 'Content-Type: application/json' \
-  -d '{"source":"dt-macbook","tool":"codex","session":"repo-awtrix","state":"running","message":"building"}'
+  -d '{"source":"dt-mbp","tool":"codex","session":"awtrix","state":"running","message":"building"}'
 ```
 
 Post a waiting approval:
 
 ```sh
 curl -X POST http://localhost:8080/v1/status \
+  -H 'Authorization: Bearer dev-token' \
   -H 'Content-Type: application/json' \
-  -d '{"source":"dt-macbook","tool":"claude","session":"desktop","state":"waiting","message":"approve Bash"}'
+  -d '{"source":"dt-mbp","tool":"claude","session":"desktop","state":"waiting","message":"approve Bash"}'
 ```
 
-Clear session state:
+Drop a single session:
 
 ```sh
-curl -X POST http://localhost:8080/v1/clear
+curl -X DELETE http://localhost:8080/v1/status \
+  -H 'Authorization: Bearer dev-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"source":"dt-mbp","tool":"claude","session":"desktop"}'
 ```
+
+Wipe everything (admin):
+
+```sh
+curl -X POST http://localhost:8080/v1/clear -H 'Authorization: Bearer dev-token'
+```
+
+Inspect current state (no auth):
+
+```sh
+curl http://localhost:8080/state | jq
+```
+
+## Protocol
+
+The wire-protocol contract is in `docs/superpowers/specs/2026-05-08-protocol-contract-design.md`. Summary:
+
+- Required fields: `source` (laptop ID), `tool` (`claude` | `codex` | …), `session`, `state` (`idle` | `running` | `waiting` | `done` | `error`).
+- Producer emit policy: event on every transition, plus a 10s heartbeat while `running`/`waiting`.
+- Server reaps idle sessions after `stale_seconds` (default 25s); `done`/`error` linger for `done_ttl_seconds` (default 30s).
+- Write endpoints require `Authorization: Bearer <STATUS_TOKEN>`. Empty `STATUS_TOKEN` disables auth.
+- Read endpoints (`GET /state`, `GET /healthz`) are always unauthenticated.
 
 ## Docker
 
 ```sh
 docker build -t awtrix-ai-status .
 docker run --rm -p 8080:8080 \
+  -e STATUS_TOKEN=your-token \
   -v "$PWD/config.json:/config/config.json:ro" \
   awtrix-ai-status
 ```
 
-For Unraid, use a bind mount for `/config/config.json` and expose port `8080`.
+For Unraid, use a bind mount for `/config/config.json`, expose port `8080`, and set `STATUS_TOKEN` as an env var.
 
 ## Config
 
-HTTP output is simplest and works directly with the clock:
-
 ```json
 {
+  "http": { "addr": ":8080" },
   "awtrix": {
-    "transport": "http",
-    "http_base_url": "http://192.168.0.14"
-  }
-}
-```
-
-MQTT output avoids depending on the clock IP:
-
-```json
-{
-  "awtrix": {
-    "transport": "mqtt",
-    "mqtt_prefix": "awtrix_05ffb8"
+    "http_base_url": "http://192.168.0.14",
+    "app_name": "ai_status",
+    "timeout_seconds": 5
   },
-  "mqtt": {
-    "addr": "192.168.0.36:1883",
-    "username_env": "MQTT_USERNAME",
-    "password_env": "MQTT_PASSWORD"
+  "auth": { "status_token_env": "STATUS_TOKEN" },
+  "display": {
+    "idle_text": "AI idle",
+    "stale_seconds": 25,
+    "done_ttl_seconds": 30,
+    "heartbeat_seconds": 10,
+    "refresh_seconds": 5,
+    "notify_on_waiting": false
   }
 }
 ```
-
-The built-in MQTT publisher only publishes QoS 0 messages, which is enough for AWTRIX custom apps and indicators.

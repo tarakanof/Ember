@@ -8,7 +8,8 @@ Primary goals:
 
 - stay lightweight enough for an Unraid Docker container
 - aggregate multiple laptop/session statuses
-- publish compact display state to AWTRIX3 over MQTT or direct HTTP
+- publish compact display state to AWTRIX3 over direct HTTP
+- enforce bearer-token auth on write endpoints (configured via STATUS_TOKEN)
 - keep credentials and local machine details out of Git
 
 ## Local Context
@@ -18,11 +19,10 @@ Current known infrastructure:
 - AWTRIX device ID/topic prefix: `awtrix_05ffb8`
 - AWTRIX HTTP URL: `http://192.168.0.14`
 - Home Assistant: `http://192.168.0.36:8123`
-- MQTT broker: `192.168.0.36:1883`
 - GitHub remote: `git@github.com:tarakanof/awtrix-ai-status.git`
 - Obsidian task note: `AI/Tasks/AWTRIX AI status.md`
 
-Do not write secrets into this repository. MQTT credentials should be supplied through environment variables, especially `MQTT_USERNAME` and `MQTT_PASSWORD`.
+Do not write secrets into this repository. The bearer token for write endpoints is supplied via the `STATUS_TOKEN` environment variable.
 
 ## Build And Test
 
@@ -59,21 +59,27 @@ Repository-specific essentials:
 
 ## Runtime Behavior
 
-The service exposes HTTP input endpoints:
+The service exposes HTTP endpoints:
 
-- `POST /v1/status`
-- `GET /state`
-- `POST /v1/clear`
-- `POST /v1/notify`
+Write (bearer-token auth, gated by STATUS_TOKEN):
+
+- `POST /v1/status` — upsert (event or heartbeat)
+- `DELETE /v1/status` — drop a single session
+- `POST /v1/clear` — admin: wipe all sessions
+- `POST /v1/notify` — ad-hoc AWTRIX notification
+
+Read (no auth):
+
+- `GET /state` — snapshot
+- `GET /healthz` — liveness
 
 AWTRIX output supports:
 
 - HTTP custom app publishing
-- MQTT QoS 0 custom app publishing
 - notification publishing
-- indicator updates
+- indicator updates (waiting / running / done-or-error linger)
 
-Direct AWTRIX HTTP output was live-tested successfully. MQTT output is implemented, but still needs validation from the final Unraid/container network.
+Direct AWTRIX HTTP output was live-tested successfully. The protocol contract (sub-project A of the AWTRIX AI status decomposition) is implemented; see `docs/superpowers/specs/2026-05-08-protocol-contract-design.md` and the matching plan in `docs/superpowers/plans/`.
 
 ## Home Assistant / Node-RED
 
