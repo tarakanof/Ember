@@ -626,14 +626,6 @@ func (a *App) handleClear(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "render": render})
 }
 
-func (a *App) handleRefresh(w http.ResponseWriter, r *http.Request) {
-	if err := a.Publish(r.Context()); err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
-}
-
 type NotifyRequest struct {
 	Text     string `json:"text"`
 	Color    string `json:"color"`
