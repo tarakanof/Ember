@@ -601,7 +601,12 @@ func (a *App) routes() http.Handler {
 
 func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	var req StatusRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
+		var maxBytes *http.MaxBytesError
+		if errors.As(err, &maxBytes) {
+			writeError(w, http.StatusRequestEntityTooLarge, err)
+			return
+		}
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -658,7 +663,12 @@ func (r DeleteRequest) key() string {
 
 func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 	var req DeleteRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
+		var maxBytes *http.MaxBytesError
+		if errors.As(err, &maxBytes) {
+			writeError(w, http.StatusRequestEntityTooLarge, err)
+			return
+		}
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -676,7 +686,12 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	var req NotifyRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
+		var maxBytes *http.MaxBytesError
+		if errors.As(err, &maxBytes) {
+			writeError(w, http.StatusRequestEntityTooLarge, err)
+			return
+		}
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -704,12 +719,15 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-func decodeJSON(r *http.Request, dst any) error {
-	defer r.Body.Close()
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		return err
+	}
+	if dec.More() {
+		return errors.New("unexpected trailing tokens after JSON body")
 	}
 	return nil
 }

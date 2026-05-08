@@ -397,6 +397,23 @@ func TestDeleteStatusRejectsEmptyKey(t *testing.T) {
 	}
 }
 
+func TestPostStatusRejectsOversizedBody(t *testing.T) {
+	_, srv := newTestServer(t, defaultConfig())
+
+	huge := strings.Repeat("x", (1<<20)+1) // 1 MiB + 1 byte
+	body := map[string]any{
+		"source":  "dt-mbp",
+		"tool":    "claude",
+		"session": "x",
+		"state":   "running",
+		"message": huge,
+	}
+	resp := postJSON(t, srv, "/v1/status", body, nil)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", resp.StatusCode)
+	}
+}
+
 // helper
 func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
