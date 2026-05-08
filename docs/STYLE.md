@@ -31,14 +31,18 @@ That stance is the project's default. We deviate from it only when a dependency 
 
 Don't add features, refactors, or abstractions beyond what the task requires. A bug fix doesn't need surrounding cleanup; a one-shot operation doesn't need a helper. Don't design for hypothetical future requirements. **Three similar lines is better than a premature abstraction.**
 
-No half-finished implementations. If the work doesn't merit being done now, leave a single sharp note in the relevant spec or task — never a `TODO:` floating in a source file.
+No half-finished implementations. If the work doesn't merit being done now, leave a single sharp note in the relevant spec or task. Floating `TODO:` markers in source code are not acceptable; anchored ones (with an issue number, spec path, or deadline) are — see §9.
 
 ### 4. Errors are values, never silent
 
 - Every error gets one of: handled, wrapped with context and returned, or — at the program boundary — logged once and surfaced to the user.
 - **Never both log and return the same error.** Pick one. If you log it, it's handled; if you return it, it's the caller's problem.
 - Wrap with context the first time the error crosses a meaningful boundary: `fmt.Errorf("read config: %w", err)`. Each wrapper adds *new* information, not a restatement of the underlying error.
-- Use `errors.Is` and `errors.As` for matching. Sentinel errors are package-level `var ErrFoo = errors.New(...)`.
+- Use `errors.Is` and `errors.As` for matching. Sentinel errors are package-level `var ErrFoo = errors.New(...)` — the one accepted exception to "no package-level mutable state" (§5), because they're conventional and effectively immutable.
+- Use `errors.Join(a, b)` when multiple independent errors must be surfaced together (e.g., a deferred close failure plus the original error).
+- Treat `context.Canceled` and `context.DeadlineExceeded` as expected control-flow signals, not failures. Handlers translate them to a non-error response when shutting down; reapers and tickers exit silently.
+- Intentional ignored errors get the explicit `_ = thing.Close()` form, never a bare `thing.Close()`. The reader can tell intent from syntax.
+- In `defer`, capture close/flush errors when they could mask data loss: `defer func() { err = errors.Join(err, w.Close()) }()` with a named return.
 - Don't introduce error types just to carry a string. Plain `errors.New` is fine until you need programmatic matching.
 
 ### 5. State is explicit, ownership is clear
@@ -61,44 +65,48 @@ No half-finished implementations. If the work doesn't merit being done now, leav
 
 Every non-trivial service emits structured logs at decision points. The signal-to-noise ratio matters more than the volume.
 
-- Log on transitions (request received, request rejected, session reaped, config reloaded). Don't log on success of every routine operation.
+- Log on transitions and decisions: request rejected, session reaped, config reloaded, publish failed. Don't log on success of every routine operation, and don't log heartbeats at `Info`.
 - Fields must be machine-greppable: `source=dt-mbp tool=claude session=awtrix state=running`. No prose strings as keys.
-- Errors logged at `WARN` are recoverable; `ERROR` is "we couldn't do the thing the user asked for"; `FATAL` is "we are about to exit".
-- One field name per concept across the codebase. Don't mix `session_id`, `sess`, `s` in the same project.
+- Field key naming is `snake_case` for slog attributes, consistently across the codebase. One field name per concept — don't mix `session_id`, `sess`, `s`.
+- Levels: `Debug` for high-volume signal useful only when investigating (heartbeats, every successful publish); `Info` for state transitions and meaningful decisions; `Warn` for recoverable problems (transient publish failure, reaper evicted a stale session); `Error` for failures the user will notice. **No `Fatal` level** — log at `Error` and `os.Exit(1)`, in that order, only from `main()`.
 
 ### 8. Configuration: load → validate → use
 
 Configuration loading happens once, at startup. After that, the rest of the program sees a validated `Config` value (or types derived from it). Never reach for `os.Getenv` from inside business logic.
 
 - Required fields are non-empty strings or non-zero numbers; the loader rejects empty values with a clear message.
+- For *optional* fields, `defaultConfig()` returns a fully-populated value and `applyDefaults()` fills any zero-valued field with that default. The contract: zero on an optional field means "use the default"; zero on a required field is a config error.
 - Secrets come from env vars only. Never hard-coded, never committed, never logged.
-- Defaults are explicit in code (`defaultConfig()`), not implicit ("if zero, treat as 30s"). Zero is a value, not "missing".
+- Use `slog.LogValuer` (or equivalent redaction) on any type carrying secrets so a stray `slog.Info("config loaded", "cfg", cfg)` can't leak them.
 
 ### 9. Comments explain *why*, never *what*
 
-Default to writing zero comments. Only add one when the WHY is non-obvious: a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader.
+Two distinct cases:
 
-- Don't explain what the code does — well-named identifiers already do that.
-- Don't reference the current task, fix, or callers ("used by X", "added for the Y flow"). That belongs in the PR description and rots as the codebase evolves.
-- One short line max. Multi-paragraph docstrings and multi-line comment blocks are almost never necessary.
-- Exception: package documentation (`// Package foo does X`) and exported API godoc comments. Those follow Go's convention of "complete sentence starting with the identifier name".
+**Inline comments** (inside function bodies): default to zero. Only add one when the WHY is non-obvious — a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader. One short line max. Don't restate what the code does, and don't reference the current task or PR (that belongs in the commit message).
+
+**Godoc on exported APIs**: required, not optional. Every exported type, function, method, and variable gets a doc comment that starts with the identifier name and forms a complete sentence. Doc the *contract* (preconditions, postconditions, error cases), not the implementation. A package gets a `// Package foo …` comment in one file.
+
+`TODO` markers are acceptable when they include a concrete reference (issue number, spec path, or a sentence with a deadline): `// TODO: drop after sub-project E ships`. Floating `// TODO: handle this` with no anchor is not — that's how dead code accumulates.
 
 ### 10. Concurrency is explicit and bounded
 
 - Every goroutine has an owner that knows when it stops. Goroutines that "run forever" need a `<-ctx.Done()` exit path.
 - Buffered channels: size 0 (unbuffered) or 1 by default. Other sizes need a sentence of justification ("queue absorbs N bursts before backpressure").
 - `sync.RWMutex` only when read contention is measurable. Default is `sync.Mutex`.
-- Pass `context.Context` as the first parameter to every function that does I/O or might block. Never store it in a struct.
+- Pass `context.Context` as the first parameter to every function that does I/O or might block. Don't store it in a struct **unless the struct's lifetime is request-scoped** (this is the `*http.Request`/`httptrace` exception, not a license to put `ctx` on long-lived application types).
+- `context.AfterFunc` (Go 1.21+) is the right tool for "run this cleanup if the context is cancelled" — cleaner than spawning a watchdog goroutine.
 
 ### 11. Dependencies have to earn their place
 
-Stdlib first. Take a third-party dependency when it clearly does more than the stdlib does (and well), AND when reimplementing it ourselves would be a known-bad component.
+**Stdlib by default.** Take a third-party dependency when it clearly does more than the stdlib does (and well), AND when a reasonable in-house reimplementation would be a known-bad component. The rule is "every dep must earn its slot", not "no deps ever".
 
-- Two examples from this repo:
-  - **MQTT client** — we tried hand-rolling MQTT 3.1.1 because it looked small. The result had no keepalive, no reconnect, no QoS. We deleted it. If MQTT comes back, it'll be `eclipse/paho.mqtt.golang`.
-  - **HTTP server** — net/http with 1.22+ pattern matching is enough for everything this project needs. We don't need chi/echo/gin.
+- Two real examples from this repo:
+  - **MQTT client** — we tried hand-rolling MQTT 3.1.1. The result had no keepalive, no reconnect, no QoS. We deleted it. If MQTT comes back, it'll be `eclipse/paho.mqtt.golang` — taking the dep is the right call there.
+  - **HTTP routing** — net/http with 1.22+ pattern matching is enough for everything this project needs. No chi/echo/gin justified.
+- Examples of deps that *would* earn their slot: `golang.org/x/sync/errgroup` for fail-together goroutine groups, `paho.mqtt.golang` for MQTT, `prometheus/client_golang` if metrics ever become real. We don't ship them today, but we will if the need is.
 - A new dependency requires a one-line justification in the commit body.
-- Pin versions; don't trust `latest`. Run `go mod tidy` after every dep change.
+- Pin versions; don't trust `latest`. Run `go mod tidy` after every dep change. Run `govulncheck ./...` in CI; an unfixed advisory blocks merge.
 
 ### 12. Documentation has a layered structure
 
@@ -120,7 +128,7 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 
 - `cmd/<binary>/main.go` for entrypoints.
 - `internal/` for code that should not be importable from outside this module.
-- **No `pkg/`** — Go has been moving away from this convention; it adds a directory with no benefit.
+- This project does not use `pkg/`; it's a contested convention and we don't need the extra directory layer. Other projects may legitimately differ.
 - Test files live next to the code they test as `_test.go`. Black-box test packages (`package foo_test`) are fine for testing the public API; same-package tests are fine for internals.
 
 ### Files in this repo
@@ -134,10 +142,23 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 ### HTTP servers
 
 - Use net/http's pattern-matching ServeMux (Go 1.22+): `mux.HandleFunc("POST /v1/status", h)`. Don't reach for chi/echo/gin unless the stdlib genuinely can't express what's needed.
-- Always set `ReadHeaderTimeout` on `http.Server`.
+- **Set every timeout** on `http.Server`, not just `ReadHeaderTimeout`. A defensible baseline:
+  ```go
+  &http.Server{
+      Addr:              cfg.HTTP.Addr,
+      Handler:           handler,
+      ReadHeaderTimeout: 5 * time.Second,
+      ReadTimeout:       30 * time.Second,
+      WriteTimeout:      30 * time.Second,
+      IdleTimeout:       120 * time.Second,
+  }
+  ```
+  Outbound HTTP clients always set `Timeout`; never use `http.DefaultClient` for production calls.
+- **Graceful shutdown** is mandatory: `signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)` for the cancel signal, then `srv.Shutdown(shutdownCtx)` with a bounded timeout. Background workers (publishers, reapers) drain via the same context.
 - Compose middleware as `http.Handler` decorators. No middleware framework needed.
 - Group endpoints by auth surface: read endpoints unauthenticated, write endpoints behind a single middleware.
-- One handler function per route. Keep handlers thin: parse → validate → call domain method → render response. Domain logic does not live in handlers.
+- Default to one handler per route. Sharing a handler across closely related routes (e.g., a typed handler struct with `(h *statusHandler) ServeHTTP`) is fine when the behavior really is the same. Don't force-split for orthogonality.
+- Keep handlers thin: parse → validate → call domain method → render response. Domain logic does not live in handlers.
 
 ### Error handling
 
@@ -145,14 +166,21 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 - Sentinel errors at package level: `var ErrSessionNotFound = errors.New("session not found")`.
 - Don't define custom error types unless callers need to extract structured data. A plain string error is enough for most cases.
 - HTTP handlers translate domain errors to status codes at the boundary, not before. The store returns `ErrSessionNotFound`; the handler returns 404.
-- `defer resp.Body.Close()` immediately after every successful HTTP request — never later.
+- For multiple independent failures, use `errors.Join(err1, err2)` — common case is a deferred close error joined with the operation's error.
+- `context.Canceled` and `context.DeadlineExceeded` are not failures. Don't log them at `Error`; either return them as-is or treat as "shutting down" depending on context.
+- **Client-side HTTP**: `defer resp.Body.Close()` is mandatory — leaks connections otherwise.
+- **Server-side HTTP**: net/http closes the request body for you when the handler returns. Adding `defer r.Body.Close()` is harmless but unnecessary; don't lean on it as if it were doing real work.
 
 ### Logging
 
 - `log/slog` is the standard. Use `slog.New(slog.NewTextHandler(...))` for human-readable, JSON handler for production aggregation.
 - Pass a `*slog.Logger` via dependency injection. Don't log to a global.
 - Structured fields only: `logger.Info("session reaped", "source", s.Source, "tool", s.Tool)`. Never embed values in the message string.
-- Levels: `Debug` for verbose dev-only signal; `Info` for state transitions and request decisions; `Warn` for recoverable problems; `Error` for failures the user will notice; no `Fatal` (use `os.Exit(1)` after a clear log).
+- Use the `Context`-aware variants (`logger.InfoContext(ctx, ...)`, `ErrorContext`, etc.) anywhere you have a `ctx`. They propagate trace/request IDs through `slog.Handler` implementations that respect them, and cost nothing if no handler cares.
+- Field key naming is `snake_case` consistently across the codebase (matches the JSON conventions on the wire).
+- Make level mutable at runtime via `slog.LevelVar`. Wire it to a config field or a SIGUSR1 handler so we can crank to `Debug` in production without redeploying.
+- Implement `slog.LogValuer` on any type that contains a secret, so a stray `logger.Info("auth", "cfg", auth)` redacts automatically.
+- Levels: `Debug` for high-volume / per-request / per-heartbeat signal; `Info` for state transitions and decisions; `Warn` for recoverable problems; `Error` for failures the user will notice. No `Fatal` — log at `Error` and `os.Exit(1)` from `main()`.
 
 ### Testing
 
@@ -172,10 +200,14 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 - Subtests with `t.Run(name, func(t *testing.T))` for any test that runs more than one case.
 - `t.Helper()` in every test helper.
 - `t.Cleanup(fn)` for teardown.
-- `httptest.NewServer(app.routes())` for HTTP integration; real `http.DefaultClient` requests against it.
-- No `time.Sleep` in tests. If a test needs to assert on timing, inject a `time.Now` function.
-- No `testify`/`assert` until and unless we have ~50 tests and the boilerplate cost is real. Plain `t.Fatal` / `t.Errorf` is enough today.
-- Run `go test ./... -race` before merging anything that touches goroutines.
+- `t.TempDir()` for filesystem fixtures, `t.Setenv()` for env-var fixtures, `t.Chdir()` (Go 1.24+) for working-directory fixtures, `t.Context()` (Go 1.24+) for request-scoped contexts. All auto-clean up.
+- `t.Parallel()` whenever a test is genuinely independent of others. Combine with `t.Setenv()` carefully — `t.Setenv` requires the test be non-parallel within its package's parallel set.
+- HTTP integration: `srv := httptest.NewServer(app.routes())` then `srv.Client()` for the request client. Don't use `http.DefaultClient` in tests — it bakes in global behavior and shares connection pool with whatever else.
+- No `time.Sleep` in tests. For coordinating goroutines, prefer Go 1.25's `testing/synctest` (gives synthetic time and lets you advance the clock deterministically) or a clock interface injected via the `App`'s constructor.
+- Plain `t.Fatal` / `t.Errorf` is the default. `testify/require` is acceptable when assertion-heavy tests genuinely improve readability — pick the threshold by feel rather than count, and apply consistently within a package.
+- Fuzz parsers and any other code accepting unstructured input: `func FuzzX(f *testing.F)`.
+- Golden files for tests that compare against large expected output: regenerate via `go test -update`, never edit by hand.
+- Run `go test ./... -race` before merging anything that touches goroutines. CI runs `-race` on every test.
 
 ### Concurrency
 
@@ -194,15 +226,27 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 ### Generics
 
 - Use sparingly. Most code is fine with concrete types or interfaces.
-- Good fits: container types (`Set[T]`, `Cache[K, V]`), generic helpers (`Map`, `Filter`, `MustEnv`).
+- Good fits: container types (`Set[T]`, `Cache[K, V]`), small generic helpers where the concrete alternative is obviously worse (`MustEnv[T]`, `cmp.Or[T]` already in stdlib).
+- Plain loops are usually clearer than `Map`/`Filter`/`Reduce` in Go. Reach for them when the loop is harder to read than the higher-order function — not as a default style.
 - Bad fits: business logic, "make it work for any type" interfaces, anything that ends up with `any` constraints.
+
+### Stdlib utility packages worth knowing
+
+- `slices` — sort, search, equal, contains, sorted-insert, etc. Use this instead of writing your own.
+- `maps` — clone, equal, keys (`maps.Keys` returns an iterator in 1.23+), copy.
+- `cmp` — `cmp.Or`, `cmp.Compare`, `cmp.Less`. Tiny but high-leverage.
+- `iter` — single-use iterators (Go 1.23+). The `range` form over functions returning iterators is the right modern shape for "stream of values you want to iterate once".
+
+Pre-allocate when the size is known: `make([]T, 0, n)`, `make(map[K]V, n)`. The cost in clarity is one number; the cost in allocations is real.
+
+Prefer types whose zero value is usable (`var mu sync.Mutex` works, no `NewMutex()` needed). Design your own types the same way: a `*App{}` from `&App{}` should not panic on first method call.
 
 ### Naming
 
-- Receivers: short (1–3 letters), consistent across all methods of a type. `(a *App)`, `(p *Publisher)`, `(c Config)` (value receiver if no mutation).
+- Receivers: short (1–3 letters), consistent across all methods of a type. `(a *App)`, `(p *Publisher)`, `(c Config)`. Receiver choice (pointer vs value) depends on size, mutation, embedded locks, and method-set consistency — when in doubt, all methods on a type share the same receiver style. Don't mix.
 - Exported names: `MixedCaps`. Unexported: `mixedCaps`.
 - No package name in the type name: `auth.Token`, not `auth.AuthToken`.
-- Interface names ending in `-er` only when the interface has exactly one method (`Publisher`, `Renderer`).
+- Single-method interfaces conventionally end in `-er` (`Publisher`, `Renderer`, `io.Reader`). Multi-method interfaces use plain descriptive names (`http.Handler`, `sort.Interface`). Don't force-`-er` on multi-method interfaces.
 - Test functions: `TestX`, `Test_X` is allowed for grouped variants; subtests use lowercase descriptive names.
 
 ### Imports and formatting
@@ -223,9 +267,9 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 
 ### Observability patterns specific to this project
 
-- Every state change in the session store gets a `slog.Info` at the boundary that caused it: HTTP handler logs the request, the reaper logs the eviction, the publisher logs publish failures.
-- AWTRIX publish failures are `Warn`, not `Error` — the device may be temporarily unreachable; the next refresh will retry.
-- No per-heartbeat log line. Heartbeats are the steady-state.
+- State *transitions* in the session store get a `slog.InfoContext` at the boundary that caused them: handler logs a rejection, store logs an eviction, publisher logs a failed publish. Successful publishes and heartbeat upserts log at `Debug` only — they're the steady state.
+- AWTRIX publish failures are `Warn`, not `Error` — the device may be temporarily unreachable; the next refresh will retry. Repeated `Warn` for the same failure mode is fine; we don't suppress.
+- Request decisions (auth fail, validation fail, 4xx) log at `Info`. The successful 2xx path stays at `Debug` — visible in dev, quiet in prod.
 
 ### HTTP-server idioms
 
@@ -235,18 +279,22 @@ When in doubt, write the spec, then point at it from the code's commit message. 
   writeMux.HandleFunc("POST /v1/status", a.handleStatus)
   mux.Handle("/v1/", requireAuth(token, writeMux))
   ```
-- `decodeJSON` once, top of every handler, with a body-size limit:
+- Body parsing uses `http.MaxBytesReader` (not `io.LimitReader`) so oversized requests get a clean 413 instead of a truncation:
   ```go
-  dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+  r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+  dec := json.NewDecoder(r.Body)
   dec.DisallowUnknownFields()
+  if err := dec.Decode(&v); err != nil { /* 400 or 413 */ }
+  if dec.More() { /* trailing tokens — return 400 */ }
   ```
-- Always `defer r.Body.Close()` — even though Go usually does it for you, it's free insurance.
+- The server runtime closes the request body for you when the handler returns; no need to `defer r.Body.Close()` on the server side. (Client side is different — it's mandatory there to free the connection.)
 - Status codes:
   - 200 for "I did the thing and here's the result"
   - 204 for "I did the thing and there's no body"
-  - 400 for malformed/invalid input
+  - 400 for malformed/invalid input (including unknown fields and trailing tokens)
   - 401 for missing/wrong auth
   - 404 for not-found resources
+  - 413 for body-too-large (`http.MaxBytesReader` triggers this for us)
   - 502 for upstream failures (e.g., AWTRIX device unreachable)
   - Don't use 403 unless we have a real authorization-vs-authentication distinction.
 
@@ -259,6 +307,15 @@ When writing producer hooks (sub-project B/C):
 - Quote every variable expansion: `"$var"`, never `$var`.
 - Test scripts with `shellcheck` before merging.
 - Read tokens from env, not args. Args show up in `ps`.
+
+### Tooling
+
+- `go vet ./...` — runs in CI, must pass clean.
+- `staticcheck ./...` — additional analyzers; fix or annotate.
+- `govulncheck ./...` — vulnerability scan, blocks merge on unfixed advisories.
+- `go test ./... -race -shuffle=on` in CI; `-race` everywhere, `-shuffle=on` to catch order dependencies.
+- `go test -json` is what CI consumes (better failure parsing than text).
+- Pin developer tools (e.g., `staticcheck`, `gofumpt`) using Go 1.24's `tool` directives in `go.mod`. Avoids "works on my machine".
 
 ---
 
@@ -279,20 +336,22 @@ When writing producer hooks (sub-project B/C):
 | Anti-pattern | Antidote |
 |---|---|
 | Logging *and* returning the same error | Pick one — log at the boundary or return for the caller to handle. |
-| `// TODO: handle errors` left in code | Either handle the error now or delete the line. The compiler enforces handling. |
+| Floating `// TODO:` with no anchor | Either anchor it (issue number, spec path, deadline) or delete it. Anchored TODOs are fine. |
 | "Add error handling" in a plan/spec without specifying what | Specify the exact failure mode and the exact response. |
 | Premature abstraction (extracting a helper called once) | Inline it. Wait until 3+ callers exist. |
 | Backwards-compat shims for code with zero current consumers | Delete the old code; we have git. |
 | Mocking what we control | Use the real implementation in tests. Mocks are for the network, the clock, and third-party APIs. |
 | Global mutable state (`var globalLogger *slog.Logger`) | Inject it. Constructors accept what their type needs. |
-| `init()` functions doing non-trivial setup | Move setup into `main()` or an explicit `Setup()` call. `init` is for compile-time constants. |
-| `interface{}` / `any` in business types | Use a concrete type or a small purpose-built interface. `any` is for JSON edges and reflection only. |
-| `time.Sleep` in tests | Inject a clock or use channels to synchronize. |
+| `init()` functions doing non-trivial setup | Move setup into `main()` or an explicit `Setup()` call. Reserve `init` for things that genuinely cannot be deferred (e.g., registering with a global the language requires). |
+| `interface{}` / `any` in business types | Use a concrete type or a small purpose-built interface. `any` is for JSON edges, reflection, and generic constraints only. |
+| `time.Sleep` in tests | Use `testing/synctest` or inject a clock. |
 | `panic()` for non-programmer errors | Return an error. Panics are for "the program is in an impossible state". |
 | Naked boolean parameters (`do(true)`) | Use a typed enum or a struct with a named field: `do(Mode{Strict: true})`. |
-| `for i := 0; i < len(s); i++` over a slice | `for i, v := range s`. The range form is a contract — it doesn't lie about iteration. |
 | Tests named `TestX` that test five things | One behavior per test name. Split or use subtests. |
 | `if err != nil { return err }` with no wrap | Wrap with context: `return fmt.Errorf("read config: %w", err)`. |
+| `http.DefaultClient` in tests or production code | Use `srv.Client()` in tests; an explicit `&http.Client{Timeout: …}` in production. |
+| Cargo-cult `defer r.Body.Close()` in HTTP handlers | The server runtime closes it. Save the line for client-side calls where it actually matters. |
+| Logging `context.Canceled` at `Error` | It's a shutdown signal, not a failure. Return it or log at `Debug`. |
 
 ---
 
