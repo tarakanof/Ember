@@ -29,9 +29,7 @@ func (p *recordingPublisher) Indicator(_ context.Context, _ int, payload map[str
 }
 
 func TestStatusRequestNormalizesDefaults(t *testing.T) {
-	session := StatusRequest{
-		State: "running",
-	}.normalized()
+	session := StatusRequest{}.normalized()
 
 	if session.Source != "unknown" {
 		t.Fatalf("Source = %q, want unknown", session.Source)
@@ -42,8 +40,8 @@ func TestStatusRequestNormalizesDefaults(t *testing.T) {
 	if session.Session != "default" {
 		t.Fatalf("Session = %q, want default", session.Session)
 	}
-	if session.State != "running" {
-		t.Fatalf("State = %q, want running", session.State)
+	if session.State != "idle" {
+		t.Fatalf("State = %q, want idle (empty input should default)", session.State)
 	}
 }
 
