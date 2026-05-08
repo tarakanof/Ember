@@ -120,6 +120,11 @@ func updateMenu(envPath string) {
 	case "error":
 		statusText = "Claude — error" + suffix(view.LastMessage)
 		tip = "AWTRIX: error" + suffix(view.LastMessage)
+	case "done":
+		// done has no dedicated icon (spec ships only 4: idle/running/waiting/error),
+		// so the icon falls back to idle while the text reflects the recent finish.
+		statusText = "Claude — done" + suffix(view.LastMessage)
+		tip = "AWTRIX: done" + suffix(view.LastMessage)
 	}
 	statusItem.SetTitle(statusText)
 	countItem.SetTitle(fmt.Sprintf("%d active session(s)", view.ActiveCount))
