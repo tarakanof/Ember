@@ -257,7 +257,7 @@ type App struct {
 	publisher Publisher
 	logger    *slog.Logger
 
-	mu            sync.Mutex
+	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished
 	sessions      map[string]Session
 	lastWaitKey   string // last waiting-notification Render.Text, for notify dedupe (not a session key)
 	lastPublished Render
@@ -765,7 +765,7 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		logger.Info("http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
+		logger.InfoContext(r.Context(), "http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
 	})
 }
 
@@ -863,6 +863,9 @@ func main() {
 		Addr:              cfg.HTTP.Addr,
 		Handler:           app.routes(),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
