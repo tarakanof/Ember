@@ -104,7 +104,7 @@ func updateMenu(envPath string) {
 	if rec == nil {
 		rec = &envRec{}
 	}
-	ttl := 6 * time.Hour
+	ttl := ttlFromEnv(rec)
 	view := readView(stateDir, ttl)
 
 	// Status text

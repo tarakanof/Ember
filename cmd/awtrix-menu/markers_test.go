@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -87,5 +88,28 @@ func TestMarkers_DeterministicOrdering(t *testing.T) {
 	// Sorted alphabetically by filename; LastMessage from the lexically-first
 	if v.LastMessage != "A" {
 		t.Errorf("LastMessage = %q, want A (sorted glob, deterministic)", v.LastMessage)
+	}
+}
+
+func TestTTLFromEnv(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want time.Duration
+	}{
+		{"empty", "", 6 * time.Hour},
+		{"explicit_2", "STATUS_HEARTBEAT_TTL_HOURS=2\n", 2 * time.Hour},
+		{"fractional", "STATUS_HEARTBEAT_TTL_HOURS=0.5\n", 30 * time.Minute},
+		{"unparseable", "STATUS_HEARTBEAT_TTL_HOURS=garbage\n", 6 * time.Hour},
+		{"zero_falls_back", "STATUS_HEARTBEAT_TTL_HOURS=0\n", 6 * time.Hour},
+		{"negative_falls_back", "STATUS_HEARTBEAT_TTL_HOURS=-1\n", 6 * time.Hour},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec, _ := parseEnv(strings.NewReader(tc.env))
+			if got := ttlFromEnv(rec); got != tc.want {
+				t.Errorf("ttlFromEnv(%q) = %v, want %v", tc.env, got, tc.want)
+			}
+		})
 	}
 }

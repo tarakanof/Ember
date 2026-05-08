@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 func runDoctor() {
@@ -24,7 +23,7 @@ func runDoctor() {
 	fmt.Printf("  STATUS_SERVER_URL = %q\n", srvURL)
 	fmt.Printf("  STATUS_TOKEN      = %s\n", map[bool]string{true: "(set)", false: "(unset)"}[tokSet])
 
-	view := readView(stateDir, 6*time.Hour)
+	view := readView(stateDir, ttlFromEnv(rec))
 	fmt.Printf("  Active sessions: %d (dominant: %q)\n", view.ActiveCount, view.DominantState)
 
 	if _, err := os.Stat(plistPath); err == nil {

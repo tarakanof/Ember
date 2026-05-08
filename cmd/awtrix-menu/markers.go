@@ -4,9 +4,28 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// ttlFromEnv returns the marker TTL based on STATUS_HEARTBEAT_TTL_HOURS,
+// falling back to 6h if the value is missing or unparseable.
+func ttlFromEnv(rec *envRec) time.Duration {
+	const defaultTTL = 6 * time.Hour
+	if rec == nil {
+		return defaultTTL
+	}
+	v := rec.get("STATUS_HEARTBEAT_TTL_HOURS")
+	if v == "" {
+		return defaultTTL
+	}
+	hours, err := strconv.ParseFloat(v, 64)
+	if err != nil || hours <= 0 {
+		return defaultTTL
+	}
+	return time.Duration(hours * float64(time.Hour))
+}
 
 type SessionSummary struct {
 	Source, Tool, Session, State, Message string
