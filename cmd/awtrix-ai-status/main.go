@@ -350,7 +350,6 @@ func (a *App) renderLocked(now time.Time) Render {
 		return Render{
 			Text:        a.cfg.Display.IdleText,
 			Color:       "#707070",
-			Done:        len(done),
 			ActiveTotal: activeTotal,
 		}
 	}
