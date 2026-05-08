@@ -3,15 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,7 +24,6 @@ import (
 type Config struct {
 	HTTP    HTTPConfig    `json:"http"`
 	AWTRIX  AWTRIXConfig  `json:"awtrix"`
-	MQTT    MQTTConfig    `json:"mqtt"`
 	Display DisplayConfig `json:"display"`
 }
 
@@ -36,20 +32,9 @@ type HTTPConfig struct {
 }
 
 type AWTRIXConfig struct {
-	Transport      string `json:"transport"`
 	HTTPBaseURL    string `json:"http_base_url"`
-	MQTTPrefix     string `json:"mqtt_prefix"`
 	AppName        string `json:"app_name"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
-}
-
-type MQTTConfig struct {
-	Addr        string `json:"addr"`
-	ClientID    string `json:"client_id"`
-	Username    string `json:"username"`
-	UsernameEnv string `json:"username_env"`
-	Password    string `json:"password"`
-	PasswordEnv string `json:"password_env"`
 }
 
 type DisplayConfig struct {
@@ -65,17 +50,9 @@ func defaultConfig() Config {
 			Addr: ":8080",
 		},
 		AWTRIX: AWTRIXConfig{
-			Transport:      "http",
 			HTTPBaseURL:    "http://192.168.0.14",
-			MQTTPrefix:     "awtrix_05ffb8",
 			AppName:        "ai_status",
 			TimeoutSeconds: 5,
-		},
-		MQTT: MQTTConfig{
-			Addr:        "192.168.0.36:1883",
-			ClientID:    "awtrix-ai-status",
-			UsernameEnv: "MQTT_USERNAME",
-			PasswordEnv: "MQTT_PASSWORD",
 		},
 		Display: DisplayConfig{
 			IdleText:          "AI idle",
@@ -117,33 +94,14 @@ func (c *Config) applyDefaults() {
 	if c.HTTP.Addr == "" {
 		c.HTTP.Addr = ":8080"
 	}
-	if c.AWTRIX.Transport == "" {
-		c.AWTRIX.Transport = "http"
-	}
-	c.AWTRIX.Transport = strings.ToLower(c.AWTRIX.Transport)
 	if c.AWTRIX.HTTPBaseURL == "" {
 		c.AWTRIX.HTTPBaseURL = "http://192.168.0.14"
-	}
-	if c.AWTRIX.MQTTPrefix == "" {
-		c.AWTRIX.MQTTPrefix = "awtrix_05ffb8"
 	}
 	if c.AWTRIX.AppName == "" {
 		c.AWTRIX.AppName = "ai_status"
 	}
 	if c.AWTRIX.TimeoutSeconds <= 0 {
 		c.AWTRIX.TimeoutSeconds = 5
-	}
-	if c.MQTT.Addr == "" {
-		c.MQTT.Addr = "192.168.0.36:1883"
-	}
-	if c.MQTT.ClientID == "" {
-		c.MQTT.ClientID = "awtrix-ai-status"
-	}
-	if c.MQTT.UsernameEnv == "" {
-		c.MQTT.UsernameEnv = "MQTT_USERNAME"
-	}
-	if c.MQTT.PasswordEnv == "" {
-		c.MQTT.PasswordEnv = "MQTT_PASSWORD"
 	}
 	if c.Display.IdleText == "" {
 		c.Display.IdleText = "AI idle"
@@ -686,205 +644,8 @@ func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload m
 	return nil
 }
 
-type MQTTPublisher struct {
-	cfg    MQTTConfig
-	prefix string
-}
-
-func NewMQTTPublisher(cfg Config) (*MQTTPublisher, error) {
-	if cfg.AWTRIX.MQTTPrefix == "" {
-		return nil, errors.New("awtrix.mqtt_prefix is required for mqtt transport")
-	}
-	if cfg.MQTT.Addr == "" {
-		return nil, errors.New("mqtt.addr is required for mqtt transport")
-	}
-	return &MQTTPublisher{cfg: cfg.MQTT, prefix: strings.Trim(cfg.AWTRIX.MQTTPrefix, "/")}, nil
-}
-
-func (p *MQTTPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
-	return p.publishJSON(ctx, p.prefix+"/custom/"+name, payload)
-}
-
-func (p *MQTTPublisher) Notify(ctx context.Context, payload map[string]any) error {
-	return p.publishJSON(ctx, p.prefix+"/notify", payload)
-}
-
-func (p *MQTTPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
-	if index < 1 || index > 3 {
-		return fmt.Errorf("indicator index must be 1-3, got %d", index)
-	}
-	return p.publishJSON(ctx, p.prefix+"/indicator"+strconv.Itoa(index), payload)
-}
-
-func (p *MQTTPublisher) publishJSON(ctx context.Context, topic string, payload map[string]any) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return mqttPublish(ctx, p.cfg, topic, body)
-}
-
-func mqttPublish(ctx context.Context, cfg MQTTConfig, topic string, payload []byte) error {
-	dialer := net.Dialer{Timeout: 5 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", cfg.Addr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	username, password := mqttCredentials(cfg)
-	clientID := cfg.ClientID
-	if clientID == "" {
-		clientID = randomClientID()
-	}
-
-	if _, err := conn.Write(mqttConnectPacket(clientID, username, password)); err != nil {
-		return err
-	}
-	if err := readConnack(conn); err != nil {
-		return err
-	}
-	if _, err := conn.Write(mqttPublishPacket(topic, payload)); err != nil {
-		return err
-	}
-	_, _ = conn.Write([]byte{0xE0, 0x00})
-	return nil
-}
-
-func mqttCredentials(cfg MQTTConfig) (string, string) {
-	username := cfg.Username
-	password := cfg.Password
-	if username == "" && cfg.UsernameEnv != "" {
-		username = os.Getenv(cfg.UsernameEnv)
-	}
-	if password == "" && cfg.PasswordEnv != "" {
-		password = os.Getenv(cfg.PasswordEnv)
-	}
-	return username, password
-}
-
-func mqttConnectPacket(clientID, username, password string) []byte {
-	var vh bytes.Buffer
-	writeUTF8(&vh, "MQTT")
-	vh.WriteByte(0x04)
-
-	flags := byte(0x02) // clean session
-	if username != "" {
-		flags |= 0x80
-	}
-	if password != "" {
-		flags |= 0x40
-	}
-	vh.WriteByte(flags)
-	_ = binary.Write(&vh, binary.BigEndian, uint16(30))
-
-	var payload bytes.Buffer
-	writeUTF8(&payload, clientID)
-	if username != "" {
-		writeUTF8(&payload, username)
-	}
-	if password != "" {
-		writeUTF8(&payload, password)
-	}
-
-	body := append(vh.Bytes(), payload.Bytes()...)
-	return appendFixedHeader(0x10, body)
-}
-
-func mqttPublishPacket(topic string, payload []byte) []byte {
-	var body bytes.Buffer
-	writeUTF8(&body, topic)
-	body.Write(payload)
-	return appendFixedHeader(0x30, body.Bytes())
-}
-
-func appendFixedHeader(packetType byte, body []byte) []byte {
-	out := []byte{packetType}
-	out = append(out, encodeRemainingLength(len(body))...)
-	out = append(out, body...)
-	return out
-}
-
-func encodeRemainingLength(length int) []byte {
-	var out []byte
-	for {
-		encoded := byte(length % 128)
-		length /= 128
-		if length > 0 {
-			encoded |= 128
-		}
-		out = append(out, encoded)
-		if length == 0 {
-			return out
-		}
-	}
-}
-
-func writeUTF8(buf *bytes.Buffer, value string) {
-	_ = binary.Write(buf, binary.BigEndian, uint16(len(value)))
-	buf.WriteString(value)
-}
-
-func readConnack(r io.Reader) error {
-	header := make([]byte, 1)
-	if _, err := io.ReadFull(r, header); err != nil {
-		return err
-	}
-	if header[0] != 0x20 {
-		return fmt.Errorf("unexpected mqtt connack header 0x%x", header[0])
-	}
-	remaining, err := readRemainingLength(r)
-	if err != nil {
-		return err
-	}
-	if remaining != 2 {
-		return fmt.Errorf("unexpected mqtt connack remaining length %d", remaining)
-	}
-	body := make([]byte, 2)
-	if _, err := io.ReadFull(r, body); err != nil {
-		return err
-	}
-	if body[1] != 0 {
-		return fmt.Errorf("mqtt connection refused with code %d", body[1])
-	}
-	return nil
-}
-
-func readRemainingLength(r io.Reader) (int, error) {
-	multiplier := 1
-	value := 0
-	for i := 0; i < 4; i++ {
-		var encoded [1]byte
-		if _, err := io.ReadFull(r, encoded[:]); err != nil {
-			return 0, err
-		}
-		value += int(encoded[0]&127) * multiplier
-		if encoded[0]&128 == 0 {
-			return value, nil
-		}
-		multiplier *= 128
-	}
-	return 0, errors.New("malformed mqtt remaining length")
-}
-
-func randomClientID() string {
-	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "awtrix-ai-status"
-	}
-	return fmt.Sprintf("awtrix-ai-status-%x", b[:])
-}
-
 func newPublisher(cfg Config) (Publisher, error) {
-	switch cfg.AWTRIX.Transport {
-	case "http":
-		return NewHTTPPublisher(cfg.AWTRIX)
-	case "mqtt":
-		return NewMQTTPublisher(cfg)
-	default:
-		return nil, fmt.Errorf("unsupported awtrix.transport %q", cfg.AWTRIX.Transport)
-	}
+	return NewHTTPPublisher(cfg.AWTRIX)
 }
 
 func main() {
@@ -917,7 +678,7 @@ func main() {
 	}
 
 	go func() {
-		logger.Info("server listening", "addr", cfg.HTTP.Addr, "awtrix_transport", cfg.AWTRIX.Transport)
+		logger.Info("server listening", "addr", cfg.HTTP.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server failed", "err", err)
 			stop()

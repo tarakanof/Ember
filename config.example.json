@@ -3,17 +3,9 @@
     "addr": ":8080"
   },
   "awtrix": {
-    "transport": "mqtt",
     "http_base_url": "http://192.168.0.14",
-    "mqtt_prefix": "awtrix_05ffb8",
     "app_name": "ai_status",
     "timeout_seconds": 5
-  },
-  "mqtt": {
-    "addr": "192.168.0.36:1883",
-    "client_id": "awtrix-ai-status",
-    "username_env": "MQTT_USERNAME",
-    "password_env": "MQTT_PASSWORD"
   },
   "display": {
     "idle_text": "AI idle",
