@@ -171,3 +171,16 @@ func TestPostStatusAcceptsValidRequest(t *testing.T) {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 }
+
+func TestDefaultConfigTimingValues(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Display.StaleSeconds != 25 {
+		t.Errorf("StaleSeconds = %d, want 25", cfg.Display.StaleSeconds)
+	}
+	if cfg.Display.DoneTTLSeconds != 30 {
+		t.Errorf("DoneTTLSeconds = %d, want 30", cfg.Display.DoneTTLSeconds)
+	}
+	if cfg.Display.HeartbeatSeconds != 10 {
+		t.Errorf("HeartbeatSeconds = %d, want 10", cfg.Display.HeartbeatSeconds)
+	}
+}

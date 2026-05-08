@@ -9,7 +9,9 @@
   },
   "display": {
     "idle_text": "AI idle",
-    "stale_after_seconds": 45,
+    "stale_seconds": 25,
+    "done_ttl_seconds": 30,
+    "heartbeat_seconds": 10,
     "refresh_seconds": 5,
     "notify_on_waiting": false
   }

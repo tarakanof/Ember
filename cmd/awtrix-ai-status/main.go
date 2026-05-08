@@ -38,10 +38,12 @@ type AWTRIXConfig struct {
 }
 
 type DisplayConfig struct {
-	IdleText          string `json:"idle_text"`
-	StaleAfterSeconds int    `json:"stale_after_seconds"`
-	RefreshSeconds    int    `json:"refresh_seconds"`
-	NotifyOnWaiting   bool   `json:"notify_on_waiting"`
+	IdleText         string `json:"idle_text"`
+	StaleSeconds     int    `json:"stale_seconds"`
+	DoneTTLSeconds   int    `json:"done_ttl_seconds"`
+	HeartbeatSeconds int    `json:"heartbeat_seconds"`
+	RefreshSeconds   int    `json:"refresh_seconds"`
+	NotifyOnWaiting  bool   `json:"notify_on_waiting"`
 }
 
 func defaultConfig() Config {
@@ -55,10 +57,12 @@ func defaultConfig() Config {
 			TimeoutSeconds: 5,
 		},
 		Display: DisplayConfig{
-			IdleText:          "AI idle",
-			StaleAfterSeconds: 45,
-			RefreshSeconds:    5,
-			NotifyOnWaiting:   false,
+			IdleText:         "AI idle",
+			StaleSeconds:     25,
+			DoneTTLSeconds:   30,
+			HeartbeatSeconds: 10,
+			RefreshSeconds:   5,
+			NotifyOnWaiting:  false,
 		},
 	}
 }
@@ -106,8 +110,14 @@ func (c *Config) applyDefaults() {
 	if c.Display.IdleText == "" {
 		c.Display.IdleText = "AI idle"
 	}
-	if c.Display.StaleAfterSeconds <= 0 {
-		c.Display.StaleAfterSeconds = 45
+	if c.Display.StaleSeconds <= 0 {
+		c.Display.StaleSeconds = 25
+	}
+	if c.Display.DoneTTLSeconds <= 0 {
+		c.Display.DoneTTLSeconds = 30
+	}
+	if c.Display.HeartbeatSeconds <= 0 {
+		c.Display.HeartbeatSeconds = 10
 	}
 	if c.Display.RefreshSeconds <= 0 {
 		c.Display.RefreshSeconds = 5
@@ -274,7 +284,7 @@ func (a *App) Snapshot() Snapshot {
 }
 
 func (a *App) renderLocked(now time.Time) Render {
-	staleAfter := time.Duration(a.cfg.Display.StaleAfterSeconds) * time.Second
+	staleAfter := time.Duration(a.cfg.Display.StaleSeconds) * time.Second
 	for key, session := range a.sessions {
 		if now.Sub(session.UpdatedAt) > staleAfter {
 			delete(a.sessions, key)
@@ -387,7 +397,7 @@ func (a *App) Publish(ctx context.Context) error {
 		"color":    snapshot.Render.Color,
 		"textCase": 2,
 		"duration": max(5, a.cfg.Display.RefreshSeconds+2),
-		"lifetime": a.cfg.Display.StaleAfterSeconds + 10,
+		"lifetime": a.cfg.Display.StaleSeconds + a.cfg.Display.DoneTTLSeconds + 10,
 		"center":   len(snapshot.Render.Text) <= 10,
 	}
 
