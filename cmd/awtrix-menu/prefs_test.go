@@ -267,6 +267,48 @@ func TestPrefs_PostRefusesWideConfigDir(t *testing.T) {
 	}
 }
 
+func TestPrefs_PostValidationError_RendersFormWithBanner(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	if err := os.WriteFile(envPath, []byte("STATUS_SOURCE=x\nSTATUS_SERVER_URL=http://y\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	// Submit empty STATUS_SOURCE to trigger validation failure.
+	postForm := url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {strconv.FormatInt(mtime, 10)},
+		"STATUS_SOURCE":     {""},
+		"STATUS_SERVER_URL": {"http://y"},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", srv.URL)
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 400 {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if !strings.Contains(s, `class="err"`) {
+		t.Errorf("response missing error banner; body=%s", s)
+	}
+	if !strings.Contains(s, `name="nonce"`) {
+		t.Errorf("response missing form (no nonce input); body=%s", s)
+	}
+	if !strings.Contains(s, nonce) {
+		t.Errorf("response did not preserve nonce; body=%s", s)
+	}
+}
+
 func TestPrefs_PostWrongPort_403(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o700); err != nil {
