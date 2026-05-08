@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -158,5 +159,130 @@ func reloadLaunchAgent(uid int, plistPath string) error {
 	return nil
 }
 
-// Stub for Task 12.
-func mergeSettingsJSON(home, binPath string) error { return nil }
+type hookEvent struct {
+	Matcher string        `json:"matcher,omitempty"`
+	Hooks   []hookCommand `json:"hooks"`
+}
+
+type hookCommand struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+}
+
+func mergeSettingsJSON(home, binPath string) error {
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		return err
+	}
+	root := map[string]any{}
+	existing, err := os.ReadFile(settingsPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if len(existing) > 0 {
+		if err := json.Unmarshal(existing, &root); err != nil {
+			return fmt.Errorf("settings.json is not valid JSON (comments/trailing-commas not supported): %w", err)
+		}
+		bak := fmt.Sprintf("%s.bak.%d", settingsPath, os.Getpid())
+		if err := os.WriteFile(bak, existing, 0o600); err != nil {
+			return err
+		}
+	}
+
+	hooksRoot, _ := root["hooks"].(map[string]any)
+	if hooksRoot == nil {
+		hooksRoot = map[string]any{}
+	}
+
+	for _, ev := range producerHookEntries(binPath) {
+		entries, _ := hooksRoot[ev.event].([]any)
+		filtered := []any{}
+		for _, e := range entries {
+			if !entryMatchesProducer(e) {
+				filtered = append(filtered, e)
+			}
+		}
+		marshalled, _ := json.Marshal(hookEvent{
+			Matcher: ev.matcher,
+			Hooks: []hookCommand{{
+				Type:    "command",
+				Command: ev.command,
+			}},
+		})
+		var asAny any
+		_ = json.Unmarshal(marshalled, &asAny)
+		filtered = append(filtered, asAny)
+		hooksRoot[ev.event] = filtered
+	}
+	root["hooks"] = hooksRoot
+
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+	out = append(out, '\n')
+	tmp, err := os.CreateTemp(filepath.Dir(settingsPath), "settings.tmp-*.json")
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(out); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return os.Rename(tmp.Name(), settingsPath)
+}
+
+type producerHookEntry struct {
+	event   string
+	matcher string
+	command string
+}
+
+func producerHookEntries(binPath string) []producerHookEntry {
+	logRedirect := ` >/dev/null 2>>$HOME/Library/Logs/awtrix-claude-producer.log`
+	cmd := func(eventName string) string {
+		return binPath + " hook " + eventName + logRedirect
+	}
+	return []producerHookEntry{
+		{event: "SessionStart", matcher: "", command: cmd("session-start")},
+		{event: "UserPromptSubmit", matcher: "", command: cmd("user-prompt-submit")},
+		{event: "PreToolUse", matcher: "", command: cmd("pre-tool-use")},
+		{event: "PermissionRequest", matcher: "", command: cmd("permission-request")},
+		{event: "Notification", matcher: "permission_prompt", command: cmd("notification")},
+		{event: "Stop", matcher: "", command: cmd("stop")},
+		{event: "StopFailure", matcher: "", command: cmd("stop-failure")},
+		{event: "SessionEnd", matcher: "logout|prompt_input_exit|bypass_permissions_disabled|other", command: cmd("session-end")},
+	}
+}
+
+func entryMatchesProducer(e any) bool {
+	m, ok := e.(map[string]any)
+	if !ok {
+		return false
+	}
+	hooks, ok := m["hooks"].([]any)
+	if !ok {
+		return false
+	}
+	for _, h := range hooks {
+		hm, ok := h.(map[string]any)
+		if !ok {
+			continue
+		}
+		cmd, _ := hm["command"].(string)
+		if strings.Contains(cmd, "awtrix-claude-producer") {
+			return true
+		}
+	}
+	return false
+}

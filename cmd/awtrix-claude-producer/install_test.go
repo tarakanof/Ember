@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/xml"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -75,5 +77,65 @@ func TestProducerEnvExample_Content(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("env example missing %q", want)
 		}
+	}
+}
+
+func TestMergeSettings_FreshInstall(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/awtrix-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(tmp, ".claude", "settings.json")
+	body, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"PreToolUse"`, `"UserPromptSubmit"`, `"Stop"`, `"PermissionRequest"`,
+		`/usr/local/bin/awtrix-claude-producer hook`,
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("settings.json missing %q\nbody: %s", want, body)
+		}
+	}
+}
+
+func TestMergeSettings_PreservesUserPermissions(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	dir := filepath.Join(tmp, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := `{"permissions":{"allow":["Bash(grep:*)"]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/awtrix-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if !strings.Contains(string(body), `Bash(grep:*)`) {
+		t.Errorf("user permissions block dropped: %s", body)
+	}
+	if !strings.Contains(string(body), `awtrix-claude-producer hook`) {
+		t.Errorf("hooks not added: %s", body)
+	}
+}
+
+func TestMergeSettings_Idempotent(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/awtrix-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/awtrix-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
+	if string(first) != string(second) {
+		t.Errorf("re-running install changed settings:\nfirst: %s\nsecond: %s", first, second)
 	}
 }
