@@ -98,8 +98,8 @@ func TestPublishWritesCustomAppAndIndicators(t *testing.T) {
 	if got := publisher.customApps[0]["text"]; got != "Codex run" {
 		t.Fatalf("custom app text = %v, want Codex run", got)
 	}
-	if len(publisher.indicator) != 2 {
-		t.Fatalf("indicator publishes = %d, want 2", len(publisher.indicator))
+	if len(publisher.indicator) != 3 {
+		t.Fatalf("indicator publishes = %d, want 3", len(publisher.indicator))
 	}
 }
 
@@ -302,6 +302,39 @@ func TestRenderAggregateMixedGroups(t *testing.T) {
 	render := app.Upsert(StatusRequest{Source: "e", Tool: "claude", Session: "5", State: "running"})
 	if !contains(render.Text, "W2") || !contains(render.Text, "R3") {
 		t.Errorf("Text = %q, want aggregate AI W2 R3", render.Text)
+	}
+}
+
+func TestPublishLightsIndicator3WhenDoneOrErrorPresent(t *testing.T) {
+	publisher := &recordingPublisher{}
+	app := NewApp(defaultConfig(), publisher, testLogger())
+	app.Upsert(StatusRequest{Source: "x", Tool: "claude", Session: "1", State: "done"})
+
+	if err := app.Publish(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(publisher.indicator) != 3 {
+		t.Fatalf("indicator count = %d, want 3", len(publisher.indicator))
+	}
+	ind3 := publisher.indicator[2]
+	if ind3["color"] == "0" || ind3["color"] == 0 {
+		t.Errorf("indicator 3 color = %v, want lit grey when done present", ind3["color"])
+	}
+}
+
+func TestPublishIndicator3OffWhenNoLinger(t *testing.T) {
+	publisher := &recordingPublisher{}
+	app := NewApp(defaultConfig(), publisher, testLogger())
+	app.Upsert(StatusRequest{Source: "x", Tool: "claude", Session: "1", State: "running"})
+
+	if err := app.Publish(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	ind3 := publisher.indicator[2]
+	if c, _ := ind3["color"].(string); c != "0" {
+		t.Errorf("indicator 3 color = %v, want \"0\" (off) when no done/error", ind3["color"])
 	}
 }
 

@@ -487,6 +487,15 @@ func (a *App) publishIndicators(ctx context.Context, render Render) error {
 	if err := a.publisher.Indicator(ctx, 2, runningPayload); err != nil {
 		return fmt.Errorf("publish running indicator: %w", err)
 	}
+
+	lingerCount := render.Done + render.Errors
+	lingerPayload := map[string]any{"color": "0"}
+	if lingerCount > 0 {
+		lingerPayload = map[string]any{"color": "#707070"}
+	}
+	if err := a.publisher.Indicator(ctx, 3, lingerPayload); err != nil {
+		return fmt.Errorf("publish linger indicator: %w", err)
+	}
 	return nil
 }
 
