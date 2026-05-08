@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -145,6 +146,17 @@ STATUS_TOKEN=set-me-to-the-server-bearer-token
 `
 }
 
-// Stubs for Tasks 11 and 12.
-func reloadLaunchAgent(uid int, plistPath string) error { return nil }
-func mergeSettingsJSON(home, binPath string) error      { return nil }
+func reloadLaunchAgent(uid int, plistPath string) error {
+	domain := fmt.Sprintf("gui/%d", uid)
+	target := fmt.Sprintf("%s/%s", domain, launchAgentLabel)
+	// Bootout is allowed to fail with "not loaded" — we tolerate any non-zero exit.
+	_ = exec.Command("launchctl", "bootout", target).Run()
+	out, err := exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("launchctl bootstrap: %v\nOutput: %s", err, out)
+	}
+	return nil
+}
+
+// Stub for Task 12.
+func mergeSettingsJSON(home, binPath string) error { return nil }
