@@ -264,6 +264,17 @@ func (a *App) Clear() Render {
 	return render
 }
 
+func (a *App) Delete(key string) Render {
+	a.mu.Lock()
+	delete(a.sessions, key)
+	if a.lastWaitKey == key {
+		a.lastWaitKey = ""
+	}
+	render := a.renderLocked(time.Now())
+	a.mu.Unlock()
+	return render
+}
+
 func (a *App) Snapshot() Snapshot {
 	now := time.Now()
 	a.mu.Lock()
@@ -555,6 +566,7 @@ func (a *App) routes() http.Handler {
 		writeJSON(w, http.StatusOK, a.Snapshot())
 	})
 	mux.HandleFunc("POST /v1/status", a.handleStatus)
+	mux.HandleFunc("DELETE /v1/status", a.handleDeleteStatus)
 	mux.HandleFunc("POST /v1/clear", a.handleClear)
 	mux.HandleFunc("POST /v1/refresh", a.handleRefresh)
 	mux.HandleFunc("POST /v1/notify", a.handleNotify)
@@ -601,6 +613,47 @@ type NotifyRequest struct {
 	Color    string `json:"color"`
 	Duration int    `json:"duration"`
 	Hold     bool   `json:"hold"`
+}
+
+type DeleteRequest struct {
+	Source  string `json:"source"`
+	Tool    string `json:"tool"`
+	Session string `json:"session"`
+}
+
+func (r DeleteRequest) validate() error {
+	if strings.TrimSpace(r.Source) == "" {
+		return errors.New("source is required")
+	}
+	if strings.TrimSpace(r.Tool) == "" {
+		return errors.New("tool is required")
+	}
+	if strings.TrimSpace(r.Session) == "" {
+		return errors.New("session is required")
+	}
+	return nil
+}
+
+func (r DeleteRequest) key() string {
+	return strings.TrimSpace(r.Source) + "/" + strings.ToLower(strings.TrimSpace(r.Tool)) + "/" + strings.TrimSpace(r.Session)
+}
+
+func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
+	var req DeleteRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := req.validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	a.Delete(req.key())
+	if err := a.Publish(r.Context()); err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {

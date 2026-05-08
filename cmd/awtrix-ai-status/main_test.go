@@ -338,6 +338,65 @@ func TestPublishIndicator3OffWhenNoLinger(t *testing.T) {
 	}
 }
 
+func TestDeleteStatusRemovesSession(t *testing.T) {
+	app, srv := newTestServer(t, defaultConfig())
+	app.Upsert(StatusRequest{Source: "dt-mbp", Tool: "claude", Session: "x", State: "running"})
+
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+"/v1/status", bytes.NewReader([]byte(`{"source":"dt-mbp","tool":"claude","session":"x"}`)))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+	if _, ok := app.sessions["dt-mbp/claude/x"]; ok {
+		t.Errorf("session not deleted")
+	}
+}
+
+func TestDeleteStatusIdempotent(t *testing.T) {
+	_, srv := newTestServer(t, defaultConfig())
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+"/v1/status", bytes.NewReader([]byte(`{"source":"a","tool":"b","session":"c"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+}
+
+func TestDeleteStatusRejectsEmptyKey(t *testing.T) {
+	_, srv := newTestServer(t, defaultConfig())
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+"/v1/status", bytes.NewReader([]byte(`{"source":"","tool":"b","session":"c"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
 // helper
 func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
