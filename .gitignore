@@ -1,0 +1,6 @@
+.DS_Store
+/awtrix-ai-status
+/config.json
+/dist/
+/.gocache/
+*.log
