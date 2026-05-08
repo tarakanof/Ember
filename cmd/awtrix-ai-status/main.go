@@ -115,26 +115,22 @@ func (c *Config) applyDefaults() {
 }
 
 type StatusRequest struct {
-	Source      string          `json:"source"`
-	Tool        string          `json:"tool"`
-	Session     string          `json:"session"`
-	State       string          `json:"state"`
-	Message     string          `json:"message"`
-	Running     *bool           `json:"running"`
-	Waiting     *bool           `json:"waiting"`
-	TokensToday int64           `json:"tokens_today"`
-	Prompt      json.RawMessage `json:"prompt,omitempty"`
+	Source      string `json:"source"`
+	Tool        string `json:"tool"`
+	Session     string `json:"session"`
+	State       string `json:"state"`
+	Message     string `json:"message"`
+	TokensToday int64  `json:"tokens_today"`
 }
 
 type Session struct {
-	Source      string          `json:"source"`
-	Tool        string          `json:"tool"`
-	Session     string          `json:"session"`
-	State       string          `json:"state"`
-	Message     string          `json:"message"`
-	TokensToday int64           `json:"tokens_today,omitempty"`
-	Prompt      json.RawMessage `json:"prompt,omitempty"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	Source      string    `json:"source"`
+	Tool        string    `json:"tool"`
+	Session     string    `json:"session"`
+	State       string    `json:"state"`
+	Message     string    `json:"message"`
+	TokensToday int64     `json:"tokens_today,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (r StatusRequest) normalized() Session {
@@ -152,14 +148,7 @@ func (r StatusRequest) normalized() Session {
 	}
 
 	state := strings.ToLower(strings.TrimSpace(r.State))
-	switch {
-	case state == "" && len(r.Prompt) > 0:
-		state = "waiting"
-	case state == "" && r.Waiting != nil && *r.Waiting:
-		state = "waiting"
-	case state == "" && r.Running != nil && *r.Running:
-		state = "running"
-	case state == "":
+	if state == "" {
 		state = "idle"
 	}
 	if !validState(state) {
@@ -173,7 +162,6 @@ func (r StatusRequest) normalized() Session {
 		State:       state,
 		Message:     strings.TrimSpace(r.Message),
 		TokensToday: r.TokensToday,
-		Prompt:      r.Prompt,
 		UpdatedAt:   time.Now(),
 	}
 }
@@ -346,9 +334,6 @@ func sortSessions(sessions []Session) {
 func firstMessage(session Session, fallback string) string {
 	if session.Message != "" {
 		return session.Message
-	}
-	if len(session.Prompt) > 0 {
-		return "approval"
 	}
 	return fallback
 }

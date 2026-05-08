@@ -29,9 +29,8 @@ func (p *recordingPublisher) Indicator(_ context.Context, _ int, payload map[str
 }
 
 func TestStatusRequestNormalizesDefaults(t *testing.T) {
-	running := true
 	session := StatusRequest{
-		Running: &running,
+		State: "running",
 	}.normalized()
 
 	if session.Source != "unknown" {
