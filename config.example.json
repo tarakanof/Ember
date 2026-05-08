@@ -7,6 +7,9 @@
     "app_name": "ai_status",
     "timeout_seconds": 5
   },
+  "auth": {
+    "status_token_env": "STATUS_TOKEN"
+  },
   "display": {
     "idle_text": "AI idle",
     "stale_seconds": 25,

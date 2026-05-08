@@ -401,3 +401,74 @@ func TestDeleteStatusRejectsEmptyKey(t *testing.T) {
 func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
 }
+
+func newTestServerWithToken(t *testing.T, token string) (*App, *httptest.Server) {
+	t.Helper()
+	cfg := defaultConfig()
+	cfg.Auth.StatusToken = token
+	app := NewApp(cfg, &recordingPublisher{}, testLogger())
+	srv := httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+	return app, srv
+}
+
+func TestAuthRequiredOnWriteEndpoints(t *testing.T) {
+	_, srv := newTestServerWithToken(t, "secret-token")
+
+	// No auth header
+	resp := postJSON(t, srv, "/v1/status", map[string]any{
+		"source": "a", "tool": "b", "session": "c", "state": "running",
+	}, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("no auth: status = %d, want 401", resp.StatusCode)
+	}
+
+	// Wrong token
+	resp = postJSON(t, srv, "/v1/status", map[string]any{
+		"source": "a", "tool": "b", "session": "c", "state": "running",
+	}, map[string]string{"Authorization": "Bearer wrong"})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong token: status = %d, want 401", resp.StatusCode)
+	}
+
+	// Correct token
+	resp = postJSON(t, srv, "/v1/status", map[string]any{
+		"source": "a", "tool": "b", "session": "c", "state": "running",
+	}, map[string]string{"Authorization": "Bearer secret-token"})
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("correct token: status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestAuthDisabledWhenTokenEmpty(t *testing.T) {
+	_, srv := newTestServerWithToken(t, "")
+	resp := postJSON(t, srv, "/v1/status", map[string]any{
+		"source": "a", "tool": "b", "session": "c", "state": "running",
+	}, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("empty token / no auth: status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestAuthNotRequiredOnReadEndpoints(t *testing.T) {
+	_, srv := newTestServerWithToken(t, "secret-token")
+	client := srv.Client()
+
+	resp, err := client.Get(srv.URL + "/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("/state without auth: status = %d, want 200", resp.StatusCode)
+	}
+
+	resp, err = client.Get(srv.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("/healthz without auth: status = %d, want 200", resp.StatusCode)
+	}
+}

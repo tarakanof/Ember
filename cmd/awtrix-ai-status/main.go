@@ -21,9 +21,15 @@ import (
 	"time"
 )
 
+type AuthConfig struct {
+	StatusToken    string `json:"status_token"`
+	StatusTokenEnv string `json:"status_token_env"`
+}
+
 type Config struct {
 	HTTP    HTTPConfig    `json:"http"`
 	AWTRIX  AWTRIXConfig  `json:"awtrix"`
+	Auth    AuthConfig    `json:"auth"`
 	Display DisplayConfig `json:"display"`
 }
 
@@ -55,6 +61,9 @@ func defaultConfig() Config {
 			HTTPBaseURL:    "http://192.168.0.14",
 			AppName:        "ai_status",
 			TimeoutSeconds: 5,
+		},
+		Auth: AuthConfig{
+			StatusTokenEnv: "STATUS_TOKEN",
 		},
 		Display: DisplayConfig{
 			IdleText:         "AI idle",
@@ -121,6 +130,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Display.RefreshSeconds <= 0 {
 		c.Display.RefreshSeconds = 5
+	}
+	if c.Auth.StatusTokenEnv == "" {
+		c.Auth.StatusTokenEnv = "STATUS_TOKEN"
+	}
+	if c.Auth.StatusToken == "" {
+		c.Auth.StatusToken = os.Getenv(c.Auth.StatusTokenEnv)
 	}
 }
 
@@ -562,11 +577,14 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, a.Snapshot())
 	})
-	mux.HandleFunc("POST /v1/status", a.handleStatus)
-	mux.HandleFunc("DELETE /v1/status", a.handleDeleteStatus)
-	mux.HandleFunc("POST /v1/clear", a.handleClear)
-	mux.HandleFunc("POST /v1/refresh", a.handleRefresh)
-	mux.HandleFunc("POST /v1/notify", a.handleNotify)
+
+	writeMux := http.NewServeMux()
+	writeMux.HandleFunc("POST /v1/status", a.handleStatus)
+	writeMux.HandleFunc("DELETE /v1/status", a.handleDeleteStatus)
+	writeMux.HandleFunc("POST /v1/clear", a.handleClear)
+	writeMux.HandleFunc("POST /v1/notify", a.handleNotify)
+	mux.Handle("/v1/", requireAuth(a.cfg.Auth.StatusToken, writeMux))
+
 	return loggingMiddleware(a.logger, mux)
 }
 
@@ -701,6 +719,20 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func requireAuth(token string, next http.Handler) http.Handler {
+	if token == "" {
+		return next
+	}
+	expected := "Bearer " + token
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != expected {
+			writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
