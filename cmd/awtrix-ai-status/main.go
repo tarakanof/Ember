@@ -285,9 +285,18 @@ func (a *App) Snapshot() Snapshot {
 
 func (a *App) renderLocked(now time.Time) Render {
 	staleAfter := time.Duration(a.cfg.Display.StaleSeconds) * time.Second
+	doneTTL := time.Duration(a.cfg.Display.DoneTTLSeconds) * time.Second
 	for key, session := range a.sessions {
-		if now.Sub(session.UpdatedAt) > staleAfter {
-			delete(a.sessions, key)
+		age := now.Sub(session.UpdatedAt)
+		switch session.State {
+		case "done", "error":
+			if age > doneTTL {
+				delete(a.sessions, key)
+			}
+		default:
+			if age > staleAfter {
+				delete(a.sessions, key)
+			}
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 type recordingPublisher struct {
@@ -182,5 +183,70 @@ func TestDefaultConfigTimingValues(t *testing.T) {
 	}
 	if cfg.Display.HeartbeatSeconds != 10 {
 		t.Errorf("HeartbeatSeconds = %d, want 10", cfg.Display.HeartbeatSeconds)
+	}
+}
+
+func TestPerStateStalenessReapsActiveSessions(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Display.StaleSeconds = 25
+	cfg.Display.DoneTTLSeconds = 30
+	app := NewApp(cfg, &recordingPublisher{}, testLogger())
+
+	// Inject a running session that's 26s old — should be reaped.
+	app.sessions["src/claude/x"] = Session{
+		Source: "src", Tool: "claude", Session: "x",
+		State:     "running",
+		UpdatedAt: time.Now().Add(-26 * time.Second),
+	}
+	// Inject a running session 24s old — should survive.
+	app.sessions["src/claude/y"] = Session{
+		Source: "src", Tool: "claude", Session: "y",
+		State:     "running",
+		UpdatedAt: time.Now().Add(-24 * time.Second),
+	}
+	app.Snapshot() // triggers reaping
+
+	if _, ok := app.sessions["src/claude/x"]; ok {
+		t.Errorf("expected src/claude/x to be reaped (26s > stale_seconds=25)")
+	}
+	if _, ok := app.sessions["src/claude/y"]; !ok {
+		t.Errorf("expected src/claude/y to survive (24s <= stale_seconds=25)")
+	}
+}
+
+func TestPerStateStalenessLingersDoneAndError(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Display.StaleSeconds = 25
+	cfg.Display.DoneTTLSeconds = 30
+	app := NewApp(cfg, &recordingPublisher{}, testLogger())
+
+	// Done session 28s old (over StaleSeconds, under DoneTTL) — should survive.
+	app.sessions["src/claude/d"] = Session{
+		Source: "src", Tool: "claude", Session: "d",
+		State:     "done",
+		UpdatedAt: time.Now().Add(-28 * time.Second),
+	}
+	// Done session 31s old — over DoneTTL — should be reaped.
+	app.sessions["src/claude/e"] = Session{
+		Source: "src", Tool: "claude", Session: "e",
+		State:     "done",
+		UpdatedAt: time.Now().Add(-31 * time.Second),
+	}
+	// Error session 28s old — should survive (uses DoneTTL).
+	app.sessions["src/claude/f"] = Session{
+		Source: "src", Tool: "claude", Session: "f",
+		State:     "error",
+		UpdatedAt: time.Now().Add(-28 * time.Second),
+	}
+	app.Snapshot()
+
+	if _, ok := app.sessions["src/claude/d"]; !ok {
+		t.Errorf("done at 28s should linger (DoneTTL=30)")
+	}
+	if _, ok := app.sessions["src/claude/e"]; ok {
+		t.Errorf("done at 31s should be reaped (DoneTTL=30)")
+	}
+	if _, ok := app.sessions["src/claude/f"]; !ok {
+		t.Errorf("error at 28s should linger (DoneTTL=30)")
 	}
 }
