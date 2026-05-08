@@ -26,6 +26,17 @@ type AuthConfig struct {
 	StatusTokenEnv string `json:"status_token_env"`
 }
 
+func (a AuthConfig) LogValue() slog.Value {
+	tokenStatus := "unset"
+	if a.StatusToken != "" {
+		tokenStatus = "set"
+	}
+	return slog.GroupValue(
+		slog.String("status_token_env", a.StatusTokenEnv),
+		slog.String("status_token", tokenStatus),
+	)
+}
+
 type Config struct {
 	HTTP    HTTPConfig    `json:"http"`
 	AWTRIX  AWTRIXConfig  `json:"awtrix"`
@@ -583,7 +594,7 @@ func (a *App) routes() http.Handler {
 	writeMux.HandleFunc("DELETE /v1/status", a.handleDeleteStatus)
 	writeMux.HandleFunc("POST /v1/clear", a.handleClear)
 	writeMux.HandleFunc("POST /v1/notify", a.handleNotify)
-	mux.Handle("/v1/", requireAuth(a.cfg.Auth.StatusToken, writeMux))
+	mux.Handle("/v1/", requireAuth(a.cfg.Auth.StatusToken, a.logger, writeMux))
 
 	return loggingMiddleware(a.logger, mux)
 }
@@ -721,13 +732,18 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-func requireAuth(token string, next http.Handler) http.Handler {
+func requireAuth(token string, logger *slog.Logger, next http.Handler) http.Handler {
 	if token == "" {
 		return next
 	}
 	expected := "Bearer " + token
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != expected {
+			logger.InfoContext(r.Context(), "auth rejected",
+				"remote_addr", r.RemoteAddr,
+				"path", r.URL.Path,
+				"method", r.Method,
+			)
 			writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
 			return
 		}
