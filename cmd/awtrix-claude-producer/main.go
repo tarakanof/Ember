@@ -43,6 +43,3 @@ Usage:
 Configuration:
   ~/.config/awtrix-ai-status/producer.env`)
 }
-
-// Stubs filled in by later tasks.
-func runDoctor() { fmt.Fprintln(os.Stderr, "doctor: not yet implemented"); os.Exit(2) }
