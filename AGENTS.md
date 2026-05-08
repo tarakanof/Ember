@@ -46,12 +46,16 @@ Docker is not installed on the current laptop, so container builds may need to r
 
 ## Coding Guidelines
 
-- Keep the service small and boring.
-- Prefer the Go standard library unless a dependency clearly earns its cost.
-- Preserve the current config-file plus env-var pattern.
-- Keep MQTT credentials, Home Assistant tokens, and laptop-specific secrets out of examples, tests, logs, and docs.
-- Run `gofmt` and `go test ./...` before committing.
-- Do not leave local long-running test services on port `8080`.
+The deep dive lives in [`docs/STYLE.md`](docs/STYLE.md). Read it before any non-trivial code change.
+
+Repository-specific essentials:
+
+- Keep the service small and boring. Stdlib only unless a dep clearly earns its cost.
+- Preserve the config-file + env-var pattern. Secrets via env only — never in JSON, tests, logs, or docs.
+- TDD by default for new behavior. Run `gofmt` and `go test ./... -race` before every commit.
+- Don't leave long-running local test services on port `8080`.
+- One logical change per commit. Commit body explains *why*, not *what*. Reference relevant `docs/superpowers/specs/*` paths.
+- AI assistants (Claude Code, Codex CLI, Gemini CLI): this guide governs current and future work in this repo. If a rule conflicts with the user's instruction, surface the conflict before silently complying.
 
 ## Runtime Behavior
 
