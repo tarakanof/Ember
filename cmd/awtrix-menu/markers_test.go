@@ -54,6 +54,19 @@ func TestMarkers_StaleIgnored(t *testing.T) {
 	}
 }
 
+func TestMarkers_DoneNotCounted(t *testing.T) {
+	dir := t.TempDir()
+	writeMarker(t, dir, "a", "done", "Bash", time.Second)
+	writeMarker(t, dir, "b", "running", "Edit", time.Second)
+	v := readView(dir, 6*time.Hour)
+	if v.ActiveCount != 1 {
+		t.Errorf("ActiveCount = %d, want 1 (done excluded)", v.ActiveCount)
+	}
+	if v.DominantState != "running" {
+		t.Errorf("DominantState = %q, want running", v.DominantState)
+	}
+}
+
 func TestMarkers_DeterministicOrdering(t *testing.T) {
 	dir := t.TempDir()
 	writeMarker(t, dir, "z-newer", "running", "Z", time.Second)
