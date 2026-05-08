@@ -38,7 +38,3 @@ Usage:
   awtrix-menu doctor     # show config + state health
   awtrix-menu help       # this help`)
 }
-
-// stubs for later tasks
-func runUninstall() { fmt.Fprintln(os.Stderr, "uninstall: not yet implemented"); os.Exit(2) }
-func runDoctor()    { fmt.Fprintln(os.Stderr, "doctor: not yet implemented"); os.Exit(2) }
