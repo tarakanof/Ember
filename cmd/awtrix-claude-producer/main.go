@@ -45,8 +45,7 @@ Configuration:
 }
 
 // Stubs filled in by later tasks.
-func runHook(args []string) { fmt.Fprintln(os.Stderr, "hook: not yet implemented"); os.Exit(2) }
-func runTick()              { fmt.Fprintln(os.Stderr, "tick: not yet implemented"); os.Exit(2) }
-func runInstall()           { fmt.Fprintln(os.Stderr, "install: not yet implemented"); os.Exit(2) }
-func runUninstall()         { fmt.Fprintln(os.Stderr, "uninstall: not yet implemented"); os.Exit(2) }
-func runDoctor()            { fmt.Fprintln(os.Stderr, "doctor: not yet implemented"); os.Exit(2) }
+func runTick()      { fmt.Fprintln(os.Stderr, "tick: not yet implemented"); os.Exit(2) }
+func runInstall()   { fmt.Fprintln(os.Stderr, "install: not yet implemented"); os.Exit(2) }
+func runUninstall() { fmt.Fprintln(os.Stderr, "uninstall: not yet implemented"); os.Exit(2) }
+func runDoctor()    { fmt.Fprintln(os.Stderr, "doctor: not yet implemented"); os.Exit(2) }
