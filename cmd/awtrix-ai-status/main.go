@@ -233,7 +233,7 @@ type App struct {
 
 	mu            sync.Mutex
 	sessions      map[string]Session
-	lastWaitKey   string
+	lastWaitKey   string // last waiting-notification Render.Text, for notify dedupe (not a session key)
 	lastPublished Render
 }
 
@@ -267,9 +267,6 @@ func (a *App) Clear() Render {
 func (a *App) Delete(key string) Render {
 	a.mu.Lock()
 	delete(a.sessions, key)
-	if a.lastWaitKey == key {
-		a.lastWaitKey = ""
-	}
 	render := a.renderLocked(time.Now())
 	a.mu.Unlock()
 	return render
