@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"html/template"
 	"net"
@@ -21,9 +20,8 @@ import (
 type prefsHandler struct {
 	envPath string
 
-	mu       sync.Mutex
-	nonces   map[string]time.Time // nonce → expiry
-	tokenSet bool                 // recomputed on each GET
+	mu     sync.Mutex           // protects nonces
+	nonces map[string]time.Time // nonce → expiry
 }
 
 func newPrefsHandler(envPath string) *prefsHandler {
@@ -190,7 +188,7 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, v := range []string{src, srvURL, tok} {
-		if strings.ContainsAny(v, ctrlChars+"\n\r") {
+		if strings.ContainsAny(v, ctrlChars) {
 			http.Error(w, "values may not contain control characters", 400)
 			return
 		}
@@ -211,7 +209,8 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		rec.set("STATUS_TOKEN", "")
 	case tok != "":
 		rec.set("STATUS_TOKEN", tok)
-		// blank + not clear: preserve (no change to STATUS_TOKEN)
+	default:
+		// blank field + no Clear checkbox: leave STATUS_TOKEN untouched
 	}
 	// Atomic write
 	if err := writeEnvAtomic(h.envPath, rec.serialize()); err != nil {
@@ -251,7 +250,7 @@ func writeEnvAtomic(path, content string) error {
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
 		cleanup()
-		return errors.New("chmod 0600 failed: " + err.Error())
+		return fmt.Errorf("chmod 0600 failed: %w", err)
 	}
 	if _, err := tmp.WriteString(content); err != nil {
 		tmp.Close()
@@ -274,8 +273,8 @@ func writeEnvAtomic(path, content string) error {
 	return nil
 }
 
-// startPrefsServer is called from menu.go on first Preferences… click.
-// Returns the URL with the issued nonce. The server is shared across clicks.
+// prefsServer wraps prefsHandler with a lazily-started loopback HTTP listener.
+// The server is shared across Preferences… clicks; each click issues a fresh nonce.
 type prefsServer struct {
 	once    sync.Once
 	handler *prefsHandler

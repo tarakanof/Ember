@@ -16,7 +16,7 @@ func TestPrefs_GetWithoutNonce_403(t *testing.T) {
 	dir := t.TempDir()
 	srv := httptest.NewServer(newPrefsHandler(filepath.Join(dir, "producer.env")))
 	defer srv.Close()
-	resp, _ := http.Get(srv.URL + "/")
+	resp, _ := srv.Client().Get(srv.URL + "/")
 	if resp.StatusCode != 403 {
 		t.Errorf("status = %d, want 403", resp.StatusCode)
 	}
@@ -30,7 +30,7 @@ func TestPrefs_GetWithValidNonce_RendersForm(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 	nonce := h.issueNonce()
-	resp, _ := http.Get(srv.URL + "/?nonce=" + nonce)
+	resp, _ := srv.Client().Get(srv.URL + "/?nonce=" + nonce)
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
@@ -65,7 +65,7 @@ func TestPrefs_PostBadOrigin_403(t *testing.T) {
 	}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", "http://evil.example")
-	resp, _ := http.DefaultClient.Do(req)
+	resp, _ := srv.Client().Do(req)
 	if resp.StatusCode != 403 {
 		t.Errorf("status = %d, want 403 (bad Origin)", resp.StatusCode)
 	}
@@ -86,7 +86,7 @@ func TestPrefs_PostMissingOrigin_403(t *testing.T) {
 	}.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	// no Origin set
-	resp, _ := http.DefaultClient.Do(req)
+	resp, _ := srv.Client().Do(req)
 	if resp.StatusCode != 403 {
 		t.Errorf("status = %d, want 403 (missing Origin)", resp.StatusCode)
 	}
@@ -112,7 +112,7 @@ func TestPrefs_PostValid_WritesEnvFileAtomicallyAndPreservesToken(t *testing.T) 
 	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", srv.URL)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, _ := srv.Client().Do(req)
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
@@ -147,7 +147,7 @@ func TestPrefs_PostStaleMtime_409(t *testing.T) {
 	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", srv.URL)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, _ := srv.Client().Do(req)
 	if resp.StatusCode != 409 {
 		t.Errorf("status = %d, want 409 (stale mtime)", resp.StatusCode)
 	}
@@ -170,7 +170,7 @@ func TestPrefs_PostReusedNonce_403(t *testing.T) {
 		req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Origin", srv.URL)
-		resp, _ := http.DefaultClient.Do(req)
+		resp, _ := srv.Client().Do(req)
 		return resp
 	}
 	resp1 := doPost()
@@ -199,7 +199,7 @@ func TestPrefs_RejectsNewlineInValue(t *testing.T) {
 	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Origin", srv.URL)
-	resp, _ := http.DefaultClient.Do(req)
+	resp, _ := srv.Client().Do(req)
 	if resp.StatusCode != 400 {
 		t.Errorf("newline injection status = %d, want 400", resp.StatusCode)
 	}
