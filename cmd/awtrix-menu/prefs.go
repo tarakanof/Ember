@@ -20,12 +20,21 @@ import (
 type prefsHandler struct {
 	envPath string
 
-	mu     sync.Mutex           // protects nonces
-	nonces map[string]time.Time // nonce → expiry
+	mu           sync.Mutex           // protects nonces and expectedHost
+	nonces       map[string]time.Time // nonce → expiry
+	expectedHost string               // set once after listener binds; if empty, prefix-check fallback
 }
 
 func newPrefsHandler(envPath string) *prefsHandler {
 	return &prefsHandler{envPath: envPath, nonces: map[string]time.Time{}}
+}
+
+// bindHost pins the handler to the exact host:port that the listener bound.
+// Called once after the listener has bound a port.
+func (h *prefsHandler) bindHost(host string) {
+	h.mu.Lock()
+	h.expectedHost = host
+	h.mu.Unlock()
 }
 
 func (h *prefsHandler) issueNonce() string {
@@ -140,11 +149,23 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nonce := r.PostFormValue("nonce")
-	// Host check (defeat DNS rebinding) — Host must be exactly 127.0.0.1:<port>
+	// Host check (defeat DNS rebinding)
 	host := r.Host
-	if !strings.HasPrefix(host, "127.0.0.1:") {
-		http.Error(w, "bad Host", 403)
-		return
+	h.mu.Lock()
+	pinned := h.expectedHost
+	h.mu.Unlock()
+	if pinned != "" {
+		// Production path: require exact match against the bound port.
+		if host != pinned {
+			http.Error(w, "bad Host", 403)
+			return
+		}
+	} else {
+		// Test path (handler used standalone, no bound listener): prefix check.
+		if !strings.HasPrefix(host, "127.0.0.1:") {
+			http.Error(w, "bad Host", 403)
+			return
+		}
 	}
 	// Origin check
 	expectedOrigin := "http://" + host
@@ -303,6 +324,7 @@ func (p *prefsServer) start() error {
 			return
 		}
 		addr := ln.Addr().(*net.TCPAddr)
+		p.handler.bindHost(fmt.Sprintf("127.0.0.1:%d", addr.Port))
 		p.srv = &http.Server{
 			Handler:           p.handler,
 			ReadHeaderTimeout: 5 * time.Second,

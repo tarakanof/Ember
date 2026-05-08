@@ -267,6 +267,32 @@ func TestPrefs_PostRefusesWideConfigDir(t *testing.T) {
 	}
 }
 
+func TestPrefs_PostWrongPort_403(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	h := newPrefsHandler(envPath)
+	// Pin the handler to a port that won't match what httptest hands us.
+	h.bindHost("127.0.0.1:1")
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {"0"},
+		"STATUS_SOURCE":     {"x"},
+		"STATUS_SERVER_URL": {"http://y"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", srv.URL)
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 403 {
+		t.Errorf("status = %d, want 403 (wrong port)", resp.StatusCode)
+	}
+}
+
 // helper used in tests
 func fmtInt64(n int64) string {
 	return strconv.FormatInt(n, 10)
