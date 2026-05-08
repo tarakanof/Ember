@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"syscall"
 )
 
 const maxSessionIDLen = 64
@@ -69,4 +70,29 @@ func writeMarker(markerPath string, body []byte) error {
 
 func readMarker(markerPath string) ([]byte, error) {
 	return os.ReadFile(markerPath)
+}
+
+func withLockEx(lockPath string, fn func() error) error {
+	return withLock(lockPath, syscall.LOCK_EX, fn)
+}
+
+func withLockSh(lockPath string, fn func() error) error {
+	return withLock(lockPath, syscall.LOCK_SH, fn)
+}
+
+func withLock(lockPath string, op int, fn func() error) error {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), op); err != nil {
+		return err
+	}
+	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	// Note: lock file is NEVER deleted (POSIX flock-on-inode constraint).
+	return fn()
 }

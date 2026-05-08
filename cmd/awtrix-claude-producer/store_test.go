@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestSanitizeSessionID_Valid(t *testing.T) {
@@ -87,5 +90,73 @@ func TestReadMarker_Missing(t *testing.T) {
 	_, err := readMarker(filepath.Join(t.TempDir(), "nope.json"))
 	if !os.IsNotExist(err) {
 		t.Errorf("missing file should yield IsNotExist, got %v", err)
+	}
+}
+
+func TestWithLockEx_SerializesExclusive(t *testing.T) {
+	dir := t.TempDir()
+	lock := filepath.Join(dir, "x.lock")
+	var concurrent atomic.Int32
+	var maxConcurrent atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = withLockEx(lock, func() error {
+				n := concurrent.Add(1)
+				for {
+					m := maxConcurrent.Load()
+					if n <= m || maxConcurrent.CompareAndSwap(m, n) {
+						break
+					}
+				}
+				time.Sleep(10 * time.Millisecond)
+				concurrent.Add(-1)
+				return nil
+			})
+		}()
+	}
+	wg.Wait()
+	if maxConcurrent.Load() != 1 {
+		t.Errorf("maxConcurrent = %d, want 1 (LOCK_EX should serialize)", maxConcurrent.Load())
+	}
+}
+
+func TestWithLockSh_AllowsMultiple(t *testing.T) {
+	dir := t.TempDir()
+	lock := filepath.Join(dir, "x.lock")
+	var concurrent atomic.Int32
+	var sawConcurrent atomic.Bool
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = withLockSh(lock, func() error {
+				n := concurrent.Add(1)
+				if n >= 2 {
+					sawConcurrent.Store(true)
+				}
+				time.Sleep(20 * time.Millisecond)
+				concurrent.Add(-1)
+				return nil
+			})
+		}()
+	}
+	wg.Wait()
+	if !sawConcurrent.Load() {
+		t.Error("LOCK_SH should allow concurrent holders")
+	}
+}
+
+func TestWithLockEx_CreatesLockFile(t *testing.T) {
+	dir := t.TempDir()
+	lock := filepath.Join(dir, "x.lock")
+	if err := withLockEx(lock, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lock); err != nil {
+		t.Errorf("lock file not created: %v", err)
 	}
 }
