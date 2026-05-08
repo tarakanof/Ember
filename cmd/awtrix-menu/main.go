@@ -40,7 +40,6 @@ Usage:
 }
 
 // stubs for later tasks
-func runApp()       { fmt.Fprintln(os.Stderr, "run: not yet implemented"); os.Exit(2) }
 func runInstall()   { fmt.Fprintln(os.Stderr, "install: not yet implemented"); os.Exit(2) }
 func runUninstall() { fmt.Fprintln(os.Stderr, "uninstall: not yet implemented"); os.Exit(2) }
 func runDoctor()    { fmt.Fprintln(os.Stderr, "doctor: not yet implemented"); os.Exit(2) }
