@@ -140,21 +140,21 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nonce := r.PostFormValue("nonce")
+	// Host check (defeat DNS rebinding) — Host must be exactly 127.0.0.1:<port>
+	host := r.Host
+	if !strings.HasPrefix(host, "127.0.0.1:") {
+		http.Error(w, "bad Host", 403)
+		return
+	}
 	// Origin check
+	expectedOrigin := "http://" + host
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		http.Error(w, "missing Origin", 403)
 		return
 	}
-	expectedOrigin := "http://" + r.Host
 	if origin != expectedOrigin {
 		http.Error(w, "bad Origin", 403)
-		return
-	}
-	// Host check (defeat DNS rebinding) — Host must be loopback
-	host := r.Host
-	if !strings.HasPrefix(host, "127.0.0.1:") && !strings.HasPrefix(host, "[::1]:") && host != "localhost" {
-		http.Error(w, "bad Host", 403)
 		return
 	}
 	// Nonce check (don't consume yet — only after success)
@@ -211,6 +211,14 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		rec.set("STATUS_TOKEN", tok)
 	default:
 		// blank field + no Clear checkbox: leave STATUS_TOKEN untouched
+	}
+	// Refuse if the config dir is wider than 0700 (spec: prevents same-laptop
+	// non-owner reads of producer.env's directory).
+	if info, err := os.Stat(filepath.Dir(h.envPath)); err == nil {
+		if info.IsDir() && info.Mode().Perm()&0o077 != 0 {
+			http.Error(w, "config dir is wider than 0700; run `chmod 0700 "+filepath.Dir(h.envPath)+"` and try again", 500)
+			return
+		}
 	}
 	// Atomic write
 	if err := writeEnvAtomic(h.envPath, rec.serialize()); err != nil {

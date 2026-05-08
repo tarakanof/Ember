@@ -94,6 +94,9 @@ func TestPrefs_PostMissingOrigin_403(t *testing.T) {
 
 func TestPrefs_PostValid_WritesEnvFileAtomicallyAndPreservesToken(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	envPath := filepath.Join(dir, "producer.env")
 	_ = os.WriteFile(envPath, []byte("STATUS_TOKEN=keepme\n"), 0o600)
 	h := newPrefsHandler(envPath)
@@ -155,6 +158,9 @@ func TestPrefs_PostStaleMtime_409(t *testing.T) {
 
 func TestPrefs_PostReusedNonce_403(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	envPath := filepath.Join(dir, "producer.env")
 	h := newPrefsHandler(envPath)
 	srv := httptest.NewServer(h)
@@ -202,6 +208,62 @@ func TestPrefs_RejectsNewlineInValue(t *testing.T) {
 	resp, _ := srv.Client().Do(req)
 	if resp.StatusCode != 400 {
 		t.Errorf("newline injection status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestPrefs_PostHostNotLoopbackIP_403(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "producer.env")
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	// Build a request with Host header forced to localhost:<port>
+	u, _ := url.Parse(srv.URL)
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {"0"},
+		"STATUS_SOURCE":     {"x"},
+		"STATUS_SERVER_URL": {"http://y"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "localhost:" + u.Port()
+	req.Header.Set("Origin", "http://localhost:"+u.Port())
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 403 {
+		t.Errorf("status = %d, want 403 (non-127.0.0.1 Host)", resp.StatusCode)
+	}
+}
+
+func TestPrefs_PostRefusesWideConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	// Make the config dir world-readable (simulate user mistake).
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	if err := os.WriteFile(envPath, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	postForm := url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {strconv.FormatInt(mtime, 10)},
+		"STATUS_SOURCE":     {"x"},
+		"STATUS_SERVER_URL": {"http://y"},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", srv.URL)
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 500 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("status = %d, want 500 (wide config dir); body=%s", resp.StatusCode, body)
 	}
 }
 
