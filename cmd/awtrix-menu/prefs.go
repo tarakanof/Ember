@@ -135,8 +135,11 @@ func (h *prefsHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 // renderError re-renders the prefs form with an error banner and the given
 // status code. The nonce is preserved so the user can fix the input and
-// resubmit without clicking Preferences… again.
-func (h *prefsHandler) renderError(w http.ResponseWriter, nonce string, statusCode int, errMsg string) {
+// resubmit without clicking Preferences… again. Submitted Source and
+// ServerURL values are echoed back so a single bad field doesn't silently
+// revert the user's other in-progress edits; TokenSet still reflects disk
+// state because the token value never round-trips through the form.
+func (h *prefsHandler) renderError(w http.ResponseWriter, r *http.Request, nonce string, statusCode int, errMsg string) {
 	rec, _ := readEnv(h.envPath)
 	if rec == nil {
 		rec = &envRec{}
@@ -145,13 +148,21 @@ func (h *prefsHandler) renderError(w http.ResponseWriter, nonce string, statusCo
 	if info, err := os.Stat(h.envPath); err == nil {
 		mt = info.ModTime().UnixNano()
 	}
+	src := r.PostFormValue("STATUS_SOURCE")
+	if src == "" {
+		src = rec.get("STATUS_SOURCE")
+	}
+	srvURL := r.PostFormValue("STATUS_SERVER_URL")
+	if srvURL == "" {
+		srvURL = rec.get("STATUS_SERVER_URL")
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(statusCode)
 	_ = formT.Execute(w, formData{
 		Nonce:     nonce,
 		EnvMtime:  strconv.FormatInt(mt, 10),
-		Source:    rec.get("STATUS_SOURCE"),
-		ServerURL: rec.get("STATUS_SERVER_URL"),
+		Source:    src,
+		ServerURL: srvURL,
 		TokenSet:  rec.get("STATUS_TOKEN") != "",
 		Err:       errMsg,
 	})
@@ -170,7 +181,7 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	if err := r.ParseForm(); err != nil {
 		// nonce not yet extracted — use empty string (nonce check hasn't run)
-		h.renderError(w, "", 400, "bad form: "+err.Error())
+		h.renderError(w, r, "", 400, "bad form: "+err.Error())
 		return
 	}
 	nonce := r.PostFormValue("nonce")
@@ -211,7 +222,7 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	// Validate env_mtime
 	wantMtime, err := strconv.ParseInt(r.PostFormValue("env_mtime"), 10, 64)
 	if err != nil {
-		h.renderError(w, nonce, 400, "bad env_mtime")
+		h.renderError(w, r, nonce, 400, "bad env_mtime")
 		return
 	}
 	curMtime := int64(0)
@@ -230,17 +241,17 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	tok := r.PostFormValue("STATUS_TOKEN")
 	clear := r.PostFormValue("clear_token") == "1"
 	if src == "" || srvURL == "" {
-		h.renderError(w, nonce, 400, "STATUS_SOURCE and STATUS_SERVER_URL are required")
+		h.renderError(w, r, nonce, 400, "STATUS_SOURCE and STATUS_SERVER_URL are required")
 		return
 	}
 	for _, v := range []string{src, srvURL, tok} {
 		if strings.ContainsAny(v, ctrlChars) {
-			h.renderError(w, nonce, 400, "values may not contain control characters")
+			h.renderError(w, r, nonce, 400, "values may not contain control characters")
 			return
 		}
 	}
 	if u, err := url.Parse(srvURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
-		h.renderError(w, nonce, 400, "STATUS_SERVER_URL must be http(s) with no embedded credentials")
+		h.renderError(w, r, nonce, 400, "STATUS_SERVER_URL must be http(s) with no embedded credentials")
 		return
 	}
 	// Token preservation rule

@@ -335,6 +335,51 @@ func TestPrefs_PostWrongPort_403(t *testing.T) {
 	}
 }
 
+func TestPrefs_PostValidationError_PreservesSubmittedValues(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	// Disk has the old values.
+	if err := os.WriteFile(envPath, []byte("STATUS_SOURCE=old-source\nSTATUS_SERVER_URL=http://old-host\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	// Submit a *new* source plus a malformed URL — validation fails on the URL,
+	// but the new source should be echoed back to the form so the user doesn't
+	// lose their edit.
+	postForm := url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {strconv.FormatInt(mtime, 10)},
+		"STATUS_SOURCE":     {"new-source-typed"},
+		"STATUS_SERVER_URL": {"ftp://nope"},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", srv.URL)
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 400 {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	if !strings.Contains(s, `value="new-source-typed"`) {
+		t.Errorf("rendered form lost the submitted source; body=%s", s)
+	}
+	if !strings.Contains(s, `value="ftp://nope"`) {
+		t.Errorf("rendered form lost the submitted server URL; body=%s", s)
+	}
+	if strings.Contains(s, `value="old-source"`) {
+		t.Errorf("rendered form should echo submitted values, not stale disk values; body=%s", s)
+	}
+}
+
 // helper used in tests
 func fmtInt64(n int64) string {
 	return strconv.FormatInt(n, 10)
