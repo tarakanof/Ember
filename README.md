@@ -82,17 +82,50 @@ The wire-protocol contract is in `docs/superpowers/specs/2026-05-08-protocol-con
 - Write endpoints require `Authorization: Bearer <STATUS_TOKEN>`. Empty `STATUS_TOKEN` disables auth.
 - Read endpoints (`GET /state`, `GET /healthz`) are always unauthenticated.
 
-## Docker
+## Container image
 
+The image is multi-stage and multi-arch (linux/amd64 + linux/arm64):
+alpine builder → distroless `static-debian12:nonroot` runtime, ~7 MB,
+runs as uid 65532, no shell.
+
+**Build (single-arch dev):**
 ```sh
-docker build -t awtrix-ai-status .
-docker run --rm -p 8080:8080 \
-  -e STATUS_TOKEN=your-token \
-  -v "$PWD/config.json:/config/config.json:ro" \
-  awtrix-ai-status
+docker buildx build --platform linux/amd64 -t awtrix-ai-status:dev --load .
 ```
 
-For Unraid, use a bind mount for `/config/config.json`, expose port `8080`, and set `STATUS_TOKEN` as an env var.
+**Build (multi-arch, intended target):**
+```sh
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t awtrix-ai-status:0.1.0 .
+```
+(no `--load` because Docker can't multi-load locally; use `--push` once
+a registry is wired up — Phase 2.)
+
+**Run:**
+```sh
+docker run --rm -d --name awtrix-ai-status \
+  -p 8080:8080 \
+  -e STATUS_TOKEN="$(cat ~/.config/awtrix-ai-status/token)" \
+  -v /path/to/config.json:/etc/awtrix-ai-status/config.json:ro \
+  awtrix-ai-status:dev
+```
+
+**Operator commands:**
+```sh
+docker exec awtrix-ai-status /awtrix-ai-status version
+docker exec awtrix-ai-status /awtrix-ai-status healthcheck && echo OK
+docker logs awtrix-ai-status
+```
+
+The binary's `healthcheck` subcommand defaults to probing
+`http://127.0.0.1:8080/healthz`. If you bind the server to a non-default
+port via `config.json`, set `STATUS_HEALTHCHECK_URL` to match.
+
+**Smoke test (requires Docker):**
+```sh
+./scripts/image-smoke.sh
+```
+The script skips with a friendly message when Docker is missing.
 
 ## Config
 
