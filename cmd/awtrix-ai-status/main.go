@@ -516,7 +516,24 @@ func aggregateLabel(waiting, running, errored, done int) string {
 	return strings.Join(parts, " ")
 }
 
-func (a *App) Publish(ctx context.Context) error {
+func (a *App) Publish(ctx context.Context) (pubErr error) {
+	defer func() {
+		a.mu.Lock()
+		a.lastPublishAt = time.Now().UTC()
+		a.lastPublishOK = pubErr == nil
+		if pubErr != nil {
+			a.lastPublishErr = pubErr.Error()
+		} else {
+			a.lastPublishErr = ""
+		}
+		a.mu.Unlock()
+		if pubErr != nil {
+			a.metrics.incPublishFail()
+		} else {
+			a.metrics.incPublishOK()
+		}
+	}()
+
 	cfg := a.cfg.Load()
 	snapshot := a.Snapshot()
 	payload := map[string]any{
@@ -528,18 +545,8 @@ func (a *App) Publish(ctx context.Context) error {
 		"center":   len(snapshot.Render.Text) <= 10,
 	}
 
-	pubErr := a.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload)
-	a.mu.Lock()
-	a.lastPublishAt = time.Now().UTC()
-	a.lastPublishOK = pubErr == nil
-	if pubErr != nil {
-		a.lastPublishErr = pubErr.Error()
-	} else {
-		a.lastPublishErr = ""
-	}
-	a.mu.Unlock()
-	if pubErr != nil {
-		return fmt.Errorf("publish custom app: %w", pubErr)
+	if err := a.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload); err != nil {
+		return fmt.Errorf("publish custom app: %w", err)
 	}
 	if err := a.publishIndicators(ctx, snapshot.Render); err != nil {
 		return err

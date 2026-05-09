@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -398,5 +400,79 @@ func TestRoutes_RequestCountersWireUpEndToEnd(t *testing.T) {
 	wantLine := `awtrix_requests_total{pattern="GET /healthz",status="200"} 4`
 	if !strings.Contains(string(body), wantLine) {
 		t.Errorf("body missing %q\nbody:\n%s", wantLine, body)
+	}
+}
+
+// fakePublisher returns whichever error is set; nil means success.
+type fakePublisher struct {
+	customAppErr error
+	indicatorErr error
+	notifyErr    error
+}
+
+func (p *fakePublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+	return p.customAppErr
+}
+func (p *fakePublisher) Notify(ctx context.Context, payload map[string]any) error {
+	return p.notifyErr
+}
+func (p *fakePublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
+	return p.indicatorErr
+}
+
+func TestPublish_IncrementsOKCounter(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	app := NewApp(cfg, &fakePublisher{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := app.Publish(context.Background()); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if got := app.metrics.publishTotalOK.Load(); got != 1 {
+		t.Errorf("publishTotalOK = %d, want 1", got)
+	}
+	if got := app.metrics.publishTotalFail.Load(); got != 0 {
+		t.Errorf("publishTotalFail = %d, want 0", got)
+	}
+}
+
+func TestPublish_IncrementsFailCounter_OnCustomAppErr(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	app := NewApp(cfg, &fakePublisher{customAppErr: errors.New("boom")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := app.Publish(context.Background()); err == nil {
+		t.Fatal("Publish: expected error, got nil")
+	}
+	if got := app.metrics.publishTotalFail.Load(); got != 1 {
+		t.Errorf("publishTotalFail = %d, want 1", got)
+	}
+	if got := app.metrics.publishTotalOK.Load(); got != 0 {
+		t.Errorf("publishTotalOK = %d, want 0", got)
+	}
+}
+
+func TestPublish_IncrementsFailCounter_OnIndicatorErr(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	app := NewApp(cfg, &fakePublisher{indicatorErr: errors.New("boom")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := app.Publish(context.Background()); err == nil {
+		t.Fatal("Publish: expected error, got nil")
+	}
+	if got := app.metrics.publishTotalFail.Load(); got != 1 {
+		t.Errorf("publishTotalFail = %d, want 1 (Indicator failure must route to fail counter)", got)
+	}
+	// CRITICAL: lastPublishOK must follow the aggregate result, not just CustomApp.
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if app.lastPublishOK {
+		t.Error("lastPublishOK = true; want false when Indicator failed (Publish returned error)")
+	}
+	if app.lastPublishErr == "" {
+		t.Error("lastPublishErr is empty; want the Indicator error message")
 	}
 }
