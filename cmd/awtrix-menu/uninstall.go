@@ -29,7 +29,8 @@ func runUninstall() {
 	// 1. bootout (tolerate not-loaded)
 	_ = exec.Command("launchctl", "bootout", target).Run()
 	// 2. wait up to 2s for the process to exit (pgrep poll)
-	waitForProcessExit(menuLabel, 2*time.Second)
+	// Pattern matches ProgramArguments: ["<bin>", "run"] — see LaunchAgent plist.
+	waitForProcessExit("awtrix-menu run", 2*time.Second)
 	// 3. remove plist
 	_ = os.Remove(plistPath)
 	// 4. remove binary(ies) — both selfBin and plistBin if they differ.

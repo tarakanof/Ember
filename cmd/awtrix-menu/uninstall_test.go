@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestReadPlistBinary_RoundTrip(t *testing.T) {
@@ -23,6 +24,17 @@ func TestReadPlistBinary_RoundTrip(t *testing.T) {
 func TestReadPlistBinary_MissingFile(t *testing.T) {
 	if got := readPlistBinary("/nonexistent/plist.xml"); got != "" {
 		t.Errorf("missing file → %q, want \"\"", got)
+	}
+}
+
+func TestWaitForProcessExit_ReturnsWhenNoMatch(t *testing.T) {
+	start := time.Now()
+	waitForProcessExit("definitely-not-a-real-process-12345", 500*time.Millisecond)
+	elapsed := time.Since(start)
+	// pgrep exits 1 immediately when nothing matches, so we should return
+	// on the very first iteration — well under the 500ms timeout.
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("waitForProcessExit took %v; should return quickly when nothing matches", elapsed)
 	}
 }
 
