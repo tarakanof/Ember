@@ -631,6 +631,13 @@ func (a *App) StartPublisher(ctx context.Context) {
 	}
 }
 
+func handleMetrics(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		app.metrics.render(w, app)
+	}
+}
+
 func (a *App) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -640,6 +647,7 @@ func (a *App) routes() http.Handler {
 		writeJSON(w, http.StatusOK, a.Snapshot())
 	})
 	mux.Handle("GET /version", handleVersion(a.versionInfo))
+	mux.Handle("GET /metrics", handleMetrics(a))
 
 	writeMux := http.NewServeMux()
 	writeMux.Handle("POST /v1/status", rateLimit(a, http.HandlerFunc(a.handleStatus)))
@@ -653,7 +661,9 @@ func (a *App) routes() http.Handler {
 	adminMux.Handle("POST /admin/reload", handleAdminReload(a))
 	mux.Handle("/admin/", adminRequireAuth(a, a.logger, adminMux))
 
-	return loggingMiddleware(a.logger, mux)
+	// Order: logging outermost so the access log sees the original
+	// response status; observeRequests inside so it can read the same.
+	return loggingMiddleware(a.logger, observeRequests(a, mux))
 }
 
 func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {

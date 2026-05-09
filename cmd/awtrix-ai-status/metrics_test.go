@@ -334,3 +334,69 @@ func TestStatusRecorder_FirstWriteHeaderWins(t *testing.T) {
 		t.Errorf("status = %d, want 418 (first WriteHeader wins)", rec.status)
 	}
 }
+
+func TestMetricsEndpoint_PublicAndPlainText(t *testing.T) {
+	app := newAppForMetrics(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, err := srv.Client().Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "text/plain; version=0.0.4; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/plain; version=0.0.4; charset=utf-8", got)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "awtrix_build_info{") {
+		t.Errorf("body missing awtrix_build_info; got:\n%s", body)
+	}
+}
+
+func TestMetricsEndpoint_NotRateLimited(t *testing.T) {
+	app := newAppForMetrics(t)
+	// Cripple the bucket so any rate-limited route would 429 immediately.
+	cfg := *app.cfg.Load()
+	cfg.RateLimit.Burst = 1
+	cfg.RateLimit.RefillPerSec = 0
+	app.cfg.Store(&cfg)
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	for i := 0; i < 50; i++ {
+		resp, err := srv.Client().Get(srv.URL + "/metrics")
+		if err != nil {
+			t.Fatalf("scrape %d: %v", i, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Fatalf("scrape %d: got 429 (read endpoint must not be rate-limited)", i)
+		}
+	}
+}
+
+func TestRoutes_RequestCountersWireUpEndToEnd(t *testing.T) {
+	app := newAppForMetrics(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// healthz is a simple GET that exercises the parent mux directly.
+	for i := 0; i < 4; i++ {
+		resp, _ := srv.Client().Get(srv.URL + "/healthz")
+		resp.Body.Close()
+	}
+
+	// Now scrape /metrics and confirm /healthz shows up.
+	resp, _ := srv.Client().Get(srv.URL + "/metrics")
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	wantLine := `awtrix_requests_total{pattern="GET /healthz",status="200"} 4`
+	if !strings.Contains(string(body), wantLine) {
+		t.Errorf("body missing %q\nbody:\n%s", wantLine, body)
+	}
+}
