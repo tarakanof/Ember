@@ -3,7 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 if ! command -v go >/dev/null 2>&1; then
-  echo "go toolchain not found; install Go 1.22+ first" >&2
+  echo "go toolchain not found; install Go 1.26+ first (matches repo go.mod)" >&2
   exit 1
 fi
 

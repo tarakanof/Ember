@@ -6,8 +6,8 @@ item that opens a hardened localhost form for editing `producer.env`.
 
 ## Install
 
-Requires Go 1.22+ and macOS. Sub-project B (the producer) should already be
-installed and configured.
+Requires Go 1.26+ and macOS (matches the repo's `go.mod`). Sub-project B
+(the producer) should already be installed and configured.
 
 ```sh
 ./apps/awtrix-menu/install.sh
