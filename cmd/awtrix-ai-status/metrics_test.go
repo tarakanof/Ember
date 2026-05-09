@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -236,5 +238,99 @@ func TestRender_LastPublishUnixZeroWhenNoPublish(t *testing.T) {
 	app.metrics.render(&buf, app)
 	if !strings.Contains(buf.String(), "awtrix_last_publish_unix 0") {
 		t.Errorf("body should show last_publish_unix 0 before any publish:\n%s", buf.String())
+	}
+}
+
+func TestObserveRequests_CountsByPattern(t *testing.T) {
+	app := newAppForMetrics(t)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /a", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("POST /b", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) })
+
+	srv := httptest.NewServer(observeRequests(app, mux))
+	defer srv.Close()
+
+	for i := 0; i < 3; i++ {
+		resp, _ := srv.Client().Get(srv.URL + "/a")
+		resp.Body.Close()
+	}
+	resp, _ := srv.Client().Post(srv.URL+"/b", "application/json", strings.NewReader("{}"))
+	resp.Body.Close()
+	resp, _ = srv.Client().Get(srv.URL + "/unknown") // no handler — pattern stays ""
+	resp.Body.Close()
+
+	counts := map[requestKey]int64{}
+	app.metrics.requestsTotal.Range(func(k, v any) bool {
+		counts[k.(requestKey)] = loadAtomicInt(v)
+		return true
+	})
+
+	if got := counts[requestKey{"GET /a", 200}]; got != 3 {
+		t.Errorf("GET /a 200 = %d, want 3 (counts=%v)", got, counts)
+	}
+	if got := counts[requestKey{"POST /b", 400}]; got != 1 {
+		t.Errorf("POST /b 400 = %d, want 1 (counts=%v)", got, counts)
+	}
+	if got := counts[requestKey{"<unmatched>", 404}]; got != 1 {
+		t.Errorf("<unmatched> 404 = %d, want 1 (counts=%v)", got, counts)
+	}
+}
+
+func TestObserveRequests_DefaultsTo200WhenHandlerSkipsWriteHeader(t *testing.T) {
+	app := newAppForMetrics(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /implicit", func(w http.ResponseWriter, r *http.Request) {
+		// Don't call WriteHeader; just write a body. Go's contract says
+		// the implicit status is 200 — observeRequests must record that.
+		_, _ = w.Write([]byte("hi"))
+	})
+	srv := httptest.NewServer(observeRequests(app, mux))
+	defer srv.Close()
+
+	resp, _ := srv.Client().Get(srv.URL + "/implicit")
+	resp.Body.Close()
+
+	got := int64(-1)
+	app.metrics.requestsTotal.Range(func(k, v any) bool {
+		if k.(requestKey) == (requestKey{"GET /implicit", 200}) {
+			got = loadAtomicInt(v)
+		}
+		return true
+	})
+	if got != 1 {
+		t.Errorf("implicit-200 counter = %d, want 1", got)
+	}
+}
+
+func TestObserveRequests_SkipsMetricsScrape(t *testing.T) {
+	app := newAppForMetrics(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := httptest.NewServer(observeRequests(app, mux))
+	defer srv.Close()
+
+	for i := 0; i < 5; i++ {
+		resp, _ := srv.Client().Get(srv.URL + "/metrics")
+		resp.Body.Close()
+	}
+	count := 0
+	app.metrics.requestsTotal.Range(func(k, _ any) bool {
+		count++
+		return true
+	})
+	if count != 0 {
+		t.Errorf("expected 0 series after /metrics scrapes; got %d", count)
+	}
+}
+
+func TestStatusRecorder_FirstWriteHeaderWins(t *testing.T) {
+	rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), status: http.StatusOK}
+	rec.WriteHeader(http.StatusTeapot)
+	rec.WriteHeader(http.StatusInternalServerError)
+	if rec.status != http.StatusTeapot {
+		t.Errorf("status = %d, want 418 (first WriteHeader wins)", rec.status)
 	}
 }

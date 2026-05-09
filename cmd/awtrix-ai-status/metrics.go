@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -181,4 +182,60 @@ func (m *metrics) render(w io.Writer, app *App) {
 	fmt.Fprintln(w, "# TYPE awtrix_build_info gauge")
 	fmt.Fprintf(w, "awtrix_build_info{revision=\"%s\",go_version=\"%s\"} 1\n",
 		promLabelValue(rev), promLabelValue(v.GoVersion))
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the first
+// WriteHeader call (mirrors net/http's "only the first WriteHeader takes
+// effect" contract). Implements Unwrap so http.NewResponseController can
+// reach the underlying writer for Flusher/Hijacker if a future handler
+// needs them.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	wrote  bool
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	if r.wrote {
+		return
+	}
+	r.status = code
+	r.wrote = true
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// Write triggers an implicit WriteHeader(200) per Go's contract; capture
+// it so handlers that skip an explicit WriteHeader still record 200.
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if !r.wrote {
+		r.WriteHeader(http.StatusOK)
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+// observeRequests is HTTP middleware that captures (matched-pattern, status)
+// for every request and increments the awtrix_requests_total counter map.
+// It composes inside loggingMiddleware so the access log keeps recording
+// the status the inner handler wrote.
+//
+// /metrics scrapes are deliberately not self-counted — they're regular
+// every-15s requests that would dominate the counters without telling us
+// anything new.
+//
+// r.Pattern is set by Go 1.22 ServeMux *before* the inner handler runs, so
+// reading it after next.ServeHTTP returns is safe. For unauthenticated
+// requests rejected by requireAuth/adminRequireAuth, r.Pattern stays at
+// the outer prefix ("/v1/" or "/admin/"); per-route 401 counts are an
+// explicit non-feature.
+func observeRequests(app *App, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		if r.URL.Path == "/metrics" {
+			return
+		}
+		app.metrics.incRequest(r.Pattern, rec.status)
+	})
 }
