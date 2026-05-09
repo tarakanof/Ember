@@ -136,6 +136,67 @@ The `doctor` subcommand defaults to `http://127.0.0.1:8080/admin/doctor`.
 Override with `--server-url`. Use `--offline` for pre-flight checks before
 starting the server.
 
+**TLS (optional):** set both `STATUS_TLS_CERT_FILE` and `STATUS_TLS_KEY_FILE`
+in the container environment to enable HTTPS. Setting only one is a
+startup error; setting neither keeps the server on plain HTTP. The cert is
+loaded once at startup — rotation requires a container restart. For a
+self-signed homelab cert, issue it with `subjectAltName=IP:127.0.0.1` so
+the in-image healthcheck can validate the loopback target. Two helper
+env vars exist for the in-image healthcheck client:
+
+- `STATUS_HEALTHCHECK_CA_FILE` — path to a PEM bundle to add to the trust
+  pool (e.g. your homelab CA).
+- `STATUS_HEALTHCHECK_INSECURE=1` — skip TLS verification entirely. Fine
+  on a trusted LAN; the recommended easy path for self-signed setups.
+
+The runtime image runs as UID 65532 (distroless `nonroot`). A cert mounted
+read-only as `0600 root:root` will fail to read. Either `chmod 0644` the
+files, `chown 65532` them, or drop them into a volume that the runtime
+can read. Example:
+
+```sh
+docker run --rm -d --name awtrix-ai-status \
+  -p 8443:8080 \
+  -e STATUS_TOKEN="$(cat ~/.config/awtrix-ai-status/token)" \
+  -e STATUS_TLS_CERT_FILE=/certs/cert.pem \
+  -e STATUS_TLS_KEY_FILE=/certs/key.pem \
+  -e STATUS_HEALTHCHECK_INSECURE=1 \
+  -v /path/to/config.json:/etc/awtrix-ai-status/config.json:ro \
+  -v /path/to/certs:/certs:ro \
+  awtrix-ai-status:dev
+```
+
+`/admin/doctor`'s `http_listening` detail reflects the live scheme
+(`scheme=https` when TLS is on, `scheme=http` otherwise).
+
+**Prometheus `/metrics`:** the server always exposes `GET /metrics` on
+the public mux (no auth, never rate-limited). The body is Prometheus
+text exposition format:
+
+- counters: `awtrix_requests_total{pattern,status}`,
+  `awtrix_publish_total{result}`, `awtrix_rate_limit_denied_total`,
+  `awtrix_sessions_evicted_total`
+- gauges: `awtrix_sessions_active`, `awtrix_uptime_seconds`,
+  `awtrix_last_publish_unix`, `awtrix_last_publish_ok`,
+  `awtrix_ratelimit_buckets`, `awtrix_build_info{revision,go_version}`
+
+Cardinality is bounded — request counts are labelled by Go 1.22's
+matched route pattern, not by URL path, so a 404 spammer can't blow up
+series. Requests rejected by `requireAuth` / `adminRequireAuth` count
+against the outer prefix (`/v1/`, `/admin/`) rather than the specific
+route. The endpoint deliberately doesn't export Go runtime metrics
+(goroutines, GC) — that would require `prometheus/client_golang`,
+which we skip in line with the stdlib-only choice.
+
+Scrape config snippet (Prometheus):
+
+```yaml
+- job_name: awtrix-ai-status
+  scrape_interval: 15s
+  static_configs:
+    - targets: ['homelab.lan:8080']
+```
+
 **Rate limiting:** the server enforces a per-source-IP token-bucket
 rate limit on `/v1/*` writes. Defaults: 10-token burst, 2 tokens/sec
 sustained refill per IP, 5-minute idle-bucket eviction. `/admin/*`
