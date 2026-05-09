@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -244,9 +245,11 @@ type Render struct {
 }
 
 type App struct {
-	cfg       Config
-	publisher Publisher
-	logger    *slog.Logger
+	cfg          atomic.Pointer[Config] // hot-swappable; read with cfg.Load() per request
+	configPath   string                 // resolved at startup; "" when running on defaults
+	configSource string                 // "flag" | "env" | "cwd" | "defaults"
+	publisher    Publisher
+	logger       *slog.Logger
 
 	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished
 	sessions      map[string]Session
@@ -255,12 +258,13 @@ type App struct {
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
-	return &App{
-		cfg:       cfg,
+	a := &App{
 		publisher: publisher,
 		logger:    logger,
 		sessions:  make(map[string]Session),
 	}
+	a.cfg.Store(&cfg)
+	return a
 }
 
 func (a *App) Upsert(req StatusRequest) Render {
@@ -310,8 +314,9 @@ func (a *App) Snapshot() Snapshot {
 }
 
 func (a *App) renderLocked(now time.Time) Render {
-	staleAfter := time.Duration(a.cfg.Display.StaleSeconds) * time.Second
-	doneTTL := time.Duration(a.cfg.Display.DoneTTLSeconds) * time.Second
+	cfg := a.cfg.Load()
+	staleAfter := time.Duration(cfg.Display.StaleSeconds) * time.Second
+	doneTTL := time.Duration(cfg.Display.DoneTTLSeconds) * time.Second
 	for key, session := range a.sessions {
 		age := now.Sub(session.UpdatedAt)
 		var reaped bool
@@ -373,7 +378,7 @@ func (a *App) renderLocked(now time.Time) Render {
 		color = "#707070"
 	default:
 		return Render{
-			Text:        a.cfg.Display.IdleText,
+			Text:        cfg.Display.IdleText,
 			Color:       "#707070",
 			ActiveTotal: activeTotal,
 		}
@@ -468,23 +473,24 @@ func aggregateLabel(waiting, running, errored, done int) string {
 }
 
 func (a *App) Publish(ctx context.Context) error {
+	cfg := a.cfg.Load()
 	snapshot := a.Snapshot()
 	payload := map[string]any{
 		"text":     snapshot.Render.Text,
 		"color":    snapshot.Render.Color,
 		"textCase": 2,
-		"duration": max(5, a.cfg.Display.RefreshSeconds+2),
-		"lifetime": a.cfg.Display.StaleSeconds + a.cfg.Display.DoneTTLSeconds + 10,
+		"duration": max(5, cfg.Display.RefreshSeconds+2),
+		"lifetime": cfg.Display.StaleSeconds + cfg.Display.DoneTTLSeconds + 10,
 		"center":   len(snapshot.Render.Text) <= 10,
 	}
 
-	if err := a.publisher.CustomApp(ctx, a.cfg.AWTRIX.AppName, payload); err != nil {
+	if err := a.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload); err != nil {
 		return fmt.Errorf("publish custom app: %w", err)
 	}
 	if err := a.publishIndicators(ctx, snapshot.Render); err != nil {
 		return err
 	}
-	if a.cfg.Display.NotifyOnWaiting {
+	if cfg.Display.NotifyOnWaiting {
 		if err := a.maybeNotifyWaiting(ctx, snapshot); err != nil {
 			return err
 		}
@@ -551,7 +557,7 @@ func (a *App) maybeNotifyWaiting(ctx context.Context, snapshot Snapshot) error {
 }
 
 func (a *App) StartPublisher(ctx context.Context) {
-	refresh := time.Duration(a.cfg.Display.RefreshSeconds) * time.Second
+	refresh := time.Duration(a.cfg.Load().Display.RefreshSeconds) * time.Second
 	ticker := time.NewTicker(refresh)
 	defer ticker.Stop()
 
@@ -585,7 +591,7 @@ func (a *App) routes() http.Handler {
 	writeMux.HandleFunc("DELETE /v1/status", a.handleDeleteStatus)
 	writeMux.HandleFunc("POST /v1/clear", a.handleClear)
 	writeMux.HandleFunc("POST /v1/notify", a.handleNotify)
-	mux.Handle("/v1/", requireAuth(a.cfg.Auth.StatusToken, a.logger, writeMux))
+	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	return loggingMiddleware(a.logger, mux)
 }
@@ -733,12 +739,19 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-func requireAuth(token string, logger *slog.Logger, next http.Handler) http.Handler {
-	if token == "" {
-		return next
-	}
-	expected := "Bearer " + token
+// requireAuth wraps next with bearer-token auth. Reads the token from
+// app.cfg.Load() per request so token rotation via container restart
+// (or future /admin/reload) takes effect for the next request after the
+// swap. Empty token preserves the existing dev-mode policy: writes
+// remain open. (Admin endpoints get the stricter adminRequireAuth.)
+func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := app.cfg.Load().Auth.StatusToken
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		expected := "Bearer " + token
 		if r.Header.Get("Authorization") != expected {
 			logger.InfoContext(r.Context(), "auth rejected",
 				"remote_addr", r.RemoteAddr,
@@ -839,11 +852,12 @@ func main() {
 		}
 	}
 
-	configPath := flag.String("config", "", "path to config JSON file")
+	configFlag := flag.String("config", "", "path to config JSON file")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	cfg, err := loadConfig(*configPath)
+	configPath, configSource := resolveConfigPath(*configFlag)
+	cfg, err := loadConfig(*configFlag)
 	if err != nil {
 		logger.Error("load config failed", "err", err)
 		os.Exit(1)
@@ -856,6 +870,8 @@ func main() {
 	}
 
 	app := NewApp(cfg, publisher, logger)
+	app.configPath = configPath
+	app.configSource = configSource
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
