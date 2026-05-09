@@ -78,4 +78,14 @@ fi
 rm -f /tmp/printcfg.json
 echo "smoke: --print-config OK"
 
+# - /metrics endpoint should return a Prometheus exposition body that
+#   includes awtrix_build_info (always present, regardless of activity).
+metrics_body="$(curl -fsS http://localhost:18080/metrics)"
+if ! echo "$metrics_body" | grep -q "awtrix_build_info"; then
+  echo "smoke: FAIL — /metrics body missing awtrix_build_info" >&2
+  echo "$metrics_body" >&2
+  exit 1
+fi
+echo "smoke: /metrics OK"
+
 echo "smoke: PASS"
