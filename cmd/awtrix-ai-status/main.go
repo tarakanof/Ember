@@ -883,7 +883,13 @@ func main() {
 	}
 
 	configFlag := flag.String("config", "", "path to config JSON file")
+	printConfig := flag.Bool("print-config", false, "print loaded config (post-defaults, secrets redacted) to stdout and exit")
 	flag.Parse()
+
+	if *printConfig {
+		runPrintConfig(*configFlag)
+		return
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	configPath, configSource := resolveConfigPath(*configFlag)
