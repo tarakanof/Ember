@@ -789,7 +789,11 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := dec.Decode(dst); err != nil {
 		return err
 	}
-	if dec.More() {
+	// Trailing-tokens detection: a second Decode must return io.EOF.
+	// dec.More() (the prior implementation) only reports true for nested
+	// continuations (mid-array/mid-object), not for trailing top-level
+	// values like {...}{...}.
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return errors.New("unexpected trailing tokens after JSON body")
 	}
 	return nil

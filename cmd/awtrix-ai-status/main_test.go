@@ -679,3 +679,30 @@ func TestHandleClear_413OnOversizeBody(t *testing.T) {
 		t.Errorf("oversized /v1/clear body: code = %d, want 413 or 400", resp.StatusCode)
 	}
 }
+
+func TestDecodeJSON_RejectsTrailingValue(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, discardLogger())
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// Two top-level JSON values back-to-back.
+	body := `{"source":"a","tool":"t","session":"s","state":"running"}{"x":1}`
+	req, err := http.NewRequest("POST", srv.URL+"/v1/status", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("trailing value: code = %d, want 400", resp.StatusCode)
+	}
+}
