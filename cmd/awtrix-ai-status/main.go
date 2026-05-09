@@ -253,6 +253,7 @@ type App struct {
 	logger       *slog.Logger
 	listener     net.Listener // bound HTTP listener; captured at startup for doctor introspection
 	versionInfo  versionInfo  // computed once at startup; served by /version
+	startedAt    time.Time    // set in NewApp; used by doctor uptime check
 
 	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished, lastPublish*
 	sessions      map[string]Session
@@ -271,6 +272,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		logger:      logger,
 		sessions:    make(map[string]Session),
 		versionInfo: computeVersionInfo(),
+		startedAt:   time.Now(),
 	}
 	a.cfg.Store(&cfg)
 	if hp, ok := publisher.(*HTTPPublisher); ok {
