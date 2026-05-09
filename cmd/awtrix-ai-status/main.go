@@ -40,10 +40,18 @@ func (a AuthConfig) LogValue() slog.Value {
 }
 
 type Config struct {
-	HTTP    HTTPConfig    `json:"http"`
-	AWTRIX  AWTRIXConfig  `json:"awtrix"`
-	Auth    AuthConfig    `json:"auth"`
-	Display DisplayConfig `json:"display"`
+	HTTP      HTTPConfig      `json:"http"`
+	AWTRIX    AWTRIXConfig    `json:"awtrix"`
+	Auth      AuthConfig      `json:"auth"`
+	Display   DisplayConfig   `json:"display"`
+	RateLimit RateLimitConfig `json:"rate_limit"`
+}
+
+type RateLimitConfig struct {
+	Disabled         bool    `json:"disabled"`
+	Burst            int     `json:"burst"`
+	RefillPerSec     float64 `json:"refill_per_sec"`
+	IdleEvictSeconds int     `json:"idle_evict_seconds"`
 }
 
 type HTTPConfig struct {
@@ -85,6 +93,12 @@ func defaultConfig() Config {
 			HeartbeatSeconds: 10,
 			RefreshSeconds:   5,
 			NotifyOnWaiting:  false,
+		},
+		RateLimit: RateLimitConfig{
+			Disabled:         false,
+			Burst:            10,
+			RefillPerSec:     2.0,
+			IdleEvictSeconds: 300,
 		},
 	}
 }
@@ -141,6 +155,16 @@ func (c *Config) applyDefaults() {
 	if c.Auth.StatusToken == "" {
 		c.Auth.StatusToken = os.Getenv(c.Auth.StatusTokenEnv)
 	}
+	if c.RateLimit.Burst == 0 {
+		c.RateLimit.Burst = 10
+	}
+	if c.RateLimit.RefillPerSec == 0 {
+		c.RateLimit.RefillPerSec = 2.0
+	}
+	if c.RateLimit.IdleEvictSeconds == 0 {
+		c.RateLimit.IdleEvictSeconds = 300
+	}
+	// Disabled is a bool — zero value is false, the right default.
 }
 
 type StatusRequest struct {
