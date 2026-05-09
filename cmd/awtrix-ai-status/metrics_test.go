@@ -394,7 +394,10 @@ func TestRoutes_RequestCountersWireUpEndToEnd(t *testing.T) {
 	}
 
 	// Now scrape /metrics and confirm /healthz shows up.
-	resp, _ := srv.Client().Get(srv.URL + "/metrics")
+	resp, err := srv.Client().Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatalf("scrape /metrics: %v", err)
+	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	wantLine := `awtrix_requests_total{pattern="GET /healthz",status="200"} 4`
