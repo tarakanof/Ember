@@ -83,7 +83,14 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	if app == nil || app.listener == nil {
 		res.Checks["http_listening"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
-		res.Checks["http_listening"] = CheckResult{Status: StatusOK, Detail: "addr=" + app.listener.Addr().String()}
+		scheme := "http"
+		if os.Getenv(envTLSCertFile) != "" {
+			scheme = "https"
+		}
+		res.Checks["http_listening"] = CheckResult{
+			Status: StatusOK,
+			Detail: fmt.Sprintf("addr=%s scheme=%s", app.listener.Addr().String(), scheme),
+		}
 	}
 
 	// 5. sessions_summary  (skipped offline)

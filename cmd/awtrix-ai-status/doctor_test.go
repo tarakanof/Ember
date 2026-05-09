@@ -251,3 +251,39 @@ func TestDoctorCLI_AuthFailureNoFallback(t *testing.T) {
 		t.Errorf("stderr should mention 'auth failure'; got: %s", stderr.String())
 	}
 }
+
+func TestRunDoctorChecks_HTTPListening_TLSScheme(t *testing.T) {
+	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer awtrix.Close()
+
+	app := newAppForDoctor(t, awtrix.URL)
+
+	t.Setenv("STATUS_TLS_CERT_FILE", "/some/path")
+	t.Setenv("STATUS_TLS_KEY_FILE", "/some/path")
+
+	res := runDoctorChecks(context.Background(), app, app.cfg.Load())
+	got := res.Checks["http_listening"].Detail
+	if !strings.Contains(got, "scheme=https") {
+		t.Errorf("http_listening detail = %q; want it to contain scheme=https", got)
+	}
+}
+
+func TestRunDoctorChecks_HTTPListening_PlainScheme(t *testing.T) {
+	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer awtrix.Close()
+
+	app := newAppForDoctor(t, awtrix.URL)
+
+	t.Setenv("STATUS_TLS_CERT_FILE", "")
+	t.Setenv("STATUS_TLS_KEY_FILE", "")
+
+	res := runDoctorChecks(context.Background(), app, app.cfg.Load())
+	got := res.Checks["http_listening"].Detail
+	if !strings.Contains(got, "scheme=http") || strings.Contains(got, "scheme=https") {
+		t.Errorf("http_listening detail = %q; want it to contain scheme=http (and not https)", got)
+	}
+}
