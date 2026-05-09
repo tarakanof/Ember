@@ -474,6 +474,41 @@ func TestPrefs_ConcurrentPosts_SameNonce_OnlyOneSucceeds(t *testing.T) {
 	}
 }
 
+func TestPrefs_PostRefusesUnreadableEnv(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	// Write a file, then chmod 000 so readEnv fails with permission denied.
+	if err := os.WriteFile(envPath, []byte("STATUS_SOURCE=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(envPath, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(envPath, 0o600) })
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	postForm := url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {strconv.FormatInt(mtime, 10)},
+		"STATUS_SOURCE":     {"y"},
+		"STATUS_SERVER_URL": {"http://z"},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", srv.URL)
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 500 {
+		t.Errorf("status = %d, want 500 (unreadable env)", resp.StatusCode)
+	}
+}
+
 // helper used in tests
 func fmtInt64(n int64) string {
 	return strconv.FormatInt(n, 10)

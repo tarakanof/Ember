@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -301,7 +303,11 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	}
 	// Token preservation rule
 	rec, err := readEnv(h.envPath)
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		http.Error(w, "could not read existing producer.env: "+err.Error(), 500)
+		return
+	}
+	if rec == nil {
 		rec = &envRec{}
 	}
 	rec.set("STATUS_SOURCE", src)
