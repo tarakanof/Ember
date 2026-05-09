@@ -20,6 +20,8 @@ func main() {
 		runUninstall()
 	case "doctor":
 		runDoctor()
+	case "version", "-v", "--version":
+		runVersion()
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -36,5 +38,6 @@ Usage:
   awtrix-menu install    # plist + launchctl bootstrap
   awtrix-menu uninstall  # reverse install
   awtrix-menu doctor     # show config + state health
+  awtrix-menu version    # print build info
   awtrix-menu help       # this help`)
 }
