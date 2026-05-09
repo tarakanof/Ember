@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -176,5 +178,179 @@ func TestAdminDoctor_FailReturns503(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503 (any check failed)", resp.StatusCode)
+	}
+}
+
+func writeCfg(t *testing.T, dir string, body string) string {
+	t.Helper()
+	p := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func newAppForReload(t *testing.T, cfgBody string) (*App, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := writeCfg(t, dir, cfgBody)
+
+	cfg, err := parseConfigFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.applyDefaults()
+	if err := validateConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Auth.StatusToken = "tok"
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app.configPath = path
+	app.configSource = "flag"
+	return app, path
+}
+
+func TestAdminReload_HappyPath(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"old"}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if err := os.WriteFile(path, []byte(`{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"new"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var body200 struct {
+		Reloaded      bool     `json:"reloaded"`
+		ChangedFields []string `json:"changed_fields"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body200); err != nil {
+		t.Fatal(err)
+	}
+	if !body200.Reloaded || len(body200.ChangedFields) != 1 || body200.ChangedFields[0] != "display.idle_text" {
+		t.Errorf("body = %#v, want reloaded=true changed=[display.idle_text]", body200)
+	}
+	if app.cfg.Load().Display.IdleText != "new" {
+		t.Errorf("cfg.Load().Display.IdleText = %q, want \"new\"", app.cfg.Load().Display.IdleText)
+	}
+}
+
+func TestAdminReload_NonReloadable409(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if err := os.WriteFile(path, []byte(`{"awtrix":{"http_base_url":"http://x"},"display":{"refresh_seconds":999}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("status = %d, want 409", resp.StatusCode)
+	}
+	if app.cfg.Load().Display.RefreshSeconds == 999 {
+		t.Errorf("cfg unchanged check failed; got %d", app.cfg.Load().Display.RefreshSeconds)
+	}
+}
+
+func TestAdminReload_ParseError400(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if err := os.WriteFile(path, []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestAdminReload_ValidationError422(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if err := os.WriteFile(path, []byte(`{"awtrix":{"http_base_url":""}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", resp.StatusCode)
+	}
+}
+
+func TestAdminReload_FromDefaults412(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.Auth.StatusToken = "tok"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app.configPath = ""
+	app.configSource = "defaults"
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusPreconditionFailed {
+		t.Errorf("status = %d, want 412", resp.StatusCode)
 	}
 }

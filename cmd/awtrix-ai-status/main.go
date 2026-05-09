@@ -620,6 +620,7 @@ func (a *App) routes() http.Handler {
 
 	adminMux := http.NewServeMux()
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))
+	adminMux.Handle("POST /admin/reload", handleAdminReload(a))
 	mux.Handle("/admin/", adminRequireAuth(a, a.logger, adminMux))
 
 	return loggingMiddleware(a.logger, mux)

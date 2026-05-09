@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime"
@@ -73,5 +74,132 @@ func handleAdminDoctor(app *App) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(res)
+	}
+}
+
+// nonReloadableLeaves are config paths that cannot change at runtime: the
+// HTTP listener is bound once at startup, and admin auth tokens / refresh
+// cadence are wired into long-lived structures. Any change to these triggers
+// 409 Conflict from /admin/reload — operator must restart the process.
+var nonReloadableLeaves = []string{
+	"http.addr",
+	"auth.status_token",
+	"auth.status_token_env",
+	"display.refresh_seconds",
+}
+
+// diffConfig returns dotted leaf paths whose values differ between oldCfg
+// and newCfg. Hand-rolled (no reflection) across all 12 config leaves so a
+// new field added later forces a compile-time prompt to extend this list.
+func diffConfig(oldCfg, newCfg Config) []string {
+	var changed []string
+	if oldCfg.HTTP.Addr != newCfg.HTTP.Addr {
+		changed = append(changed, "http.addr")
+	}
+	if oldCfg.AWTRIX.HTTPBaseURL != newCfg.AWTRIX.HTTPBaseURL {
+		changed = append(changed, "awtrix.http_base_url")
+	}
+	if oldCfg.AWTRIX.AppName != newCfg.AWTRIX.AppName {
+		changed = append(changed, "awtrix.app_name")
+	}
+	if oldCfg.AWTRIX.TimeoutSeconds != newCfg.AWTRIX.TimeoutSeconds {
+		changed = append(changed, "awtrix.timeout_seconds")
+	}
+	if oldCfg.Auth.StatusToken != newCfg.Auth.StatusToken {
+		changed = append(changed, "auth.status_token")
+	}
+	if oldCfg.Auth.StatusTokenEnv != newCfg.Auth.StatusTokenEnv {
+		changed = append(changed, "auth.status_token_env")
+	}
+	if oldCfg.Display.IdleText != newCfg.Display.IdleText {
+		changed = append(changed, "display.idle_text")
+	}
+	if oldCfg.Display.StaleSeconds != newCfg.Display.StaleSeconds {
+		changed = append(changed, "display.stale_seconds")
+	}
+	if oldCfg.Display.DoneTTLSeconds != newCfg.Display.DoneTTLSeconds {
+		changed = append(changed, "display.done_ttl_seconds")
+	}
+	if oldCfg.Display.HeartbeatSeconds != newCfg.Display.HeartbeatSeconds {
+		changed = append(changed, "display.heartbeat_seconds")
+	}
+	if oldCfg.Display.RefreshSeconds != newCfg.Display.RefreshSeconds {
+		changed = append(changed, "display.refresh_seconds")
+	}
+	if oldCfg.Display.NotifyOnWaiting != newCfg.Display.NotifyOnWaiting {
+		changed = append(changed, "display.notify_on_waiting")
+	}
+	return changed
+}
+
+// nonReloadableChange returns the first changed leaf path that appears in
+// nonReloadableLeaves, or "" if all changes are safe to apply at runtime.
+func nonReloadableChange(changed []string) string {
+	for _, c := range changed {
+		for _, n := range nonReloadableLeaves {
+			if c == n {
+				return c
+			}
+		}
+	}
+	return ""
+}
+
+// handleAdminReload re-reads the config file path captured at startup,
+// validates, and atomically swaps via app.cfg.Store. State machine:
+//   - 412 if server started from defaults (no file path).
+//   - 500 on read error.
+//   - 400 on parse error.
+//   - 422 on validation error.
+//   - 409 if any non-reloadable leaf changed.
+//   - 200 with {reloaded, changed_fields} on success.
+//
+// Auth.StatusToken is preserved from the running config because the JSON
+// file doesn't carry it (env-only by repo policy); without this copy a
+// reload would always trip the 409 guard for auth.status_token.
+func handleAdminReload(app *App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if app.configPath == "" {
+			writeError(w, http.StatusPreconditionFailed, errors.New("server started from defaults; no config file to reload"))
+			return
+		}
+		newCfg, err := parseConfigFile(app.configPath)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrConfigRead):
+				writeError(w, http.StatusInternalServerError, err)
+			case errors.Is(err, ErrConfigParse):
+				writeError(w, http.StatusBadRequest, err)
+			default:
+				writeError(w, http.StatusInternalServerError, err)
+			}
+			return
+		}
+		// Required-field check on the RAW parsed config: applyDefaults
+		// would mask an explicit operator empty string by filling in the
+		// fallback URL, hiding their misconfiguration.
+		if newCfg.AWTRIX.HTTPBaseURL == "" {
+			writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("%w: awtrix.http_base_url is required", ErrConfigValidate))
+			return
+		}
+		newCfg.applyDefaults()
+		// Token isn't in the JSON file (env-only), so carry it over from
+		// the running config to keep the diff honest.
+		oldCfg := *app.cfg.Load()
+		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
+		if err := validateConfig(newCfg); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err)
+			return
+		}
+		changed := diffConfig(oldCfg, newCfg)
+		if hit := nonReloadableChange(changed); hit != "" {
+			writeError(w, http.StatusConflict, fmt.Errorf("non-reloadable field changed: %s (restart required)", hit))
+			return
+		}
+		app.cfg.Store(&newCfg)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"reloaded":       true,
+			"changed_fields": changed,
+		})
 	}
 }
