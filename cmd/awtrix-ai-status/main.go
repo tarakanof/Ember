@@ -88,29 +88,20 @@ func defaultConfig() Config {
 }
 
 func loadConfig(path string) (Config, error) {
-	cfg := defaultConfig()
-	if path == "" {
-		path = os.Getenv("CONFIG_PATH")
-	}
-	if path == "" {
-		if _, err := os.Stat("config.json"); err == nil {
-			path = "config.json"
-		}
-	}
-	if path == "" {
+	resolved, _ := resolveConfigPath(path)
+	if resolved == "" {
+		cfg := defaultConfig()
+		cfg.applyDefaults()
 		return cfg, nil
 	}
-
-	data, err := os.ReadFile(path)
+	cfg, err := parseConfigFile(resolved)
 	if err != nil {
-		return Config{}, fmt.Errorf("read config: %w", err)
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cfg); err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
+		return Config{}, err
 	}
 	cfg.applyDefaults()
+	if err := validateConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
