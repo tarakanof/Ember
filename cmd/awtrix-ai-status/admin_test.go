@@ -58,7 +58,10 @@ func TestAdminDoctor_NoTokenFailsClosed(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	resp, _ := http.Get(srv.URL + "/admin/doctor")
+	resp, err := http.Get(srv.URL + "/admin/doctor")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
@@ -76,9 +79,15 @@ func TestAdminDoctor_WrongTokenIs401(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	req, _ := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	req, err := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.Header.Set("Authorization", "Bearer wrong")
-	resp, _ := srv.Client().Do(req)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", resp.StatusCode)
@@ -110,9 +119,15 @@ func TestAdminDoctor_OKReturnsResult(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	req, _ := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	req, err := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.Header.Set("Authorization", "Bearer tok")
-	resp, _ := srv.Client().Do(req)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -125,10 +140,12 @@ func TestAdminDoctor_OKReturnsResult(t *testing.T) {
 	if body.Mode != "online" {
 		t.Errorf("Mode = %q", body.Mode)
 	}
-	// Note: http_listening will be Skipped because httptest.NewServer doesn't
-	// route through the App's listener field. The other 7 checks should be OK
-	// for a happy AWTRIX. The overall OK may be false because of http_listening
-	// being Skipped — accept that and assert the response shape only.
+	// app.listener is wired above, so http_listening reports OK. With a happy
+	// AWTRIX upstream and a writable config path, all eight checks should pass
+	// and the overall result is OK with status 200.
+	if !body.OK {
+		t.Errorf("OK = false, want true; checks = %#v", body.Checks)
+	}
 	if _, ok := body.Checks["awtrix_reachable"]; !ok {
 		t.Errorf("checks missing awtrix_reachable: %#v", body.Checks)
 	}
@@ -147,9 +164,15 @@ func TestAdminDoctor_FailReturns503(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	req, _ := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	req, err := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.Header.Set("Authorization", "Bearer tok")
-	resp, _ := srv.Client().Do(req)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503 (any check failed)", resp.StatusCode)
