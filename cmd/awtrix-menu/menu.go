@@ -62,19 +62,19 @@ func onSystrayReady() {
 			select {
 			case <-openStateMI.ClickedCh:
 				if u := stateURL.Load(); u != nil {
-					_ = exec.Command("open", u.(string)+"/state").Start()
+					startAndReap(exec.Command("open", u.(string)+"/state"))
 				}
 			case <-prefsMI.ClickedCh:
 				url := prefsSrv.urlForClick()
 				if url != "" {
-					_ = exec.Command("open", url).Start()
+					startAndReap(exec.Command("open", url))
 				}
 			case <-doctorMI.ClickedCh:
 				go openDoctor()
 			case <-reloadMI.ClickedCh:
 				go updateMenu(envPath)
 			case <-aboutMI.ClickedCh:
-				_ = exec.Command("open", "https://github.com/tarakanof/awtrix-ai-status").Start()
+				startAndReap(exec.Command("open", "https://github.com/tarakanof/awtrix-ai-status"))
 			case <-quitMI.ClickedCh:
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				_ = prefsSrv.shutdown(ctx)
@@ -157,6 +157,15 @@ func suffix(s string) string {
 		return ""
 	}
 	return " — " + s
+}
+
+// startAndReap starts cmd and reaps it in a background goroutine so the
+// menu-bar process doesn't accumulate zombie children over its lifetime.
+func startAndReap(cmd *exec.Cmd) {
+	if err := cmd.Start(); err != nil {
+		return
+	}
+	go func() { _ = cmd.Wait() }()
 }
 
 func openDoctor() {
