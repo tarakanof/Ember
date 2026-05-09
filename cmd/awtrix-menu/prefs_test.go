@@ -509,6 +509,80 @@ func TestPrefs_PostRefusesUnreadableEnv(t *testing.T) {
 	}
 }
 
+func TestPrefsHandler_ClaimReleaseNonce(t *testing.T) {
+	h := newPrefsHandler("/dev/null")
+	n := h.issueNonce()
+
+	// First claim succeeds.
+	if !h.claimNonce(n) {
+		t.Fatal("first claimNonce should succeed")
+	}
+	// Concurrent claim returns false (in-flight).
+	if h.claimNonce(n) {
+		t.Error("second claimNonce while in-flight should return false")
+	}
+	// Release without success keeps the nonce live for retry.
+	h.releaseNonce(n, false)
+	if !h.claimNonce(n) {
+		t.Error("after release(false), claimNonce should succeed again (retry path)")
+	}
+	// Release with success consumes the nonce.
+	h.releaseNonce(n, true)
+	if h.claimNonce(n) {
+		t.Error("after release(true), claimNonce should fail (consumed)")
+	}
+}
+
+func TestPrefs_NoncePreservedAfter400_ThenSucceedsOnRetry(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	if err := os.WriteFile(envPath, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+
+	// First POST: bad URL scheme → 400, nonce should remain alive.
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	bad := url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {strconv.FormatInt(mtime, 10)},
+		"STATUS_SOURCE":     {"x"},
+		"STATUS_SERVER_URL": {"ftp://nope"},
+	}
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(bad.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", srv.URL)
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 400 {
+		t.Fatalf("first POST status = %d, want 400", resp.StatusCode)
+	}
+
+	// Second POST with corrected URL using the same nonce should succeed.
+	info, _ = os.Stat(envPath)
+	mtime = info.ModTime().UnixNano()
+	good := url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {strconv.FormatInt(mtime, 10)},
+		"STATUS_SOURCE":     {"x"},
+		"STATUS_SERVER_URL": {"http://y"},
+	}
+	req2, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(good.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req2.Header.Set("Origin", srv.URL)
+	resp2, _ := srv.Client().Do(req2)
+	if resp2.StatusCode != 200 {
+		body, _ := io.ReadAll(resp2.Body)
+		t.Errorf("second POST status = %d, want 200; body=%s", resp2.StatusCode, body)
+	}
+}
+
 // helper used in tests
 func fmtInt64(n int64) string {
 	return strconv.FormatInt(n, 10)
