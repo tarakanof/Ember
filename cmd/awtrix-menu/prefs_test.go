@@ -72,6 +72,88 @@ func TestPrefs_PostBadOrigin_403(t *testing.T) {
 	}
 }
 
+// Safari sends Origin: "null" for top-level form POSTs to 127.0.0.1
+// (private-network-access). The handler accepts this iff
+// Sec-Fetch-Site == "same-origin", which Safari sets correctly.
+func TestPrefs_PostNullOriginWithSameOriginSFS_OK(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	if err := os.WriteFile(envPath, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {strconv.FormatInt(mtime, 10)},
+		"STATUS_SOURCE":     {"x"},
+		"STATUS_SERVER_URL": {"http://y"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "null")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Errorf("status = %d, want 200 (Safari null-Origin + same-origin SFS); body=%s", resp.StatusCode, body)
+	}
+}
+
+// A cross-origin attacker (Origin: null + Sec-Fetch-Site != same-origin)
+// must still be rejected.
+func TestPrefs_PostNullOriginWithCrossSiteSFS_403(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "producer.env")
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {"0"},
+		"STATUS_SOURCE":     {"x"},
+		"STATUS_SERVER_URL": {"http://y"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "null")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 403 {
+		t.Errorf("status = %d, want 403 (null Origin + cross-site SFS)", resp.StatusCode)
+	}
+}
+
+// A client that sends Origin: null without any Sec-Fetch-Site header (rare;
+// non-browser tools, very old browsers) must also be rejected.
+func TestPrefs_PostNullOriginWithoutSFS_403(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, "producer.env")
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(url.Values{
+		"nonce":             {nonce},
+		"env_mtime":         {"0"},
+		"STATUS_SOURCE":     {"x"},
+		"STATUS_SERVER_URL": {"http://y"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "null")
+	// no Sec-Fetch-Site
+	resp, _ := srv.Client().Do(req)
+	if resp.StatusCode != 403 {
+		t.Errorf("status = %d, want 403 (null Origin + no SFS)", resp.StatusCode)
+	}
+}
+
 func TestPrefs_PostMissingOrigin_403(t *testing.T) {
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, "producer.env")

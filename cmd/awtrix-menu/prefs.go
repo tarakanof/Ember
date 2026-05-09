@@ -245,14 +245,18 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Origin check
+	// Origin check. Safari sends Origin: "null" for same-origin top-level form
+	// POSTs to local-network addresses (private-network-access policy), so we
+	// allow that case iff Sec-Fetch-Site == "same-origin". Sec-Fetch-Site is
+	// sent by all modern browsers and is "cross-site" for actual CSRF.
 	expectedOrigin := "http://" + host
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		http.Error(w, "missing Origin", 403)
 		return
 	}
-	if origin != expectedOrigin {
+	sfsSameOrigin := r.Header.Get("Sec-Fetch-Site") == "same-origin"
+	if origin != expectedOrigin && !(origin == "null" && sfsSameOrigin) {
 		http.Error(w, "bad Origin", 403)
 		return
 	}
