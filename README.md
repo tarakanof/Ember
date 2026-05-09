@@ -188,6 +188,11 @@ route. The endpoint deliberately doesn't export Go runtime metrics
 (goroutines, GC) — that would require `prometheus/client_golang`,
 which we skip in line with the stdlib-only choice.
 
+`/metrics` is unauthenticated and exposes the binary's git revision plus
+Go version. That is fine for the trusted-LAN deployment this service
+targets; if you bridge it to anything wider, terminate `/metrics` behind
+a reverse proxy that adds auth.
+
 Scrape config snippet (Prometheus):
 
 ```yaml

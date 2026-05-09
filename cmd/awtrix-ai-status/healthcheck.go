@@ -49,11 +49,11 @@ func healthcheckOnce(url string) error {
 			tlsCfg.RootCAs = pool
 		}
 		if v := os.Getenv("STATUS_HEALTHCHECK_INSECURE"); v == "1" || v == "true" {
-			tlsCfg.InsecureSkipVerify = true //nolint:gosec // operator opt-in
+			tlsCfg.InsecureSkipVerify = true
 		}
 		client.Transport = &http.Transport{TLSClientConfig: tlsCfg}
 	}
-	resp, err := client.Get(url) //nolint:noctx
+	resp, err := client.Get(url)
 	if err != nil {
 		return fmt.Errorf("%s: %w", url, err)
 	}
