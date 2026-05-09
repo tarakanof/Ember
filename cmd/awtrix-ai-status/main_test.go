@@ -594,3 +594,37 @@ func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {
 		t.Errorf("after publish 2: hits1=%d hits2=%d, want 1/1", hits1, hits2)
 	}
 }
+
+func TestApp_PublishUpdatesLastPublishFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = srv.URL
+	cfg.applyDefaults()
+
+	pub, err := NewHTTPPublisher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// pub.app is wired by NewApp; no manual setting needed.
+
+	if err := app.Publish(context.Background()); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if app.lastPublishAt.IsZero() {
+		t.Error("lastPublishAt not updated")
+	}
+	if !app.lastPublishOK {
+		t.Errorf("lastPublishOK = false, want true (err=%q)", app.lastPublishErr)
+	}
+	if app.lastPublishErr != "" {
+		t.Errorf("lastPublishErr = %q, want empty", app.lastPublishErr)
+	}
+}

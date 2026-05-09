@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -250,11 +251,17 @@ type App struct {
 	configSource string                 // "flag" | "env" | "cwd" | "defaults"
 	publisher    Publisher
 	logger       *slog.Logger
+	listener     net.Listener // bound HTTP listener; captured at startup for doctor introspection
 
-	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished
+	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished, lastPublish*
 	sessions      map[string]Session
 	lastWaitKey   string // last waiting-notification Render.Text, for notify dedupe (not a session key)
 	lastPublished Render
+
+	// Last-publish telemetry, all guarded by App.mu.
+	lastPublishAt  time.Time
+	lastPublishOK  bool
+	lastPublishErr string
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -487,8 +494,18 @@ func (a *App) Publish(ctx context.Context) error {
 		"center":   len(snapshot.Render.Text) <= 10,
 	}
 
-	if err := a.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload); err != nil {
-		return fmt.Errorf("publish custom app: %w", err)
+	pubErr := a.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload)
+	a.mu.Lock()
+	a.lastPublishAt = time.Now().UTC()
+	a.lastPublishOK = pubErr == nil
+	if pubErr != nil {
+		a.lastPublishErr = pubErr.Error()
+	} else {
+		a.lastPublishErr = ""
+	}
+	a.mu.Unlock()
+	if pubErr != nil {
+		return fmt.Errorf("publish custom app: %w", pubErr)
 	}
 	if err := a.publishIndicators(ctx, snapshot.Render); err != nil {
 		return err
@@ -899,9 +916,16 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	listener, err := net.Listen("tcp", cfg.HTTP.Addr)
+	if err != nil {
+		logger.Error("listen failed", "err", err, "addr", cfg.HTTP.Addr)
+		os.Exit(1)
+	}
+	app.listener = listener
+
 	go func() {
-		logger.Info("server listening", "addr", cfg.HTTP.Addr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Info("server listening", "addr", listener.Addr().String())
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server failed", "err", err)
 			stop()
 		}
