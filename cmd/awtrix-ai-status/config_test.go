@@ -108,3 +108,63 @@ func TestValidateConfig_BadAWTRIXURL(t *testing.T) {
 		t.Errorf("err = %v, want ErrConfigValidate wrapped", err)
 	}
 }
+
+func TestValidateConfig_RateLimitNegativeBurstFails(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.RateLimit.Burst = -1
+	if err := validateConfig(cfg); !errors.Is(err, ErrConfigValidate) {
+		t.Errorf("err = %v, want ErrConfigValidate wrapped", err)
+	}
+}
+
+func TestValidateConfig_RateLimitNegativeRefillFails(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.RateLimit.RefillPerSec = -0.5
+	if err := validateConfig(cfg); !errors.Is(err, ErrConfigValidate) {
+		t.Errorf("err = %v, want ErrConfigValidate wrapped", err)
+	}
+}
+
+func TestValidateConfig_RateLimitNegativeIdleEvictFails(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.RateLimit.IdleEvictSeconds = -10
+	if err := validateConfig(cfg); !errors.Is(err, ErrConfigValidate) {
+		t.Errorf("err = %v, want ErrConfigValidate wrapped", err)
+	}
+}
+
+func TestValidateConfig_RateLimitDefaultsValid(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	if err := validateConfig(cfg); err != nil {
+		t.Errorf("default rate-limit config should validate cleanly: %v", err)
+	}
+}
+
+func TestApplyDefaults_RateLimitFillsZero(t *testing.T) {
+	cfg := Config{}
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	if cfg.RateLimit.Burst != 10 {
+		t.Errorf("RateLimit.Burst = %d, want 10", cfg.RateLimit.Burst)
+	}
+	if cfg.RateLimit.RefillPerSec != 2.0 {
+		t.Errorf("RateLimit.RefillPerSec = %v, want 2.0", cfg.RateLimit.RefillPerSec)
+	}
+	if cfg.RateLimit.IdleEvictSeconds != 300 {
+		t.Errorf("RateLimit.IdleEvictSeconds = %d, want 300", cfg.RateLimit.IdleEvictSeconds)
+	}
+}
+
+func TestApplyDefaults_RateLimitPreservesDisabled(t *testing.T) {
+	cfg := Config{}
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.RateLimit.Disabled = true
+	cfg.applyDefaults()
+	if !cfg.RateLimit.Disabled {
+		t.Error("Disabled flag was overwritten by applyDefaults")
+	}
+}

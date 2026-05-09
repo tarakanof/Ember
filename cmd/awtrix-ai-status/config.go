@@ -63,5 +63,14 @@ func validateConfig(cfg Config) error {
 	if cfg.AWTRIX.TimeoutSeconds <= 0 {
 		return fmt.Errorf("%w: awtrix.timeout_seconds must be > 0", ErrConfigValidate)
 	}
+	if cfg.RateLimit.Burst < 0 {
+		return fmt.Errorf("%w: rate_limit.burst must be >= 0, got %d", ErrConfigValidate, cfg.RateLimit.Burst)
+	}
+	if cfg.RateLimit.RefillPerSec < 0 {
+		return fmt.Errorf("%w: rate_limit.refill_per_sec must be >= 0, got %v", ErrConfigValidate, cfg.RateLimit.RefillPerSec)
+	}
+	if cfg.RateLimit.IdleEvictSeconds < 0 {
+		return fmt.Errorf("%w: rate_limit.idle_evict_seconds must be >= 0, got %d", ErrConfigValidate, cfg.RateLimit.IdleEvictSeconds)
+	}
 	return nil
 }

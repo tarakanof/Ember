@@ -40,10 +40,18 @@ func (a AuthConfig) LogValue() slog.Value {
 }
 
 type Config struct {
-	HTTP    HTTPConfig    `json:"http"`
-	AWTRIX  AWTRIXConfig  `json:"awtrix"`
-	Auth    AuthConfig    `json:"auth"`
-	Display DisplayConfig `json:"display"`
+	HTTP      HTTPConfig      `json:"http"`
+	AWTRIX    AWTRIXConfig    `json:"awtrix"`
+	Auth      AuthConfig      `json:"auth"`
+	Display   DisplayConfig   `json:"display"`
+	RateLimit RateLimitConfig `json:"rate_limit"`
+}
+
+type RateLimitConfig struct {
+	Disabled         bool    `json:"disabled"`
+	Burst            int     `json:"burst"`
+	RefillPerSec     float64 `json:"refill_per_sec"`
+	IdleEvictSeconds int     `json:"idle_evict_seconds"`
 }
 
 type HTTPConfig struct {
@@ -85,6 +93,12 @@ func defaultConfig() Config {
 			HeartbeatSeconds: 10,
 			RefreshSeconds:   5,
 			NotifyOnWaiting:  false,
+		},
+		RateLimit: RateLimitConfig{
+			Disabled:         false,
+			Burst:            10,
+			RefillPerSec:     2.0,
+			IdleEvictSeconds: 300,
 		},
 	}
 }
@@ -141,6 +155,16 @@ func (c *Config) applyDefaults() {
 	if c.Auth.StatusToken == "" {
 		c.Auth.StatusToken = os.Getenv(c.Auth.StatusTokenEnv)
 	}
+	if c.RateLimit.Burst == 0 {
+		c.RateLimit.Burst = 10
+	}
+	if c.RateLimit.RefillPerSec == 0 {
+		c.RateLimit.RefillPerSec = 2.0
+	}
+	if c.RateLimit.IdleEvictSeconds == 0 {
+		c.RateLimit.IdleEvictSeconds = 300
+	}
+	// Disabled is a bool — zero value is false, the right default.
 }
 
 type StatusRequest struct {
@@ -254,6 +278,7 @@ type App struct {
 	listener     net.Listener // bound HTTP listener; captured at startup for doctor introspection
 	versionInfo  versionInfo  // computed once at startup; served by /version
 	startedAt    time.Time    // set in NewApp; used by doctor uptime check
+	limiter      *IPLimiter   // populated in NewApp; sweeper started by main()
 
 	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished, lastPublish*
 	sessions      map[string]Session
@@ -275,6 +300,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		startedAt:   time.Now(),
 	}
 	a.cfg.Store(&cfg)
+	a.limiter = NewIPLimiter(a)
 	if hp, ok := publisher.(*HTTPPublisher); ok {
 		hp.app = a
 	}
@@ -612,10 +638,10 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /version", handleVersion(a.versionInfo))
 
 	writeMux := http.NewServeMux()
-	writeMux.HandleFunc("POST /v1/status", a.handleStatus)
-	writeMux.HandleFunc("DELETE /v1/status", a.handleDeleteStatus)
-	writeMux.HandleFunc("POST /v1/clear", a.handleClear)
-	writeMux.HandleFunc("POST /v1/notify", a.handleNotify)
+	writeMux.Handle("POST /v1/status", rateLimit(a, http.HandlerFunc(a.handleStatus)))
+	writeMux.Handle("DELETE /v1/status", rateLimit(a, http.HandlerFunc(a.handleDeleteStatus)))
+	writeMux.Handle("POST /v1/clear", rateLimit(a, http.HandlerFunc(a.handleClear)))
+	writeMux.Handle("POST /v1/notify", rateLimit(a, http.HandlerFunc(a.handleNotify)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()
@@ -630,14 +656,27 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	var req StatusRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		var maxBytes *http.MaxBytesError
+		reason := "parse"
+		status := http.StatusBadRequest
 		if errors.As(err, &maxBytes) {
-			writeError(w, http.StatusRequestEntityTooLarge, err)
-			return
+			reason = "too_large"
+			status = http.StatusRequestEntityTooLarge
 		}
-		writeError(w, http.StatusBadRequest, err)
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", reason,
+		)
+		writeError(w, status, err)
 		return
 	}
 	if err := req.validate(); err != nil {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", validationField(err),
+		)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -650,6 +689,16 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleClear(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+	if _, err := io.Copy(io.Discard, r.Body); err != nil {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "too_large",
+		)
+		writeError(w, http.StatusRequestEntityTooLarge, err)
+		return
+	}
 	render := a.Clear()
 	if err := a.Publish(r.Context()); err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -692,14 +741,27 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 	var req DeleteRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		var maxBytes *http.MaxBytesError
+		reason := "parse"
+		status := http.StatusBadRequest
 		if errors.As(err, &maxBytes) {
-			writeError(w, http.StatusRequestEntityTooLarge, err)
-			return
+			reason = "too_large"
+			status = http.StatusRequestEntityTooLarge
 		}
-		writeError(w, http.StatusBadRequest, err)
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", reason,
+		)
+		writeError(w, status, err)
 		return
 	}
 	if err := req.validate(); err != nil {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", validationField(err),
+		)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -715,14 +777,27 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	var req NotifyRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		var maxBytes *http.MaxBytesError
+		reason := "parse"
+		status := http.StatusBadRequest
 		if errors.As(err, &maxBytes) {
-			writeError(w, http.StatusRequestEntityTooLarge, err)
-			return
+			reason = "too_large"
+			status = http.StatusRequestEntityTooLarge
 		}
-		writeError(w, http.StatusBadRequest, err)
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", reason,
+		)
+		writeError(w, status, err)
 		return
 	}
 	if req.Text == "" {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", "text",
+		)
 		writeError(w, http.StatusBadRequest, errors.New("text is required"))
 		return
 	}
@@ -746,6 +821,23 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// validationField extracts a field name from validation errors that
+// follow the convention "field-name <reason>" (e.g. "source is required").
+// Returns the first whitespace-delimited token. Best-effort; falls back
+// to the full message if the format doesn't match.
+func validationField(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	for i, c := range msg {
+		if c == ' ' {
+			return msg[:i]
+		}
+	}
+	return msg
+}
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	dec := json.NewDecoder(r.Body)
@@ -753,7 +845,11 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := dec.Decode(dst); err != nil {
 		return err
 	}
-	if dec.More() {
+	// Trailing-tokens detection: a second Decode must return io.EOF.
+	// dec.More() (the prior implementation) only reports true for nested
+	// continuations (mid-array/mid-object), not for trailing top-level
+	// values like {...}{...}.
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return errors.New("unexpected trailing tokens after JSON body")
 	}
 	return nil
@@ -924,6 +1020,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	go app.limiter.runSweeper(ctx)
 	go app.StartPublisher(ctx)
 
 	server := &http.Server{
@@ -933,6 +1030,7 @@ func main() {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	listener, err := net.Listen("tcp", cfg.HTTP.Addr)
