@@ -568,7 +568,7 @@ func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = srv1.URL
 	cfg.applyDefaults()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pub, err := NewHTTPPublisher(nil) // app filled below
+	pub, err := NewHTTPPublisher() // app filled below
 	if err != nil {
 		t.Fatal(err)
 	}

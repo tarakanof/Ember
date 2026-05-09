@@ -788,7 +788,7 @@ type HTTPPublisher struct {
 
 // NewHTTPPublisher returns a publisher with no app reference yet. Callers
 // must set p.app before calling any publish method (NewApp does this).
-func NewHTTPPublisher(_ *App) (*HTTPPublisher, error) {
+func NewHTTPPublisher() (*HTTPPublisher, error) {
 	return &HTTPPublisher{}, nil
 }
 
@@ -805,37 +805,33 @@ func (p *HTTPPublisher) baseAndClient() (string, *http.Client, error) {
 }
 
 func (p *HTTPPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
-	base, _, err := p.baseAndClient()
+	base, client, err := p.baseAndClient()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, base+"/api/custom?name="+url.QueryEscape(name), payload)
+	return p.postJSON(ctx, client, base+"/api/custom?name="+url.QueryEscape(name), payload)
 }
 
 func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) error {
-	base, _, err := p.baseAndClient()
+	base, client, err := p.baseAndClient()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, base+"/api/notify", payload)
+	return p.postJSON(ctx, client, base+"/api/notify", payload)
 }
 
 func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
 	if index < 1 || index > 3 {
 		return fmt.Errorf("indicator index must be 1-3, got %d", index)
 	}
-	base, _, err := p.baseAndClient()
+	base, client, err := p.baseAndClient()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, base+"/api/indicator"+strconv.Itoa(index), payload)
+	return p.postJSON(ctx, client, base+"/api/indicator"+strconv.Itoa(index), payload)
 }
 
-func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload map[string]any) error {
-	_, client, err := p.baseAndClient()
-	if err != nil {
-		return err
-	}
+func (p *HTTPPublisher) postJSON(ctx context.Context, client *http.Client, endpoint string, payload map[string]any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -855,10 +851,6 @@ func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload m
 		return fmt.Errorf("awtrix http %s: %s", resp.Status, strings.TrimSpace(string(limited)))
 	}
 	return nil
-}
-
-func newPublisher(_ Config) (*HTTPPublisher, error) {
-	return NewHTTPPublisher(nil)
 }
 
 func main() {
@@ -884,7 +876,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	publisher, err := newPublisher(cfg)
+	publisher, err := NewHTTPPublisher()
 	if err != nil {
 		logger.Error("create publisher failed", "err", err)
 		os.Exit(1)
