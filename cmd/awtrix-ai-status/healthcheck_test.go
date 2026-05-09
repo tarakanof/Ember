@@ -8,7 +8,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -206,5 +208,20 @@ func TestHealthcheckOnce_HTTPS_UntrustedFails(t *testing.T) {
 	t.Setenv("STATUS_HEALTHCHECK_INSECURE", "")
 	if err := healthcheckOnce(srv.URL + "/healthz"); err == nil {
 		t.Fatal("healthcheckOnce: expected verify failure against unknown CA, got nil")
+	}
+}
+
+func TestLoadCAPool_RejectsNonPEM(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "garbage.pem")
+	if err := os.WriteFile(bad, []byte("this is not a PEM bundle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadCAPool(bad)
+	if err == nil {
+		t.Fatal("loadCAPool: expected error for non-PEM file, got nil")
+	}
+	if !strings.Contains(err.Error(), "no PEM certs found") {
+		t.Errorf("loadCAPool error = %q; want it to mention \"no PEM certs found\"", err)
 	}
 }

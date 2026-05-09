@@ -480,6 +480,37 @@ func TestPublish_IncrementsFailCounter_OnIndicatorErr(t *testing.T) {
 	}
 }
 
+func TestPublish_IncrementsFailCounter_OnNotifyErr(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.Display.NotifyOnWaiting = true
+	cfg.applyDefaults()
+	app := NewApp(cfg, &fakePublisher{notifyErr: errors.New("boom")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	// Seed a waiting session so maybeNotifyWaiting actually calls Notify.
+	app.mu.Lock()
+	app.sessions["a/claude/s1"] = Session{
+		Source: "a", Tool: "claude", Session: "s1", State: "waiting",
+		UpdatedAt: time.Now(),
+	}
+	app.mu.Unlock()
+
+	if err := app.Publish(context.Background()); err == nil {
+		t.Fatal("Publish: expected error, got nil")
+	}
+	if got := app.metrics.publishTotalFail.Load(); got != 1 {
+		t.Errorf("publishTotalFail = %d, want 1 (Notify failure must route to fail counter)", got)
+	}
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if app.lastPublishOK {
+		t.Error("lastPublishOK = true; want false when Notify failed")
+	}
+	if app.lastPublishErr == "" {
+		t.Error("lastPublishErr is empty; want the Notify error message")
+	}
+}
+
 func TestRenderLocked_IncrementsSessionsEvicted(t *testing.T) {
 	app := newAppForMetrics(t)
 	cfg := *app.cfg.Load()
