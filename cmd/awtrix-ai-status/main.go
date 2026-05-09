@@ -252,6 +252,7 @@ type App struct {
 	publisher    Publisher
 	logger       *slog.Logger
 	listener     net.Listener // bound HTTP listener; captured at startup for doctor introspection
+	versionInfo  versionInfo  // computed once at startup; served by /version
 
 	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished, lastPublish*
 	sessions      map[string]Session
@@ -266,9 +267,10 @@ type App struct {
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
-		publisher: publisher,
-		logger:    logger,
-		sessions:  make(map[string]Session),
+		publisher:   publisher,
+		logger:      logger,
+		sessions:    make(map[string]Session),
+		versionInfo: computeVersionInfo(),
 	}
 	a.cfg.Store(&cfg)
 	if hp, ok := publisher.(*HTTPPublisher); ok {
@@ -605,6 +607,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, a.Snapshot())
 	})
+	mux.Handle("GET /version", handleVersion(a.versionInfo))
 
 	writeMux := http.NewServeMux()
 	writeMux.HandleFunc("POST /v1/status", a.handleStatus)
