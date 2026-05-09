@@ -371,6 +371,7 @@ func (a *App) renderLocked(now time.Time) Render {
 			reaped = age > staleAfter
 		}
 		if reaped {
+			a.metrics.incSessionEvicted()
 			a.logger.Warn("session reaped",
 				"source", session.Source,
 				"tool", session.Tool,

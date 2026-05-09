@@ -476,3 +476,24 @@ func TestPublish_IncrementsFailCounter_OnIndicatorErr(t *testing.T) {
 		t.Error("lastPublishErr is empty; want the Indicator error message")
 	}
 }
+
+func TestRenderLocked_IncrementsSessionsEvicted(t *testing.T) {
+	app := newAppForMetrics(t)
+	cfg := *app.cfg.Load()
+	cfg.Display.StaleSeconds = 1
+	cfg.Display.DoneTTLSeconds = 1
+	app.cfg.Store(&cfg)
+
+	// Seed a session that's older than StaleSeconds.
+	app.mu.Lock()
+	app.sessions["a/claude/s1"] = Session{
+		Source: "a", Tool: "claude", Session: "s1", State: "running",
+		UpdatedAt: time.Now().Add(-1 * time.Hour),
+	}
+	app.renderLocked(time.Now()) // triggers the reap loop
+	app.mu.Unlock()
+
+	if got := app.metrics.sessionsEvicted.Load(); got != 1 {
+		t.Errorf("sessionsEvicted = %d, want 1", got)
+	}
+}
