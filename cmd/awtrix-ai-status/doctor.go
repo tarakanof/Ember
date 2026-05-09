@@ -2,10 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"time"
 )
 
@@ -194,4 +200,140 @@ func checkBuild() CheckResult {
 		dirty = "+dirty"
 	}
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("rev=%s%s go=%s", rev, dirty, runtime.Version())}
+}
+
+// runDoctor parses doctor-specific flags from args, runs the diagnostic
+// online (against --server-url) or offline (--offline / fallback after
+// network error), and prints the result. Exits 0 if healthy, 1 otherwise.
+func runDoctor(args []string) {
+	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
+	configPath := fs.String("config", "", "path to config JSON file")
+	serverURL := fs.String("server-url", "http://127.0.0.1:8080", "doctor server URL (online mode)")
+	offline := fs.Bool("offline", false, "skip the server probe; run static checks only")
+	asJSON := fs.Bool("json", false, "print result as JSON")
+	_ = fs.Parse(args)
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "doctor: config:", err)
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var res DoctorResult
+	if *offline {
+		res = runDoctorChecks(ctx, nil, &cfg)
+	} else {
+		online, terr := tryAdminDoctor(ctx, *serverURL, os.Getenv(cfg.Auth.StatusTokenEnv))
+		switch {
+		case terr == errAuthFailure:
+			fmt.Fprintf(os.Stderr, "auth failure: %s/admin/doctor returned 401 — check STATUS_TOKEN\n", *serverURL)
+			os.Exit(1)
+		case terr != nil:
+			res = runDoctorChecks(ctx, nil, &cfg)
+		default:
+			res = online
+		}
+	}
+
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(res)
+	} else {
+		renderDoctorText(os.Stdout, res)
+	}
+
+	exit := 0
+	switch res.Mode {
+	case "online":
+		if !res.OK {
+			exit = 1
+		}
+	case "offline":
+		// In offline mode, failures of static checks are real failures.
+		// Skipped checks are expected and don't count.
+		for _, c := range res.Checks {
+			if c.Status == StatusFail {
+				exit = 1
+				break
+			}
+		}
+	}
+	os.Exit(exit)
+}
+
+var errAuthFailure = errors.New("auth failure (401)")
+
+// tryAdminDoctor performs GET /admin/doctor. Returns errAuthFailure on 401.
+// Returns a transport error on dial/connect issues. Otherwise returns the
+// decoded result.
+func tryAdminDoctor(ctx context.Context, base, token string) (DoctorResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/admin/doctor", nil)
+	if err != nil {
+		return DoctorResult{}, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return DoctorResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return DoctorResult{}, errAuthFailure
+	}
+	var res DoctorResult
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return DoctorResult{}, err
+	}
+	return res, nil
+}
+
+// renderDoctorText prints a human-readable check table to w.
+func renderDoctorText(w io.Writer, res DoctorResult) {
+	keys := make([]string, 0, len(res.Checks))
+	for k := range res.Checks {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	maxKey := 0
+	for _, k := range keys {
+		if len(k) > maxKey {
+			maxKey = len(k)
+		}
+	}
+	for _, k := range keys {
+		c := res.Checks[k]
+		marker := "[OK]     "
+		switch c.Status {
+		case StatusFail:
+			marker = "[FAIL]   "
+		case StatusSkipped:
+			marker = "[SKIP]   "
+		}
+		fmt.Fprintf(w, "%s %-*s  %s\n", marker, maxKey, k, c.Detail)
+	}
+	failCount, skipCount := 0, 0
+	for _, c := range res.Checks {
+		switch c.Status {
+		case StatusFail:
+			failCount++
+		case StatusSkipped:
+			skipCount++
+		}
+	}
+	switch {
+	case failCount > 0:
+		fmt.Fprintf(w, "\nFAIL (%d failed, %d skipped, mode=%s)\n", failCount, skipCount, res.Mode)
+	case res.Mode == "offline":
+		fmt.Fprintf(w, "\nOK (offline, partial — %d skipped)\n", skipCount)
+	default:
+		fmt.Fprintln(w, "\nOK (online)")
+	}
 }

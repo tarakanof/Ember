@@ -881,13 +881,16 @@ func (p *HTTPPublisher) postJSON(ctx context.Context, client *http.Client, endpo
 }
 
 func main() {
-	if len(os.Args) >= 2 {
-		switch os.Args[1] {
+	if sub, args, ok := scanSubcommand(os.Args[1:]); ok {
+		switch sub {
 		case "version", "-v", "--version":
 			runVersion()
 			return
 		case "healthcheck":
 			runHealthcheck()
+			return
+		case "doctor":
+			runDoctor(args)
 			return
 		}
 	}
@@ -953,4 +956,37 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("server shutdown failed", "err", err)
 	}
+}
+
+// scanSubcommand walks args to find the first non-flag positional. It
+// recognises `-flag=value` (single token) and `-flag value` (two tokens)
+// for the server's own flags. Returns (token, remaining-after-token, true)
+// if the token matches a known subcommand; otherwise ("", nil, false).
+func scanSubcommand(args []string) (sub string, rest []string, ok bool) {
+	known := map[string]bool{
+		"version": true, "-v": true, "--version": true,
+		"healthcheck": true,
+		"doctor":      true,
+	}
+	flagWithValue := map[string]bool{
+		"-config": true, "--config": true,
+	}
+	for i := 0; i < len(args); i++ {
+		tok := args[i]
+		if strings.Contains(tok, "=") && (strings.HasPrefix(tok, "-config=") || strings.HasPrefix(tok, "--config=")) {
+			continue
+		}
+		if flagWithValue[tok] {
+			i++ // skip its value
+			continue
+		}
+		if strings.HasPrefix(tok, "-") {
+			continue // unknown flag; skip
+		}
+		if known[tok] {
+			return tok, args[i+1:], true
+		}
+		return "", nil, false
+	}
+	return "", nil, false
 }
