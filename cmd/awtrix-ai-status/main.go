@@ -837,6 +837,14 @@ func newPublisher(cfg Config) (Publisher, error) {
 }
 
 func main() {
+	if len(os.Args) >= 2 {
+		switch os.Args[1] {
+		case "version", "-v", "--version":
+			runVersion()
+			return
+		}
+	}
+
 	configPath := flag.String("config", "", "path to config JSON file")
 	flag.Parse()
 
