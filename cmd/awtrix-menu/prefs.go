@@ -20,13 +20,18 @@ import (
 type prefsHandler struct {
 	envPath string
 
-	mu           sync.Mutex           // protects nonces and expectedHost
+	mu           sync.Mutex           // protects nonces, inflight, and expectedHost
 	nonces       map[string]time.Time // nonce → expiry
+	inflight     map[string]bool      // nonces currently being processed
 	expectedHost string               // set once after listener binds; if empty, prefix-check fallback
 }
 
 func newPrefsHandler(envPath string) *prefsHandler {
-	return &prefsHandler{envPath: envPath, nonces: map[string]time.Time{}}
+	return &prefsHandler{
+		envPath:  envPath,
+		nonces:   map[string]time.Time{},
+		inflight: map[string]bool{},
+	}
 }
 
 // bindHost pins the handler to the exact host:port that the listener bound.
@@ -59,6 +64,35 @@ func (h *prefsHandler) checkNonce(n string, consume bool) bool {
 		delete(h.nonces, n)
 	}
 	return true
+}
+
+// claimNonce returns true if the nonce is live and not currently being
+// processed by another request. The caller MUST eventually call releaseNonce.
+func (h *prefsHandler) claimNonce(n string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	exp, ok := h.nonces[n]
+	if !ok || time.Now().After(exp) {
+		delete(h.nonces, n)
+		return false
+	}
+	if h.inflight[n] {
+		return false
+	}
+	h.inflight[n] = true
+	return true
+}
+
+// releaseNonce clears the in-flight flag. If success is true, the nonce is
+// also consumed (deleted from the live map). Spec: 200 and 409 consume; 403
+// and validation 400s do not (user can retry).
+func (h *prefsHandler) releaseNonce(n string, success bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.inflight, n)
+	if success {
+		delete(h.nonces, n)
+	}
 }
 
 func (h *prefsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -220,11 +254,16 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad Origin", 403)
 		return
 	}
-	// Nonce check (don't consume yet — only after success)
-	if !h.checkNonce(nonce, false) {
+	// Nonce claim: atomically marks this nonce as in-flight so a concurrent
+	// POST with the same nonce is rejected. The caller releases the claim via
+	// releaseNonce at each exit path; success=true consumes the nonce.
+	if !h.claimNonce(nonce) {
 		http.Error(w, "invalid or expired nonce", 403)
 		return
 	}
+	success := false
+	defer func() { h.releaseNonce(nonce, success) }()
+
 	// Validate env_mtime
 	wantMtime, err := strconv.ParseInt(r.PostFormValue("env_mtime"), 10, 64)
 	if err != nil {
@@ -236,8 +275,8 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		curMtime = info.ModTime().UnixNano()
 	}
 	if wantMtime != curMtime {
-		// Stale: consume the nonce so the user must reload
-		h.checkNonce(nonce, true)
+		// Stale: consume the nonce (spec: 409 forces reload, nonce is spent).
+		success = true
 		http.Error(w, "env file changed since you opened the form; click Preferences… again", 409)
 		return
 	}
@@ -288,8 +327,8 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "save failed: "+err.Error(), 500)
 		return
 	}
-	// Consume nonce
-	h.checkNonce(nonce, true)
+	// Mark success — defer will consume the nonce.
+	success = true
 	// Re-render with success banner
 	mt := int64(0)
 	if info, err := os.Stat(h.envPath); err == nil {

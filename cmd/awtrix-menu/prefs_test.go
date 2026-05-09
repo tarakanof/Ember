@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -419,6 +420,57 @@ func TestPrefs_PostValidationError_PreservesIntentionallyClearedField(t *testing
 	}
 	if !strings.Contains(s, `value="http://kept"`) {
 		t.Errorf("rendered form lost the kept server URL; body=%s", s)
+	}
+}
+
+func TestPrefs_ConcurrentPosts_SameNonce_OnlyOneSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	if err := os.WriteFile(envPath, []byte("STATUS_TOKEN=keepme\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	do := func() int {
+		postForm := url.Values{
+			"nonce":             {nonce},
+			"env_mtime":         {strconv.FormatInt(mtime, 10)},
+			"STATUS_SOURCE":     {"x"},
+			"STATUS_SERVER_URL": {"http://y"},
+		}
+		req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", srv.URL)
+		resp, _ := srv.Client().Do(req)
+		return resp.StatusCode
+	}
+	var wg sync.WaitGroup
+	statuses := make([]int, 2)
+	for i := range statuses {
+		i := i
+		wg.Add(1)
+		go func() { defer wg.Done(); statuses[i] = do() }()
+	}
+	wg.Wait()
+	successes := 0
+	rejections := 0
+	for _, s := range statuses {
+		switch s {
+		case 200:
+			successes++
+		case 403:
+			rejections++
+		}
+	}
+	if successes != 1 || rejections != 1 {
+		t.Errorf("statuses = %v, want exactly one 200 and one 403", statuses)
 	}
 }
 
