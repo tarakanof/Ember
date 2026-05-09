@@ -842,6 +842,9 @@ func main() {
 		case "version", "-v", "--version":
 			runVersion()
 			return
+		case "healthcheck":
+			runHealthcheck()
+			return
 		}
 	}
 

@@ -1,11 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 // deadAddr returns a URL whose host:port is known to be closed: it binds
@@ -72,5 +77,55 @@ func TestHealthcheckOnce_Down(t *testing.T) {
 	err := healthcheckOnce(deadAddr(t))
 	if err == nil {
 		t.Fatal("healthcheckOnce: expected error against closed port, got nil")
+	}
+}
+
+// runHealthcheckSubprocess invokes `go run . healthcheck` with a context
+// timeout. CONFIG_PATH points at a missing file so that, if the dispatcher
+// is broken, loadConfig() returns an error and the subprocess exits 1
+// before binding :8080. (A trailing `-config` CLI arg would not work —
+// flag.Parse() stops at the first positional.)
+func runHealthcheckSubprocess(t *testing.T, healthURL string) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "run", ".", "healthcheck")
+	cmd.Env = append(cmd.Environ(),
+		"STATUS_HEALTHCHECK_URL="+healthURL,
+		"CONFIG_PATH=/nonexistent/awtrix.json",
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("subprocess: %w (stderr: %s)", err, stderr.String())
+	}
+	return nil
+}
+
+func TestHealthcheck_OKAgainstUpServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := runHealthcheckSubprocess(t, srv.URL+"/healthz"); err != nil {
+		t.Fatalf("healthcheck should exit 0 against healthy server: %v", err)
+	}
+}
+
+func TestHealthcheck_FailWhenDown(t *testing.T) {
+	if err := runHealthcheckSubprocess(t, deadAddr(t)); err == nil {
+		t.Fatal("healthcheck should exit non-zero against closed port")
+	}
+}
+
+func TestHealthcheck_FailOnNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	if err := runHealthcheckSubprocess(t, srv.URL+"/healthz"); err == nil {
+		t.Fatal("healthcheck should exit non-zero on 503")
 	}
 }
