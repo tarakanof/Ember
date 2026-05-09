@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -1008,6 +1009,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	tlsCfg, err := readTLSEnv()
+	if err != nil {
+		logger.Error("TLS configuration invalid", "err", err)
+		os.Exit(1)
+	}
+
 	publisher, err := NewHTTPPublisher()
 	if err != nil {
 		logger.Error("create publisher failed", "err", err)
@@ -1041,9 +1048,23 @@ func main() {
 	app.listener = listener
 
 	go func() {
-		logger.Info("server listening", "addr", listener.Addr().String())
-		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("server failed", "err", err)
+		addr := listener.Addr().String()
+		var serveErr error
+		if tlsCfg.enabled {
+			// Wrap the existing TCP listener so app.listener still points at
+			// the raw socket for doctor's http_listening detail.
+			tlsListener := tls.NewListener(listener, &tls.Config{
+				Certificates: []tls.Certificate{tlsCfg.cert},
+				MinVersion:   tls.VersionTLS12,
+			})
+			logger.Info("server listening (https)", "addr", addr)
+			serveErr = server.Serve(tlsListener)
+		} else {
+			logger.Info("server listening", "addr", addr)
+			serveErr = server.Serve(listener)
+		}
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			logger.Error("server failed", "err", serveErr)
 			stop()
 		}
 	}()

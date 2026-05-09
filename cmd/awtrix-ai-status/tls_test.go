@@ -1,15 +1,22 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"io"
+	"log/slog"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,5 +143,103 @@ func TestReadTLSEnv_BothSet_BadCert(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), bad) {
 		t.Errorf("err %q should mention the file path %q", err, bad)
+	}
+}
+
+func TestServeTLS_EndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	certPath, keyPath := genSelfSignedPEM(t, dir)
+	tlsKP, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		t.Fatalf("LoadX509KeyPair: %v", err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	tlsListener := tls.NewListener(ln, &tls.Config{
+		Certificates: []tls.Certificate{tlsKP},
+		MinVersion:   tls.VersionTLS12,
+	})
+
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	server := &http.Server{Handler: app.routes()}
+	t.Cleanup(func() { _ = server.Close() })
+	go func() { _ = server.Serve(tlsListener) }()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test only
+		},
+		Timeout: 2 * time.Second,
+	}
+	resp, err := client.Get("https://" + addr + "/healthz")
+	if err != nil {
+		t.Fatalf("client.Get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+// runServerWithEnv invokes `go run .` with the given extra env. Returns
+// the combined stdout+stderr output + the exit error. Used to assert main()'s
+// slog.Error + os.Exit(1) on TLS misconfig BEFORE binding the listener —
+// so no port collision. slog writes to os.Stdout, so we capture both.
+func runServerWithEnv(t *testing.T, extraEnv ...string) (string, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "run", ".")
+	cmd.Env = append(cmd.Environ(), extraEnv...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	return out.String(), err
+}
+
+func TestMain_PartialTLSEnvExits1(t *testing.T) {
+	stderr, err := runServerWithEnv(t,
+		"STATUS_TLS_CERT_FILE=/nonexistent/cert.pem",
+		"STATUS_TLS_KEY_FILE=",
+	)
+	if err == nil {
+		t.Fatal("expected non-zero exit, got nil")
+	}
+	if !strings.Contains(stderr, "TLS misconfigured") {
+		t.Errorf("stderr should mention TLS misconfig; got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, "STATUS_TLS_CERT_FILE") || !strings.Contains(stderr, "STATUS_TLS_KEY_FILE") {
+		t.Errorf("stderr should name both env vars; got:\n%s", stderr)
+	}
+}
+
+func TestMain_BadTLSCertExits1(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad.pem")
+	if err := os.WriteFile(bad, []byte("garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stderr, err := runServerWithEnv(t,
+		"STATUS_TLS_CERT_FILE="+bad,
+		"STATUS_TLS_KEY_FILE="+bad,
+	)
+	if err == nil {
+		t.Fatal("expected non-zero exit, got nil")
+	}
+	if !strings.Contains(stderr, "TLS load") {
+		t.Errorf("stderr should mention TLS load failure; got:\n%s", stderr)
+	}
+	if !strings.Contains(stderr, bad) {
+		t.Errorf("stderr should name the bad cert path %q; got:\n%s", bad, stderr)
 	}
 }
