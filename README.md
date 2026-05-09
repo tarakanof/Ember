@@ -136,6 +136,16 @@ The `doctor` subcommand defaults to `http://127.0.0.1:8080/admin/doctor`.
 Override with `--server-url`. Use `--offline` for pre-flight checks before
 starting the server.
 
+**Rate limiting:** the server enforces a per-source-IP token-bucket
+rate limit on `/v1/*` writes. Defaults: 10-token burst, 2 tokens/sec
+sustained refill per IP, 5-minute idle-bucket eviction. `/admin/*`
+and read endpoints (`/healthz`, `/state`, `/version`) are not
+rate-limited. Tune via the `rate_limit` section of `config.json`
+and reload with `POST /admin/reload`. To disable entirely, set
+`rate_limit.disabled: true`. Note that `scripts/image-smoke.sh`
+does not exercise `/v1/*` writes, so it does not validate the
+rate-limit code path — that is covered by unit tests instead.
+
 **Smoke test (requires Docker):**
 ```sh
 ./scripts/image-smoke.sh
