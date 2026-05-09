@@ -169,7 +169,44 @@ func startAndReap(cmd *exec.Cmd) {
 }
 
 func openDoctor() {
-	// Ask Terminal to run the producer's doctor command
-	script := `tell application "Terminal" to do script "awtrix-claude-producer doctor; echo; echo Press any key to close.; read -n 1"`
+	// Resolve the producer binary's absolute path. The LaunchAgent's PATH
+	// (/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin) doesn't include
+	// ~/go/bin, and Terminal's user shell may not either, so we look it up
+	// here and pass the absolute path into the AppleScript.
+	binPath := findProducerBin()
+	var script string
+	if binPath == "" {
+		script = `tell application "Terminal" to do script "echo 'awtrix-claude-producer not found in PATH or ~/go/bin. Install it via apps/awtrix-claude-producer/install.sh first.'; echo; echo Press any key to close.; read -n 1"`
+	} else {
+		// Single-quote the binary path for the shell so paths with spaces work;
+		// the AppleScript "do script" runs the string in a shell, so shell
+		// quoting applies here.
+		script = fmt.Sprintf(`tell application "Terminal" to do script "'%s' doctor; echo; echo Press any key to close.; read -n 1"`, binPath)
+	}
 	_ = exec.Command("osascript", "-e", script).Run()
+}
+
+// findProducerBin returns the absolute path to awtrix-claude-producer if it
+// can be located, or "" if not found. Searches the menu's own PATH (covers
+// /opt/homebrew/bin and /usr/local/bin) plus the conventional Go install
+// locations a `go install` would land in.
+func findProducerBin() string {
+	if p, err := exec.LookPath("awtrix-claude-producer"); err == nil {
+		return p
+	}
+	home, _ := os.UserHomeDir()
+	for _, dir := range []string{
+		os.Getenv("GOBIN"),
+		filepath.Join(os.Getenv("GOPATH"), "bin"),
+		filepath.Join(home, "go", "bin"),
+	} {
+		if dir == "" || dir == "/bin" { // skip empty / GOPATH-was-empty
+			continue
+		}
+		path := filepath.Join(dir, "awtrix-claude-producer")
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	return ""
 }
