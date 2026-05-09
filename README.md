@@ -218,6 +218,109 @@ rate-limit code path — that is covered by unit tests instead.
 ```
 The script skips with a friendly message when Docker is missing.
 
+## Unraid install
+
+The repo ships a personal Community Applications template at
+[`unraid/awtrix-ai-status.xml`](unraid/awtrix-ai-status.xml). It is
+pre-filled for a homelab with an AWTRIX device on the local LAN.
+
+### One-time GHCR visibility (do this BEFORE adding the container to Unraid)
+
+GHCR publishes new packages as **private** by default. After your first
+`v*.*.*` tag push triggers CI and the image lands on GHCR, you must
+toggle visibility once: **GitHub → Profile → Packages → awtrix-ai-status
+→ Package settings → Change visibility → Public**, and link the package
+to this repo for combined permissions.
+
+If you skip this step, Unraid's `docker pull` returns
+`unauthorized: authentication required`, the container won't start,
+and Unraid's UI shows a vague "could not pull image" error with no
+hint about the cause. Toggle visibility BEFORE proceeding to the
+install steps below.
+
+### One-time install
+
+1. In the Unraid web UI: **Docker → Add Container → Template URL** and
+   paste:
+   ```
+   https://raw.githubusercontent.com/tarakanof/awtrix-ai-status/main/unraid/awtrix-ai-status.xml
+   ```
+   The form populates with defaults. Don't click Apply yet.
+
+2. From your Unraid host shell (Terminal plugin or SSH), stage the
+   appdata folder:
+   ```sh
+   mkdir -p /mnt/user/appdata/awtrix-ai-status
+   curl -fsSL -o /mnt/user/appdata/awtrix-ai-status/config.json \
+     https://raw.githubusercontent.com/tarakanof/awtrix-ai-status/main/config.example.json
+   vi /mnt/user/appdata/awtrix-ai-status/config.json   # set awtrix.http_base_url
+   ```
+   (`vi` is universal on Unraid; use `nano` if you have the plugin.)
+
+3. Back in the template UI: generate a bearer token (`openssl rand -hex
+   32` from any shell) and paste into the `STATUS_TOKEN` field. Click
+   **Apply**.
+
+### Verify after first start
+
+The runtime image is distroless: there is no shell inside the container,
+so the Unraid Docker UI's **Console** icon will fail. Run diagnostics
+from the Unraid host shell instead:
+
+```sh
+docker exec awtrix-ai-status /awtrix-ai-status doctor
+```
+
+(Replace `awtrix-ai-status` with whatever name you gave the container in
+the template UI — the template defaults the Name to `awtrix-ai-status`,
+but Unraid lets you override it.)
+
+Every check should show `[OK]`. If `awtrix_reachable` fails, your
+`awtrix.http_base_url` in `/etc/awtrix-ai-status/config.json` is wrong
+or the device is offline. Edit the file on the Unraid host
+(`/mnt/user/appdata/awtrix-ai-status/config.json`) and run:
+
+```sh
+curl -X POST -H "Authorization: Bearer <STATUS_TOKEN>" \
+  http://<unraid-ip>:8080/admin/reload
+```
+
+to pick up the change without restarting the container.
+
+### Upgrade
+
+When a new release is published (any `v*.*.*` git tag triggers CI to
+push a new image to GHCR), click **Force Update** on the container in
+the Unraid Docker UI. The new image pulls; the container restarts;
+in-flight requests drain on stop.
+
+To pin a specific version, edit the template's **Repository** field
+to `ghcr.io/tarakanof/awtrix-ai-status:0.1.0` instead of `:latest`,
+and Apply.
+
+### Uninstall
+
+Stop and Remove the container from the Unraid Docker UI. The appdata
+folder at `/mnt/user/appdata/awtrix-ai-status/` is preserved; remove
+it manually (`rm -rf`) if you want a clean wipe. Pulled images stay
+in Unraid's local Docker store until pruned via the Docker UI's
+"Container Size" → cleanup flow. Old images on GHCR persist
+indefinitely; delete unwanted versions via GitHub Packages settings
+if you care about hygiene.
+
+### Producers (laptops)
+
+The container is the *server* half. Producers (your Mac menu-bar
+app and any `awtrix-claude-producer` cron) run on operator
+laptops and POST to `http://<unraid-ip>:8080/v1/status` with the
+bearer token. See:
+
+- `cmd/awtrix-menu/` — Mac menu-bar app (`go install ./cmd/awtrix-menu`)
+- `cmd/awtrix-claude-producer/` — claude-code session producer
+
+Both honour `STATUS_SERVER_URL` and `STATUS_TOKEN` env vars; configure
+them to point at your Unraid IP and the same token you set above.
+
 ## Config
 
 ```json
