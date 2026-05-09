@@ -1,7 +1,8 @@
-.git
 .gocache
-.DS_Store
-awtrix-ai-status
-config.json
-dist
+.claude
 *.log
+*.test
+*.out
+config.json
+config.local.json
+producer.env
