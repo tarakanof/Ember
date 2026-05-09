@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,8 @@ var (
 
 	prefsSrv *prefsServer
 	stateURL atomic.Value // string
+
+	menuMu sync.Mutex // serializes concurrent updateMenu calls
 )
 
 func onSystrayReady() {
@@ -98,6 +101,8 @@ func onSystrayExit() {
 }
 
 func updateMenu(envPath string) {
+	menuMu.Lock()
+	defer menuMu.Unlock()
 	home, _ := os.UserHomeDir()
 	stateDir := filepath.Join(home, ".local", "state", "awtrix-ai-status", "sessions")
 	rec, _ := readEnv(envPath)
