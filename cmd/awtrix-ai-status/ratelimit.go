@@ -155,6 +155,7 @@ func rateLimit(app *App, next http.Handler) http.Handler {
 		ip := clientIP(r)
 		allowed, retryAfter := app.limiter.Allow(ip)
 		if !allowed {
+			app.metrics.incRateLimitDenied()
 			app.logger.InfoContext(r.Context(), "rate limit exceeded",
 				"remote_addr", r.RemoteAddr,
 				"path", r.URL.Path,

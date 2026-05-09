@@ -29,6 +29,7 @@ func newTestLimiter(t *testing.T, burst int, refill float64) (*IPLimiter, *App, 
 
 	app := &App{}
 	app.cfg.Store(&cfg)
+	app.metrics = newMetrics()
 
 	clock := newFakeClock()
 	lim := NewIPLimiter(app)
@@ -357,5 +358,39 @@ func TestRateLimit_DoesNotApplyToReads(t *testing.T) {
 				t.Errorf("%s call %d: 429 (read endpoints should not be rate-limited)", path, i+1)
 			}
 		}
+	}
+}
+
+func TestRateLimit_IncrementsDeniedCounter(t *testing.T) {
+	lim, app, _ := newTestLimiter(t, 1, 0)
+	app.logger = discardLogger()
+	app.limiter = lim
+
+	handler := rateLimit(app, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// 1st request: allowed (consumes the only token).
+	w1 := httptest.NewRecorder()
+	r1 := httptest.NewRequest("POST", "/v1/status", nil)
+	r1.RemoteAddr = "192.0.2.1:1234"
+	handler.ServeHTTP(w1, r1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("first call: status %d, want 200", w1.Code)
+	}
+
+	// 2nd + 3rd: denied (counter should advance to 2).
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("POST", "/v1/status", nil)
+		r.RemoteAddr = "192.0.2.1:1234"
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusTooManyRequests {
+			t.Errorf("denied call %d: status %d, want 429", i+2, w.Code)
+		}
+	}
+
+	if got := app.metrics.rateLimitDenied.Load(); got != 2 {
+		t.Errorf("rateLimitDenied = %d, want 2", got)
 	}
 }
