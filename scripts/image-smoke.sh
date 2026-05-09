@@ -58,4 +58,24 @@ if echo "$ver" | grep -q "unknown"; then
   exit 1
 fi
 
+# Extra E.2a probes:
+# - /version HTTP endpoint should return JSON with our binary name.
+ver_http="$(curl -fsS http://localhost:18080/version)"
+echo "smoke: /version output: $ver_http"
+if ! echo "$ver_http" | grep -q '"binary":"awtrix-ai-status"'; then
+  echo "smoke: FAIL — /version missing binary field" >&2
+  exit 1
+fi
+
+# - --print-config should produce parseable JSON with redacted secrets.
+docker exec -e CONFIG_PATH=/etc/awtrix-ai-status/config.json "$NAME" \
+  /awtrix-ai-status --print-config -config /etc/awtrix-ai-status/config.json > /tmp/printcfg.json
+if ! jq -e '.awtrix.http_base_url' /tmp/printcfg.json >/dev/null; then
+  echo "smoke: FAIL — --print-config output missing awtrix.http_base_url" >&2
+  cat /tmp/printcfg.json >&2
+  exit 1
+fi
+rm -f /tmp/printcfg.json
+echo "smoke: --print-config OK"
+
 echo "smoke: PASS"

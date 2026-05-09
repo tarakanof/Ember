@@ -113,13 +113,28 @@ docker run --rm -d --name awtrix-ai-status \
 **Operator commands:**
 ```sh
 docker exec awtrix-ai-status /awtrix-ai-status version
+docker exec awtrix-ai-status /awtrix-ai-status doctor                 # full diagnostic
+docker exec awtrix-ai-status /awtrix-ai-status --print-config         # what's in effect, secrets redacted
 docker exec awtrix-ai-status /awtrix-ai-status healthcheck && echo OK
 docker logs awtrix-ai-status
+
+# Operator HTTP (read):
+curl http://localhost:8080/version
+curl -H "Authorization: Bearer $STATUS_TOKEN" http://localhost:8080/admin/doctor
+
+# Operator HTTP (mutate): hot-reload config without restart.
+# Edit your bind-mounted config.json, then:
+curl -X POST -H "Authorization: Bearer $STATUS_TOKEN" \
+  http://localhost:8080/admin/reload
 ```
 
 The binary's `healthcheck` subcommand defaults to probing
 `http://127.0.0.1:8080/healthz`. If you bind the server to a non-default
 port via `config.json`, set `STATUS_HEALTHCHECK_URL` to match.
+
+The `doctor` subcommand defaults to `http://127.0.0.1:8080/admin/doctor`.
+Override with `--server-url`. Use `--offline` for pre-flight checks before
+starting the server.
 
 **Smoke test (requires Docker):**
 ```sh

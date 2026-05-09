@@ -489,3 +489,142 @@ func TestAuthNotRequiredOnReadEndpoints(t *testing.T) {
 		t.Errorf("/healthz without auth: status = %d, want 200", resp.StatusCode)
 	}
 }
+
+func TestRequireAuth_TokenRotation(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.Auth.StatusToken = "old"
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app := NewApp(cfg, &noopPublisher{}, logger)
+
+	handler := requireAuth(app, logger, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	// Old token works.
+	req1, _ := http.NewRequest("GET", srv.URL, nil)
+	req1.Header.Set("Authorization", "Bearer old")
+	resp1, err := srv.Client().Do(req1)
+	if err != nil {
+		t.Fatalf("old token request: %v", err)
+	}
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("old token: got %d, want 200", resp1.StatusCode)
+	}
+	resp1.Body.Close()
+
+	// Rotate.
+	newCfg := *app.cfg.Load()
+	newCfg.Auth.StatusToken = "new"
+	app.cfg.Store(&newCfg)
+
+	// Old now rejected.
+	req2, _ := http.NewRequest("GET", srv.URL, nil)
+	req2.Header.Set("Authorization", "Bearer old")
+	resp2, err := srv.Client().Do(req2)
+	if err != nil {
+		t.Fatalf("old-after-rotation request: %v", err)
+	}
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old token after rotation: got %d, want 401", resp2.StatusCode)
+	}
+	resp2.Body.Close()
+
+	// New accepted.
+	req3, _ := http.NewRequest("GET", srv.URL, nil)
+	req3.Header.Set("Authorization", "Bearer new")
+	resp3, err := srv.Client().Do(req3)
+	if err != nil {
+		t.Fatalf("new token request: %v", err)
+	}
+	if resp3.StatusCode != http.StatusOK {
+		t.Fatalf("new token: got %d, want 200", resp3.StatusCode)
+	}
+	resp3.Body.Close()
+}
+
+type noopPublisher struct{}
+
+func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
+func (noopPublisher) Notify(context.Context, map[string]any) error            { return nil }
+func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
+
+func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {
+	hits1, hits2 := 0, 0
+	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits1++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv1.Close()
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits2++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv2.Close()
+
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = srv1.URL
+	cfg.applyDefaults()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pub, err := NewHTTPPublisher() // app filled below
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp(cfg, pub, logger)
+	pub.app = app
+
+	if err := pub.Notify(context.Background(), map[string]any{"text": "x"}); err != nil {
+		t.Fatalf("publish 1: %v", err)
+	}
+	if hits1 != 1 || hits2 != 0 {
+		t.Errorf("after publish 1: hits1=%d hits2=%d, want 1/0", hits1, hits2)
+	}
+
+	// Swap cfg to point at srv2.
+	newCfg := *app.cfg.Load()
+	newCfg.AWTRIX.HTTPBaseURL = srv2.URL
+	app.cfg.Store(&newCfg)
+
+	if err := pub.Notify(context.Background(), map[string]any{"text": "y"}); err != nil {
+		t.Fatalf("publish 2: %v", err)
+	}
+	if hits1 != 1 || hits2 != 1 {
+		t.Errorf("after publish 2: hits1=%d hits2=%d, want 1/1", hits1, hits2)
+	}
+}
+
+func TestApp_PublishUpdatesLastPublishFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = srv.URL
+	cfg.applyDefaults()
+
+	pub, err := NewHTTPPublisher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// pub.app is wired by NewApp; no manual setting needed.
+
+	if err := app.Publish(context.Background()); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	app.mu.Lock()
+	defer app.mu.Unlock()
+	if app.lastPublishAt.IsZero() {
+		t.Error("lastPublishAt not updated")
+	}
+	if !app.lastPublishOK {
+		t.Errorf("lastPublishOK = false, want true (err=%q)", app.lastPublishErr)
+	}
+	if app.lastPublishErr != "" {
+		t.Errorf("lastPublishErr = %q, want empty", app.lastPublishErr)
+	}
+}

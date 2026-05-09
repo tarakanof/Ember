@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -88,29 +90,20 @@ func defaultConfig() Config {
 }
 
 func loadConfig(path string) (Config, error) {
-	cfg := defaultConfig()
-	if path == "" {
-		path = os.Getenv("CONFIG_PATH")
-	}
-	if path == "" {
-		if _, err := os.Stat("config.json"); err == nil {
-			path = "config.json"
-		}
-	}
-	if path == "" {
+	resolved, _ := resolveConfigPath(path)
+	if resolved == "" {
+		cfg := defaultConfig()
+		cfg.applyDefaults()
 		return cfg, nil
 	}
-
-	data, err := os.ReadFile(path)
+	cfg, err := parseConfigFile(resolved)
 	if err != nil {
-		return Config{}, fmt.Errorf("read config: %w", err)
-	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cfg); err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
+		return Config{}, err
 	}
 	cfg.applyDefaults()
+	if err := validateConfig(cfg); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -253,23 +246,39 @@ type Render struct {
 }
 
 type App struct {
-	cfg       Config
-	publisher Publisher
-	logger    *slog.Logger
+	cfg          atomic.Pointer[Config] // hot-swappable; read with cfg.Load() per request
+	configPath   string                 // resolved at startup; "" when running on defaults
+	configSource string                 // "flag" | "env" | "cwd" | "defaults"
+	publisher    Publisher
+	logger       *slog.Logger
+	listener     net.Listener // bound HTTP listener; captured at startup for doctor introspection
+	versionInfo  versionInfo  // computed once at startup; served by /version
+	startedAt    time.Time    // set in NewApp; used by doctor uptime check
 
-	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished
+	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished, lastPublish*
 	sessions      map[string]Session
 	lastWaitKey   string // last waiting-notification Render.Text, for notify dedupe (not a session key)
 	lastPublished Render
+
+	// Last-publish telemetry, all guarded by App.mu.
+	lastPublishAt  time.Time
+	lastPublishOK  bool
+	lastPublishErr string
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
-	return &App{
-		cfg:       cfg,
-		publisher: publisher,
-		logger:    logger,
-		sessions:  make(map[string]Session),
+	a := &App{
+		publisher:   publisher,
+		logger:      logger,
+		sessions:    make(map[string]Session),
+		versionInfo: computeVersionInfo(),
+		startedAt:   time.Now(),
 	}
+	a.cfg.Store(&cfg)
+	if hp, ok := publisher.(*HTTPPublisher); ok {
+		hp.app = a
+	}
+	return a
 }
 
 func (a *App) Upsert(req StatusRequest) Render {
@@ -319,8 +328,9 @@ func (a *App) Snapshot() Snapshot {
 }
 
 func (a *App) renderLocked(now time.Time) Render {
-	staleAfter := time.Duration(a.cfg.Display.StaleSeconds) * time.Second
-	doneTTL := time.Duration(a.cfg.Display.DoneTTLSeconds) * time.Second
+	cfg := a.cfg.Load()
+	staleAfter := time.Duration(cfg.Display.StaleSeconds) * time.Second
+	doneTTL := time.Duration(cfg.Display.DoneTTLSeconds) * time.Second
 	for key, session := range a.sessions {
 		age := now.Sub(session.UpdatedAt)
 		var reaped bool
@@ -382,7 +392,7 @@ func (a *App) renderLocked(now time.Time) Render {
 		color = "#707070"
 	default:
 		return Render{
-			Text:        a.cfg.Display.IdleText,
+			Text:        cfg.Display.IdleText,
 			Color:       "#707070",
 			ActiveTotal: activeTotal,
 		}
@@ -477,23 +487,34 @@ func aggregateLabel(waiting, running, errored, done int) string {
 }
 
 func (a *App) Publish(ctx context.Context) error {
+	cfg := a.cfg.Load()
 	snapshot := a.Snapshot()
 	payload := map[string]any{
 		"text":     snapshot.Render.Text,
 		"color":    snapshot.Render.Color,
 		"textCase": 2,
-		"duration": max(5, a.cfg.Display.RefreshSeconds+2),
-		"lifetime": a.cfg.Display.StaleSeconds + a.cfg.Display.DoneTTLSeconds + 10,
+		"duration": max(5, cfg.Display.RefreshSeconds+2),
+		"lifetime": cfg.Display.StaleSeconds + cfg.Display.DoneTTLSeconds + 10,
 		"center":   len(snapshot.Render.Text) <= 10,
 	}
 
-	if err := a.publisher.CustomApp(ctx, a.cfg.AWTRIX.AppName, payload); err != nil {
-		return fmt.Errorf("publish custom app: %w", err)
+	pubErr := a.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload)
+	a.mu.Lock()
+	a.lastPublishAt = time.Now().UTC()
+	a.lastPublishOK = pubErr == nil
+	if pubErr != nil {
+		a.lastPublishErr = pubErr.Error()
+	} else {
+		a.lastPublishErr = ""
+	}
+	a.mu.Unlock()
+	if pubErr != nil {
+		return fmt.Errorf("publish custom app: %w", pubErr)
 	}
 	if err := a.publishIndicators(ctx, snapshot.Render); err != nil {
 		return err
 	}
-	if a.cfg.Display.NotifyOnWaiting {
+	if cfg.Display.NotifyOnWaiting {
 		if err := a.maybeNotifyWaiting(ctx, snapshot); err != nil {
 			return err
 		}
@@ -560,7 +581,7 @@ func (a *App) maybeNotifyWaiting(ctx context.Context, snapshot Snapshot) error {
 }
 
 func (a *App) StartPublisher(ctx context.Context) {
-	refresh := time.Duration(a.cfg.Display.RefreshSeconds) * time.Second
+	refresh := time.Duration(a.cfg.Load().Display.RefreshSeconds) * time.Second
 	ticker := time.NewTicker(refresh)
 	defer ticker.Stop()
 
@@ -588,13 +609,19 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, a.Snapshot())
 	})
+	mux.Handle("GET /version", handleVersion(a.versionInfo))
 
 	writeMux := http.NewServeMux()
 	writeMux.HandleFunc("POST /v1/status", a.handleStatus)
 	writeMux.HandleFunc("DELETE /v1/status", a.handleDeleteStatus)
 	writeMux.HandleFunc("POST /v1/clear", a.handleClear)
 	writeMux.HandleFunc("POST /v1/notify", a.handleNotify)
-	mux.Handle("/v1/", requireAuth(a.cfg.Auth.StatusToken, a.logger, writeMux))
+	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
+
+	adminMux := http.NewServeMux()
+	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))
+	adminMux.Handle("POST /admin/reload", handleAdminReload(a))
+	mux.Handle("/admin/", adminRequireAuth(a, a.logger, adminMux))
 
 	return loggingMiddleware(a.logger, mux)
 }
@@ -742,12 +769,19 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-func requireAuth(token string, logger *slog.Logger, next http.Handler) http.Handler {
-	if token == "" {
-		return next
-	}
-	expected := "Bearer " + token
+// requireAuth wraps next with bearer-token auth. Reads the token from
+// app.cfg.Load() per request so token rotation via container restart
+// (or future /admin/reload) takes effect for the next request after the
+// swap. Empty token preserves the existing dev-mode policy: writes
+// remain open. (Admin endpoints get the stricter adminRequireAuth.)
+func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := app.cfg.Load().Auth.StatusToken
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		expected := "Bearer " + token
 		if r.Header.Get("Authorization") != expected {
 			logger.InfoContext(r.Context(), "auth rejected",
 				"remote_addr", r.RemoteAddr,
@@ -776,41 +810,55 @@ type Publisher interface {
 }
 
 type HTTPPublisher struct {
-	baseURL string
-	client  *http.Client
+	app *App // for reading current AWTRIX config
 }
 
-func NewHTTPPublisher(cfg AWTRIXConfig) (*HTTPPublisher, error) {
+// NewHTTPPublisher returns a publisher with no app reference yet. Callers
+// must set p.app before calling any publish method (NewApp does this).
+func NewHTTPPublisher() (*HTTPPublisher, error) {
+	return &HTTPPublisher{}, nil
+}
+
+func (p *HTTPPublisher) baseAndClient() (string, *http.Client, error) {
+	cfg := p.app.cfg.Load().AWTRIX
 	base := strings.TrimRight(cfg.HTTPBaseURL, "/")
 	if base == "" {
-		return nil, errors.New("awtrix.http_base_url is required for http transport")
+		return "", nil, errors.New("awtrix.http_base_url is required")
 	}
 	if _, err := url.ParseRequestURI(base); err != nil {
-		return nil, fmt.Errorf("invalid awtrix.http_base_url: %w", err)
+		return "", nil, fmt.Errorf("invalid awtrix.http_base_url: %w", err)
 	}
-	return &HTTPPublisher{
-		baseURL: base,
-		client:  &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second},
-	}, nil
+	return base, &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second}, nil
 }
 
 func (p *HTTPPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
-	endpoint := p.baseURL + "/api/custom?name=" + url.QueryEscape(name)
-	return p.postJSON(ctx, endpoint, payload)
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/custom?name="+url.QueryEscape(name), payload)
 }
 
 func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) error {
-	return p.postJSON(ctx, p.baseURL+"/api/notify", payload)
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/notify", payload)
 }
 
 func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
 	if index < 1 || index > 3 {
 		return fmt.Errorf("indicator index must be 1-3, got %d", index)
 	}
-	return p.postJSON(ctx, p.baseURL+"/api/indicator"+strconv.Itoa(index), payload)
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/indicator"+strconv.Itoa(index), payload)
 }
 
-func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload map[string]any) error {
+func (p *HTTPPublisher) postJSON(ctx context.Context, client *http.Client, endpoint string, payload map[string]any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -820,7 +868,7 @@ func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload m
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := p.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -832,39 +880,47 @@ func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload m
 	return nil
 }
 
-func newPublisher(cfg Config) (Publisher, error) {
-	return NewHTTPPublisher(cfg.AWTRIX)
-}
-
 func main() {
-	if len(os.Args) >= 2 {
-		switch os.Args[1] {
+	if sub, args, ok := scanSubcommand(os.Args[1:]); ok {
+		switch sub {
 		case "version", "-v", "--version":
 			runVersion()
 			return
 		case "healthcheck":
 			runHealthcheck()
 			return
+		case "doctor":
+			runDoctor(args)
+			return
 		}
 	}
 
-	configPath := flag.String("config", "", "path to config JSON file")
+	configFlag := flag.String("config", "", "path to config JSON file")
+	printConfig := flag.Bool("print-config", false, "print loaded config (post-defaults, secrets redacted) to stdout and exit")
 	flag.Parse()
 
+	if *printConfig {
+		runPrintConfig(*configFlag)
+		return
+	}
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	cfg, err := loadConfig(*configPath)
+	configPath, configSource := resolveConfigPath(*configFlag)
+	cfg, err := loadConfig(*configFlag)
 	if err != nil {
 		logger.Error("load config failed", "err", err)
 		os.Exit(1)
 	}
 
-	publisher, err := newPublisher(cfg)
+	publisher, err := NewHTTPPublisher()
 	if err != nil {
 		logger.Error("create publisher failed", "err", err)
 		os.Exit(1)
 	}
 
 	app := NewApp(cfg, publisher, logger)
+	app.configPath = configPath
+	app.configSource = configSource
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -879,9 +935,16 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	listener, err := net.Listen("tcp", cfg.HTTP.Addr)
+	if err != nil {
+		logger.Error("listen failed", "err", err, "addr", cfg.HTTP.Addr)
+		os.Exit(1)
+	}
+	app.listener = listener
+
 	go func() {
-		logger.Info("server listening", "addr", cfg.HTTP.Addr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Info("server listening", "addr", listener.Addr().String())
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server failed", "err", err)
 			stop()
 		}
@@ -893,4 +956,37 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("server shutdown failed", "err", err)
 	}
+}
+
+// scanSubcommand walks args to find the first non-flag positional. It
+// recognises `-flag=value` (single token) and `-flag value` (two tokens)
+// for the server's own flags. Returns (token, remaining-after-token, true)
+// if the token matches a known subcommand; otherwise ("", nil, false).
+func scanSubcommand(args []string) (sub string, rest []string, ok bool) {
+	known := map[string]bool{
+		"version": true, "-v": true, "--version": true,
+		"healthcheck": true,
+		"doctor":      true,
+	}
+	flagWithValue := map[string]bool{
+		"-config": true, "--config": true,
+	}
+	for i := 0; i < len(args); i++ {
+		tok := args[i]
+		if strings.Contains(tok, "=") && (strings.HasPrefix(tok, "-config=") || strings.HasPrefix(tok, "--config=")) {
+			continue
+		}
+		if flagWithValue[tok] {
+			i++ // skip its value
+			continue
+		}
+		if strings.HasPrefix(tok, "-") {
+			continue // unknown flag; skip
+		}
+		if known[tok] {
+			return tok, args[i+1:], true
+		}
+		return "", nil, false
+	}
+	return "", nil, false
 }
