@@ -1,9 +1,13 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // requestKey is the sync.Map key for awtrix_requests_total. Using a struct
@@ -73,4 +77,108 @@ func (m *metrics) incSessionEvicted() {
 func promLabelValue(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 	return r.Replace(s)
+}
+
+// render writes Prometheus exposition format to w. App is consulted for
+// gauges that are computed at render time (sessions count, uptime, last
+// publish, rate-limit bucket count, build info).
+//
+// Returns no error: write failures on a Prometheus scrape connection are
+// not actionable from inside the render function (the connection is
+// already broken; logging here would just spam at scrape rate). The
+// caller is the http handler — Go closes the connection cleanly on
+// client disconnect.
+//
+// Order: each metric is preceded by `# HELP` then `# TYPE`. Counters use
+// the _total suffix; gauges do not. The format follows
+// https://github.com/prometheus/docs/blob/main/content/docs/instrumenting/exposition_formats.md
+func (m *metrics) render(w io.Writer, app *App) {
+	type entry struct {
+		pattern string
+		status  int
+		n       int64
+	}
+	var requests []entry
+	m.requestsTotal.Range(func(k, v any) bool {
+		key := k.(requestKey)
+		requests = append(requests, entry{key.pattern, key.status, v.(*atomic.Int64).Load()})
+		return true
+	})
+	sort.Slice(requests, func(i, j int) bool {
+		if requests[i].pattern != requests[j].pattern {
+			return requests[i].pattern < requests[j].pattern
+		}
+		return requests[i].status < requests[j].status
+	})
+
+	fmt.Fprintln(w, "# HELP awtrix_requests_total HTTP requests by route pattern and status code.")
+	fmt.Fprintln(w, "# TYPE awtrix_requests_total counter")
+	for _, e := range requests {
+		fmt.Fprintf(w, "awtrix_requests_total{pattern=\"%s\",status=\"%d\"} %d\n",
+			promLabelValue(e.pattern), e.status, e.n)
+	}
+
+	fmt.Fprintln(w, "# HELP awtrix_publish_total AWTRIX publish results.")
+	fmt.Fprintln(w, "# TYPE awtrix_publish_total counter")
+	fmt.Fprintf(w, "awtrix_publish_total{result=\"ok\"} %d\n", m.publishTotalOK.Load())
+	fmt.Fprintf(w, "awtrix_publish_total{result=\"fail\"} %d\n", m.publishTotalFail.Load())
+
+	fmt.Fprintln(w, "# HELP awtrix_rate_limit_denied_total HTTP requests denied by the rate limiter.")
+	fmt.Fprintln(w, "# TYPE awtrix_rate_limit_denied_total counter")
+	fmt.Fprintf(w, "awtrix_rate_limit_denied_total %d\n", m.rateLimitDenied.Load())
+
+	fmt.Fprintln(w, "# HELP awtrix_sessions_evicted_total Sessions reaped due to staleness or done-TTL.")
+	fmt.Fprintln(w, "# TYPE awtrix_sessions_evicted_total counter")
+	fmt.Fprintf(w, "awtrix_sessions_evicted_total %d\n", m.sessionsEvicted.Load())
+
+	app.mu.Lock()
+	sessionsActive := len(app.sessions)
+	var lastPublishUnix int64
+	if !app.lastPublishAt.IsZero() {
+		lastPublishUnix = app.lastPublishAt.Unix()
+	}
+	lastPublishOK := 0
+	if app.lastPublishOK {
+		lastPublishOK = 1
+	}
+	app.mu.Unlock()
+
+	uptime := time.Since(app.startedAt).Seconds()
+
+	app.limiter.mu.Lock()
+	bucketCount := len(app.limiter.buckets)
+	app.limiter.mu.Unlock()
+
+	fmt.Fprintln(w, "# HELP awtrix_sessions_active Currently tracked sessions.")
+	fmt.Fprintln(w, "# TYPE awtrix_sessions_active gauge")
+	fmt.Fprintf(w, "awtrix_sessions_active %d\n", sessionsActive)
+
+	fmt.Fprintln(w, "# HELP awtrix_uptime_seconds Process uptime in seconds.")
+	fmt.Fprintln(w, "# TYPE awtrix_uptime_seconds gauge")
+	fmt.Fprintf(w, "awtrix_uptime_seconds %.3f\n", uptime)
+
+	fmt.Fprintln(w, "# HELP awtrix_last_publish_unix Unix timestamp of last AWTRIX publish (0 if never).")
+	fmt.Fprintln(w, "# TYPE awtrix_last_publish_unix gauge")
+	fmt.Fprintf(w, "awtrix_last_publish_unix %d\n", lastPublishUnix)
+
+	fmt.Fprintln(w, "# HELP awtrix_last_publish_ok 1 if the most recent publish succeeded, else 0.")
+	fmt.Fprintln(w, "# TYPE awtrix_last_publish_ok gauge")
+	fmt.Fprintf(w, "awtrix_last_publish_ok %d\n", lastPublishOK)
+
+	fmt.Fprintln(w, "# HELP awtrix_ratelimit_buckets Active per-IP rate-limit buckets.")
+	fmt.Fprintln(w, "# TYPE awtrix_ratelimit_buckets gauge")
+	fmt.Fprintf(w, "awtrix_ratelimit_buckets %d\n", bucketCount)
+
+	v := app.versionInfo
+	rev := v.Revision
+	if rev == "" {
+		rev = "unknown" // mirrors runVersion() so /metrics matches the version subcommand
+	}
+	if v.Dirty {
+		rev += "+dirty"
+	}
+	fmt.Fprintln(w, "# HELP awtrix_build_info Build identity (gauge fixed at 1; identity in labels).")
+	fmt.Fprintln(w, "# TYPE awtrix_build_info gauge")
+	fmt.Fprintf(w, "awtrix_build_info{revision=\"%s\",go_version=\"%s\"} 1\n",
+		promLabelValue(rev), promLabelValue(v.GoVersion))
 }

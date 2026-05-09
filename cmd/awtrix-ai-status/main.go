@@ -290,6 +290,8 @@ type App struct {
 	lastPublishAt  time.Time
 	lastPublishOK  bool
 	lastPublishErr string
+
+	metrics *metrics // populated by NewApp; never nil at runtime
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -301,6 +303,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		startedAt:   time.Now(),
 	}
 	a.cfg.Store(&cfg)
+	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	if hp, ok := publisher.(*HTTPPublisher); ok {
 		hp.app = a
