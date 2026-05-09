@@ -950,6 +950,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	go app.limiter.runSweeper(ctx)
 	go app.StartPublisher(ctx)
 
 	server := &http.Server{

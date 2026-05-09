@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -305,6 +306,30 @@ func TestRateLimit_AppliesPostAuth(t *testing.T) {
 	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("second authed call: code = %d, want 429", resp3.StatusCode)
+	}
+}
+
+func TestRunSweeper_ExitsOnContextCancel(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.RateLimit.IdleEvictSeconds = 100
+	cfg.applyDefaults()
+	app := &App{}
+	app.cfg.Store(&cfg)
+	lim := NewIPLimiter(app)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		lim.runSweeper(ctx)
+		close(done)
+	}()
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runSweeper did not exit within 2s of cancellation")
 	}
 }
 
