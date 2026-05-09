@@ -69,3 +69,24 @@ func TestEnvFile_SetAddsKeyIfMissing(t *testing.T) {
 		t.Errorf("set on empty file failed: %q", out)
 	}
 }
+
+func TestEnvFile_GetReturnsLastDuplicate(t *testing.T) {
+	rec, _ := parseEnv(strings.NewReader("STATUS_TOKEN=first\nSTATUS_TOKEN=last\n"))
+	if got := rec.get("STATUS_TOKEN"); got != "last" {
+		t.Errorf("get with duplicates = %q, want %q (matches producer last-wins)", got, "last")
+	}
+}
+
+func TestEnvFile_SetUpdatesLastDuplicate(t *testing.T) {
+	rec, _ := parseEnv(strings.NewReader("STATUS_TOKEN=first\nSTATUS_TOKEN=stale\nUNKNOWN=x\n"))
+	rec.set("STATUS_TOKEN", "")
+	out := rec.serialize()
+	expected := "STATUS_TOKEN=first\nSTATUS_TOKEN=\nUNKNOWN=x\n"
+	if out != expected {
+		t.Errorf("set on duplicates didn't update last occurrence:\n--got--\n%s\n--want--\n%s", out, expected)
+	}
+	// And the get-returns-last contract still holds after the set.
+	if got := rec.get("STATUS_TOKEN"); got != "" {
+		t.Errorf("after set last to \"\", get = %q, want \"\"", got)
+	}
+}

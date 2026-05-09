@@ -52,22 +52,34 @@ func readEnv(path string) (*envRec, error) {
 	return parseEnv(f)
 }
 
+// get returns the last occurrence of key, matching the producer's parser
+// semantics (cmd/awtrix-claude-producer/config.go uses map[string]string with
+// last-write-wins). Aligns the menu's view with the value the producer
+// actually reads when producer.env contains duplicate keys.
 func (r *envRec) get(key string) string {
+	last := ""
 	for _, l := range r.lines {
 		if l.key == key {
-			return l.value
+			last = l.value
 		}
 	}
-	return ""
+	return last
 }
 
+// set updates the last occurrence of key (so a write through the prefs form
+// changes the value the producer will read). Earlier duplicate lines are left
+// untouched; the user is responsible for cleaning those up if they care.
 func (r *envRec) set(key, value string) {
+	lastIdx := -1
 	for i := range r.lines {
 		if r.lines[i].key == key {
-			r.lines[i].value = value
-			r.lines[i].raw = key + "=" + value
-			return
+			lastIdx = i
 		}
+	}
+	if lastIdx >= 0 {
+		r.lines[lastIdx].value = value
+		r.lines[lastIdx].raw = key + "=" + value
+		return
 	}
 	r.lines = append(r.lines, envLine{raw: key + "=" + value, key: key, value: value})
 }
