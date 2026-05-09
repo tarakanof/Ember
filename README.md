@@ -163,6 +163,12 @@ The script skips with a friendly message when Docker is missing.
     "timeout_seconds": 5
   },
   "auth": { "status_token_env": "STATUS_TOKEN" },
+  "rate_limit": {
+    "disabled": false,
+    "burst": 10,
+    "refill_per_sec": 2,
+    "idle_evict_seconds": 300
+  },
   "display": {
     "idle_text": "AI idle",
     "stale_seconds": 25,
