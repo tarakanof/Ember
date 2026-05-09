@@ -297,8 +297,9 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if u, err := url.Parse(srvURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
-		h.renderError(w, r, nonce, 400, "STATUS_SERVER_URL must be http(s) with no embedded credentials")
+	u, err := url.Parse(srvURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Host == "" {
+		h.renderError(w, r, nonce, 400, "STATUS_SERVER_URL must be http(s) with a host and no embedded credentials")
 		return
 	}
 	// Token preservation rule

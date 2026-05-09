@@ -583,6 +583,48 @@ func TestPrefs_NoncePreservedAfter400_ThenSucceedsOnRetry(t *testing.T) {
 	}
 }
 
+func TestPrefs_PostRejectsHostlessURL(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(dir, "producer.env")
+	if err := os.WriteFile(envPath, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newPrefsHandler(envPath)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	nonce := h.issueNonce()
+	info, _ := os.Stat(envPath)
+	mtime := info.ModTime().UnixNano()
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"opaque", "http:foo"},
+		{"scheme_only", "http:"},
+		{"empty_authority", "http://"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			postForm := url.Values{
+				"nonce":             {nonce},
+				"env_mtime":         {strconv.FormatInt(mtime, 10)},
+				"STATUS_SOURCE":     {"x"},
+				"STATUS_SERVER_URL": {tc.url},
+			}
+			req, _ := http.NewRequest("POST", srv.URL+"/", strings.NewReader(postForm.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Origin", srv.URL)
+			resp, _ := srv.Client().Do(req)
+			if resp.StatusCode != 400 {
+				t.Errorf("status = %d, want 400 (hostless URL rejected)", resp.StatusCode)
+			}
+		})
+	}
+}
+
 // helper used in tests
 func fmtInt64(n int64) string {
 	return strconv.FormatInt(n, 10)
