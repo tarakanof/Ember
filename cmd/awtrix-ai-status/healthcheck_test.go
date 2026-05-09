@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -127,5 +128,83 @@ func TestHealthcheck_FailOnNon200(t *testing.T) {
 
 	if err := runHealthcheckSubprocess(t, srv.URL+"/healthz"); err == nil {
 		t.Fatal("healthcheck should exit non-zero on 503")
+	}
+}
+
+func TestHealthcheckTarget_TLSDefault(t *testing.T) {
+	t.Setenv("STATUS_HEALTHCHECK_URL", "")
+	t.Setenv("STATUS_TLS_CERT_FILE", "/some/path")
+	got := healthcheckTarget()
+	want := "https://127.0.0.1:8080/healthz"
+	if got != want {
+		t.Errorf("healthcheckTarget() = %q, want %q", got, want)
+	}
+}
+
+func TestHealthcheckTarget_OverrideWinsOverTLS(t *testing.T) {
+	t.Setenv("STATUS_HEALTHCHECK_URL", "http://example.test/x")
+	t.Setenv("STATUS_TLS_CERT_FILE", "/some/path")
+	got := healthcheckTarget()
+	want := "http://example.test/x"
+	if got != want {
+		t.Errorf("healthcheckTarget() = %q, want %q", got, want)
+	}
+}
+
+// Reuse genSelfSignedPEM from tls_test.go via the same package.
+func TestHealthcheckOnce_HTTPS_TrustedViaCAFile(t *testing.T) {
+	dir := t.TempDir()
+	cert, key := genSelfSignedPEM(t, dir)
+	tlsKP, err := tls.LoadX509KeyPair(cert, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{tlsKP}}
+	srv.StartTLS()
+	defer srv.Close()
+
+	t.Setenv("STATUS_HEALTHCHECK_CA_FILE", cert)
+	t.Setenv("STATUS_HEALTHCHECK_INSECURE", "")
+	if err := healthcheckOnce(srv.URL + "/healthz"); err != nil {
+		t.Fatalf("healthcheckOnce: %v", err)
+	}
+}
+
+func TestHealthcheckOnce_HTTPS_Insecure(t *testing.T) {
+	dir := t.TempDir()
+	cert, key := genSelfSignedPEM(t, dir)
+	tlsKP, _ := tls.LoadX509KeyPair(cert, key)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{tlsKP}}
+	srv.StartTLS()
+	defer srv.Close()
+
+	t.Setenv("STATUS_HEALTHCHECK_CA_FILE", "")
+	t.Setenv("STATUS_HEALTHCHECK_INSECURE", "1")
+	if err := healthcheckOnce(srv.URL + "/healthz"); err != nil {
+		t.Fatalf("healthcheckOnce: %v", err)
+	}
+}
+
+func TestHealthcheckOnce_HTTPS_UntrustedFails(t *testing.T) {
+	dir := t.TempDir()
+	cert, key := genSelfSignedPEM(t, dir)
+	tlsKP, _ := tls.LoadX509KeyPair(cert, key)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{tlsKP}}
+	srv.StartTLS()
+	defer srv.Close()
+
+	t.Setenv("STATUS_HEALTHCHECK_CA_FILE", "")
+	t.Setenv("STATUS_HEALTHCHECK_INSECURE", "")
+	if err := healthcheckOnce(srv.URL + "/healthz"); err == nil {
+		t.Fatal("healthcheckOnce: expected verify failure against unknown CA, got nil")
 	}
 }
