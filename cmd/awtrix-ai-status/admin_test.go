@@ -435,3 +435,77 @@ func TestAdminReload_LogsOutcome(t *testing.T) {
 		t.Errorf("expected 'admin reload' status=200 log, got: %s", logs)
 	}
 }
+
+func TestAdminReload_RateLimitRefillReloaded(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"},"rate_limit":{"refill_per_sec":2}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	newBody := `{"awtrix":{"http_base_url":"http://x"},"rate_limit":{"refill_per_sec":5}}`
+	if err := os.WriteFile(path, []byte(newBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		ChangedFields []string `json:"changed_fields"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range out.ChangedFields {
+		if f == "rate_limit.refill_per_sec" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("changed_fields = %v, want to include rate_limit.refill_per_sec", out.ChangedFields)
+	}
+	if app.cfg.Load().RateLimit.RefillPerSec != 5 {
+		t.Errorf("RefillPerSec = %v, want 5", app.cfg.Load().RateLimit.RefillPerSec)
+	}
+}
+
+func TestAdminReload_RateLimitDisabledFlipped(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	newBody := `{"awtrix":{"http_base_url":"http://x"},"rate_limit":{"disabled":true}}`
+	if err := os.WriteFile(path, []byte(newBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if !app.cfg.Load().RateLimit.Disabled {
+		t.Error("Disabled = false, want true after reload")
+	}
+}

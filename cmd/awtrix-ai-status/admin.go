@@ -94,7 +94,7 @@ var nonReloadableLeaves = []string{
 }
 
 // diffConfig returns dotted leaf paths whose values differ between oldCfg
-// and newCfg. Hand-rolled (no reflection) across all 12 config leaves so a
+// and newCfg. Hand-rolled (no reflection) across all 16 config leaves so a
 // new field added later forces a compile-time prompt to extend this list.
 func diffConfig(oldCfg, newCfg Config) []string {
 	var changed []string
@@ -133,6 +133,18 @@ func diffConfig(oldCfg, newCfg Config) []string {
 	}
 	if oldCfg.Display.NotifyOnWaiting != newCfg.Display.NotifyOnWaiting {
 		changed = append(changed, "display.notify_on_waiting")
+	}
+	if oldCfg.RateLimit.Disabled != newCfg.RateLimit.Disabled {
+		changed = append(changed, "rate_limit.disabled")
+	}
+	if oldCfg.RateLimit.Burst != newCfg.RateLimit.Burst {
+		changed = append(changed, "rate_limit.burst")
+	}
+	if oldCfg.RateLimit.RefillPerSec != newCfg.RateLimit.RefillPerSec {
+		changed = append(changed, "rate_limit.refill_per_sec")
+	}
+	if oldCfg.RateLimit.IdleEvictSeconds != newCfg.RateLimit.IdleEvictSeconds {
+		changed = append(changed, "rate_limit.idle_evict_seconds")
 	}
 	return changed
 }
