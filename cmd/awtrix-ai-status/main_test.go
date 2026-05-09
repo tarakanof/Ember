@@ -628,3 +628,54 @@ func TestApp_PublishUpdatesLastPublishFields(t *testing.T) {
 		t.Errorf("lastPublishErr = %q, want empty", app.lastPublishErr)
 	}
 }
+
+func TestHandleStatus_413OnOversizeBody(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, discardLogger())
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	body := bytes.Repeat([]byte("x"), (1<<20)+100)
+	req, err := http.NewRequest("POST", srv.URL+"/v1/status", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge && resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("oversized body: code = %d, want 413 or 400", resp.StatusCode)
+	}
+}
+
+func TestHandleClear_413OnOversizeBody(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, discardLogger())
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	body := bytes.Repeat([]byte("x"), 2048)
+	req, err := http.NewRequest("POST", srv.URL+"/v1/clear", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge && resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("oversized /v1/clear body: code = %d, want 413 or 400", resp.StatusCode)
+	}
+}

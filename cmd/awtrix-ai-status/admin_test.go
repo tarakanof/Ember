@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -356,5 +357,27 @@ func TestAdminReload_FromDefaults412(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusPreconditionFailed {
 		t.Errorf("status = %d, want 412", resp.StatusCode)
+	}
+}
+
+func TestHandleAdminReload_413OnOversizeBody(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"}}`
+	app, _ := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	payload := bytes.Repeat([]byte("x"), 2048)
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge && resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("oversized /admin/reload body: code = %d, want 413 or 400", resp.StatusCode)
 	}
 }

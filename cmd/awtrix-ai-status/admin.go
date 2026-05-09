@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"runtime"
@@ -177,6 +178,16 @@ func formatLeafValue(cfg Config, leaf string) string {
 // reload would always trip the 409 guard for auth.status_token.
 func handleAdminReload(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1024)
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			app.logger.InfoContext(r.Context(), "request rejected",
+				"remote_addr", r.RemoteAddr,
+				"path", r.URL.Path,
+				"reason", "too_large",
+			)
+			writeError(w, http.StatusRequestEntityTooLarge, err)
+			return
+		}
 		if app.configSource == "defaults" {
 			writeError(w, http.StatusPreconditionFailed, errors.New("no config source: server started from defaults; reload requires a config file"))
 			return

@@ -676,6 +676,16 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleClear(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1024)
+	if _, err := io.Copy(io.Discard, r.Body); err != nil {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "too_large",
+		)
+		writeError(w, http.StatusRequestEntityTooLarge, err)
+		return
+	}
 	render := a.Clear()
 	if err := a.Publish(r.Context()); err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -960,6 +970,7 @@ func main() {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	listener, err := net.Listen("tcp", cfg.HTTP.Addr)
