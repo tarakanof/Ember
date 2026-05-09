@@ -145,6 +145,24 @@ func nonReloadableChange(changed []string) string {
 	return ""
 }
 
+// formatLeafValue renders a single config leaf as a string for inclusion in
+// the 409 error message. auth.status_token is redacted to avoid leaking the
+// running secret in an error response — defense-in-depth even though the
+// preserve-token copy normally prevents that leaf from diffing.
+func formatLeafValue(cfg Config, leaf string) string {
+	switch leaf {
+	case "http.addr":
+		return cfg.HTTP.Addr
+	case "auth.status_token":
+		return "<redacted>"
+	case "auth.status_token_env":
+		return cfg.Auth.StatusTokenEnv
+	case "display.refresh_seconds":
+		return fmt.Sprintf("%d", cfg.Display.RefreshSeconds)
+	}
+	return ""
+}
+
 // handleAdminReload re-reads the config file path captured at startup,
 // validates, and atomically swaps via app.cfg.Store. State machine:
 //   - 412 if server started from defaults (no file path).
@@ -159,8 +177,8 @@ func nonReloadableChange(changed []string) string {
 // reload would always trip the 409 guard for auth.status_token.
 func handleAdminReload(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if app.configPath == "" {
-			writeError(w, http.StatusPreconditionFailed, errors.New("server started from defaults; no config file to reload"))
+		if app.configSource == "defaults" {
+			writeError(w, http.StatusPreconditionFailed, errors.New("no config source: server started from defaults; reload requires a config file"))
 			return
 		}
 		newCfg, err := parseConfigFile(app.configPath)
@@ -193,7 +211,9 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		}
 		changed := diffConfig(oldCfg, newCfg)
 		if hit := nonReloadableChange(changed); hit != "" {
-			writeError(w, http.StatusConflict, fmt.Errorf("non-reloadable field changed: %s (restart required)", hit))
+			oldVal := formatLeafValue(oldCfg, hit)
+			newVal := formatLeafValue(newCfg, hit)
+			writeError(w, http.StatusConflict, fmt.Errorf("non-reloadable field changed: %s=%s→%s (restart required)", hit, oldVal, newVal))
 			return
 		}
 		app.cfg.Store(&newCfg)

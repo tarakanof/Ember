@@ -272,6 +272,10 @@ func TestAdminReload_NonReloadable409(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict {
 		t.Errorf("status = %d, want 409", resp.StatusCode)
 	}
+	respBody, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(respBody), "display.refresh_seconds=") {
+		t.Errorf("body should mention old→new values: %s", respBody)
+	}
 	if app.cfg.Load().Display.RefreshSeconds == 999 {
 		t.Errorf("cfg unchanged check failed; got %d", app.cfg.Load().Display.RefreshSeconds)
 	}
