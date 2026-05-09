@@ -264,6 +264,9 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		sessions:  make(map[string]Session),
 	}
 	a.cfg.Store(&cfg)
+	if hp, ok := publisher.(*HTTPPublisher); ok {
+		hp.app = a
+	}
 	return a
 }
 
@@ -780,41 +783,59 @@ type Publisher interface {
 }
 
 type HTTPPublisher struct {
-	baseURL string
-	client  *http.Client
+	app *App // for reading current AWTRIX config
 }
 
-func NewHTTPPublisher(cfg AWTRIXConfig) (*HTTPPublisher, error) {
+// NewHTTPPublisher returns a publisher with no app reference yet. Callers
+// must set p.app before calling any publish method (NewApp does this).
+func NewHTTPPublisher(_ *App) (*HTTPPublisher, error) {
+	return &HTTPPublisher{}, nil
+}
+
+func (p *HTTPPublisher) baseAndClient() (string, *http.Client, error) {
+	cfg := p.app.cfg.Load().AWTRIX
 	base := strings.TrimRight(cfg.HTTPBaseURL, "/")
 	if base == "" {
-		return nil, errors.New("awtrix.http_base_url is required for http transport")
+		return "", nil, errors.New("awtrix.http_base_url is required")
 	}
 	if _, err := url.ParseRequestURI(base); err != nil {
-		return nil, fmt.Errorf("invalid awtrix.http_base_url: %w", err)
+		return "", nil, fmt.Errorf("invalid awtrix.http_base_url: %w", err)
 	}
-	return &HTTPPublisher{
-		baseURL: base,
-		client:  &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second},
-	}, nil
+	return base, &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second}, nil
 }
 
 func (p *HTTPPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
-	endpoint := p.baseURL + "/api/custom?name=" + url.QueryEscape(name)
-	return p.postJSON(ctx, endpoint, payload)
+	base, _, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, base+"/api/custom?name="+url.QueryEscape(name), payload)
 }
 
 func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) error {
-	return p.postJSON(ctx, p.baseURL+"/api/notify", payload)
+	base, _, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, base+"/api/notify", payload)
 }
 
 func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
 	if index < 1 || index > 3 {
 		return fmt.Errorf("indicator index must be 1-3, got %d", index)
 	}
-	return p.postJSON(ctx, p.baseURL+"/api/indicator"+strconv.Itoa(index), payload)
+	base, _, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, base+"/api/indicator"+strconv.Itoa(index), payload)
 }
 
 func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload map[string]any) error {
+	_, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -824,7 +845,7 @@ func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload m
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := p.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -836,8 +857,8 @@ func (p *HTTPPublisher) postJSON(ctx context.Context, endpoint string, payload m
 	return nil
 }
 
-func newPublisher(cfg Config) (Publisher, error) {
-	return NewHTTPPublisher(cfg.AWTRIX)
+func newPublisher(_ Config) (*HTTPPublisher, error) {
+	return NewHTTPPublisher(nil)
 }
 
 func main() {
