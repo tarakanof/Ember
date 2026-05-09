@@ -638,10 +638,10 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /version", handleVersion(a.versionInfo))
 
 	writeMux := http.NewServeMux()
-	writeMux.HandleFunc("POST /v1/status", a.handleStatus)
-	writeMux.HandleFunc("DELETE /v1/status", a.handleDeleteStatus)
-	writeMux.HandleFunc("POST /v1/clear", a.handleClear)
-	writeMux.HandleFunc("POST /v1/notify", a.handleNotify)
+	writeMux.Handle("POST /v1/status", rateLimit(a, http.HandlerFunc(a.handleStatus)))
+	writeMux.Handle("DELETE /v1/status", rateLimit(a, http.HandlerFunc(a.handleDeleteStatus)))
+	writeMux.Handle("POST /v1/clear", rateLimit(a, http.HandlerFunc(a.handleClear)))
+	writeMux.Handle("POST /v1/notify", rateLimit(a, http.HandlerFunc(a.handleNotify)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()

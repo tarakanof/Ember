@@ -246,3 +246,91 @@ func TestRateLimit_429Response(t *testing.T) {
 		t.Errorf("body = %q", body)
 	}
 }
+
+func TestRateLimit_AppliesPostAuth(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.Auth.StatusToken = "tok"
+	cfg.RateLimit.Burst = 1
+	cfg.RateLimit.RefillPerSec = 0.5
+	cfg.applyDefaults()
+
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, discardLogger())
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// Wrong token: expect 401 (auth runs first; no token consumed).
+	req1, err := http.NewRequest("POST", srv.URL+"/v1/status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req1.Header.Set("Authorization", "Bearer wrong")
+	resp1, err := srv.Client().Do(req1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp1.Body.Close()
+	if resp1.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token: code = %d, want 401", resp1.StatusCode)
+	}
+
+	// First authed call passes auth + rate limit; reaches handler (4xx but
+	// not 401 or 429 is the point — the handler may 400 because body is nil).
+	req2, err := http.NewRequest("POST", srv.URL+"/v1/status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2.Header.Set("Authorization", "Bearer tok")
+	resp2, err := srv.Client().Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode == http.StatusUnauthorized || resp2.StatusCode == http.StatusTooManyRequests {
+		t.Fatalf("first authed call: code = %d, want neither 401 nor 429", resp2.StatusCode)
+	}
+
+	// Second authed call: bucket drained, expect 429.
+	req3, err := http.NewRequest("POST", srv.URL+"/v1/status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req3.Header.Set("Authorization", "Bearer tok")
+	resp3, err := srv.Client().Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second authed call: code = %d, want 429", resp3.StatusCode)
+	}
+}
+
+func TestRateLimit_DoesNotApplyToReads(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.RateLimit.Burst = 1
+	cfg.RateLimit.RefillPerSec = 0.5
+	cfg.applyDefaults()
+
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, discardLogger())
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	for _, path := range []string{"/healthz", "/state", "/version"} {
+		for i := 0; i < 5; i++ {
+			resp, err := http.Get(srv.URL + path)
+			if err != nil {
+				t.Fatalf("%s call %d: %v", path, i+1, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusTooManyRequests {
+				t.Errorf("%s call %d: 429 (read endpoints should not be rate-limited)", path, i+1)
+			}
+		}
+	}
+}
