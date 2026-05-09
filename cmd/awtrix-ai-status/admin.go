@@ -49,6 +49,10 @@ func adminRequireAuth(app *App, logger *slog.Logger, next http.Handler) http.Han
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := app.cfg.Load().Auth.StatusToken
 		if token == "" {
+			logger.InfoContext(r.Context(), "admin disabled",
+				"remote_addr", r.RemoteAddr,
+				"path", r.URL.Path,
+			)
 			writeError(w, http.StatusUnauthorized, errors.New("admin disabled: STATUS_TOKEN unset"))
 			return
 		}
@@ -188,7 +192,17 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			writeError(w, http.StatusRequestEntityTooLarge, err)
 			return
 		}
+
+		logOutcome := func(status int, changed int, detail string) {
+			app.logger.InfoContext(r.Context(), "admin reload",
+				"status", status,
+				"changed_fields_count", changed,
+				"detail", detail,
+			)
+		}
+
 		if app.configSource == "defaults" {
+			logOutcome(http.StatusPreconditionFailed, 0, "no config source")
 			writeError(w, http.StatusPreconditionFailed, errors.New("no config source: server started from defaults; reload requires a config file"))
 			return
 		}
@@ -196,10 +210,13 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		if err != nil {
 			switch {
 			case errors.Is(err, ErrConfigRead):
+				logOutcome(http.StatusInternalServerError, 0, err.Error())
 				writeError(w, http.StatusInternalServerError, err)
 			case errors.Is(err, ErrConfigParse):
+				logOutcome(http.StatusBadRequest, 0, err.Error())
 				writeError(w, http.StatusBadRequest, err)
 			default:
+				logOutcome(http.StatusInternalServerError, 0, err.Error())
 				writeError(w, http.StatusInternalServerError, err)
 			}
 			return
@@ -208,7 +225,9 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// would mask an explicit operator empty string by filling in the
 		// fallback URL, hiding their misconfiguration.
 		if newCfg.AWTRIX.HTTPBaseURL == "" {
-			writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("%w: awtrix.http_base_url is required", ErrConfigValidate))
+			err := fmt.Errorf("%w: awtrix.http_base_url is required", ErrConfigValidate)
+			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
+			writeError(w, http.StatusUnprocessableEntity, err)
 			return
 		}
 		newCfg.applyDefaults()
@@ -217,6 +236,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
 		if err := validateConfig(newCfg); err != nil {
+			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
 			writeError(w, http.StatusUnprocessableEntity, err)
 			return
 		}
@@ -224,10 +244,12 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		if hit := nonReloadableChange(changed); hit != "" {
 			oldVal := formatLeafValue(oldCfg, hit)
 			newVal := formatLeafValue(newCfg, hit)
+			logOutcome(http.StatusConflict, len(changed), hit)
 			writeError(w, http.StatusConflict, fmt.Errorf("non-reloadable field changed: %s=%s→%s (restart required)", hit, oldVal, newVal))
 			return
 		}
 		app.cfg.Store(&newCfg)
+		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,
 			"changed_fields": changed,

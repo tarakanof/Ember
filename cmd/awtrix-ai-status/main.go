@@ -656,14 +656,27 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	var req StatusRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		var maxBytes *http.MaxBytesError
+		reason := "parse"
+		status := http.StatusBadRequest
 		if errors.As(err, &maxBytes) {
-			writeError(w, http.StatusRequestEntityTooLarge, err)
-			return
+			reason = "too_large"
+			status = http.StatusRequestEntityTooLarge
 		}
-		writeError(w, http.StatusBadRequest, err)
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", reason,
+		)
+		writeError(w, status, err)
 		return
 	}
 	if err := req.validate(); err != nil {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", validationField(err),
+		)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -728,14 +741,27 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 	var req DeleteRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		var maxBytes *http.MaxBytesError
+		reason := "parse"
+		status := http.StatusBadRequest
 		if errors.As(err, &maxBytes) {
-			writeError(w, http.StatusRequestEntityTooLarge, err)
-			return
+			reason = "too_large"
+			status = http.StatusRequestEntityTooLarge
 		}
-		writeError(w, http.StatusBadRequest, err)
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", reason,
+		)
+		writeError(w, status, err)
 		return
 	}
 	if err := req.validate(); err != nil {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", validationField(err),
+		)
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -751,14 +777,27 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	var req NotifyRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		var maxBytes *http.MaxBytesError
+		reason := "parse"
+		status := http.StatusBadRequest
 		if errors.As(err, &maxBytes) {
-			writeError(w, http.StatusRequestEntityTooLarge, err)
-			return
+			reason = "too_large"
+			status = http.StatusRequestEntityTooLarge
 		}
-		writeError(w, http.StatusBadRequest, err)
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", reason,
+		)
+		writeError(w, status, err)
 		return
 	}
 	if req.Text == "" {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", "text",
+		)
 		writeError(w, http.StatusBadRequest, errors.New("text is required"))
 		return
 	}
@@ -780,6 +819,23 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// validationField extracts a field name from validation errors that
+// follow the convention "field-name <reason>" (e.g. "source is required").
+// Returns the first whitespace-delimited token. Best-effort; falls back
+// to the full message if the format doesn't match.
+func validationField(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	for i, c := range msg {
+		if c == ' ' {
+			return msg[:i]
+		}
+	}
+	return msg
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {

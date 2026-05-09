@@ -706,3 +706,83 @@ func TestDecodeJSON_RejectsTrailingValue(t *testing.T) {
 		t.Errorf("trailing value: code = %d, want 400", resp.StatusCode)
 	}
 }
+
+// captureLogger returns a logger that writes JSON-formatted entries to
+// the provided buffer at Debug level (so all Info entries are captured).
+func captureLogger(buf *bytes.Buffer) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
+func TestHandleStatus_LogsInfoOnParseFailure(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, captureLogger(&buf))
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/status", "application/json", strings.NewReader("not json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"level":"INFO"`) ||
+		!strings.Contains(logs, `"msg":"request rejected"`) ||
+		!strings.Contains(logs, `"reason":"parse"`) {
+		t.Errorf("expected Info request-rejected reason=parse log, got: %s", logs)
+	}
+}
+
+func TestHandleStatus_LogsInfoOnValidationFailure(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, captureLogger(&buf))
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	body := `{"source":"","tool":"t","session":"s","state":"running"}`
+	resp, err := http.Post(srv.URL+"/v1/status", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"reason":"validation"`) {
+		t.Errorf("expected reason=validation log, got: %s", logs)
+	}
+}
+
+func TestHandleNotify_LogsInfoOnEmptyText(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, captureLogger(&buf))
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	body := `{"text":""}`
+	resp, err := http.Post(srv.URL+"/v1/notify", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"reason":"validation"`) ||
+		!strings.Contains(logs, `"field":"text"`) {
+		t.Errorf("expected reason=validation field=text log, got: %s", logs)
+	}
+}

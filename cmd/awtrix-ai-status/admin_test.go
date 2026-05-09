@@ -381,3 +381,57 @@ func TestHandleAdminReload_413OnOversizeBody(t *testing.T) {
 		t.Errorf("oversized /admin/reload body: code = %d, want 413 or 400", resp.StatusCode)
 	}
 }
+
+func TestAdminRequireAuth_LogsInfoOnEmptyToken(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.Auth.StatusToken = ""
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, captureLogger(&buf))
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/admin/doctor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if !strings.Contains(buf.String(), `"msg":"admin disabled"`) {
+		t.Errorf("expected 'admin disabled' Info log, got: %s", buf.String())
+	}
+}
+
+func TestAdminReload_LogsOutcome(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`
+	app, path := newAppForReload(t, body)
+	var buf bytes.Buffer
+	app.logger = captureLogger(&buf)
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	logs := buf.String()
+	if !strings.Contains(logs, `"msg":"admin reload"`) ||
+		!strings.Contains(logs, `"status":200`) {
+		t.Errorf("expected 'admin reload' status=200 log, got: %s", logs)
+	}
+}
