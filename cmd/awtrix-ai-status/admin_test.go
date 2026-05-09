@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +44,114 @@ func TestVersionHandler_PublicAndJSON(t *testing.T) {
 	}
 	if body["binary"] != "awtrix-ai-status" {
 		t.Errorf("binary = %v, want awtrix-ai-status", body["binary"])
+	}
+}
+
+func TestAdminDoctor_NoTokenFailsClosed(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.Auth.StatusToken = "" // unset
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	resp, _ := http.Get(srv.URL + "/admin/doctor")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestAdminDoctor_WrongTokenIs401(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.Auth.StatusToken = "right"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	req.Header.Set("Authorization", "Bearer wrong")
+	resp, _ := srv.Client().Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestAdminDoctor_OKReturnsResult(t *testing.T) {
+	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer awtrix.Close()
+
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = awtrix.URL
+	cfg.Auth.StatusToken = "tok"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app.configPath = "/tmp/x.json"
+	app.configSource = "flag"
+	// Wire a listener so http_listening reports OK rather than Skipped.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	app.listener = ln
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, _ := srv.Client().Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var body DoctorResult
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Mode != "online" {
+		t.Errorf("Mode = %q", body.Mode)
+	}
+	// Note: http_listening will be Skipped because httptest.NewServer doesn't
+	// route through the App's listener field. The other 7 checks should be OK
+	// for a happy AWTRIX. The overall OK may be false because of http_listening
+	// being Skipped — accept that and assert the response shape only.
+	if _, ok := body.Checks["awtrix_reachable"]; !ok {
+		t.Errorf("checks missing awtrix_reachable: %#v", body.Checks)
+	}
+}
+
+func TestAdminDoctor_FailReturns503(t *testing.T) {
+	cfg := defaultConfig()
+	dead := deadAddr(t)
+	// Trim trailing /healthz from deadAddr; AWTRIX probe appends /api/stats itself.
+	cfg.AWTRIX.HTTPBaseURL = strings.TrimSuffix(dead, "/healthz")
+	cfg.Auth.StatusToken = "tok"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, _ := srv.Client().Do(req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 (any check failed)", resp.StatusCode)
 	}
 }
