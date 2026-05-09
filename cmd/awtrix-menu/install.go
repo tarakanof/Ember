@@ -48,8 +48,9 @@ func install() error {
 	// Detect existing instance + bootout it
 	target := fmt.Sprintf("gui/%d/%s", uid, menuLabel)
 	_ = exec.Command("launchctl", "bootout", target).Run()
-	// Wait briefly
-	time.Sleep(300 * time.Millisecond)
+	// Wait for the prior instance to exit before bootstrapping the new plist
+	// (avoids two menu-bar icons on upgrade/reinstall).
+	waitForProcessExit("awtrix-menu run", 2*time.Second)
 	// Bootstrap
 	out, err := exec.Command("launchctl", "bootstrap", fmt.Sprintf("gui/%d", uid), plistPath).CombinedOutput()
 	if err != nil {
