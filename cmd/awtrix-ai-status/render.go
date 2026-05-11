@@ -89,3 +89,37 @@ func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
 		x += 4 // 3-wide glyph + 1-px spacer
 	}
 }
+
+// robotNormal is the 10-wide × 6-tall mark painted at cols 0–9, rows 1–6.
+// Head top, two 1-px eye holes (cols 2 & 7), arms full-width at row 4
+// (protruding to cols 0 & 9), body, and four legs at cols 1, 3, 6, 8.
+var robotNormal = []string{
+	".XXXXXXXX.", // row 1: head top
+	".X.XXXX.X.", // row 2: eyes upper (col 2 & col 7 dark)
+	".X.XXXX.X.", // row 3: eyes lower
+	"XXXXXXXXXX", // row 4: arms
+	".XXXXXXXX.", // row 5: body
+	".X.X..X.X.", // row 6: legs
+}
+
+// robotError differs only in rows 2–4: 3-px tall chevron eye holes
+// (> <) sloping inward, plus matching eye-notches in the arms row.
+// The arm protrusions at cols 0 and 9 remain lit.
+var robotError = []string{
+	".XXXXXXXX.",
+	".X.XXXX.X.", // row 2: outer holes (col 2 & 7)
+	".XX.XX.XX.", // row 3: apex holes (col 3 & 6)
+	"XX.XXXX.XX", // row 4: outer holes (col 2 & 7) + arm protrusions retained
+	".XXXXXXXX.",
+	".X.X..X.X.",
+}
+
+// drawRobot paints the robot sprite at cols 0–9, rows 1–6, using c for lit pixels.
+// The "error" state selects the chevron-eye sprite; everything else uses normal.
+func drawRobot(f *Frame, state string, c RGB) {
+	sprite := robotNormal
+	if state == "error" {
+		sprite = robotError
+	}
+	paintBitmap(f, 0, 1, sprite, c)
+}
