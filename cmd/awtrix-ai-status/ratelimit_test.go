@@ -6,17 +6,30 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
 
-// fakeClock is a synchronous, manually-advanced clock for limiter tests.
-type fakeClock struct{ now time.Time }
+// fakeClock is a thread-safe, manually-advanced clock for limiter and coordinator tests.
+type fakeClock struct {
+	mu  sync.RWMutex
+	now time.Time
+}
 
 func newFakeClock() *fakeClock { return &fakeClock{now: time.Unix(1_700_000_000, 0)} }
 
-func (c *fakeClock) Now() time.Time          { return c.now }
-func (c *fakeClock) Advance(d time.Duration) { c.now = c.now.Add(d) }
+func (c *fakeClock) Now() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.now
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
 
 func newTestLimiter(t *testing.T, burst int, refill float64) (*IPLimiter, *App, *fakeClock) {
 	t.Helper()

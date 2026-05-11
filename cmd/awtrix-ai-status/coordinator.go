@@ -177,6 +177,15 @@ func (c *coordinator) onClear() {
 }
 
 func (c *coordinator) onTick() {
+	// Ack-timeout release: if locked for longer than ackTimeout, release.
+	c.muTest.Lock()
+	if c.locked && c.clk.Now().Sub(c.lockEnteredAt) >= c.ackTimeout {
+		c.logger.Info("coord ack timeout release", "key", c.lockedKey)
+		c.locked = false
+		c.lockedKey = ""
+	}
+	c.muTest.Unlock()
+
 	if c.snapshot == nil {
 		return
 	}

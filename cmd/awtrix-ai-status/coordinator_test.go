@@ -185,3 +185,42 @@ func TestCoord_Preempt_NotOnReheartbeat(t *testing.T) {
 		t.Errorf("locked = true, want false (no state transition)")
 	}
 }
+
+func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	c.snapshot = func() Snapshot {
+		return Snapshot{Sessions: []Session{
+			{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: clk.Now()},
+		}}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a|b|w", priorState: "running", newState: "waiting"})
+	time.Sleep(50 * time.Millisecond)
+
+	c.muTest.RLock()
+	if !c.locked {
+		c.muTest.RUnlock()
+		t.Fatal("expected locked after waiting transition")
+	}
+	c.muTest.RUnlock()
+
+	// Advance fake clock past the ack timeout, then tick.
+	clk.Advance(31 * time.Second)
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	c.muTest.RLock()
+	gotLocked := c.locked
+	c.muTest.RUnlock()
+	if gotLocked {
+		t.Errorf("locked = true after 31s, want false (ack timeout %v)", c.ackTimeout)
+	}
+}
