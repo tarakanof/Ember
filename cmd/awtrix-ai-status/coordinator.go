@@ -126,13 +126,54 @@ func (c *coordinator) handle(cmd coordCmd) {
 	switch cmd.kind {
 	case cmdTick:
 		c.onTick()
-	case cmdUpsert, cmdDelete, cmdClear:
-		// State-changing commands force a republish on the current
-		// pointer. Task 9 makes upsert preempt-aware.
-		c.onTick()
+	case cmdUpsert:
+		c.onUpsert(cmd.sessionKey, cmd.priorState, cmd.newState)
+	case cmdDelete:
+		c.onDelete(cmd.sessionKey)
+	case cmdClear:
+		c.onClear()
 	case cmdShutdown:
 		// no-op for now
 	}
+}
+
+func (c *coordinator) onUpsert(key, prior, next string) {
+	attention := next == "waiting" || next == "error"
+	transition := prior != next
+	if attention && transition {
+		c.muTest.Lock()
+		c.pointer = key
+		c.locked = true
+		c.lockedKey = key
+		c.lockEnteredAt = c.clk.Now()
+		c.muTest.Unlock()
+	}
+	if c.snapshot != nil {
+		c.publish(c.snapshot())
+	}
+}
+
+func (c *coordinator) onDelete(key string) {
+	c.muTest.Lock()
+	if c.locked && c.lockedKey == key {
+		c.locked = false
+		c.lockedKey = ""
+	}
+	if c.pointer == key {
+		c.pointer = ""
+	}
+	c.muTest.Unlock()
+	if c.snapshot != nil {
+		c.publish(c.snapshot())
+	}
+}
+
+func (c *coordinator) onClear() {
+	c.muTest.Lock()
+	c.pointer = ""
+	c.locked = false
+	c.lockedKey = ""
+	c.muTest.Unlock()
 }
 
 func (c *coordinator) onTick() {

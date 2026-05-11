@@ -374,6 +374,17 @@ func (a *App) recordPublish(err error) {
 	a.mu.Unlock()
 }
 
+// priorState returns the existing session's state for the given key, or
+// "" if no session exists yet. Holds App.mu.
+func (a *App) priorState(key string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s, ok := a.sessions[key]; ok {
+		return s.State
+	}
+	return ""
+}
+
 func (a *App) Upsert(req StatusRequest) Render {
 	session := req.normalized()
 	a.mu.Lock()
@@ -682,8 +693,16 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	normalized := req.normalized()
+	key := sessionKey(normalized)
+	prior := a.priorState(key)
 	render := a.Upsert(req)
-	a.coord.Send(coordCmd{kind: cmdTick})
+	a.coord.Send(coordCmd{
+		kind:       cmdUpsert,
+		sessionKey: key,
+		priorState: prior,
+		newState:   normalized.State,
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "render": render})
 }
 
@@ -699,7 +718,7 @@ func (a *App) handleClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	render := a.Clear()
-	a.coord.Send(coordCmd{kind: cmdTick})
+	a.coord.Send(coordCmd{kind: cmdClear})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "render": render})
 }
 
@@ -762,7 +781,7 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.Delete(req.key())
-	a.coord.Send(coordCmd{kind: cmdTick})
+	a.coord.Send(coordCmd{kind: cmdDelete, sessionKey: req.key()})
 	w.WriteHeader(http.StatusNoContent)
 }
 
