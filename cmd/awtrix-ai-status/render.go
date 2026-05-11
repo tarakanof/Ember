@@ -1,6 +1,9 @@
 package main
 
-import "strconv"
+import (
+	"slices"
+	"strconv"
+)
 
 // RGB is a 24-bit colour. Alpha is implicit (always full).
 type RGB struct {
@@ -283,6 +286,100 @@ func pickWinning(sessions []Session) (win *Session, color RGB, total int) {
 		return pickMostRecent(done), colorDone, total
 	}
 	return nil, RGB{}, total
+}
+
+// sessionKey is the canonical key for rotation pointer tracking and
+// preempt addressing. Stable across coordinator restarts as long as the
+// session identity tuple is stable.
+func sessionKey(s Session) string {
+	return s.Source + "|" + s.Tool + "|" + s.Session
+}
+
+// statePriority returns lower values for higher-priority states. Idle is
+// never returned by sortedActiveKeys, so the constant for idle is unused
+// here but kept for symmetry with the spec's ordering.
+func statePriority(state string) int {
+	switch state {
+	case "waiting":
+		return 0
+	case "error":
+		return 1
+	case "running":
+		return 2
+	case "done":
+		return 3
+	default:
+		return 4 // idle / unknown
+	}
+}
+
+// sortedActiveKeys returns the canonical keys of non-idle sessions in
+// rotation order: state-priority first, then (source, tool, session)
+// lexicographically. Stable for a given snapshot.
+func sortedActiveKeys(snap Snapshot) []string {
+	type entry struct {
+		key  string
+		prio int
+		src  string
+		tool string
+		sess string
+	}
+	out := make([]entry, 0, len(snap.Sessions))
+	for _, s := range snap.Sessions {
+		if s.State == "idle" {
+			continue
+		}
+		out = append(out, entry{
+			key:  sessionKey(s),
+			prio: statePriority(s.State),
+			src:  s.Source,
+			tool: s.Tool,
+			sess: s.Session,
+		})
+	}
+	slices.SortFunc(out, func(a, b entry) int {
+		if a.prio != b.prio {
+			return a.prio - b.prio
+		}
+		if a.src != b.src {
+			if a.src < b.src {
+				return -1
+			}
+			return 1
+		}
+		if a.tool != b.tool {
+			if a.tool < b.tool {
+				return -1
+			}
+			return 1
+		}
+		if a.sess < b.sess {
+			return -1
+		}
+		if a.sess > b.sess {
+			return 1
+		}
+		return 0
+	})
+	keys := make([]string, len(out))
+	for i, e := range out {
+		keys[i] = e.key
+	}
+	return keys
+}
+
+// pickRotated advances the rotation pointer. Returns "" on empty input.
+// If prev is empty or no longer in keys, returns the first key. Otherwise
+// returns the next key with wraparound.
+func pickRotated(prev string, keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	idx := slices.Index(keys, prev)
+	if idx < 0 {
+		return keys[0]
+	}
+	return keys[(idx+1)%len(keys)]
 }
 
 // parseHex parses a "#RRGGBB" string into an RGB. Returns false on malformed

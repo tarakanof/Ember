@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -408,5 +409,58 @@ func TestFrameToCustomApp(t *testing.T) {
 	}
 	if payload["lifetime"] != 30 {
 		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
+	}
+}
+
+func TestSessionKey(t *testing.T) {
+	got := sessionKey(Session{Source: "a", Tool: "b", Session: "c"})
+	want := "a|b|c"
+	if got != want {
+		t.Errorf("sessionKey = %q, want %q", got, want)
+	}
+}
+
+func TestSortedActiveKeys(t *testing.T) {
+	now := time.Now()
+	snap := Snapshot{Sessions: []Session{
+		{Source: "src", Tool: "tool", Session: "r1", State: "running", UpdatedAt: now},
+		{Source: "src", Tool: "tool", Session: "w1", State: "waiting", UpdatedAt: now},
+		{Source: "src", Tool: "tool", Session: "i1", State: "idle", UpdatedAt: now},
+		{Source: "src", Tool: "tool", Session: "e1", State: "error", UpdatedAt: now},
+		{Source: "src", Tool: "tool", Session: "d1", State: "done", UpdatedAt: now},
+	}}
+	got := sortedActiveKeys(snap)
+	want := []string{
+		"src|tool|w1", // waiting first
+		"src|tool|e1", // error
+		"src|tool|r1", // running
+		"src|tool|d1", // done
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("sortedActiveKeys =\n  %v\nwant\n  %v", got, want)
+	}
+}
+
+func TestPickRotated(t *testing.T) {
+	keys := []string{"a", "b", "c"}
+	tests := []struct {
+		name string
+		prev string
+		keys []string
+		want string
+	}{
+		{"empty keys", "anything", nil, ""},
+		{"empty prev", "", keys, "a"},
+		{"unknown prev", "z", keys, "a"},
+		{"middle", "b", keys, "c"},
+		{"wrap", "c", keys, "a"},
+		{"single-key idempotent", "x", []string{"x"}, "x"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := pickRotated(tc.prev, tc.keys); got != tc.want {
+				t.Errorf("pickRotated(%q, %v) = %q, want %q", tc.prev, tc.keys, got, tc.want)
+			}
+		})
 	}
 }
