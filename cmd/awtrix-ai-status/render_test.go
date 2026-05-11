@@ -71,3 +71,58 @@ func TestFontLookup(t *testing.T) {
 		t.Fatalf("glyph('Z') = non-nil, want nil for unsupported rune")
 	}
 }
+
+func TestDrawDigits(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		startX    int
+		wantLit   map[[2]int]bool
+		wantClear [][2]int
+	}{
+		{
+			name:   "single 1 at col 12",
+			text:   "1",
+			startX: 12,
+			wantLit: map[[2]int]bool{
+				{13, 1}: true,
+				{12, 2}: true, {13, 2}: true,
+				{13, 3}: true,
+				{13, 4}: true,
+				{12, 5}: true, {13, 5}: true, {14, 5}: true,
+			},
+		},
+		{
+			name:   "1/3 at col 12",
+			text:   "1/3",
+			startX: 12,
+			wantLit: map[[2]int]bool{
+				{13, 1}: true,
+				{18, 1}: true, {18, 2}: true, {17, 3}: true, {16, 4}: true,
+				{20, 1}: true, {21, 1}: true, {22, 1}: true,
+			},
+			wantClear: [][2]int{
+				{15, 3},
+				{19, 3},
+				{23, 1},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &Frame{}
+			drawDigits(f, tc.text, tc.startX, 1, RGB{0xff, 0xff, 0xff})
+			for pos, want := range tc.wantLit {
+				got := f.Dirty[pos[1]][pos[0]]
+				if got != want {
+					t.Errorf("[%d,%d] lit = %v, want %v", pos[0], pos[1], got, want)
+				}
+			}
+			for _, pos := range tc.wantClear {
+				if f.Dirty[pos[1]][pos[0]] {
+					t.Errorf("[%d,%d] lit = true, want false (clear)", pos[0], pos[1])
+				}
+			}
+		})
+	}
+}

@@ -75,3 +75,17 @@ func glyph(r rune) []string {
 	}
 	return g
 }
+
+// drawDigits paints text at (startX, startY) using the 3×5 font.
+// Glyph spacing is 1 px so each character advances startX by 4.
+// Unsupported runes are silently skipped (callers should pre-validate).
+func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
+	x := startX
+	for _, ch := range text {
+		g := glyph(ch)
+		if g != nil {
+			paintBitmap(f, x, startY, g, c)
+		}
+		x += 4 // 3-wide glyph + 1-px spacer
+	}
+}
