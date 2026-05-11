@@ -809,3 +809,23 @@ func TestStatusRequestValidate_OptionalFields(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestIndicatorsOffOnStartup(t *testing.T) {
+	cfg := defaultConfig()
+	publisher := &recordingPublisher{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app := NewApp(cfg, publisher, logger)
+
+	if err := app.ClearIndicators(context.Background()); err != nil {
+		t.Fatalf("ClearIndicators: %v", err)
+	}
+
+	if len(publisher.indicator) != 3 {
+		t.Fatalf("indicator publishes = %d, want 3 (all off)", len(publisher.indicator))
+	}
+	for i, p := range publisher.indicator {
+		if p["color"] != "0" {
+			t.Errorf("indicator %d color = %v, want \"0\"", i+1, p["color"])
+		}
+	}
+}

@@ -584,6 +584,21 @@ func (a *App) Publish(ctx context.Context) (pubErr error) {
 	return nil
 }
 
+// ClearIndicators turns off all three right-side indicator LEDs. Called
+// once at server startup as part of the G.1a retirement of the old
+// per-frame indicator semantics. Failures are not fatal (the device may
+// be temporarily unreachable); the caller logs and continues.
+// Subsequent Publish calls do not touch the indicators.
+func (a *App) ClearIndicators(ctx context.Context) error {
+	payload := map[string]any{"color": "0"}
+	for i := 1; i <= 3; i++ {
+		if err := a.publisher.Indicator(ctx, i, payload); err != nil {
+			return fmt.Errorf("clear indicator %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
 func (a *App) StartPublisher(ctx context.Context) {
 	refresh := time.Duration(a.cfg.Load().Display.RefreshSeconds) * time.Second
 	ticker := time.NewTicker(refresh)
@@ -1013,6 +1028,10 @@ func main() {
 	app.configSource = configSource
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	if err := app.ClearIndicators(context.Background()); err != nil {
+		logger.Warn("clear indicators on startup failed", "err", err)
+	}
 
 	go app.limiter.runSweeper(ctx)
 	go app.StartPublisher(ctx)
