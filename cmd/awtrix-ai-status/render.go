@@ -423,34 +423,129 @@ func itoa(n int) string {
 // numStart is the left edge of the digit area (1-px gap after the robot).
 const numStart = 12
 
-// RenderFrame composes the full 32×8 payload for the current snapshot.
-// Returns nil when there is no active session (caller skips the publish).
-// Name disambiguates from the legacy `type Render struct` in main.go.
-func RenderFrame(snap Snapshot, frameLifetimeSeconds int) map[string]any {
-	win, stateColor, total := pickWinning(snap.Sessions)
-	if win == nil {
+// RenderForCoord composes the AWTRIX CustomApp payload for the
+// coordinator's current display state. Returns nil when there is no
+// active session (caller skips publish entirely).
+//
+// pointer: the session key the coordinator wants to display. If empty
+// or missing from the snapshot's active set, the first sorted active
+// session is chosen instead (fallback for first-publish / pointer
+// invalidation).
+//
+// locked: when true and the chosen session's state is "waiting" or
+// "error", emits a 2-frame breathe pulse. Otherwise emits a single
+// frame.
+func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds int) map[string]any {
+	keys := sortedActiveKeys(snap)
+	if len(keys) == 0 {
 		return nil
 	}
+	chosen := pointer
+	if !slices.Contains(keys, chosen) {
+		chosen = keys[0]
+	}
+	var session *Session
+	for i := range snap.Sessions {
+		if sessionKey(snap.Sessions[i]) == chosen {
+			session = &snap.Sessions[i]
+			break
+		}
+	}
+	if session == nil {
+		return nil
+	}
+	idx := slices.Index(keys, chosen) + 1 // 1-based rotation index
+	total := len(keys)
 
-	f := &Frame{}
+	stateColor := colorForState(session.State)
+	frameA := composeFrame(*session, idx, total, stateColor)
 
-	drawRobot(f, win.State, stateColor)
+	if locked && (session.State == "waiting" || session.State == "error") {
+		frameB := composeFrame(*session, idx, total, dimRGB(stateColor, 0x66))
+		return pulseFrameToCustomApp(frameA, frameB, lifetimeSeconds)
+	}
+	return frameToCustomApp(&frameA, lifetimeSeconds)
+}
+
+// composeFrame paints the standard layout for one session using the
+// supplied robot colour. Digits stay source-coloured (or white fallback)
+// regardless of robot colour, so digits are stable across the
+// brightness pulse. Glass uses the session's state colour directly.
+func composeFrame(s Session, idx, total int, robotColor RGB) Frame {
+	var f Frame
+	drawRobot(&f, s.State, robotColor)
 
 	digitColor := colorWhite
-	if win.SourceColor != nil {
-		if c, ok := parseHex(*win.SourceColor); ok {
+	if s.SourceColor != nil {
+		if c, ok := parseHex(*s.SourceColor); ok {
 			digitColor = c
 		}
 	}
-	// G.1a renders the single winning session, so the rotation index is
-	// always 1 (out of N total). G.1b will replace the constant 1 with
-	// the rotation pointer's index.
-	drawDigits(f, formatXY(1, total), numStart, 1, digitColor)
+	drawDigits(&f, formatXY(idx, total), numStart, 1, digitColor)
 
-	drawGlass(f, win.ContextPct, stateColor)
+	glassFillColor := colorForState(s.State)
+	drawGlass(&f, s.ContextPct, glassFillColor)
 
-	// 5h-window bar (always nil in G.1a — G.4 plumbs the producer side).
-	drawRateBar(f, nil)
+	drawRateBar(&f, nil) // G.4 plumbs the data; nil for G.1b.
+	return f
+}
 
-	return frameToCustomApp(f, frameLifetimeSeconds)
+// colorForState returns the state palette colour. Unknown states map to
+// white so render never panics on bad input.
+func colorForState(state string) RGB {
+	switch state {
+	case "waiting":
+		return colorWaiting
+	case "error":
+		return colorError
+	case "running":
+		return colorRunning
+	case "done":
+		return colorDone
+	default:
+		return colorWhite
+	}
+}
+
+// dimRGB scales each channel by scale/0xff (0x66/0xff ≈ 40%).
+func dimRGB(c RGB, scale uint8) RGB {
+	return RGB{
+		R: uint8(int(c.R) * int(scale) / 0xff),
+		G: uint8(int(c.G) * int(scale) / 0xff),
+		B: uint8(int(c.B) * int(scale) / 0xff),
+	}
+}
+
+// pulseFrameToCustomApp encodes two frames as a single CustomApp payload.
+// AWTRIX cycles between them at the configured frame_duration field.
+// (Task 5 will refactor pixel extraction to share with frameToCustomApp;
+// this minimal version is enough to unblock RenderForCoord.)
+func pulseFrameToCustomApp(a, b Frame, lifetimeSeconds int) map[string]any {
+	pixA := make([]int, 256)
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 32; x++ {
+			if a.Dirty[y][x] {
+				c := a.Pixels[y][x]
+				pixA[y*32+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
+			}
+		}
+	}
+	pixB := make([]int, 256)
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 32; x++ {
+			if b.Dirty[y][x] {
+				c := b.Pixels[y][x]
+				pixB[y*32+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
+			}
+		}
+	}
+	return map[string]any{
+		"draw": []any{
+			map[string]any{"db": []any{0, 0, 32, 8, pixA}},
+			map[string]any{"db": []any{0, 0, 32, 8, pixB}},
+		},
+		"lifetime":       lifetimeSeconds,
+		"duration":       lifetimeSeconds,
+		"frame_duration": 500,
+	}
 }

@@ -583,7 +583,7 @@ func (a *App) Publish(ctx context.Context) (pubErr error) {
 	snapshot := a.Snapshot()
 	// Indicator LED publishes are retired — the matrix carries all signal.
 	// G.1a publishes a one-shot indicators-off broadcast at startup.
-	payload := RenderFrame(snapshot, max(5, cfg.Display.RefreshSeconds+2))
+	payload := RenderForCoord(snapshot, "", false, max(5, cfg.Display.RefreshSeconds+2))
 	if payload == nil {
 		// Idle: cede the slot. No HTTP write so AWTRIX natives can take over.
 		return nil

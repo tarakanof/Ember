@@ -270,65 +270,78 @@ func equalInts(a, b []int) bool {
 	return true
 }
 
-func TestRenderFrame_Idle_ReturnsNil(t *testing.T) {
-	if got := RenderFrame(Snapshot{Sessions: nil}, 30); got != nil {
-		t.Fatalf("RenderFrame(idle) = %v, want nil", got)
+func TestRenderForCoord_NoActive_ReturnsNil(t *testing.T) {
+	if got := RenderForCoord(Snapshot{}, "", false, 30); got != nil {
+		t.Fatalf("empty snapshot: got %v, want nil", got)
 	}
 }
 
-func TestRenderFrame_SingleRunning_HasRobotAndDigits(t *testing.T) {
-	snap := Snapshot{
-		Sessions: []Session{{State: "running", UpdatedAt: time.Now()}},
-	}
-	payload := RenderFrame(snap, 30)
+func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "c", State: "running", UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "missing|key|nope", false, 30)
 	if payload == nil {
-		t.Fatal("RenderFrame returned nil for active session")
+		t.Fatal("expected non-nil payload for single running session")
 	}
-	if payload["lifetime"] != 30 {
-		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
-	}
-	// Single session shows "1/1" — verify the second digit is "1" by checking
-	// a glyph pixel: '1' has a lit pixel at col-offset 1, row 2 of its sprite.
-	// "1/1" at startX=12: second "1" starts at col 20, so pixel (21, 3) lit.
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	if pixels[3*32+21] == 0 {
-		t.Errorf("expected '1/1' second digit lit at (21, 3); got 0")
+		t.Errorf("expected '1/1' second digit lit at (21,3)")
 	}
 }
 
-func TestRenderFrame_Overflow_9Plus(t *testing.T) {
-	mk := func(id string) Session { return Session{Session: id, State: "running", UpdatedAt: time.Now()} }
-	sessions := make([]Session, 12)
-	for i := range sessions {
-		sessions[i] = mk(strconvItoa(i))
-	}
-	snap := Snapshot{Sessions: sessions}
-	payload := RenderFrame(snap, 30)
-	if payload == nil {
-		t.Fatal("RenderFrame returned nil for 12-session snapshot")
-	}
-	// "1/9+" must render — verify '+' glyph appears. '+' glyph has its
-	// centre column lit at row 3 of the sprite (col-offset 1).
-	// "1/9+" at startX=12: '1' cols 12..14, '/' cols 16..18, '9' cols 20..22, '+' cols 24..26.
-	// '+' centre at (25, 3) → lit.
-	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	if pixels[3*32+25] == 0 {
-		t.Errorf("expected '+' glyph at (25, 3); got 0")
-	}
-}
-
-func TestRenderFrame_SourceColor_AppliedToDigits(t *testing.T) {
+func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 	purple := "#aa66ff"
-	snap := Snapshot{
-		Sessions: []Session{{State: "running", SourceColor: &purple, UpdatedAt: time.Now()}},
-	}
-	payload := RenderFrame(snap, 30)
+	green := "#2ee85e"
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", SourceColor: &purple, UpdatedAt: time.Now()},
+		{Source: "a", Tool: "b", Session: "s2", State: "running", SourceColor: &green, UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a|b|s2", false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// First digit "1" of "1/1" has a lit pixel at (13, 1).
-	got := pixels[1*32+13]
-	want := 0xaa66ff
-	if got != want {
-		t.Errorf("digit colour at (13,1) = %#06x, want %#06x", got, want)
+	// First digit '1' first sprite row col 1 → matrix (13, 1). Should be green.
+	if got, want := pixels[1*32+13], 0x2ee85e; got != want {
+		t.Errorf("digit colour at (13,1) = %#06x, want %#06x (s2 SourceColor)", got, want)
+	}
+}
+
+func TestRenderForCoord_Locked_EmitsTwoFrames(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a|b|w", true, 30)
+	frames := payload["draw"].([]any)
+	if len(frames) != 2 {
+		t.Fatalf("locked waiting: expected 2 frames, got %d", len(frames))
+	}
+}
+
+func TestRenderForCoord_LockedButNotAttentionState_SingleFrame(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a|b|r", true, 30)
+	frames := payload["draw"].([]any)
+	if len(frames) != 1 {
+		t.Fatalf("locked running: expected 1 frame, got %d", len(frames))
+	}
+}
+
+func TestRenderForCoord_Counts_XOverY(t *testing.T) {
+	now := time.Now()
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "s2", State: "running", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "s3", State: "running", UpdatedAt: now},
+	}}
+	payload := RenderForCoord(snap, "a|b|s2", false, 30)
+	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	// "2/3": first digit '2' starts at col 12. '2' glyph row 0 is "XXX",
+	// so cols 12, 13, 14 are lit at row 1.
+	for x := 12; x <= 14; x++ {
+		if pixels[1*32+x] == 0 {
+			t.Errorf("'2' top row should light col %d at row 1", x)
+		}
 	}
 }
 
