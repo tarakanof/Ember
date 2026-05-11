@@ -477,3 +477,42 @@ func TestPickRotated(t *testing.T) {
 		})
 	}
 }
+
+func TestPulseFrameToCustomApp(t *testing.T) {
+	var fa, fb Frame
+	paintCell(&fa, 0, 0, RGB{0xff, 0x00, 0x00})
+	paintCell(&fb, 0, 0, RGB{0x66, 0x00, 0x00})
+
+	payload := pulseFrameToCustomApp(fa, fb, 30)
+	draw, ok := payload["draw"].([]any)
+	if !ok || len(draw) != 2 {
+		t.Fatalf("draw = %v, want two-element slice", payload["draw"])
+	}
+	for i, op := range draw {
+		m := op.(map[string]any)
+		db := m["db"].([]any)
+		if len(db) != 5 {
+			t.Fatalf("frame[%d].db has %d args, want 5", i, len(db))
+		}
+		if db[0] != 0 || db[1] != 0 || db[2] != 32 || db[3] != 8 {
+			t.Fatalf("frame[%d] bounds = %v, want [0 0 32 8]", i, db[:4])
+		}
+	}
+	pA := draw[0].(map[string]any)["db"].([]any)[4].([]int)
+	pB := draw[1].(map[string]any)["db"].([]any)[4].([]int)
+	if pA[0] != 0xff0000 {
+		t.Errorf("frame A pixel 0 = %#x, want 0xff0000", pA[0])
+	}
+	if pB[0] != 0x660000 {
+		t.Errorf("frame B pixel 0 = %#x, want 0x660000", pB[0])
+	}
+	if payload["lifetime"] != 30 {
+		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
+	}
+	if payload["duration"] == nil {
+		t.Errorf("duration missing — needed for AWTRIX scheduler")
+	}
+	if payload["frame_duration"] != 500 {
+		t.Errorf("frame_duration = %v, want 500 (ms, AWTRIX cycles every 500ms)", payload["frame_duration"])
+	}
+}

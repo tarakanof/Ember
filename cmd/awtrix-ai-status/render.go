@@ -206,27 +206,30 @@ func drawRateBar(f *Frame, pct *int) {
 	paintRow(f, barStart, barStart+fillLen-1, barRow, colorRateBar)
 }
 
-// frameToCustomApp encodes a Frame as an AWTRIX CustomApp payload using
-// one db (draw bitmap) operation. Pixels are emitted row-major as
-// 0xRRGGBB ints — undirty pixels emit 0 (black/off). The encoder does
-// not currently emit prio/force; G.2 will add the display-hold knobs.
-func frameToCustomApp(f *Frame, lifetimeSeconds int) map[string]any {
+// framePixels extracts the 256-int row-major pixel array from a Frame.
+// Shared by frameToCustomApp (1-frame) and pulseFrameToCustomApp
+// (2-frame breathe). Undirty cells emit 0 (the encoder's "off" colour).
+func framePixels(f *Frame) []int {
 	pixels := make([]int, 256)
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 32; x++ {
-			idx := y*32 + x
 			if !f.Dirty[y][x] {
 				continue
 			}
 			c := f.Pixels[y][x]
-			pixels[idx] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
+			pixels[y*32+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
 		}
 	}
+	return pixels
+}
+
+// frameToCustomApp encodes a Frame as an AWTRIX CustomApp payload using
+// one db (draw bitmap) operation. Pixels are emitted row-major as
+// 0xRRGGBB ints — undirty pixels emit 0 (black/off).
+func frameToCustomApp(f *Frame, lifetimeSeconds int) map[string]any {
 	return map[string]any{
 		"draw": []any{
-			map[string]any{
-				"db": []any{0, 0, 32, 8, pixels},
-			},
+			map[string]any{"db": []any{0, 0, 32, 8, framePixels(f)}},
 		},
 		"lifetime": lifetimeSeconds,
 		"duration": lifetimeSeconds,
@@ -517,32 +520,15 @@ func dimRGB(c RGB, scale uint8) RGB {
 }
 
 // pulseFrameToCustomApp encodes two frames as a single CustomApp payload.
-// AWTRIX cycles between them at the configured frame_duration field.
-// (Task 5 will refactor pixel extraction to share with frameToCustomApp;
-// this minimal version is enough to unblock RenderForCoord.)
+// AWTRIX cycles between them at the configured frame_duration (500ms),
+// producing the breathe pulse without any HTTP traffic. Falls through
+// the same db op shape as frameToCustomApp so existing client code (and
+// AWTRIX firmware) handles both cases uniformly.
 func pulseFrameToCustomApp(a, b Frame, lifetimeSeconds int) map[string]any {
-	pixA := make([]int, 256)
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 32; x++ {
-			if a.Dirty[y][x] {
-				c := a.Pixels[y][x]
-				pixA[y*32+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
-			}
-		}
-	}
-	pixB := make([]int, 256)
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 32; x++ {
-			if b.Dirty[y][x] {
-				c := b.Pixels[y][x]
-				pixB[y*32+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
-			}
-		}
-	}
 	return map[string]any{
 		"draw": []any{
-			map[string]any{"db": []any{0, 0, 32, 8, pixA}},
-			map[string]any{"db": []any{0, 0, 32, 8, pixB}},
+			map[string]any{"db": []any{0, 0, 32, 8, framePixels(&a)}},
+			map[string]any{"db": []any{0, 0, 32, 8, framePixels(&b)}},
 		},
 		"lifetime":       lifetimeSeconds,
 		"duration":       lifetimeSeconds,
