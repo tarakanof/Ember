@@ -88,4 +88,25 @@ if ! echo "$metrics_body" | grep -q "awtrix_build_info"; then
 fi
 echo "smoke: /metrics OK"
 
+# - POST /v1/status accepts the G.1a protocol shape (context_pct + source_color).
+#   Exercises the JSON decoder against the new optional fields end-to-end
+#   inside the container. We use state=idle so Publish takes the "cede the
+#   slot" path (no upstream AWTRIX HTTP call), keeping this probe free of
+#   the unreachable-device flakiness that would otherwise turn 200 into 502.
+#   The outbound CustomApp draw-vs-text shape is covered by unit tests
+#   (TestPublish_EmitsDrawPayload_NoIndicators in main_test.go); the visual
+#   output is the manual device-verification step in the G.1a plan.
+status_resp_code="$(curl -fsS -o /tmp/smoke_status.json -w '%{http_code}' \
+  -X POST http://localhost:18080/v1/status \
+  -H 'Authorization: Bearer smoke-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"source":"smoke","tool":"claude","session":"s1","state":"idle","context_pct":42,"source_color":"#aa66ff"}')"
+if [ "$status_resp_code" != "200" ]; then
+  echo "smoke: FAIL — POST /v1/status returned $status_resp_code, want 200" >&2
+  cat /tmp/smoke_status.json >&2 || true
+  exit 1
+fi
+rm -f /tmp/smoke_status.json
+echo "smoke: POST /v1/status with context_pct + source_color OK"
+
 echo "smoke: PASS"
