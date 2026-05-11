@@ -72,5 +72,8 @@ func validateConfig(cfg Config) error {
 	if cfg.RateLimit.IdleEvictSeconds < 0 {
 		return fmt.Errorf("%w: rate_limit.idle_evict_seconds must be >= 0, got %d", ErrConfigValidate, cfg.RateLimit.IdleEvictSeconds)
 	}
+	if cfg.Display.PulseStyle != "breathe" {
+		return fmt.Errorf("%w: display.pulse_style %q invalid; v1 supports \"breathe\" only", ErrConfigValidate, cfg.Display.PulseStyle)
+	}
 	return nil
 }

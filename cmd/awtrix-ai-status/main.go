@@ -66,12 +66,15 @@ type AWTRIXConfig struct {
 }
 
 type DisplayConfig struct {
-	IdleText         string `json:"idle_text"`
-	StaleSeconds     int    `json:"stale_seconds"`
-	DoneTTLSeconds   int    `json:"done_ttl_seconds"`
-	HeartbeatSeconds int    `json:"heartbeat_seconds"`
-	RefreshSeconds   int    `json:"refresh_seconds"`
-	NotifyOnWaiting  bool   `json:"notify_on_waiting"`
+	IdleText             string `json:"idle_text"`
+	StaleSeconds         int    `json:"stale_seconds"`
+	DoneTTLSeconds       int    `json:"done_ttl_seconds"`
+	HeartbeatSeconds     int    `json:"heartbeat_seconds"`
+	RefreshSeconds       int    `json:"refresh_seconds"`
+	NotifyOnWaiting      bool   `json:"notify_on_waiting"`
+	RotationDwellSeconds int    `json:"rotation_dwell_seconds"`
+	AckTimeoutSeconds    int    `json:"ack_timeout_seconds"`
+	PulseStyle           string `json:"pulse_style"`
 }
 
 func defaultConfig() Config {
@@ -88,12 +91,15 @@ func defaultConfig() Config {
 			StatusTokenEnv: "STATUS_TOKEN",
 		},
 		Display: DisplayConfig{
-			IdleText:         "AI idle",
-			StaleSeconds:     25,
-			DoneTTLSeconds:   30,
-			HeartbeatSeconds: 10,
-			RefreshSeconds:   5,
-			NotifyOnWaiting:  false,
+			IdleText:             "AI idle",
+			StaleSeconds:         25,
+			DoneTTLSeconds:       30,
+			HeartbeatSeconds:     10,
+			RefreshSeconds:       5,
+			NotifyOnWaiting:      false,
+			RotationDwellSeconds: 3,
+			AckTimeoutSeconds:    30,
+			PulseStyle:           "breathe",
 		},
 		RateLimit: RateLimitConfig{
 			Disabled:         false,
@@ -149,6 +155,15 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Display.RefreshSeconds <= 0 {
 		c.Display.RefreshSeconds = 5
+	}
+	if c.Display.RotationDwellSeconds <= 0 {
+		c.Display.RotationDwellSeconds = 3
+	}
+	if c.Display.AckTimeoutSeconds <= 0 {
+		c.Display.AckTimeoutSeconds = 30
+	}
+	if c.Display.PulseStyle == "" {
+		c.Display.PulseStyle = "breathe"
 	}
 	if c.Auth.StatusTokenEnv == "" {
 		c.Auth.StatusTokenEnv = "STATUS_TOKEN"
