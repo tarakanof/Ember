@@ -786,3 +786,43 @@ func TestHandleNotify_LogsInfoOnEmptyText(t *testing.T) {
 		t.Errorf("expected reason=validation field=text log, got: %s", logs)
 	}
 }
+
+func TestStatusRequestValidate_OptionalFields(t *testing.T) {
+	mk := func(ctxPct *int, srcColor *string) StatusRequest {
+		return StatusRequest{
+			Source: "a", Tool: "b", Session: "c", State: "running",
+			ContextPct: ctxPct, SourceColor: srcColor,
+		}
+	}
+	good := []StatusRequest{
+		mk(nil, nil),
+		mk(intPtr(0), nil),
+		mk(intPtr(100), nil),
+		mk(nil, strPtr("#aabbcc")),
+		mk(intPtr(50), strPtr("#AABBCC")),
+	}
+	for _, r := range good {
+		if err := r.validate(); err != nil {
+			t.Errorf("validate(%+v) = %v, want nil", r, err)
+		}
+	}
+	bad := []struct {
+		name string
+		r    StatusRequest
+	}{
+		{"ctx<0", mk(intPtr(-1), nil)},
+		{"ctx>100", mk(intPtr(101), nil)},
+		{"color missing #", mk(nil, strPtr("aabbcc"))},
+		{"color short", mk(nil, strPtr("#aabb"))},
+		{"color non-hex", mk(nil, strPtr("#xxxxxx"))},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.r.validate(); err == nil {
+				t.Errorf("validate(%+v) = nil, want error", tc.r)
+			}
+		})
+	}
+}
+
+func strPtr(s string) *string { return &s }

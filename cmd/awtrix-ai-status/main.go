@@ -169,12 +169,14 @@ func (c *Config) applyDefaults() {
 }
 
 type StatusRequest struct {
-	Source      string `json:"source"`
-	Tool        string `json:"tool"`
-	Session     string `json:"session"`
-	State       string `json:"state"`
-	Message     string `json:"message"`
-	TokensToday int64  `json:"tokens_today"`
+	Source      string  `json:"source"`
+	Tool        string  `json:"tool"`
+	Session     string  `json:"session"`
+	State       string  `json:"state"`
+	Message     string  `json:"message"`
+	TokensToday int64   `json:"tokens_today"`
+	ContextPct  *int    `json:"context_pct,omitempty"`
+	SourceColor *string `json:"source_color,omitempty"`
 }
 
 type Session struct {
@@ -184,6 +186,8 @@ type Session struct {
 	State       string    `json:"state"`
 	Message     string    `json:"message"`
 	TokensToday int64     `json:"tokens_today,omitempty"`
+	ContextPct  *int      `json:"context_pct,omitempty"`
+	SourceColor *string   `json:"source_color,omitempty"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
@@ -216,6 +220,8 @@ func (r StatusRequest) normalized() Session {
 		State:       state,
 		Message:     strings.TrimSpace(r.Message),
 		TokensToday: r.TokensToday,
+		ContextPct:  r.ContextPct,
+		SourceColor: r.SourceColor,
 		UpdatedAt:   time.Now(),
 	}
 }
@@ -237,6 +243,16 @@ func (r StatusRequest) validate() error {
 	if !validState(state) {
 		return fmt.Errorf("invalid state %q (must be one of idle, running, waiting, done, error)", state)
 	}
+	if r.ContextPct != nil {
+		if *r.ContextPct < 0 || *r.ContextPct > 100 {
+			return fmt.Errorf("context_pct out of range %d (must be 0..100)", *r.ContextPct)
+		}
+	}
+	if r.SourceColor != nil {
+		if !isHexColor(*r.SourceColor) {
+			return fmt.Errorf("source_color %q must match #RRGGBB hex", *r.SourceColor)
+		}
+	}
 	return nil
 }
 
@@ -247,6 +263,21 @@ func validState(state string) bool {
 	default:
 		return false
 	}
+}
+
+// isHexColor reports whether s is a 7-char string of the form "#RRGGBB"
+// with lowercase or uppercase hex digits.
+func isHexColor(s string) bool {
+	if len(s) != 7 || s[0] != '#' {
+		return false
+	}
+	for i := 1; i < 7; i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s Session) key() string {
