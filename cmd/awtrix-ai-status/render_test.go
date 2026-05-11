@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 )
 
 func TestFrameAndPainters(t *testing.T) {
@@ -266,6 +267,44 @@ func equalInts(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+func TestPickWinning(t *testing.T) {
+	mkSession := func(state string) Session {
+		return Session{Source: "a", Tool: "b", Session: "s-" + state, State: state, UpdatedAt: time.Now()}
+	}
+	tests := []struct {
+		name      string
+		sessions  []Session
+		wantState string
+		wantColor RGB
+		wantTotal int
+	}{
+		{name: "empty", sessions: nil, wantState: "", wantTotal: 0},
+		{name: "all idle", sessions: []Session{mkSession("idle"), mkSession("idle")}, wantState: "", wantTotal: 0},
+		{name: "single running", sessions: []Session{mkSession("running")}, wantState: "running", wantColor: colorRunning, wantTotal: 1},
+		{name: "waiting beats running", sessions: []Session{mkSession("running"), mkSession("waiting")}, wantState: "waiting", wantColor: colorWaiting, wantTotal: 2},
+		{name: "error beats running, beaten by waiting", sessions: []Session{mkSession("running"), mkSession("error"), mkSession("waiting")}, wantState: "waiting", wantColor: colorWaiting, wantTotal: 3},
+		{name: "done linger only", sessions: []Session{mkSession("done")}, wantState: "done", wantColor: colorDone, wantTotal: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			win, color, total := pickWinning(tc.sessions)
+			gotState := ""
+			if win != nil {
+				gotState = win.State
+			}
+			if gotState != tc.wantState {
+				t.Errorf("state = %q, want %q", gotState, tc.wantState)
+			}
+			if win != nil && color != tc.wantColor {
+				t.Errorf("color = %v, want %v", color, tc.wantColor)
+			}
+			if total != tc.wantTotal {
+				t.Errorf("total = %d, want %d", total, tc.wantTotal)
+			}
+		})
+	}
 }
 
 func TestFrameToCustomApp(t *testing.T) {

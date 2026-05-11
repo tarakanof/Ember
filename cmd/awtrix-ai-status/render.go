@@ -227,3 +227,58 @@ func frameToCustomApp(f *Frame, lifetimeSeconds int) map[string]any {
 		"duration": lifetimeSeconds,
 	}
 }
+
+var (
+	colorRunning = RGB{0x2e, 0xe8, 0x5e}
+	colorWaiting = RGB{0xff, 0xc1, 0x4d}
+	colorError   = RGB{0xff, 0x3a, 0x3a}
+	colorDone    = RGB{0x4f, 0xa9, 0xff}
+	colorWhite   = RGB{0xff, 0xff, 0xff}
+)
+
+// pickWinning returns the priority-winning session, its state colour, and
+// the total active session count (any non-idle session). When no session
+// is active, win is nil. Priority order: waiting > error > running > done.
+// Within a tie, the most recently updated session wins.
+func pickWinning(sessions []Session) (win *Session, color RGB, total int) {
+	var waiting, errored, running, done []*Session
+	for i := range sessions {
+		s := &sessions[i]
+		switch s.State {
+		case "waiting":
+			waiting = append(waiting, s)
+		case "error":
+			errored = append(errored, s)
+		case "running":
+			running = append(running, s)
+		case "done":
+			done = append(done, s)
+		}
+	}
+	total = len(waiting) + len(errored) + len(running) + len(done)
+
+	pickMostRecent := func(group []*Session) *Session {
+		if len(group) == 0 {
+			return nil
+		}
+		best := group[0]
+		for _, s := range group[1:] {
+			if s.UpdatedAt.After(best.UpdatedAt) {
+				best = s
+			}
+		}
+		return best
+	}
+
+	switch {
+	case len(waiting) > 0:
+		return pickMostRecent(waiting), colorWaiting, total
+	case len(errored) > 0:
+		return pickMostRecent(errored), colorError, total
+	case len(running) > 0:
+		return pickMostRecent(running), colorRunning, total
+	case len(done) > 0:
+		return pickMostRecent(done), colorDone, total
+	}
+	return nil, RGB{}, total
+}
