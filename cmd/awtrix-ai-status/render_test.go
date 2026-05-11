@@ -167,3 +167,55 @@ func TestDrawRobotError(t *testing.T) {
 		}
 	}
 }
+
+func intPtr(v int) *int { return &v }
+
+func TestDrawGlass(t *testing.T) {
+	tests := []struct {
+		name          string
+		pct           *int
+		wantOutline   bool
+		wantFillRows  []int
+		wantNoOutline bool
+	}{
+		{name: "absent — no glass at all", pct: nil, wantNoOutline: true},
+		{name: "0% — outline only", pct: intPtr(0), wantOutline: true, wantFillRows: nil},
+		{name: "12% — bottom interior row only", pct: intPtr(12), wantOutline: true, wantFillRows: []int{4}},
+		{name: "25%", pct: intPtr(25), wantOutline: true, wantFillRows: []int{4, 3}},
+		{name: "50%", pct: intPtr(50), wantOutline: true, wantFillRows: []int{4, 3, 2}},
+		{name: "75%", pct: intPtr(75), wantOutline: true, wantFillRows: []int{4, 3, 2, 1}},
+		{name: "100% — full", pct: intPtr(100), wantOutline: true, wantFillRows: []int{4, 3, 2, 1}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &Frame{}
+			drawGlass(f, tc.pct, RGB{0x2e, 0xe8, 0x5e})
+
+			if tc.wantNoOutline {
+				if f.Dirty[1][25] || f.Dirty[5][27] {
+					t.Errorf("absent pct: outline drawn anyway")
+				}
+				return
+			}
+			if !f.Dirty[1][25] || !f.Dirty[1][30] || !f.Dirty[5][27] {
+				t.Errorf("outline missing: walls or bottom not painted")
+			}
+
+			for y := 1; y <= 4; y++ {
+				wantRowFilled := false
+				for _, r := range tc.wantFillRows {
+					if r == y {
+						wantRowFilled = true
+						break
+					}
+				}
+				for x := 26; x <= 29; x++ {
+					got := f.Dirty[y][x]
+					if got != wantRowFilled {
+						t.Errorf("[%d,%d] dirty = %v, want %v", x, y, got, wantRowFilled)
+					}
+				}
+			}
+		})
+	}
+}

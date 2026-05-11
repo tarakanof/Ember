@@ -123,3 +123,55 @@ func drawRobot(f *Frame, state string, c RGB) {
 	}
 	paintBitmap(f, 0, 1, sprite, c)
 }
+
+const (
+	glassLeft       = 25
+	glassRight      = 30
+	glassTopRow     = 1
+	glassBottomRow  = 5
+	glassFillLevels = 4
+)
+
+var glassWall = RGB{0xcc, 0xcc, 0xcc}
+
+// drawGlass paints the context-window glass at cols 25–30, rows 1–5.
+// If pct is nil the glass is not drawn at all (visually empty space —
+// distinguishes from a session reporting 0 %). When non-nil, the outline
+// is drawn in glassWall and the interior is filled bottom-up in c.
+func drawGlass(f *Frame, pct *int, c RGB) {
+	if pct == nil {
+		return
+	}
+	for y := glassTopRow; y < glassBottomRow; y++ {
+		paintCell(f, glassLeft, y, glassWall)
+		paintCell(f, glassRight, y, glassWall)
+	}
+	paintRow(f, glassLeft, glassRight, glassBottomRow, glassWall)
+
+	v := *pct
+	if v < 0 {
+		v = 0
+	}
+	if v > 100 {
+		v = 100
+	}
+	var levels int
+	switch {
+	case v < 1:
+		levels = 0
+	case v < 25:
+		levels = 1
+	case v < 50:
+		levels = 2
+	case v < 75:
+		levels = 3
+	default:
+		levels = 4
+	}
+	for i := 0; i < levels; i++ {
+		y := (glassBottomRow - 1) - i
+		for x := glassLeft + 1; x <= glassRight-1; x++ {
+			paintCell(f, x, y, c)
+		}
+	}
+}
