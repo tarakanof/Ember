@@ -312,9 +312,8 @@ type App struct {
 	startedAt    time.Time    // set in NewApp; used by doctor uptime check
 	limiter      *IPLimiter   // populated in NewApp; sweeper started by main()
 
-	mu            sync.Mutex // protects sessions, lastWaitKey, lastPublished, lastPublish*
+	mu            sync.Mutex // protects sessions, lastPublished, lastPublish*
 	sessions      map[string]Session
-	lastWaitKey   string // last waiting-notification Render.Text, for notify dedupe (not a session key)
 	lastPublished Render
 
 	// Last-publish telemetry, all guarded by App.mu.
@@ -354,7 +353,6 @@ func (a *App) Upsert(req StatusRequest) Render {
 func (a *App) Clear() Render {
 	a.mu.Lock()
 	clear(a.sessions)
-	a.lastWaitKey = ""
 	render := a.renderLocked(time.Now())
 	a.mu.Unlock()
 	return render
@@ -568,85 +566,22 @@ func (a *App) Publish(ctx context.Context) (pubErr error) {
 
 	cfg := a.cfg.Load()
 	snapshot := a.Snapshot()
-	payload := map[string]any{
-		"text":     snapshot.Render.Text,
-		"color":    snapshot.Render.Color,
-		"textCase": 2,
-		"duration": max(5, cfg.Display.RefreshSeconds+2),
-		"lifetime": cfg.Display.StaleSeconds + cfg.Display.DoneTTLSeconds + 10,
-		"center":   len(snapshot.Render.Text) <= 10,
+	// Indicator LED publishes are retired — the matrix carries all signal.
+	// G.1a publishes a one-shot indicators-off broadcast at startup.
+	payload := RenderFrame(snapshot, max(5, cfg.Display.RefreshSeconds+2))
+	if payload == nil {
+		// Idle: cede the slot. No HTTP write so AWTRIX natives can take over.
+		return nil
 	}
 
 	if err := a.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload); err != nil {
 		return fmt.Errorf("publish custom app: %w", err)
-	}
-	if err := a.publishIndicators(ctx, snapshot.Render); err != nil {
-		return err
-	}
-	if cfg.Display.NotifyOnWaiting {
-		if err := a.maybeNotifyWaiting(ctx, snapshot); err != nil {
-			return err
-		}
 	}
 
 	a.mu.Lock()
 	a.lastPublished = snapshot.Render
 	a.mu.Unlock()
 	return nil
-}
-
-func (a *App) publishIndicators(ctx context.Context, render Render) error {
-	waitingPayload := map[string]any{"color": "0"}
-	if render.Waiting > 0 {
-		waitingPayload = map[string]any{"color": "#FF0000", "blink": 500}
-	}
-	if err := a.publisher.Indicator(ctx, 1, waitingPayload); err != nil {
-		return fmt.Errorf("publish waiting indicator: %w", err)
-	}
-
-	runningPayload := map[string]any{"color": "0"}
-	if render.Running > 0 {
-		runningPayload = map[string]any{"color": "#00A3FF"}
-	}
-	if err := a.publisher.Indicator(ctx, 2, runningPayload); err != nil {
-		return fmt.Errorf("publish running indicator: %w", err)
-	}
-
-	lingerCount := render.Done + render.Errors
-	lingerPayload := map[string]any{"color": "0"}
-	if lingerCount > 0 {
-		lingerPayload = map[string]any{"color": "#707070"}
-	}
-	if err := a.publisher.Indicator(ctx, 3, lingerPayload); err != nil {
-		return fmt.Errorf("publish linger indicator: %w", err)
-	}
-	return nil
-}
-
-func (a *App) maybeNotifyWaiting(ctx context.Context, snapshot Snapshot) error {
-	if snapshot.Render.Waiting == 0 {
-		a.mu.Lock()
-		a.lastWaitKey = ""
-		a.mu.Unlock()
-		return nil
-	}
-
-	key := snapshot.Render.Text
-	a.mu.Lock()
-	if key == a.lastWaitKey {
-		a.mu.Unlock()
-		return nil
-	}
-	a.lastWaitKey = key
-	a.mu.Unlock()
-
-	return a.publisher.Notify(ctx, map[string]any{
-		"text":     snapshot.Render.Text,
-		"color":    "#FF3300",
-		"duration": 10,
-		"wakeup":   true,
-		"stack":    false,
-	})
 }
 
 func (a *App) StartPublisher(ctx context.Context) {

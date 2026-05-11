@@ -445,6 +445,8 @@ func TestPublish_IncrementsFailCounter_OnCustomAppErr(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
 	app := NewApp(cfg, &fakePublisher{customAppErr: errors.New("boom")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Seed a running session so RenderFrame returns a non-nil payload and CustomApp is called.
+	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s1", State: "running"})
 
 	if err := app.Publish(context.Background()); err == nil {
 		t.Fatal("Publish: expected error, got nil")
@@ -454,60 +456,6 @@ func TestPublish_IncrementsFailCounter_OnCustomAppErr(t *testing.T) {
 	}
 	if got := app.metrics.publishTotalOK.Load(); got != 0 {
 		t.Errorf("publishTotalOK = %d, want 0", got)
-	}
-}
-
-func TestPublish_IncrementsFailCounter_OnIndicatorErr(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	app := NewApp(cfg, &fakePublisher{indicatorErr: errors.New("boom")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-
-	if err := app.Publish(context.Background()); err == nil {
-		t.Fatal("Publish: expected error, got nil")
-	}
-	if got := app.metrics.publishTotalFail.Load(); got != 1 {
-		t.Errorf("publishTotalFail = %d, want 1 (Indicator failure must route to fail counter)", got)
-	}
-	// CRITICAL: lastPublishOK must follow the aggregate result, not just CustomApp.
-	app.mu.Lock()
-	defer app.mu.Unlock()
-	if app.lastPublishOK {
-		t.Error("lastPublishOK = true; want false when Indicator failed (Publish returned error)")
-	}
-	if app.lastPublishErr == "" {
-		t.Error("lastPublishErr is empty; want the Indicator error message")
-	}
-}
-
-func TestPublish_IncrementsFailCounter_OnNotifyErr(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.Display.NotifyOnWaiting = true
-	cfg.applyDefaults()
-	app := NewApp(cfg, &fakePublisher{notifyErr: errors.New("boom")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-
-	// Seed a waiting session so maybeNotifyWaiting actually calls Notify.
-	app.mu.Lock()
-	app.sessions["a/claude/s1"] = Session{
-		Source: "a", Tool: "claude", Session: "s1", State: "waiting",
-		UpdatedAt: time.Now(),
-	}
-	app.mu.Unlock()
-
-	if err := app.Publish(context.Background()); err == nil {
-		t.Fatal("Publish: expected error, got nil")
-	}
-	if got := app.metrics.publishTotalFail.Load(); got != 1 {
-		t.Errorf("publishTotalFail = %d, want 1 (Notify failure must route to fail counter)", got)
-	}
-	app.mu.Lock()
-	defer app.mu.Unlock()
-	if app.lastPublishOK {
-		t.Error("lastPublishOK = true; want false when Notify failed")
-	}
-	if app.lastPublishErr == "" {
-		t.Error("lastPublishErr is empty; want the Notify error message")
 	}
 }
 

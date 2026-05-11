@@ -78,28 +78,44 @@ func TestWaitingStatusWinsOverRunningStatus(t *testing.T) {
 	}
 }
 
-func TestPublishWritesCustomAppAndIndicators(t *testing.T) {
+func TestPublish_EmitsDrawPayload_NoIndicators(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.AppName = "ai_status"
 	publisher := &recordingPublisher{}
-	app := NewApp(defaultConfig(), publisher, testLogger())
-	app.Upsert(StatusRequest{
-		Source:  "macbook",
-		Tool:    "codex",
-		Session: "repo",
-		State:   "running",
-	})
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app := NewApp(cfg, publisher, logger)
+	app.Upsert(StatusRequest{Source: "dt", Tool: "claude", Session: "s1", State: "running"})
 
 	if err := app.Publish(context.Background()); err != nil {
-		t.Fatal(err)
+		t.Fatalf("Publish error: %v", err)
 	}
 
 	if len(publisher.customApps) != 1 {
 		t.Fatalf("custom app publishes = %d, want 1", len(publisher.customApps))
 	}
-	if got := publisher.customApps[0]["text"]; got != "Codex run" {
-		t.Fatalf("custom app text = %v, want Codex run", got)
+	if _, ok := publisher.customApps[0]["draw"]; !ok {
+		t.Errorf("custom app payload missing draw key; got %#v", publisher.customApps[0])
 	}
-	if len(publisher.indicator) != 3 {
-		t.Fatalf("indicator publishes = %d, want 3", len(publisher.indicator))
+	if _, ok := publisher.customApps[0]["text"]; ok {
+		t.Errorf("custom app payload still has legacy text key")
+	}
+	if len(publisher.indicator) != 0 {
+		t.Errorf("indicator publishes = %d, want 0 (retired)", len(publisher.indicator))
+	}
+}
+
+func TestPublish_IdleSession_NoPublish(t *testing.T) {
+	cfg := defaultConfig()
+	publisher := &recordingPublisher{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	app := NewApp(cfg, publisher, logger)
+	app.Upsert(StatusRequest{Source: "dt", Tool: "claude", Session: "s1", State: "idle"})
+
+	if err := app.Publish(context.Background()); err != nil {
+		t.Fatalf("Publish error: %v", err)
+	}
+	if len(publisher.customApps) != 0 {
+		t.Errorf("custom app publishes on idle = %d, want 0 (cede slot)", len(publisher.customApps))
 	}
 }
 
@@ -302,39 +318,6 @@ func TestRenderAggregateMixedGroups(t *testing.T) {
 	render := app.Upsert(StatusRequest{Source: "e", Tool: "claude", Session: "5", State: "running"})
 	if !contains(render.Text, "W2") || !contains(render.Text, "R3") {
 		t.Errorf("Text = %q, want aggregate AI W2 R3", render.Text)
-	}
-}
-
-func TestPublishLightsIndicator3WhenDoneOrErrorPresent(t *testing.T) {
-	publisher := &recordingPublisher{}
-	app := NewApp(defaultConfig(), publisher, testLogger())
-	app.Upsert(StatusRequest{Source: "x", Tool: "claude", Session: "1", State: "done"})
-
-	if err := app.Publish(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(publisher.indicator) != 3 {
-		t.Fatalf("indicator count = %d, want 3", len(publisher.indicator))
-	}
-	ind3 := publisher.indicator[2]
-	if ind3["color"] == "0" || ind3["color"] == 0 {
-		t.Errorf("indicator 3 color = %v, want lit grey when done present", ind3["color"])
-	}
-}
-
-func TestPublishIndicator3OffWhenNoLinger(t *testing.T) {
-	publisher := &recordingPublisher{}
-	app := NewApp(defaultConfig(), publisher, testLogger())
-	app.Upsert(StatusRequest{Source: "x", Tool: "claude", Session: "1", State: "running"})
-
-	if err := app.Publish(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-
-	ind3 := publisher.indicator[2]
-	if c, _ := ind3["color"].(string); c != "0" {
-		t.Errorf("indicator 3 color = %v, want \"0\" (off) when no done/error", ind3["color"])
 	}
 }
 
