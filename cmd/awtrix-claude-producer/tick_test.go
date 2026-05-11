@@ -112,9 +112,15 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	cfg, _ = loadConfig()
 
 	// Concurrent goroutines: one running tick, one running Stop hook.
-	// Repeat several times to amplify any race window.
+	// Repeat several times to amplify any race window. The Ghost Heartbeat
+	// invariant is *per iteration* (a POST after Stop's DELETE in the same
+	// logical session lifetime), so deleteSeen is reset at the top of every
+	// iteration. Without the reset, a legitimate POST in iteration N would
+	// be flagged as a ghost just because Stop ran in iteration N-1.
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
+		deleteSeen.Store(false)
+
 		// Re-create marker for each iteration (Stop deletes it)
 		if err := os.WriteFile(markerP, body, 0o600); err != nil {
 			t.Fatal(err)
@@ -131,9 +137,9 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 			dispatchHook(context.Background(), "stop", b, cfg)
 		}()
 		wg.Wait()
-	}
 
-	if sawPostAfterDelete.Load() {
-		t.Errorf("Ghost Heartbeat: POST observed after DELETE on at least one iteration")
+		if sawPostAfterDelete.Load() {
+			t.Fatalf("Ghost Heartbeat: POST observed after DELETE in iteration %d", i)
+		}
 	}
 }
