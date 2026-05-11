@@ -337,6 +337,7 @@ type App struct {
 	lastPublishErr string
 
 	metrics *metrics // populated by NewApp; never nil at runtime
+	coord   *coordinator
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -353,7 +354,24 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	if hp, ok := publisher.(*HTTPPublisher); ok {
 		hp.app = a
 	}
+	a.coord = newCoordinator(cfg, a.cfg.Load, publisher, realClock{}, logger, a.metrics)
+	a.coord.snapshot = a.Snapshot
+	a.coord.onPublishResult = a.recordPublish
 	return a
+}
+
+// recordPublish updates the last-publish telemetry fields. Called by the
+// coordinator after every publish attempt; guarded by App.mu.
+func (a *App) recordPublish(err error) {
+	a.mu.Lock()
+	a.lastPublishAt = time.Now().UTC()
+	a.lastPublishOK = err == nil
+	if err != nil {
+		a.lastPublishErr = err.Error()
+	} else {
+		a.lastPublishErr = ""
+	}
+	a.mu.Unlock()
 }
 
 func (a *App) Upsert(req StatusRequest) Render {
@@ -561,44 +579,6 @@ func aggregateLabel(waiting, running, errored, done int) string {
 	return strings.Join(parts, " ")
 }
 
-func (a *App) Publish(ctx context.Context) (pubErr error) {
-	defer func() {
-		a.mu.Lock()
-		a.lastPublishAt = time.Now().UTC()
-		a.lastPublishOK = pubErr == nil
-		if pubErr != nil {
-			a.lastPublishErr = pubErr.Error()
-		} else {
-			a.lastPublishErr = ""
-		}
-		a.mu.Unlock()
-		if pubErr != nil {
-			a.metrics.incPublishFail()
-		} else {
-			a.metrics.incPublishOK()
-		}
-	}()
-
-	cfg := a.cfg.Load()
-	snapshot := a.Snapshot()
-	// Indicator LED publishes are retired — the matrix carries all signal.
-	// G.1a publishes a one-shot indicators-off broadcast at startup.
-	payload := RenderForCoord(snapshot, "", false, max(5, cfg.Display.RefreshSeconds+2))
-	if payload == nil {
-		// Idle: cede the slot. No HTTP write so AWTRIX natives can take over.
-		return nil
-	}
-
-	if err := a.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload); err != nil {
-		return fmt.Errorf("publish custom app: %w", err)
-	}
-
-	a.mu.Lock()
-	a.lastPublished = snapshot.Render
-	a.mu.Unlock()
-	return nil
-}
-
 // ClearIndicators turns off all three right-side indicator LEDs. Called
 // once at server startup as part of the G.1a retirement of the old
 // per-frame indicator semantics. Failures are not fatal (the device may
@@ -614,23 +594,27 @@ func (a *App) ClearIndicators(ctx context.Context) error {
 	return nil
 }
 
-func (a *App) StartPublisher(ctx context.Context) {
-	refresh := time.Duration(a.cfg.Load().Display.RefreshSeconds) * time.Second
-	ticker := time.NewTicker(refresh)
-	defer ticker.Stop()
-
-	if err := a.Publish(ctx); err != nil {
-		a.logger.Warn("initial publish failed", "err", err)
+// StartCoordinator runs the display coordinator goroutine + a dwell
+// ticker that sends cmdTick on each interval. Blocks until ctx is done.
+func (a *App) StartCoordinator(ctx context.Context) {
+	cfg := a.cfg.Load()
+	dwell := time.Duration(cfg.Display.RotationDwellSeconds) * time.Second
+	if dwell <= 0 {
+		dwell = 3 * time.Second
 	}
 
+	go a.coord.Run(ctx)
+
+	ticker := time.NewTicker(dwell)
+	defer ticker.Stop()
+	// Emit an initial tick so the first frame appears right after startup.
+	a.coord.Send(coordCmd{kind: cmdTick})
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := a.Publish(ctx); err != nil {
-				a.logger.Warn("publish failed", "err", err)
-			}
+			a.coord.Send(coordCmd{kind: cmdTick})
 		}
 	}
 }
@@ -699,10 +683,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	render := a.Upsert(req)
-	if err := a.Publish(r.Context()); err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
+	a.coord.Send(coordCmd{kind: cmdTick})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "render": render})
 }
 
@@ -718,10 +699,7 @@ func (a *App) handleClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	render := a.Clear()
-	if err := a.Publish(r.Context()); err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
+	a.coord.Send(coordCmd{kind: cmdTick})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "render": render})
 }
 
@@ -784,10 +762,7 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.Delete(req.key())
-	if err := a.Publish(r.Context()); err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
+	a.coord.Send(coordCmd{kind: cmdTick})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1049,7 +1024,7 @@ func main() {
 	}
 
 	go app.limiter.runSweeper(ctx)
-	go app.StartPublisher(ctx)
+	go app.StartCoordinator(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

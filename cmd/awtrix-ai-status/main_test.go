@@ -52,6 +52,16 @@ func (p *recordingPublisher) CustomAppsSnapshot() []map[string]any {
 	return out
 }
 
+// IndicatorSnapshot returns a copy of indicator under the lock, safe for
+// concurrent-test reads (race detector).
+func (p *recordingPublisher) IndicatorSnapshot() []map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]map[string]any, len(p.indicator))
+	copy(out, p.indicator)
+	return out
+}
+
 func TestStatusRequestNormalizesDefaults(t *testing.T) {
 	session := StatusRequest{}.normalized()
 
@@ -96,44 +106,49 @@ func TestWaitingStatusWinsOverRunningStatus(t *testing.T) {
 	}
 }
 
-func TestPublish_EmitsDrawPayload_NoIndicators(t *testing.T) {
+func TestCoord_PublishesDrawPayload_OnUpsert(t *testing.T) {
 	cfg := defaultConfig()
-	cfg.AWTRIX.AppName = "ai_status"
+	cfg.applyDefaults()
 	publisher := &recordingPublisher{}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	app := NewApp(cfg, publisher, logger)
+	app := NewApp(cfg, publisher, testLogger())
 	app.Upsert(StatusRequest{Source: "dt", Tool: "claude", Session: "s1", State: "running"})
 
-	if err := app.Publish(context.Background()); err != nil {
-		t.Fatalf("Publish error: %v", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go app.coord.Run(ctx)
+	app.coord.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	customs := publisher.CustomAppsSnapshot()
+	if len(customs) != 1 {
+		t.Fatalf("custom app publishes = %d, want 1", len(customs))
+	}
+	if _, ok := customs[0]["draw"]; !ok {
+		t.Errorf("payload missing draw key")
 	}
 
-	if len(publisher.customApps) != 1 {
-		t.Fatalf("custom app publishes = %d, want 1", len(publisher.customApps))
-	}
-	if _, ok := publisher.customApps[0]["draw"]; !ok {
-		t.Errorf("custom app payload missing draw key; got %#v", publisher.customApps[0])
-	}
-	if _, ok := publisher.customApps[0]["text"]; ok {
-		t.Errorf("custom app payload still has legacy text key")
-	}
-	if len(publisher.indicator) != 0 {
-		t.Errorf("indicator publishes = %d, want 0 (retired)", len(publisher.indicator))
+	indicators := publisher.IndicatorSnapshot()
+	if len(indicators) != 0 {
+		t.Errorf("indicator publishes = %d, want 0 (retired in G.1a)", len(indicators))
 	}
 }
 
-func TestPublish_IdleSession_NoPublish(t *testing.T) {
+func TestCoord_IdleSession_NoPublish(t *testing.T) {
 	cfg := defaultConfig()
+	cfg.applyDefaults()
 	publisher := &recordingPublisher{}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	app := NewApp(cfg, publisher, logger)
+	app := NewApp(cfg, publisher, testLogger())
 	app.Upsert(StatusRequest{Source: "dt", Tool: "claude", Session: "s1", State: "idle"})
 
-	if err := app.Publish(context.Background()); err != nil {
-		t.Fatalf("Publish error: %v", err)
-	}
-	if len(publisher.customApps) != 0 {
-		t.Errorf("custom app publishes on idle = %d, want 0 (cede slot)", len(publisher.customApps))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go app.coord.Run(ctx)
+	app.coord.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	customs := publisher.CustomAppsSnapshot()
+	if len(customs) != 0 {
+		t.Errorf("custom app publishes on idle = %d, want 0", len(customs))
 	}
 }
 
@@ -612,10 +627,14 @@ func TestApp_PublishUpdatesLastPublishFields(t *testing.T) {
 	}
 	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	// pub.app is wired by NewApp; no manual setting needed.
+	// Seed a running session so RenderForCoord produces a non-nil payload.
+	app.Upsert(StatusRequest{Source: "dt", Tool: "claude", Session: "s1", State: "running"})
 
-	if err := app.Publish(context.Background()); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go app.coord.Run(ctx)
+	app.coord.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
 
 	app.mu.Lock()
 	defer app.mu.Unlock()

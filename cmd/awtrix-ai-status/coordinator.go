@@ -44,6 +44,7 @@ type coordinator struct {
 	publisher Publisher
 	clk       clock
 	logger    *slog.Logger
+	metrics   *metrics // may be nil in tests that don't care about counters
 
 	cmds chan coordCmd
 
@@ -60,6 +61,10 @@ type coordinator struct {
 	// In tests, the test sets it directly.
 	snapshot func() Snapshot
 
+	// onPublishResult, if non-nil, is called after every publish attempt
+	// with the error (nil on success). Used by App to update lastPublish*.
+	onPublishResult func(err error)
+
 	// muTest exists so tests can safely read coordinator-owned state
 	// without data-race detector warnings. Production code never touches it.
 	muTest sync.RWMutex
@@ -73,7 +78,9 @@ type coordinator struct {
 // loadCfg returns the current *Config — pass `a.cfg.Load` from the App
 // (atomic.Pointer[Config]) so reloadable fields (refresh_seconds) take
 // effect at the next tick. Tests pass nil to capture cfg by value.
-func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk clock, logger *slog.Logger) *coordinator {
+//
+// m may be nil (tests that don't need metric counters).
+func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk clock, logger *slog.Logger, m *metrics) *coordinator {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -86,6 +93,7 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 		publisher:  publisher,
 		clk:        clk,
 		logger:     logger,
+		metrics:    m,
 		cmds:       make(chan coordCmd, 8),
 		dwell:      time.Duration(cfg.Display.RotationDwellSeconds) * time.Second,
 		ackTimeout: time.Duration(cfg.Display.AckTimeoutSeconds) * time.Second,
@@ -153,9 +161,15 @@ func (c *coordinator) publish(snap Snapshot) {
 	if payload == nil {
 		return
 	}
-	if err := c.publisher.CustomApp(context.Background(), cfg.AWTRIX.AppName, payload); err != nil {
+	err := c.publisher.CustomApp(context.Background(), cfg.AWTRIX.AppName, payload)
+	if err != nil {
 		c.logger.Warn("coord publish failed", "err", err)
-		return
+		c.metrics.incPublishFail()
+	} else {
+		c.publishCount.Add(1)
+		c.metrics.incPublishOK()
 	}
-	c.publishCount.Add(1)
+	if c.onPublishResult != nil {
+		c.onPublishResult(err)
+	}
 }

@@ -12,7 +12,7 @@ func TestNewCoordinator_DefaultsFromConfig(t *testing.T) {
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 
-	c := newCoordinator(cfg, nil, publisher, clk, nil)
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
 
 	if c.dwell != 3*time.Second {
 		t.Errorf("dwell = %v, want 3s", c.dwell)
@@ -34,7 +34,7 @@ func TestCoord_Tick_SingleSession_PublishesOnce(t *testing.T) {
 	cfg.applyDefaults()
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
-	c := newCoordinator(cfg, nil, publisher, clk, nil)
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
 
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},
@@ -64,7 +64,7 @@ func TestCoord_Tick_NoActive_NoPublish(t *testing.T) {
 	cfg.applyDefaults()
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
-	c := newCoordinator(cfg, nil, publisher, clk, nil)
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
 	c.snapshot = func() Snapshot { return Snapshot{} }
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -84,7 +84,7 @@ func TestCoord_Tick_TwoSessions_AdvancesPointer(t *testing.T) {
 	cfg.applyDefaults()
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
-	c := newCoordinator(cfg, nil, publisher, clk, nil)
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
 	c.snapshot = func() Snapshot {
 		return Snapshot{Sessions: []Session{
 			{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},

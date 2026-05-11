@@ -423,15 +423,20 @@ func (p *fakePublisher) Indicator(ctx context.Context, index int, payload map[st
 	return p.indicatorErr
 }
 
-func TestPublish_IncrementsOKCounter(t *testing.T) {
+func TestCoord_IncrementsOKCounter(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
 	app := NewApp(cfg, &fakePublisher{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Seed a running session so RenderForCoord returns a non-nil payload.
+	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s1", State: "running"})
 
-	if err := app.Publish(context.Background()); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go app.coord.Run(ctx)
+	app.coord.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
 	if got := app.metrics.publishTotalOK.Load(); got != 1 {
 		t.Errorf("publishTotalOK = %d, want 1", got)
 	}
@@ -440,17 +445,20 @@ func TestPublish_IncrementsOKCounter(t *testing.T) {
 	}
 }
 
-func TestPublish_IncrementsFailCounter_OnCustomAppErr(t *testing.T) {
+func TestCoord_IncrementsFailCounter_OnCustomAppErr(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
 	app := NewApp(cfg, &fakePublisher{customAppErr: errors.New("boom")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	// Seed a running session so RenderFrame returns a non-nil payload and CustomApp is called.
+	// Seed a running session so RenderForCoord returns a non-nil payload and CustomApp is called.
 	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s1", State: "running"})
 
-	if err := app.Publish(context.Background()); err == nil {
-		t.Fatal("Publish: expected error, got nil")
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go app.coord.Run(ctx)
+	app.coord.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
 	if got := app.metrics.publishTotalFail.Load(); got != 1 {
 		t.Errorf("publishTotalFail = %d, want 1", got)
 	}
