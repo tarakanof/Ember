@@ -103,14 +103,59 @@ func (c *coordinator) Send(cmd coordCmd) {
 }
 
 // Run is the goroutine entry point. Cancels cleanly on ctx.Done.
-// Skeleton only — Task 7 fills in the real loop.
 func (c *coordinator) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-c.cmds:
-			// no-op; real handling in Task 7.
+		case cmd := <-c.cmds:
+			c.handle(cmd)
 		}
 	}
+}
+
+func (c *coordinator) handle(cmd coordCmd) {
+	switch cmd.kind {
+	case cmdTick:
+		c.onTick()
+	case cmdUpsert, cmdDelete, cmdClear:
+		// State-changing commands force a republish on the current
+		// pointer. Task 9 makes upsert preempt-aware.
+		c.onTick()
+	case cmdShutdown:
+		// no-op for now
+	}
+}
+
+func (c *coordinator) onTick() {
+	if c.snapshot == nil {
+		return
+	}
+	snap := c.snapshot()
+	keys := sortedActiveKeys(snap)
+	if len(keys) == 0 {
+		c.muTest.Lock()
+		c.pointer = ""
+		c.muTest.Unlock()
+		return
+	}
+	next := pickRotated(c.pointer, keys)
+	c.muTest.Lock()
+	c.pointer = next
+	c.muTest.Unlock()
+	c.publish(snap)
+}
+
+func (c *coordinator) publish(snap Snapshot) {
+	cfg := c.loadCfg()
+	lifetime := max(5, cfg.Display.RefreshSeconds+2)
+	payload := RenderForCoord(snap, c.pointer, c.locked, lifetime)
+	if payload == nil {
+		return
+	}
+	if err := c.publisher.CustomApp(context.Background(), cfg.AWTRIX.AppName, payload); err != nil {
+		c.logger.Warn("coord publish failed", "err", err)
+		return
+	}
+	c.publishCount.Add(1)
 }

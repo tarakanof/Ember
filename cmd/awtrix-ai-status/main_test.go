@@ -9,29 +9,47 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 type recordingPublisher struct {
+	mu         sync.Mutex
 	customApps []map[string]any
 	notify     []map[string]any
 	indicator  []map[string]any
 }
 
 func (p *recordingPublisher) CustomApp(_ context.Context, _ string, payload map[string]any) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.customApps = append(p.customApps, payload)
 	return nil
 }
 
 func (p *recordingPublisher) Notify(_ context.Context, payload map[string]any) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.notify = append(p.notify, payload)
 	return nil
 }
 
 func (p *recordingPublisher) Indicator(_ context.Context, _ int, payload map[string]any) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.indicator = append(p.indicator, payload)
 	return nil
+}
+
+// CustomAppsSnapshot returns a copy of customApps under the lock, safe for
+// concurrent-test reads (race detector).
+func (p *recordingPublisher) CustomAppsSnapshot() []map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]map[string]any, len(p.customApps))
+	copy(out, p.customApps)
+	return out
 }
 
 func TestStatusRequestNormalizesDefaults(t *testing.T) {
