@@ -269,6 +269,71 @@ func equalInts(a, b []int) bool {
 	return true
 }
 
+func TestRenderFrame_Idle_ReturnsNil(t *testing.T) {
+	if got := RenderFrame(Snapshot{Sessions: nil}, 30); got != nil {
+		t.Fatalf("RenderFrame(idle) = %v, want nil", got)
+	}
+}
+
+func TestRenderFrame_SingleRunning_HasRobotAndDigits(t *testing.T) {
+	snap := Snapshot{
+		Sessions: []Session{{State: "running", UpdatedAt: time.Now()}},
+	}
+	payload := RenderFrame(snap, 30)
+	if payload == nil {
+		t.Fatal("RenderFrame returned nil for active session")
+	}
+	if payload["lifetime"] != 30 {
+		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
+	}
+	// Single session shows "1/1" — verify the second digit is "1" by checking
+	// a glyph pixel: '1' has a lit pixel at col-offset 1, row 2 of its sprite.
+	// "1/1" at startX=12: second "1" starts at col 20, so pixel (21, 3) lit.
+	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	if pixels[3*32+21] == 0 {
+		t.Errorf("expected '1/1' second digit lit at (21, 3); got 0")
+	}
+}
+
+func TestRenderFrame_Overflow_9Plus(t *testing.T) {
+	mk := func(id string) Session { return Session{Session: id, State: "running", UpdatedAt: time.Now()} }
+	sessions := make([]Session, 12)
+	for i := range sessions {
+		sessions[i] = mk(strconvItoa(i))
+	}
+	snap := Snapshot{Sessions: sessions}
+	payload := RenderFrame(snap, 30)
+	if payload == nil {
+		t.Fatal("RenderFrame returned nil for 12-session snapshot")
+	}
+	// "1/9+" must render — verify '+' glyph appears. '+' glyph has its
+	// centre column lit at row 3 of the sprite (col-offset 1).
+	// "1/9+" at startX=12: '1' cols 12..14, '/' cols 16..18, '9' cols 20..22, '+' cols 24..26.
+	// '+' centre at (25, 3) → lit.
+	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	if pixels[3*32+25] == 0 {
+		t.Errorf("expected '+' glyph at (25, 3); got 0")
+	}
+}
+
+func TestRenderFrame_SourceColor_AppliedToDigits(t *testing.T) {
+	purple := "#aa66ff"
+	snap := Snapshot{
+		Sessions: []Session{{State: "running", SourceColor: &purple, UpdatedAt: time.Now()}},
+	}
+	payload := RenderFrame(snap, 30)
+	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	// First digit "1" of "1/1" has a lit pixel at (13, 1).
+	got := pixels[1*32+13]
+	want := 0xaa66ff
+	if got != want {
+		t.Errorf("digit colour at (13,1) = %#06x, want %#06x", got, want)
+	}
+}
+
+// strconvItoa avoids strconv import noise in the test file.
+func strconvItoa(i int) string { return string(rune('a' + i)) }
+
 func TestPickWinning(t *testing.T) {
 	mkSession := func(state string) Session {
 		return Session{Source: "a", Tool: "b", Session: "s-" + state, State: state, UpdatedAt: time.Now()}

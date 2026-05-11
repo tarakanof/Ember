@@ -1,5 +1,7 @@
 package main
 
+import "strconv"
+
 // RGB is a 24-bit colour. Alpha is implicit (always full).
 type RGB struct {
 	R, G, B uint8
@@ -281,4 +283,77 @@ func pickWinning(sessions []Session) (win *Session, color RGB, total int) {
 		return pickMostRecent(done), colorDone, total
 	}
 	return nil, RGB{}, total
+}
+
+// parseHex parses a "#RRGGBB" string into an RGB. Returns false on malformed
+// input; callers should already have validated via isHexColor, so failure
+// here indicates a programming bug.
+func parseHex(s string) (RGB, bool) {
+	if !isHexColor(s) {
+		return RGB{}, false
+	}
+	n, err := strconv.ParseUint(s[1:], 16, 32)
+	if err != nil {
+		return RGB{}, false
+	}
+	return RGB{
+		R: uint8(n >> 16),
+		G: uint8(n >> 8),
+		B: uint8(n),
+	}, true
+}
+
+// formatXY returns "X/Y", capping at "X/9+" when total exceeds 9.
+// idx is 1-based.
+func formatXY(idx, total int) string {
+	if total <= 9 {
+		return itoa(idx) + "/" + itoa(total)
+	}
+	if idx > 9 {
+		idx = 9
+	}
+	return itoa(idx) + "/9+"
+}
+
+// itoa is a small stdlib-only digit-to-string for the count formatter.
+func itoa(n int) string {
+	if n < 10 {
+		return string(rune('0' + n))
+	}
+	return strconv.Itoa(n)
+}
+
+// numStart is the left edge of the digit area (1-px gap after the robot).
+const numStart = 12
+
+// RenderFrame composes the full 32×8 payload for the current snapshot.
+// Returns nil when there is no active session (caller skips the publish).
+// Name disambiguates from the legacy `type Render struct` in main.go.
+func RenderFrame(snap Snapshot, frameLifetimeSeconds int) map[string]any {
+	win, stateColor, total := pickWinning(snap.Sessions)
+	if win == nil {
+		return nil
+	}
+
+	f := &Frame{}
+
+	drawRobot(f, win.State, stateColor)
+
+	digitColor := colorWhite
+	if win.SourceColor != nil {
+		if c, ok := parseHex(*win.SourceColor); ok {
+			digitColor = c
+		}
+	}
+	// G.1a renders the single winning session, so the rotation index is
+	// always 1 (out of N total). G.1b will replace the constant 1 with
+	// the rotation pointer's index.
+	drawDigits(f, formatXY(1, total), numStart, 1, digitColor)
+
+	drawGlass(f, win.ContextPct, stateColor)
+
+	// 5h-window bar (always nil in G.1a — G.4 plumbs the producer side).
+	drawRateBar(f, nil)
+
+	return frameToCustomApp(f, frameLifetimeSeconds)
 }
