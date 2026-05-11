@@ -175,3 +175,28 @@ func drawGlass(f *Frame, pct *int, c RGB) {
 		}
 	}
 }
+
+const (
+	barRow   = 7
+	barStart = 11
+	barEnd   = 31
+	barWidth = barEnd - barStart + 1
+)
+
+var colorRateBar = RGB{0xff, 0xc1, 0x4d}
+
+// drawRateBar paints the 5h-window bar at row 7, cols 11–31. nil or 0 → no bar.
+func drawRateBar(f *Frame, pct *int) {
+	if pct == nil || *pct <= 0 {
+		return
+	}
+	v := *pct
+	if v > 100 {
+		v = 100
+	}
+	fillLen := (barWidth*v + 50) / 100
+	if fillLen < 1 {
+		fillLen = 1
+	}
+	paintRow(f, barStart, barStart+fillLen-1, barRow, colorRateBar)
+}
