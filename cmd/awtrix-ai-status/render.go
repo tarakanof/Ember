@@ -47,3 +47,31 @@ func paintBitmap(f *Frame, ox, oy int, sprite []string, c RGB) {
 		}
 	}
 }
+
+// font3x5 maps a rune to its 3-col × 5-row pixel sprite. Each entry is
+// exactly 5 strings of exactly 3 chars; 'X' = lit, '.' = transparent.
+// Glyphs are based on the classic Picopixel-style 3×5 family.
+var font3x5 = map[rune][]string{
+	'0': {"XXX", "X.X", "X.X", "X.X", "XXX"},
+	'1': {".X.", "XX.", ".X.", ".X.", "XXX"},
+	'2': {"XXX", "..X", "XXX", "X..", "XXX"},
+	'3': {"XXX", "..X", "XXX", "..X", "XXX"},
+	'4': {"X.X", "X.X", "XXX", "..X", "..X"},
+	'5': {"XXX", "X..", "XXX", "..X", "XXX"},
+	'6': {"XXX", "X..", "XXX", "X.X", "XXX"},
+	'7': {"XXX", "..X", "..X", "..X", "..X"},
+	'8': {"XXX", "X.X", "XXX", "X.X", "XXX"},
+	'9': {"XXX", "X.X", "XXX", "..X", "XXX"},
+	'/': {"..X", "..X", ".X.", "X..", "X.."},
+	'+': {"...", ".X.", "XXX", ".X.", "..."},
+}
+
+// glyph returns the sprite for the given rune, or nil when unsupported.
+// Callers that pass user input must check the return value.
+func glyph(r rune) []string {
+	g, ok := font3x5[r]
+	if !ok {
+		return nil
+	}
+	return g
+}

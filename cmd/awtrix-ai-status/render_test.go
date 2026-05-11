@@ -51,3 +51,23 @@ func TestFrameAndPainters(t *testing.T) {
 	paintCell(f, 0, 8, RGB{1, 2, 3})
 	paintCell(f, -1, -1, RGB{1, 2, 3})
 }
+
+func TestFontLookup(t *testing.T) {
+	for _, ch := range "0123456789/+" {
+		g := glyph(ch)
+		if g == nil {
+			t.Fatalf("glyph(%q) = nil, want a sprite", ch)
+		}
+		if len(g) != 5 {
+			t.Fatalf("glyph(%q) height = %d, want 5", ch, len(g))
+		}
+		for i, row := range g {
+			if len(row) != 3 {
+				t.Fatalf("glyph(%q) row %d width = %d, want 3", ch, i, len(row))
+			}
+		}
+	}
+	if glyph('Z') != nil {
+		t.Fatalf("glyph('Z') = non-nil, want nil for unsupported rune")
+	}
+}
