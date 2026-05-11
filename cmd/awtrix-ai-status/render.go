@@ -200,3 +200,30 @@ func drawRateBar(f *Frame, pct *int) {
 	}
 	paintRow(f, barStart, barStart+fillLen-1, barRow, colorRateBar)
 }
+
+// frameToCustomApp encodes a Frame as an AWTRIX CustomApp payload using
+// one db (draw bitmap) operation. Pixels are emitted row-major as
+// 0xRRGGBB ints — undirty pixels emit 0 (black/off). The encoder does
+// not currently emit prio/force; G.2 will add the display-hold knobs.
+func frameToCustomApp(f *Frame, lifetimeSeconds int) map[string]any {
+	pixels := make([]int, 256)
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 32; x++ {
+			idx := y*32 + x
+			if !f.Dirty[y][x] {
+				continue
+			}
+			c := f.Pixels[y][x]
+			pixels[idx] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
+		}
+	}
+	return map[string]any{
+		"draw": []any{
+			map[string]any{
+				"db": []any{0, 0, 32, 8, pixels},
+			},
+		},
+		"lifetime": lifetimeSeconds,
+		"duration": lifetimeSeconds,
+	}
+}

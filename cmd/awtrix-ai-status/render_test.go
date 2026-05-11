@@ -267,3 +267,42 @@ func equalInts(a, b []int) bool {
 	}
 	return true
 }
+
+func TestFrameToCustomApp(t *testing.T) {
+	f := &Frame{}
+	paintCell(f, 0, 0, RGB{0xff, 0x00, 0x00})
+	paintCell(f, 31, 7, RGB{0x00, 0xff, 0x00})
+
+	payload := frameToCustomApp(f, 30)
+	draw, ok := payload["draw"].([]any)
+	if !ok || len(draw) != 1 {
+		t.Fatalf("payload[draw] = %v, want one-element slice", payload["draw"])
+	}
+	op, ok := draw[0].(map[string]any)
+	if !ok {
+		t.Fatalf("draw[0] = %v, want map", draw[0])
+	}
+	args, ok := op["db"].([]any)
+	if !ok || len(args) != 5 {
+		t.Fatalf(`draw[0]["db"] = %v, want 5-element slice`, op["db"])
+	}
+	if args[0] != 0 || args[1] != 0 || args[2] != 32 || args[3] != 8 {
+		t.Fatalf("db bounds = %v, want [0 0 32 8]", args[:4])
+	}
+	pixels, ok := args[4].([]int)
+	if !ok || len(pixels) != 256 {
+		t.Fatalf("db pixels length = %d, want 256", len(pixels))
+	}
+	if pixels[0] != 0xff0000 {
+		t.Errorf("pixel (0,0) = %#x, want 0xff0000", pixels[0])
+	}
+	if pixels[7*32+31] != 0x00ff00 {
+		t.Errorf("pixel (31,7) = %#x, want 0x00ff00", pixels[7*32+31])
+	}
+	if pixels[16*5+10] != 0 {
+		t.Errorf("undirty pixel = %#x, want 0", pixels[16*5+10])
+	}
+	if payload["lifetime"] != 30 {
+		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
+	}
+}
