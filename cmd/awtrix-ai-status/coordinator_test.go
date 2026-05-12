@@ -599,3 +599,49 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 		t.Errorf("active frame width = %v, want 32 (full rotation render)", db[2])
 	}
 }
+
+// TestCoord_NewSessionMidCountdown_CancelsIdleTimer ensures that if a
+// session arrives partway through the idle countdown, the dim-frame
+// pathway is abandoned cleanly and the idleSince timestamp resets.
+// Without this, a session that arrives at t=900s (with 1200s window)
+// could be cut off 300s later instead of getting its full lifetime.
+func TestCoord_NewSessionMidCountdown_CancelsIdleTimer(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.Display.IdleRestoreSeconds = 60
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+
+	var snapMu sync.RWMutex
+	var sessions []Session
+	c.snapshot = func() Snapshot {
+		snapMu.RLock()
+		defer snapMu.RUnlock()
+		return Snapshot{Sessions: append([]Session(nil), sessions...)}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	// Start the idle countdown (no sessions).
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	// Halfway through the window, a session shows up.
+	clk.Advance(30 * time.Second)
+	snapMu.Lock()
+	sessions = []Session{{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()}}
+	snapMu.Unlock()
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "", newState: "running"})
+	time.Sleep(50 * time.Millisecond)
+
+	// idleSince must be reset (zero) after the active publish.
+	c.muTest.RLock()
+	gotIdleSince := c.idleSince
+	c.muTest.RUnlock()
+	if !gotIdleSince.IsZero() {
+		t.Errorf("idleSince = %v, want zero (cancelled by active session)", gotIdleSince)
+	}
+}
