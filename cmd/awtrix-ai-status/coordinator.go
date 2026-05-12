@@ -47,9 +47,12 @@ type coordinator struct {
 	logger    *slog.Logger
 	metrics   *metrics // may be nil in tests that don't care about counters
 
+	// State-change commands (upsert/delete/clear/shutdown). Wide buffer
+	// so a producer burst never drops an attention transition.
 	cmds chan coordCmd
+	// Ticks: 1-slot drop-on-full channel. Stale ticks carry no info.
+	ticks chan struct{}
 
-	dwell      time.Duration
 	ackTimeout time.Duration
 
 	// State owned by the goroutine. Tests read it via muTest below.
@@ -58,7 +61,7 @@ type coordinator struct {
 	lockedKey     string
 	lockEnteredAt time.Time
 
-	// snapshot is set by the App when it wires the coordinator in (Task 8).
+	// snapshot is set by the App when it wires the coordinator in.
 	// In tests, the test sets it directly.
 	snapshot func() Snapshot
 
@@ -95,30 +98,63 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 		clk:        clk,
 		logger:     logger,
 		metrics:    m,
-		cmds:       make(chan coordCmd, 8),
-		dwell:      time.Duration(cfg.Display.RotationDwellSeconds) * time.Second,
+		// State-change commands get a generous buffer so a burst of
+		// producer activity never drops an upsert/delete/clear: those
+		// carry the only signal of an attention transition. Ticks have
+		// their own narrow drop-on-full channel since stale ticks add
+		// no information (the next tick catches up).
+		cmds:       make(chan coordCmd, 64),
+		ticks:      make(chan struct{}, 1),
 		ackTimeout: time.Duration(cfg.Display.AckTimeoutSeconds) * time.Second,
 	}
 }
 
-// Send enqueues a command, dropping if the buffer is full. Drops are
-// logged at debug; the next tick will catch the system up.
+// Send enqueues a command. Stale ticks (cmdTick) are dropped when their
+// 1-slot channel is full — the next tick will pick up wherever the
+// snapshot has landed. State-change commands (upsert/delete/clear) go
+// to a wide buffer (64 slots); if THAT fills, we log at warn rather
+// than drop, because losing an attention transition would defeat the
+// preempt machinery. On a wedged channel, the runtime panic from a
+// full-buffer send is preferable to silent loss.
 func (c *coordinator) Send(cmd coordCmd) {
+	if cmd.kind == cmdTick {
+		select {
+		case c.ticks <- struct{}{}:
+		default:
+			// Stale tick is fine to drop.
+		}
+		return
+	}
 	select {
 	case c.cmds <- cmd:
 	default:
-		c.logger.Debug("coord: dropped command (buffer full)", "kind", cmd.kind)
+		c.logger.Warn("coord: cmd channel full — blocking briefly", "kind", cmd.kind, "session_key", cmd.sessionKey)
+		c.cmds <- cmd
 	}
 }
 
 // Run is the goroutine entry point. Cancels cleanly on ctx.Done.
+// State-change commands win against ticks via channel ordering (Go's
+// select is random when both are ready, so we drain cmds first
+// opportunistically — preempt latency wins over rotation jitter).
 func (c *coordinator) Run(ctx context.Context) {
 	for {
+		// Opportunistic drain: if cmds has work, prefer it.
 		select {
 		case <-ctx.Done():
 			return
 		case cmd := <-c.cmds:
 			c.handle(cmd)
+			continue
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case cmd := <-c.cmds:
+			c.handle(cmd)
+		case <-c.ticks:
+			c.handle(coordCmd{kind: cmdTick})
 		}
 	}
 }

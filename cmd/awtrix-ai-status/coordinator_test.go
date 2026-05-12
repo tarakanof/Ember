@@ -16,14 +16,14 @@ func TestNewCoordinator_DefaultsFromConfig(t *testing.T) {
 
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
 
-	if c.dwell != 3*time.Second {
-		t.Errorf("dwell = %v, want 3s", c.dwell)
-	}
 	if c.ackTimeout != 30*time.Second {
 		t.Errorf("ackTimeout = %v, want 30s", c.ackTimeout)
 	}
-	if cap(c.cmds) < 1 {
-		t.Errorf("cmds channel must be buffered")
+	if cap(c.cmds) < 8 {
+		t.Errorf("cmds channel buffer = %d, want a comfortable margin (>=8) so producer bursts don't drop transitions", cap(c.cmds))
+	}
+	if cap(c.ticks) != 1 {
+		t.Errorf("ticks channel buffer = %d, want 1 (coalesce stale ticks)", cap(c.ticks))
 	}
 	_, cancel := context.WithCancel(context.Background())
 	cancel()
