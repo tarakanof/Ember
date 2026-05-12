@@ -915,3 +915,27 @@ func TestValidateConfig_G2_IdleRestoreBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateConfig_G2_BoundaryAccepted(t *testing.T) {
+	cases := []struct {
+		name     string
+		lifetime int
+		idle     int
+	}{
+		{"lifetime min, idle min", 10, 60},
+		{"lifetime max, idle max", 120, 3600},
+		{"lifetime min, idle max", 10, 3600},
+		{"lifetime max, idle min", 120, 60},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.applyDefaults()
+			cfg.Display.FrameLifetimeSeconds = tc.lifetime
+			cfg.Display.IdleRestoreSeconds = tc.idle
+			if err := validateConfig(cfg); err != nil {
+				t.Errorf("validateConfig(lifetime=%d, idle=%d) returned %v, want nil — inclusive boundary must be accepted", tc.lifetime, tc.idle, err)
+			}
+		})
+	}
+}
