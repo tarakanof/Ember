@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -141,5 +142,92 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 		if sawPostAfterDelete.Load() {
 			t.Fatalf("Ghost Heartbeat: POST observed after DELETE in iteration %d", i)
 		}
+	}
+}
+
+func TestProcessOneMarker_RecomputesContextPct(t *testing.T) {
+	h := newHookHarness(t)
+	// Override producer.env with enriched config (SourceColor + ContextPctEnabled=true)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=true\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionID := "tick-refresh-session"
+	// Write a STALE marker that has context_pct=10
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, sessionID+".json")
+	stale := []byte(`{"source":"test-mbp","tool":"claude","session":"` + sessionID + `","state":"running","source_color":"#aa66ff","context_pct":10}`)
+	if err := os.WriteFile(markerP, stale, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stage transcript that gives 60% (120k tokens)
+	tdir := filepath.Join(h.home, ".claude", "projects", "-test")
+	if err := os.MkdirAll(tdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tdir, sessionID+".jsonl"),
+		[]byte(`{"type":"assistant","message":{"usage":{"input_tokens":120000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+
+	if h.posts.Load() != 1 {
+		t.Fatalf("posts = %d, want 1", h.posts.Load())
+	}
+	got := (*h.bodies)[0]
+	if !strings.Contains(got, `"context_pct":60`) {
+		t.Errorf("tick re-POST should refresh context_pct to 60, got: %s", got)
+	}
+	if !strings.Contains(got, `"source_color":"#aa66ff"`) {
+		t.Errorf("source_color must survive from marker: %s", got)
+	}
+}
+
+func TestProcessOneMarker_ContextPctDisabled_DoesNotRefresh(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=false\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionID := "tick-disabled-session"
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, sessionID+".json")
+	stale := []byte(`{"source":"test-mbp","tool":"claude","session":"` + sessionID + `","state":"running","source_color":"#aa66ff","context_pct":10}`)
+	if err := os.WriteFile(markerP, stale, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Transcript at 60% — should be IGNORED because disabled
+	tdir := filepath.Join(h.home, ".claude", "projects", "-test")
+	if err := os.MkdirAll(tdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tdir, sessionID+".jsonl"),
+		[]byte(`{"type":"assistant","message":{"usage":{"input_tokens":120000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+
+	got := (*h.bodies)[0]
+	// Marker value (10) survives — refresh skipped
+	if !strings.Contains(got, `"context_pct":10`) {
+		t.Errorf("disabled config should preserve marker's context_pct=10, got: %s", got)
 	}
 }

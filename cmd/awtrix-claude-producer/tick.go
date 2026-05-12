@@ -39,11 +39,11 @@ func dispatchTick(ctx context.Context, cfg Config) {
 		sessionID := strings.TrimSuffix(e.Name(), ".json")
 		markerP := filepath.Join(dir, e.Name())
 		lockP := filepath.Join(dir, sessionID+".lock")
-		processOneMarker(ctx, client, markerP, lockP, staleThreshold)
+		processOneMarker(ctx, cfg, client, markerP, lockP, staleThreshold)
 	}
 }
 
-func processOneMarker(ctx context.Context, client *Client, markerP, lockP string, staleThreshold time.Time) {
+func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, lockP string, staleThreshold time.Time) {
 	info, err := os.Stat(markerP)
 	if err != nil {
 		return
@@ -81,6 +81,11 @@ func processOneMarker(ctx context.Context, client *Client, markerP, lockP string
 		var req StatusRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			return nil
+		}
+		if cfg.ContextPctEnabled {
+			if pct, err := computeContextPct(req.Session); err == nil && pct != nil {
+				req.ContextPct = pct
+			}
 		}
 		_ = client.Post(ctx, req)
 		return nil
