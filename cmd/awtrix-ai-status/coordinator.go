@@ -71,6 +71,13 @@ type coordinator struct {
 	// behaviour stays test-friendly.
 	lockReleaseTimer *time.Timer
 
+	// idleSince tracks when the most recent transition to "no active
+	// sessions" happened. Zero value means "currently have active
+	// sessions" (the normal case). Used by publish() to decide between
+	// active rendering, dimmed-idle rendering, and stopping publishing
+	// once the countdown elapses.
+	idleSince time.Time
+
 	// snapshot is set by the App when it wires the coordinator in.
 	// In tests, the test sets it directly.
 	snapshot func() Snapshot
@@ -103,6 +110,31 @@ type coordinator struct {
 	// retry on the next tick.
 	lastPayloadBytes  []byte
 	lastPublishedAt   time.Time
+}
+
+type coordIdleMode int
+
+const (
+	idleModeActive coordIdleMode = iota
+	idleModeDimmed
+	idleModeOff
+)
+
+// idleStateLocked decides which rendering branch publish should take.
+// Caller MUST hold muTest. Returns the mode; mutates c.idleSince as a
+// side effect (zero when active, set to now on first all-idle call).
+func (c *coordinator) idleStateLocked(activeCount int, now time.Time, idleRestore time.Duration) coordIdleMode {
+	if activeCount > 0 {
+		c.idleSince = time.Time{}
+		return idleModeActive
+	}
+	if c.idleSince.IsZero() {
+		c.idleSince = now
+	}
+	if now.Sub(c.idleSince) >= idleRestore {
+		return idleModeOff
+	}
+	return idleModeDimmed
 }
 
 // newCoordinator constructs the coordinator. The caller is responsible
@@ -324,16 +356,11 @@ func (c *coordinator) onTick() {
 	}
 	c.muTest.Unlock()
 
-	if len(keys) == 0 {
-		c.muTest.Lock()
-		c.pointer = ""
-		c.muTest.Unlock()
-		return
-	}
-
-	// When locked, the pointer stays on the locked key (don't advance).
 	c.muTest.Lock()
-	if c.locked {
+	if len(keys) == 0 {
+		c.pointer = ""
+	} else if c.locked {
+		// When locked, the pointer stays on the locked key (don't advance).
 		c.pointer = c.lockedKey
 	} else {
 		c.pointer = pickRotated(c.pointer, keys)
@@ -347,9 +374,28 @@ func (c *coordinator) publish(snap Snapshot) {
 	cfg := c.loadCfg()
 	lifetime := cfg.Display.FrameLifetimeSeconds
 	if lifetime < 5 {
-		lifetime = 5 // defensive — applyDefaults clamps to >= 10 in production
+		lifetime = 5
 	}
-	payload := RenderForCoord(snap, c.pointer, c.locked, lifetime)
+	idleRestore := time.Duration(cfg.Display.IdleRestoreSeconds) * time.Second
+	now := c.clk.Now()
+
+	keys := sortedActiveKeys(snap)
+	c.muTest.Lock()
+	mode := c.idleStateLocked(len(keys), now, idleRestore)
+	c.muTest.Unlock()
+
+	var payload map[string]any
+	switch mode {
+	case idleModeActive:
+		payload = RenderForCoord(snap, c.pointer, c.locked, lifetime)
+	case idleModeDimmed:
+		payload = RenderIdleFrame(lifetime)
+	case idleModeOff:
+		// Countdown elapsed — let the device's lifetime expire so
+		// AWTRIX scheduler returns to native apps. No publish, no
+		// dedupe-state update.
+		return
+	}
 	if payload == nil {
 		return
 	}
@@ -360,11 +406,7 @@ func (c *coordinator) publish(snap Snapshot) {
 		return
 	}
 
-	// Skip identical re-publishes within the dedup window. Window is
-	// one second shy of lifetime so the app still gets refreshed
-	// before the firmware evicts it.
 	dedupWindow := time.Duration(lifetime-1) * time.Second
-	now := c.clk.Now()
 	if bytes.Equal(body, c.lastPayloadBytes) && now.Sub(c.lastPublishedAt) < dedupWindow {
 		return
 	}

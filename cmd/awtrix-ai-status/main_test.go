@@ -134,7 +134,12 @@ func TestCoord_PublishesDrawPayload_OnUpsert(t *testing.T) {
 	}
 }
 
-func TestCoord_IdleSession_NoPublish(t *testing.T) {
+// TestCoord_IdleSession_EmitsIdleFrame replaces the pre-G.2 NoPublish
+// expectation. An "idle" session is excluded from sortedActiveKeys, so
+// the snapshot has zero active sessions — the coordinator enters the
+// idle countdown and emits a dimmed idle frame on the first tick
+// instead of ceding the slot immediately.
+func TestCoord_IdleSession_EmitsIdleFrame(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
 	publisher := &recordingPublisher{}
@@ -148,8 +153,12 @@ func TestCoord_IdleSession_NoPublish(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	customs := publisher.CustomAppsSnapshot()
-	if len(customs) != 0 {
-		t.Errorf("custom app publishes on idle = %d, want 0", len(customs))
+	if got := len(customs); got != 1 {
+		t.Fatalf("custom app publishes on idle = %d, want 1 (idle countdown dim frame)", got)
+	}
+	// Idle frame must not carry a text key (robot-only dim frame).
+	if _, hasText := customs[0]["text"]; hasText {
+		t.Errorf("idle frame has text key; want robot-only dim frame")
 	}
 }
 

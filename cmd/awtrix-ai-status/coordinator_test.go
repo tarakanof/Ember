@@ -61,7 +61,13 @@ func TestCoord_Tick_SingleSession_PublishesOnce(t *testing.T) {
 	}
 }
 
-func TestCoord_Tick_NoActive_NoPublish(t *testing.T) {
+// TestCoord_Tick_NoActive_EmitsIdleFrame replaces G.1b's NoPublish
+// expectation. With G.2 display hold, the coordinator emits a dimmed
+// idle frame on the first all-idle tick (start of the idle countdown)
+// instead of ceding the slot immediately. The slot only releases after
+// IdleRestoreSeconds elapses (covered by TestCoord_IdleCountdown_Off
+// in Task 6).
+func TestCoord_Tick_NoActive_EmitsIdleFrame(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
 	publisher := &recordingPublisher{}
@@ -76,8 +82,13 @@ func TestCoord_Tick_NoActive_NoPublish(t *testing.T) {
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	if got := len(publisher.CustomAppsSnapshot()); got != 0 {
-		t.Errorf("custom app publishes = %d, want 0 (idle ⇒ cede slot)", got)
+	apps := publisher.CustomAppsSnapshot()
+	if got := len(apps); got != 1 {
+		t.Fatalf("publishes = %d, want 1 (idle countdown dim frame)", got)
+	}
+	// No text means no attention; the idle frame is robot-only.
+	if _, hasText := apps[0]["text"]; hasText {
+		t.Errorf("idle frame has text key; want robot-only dim frame")
 	}
 }
 
