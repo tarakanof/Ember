@@ -60,6 +60,14 @@ type coordinator struct {
 	locked        bool
 	lockedKey     string
 	lockEnteredAt time.Time
+	// lockReleaseTimer is a wallclock-based safety net that fires a tick
+	// after ackTimeout, guaranteeing release even if dwell happens to be
+	// configured larger than ackTimeout (the tick-driven check in onTick
+	// is otherwise the only release path on a sleepy rotation cadence).
+	// Tests still drive release via fakeClock + Send(cmdTick); the timer
+	// uses real wallclock and so does nothing in those test setups —
+	// behaviour stays test-friendly.
+	lockReleaseTimer *time.Timer
 
 	// snapshot is set by the App when it wires the coordinator in.
 	// In tests, the test sets it directly.
@@ -182,30 +190,26 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 	c.muTest.Lock()
 	switch {
 	case attention && transition && !priorWasAttention:
-		// Fresh attention transition from a non-attention state. The spec
-		// allows this even while already locked on a different session —
-		// edge case: two sessions enter waiting nearly together, both
-		// drive this branch, the second wins. (Spec calls out that
-		// per-iteration the "first to be processed wins"; under our
-		// coordinator's serialized command loop, the last to arrive is
-		// the one observed by the user.)
+		// Fresh attention transition from a non-attention state.
 		c.pointer = key
 		c.locked = true
 		c.lockedKey = key
 		c.lockEnteredAt = c.clk.Now()
+		c.armLockTimerLocked()
 	case attention && transition && priorWasAttention && c.locked && c.lockedKey == key:
 		// Same session shifting between waiting and error (e.g.,
 		// waiting → error during an approval prompt that then failed).
 		// Reset the ack timer so the new attention class gets its own
-		// 30s window — but DON'T re-target the pointer; it's already
-		// on this key.
+		// 30s window — but DON'T re-target the pointer.
 		c.lockEnteredAt = c.clk.Now()
+		c.armLockTimerLocked()
 	case !attention && c.locked && c.lockedKey == key:
 		// Drain: the locked session moved out of attention state. Release
 		// the lock immediately rather than waiting for the next dwell tick.
 		c.logger.Info("coord lock released", "key", c.lockedKey, "reason", "drain")
 		c.locked = false
 		c.lockedKey = ""
+		c.disarmLockTimerLocked()
 	}
 	c.muTest.Unlock()
 
@@ -219,6 +223,7 @@ func (c *coordinator) onDelete(key string) {
 	if c.locked && c.lockedKey == key {
 		c.locked = false
 		c.lockedKey = ""
+		c.disarmLockTimerLocked()
 	}
 	if c.pointer == key {
 		c.pointer = ""
@@ -234,7 +239,27 @@ func (c *coordinator) onClear() {
 	c.pointer = ""
 	c.locked = false
 	c.lockedKey = ""
+	c.disarmLockTimerLocked()
 	c.muTest.Unlock()
+}
+
+// armLockTimerLocked installs (or replaces) the wallclock safety-net
+// timer that fires a cmdTick after ackTimeout. Caller must hold muTest.
+func (c *coordinator) armLockTimerLocked() {
+	if c.lockReleaseTimer != nil {
+		c.lockReleaseTimer.Stop()
+	}
+	c.lockReleaseTimer = time.AfterFunc(c.ackTimeout, func() {
+		c.Send(coordCmd{kind: cmdTick})
+	})
+}
+
+// disarmLockTimerLocked stops the safety-net timer. Caller must hold muTest.
+func (c *coordinator) disarmLockTimerLocked() {
+	if c.lockReleaseTimer != nil {
+		c.lockReleaseTimer.Stop()
+		c.lockReleaseTimer = nil
+	}
 }
 
 func (c *coordinator) onTick() {
@@ -270,6 +295,7 @@ func (c *coordinator) onTick() {
 			c.logger.Info("coord lock released", "key", c.lockedKey, "reason", releaseReason)
 			c.locked = false
 			c.lockedKey = ""
+			c.disarmLockTimerLocked()
 		}
 	}
 	c.muTest.Unlock()
