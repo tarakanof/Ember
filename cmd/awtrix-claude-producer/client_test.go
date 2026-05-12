@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -81,5 +83,42 @@ func TestClient_EmptyServerURLErrors(t *testing.T) {
 	err := c.Post(context.Background(), StatusRequest{Source: "x", Tool: "claude", Session: "s", State: "running"})
 	if err == nil {
 		t.Error("empty server URL should error")
+	}
+}
+
+func TestStatusRequest_OmitsNilPointers(t *testing.T) {
+	req := StatusRequest{Source: "x", Tool: "claude", Session: "s", State: "running"}
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte("context_pct")) {
+		t.Errorf("JSON must not contain context_pct when nil, got: %s", b)
+	}
+	if bytes.Contains(b, []byte("source_color")) {
+		t.Errorf("JSON must not contain source_color when nil, got: %s", b)
+	}
+}
+
+func TestStatusRequest_SerializesNonNilPointers(t *testing.T) {
+	pct := 42
+	col := "#aa66ff"
+	req := StatusRequest{
+		Source:      "x",
+		Tool:        "claude",
+		Session:     "s",
+		State:       "running",
+		ContextPct:  &pct,
+		SourceColor: &col,
+	}
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b, []byte(`"context_pct":42`)) {
+		t.Errorf("JSON missing context_pct:42, got: %s", b)
+	}
+	if !bytes.Contains(b, []byte(`"source_color":"#aa66ff"`)) {
+		t.Errorf("JSON missing source_color:#aa66ff, got: %s", b)
 	}
 }

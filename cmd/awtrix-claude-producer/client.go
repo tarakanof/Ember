@@ -11,12 +11,14 @@ import (
 )
 
 type StatusRequest struct {
-	Source      string `json:"source"`
-	Tool        string `json:"tool"`
-	Session     string `json:"session"`
-	State       string `json:"state"`
-	Message     string `json:"message,omitempty"`
-	TokensToday int64  `json:"tokens_today,omitempty"`
+	Source      string  `json:"source"`
+	Tool        string  `json:"tool"`
+	Session     string  `json:"session"`
+	State       string  `json:"state"`
+	Message     string  `json:"message,omitempty"`
+	TokensToday int64   `json:"tokens_today,omitempty"`
+	ContextPct  *int    `json:"context_pct,omitempty"`
+	SourceColor *string `json:"source_color,omitempty"`
 }
 
 type DeleteRequest struct {
