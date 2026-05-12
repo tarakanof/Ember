@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -177,30 +178,58 @@ func (c *coordinator) onClear() {
 }
 
 func (c *coordinator) onTick() {
-	// Ack-timeout release: if locked for longer than ackTimeout, release.
-	c.muTest.Lock()
-	if c.locked && c.clk.Now().Sub(c.lockEnteredAt) >= c.ackTimeout {
-		c.logger.Info("coord ack timeout release", "key", c.lockedKey)
-		c.locked = false
-		c.lockedKey = ""
-	}
-	c.muTest.Unlock()
-
 	if c.snapshot == nil {
 		return
 	}
 	snap := c.snapshot()
 	keys := sortedActiveKeys(snap)
+
+	// Evaluate all lock-release conditions against the current snapshot:
+	// ack timeout, drain (locked session moved out of attention state),
+	// reap (locked key no longer in active set).
+	c.muTest.Lock()
+	if c.locked {
+		releaseReason := ""
+		if !slices.Contains(keys, c.lockedKey) {
+			releaseReason = "reap"
+		} else {
+			// Drain: locked session moved out of attention state.
+			for _, s := range snap.Sessions {
+				if sessionKey(s) == c.lockedKey {
+					if s.State != "waiting" && s.State != "error" {
+						releaseReason = "drain"
+					}
+					break
+				}
+			}
+		}
+		if releaseReason == "" && c.clk.Now().Sub(c.lockEnteredAt) >= c.ackTimeout {
+			releaseReason = "ack_timeout"
+		}
+		if releaseReason != "" {
+			c.logger.Info("coord lock released", "key", c.lockedKey, "reason", releaseReason)
+			c.locked = false
+			c.lockedKey = ""
+		}
+	}
+	c.muTest.Unlock()
+
 	if len(keys) == 0 {
 		c.muTest.Lock()
 		c.pointer = ""
 		c.muTest.Unlock()
 		return
 	}
-	next := pickRotated(c.pointer, keys)
+
+	// When locked, the pointer stays on the locked key (don't advance).
 	c.muTest.Lock()
-	c.pointer = next
+	if c.locked {
+		c.pointer = c.lockedKey
+	} else {
+		c.pointer = pickRotated(c.pointer, keys)
+	}
 	c.muTest.Unlock()
+
 	c.publish(snap)
 }
 
