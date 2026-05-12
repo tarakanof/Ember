@@ -374,7 +374,7 @@ func (c *coordinator) publish(snap Snapshot) {
 	cfg := c.loadCfg()
 	lifetime := cfg.Display.FrameLifetimeSeconds
 	if lifetime < 5 {
-		lifetime = 5
+		lifetime = 5 // floor below the validated min — keeps dedupWindow positive in low-lifetime test setups
 	}
 	idleRestore := time.Duration(cfg.Display.IdleRestoreSeconds) * time.Second
 	now := c.clk.Now()
