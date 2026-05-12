@@ -87,7 +87,7 @@ func TestWaitingStatusWinsOverRunningStatus(t *testing.T) {
 		Session: "repo",
 		State:   "running",
 	})
-	render := app.Upsert(StatusRequest{
+	render, _ := app.Upsert(StatusRequest{
 		Source:  "macbook",
 		Tool:    "claude",
 		Session: "desktop",
@@ -303,7 +303,7 @@ func TestPerStateStalenessLingersDoneAndError(t *testing.T) {
 
 func TestRenderDoneLingersWhenAlone(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
-	render := app.Upsert(StatusRequest{
+	render, _ := app.Upsert(StatusRequest{
 		Source: "dt-mbp", Tool: "claude", Session: "x",
 		State: "done", Message: "build green",
 	})
@@ -321,7 +321,7 @@ func TestRenderDoneLingersWhenAlone(t *testing.T) {
 
 func TestRenderIdleSessionNeverWins(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
-	render := app.Upsert(StatusRequest{
+	render, _ := app.Upsert(StatusRequest{
 		Source: "dt-mbp", Tool: "claude", Session: "x",
 		State: "idle",
 	})
@@ -333,7 +333,7 @@ func TestRenderIdleSessionNeverWins(t *testing.T) {
 func TestRenderAggregateLabelForMultipleWaiting(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "1", State: "waiting"})
-	render := app.Upsert(StatusRequest{Source: "b", Tool: "claude", Session: "2", State: "waiting"})
+	render, _ := app.Upsert(StatusRequest{Source: "b", Tool: "claude", Session: "2", State: "waiting"})
 	if render.Waiting != 2 {
 		t.Errorf("Waiting = %d, want 2", render.Waiting)
 	}
@@ -348,7 +348,7 @@ func TestRenderAggregateMixedGroups(t *testing.T) {
 	app.Upsert(StatusRequest{Source: "b", Tool: "claude", Session: "2", State: "waiting"})
 	app.Upsert(StatusRequest{Source: "c", Tool: "claude", Session: "3", State: "running"})
 	app.Upsert(StatusRequest{Source: "d", Tool: "claude", Session: "4", State: "running"})
-	render := app.Upsert(StatusRequest{Source: "e", Tool: "claude", Session: "5", State: "running"})
+	render, _ := app.Upsert(StatusRequest{Source: "e", Tool: "claude", Session: "5", State: "running"})
 	if !contains(render.Text, "W2") || !contains(render.Text, "R3") {
 		t.Errorf("Text = %q, want aggregate AI W2 R3", render.Text)
 	}

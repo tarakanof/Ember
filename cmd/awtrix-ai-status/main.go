@@ -374,24 +374,25 @@ func (a *App) recordPublish(err error) {
 	a.mu.Unlock()
 }
 
-// priorState returns the existing session's state for the given key, or
-// "" if no session exists yet. Holds App.mu.
-func (a *App) priorState(key string) string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if s, ok := a.sessions[key]; ok {
-		return s.State
-	}
-	return ""
-}
-
-func (a *App) Upsert(req StatusRequest) Render {
+// Upsert writes req into the session map and returns the resulting
+// Render plus the state the session held BEFORE this upsert ("" if
+// new). priorState is read and updated under a single App.mu acquisition
+// so concurrent POSTs for the same session never misclassify the
+// transition (a separate priorState+Upsert pair has a TOCTOU window
+// that would let request B's Upsert land between request A's priorState
+// read and its own Upsert).
+func (a *App) Upsert(req StatusRequest) (Render, string) {
 	session := req.normalized()
+	key := session.key()
 	a.mu.Lock()
-	a.sessions[session.key()] = session
+	prior := ""
+	if existing, ok := a.sessions[key]; ok {
+		prior = existing.State
+	}
+	a.sessions[key] = session
 	render := a.renderLocked(time.Now())
 	a.mu.Unlock()
-	return render
+	return render, prior
 }
 
 func (a *App) Clear() Render {
@@ -694,12 +695,10 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalized := req.normalized()
-	key := sessionKey(normalized)
-	prior := a.priorState(key)
-	render := a.Upsert(req)
+	render, prior := a.Upsert(req)
 	a.coord.Send(coordCmd{
 		kind:       cmdUpsert,
-		sessionKey: key,
+		sessionKey: sessionKey(normalized),
 		priorState: prior,
 		newState:   normalized.State,
 	})
