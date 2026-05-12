@@ -608,6 +608,9 @@ func TestRenderIdleFrame_Shape(t *testing.T) {
 	if payload["lifetime"] != 30 {
 		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
 	}
+	if payload["duration"] != 30 {
+		t.Errorf("duration = %v, want 30", payload["duration"])
+	}
 }
 
 func TestAttentionLabelAndColor(t *testing.T) {
