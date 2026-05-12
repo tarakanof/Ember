@@ -17,13 +17,13 @@ const (
 )
 
 type Config struct {
-	Source             string
-	ServerURL          string
-	Token              string
-	HeartbeatTTLHours  int
-	HookTimeoutMs      int
-	SourceColor        string
-	ContextPctEnabled  bool
+	Source            string
+	ServerURL         string
+	Token             string
+	HeartbeatTTLHours int
+	HookTimeoutMs     int
+	SourceColor       string
+	ContextPctEnabled bool
 }
 
 // LogValue redacts the token. Implements slog.LogValuer.
