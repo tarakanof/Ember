@@ -347,8 +347,16 @@ func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
 
 func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor string) {
 	t.Helper()
-	if _, hasDraw := payload["draw"]; hasDraw {
-		t.Errorf("locked payload still carries draw[]; firmware rejects multi-frame draws")
+	draw, ok := payload["draw"].([]any)
+	if !ok || len(draw) != 1 {
+		t.Fatalf("locked payload draw[] = %v, want exactly 1 entry (firmware rejects multi-frame draws)", payload["draw"])
+	}
+	db, ok := draw[0].(map[string]any)["db"].([]any)
+	if !ok || len(db) != 5 {
+		t.Fatalf("draw[0].db = %v, want [x,y,w,h,pixels]", draw[0])
+	}
+	if db[2] != robotWidth {
+		t.Errorf("draw[0].db width = %v, want %d (narrow region so AWTRIX text isn't clobbered)", db[2], robotWidth)
 	}
 	if got := payload["text"]; got != wantLabel {
 		t.Errorf("text = %v, want %q", got, wantLabel)
@@ -359,8 +367,11 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if got := payload["blinkText"]; got != 500 {
 		t.Errorf("blinkText = %v, want 500", got)
 	}
-	if got := payload["center"]; got != true {
-		t.Errorf("center = %v, want true", got)
+	if got := payload["textOffset"]; got != 8 {
+		t.Errorf("textOffset = %v, want 8 (text sits in cols 8-31 — 24 cols, fits 4-char labels)", got)
+	}
+	if got := payload["noScroll"]; got != true {
+		t.Errorf("noScroll = %v, want true", got)
 	}
 	if got := payload["lifetime"]; got != 30 {
 		t.Errorf("lifetime = %v, want 30", got)
@@ -529,7 +540,7 @@ func TestPickRotated(t *testing.T) {
 	}
 }
 
-func TestAttentionTextToCustomApp_Shape(t *testing.T) {
+func TestAttentionLabelAndColor(t *testing.T) {
 	for _, tc := range []struct {
 		state     string
 		wantLabel string
@@ -537,26 +548,15 @@ func TestAttentionTextToCustomApp_Shape(t *testing.T) {
 	}{
 		{"waiting", "WAIT", "#FFC14D"},
 		{"error", "ERR", "#FF3A3A"},
+		{"running", "WAIT", "#FFC14D"}, // fallback path; never reached in production
 	} {
 		t.Run(tc.state, func(t *testing.T) {
-			payload := attentionTextToCustomApp(tc.state, 30)
-			if _, ok := payload["draw"]; ok {
-				t.Errorf("attention payload must not include draw[]: %v", payload["draw"])
+			label, hex := attentionLabelAndColor(tc.state)
+			if label != tc.wantLabel {
+				t.Errorf("label = %q, want %q", label, tc.wantLabel)
 			}
-			if got := payload["text"]; got != tc.wantLabel {
-				t.Errorf("text = %v, want %q", got, tc.wantLabel)
-			}
-			if got := payload["color"]; got != tc.wantColor {
-				t.Errorf("color = %v, want %s", got, tc.wantColor)
-			}
-			if got := payload["blinkText"]; got != 500 {
-				t.Errorf("blinkText = %v, want 500", got)
-			}
-			if got := payload["lifetime"]; got != 30 {
-				t.Errorf("lifetime = %v, want 30", got)
-			}
-			if got := payload["duration"]; got != 30 {
-				t.Errorf("duration = %v, want 30", got)
+			if hex != tc.wantColor {
+				t.Errorf("hex = %q, want %q", hex, tc.wantColor)
 			}
 		})
 	}

@@ -1025,6 +1025,9 @@ func main() {
 		logger.Error("load config failed", "err", err)
 		os.Exit(1)
 	}
+	if cfg.Display.PulseStyle != "" {
+		logger.Warn("display.pulse_style is deprecated and ignored — AWTRIX firmware animates attention via blinkText", "value", cfg.Display.PulseStyle)
+	}
 
 	tlsCfg, err := readTLSEnv()
 	if err != nil {

@@ -410,3 +410,87 @@ func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
 		t.Errorf("locked = true after 31s, want false (ack timeout %v)", c.ackTimeout)
 	}
 }
+
+// TestCoord_DedupesIdenticalPublishes verifies that re-publishing the
+// same payload within the dedup window (< lifetime) is skipped. Without
+// this, every dwell tick re-POSTs /api/custom and the firmware restarts
+// the blinkText phase mid-cycle, producing a visible animation stutter.
+func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},
+	}}
+	c.snapshot = func() Snapshot { return snap }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	// Tick 1: initial publish.
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	// Tick 2 within dedup window (1s later): identical payload, should be skipped.
+	clk.Advance(1 * time.Second)
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	if got := len(publisher.CustomAppsSnapshot()); got != 1 {
+		t.Errorf("publishes after dedup-window tick = %d, want 1 (identical payload should be skipped)", got)
+	}
+
+	// Tick 3 past dedup window (lifetime=7, window=6s; advance well past).
+	clk.Advance(7 * time.Second)
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	if got := len(publisher.CustomAppsSnapshot()); got != 2 {
+		t.Errorf("publishes after lifetime expiry = %d, want 2 (must refresh before app evicts)", got)
+	}
+}
+
+// TestCoord_DedupePublishesAgainOnStateChange verifies that a payload
+// change (state transition, lock acquisition, etc.) bypasses the dedup
+// window so attention transitions land immediately.
+func TestCoord_DedupePublishesAgainOnStateChange(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+
+	var stateMu sync.RWMutex
+	state := "running"
+	c.snapshot = func() Snapshot {
+		stateMu.RLock()
+		s := state
+		stateMu.RUnlock()
+		return Snapshot{Sessions: []Session{
+			{Source: "a", Tool: "b", Session: "s1", State: s, UpdatedAt: clk.Now()},
+		}}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	// Same instant, transition to waiting — payload changes (text=WAIT
+	// appears) and the publish must NOT be skipped despite no clock advance.
+	stateMu.Lock()
+	state = "waiting"
+	stateMu.Unlock()
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "running", newState: "waiting"})
+	time.Sleep(50 * time.Millisecond)
+
+	if got := len(publisher.CustomAppsSnapshot()); got != 2 {
+		t.Errorf("publishes after state-change upsert = %d, want 2 (payload differs, dedup must not skip)", got)
+	}
+}

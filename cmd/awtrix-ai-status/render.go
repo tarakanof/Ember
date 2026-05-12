@@ -120,6 +120,32 @@ var robotError = []string{
 	".X.X..X.X.",
 }
 
+// robotLockedNormal is the 8-wide × 6-tall variant used in the locked
+// attention frame, where the right ~24 cols of the matrix are reserved
+// for the firmware-rendered text. Body cols 1-6 (6 wide), arms at cols
+// 0 and 7, eyes at cols 2 and 5, two legs at the outer body edges
+// (cols 1 and 6) directly below the arm protrusions.
+var robotLockedNormal = []string{
+	".XXXXXX.", // head top
+	".X.XX.X.", // eyes upper
+	".X.XX.X.", // eyes lower
+	"XXXXXXXX", // arms full-width + body
+	".XXXXXX.", // body bottom
+	".X....X.", // 2 legs at sides (cols 1, 6)
+}
+
+// robotLockedError mirrors the 3-row chevron eye treatment in the 8-col
+// budget. Eye chevrons span rows 2-4 with outer holes at cols 2/5 and
+// apex holes at cols 3/4; the arms row keeps the protrusions at 0/7.
+var robotLockedError = []string{
+	".XXXXXX.",
+	".X.XX.X.", // outer holes (cols 2, 5)
+	".XX..XX.", // apex holes (cols 3, 4)
+	"XX.XX.XX", // outer holes (cols 2, 5) + arm protrusions
+	".XXXXXX.",
+	".X....X.",
+}
+
 // drawRobot paints the robot sprite at cols 0–9, rows 1–6, using c for lit pixels.
 // The "error" state selects the chevron-eye sprite; everything else uses normal.
 func drawRobot(f *Frame, state string, c RGB) {
@@ -440,11 +466,12 @@ const numStart = 12
 // invalidation).
 //
 // locked: when true and the chosen session's state is "waiting" or
-// "error", emits a text+blinkText payload so AWTRIX firmware animates
-// the attention indicator natively. Otherwise emits the standard
-// single-frame bitmap. The firmware has no multi-frame draw mode —
-// passing two db entries returns 500 ErrorParsingJson once the JSON
-// parser buffer fills with the second 256-int pixel array.
+// "error", a narrow 10-col db (just the robot sprite) is emitted with
+// text+blinkText positioned to the right via textOffset, so AWTRIX
+// firmware animates the attention indicator natively in the area the
+// bitmap leaves clear. A full-width draw would paint zeros across the
+// right side of the matrix and clobber the text underneath — verified
+// empirically against device 0.98.
 func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds int) map[string]any {
 	keys := sortedActiveKeys(snap)
 	if len(keys) == 0 {
@@ -467,13 +494,58 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 	idx := slices.Index(keys, chosen) + 1 // 1-based rotation index
 	total := len(keys)
 
+	stateColor := colorForState(session.State)
+
 	if locked && (session.State == "waiting" || session.State == "error") {
-		return attentionTextToCustomApp(session.State, lifetimeSeconds)
+		label, hex := attentionLabelAndColor(session.State)
+		pixels := composeRobotPixels(*session, stateColor)
+		return map[string]any{
+			"draw": []any{
+				map[string]any{"db": []any{0, 0, robotWidth, 8, pixels}},
+			},
+			"text":       label,
+			"color":      hex,
+			"blinkText":  500,
+			"textOffset": 8, // first col after the robot bitmap (cols 0-6)
+			"noScroll":   true,
+			"duration":   lifetimeSeconds,
+			"lifetime":   lifetimeSeconds,
+		}
 	}
 
-	stateColor := colorForState(session.State)
 	frame := composeFrame(*session, idx, total, stateColor)
 	return frameToCustomApp(&frame, lifetimeSeconds)
+}
+
+// robotWidth is the horizontal extent of the locked-frame bitmap. The
+// remaining 32-robotWidth columns are left blank so AWTRIX renders the
+// blinking attention text in that area. Set to 8 — the firmware font
+// is wider than 5 px per char, so "WAIT" / "ERR" need ~24 cols.
+const robotWidth = 8
+
+// composeRobotPixels paints just the locked-state robot sprite into a
+// tight robotWidth×8 = 64-int pixel array. Uses the 8-wide
+// robotLocked{Normal,Error} variants (which keep both eyes and the arm
+// protrusions inside the budget) rather than truncating the 10-wide
+// rotation sprite.
+func composeRobotPixels(s Session, robotColor RGB) []int {
+	sprite := robotLockedNormal
+	if s.State == "error" {
+		sprite = robotLockedError
+	}
+	var f Frame
+	paintBitmap(&f, 0, 1, sprite, robotColor)
+	pixels := make([]int, robotWidth*8)
+	for y := 0; y < 8; y++ {
+		for x := 0; x < robotWidth; x++ {
+			if !f.Dirty[y][x] {
+				continue
+			}
+			c := f.Pixels[y][x]
+			pixels[y*robotWidth+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
+		}
+	}
+	return pixels
 }
 
 // composeFrame paints the standard layout for one session using the
@@ -516,27 +588,14 @@ func colorForState(state string) RGB {
 	}
 }
 
-// attentionTextToCustomApp emits a text payload with firmware-side
-// blinkText animation for the locked attention state. AWTRIX 3 has no
-// frame-cycling primitive for the draw layer, so the pulse is delegated
-// to blinkText (the firmware blinks the text every 500ms natively).
-// Locked frames intentionally swap out the rich bitmap composition for
-// a centered short label ("WAIT" or "ERR") in the state colour — the
-// rotation pointer is already pinned to this session, so the lock
-// semantic itself carries the "this is the urgent one" signal.
-func attentionTextToCustomApp(state string, lifetimeSeconds int) map[string]any {
-	label := "WAIT"
-	c := colorWaiting
+// attentionLabelAndColor returns the short blinking label and its
+// hex colour for the locked attention state. Only the firmware-known
+// attention states ("waiting" → "WAIT", "error" → "ERR") have defined
+// labels; other states fall back to "WAIT" but the call site already
+// guards against entry with state ∉ {waiting, error}.
+func attentionLabelAndColor(state string) (string, string) {
 	if state == "error" {
-		label = "ERR"
-		c = colorError
+		return "ERR", fmt.Sprintf("#%02X%02X%02X", colorError.R, colorError.G, colorError.B)
 	}
-	return map[string]any{
-		"text":      label,
-		"color":     fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B),
-		"blinkText": 500,
-		"center":    true,
-		"duration":  lifetimeSeconds,
-		"lifetime":  lifetimeSeconds,
-	}
+	return "WAIT", fmt.Sprintf("#%02X%02X%02X", colorWaiting.R, colorWaiting.G, colorWaiting.B)
 }

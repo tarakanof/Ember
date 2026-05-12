@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"slices"
 	"sync"
@@ -91,6 +93,16 @@ type coordinator struct {
 	muTest sync.RWMutex
 
 	publishCount atomic.Int64
+
+	// lastPayloadBytes + lastPublishedAt dedupe identical re-publishes
+	// within a window shorter than the AWTRIX app lifetime. Every
+	// re-POST to /api/custom resets the firmware app's render state,
+	// which restarts the blinkText phase mid-cycle as a visible
+	// stutter; skipping no-op refreshes keeps the animation steady.
+	// Only success updates these fields so failed publishes still
+	// retry on the next tick.
+	lastPayloadBytes  []byte
+	lastPublishedAt   time.Time
 }
 
 // newCoordinator constructs the coordinator. The caller is responsible
@@ -338,6 +350,22 @@ func (c *coordinator) publish(snap Snapshot) {
 	if payload == nil {
 		return
 	}
+
+	body, mErr := json.Marshal(payload)
+	if mErr != nil {
+		c.logger.Error("coord payload marshal failed", "err", mErr)
+		return
+	}
+
+	// Skip identical re-publishes within the dedup window. Window is
+	// one second shy of lifetime so the app still gets refreshed
+	// before the firmware evicts it.
+	dedupWindow := time.Duration(lifetime-1) * time.Second
+	now := c.clk.Now()
+	if bytes.Equal(body, c.lastPayloadBytes) && now.Sub(c.lastPublishedAt) < dedupWindow {
+		return
+	}
+
 	ctx := c.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -349,6 +377,8 @@ func (c *coordinator) publish(snap Snapshot) {
 	} else {
 		c.publishCount.Add(1)
 		c.metrics.incPublishOK()
+		c.lastPayloadBytes = body
+		c.lastPublishedAt = now
 	}
 	if c.onPublishResult != nil {
 		c.onPublishResult(snap, err)
