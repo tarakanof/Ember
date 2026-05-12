@@ -176,15 +176,39 @@ func (c *coordinator) handle(cmd coordCmd) {
 
 func (c *coordinator) onUpsert(key, prior, next string) {
 	attention := next == "waiting" || next == "error"
+	priorWasAttention := prior == "waiting" || prior == "error"
 	transition := prior != next
-	if attention && transition {
-		c.muTest.Lock()
+
+	c.muTest.Lock()
+	switch {
+	case attention && transition && !priorWasAttention:
+		// Fresh attention transition from a non-attention state. The spec
+		// allows this even while already locked on a different session —
+		// edge case: two sessions enter waiting nearly together, both
+		// drive this branch, the second wins. (Spec calls out that
+		// per-iteration the "first to be processed wins"; under our
+		// coordinator's serialized command loop, the last to arrive is
+		// the one observed by the user.)
 		c.pointer = key
 		c.locked = true
 		c.lockedKey = key
 		c.lockEnteredAt = c.clk.Now()
-		c.muTest.Unlock()
+	case attention && transition && priorWasAttention && c.locked && c.lockedKey == key:
+		// Same session shifting between waiting and error (e.g.,
+		// waiting → error during an approval prompt that then failed).
+		// Reset the ack timer so the new attention class gets its own
+		// 30s window — but DON'T re-target the pointer; it's already
+		// on this key.
+		c.lockEnteredAt = c.clk.Now()
+	case !attention && c.locked && c.lockedKey == key:
+		// Drain: the locked session moved out of attention state. Release
+		// the lock immediately rather than waiting for the next dwell tick.
+		c.logger.Info("coord lock released", "key", c.lockedKey, "reason", "drain")
+		c.locked = false
+		c.lockedKey = ""
 	}
+	c.muTest.Unlock()
+
 	if c.snapshot != nil {
 		c.publish(c.snapshot())
 	}
