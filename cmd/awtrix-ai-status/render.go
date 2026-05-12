@@ -603,3 +603,28 @@ func attentionLabelAndColor(state string) (string, string) {
 	}
 	return "WAIT", fmt.Sprintf("#%02X%02X%02X", colorWaiting.R, colorWaiting.G, colorWaiting.B)
 }
+
+// idleDimWhite is the robot colour during the idle-restore countdown:
+// roughly 40% brightness (0x66 / 0xff) — a clear "the display is alive
+// but no work is happening" cue, distinct from the bright state colours
+// used while sessions are active.
+var idleDimWhite = RGB{0x66, 0x66, 0x66}
+
+// RenderIdleFrame returns the dimmed-robot payload emitted during the
+// G.2 idle-restore countdown. No digits, no glass, no text — the robot
+// dims to ~40% white and the rest of the matrix stays dark, leaving an
+// unambiguous "AI idle" signal that's also visually distinct from the
+// active rotation frames. Includes prio+force+lifetime so AWTRIX keeps
+// holding the slot until the countdown elapses and we stop publishing.
+func RenderIdleFrame(lifetimeSeconds int) map[string]any {
+	pixels := composeRobotPixels(Session{State: "idle"}, idleDimWhite)
+	return map[string]any{
+		"draw": []any{
+			map[string]any{"db": []any{0, 0, robotWidth, 8, pixels}},
+		},
+		"lifetime": lifetimeSeconds,
+		"duration": lifetimeSeconds,
+		"prio":     true,
+		"force":    true,
+	}
+}

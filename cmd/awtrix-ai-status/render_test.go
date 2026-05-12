@@ -558,6 +558,58 @@ func TestPickRotated(t *testing.T) {
 	}
 }
 
+func TestRenderIdleFrame_Shape(t *testing.T) {
+	payload := RenderIdleFrame(30)
+	draw, ok := payload["draw"].([]any)
+	if !ok || len(draw) != 1 {
+		t.Fatalf("idle payload draw[] = %v, want exactly 1 entry", payload["draw"])
+	}
+	db, ok := draw[0].(map[string]any)["db"].([]any)
+	if !ok || len(db) != 5 {
+		t.Fatalf("draw[0].db = %v, want [x,y,w,h,pixels]", draw[0])
+	}
+	if db[2] != robotWidth {
+		t.Errorf("idle bitmap width = %v, want %d", db[2], robotWidth)
+	}
+	pixels, ok := db[4].([]int)
+	if !ok || len(pixels) != robotWidth*8 {
+		t.Fatalf("idle pixels = %v, want %d ints", db[4], robotWidth*8)
+	}
+	// At least one pixel must be lit (the robot is drawn) and any lit
+	// pixel must be roughly 40% brightness (dim white).
+	var litCount int
+	for _, p := range pixels {
+		if p == 0 {
+			continue
+		}
+		litCount++
+		r := (p >> 16) & 0xff
+		g := (p >> 8) & 0xff
+		b := p & 0xff
+		if r != g || g != b {
+			t.Errorf("idle pixel %#x is not white (r=g=b expected)", p)
+		}
+		if r < 0x40 || r > 0x80 {
+			t.Errorf("idle pixel brightness %#x outside dim-white range [0x40, 0x80]", r)
+		}
+	}
+	if litCount == 0 {
+		t.Errorf("idle frame has no lit pixels — robot not drawn")
+	}
+	if _, hasText := payload["text"]; hasText {
+		t.Errorf("idle payload should NOT have text (no WAIT/ERR while truly idle)")
+	}
+	if payload["prio"] != true {
+		t.Errorf("prio = %v, want true (idle still holds display)", payload["prio"])
+	}
+	if payload["force"] != true {
+		t.Errorf("force = %v, want true", payload["force"])
+	}
+	if payload["lifetime"] != 30 {
+		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
+	}
+}
+
 func TestAttentionLabelAndColor(t *testing.T) {
 	for _, tc := range []struct {
 		state     string
