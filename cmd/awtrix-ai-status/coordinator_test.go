@@ -543,3 +543,59 @@ func TestCoord_IdleCountdown_Off(t *testing.T) {
 		t.Errorf("publishes after expiry tick = %d, want unchanged at %d (no publish)", got, beforeExpiry)
 	}
 }
+
+// TestCoord_NewSessionAfterIdleExpiry_ResumesPublish covers the
+// crash-safety bookend: once the device has gone back to natives
+// (we've stopped publishing), a fresh non-idle session must wake the
+// display by publishing immediately on the upsert command, with the
+// rich active-session frame.
+func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.Display.IdleRestoreSeconds = 60
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+
+	var snapMu sync.RWMutex
+	var sessions []Session
+	c.snapshot = func() Snapshot {
+		snapMu.RLock()
+		defer snapMu.RUnlock()
+		out := Snapshot{Sessions: append([]Session(nil), sessions...)}
+		return out
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	// Idle countdown starts, then expires.
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+	idleCount := len(publisher.CustomAppsSnapshot())
+	clk.Advance(61 * time.Second)
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+	if len(publisher.CustomAppsSnapshot()) != idleCount {
+		t.Fatalf("countdown not yet idle-off")
+	}
+
+	// New session arrives.
+	snapMu.Lock()
+	sessions = []Session{{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()}}
+	snapMu.Unlock()
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "", newState: "running"})
+	time.Sleep(50 * time.Millisecond)
+
+	apps := publisher.CustomAppsSnapshot()
+	if len(apps) != idleCount+1 {
+		t.Fatalf("publishes after wake = %d, want %d (one new active-session publish)", len(apps), idleCount+1)
+	}
+	last := apps[len(apps)-1]
+	// Active frame must NOT be the dim-white robot — it should be a state-coloured render.
+	db := last["draw"].([]any)[0].(map[string]any)["db"].([]any)
+	if db[2] != 32 {
+		t.Errorf("active frame width = %v, want 32 (full rotation render)", db[2])
+	}
+}
