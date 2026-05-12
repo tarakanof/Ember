@@ -110,11 +110,11 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 		loadCfg = func() *Config { return &captured }
 	}
 	return &coordinator{
-		loadCfg:    loadCfg,
-		publisher:  publisher,
-		clk:        clk,
-		logger:     logger,
-		metrics:    m,
+		loadCfg:   loadCfg,
+		publisher: publisher,
+		clk:       clk,
+		logger:    logger,
+		metrics:   m,
 		// State-change commands get a generous buffer so a burst of
 		// producer activity never drops an upsert/delete/clear: those
 		// carry the only signal of an attention transition. Ticks have
