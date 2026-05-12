@@ -509,3 +509,37 @@ func TestCoord_DedupePublishesAgainOnStateChange(t *testing.T) {
 		t.Errorf("publishes after state-change upsert = %d, want 2 (payload differs, dedup must not skip)", got)
 	}
 }
+
+// TestCoord_IdleCountdown_Off verifies that after IdleRestoreSeconds
+// of all-idle ticks, the coordinator stops publishing entirely so the
+// device's lifetime elapses and AWTRIX scheduler returns to natives.
+func TestCoord_IdleCountdown_Off(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.Display.IdleRestoreSeconds = 60 // shorter window for tests
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	c.snapshot = func() Snapshot { return Snapshot{} }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	// First tick: starts the countdown, emits dim frame.
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+	beforeExpiry := len(publisher.CustomAppsSnapshot())
+	if beforeExpiry != 1 {
+		t.Fatalf("publishes after first idle tick = %d, want 1", beforeExpiry)
+	}
+
+	// Advance past the countdown.
+	clk.Advance(61 * time.Second)
+	c.Send(coordCmd{kind: cmdTick})
+	time.Sleep(50 * time.Millisecond)
+
+	if got := len(publisher.CustomAppsSnapshot()); got != beforeExpiry {
+		t.Errorf("publishes after expiry tick = %d, want unchanged at %d (no publish)", got, beforeExpiry)
+	}
+}
