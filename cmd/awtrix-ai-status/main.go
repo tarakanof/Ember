@@ -74,6 +74,11 @@ type DisplayConfig struct {
 	NotifyOnWaiting      bool   `json:"notify_on_waiting"`
 	RotationDwellSeconds int    `json:"rotation_dwell_seconds"`
 	AckTimeoutSeconds    int    `json:"ack_timeout_seconds"`
+	// PulseStyle is parsed but ignored. Kept so configs from G.1b that
+	// still carry "pulse_style": "breathe" continue to parse under
+	// DisallowUnknownFields. AWTRIX firmware has no multi-frame draw
+	// mode; attention is animated via blinkText instead.
+	PulseStyle string `json:"pulse_style,omitempty"`
 }
 
 func defaultConfig() Config {

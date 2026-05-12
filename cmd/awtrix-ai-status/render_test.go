@@ -320,25 +320,50 @@ func TestRenderForCoord_LockedAttention_EmitsBlinkText(t *testing.T) {
 				{Source: "a", Tool: "b", Session: "w", State: tc.state, UpdatedAt: time.Now()},
 			}}
 			payload := RenderForCoord(snap, "a/b/w", true, 30)
-			if _, hasDraw := payload["draw"]; hasDraw {
-				t.Errorf("locked %s: payload still carries draw[]; firmware rejects multi-frame draws", tc.state)
-			}
-			if got := payload["text"]; got != tc.wantLabel {
-				t.Errorf("text = %v, want %q", got, tc.wantLabel)
-			}
-			if got := payload["color"]; got != tc.wantColor {
-				t.Errorf("color = %v, want %s", got, tc.wantColor)
-			}
-			if got := payload["blinkText"]; got != 500 {
-				t.Errorf("blinkText = %v, want 500", got)
-			}
-			if got := payload["center"]; got != true {
-				t.Errorf("center = %v, want true", got)
-			}
-			if got := payload["lifetime"]; got != 30 {
-				t.Errorf("lifetime = %v, want 30", got)
-			}
+			assertBlinkText(t, payload, tc.wantLabel, tc.wantColor)
 		})
+	}
+}
+
+// TestRenderForCoord_Locked_PointerWinsOverRotation proves that when
+// multiple sessions are active, the locked pointer's state — not the
+// sort-order default — drives the attention payload. Without this,
+// the single-session test above could pass even if the code accidentally
+// always picked keys[0].
+func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
+	now := time.Now()
+	snap := Snapshot{Sessions: []Session{
+		// Sort order will put s1 (running) ahead of s2 (error) because
+		// state priority puts error first… so to make this a real test
+		// we want pointer to select a session that is NOT keys[0].
+		{Source: "a", Tool: "b", Session: "s1", State: "error", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "s2", State: "waiting", UpdatedAt: now},
+	}}
+	// Pointer locked on s2 (waiting) even though s1 (error) sorts first
+	// because state priority puts error ahead of waiting.
+	payload := RenderForCoord(snap, "a/b/s2", true, 30)
+	assertBlinkText(t, payload, "WAIT", "#FFC14D")
+}
+
+func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor string) {
+	t.Helper()
+	if _, hasDraw := payload["draw"]; hasDraw {
+		t.Errorf("locked payload still carries draw[]; firmware rejects multi-frame draws")
+	}
+	if got := payload["text"]; got != wantLabel {
+		t.Errorf("text = %v, want %q", got, wantLabel)
+	}
+	if got := payload["color"]; got != wantColor {
+		t.Errorf("color = %v, want %s", got, wantColor)
+	}
+	if got := payload["blinkText"]; got != 500 {
+		t.Errorf("blinkText = %v, want 500", got)
+	}
+	if got := payload["center"]; got != true {
+		t.Errorf("center = %v, want true", got)
+	}
+	if got := payload["lifetime"]; got != 30 {
+		t.Errorf("lifetime = %v, want 30", got)
 	}
 }
 

@@ -81,6 +81,22 @@ func TestParseConfigFile_MalformedJSON(t *testing.T) {
 	}
 }
 
+// TestParseConfigFile_LegacyPulseStyleStillParses asserts that configs
+// carrying the now-removed "pulse_style" field continue to load. Without
+// the deprecated struct shim, DisallowUnknownFields would break every
+// existing deployment that started from the G.1b config.example.json.
+func TestParseConfigFile_LegacyPulseStyleStillParses(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.json")
+	body := `{"awtrix":{"http_base_url":"http://x"},"display":{"pulse_style":"breathe"}}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseConfigFile(path); err != nil {
+		t.Fatalf("parseConfigFile rejected legacy pulse_style: %v", err)
+	}
+}
+
 func TestValidateConfig_OK(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://192.168.0.14"

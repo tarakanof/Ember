@@ -478,8 +478,8 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 
 // composeFrame paints the standard layout for one session using the
 // supplied robot colour. Digits stay source-coloured (or white fallback)
-// regardless of robot colour, so digits are stable across the
-// brightness pulse. Glass uses the session's state colour directly.
+// regardless of robot colour. Glass uses the session's state colour
+// directly.
 func composeFrame(s Session, idx, total int, robotColor RGB) Frame {
 	var f Frame
 	drawRobot(&f, s.State, robotColor)
