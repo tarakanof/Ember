@@ -280,7 +280,7 @@ func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "c", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "missing|key|nope", false, 30)
+	payload := RenderForCoord(snap, "missing/key/nope", false, 30)
 	if payload == nil {
 		t.Fatal("expected non-nil payload for single running session")
 	}
@@ -297,7 +297,7 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", SourceColor: &purple, UpdatedAt: time.Now()},
 		{Source: "a", Tool: "b", Session: "s2", State: "running", SourceColor: &green, UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a|b|s2", false, 30)
+	payload := RenderForCoord(snap, "a/b/s2", false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// First digit '1' first sprite row col 1 → matrix (13, 1). Should be green.
 	if got, want := pixels[1*32+13], 0x2ee85e; got != want {
@@ -309,7 +309,7 @@ func TestRenderForCoord_Locked_EmitsTwoFrames(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a|b|w", true, 30)
+	payload := RenderForCoord(snap, "a/b/w", true, 30)
 	frames := payload["draw"].([]any)
 	if len(frames) != 2 {
 		t.Fatalf("locked waiting: expected 2 frames, got %d", len(frames))
@@ -320,7 +320,7 @@ func TestRenderForCoord_LockedButNotAttentionState_SingleFrame(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a|b|r", true, 30)
+	payload := RenderForCoord(snap, "a/b/r", true, 30)
 	frames := payload["draw"].([]any)
 	if len(frames) != 1 {
 		t.Fatalf("locked running: expected 1 frame, got %d", len(frames))
@@ -334,7 +334,7 @@ func TestRenderForCoord_Counts_XOverY(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s2", State: "running", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "s3", State: "running", UpdatedAt: now},
 	}}
-	payload := RenderForCoord(snap, "a|b|s2", false, 30)
+	payload := RenderForCoord(snap, "a/b/s2", false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// "2/3": first digit '2' starts at col 12. '2' glyph row 0 is "XXX",
 	// so cols 12, 13, 14 are lit at row 1.
@@ -427,7 +427,7 @@ func TestFrameToCustomApp(t *testing.T) {
 
 func TestSessionKey(t *testing.T) {
 	got := sessionKey(Session{Source: "a", Tool: "b", Session: "c"})
-	want := "a|b|c"
+	want := "a/b/c"
 	if got != want {
 		t.Errorf("sessionKey = %q, want %q", got, want)
 	}
@@ -444,10 +444,10 @@ func TestSortedActiveKeys(t *testing.T) {
 	}}
 	got := sortedActiveKeys(snap)
 	want := []string{
-		"src|tool|w1", // waiting first
-		"src|tool|e1", // error
-		"src|tool|r1", // running
-		"src|tool|d1", // done
+		"src/tool/w1", // waiting first
+		"src/tool/e1", // error
+		"src/tool/r1", // running
+		"src/tool/d1", // done
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("sortedActiveKeys =\n  %v\nwant\n  %v", got, want)

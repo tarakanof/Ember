@@ -292,10 +292,13 @@ func pickWinning(sessions []Session) (win *Session, color RGB, total int) {
 }
 
 // sessionKey is the canonical key for rotation pointer tracking and
-// preempt addressing. Stable across coordinator restarts as long as the
-// session identity tuple is stable.
+// preempt addressing. Delegates to Session.key (slash-delimited form
+// also used by App.sessions and DeleteRequest.key) so handlers and the
+// coordinator agree on one string for one session — without that
+// alignment, priorState() lookups and delete-while-locked release
+// silently miss.
 func sessionKey(s Session) string {
-	return s.Source + "|" + s.Tool + "|" + s.Session
+	return s.key()
 }
 
 // statePriority returns lower values for higher-priority states. Idle is

@@ -109,7 +109,7 @@ func TestCoord_Tick_TwoSessions_AdvancesPointer(t *testing.T) {
 	c.muTest.RLock()
 	gotPtr := c.pointer
 	c.muTest.RUnlock()
-	if gotPtr != "a|b|s2" {
+	if gotPtr != "a/b/s2" {
 		t.Errorf("pointer after 2 ticks = %q, want a|b|s2 (wrap-from-s1)", gotPtr)
 	}
 }
@@ -136,7 +136,7 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 
 	c.Send(coordCmd{
 		kind:       cmdUpsert,
-		sessionKey: "a|b|s2",
+		sessionKey: "a/b/s2",
 		priorState: "running",
 		newState:   "waiting",
 	})
@@ -146,7 +146,7 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 	gotPtr := c.pointer
 	gotLocked := c.locked
 	c.muTest.RUnlock()
-	if gotPtr != "a|b|s2" {
+	if gotPtr != "a/b/s2" {
 		t.Errorf("pointer after waiting transition = %q, want a|b|s2", gotPtr)
 	}
 	if !gotLocked {
@@ -174,7 +174,7 @@ func TestCoord_Preempt_NotOnReheartbeat(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	c.Send(coordCmd{
 		kind:       cmdUpsert,
-		sessionKey: "a|b|s1",
+		sessionKey: "a/b/s1",
 		priorState: "waiting", // already waiting → no transition.
 		newState:   "waiting",
 	})
@@ -210,7 +210,7 @@ func TestCoord_DrainReleasesLock(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a|b|s", priorState: "running", newState: "waiting"})
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
 	c.muTest.RLock()
@@ -257,14 +257,14 @@ func TestCoord_DeleteWhileLocked_ReleasesLock(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a|b|s", priorState: "running", newState: "waiting"})
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
 	// Remove it from the snapshot, then send cmdDelete.
 	sessMu.Lock()
 	sessions = nil
 	sessMu.Unlock()
-	c.Send(coordCmd{kind: cmdDelete, sessionKey: "a|b|s"})
+	c.Send(coordCmd{kind: cmdDelete, sessionKey: "a/b/s"})
 	time.Sleep(50 * time.Millisecond)
 
 	c.muTest.RLock()
@@ -301,7 +301,7 @@ func TestCoord_ReapReleasesLock(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a|b|s", priorState: "running", newState: "waiting"})
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 	live.Store(false) // reaped
 	c.Send(coordCmd{kind: cmdTick})
@@ -332,7 +332,7 @@ func TestCoord_PointerPinned_WhenLocked(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a|b|s1", priorState: "running", newState: "waiting"})
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
 	// Tick three times while locked. Pointer must stay on s1.
@@ -344,7 +344,7 @@ func TestCoord_PointerPinned_WhenLocked(t *testing.T) {
 	c.muTest.RLock()
 	gotPtr := c.pointer
 	c.muTest.RUnlock()
-	if gotPtr != "a|b|s1" {
+	if gotPtr != "a/b/s1" {
 		t.Errorf("pointer drifted while locked: got %q, want a|b|s1", gotPtr)
 	}
 }
@@ -365,7 +365,7 @@ func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a|b|w", priorState: "running", newState: "waiting"})
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/w", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
 	c.muTest.RLock()
