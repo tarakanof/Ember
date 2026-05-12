@@ -115,6 +115,15 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 		State:   state,
 		Message: truncate(message, 80),
 	}
+	if cfg.SourceColor != "" {
+		sc := cfg.SourceColor
+		req.SourceColor = &sc
+	}
+	if cfg.ContextPctEnabled {
+		if pct, err := computeContextPct(sessionID); err == nil && pct != nil {
+			req.ContextPct = pct
+		}
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return

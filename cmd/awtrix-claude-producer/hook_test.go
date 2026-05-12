@@ -156,3 +156,100 @@ func dispatchHookForTest(t *testing.T, event string, stdin []byte) {
 	}
 	dispatchHook(context.Background(), event, stdin, cfg)
 }
+
+func TestDispatchHook_UpsertEnrichesWithSourceColorAndCtxPct(t *testing.T) {
+	h := newHookHarness(t)
+	// Stage producer.env with G.3 fields
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=true\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Stage transcript so computeContextPct returns ~20%
+	sessionID := "test-session-xyz"
+	tdir := filepath.Join(h.home, ".claude", "projects", "-test")
+	if err := os.MkdirAll(tdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tdir, sessionID+".jsonl"),
+		[]byte(`{"type":"assistant","message":{"usage":{"input_tokens":40000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := hookInput{HookEventName: "UserPromptSubmit", SessionID: sessionID, CWD: "/repo", Prompt: "hi"}
+	body, _ := json.Marshal(in)
+	dispatchHookForTest(t, "user-prompt-submit", body)
+
+	if h.posts.Load() != 1 {
+		t.Fatalf("posts = %d, want 1", h.posts.Load())
+	}
+	got := (*h.bodies)[0]
+	if !strings.Contains(got, `"source_color":"#aa66ff"`) {
+		t.Errorf("body missing source_color: %s", got)
+	}
+	if !strings.Contains(got, `"context_pct":20`) {
+		t.Errorf("body missing context_pct=20: %s", got)
+	}
+}
+
+func TestDispatchHook_ContextPctDisabledOmitsField(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=false\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := "test-disabled"
+	tdir := filepath.Join(h.home, ".claude", "projects", "-test")
+	if err := os.MkdirAll(tdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tdir, sessionID+".jsonl"),
+		[]byte(`{"type":"assistant","message":{"usage":{"input_tokens":40000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`+"\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := hookInput{HookEventName: "UserPromptSubmit", SessionID: sessionID, CWD: "/repo", Prompt: "hi"}
+	body, _ := json.Marshal(in)
+	dispatchHookForTest(t, "user-prompt-submit", body)
+
+	got := (*h.bodies)[0]
+	if strings.Contains(got, `"context_pct"`) {
+		t.Errorf("context_pct should be omitted when disabled: %s", got)
+	}
+	// SourceColor is independent of ContextPctEnabled — should still ship.
+	if !strings.Contains(got, `"source_color":"#aa66ff"`) {
+		t.Errorf("source_color should still be present: %s", got)
+	}
+}
+
+func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=true\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Create a marker so handleDelete has something to remove
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "abc.json"), []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := hookInput{HookEventName: "Stop", SessionID: "abc", CWD: "/repo"}
+	body, _ := json.Marshal(in)
+	dispatchHookForTest(t, "stop", body)
+
+	if h.deletes.Load() != 1 {
+		t.Fatalf("deletes = %d, want 1", h.deletes.Load())
+	}
+	got := (*h.bodies)[0]
+	// DeleteRequest must NOT carry context_pct or source_color
+	if strings.Contains(got, `"context_pct"`) || strings.Contains(got, `"source_color"`) {
+		t.Errorf("DELETE body must not carry G.3 fields: %s", got)
+	}
+}
