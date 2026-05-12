@@ -376,6 +376,24 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if got := payload["lifetime"]; got != 30 {
 		t.Errorf("lifetime = %v, want 30", got)
 	}
+	if payload["prio"] != true {
+		t.Errorf("prio = %v, want true (locked attention is also display-hold)", payload["prio"])
+	}
+	if payload["force"] != true {
+		t.Errorf("force = %v, want true", payload["force"])
+	}
+}
+
+func TestFrameToCustomApp_IncludesPrioForce(t *testing.T) {
+	var f Frame
+	paintCell(&f, 0, 0, RGB{0xff, 0x00, 0x00})
+	payload := frameToCustomApp(&f, 30)
+	if payload["prio"] != true {
+		t.Errorf("prio = %v, want true (display hold above native rotation)", payload["prio"])
+	}
+	if payload["force"] != true {
+		t.Errorf("force = %v, want true (push to front of app stack)", payload["force"])
+	}
 }
 
 func TestRenderForCoord_LockedButNotAttentionState_SingleFrame(t *testing.T) {

@@ -260,6 +260,8 @@ func frameToCustomApp(f *Frame, lifetimeSeconds int) map[string]any {
 		},
 		"lifetime": lifetimeSeconds,
 		"duration": lifetimeSeconds,
+		"prio":     true,
+		"force":    true,
 	}
 }
 
@@ -510,6 +512,8 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 			"noScroll":   true,
 			"duration":   lifetimeSeconds,
 			"lifetime":   lifetimeSeconds,
+			"prio":       true,
+			"force":      true,
 		}
 	}
 
