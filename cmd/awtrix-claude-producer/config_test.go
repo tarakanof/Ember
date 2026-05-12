@@ -102,3 +102,46 @@ func TestLoadConfig_DefaultTimings(t *testing.T) {
 		t.Errorf("HookTimeoutMs = %d, want 500", cfg.HookTimeoutMs)
 	}
 }
+
+func TestLoadConfig_G3Fields(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	envDir := filepath.Join(dir, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "STATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=false\n"
+	if err := os.WriteFile(filepath.Join(envDir, "producer.env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SourceColor != "#aa66ff" {
+		t.Errorf("SourceColor = %q, want #aa66ff", cfg.SourceColor)
+	}
+	if cfg.ContextPctEnabled != false {
+		t.Errorf("ContextPctEnabled = %v, want false", cfg.ContextPctEnabled)
+	}
+}
+
+func TestLoadConfig_ContextPctEnabled_DefaultTrue(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	envDir := filepath.Join(dir, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "STATUS_SOURCE=x\n"
+	if err := os.WriteFile(filepath.Join(envDir, "producer.env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ContextPctEnabled != true {
+		t.Errorf("ContextPctEnabled = %v, want true", cfg.ContextPctEnabled)
+	}
+}

@@ -17,11 +17,13 @@ const (
 )
 
 type Config struct {
-	Source            string
-	ServerURL         string
-	Token             string
-	HeartbeatTTLHours int
-	HookTimeoutMs     int
+	Source             string
+	ServerURL          string
+	Token              string
+	HeartbeatTTLHours  int
+	HookTimeoutMs      int
+	SourceColor        string
+	ContextPctEnabled  bool
 }
 
 // LogValue redacts the token. Implements slog.LogValuer.
@@ -36,6 +38,8 @@ func (c Config) LogValue() slog.Value {
 		slog.String("token", tokenStatus),
 		slog.Int("heartbeat_ttl_hours", c.HeartbeatTTLHours),
 		slog.Int("hook_timeout_ms", c.HookTimeoutMs),
+		slog.String("source_color", c.SourceColor),
+		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
 	)
 }
 
@@ -43,6 +47,7 @@ func loadConfig() (Config, error) {
 	cfg := Config{
 		HeartbeatTTLHours: defaultHeartbeatTTLHours,
 		HookTimeoutMs:     defaultHookTimeoutMs,
+		ContextPctEnabled: true,
 	}
 	path, err := envFilePath()
 	if err != nil {
@@ -68,6 +73,15 @@ func loadConfig() (Config, error) {
 		case "STATUS_HOOK_TIMEOUT_MS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				cfg.HookTimeoutMs = n
+			}
+		case "STATUS_SOURCE_COLOR":
+			cfg.SourceColor = v
+		case "STATUS_CONTEXT_PCT_ENABLED":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.ContextPctEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.ContextPctEnabled = true
 			}
 		}
 	}
