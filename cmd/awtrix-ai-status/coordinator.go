@@ -406,7 +406,23 @@ func (c *coordinator) publish(snap Snapshot) {
 		return
 	}
 
-	dedupWindow := time.Duration(lifetime-1) * time.Second
+	// Skip identical re-publishes within the dedup window. Re-POSTing
+	// /api/custom restarts the firmware app's render state, which
+	// resets the blinkText phase mid-cycle as a visible stutter.
+	// The window must leave >= one dwell interval of margin so the next
+	// tick after a skip always publishes BEFORE the device evicts the
+	// app via lifetime expiry — without this, dedupe aligned with the
+	// dwell-tick boundary (e.g., default lifetime=30, dwell=3) sees a
+	// tick at t=27 skip, the next at t=30 publish exactly when the
+	// device evicts.
+	dwellSec := cfg.Display.RotationDwellSeconds
+	if dwellSec <= 0 {
+		dwellSec = 3
+	}
+	dedupWindow := time.Duration(lifetime-dwellSec-1) * time.Second
+	if dedupWindow < time.Second {
+		dedupWindow = time.Second
+	}
 	if bytes.Equal(body, c.lastPayloadBytes) && now.Sub(c.lastPublishedAt) < dedupWindow {
 		return
 	}

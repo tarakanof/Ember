@@ -509,3 +509,99 @@ func TestAdminReload_RateLimitDisabledFlipped(t *testing.T) {
 		t.Error("Disabled = false, want true after reload")
 	}
 }
+
+// TestAdminReload_G2FrameLifetimeReloaded verifies that
+// display.frame_lifetime_seconds appears in changed_fields after a reload
+// that mutates it, and that the new value is applied.
+func TestAdminReload_G2FrameLifetimeReloaded(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"},"display":{"frame_lifetime_seconds":30}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	newBody := `{"awtrix":{"http_base_url":"http://x"},"display":{"frame_lifetime_seconds":60}}`
+	if err := os.WriteFile(path, []byte(newBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		ChangedFields []string `json:"changed_fields"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range out.ChangedFields {
+		if f == "display.frame_lifetime_seconds" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("changed_fields = %v, want to include display.frame_lifetime_seconds", out.ChangedFields)
+	}
+	if app.cfg.Load().Display.FrameLifetimeSeconds != 60 {
+		t.Errorf("FrameLifetimeSeconds = %d, want 60", app.cfg.Load().Display.FrameLifetimeSeconds)
+	}
+}
+
+// TestAdminReload_G2IdleRestoreReloaded verifies that
+// display.idle_restore_seconds appears in changed_fields after a reload
+// that mutates it, and that the new value is applied.
+func TestAdminReload_G2IdleRestoreReloaded(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"},"display":{"idle_restore_seconds":1200}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	newBody := `{"awtrix":{"http_base_url":"http://x"},"display":{"idle_restore_seconds":600}}`
+	if err := os.WriteFile(path, []byte(newBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		ChangedFields []string `json:"changed_fields"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range out.ChangedFields {
+		if f == "display.idle_restore_seconds" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("changed_fields = %v, want to include display.idle_restore_seconds", out.ChangedFields)
+	}
+	if app.cfg.Load().Display.IdleRestoreSeconds != 600 {
+		t.Errorf("IdleRestoreSeconds = %d, want 600", app.cfg.Load().Display.IdleRestoreSeconds)
+	}
+}
