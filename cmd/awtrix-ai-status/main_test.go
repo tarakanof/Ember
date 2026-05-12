@@ -710,6 +710,59 @@ func TestHandleClear_413OnOversizeBody(t *testing.T) {
 	}
 }
 
+func TestHandleStatus_ForwardCompat_AcceptsUnknownField(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, discardLogger())
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	body := `{"source":"a","tool":"b","session":"s1","state":"running","rate_window_pct":42}`
+	req, err := http.NewRequest("POST", srv.URL+"/v1/status", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		out, _ := io.ReadAll(resp.Body)
+		t.Errorf("status = %d, want 200; body = %s", resp.StatusCode, out)
+	}
+}
+
+func TestHandleDeleteStatus_RemainsStrict_OnUnknownField(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, discardLogger())
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	body := `{"source":"a","tool":"b","session":"s1","weirdfield":true}`
+	req, err := http.NewRequest("DELETE", srv.URL+"/v1/status", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("status = %d, want 400 (strict mode on DELETE)", resp.StatusCode)
+	}
+}
+
 func TestDecodeJSON_RejectsTrailingValue(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"

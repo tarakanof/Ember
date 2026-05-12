@@ -686,7 +686,7 @@ func (a *App) routes() http.Handler {
 
 func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	var req StatusRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := decodeJSON(w, r, &req, false); err != nil {
 		var maxBytes *http.MaxBytesError
 		reason := "parse"
 		status := http.StatusBadRequest
@@ -771,7 +771,7 @@ func (r DeleteRequest) key() string {
 
 func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 	var req DeleteRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := decodeJSON(w, r, &req, true); err != nil {
 		var maxBytes *http.MaxBytesError
 		reason := "parse"
 		status := http.StatusBadRequest
@@ -804,7 +804,7 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	var req NotifyRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := decodeJSON(w, r, &req, true); err != nil {
 		var maxBytes *http.MaxBytesError
 		reason := "parse"
 		status := http.StatusBadRequest
@@ -867,10 +867,12 @@ func validationField(err error) string {
 	return msg
 }
 
-func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any, strict bool) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
+	if strict {
+		dec.DisallowUnknownFields()
+	}
 	if err := dec.Decode(dst); err != nil {
 		return err
 	}
