@@ -74,8 +74,10 @@ type coordinator struct {
 	snapshot func() Snapshot
 
 	// onPublishResult, if non-nil, is called after every publish attempt
-	// with the error (nil on success). Used by App to update lastPublish*.
-	onPublishResult func(err error)
+	// with the snapshot we tried to render and the error (nil on success).
+	// Used by App to update lastPublish* AND lastPublished (the legacy
+	// Render metadata the admin endpoints expose).
+	onPublishResult func(snap Snapshot, err error)
 
 	// muTest exists so tests can safely read coordinator-owned state
 	// without data-race detector warnings. Production code never touches it.
@@ -335,6 +337,6 @@ func (c *coordinator) publish(snap Snapshot) {
 		c.metrics.incPublishOK()
 	}
 	if c.onPublishResult != nil {
-		c.onPublishResult(err)
+		c.onPublishResult(snap, err)
 	}
 }

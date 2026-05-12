@@ -360,9 +360,15 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	return a
 }
 
-// recordPublish updates the last-publish telemetry fields. Called by the
-// coordinator after every publish attempt; guarded by App.mu.
-func (a *App) recordPublish(err error) {
+// recordPublish updates the last-publish telemetry + lastPublished
+// metadata exposed to the admin endpoints. Called by the coordinator
+// after every publish attempt; guarded by App.mu.
+//
+// The snap argument carries the legacy Render struct (renderLocked's
+// text/color/counter output) so admin tooling can show what was last
+// pushed even though the actual pixels are now produced by
+// RenderForCoord and not stored anywhere.
+func (a *App) recordPublish(snap Snapshot, err error) {
 	a.mu.Lock()
 	a.lastPublishAt = time.Now().UTC()
 	a.lastPublishOK = err == nil
@@ -370,6 +376,7 @@ func (a *App) recordPublish(err error) {
 		a.lastPublishErr = err.Error()
 	} else {
 		a.lastPublishErr = ""
+		a.lastPublished = snap.Render
 	}
 	a.mu.Unlock()
 }
