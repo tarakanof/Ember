@@ -79,6 +79,13 @@ type coordinator struct {
 	// Render metadata the admin endpoints expose).
 	onPublishResult func(snap Snapshot, err error)
 
+	// ctx is the Run context, used by publish() so an in-flight HTTP
+	// publish cancels on shutdown rather than waiting for HTTP timeout.
+	// Set on first Run() entry; before that, publish() falls back to
+	// context.Background() (only happens in pathological test setups
+	// that call publish before Run).
+	ctx context.Context
+
 	// muTest exists so tests can safely read coordinator-owned state
 	// without data-race detector warnings. Production code never touches it.
 	muTest sync.RWMutex
@@ -144,10 +151,13 @@ func (c *coordinator) Send(cmd coordCmd) {
 }
 
 // Run is the goroutine entry point. Cancels cleanly on ctx.Done.
+// The ctx is threaded into publish() so an in-flight HTTP publish
+// cancels on shutdown rather than blocking on its full timeout.
 // State-change commands win against ticks via channel ordering (Go's
 // select is random when both are ready, so we drain cmds first
 // opportunistically — preempt latency wins over rotation jitter).
 func (c *coordinator) Run(ctx context.Context) {
+	c.ctx = ctx
 	for {
 		// Opportunistic drain: if cmds has work, prefer it.
 		select {
@@ -328,7 +338,11 @@ func (c *coordinator) publish(snap Snapshot) {
 	if payload == nil {
 		return
 	}
-	err := c.publisher.CustomApp(context.Background(), cfg.AWTRIX.AppName, payload)
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	err := c.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload)
 	if err != nil {
 		c.logger.Warn("coord publish failed", "err", err)
 		c.metrics.incPublishFail()
