@@ -305,14 +305,40 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 	}
 }
 
-func TestRenderForCoord_Locked_EmitsTwoFrames(t *testing.T) {
-	snap := Snapshot{Sessions: []Session{
-		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
-	}}
-	payload := RenderForCoord(snap, "a/b/w", true, 30)
-	frames := payload["draw"].([]any)
-	if len(frames) != 2 {
-		t.Fatalf("locked waiting: expected 2 frames, got %d", len(frames))
+func TestRenderForCoord_LockedAttention_EmitsBlinkText(t *testing.T) {
+	tests := []struct {
+		state     string
+		wantLabel string
+		wantColor string
+	}{
+		{"waiting", "WAIT", "#FFC14D"},
+		{"error", "ERR", "#FF3A3A"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.state, func(t *testing.T) {
+			snap := Snapshot{Sessions: []Session{
+				{Source: "a", Tool: "b", Session: "w", State: tc.state, UpdatedAt: time.Now()},
+			}}
+			payload := RenderForCoord(snap, "a/b/w", true, 30)
+			if _, hasDraw := payload["draw"]; hasDraw {
+				t.Errorf("locked %s: payload still carries draw[]; firmware rejects multi-frame draws", tc.state)
+			}
+			if got := payload["text"]; got != tc.wantLabel {
+				t.Errorf("text = %v, want %q", got, tc.wantLabel)
+			}
+			if got := payload["color"]; got != tc.wantColor {
+				t.Errorf("color = %v, want %s", got, tc.wantColor)
+			}
+			if got := payload["blinkText"]; got != 500 {
+				t.Errorf("blinkText = %v, want 500", got)
+			}
+			if got := payload["center"]; got != true {
+				t.Errorf("center = %v, want true", got)
+			}
+			if got := payload["lifetime"]; got != 30 {
+				t.Errorf("lifetime = %v, want 30", got)
+			}
+		})
 	}
 }
 
@@ -478,41 +504,35 @@ func TestPickRotated(t *testing.T) {
 	}
 }
 
-func TestPulseFrameToCustomApp(t *testing.T) {
-	var fa, fb Frame
-	paintCell(&fa, 0, 0, RGB{0xff, 0x00, 0x00})
-	paintCell(&fb, 0, 0, RGB{0x66, 0x00, 0x00})
-
-	payload := pulseFrameToCustomApp(fa, fb, 30)
-	draw, ok := payload["draw"].([]any)
-	if !ok || len(draw) != 2 {
-		t.Fatalf("draw = %v, want two-element slice", payload["draw"])
-	}
-	for i, op := range draw {
-		m := op.(map[string]any)
-		db := m["db"].([]any)
-		if len(db) != 5 {
-			t.Fatalf("frame[%d].db has %d args, want 5", i, len(db))
-		}
-		if db[0] != 0 || db[1] != 0 || db[2] != 32 || db[3] != 8 {
-			t.Fatalf("frame[%d] bounds = %v, want [0 0 32 8]", i, db[:4])
-		}
-	}
-	pA := draw[0].(map[string]any)["db"].([]any)[4].([]int)
-	pB := draw[1].(map[string]any)["db"].([]any)[4].([]int)
-	if pA[0] != 0xff0000 {
-		t.Errorf("frame A pixel 0 = %#x, want 0xff0000", pA[0])
-	}
-	if pB[0] != 0x660000 {
-		t.Errorf("frame B pixel 0 = %#x, want 0x660000", pB[0])
-	}
-	if payload["lifetime"] != 30 {
-		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
-	}
-	if payload["duration"] == nil {
-		t.Errorf("duration missing — needed for AWTRIX scheduler")
-	}
-	if payload["frame_duration"] != 500 {
-		t.Errorf("frame_duration = %v, want 500 (ms, AWTRIX cycles every 500ms)", payload["frame_duration"])
+func TestAttentionTextToCustomApp_Shape(t *testing.T) {
+	for _, tc := range []struct {
+		state     string
+		wantLabel string
+		wantColor string
+	}{
+		{"waiting", "WAIT", "#FFC14D"},
+		{"error", "ERR", "#FF3A3A"},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
+			payload := attentionTextToCustomApp(tc.state, 30)
+			if _, ok := payload["draw"]; ok {
+				t.Errorf("attention payload must not include draw[]: %v", payload["draw"])
+			}
+			if got := payload["text"]; got != tc.wantLabel {
+				t.Errorf("text = %v, want %q", got, tc.wantLabel)
+			}
+			if got := payload["color"]; got != tc.wantColor {
+				t.Errorf("color = %v, want %s", got, tc.wantColor)
+			}
+			if got := payload["blinkText"]; got != 500 {
+				t.Errorf("blinkText = %v, want 500", got)
+			}
+			if got := payload["lifetime"]; got != 30 {
+				t.Errorf("lifetime = %v, want 30", got)
+			}
+			if got := payload["duration"]; got != 30 {
+				t.Errorf("duration = %v, want 30", got)
+			}
+		})
 	}
 }

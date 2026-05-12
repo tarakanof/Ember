@@ -24,7 +24,6 @@
     "refresh_seconds": 5,
     "notify_on_waiting": false,
     "rotation_dwell_seconds": 3,
-    "ack_timeout_seconds": 30,
-    "pulse_style": "breathe"
+    "ack_timeout_seconds": 30
   }
 }

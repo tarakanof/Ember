@@ -74,7 +74,6 @@ type DisplayConfig struct {
 	NotifyOnWaiting      bool   `json:"notify_on_waiting"`
 	RotationDwellSeconds int    `json:"rotation_dwell_seconds"`
 	AckTimeoutSeconds    int    `json:"ack_timeout_seconds"`
-	PulseStyle           string `json:"pulse_style"`
 }
 
 func defaultConfig() Config {
@@ -99,7 +98,6 @@ func defaultConfig() Config {
 			NotifyOnWaiting:      false,
 			RotationDwellSeconds: 3,
 			AckTimeoutSeconds:    30,
-			PulseStyle:           "breathe",
 		},
 		RateLimit: RateLimitConfig{
 			Disabled:         false,
@@ -161,9 +159,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Display.AckTimeoutSeconds <= 0 {
 		c.Display.AckTimeoutSeconds = 30
-	}
-	if c.Display.PulseStyle == "" {
-		c.Display.PulseStyle = "breathe"
 	}
 	if c.Auth.StatusTokenEnv == "" {
 		c.Auth.StatusTokenEnv = "STATUS_TOKEN"

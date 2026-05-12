@@ -876,16 +876,4 @@ func TestDefaultConfig_NewDisplayFields(t *testing.T) {
 	if cfg.Display.AckTimeoutSeconds != 30 {
 		t.Errorf("AckTimeoutSeconds = %d, want 30", cfg.Display.AckTimeoutSeconds)
 	}
-	if cfg.Display.PulseStyle != "breathe" {
-		t.Errorf("PulseStyle = %q, want \"breathe\"", cfg.Display.PulseStyle)
-	}
-}
-
-func TestValidateConfig_PulseStyle(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.applyDefaults()
-	cfg.Display.PulseStyle = "flash"
-	if err := validateConfig(cfg); err == nil {
-		t.Fatal("validateConfig(pulse_style=flash) returned nil, want error")
-	}
 }

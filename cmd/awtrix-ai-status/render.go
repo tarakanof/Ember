@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 )
@@ -207,8 +208,8 @@ func drawRateBar(f *Frame, pct *int) {
 }
 
 // framePixels extracts the 256-int row-major pixel array from a Frame.
-// Shared by frameToCustomApp (1-frame) and pulseFrameToCustomApp
-// (2-frame breathe). Undirty cells emit 0 (the encoder's "off" colour).
+// Used by frameToCustomApp to serialise a Frame into the AWTRIX db
+// (drawBMP) pixel array. Undirty cells emit 0 (the encoder's "off" colour).
 func framePixels(f *Frame) []int {
 	pixels := make([]int, 256)
 	for y := 0; y < 8; y++ {
@@ -439,8 +440,11 @@ const numStart = 12
 // invalidation).
 //
 // locked: when true and the chosen session's state is "waiting" or
-// "error", emits a 2-frame breathe pulse. Otherwise emits a single
-// frame.
+// "error", emits a text+blinkText payload so AWTRIX firmware animates
+// the attention indicator natively. Otherwise emits the standard
+// single-frame bitmap. The firmware has no multi-frame draw mode —
+// passing two db entries returns 500 ErrorParsingJson once the JSON
+// parser buffer fills with the second 256-int pixel array.
 func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds int) map[string]any {
 	keys := sortedActiveKeys(snap)
 	if len(keys) == 0 {
@@ -463,14 +467,13 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 	idx := slices.Index(keys, chosen) + 1 // 1-based rotation index
 	total := len(keys)
 
-	stateColor := colorForState(session.State)
-	frameA := composeFrame(*session, idx, total, stateColor)
-
 	if locked && (session.State == "waiting" || session.State == "error") {
-		frameB := composeFrame(*session, idx, total, dimRGB(stateColor, 0x66))
-		return pulseFrameToCustomApp(frameA, frameB, lifetimeSeconds)
+		return attentionTextToCustomApp(session.State, lifetimeSeconds)
 	}
-	return frameToCustomApp(&frameA, lifetimeSeconds)
+
+	stateColor := colorForState(session.State)
+	frame := composeFrame(*session, idx, total, stateColor)
+	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
 // composeFrame paints the standard layout for one session using the
@@ -513,28 +516,27 @@ func colorForState(state string) RGB {
 	}
 }
 
-// dimRGB scales each channel by scale/0xff (0x66/0xff ≈ 40%).
-func dimRGB(c RGB, scale uint8) RGB {
-	return RGB{
-		R: uint8(int(c.R) * int(scale) / 0xff),
-		G: uint8(int(c.G) * int(scale) / 0xff),
-		B: uint8(int(c.B) * int(scale) / 0xff),
+// attentionTextToCustomApp emits a text payload with firmware-side
+// blinkText animation for the locked attention state. AWTRIX 3 has no
+// frame-cycling primitive for the draw layer, so the pulse is delegated
+// to blinkText (the firmware blinks the text every 500ms natively).
+// Locked frames intentionally swap out the rich bitmap composition for
+// a centered short label ("WAIT" or "ERR") in the state colour — the
+// rotation pointer is already pinned to this session, so the lock
+// semantic itself carries the "this is the urgent one" signal.
+func attentionTextToCustomApp(state string, lifetimeSeconds int) map[string]any {
+	label := "WAIT"
+	c := colorWaiting
+	if state == "error" {
+		label = "ERR"
+		c = colorError
 	}
-}
-
-// pulseFrameToCustomApp encodes two frames as a single CustomApp payload.
-// AWTRIX cycles between them at the configured frame_duration (500ms),
-// producing the breathe pulse without any HTTP traffic. Falls through
-// the same db op shape as frameToCustomApp so existing client code (and
-// AWTRIX firmware) handles both cases uniformly.
-func pulseFrameToCustomApp(a, b Frame, lifetimeSeconds int) map[string]any {
 	return map[string]any{
-		"draw": []any{
-			map[string]any{"db": []any{0, 0, 32, 8, framePixels(&a)}},
-			map[string]any{"db": []any{0, 0, 32, 8, framePixels(&b)}},
-		},
-		"lifetime":       lifetimeSeconds,
-		"duration":       lifetimeSeconds,
-		"frame_duration": 500,
+		"text":      label,
+		"color":     fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B),
+		"blinkText": 500,
+		"center":    true,
+		"duration":  lifetimeSeconds,
+		"lifetime":  lifetimeSeconds,
 	}
 }
