@@ -345,7 +345,10 @@ func (c *coordinator) onTick() {
 
 func (c *coordinator) publish(snap Snapshot) {
 	cfg := c.loadCfg()
-	lifetime := max(5, cfg.Display.RefreshSeconds+2)
+	lifetime := cfg.Display.FrameLifetimeSeconds
+	if lifetime < 5 {
+		lifetime = 5 // defensive — applyDefaults clamps to >= 10 in production
+	}
 	payload := RenderForCoord(snap, c.pointer, c.locked, lifetime)
 	if payload == nil {
 		return

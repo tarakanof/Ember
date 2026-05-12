@@ -418,6 +418,10 @@ func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
 func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
+	// Use a short explicit lifetime so the dedup window (lifetime-1) is
+	// predictable in the test. applyDefaults sets FrameLifetimeSeconds=30;
+	// override to 7 so window=6s — same geometry the test was written for.
+	cfg.Display.FrameLifetimeSeconds = 7
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
