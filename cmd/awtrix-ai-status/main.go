@@ -74,6 +74,9 @@ type DisplayConfig struct {
 	NotifyOnWaiting      bool   `json:"notify_on_waiting"`
 	RotationDwellSeconds int    `json:"rotation_dwell_seconds"`
 	AckTimeoutSeconds    int    `json:"ack_timeout_seconds"`
+	// G.2:
+	FrameLifetimeSeconds int `json:"frame_lifetime_seconds"`
+	IdleRestoreSeconds   int `json:"idle_restore_seconds"`
 	// PulseStyle is parsed but ignored. Kept so configs from G.1b that
 	// still carry "pulse_style": "breathe" continue to parse under
 	// DisallowUnknownFields. AWTRIX firmware has no multi-frame draw
@@ -103,6 +106,8 @@ func defaultConfig() Config {
 			NotifyOnWaiting:      false,
 			RotationDwellSeconds: 3,
 			AckTimeoutSeconds:    30,
+			FrameLifetimeSeconds: 30,
+			IdleRestoreSeconds:   1200,
 		},
 		RateLimit: RateLimitConfig{
 			Disabled:         false,
@@ -164,6 +169,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Display.AckTimeoutSeconds <= 0 {
 		c.Display.AckTimeoutSeconds = 30
+	}
+	if c.Display.FrameLifetimeSeconds <= 0 {
+		c.Display.FrameLifetimeSeconds = 30
+	}
+	if c.Display.IdleRestoreSeconds <= 0 {
+		c.Display.IdleRestoreSeconds = 1200
 	}
 	if c.Auth.StatusTokenEnv == "" {
 		c.Auth.StatusTokenEnv = "STATUS_TOKEN"

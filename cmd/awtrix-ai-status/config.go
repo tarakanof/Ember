@@ -72,5 +72,11 @@ func validateConfig(cfg Config) error {
 	if cfg.RateLimit.IdleEvictSeconds < 0 {
 		return fmt.Errorf("%w: rate_limit.idle_evict_seconds must be >= 0, got %d", ErrConfigValidate, cfg.RateLimit.IdleEvictSeconds)
 	}
+	if cfg.Display.FrameLifetimeSeconds < 10 || cfg.Display.FrameLifetimeSeconds > 120 {
+		return fmt.Errorf("%w: display.frame_lifetime_seconds %d out of range [10, 120]", ErrConfigValidate, cfg.Display.FrameLifetimeSeconds)
+	}
+	if cfg.Display.IdleRestoreSeconds < 60 || cfg.Display.IdleRestoreSeconds > 3600 {
+		return fmt.Errorf("%w: display.idle_restore_seconds %d out of range [60, 3600]", ErrConfigValidate, cfg.Display.IdleRestoreSeconds)
+	}
 	return nil
 }

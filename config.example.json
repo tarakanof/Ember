@@ -24,6 +24,8 @@
     "refresh_seconds": 5,
     "notify_on_waiting": false,
     "rotation_dwell_seconds": 3,
-    "ack_timeout_seconds": 30
+    "ack_timeout_seconds": 30,
+    "frame_lifetime_seconds": 30,
+    "idle_restore_seconds": 1200
   }
 }

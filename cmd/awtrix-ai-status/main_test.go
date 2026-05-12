@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -875,5 +876,42 @@ func TestDefaultConfig_NewDisplayFields(t *testing.T) {
 	}
 	if cfg.Display.AckTimeoutSeconds != 30 {
 		t.Errorf("AckTimeoutSeconds = %d, want 30", cfg.Display.AckTimeoutSeconds)
+	}
+}
+
+func TestDefaultConfig_G2Fields(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	if cfg.Display.FrameLifetimeSeconds != 30 {
+		t.Errorf("FrameLifetimeSeconds = %d, want 30", cfg.Display.FrameLifetimeSeconds)
+	}
+	if cfg.Display.IdleRestoreSeconds != 1200 {
+		t.Errorf("IdleRestoreSeconds = %d, want 1200", cfg.Display.IdleRestoreSeconds)
+	}
+}
+
+func TestValidateConfig_G2_FrameLifetimeBounds(t *testing.T) {
+	for _, badVal := range []int{0, -1, 9, 121, 999} {
+		t.Run(fmt.Sprintf("lifetime=%d", badVal), func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.applyDefaults()
+			cfg.Display.FrameLifetimeSeconds = badVal
+			if err := validateConfig(cfg); err == nil {
+				t.Errorf("validateConfig(frame_lifetime_seconds=%d) returned nil, want error", badVal)
+			}
+		})
+	}
+}
+
+func TestValidateConfig_G2_IdleRestoreBounds(t *testing.T) {
+	for _, badVal := range []int{0, -1, 59, 3601, 99999} {
+		t.Run(fmt.Sprintf("idle=%d", badVal), func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.applyDefaults()
+			cfg.Display.IdleRestoreSeconds = badVal
+			if err := validateConfig(cfg); err == nil {
+				t.Errorf("validateConfig(idle_restore_seconds=%d) returned nil, want error", badVal)
+			}
+		})
 	}
 }
