@@ -120,10 +120,21 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+
+	// Both sessions start in running so sortedActiveKeys orders by
+	// (running-priority, source, tool, session) — s1 sorts before s2.
+	// A vanilla cmdTick will put the pointer on s1. The preempt must
+	// JUMP it to s2 once s2 transitions into waiting. Pre-fix the test
+	// pre-seeded s2 as waiting which already sorts ahead, so a passing
+	// assertion didn't actually prove the jump.
+	var mu sync.Mutex
+	s2State := "running"
 	c.snapshot = func() Snapshot {
+		mu.Lock()
+		defer mu.Unlock()
 		return Snapshot{Sessions: []Session{
 			{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},
-			{Source: "a", Tool: "b", Session: "s2", State: "waiting", UpdatedAt: clk.Now()},
+			{Source: "a", Tool: "b", Session: "s2", State: s2State, UpdatedAt: clk.Now()},
 		}}
 	}
 
@@ -131,9 +142,21 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
+	// Tick — pointer ends up on s1 (alphabetically first under same priority).
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
+	c.muTest.RLock()
+	beforePtr := c.pointer
+	c.muTest.RUnlock()
+	if beforePtr != "a/b/s1" {
+		t.Fatalf("setup: pointer before preempt = %q, want a/b/s1 (so a real jump can happen)", beforePtr)
+	}
+
+	// Now flip s2 to waiting in the snapshot AND send the preempt command.
+	mu.Lock()
+	s2State = "waiting"
+	mu.Unlock()
 	c.Send(coordCmd{
 		kind:       cmdUpsert,
 		sessionKey: "a/b/s2",
@@ -147,7 +170,7 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 	gotLocked := c.locked
 	c.muTest.RUnlock()
 	if gotPtr != "a/b/s2" {
-		t.Errorf("pointer after waiting transition = %q, want a|b|s2", gotPtr)
+		t.Errorf("pointer after waiting transition = %q, want a/b/s2 (jump from s1)", gotPtr)
 	}
 	if !gotLocked {
 		t.Errorf("locked = false, want true after waiting transition")
