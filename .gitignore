@@ -9,3 +9,4 @@
 # scaffolding and not part of the shipped repo. STYLE.md (under docs/, not
 # docs/superpowers/) does ship.
 /docs/superpowers/
+/.superpowers/
