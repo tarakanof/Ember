@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // RGB is a 24-bit colour. Alpha is implicit (always full).
@@ -214,6 +215,56 @@ const (
 	barEnd   = 31
 	barWidth = barEnd - barStart + 1
 )
+
+// drawSessionBar paints one pixel per non-idle session at row 7, starting
+// from cols barStart..barEnd. Pixels are coloured by each session's state
+// using the existing state-colour palette. Order is priority-first
+// (waiting > error > running > done) then (source, tool, session) lex —
+// identical to the X/Y rotation order so the leftmost pixel corresponds
+// to rotation slot 1/Y. Sessions in state "idle" are excluded. If more
+// than barWidth (21) non-idle sessions exist, only the first 21 are
+// painted; no special overflow indicator is drawn (the digit area's
+// X/9+ truncation already conveys overflow).
+func drawSessionBar(f *Frame, sessions []Session) {
+	type entry struct {
+		prio  int
+		src   string
+		tool  string
+		sess  string
+		color RGB
+	}
+	out := make([]entry, 0, len(sessions))
+	for _, s := range sessions {
+		if s.State == "idle" {
+			continue
+		}
+		out = append(out, entry{
+			prio:  statePriority(s.State),
+			src:   s.Source,
+			tool:  s.Tool,
+			sess:  s.Session,
+			color: colorForState(s.State),
+		})
+	}
+	slices.SortFunc(out, func(a, b entry) int {
+		if a.prio != b.prio {
+			return a.prio - b.prio
+		}
+		if a.src != b.src {
+			return strings.Compare(a.src, b.src)
+		}
+		if a.tool != b.tool {
+			return strings.Compare(a.tool, b.tool)
+		}
+		return strings.Compare(a.sess, b.sess)
+	})
+	for i, e := range out {
+		if i >= barWidth {
+			break
+		}
+		paintCell(f, barStart+i, barRow, e.color)
+	}
+}
 
 var colorRateBar = RGB{0xff, 0xc1, 0x4d}
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -632,5 +633,169 @@ func TestAttentionLabelAndColor(t *testing.T) {
 				t.Errorf("hex = %q, want %q", hex, tc.wantColor)
 			}
 		})
+	}
+}
+
+func TestDrawSessionBar_Empty(t *testing.T) {
+	f := &Frame{}
+	drawSessionBar(f, nil)
+	for x := 0; x < 32; x++ {
+		if f.Dirty[7][x] {
+			t.Errorf("col %d on row 7 lit, want all dark for empty input", x)
+		}
+	}
+}
+
+func TestDrawSessionBar_OneRunning(t *testing.T) {
+	now := time.Now()
+	sessions := []Session{
+		{Source: "a", Tool: "b", Session: "s", State: "running", UpdatedAt: now},
+	}
+	f := &Frame{}
+	drawSessionBar(f, sessions)
+	if !f.Dirty[7][11] || f.Pixels[7][11] != colorRunning {
+		t.Errorf("col 11 = %+v dirty=%v, want %v lit", f.Pixels[7][11], f.Dirty[7][11], colorRunning)
+	}
+	for x := 12; x < 32; x++ {
+		if f.Dirty[7][x] {
+			t.Errorf("col %d unexpectedly lit (should only be col 11 for 1 session)", x)
+		}
+	}
+}
+
+func TestDrawSessionBar_PriorityOrder(t *testing.T) {
+	now := time.Now()
+	// Arrival order: running, waiting, error.
+	// Priority order: waiting > error > running.
+	sessions := []Session{
+		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "e", State: "error", UpdatedAt: now},
+	}
+	f := &Frame{}
+	drawSessionBar(f, sessions)
+	wants := []RGB{colorWaiting, colorError, colorRunning}
+	for i, want := range wants {
+		col := 11 + i
+		if !f.Dirty[7][col] || f.Pixels[7][col] != want {
+			t.Errorf("col %d = %+v dirty=%v, want %v", col, f.Pixels[7][col], f.Dirty[7][col], want)
+		}
+	}
+	// No fourth pixel.
+	if f.Dirty[7][14] {
+		t.Errorf("col 14 lit, want dark (only 3 sessions)")
+	}
+}
+
+func TestDrawSessionBar_DeterministicAcrossSliceOrder(t *testing.T) {
+	now := time.Now()
+	// Two same-state sessions in reversed slice orderings must produce
+	// identical bars. This proves the sort is invoked (without it, slice
+	// order would leak through) and that the comparator is a total order.
+	// The lex *direction* (source "a" sorts before "z") is verified by
+	// TestSortedActiveKeys, which exercises the same comparator shape.
+	sessions1 := []Session{
+		{Source: "z", Tool: "t", Session: "s", State: "waiting", UpdatedAt: now},
+		{Source: "a", Tool: "t", Session: "s", State: "waiting", UpdatedAt: now},
+	}
+	sessions2 := []Session{sessions1[1], sessions1[0]} // reversed
+	f1 := &Frame{}
+	f2 := &Frame{}
+	drawSessionBar(f1, sessions1)
+	drawSessionBar(f2, sessions2)
+	// Both bars must be identical pixel-for-pixel across row 7.
+	for x := 0; x < 32; x++ {
+		if f1.Dirty[7][x] != f2.Dirty[7][x] || f1.Pixels[7][x] != f2.Pixels[7][x] {
+			t.Errorf("col %d differs between slice orderings: f1=%v dirty=%v vs f2=%v dirty=%v (slice order leaked through; sort must be invoked deterministically)",
+				x, f1.Pixels[7][x], f1.Dirty[7][x], f2.Pixels[7][x], f2.Dirty[7][x])
+		}
+	}
+	// And both should have exactly 2 amber pixels at cols 11 and 12.
+	if f1.Pixels[7][11] != colorWaiting || f1.Pixels[7][12] != colorWaiting {
+		t.Errorf("expected two amber pixels, got col11=%v col12=%v", f1.Pixels[7][11], f1.Pixels[7][12])
+	}
+	if f1.Dirty[7][13] {
+		t.Errorf("col 13 lit, want dark (only 2 sessions)")
+	}
+}
+
+func TestDrawSessionBar_IdleExcluded(t *testing.T) {
+	now := time.Now()
+	sessions := []Session{
+		{Source: "a", Tool: "b", Session: "i", State: "idle", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: now},
+	}
+	f := &Frame{}
+	drawSessionBar(f, sessions)
+	if !f.Dirty[7][11] || f.Pixels[7][11] != colorRunning {
+		t.Errorf("col 11 = %v, want running green", f.Pixels[7][11])
+	}
+	if f.Dirty[7][12] {
+		t.Errorf("col 12 lit; idle session must not produce a pixel")
+	}
+}
+
+func TestDrawSessionBar_DoneIncluded(t *testing.T) {
+	now := time.Now()
+	sessions := []Session{
+		{Source: "a", Tool: "b", Session: "d", State: "done", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: now},
+	}
+	f := &Frame{}
+	drawSessionBar(f, sessions)
+	// running sorts before done by priority.
+	if f.Pixels[7][11] != colorRunning {
+		t.Errorf("col 11 = %v, want running green", f.Pixels[7][11])
+	}
+	if f.Pixels[7][12] != colorDone {
+		t.Errorf("col 12 = %v, want done blue", f.Pixels[7][12])
+	}
+}
+
+func TestDrawSessionBar_Overflow(t *testing.T) {
+	now := time.Now()
+	sessions := make([]Session, 25)
+	for i := range sessions {
+		sessions[i] = Session{
+			Source: "a", Tool: "b", Session: fmt.Sprintf("s%02d", i),
+			State: "running", UpdatedAt: now,
+		}
+	}
+	f := &Frame{}
+	drawSessionBar(f, sessions)
+	// Exactly 21 pixels lit, cols 11..31.
+	for x := 11; x <= 31; x++ {
+		if !f.Dirty[7][x] {
+			t.Errorf("col %d should be lit (overflow truncation paints first 21)", x)
+		}
+	}
+	// No spillover above row 7.
+	for y := 0; y < 7; y++ {
+		for x := 0; x < 32; x++ {
+			if f.Dirty[y][x] {
+				t.Errorf("col %d row %d unexpectedly lit", x, y)
+			}
+		}
+	}
+}
+
+func TestDrawSessionBar_WaitingErrorRunningDoneMix(t *testing.T) {
+	now := time.Now()
+	// One of each, arrival order shuffled.
+	sessions := []Session{
+		{Source: "a", Tool: "b", Session: "d", State: "done", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "e", State: "error", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: now},
+	}
+	f := &Frame{}
+	drawSessionBar(f, sessions)
+	// Priority order: waiting (11), error (12), running (13), done (14).
+	wants := []RGB{colorWaiting, colorError, colorRunning, colorDone}
+	for i, want := range wants {
+		col := 11 + i
+		if !f.Dirty[7][col] || f.Pixels[7][col] != want {
+			t.Errorf("col %d = %v dirty=%v, want %v", col, f.Pixels[7][col], f.Dirty[7][col], want)
+		}
 	}
 }
