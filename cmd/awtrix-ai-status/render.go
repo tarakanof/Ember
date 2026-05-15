@@ -266,24 +266,6 @@ func drawSessionBar(f *Frame, sessions []Session) {
 	}
 }
 
-var colorRateBar = RGB{0xff, 0xc1, 0x4d}
-
-// drawRateBar paints the 5h-window bar at row 7, cols 11–31. nil or 0 → no bar.
-func drawRateBar(f *Frame, pct *int) {
-	if pct == nil || *pct <= 0 {
-		return
-	}
-	v := *pct
-	if v > 100 {
-		v = 100
-	}
-	fillLen := (barWidth*v + 50) / 100
-	if fillLen < 1 {
-		fillLen = 1
-	}
-	paintRow(f, barStart, barStart+fillLen-1, barRow, colorRateBar)
-}
-
 // framePixels extracts the 256-int row-major pixel array from a Frame.
 // Used by frameToCustomApp to serialise a Frame into the AWTRIX db
 // (drawBMP) pixel array. Undirty cells emit 0 (the encoder's "off" colour).

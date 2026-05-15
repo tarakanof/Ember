@@ -223,54 +223,6 @@ func TestDrawGlass(t *testing.T) {
 	}
 }
 
-func TestDrawRateBar(t *testing.T) {
-	tests := []struct {
-		name        string
-		pct         *int
-		wantLitCols []int
-	}{
-		{name: "absent — no bar", pct: nil},
-		{name: "0% — no bar", pct: intPtr(0)},
-		{name: "50% — half", pct: intPtr(50), wantLitCols: rangeCols(11, 21)},
-		{name: "100% — full", pct: intPtr(100), wantLitCols: rangeCols(11, 31)},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			f := &Frame{}
-			drawRateBar(f, tc.pct)
-			litCols := []int{}
-			for x := 0; x < 32; x++ {
-				if f.Dirty[7][x] {
-					litCols = append(litCols, x)
-				}
-			}
-			if !equalInts(litCols, tc.wantLitCols) {
-				t.Errorf("lit cols on row 7 = %v, want %v", litCols, tc.wantLitCols)
-			}
-		})
-	}
-}
-
-func rangeCols(lo, hi int) []int {
-	out := make([]int, 0, hi-lo+1)
-	for x := lo; x <= hi; x++ {
-		out = append(out, x)
-	}
-	return out
-}
-
-func equalInts(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func TestRenderForCoord_NoActive_ReturnsNil(t *testing.T) {
 	if got := RenderForCoord(Snapshot{}, "", false, 30); got != nil {
 		t.Fatalf("empty snapshot: got %v, want nil", got)
