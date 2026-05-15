@@ -568,7 +568,7 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 		}
 	}
 
-	frame := composeFrame(*session, idx, total, stateColor)
+	frame := composeFrame(*session, idx, total, stateColor, snap.Sessions)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -606,8 +606,9 @@ func composeRobotPixels(s Session, robotColor RGB) []int {
 // composeFrame paints the standard layout for one session using the
 // supplied robot colour. Digits stay source-coloured (or white fallback)
 // regardless of robot colour. Glass uses the session's state colour
-// directly.
-func composeFrame(s Session, idx, total int, robotColor RGB) Frame {
+// directly. Row 7 receives the session-count bar drawn from the full
+// active-session list `sessions` — see drawSessionBar.
+func composeFrame(s Session, idx, total int, robotColor RGB, sessions []Session) Frame {
 	var f Frame
 	drawRobot(&f, s.State, robotColor)
 
@@ -622,7 +623,7 @@ func composeFrame(s Session, idx, total int, robotColor RGB) Frame {
 	glassFillColor := colorForState(s.State)
 	drawGlass(&f, s.ContextPct, glassFillColor)
 
-	drawRateBar(&f, nil) // G.4 plumbs the data; nil for G.1b.
+	drawSessionBar(&f, sessions)
 	return f
 }
 

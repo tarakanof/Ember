@@ -799,3 +799,35 @@ func TestDrawSessionBar_WaitingErrorRunningDoneMix(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
+	now := time.Now()
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: now},
+		{Source: "a", Tool: "b", Session: "s2", State: "waiting", UpdatedAt: now},
+	}}
+	payload := RenderForCoord(snap, "a/b/s1", false, 30)
+	if payload == nil {
+		t.Fatal("expected non-nil payload")
+	}
+	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	// Row 7. Expect col 11 = waiting amber, col 12 = running green.
+	// Derive expected values from the palette constants so the test stays
+	// correct if colors are ever updated.
+	wantWaiting := (int(colorWaiting.R) << 16) | (int(colorWaiting.G) << 8) | int(colorWaiting.B)
+	wantRunning := (int(colorRunning.R) << 16) | (int(colorRunning.G) << 8) | int(colorRunning.B)
+	got11 := pixels[7*32+11]
+	got12 := pixels[7*32+12]
+	if got11 != wantWaiting {
+		t.Errorf("row 7 col 11 = %#06x, want %#06x (waiting amber, priority first)", got11, wantWaiting)
+	}
+	if got12 != wantRunning {
+		t.Errorf("row 7 col 12 = %#06x, want %#06x (running green, priority second)", got12, wantRunning)
+	}
+	// Col 13+ on row 7 should be dark.
+	for x := 13; x < 32; x++ {
+		if pixels[7*32+x] != 0 {
+			t.Errorf("row 7 col %d = %#06x, want 0 (only 2 sessions in snapshot)", x, pixels[7*32+x])
+		}
+	}
+}
