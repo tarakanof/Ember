@@ -369,11 +369,14 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if got := payload["blinkText"]; got != 500 {
 		t.Errorf("blinkText = %v, want 500", got)
 	}
-	if got := payload["textOffset"]; got != 10 {
-		t.Errorf("textOffset = %v, want 10 (text sits in cols 10-31 — 22 cols, fits 4-char labels with 3×5 font)", got)
+	if got := payload["textOffset"]; got != 11 {
+		t.Errorf("textOffset = %v, want 11 (1-col gap after the 10-wide robot; text sits in cols 11-31 — 21 cols, fits 4-char labels)", got)
 	}
 	if got := payload["noScroll"]; got != true {
 		t.Errorf("noScroll = %v, want true", got)
+	}
+	if got := payload["center"]; got != false {
+		t.Errorf("center = %v, want false (AWTRIX defaults center=true and adds textOffset, clipping text past col 31)", got)
 	}
 	if got := payload["lifetime"]; got != 30 {
 		t.Errorf("lifetime = %v, want 30", got)

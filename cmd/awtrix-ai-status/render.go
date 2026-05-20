@@ -515,7 +515,8 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 			"text":       label,
 			"color":      hex,
 			"blinkText":  500,
-			"textOffset": 10, // first col after the 10-wide robot bitmap (cols 0-9)
+			"textOffset": 11,    // 1-col gap after the 10-wide robot bitmap (cols 0-9); text in cols 11-31
+			"center":     false, // AWTRIX defaults center=true and adds textOffset on top, clipping past col 31
 			"noScroll":   true,
 			"duration":   lifetimeSeconds,
 			"lifetime":   lifetimeSeconds,
