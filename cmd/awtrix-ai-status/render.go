@@ -121,7 +121,6 @@ var robotError = []string{
 	".X.X..X.X.",
 }
 
-
 // drawRobot paints the robot sprite at cols 0–9, rows 1–6, using c for lit pixels.
 // The "error" state selects the chevron-eye sprite; everything else uses normal.
 func drawRobot(f *Frame, state string, c RGB) {
