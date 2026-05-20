@@ -121,31 +121,6 @@ var robotError = []string{
 	".X.X..X.X.",
 }
 
-// robotLockedNormal is the 8-wide × 6-tall variant used in the locked
-// attention frame, where the right ~24 cols of the matrix are reserved
-// for the firmware-rendered text. Body cols 1-6 (6 wide), arms at cols
-// 0 and 7, eyes at cols 2 and 5, two legs at the outer body edges
-// (cols 1 and 6) directly below the arm protrusions.
-var robotLockedNormal = []string{
-	".XXXXXX.", // head top
-	".X.XX.X.", // eyes upper
-	".X.XX.X.", // eyes lower
-	"XXXXXXXX", // arms full-width + body
-	".XXXXXX.", // body bottom
-	".X....X.", // 2 legs at sides (cols 1, 6)
-}
-
-// robotLockedError mirrors the 3-row chevron eye treatment in the 8-col
-// budget. Eye chevrons span rows 2-4 with outer holes at cols 2/5 and
-// apex holes at cols 3/4; the arms row keeps the protrusions at 0/7.
-var robotLockedError = []string{
-	".XXXXXX.",
-	".X.XX.X.", // outer holes (cols 2, 5)
-	".XX..XX.", // apex holes (cols 3, 4)
-	"XX.XX.XX", // outer holes (cols 2, 5) + arm protrusions
-	".XXXXXX.",
-	".X....X.",
-}
 
 // drawRobot paints the robot sprite at cols 0–9, rows 1–6, using c for lit pixels.
 // The "error" state selects the chevron-eye sprite; everything else uses normal.
@@ -541,7 +516,7 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 			"text":       label,
 			"color":      hex,
 			"blinkText":  500,
-			"textOffset": 8, // first col after the robot bitmap (cols 0-6)
+			"textOffset": 10, // first col after the 10-wide robot bitmap (cols 0-9)
 			"noScroll":   true,
 			"duration":   lifetimeSeconds,
 			"lifetime":   lifetimeSeconds,
@@ -554,21 +529,24 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
-// robotWidth is the horizontal extent of the locked-frame bitmap. The
-// remaining 32-robotWidth columns are left blank so AWTRIX renders the
-// blinking attention text in that area. Set to 8 — the firmware font
-// is wider than 5 px per char, so "WAIT" / "ERR" need ~24 cols.
-const robotWidth = 8
+// robotWidth is the horizontal extent of the locked-frame bitmap and
+// the idle-dim bitmap. The remaining 32-robotWidth columns are left
+// blank so AWTRIX renders the blinking attention text in that area
+// (locked path) or stay dark (idle path). Set to 10 — matches the
+// rotation-frame sprite so all 4 legs and both arm protrusions are
+// preserved. AWTRIX default 3×5 font: "WAIT" ≈ 15 px, "ERR" ≈ 10 px,
+// both fit in the remaining 22 cols (10-31) with noScroll:true.
+const robotWidth = 10
 
-// composeRobotPixels paints just the locked-state robot sprite into a
-// tight robotWidth×8 = 64-int pixel array. Uses the 8-wide
-// robotLocked{Normal,Error} variants (which keep both eyes and the arm
-// protrusions inside the budget) rather than truncating the 10-wide
-// rotation sprite.
+// composeRobotPixels paints just the robot sprite into a tight
+// robotWidth×8 = 80-int pixel array. Uses the same 10-wide
+// robot{Normal,Error} sprites as the rotation frame so all 4 legs and
+// both arm protrusions are preserved. Called by RenderForCoord (locked
+// attention path) and RenderIdleFrame (dim-white countdown).
 func composeRobotPixels(s Session, robotColor RGB) []int {
-	sprite := robotLockedNormal
+	sprite := robotNormal
 	if s.State == "error" {
-		sprite = robotLockedError
+		sprite = robotError
 	}
 	var f Frame
 	paintBitmap(&f, 0, 1, sprite, robotColor)

@@ -298,6 +298,55 @@ func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
 	assertBlinkText(t, payload, "WAIT", "#FFC14D")
 }
 
+// TestRenderForCoord_LockedAttention_PixelGeometry asserts the locked
+// payload uses the full 10-wide rotation sprite — both arm protrusions
+// (cols 0 & 9 on row 4), both eyes (cols 2 & 7 on rows 2-3), and all
+// four legs (cols 1, 3, 6, 8 on row 6). Guards against silent regression
+// to the 8-wide cramped variant.
+func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a/b/w", true, 30)
+	draw := payload["draw"].([]any)
+	db := draw[0].(map[string]any)["db"].([]any)
+	if db[2] != 10 {
+		t.Fatalf("locked sprite width = %v, want 10 (rotation-sprite parity)", db[2])
+	}
+	pixels, ok := db[4].([]int)
+	if !ok || len(pixels) != 80 {
+		t.Fatalf("locked pixel array = %v, want []int of length 80 (10 cols × 8 rows)", db[4])
+	}
+	// Helper: pixel at (col, row) in the 10-wide layout.
+	at := func(x, y int) int { return pixels[y*10+x] }
+	// Row 4 is the arms row — both protrusions at col 0 and col 9 lit.
+	if at(0, 4) == 0 {
+		t.Errorf("row 4 col 0 (left arm protrusion) is dark, want lit")
+	}
+	if at(9, 4) == 0 {
+		t.Errorf("row 4 col 9 (right arm protrusion) is dark, want lit — regression to 8-wide")
+	}
+	// Row 2-3 are the eyes — col 2 and col 7 must be DARK (the eye holes).
+	if at(2, 2) != 0 {
+		t.Errorf("row 2 col 2 (left eye hole) is lit, want dark")
+	}
+	if at(7, 2) != 0 {
+		t.Errorf("row 2 col 7 (right eye hole) is lit, want dark — regression to 8-wide")
+	}
+	// Row 6 is the legs row — all 4 legs at cols 1, 3, 6, 8 must be lit.
+	for _, x := range []int{1, 3, 6, 8} {
+		if at(x, 6) == 0 {
+			t.Errorf("row 6 col %d (leg) is dark, want lit — regression to 2-leg 8-wide variant", x)
+		}
+	}
+	// And cols 0, 2, 4, 5, 7, 9 on the legs row must be DARK.
+	for _, x := range []int{0, 2, 4, 5, 7, 9} {
+		if at(x, 6) != 0 {
+			t.Errorf("row 6 col %d is lit, want dark (only 4 specific leg pixels expected)", x)
+		}
+	}
+}
+
 func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor string) {
 	t.Helper()
 	draw, ok := payload["draw"].([]any)
@@ -320,8 +369,8 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if got := payload["blinkText"]; got != 500 {
 		t.Errorf("blinkText = %v, want 500", got)
 	}
-	if got := payload["textOffset"]; got != 8 {
-		t.Errorf("textOffset = %v, want 8 (text sits in cols 8-31 — 24 cols, fits 4-char labels)", got)
+	if got := payload["textOffset"]; got != 10 {
+		t.Errorf("textOffset = %v, want 10 (text sits in cols 10-31 — 22 cols, fits 4-char labels with 3×5 font)", got)
 	}
 	if got := payload["noScroll"]; got != true {
 		t.Errorf("noScroll = %v, want true", got)
