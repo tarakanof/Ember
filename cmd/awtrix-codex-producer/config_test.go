@@ -39,6 +39,10 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.SessionsDir != want {
 		t.Errorf("SessionsDir = %q, want %q", cfg.SessionsDir, want)
 	}
+	wantState := filepath.Join(home, ".local", "state", "awtrix-ai-status", "sessions")
+	if cfg.StateDir != wantState {
+		t.Errorf("StateDir = %q, want %q", cfg.StateDir, wantState)
+	}
 }
 
 func TestLoadConfig_Overrides(t *testing.T) {

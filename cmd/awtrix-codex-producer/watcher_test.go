@@ -31,7 +31,7 @@ func writeRollout(t *testing.T, sessionsDir, name string, when time.Time, lines 
 }
 
 func newTestWatcher(dir string, now time.Time) *watcher {
-	w := newWatcher(Config{Source: "mbp", SessionsDir: dir, ActivityWindowSeconds: 90, ContextPctEnabled: true})
+	w := newWatcher(Config{Source: "mbp", SessionsDir: dir, StateDir: filepath.Join(dir, "markers"), ActivityWindowSeconds: 90, ContextPctEnabled: true})
 	w.now = func() time.Time { return now }
 	return w
 }

@@ -26,6 +26,7 @@ type Config struct {
 	PollIntervalMs        int
 	ActivityWindowSeconds int
 	SessionsDir           string
+	StateDir              string
 }
 
 // LogValue redacts the token. Implements slog.LogValuer.
@@ -43,6 +44,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("poll_interval_ms", c.PollIntervalMs),
 		slog.Int("activity_window_seconds", c.ActivityWindowSeconds),
 		slog.String("sessions_dir", c.SessionsDir),
+		slog.String("state_dir", c.StateDir),
 	)
 }
 
@@ -56,6 +58,7 @@ func loadConfig() (Config, error) {
 		PollIntervalMs:        defaultPollIntervalMs,
 		ActivityWindowSeconds: defaultActivityWindowSeconds,
 		SessionsDir:           filepath.Join(home, ".codex", "sessions"),
+		StateDir:              filepath.Join(home, ".local", "state", "awtrix-ai-status", "sessions"),
 	}
 	envPath := filepath.Join(home, ".config", "awtrix-ai-status", "producer.env")
 	data, err := producer.ReadEnvFile(envPath)
