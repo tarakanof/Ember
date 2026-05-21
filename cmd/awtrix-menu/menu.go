@@ -36,7 +36,7 @@ var (
 )
 
 func onSystrayReady() {
-	systray.SetTemplateIcon(iconForState("idle"), iconForState("idle"))
+	systray.SetIcon(iconForState("idle"))
 	systray.SetTooltip("AWTRIX: idle")
 
 	statusItem = systray.AddMenuItem("Loading…", "")
@@ -140,7 +140,7 @@ func updateMenu(envPath string) {
 	if view.DominantState == "" {
 		icon = iconForState("idle")
 	}
-	systray.SetTemplateIcon(icon, icon)
+	systray.SetIcon(icon)
 
 	// Open /state availability
 	url := rec.get("STATUS_SERVER_URL")
