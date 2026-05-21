@@ -91,6 +91,26 @@ func TestMarkers_DeterministicOrdering(t *testing.T) {
 	}
 }
 
+func TestReadView_DominantTool(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// waiting (codex) outranks running (claude): waiting > running.
+	write("a.json", `{"source":"mbp","tool":"claude","session":"a","state":"running"}`)
+	write("b.json", `{"source":"mbp","tool":"codex","session":"b","state":"waiting"}`)
+
+	v := readView(dir, time.Hour)
+	if v.DominantState != "waiting" {
+		t.Errorf("DominantState = %q, want waiting", v.DominantState)
+	}
+	if v.DominantTool != "codex" {
+		t.Errorf("DominantTool = %q, want codex", v.DominantTool)
+	}
+}
+
 func TestTTLFromEnv(t *testing.T) {
 	cases := []struct {
 		name string

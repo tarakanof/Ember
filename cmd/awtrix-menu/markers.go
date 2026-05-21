@@ -33,6 +33,7 @@ type SessionSummary struct {
 
 type View struct {
 	DominantState string
+	DominantTool  string
 	LastMessage   string
 	ActiveCount   int
 	Sessions      []SessionSummary
@@ -77,6 +78,7 @@ func readView(stateDir string, ttl time.Duration) View {
 			if r > bestRank {
 				bestRank = r
 				v.DominantState = s.State
+				v.DominantTool = s.Tool
 				v.LastMessage = s.Message
 			}
 		}
