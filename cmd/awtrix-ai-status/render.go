@@ -121,14 +121,32 @@ var robotError = []string{
 	".X.X..X.X.",
 }
 
-// drawRobot paints the robot sprite at cols 0–9, rows 1–6, using c for lit pixels.
-// The "error" state selects the chevron-eye sprite; everything else uses normal.
-func drawRobot(f *Frame, state string, c RGB) {
-	sprite := robotNormal
-	if state == "error" {
-		sprite = robotError
+// codexSprite is the Codex ">_" mark (10×6), kept pixel-identical to the copy
+// in cmd/awtrix-menu/icon.go (guarded by TestCodexSpriteCanonical in both
+// packages). 2-px chevron (cols 0–3) + underscore (row 5, cols 5–9).
+var codexSprite = []string{
+	"XX........",
+	".XX.......",
+	"..XX......",
+	"..XX......",
+	".XX.......",
+	"XX...XXXXX",
+}
+
+// spriteFor selects the 10-wide mark for a session: Codex gets ">_"; Claude
+// gets the robot (chevron-eye variant on error).
+func spriteFor(s Session) []string {
+	if s.Tool == "codex" {
+		return codexSprite
 	}
-	paintBitmap(f, 0, 1, sprite, c)
+	if s.State == "error" {
+		return robotError
+	}
+	return robotNormal
+}
+
+func drawRobot(f *Frame, s Session, c RGB) {
+	paintBitmap(f, 0, 1, spriteFor(s), c)
 }
 
 const (
@@ -544,10 +562,7 @@ const robotWidth = 10
 // both arm protrusions are preserved. Called by RenderForCoord (locked
 // attention path) and RenderIdleFrame (dim-white countdown).
 func composeRobotPixels(s Session, robotColor RGB) []int {
-	sprite := robotNormal
-	if s.State == "error" {
-		sprite = robotError
-	}
+	sprite := spriteFor(s)
 	var f Frame
 	paintBitmap(&f, 0, 1, sprite, robotColor)
 	pixels := make([]int, robotWidth*8)
@@ -570,7 +585,7 @@ func composeRobotPixels(s Session, robotColor RGB) []int {
 // active-session list `sessions` — see drawSessionBar.
 func composeFrame(s Session, idx, total int, robotColor RGB, sessions []Session) Frame {
 	var f Frame
-	drawRobot(&f, s.State, robotColor)
+	drawRobot(&f, s, robotColor)
 
 	digitColor := colorWhite
 	if s.SourceColor != nil {

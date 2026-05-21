@@ -132,7 +132,7 @@ func TestDrawDigits(t *testing.T) {
 
 func TestDrawRobotNormal(t *testing.T) {
 	f := &Frame{}
-	drawRobot(f, "running", RGB{0x2e, 0xe8, 0x5e})
+	drawRobot(f, Session{State: "running"}, RGB{0x2e, 0xe8, 0x5e})
 
 	mustLit := [][2]int{
 		{1, 1}, {2, 1}, {3, 1}, {7, 1}, {8, 1},
@@ -155,7 +155,7 @@ func TestDrawRobotNormal(t *testing.T) {
 
 func TestDrawRobotError(t *testing.T) {
 	f := &Frame{}
-	drawRobot(f, "error", RGB{0xff, 0x3a, 0x3a})
+	drawRobot(f, Session{State: "error"}, RGB{0xff, 0x3a, 0x3a})
 
 	holes := [][2]int{{2, 2}, {3, 3}, {2, 4}, {7, 2}, {6, 3}, {7, 4}}
 	for _, p := range holes {
@@ -779,6 +779,39 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 			if f.Dirty[y][x] {
 				t.Errorf("col %d row %d unexpectedly lit", x, y)
 			}
+		}
+	}
+}
+
+func TestComposeFrame_CodexSprite(t *testing.T) {
+	f := composeFrame(Session{Tool: "codex", State: "running"}, 1, 1, RGB{0x2e, 0xe8, 0x5e}, nil)
+	// Underscore: frame row 6 (sprite row 5, painted at y=1), cols 5–9 lit.
+	for _, x := range []int{5, 6, 7, 8, 9} {
+		if !f.Dirty[6][x] {
+			t.Errorf("codex underscore [%d,6] lit=false, want true", x)
+		}
+	}
+	// NOT the robot's full-width arms: row 4 (sprite row 3) cols 0 and 9 must be dark for >_.
+	if f.Dirty[4][0] || f.Dirty[4][9] {
+		t.Error("codex frame lit robot arm cols at row 4; want >_ geometry, not robot")
+	}
+}
+
+func TestCodexSpriteCanonical(t *testing.T) {
+	want := []string{
+		"XX........",
+		".XX.......",
+		"..XX......",
+		"..XX......",
+		".XX.......",
+		"XX...XXXXX",
+	}
+	if len(codexSprite) != len(want) {
+		t.Fatalf("codexSprite has %d rows, want %d", len(codexSprite), len(want))
+	}
+	for i := range want {
+		if codexSprite[i] != want[i] {
+			t.Errorf("row %d = %q, want %q", i, codexSprite[i], want[i])
 		}
 	}
 }
