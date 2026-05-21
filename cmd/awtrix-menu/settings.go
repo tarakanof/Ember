@@ -116,33 +116,36 @@ func showError(msg string) {
 
 // settingsMenu owns the Settings submenu items and the producer.env path.
 type settingsMenu struct {
-	envPath  string
-	source   *systray.MenuItem
-	server   *systray.MenuItem
-	token    *systray.MenuItem
-	color    *systray.MenuItem
-	ctxTrack *systray.MenuItem
-	window   *systray.MenuItem
+	envPath   string
+	source    *systray.MenuItem
+	server    *systray.MenuItem
+	token     *systray.MenuItem
+	color     *systray.MenuItem
+	ctxTrack  *systray.MenuItem
+	rateTrack *systray.MenuItem
+	window    *systray.MenuItem
 }
 
 // buildSettingsMenu populates parent with the settings items and launches
 // a click-handler goroutine per item. Returns the handle for refresh().
 func buildSettingsMenu(parent *systray.MenuItem, envPath string) *settingsMenu {
 	s := &settingsMenu{
-		envPath:  envPath,
-		source:   parent.AddSubMenuItem("Source: …", "Edit STATUS_SOURCE"),
-		server:   parent.AddSubMenuItem("Server URL: …", "Edit STATUS_SERVER_URL"),
-		token:    parent.AddSubMenuItem("Token: …", "Edit STATUS_TOKEN"),
-		color:    parent.AddSubMenuItem("Source color: …", "Edit STATUS_SOURCE_COLOR"),
-		ctxTrack: parent.AddSubMenuItemCheckbox("Context % tracking", "Toggle STATUS_CONTEXT_PCT_ENABLED", true),
-		window:   parent.AddSubMenuItem("Context window: …", "Edit STATUS_CONTEXT_WINDOW_TOKENS"),
+		envPath:   envPath,
+		source:    parent.AddSubMenuItem("Source: …", "Edit STATUS_SOURCE"),
+		server:    parent.AddSubMenuItem("Server URL: …", "Edit STATUS_SERVER_URL"),
+		token:     parent.AddSubMenuItem("Token: …", "Edit STATUS_TOKEN"),
+		color:     parent.AddSubMenuItem("Source color: …", "Edit STATUS_SOURCE_COLOR"),
+		ctxTrack:  parent.AddSubMenuItemCheckbox("Context % tracking", "Toggle STATUS_CONTEXT_PCT_ENABLED", true),
+		rateTrack: parent.AddSubMenuItemCheckbox("5h rate-limit %", "Toggle STATUS_RATE_PCT_ENABLED", true),
+		window:    parent.AddSubMenuItem("Context window: …", "Edit STATUS_CONTEXT_WINDOW_TOKENS"),
 	}
 	go s.handleText(s.source, "STATUS_SOURCE", "Source identifier for this machine:")
 	go s.handleText(s.server, "STATUS_SERVER_URL", "Server URL (e.g. http://localhost:8080):")
 	go s.handleToken()
 	go s.handleText(s.color, "STATUS_SOURCE_COLOR", "Source colour as #RRGGBB (blank = none):")
 	go s.handleText(s.window, "STATUS_CONTEXT_WINDOW_TOKENS", "Context window in tokens (blank or 0 = model default):")
-	go s.handleToggle()
+	go s.handleCheckbox(s.ctxTrack, "STATUS_CONTEXT_PCT_ENABLED")
+	go s.handleCheckbox(s.rateTrack, "STATUS_RATE_PCT_ENABLED")
 	return s
 }
 
@@ -184,21 +187,33 @@ func (s *settingsMenu) handleToken() {
 	}
 }
 
-func (s *settingsMenu) handleToggle() {
-	for range s.ctxTrack.ClickedCh {
-		rec := s.readRec()
-		next := "true"
-		if isEnvTrue(rec.get("STATUS_CONTEXT_PCT_ENABLED")) {
-			next = "false"
-		}
-		if err := s.write("STATUS_CONTEXT_PCT_ENABLED", next); err != nil {
+// flip toggles a boolean producer.env key (true<->false) using the
+// producer's default-true semantics, persists it, and returns the new
+// value.
+func (s *settingsMenu) flip(key string) (string, error) {
+	next := "true"
+	if isEnvTrue(s.readRec().get(key)) {
+		next = "false"
+	}
+	if err := s.write(key, next); err != nil {
+		return "", err
+	}
+	return next, nil
+}
+
+// handleCheckbox owns one checkbox item: each click flips its env key and
+// reflects the new value in the menu check state.
+func (s *settingsMenu) handleCheckbox(mi *systray.MenuItem, key string) {
+	for range mi.ClickedCh {
+		next, err := s.flip(key)
+		if err != nil {
 			showError("save failed: " + err.Error())
 			continue
 		}
 		if next == "true" {
-			s.ctxTrack.Check()
+			mi.Check()
 		} else {
-			s.ctxTrack.Uncheck()
+			mi.Uncheck()
 		}
 	}
 }
@@ -243,6 +258,11 @@ func (s *settingsMenu) refresh(rec *envRec) {
 		s.ctxTrack.Check()
 	} else {
 		s.ctxTrack.Uncheck()
+	}
+	if isEnvTrue(rec.get("STATUS_RATE_PCT_ENABLED")) {
+		s.rateTrack.Check()
+	} else {
+		s.rateTrack.Uncheck()
 	}
 }
 

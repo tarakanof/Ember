@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestValidateSetting(t *testing.T) {
 	tests := []struct {
@@ -56,5 +60,30 @@ func TestIsEnvTrue(t *testing.T) {
 		if isEnvTrue(v) {
 			t.Errorf("isEnvTrue(%q) = true, want false", v)
 		}
+	}
+}
+
+func TestSettingsFlip(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &settingsMenu{envPath: filepath.Join(dir, "producer.env")}
+
+	// Absent key defaults to true (isEnvTrue), so first flip → false.
+	got, err := s.flip("STATUS_RATE_PCT_ENABLED")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "false" {
+		t.Errorf("flip from default = %q, want false", got)
+	}
+	// Second flip → true.
+	if got, _ = s.flip("STATUS_RATE_PCT_ENABLED"); got != "true" {
+		t.Errorf("second flip = %q, want true", got)
+	}
+	// The context key must be untouched by flipping the rate key.
+	if v := s.readRec().get("STATUS_CONTEXT_PCT_ENABLED"); v != "" {
+		t.Errorf("context key mutated = %q, want empty", v)
 	}
 }
