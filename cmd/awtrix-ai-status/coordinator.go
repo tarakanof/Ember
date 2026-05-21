@@ -109,8 +109,8 @@ type coordinator struct {
 	// stutter; skipping no-op refreshes keeps the animation steady.
 	// Only success updates these fields so failed publishes still
 	// retry on the next tick.
-	lastPayloadBytes  []byte
-	lastPublishedAt   time.Time
+	lastPayloadBytes []byte
+	lastPublishedAt  time.Time
 }
 
 type coordIdleMode int
@@ -407,6 +407,9 @@ func (c *coordinator) publish(snap Snapshot) {
 	var payload map[string]any
 	switch mode {
 	case idleModeActive:
+		// pointer/cardCursor/locked are read without muTest: publish runs only
+		// on the coordinator goroutine that also writes them; the lock exists
+		// solely so tests can read this state race-free.
 		payload = RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime)
 	case idleModeDimmed:
 		payload = RenderIdleFrame(lifetime)

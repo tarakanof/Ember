@@ -64,7 +64,10 @@ func TestFold_TokenCountIsDataOnly(t *testing.T) {
 	}
 }
 
-func TestFold_ContextPctGatedButRateNotGated(t *testing.T) {
+// TestFold_ContextGatedOff_RateStillCaptured proves the two metric gates are
+// independent: with context capture disabled (and rate enabled via foldAll),
+// contextPct is dropped while rateWindowPct is still recorded.
+func TestFold_ContextGatedOff_RateStillCaptured(t *testing.T) {
 	d := foldAll([]string{evStarted, evToken}, false)
 	if d.contextPct != nil {
 		t.Errorf("contextPct should be nil when disabled, got %v", *d.contextPct)
