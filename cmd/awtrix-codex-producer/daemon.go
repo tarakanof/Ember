@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -35,20 +36,28 @@ func runDaemon() {
 		runOnce(ctx, w, client)
 		select {
 		case <-ctx.Done():
+			for _, ss := range w.sessions {
+				_ = removeMarker(cfg.StateDir, ss.uuid)
+			}
 			return
 		case <-ticker.C:
 		}
 	}
 }
 
-// runOnce performs a single reconcile pass, issuing the resulting POSTs/DELETEs.
+// runOnce performs a single reconcile pass, issuing POSTs/DELETEs and keeping
+// the menu-bar marker files in sync (write on POST, remove on DELETE).
 func runOnce(ctx context.Context, w *watcher, client *producer.Client) {
 	posts, deletes := w.tick()
 	for _, req := range posts {
 		_ = client.Post(ctx, req)
+		if body, err := json.Marshal(req); err == nil {
+			_ = writeMarker(w.cfg.StateDir, req.Session, body)
+		}
 	}
 	for _, req := range deletes {
 		_ = client.Delete(ctx, req)
+		_ = removeMarker(w.cfg.StateDir, req.Session)
 	}
 }
 
