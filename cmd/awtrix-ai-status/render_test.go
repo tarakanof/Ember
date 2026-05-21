@@ -868,3 +868,50 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestRateText(t *testing.T) {
+	cases := map[int]string{0: "0%", 7: "7%", 73: "73%", 99: "99%", 100: "99%", 150: "99%", -5: "0%"}
+	for in, want := range cases {
+		if got := rateText(in); got != want {
+			t.Errorf("rateText(%d) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRateColor(t *testing.T) {
+	cases := map[int]RGB{0: colorRunning, 69: colorRunning, 70: colorWaiting, 89: colorWaiting, 90: colorError, 100: colorError}
+	for in, want := range cases {
+		if got := rateColor(in); got != want {
+			t.Errorf("rateColor(%d) = %+v, want %+v", in, got, want)
+		}
+	}
+}
+
+func TestPercentGlyphDecodable(t *testing.T) {
+	g := glyph('%')
+	if g == nil {
+		t.Fatal("'%' glyph missing from font3x5")
+	}
+	if len(g) != 5 {
+		t.Fatalf("'%%' glyph has %d rows, want 5", len(g))
+	}
+	for i, row := range g {
+		if len(row) != 3 {
+			t.Errorf("'%%' glyph row %d width = %d, want 3", i, len(row))
+		}
+	}
+}
+
+func TestCardsForSession(t *testing.T) {
+	pct := 50
+	if got := cardsForSession(Session{}); got != 1 {
+		t.Errorf("cardsForSession(no rate) = %d, want 1", got)
+	}
+	if got := cardsForSession(Session{RateWindowPct: &pct}); got != 2 {
+		t.Errorf("cardsForSession(with rate) = %d, want 2", got)
+	}
+	zero := 0
+	if got := cardsForSession(Session{RateWindowPct: &zero}); got != 2 {
+		t.Errorf("cardsForSession(rate=&0) = %d, want 2 (0%% is present)", got)
+	}
+}

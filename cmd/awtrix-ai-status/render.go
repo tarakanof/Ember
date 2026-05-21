@@ -71,6 +71,7 @@ var font3x5 = map[rune][]string{
 	'9': {"XXX", "X.X", "XXX", "..X", "XXX"},
 	'/': {"..X", "..X", ".X.", "X..", "X.."},
 	'+': {"...", ".X.", "XXX", ".X.", "..."},
+	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
 }
 
 // glyph returns the sprite for the given rune, or nil when unsupported.
@@ -297,6 +298,49 @@ var (
 	colorDone    = RGB{0x4f, 0xa9, 0xff}
 	colorWhite   = RGB{0xff, 0xff, 0xff}
 )
+
+// Card identifies which readout the number slot shows for the current
+// session. cardXY is the rotation index "X/Y"; cardRate is the 5h
+// rate-limit "NN%". cardsForSession returns how many cards a session
+// offers — the rate card exists only when RateWindowPct is non-nil.
+const (
+	cardXY = iota
+	cardRate
+)
+
+func cardsForSession(s Session) int {
+	if s.RateWindowPct != nil {
+		return 2
+	}
+	return 1
+}
+
+// rateText renders a 5h-rate percent as "NN%". Clamped to 0..99 so the
+// 3-glyph value always fits cols 12–22 (before the glass at col 25); the
+// red threshold colour already signals a maxed window, so 99 vs 100 is
+// immaterial on an ambient display.
+func rateText(pct int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 99 {
+		pct = 99
+	}
+	return itoa(pct) + "%"
+}
+
+// rateColor threshold-colours the rate readout, matching Claude Code's
+// statusline convention: <70 green, 70–89 amber, >=90 red.
+func rateColor(pct int) RGB {
+	switch {
+	case pct >= 90:
+		return colorError
+	case pct >= 70:
+		return colorWaiting
+	default:
+		return colorRunning
+	}
+}
 
 // pickWinning returns the priority-winning session, its state colour, and
 // the total active session count (any non-idle session). When no session
