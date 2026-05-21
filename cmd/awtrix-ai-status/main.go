@@ -195,26 +195,28 @@ func (c *Config) applyDefaults() {
 }
 
 type StatusRequest struct {
-	Source      string  `json:"source"`
-	Tool        string  `json:"tool"`
-	Session     string  `json:"session"`
-	State       string  `json:"state"`
-	Message     string  `json:"message"`
-	TokensToday int64   `json:"tokens_today"`
-	ContextPct  *int    `json:"context_pct,omitempty"`
-	SourceColor *string `json:"source_color,omitempty"`
+	Source        string  `json:"source"`
+	Tool          string  `json:"tool"`
+	Session       string  `json:"session"`
+	State         string  `json:"state"`
+	Message       string  `json:"message"`
+	TokensToday   int64   `json:"tokens_today"`
+	ContextPct    *int    `json:"context_pct,omitempty"`
+	SourceColor   *string `json:"source_color,omitempty"`
+	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
 }
 
 type Session struct {
-	Source      string    `json:"source"`
-	Tool        string    `json:"tool"`
-	Session     string    `json:"session"`
-	State       string    `json:"state"`
-	Message     string    `json:"message"`
-	TokensToday int64     `json:"tokens_today,omitempty"`
-	ContextPct  *int      `json:"context_pct,omitempty"`
-	SourceColor *string   `json:"source_color,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Source        string    `json:"source"`
+	Tool          string    `json:"tool"`
+	Session       string    `json:"session"`
+	State         string    `json:"state"`
+	Message       string    `json:"message"`
+	TokensToday   int64     `json:"tokens_today,omitempty"`
+	ContextPct    *int      `json:"context_pct,omitempty"`
+	SourceColor   *string   `json:"source_color,omitempty"`
+	RateWindowPct *int      `json:"rate_window_pct,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 func (r StatusRequest) normalized() Session {
@@ -240,15 +242,16 @@ func (r StatusRequest) normalized() Session {
 	}
 
 	return Session{
-		Source:      source,
-		Tool:        tool,
-		Session:     session,
-		State:       state,
-		Message:     strings.TrimSpace(r.Message),
-		TokensToday: r.TokensToday,
-		ContextPct:  r.ContextPct,
-		SourceColor: r.SourceColor,
-		UpdatedAt:   time.Now(),
+		Source:        source,
+		Tool:          tool,
+		Session:       session,
+		State:         state,
+		Message:       strings.TrimSpace(r.Message),
+		TokensToday:   r.TokensToday,
+		ContextPct:    r.ContextPct,
+		SourceColor:   r.SourceColor,
+		RateWindowPct: r.RateWindowPct,
+		UpdatedAt:     time.Now(),
 	}
 }
 
@@ -277,6 +280,11 @@ func (r StatusRequest) validate() error {
 	if r.SourceColor != nil {
 		if !isHexColor(*r.SourceColor) {
 			return fmt.Errorf("source_color %q must match #RRGGBB hex", *r.SourceColor)
+		}
+	}
+	if r.RateWindowPct != nil {
+		if *r.RateWindowPct < 0 || *r.RateWindowPct > 100 {
+			return fmt.Errorf("rate_window_pct out of range %d (must be 0..100)", *r.RateWindowPct)
 		}
 	}
 	return nil

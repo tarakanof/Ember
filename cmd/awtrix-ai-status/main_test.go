@@ -1014,3 +1014,25 @@ func TestValidateConfig_G2_BoundaryAccepted(t *testing.T) {
 		})
 	}
 }
+
+func TestStatusRequest_RateWindowPctRoundTrips(t *testing.T) {
+	rw := 73
+	s := StatusRequest{Source: "mbp", Tool: "codex", Session: "u1", State: "running", RateWindowPct: &rw}.normalized()
+	if s.RateWindowPct == nil || *s.RateWindowPct != 73 {
+		t.Fatalf("RateWindowPct = %v, want 73", s.RateWindowPct)
+	}
+}
+
+func TestStatusRequest_RateWindowPctRangeValidated(t *testing.T) {
+	for _, bad := range []int{-1, 101} {
+		b := bad
+		err := StatusRequest{Source: "x", Tool: "codex", Session: "s", State: "running", RateWindowPct: &b}.validate()
+		if err == nil {
+			t.Errorf("rate_window_pct=%d should be rejected", bad)
+		}
+	}
+	ok := 0
+	if err := (StatusRequest{Source: "x", Tool: "codex", Session: "s", State: "running", RateWindowPct: &ok}).validate(); err != nil {
+		t.Errorf("rate_window_pct=0 should be valid, got %v", err)
+	}
+}
