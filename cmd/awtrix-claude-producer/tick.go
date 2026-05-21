@@ -83,7 +83,7 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			return nil
 		}
 		if cfg.ContextPctEnabled {
-			if pct, err := computeContextPct(req.Session); err == nil && pct != nil {
+			if pct, err := computeContextPct(req.Session, cfg.ContextWindowTokens); err == nil && pct != nil {
 				req.ContextPct = pct
 			}
 		}

@@ -5,7 +5,7 @@
   "awtrix": {
     "http_base_url": "http://192.168.0.14",
     "app_name": "ai_status",
-    "timeout_seconds": 5
+    "timeout_seconds": 10
   },
   "auth": {
     "status_token_env": "STATUS_TOKEN"

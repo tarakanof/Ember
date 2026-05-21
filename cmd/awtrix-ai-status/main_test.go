@@ -941,6 +941,19 @@ func TestDefaultConfig_NewDisplayFields(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_PublishTimeoutTenSeconds(t *testing.T) {
+	// Bumped 5→10 to tolerate slow-but-reachable ESP32 responses on flaky
+	// WiFi; the coordinator still retries on the next tick.
+	if got := defaultConfig().AWTRIX.TimeoutSeconds; got != 10 {
+		t.Errorf("defaultConfig timeout_seconds = %d, want 10", got)
+	}
+	c := Config{}
+	c.applyDefaults()
+	if c.AWTRIX.TimeoutSeconds != 10 {
+		t.Errorf("applyDefaults timeout_seconds = %d, want 10", c.AWTRIX.TimeoutSeconds)
+	}
+}
+
 func TestDefaultConfig_G2Fields(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()

@@ -92,7 +92,7 @@ func defaultConfig() Config {
 		AWTRIX: AWTRIXConfig{
 			HTTPBaseURL:    "http://192.168.0.14",
 			AppName:        "ai_status",
-			TimeoutSeconds: 5,
+			TimeoutSeconds: 10,
 		},
 		Auth: AuthConfig{
 			StatusTokenEnv: "STATUS_TOKEN",
@@ -147,7 +147,7 @@ func (c *Config) applyDefaults() {
 		c.AWTRIX.AppName = "ai_status"
 	}
 	if c.AWTRIX.TimeoutSeconds <= 0 {
-		c.AWTRIX.TimeoutSeconds = 5
+		c.AWTRIX.TimeoutSeconds = 10
 	}
 	if c.Display.IdleText == "" {
 		c.Display.IdleText = "AI idle"

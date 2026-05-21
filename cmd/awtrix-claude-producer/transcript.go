@@ -27,10 +27,24 @@ func findTranscriptPath(sessionID string) (string, error) {
 	return matches[0], nil
 }
 
-// contextWindowTokens is the model context window assumed for percent
-// calculation. Hard-coded to 200_000 to cover Sonnet 4.x, Haiku 4.x,
-// and Opus 4.x (without the 1M flag).
-const contextWindowTokens = 200_000
+// defaultContextWindowTokens is the fallback model context window used
+// for percent calculation when no override is configured and the model
+// is unrecognized. 200_000 covers Sonnet 4.x, Haiku 4.x, and Opus 4.x
+// without the 1M-context flag.
+const defaultContextWindowTokens = 200_000
+
+// modelContextWindow returns the assumed context window for a model ID
+// read from the transcript. The 1M-context beta is NOT expressed in the
+// model string (an Opus 1M session still reports "claude-opus-4-7"), so
+// callers that run 1M context must set STATUS_CONTEXT_WINDOW_TOKENS to
+// override this — model detection alone cannot distinguish the two.
+// All currently-known Claude 4.x models share the 200k base window, so
+// this returns the default for every recognized and unrecognized model;
+// the function exists as the single place to add model-specific windows
+// when future models ship with a different base.
+func modelContextWindow(model string) int {
+	return defaultContextWindowTokens
+}
 
 type transcriptUsage struct {
 	InputTokens              int `json:"input_tokens"`
@@ -42,17 +56,20 @@ type transcriptUsage struct {
 type transcriptEntry struct {
 	Type    string `json:"type"`
 	Message *struct {
+		Model string           `json:"model,omitempty"`
 		Usage *transcriptUsage `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
 }
 
 // computeContextPct scans the session's transcript JSONL for the
 // latest assistant entry that carries a non-empty message.usage and
-// returns the clamped [0, 100] percentage of contextWindowTokens it
-// represents. Returns (nil, nil) when the transcript exists but has
-// no usable usage data. Returns (nil, err wrapping os.ErrNotExist)
-// when the transcript file isn't found.
-func computeContextPct(sessionID string) (*int, error) {
+// returns the clamped [0, 100] percentage of the context window it
+// represents. The window is overrideWindow when > 0; otherwise it is
+// derived from the latest entry's model via modelContextWindow.
+// Returns (nil, nil) when the transcript exists but has no usable usage
+// data. Returns (nil, err wrapping os.ErrNotExist) when the transcript
+// file isn't found.
+func computeContextPct(sessionID string, overrideWindow int) (*int, error) {
 	path, err := findTranscriptPath(sessionID)
 	if err != nil {
 		return nil, err
@@ -62,6 +79,7 @@ func computeContextPct(sessionID string) (*int, error) {
 		return nil, err
 	}
 	var lastUsage *transcriptUsage
+	var lastModel string
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		if len(line) == 0 {
 			continue
@@ -74,12 +92,17 @@ func computeContextPct(sessionID string) (*int, error) {
 			continue
 		}
 		lastUsage = entry.Message.Usage
+		lastModel = entry.Message.Model
 	}
 	if lastUsage == nil {
 		return nil, nil
 	}
+	window := overrideWindow
+	if window <= 0 {
+		window = modelContextWindow(lastModel)
+	}
 	total := lastUsage.InputTokens + lastUsage.CacheCreationInputTokens + lastUsage.CacheReadInputTokens + lastUsage.OutputTokens
-	pct := total * 100 / contextWindowTokens
+	pct := total * 100 / window
 	if pct < 0 {
 		pct = 0
 	}

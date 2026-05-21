@@ -17,13 +17,14 @@ const (
 )
 
 type Config struct {
-	Source            string
-	ServerURL         string
-	Token             string
-	HeartbeatTTLHours int
-	HookTimeoutMs     int
-	SourceColor       string
-	ContextPctEnabled bool
+	Source              string
+	ServerURL           string
+	Token               string
+	HeartbeatTTLHours   int
+	HookTimeoutMs       int
+	SourceColor         string
+	ContextPctEnabled   bool
+	ContextWindowTokens int
 }
 
 // LogValue redacts the token. Implements slog.LogValuer.
@@ -40,6 +41,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("hook_timeout_ms", c.HookTimeoutMs),
 		slog.String("source_color", c.SourceColor),
 		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
+		slog.Int("context_window_tokens", c.ContextWindowTokens),
 	)
 }
 
@@ -82,6 +84,10 @@ func loadConfig() (Config, error) {
 				cfg.ContextPctEnabled = false
 			case "true", "1", "yes", "on", "":
 				cfg.ContextPctEnabled = true
+			}
+		case "STATUS_CONTEXT_WINDOW_TOKENS":
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				cfg.ContextWindowTokens = n
 			}
 		}
 	}

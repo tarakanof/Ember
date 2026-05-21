@@ -57,7 +57,7 @@ func writeTranscript(t *testing.T, lines ...string) string {
 
 func TestComputeContextPct_MissingFile_ReturnsNil(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	pct, err := computeContextPct("does-not-exist")
+	pct, err := computeContextPct("does-not-exist", 0)
 	if pct != nil {
 		t.Errorf("pct = %v, want nil", pct)
 	}
@@ -68,7 +68,7 @@ func TestComputeContextPct_MissingFile_ReturnsNil(t *testing.T) {
 
 func TestComputeContextPct_EmptyFile_ReturnsNil(t *testing.T) {
 	sessionID := writeTranscript(t)
-	pct, _ := computeContextPct(sessionID)
+	pct, _ := computeContextPct(sessionID, 0)
 	if pct != nil {
 		t.Errorf("pct = %v, want nil", pct)
 	}
@@ -79,7 +79,7 @@ func TestComputeContextPct_NoAssistantUsage_ReturnsNil(t *testing.T) {
 		`{"type":"user","message":{"role":"user","content":"hi"}}`,
 		`{"type":"last-prompt","sessionId":"x"}`,
 	)
-	pct, _ := computeContextPct(sessionID)
+	pct, _ := computeContextPct(sessionID, 0)
 	if pct != nil {
 		t.Errorf("pct = %v, want nil", pct)
 	}
@@ -90,7 +90,7 @@ func TestComputeContextPct_SingleUsage(t *testing.T) {
 	sessionID := writeTranscript(t,
 		`{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":1000,"cache_creation_input_tokens":50000,"cache_read_input_tokens":48000,"output_tokens":1000}}}`,
 	)
-	pct, err := computeContextPct(sessionID)
+	pct, err := computeContextPct(sessionID, 0)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestComputeContextPct_LatestWins(t *testing.T) {
 		`{"type":"user","message":{"role":"user","content":"more"}}`,
 		`{"type":"assistant","message":{"usage":{"input_tokens":160000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`,
 	)
-	pct, _ := computeContextPct(sessionID)
+	pct, _ := computeContextPct(sessionID, 0)
 	if pct == nil || *pct != 80 {
 		t.Errorf("pct = %v, want 80", pct)
 	}
@@ -118,7 +118,7 @@ func TestComputeContextPct_Clamps_Over100(t *testing.T) {
 	sessionID := writeTranscript(t,
 		`{"type":"assistant","message":{"usage":{"input_tokens":300000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`,
 	)
-	pct, _ := computeContextPct(sessionID)
+	pct, _ := computeContextPct(sessionID, 0)
 	if pct == nil || *pct != 100 {
 		t.Errorf("pct = %v, want 100", pct)
 	}
@@ -132,7 +132,7 @@ func TestComputeContextPct_PartialLastLine_Ignored(t *testing.T) {
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	f.WriteString(`{"type":"assistant","message":{"usage":{"input_tok`)
 	f.Close()
-	pct, _ := computeContextPct(sessionID)
+	pct, _ := computeContextPct(sessionID, 0)
 	if pct == nil || *pct != 25 {
 		t.Errorf("pct = %v, want 25 (partial last line should be ignored)", pct)
 	}
@@ -142,8 +142,42 @@ func TestComputeContextPct_UnknownFields_Tolerated(t *testing.T) {
 	sessionID := writeTranscript(t,
 		`{"type":"assistant","uuid":"abc","extraNewField":42,"message":{"id":"msg_x","role":"assistant","usage":{"input_tokens":10000,"cache_creation_input_tokens":40000,"cache_read_input_tokens":0,"output_tokens":0,"service_tier":"standard"}}}`,
 	)
-	pct, _ := computeContextPct(sessionID)
+	pct, _ := computeContextPct(sessionID, 0)
 	if pct == nil || *pct != 25 {
 		t.Errorf("pct = %v, want 25", pct)
+	}
+}
+
+func TestComputeContextPct_OverrideWindow(t *testing.T) {
+	// 300k tokens clamps to 100 against the 200k default, but is only
+	// 30% of a 1M override window.
+	sessionID := writeTranscript(t,
+		`{"type":"assistant","message":{"model":"claude-opus-4-7","usage":{"input_tokens":300000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`,
+	)
+	pct, err := computeContextPct(sessionID, 1_000_000)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if pct == nil || *pct != 30 {
+		t.Errorf("pct = %v, want 30 (300k of 1M override)", pct)
+	}
+}
+
+func TestComputeContextPct_OverrideZero_UsesModelDefault(t *testing.T) {
+	// override 0 → modelContextWindow → 200k default. 100k of 200k = 50%.
+	sessionID := writeTranscript(t,
+		`{"type":"assistant","message":{"model":"claude-opus-4-7","usage":{"input_tokens":100000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`,
+	)
+	pct, _ := computeContextPct(sessionID, 0)
+	if pct == nil || *pct != 50 {
+		t.Errorf("pct = %v, want 50 (100k of 200k model default)", pct)
+	}
+}
+
+func TestModelContextWindow_DefaultsTo200k(t *testing.T) {
+	for _, model := range []string{"", "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5", "some-future-model"} {
+		if got := modelContextWindow(model); got != 200_000 {
+			t.Errorf("modelContextWindow(%q) = %d, want 200000", model, got)
+		}
 	}
 }

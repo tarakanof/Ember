@@ -120,7 +120,7 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 		req.SourceColor = &sc
 	}
 	if cfg.ContextPctEnabled {
-		if pct, err := computeContextPct(sessionID); err == nil && pct != nil {
+		if pct, err := computeContextPct(sessionID, cfg.ContextWindowTokens); err == nil && pct != nil {
 			req.ContextPct = pct
 		}
 	}
