@@ -59,6 +59,7 @@ type coordinator struct {
 
 	// State owned by the goroutine. Tests read it via muTest below.
 	pointer       string
+	cardCursor    int
 	locked        bool
 	lockedKey     string
 	lockEnteredAt time.Time
@@ -248,6 +249,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 	case attention && transition && !priorWasAttention:
 		// Fresh attention transition from a non-attention state.
 		c.pointer = key
+		c.cardCursor = 0
 		c.locked = true
 		c.lockedKey = key
 		c.lockEnteredAt = c.clk.Now()
@@ -283,6 +285,7 @@ func (c *coordinator) onDelete(key string) {
 	}
 	if c.pointer == key {
 		c.pointer = ""
+		c.cardCursor = 0
 	}
 	c.muTest.Unlock()
 	if c.snapshot != nil {
@@ -293,6 +296,7 @@ func (c *coordinator) onDelete(key string) {
 func (c *coordinator) onClear() {
 	c.muTest.Lock()
 	c.pointer = ""
+	c.cardCursor = 0
 	c.locked = false
 	c.lockedKey = ""
 	c.disarmLockTimerLocked()
@@ -357,13 +361,29 @@ func (c *coordinator) onTick() {
 	c.muTest.Unlock()
 
 	c.muTest.Lock()
-	if len(keys) == 0 {
+	switch {
+	case len(keys) == 0:
 		c.pointer = ""
-	} else if c.locked {
-		// When locked, the pointer stays on the locked key (don't advance).
+		c.cardCursor = 0
+	case c.locked:
+		// Locked: hold the target; cards never cycle during attention.
 		c.pointer = c.lockedKey
-	} else {
-		c.pointer = pickRotated(c.pointer, keys)
+		c.cardCursor = 0
+	case c.pointer == "" || !slices.Contains(keys, c.pointer):
+		// First tick or the pointed-at session was reaped: restart at the
+		// first session's xy card.
+		c.pointer = keys[0]
+		c.cardCursor = 0
+	default:
+		// Advance within the current session's cards, else move to the next
+		// session. n is resolved from the pre-advance pointer.
+		n := cardsForSession(sessionByKey(snap, c.pointer))
+		if c.cardCursor+1 < n {
+			c.cardCursor++
+		} else {
+			c.pointer = pickRotated(c.pointer, keys)
+			c.cardCursor = 0
+		}
 	}
 	c.muTest.Unlock()
 
@@ -387,7 +407,7 @@ func (c *coordinator) publish(snap Snapshot) {
 	var payload map[string]any
 	switch mode {
 	case idleModeActive:
-		payload = RenderForCoord(snap, c.pointer, cardXY, c.locked, lifetime)
+		payload = RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime)
 	case idleModeDimmed:
 		payload = RenderIdleFrame(lifetime)
 	case idleModeOff:

@@ -600,6 +600,81 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 	}
 }
 
+func TestCoord_Interleave_SingleRateSession(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	pct := 42
+	c.snapshot = func() Snapshot {
+		return Snapshot{Sessions: []Session{
+			{Source: "a", Tool: "b", Session: "s1", State: "running", RateWindowPct: &pct, UpdatedAt: clk.Now()},
+		}}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	readCursor := func() int {
+		c.muTest.RLock()
+		defer c.muTest.RUnlock()
+		return c.cardCursor
+	}
+	tick := func() { c.Send(coordCmd{kind: cmdTick}); time.Sleep(50 * time.Millisecond) }
+
+	tick() // pointer="" → s1, cursor 0 (xy)
+	if got := readCursor(); got != 0 {
+		t.Fatalf("after tick 1, cardCursor = %d, want 0", got)
+	}
+	tick() // same session, has rate → cursor 1 (rate)
+	if got := readCursor(); got != 1 {
+		t.Fatalf("after tick 2, cardCursor = %d, want 1", got)
+	}
+	tick() // cards exhausted → wrap session, cursor 0
+	if got := readCursor(); got != 0 {
+		t.Fatalf("after tick 3, cardCursor = %d, want 0 (wrap)", got)
+	}
+}
+
+func TestCoord_Interleave_TwoSessionsOrder(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	pct := 80
+	c.snapshot = func() Snapshot {
+		return Snapshot{Sessions: []Session{
+			{Source: "a", Tool: "b", Session: "s1", State: "running", RateWindowPct: &pct, UpdatedAt: clk.Now()},
+			{Source: "a", Tool: "b", Session: "s2", State: "running", UpdatedAt: clk.Now()},
+		}}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	read := func() (string, int) {
+		c.muTest.RLock()
+		defer c.muTest.RUnlock()
+		return c.pointer, c.cardCursor
+	}
+	tick := func() { c.Send(coordCmd{kind: cmdTick}); time.Sleep(50 * time.Millisecond) }
+
+	type stop struct {
+		ptr  string
+		card int
+	}
+	want := []stop{{"a/b/s1", 0}, {"a/b/s1", 1}, {"a/b/s2", 0}, {"a/b/s1", 0}}
+	for i, w := range want {
+		tick()
+		p, cu := read()
+		if p != w.ptr || cu != w.card {
+			t.Fatalf("after tick %d: (%q, %d), want (%q, %d)", i+1, p, cu, w.ptr, w.card)
+		}
+	}
+}
+
 // TestCoord_NewSessionMidCountdown_CancelsIdleTimer ensures that if a
 // session arrives partway through the idle countdown, the dim-frame
 // pathway is abandoned cleanly and the idleSince timestamp resets.
