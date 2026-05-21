@@ -1,6 +1,8 @@
 .DS_Store
 /awtrix-ai-status
 /awtrix-menu
+/awtrix-claude-producer
+/awtrix-codex-producer
 /config.json
 /dist/
 /.gocache/
