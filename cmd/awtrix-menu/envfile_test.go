@@ -90,3 +90,44 @@ func TestEnvFile_SetUpdatesLastDuplicate(t *testing.T) {
 		t.Errorf("after set last to \"\", get = %q, want \"\"", got)
 	}
 }
+
+func TestWriteEnvAtomic_RoundTripAnd0600(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "producer.env")
+	content := "STATUS_SOURCE=mbp\nSTATUS_SERVER_URL=http://localhost:8080\n"
+	if err := writeEnvAtomic(path, content); err != nil {
+		t.Fatalf("writeEnvAtomic: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Errorf("content = %q, want %q", got, content)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestWriteEnvAtomic_RefusesWideConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil { // group/other readable
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "producer.env")
+	err := writeEnvAtomic(path, "STATUS_SOURCE=x\n")
+	if err == nil {
+		t.Fatal("expected error for config dir wider than 0700, got nil")
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		t.Errorf("file was written despite wide dir; want refusal before write")
+	}
+}

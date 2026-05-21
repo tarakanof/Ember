@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -210,15 +209,6 @@ func (h *prefsHandler) renderError(w http.ResponseWriter, r *http.Request, nonce
 	})
 }
 
-var ctrlChars = func() string {
-	var s []byte
-	for i := 0; i < 32; i++ {
-		s = append(s, byte(i))
-	}
-	s = append(s, 127)
-	return string(s)
-}()
-
 func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	if err := r.ParseForm(); err != nil {
@@ -325,14 +315,6 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 	default:
 		// blank field + no Clear checkbox: leave STATUS_TOKEN untouched
 	}
-	// Refuse if the config dir is wider than 0700 (spec: prevents same-laptop
-	// non-owner reads of producer.env's directory).
-	if info, err := os.Stat(filepath.Dir(h.envPath)); err == nil {
-		if info.IsDir() && info.Mode().Perm()&0o077 != 0 {
-			http.Error(w, "config dir is wider than 0700; run `chmod 0700 "+filepath.Dir(h.envPath)+"` and try again", 500)
-			return
-		}
-	}
 	// Atomic write
 	if err := writeEnvAtomic(h.envPath, rec.serialize()); err != nil {
 		http.Error(w, "save failed: "+err.Error(), 500)
@@ -353,45 +335,6 @@ func (h *prefsHandler) handlePost(w http.ResponseWriter, r *http.Request) {
 		TokenSet:  rec.get("STATUS_TOKEN") != "",
 		Saved:     true,
 	})
-}
-
-// writeEnvAtomic writes content to path with mode 0600 via temp file + rename.
-// Hard-fails if chmod fails (token-bearing file).
-func writeEnvAtomic(path, content string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*.env")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		cleanup()
-		return fmt.Errorf("chmod 0600 failed: %w", err)
-	}
-	if _, err := tmp.WriteString(content); err != nil {
-		tmp.Close()
-		cleanup()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		cleanup()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		cleanup()
-		return err
-	}
-	return nil
 }
 
 // prefsServer wraps prefsHandler with a lazily-started loopback HTTP listener.

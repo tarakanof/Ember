@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -91,4 +93,59 @@ func (r *envRec) serialize() string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// ctrlChars is the set of ASCII control characters (0x00–0x1f plus DEL)
+// rejected in settings values.
+var ctrlChars = func() string {
+	var s []byte
+	for i := 0; i < 32; i++ {
+		s = append(s, byte(i))
+	}
+	s = append(s, 127)
+	return string(s)
+}()
+
+// writeEnvAtomic writes content to path with mode 0600 via temp file +
+// rename. It refuses to write when the containing directory is wider
+// than 0700 (prevents same-laptop non-owner reads of a token-bearing
+// file), and hard-fails if chmod fails.
+func writeEnvAtomic(path, content string) error {
+	dir := filepath.Dir(path)
+	if info, err := os.Stat(dir); err == nil && info.IsDir() && info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("config dir %s is wider than 0700; run `chmod 0700 %s` and try again", dir, dir)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".tmp-*.env")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpName) }
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("chmod 0600 failed: %w", err)
+	}
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		cleanup()
+		return err
+	}
+	return nil
 }
