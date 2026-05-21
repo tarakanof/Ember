@@ -42,7 +42,7 @@ If sandboxed Go cannot write to the default build cache, use a repo-local cache:
 GOCACHE="$PWD/.gocache" go test ./...
 ```
 
-Docker is available locally via OrbStack on the dev laptop. `docker buildx build`, `scripts/image-smoke.sh`, and ad-hoc `docker run` work directly. No need to push to a remote Docker host for development. (Stale earlier note that "Docker is not installed" no longer applies — OrbStack was added during sub-project E.1.)
+Docker is available locally via OrbStack on the dev laptop. `docker buildx build`, `scripts/image-smoke.sh`, and ad-hoc `docker run` work directly. No need to push to a remote Docker host for development.
 
 ## Coding Guidelines
 
