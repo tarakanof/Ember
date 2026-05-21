@@ -34,7 +34,7 @@ var (
 )
 
 func onSystrayReady() {
-	systray.SetIcon(iconForState("idle"))
+	systray.SetIcon(iconFor("idle", ""))
 	systray.SetTooltip("AWTRIX: idle")
 
 	statusItem = systray.AddMenuItem("Loading…", "")
@@ -108,20 +108,20 @@ func updateMenu(envPath string) {
 	// Status text
 	statusText := "AWTRIX: idle"
 	tip := "AWTRIX: idle"
+	label := toolLabel(view.DominantTool)
 	switch view.DominantState {
 	case "running":
-		statusText = "Claude — running" + suffix(view.LastMessage)
-		tip = "AWTRIX: Claude running" + suffix(view.LastMessage)
+		statusText = label + " — running" + suffix(view.LastMessage)
+		tip = "AWTRIX: " + label + " running" + suffix(view.LastMessage)
 	case "waiting":
-		statusText = "Claude — waiting" + suffix(view.LastMessage)
+		statusText = label + " — waiting" + suffix(view.LastMessage)
 		tip = "AWTRIX: waiting for approval"
 	case "error":
-		statusText = "Claude — error" + suffix(view.LastMessage)
+		statusText = label + " — error" + suffix(view.LastMessage)
 		tip = "AWTRIX: error" + suffix(view.LastMessage)
 	case "done":
-		// done has no dedicated icon (spec ships only 4: idle/running/waiting/error),
-		// so the icon falls back to idle while the text reflects the recent finish.
-		statusText = "Claude — done" + suffix(view.LastMessage)
+		// done has no dedicated icon (idle fallback); text reflects the recent finish.
+		statusText = label + " — done" + suffix(view.LastMessage)
 		tip = "AWTRIX: done" + suffix(view.LastMessage)
 	}
 	statusItem.SetTitle(statusText)
@@ -129,9 +129,9 @@ func updateMenu(envPath string) {
 	systray.SetTooltip(tip)
 
 	// Icon
-	icon := iconForState(view.DominantState)
+	icon := iconFor(view.DominantState, view.DominantTool)
 	if view.DominantState == "" {
-		icon = iconForState("idle")
+		icon = iconFor("idle", "")
 	}
 	systray.SetIcon(icon)
 
@@ -150,6 +150,14 @@ func suffix(s string) string {
 		return ""
 	}
 	return " — " + s
+}
+
+// toolLabel maps a session's tool to its display name; defaults to Claude.
+func toolLabel(tool string) string {
+	if tool == "codex" {
+		return "Codex"
+	}
+	return "Claude"
 }
 
 // startAndReap starts cmd and reaps it in a background goroutine so the

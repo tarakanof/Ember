@@ -31,6 +31,18 @@ var robotError = []string{
 	".X.X..X.X.",
 }
 
+// codexSprite is the Codex ">_" mark (10×6), kept pixel-identical to the copy
+// in cmd/awtrix-ai-status/render.go (guarded by TestCodexSpriteCanonical in
+// both packages). 2-px chevron (cols 0–3) + underscore (row 5, cols 5–9).
+var codexSprite = []string{
+	"XX........",
+	".XX.......",
+	"..XX......",
+	"..XX......",
+	".XX.......",
+	"XX...XXXXX",
+}
+
 // iconScale renders each sprite cell as an iconScale×iconScale block.
 // 10×6 sprite × 3 → a 30×18 px icon, matching the prior ~18px menu-bar
 // height.
@@ -57,21 +69,29 @@ func stateColor(state string) color.RGBA {
 var iconOnce sync.Once
 var iconCache = map[string][]byte{}
 
-func iconForState(state string) []byte {
+func iconFor(state, tool string) []byte {
 	iconOnce.Do(func() {
-		for _, s := range []string{"idle", "running", "waiting", "error", "done"} {
-			iconCache[s] = drawIcon(s)
+		for _, t := range []string{"claude", "codex"} {
+			for _, s := range []string{"idle", "running", "waiting", "error", "done"} {
+				iconCache[t+":"+s] = drawIcon(s, t)
+			}
 		}
 	})
-	if b, ok := iconCache[state]; ok {
+	if tool != "codex" {
+		tool = "claude"
+	}
+	if b, ok := iconCache[tool+":"+state]; ok {
 		return b
 	}
-	return iconCache["idle"]
+	return iconCache["claude:idle"]
 }
 
-func drawIcon(state string) []byte {
+func drawIcon(state, tool string) []byte {
 	sprite := robotNormal
-	if state == "error" {
+	switch {
+	case tool == "codex":
+		sprite = codexSprite
+	case state == "error":
 		sprite = robotError
 	}
 	c := stateColor(state)
