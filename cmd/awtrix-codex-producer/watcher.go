@@ -91,7 +91,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 		if lines, newOffset, err := readNewLines(path, ss.offset); err == nil {
 			for _, ln := range lines {
-				ss.derived.foldEvent(ln, w.cfg.ContextPctEnabled)
+				ss.derived.foldEvent(ln, w.cfg.ContextPctEnabled, w.cfg.RatePctEnabled)
 			}
 			ss.offset = newOffset
 		}

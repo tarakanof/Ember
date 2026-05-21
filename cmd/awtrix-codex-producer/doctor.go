@@ -22,6 +22,7 @@ func runDoctor() {
 	}
 	fmt.Printf("    source_color        = %q\n", cfg.SourceColor)
 	fmt.Printf("    context_pct_enabled = %v\n", cfg.ContextPctEnabled)
+	fmt.Printf("    rate_pct_enabled    = %v\n", cfg.RatePctEnabled)
 	fmt.Printf("    poll_interval_ms    = %d\n", cfg.PollIntervalMs)
 	fmt.Printf("    activity_window_s   = %d\n", cfg.ActivityWindowSeconds)
 	fmt.Printf("    sessions_dir        = %q\n", cfg.SessionsDir)

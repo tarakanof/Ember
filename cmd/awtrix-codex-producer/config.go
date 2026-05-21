@@ -23,6 +23,7 @@ type Config struct {
 	Token                 string
 	SourceColor           string
 	ContextPctEnabled     bool
+	RatePctEnabled        bool
 	PollIntervalMs        int
 	ActivityWindowSeconds int
 	SessionsDir           string
@@ -41,6 +42,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("token", tok),
 		slog.String("source_color", c.SourceColor),
 		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
+		slog.Bool("rate_pct_enabled", c.RatePctEnabled),
 		slog.Int("poll_interval_ms", c.PollIntervalMs),
 		slog.Int("activity_window_seconds", c.ActivityWindowSeconds),
 		slog.String("sessions_dir", c.SessionsDir),
@@ -55,6 +57,7 @@ func loadConfig() (Config, error) {
 	}
 	cfg := Config{
 		ContextPctEnabled:     true,
+		RatePctEnabled:        true,
 		PollIntervalMs:        defaultPollIntervalMs,
 		ActivityWindowSeconds: defaultActivityWindowSeconds,
 		SessionsDir:           filepath.Join(home, ".codex", "sessions"),
@@ -81,6 +84,13 @@ func loadConfig() (Config, error) {
 				cfg.ContextPctEnabled = false
 			case "true", "1", "yes", "on", "":
 				cfg.ContextPctEnabled = true
+			}
+		case "STATUS_RATE_PCT_ENABLED":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.RatePctEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.RatePctEnabled = true
 			}
 		case "STATUS_CODEX_POLL_INTERVAL_MS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {

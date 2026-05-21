@@ -69,3 +69,14 @@ func TestLoadConfig_PollIntervalFloor(t *testing.T) {
 		t.Errorf("PollIntervalMs = %d, want clamped to 250", cfg.PollIntervalMs)
 	}
 }
+
+func TestLoadConfig_RatePctEnabled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // no producer.env → defaults
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.RatePctEnabled {
+		t.Errorf("default RatePctEnabled = false, want true")
+	}
+}

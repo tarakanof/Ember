@@ -72,8 +72,8 @@ func isRunningEvent(t string) bool {
 
 // foldEvent applies one rollout line to d. Non-event_msg lines are ignored.
 // token_count is data-only (updates metrics, never state). contextPctEnabled
-// gates context_pct only; rate_window_pct is always captured.
-func (d *derived) foldEvent(line []byte, contextPctEnabled bool) {
+// gates context_pct; ratePctEnabled gates rate_window_pct.
+func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled bool) {
 	var rl rolloutLine
 	if json.Unmarshal(line, &rl) != nil || rl.Type != "event_msg" {
 		return
@@ -88,7 +88,7 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled bool) {
 			pct := clampPct(int(math.Round(100 * float64(p.Info.LastTokenUsage.InputTokens) / float64(p.Info.ModelContextWindow))))
 			d.contextPct = &pct
 		}
-		if p.RateLimits != nil {
+		if ratePctEnabled && p.RateLimits != nil {
 			r := clampPct(int(math.Round(p.RateLimits.Primary.UsedPercent)))
 			d.rateWindowPct = &r
 		}

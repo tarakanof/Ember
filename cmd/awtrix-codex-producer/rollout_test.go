@@ -32,7 +32,7 @@ func TestParseSessionMeta(t *testing.T) {
 func foldAll(lines []string, ctxEnabled bool) derived {
 	var d derived
 	for _, l := range lines {
-		d.foldEvent([]byte(l), ctxEnabled)
+		d.foldEvent([]byte(l), ctxEnabled, true)
 	}
 	return d
 }
@@ -96,5 +96,21 @@ func TestFold_IgnoresNonEventLines(t *testing.T) {
 	d := foldAll([]string{metaCLI, `{"type":"response_item","payload":{}}`, `{"type":"turn_context","payload":{}}`}, true)
 	if d.state != "" {
 		t.Errorf("non-event lines must not set state, got %q", d.state)
+	}
+}
+
+func TestFoldEvent_RateToggle(t *testing.T) {
+	line := []byte(`{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":62.4}}}}`)
+
+	var on derived
+	on.foldEvent(line, true, true)
+	if on.rateWindowPct == nil || *on.rateWindowPct != 62 {
+		t.Errorf("ratePctEnabled=true: rateWindowPct = %v, want 62", on.rateWindowPct)
+	}
+
+	var off derived
+	off.foldEvent(line, true, false)
+	if off.rateWindowPct != nil {
+		t.Errorf("ratePctEnabled=false: rateWindowPct = %v, want nil", off.rateWindowPct)
 	}
 }
