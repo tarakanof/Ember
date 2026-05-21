@@ -399,6 +399,18 @@ func sessionKey(s Session) string {
 	return s.key()
 }
 
+// sessionByKey returns the session in snap whose canonical key matches,
+// or the zero Session when absent. Shared by the coordinator's rotation
+// advance and RenderForCoord so both agree on the session a key names.
+func sessionByKey(snap Snapshot, key string) Session {
+	for i := range snap.Sessions {
+		if sessionKey(snap.Sessions[i]) == key {
+			return snap.Sessions[i]
+		}
+	}
+	return Session{}
+}
+
 // statePriority returns lower values for higher-priority states. Idle is
 // never returned by sortedActiveKeys, so the constant for idle is unused
 // here but kept for symmetry with the spec's ordering.
@@ -543,7 +555,7 @@ const numStart = 12
 // bitmap leaves clear. A full-width draw would paint zeros across the
 // right side of the matrix and clobber the text underneath — verified
 // empirically against device 0.98.
-func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds int) map[string]any {
+func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int) map[string]any {
 	keys := sortedActiveKeys(snap)
 	if len(keys) == 0 {
 		return nil
@@ -587,7 +599,7 @@ func RenderForCoord(snap Snapshot, pointer string, locked bool, lifetimeSeconds 
 		}
 	}
 
-	frame := composeFrame(*session, idx, total, stateColor, snap.Sessions)
+	frame := composeFrame(*session, idx, total, card, stateColor, snap.Sessions)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -627,17 +639,22 @@ func composeRobotPixels(s Session, robotColor RGB) []int {
 // regardless of robot colour. Glass uses the session's state colour
 // directly. Row 7 receives the session-count bar drawn from the full
 // active-session list `sessions` — see drawSessionBar.
-func composeFrame(s Session, idx, total int, robotColor RGB, sessions []Session) Frame {
+func composeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Session) Frame {
 	var f Frame
 	drawRobot(&f, s, robotColor)
 
-	digitColor := colorWhite
-	if s.SourceColor != nil {
-		if c, ok := parseHex(*s.SourceColor); ok {
-			digitColor = c
+	if card == cardRate && s.RateWindowPct != nil {
+		pct := *s.RateWindowPct
+		drawDigits(&f, rateText(pct), numStart, 1, rateColor(pct))
+	} else {
+		digitColor := colorWhite
+		if s.SourceColor != nil {
+			if c, ok := parseHex(*s.SourceColor); ok {
+				digitColor = c
+			}
 		}
+		drawDigits(&f, formatXY(idx, total), numStart, 1, digitColor)
 	}
-	drawDigits(&f, formatXY(idx, total), numStart, 1, digitColor)
 
 	glassFillColor := colorForState(s.State)
 	drawGlass(&f, s.ContextPct, glassFillColor)

@@ -387,7 +387,7 @@ func (c *coordinator) publish(snap Snapshot) {
 	var payload map[string]any
 	switch mode {
 	case idleModeActive:
-		payload = RenderForCoord(snap, c.pointer, c.locked, lifetime)
+		payload = RenderForCoord(snap, c.pointer, cardXY, c.locked, lifetime)
 	case idleModeDimmed:
 		payload = RenderIdleFrame(lifetime)
 	case idleModeOff:

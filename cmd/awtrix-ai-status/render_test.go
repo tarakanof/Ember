@@ -224,7 +224,7 @@ func TestDrawGlass(t *testing.T) {
 }
 
 func TestRenderForCoord_NoActive_ReturnsNil(t *testing.T) {
-	if got := RenderForCoord(Snapshot{}, "", false, 30); got != nil {
+	if got := RenderForCoord(Snapshot{}, "", cardXY, false, 30); got != nil {
 		t.Fatalf("empty snapshot: got %v, want nil", got)
 	}
 }
@@ -233,7 +233,7 @@ func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "c", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "missing/key/nope", false, 30)
+	payload := RenderForCoord(snap, "missing/key/nope", cardXY, false, 30)
 	if payload == nil {
 		t.Fatal("expected non-nil payload for single running session")
 	}
@@ -250,7 +250,7 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", SourceColor: &purple, UpdatedAt: time.Now()},
 		{Source: "a", Tool: "b", Session: "s2", State: "running", SourceColor: &green, UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/s2", false, 30)
+	payload := RenderForCoord(snap, "a/b/s2", cardXY, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// First digit '1' first sprite row col 1 → matrix (13, 1). Should be green.
 	if got, want := pixels[1*32+13], 0x2ee85e; got != want {
@@ -272,7 +272,7 @@ func TestRenderForCoord_LockedAttention_EmitsBlinkText(t *testing.T) {
 			snap := Snapshot{Sessions: []Session{
 				{Source: "a", Tool: "b", Session: "w", State: tc.state, UpdatedAt: time.Now()},
 			}}
-			payload := RenderForCoord(snap, "a/b/w", true, 30)
+			payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
 			assertBlinkText(t, payload, tc.wantLabel, tc.wantColor)
 		})
 	}
@@ -294,7 +294,7 @@ func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
 	}}
 	// Pointer locked on s2 (waiting) even though s1 (error) sorts first
 	// because state priority puts error ahead of waiting.
-	payload := RenderForCoord(snap, "a/b/s2", true, 30)
+	payload := RenderForCoord(snap, "a/b/s2", cardXY, true, 30)
 	assertBlinkText(t, payload, "WAIT", "#FFC14D")
 }
 
@@ -307,7 +307,7 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/w", true, 30)
+	payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
 	draw := payload["draw"].([]any)
 	db := draw[0].(map[string]any)["db"].([]any)
 	if db[2] != 10 {
@@ -405,7 +405,7 @@ func TestRenderForCoord_LockedButNotAttentionState_SingleFrame(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/r", true, 30)
+	payload := RenderForCoord(snap, "a/b/r", cardXY, true, 30)
 	frames := payload["draw"].([]any)
 	if len(frames) != 1 {
 		t.Fatalf("locked running: expected 1 frame, got %d", len(frames))
@@ -419,7 +419,7 @@ func TestRenderForCoord_Counts_XOverY(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s2", State: "running", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "s3", State: "running", UpdatedAt: now},
 	}}
-	payload := RenderForCoord(snap, "a/b/s2", false, 30)
+	payload := RenderForCoord(snap, "a/b/s2", cardXY, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// "2/3": first digit '2' starts at col 12. '2' glyph row 0 is "XXX",
 	// so cols 12, 13, 14 are lit at row 1.
@@ -784,7 +784,7 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 }
 
 func TestComposeFrame_CodexSprite(t *testing.T) {
-	f := composeFrame(Session{Tool: "codex", State: "running"}, 1, 1, RGB{0x2e, 0xe8, 0x5e}, nil)
+	f := composeFrame(Session{Tool: "codex", State: "running"}, 1, 1, cardXY, RGB{0x2e, 0xe8, 0x5e}, nil)
 	// Underscore: frame row 6 (sprite row 5, painted at y=1), cols 5–9 lit.
 	for _, x := range []int{5, 6, 7, 8, 9} {
 		if !f.Dirty[6][x] {
@@ -843,7 +843,7 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "s2", State: "waiting", UpdatedAt: now},
 	}}
-	payload := RenderForCoord(snap, "a/b/s1", false, 30)
+	payload := RenderForCoord(snap, "a/b/s1", cardXY, false, 30)
 	if payload == nil {
 		t.Fatal("expected non-nil payload")
 	}
@@ -898,6 +898,34 @@ func TestPercentGlyphDecodable(t *testing.T) {
 	for i, row := range g {
 		if len(row) != 3 {
 			t.Errorf("'%%' glyph row %d width = %d, want 3", i, len(row))
+		}
+	}
+}
+
+func TestRenderForCoord_RateCard_PaintsThresholdColor(t *testing.T) {
+	pct := 73
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", RateWindowPct: &pct, UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a/b/s1", cardRate, false, 30)
+	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	// "73%": '7' sprite row 0 is "XXX" at startY=1 → (12,1),(13,1),(14,1) lit amber.
+	if got, want := pixels[1*32+12], 0xffc14d; got != want {
+		t.Errorf("rate digit colour at (12,1) = %#06x, want %#06x (amber, 70-89)", got, want)
+	}
+}
+
+func TestRenderForCoord_RateCard_FallsBackToXYWhenNoData(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
+	}}
+	rate := RenderForCoord(snap, "a/b/s1", cardRate, false, 30)
+	xy := RenderForCoord(snap, "a/b/s1", cardXY, false, 30)
+	rp := rate["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	xp := xy["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	for i := range rp {
+		if rp[i] != xp[i] {
+			t.Fatalf("rate card with no data differs from xy at index %d; want identical (fallback)", i)
 		}
 	}
 }
