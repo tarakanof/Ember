@@ -145,6 +145,7 @@ func openSettingsWindow(envPath string) {
 		// Context-window-tokens field.
 		ctxField := appkit.NewTextField()
 		ctxField.SetStringValue(form.ContextWindow)
+		ctxField.SetPlaceholderString("blank = model default")
 		ctxField.SetFrame(foundation.Rect{Origin: foundation.Point{X: 168, Y: 74}, Size: foundation.Size{Width: 100, Height: rowH}})
 		ctxErr := newErrorLabel(foundation.Rect{Origin: foundation.Point{X: 272, Y: 78}, Size: foundation.Size{Width: 140, Height: 14}})
 		clockView.AddSubview(newFieldLabel("Context-window tokens", foundation.Point{X: 8, Y: 76}))

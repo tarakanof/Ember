@@ -28,7 +28,7 @@ func TestValidateSetting(t *testing.T) {
 		{"color short", "STATUS_SOURCE_COLOR", "#abc", "", true},
 		{"window ok", "STATUS_CONTEXT_WINDOW_TOKENS", "1000000", "1000000", false},
 		{"window blank ok", "STATUS_CONTEXT_WINDOW_TOKENS", "", "", false},
-		{"window zero ok", "STATUS_CONTEXT_WINDOW_TOKENS", "0", "0", false},
+		{"window zero rejected", "STATUS_CONTEXT_WINDOW_TOKENS", "0", "", true},
 		{"window negative", "STATUS_CONTEXT_WINDOW_TOKENS", "-5", "", true},
 		{"window non-numeric", "STATUS_CONTEXT_WINDOW_TOKENS", "lots", "", true},
 	}
@@ -125,7 +125,7 @@ func TestApplyForm(t *testing.T) {
 	rec.set("STATUS_TOKEN", "old-token")
 	rec.set("STATUS_UNKNOWN", "keepme")
 
-	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextWindow: "0", ContextPct: true, RatePct: false, ActivityDetail: true, ActivityTrail: true, Token: ""})
+	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextWindow: "200000", ContextPct: true, RatePct: false, ActivityDetail: true, ActivityTrail: true, Token: ""})
 	if rec.get("STATUS_TOKEN") != "old-token" {
 		t.Errorf("blank token should keep existing, got %q", rec.get("STATUS_TOKEN"))
 	}
