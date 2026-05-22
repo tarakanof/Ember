@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/dt/awtrix-ai-status/internal/producer"
 )
 
 // statuslineInput is the subset of Claude Code's statusline JSON we read.
@@ -20,6 +22,9 @@ type statuslineInput struct {
 			UsedPercentage float64 `json:"used_percentage"`
 		} `json:"five_hour"`
 	} `json:"rate_limits"`
+	ContextWindow *struct {
+		UsedPercentage float64 `json:"used_percentage"`
+	} `json:"context_window"`
 }
 
 func parseStatusline(b []byte) (statuslineInput, bool) {
@@ -44,6 +49,41 @@ func extractRatePct(in statuslineInput) (*int, bool) {
 		pct = 100
 	}
 	return &pct, true
+}
+
+// extractContextPct returns context_window.used_percentage as a clamped int
+// (0..100), or (nil,false) when context_window is absent.
+func extractContextPct(in statuslineInput) (*int, bool) {
+	if in.ContextWindow == nil {
+		return nil, false
+	}
+	pct := int(math.Round(in.ContextWindow.UsedPercentage))
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	return &pct, true
+}
+
+// contextPctEnabled reads STATUS_CONTEXT_PCT_ENABLED from producer.env (default
+// true). Flag-only read — no token, no full loadConfig — so the statusline keeps
+// its no-POST property while the menu glass toggle still gates the glass.
+func contextPctEnabled() bool {
+	path, err := envFilePath()
+	if err != nil {
+		return true
+	}
+	data, err := producer.ReadEnvFile(path)
+	if err != nil {
+		return true
+	}
+	switch strings.ToLower(data["STATUS_CONTEXT_PCT_ENABLED"]) {
+	case "false", "0", "no", "off":
+		return false
+	}
+	return true
 }
 
 func wrappedStatuslinePath(home string) string {
@@ -104,9 +144,18 @@ func statusLineIsOurs(v any) bool {
 func runStatusline() {
 	buf, _ := io.ReadAll(os.Stdin)
 	if in, ok := parseStatusline(buf); ok {
-		if pct, ok := extractRatePct(in); ok {
+		var ratePct, ctxPct *int
+		if p, ok := extractRatePct(in); ok {
+			ratePct = p
+		}
+		if contextPctEnabled() {
+			if p, ok := extractContextPct(in); ok {
+				ctxPct = p
+			}
+		}
+		if ratePct != nil || ctxPct != nil {
 			if dir, err := stateDir(); err == nil {
-				_ = enrichMarkerRate(dir, sanitizeSessionID(in.SessionID, in.Cwd), *pct)
+				_ = enrichMarker(dir, sanitizeSessionID(in.SessionID, in.Cwd), ratePct, ctxPct)
 			}
 		}
 	}
@@ -120,24 +169,27 @@ func runStatusline() {
 	os.Exit(0)
 }
 
-// enrichMarkerRate merges rate_window_pct into an EXISTING session marker,
-// preserving all hook-set fields. All checks happen inside the same flock the
-// hooks take. Enrich-only: absent marker (hooks own creation) or unparseable
-// marker (don't clobber hook data) → left untouched.
-func enrichMarkerRate(stateDir, sessionID string, pct int) error {
+// enrichMarker merges statusline-owned fields (rate_window_pct, context_pct)
+// into an EXISTING session marker, preserving hook-set fields. Each pointer is
+// applied only when non-nil; never clears. Absent/unparseable marker → skip.
+func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
 	return withLockEx(lp, func() error {
 		body, err := readMarker(mp)
 		if err != nil {
-			return nil // absent/unreadable → skip
+			return nil
 		}
 		var req StatusRequest
 		if json.Unmarshal(body, &req) != nil {
-			return nil // unparseable → skip (data-loss guard)
+			return nil
 		}
-		p := pct
-		req.RateWindowPct = &p
+		if ratePct != nil {
+			req.RateWindowPct = ratePct
+		}
+		if ctxPct != nil {
+			req.ContextPct = ctxPct
+		}
 		out, err := json.Marshal(req)
 		if err != nil {
 			return nil

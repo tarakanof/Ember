@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -42,14 +43,66 @@ func TestExtractRatePct(t *testing.T) {
 	}
 }
 
-func TestEnrichMarkerRate(t *testing.T) {
+func TestExtractContextPct(t *testing.T) {
+	cases := []struct {
+		name string
+		json string
+		want *int
+	}{
+		{"present", `{"context_window":{"used_percentage":54.4}}`, ratePtr(54)},
+		{"rounds up", `{"context_window":{"used_percentage":54.6}}`, ratePtr(55)},
+		{"clamp high", `{"context_window":{"used_percentage":250}}`, ratePtr(100)},
+		{"zero", `{"context_window":{"used_percentage":0}}`, ratePtr(0)},
+		{"absent", `{"session_id":"x"}`, nil},
+	}
+	for _, c := range cases {
+		in, ok := parseStatusline([]byte(c.json))
+		if !ok {
+			t.Fatalf("%s: parse failed", c.name)
+		}
+		got, gotOK := extractContextPct(in)
+		if c.want == nil {
+			if gotOK {
+				t.Errorf("%s: want none, got %d", c.name, *got)
+			}
+			continue
+		}
+		if !gotOK || got == nil || *got != *c.want {
+			t.Errorf("%s: got %v (ok=%v), want %d", c.name, got, gotOK, *c.want)
+		}
+	}
+}
+
+func TestContextPctEnabled(t *testing.T) {
+	write := func(t *testing.T, body string) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		dir := filepath.Join(home, ".config", "awtrix-ai-status")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "producer.env"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, "STATUS_SOURCE=mbp\n")
+	if !contextPctEnabled() {
+		t.Error("default (absent key) should be true")
+	}
+	write(t, "STATUS_SOURCE=mbp\nSTATUS_CONTEXT_PCT_ENABLED=off\n")
+	if contextPctEnabled() {
+		t.Error("=off should be false")
+	}
+}
+
+func TestEnrichMarker(t *testing.T) {
 	dir := t.TempDir()
 
 	mp := markerPath(dir, "sess1")
 	if err := os.WriteFile(mp, []byte(`{"source":"mbp","tool":"claude","session":"sess1","state":"running","message":"Bash"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarkerRate(dir, "sess1", 73); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(73), ratePtr(54)); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(mp)
@@ -60,22 +113,41 @@ func TestEnrichMarkerRate(t *testing.T) {
 	if req.RateWindowPct == nil || *req.RateWindowPct != 73 {
 		t.Errorf("rate_window_pct = %v, want 73", req.RateWindowPct)
 	}
+	if req.ContextPct == nil || *req.ContextPct != 54 {
+		t.Errorf("context_pct = %v, want 54", req.ContextPct)
+	}
 	if req.State != "running" || req.Source != "mbp" || req.Message != "Bash" {
 		t.Errorf("hook fields not preserved: %+v", req)
 	}
 
-	if err := enrichMarkerRate(dir, "ghost", 50); err != nil {
+	// nil ctx leaves context_pct untouched (rate-only enrichment).
+	if err := enrichMarker(dir, "sess1", ratePtr(80), nil); err != nil {
+		t.Fatal(err)
+	}
+	body, _ = os.ReadFile(mp)
+	req = StatusRequest{}
+	_ = json.Unmarshal(body, &req)
+	if req.ContextPct == nil || *req.ContextPct != 54 {
+		t.Errorf("nil ctx should leave context_pct=54, got %v", req.ContextPct)
+	}
+	if req.RateWindowPct == nil || *req.RateWindowPct != 80 {
+		t.Errorf("rate should update to 80, got %v", req.RateWindowPct)
+	}
+
+	// Absent marker → not created.
+	if err := enrichMarker(dir, "ghost", ratePtr(50), ratePtr(50)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(markerPath(dir, "ghost")); !os.IsNotExist(err) {
 		t.Error("ghost marker should not be created")
 	}
 
+	// Unparseable marker → untouched.
 	bad := markerPath(dir, "bad")
 	if err := os.WriteFile(bad, []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarkerRate(dir, "bad", 50); err != nil {
+	if err := enrichMarker(dir, "bad", ratePtr(50), ratePtr(50)); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(bad); string(got) != "not json" {
