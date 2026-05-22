@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/dt/awtrix-ai-status/internal/producer"
 )
 
 // hookInput is the union of fields we read from any Claude Code hook's stdin.
@@ -142,6 +144,9 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 			var prev StatusRequest
 			if json.Unmarshal(old, &prev) == nil {
 				req.RateWindowPct = prev.RateWindowPct
+				if cfg.ActivityTrailEnabled && activity != "" {
+					req.Activity = producer.PrependTrail(activity, prev.Activity)
+				}
 			}
 		}
 		body, err := json.Marshal(req)
