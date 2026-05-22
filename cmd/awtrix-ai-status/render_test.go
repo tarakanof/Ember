@@ -930,6 +930,44 @@ func TestRenderForCoord_RateCard_FallsBackToXYWhenNoData(t *testing.T) {
 	}
 }
 
+func TestDetailPayload_Blink(t *testing.T) {
+	s := Session{Source: "a", Tool: "b", Session: "w", State: "waiting"}
+	p := detailPayload(s, "WAIT", "#FFC14D", true, 30)
+	if p["text"] != "WAIT" || p["color"] != "#FFC14D" {
+		t.Errorf("text/color = %v/%v", p["text"], p["color"])
+	}
+	if p["blinkText"] != 500 {
+		t.Errorf("blinkText = %v, want 500", p["blinkText"])
+	}
+	if p["noScroll"] != true {
+		t.Errorf("noScroll = %v, want true", p["noScroll"])
+	}
+	if p["textOffset"] != 11 || p["center"] != false {
+		t.Errorf("textOffset/center = %v/%v, want 11/false", p["textOffset"], p["center"])
+	}
+	db := p["draw"].([]any)[0].(map[string]any)["db"].([]any)
+	if db[2] != robotWidth || len(db[4].([]int)) != robotWidth*8 {
+		t.Errorf("db width/len = %v/%d, want %d/%d", db[2], len(db[4].([]int)), robotWidth, robotWidth*8)
+	}
+}
+
+func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
+	s := Session{Source: "a", Tool: "b", Session: "r", State: "running"}
+	p := detailPayload(s, "Bash: npm test", "#2EE85E", false, 30)
+	if p["text"] != "Bash: npm test" {
+		t.Errorf("text = %v", p["text"])
+	}
+	if _, has := p["blinkText"]; has {
+		t.Errorf("blinkText must be absent in detail mode")
+	}
+	if _, has := p["noScroll"]; has {
+		t.Errorf("noScroll must be absent so firmware scrolls on overflow")
+	}
+	if p["textOffset"] != 11 || p["center"] != false {
+		t.Errorf("textOffset/center = %v/%v, want 11/false", p["textOffset"], p["center"])
+	}
+}
+
 func TestCardsForSession(t *testing.T) {
 	pct := 50
 	if got := cardsForSession(Session{}); got != 1 {

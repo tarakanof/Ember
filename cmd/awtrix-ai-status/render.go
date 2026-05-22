@@ -539,6 +539,31 @@ func itoa(n int) string {
 // numStart is the left edge of the digit area (1-px gap after the robot).
 const numStart = 12
 
+// detailPayload builds a robot(db) + AWTRIX-native-text payload. blink=true is
+// the WAIT/ERR fallback (static, blinking). blink=false is the activity detail
+// (firmware shows it static when it fits, scrolls when it overflows). center is
+// always false so textOffset is the literal start column (cols 11-31), clear of
+// the 10-wide robot.
+func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int) map[string]any {
+	pixels := composeRobotPixels(s, colorForState(s.State))
+	p := map[string]any{
+		"draw":       []any{map[string]any{"db": []any{0, 0, robotWidth, 8, pixels}}},
+		"text":       text,
+		"color":      hexColor,
+		"textOffset": 11,
+		"center":     false,
+		"duration":   lifetimeSeconds,
+		"lifetime":   lifetimeSeconds,
+		"prio":       true,
+		"force":      true,
+	}
+	if blink {
+		p["blinkText"] = 500
+		p["noScroll"] = true
+	}
+	return p
+}
+
 // RenderForCoord composes the AWTRIX CustomApp payload for the
 // coordinator's current display state. Returns nil when there is no
 // active session (caller skips publish entirely).
@@ -581,22 +606,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 
 	if locked && (session.State == "waiting" || session.State == "error") {
 		label, hex := attentionLabelAndColor(session.State)
-		pixels := composeRobotPixels(*session, stateColor)
-		return map[string]any{
-			"draw": []any{
-				map[string]any{"db": []any{0, 0, robotWidth, 8, pixels}},
-			},
-			"text":       label,
-			"color":      hex,
-			"blinkText":  500,
-			"textOffset": 11,    // 1-col gap after the 10-wide robot bitmap (cols 0-9); text in cols 11-31
-			"center":     false, // AWTRIX defaults center=true and adds textOffset on top, clipping past col 31
-			"noScroll":   true,
-			"duration":   lifetimeSeconds,
-			"lifetime":   lifetimeSeconds,
-			"prio":       true,
-			"force":      true,
-		}
+		return detailPayload(*session, label, hex, true, lifetimeSeconds)
 	}
 
 	frame := composeFrame(*session, idx, total, card, stateColor, snap.Sessions)
