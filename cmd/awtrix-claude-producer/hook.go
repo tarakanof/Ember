@@ -124,11 +124,20 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 			req.ContextPct = pct
 		}
 	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return
-	}
 	_ = withLockEx(lockP, func() error {
+		// Preserve statusline-owned fields (rate_window_pct) that the hook
+		// path doesn't compute, so a hook event doesn't clobber the
+		// statusline's enrichment of this marker.
+		if old, err := readMarker(markerP); err == nil {
+			var prev StatusRequest
+			if json.Unmarshal(old, &prev) == nil {
+				req.RateWindowPct = prev.RateWindowPct
+			}
+		}
+		body, err := json.Marshal(req)
+		if err != nil {
+			return nil
+		}
 		_ = writeMarker(markerP, body)
 		_ = client.Post(ctx, req)
 		return nil

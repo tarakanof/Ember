@@ -225,6 +225,72 @@ func TestDispatchHook_ContextPctDisabledOmitsField(t *testing.T) {
 	}
 }
 
+func TestHandleUpsert_PreservesRateWindowPct(t *testing.T) {
+	h := newHookHarness(t)
+
+	// Pre-write a marker that already carries rate_window_pct=42 (set by statusline).
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "s1.json")
+	initial := `{"source":"test-mbp","tool":"claude","session":"s1","state":"running","rate_window_pct":42}`
+	if err := os.WriteFile(markerP, []byte(initial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fire a hook event that goes through handleUpsert.
+	in := hookInput{HookEventName: "UserPromptSubmit", SessionID: "s1", CWD: "/repo", Prompt: "do something"}
+	body, _ := json.Marshal(in)
+	dispatchHookForTest(t, "user-prompt-submit", body)
+
+	// Assert: marker still carries rate_window_pct=42.
+	raw, err := os.ReadFile(markerP)
+	if err != nil {
+		t.Fatalf("marker missing after upsert: %v", err)
+	}
+	var got StatusRequest
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("marker unmarshal failed: %v", err)
+	}
+	if got.RateWindowPct == nil {
+		t.Errorf("marker: rate_window_pct is nil, want 42")
+	} else if *got.RateWindowPct != 42 {
+		t.Errorf("marker: rate_window_pct = %d, want 42", *got.RateWindowPct)
+	}
+
+	// Assert: POSTed body also carries rate_window_pct=42.
+	if h.posts.Load() != 1 {
+		t.Fatalf("posts = %d, want 1", h.posts.Load())
+	}
+	postBody := (*h.bodies)[0]
+	if !strings.Contains(postBody, `"rate_window_pct":42`) {
+		t.Errorf("POST body missing rate_window_pct=42: %s", postBody)
+	}
+
+	// Sub-case: marker with NO rate — upsert must not introduce a spurious value.
+	markerP2 := filepath.Join(dir, "s2.json")
+	noRate := `{"source":"test-mbp","tool":"claude","session":"s2","state":"running"}`
+	if err := os.WriteFile(markerP2, []byte(noRate), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in2 := hookInput{HookEventName: "UserPromptSubmit", SessionID: "s2", CWD: "/repo", Prompt: "again"}
+	body2, _ := json.Marshal(in2)
+	dispatchHookForTest(t, "user-prompt-submit", body2)
+
+	raw2, err := os.ReadFile(markerP2)
+	if err != nil {
+		t.Fatalf("marker2 missing: %v", err)
+	}
+	var got2 StatusRequest
+	if err := json.Unmarshal(raw2, &got2); err != nil {
+		t.Fatalf("marker2 unmarshal failed: %v", err)
+	}
+	if got2.RateWindowPct != nil {
+		t.Errorf("marker2: rate_window_pct should be nil when not set, got %d", *got2.RateWindowPct)
+	}
+}
+
 func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
