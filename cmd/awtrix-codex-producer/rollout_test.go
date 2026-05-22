@@ -35,7 +35,7 @@ func TestParseSessionMeta(t *testing.T) {
 func foldAll(lines []string, ctxEnabled bool) derived {
 	var d derived
 	for _, l := range lines {
-		d.foldEvent([]byte(l), ctxEnabled, true)
+		d.foldEvent([]byte(l), ctxEnabled, true, true)
 	}
 	return d
 }
@@ -141,14 +141,42 @@ func TestFoldEvent_RateToggle(t *testing.T) {
 	line := []byte(`{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":62.4}}}}`)
 
 	var on derived
-	on.foldEvent(line, true, true)
+	on.foldEvent(line, true, true, true)
 	if on.rateWindowPct == nil || *on.rateWindowPct != 62 {
 		t.Errorf("ratePctEnabled=true: rateWindowPct = %v, want 62", on.rateWindowPct)
 	}
 
 	var off derived
-	off.foldEvent(line, true, false)
+	off.foldEvent(line, true, false, true)
 	if off.rateWindowPct != nil {
 		t.Errorf("ratePctEnabled=false: rateWindowPct = %v, want nil", off.rateWindowPct)
+	}
+}
+
+func TestFoldEvent_TrailAccumulatesAndResets(t *testing.T) {
+	var d derived
+	d.foldEvent([]byte(`{"type":"event_msg","payload":{"type":"exec_command_begin","command":["go","build"]}}`), true, true, true)
+	d.foldEvent([]byte(`{"type":"event_msg","payload":{"type":"web_search_end","query":"docs"}}`), true, true, true)
+	if d.activity != "web: docs · exec: go build" {
+		t.Fatalf("activity = %q, want newest-first trail", d.activity)
+	}
+	d.foldEvent([]byte(`{"type":"event_msg","payload":{"type":"task_started"}}`), true, true, true)
+	if d.activity != "" {
+		t.Errorf("task_started should reset trail, got %q", d.activity)
+	}
+}
+
+func TestFoldEvent_TrailDisabledStaysEmpty(t *testing.T) {
+	var d derived
+	d.foldEvent([]byte(`{"type":"event_msg","payload":{"type":"exec_command_begin","command":["go","build"]}}`), true, true, false)
+	if d.activity != "" {
+		t.Errorf("trail disabled should leave activity empty, got %q", d.activity)
+	}
+}
+
+func TestBuildStatusRequest_SetsActivityFromTrail(t *testing.T) {
+	req := buildStatusRequest(Config{Source: "mbp"}, "u1", derived{state: "running", activity: "web: docs · exec: go build"})
+	if req.Activity != "web: docs · exec: go build" {
+		t.Errorf("req.Activity = %q, want the trail", req.Activity)
 	}
 }

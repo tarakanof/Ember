@@ -47,6 +47,7 @@ func buildStatusRequest(cfg Config, uuid string, d derived) producer.StatusReque
 		Session:       uuid,
 		State:         d.state,
 		Message:       d.message,
+		Activity:      d.activity,
 		ContextPct:    d.contextPct,
 		RateWindowPct: d.rateWindowPct,
 	}

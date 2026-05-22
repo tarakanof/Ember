@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/dt/awtrix-ai-status/internal/producer"
 )
 
 // derived is the state + metrics folded from a session's rollout events.
@@ -15,6 +17,7 @@ type derived struct {
 	message       string
 	contextPct    *int
 	rateWindowPct *int
+	activity      string
 }
 
 type sessionMeta struct {
@@ -82,8 +85,9 @@ func isRunningEvent(t string) bool {
 
 // foldEvent applies one rollout line to d. Non-event_msg lines are ignored.
 // token_count is data-only (updates metrics, never state). contextPctEnabled
-// gates context_pct; ratePctEnabled gates rate_window_pct.
-func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled bool) {
+// gates context_pct; ratePctEnabled gates rate_window_pct; trailEnabled gates
+// activity trail accumulation.
+func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trailEnabled bool) {
 	var rl rolloutLine
 	if json.Unmarshal(line, &rl) != nil || rl.Type != "event_msg" {
 		return
@@ -114,6 +118,13 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled bool)
 			if m := strings.TrimSpace(p.Message); m != "" {
 				d.message = truncate(m, 80)
 			}
+		}
+	}
+	if trailEnabled {
+		if p.Type == "task_started" {
+			d.activity = ""
+		} else if label, ok := labelForEvent(p); ok {
+			d.activity = producer.PrependTrail(label, d.activity)
 		}
 	}
 }

@@ -91,7 +91,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 		if lines, newOffset, err := readNewLines(path, ss.offset); err == nil {
 			for _, ln := range lines {
-				ss.derived.foldEvent(ln, w.cfg.ContextPctEnabled, w.cfg.RatePctEnabled)
+				ss.derived.foldEvent(ln, w.cfg.ContextPctEnabled, w.cfg.RatePctEnabled, w.cfg.ActivityTrailEnabled)
 			}
 			ss.offset = newOffset
 		}
@@ -132,7 +132,7 @@ func readFirstMeta(path string) (sessionMeta, bool) {
 }
 
 func fingerprint(d derived) string {
-	return fmt.Sprintf("%s|%s|%s|%s", d.state, d.message, ptrStr(d.contextPct), ptrStr(d.rateWindowPct))
+	return fmt.Sprintf("%s|%s|%s|%s|%s", d.state, d.message, d.activity, ptrStr(d.contextPct), ptrStr(d.rateWindowPct))
 }
 
 func ptrStr(p *int) string {
