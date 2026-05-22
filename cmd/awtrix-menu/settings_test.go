@@ -70,6 +70,7 @@ func TestFormFromEnv(t *testing.T) {
 	rec.set("STATUS_CONTEXT_PCT_ENABLED", "true")
 	rec.set("STATUS_RATE_PCT_ENABLED", "false")
 	rec.set("STATUS_ACTIVITY_DETAIL_ENABLED", "false")
+	rec.set("STATUS_ACTIVITY_TRAIL_ENABLED", "false")
 	rec.set("STATUS_TOKEN", "secret")
 
 	f, tokenSet := formFromEnv(rec)
@@ -88,13 +89,16 @@ func TestFormFromEnv(t *testing.T) {
 	if f.ActivityDetail {
 		t.Errorf("ActivityDetail = true, want false")
 	}
+	if f.ActivityTrail {
+		t.Errorf("ActivityTrail = true, want false")
+	}
 
 	empty := &envRec{}
 	f2, tokenSet2 := formFromEnv(empty)
 	if tokenSet2 {
 		t.Error("tokenSet on empty = true, want false")
 	}
-	if !f2.ContextPct || !f2.RatePct || !f2.ActivityDetail {
+	if !f2.ContextPct || !f2.RatePct || !f2.ActivityDetail || !f2.ActivityTrail {
 		t.Error("absent toggles should default true (isEnvTrue semantics)")
 	}
 }
@@ -121,7 +125,7 @@ func TestApplyForm(t *testing.T) {
 	rec.set("STATUS_TOKEN", "old-token")
 	rec.set("STATUS_UNKNOWN", "keepme")
 
-	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextWindow: "0", ContextPct: true, RatePct: false, ActivityDetail: true, Token: ""})
+	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextWindow: "0", ContextPct: true, RatePct: false, ActivityDetail: true, ActivityTrail: true, Token: ""})
 	if rec.get("STATUS_TOKEN") != "old-token" {
 		t.Errorf("blank token should keep existing, got %q", rec.get("STATUS_TOKEN"))
 	}
@@ -133,6 +137,9 @@ func TestApplyForm(t *testing.T) {
 	}
 	if rec.get("STATUS_ACTIVITY_DETAIL_ENABLED") != "true" {
 		t.Errorf("activity-detail serialization wrong: %q", rec.get("STATUS_ACTIVITY_DETAIL_ENABLED"))
+	}
+	if rec.get("STATUS_ACTIVITY_TRAIL_ENABLED") != "true" {
+		t.Errorf("activity-trail serialization wrong: %q", rec.get("STATUS_ACTIVITY_TRAIL_ENABLED"))
 	}
 	if rec.get("STATUS_UNKNOWN") != "keepme" {
 		t.Error("unknown key not preserved")

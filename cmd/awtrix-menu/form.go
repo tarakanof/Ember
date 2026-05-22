@@ -11,6 +11,7 @@ const (
 	keyContextPct = "STATUS_CONTEXT_PCT_ENABLED"
 	keyRatePct        = "STATUS_RATE_PCT_ENABLED"
 	keyActivityDetail = "STATUS_ACTIVITY_DETAIL_ENABLED"
+	keyActivityTrail  = "STATUS_ACTIVITY_TRAIL_ENABLED"
 	keyCtxWindow      = "STATUS_CONTEXT_WINDOW_TOKENS"
 )
 
@@ -24,6 +25,7 @@ type settingsForm struct {
 	ContextPct     bool
 	RatePct        bool
 	ActivityDetail bool
+	ActivityTrail  bool
 	Token          string // "" = keep current
 }
 
@@ -39,6 +41,7 @@ func formFromEnv(rec *envRec) (settingsForm, bool) {
 		ContextPct:     isEnvTrue(rec.get(keyContextPct)),
 		RatePct:        isEnvTrue(rec.get(keyRatePct)),
 		ActivityDetail: isEnvTrue(rec.get(keyActivityDetail)),
+		ActivityTrail:  isEnvTrue(rec.get(keyActivityTrail)),
 		Token:          "",
 	}, rec.get(keyToken) != ""
 }
@@ -78,6 +81,7 @@ func applyForm(rec *envRec, f settingsForm) {
 	rec.set(keyContextPct, boolStr(f.ContextPct))
 	rec.set(keyRatePct, boolStr(f.RatePct))
 	rec.set(keyActivityDetail, boolStr(f.ActivityDetail))
+	rec.set(keyActivityTrail, boolStr(f.ActivityTrail))
 	if strings.TrimSpace(f.Token) != "" {
 		rec.set(keyToken, norm(keyToken, f.Token))
 	}
