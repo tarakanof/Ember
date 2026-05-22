@@ -201,6 +201,7 @@ func openSettingsWindow(envPath string) {
 		}
 
 		action.Set(saveBtn, func(sender objc.Object) {
+			w.EndEditingFor(nil) // commit any in-progress field edit so StringValue is current
 			clearErrors()
 			f := settingsForm{
 				Source:        sourceField.StringValue(),
