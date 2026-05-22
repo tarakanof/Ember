@@ -82,10 +82,8 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 		if err := json.Unmarshal(body, &req); err != nil {
 			return nil
 		}
-		if cfg.ContextPctEnabled {
-			if pct, err := computeContextPct(req.Session, cfg.ContextWindowTokens); err == nil && pct != nil {
-				req.ContextPct = pct
-			}
+		if !cfg.ContextPctEnabled {
+			req.ContextPct = nil
 		}
 		_ = client.Post(ctx, req)
 		return nil

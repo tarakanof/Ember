@@ -145,89 +145,55 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	}
 }
 
-func TestProcessOneMarker_RecomputesContextPct(t *testing.T) {
+func TestProcessOneMarker_PreservesContextPctWhenEnabled(t *testing.T) {
 	h := newHookHarness(t)
-	// Override producer.env with enriched config (SourceColor + ContextPctEnabled=true)
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
-	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=true\n"
+	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_CONTEXT_PCT_ENABLED=true\n"
 	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
-	sessionID := "tick-refresh-session"
-	// Write a STALE marker that has context_pct=10
+	sessionID := "tick-ctx-session"
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	markerP := filepath.Join(dir, sessionID+".json")
-	stale := []byte(`{"source":"test-mbp","tool":"claude","session":"` + sessionID + `","state":"running","source_color":"#aa66ff","context_pct":10}`)
-	if err := os.WriteFile(markerP, stale, 0o600); err != nil {
+	if err := os.WriteFile(markerP,
+		[]byte(`{"source":"test-mbp","tool":"claude","session":"`+sessionID+`","state":"running","context_pct":42}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
-	// Stage transcript that gives 60% (120k tokens)
-	tdir := filepath.Join(h.home, ".claude", "projects", "-test")
-	if err := os.MkdirAll(tdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tdir, sessionID+".jsonl"),
-		[]byte(`{"type":"assistant","message":{"usage":{"input_tokens":120000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`+"\n"),
-		0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg, _ := loadConfig()
 	dispatchTick(context.Background(), cfg)
-
 	if h.posts.Load() != 1 {
 		t.Fatalf("posts = %d, want 1", h.posts.Load())
 	}
 	got := (*h.bodies)[0]
-	if !strings.Contains(got, `"context_pct":60`) {
-		t.Errorf("tick re-POST should refresh context_pct to 60, got: %s", got)
-	}
-	if !strings.Contains(got, `"source_color":"#aa66ff"`) {
-		t.Errorf("source_color must survive from marker: %s", got)
+	if !strings.Contains(got, `"context_pct":42`) {
+		t.Errorf("tick should re-post stored context_pct=42 unchanged, got: %s", got)
 	}
 }
 
-func TestProcessOneMarker_ContextPctDisabled_DoesNotRefresh(t *testing.T) {
+func TestProcessOneMarker_StripsContextPctWhenDisabled(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
-	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=false\n"
+	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_CONTEXT_PCT_ENABLED=false\n"
 	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
-	sessionID := "tick-disabled-session"
+	sessionID := "tick-ctx-off"
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	markerP := filepath.Join(dir, sessionID+".json")
-	stale := []byte(`{"source":"test-mbp","tool":"claude","session":"` + sessionID + `","state":"running","source_color":"#aa66ff","context_pct":10}`)
-	if err := os.WriteFile(markerP, stale, 0o600); err != nil {
+	if err := os.WriteFile(markerP,
+		[]byte(`{"source":"test-mbp","tool":"claude","session":"`+sessionID+`","state":"running","context_pct":42}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-
-	// Transcript at 60% — should be IGNORED because disabled
-	tdir := filepath.Join(h.home, ".claude", "projects", "-test")
-	if err := os.MkdirAll(tdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tdir, sessionID+".jsonl"),
-		[]byte(`{"type":"assistant","message":{"usage":{"input_tokens":120000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`+"\n"),
-		0o644); err != nil {
-		t.Fatal(err)
-	}
-
 	cfg, _ := loadConfig()
 	dispatchTick(context.Background(), cfg)
-
 	got := (*h.bodies)[0]
-	// Marker value (10) survives — refresh skipped
-	if !strings.Contains(got, `"context_pct":10`) {
-		t.Errorf("disabled config should preserve marker's context_pct=10, got: %s", got)
+	if strings.Contains(got, `"context_pct"`) {
+		t.Errorf("disabled: tick should strip context_pct from re-post, got: %s", got)
 	}
 }
