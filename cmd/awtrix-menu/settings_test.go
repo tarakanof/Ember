@@ -87,3 +87,79 @@ func TestSettingsFlip(t *testing.T) {
 		t.Errorf("context key mutated = %q, want empty", v)
 	}
 }
+
+func TestFormFromEnv(t *testing.T) {
+	rec := &envRec{}
+	rec.set("STATUS_SOURCE", "mbp")
+	rec.set("STATUS_SERVER_URL", "http://localhost:8080")
+	rec.set("STATUS_SOURCE_COLOR", "#aa66ff")
+	rec.set("STATUS_CONTEXT_WINDOW_TOKENS", "1000000")
+	rec.set("STATUS_CONTEXT_PCT_ENABLED", "true")
+	rec.set("STATUS_RATE_PCT_ENABLED", "false")
+	rec.set("STATUS_TOKEN", "secret")
+
+	f, tokenSet := formFromEnv(rec)
+	if !tokenSet {
+		t.Error("tokenSet = false, want true")
+	}
+	if f.Token != "" {
+		t.Errorf("Token = %q, want empty (never round-tripped)", f.Token)
+	}
+	if f.Source != "mbp" || f.ServerURL != "http://localhost:8080" || f.SourceColor != "#aa66ff" || f.ContextWindow != "1000000" {
+		t.Errorf("text fields mismapped: %+v", f)
+	}
+	if !f.ContextPct || f.RatePct {
+		t.Errorf("ContextPct=%v RatePct=%v, want true,false", f.ContextPct, f.RatePct)
+	}
+
+	empty := &envRec{}
+	f2, tokenSet2 := formFromEnv(empty)
+	if tokenSet2 {
+		t.Error("tokenSet on empty = true, want false")
+	}
+	if !f2.ContextPct || !f2.RatePct {
+		t.Error("absent toggles should default true (isEnvTrue semantics)")
+	}
+}
+
+func TestValidateForm(t *testing.T) {
+	good := settingsForm{Source: "mbp", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextWindow: "200000"}
+	if errs := validateForm(good); len(errs) != 0 {
+		t.Errorf("valid form produced errors: %v", errs)
+	}
+	if errs := validateForm(settingsForm{Source: "mbp", ServerURL: "http://h", SourceColor: "", ContextWindow: "", Token: ""}); len(errs) != 0 {
+		t.Errorf("blanks should be valid: %v", errs)
+	}
+	bad := settingsForm{Source: "", ServerURL: "ftp://x", SourceColor: "nope", ContextWindow: "-3", Token: "ab\nc"}
+	errs := validateForm(bad)
+	for _, k := range []string{"STATUS_SOURCE", "STATUS_SERVER_URL", "STATUS_SOURCE_COLOR", "STATUS_CONTEXT_WINDOW_TOKENS", "STATUS_TOKEN"} {
+		if _, ok := errs[k]; !ok {
+			t.Errorf("expected error for %s, got none (errs=%v)", k, errs)
+		}
+	}
+}
+
+func TestApplyForm(t *testing.T) {
+	rec := &envRec{}
+	rec.set("STATUS_TOKEN", "old-token")
+	rec.set("STATUS_UNKNOWN", "keepme")
+
+	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextWindow: "0", ContextPct: true, RatePct: false, Token: ""})
+	if rec.get("STATUS_TOKEN") != "old-token" {
+		t.Errorf("blank token should keep existing, got %q", rec.get("STATUS_TOKEN"))
+	}
+	if rec.get("STATUS_SOURCE") != "mbp" {
+		t.Errorf("source not normalized/trimmed, got %q", rec.get("STATUS_SOURCE"))
+	}
+	if rec.get("STATUS_CONTEXT_PCT_ENABLED") != "true" || rec.get("STATUS_RATE_PCT_ENABLED") != "false" {
+		t.Errorf("checkbox serialization wrong: ctx=%q rate=%q", rec.get("STATUS_CONTEXT_PCT_ENABLED"), rec.get("STATUS_RATE_PCT_ENABLED"))
+	}
+	if rec.get("STATUS_UNKNOWN") != "keepme" {
+		t.Error("unknown key not preserved")
+	}
+
+	applyForm(rec, settingsForm{Source: "mbp", ServerURL: "http://h:8080", Token: "new-token"})
+	if rec.get("STATUS_TOKEN") != "new-token" {
+		t.Errorf("non-blank token should replace, got %q", rec.get("STATUS_TOKEN"))
+	}
+}

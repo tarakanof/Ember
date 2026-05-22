@@ -1,0 +1,87 @@
+package main
+
+import "strings"
+
+// producer.env keys the settings window edits.
+const (
+	keySource     = "STATUS_SOURCE"
+	keyServerURL  = "STATUS_SERVER_URL"
+	keyToken      = "STATUS_TOKEN"
+	keyColor      = "STATUS_SOURCE_COLOR"
+	keyContextPct = "STATUS_CONTEXT_PCT_ENABLED"
+	keyRatePct    = "STATUS_RATE_PCT_ENABLED"
+	keyCtxWindow  = "STATUS_CONTEXT_WINDOW_TOKENS"
+)
+
+// settingsForm is the editable view of producer.env shown in the window.
+// Token is write-only: "" means "keep the current value".
+type settingsForm struct {
+	Source        string
+	ServerURL     string
+	SourceColor   string
+	ContextWindow string
+	ContextPct    bool
+	RatePct       bool
+	Token         string // "" = keep current
+}
+
+// formFromEnv builds the form from rec. The bool reports whether a token is
+// currently set (drives the (set)/(unset) placeholder); Token loads blank so
+// the secret never round-trips into the UI.
+func formFromEnv(rec *envRec) (settingsForm, bool) {
+	return settingsForm{
+		Source:        rec.get(keySource),
+		ServerURL:     rec.get(keyServerURL),
+		SourceColor:   rec.get(keyColor),
+		ContextWindow: rec.get(keyCtxWindow),
+		ContextPct:    isEnvTrue(rec.get(keyContextPct)),
+		RatePct:       isEnvTrue(rec.get(keyRatePct)),
+		Token:         "",
+	}, rec.get(keyToken) != ""
+}
+
+// validateForm validates the four text fields via validateSetting, plus the
+// token only when non-blank. Blank token + checkboxes are not errors. Returns
+// producer.env-key -> message; empty map means valid.
+func validateForm(f settingsForm) map[string]string {
+	errs := map[string]string{}
+	for _, c := range []struct{ key, val string }{
+		{keySource, f.Source},
+		{keyServerURL, f.ServerURL},
+		{keyColor, f.SourceColor},
+		{keyCtxWindow, f.ContextWindow},
+	} {
+		if _, err := validateSetting(c.key, c.val); err != nil {
+			errs[c.key] = err.Error()
+		}
+	}
+	if strings.TrimSpace(f.Token) != "" {
+		if _, err := validateSetting(keyToken, f.Token); err != nil {
+			errs[keyToken] = err.Error()
+		}
+	}
+	return errs
+}
+
+// applyForm writes a (already-validated) form into rec; the caller persists via
+// writeEnvAtomic. Token blank keeps the existing value; non-blank replaces.
+// Text values are normalized via validateSetting; checkboxes become true/false.
+func applyForm(rec *envRec, f settingsForm) {
+	norm := func(key, val string) string { v, _ := validateSetting(key, val); return v }
+	rec.set(keySource, norm(keySource, f.Source))
+	rec.set(keyServerURL, norm(keyServerURL, f.ServerURL))
+	rec.set(keyColor, norm(keyColor, f.SourceColor))
+	rec.set(keyCtxWindow, norm(keyCtxWindow, f.ContextWindow))
+	rec.set(keyContextPct, boolStr(f.ContextPct))
+	rec.set(keyRatePct, boolStr(f.RatePct))
+	if strings.TrimSpace(f.Token) != "" {
+		rec.set(keyToken, norm(keyToken, f.Token))
+	}
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
