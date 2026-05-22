@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/json"
 	"math"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -45,6 +48,13 @@ type eventPayload struct {
 			UsedPercent float64 `json:"used_percent"`
 		} `json:"primary"`
 	} `json:"rate_limits"`
+	Command    []string                   `json:"command,omitempty"`
+	Changes    map[string]json.RawMessage `json:"changes,omitempty"`
+	Query      string                     `json:"query,omitempty"`
+	Invocation *struct {
+		Server string `json:"server"`
+		Tool   string `json:"tool"`
+	} `json:"invocation,omitempty"`
 }
 
 // parseSessionMeta extracts the session UUID + source from a session_meta line.
@@ -124,4 +134,42 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// labelForEvent returns a short trail label for a detail-bearing action event,
+// or ("", false) for non-action events. Missing detail fields degrade to a
+// coarse verb so payload-shape drift never drops an action entirely.
+func labelForEvent(p eventPayload) (string, bool) {
+	switch p.Type {
+	case "exec_command_begin":
+		if cmd := strings.TrimSpace(strings.Join(p.Command, " ")); cmd != "" {
+			return "exec: " + cmd, true
+		}
+		return "exec", true
+	case "patch_apply_end":
+		if len(p.Changes) > 0 {
+			keys := make([]string, 0, len(p.Changes))
+			for k := range p.Changes {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			label := "edit: " + filepath.Base(keys[0])
+			if len(keys) > 1 {
+				label += " +" + strconv.Itoa(len(keys)-1)
+			}
+			return label, true
+		}
+		return "edit", true
+	case "web_search_end":
+		if q := strings.TrimSpace(p.Query); q != "" {
+			return "web: " + q, true
+		}
+		return "web", true
+	case "mcp_tool_call_end":
+		if p.Invocation != nil && p.Invocation.Tool != "" {
+			return "mcp: " + p.Invocation.Tool, true
+		}
+		return "mcp", true
+	}
+	return "", false
 }

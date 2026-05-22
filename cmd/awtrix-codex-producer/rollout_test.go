@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 const (
 	metaCLI   = `{"type":"session_meta","payload":{"id":"u-123","source":"cli","originator":"codex-tui"}}`
@@ -99,6 +102,38 @@ func TestFold_IgnoresNonEventLines(t *testing.T) {
 	d := foldAll([]string{metaCLI, `{"type":"response_item","payload":{}}`, `{"type":"turn_context","payload":{}}`}, true)
 	if d.state != "" {
 		t.Errorf("non-event lines must not set state, got %q", d.state)
+	}
+}
+
+func TestLabelForEvent(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+		ok      bool
+	}{
+		{"exec", `{"type":"exec_command_begin","command":["go","test","./..."]}`, "exec: go test ./...", true},
+		{"exec no cmd", `{"type":"exec_command_begin"}`, "exec", true},
+		{"patch one", `{"type":"patch_apply_end","changes":{"/r/cmd/main.go":{"type":"update"}}}`, "edit: main.go", true},
+		{"patch many", `{"type":"patch_apply_end","changes":{"/a/x.go":{"type":"add"},"/a/y.go":{"type":"add"}}}`, "edit: x.go +1", true},
+		{"patch none", `{"type":"patch_apply_end"}`, "edit", true},
+		{"web", `{"type":"web_search_end","query":"hooks docs"}`, "web: hooks docs", true},
+		{"web no query", `{"type":"web_search_end"}`, "web", true},
+		{"mcp", `{"type":"mcp_tool_call_end","invocation":{"server":"codex","tool":"list_resources"}}`, "mcp: list_resources", true},
+		{"mcp no tool", `{"type":"mcp_tool_call_end"}`, "mcp", true},
+		{"non-action", `{"type":"token_count"}`, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var p eventPayload
+			if err := json.Unmarshal([]byte(tc.payload), &p); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := labelForEvent(p)
+			if ok != tc.ok || got != tc.want {
+				t.Errorf("labelForEvent = (%q,%v), want (%q,%v)", got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 
