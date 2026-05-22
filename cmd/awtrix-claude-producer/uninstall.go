@@ -39,41 +39,44 @@ func uninstallSettings(home string) error {
 	if err := json.Unmarshal(body, &root); err != nil {
 		return fmt.Errorf("settings.json invalid JSON: %w", err)
 	}
-	hooksRoot, _ := root["hooks"].(map[string]any)
-	if hooksRoot == nil {
-		return nil
-	}
-	for ev, entries := range hooksRoot {
-		list, ok := entries.([]any)
-		if !ok {
-			continue
-		}
-		filtered := []any{}
-		for _, e := range list {
-			if !entryMatchesProducer(e) {
-				filtered = append(filtered, e)
+	if hooksRoot, ok := root["hooks"].(map[string]any); ok && hooksRoot != nil {
+		for ev, entries := range hooksRoot {
+			list, ok := entries.([]any)
+			if !ok {
+				continue
+			}
+			filtered := []any{}
+			for _, e := range list {
+				if !entryMatchesProducer(e) {
+					filtered = append(filtered, e)
+				}
+			}
+			if len(filtered) == 0 {
+				delete(hooksRoot, ev)
+			} else {
+				hooksRoot[ev] = filtered
 			}
 		}
-		if len(filtered) == 0 {
-			delete(hooksRoot, ev)
+		if len(hooksRoot) == 0 {
+			delete(root, "hooks")
 		} else {
-			hooksRoot[ev] = filtered
+			root["hooks"] = hooksRoot
 		}
-	}
-	if len(hooksRoot) == 0 {
-		delete(root, "hooks")
-	} else {
-		root["hooks"] = hooksRoot
 	}
 
-	// Remove our statusLine and restore the user's wrapped one (if any).
+	// Restore the user's statusLine verbatim if the slot is currently ours.
 	if sl, ok := root["statusLine"]; ok && statusLineIsOurs(sl) {
-		delete(root, "statusLine")
-		if cmd, ok := readWrappedCommand(wrappedStatuslinePath(home)); ok {
-			root["statusLine"] = map[string]any{
-				"type":    "command",
-				"command": cmd,
+		wrappedPath := wrappedStatuslinePath(home)
+		if raw, err := os.ReadFile(wrappedPath); err == nil {
+			var orig any
+			if json.Unmarshal(raw, &orig) == nil {
+				root["statusLine"] = orig
+			} else {
+				delete(root, "statusLine")
 			}
+			_ = os.Remove(wrappedPath)
+		} else {
+			delete(root, "statusLine")
 		}
 	}
 
