@@ -26,7 +26,6 @@ type Config struct {
 	ContextPctEnabled     bool
 	ActivityDetailEnabled bool
 	ActivityTrailEnabled  bool
-	ContextWindowTokens   int
 }
 
 // LogValue redacts the token. Implements slog.LogValuer.
@@ -45,7 +44,6 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
 		slog.Bool("activity_detail_enabled", c.ActivityDetailEnabled),
 		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
-		slog.Int("context_window_tokens", c.ContextWindowTokens),
 	)
 }
 
@@ -104,10 +102,6 @@ func loadConfig() (Config, error) {
 				cfg.ActivityTrailEnabled = false
 			case "true", "1", "yes", "on", "":
 				cfg.ActivityTrailEnabled = true
-			}
-		case "STATUS_CONTEXT_WINDOW_TOKENS":
-			if n, err := strconv.Atoi(v); err == nil && n > 0 {
-				cfg.ContextWindowTokens = n
 			}
 		}
 	}
