@@ -27,8 +27,7 @@ var (
 	aboutMI     *systray.MenuItem
 	quitMI      *systray.MenuItem
 
-	settingsUI *settingsMenu
-	stateURL   atomic.Value // string
+	stateURL atomic.Value // string
 
 	menuMu sync.Mutex // serializes concurrent updateMenu calls
 )
@@ -43,8 +42,7 @@ func onSystrayReady() {
 	countItem.Disable()
 	systray.AddSeparator()
 	openStateMI = systray.AddMenuItem("Open server /state in browser", "")
-	settingsParent := systray.AddMenuItem("Settings", "")
-	spikeMI := systray.AddMenuItem("Settings (spike)", "open native window spike")
+	settingsMI := systray.AddMenuItem("Settings…", "open the settings window")
 	doctorMI = systray.AddMenuItem("Doctor", "")
 	reloadMI = systray.AddMenuItem("Reload", "")
 	systray.AddSeparator()
@@ -53,7 +51,6 @@ func onSystrayReady() {
 
 	home, _ := os.UserHomeDir()
 	envPath := filepath.Join(home, ".config", "awtrix-ai-status", "producer.env")
-	settingsUI = buildSettingsMenu(settingsParent, envPath)
 
 	// Click handlers
 	go func() {
@@ -63,7 +60,7 @@ func onSystrayReady() {
 				if u := stateURL.Load(); u != nil {
 					startAndReap(exec.Command("open", u.(string)+"/state"))
 				}
-			case <-spikeMI.ClickedCh:
+			case <-settingsMI.ClickedCh:
 				openSettingsWindow(envPath)
 			case <-doctorMI.ClickedCh:
 				go openDoctor()
@@ -101,9 +98,6 @@ func updateMenu(envPath string) {
 	rec, _ := readEnv(envPath)
 	if rec == nil {
 		rec = &envRec{}
-	}
-	if settingsUI != nil {
-		settingsUI.refresh(rec)
 	}
 	ttl := ttlFromEnv(rec)
 	view := readView(stateDir, ttl)
