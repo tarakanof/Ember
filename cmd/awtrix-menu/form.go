@@ -9,8 +9,9 @@ const (
 	keyToken      = "STATUS_TOKEN"
 	keyColor      = "STATUS_SOURCE_COLOR"
 	keyContextPct = "STATUS_CONTEXT_PCT_ENABLED"
-	keyRatePct    = "STATUS_RATE_PCT_ENABLED"
-	keyCtxWindow  = "STATUS_CONTEXT_WINDOW_TOKENS"
+	keyRatePct        = "STATUS_RATE_PCT_ENABLED"
+	keyActivityDetail = "STATUS_ACTIVITY_DETAIL_ENABLED"
+	keyCtxWindow      = "STATUS_CONTEXT_WINDOW_TOKENS"
 )
 
 // settingsForm is the editable view of producer.env shown in the window.
@@ -20,9 +21,10 @@ type settingsForm struct {
 	ServerURL     string
 	SourceColor   string
 	ContextWindow string
-	ContextPct    bool
-	RatePct       bool
-	Token         string // "" = keep current
+	ContextPct     bool
+	RatePct        bool
+	ActivityDetail bool
+	Token          string // "" = keep current
 }
 
 // formFromEnv builds the form from rec. The bool reports whether a token is
@@ -34,9 +36,10 @@ func formFromEnv(rec *envRec) (settingsForm, bool) {
 		ServerURL:     rec.get(keyServerURL),
 		SourceColor:   rec.get(keyColor),
 		ContextWindow: rec.get(keyCtxWindow),
-		ContextPct:    isEnvTrue(rec.get(keyContextPct)),
-		RatePct:       isEnvTrue(rec.get(keyRatePct)),
-		Token:         "",
+		ContextPct:     isEnvTrue(rec.get(keyContextPct)),
+		RatePct:        isEnvTrue(rec.get(keyRatePct)),
+		ActivityDetail: isEnvTrue(rec.get(keyActivityDetail)),
+		Token:          "",
 	}, rec.get(keyToken) != ""
 }
 
@@ -74,6 +77,7 @@ func applyForm(rec *envRec, f settingsForm) {
 	rec.set(keyCtxWindow, norm(keyCtxWindow, f.ContextWindow))
 	rec.set(keyContextPct, boolStr(f.ContextPct))
 	rec.set(keyRatePct, boolStr(f.RatePct))
+	rec.set(keyActivityDetail, boolStr(f.ActivityDetail))
 	if strings.TrimSpace(f.Token) != "" {
 		rec.set(keyToken, norm(keyToken, f.Token))
 	}

@@ -159,11 +159,13 @@ func openSettingsWindow(envPath string) {
 		rateCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 40}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(rateCheck)
 
-		// Disabled, greyed "coming later" label.
-		comingLabel := appkit.TextField_LabelWithString("Tool / activity, tokens, cost… coming later")
-		comingLabel.SetTextColor(appkit.Color_DisabledControlTextColor())
-		comingLabel.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 10}, Size: foundation.Size{Width: winW - 64, Height: 18}})
-		clockView.AddSubview(comingLabel)
+		// Tool / approval detail checkbox.
+		activityCheck := appkit.NewButton()
+		activityCheck.SetButtonType(appkit.ButtonTypeSwitch)
+		activityCheck.SetTitle("Tool / approval detail")
+		activityCheck.SetState(boolState(form.ActivityDetail))
+		activityCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 10}, Size: foundation.Size{Width: 320, Height: rowH}})
+		clockView.AddSubview(activityCheck)
 
 		content.AddSubview(clockBox)
 
@@ -208,9 +210,10 @@ func openSettingsWindow(envPath string) {
 				ServerURL:     urlField.StringValue(),
 				SourceColor:   colorField.StringValue(),
 				ContextWindow: ctxField.StringValue(),
-				ContextPct:    ctxCheck.State() == appkit.ControlStateValueOn,
-				RatePct:       rateCheck.State() == appkit.ControlStateValueOn,
-				Token:         tokenField.StringValue(),
+				ContextPct:     ctxCheck.State() == appkit.ControlStateValueOn,
+				RatePct:        rateCheck.State() == appkit.ControlStateValueOn,
+				ActivityDetail: activityCheck.State() == appkit.ControlStateValueOn,
+				Token:          tokenField.StringValue(),
 			}
 			if errs := validateForm(f); len(errs) > 0 {
 				for key, msg := range errs {
