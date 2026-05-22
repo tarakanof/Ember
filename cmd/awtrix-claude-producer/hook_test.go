@@ -157,27 +157,16 @@ func dispatchHookForTest(t *testing.T, event string, stdin []byte) {
 	dispatchHook(context.Background(), event, stdin, cfg)
 }
 
-func TestDispatchHook_UpsertEnrichesWithSourceColorAndCtxPct(t *testing.T) {
+func TestDispatchHook_UpsertEnrichesWithSourceColor(t *testing.T) {
 	h := newHookHarness(t)
-	// Stage producer.env with G.3 fields
+	// Stage producer.env with source_color
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
-	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=true\n"
+	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\n"
 	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Stage transcript so computeContextPct returns ~20%
-	sessionID := "test-session-xyz"
-	tdir := filepath.Join(h.home, ".claude", "projects", "-test")
-	if err := os.MkdirAll(tdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tdir, sessionID+".jsonl"),
-		[]byte(`{"type":"assistant","message":{"usage":{"input_tokens":40000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`+"\n"),
-		0o644); err != nil {
-		t.Fatal(err)
-	}
 
-	in := hookInput{HookEventName: "UserPromptSubmit", SessionID: sessionID, CWD: "/repo", Prompt: "hi"}
+	in := hookInput{HookEventName: "UserPromptSubmit", SessionID: "test-session-xyz", CWD: "/repo", Prompt: "hi"}
 	body, _ := json.Marshal(in)
 	dispatchHookForTest(t, "user-prompt-submit", body)
 
@@ -188,40 +177,51 @@ func TestDispatchHook_UpsertEnrichesWithSourceColorAndCtxPct(t *testing.T) {
 	if !strings.Contains(got, `"source_color":"#aa66ff"`) {
 		t.Errorf("body missing source_color: %s", got)
 	}
-	if !strings.Contains(got, `"context_pct":20`) {
-		t.Errorf("body missing context_pct=20: %s", got)
-	}
 }
 
-func TestDispatchHook_ContextPctDisabledOmitsField(t *testing.T) {
+func TestDispatchHook_PreservesContextPctWhenEnabled(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
-	env := "STATUS_SOURCE=test-mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_SOURCE_COLOR=#aa66ff\nSTATUS_CONTEXT_PCT_ENABLED=false\n"
+	env := "STATUS_SOURCE=mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_CONTEXT_PCT_ENABLED=true\n"
 	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sessionID := "test-disabled"
-	tdir := filepath.Join(h.home, ".claude", "projects", "-test")
-	if err := os.MkdirAll(tdir, 0o755); err != nil {
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tdir, sessionID+".jsonl"),
-		[]byte(`{"type":"assistant","message":{"usage":{"input_tokens":40000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}`+"\n"),
-		0o644); err != nil {
+	sid := sanitizeSessionID("s1", "/r")
+	if err := os.WriteFile(filepath.Join(dir, sid+".json"),
+		[]byte(`{"source":"mbp","tool":"claude","session":"`+sid+`","state":"running","context_pct":42}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	dispatchHookForTest(t, "pre-tool-use", []byte(`{"session_id":"s1","cwd":"/r","tool_name":"Bash","tool_input":{"command":"go test"}}`))
+	got := (*h.bodies)[0]
+	if !strings.Contains(got, `"context_pct":42`) {
+		t.Errorf("hook should preserve statusline context_pct=42: %s", got)
+	}
+}
 
-	in := hookInput{HookEventName: "UserPromptSubmit", SessionID: sessionID, CWD: "/repo", Prompt: "hi"}
-	body, _ := json.Marshal(in)
-	dispatchHookForTest(t, "user-prompt-submit", body)
-
+func TestDispatchHook_ClearsContextPctWhenDisabled(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_CONTEXT_PCT_ENABLED=false\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sid := sanitizeSessionID("s1", "/r")
+	if err := os.WriteFile(filepath.Join(dir, sid+".json"),
+		[]byte(`{"source":"mbp","tool":"claude","session":"`+sid+`","state":"running","context_pct":42}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dispatchHookForTest(t, "pre-tool-use", []byte(`{"session_id":"s1","cwd":"/r","tool_name":"Bash","tool_input":{"command":"go test"}}`))
 	got := (*h.bodies)[0]
 	if strings.Contains(got, `"context_pct"`) {
-		t.Errorf("context_pct should be omitted when disabled: %s", got)
-	}
-	// SourceColor is independent of ContextPctEnabled — should still ship.
-	if !strings.Contains(got, `"source_color":"#aa66ff"`) {
-		t.Errorf("source_color should still be present: %s", got)
+		t.Errorf("disabled: context_pct should be cleared, got: %s", got)
 	}
 }
 
