@@ -25,6 +25,7 @@ type Config struct {
 	SourceColor         string
 	ContextPctEnabled     bool
 	ActivityDetailEnabled bool
+	ActivityTrailEnabled  bool
 	ContextWindowTokens   int
 }
 
@@ -43,6 +44,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("source_color", c.SourceColor),
 		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
 		slog.Bool("activity_detail_enabled", c.ActivityDetailEnabled),
+		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
 		slog.Int("context_window_tokens", c.ContextWindowTokens),
 	)
 }
@@ -53,6 +55,7 @@ func loadConfig() (Config, error) {
 		HookTimeoutMs:     defaultHookTimeoutMs,
 		ContextPctEnabled:     true,
 		ActivityDetailEnabled: true,
+		ActivityTrailEnabled:  true,
 	}
 	path, err := envFilePath()
 	if err != nil {
@@ -94,6 +97,13 @@ func loadConfig() (Config, error) {
 				cfg.ActivityDetailEnabled = false
 			case "true", "1", "yes", "on", "":
 				cfg.ActivityDetailEnabled = true
+			}
+		case "STATUS_ACTIVITY_TRAIL_ENABLED":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.ActivityTrailEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.ActivityTrailEnabled = true
 			}
 		case "STATUS_CONTEXT_WINDOW_TOKENS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {

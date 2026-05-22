@@ -154,3 +154,42 @@ func TestLoadConfig_ActivityDetailDisabled(t *testing.T) {
 		t.Error("ActivityDetailEnabled = true with =false set, want false")
 	}
 }
+
+func TestLoadConfig_ActivityTrailDefaultsTrue(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("STATUS_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ActivityTrailEnabled {
+		t.Error("ActivityTrailEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_ActivityTrailDisabled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("STATUS_SOURCE=mbp\nSTATUS_ACTIVITY_TRAIL_ENABLED=off\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ActivityTrailEnabled {
+		t.Error("ActivityTrailEnabled = true with =off set, want false")
+	}
+}
