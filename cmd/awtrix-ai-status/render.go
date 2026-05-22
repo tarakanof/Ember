@@ -300,13 +300,8 @@ var (
 )
 
 // Card identifies which readout the number slot shows for the current
-// session. cardXY is the rotation index "X/Y"; cardRate is the 5h
-// rate-limit "NN%"; cardTool is the scrolling activity detail (tool name
-// and current activity string). availableCards returns the ordered slice of
-// cards a session offers — cardXY is always present; cardRate appears when
-// RateWindowPct is non-nil; cardTool appears only for a running session that
-// carries a non-empty Activity string. The card cursor indexes this slice, so
-// a session can have [cardXY, cardTool] without a rate card.
+// session: cardXY is the rotation index "X/Y", cardRate is the 5h rate-limit
+// "NN%", cardTool is the scrolling activity detail.
 const (
 	cardXY = iota
 	cardRate
@@ -315,8 +310,8 @@ const (
 
 // availableCards returns the cards this session offers, in rotation order:
 // X/Y always; the rate card when RateWindowPct is set; the tool card only for
-// a running session that carries an Activity string. cardCursor indexes this
-// slice, so a session can have X/Y+tool without a rate card.
+// a running session that carries an Activity string. The rotation cursor
+// indexes this slice, so a session can have X/Y+tool without a rate card.
 func availableCards(s Session) []int {
 	cards := []int{cardXY}
 	if s.RateWindowPct != nil {
