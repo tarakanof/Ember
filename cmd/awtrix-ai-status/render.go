@@ -301,19 +301,34 @@ var (
 
 // Card identifies which readout the number slot shows for the current
 // session. cardXY is the rotation index "X/Y"; cardRate is the 5h
-// rate-limit "NN%". cardsForSession returns how many cards a session
-// offers — the rate card exists only when RateWindowPct is non-nil.
+// rate-limit "NN%"; cardTool is the scrolling activity detail (tool name
+// and current activity string). availableCards returns the ordered slice of
+// cards a session offers — cardXY is always present; cardRate appears when
+// RateWindowPct is non-nil; cardTool appears only for a running session that
+// carries a non-empty Activity string. The card cursor indexes this slice, so
+// a session can have [cardXY, cardTool] without a rate card.
 const (
 	cardXY = iota
 	cardRate
+	cardTool
 )
 
-func cardsForSession(s Session) int {
+// availableCards returns the cards this session offers, in rotation order:
+// X/Y always; the rate card when RateWindowPct is set; the tool card only for
+// a running session that carries an Activity string. cardCursor indexes this
+// slice, so a session can have X/Y+tool without a rate card.
+func availableCards(s Session) []int {
+	cards := []int{cardXY}
 	if s.RateWindowPct != nil {
-		return 2
+		cards = append(cards, cardRate)
 	}
-	return 1
+	if s.State == "running" && s.Activity != "" {
+		cards = append(cards, cardTool)
+	}
+	return cards
 }
+
+func cardsForSession(s Session) int { return len(availableCards(s)) }
 
 // rateText renders a 5h-rate percent as "NN%". Clamped to 0..99 so the
 // 3-glyph value always fits cols 12–22 (before the glass at col 25); the
@@ -605,11 +620,23 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	stateColor := colorForState(session.State)
 
 	if locked && (session.State == "waiting" || session.State == "error") {
+		if session.Activity != "" {
+			return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
+		}
 		label, hex := attentionLabelAndColor(session.State)
 		return detailPayload(*session, label, hex, true, lifetimeSeconds)
 	}
 
-	frame := composeFrame(*session, idx, total, card, stateColor, snap.Sessions)
+	cards := availableCards(*session)
+	ci := card
+	if ci < 0 || ci >= len(cards) {
+		ci = 0
+	}
+	selected := cards[ci]
+	if selected == cardTool {
+		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
+	}
+	frame := composeFrame(*session, idx, total, selected, stateColor, snap.Sessions)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -700,6 +727,13 @@ func attentionLabelAndColor(state string) (string, string) {
 		return "ERR", fmt.Sprintf("#%02X%02X%02X", colorError.R, colorError.G, colorError.B)
 	}
 	return "WAIT", fmt.Sprintf("#%02X%02X%02X", colorWaiting.R, colorWaiting.G, colorWaiting.B)
+}
+
+// stateHex returns the "#RRGGBB" string for a state's palette colour, for use
+// as the AWTRIX text colour in detail payloads.
+func stateHex(state string) string {
+	c := colorForState(state)
+	return fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B)
 }
 
 // idleDimWhite is the robot colour during the idle-restore countdown:

@@ -981,3 +981,88 @@ func TestCardsForSession(t *testing.T) {
 		t.Errorf("cardsForSession(rate=&0) = %d, want 2 (0%% is present)", got)
 	}
 }
+
+func TestAvailableCards(t *testing.T) {
+	pct := 50
+	cases := []struct {
+		name string
+		s    Session
+		want []int
+	}{
+		{"xy only", Session{State: "running"}, []int{cardXY}},
+		{"xy+rate", Session{State: "running", RateWindowPct: &pct}, []int{cardXY, cardRate}},
+		{"xy+tool", Session{State: "running", Activity: "Bash: x"}, []int{cardXY, cardTool}},
+		{"xy+rate+tool", Session{State: "running", RateWindowPct: &pct, Activity: "Bash: x"}, []int{cardXY, cardRate, cardTool}},
+		{"tool needs running", Session{State: "waiting", Activity: "Bash: x"}, []int{cardXY}},
+		{"tool needs activity", Session{State: "running"}, []int{cardXY}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := availableCards(tc.s)
+			if len(got) != len(tc.want) {
+				t.Fatalf("availableCards = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("availableCards = %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderForCoord_ToolCard_EmitsScrollingDetail(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", Activity: "Bash: npm test", UpdatedAt: time.Now()},
+	}}
+	// availableCards = [cardXY, cardTool]; cursor 1 selects the tool card.
+	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30)
+	if payload["text"] != "Bash: npm test" {
+		t.Errorf("text = %v, want the activity string", payload["text"])
+	}
+	if _, has := payload["blinkText"]; has {
+		t.Errorf("tool card must not blink")
+	}
+	if _, has := payload["noScroll"]; has {
+		t.Errorf("tool card must allow scroll (no noScroll)")
+	}
+	if payload["color"] != "#2EE85E" {
+		t.Errorf("color = %v, want running green #2EE85E", payload["color"])
+	}
+}
+
+func TestRenderForCoord_CursorOutOfRange_ClampsToXY(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a/b/s1", 2, false, 30)
+	if _, hasText := payload["text"]; hasText {
+		t.Errorf("clamped X/Y card must be a pixel frame, not a text payload")
+	}
+}
+
+func TestRenderForCoord_LockedAttention_ScrollsActivity(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "w", State: "waiting", Activity: "Bash: rm -rf x", UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
+	if payload["text"] != "Bash: rm -rf x" {
+		t.Errorf("locked text = %v, want the activity string", payload["text"])
+	}
+	if _, has := payload["blinkText"]; has {
+		t.Errorf("locked attention with activity must not blink")
+	}
+	if payload["color"] != "#FFC14D" {
+		t.Errorf("color = %v, want waiting amber #FFC14D", payload["color"])
+	}
+}
+
+func TestRenderForCoord_LockedAttention_NoActivityStillBlinks(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
+	if payload["text"] != "WAIT" || payload["blinkText"] != 500 {
+		t.Errorf("no-activity waiting should blink WAIT, got text=%v blink=%v", payload["text"], payload["blinkText"])
+	}
+}
