@@ -44,6 +44,7 @@ func onSystrayReady() {
 	systray.AddSeparator()
 	openStateMI = systray.AddMenuItem("Open server /state in browser", "")
 	settingsParent := systray.AddMenuItem("Settings", "")
+	spikeMI := systray.AddMenuItem("Settings (spike)", "open native window spike")
 	doctorMI = systray.AddMenuItem("Doctor", "")
 	reloadMI = systray.AddMenuItem("Reload", "")
 	systray.AddSeparator()
@@ -62,6 +63,8 @@ func onSystrayReady() {
 				if u := stateURL.Load(); u != nil {
 					startAndReap(exec.Command("open", u.(string)+"/state"))
 				}
+			case <-spikeMI.ClickedCh:
+				openSettingsWindow(envPath)
 			case <-doctorMI.ClickedCh:
 				go openDoctor()
 			case <-reloadMI.ClickedCh:
