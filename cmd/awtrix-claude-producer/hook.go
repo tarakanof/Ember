@@ -19,8 +19,9 @@ type hookInput struct {
 	CWD                 string `json:"cwd"`
 	Source              string `json:"source,omitempty"`
 	Prompt              string `json:"prompt,omitempty"`
-	ToolName            string `json:"tool_name,omitempty"`
-	NotificationType    string `json:"notification_type,omitempty"`
+	ToolName            string          `json:"tool_name,omitempty"`
+	ToolInput           json.RawMessage `json:"tool_input"`
+	NotificationType    string          `json:"notification_type,omitempty"`
 	NotificationMessage string `json:"notification_message,omitempty"`
 	Message             string `json:"message,omitempty"`
 	ErrorType           string `json:"error_type,omitempty"`
@@ -73,22 +74,30 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 	case "session-start":
 		handleSessionStart(in, markerP, lockP)
 	case "user-prompt-submit":
-		handleUpsert(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), markerP, lockP)
+		handleUpsert(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), "", markerP, lockP)
 	case "pre-tool-use":
-		handleUpsert(ctx, cfg, client, sessionID, "running", in.ToolName, markerP, lockP)
+		act := ""
+		if cfg.ActivityDetailEnabled {
+			act = activityString(in.ToolName, in.ToolInput)
+		}
+		handleUpsert(ctx, cfg, client, sessionID, "running", in.ToolName, act, markerP, lockP)
 	case "permission-request":
-		handleUpsert(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, markerP, lockP)
+		act := ""
+		if cfg.ActivityDetailEnabled {
+			act = activityString(in.ToolName, in.ToolInput)
+		}
+		handleUpsert(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, act, markerP, lockP)
 	case "notification":
 		if in.NotificationType != "permission_prompt" {
 			return
 		}
 		msg := pickFirstNonEmpty(in.Message, in.NotificationMessage)
-		handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, markerP, lockP)
+		handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
 	case "stop":
 		handleDelete(ctx, cfg, client, sessionID, markerP, lockP)
 	case "stop-failure":
 		msg := pickFirstNonEmpty(in.ErrorType, in.Error, in.ErrorMessage, "error")
-		handleUpsert(ctx, cfg, client, sessionID, "error", msg, markerP, lockP)
+		handleUpsert(ctx, cfg, client, sessionID, "error", msg, "", markerP, lockP)
 	case "session-end":
 		switch in.EndReason {
 		case "logout", "prompt_input_exit", "bypass_permissions_disabled", "other":
@@ -107,13 +116,14 @@ func handleSessionStart(in hookInput, markerP, lockP string) {
 	})
 }
 
-func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, state, message, markerP, lockP string) {
+func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string) {
 	req := StatusRequest{
-		Source:  cfg.Source,
-		Tool:    "claude",
-		Session: sessionID,
-		State:   state,
-		Message: truncate(message, 80),
+		Source:   cfg.Source,
+		Tool:     "claude",
+		Session:  sessionID,
+		State:    state,
+		Message:  truncate(message, 80),
+		Activity: truncate(activity, 80),
 	}
 	if cfg.SourceColor != "" {
 		sc := cfg.SourceColor

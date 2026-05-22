@@ -291,6 +291,57 @@ func TestHandleUpsert_PreservesRateWindowPct(t *testing.T) {
 	}
 }
 
+func TestDispatchHook_PreToolUseSetsActivity(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_ACTIVITY_DETAIL_ENABLED=true\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"session_id":"s1","cwd":"/repo","tool_name":"Bash","tool_input":{"command":"npm test"}}`)
+	dispatchHookForTest(t, "pre-tool-use", body)
+	got := (*h.bodies)[0]
+	if !strings.Contains(got, `"activity":"Bash: npm test"`) {
+		t.Errorf("pre-tool-use body missing activity: %s", got)
+	}
+	if !strings.Contains(got, `"state":"running"`) {
+		t.Errorf("pre-tool-use should be running: %s", got)
+	}
+}
+
+func TestDispatchHook_ActivityDisabledOmitsField(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_ACTIVITY_DETAIL_ENABLED=false\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"session_id":"s1","cwd":"/repo","tool_name":"Bash","tool_input":{"command":"npm test"}}`)
+	dispatchHookForTest(t, "pre-tool-use", body)
+	got := (*h.bodies)[0]
+	if strings.Contains(got, `"activity"`) {
+		t.Errorf("activity should be omitted when disabled: %s", got)
+	}
+}
+
+func TestDispatchHook_PermissionRequestSetsActivity(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"session_id":"s1","cwd":"/repo","tool_name":"Edit","tool_input":{"file_path":"/repo/render.go"}}`)
+	dispatchHookForTest(t, "permission-request", body)
+	got := (*h.bodies)[0]
+	if !strings.Contains(got, `"state":"waiting"`) {
+		t.Errorf("permission-request should be waiting: %s", got)
+	}
+	if !strings.Contains(got, `"activity":"Edit: render.go"`) {
+		t.Errorf("permission-request body missing activity: %s", got)
+	}
+}
+
 func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
