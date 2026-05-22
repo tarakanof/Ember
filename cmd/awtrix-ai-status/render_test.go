@@ -173,53 +173,72 @@ func TestDrawRobotError(t *testing.T) {
 
 func intPtr(v int) *int { return &v }
 
-func TestDrawGlass(t *testing.T) {
-	tests := []struct {
-		name          string
-		pct           *int
-		wantOutline   bool
-		wantFillRows  []int
-		wantNoOutline bool
-	}{
-		{name: "absent — no glass at all", pct: nil, wantNoOutline: true},
-		{name: "0% — outline only", pct: intPtr(0), wantOutline: true, wantFillRows: nil},
-		{name: "12% — bottom interior row only", pct: intPtr(12), wantOutline: true, wantFillRows: []int{4}},
-		{name: "25%", pct: intPtr(25), wantOutline: true, wantFillRows: []int{4, 3}},
-		{name: "50%", pct: intPtr(50), wantOutline: true, wantFillRows: []int{4, 3, 2}},
-		{name: "75%", pct: intPtr(75), wantOutline: true, wantFillRows: []int{4, 3, 2, 1}},
-		{name: "100% — full", pct: intPtr(100), wantOutline: true, wantFillRows: []int{4, 3, 2, 1}},
+// litInterior counts lit pixels in the glass interior (cols 26-29, rows 1-4).
+func litInterior(f *Frame) int {
+	n := 0
+	for y := 1; y <= 4; y++ {
+		for x := 26; x <= 29; x++ {
+			if f.Dirty[y][x] {
+				n++
+			}
+		}
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			f := &Frame{}
-			drawGlass(f, tc.pct, RGB{0x2e, 0xe8, 0x5e})
+	return n
+}
 
-			if tc.wantNoOutline {
-				if f.Dirty[1][25] || f.Dirty[5][27] {
-					t.Errorf("absent pct: outline drawn anyway")
-				}
-				return
-			}
-			if !f.Dirty[1][25] || !f.Dirty[1][30] || !f.Dirty[5][27] {
-				t.Errorf("outline missing: walls or bottom not painted")
-			}
+func TestDrawGlass(t *testing.T) {
+	fill := RGB{0x2e, 0xe8, 0x5e}
 
-			for y := 1; y <= 4; y++ {
-				wantRowFilled := false
-				for _, r := range tc.wantFillRows {
-					if r == y {
-						wantRowFilled = true
-						break
-					}
-				}
-				for x := 26; x <= 29; x++ {
-					got := f.Dirty[y][x]
-					if got != wantRowFilled {
-						t.Errorf("[%d,%d] dirty = %v, want %v", x, y, got, wantRowFilled)
-					}
-				}
-			}
-		})
+	// Absent pct → nothing drawn (no outline, no fill).
+	f := &Frame{}
+	drawGlass(f, nil, fill)
+	if f.Dirty[1][25] || litInterior(f) != 0 {
+		t.Errorf("absent pct: drew something")
+	}
+
+	// Proportional pixel fill over the 16 interior pixels: round(pct/100*16).
+	// Outline is always present for a non-nil pct.
+	counts := []struct{ pct, want int }{
+		{0, 0}, {25, 4}, {50, 8}, {75, 12}, {100, 16},
+		{73, 12}, {99, 16}, // 73 and 99 are now distinguishable (12 vs 16)
+		{6, 1},             // ~6% per pixel → first pixel
+	}
+	for _, c := range counts {
+		f := &Frame{}
+		drawGlass(f, intPtr(c.pct), fill)
+		if !f.Dirty[1][25] || !f.Dirty[1][30] || !f.Dirty[5][27] {
+			t.Errorf("%d%%: outline missing", c.pct)
+		}
+		if got := litInterior(f); got != c.want {
+			t.Errorf("%d%%: interior lit = %d, want %d", c.pct, got, c.want)
+		}
+	}
+
+	// Center-out partial row: 54% → 9px → rows 4,3 full + only center col 27 in row 2.
+	f = &Frame{}
+	drawGlass(f, intPtr(54), fill)
+	for x := 26; x <= 29; x++ {
+		if !f.Dirty[4][x] || !f.Dirty[3][x] {
+			t.Errorf("54%%: bottom two rows should be full (col %d)", x)
+		}
+	}
+	if !f.Dirty[2][27] {
+		t.Error("54%: center col 27 of the partial row should be lit")
+	}
+	for _, x := range []int{26, 28, 29} {
+		if f.Dirty[2][x] {
+			t.Errorf("54%%: partial row fills center-out; col %d should still be dark", x)
+		}
+	}
+	if litInterior(f) != 9 {
+		t.Errorf("54%%: interior lit = %d, want 9", litInterior(f))
+	}
+
+	// 60% → 10px → partial row has the center PAIR (27,28); outer (26,29) dark.
+	f = &Frame{}
+	drawGlass(f, intPtr(60), fill)
+	if !f.Dirty[2][27] || !f.Dirty[2][28] || f.Dirty[2][26] || f.Dirty[2][29] {
+		t.Error("60%: partial row should be center pair 27,28 only")
 	}
 }
 

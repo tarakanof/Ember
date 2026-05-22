@@ -151,19 +151,25 @@ func drawRobot(f *Frame, s Session, c RGB) {
 }
 
 const (
-	glassLeft       = 25
-	glassRight      = 30
-	glassTopRow     = 1
-	glassBottomRow  = 5
-	glassFillLevels = 4
+	glassLeft        = 25
+	glassRight       = 30
+	glassTopRow      = 1
+	glassBottomRow   = 5
+	glassInteriorW   = 4  // interior cols 26–29
+	glassInteriorH   = 4  // interior rows 1–4
+	glassInteriorPix = glassInteriorW * glassInteriorH
 )
 
 var glassWall = RGB{0xcc, 0xcc, 0xcc}
 
 // drawGlass paints the context-window glass at cols 25–30, rows 1–5.
 // If pct is nil the glass is not drawn at all (visually empty space —
-// distinguishes from a session reporting 0 %). When non-nil, the outline
-// is drawn in glassWall and the interior is filled bottom-up in c.
+// distinguishes from a session reporting 0 %). When non-nil, the outline is
+// drawn in glassWall and the 16 interior pixels (cols 26–29 × rows 1–4) are
+// filled bottom-up in c, proportional to pct (≈6 % per pixel — far finer than
+// the old 4 row-levels, so e.g. 73 % and 99 % look different). The topmost
+// partial row fills center-out (cols 27,28 before 26,29) so the waterline
+// reads as a level rather than filling from one edge.
 func drawGlass(f *Frame, pct *int, c RGB) {
 	if pct == nil {
 		return
@@ -181,24 +187,22 @@ func drawGlass(f *Frame, pct *int, c RGB) {
 	if v > 100 {
 		v = 100
 	}
-	var levels int
-	switch {
-	case v < 1:
-		levels = 0
-	case v < 25:
-		levels = 1
-	case v < 50:
-		levels = 2
-	case v < 75:
-		levels = 3
-	default:
-		levels = 4
+	n := (v*glassInteriorPix + 50) / 100 // round(v/100 * 16)
+	if n > glassInteriorPix {
+		n = glassInteriorPix
 	}
-	for i := 0; i < levels; i++ {
-		y := (glassBottomRow - 1) - i
-		for x := glassLeft + 1; x <= glassRight-1; x++ {
-			paintCell(f, x, y, c)
+	// Center-out column order within a row: 27, 28, 26, 29.
+	colOrder := [glassInteriorW]int{glassLeft + 2, glassLeft + 3, glassLeft + 1, glassRight - 1}
+	for row := 0; row < glassInteriorH && n > 0; row++ {
+		y := (glassBottomRow - 1) - row // 4, 3, 2, 1 (bottom-up)
+		k := n
+		if k > glassInteriorW {
+			k = glassInteriorW
 		}
+		for i := 0; i < k; i++ {
+			paintCell(f, colOrder[i], y, c)
+		}
+		n -= k
 	}
 }
 
