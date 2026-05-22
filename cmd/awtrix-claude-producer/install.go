@@ -216,6 +216,19 @@ func mergeSettingsJSON(home, binPath string) error {
 	}
 	root["hooks"] = hooksRoot
 
+	// Capture any existing (non-ours) statusLine so the user's keeps working,
+	// then claim the slot. Idempotent: if the slot is already ours we don't
+	// re-capture (which would store our own command).
+	if sl, ok := root["statusLine"]; ok && !statusLineIsOurs(sl) {
+		if raw, err := json.Marshal(sl); err == nil {
+			_ = os.WriteFile(wrappedStatuslinePath(home), raw, 0o600)
+		}
+	}
+	root["statusLine"] = map[string]any{
+		"type":    "command",
+		"command": ourStatuslineCommand(binPath),
+	}
+
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err

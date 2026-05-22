@@ -139,3 +139,41 @@ func TestMergeSettings_Idempotent(t *testing.T) {
 		t.Errorf("re-running install changed settings:\nfirst: %s\nsecond: %s", first, second)
 	}
 }
+
+func mustMkdir(t *testing.T, p string) {
+	t.Helper()
+	if err := os.MkdirAll(p, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMergeSettingsJSON_StatusLineCaptureAndSet(t *testing.T) {
+	home := t.TempDir()
+	mustMkdir(t, filepath.Join(home, ".claude"))
+	mustMkdir(t, filepath.Join(home, ".config", "awtrix-ai-status"))
+	settings := filepath.Join(home, ".claude", "settings.json")
+	sidecar := filepath.Join(home, ".config", "awtrix-ai-status", "wrapped-statusline.json")
+
+	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"mine.sh"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := mergeSettingsJSON(home, "/x/awtrix-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(sidecar)
+	if err != nil || !strings.Contains(string(raw), "mine.sh") {
+		t.Fatalf("sidecar missing user command: err=%v raw=%s", err, raw)
+	}
+	sb, _ := os.ReadFile(settings)
+	if !strings.Contains(string(sb), "awtrix-claude-producer statusline") {
+		t.Errorf("statusLine not set to ours: %s", sb)
+	}
+	// Idempotent re-install must NOT capture our own command as wrapped.
+	if err := mergeSettingsJSON(home, "/x/awtrix-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	raw2, _ := os.ReadFile(sidecar)
+	if !strings.Contains(string(raw2), "mine.sh") || strings.Contains(string(raw2), "awtrix-claude-producer statusline") {
+		t.Errorf("re-install corrupted sidecar: %s", raw2)
+	}
+}

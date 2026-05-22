@@ -65,6 +65,18 @@ func uninstallSettings(home string) error {
 	} else {
 		root["hooks"] = hooksRoot
 	}
+
+	// Remove our statusLine and restore the user's wrapped one (if any).
+	if sl, ok := root["statusLine"]; ok && statusLineIsOurs(sl) {
+		delete(root, "statusLine")
+		if cmd, ok := readWrappedCommand(wrappedStatuslinePath(home)); ok {
+			root["statusLine"] = map[string]any{
+				"type":    "command",
+				"command": cmd,
+			}
+		}
+	}
+
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err
