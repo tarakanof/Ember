@@ -637,6 +637,51 @@ func TestCoord_Interleave_SingleRateSession(t *testing.T) {
 	}
 }
 
+func TestCoord_Interleave_RunningSessionThreeCards(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	pct := 42
+	c.snapshot = func() Snapshot {
+		return Snapshot{Sessions: []Session{
+			{Source: "a", Tool: "b", Session: "s1", State: "running", RateWindowPct: &pct, Activity: "Bash: x", UpdatedAt: clk.Now()},
+		}}
+	}
+	// XY + rate + tool = 3 cards.
+	if got := cardsForSession(c.snapshot().Sessions[0]); got != 3 {
+		t.Fatalf("cardsForSession = %d, want 3", got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	readCursor := func() int {
+		c.muTest.RLock()
+		defer c.muTest.RUnlock()
+		return c.cardCursor
+	}
+	tick := func() { c.Send(coordCmd{kind: cmdTick}); time.Sleep(50 * time.Millisecond) }
+
+	tick() // → s1, cursor 0 (xy)
+	if got := readCursor(); got != 0 {
+		t.Fatalf("after tick 1, cardCursor = %d, want 0", got)
+	}
+	tick() // cursor 1 (rate)
+	if got := readCursor(); got != 1 {
+		t.Fatalf("after tick 2, cardCursor = %d, want 1", got)
+	}
+	tick() // cursor 2 (tool)
+	if got := readCursor(); got != 2 {
+		t.Fatalf("after tick 3, cardCursor = %d, want 2", got)
+	}
+	tick() // cards exhausted → wrap, cursor 0
+	if got := readCursor(); got != 0 {
+		t.Fatalf("after tick 4, cardCursor = %d, want 0 (wrap)", got)
+	}
+}
+
 func TestCoord_Interleave_TwoSessionsOrder(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
