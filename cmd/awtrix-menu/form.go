@@ -12,7 +12,6 @@ const (
 	keyRatePct        = "STATUS_RATE_PCT_ENABLED"
 	keyActivityDetail = "STATUS_ACTIVITY_DETAIL_ENABLED"
 	keyActivityTrail  = "STATUS_ACTIVITY_TRAIL_ENABLED"
-	keyCtxWindow      = "STATUS_CONTEXT_WINDOW_TOKENS"
 )
 
 // settingsForm is the editable view of producer.env shown in the window.
@@ -21,7 +20,6 @@ type settingsForm struct {
 	Source        string
 	ServerURL     string
 	SourceColor   string
-	ContextWindow string
 	ContextPct     bool
 	RatePct        bool
 	ActivityDetail bool
@@ -37,7 +35,6 @@ func formFromEnv(rec *envRec) (settingsForm, bool) {
 		Source:        rec.get(keySource),
 		ServerURL:     rec.get(keyServerURL),
 		SourceColor:   rec.get(keyColor),
-		ContextWindow: rec.get(keyCtxWindow),
 		ContextPct:     isEnvTrue(rec.get(keyContextPct)),
 		RatePct:        isEnvTrue(rec.get(keyRatePct)),
 		ActivityDetail: isEnvTrue(rec.get(keyActivityDetail)),
@@ -55,7 +52,6 @@ func validateForm(f settingsForm) map[string]string {
 		{keySource, f.Source},
 		{keyServerURL, f.ServerURL},
 		{keyColor, f.SourceColor},
-		{keyCtxWindow, f.ContextWindow},
 	} {
 		if _, err := validateSetting(c.key, c.val); err != nil {
 			errs[c.key] = err.Error()
@@ -77,7 +73,6 @@ func applyForm(rec *envRec, f settingsForm) {
 	rec.set(keySource, norm(keySource, f.Source))
 	rec.set(keyServerURL, norm(keyServerURL, f.ServerURL))
 	rec.set(keyColor, norm(keyColor, f.SourceColor))
-	rec.set(keyCtxWindow, norm(keyCtxWindow, f.ContextWindow))
 	rec.set(keyContextPct, boolStr(f.ContextPct))
 	rec.set(keyRatePct, boolStr(f.RatePct))
 	rec.set(keyActivityDetail, boolStr(f.ActivityDetail))

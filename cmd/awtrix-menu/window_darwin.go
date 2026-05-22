@@ -41,7 +41,7 @@ func openSettingsWindow(envPath string) {
 
 		const (
 			winW = 460.0
-			winH = 476.0
+			winH = 440.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
 			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
@@ -66,7 +66,7 @@ func openSettingsWindow(envPath string) {
 		connBox := appkit.NewBox()
 		connBox.SetTitle("Connection")
 		connBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 266},
+			Origin: foundation.Point{X: 16, Y: 230},
 			Size:   foundation.Size{Width: winW - 32, Height: 190},
 		})
 		connView := appkit.NewView()
@@ -129,7 +129,7 @@ func openSettingsWindow(envPath string) {
 		clockBox.SetTitle("What shows on the clock")
 		clockBox.SetFrame(foundation.Rect{
 			Origin: foundation.Point{X: 16, Y: 60},
-			Size:   foundation.Size{Width: winW - 32, Height: 194},
+			Size:   foundation.Size{Width: winW - 32, Height: 158},
 		})
 		clockView := appkit.NewView()
 		clockBox.SetContentView(clockView)
@@ -142,22 +142,12 @@ func openSettingsWindow(envPath string) {
 		ctxCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 110}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(ctxCheck)
 
-		// Context-window-tokens field.
-		ctxField := appkit.NewTextField()
-		ctxField.SetStringValue(form.ContextWindow)
-		ctxField.SetPlaceholderString("blank = model default")
-		ctxField.SetFrame(foundation.Rect{Origin: foundation.Point{X: 168, Y: 74}, Size: foundation.Size{Width: 100, Height: rowH}})
-		ctxErr := newErrorLabel(foundation.Rect{Origin: foundation.Point{X: 272, Y: 78}, Size: foundation.Size{Width: 140, Height: 14}})
-		clockView.AddSubview(newFieldLabel("Context-window tokens", foundation.Point{X: 8, Y: 76}))
-		clockView.AddSubview(ctxField)
-		clockView.AddSubview(ctxErr)
-
 		// 5h rate-limit checkbox.
 		rateCheck := appkit.NewButton()
 		rateCheck.SetButtonType(appkit.ButtonTypeSwitch)
 		rateCheck.SetTitle("5h rate-limit glass (% used)")
 		rateCheck.SetState(boolState(form.RatePct))
-		rateCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 40}, Size: foundation.Size{Width: 320, Height: rowH}})
+		rateCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 76}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(rateCheck)
 
 		// Tool / approval detail checkbox.
@@ -165,7 +155,7 @@ func openSettingsWindow(envPath string) {
 		activityCheck.SetButtonType(appkit.ButtonTypeSwitch)
 		activityCheck.SetTitle("Tool / approval detail")
 		activityCheck.SetState(boolState(form.ActivityDetail))
-		activityCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 10}, Size: foundation.Size{Width: 320, Height: rowH}})
+		activityCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 40}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(activityCheck)
 
 		// Recent-activity trail checkbox.
@@ -173,7 +163,7 @@ func openSettingsWindow(envPath string) {
 		trailCheck.SetButtonType(appkit.ButtonTypeSwitch)
 		trailCheck.SetTitle("Recent-activity trail")
 		trailCheck.SetState(boolState(form.ActivityTrail))
-		trailCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 144}, Size: foundation.Size{Width: 320, Height: rowH}})
+		trailCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 10}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(trailCheck)
 
 		content.AddSubview(clockBox)
@@ -202,7 +192,6 @@ func openSettingsWindow(envPath string) {
 			keyServerURL: urlErr,
 			keyToken:     tokenErr,
 			keyColor:     colorErr,
-			keyCtxWindow: ctxErr,
 		}
 		clearErrors := func() {
 			for _, lbl := range errLabels {
@@ -218,7 +207,6 @@ func openSettingsWindow(envPath string) {
 				Source:        sourceField.StringValue(),
 				ServerURL:     urlField.StringValue(),
 				SourceColor:   colorField.StringValue(),
-				ContextWindow: ctxField.StringValue(),
 				ContextPct:     ctxCheck.State() == appkit.ControlStateValueOn,
 				RatePct:        rateCheck.State() == appkit.ControlStateValueOn,
 				ActivityDetail: activityCheck.State() == appkit.ControlStateValueOn,

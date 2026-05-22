@@ -26,11 +26,6 @@ func TestValidateSetting(t *testing.T) {
 		{"color blank ok", "STATUS_SOURCE_COLOR", "", "", false},
 		{"color bad", "STATUS_SOURCE_COLOR", "aa66ff", "", true},
 		{"color short", "STATUS_SOURCE_COLOR", "#abc", "", true},
-		{"window ok", "STATUS_CONTEXT_WINDOW_TOKENS", "1000000", "1000000", false},
-		{"window blank ok", "STATUS_CONTEXT_WINDOW_TOKENS", "", "", false},
-		{"window zero rejected", "STATUS_CONTEXT_WINDOW_TOKENS", "0", "", true},
-		{"window negative", "STATUS_CONTEXT_WINDOW_TOKENS", "-5", "", true},
-		{"window non-numeric", "STATUS_CONTEXT_WINDOW_TOKENS", "lots", "", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -66,7 +61,6 @@ func TestFormFromEnv(t *testing.T) {
 	rec.set("STATUS_SOURCE", "mbp")
 	rec.set("STATUS_SERVER_URL", "http://localhost:8080")
 	rec.set("STATUS_SOURCE_COLOR", "#aa66ff")
-	rec.set("STATUS_CONTEXT_WINDOW_TOKENS", "1000000")
 	rec.set("STATUS_CONTEXT_PCT_ENABLED", "true")
 	rec.set("STATUS_RATE_PCT_ENABLED", "false")
 	rec.set("STATUS_ACTIVITY_DETAIL_ENABLED", "false")
@@ -80,7 +74,7 @@ func TestFormFromEnv(t *testing.T) {
 	if f.Token != "" {
 		t.Errorf("Token = %q, want empty (never round-tripped)", f.Token)
 	}
-	if f.Source != "mbp" || f.ServerURL != "http://localhost:8080" || f.SourceColor != "#aa66ff" || f.ContextWindow != "1000000" {
+	if f.Source != "mbp" || f.ServerURL != "http://localhost:8080" || f.SourceColor != "#aa66ff" {
 		t.Errorf("text fields mismapped: %+v", f)
 	}
 	if !f.ContextPct || f.RatePct {
@@ -104,16 +98,16 @@ func TestFormFromEnv(t *testing.T) {
 }
 
 func TestValidateForm(t *testing.T) {
-	good := settingsForm{Source: "mbp", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextWindow: "200000"}
+	good := settingsForm{Source: "mbp", ServerURL: "http://h:8080", SourceColor: "#aa66ff"}
 	if errs := validateForm(good); len(errs) != 0 {
 		t.Errorf("valid form produced errors: %v", errs)
 	}
-	if errs := validateForm(settingsForm{Source: "mbp", ServerURL: "http://h", SourceColor: "", ContextWindow: "", Token: ""}); len(errs) != 0 {
+	if errs := validateForm(settingsForm{Source: "mbp", ServerURL: "http://h", SourceColor: "", Token: ""}); len(errs) != 0 {
 		t.Errorf("blanks should be valid: %v", errs)
 	}
-	bad := settingsForm{Source: "", ServerURL: "ftp://x", SourceColor: "nope", ContextWindow: "-3", Token: "ab\nc"}
+	bad := settingsForm{Source: "", ServerURL: "ftp://x", SourceColor: "nope", Token: "ab\nc"}
 	errs := validateForm(bad)
-	for _, k := range []string{"STATUS_SOURCE", "STATUS_SERVER_URL", "STATUS_SOURCE_COLOR", "STATUS_CONTEXT_WINDOW_TOKENS", "STATUS_TOKEN"} {
+	for _, k := range []string{"STATUS_SOURCE", "STATUS_SERVER_URL", "STATUS_SOURCE_COLOR", "STATUS_TOKEN"} {
 		if _, ok := errs[k]; !ok {
 			t.Errorf("expected error for %s, got none (errs=%v)", k, errs)
 		}
@@ -125,7 +119,7 @@ func TestApplyForm(t *testing.T) {
 	rec.set("STATUS_TOKEN", "old-token")
 	rec.set("STATUS_UNKNOWN", "keepme")
 
-	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextWindow: "200000", ContextPct: true, RatePct: false, ActivityDetail: true, ActivityTrail: true, Token: ""})
+	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextPct: true, RatePct: false, ActivityDetail: true, ActivityTrail: true, Token: ""})
 	if rec.get("STATUS_TOKEN") != "old-token" {
 		t.Errorf("blank token should keep existing, got %q", rec.get("STATUS_TOKEN"))
 	}

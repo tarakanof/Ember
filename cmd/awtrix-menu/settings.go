@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -44,18 +43,6 @@ func validateSetting(key, value string) (string, error) {
 			return "", fmt.Errorf("color must be #RRGGBB hex")
 		}
 		return v, nil
-	case "STATUS_CONTEXT_WINDOW_TOKENS":
-		if v == "" {
-			return "", nil // unset = model default
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			// Reject 0: the producer treats a non-positive window as "use the
-			// model default" (200k), so saving 0 silently discards a real
-			// window setting. Blank is the explicit way to ask for the default.
-			return "", fmt.Errorf("context window must be blank (model default) or a positive integer")
-		}
-		return strconv.Itoa(n), nil
 	default:
 		return v, nil
 	}
