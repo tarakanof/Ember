@@ -24,6 +24,7 @@ type Config struct {
 	SourceColor           string
 	ContextPctEnabled     bool
 	RatePctEnabled        bool
+	ActivityTrailEnabled  bool
 	PollIntervalMs        int
 	ActivityWindowSeconds int
 	SessionsDir           string
@@ -43,6 +44,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("source_color", c.SourceColor),
 		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
 		slog.Bool("rate_pct_enabled", c.RatePctEnabled),
+		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
 		slog.Int("poll_interval_ms", c.PollIntervalMs),
 		slog.Int("activity_window_seconds", c.ActivityWindowSeconds),
 		slog.String("sessions_dir", c.SessionsDir),
@@ -58,6 +60,7 @@ func loadConfig() (Config, error) {
 	cfg := Config{
 		ContextPctEnabled:     true,
 		RatePctEnabled:        true,
+		ActivityTrailEnabled:  true,
 		PollIntervalMs:        defaultPollIntervalMs,
 		ActivityWindowSeconds: defaultActivityWindowSeconds,
 		SessionsDir:           filepath.Join(home, ".codex", "sessions"),
@@ -91,6 +94,13 @@ func loadConfig() (Config, error) {
 				cfg.RatePctEnabled = false
 			case "true", "1", "yes", "on", "":
 				cfg.RatePctEnabled = true
+			}
+		case "STATUS_ACTIVITY_TRAIL_ENABLED":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.ActivityTrailEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.ActivityTrailEnabled = true
 			}
 		case "STATUS_CODEX_POLL_INTERVAL_MS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {

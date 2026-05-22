@@ -80,3 +80,42 @@ func TestLoadConfig_RatePctEnabled(t *testing.T) {
 		t.Errorf("default RatePctEnabled = false, want true")
 	}
 }
+
+func TestLoadConfig_CodexActivityTrailDefaultsTrue(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("STATUS_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ActivityTrailEnabled {
+		t.Error("ActivityTrailEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_CodexActivityTrailDisabled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("STATUS_SOURCE=mbp\nSTATUS_ACTIVITY_TRAIL_ENABLED=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ActivityTrailEnabled {
+		t.Error("ActivityTrailEnabled = true with =0 set, want false")
+	}
+}
