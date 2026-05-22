@@ -1036,3 +1036,24 @@ func TestStatusRequest_RateWindowPctRangeValidated(t *testing.T) {
 		t.Errorf("rate_window_pct=0 should be valid, got %v", err)
 	}
 }
+
+func TestStatusRequest_ActivityRoundTrips(t *testing.T) {
+	s := StatusRequest{Source: "mbp", Tool: "claude", Session: "u1", State: "running", Activity: "  Bash: npm test  "}.normalized()
+	if s.Activity != "Bash: npm test" {
+		t.Fatalf("Activity = %q, want trimmed %q", s.Activity, "Bash: npm test")
+	}
+}
+
+func TestStatusRequest_ActivityLengthValidated(t *testing.T) {
+	long := strings.Repeat("x", 81)
+	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: long}).validate(); err == nil {
+		t.Errorf("activity of 81 chars should be rejected")
+	}
+	ok := strings.Repeat("x", 80)
+	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: ok}).validate(); err != nil {
+		t.Errorf("activity of 80 chars should be valid, got %v", err)
+	}
+	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: ""}).validate(); err != nil {
+		t.Errorf("empty activity should be valid, got %v", err)
+	}
+}

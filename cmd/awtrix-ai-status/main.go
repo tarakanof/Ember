@@ -204,6 +204,7 @@ type StatusRequest struct {
 	ContextPct    *int    `json:"context_pct,omitempty"`
 	SourceColor   *string `json:"source_color,omitempty"`
 	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
+	Activity      string  `json:"activity,omitempty"`
 }
 
 type Session struct {
@@ -216,6 +217,7 @@ type Session struct {
 	ContextPct    *int      `json:"context_pct,omitempty"`
 	SourceColor   *string   `json:"source_color,omitempty"`
 	RateWindowPct *int      `json:"rate_window_pct,omitempty"`
+	Activity      string    `json:"activity,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
@@ -251,6 +253,7 @@ func (r StatusRequest) normalized() Session {
 		ContextPct:    r.ContextPct,
 		SourceColor:   r.SourceColor,
 		RateWindowPct: r.RateWindowPct,
+		Activity:      strings.TrimSpace(r.Activity),
 		UpdatedAt:     time.Now(),
 	}
 }
@@ -286,6 +289,9 @@ func (r StatusRequest) validate() error {
 		if *r.RateWindowPct < 0 || *r.RateWindowPct > 100 {
 			return fmt.Errorf("rate_window_pct out of range %d (must be 0..100)", *r.RateWindowPct)
 		}
+	}
+	if len(strings.TrimSpace(r.Activity)) > 80 {
+		return fmt.Errorf("activity too long (%d chars, max 80)", len(strings.TrimSpace(r.Activity)))
 	}
 	return nil
 }
