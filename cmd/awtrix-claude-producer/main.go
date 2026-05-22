@@ -15,6 +15,8 @@ func main() {
 		runHook(os.Args[2:])
 	case "tick":
 		runTick()
+	case "statusline":
+		runStatusline()
 	case "install":
 		runInstall()
 	case "uninstall":
@@ -35,6 +37,7 @@ func usage() {
 Usage:
   awtrix-claude-producer hook <event-name>     # called by Claude Code hooks
   awtrix-claude-producer tick                  # called by LaunchAgent every 10s
+  awtrix-claude-producer statusline             # called by Claude Code statusLine
   awtrix-claude-producer install               # one-shot setup
   awtrix-claude-producer uninstall             # reverse install
   awtrix-claude-producer doctor                # show config + state health

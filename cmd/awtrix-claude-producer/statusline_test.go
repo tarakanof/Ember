@@ -82,3 +82,44 @@ func TestEnrichMarkerRate(t *testing.T) {
 		t.Errorf("unparseable marker modified: %q", got)
 	}
 }
+
+func TestReadWrappedCommand(t *testing.T) {
+	dir := t.TempDir()
+	p := dir + "/w.json"
+
+	os.WriteFile(p, []byte(`"~/.claude/sl.sh"`), 0o600)
+	if c, ok := readWrappedCommand(p); !ok || c != "~/.claude/sl.sh" {
+		t.Errorf("string form: %q ok=%v", c, ok)
+	}
+	os.WriteFile(p, []byte(`{"type":"command","command":"foo.sh","padding":2}`), 0o600)
+	if c, ok := readWrappedCommand(p); !ok || c != "foo.sh" {
+		t.Errorf("object form: %q ok=%v", c, ok)
+	}
+	if _, ok := readWrappedCommand(dir + "/nope.json"); ok {
+		t.Error("missing sidecar should be (.,false)")
+	}
+	os.WriteFile(p, []byte(`{"type":"command"}`), 0o600)
+	if _, ok := readWrappedCommand(p); ok {
+		t.Error("object without command should be (.,false)")
+	}
+}
+
+func TestRunWrapped(t *testing.T) {
+	out, err := runWrapped("cat", []byte("hello-json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "hello-json" {
+		t.Errorf("runWrapped(cat) = %q, want hello-json", out)
+	}
+}
+
+func TestStatusLineIsOurs(t *testing.T) {
+	ours := map[string]any{"type": "command", "command": "/x/awtrix-claude-producer statusline 2>>y"}
+	if !statusLineIsOurs(ours) {
+		t.Error("our command should be detected as ours")
+	}
+	if statusLineIsOurs("~/.claude/sl.sh") {
+		t.Error("user command should not be detected as ours")
+	}
+}
