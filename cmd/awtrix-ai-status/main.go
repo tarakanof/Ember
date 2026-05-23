@@ -207,6 +207,8 @@ type StatusRequest struct {
 	Activity      string  `json:"activity,omitempty"`
 	ContextNumber bool    `json:"context_number,omitempty"`
 	RateBottomBar bool    `json:"rate_bottom_bar,omitempty"`
+	RateResetAt   int64   `json:"rate_reset_at,omitempty"`
+	RateReset     bool    `json:"rate_reset,omitempty"`
 }
 
 type Session struct {
@@ -222,6 +224,8 @@ type Session struct {
 	Activity      string    `json:"activity,omitempty"`
 	ContextNumber bool      `json:"context_number,omitempty"`
 	RateBottomBar bool      `json:"rate_bottom_bar,omitempty"`
+	RateResetAt   int64     `json:"rate_reset_at,omitempty"`
+	RateReset     bool      `json:"rate_reset,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
@@ -260,6 +264,8 @@ func (r StatusRequest) normalized() Session {
 		Activity:      strings.TrimSpace(r.Activity),
 		ContextNumber: r.ContextNumber,
 		RateBottomBar: r.RateBottomBar,
+		RateResetAt:   r.RateResetAt,
+		RateReset:     r.RateReset,
 		UpdatedAt:     time.Now(),
 	}
 }
@@ -298,6 +304,9 @@ func (r StatusRequest) validate() error {
 	}
 	if len(strings.TrimSpace(r.Activity)) > 80 {
 		return fmt.Errorf("activity too long (%d chars, max 80)", len(strings.TrimSpace(r.Activity)))
+	}
+	if r.RateResetAt < 0 {
+		return fmt.Errorf("rate_reset_at must be a non-negative unix timestamp, got %d", r.RateResetAt)
 	}
 	return nil
 }

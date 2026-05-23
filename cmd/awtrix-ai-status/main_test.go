@@ -1079,3 +1079,24 @@ func TestStatusRequest_RateBottomBarRoundTrips(t *testing.T) {
 		t.Errorf("RateBottomBar default = true, want false")
 	}
 }
+
+func TestStatusRequest_RateResetRoundTrips(t *testing.T) {
+	s := StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", RateResetAt: 1778614633, RateReset: true}.normalized()
+	if s.RateResetAt != 1778614633 || !s.RateReset {
+		t.Errorf("reset fields not carried: %+v", s)
+	}
+	s2 := StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running"}.normalized()
+	if s2.RateResetAt != 0 || s2.RateReset {
+		t.Errorf("reset defaults wrong: %+v", s2)
+	}
+}
+
+func TestValidate_RejectsNegativeReset(t *testing.T) {
+	err := StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", RateResetAt: -5}.validate()
+	if err == nil {
+		t.Error("negative rate_reset_at should be rejected")
+	}
+	if e := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", RateResetAt: 1778614633}).validate(); e != nil {
+		t.Errorf("positive rate_reset_at should be accepted, got %v", e)
+	}
+}
