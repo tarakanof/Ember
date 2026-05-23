@@ -16,20 +16,20 @@ import (
 // Field-name pairs (e.g., "notification_message" vs "message") cover both
 // documented and disputed variants — handlers fall back gracefully.
 type hookInput struct {
-	HookEventName       string `json:"hook_event_name"`
-	SessionID           string `json:"session_id"`
-	CWD                 string `json:"cwd"`
-	Source              string `json:"source,omitempty"`
-	Prompt              string `json:"prompt,omitempty"`
+	HookEventName       string          `json:"hook_event_name"`
+	SessionID           string          `json:"session_id"`
+	CWD                 string          `json:"cwd"`
+	Source              string          `json:"source,omitempty"`
+	Prompt              string          `json:"prompt,omitempty"`
 	ToolName            string          `json:"tool_name,omitempty"`
 	ToolInput           json.RawMessage `json:"tool_input"`
 	NotificationType    string          `json:"notification_type,omitempty"`
-	NotificationMessage string `json:"notification_message,omitempty"`
-	Message             string `json:"message,omitempty"`
-	ErrorType           string `json:"error_type,omitempty"`
-	ErrorMessage        string `json:"error_message,omitempty"`
-	Error               string `json:"error,omitempty"`
-	EndReason           string `json:"end_reason,omitempty"`
+	NotificationMessage string          `json:"notification_message,omitempty"`
+	Message             string          `json:"message,omitempty"`
+	ErrorType           string          `json:"error_type,omitempty"`
+	ErrorMessage        string          `json:"error_message,omitempty"`
+	Error               string          `json:"error,omitempty"`
+	EndReason           string          `json:"end_reason,omitempty"`
 }
 
 // runHook is the entry point for `awtrix-claude-producer hook <event>`.
@@ -120,12 +120,13 @@ func handleSessionStart(in hookInput, markerP, lockP string) {
 
 func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string) {
 	req := StatusRequest{
-		Source:   cfg.Source,
-		Tool:     "claude",
-		Session:  sessionID,
-		State:    state,
-		Message:  truncate(message, 80),
-		Activity: truncate(activity, 80),
+		Source:        cfg.Source,
+		Tool:          "claude",
+		Session:       sessionID,
+		State:         state,
+		Message:       truncate(message, 80),
+		Activity:      truncate(activity, 80),
+		ContextNumber: cfg.ContextNumberEnabled,
 	}
 	if cfg.SourceColor != "" {
 		sc := cfg.SourceColor

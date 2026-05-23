@@ -388,6 +388,19 @@ func TestDispatchHook_TrailDisabledKeepsSingleAction(t *testing.T) {
 	}
 }
 
+func TestDispatchHook_SetsContextNumberFlag(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")
+	env := "STATUS_SOURCE=mbp\nSTATUS_SERVER_URL=" + h.srv.URL + "\nSTATUS_TOKEN=tok\nSTATUS_CONTEXT_NUMBER_ENABLED=true\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dispatchHookForTest(t, "pre-tool-use", []byte(`{"session_id":"s1","cwd":"/r","tool_name":"Bash","tool_input":{"command":"x"}}`))
+	if got := (*h.bodies)[0]; !strings.Contains(got, `"context_number":true`) {
+		t.Errorf("body missing context_number=true: %s", got)
+	}
+}
+
 func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")

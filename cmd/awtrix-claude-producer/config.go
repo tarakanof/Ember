@@ -17,15 +17,16 @@ const (
 )
 
 type Config struct {
-	Source              string
-	ServerURL           string
-	Token               string
-	HeartbeatTTLHours   int
-	HookTimeoutMs       int
-	SourceColor         string
+	Source                string
+	ServerURL             string
+	Token                 string
+	HeartbeatTTLHours     int
+	HookTimeoutMs         int
+	SourceColor           string
 	ContextPctEnabled     bool
 	ActivityDetailEnabled bool
 	ActivityTrailEnabled  bool
+	ContextNumberEnabled  bool
 }
 
 // LogValue redacts the token. Implements slog.LogValuer.
@@ -44,13 +45,14 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
 		slog.Bool("activity_detail_enabled", c.ActivityDetailEnabled),
 		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
+		slog.Bool("context_number_enabled", c.ContextNumberEnabled),
 	)
 }
 
 func loadConfig() (Config, error) {
 	cfg := Config{
-		HeartbeatTTLHours: defaultHeartbeatTTLHours,
-		HookTimeoutMs:     defaultHookTimeoutMs,
+		HeartbeatTTLHours:     defaultHeartbeatTTLHours,
+		HookTimeoutMs:         defaultHookTimeoutMs,
 		ContextPctEnabled:     true,
 		ActivityDetailEnabled: true,
 		ActivityTrailEnabled:  true,
@@ -103,6 +105,11 @@ func loadConfig() (Config, error) {
 			case "true", "1", "yes", "on", "":
 				cfg.ActivityTrailEnabled = true
 			}
+		case "STATUS_CONTEXT_NUMBER_ENABLED":
+			switch strings.ToLower(v) {
+			case "true", "1", "yes", "on":
+				cfg.ContextNumberEnabled = true
+			}
 		}
 	}
 	if cfg.Token == "" {
@@ -118,4 +125,3 @@ func envFilePath() (string, error) {
 	}
 	return filepath.Join(home, ".config", "awtrix-ai-status", "producer.env"), nil
 }
-
