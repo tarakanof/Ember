@@ -1068,3 +1068,14 @@ func TestStatusRequest_ContextNumberRoundTrips(t *testing.T) {
 		t.Errorf("ContextNumber default = true, want false")
 	}
 }
+
+func TestStatusRequest_RateBottomBarRoundTrips(t *testing.T) {
+	s := StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", RateBottomBar: true}.normalized()
+	if !s.RateBottomBar {
+		t.Errorf("RateBottomBar = false, want true")
+	}
+	s2 := StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running"}.normalized()
+	if s2.RateBottomBar {
+		t.Errorf("RateBottomBar default = true, want false")
+	}
+}

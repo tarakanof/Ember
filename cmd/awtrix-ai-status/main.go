@@ -206,6 +206,7 @@ type StatusRequest struct {
 	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
 	Activity      string  `json:"activity,omitempty"`
 	ContextNumber bool    `json:"context_number,omitempty"`
+	RateBottomBar bool    `json:"rate_bottom_bar,omitempty"`
 }
 
 type Session struct {
@@ -220,6 +221,7 @@ type Session struct {
 	RateWindowPct *int      `json:"rate_window_pct,omitempty"`
 	Activity      string    `json:"activity,omitempty"`
 	ContextNumber bool      `json:"context_number,omitempty"`
+	RateBottomBar bool      `json:"rate_bottom_bar,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
@@ -257,6 +259,7 @@ func (r StatusRequest) normalized() Session {
 		RateWindowPct: r.RateWindowPct,
 		Activity:      strings.TrimSpace(r.Activity),
 		ContextNumber: r.ContextNumber,
+		RateBottomBar: r.RateBottomBar,
 		UpdatedAt:     time.Now(),
 	}
 }
