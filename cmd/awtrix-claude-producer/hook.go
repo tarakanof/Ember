@@ -128,6 +128,7 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 		Activity:      truncate(activity, 80),
 		ContextNumber: cfg.ContextNumberEnabled,
 		RateBottomBar: cfg.RateBottomBarEnabled,
+		RateReset:     cfg.RateResetEnabled,
 	}
 	if cfg.SourceColor != "" {
 		sc := cfg.SourceColor
@@ -141,6 +142,7 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 			var prev StatusRequest
 			if json.Unmarshal(old, &prev) == nil {
 				req.RateWindowPct = prev.RateWindowPct
+				req.RateResetAt = prev.RateResetAt
 				if cfg.ContextPctEnabled {
 					req.ContextPct = prev.ContextPct
 				}

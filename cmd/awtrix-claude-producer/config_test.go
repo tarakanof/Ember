@@ -254,3 +254,36 @@ func TestLoadConfig_RateBottomBarExplicitFalse(t *testing.T) {
 		t.Error("=false should stay disabled")
 	}
 }
+
+func TestLoadConfig_RateResetDefaultsFalse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("STATUS_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.RateResetEnabled {
+		t.Error("RateResetEnabled default = true, want false")
+	}
+}
+
+func TestLoadConfig_RateResetOn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("STATUS_SOURCE=mbp\nSTATUS_RATE_RESET=true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if !cfg.RateResetEnabled {
+		t.Error("=true should enable")
+	}
+}

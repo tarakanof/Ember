@@ -28,6 +28,7 @@ type Config struct {
 	ActivityTrailEnabled  bool
 	ContextNumberEnabled  bool
 	RateBottomBarEnabled  bool
+	RateResetEnabled      bool
 }
 
 // LogValue redacts the token. Implements slog.LogValuer.
@@ -48,6 +49,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
 		slog.Bool("context_number_enabled", c.ContextNumberEnabled),
 		slog.Bool("rate_bottom_bar_enabled", c.RateBottomBarEnabled),
+		slog.Bool("rate_reset_enabled", c.RateResetEnabled),
 	)
 }
 
@@ -116,6 +118,11 @@ func loadConfig() (Config, error) {
 			switch strings.ToLower(v) {
 			case "true", "1", "yes", "on":
 				cfg.RateBottomBarEnabled = true
+			}
+		case "STATUS_RATE_RESET":
+			switch strings.ToLower(v) {
+			case "true", "1", "yes", "on":
+				cfg.RateResetEnabled = true
 			}
 		}
 	}
