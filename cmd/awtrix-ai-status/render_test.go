@@ -904,6 +904,44 @@ func rangeInts(lo, hi int) []int {
 	return out
 }
 
+func TestComposeFrame_RateBottomBar(t *testing.T) {
+	now := time.Now()
+	// All sessions passed to composeFrame; the displayed session `s` governs row 7.
+	others := []Session{
+		{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now},
+		{Source: "a", Tool: "claude", Session: "s2", State: "waiting", UpdatedAt: now},
+	}
+
+	// Toggle ON + rate present → rate bar (50% → cols 11..21, amber for 70<=? no, 50<70 → green).
+	rw := 50
+	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
+		RateBottomBar: true, RateWindowPct: &rw, UpdatedAt: now}
+	f := composeFrame(s, 1, 2, cardXY, colorRunning, others)
+	for x := 11; x <= 21; x++ {
+		if !f.Dirty[7][x] || f.Pixels[7][x] != rateColor(50) {
+			t.Fatalf("rate bar: col %d = %v dirty=%v, want %v", x, f.Pixels[7][x], f.Dirty[7][x], rateColor(50))
+		}
+	}
+	if f.Dirty[7][22] {
+		t.Errorf("rate bar over-filled past col 21")
+	}
+
+	// Toggle OFF → session-count bar (2 sessions → cols 11,12 by priority: waiting, running).
+	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now}
+	fOff := composeFrame(sOff, 1, 2, cardXY, colorRunning, others)
+	if fOff.Pixels[7][11] != colorWaiting || fOff.Pixels[7][12] != colorRunning {
+		t.Errorf("session bar: got col11=%v col12=%v, want waiting,running", fOff.Pixels[7][11], fOff.Pixels[7][12])
+	}
+
+	// Toggle ON but no rate data → graceful fallback to the session-count bar.
+	sFallback := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
+		RateBottomBar: true, UpdatedAt: now}
+	fFallback := composeFrame(sFallback, 1, 2, cardXY, colorRunning, others)
+	if fFallback.Pixels[7][11] != colorWaiting || fFallback.Pixels[7][12] != colorRunning {
+		t.Errorf("fallback: got col11=%v col12=%v, want session bar (waiting,running)", fFallback.Pixels[7][11], fFallback.Pixels[7][12])
+	}
+}
+
 func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 	now := time.Now()
 	snap := Snapshot{Sessions: []Session{

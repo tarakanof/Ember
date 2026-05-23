@@ -747,7 +747,12 @@ func composeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 	glassFillColor := colorForState(s.State)
 	drawGlass(&f, s.ContextPct, glassFillColor)
 
-	drawSessionBar(&f, sessions)
+	if s.RateBottomBar && s.RateWindowPct != nil {
+		pct := *s.RateWindowPct
+		drawRateBar(&f, pct, rateColor(pct))
+	} else {
+		drawSessionBar(&f, sessions)
+	}
 	return f
 }
 
