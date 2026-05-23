@@ -205,6 +205,7 @@ type StatusRequest struct {
 	SourceColor   *string `json:"source_color,omitempty"`
 	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
 	Activity      string  `json:"activity,omitempty"`
+	ContextNumber bool    `json:"context_number,omitempty"`
 }
 
 type Session struct {
@@ -218,6 +219,7 @@ type Session struct {
 	SourceColor   *string   `json:"source_color,omitempty"`
 	RateWindowPct *int      `json:"rate_window_pct,omitempty"`
 	Activity      string    `json:"activity,omitempty"`
+	ContextNumber bool      `json:"context_number,omitempty"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
@@ -254,6 +256,7 @@ func (r StatusRequest) normalized() Session {
 		SourceColor:   r.SourceColor,
 		RateWindowPct: r.RateWindowPct,
 		Activity:      strings.TrimSpace(r.Activity),
+		ContextNumber: r.ContextNumber,
 		UpdatedAt:     time.Now(),
 	}
 }

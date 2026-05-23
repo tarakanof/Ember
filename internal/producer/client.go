@@ -24,6 +24,7 @@ type StatusRequest struct {
 	SourceColor   *string `json:"source_color,omitempty"`
 	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
 	Activity      string  `json:"activity,omitempty"`
+	ContextNumber bool    `json:"context_number,omitempty"`
 }
 
 // DeleteRequest is the DELETE /v1/status body.

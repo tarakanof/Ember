@@ -1057,3 +1057,14 @@ func TestStatusRequest_ActivityLengthValidated(t *testing.T) {
 		t.Errorf("empty activity should be valid, got %v", err)
 	}
 }
+
+func TestStatusRequest_ContextNumberRoundTrips(t *testing.T) {
+	s := StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", ContextNumber: true}.normalized()
+	if !s.ContextNumber {
+		t.Errorf("ContextNumber = false, want true")
+	}
+	s2 := StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running"}.normalized()
+	if s2.ContextNumber {
+		t.Errorf("ContextNumber default = true, want false")
+	}
+}
