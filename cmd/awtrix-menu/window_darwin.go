@@ -41,7 +41,7 @@ func openSettingsWindow(envPath string) {
 
 		const (
 			winW = 460.0
-			winH = 476.0
+			winH = 510.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
 			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
@@ -66,7 +66,7 @@ func openSettingsWindow(envPath string) {
 		connBox := appkit.NewBox()
 		connBox.SetTitle("Connection")
 		connBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 266},
+			Origin: foundation.Point{X: 16, Y: 300},
 			Size:   foundation.Size{Width: winW - 32, Height: 190},
 		})
 		connView := appkit.NewView()
@@ -129,7 +129,7 @@ func openSettingsWindow(envPath string) {
 		clockBox.SetTitle("What shows on the clock")
 		clockBox.SetFrame(foundation.Rect{
 			Origin: foundation.Point{X: 16, Y: 60},
-			Size:   foundation.Size{Width: winW - 32, Height: 194},
+			Size:   foundation.Size{Width: winW - 32, Height: 228},
 		})
 		clockView := appkit.NewView()
 		clockBox.SetContentView(clockView)
@@ -145,7 +145,7 @@ func openSettingsWindow(envPath string) {
 		// 5h rate-limit checkbox.
 		rateCheck := appkit.NewButton()
 		rateCheck.SetButtonType(appkit.ButtonTypeSwitch)
-		rateCheck.SetTitle("5h rate-limit glass (% used)")
+		rateCheck.SetTitle("5h rate-limit (% used)")
 		rateCheck.SetState(boolState(form.RatePct))
 		rateCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 76}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(rateCheck)
@@ -173,6 +173,14 @@ func openSettingsWindow(envPath string) {
 		ctxNumCheck.SetState(boolState(form.ContextNumber))
 		ctxNumCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 144}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(ctxNumCheck)
+
+		// 5h rate as bottom bar checkbox (row 7: rate bar vs session-count bar).
+		rateBarCheck := appkit.NewButton()
+		rateBarCheck.SetButtonType(appkit.ButtonTypeSwitch)
+		rateBarCheck.SetTitle("5h rate as bottom bar")
+		rateBarCheck.SetState(boolState(form.RateBottomBar))
+		rateBarCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 178}, Size: foundation.Size{Width: 320, Height: rowH}})
+		clockView.AddSubview(rateBarCheck)
 
 		content.AddSubview(clockBox)
 
@@ -220,6 +228,7 @@ func openSettingsWindow(envPath string) {
 				ActivityDetail: activityCheck.State() == appkit.ControlStateValueOn,
 				ActivityTrail:  trailCheck.State() == appkit.ControlStateValueOn,
 				ContextNumber:  ctxNumCheck.State() == appkit.ControlStateValueOn,
+				RateBottomBar:  rateBarCheck.State() == appkit.ControlStateValueOn,
 				Token:          tokenField.StringValue(),
 			}
 			if errs := validateForm(f); len(errs) > 0 {
