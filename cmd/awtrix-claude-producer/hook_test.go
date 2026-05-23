@@ -324,6 +324,27 @@ func TestDispatchHook_ActivityDisabledOmitsField(t *testing.T) {
 	}
 }
 
+func TestHandleUpsert_StampsRateBottomBar(t *testing.T) {
+	dir := t.TempDir()
+	markerP := markerPath(dir, "sess")
+	lockP := lockPath(dir, "sess")
+	cfg := Config{Source: "mbp", ServerURL: "http://x", RateBottomBarEnabled: true}
+	client := NewClient(cfg)
+	handleUpsert(context.Background(), cfg, client, "sess", "running", "msg", "", markerP, lockP)
+
+	raw, err := readMarker(markerP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req StatusRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatal(err)
+	}
+	if !req.RateBottomBar {
+		t.Error("marker missing RateBottomBar=true")
+	}
+}
+
 func TestDispatchHook_PermissionRequestSetsActivity(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")

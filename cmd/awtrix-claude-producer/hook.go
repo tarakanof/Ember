@@ -127,6 +127,7 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 		Message:       truncate(message, 80),
 		Activity:      truncate(activity, 80),
 		ContextNumber: cfg.ContextNumberEnabled,
+		RateBottomBar: cfg.RateBottomBarEnabled,
 	}
 	if cfg.SourceColor != "" {
 		sc := cfg.SourceColor
