@@ -83,6 +83,17 @@ func TestBuildStatusRequest_SetsContextNumber(t *testing.T) {
 	}
 }
 
+func TestBuildStatusRequest_SetsReset(t *testing.T) {
+	on := buildStatusRequest(Config{Source: "mbp", RateResetEnabled: true}, "u1", derived{state: "running", rateResetAt: 1778614633})
+	if !on.RateReset || on.RateResetAt != 1778614633 {
+		t.Errorf("reset fields not stamped: %+v", on)
+	}
+	off := buildStatusRequest(Config{Source: "mbp"}, "u1", derived{state: "running", rateResetAt: 1778614633})
+	if off.RateReset {
+		t.Error("RateReset should be false by default")
+	}
+}
+
 func TestBuildStatusRequest_SetsRateBottomBar(t *testing.T) {
 	on := buildStatusRequest(Config{Source: "mbp", RateBottomBarEnabled: true}, "u1", derived{state: "running"})
 	if !on.RateBottomBar {

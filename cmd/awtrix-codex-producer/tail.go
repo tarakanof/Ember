@@ -52,6 +52,8 @@ func buildStatusRequest(cfg Config, uuid string, d derived) producer.StatusReque
 		RateWindowPct: d.rateWindowPct,
 		ContextNumber: cfg.ContextNumberEnabled,
 		RateBottomBar: cfg.RateBottomBarEnabled,
+		RateResetAt:   d.rateResetAt,
+		RateReset:     cfg.RateResetEnabled,
 	}
 	if cfg.SourceColor != "" {
 		sc := cfg.SourceColor
