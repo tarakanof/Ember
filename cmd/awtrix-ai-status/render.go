@@ -55,6 +55,10 @@ func paintBitmap(f *Frame, ox, oy int, sprite []string, c RGB) {
 	}
 }
 
+// glassGlyph is the internal font key for the context-window glass pictogram
+// (an open-top container) — the trailing glyph on the context-number card.
+const glassGlyph = '⌷'
+
 // font3x5 maps a rune to its 3-col × 5-row pixel sprite. Each entry is
 // exactly 5 strings of exactly 3 chars; 'X' = lit, '.' = transparent.
 // Glyphs are based on the classic Picopixel-style 3×5 family.
@@ -72,6 +76,7 @@ var font3x5 = map[rune][]string{
 	'/': {"..X", "..X", ".X.", "X..", "X.."},
 	'+': {"...", ".X.", "XXX", ".X.", "..."},
 	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
+	glassGlyph: {"X.X", "X.X", "X.X", "X.X", "XXX"},
 }
 
 // glyph returns the sprite for the given rune, or nil when unsupported.
@@ -305,11 +310,13 @@ var (
 
 // Card identifies which readout the number slot shows for the current
 // session: cardXY is the rotation index "X/Y", cardRate is the 5h rate-limit
-// "NN%", cardTool is the scrolling activity detail.
+// "NN%", cardTool is the scrolling activity detail, cardCtx is the context
+// window percent "NN⌷".
 const (
 	cardXY = iota
 	cardRate
 	cardTool
+	cardCtx
 )
 
 // availableCards returns the cards this session offers, in rotation order:
@@ -320,6 +327,9 @@ func availableCards(s Session) []int {
 	cards := []int{cardXY}
 	if s.RateWindowPct != nil {
 		cards = append(cards, cardRate)
+	}
+	if s.ContextNumber && s.ContextPct != nil {
+		cards = append(cards, cardCtx)
 	}
 	if s.State == "running" && s.Activity != "" {
 		cards = append(cards, cardTool)
@@ -341,6 +351,19 @@ func rateText(pct int) string {
 		pct = 99
 	}
 	return itoa(pct) + "%"
+}
+
+// ctxText renders a context-window percent as "NN" + the glass pictogram.
+// Clamped 0..99 so the 3-glyph value fits the number slot (the glass at cols
+// 25-30 conveys 100% anyway).
+func ctxText(pct int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 99 {
+		pct = 99
+	}
+	return itoa(pct) + string(glassGlyph)
 }
 
 // rateColor threshold-colours the rate readout, matching Claude Code's
@@ -679,10 +702,14 @@ func composeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 	var f Frame
 	drawRobot(&f, s, robotColor)
 
-	if card == cardRate && s.RateWindowPct != nil {
+	switch {
+	case card == cardRate && s.RateWindowPct != nil:
 		pct := *s.RateWindowPct
 		drawDigits(&f, rateText(pct), numStart, 1, rateColor(pct))
-	} else {
+	case card == cardCtx && s.ContextPct != nil:
+		pct := *s.ContextPct
+		drawDigits(&f, ctxText(pct), numStart, 1, rateColor(pct))
+	default:
 		digitColor := colorWhite
 		if s.SourceColor != nil {
 			if c, ok := parseHex(*s.SourceColor); ok {

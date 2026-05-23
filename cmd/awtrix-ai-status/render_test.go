@@ -1085,3 +1085,67 @@ func TestRenderForCoord_LockedAttention_NoActivityStillBlinks(t *testing.T) {
 		t.Errorf("no-activity waiting should blink WAIT, got text=%v blink=%v", payload["text"], payload["blinkText"])
 	}
 }
+
+func TestCtxText(t *testing.T) {
+	g := string(glassGlyph)
+	if got := ctxText(45); got != "45"+g {
+		t.Errorf("ctxText(45) = %q, want %q", got, "45"+g)
+	}
+	if got := ctxText(150); got != "99"+g {
+		t.Errorf("ctxText(150) = %q, want clamp to 99", got)
+	}
+	if got := ctxText(-5); got != "0"+g {
+		t.Errorf("ctxText(-5) = %q, want 0", got)
+	}
+}
+
+func TestGlassGlyphSprite(t *testing.T) {
+	g := glyph(glassGlyph)
+	if len(g) != 5 {
+		t.Fatalf("glass glyph rows = %d, want 5", len(g))
+	}
+	for i, row := range g {
+		if len(row) != 3 {
+			t.Errorf("glass glyph row %d width = %d, want 3", i, len(row))
+		}
+	}
+}
+
+func TestAvailableCards_Ctx(t *testing.T) {
+	pct := 45
+	got := availableCards(Session{State: "running", ContextNumber: true, ContextPct: &pct})
+	if len(got) != 2 || got[0] != cardXY || got[1] != cardCtx {
+		t.Fatalf("ctx on+pct: availableCards = %v, want [cardXY cardCtx]", got)
+	}
+	if c := availableCards(Session{State: "running", ContextNumber: true}); len(c) != 1 {
+		t.Errorf("ctx on but no pct: want [cardXY], got %v", c)
+	}
+	if c := availableCards(Session{State: "running", ContextPct: &pct}); len(c) != 1 {
+		t.Errorf("ctx off: want [cardXY], got %v", c)
+	}
+	rate := 50
+	all := availableCards(Session{State: "running", RateWindowPct: &rate, ContextNumber: true, ContextPct: &pct, Activity: "Bash: x"})
+	want := []int{cardXY, cardRate, cardCtx, cardTool}
+	for i := range want {
+		if all[i] != want[i] {
+			t.Fatalf("order = %v, want %v", all, want)
+		}
+	}
+}
+
+func TestRenderForCoord_CtxCard(t *testing.T) {
+	pct := 45
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", ContextNumber: true, ContextPct: &pct, UpdatedAt: time.Now()},
+	}}
+	// availableCards = [cardXY, cardCtx]; cursor 1 = cardCtx.
+	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30)
+	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	// '4' sprite row 0 "X.X" at numStart=12,row1 → (12,1) lit green (45<70).
+	if pixels[1*32+12] != 0x2ee85e {
+		t.Errorf("ctx digit at (12,1) = %#06x, want green 0x2ee85e", pixels[1*32+12])
+	}
+	if _, hasText := payload["text"]; hasText {
+		t.Error("ctx card is a pixel frame, not a text payload")
+	}
+}
