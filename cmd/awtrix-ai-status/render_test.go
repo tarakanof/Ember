@@ -856,6 +856,54 @@ func TestDrawSessionBar_WaitingErrorRunningDoneMix(t *testing.T) {
 	}
 }
 
+func TestDrawRateBar(t *testing.T) {
+	litCols := func(f *Frame) []int {
+		var out []int
+		for x := 0; x < 32; x++ {
+			if f.Dirty[7][x] {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+	tests := []struct {
+		name string
+		pct  int
+		want []int // lit cols on row 7
+	}{
+		{name: "zero — no bar", pct: 0, want: nil},
+		{name: "negative — no bar", pct: -5, want: nil},
+		{name: "tiny non-zero — min 1px", pct: 2, want: []int{11}}, // round(0.42)=0 → forced to 1
+		{name: "half — 11px", pct: 50, want: rangeInts(11, 21)},    // round(10.5)=11 → cols 11..21
+		{name: "full — 21px", pct: 100, want: rangeInts(11, 31)},
+		{name: "over 100 — clamped full", pct: 130, want: rangeInts(11, 31)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &Frame{}
+			drawRateBar(f, tc.pct, colorRunning)
+			got := litCols(f)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("pct=%d lit cols = %v, want %v", tc.pct, got, tc.want)
+			}
+		})
+	}
+	// Colour is the one passed in.
+	f := &Frame{}
+	drawRateBar(f, 50, colorError)
+	if f.Pixels[7][11] != colorError {
+		t.Errorf("fill colour = %v, want %v", f.Pixels[7][11], colorError)
+	}
+}
+
+func rangeInts(lo, hi int) []int {
+	out := make([]int, 0, hi-lo+1)
+	for x := lo; x <= hi; x++ {
+		out = append(out, x)
+	}
+	return out
+}
+
 func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 	now := time.Now()
 	snap := Snapshot{Sessions: []Session{

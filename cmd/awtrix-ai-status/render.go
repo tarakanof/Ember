@@ -270,6 +270,26 @@ func drawSessionBar(f *Frame, sessions []Session) {
 	}
 }
 
+// drawRateBar paints the 5h rate-limit window as a horizontal fill bar at
+// row 7, cols 11–31 — the same footprint as the session-count bar it replaces
+// when the rate-bottom-bar toggle is on. The fill length is proportional to
+// pct (a minimum of 1 px for any non-zero rate, so low usage stays visible);
+// pct <= 0 paints nothing. The whole fill is a single colour c (the caller
+// passes rateColor(pct): green <70 / amber / red >=90).
+func drawRateBar(f *Frame, pct int, c RGB) {
+	if pct <= 0 {
+		return
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	fillLen := (barWidth*pct + 50) / 100 // round(pct/100 * 21)
+	if fillLen < 1 {
+		fillLen = 1
+	}
+	paintRow(f, barStart, barStart+fillLen-1, barRow, c)
+}
+
 // framePixels extracts the 256-int row-major pixel array from a Frame.
 // Used by frameToCustomApp to serialise a Frame into the AWTRIX db
 // (drawBMP) pixel array. Undirty cells emit 0 (the encoder's "off" colour).
