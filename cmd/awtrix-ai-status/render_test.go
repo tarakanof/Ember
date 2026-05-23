@@ -803,7 +803,7 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 }
 
 func TestComposeFrame_CodexSprite(t *testing.T) {
-	f := composeFrame(Session{Tool: "codex", State: "running"}, 1, 1, cardXY, RGB{0x2e, 0xe8, 0x5e}, nil)
+	f := composeFrame(Session{Tool: "codex", State: "running"}, 1, 1, cardXY, RGB{0x2e, 0xe8, 0x5e}, nil, time.Now())
 	// Underscore: frame row 6 (sprite row 5, painted at y=1), cols 5–9 lit.
 	for _, x := range []int{5, 6, 7, 8, 9} {
 		if !f.Dirty[6][x] {
@@ -916,7 +916,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 	rw := 50
 	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, RateWindowPct: &rw, UpdatedAt: now}
-	f := composeFrame(s, 1, 2, cardXY, colorRunning, others)
+	f := composeFrame(s, 1, 2, cardXY, colorRunning, others, time.Now())
 	for x := 11; x <= 21; x++ {
 		if !f.Dirty[7][x] || f.Pixels[7][x] != rateColor(50) {
 			t.Fatalf("rate bar: col %d = %v dirty=%v, want %v", x, f.Pixels[7][x], f.Dirty[7][x], rateColor(50))
@@ -928,7 +928,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 
 	// Toggle OFF → session-count bar (2 sessions → cols 11,12 by priority: waiting, running).
 	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now}
-	fOff := composeFrame(sOff, 1, 2, cardXY, colorRunning, others)
+	fOff := composeFrame(sOff, 1, 2, cardXY, colorRunning, others, time.Now())
 	if fOff.Pixels[7][11] != colorWaiting || fOff.Pixels[7][12] != colorRunning {
 		t.Errorf("session bar: got col11=%v col12=%v, want waiting,running", fOff.Pixels[7][11], fOff.Pixels[7][12])
 	}
@@ -936,7 +936,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 	// Toggle ON but no rate data → graceful fallback to the session-count bar.
 	sFallback := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, UpdatedAt: now}
-	fFallback := composeFrame(sFallback, 1, 2, cardXY, colorRunning, others)
+	fFallback := composeFrame(sFallback, 1, 2, cardXY, colorRunning, others, time.Now())
 	if fFallback.Pixels[7][11] != colorWaiting || fFallback.Pixels[7][12] != colorRunning {
 		t.Errorf("fallback: got col11=%v col12=%v, want session bar (waiting,running)", fFallback.Pixels[7][11], fFallback.Pixels[7][12])
 	}
@@ -1263,5 +1263,34 @@ func TestResetGlyphInFont(t *testing.T) {
 	g := glyph(resetGlyph)
 	if g == nil || len(g) != 5 {
 		t.Fatalf("resetGlyph not a 5-row sprite: %v", g)
+	}
+}
+
+func TestComposeFrame_ResetCard(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	// Toggle on + resetAt set → reset card shows ceil-hours + hourglass.
+	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
+		RateReset: true, RateResetAt: 1_000_000 + 2*3600 + 60} // ~2h01m → ceil 3
+	if got := cardsForSession(s); got < 2 {
+		t.Fatalf("cardReset not offered: cardsForSession=%d", got)
+	}
+	f := composeFrame(s, 1, 1, cardReset, colorRunning, nil, now)
+	// "3" first glyph at numStart..numStart+2; verify a lit pixel exists there.
+	lit := false
+	for x := numStart; x < numStart+3; x++ {
+		for y := 1; y < 6; y++ {
+			if f.Dirty[y][x] {
+				lit = true
+			}
+		}
+	}
+	if !lit {
+		t.Error("reset card drew no digits in the number slot")
+	}
+
+	// Toggle off → cardReset not offered.
+	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", RateResetAt: 1_000_000 + 3600}
+	if slices.Contains(availableCards(sOff), cardReset) {
+		t.Error("cardReset offered with toggle off")
 	}
 }

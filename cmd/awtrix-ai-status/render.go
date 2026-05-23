@@ -347,6 +347,7 @@ const (
 	cardRate
 	cardTool
 	cardCtx
+	cardReset
 )
 
 // availableCards returns the cards this session offers, in rotation order:
@@ -360,6 +361,9 @@ func availableCards(s Session) []int {
 	}
 	if s.ContextNumber && s.ContextPct != nil {
 		cards = append(cards, cardCtx)
+	}
+	if s.RateReset && s.RateResetAt > 0 {
+		cards = append(cards, cardReset)
 	}
 	if s.State == "running" && s.Activity != "" {
 		cards = append(cards, cardTool)
@@ -708,7 +712,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if selected == cardTool {
 		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
 	}
-	frame := composeFrame(*session, idx, total, selected, stateColor, snap.Sessions)
+	frame := composeFrame(*session, idx, total, selected, stateColor, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -748,7 +752,7 @@ func composeRobotPixels(s Session, robotColor RGB) []int {
 // regardless of robot colour. Glass uses the session's state colour
 // directly. Row 7 receives the session-count bar drawn from the full
 // active-session list `sessions` — see drawSessionBar.
-func composeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Session) Frame {
+func composeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Session, now time.Time) Frame {
 	var f Frame
 	drawRobot(&f, s, robotColor)
 
@@ -762,6 +766,9 @@ func composeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 		// (70/90) — same "how full" semantics. Split into a ctxColor if context
 		// ever needs different thresholds than the rate window.
 		drawDigits(&f, ctxText(pct), numStart, 1, rateColor(pct))
+	case card == cardReset && s.RateResetAt > 0:
+		text, col := resetText(s.RateResetAt, now)
+		drawDigits(&f, text, numStart, 1, col)
 	default:
 		digitColor := colorWhite
 		if s.SourceColor != nil {
