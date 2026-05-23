@@ -119,3 +119,20 @@ func TestStatusRequest_OmitsRateBottomBarWhenFalse(t *testing.T) {
 		t.Errorf("rate_bottom_bar should be omitted when false, got %s", b)
 	}
 }
+
+func TestStatusRequest_SerializesRateReset(t *testing.T) {
+	b, err := json.Marshal(StatusRequest{Source: "x", Tool: "claude", Session: "s", State: "running", RateResetAt: 1778614633, RateReset: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"rate_reset_at":1778614633`) || !strings.Contains(string(b), `"rate_reset":true`) {
+		t.Errorf("missing reset fields in %s", b)
+	}
+}
+
+func TestStatusRequest_OmitsResetWhenZero(t *testing.T) {
+	b, _ := json.Marshal(StatusRequest{Source: "x", Tool: "claude", Session: "s", State: "running"})
+	if strings.Contains(string(b), "rate_reset") {
+		t.Errorf("reset fields should be omitted when zero/false, got %s", b)
+	}
+}

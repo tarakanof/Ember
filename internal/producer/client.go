@@ -26,6 +26,8 @@ type StatusRequest struct {
 	Activity      string  `json:"activity,omitempty"`
 	ContextNumber bool    `json:"context_number,omitempty"`
 	RateBottomBar bool    `json:"rate_bottom_bar,omitempty"`
+	RateResetAt   int64   `json:"rate_reset_at,omitempty"`
+	RateReset     bool    `json:"rate_reset,omitempty"`
 }
 
 // DeleteRequest is the DELETE /v1/status body.
