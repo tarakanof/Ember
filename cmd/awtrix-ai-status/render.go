@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // RGB is a 24-bit colour. Alpha is implicit (always full).
@@ -61,6 +62,12 @@ func paintBitmap(f *Frame, ox, oy int, sprite []string, c RGB) {
 // hollow open-top sprite reads as "0" at LED distance, so the base is solid.
 const glassGlyph = '⌷'
 
+// resetGlyph is the internal font key for the rate-reset hourglass pictogram
+// (a symmetric I-beam: wide top/bottom plates, thin sand stream) — the trailing
+// glyph on the reset-countdown card. Distinct from the digits and the context
+// tumbler glassGlyph.
+const resetGlyph = '⧗'
+
 // font3x5 maps a rune to its 3-col × 5-row pixel sprite. Each entry is
 // exactly 5 strings of exactly 3 chars; 'X' = lit, '.' = transparent.
 // Glyphs are based on the classic Picopixel-style 3×5 family.
@@ -79,6 +86,7 @@ var font3x5 = map[rune][]string{
 	'+': {"...", ".X.", "XXX", ".X.", "..."},
 	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
 	glassGlyph: {"X.X", "X.X", "X.X", "XXX", "XXX"},
+	resetGlyph: {"XXX", ".X.", ".X.", ".X.", "XXX"},
 }
 
 // glyph returns the sprite for the given rune, or nil when unsupported.
@@ -386,6 +394,26 @@ func ctxText(pct int) string {
 		pct = 99
 	}
 	return itoa(pct) + string(glassGlyph)
+}
+
+// resetText renders the time until the 5h rate-limit window resets as ceil-hours
+// (0..9) + the hourglass glyph, with an urgency colour: amber in the final hour
+// (remaining < 1h), green otherwise. remaining is clamped to >=0, so a stale
+// past timestamp renders "0" until the next post carries the next window.
+func resetText(resetAt int64, now time.Time) (string, RGB) {
+	remaining := resetAt - now.Unix()
+	if remaining < 0 {
+		remaining = 0
+	}
+	hours := int((remaining + 3599) / 3600) // ceil to whole hours
+	if hours > 9 {
+		hours = 9
+	}
+	color := colorRunning
+	if remaining < 3600 {
+		color = colorWaiting
+	}
+	return itoa(hours) + string(resetGlyph), color
 }
 
 // rateColor threshold-colours the rate readout, matching Claude Code's

@@ -201,7 +201,7 @@ func TestDrawGlass(t *testing.T) {
 	counts := []struct{ pct, want int }{
 		{0, 0}, {25, 4}, {50, 8}, {75, 12}, {100, 16},
 		{73, 12}, {99, 16}, // 73 and 99 are now distinguishable (12 vs 16)
-		{6, 1},             // ~6% per pixel → first pixel
+		{6, 1}, // ~6% per pixel → first pixel
 	}
 	for _, c := range counts {
 		f := &Frame{}
@@ -1233,5 +1233,35 @@ func TestRenderForCoord_CtxCard(t *testing.T) {
 	}
 	if _, hasText := payload["text"]; hasText {
 		t.Error("ctx card is a pixel frame, not a text payload")
+	}
+}
+
+func TestResetText(t *testing.T) {
+	base := time.Unix(1_000_000, 0)
+	tests := []struct {
+		name      string
+		resetAt   int64
+		wantText  string
+		wantColor RGB
+	}{
+		{"4h10m left → 5h green", 1_000_000 + 4*3600 + 600, "5" + string(resetGlyph), colorRunning},
+		{"exactly 2h → 2h green", 1_000_000 + 2*3600, "2" + string(resetGlyph), colorRunning},
+		{"40m left → 1h amber", 1_000_000 + 40*60, "1" + string(resetGlyph), colorWaiting},
+		{"already past → 0 amber", 1_000_000 - 10, "0" + string(resetGlyph), colorWaiting},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			text, color := resetText(tc.resetAt, base)
+			if text != tc.wantText || color != tc.wantColor {
+				t.Errorf("resetText = (%q,%v), want (%q,%v)", text, color, tc.wantText, tc.wantColor)
+			}
+		})
+	}
+}
+
+func TestResetGlyphInFont(t *testing.T) {
+	g := glyph(resetGlyph)
+	if g == nil || len(g) != 5 {
+		t.Fatalf("resetGlyph not a 5-row sprite: %v", g)
 	}
 }
