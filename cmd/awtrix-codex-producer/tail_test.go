@@ -71,3 +71,14 @@ func TestBuildStatusRequest_NoColorWhenEmpty(t *testing.T) {
 		t.Errorf("SourceColor should be nil when cfg empty, got %v", *req.SourceColor)
 	}
 }
+
+func TestBuildStatusRequest_SetsContextNumber(t *testing.T) {
+	on := buildStatusRequest(Config{Source: "mbp", ContextNumberEnabled: true}, "u1", derived{state: "running"})
+	if !on.ContextNumber {
+		t.Error("ContextNumber should be true when enabled")
+	}
+	off := buildStatusRequest(Config{Source: "mbp"}, "u1", derived{state: "running"})
+	if off.ContextNumber {
+		t.Error("ContextNumber should be false by default")
+	}
+}

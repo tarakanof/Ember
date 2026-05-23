@@ -25,6 +25,7 @@ type Config struct {
 	ContextPctEnabled     bool
 	RatePctEnabled        bool
 	ActivityTrailEnabled  bool
+	ContextNumberEnabled  bool
 	PollIntervalMs        int
 	ActivityWindowSeconds int
 	SessionsDir           string
@@ -45,6 +46,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
 		slog.Bool("rate_pct_enabled", c.RatePctEnabled),
 		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
+		slog.Bool("context_number_enabled", c.ContextNumberEnabled),
 		slog.Int("poll_interval_ms", c.PollIntervalMs),
 		slog.Int("activity_window_seconds", c.ActivityWindowSeconds),
 		slog.String("sessions_dir", c.SessionsDir),
@@ -101,6 +103,11 @@ func loadConfig() (Config, error) {
 				cfg.ActivityTrailEnabled = false
 			case "true", "1", "yes", "on", "":
 				cfg.ActivityTrailEnabled = true
+			}
+		case "STATUS_CONTEXT_NUMBER_ENABLED":
+			switch strings.ToLower(v) {
+			case "true", "1", "yes", "on":
+				cfg.ContextNumberEnabled = true
 			}
 		case "STATUS_CODEX_POLL_INTERVAL_MS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {

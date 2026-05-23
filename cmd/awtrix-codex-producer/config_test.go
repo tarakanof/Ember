@@ -119,3 +119,36 @@ func TestLoadConfig_CodexActivityTrailDisabled(t *testing.T) {
 		t.Error("ActivityTrailEnabled = true with =0 set, want false")
 	}
 }
+
+func TestLoadConfig_CodexContextNumberDefaultsFalse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("STATUS_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.ContextNumberEnabled {
+		t.Error("default = true, want false")
+	}
+}
+
+func TestLoadConfig_CodexContextNumberOn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "awtrix-ai-status")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("STATUS_SOURCE=mbp\nSTATUS_CONTEXT_NUMBER_ENABLED=on\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if !cfg.ContextNumberEnabled {
+		t.Error("=on should enable")
+	}
+}
