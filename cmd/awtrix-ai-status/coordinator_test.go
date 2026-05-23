@@ -682,6 +682,42 @@ func TestCoord_Interleave_RunningSessionThreeCards(t *testing.T) {
 	}
 }
 
+func TestCoord_Interleave_RunningSessionFourCards(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	pct := 42
+	ctxPct := 60
+	c.snapshot = func() Snapshot {
+		return Snapshot{Sessions: []Session{
+			{Source: "a", Tool: "b", Session: "s1", State: "running", RateWindowPct: &pct, ContextNumber: true, ContextPct: &ctxPct, Activity: "Bash: x", UpdatedAt: clk.Now()},
+		}}
+	}
+	// XY + rate + ctx + tool = 4 cards.
+	if got := cardsForSession(c.snapshot().Sessions[0]); got != 4 {
+		t.Fatalf("cardsForSession = %d, want 4", got)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	readCursor := func() int {
+		c.muTest.RLock()
+		defer c.muTest.RUnlock()
+		return c.cardCursor
+	}
+	tick := func() { c.Send(coordCmd{kind: cmdTick}); time.Sleep(50 * time.Millisecond) }
+
+	for i, want := range []int{0, 1, 2, 3, 0} { // advance through all 4, then wrap
+		tick()
+		if got := readCursor(); got != want {
+			t.Fatalf("after tick %d, cardCursor = %d, want %d", i+1, got, want)
+		}
+	}
+}
+
 func TestCoord_Interleave_TwoSessionsOrder(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()

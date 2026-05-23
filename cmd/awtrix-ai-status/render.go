@@ -56,7 +56,9 @@ func paintBitmap(f *Frame, ox, oy int, sprite []string, c RGB) {
 }
 
 // glassGlyph is the internal font key for the context-window glass pictogram
-// (an open-top container) — the trailing glyph on the context-number card.
+// (an open-top tumbler with a filled base — a partially-full glass) — the
+// trailing glyph on the context-number card. Deliberately NOT 0-shaped: a
+// hollow open-top sprite reads as "0" at LED distance, so the base is solid.
 const glassGlyph = '⌷'
 
 // font3x5 maps a rune to its 3-col × 5-row pixel sprite. Each entry is
@@ -76,7 +78,7 @@ var font3x5 = map[rune][]string{
 	'/': {"..X", "..X", ".X.", "X..", "X.."},
 	'+': {"...", ".X.", "XXX", ".X.", "..."},
 	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
-	glassGlyph: {"X.X", "X.X", "X.X", "X.X", "XXX"},
+	glassGlyph: {"X.X", "X.X", "X.X", "XXX", "XXX"},
 }
 
 // glyph returns the sprite for the given rune, or nil when unsupported.
@@ -708,6 +710,9 @@ func composeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 		drawDigits(&f, rateText(pct), numStart, 1, rateColor(pct))
 	case card == cardCtx && s.ContextPct != nil:
 		pct := *s.ContextPct
+		// Deliberately reuses rateColor's green/amber/red fullness thresholds
+		// (70/90) — same "how full" semantics. Split into a ctxColor if context
+		// ever needs different thresholds than the rate window.
 		drawDigits(&f, ctxText(pct), numStart, 1, rateColor(pct))
 	default:
 		digitColor := colorWhite
