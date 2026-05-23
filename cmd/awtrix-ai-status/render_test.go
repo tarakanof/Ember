@@ -201,7 +201,7 @@ func TestDrawGlass(t *testing.T) {
 	counts := []struct{ pct, want int }{
 		{0, 0}, {25, 4}, {50, 8}, {75, 12}, {100, 16},
 		{73, 12}, {99, 16}, // 73 and 99 are now distinguishable (12 vs 16)
-		{6, 1}, // ~6% per pixel → first pixel
+		{6, 1},             // ~6% per pixel → first pixel
 	}
 	for _, c := range counts {
 		f := &Frame{}
