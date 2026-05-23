@@ -14,6 +14,7 @@ const (
 	keyActivityTrail  = "STATUS_ACTIVITY_TRAIL_ENABLED"
 	keyContextNumber  = "STATUS_CONTEXT_NUMBER_ENABLED"
 	keyRateBottomBar  = "STATUS_RATE_BOTTOM_BAR"
+	keyRateReset      = "STATUS_RATE_RESET"
 )
 
 // settingsForm is the editable view of producer.env shown in the window.
@@ -28,6 +29,7 @@ type settingsForm struct {
 	ActivityTrail  bool
 	ContextNumber  bool
 	RateBottomBar  bool
+	RateReset      bool
 	Token          string // "" = keep current
 }
 
@@ -45,6 +47,7 @@ func formFromEnv(rec *envRec) (settingsForm, bool) {
 		ActivityTrail:  isEnvTrue(rec.get(keyActivityTrail)),
 		ContextNumber:  isEnvOn(rec.get(keyContextNumber)),
 		RateBottomBar:  isEnvOn(rec.get(keyRateBottomBar)),
+		RateReset:      isEnvOn(rec.get(keyRateReset)),
 		Token:          "",
 	}, rec.get(keyToken) != ""
 }
@@ -85,6 +88,7 @@ func applyForm(rec *envRec, f settingsForm) {
 	rec.set(keyActivityTrail, boolStr(f.ActivityTrail))
 	rec.set(keyContextNumber, boolStr(f.ContextNumber))
 	rec.set(keyRateBottomBar, boolStr(f.RateBottomBar))
+	rec.set(keyRateReset, boolStr(f.RateReset))
 	if strings.TrimSpace(f.Token) != "" {
 		rec.set(keyToken, norm(keyToken, f.Token))
 	}

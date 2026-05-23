@@ -190,3 +190,25 @@ func TestApplyForm_RateBottomBar(t *testing.T) {
 		t.Errorf("%s = %q, want true", keyRateBottomBar, got)
 	}
 }
+
+func TestFormFromEnv_RateReset(t *testing.T) {
+	rec := &envRec{}
+	rec.set(keyRateReset, "true")
+	f, _ := formFromEnv(rec)
+	if !f.RateReset {
+		t.Error("RateReset = false, want true")
+	}
+	rec2 := &envRec{}
+	f2, _ := formFromEnv(rec2)
+	if f2.RateReset {
+		t.Error("RateReset should default false when absent")
+	}
+}
+
+func TestApplyForm_RateReset(t *testing.T) {
+	rec := &envRec{}
+	applyForm(rec, settingsForm{Source: "mbp", ServerURL: "http://h:8080", RateReset: true})
+	if got := rec.get(keyRateReset); got != "true" {
+		t.Errorf("%s = %q, want true", keyRateReset, got)
+	}
+}
