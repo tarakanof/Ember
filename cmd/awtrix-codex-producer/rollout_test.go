@@ -153,6 +153,21 @@ func TestFoldEvent_RateToggle(t *testing.T) {
 	}
 }
 
+func TestFoldEvent_CapturesRateResetAt(t *testing.T) {
+	var d derived
+	line := []byte(`{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100},"model_context_window":1000},"rate_limits":{"primary":{"used_percent":40,"resets_at":1778614633}}}}`)
+	d.foldEvent(line, true, true, false)
+	if d.rateResetAt != 1778614633 {
+		t.Errorf("rateResetAt = %d, want 1778614633", d.rateResetAt)
+	}
+	// Gated by ratePctEnabled=false → not captured.
+	var d2 derived
+	d2.foldEvent(line, true, false, false)
+	if d2.rateResetAt != 0 {
+		t.Errorf("rateResetAt = %d with rate disabled, want 0", d2.rateResetAt)
+	}
+}
+
 func TestFoldEvent_TrailAccumulatesAndResets(t *testing.T) {
 	var d derived
 	d.foldEvent([]byte(`{"type":"event_msg","payload":{"type":"exec_command_begin","command":["go","build"]}}`), true, true, true)

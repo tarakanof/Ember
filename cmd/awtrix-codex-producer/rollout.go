@@ -18,6 +18,7 @@ type derived struct {
 	contextPct    *int
 	rateWindowPct *int
 	activity      string
+	rateResetAt   int64
 }
 
 type sessionMeta struct {
@@ -49,6 +50,7 @@ type eventPayload struct {
 	RateLimits *struct {
 		Primary struct {
 			UsedPercent float64 `json:"used_percent"`
+			ResetsAt    int64   `json:"resets_at"`
 		} `json:"primary"`
 	} `json:"rate_limits"`
 	Command    []string                   `json:"command,omitempty"`
@@ -105,6 +107,7 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 		if ratePctEnabled && p.RateLimits != nil {
 			r := clampPct(int(math.Round(p.RateLimits.Primary.UsedPercent)))
 			d.rateWindowPct = &r
+			d.rateResetAt = p.RateLimits.Primary.ResetsAt
 		}
 	case p.Type == "task_complete":
 		d.state = "done"
