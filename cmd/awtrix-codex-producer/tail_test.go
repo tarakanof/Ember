@@ -82,3 +82,14 @@ func TestBuildStatusRequest_SetsContextNumber(t *testing.T) {
 		t.Error("ContextNumber should be false by default")
 	}
 }
+
+func TestBuildStatusRequest_SetsRateBottomBar(t *testing.T) {
+	on := buildStatusRequest(Config{Source: "mbp", RateBottomBarEnabled: true}, "u1", derived{state: "running"})
+	if !on.RateBottomBar {
+		t.Error("RateBottomBar should be true when enabled")
+	}
+	off := buildStatusRequest(Config{Source: "mbp"}, "u1", derived{state: "running"})
+	if off.RateBottomBar {
+		t.Error("RateBottomBar should be false by default")
+	}
+}
