@@ -20,6 +20,7 @@ type statuslineInput struct {
 	RateLimits *struct {
 		FiveHour *struct {
 			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       int64   `json:"resets_at"`
 		} `json:"five_hour"`
 	} `json:"rate_limits"`
 	ContextWindow *struct {
@@ -49,6 +50,15 @@ func extractRatePct(in statuslineInput) (*int, bool) {
 		pct = 100
 	}
 	return &pct, true
+}
+
+// extractRateResetAt returns the 5h window's reset time (unix epoch seconds),
+// or (0,false) when five_hour or a positive resets_at is absent.
+func extractRateResetAt(in statuslineInput) (int64, bool) {
+	if in.RateLimits == nil || in.RateLimits.FiveHour == nil || in.RateLimits.FiveHour.ResetsAt <= 0 {
+		return 0, false
+	}
+	return in.RateLimits.FiveHour.ResetsAt, true
 }
 
 // extractContextPct returns context_window.used_percentage as a clamped int
@@ -145,17 +155,21 @@ func runStatusline() {
 	buf, _ := io.ReadAll(os.Stdin)
 	if in, ok := parseStatusline(buf); ok {
 		var ratePct, ctxPct *int
+		var resetAt *int64
 		if p, ok := extractRatePct(in); ok {
 			ratePct = p
+		}
+		if r, ok := extractRateResetAt(in); ok {
+			resetAt = &r
 		}
 		if contextPctEnabled() {
 			if p, ok := extractContextPct(in); ok {
 				ctxPct = p
 			}
 		}
-		if ratePct != nil || ctxPct != nil {
+		if ratePct != nil || ctxPct != nil || resetAt != nil {
 			if dir, err := stateDir(); err == nil {
-				_ = enrichMarker(dir, sanitizeSessionID(in.SessionID, in.Cwd), ratePct, ctxPct)
+				_ = enrichMarker(dir, sanitizeSessionID(in.SessionID, in.Cwd), ratePct, ctxPct, resetAt)
 			}
 		}
 	}
@@ -172,7 +186,7 @@ func runStatusline() {
 // enrichMarker merges statusline-owned fields (rate_window_pct, context_pct)
 // into an EXISTING session marker, preserving hook-set fields. Each pointer is
 // applied only when non-nil; never clears. Absent/unparseable marker → skip.
-func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int) error {
+func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
 	return withLockEx(lp, func() error {
@@ -189,6 +203,9 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int) error {
 		}
 		if ctxPct != nil {
 			req.ContextPct = ctxPct
+		}
+		if resetAt != nil {
+			req.RateResetAt = *resetAt
 		}
 		out, err := json.Marshal(req)
 		if err != nil {
