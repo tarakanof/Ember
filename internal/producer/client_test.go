@@ -99,3 +99,23 @@ func TestStatusRequest_SerializesRateWindowPct(t *testing.T) {
 		t.Errorf("missing rate_window_pct:42, got: %s", b)
 	}
 }
+
+func TestStatusRequest_SerializesRateBottomBar(t *testing.T) {
+	b, err := json.Marshal(StatusRequest{Source: "x", Tool: "claude", Session: "s", State: "running", RateBottomBar: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"rate_bottom_bar":true`) {
+		t.Errorf("missing rate_bottom_bar in %s", b)
+	}
+}
+
+func TestStatusRequest_OmitsRateBottomBarWhenFalse(t *testing.T) {
+	b, err := json.Marshal(StatusRequest{Source: "x", Tool: "claude", Session: "s", State: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "rate_bottom_bar") {
+		t.Errorf("rate_bottom_bar should be omitted when false, got %s", b)
+	}
+}
