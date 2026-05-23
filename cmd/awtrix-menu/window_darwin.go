@@ -41,7 +41,7 @@ func openSettingsWindow(envPath string) {
 
 		const (
 			winW = 460.0
-			winH = 510.0
+			winH = 544.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
 			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
@@ -66,7 +66,7 @@ func openSettingsWindow(envPath string) {
 		connBox := appkit.NewBox()
 		connBox.SetTitle("Connection")
 		connBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 300},
+			Origin: foundation.Point{X: 16, Y: 334},
 			Size:   foundation.Size{Width: winW - 32, Height: 190},
 		})
 		connView := appkit.NewView()
@@ -129,7 +129,7 @@ func openSettingsWindow(envPath string) {
 		clockBox.SetTitle("What shows on the clock")
 		clockBox.SetFrame(foundation.Rect{
 			Origin: foundation.Point{X: 16, Y: 60},
-			Size:   foundation.Size{Width: winW - 32, Height: 228},
+			Size:   foundation.Size{Width: winW - 32, Height: 262},
 		})
 		clockView := appkit.NewView()
 		clockBox.SetContentView(clockView)
@@ -182,6 +182,14 @@ func openSettingsWindow(envPath string) {
 		rateBarCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 178}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(rateBarCheck)
 
+		// 5h reset countdown checkbox (number-slot card: hours-to-reset + hourglass).
+		resetCheck := appkit.NewButton()
+		resetCheck.SetButtonType(appkit.ButtonTypeSwitch)
+		resetCheck.SetTitle("5h reset countdown")
+		resetCheck.SetState(boolState(form.RateReset))
+		resetCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 212}, Size: foundation.Size{Width: 320, Height: rowH}})
+		clockView.AddSubview(resetCheck)
+
 		content.AddSubview(clockBox)
 
 		// --- Footer: Cancel / Save ----------------------------------------
@@ -229,6 +237,7 @@ func openSettingsWindow(envPath string) {
 				ActivityTrail:  trailCheck.State() == appkit.ControlStateValueOn,
 				ContextNumber:  ctxNumCheck.State() == appkit.ControlStateValueOn,
 				RateBottomBar:  rateBarCheck.State() == appkit.ControlStateValueOn,
+				RateReset:      resetCheck.State() == appkit.ControlStateValueOn,
 				Token:          tokenField.StringValue(),
 			}
 			if errs := validateForm(f); len(errs) > 0 {
