@@ -41,7 +41,7 @@ func openSettingsWindow(envPath string) {
 
 		const (
 			winW = 460.0
-			winH = 440.0
+			winH = 476.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
 			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
@@ -66,7 +66,7 @@ func openSettingsWindow(envPath string) {
 		connBox := appkit.NewBox()
 		connBox.SetTitle("Connection")
 		connBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 230},
+			Origin: foundation.Point{X: 16, Y: 266},
 			Size:   foundation.Size{Width: winW - 32, Height: 190},
 		})
 		connView := appkit.NewView()
@@ -129,7 +129,7 @@ func openSettingsWindow(envPath string) {
 		clockBox.SetTitle("What shows on the clock")
 		clockBox.SetFrame(foundation.Rect{
 			Origin: foundation.Point{X: 16, Y: 60},
-			Size:   foundation.Size{Width: winW - 32, Height: 158},
+			Size:   foundation.Size{Width: winW - 32, Height: 194},
 		})
 		clockView := appkit.NewView()
 		clockBox.SetContentView(clockView)
@@ -165,6 +165,14 @@ func openSettingsWindow(envPath string) {
 		trailCheck.SetState(boolState(form.ActivityTrail))
 		trailCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 10}, Size: foundation.Size{Width: 320, Height: rowH}})
 		clockView.AddSubview(trailCheck)
+
+		// Context-window % (number) checkbox.
+		ctxNumCheck := appkit.NewButton()
+		ctxNumCheck.SetButtonType(appkit.ButtonTypeSwitch)
+		ctxNumCheck.SetTitle("Context % (number)")
+		ctxNumCheck.SetState(boolState(form.ContextNumber))
+		ctxNumCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 144}, Size: foundation.Size{Width: 320, Height: rowH}})
+		clockView.AddSubview(ctxNumCheck)
 
 		content.AddSubview(clockBox)
 
@@ -211,6 +219,7 @@ func openSettingsWindow(envPath string) {
 				RatePct:        rateCheck.State() == appkit.ControlStateValueOn,
 				ActivityDetail: activityCheck.State() == appkit.ControlStateValueOn,
 				ActivityTrail:  trailCheck.State() == appkit.ControlStateValueOn,
+				ContextNumber:  ctxNumCheck.State() == appkit.ControlStateValueOn,
 				Token:          tokenField.StringValue(),
 			}
 			if errs := validateForm(f); len(errs) > 0 {

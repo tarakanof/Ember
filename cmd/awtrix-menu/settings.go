@@ -58,3 +58,14 @@ func isEnvTrue(v string) bool {
 		return true // includes "" — the producer's default is true
 	}
 }
+
+// isEnvOn is the default-OFF counterpart to isEnvTrue: true only for explicit
+// truthy values (for toggles whose default is off, e.g. the context number).
+func isEnvOn(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "1", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}

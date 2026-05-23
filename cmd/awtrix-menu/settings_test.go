@@ -56,6 +56,19 @@ func TestIsEnvTrue(t *testing.T) {
 	}
 }
 
+func TestIsEnvOn(t *testing.T) {
+	for _, v := range []string{"true", "1", "yes", "on", "ON"} {
+		if !isEnvOn(v) {
+			t.Errorf("isEnvOn(%q) = false, want true", v)
+		}
+	}
+	for _, v := range []string{"", "false", "0", "off", "no", "garbage"} {
+		if isEnvOn(v) {
+			t.Errorf("isEnvOn(%q) = true, want false (default off)", v)
+		}
+	}
+}
+
 func TestFormFromEnv(t *testing.T) {
 	rec := &envRec{}
 	rec.set("STATUS_SOURCE", "mbp")
@@ -65,6 +78,7 @@ func TestFormFromEnv(t *testing.T) {
 	rec.set("STATUS_RATE_PCT_ENABLED", "false")
 	rec.set("STATUS_ACTIVITY_DETAIL_ENABLED", "false")
 	rec.set("STATUS_ACTIVITY_TRAIL_ENABLED", "false")
+	rec.set("STATUS_CONTEXT_NUMBER_ENABLED", "true")
 	rec.set("STATUS_TOKEN", "secret")
 
 	f, tokenSet := formFromEnv(rec)
@@ -86,6 +100,9 @@ func TestFormFromEnv(t *testing.T) {
 	if f.ActivityTrail {
 		t.Errorf("ActivityTrail = true, want false")
 	}
+	if !f.ContextNumber {
+		t.Error("ContextNumber = false, want true")
+	}
 
 	empty := &envRec{}
 	f2, tokenSet2 := formFromEnv(empty)
@@ -94,6 +111,9 @@ func TestFormFromEnv(t *testing.T) {
 	}
 	if !f2.ContextPct || !f2.RatePct || !f2.ActivityDetail || !f2.ActivityTrail {
 		t.Error("absent toggles should default true (isEnvTrue semantics)")
+	}
+	if f2.ContextNumber {
+		t.Error("ContextNumber should default false when absent")
 	}
 }
 
@@ -119,7 +139,7 @@ func TestApplyForm(t *testing.T) {
 	rec.set("STATUS_TOKEN", "old-token")
 	rec.set("STATUS_UNKNOWN", "keepme")
 
-	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextPct: true, RatePct: false, ActivityDetail: true, ActivityTrail: true, Token: ""})
+	applyForm(rec, settingsForm{Source: " mbp ", ServerURL: "http://h:8080", SourceColor: "#aa66ff", ContextPct: true, RatePct: false, ActivityDetail: true, ActivityTrail: true, ContextNumber: true, Token: ""})
 	if rec.get("STATUS_TOKEN") != "old-token" {
 		t.Errorf("blank token should keep existing, got %q", rec.get("STATUS_TOKEN"))
 	}
@@ -134,6 +154,9 @@ func TestApplyForm(t *testing.T) {
 	}
 	if rec.get("STATUS_ACTIVITY_TRAIL_ENABLED") != "true" {
 		t.Errorf("activity-trail serialization wrong: %q", rec.get("STATUS_ACTIVITY_TRAIL_ENABLED"))
+	}
+	if rec.get("STATUS_CONTEXT_NUMBER_ENABLED") != "true" {
+		t.Errorf("context-number serialization wrong: %q", rec.get("STATUS_CONTEXT_NUMBER_ENABLED"))
 	}
 	if rec.get("STATUS_UNKNOWN") != "keepme" {
 		t.Error("unknown key not preserved")
