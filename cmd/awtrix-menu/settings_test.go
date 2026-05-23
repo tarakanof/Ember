@@ -167,3 +167,26 @@ func TestApplyForm(t *testing.T) {
 		t.Errorf("non-blank token should replace, got %q", rec.get("STATUS_TOKEN"))
 	}
 }
+
+func TestFormFromEnv_RateBottomBar(t *testing.T) {
+	rec := &envRec{}
+	rec.set(keyRateBottomBar, "true")
+	f, _ := formFromEnv(rec)
+	if !f.RateBottomBar {
+		t.Error("RateBottomBar = false, want true")
+	}
+
+	rec2 := &envRec{}
+	f2, _ := formFromEnv(rec2)
+	if f2.RateBottomBar {
+		t.Error("RateBottomBar should default false when absent")
+	}
+}
+
+func TestApplyForm_RateBottomBar(t *testing.T) {
+	rec := &envRec{}
+	applyForm(rec, settingsForm{Source: "mbp", ServerURL: "http://h:8080", RateBottomBar: true})
+	if got := rec.get(keyRateBottomBar); got != "true" {
+		t.Errorf("%s = %q, want true", keyRateBottomBar, got)
+	}
+}
