@@ -68,7 +68,11 @@ func (p *previewWidget) render() {
 	pix, w, h := render.RenderRGBA(frame, previewScale)
 	p.pixBuf = pix // retain before the image references it
 	p.imageView.SetImage(rgbaToImage(pix, w, h))
-	p.caption.SetStringValue(cardCaption(card))
+	caption := cardCaption(card)
+	if card == 2 && f.ActivityTrail {
+		caption = "recent-activity trail (scrolls as text)"
+	}
+	p.caption.SetStringValue(caption)
 	if p.live {
 		p.badge.SetStringValue("● live")
 	} else {
