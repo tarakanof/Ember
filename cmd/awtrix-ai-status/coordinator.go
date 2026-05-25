@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/dt/awtrix-ai-status/internal/render"
 )
 
 // clock abstracts the wall clock so coordinator tests can drive timers
@@ -327,7 +329,7 @@ func (c *coordinator) onTick() {
 		return
 	}
 	snap := c.snapshot()
-	keys := sortedActiveKeys(snap)
+	keys := render.SortedActiveKeys(snap)
 
 	// Evaluate all lock-release conditions against the current snapshot:
 	// ack timeout, drain (locked session moved out of attention state),
@@ -340,7 +342,7 @@ func (c *coordinator) onTick() {
 		} else {
 			// Drain: locked session moved out of attention state.
 			for _, s := range snap.Sessions {
-				if sessionKey(s) == c.lockedKey {
+				if s.Key() == c.lockedKey {
 					if s.State != "waiting" && s.State != "error" {
 						releaseReason = "drain"
 					}
@@ -377,11 +379,11 @@ func (c *coordinator) onTick() {
 	default:
 		// Advance within the current session's cards, else move to the next
 		// session. n is resolved from the pre-advance pointer.
-		n := cardsForSession(sessionByKey(snap, c.pointer))
+		n := render.CardsForSession(render.SessionByKey(snap, c.pointer))
 		if c.cardCursor+1 < n {
 			c.cardCursor++
 		} else {
-			c.pointer = pickRotated(c.pointer, keys)
+			c.pointer = render.PickRotated(c.pointer, keys)
 			c.cardCursor = 0
 		}
 	}
@@ -399,7 +401,7 @@ func (c *coordinator) publish(snap Snapshot) {
 	idleRestore := time.Duration(cfg.Display.IdleRestoreSeconds) * time.Second
 	now := c.clk.Now()
 
-	keys := sortedActiveKeys(snap)
+	keys := render.SortedActiveKeys(snap)
 	c.muTest.Lock()
 	mode := c.idleStateLocked(len(keys), now, idleRestore)
 	c.muTest.Unlock()
@@ -410,9 +412,9 @@ func (c *coordinator) publish(snap Snapshot) {
 		// pointer/cardCursor/locked are read without muTest: publish runs only
 		// on the coordinator goroutine that also writes them; the lock exists
 		// solely so tests can read this state race-free.
-		payload = RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime)
+		payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime)
 	case idleModeDimmed:
-		payload = RenderIdleFrame(lifetime)
+		payload = render.RenderIdleFrame(lifetime)
 	case idleModeOff:
 		// Countdown elapsed — let the device's lifetime expire so
 		// AWTRIX scheduler returns to native apps. No publish, no

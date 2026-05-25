@@ -211,24 +211,6 @@ type StatusRequest struct {
 	RateReset     bool    `json:"rate_reset,omitempty"`
 }
 
-type Session struct {
-	Source        string    `json:"source"`
-	Tool          string    `json:"tool"`
-	Session       string    `json:"session"`
-	State         string    `json:"state"`
-	Message       string    `json:"message"`
-	TokensToday   int64     `json:"tokens_today,omitempty"`
-	ContextPct    *int      `json:"context_pct,omitempty"`
-	SourceColor   *string   `json:"source_color,omitempty"`
-	RateWindowPct *int      `json:"rate_window_pct,omitempty"`
-	Activity      string    `json:"activity,omitempty"`
-	ContextNumber bool      `json:"context_number,omitempty"`
-	RateBottomBar bool      `json:"rate_bottom_bar,omitempty"`
-	RateResetAt   int64     `json:"rate_reset_at,omitempty"`
-	RateReset     bool      `json:"rate_reset,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
-}
-
 func (r StatusRequest) normalized() Session {
 	source := strings.TrimSpace(r.Source)
 	if source == "" {
@@ -335,27 +317,6 @@ func isHexColor(s string) bool {
 	return true
 }
 
-func (s Session) key() string {
-	return s.Source + "/" + s.Tool + "/" + s.Session
-}
-
-type Snapshot struct {
-	Now      time.Time `json:"now"`
-	Sessions []Session `json:"sessions"`
-	Render   Render    `json:"render"`
-}
-
-type Render struct {
-	Text        string `json:"text"`
-	Color       string `json:"color"`
-	Waiting     int    `json:"waiting"`
-	Running     int    `json:"running"`
-	Errors      int    `json:"errors"`
-	Done        int    `json:"done"`
-	ActiveTotal int    `json:"active_total"`
-	Message     string `json:"message,omitempty"`
-}
-
 type App struct {
 	cfg          atomic.Pointer[Config] // hot-swappable; read with cfg.Load() per request
 	configPath   string                 // resolved at startup; "" when running on defaults
@@ -430,7 +391,7 @@ func (a *App) recordPublish(snap Snapshot, err error) {
 // read and its own Upsert).
 func (a *App) Upsert(req StatusRequest) (Render, string) {
 	session := req.normalized()
-	key := session.key()
+	key := session.Key()
 	a.mu.Lock()
 	prior := ""
 	if existing, ok := a.sessions[key]; ok {
@@ -745,7 +706,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	render, prior := a.Upsert(req)
 	a.coord.Send(coordCmd{
 		kind:       cmdUpsert,
-		sessionKey: sessionKey(normalized),
+		sessionKey: normalized.Key(),
 		priorState: prior,
 		newState:   normalized.State,
 	})

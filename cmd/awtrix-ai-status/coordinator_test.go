@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/dt/awtrix-ai-status/internal/render"
 )
 
 func TestNewCoordinator_DefaultsFromConfig(t *testing.T) {
@@ -650,7 +652,7 @@ func TestCoord_Interleave_RunningSessionThreeCards(t *testing.T) {
 		}}
 	}
 	// XY + rate + tool = 3 cards.
-	if got := cardsForSession(c.snapshot().Sessions[0]); got != 3 {
+	if got := render.CardsForSession(c.snapshot().Sessions[0]); got != 3 {
 		t.Fatalf("cardsForSession = %d, want 3", got)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -696,7 +698,7 @@ func TestCoord_Interleave_RunningSessionFourCards(t *testing.T) {
 		}}
 	}
 	// XY + rate + ctx + tool = 4 cards.
-	if got := cardsForSession(c.snapshot().Sessions[0]); got != 4 {
+	if got := render.CardsForSession(c.snapshot().Sessions[0]); got != 4 {
 		t.Fatalf("cardsForSession = %d, want 4", got)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

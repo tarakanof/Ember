@@ -1,4 +1,4 @@
-package main
+package render
 
 import (
 	"fmt"
@@ -19,6 +19,50 @@ type RGB struct {
 type Frame struct {
 	Pixels [8][32]RGB
 	Dirty  [8][32]bool
+}
+
+// Session holds the current state of a single AI session as received via the
+// status endpoint.
+type Session struct {
+	Source        string    `json:"source"`
+	Tool          string    `json:"tool"`
+	Session       string    `json:"session"`
+	State         string    `json:"state"`
+	Message       string    `json:"message"`
+	TokensToday   int64     `json:"tokens_today,omitempty"`
+	ContextPct    *int      `json:"context_pct,omitempty"`
+	SourceColor   *string   `json:"source_color,omitempty"`
+	RateWindowPct *int      `json:"rate_window_pct,omitempty"`
+	Activity      string    `json:"activity,omitempty"`
+	ContextNumber bool      `json:"context_number,omitempty"`
+	RateBottomBar bool      `json:"rate_bottom_bar,omitempty"`
+	RateResetAt   int64     `json:"rate_reset_at,omitempty"`
+	RateReset     bool      `json:"rate_reset,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// Key returns the canonical slash-delimited key for this session.
+func (s Session) Key() string {
+	return s.Source + "/" + s.Tool + "/" + s.Session
+}
+
+// Snapshot is a point-in-time view of all sessions plus the computed Render.
+type Snapshot struct {
+	Now      time.Time `json:"now"`
+	Sessions []Session `json:"sessions"`
+	Render   Render    `json:"render"`
+}
+
+// Render is the computed summary of the current session set (text/color/counters).
+type Render struct {
+	Text        string `json:"text"`
+	Color       string `json:"color"`
+	Waiting     int    `json:"waiting"`
+	Running     int    `json:"running"`
+	Errors      int    `json:"errors"`
+	Done        int    `json:"done"`
+	ActiveTotal int    `json:"active_total"`
+	Message     string `json:"message,omitempty"`
 }
 
 // paintCell sets a single pixel. Out-of-bounds writes are no-ops so callers
@@ -72,19 +116,19 @@ const resetGlyph = '⧗'
 // exactly 5 strings of exactly 3 chars; 'X' = lit, '.' = transparent.
 // Glyphs are based on the classic Picopixel-style 3×5 family.
 var font3x5 = map[rune][]string{
-	'0': {"XXX", "X.X", "X.X", "X.X", "XXX"},
-	'1': {".X.", "XX.", ".X.", ".X.", "XXX"},
-	'2': {"XXX", "..X", "XXX", "X..", "XXX"},
-	'3': {"XXX", "..X", "XXX", "..X", "XXX"},
-	'4': {"X.X", "X.X", "XXX", "..X", "..X"},
-	'5': {"XXX", "X..", "XXX", "..X", "XXX"},
-	'6': {"XXX", "X..", "XXX", "X.X", "XXX"},
-	'7': {"XXX", "..X", "..X", "..X", "..X"},
-	'8': {"XXX", "X.X", "XXX", "X.X", "XXX"},
-	'9': {"XXX", "X.X", "XXX", "..X", "XXX"},
-	'/': {"..X", "..X", ".X.", "X..", "X.."},
-	'+': {"...", ".X.", "XXX", ".X.", "..."},
-	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
+	'0':        {"XXX", "X.X", "X.X", "X.X", "XXX"},
+	'1':        {".X.", "XX.", ".X.", ".X.", "XXX"},
+	'2':        {"XXX", "..X", "XXX", "X..", "XXX"},
+	'3':        {"XXX", "..X", "XXX", "..X", "XXX"},
+	'4':        {"X.X", "X.X", "XXX", "..X", "..X"},
+	'5':        {"XXX", "X..", "XXX", "..X", "XXX"},
+	'6':        {"XXX", "X..", "XXX", "X.X", "XXX"},
+	'7':        {"XXX", "..X", "..X", "..X", "..X"},
+	'8':        {"XXX", "X.X", "XXX", "X.X", "XXX"},
+	'9':        {"XXX", "X.X", "XXX", "..X", "XXX"},
+	'/':        {"..X", "..X", ".X.", "X..", "X.."},
+	'+':        {"...", ".X.", "XXX", ".X.", "..."},
+	'%':        {"X.X", "..X", ".X.", "X..", "X.X"},
 	glassGlyph: {"X.X", "X.X", "X.X", "XXX", "XXX"},
 	resetGlyph: {"XXX", ".X.", ".X.", ".X.", "XXX"},
 }
@@ -170,8 +214,8 @@ const (
 	glassRight       = 30
 	glassTopRow      = 1
 	glassBottomRow   = 5
-	glassInteriorW   = 4  // interior cols 26–29
-	glassInteriorH   = 4  // interior rows 1–4
+	glassInteriorW   = 4 // interior cols 26–29
+	glassInteriorH   = 4 // interior rows 1–4
 	glassInteriorPix = glassInteriorW * glassInteriorH
 )
 
@@ -350,11 +394,11 @@ const (
 	cardReset
 )
 
-// availableCards returns the cards this session offers, in rotation order:
+// AvailableCards returns the cards this session offers, in rotation order:
 // X/Y always; the rate card when RateWindowPct is set; the tool card only for
 // a running session that carries an Activity string. The rotation cursor
 // indexes this slice, so a session can have X/Y+tool without a rate card.
-func availableCards(s Session) []int {
+func AvailableCards(s Session) []int {
 	cards := []int{cardXY}
 	if s.RateWindowPct != nil {
 		cards = append(cards, cardRate)
@@ -371,7 +415,7 @@ func availableCards(s Session) []int {
 	return cards
 }
 
-func cardsForSession(s Session) int { return len(availableCards(s)) }
+func CardsForSession(s Session) int { return len(AvailableCards(s)) }
 
 // rateText renders a 5h-rate percent as "NN%". Clamped to 0..99 so the
 // 3-glyph value always fits cols 12–22 (before the glass at col 25); the
@@ -433,11 +477,11 @@ func rateColor(pct int) RGB {
 	}
 }
 
-// pickWinning returns the priority-winning session, its state colour, and
+// PickWinning returns the priority-winning session, its state colour, and
 // the total active session count (any non-idle session). When no session
 // is active, win is nil. Priority order: waiting > error > running > done.
 // Within a tie, the most recently updated session wins.
-func pickWinning(sessions []Session) (win *Session, color RGB, total int) {
+func PickWinning(sessions []Session) (win *Session, color RGB, total int) {
 	var waiting, errored, running, done []*Session
 	for i := range sessions {
 		s := &sessions[i]
@@ -487,13 +531,13 @@ func pickWinning(sessions []Session) (win *Session, color RGB, total int) {
 // alignment, priorState() lookups and delete-while-locked release
 // silently miss.
 func sessionKey(s Session) string {
-	return s.key()
+	return s.Key()
 }
 
-// sessionByKey returns the session in snap whose canonical key matches,
+// SessionByKey returns the session in snap whose canonical key matches,
 // or the zero Session when absent. Shared by the coordinator's rotation
 // advance and RenderForCoord so both agree on the session a key names.
-func sessionByKey(snap Snapshot, key string) Session {
+func SessionByKey(snap Snapshot, key string) Session {
 	for i := range snap.Sessions {
 		if sessionKey(snap.Sessions[i]) == key {
 			return snap.Sessions[i]
@@ -503,7 +547,7 @@ func sessionByKey(snap Snapshot, key string) Session {
 }
 
 // statePriority returns lower values for higher-priority states. Idle is
-// never returned by sortedActiveKeys, so the constant for idle is unused
+// never returned by SortedActiveKeys, so the constant for idle is unused
 // here but kept for symmetry with the spec's ordering.
 func statePriority(state string) int {
 	switch state {
@@ -520,10 +564,10 @@ func statePriority(state string) int {
 	}
 }
 
-// sortedActiveKeys returns the canonical keys of non-idle sessions in
+// SortedActiveKeys returns the canonical keys of non-idle sessions in
 // rotation order: state-priority first, then (source, tool, session)
 // lexicographically. Stable for a given snapshot.
-func sortedActiveKeys(snap Snapshot) []string {
+func SortedActiveKeys(snap Snapshot) []string {
 	type entry struct {
 		key  string
 		prio int
@@ -575,10 +619,10 @@ func sortedActiveKeys(snap Snapshot) []string {
 	return keys
 }
 
-// pickRotated advances the rotation pointer. Returns "" on empty input.
+// PickRotated advances the rotation pointer. Returns "" on empty input.
 // If prev is empty or no longer in keys, returns the first key. Otherwise
 // returns the next key with wraparound.
-func pickRotated(prev string, keys []string) string {
+func PickRotated(prev string, keys []string) string {
 	if len(keys) == 0 {
 		return ""
 	}
@@ -587,6 +631,21 @@ func pickRotated(prev string, keys []string) string {
 		return keys[0]
 	}
 	return keys[(idx+1)%len(keys)]
+}
+
+// isHexColor reports whether s is a 7-char string of the form "#RRGGBB"
+// with lowercase or uppercase hex digits.
+func isHexColor(s string) bool {
+	if len(s) != 7 || s[0] != '#' {
+		return false
+	}
+	for i := 1; i < 7; i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // parseHex parses a "#RRGGBB" string into an RGB. Returns false on malformed
@@ -672,7 +731,7 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 // right side of the matrix and clobber the text underneath — verified
 // empirically against device 0.98.
 func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int) map[string]any {
-	keys := sortedActiveKeys(snap)
+	keys := SortedActiveKeys(snap)
 	if len(keys) == 0 {
 		return nil
 	}
@@ -703,7 +762,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		return detailPayload(*session, label, hex, true, lifetimeSeconds)
 	}
 
-	cards := availableCards(*session)
+	cards := AvailableCards(*session)
 	ci := card
 	if ci < 0 || ci >= len(cards) {
 		ci = 0
@@ -712,7 +771,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if selected == cardTool {
 		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
 	}
-	frame := composeFrame(*session, idx, total, selected, stateColor, snap.Sessions, snap.Now)
+	frame := ComposeFrame(*session, idx, total, selected, stateColor, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -747,12 +806,12 @@ func composeRobotPixels(s Session, robotColor RGB) []int {
 	return pixels
 }
 
-// composeFrame paints the standard layout for one session using the
+// ComposeFrame paints the standard layout for one session using the
 // supplied robot colour. Digits stay source-coloured (or white fallback)
 // regardless of robot colour. Glass uses the session's state colour
 // directly. Row 7 receives the session-count bar drawn from the full
 // active-session list `sessions` — see drawSessionBar.
-func composeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Session, now time.Time) Frame {
+func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Session, now time.Time) Frame {
 	var f Frame
 	drawRobot(&f, s, robotColor)
 
