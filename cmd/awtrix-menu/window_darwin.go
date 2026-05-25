@@ -4,6 +4,9 @@ package main
 
 import (
 	"fmt"
+	"time"
+
+	"github.com/dt/awtrix-ai-status/internal/render"
 
 	"github.com/progrium/darwinkit/dispatch"
 	"github.com/progrium/darwinkit/helper/action"
@@ -41,7 +44,7 @@ func openSettingsWindow(envPath string) {
 
 		const (
 			winW = 460.0
-			winH = 544.0
+			winH = 700.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
 			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
@@ -51,6 +54,51 @@ func openSettingsWindow(envPath string) {
 		w.SetTitle("AWTRIX Settings")
 		w.SetReleasedWhenClosed(false)
 		content := w.ContentView()
+
+		// --- Preview panel (top) -------------------------------------------
+		// A dark backing box holding the pre-scaled 32x8 matrix preview, a
+		// caption for the current number-slot card, and a live/sample badge.
+		const (
+			previewW = 32 * previewScale // 224
+			previewH = 8 * previewScale  // 56
+		)
+		previewBox := appkit.NewBox()
+		previewBox.SetTitle("Preview")
+		previewBox.SetFrame(foundation.Rect{
+			Origin: foundation.Point{X: 16, Y: 572},
+			Size:   foundation.Size{Width: winW - 32, Height: 110},
+		})
+		previewView := appkit.NewView()
+		previewBox.SetContentView(previewView)
+
+		// Dark backing so the matrix pixels read against the panel.
+		previewBacking := appkit.NewView()
+		previewBacking.SetFrame(foundation.Rect{Origin: foundation.Point{X: 12, Y: 24}, Size: foundation.Size{Width: previewW, Height: previewH}})
+		previewBacking.SetWantsLayer(true)
+		if layer := previewBacking.Layer(); !layer.IsNil() {
+			layer.SetBackgroundColor(appkit.Color_BlackColor().CGColor())
+		}
+		previewView.AddSubview(previewBacking)
+
+		imageView := appkit.NewImageViewWithFrame(foundation.Rect{Origin: foundation.Point{X: 0, Y: 0}, Size: foundation.Size{Width: previewW, Height: previewH}})
+		imageView.SetImageScaling(appkit.ImageScaleNone)
+		previewBacking.AddSubview(imageView)
+
+		previewCaption := appkit.TextField_LabelWithString("")
+		previewCaption.SetFrame(foundation.Rect{Origin: foundation.Point{X: 12, Y: 4}, Size: foundation.Size{Width: previewW + 60, Height: 16}})
+		previewCaption.SetFont(appkit.Font_SystemFontOfSize(10))
+		previewCaption.SetTextColor(appkit.Color_SecondaryLabelColor())
+		previewView.AddSubview(previewCaption)
+
+		previewBadge := appkit.TextField_LabelWithString("")
+		previewBadge.SetFrame(foundation.Rect{Origin: foundation.Point{X: winW - 32 - 80, Y: 60}, Size: foundation.Size{Width: 64, Height: 16}})
+		previewBadge.SetFont(appkit.Font_SystemFontOfSize(10))
+		previewBadge.SetAlignment(appkit.TextAlignmentRight)
+		previewView.AddSubview(previewBadge)
+
+		pw := &previewWidget{imageView: imageView, caption: previewCaption, badge: previewBadge}
+
+		content.AddSubview(previewBox)
 
 		// --- Group 1: Connection -------------------------------------------
 		// Box content coordinates are relative to the box's content view.
@@ -66,8 +114,8 @@ func openSettingsWindow(envPath string) {
 		connBox := appkit.NewBox()
 		connBox.SetTitle("Connection")
 		connBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 334},
-			Size:   foundation.Size{Width: winW - 32, Height: 190},
+			Origin: foundation.Point{X: 16, Y: 348},
+			Size:   foundation.Size{Width: winW - 32, Height: 212},
 		})
 		connView := appkit.NewView()
 		connBox.SetContentView(connView)
@@ -113,84 +161,133 @@ func openSettingsWindow(envPath string) {
 			colorWell.SetColor(c)
 		}
 		colorErr := newErrorLabel(foundation.Rect{Origin: foundation.Point{X: errX + 188, Y: 16}, Size: foundation.Size{Width: 120, Height: 14}})
-		// When the well changes, write its #RRGGBB back into the text field.
-		action.Set(colorWell, func(sender objc.Object) {
-			colorField.SetStringValue(colorToHex(colorWell.Color()))
-		})
+		// Color-well action wired below (after the preview widget exists) so it
+		// can also trigger a live re-render.
 		connView.AddSubview(newFieldLabel("Source color", foundation.Point{X: 8, Y: 14}))
 		connView.AddSubview(colorField)
 		connView.AddSubview(colorWell)
 		connView.AddSubview(colorErr)
 
+		// One-line note explaining what the source color affects in the preview.
+		colorNote := appkit.TextField_LabelWithString("Source color tints the robot mark & X/Y digits in the preview.")
+		colorNote.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 168}, Size: foundation.Size{Width: fieldW + 100, Height: 16}})
+		colorNote.SetFont(appkit.Font_SystemFontOfSize(10))
+		colorNote.SetTextColor(appkit.Color_SecondaryLabelColor())
+		connView.AddSubview(colorNote)
+
+		// When the well changes, write its #RRGGBB back into the text field and
+		// re-tint the preview live.
+		action.Set(colorWell, func(sender objc.Object) {
+			colorField.SetStringValue(colorToHex(colorWell.Color()))
+			pw.onFormChanged()
+		})
+
 		content.AddSubview(connBox)
 
-		// --- Group 2: What shows on the clock ------------------------------
+		// --- Group 2: Display elements -------------------------------------
+		// Grouped by the screen region each element occupies. Checkbox rows on
+		// the left; a small thumbnail of the element on the right.
 		clockBox := appkit.NewBox()
-		clockBox.SetTitle("What shows on the clock")
+		clockBox.SetTitle("Display elements")
 		clockBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 60},
-			Size:   foundation.Size{Width: winW - 32, Height: 262},
+			Origin: foundation.Point{X: 16, Y: 54},
+			Size:   foundation.Size{Width: winW - 32, Height: 284},
 		})
 		clockView := appkit.NewView()
 		clockBox.SetContentView(clockView)
 
-		// Context-window glass checkbox.
-		ctxCheck := appkit.NewButton()
-		ctxCheck.SetButtonType(appkit.ButtonTypeSwitch)
-		ctxCheck.SetTitle("Context-window glass (% used)")
-		ctxCheck.SetState(boolState(form.ContextPct))
-		ctxCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 110}, Size: foundation.Size{Width: 320, Height: rowH}})
-		clockView.AddSubview(ctxCheck)
+		const (
+			checkW = 250.0
+			thumbX = 332.0
+			thumbW = 64.0
+			thumbH = 16.0
+		)
+		// newCheck builds a switch-style checkbox at (x, y).
+		newCheck := func(title string, on bool, x, y float64) appkit.Button {
+			b := appkit.NewButton()
+			b.SetButtonType(appkit.ButtonTypeSwitch)
+			b.SetTitle(title)
+			b.SetState(boolState(on))
+			b.SetFrame(foundation.Rect{Origin: foundation.Point{X: x, Y: y}, Size: foundation.Size{Width: checkW, Height: rowH}})
+			clockView.AddSubview(b)
+			return b
+		}
+		// newSubHeader builds a plain bold-ish sub-section label at (x, y).
+		newSubHeader := func(title string, y float64) {
+			lbl := appkit.TextField_LabelWithString(title)
+			lbl.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: y}, Size: foundation.Size{Width: 320, Height: 16}})
+			lbl.SetFont(appkit.Font_BoldSystemFontOfSize(11))
+			lbl.SetTextColor(appkit.Color_SecondaryLabelColor())
+			clockView.AddSubview(lbl)
+		}
+		// addThumb places a 2x element thumbnail to the right of a row at y.
+		addThumb := func(y float64, mut func(s *render.Session)) {
+			iv := appkit.NewImageViewWithFrame(foundation.Rect{Origin: foundation.Point{X: thumbX, Y: y + 3}, Size: foundation.Size{Width: thumbW, Height: thumbH}})
+			iv.SetImageScaling(appkit.ImageScaleNone)
+			iv.SetImage(thumbImage(mut))
+			clockView.AddSubview(iv)
+		}
 
-		// 5h rate-limit checkbox.
-		rateCheck := appkit.NewButton()
-		rateCheck.SetButtonType(appkit.ButtonTypeSwitch)
-		rateCheck.SetTitle("5h rate-limit (% used)")
-		rateCheck.SetState(boolState(form.RatePct))
-		rateCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 76}, Size: foundation.Size{Width: 320, Height: rowH}})
-		clockView.AddSubview(rateCheck)
+		// -- Number slot (rotates) -----------------------------------------
+		newSubHeader("Number slot (rotates):", 234)
 
-		// Tool / approval detail checkbox.
-		activityCheck := appkit.NewButton()
-		activityCheck.SetButtonType(appkit.ButtonTypeSwitch)
-		activityCheck.SetTitle("Tool / approval detail")
-		activityCheck.SetState(boolState(form.ActivityDetail))
-		activityCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 40}, Size: foundation.Size{Width: 320, Height: rowH}})
-		clockView.AddSubview(activityCheck)
+		ctxNumCheck := newCheck("Context %", form.ContextNumber, 16, 210)
+		addThumb(210, func(s *render.Session) { s.ContextPct = ptr(47); s.ContextNumber = true })
 
-		// Recent-activity trail checkbox.
-		trailCheck := appkit.NewButton()
-		trailCheck.SetButtonType(appkit.ButtonTypeSwitch)
-		trailCheck.SetTitle("Recent-activity trail")
-		trailCheck.SetState(boolState(form.ActivityTrail))
-		trailCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 10}, Size: foundation.Size{Width: 320, Height: rowH}})
-		clockView.AddSubview(trailCheck)
+		rateCheck := newCheck("5h rate-limit %", form.RatePct, 16, 186)
+		addThumb(186, func(s *render.Session) { s.RateWindowPct = ptr(47) })
 
-		// Context-window % (number) checkbox.
-		ctxNumCheck := appkit.NewButton()
-		ctxNumCheck.SetButtonType(appkit.ButtonTypeSwitch)
-		ctxNumCheck.SetTitle("Context % (number)")
-		ctxNumCheck.SetState(boolState(form.ContextNumber))
-		ctxNumCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 144}, Size: foundation.Size{Width: 320, Height: rowH}})
-		clockView.AddSubview(ctxNumCheck)
+		resetCheck := newCheck("Reset countdown", form.RateReset, 16, 162)
+		addThumb(162, func(s *render.Session) {
+			s.RateResetAt = time.Now().Add(3 * time.Hour).Unix()
+			s.RateReset = true
+		})
 
-		// 5h rate as bottom bar checkbox (row 7: rate bar vs session-count bar).
-		rateBarCheck := appkit.NewButton()
-		rateBarCheck.SetButtonType(appkit.ButtonTypeSwitch)
-		rateBarCheck.SetTitle("5h rate as bottom bar")
-		rateBarCheck.SetState(boolState(form.RateBottomBar))
-		rateBarCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 178}, Size: foundation.Size{Width: 320, Height: rowH}})
-		clockView.AddSubview(rateBarCheck)
+		activityCheck := newCheck("Tool / approval detail", form.ActivityDetail, 16, 138)
+		trailCheck := newCheck("↳ Recent-activity trail", form.ActivityTrail, 36, 114)
 
-		// 5h reset countdown checkbox (number-slot card: hours-to-reset + hourglass).
-		resetCheck := appkit.NewButton()
-		resetCheck.SetButtonType(appkit.ButtonTypeSwitch)
-		resetCheck.SetTitle("5h reset countdown")
-		resetCheck.SetState(boolState(form.RateReset))
-		resetCheck.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 212}, Size: foundation.Size{Width: 320, Height: rowH}})
-		clockView.AddSubview(resetCheck)
+		// -- Right edge ----------------------------------------------------
+		newSubHeader("Right edge:", 86)
+
+		ctxCheck := newCheck("Context-window glass", form.ContextPct, 16, 62)
+		addThumb(62, func(s *render.Session) { s.ContextPct = ptr(47) })
+
+		// -- Bottom row ----------------------------------------------------
+		newSubHeader("Bottom row:", 34)
+
+		rateBarCheck := newCheck("5h rate as bottom bar", form.RateBottomBar, 16, 10)
+		addThumb(10, func(s *render.Session) {
+			s.RateWindowPct = ptr(47)
+			s.RateBottomBar = true
+		})
 
 		content.AddSubview(clockBox)
+
+		// --- Preview wiring ------------------------------------------------
+		// readCurrentForm mirrors the Save handler's control reads (minus the
+		// write-only token, which the preview does not use) so the preview
+		// reflects the live, uncommitted control state.
+		readCurrentForm := func() settingsForm {
+			return settingsForm{
+				Source:         sourceField.StringValue(),
+				ServerURL:      urlField.StringValue(),
+				SourceColor:    colorField.StringValue(),
+				ContextPct:     ctxCheck.State() == appkit.ControlStateValueOn,
+				RatePct:        rateCheck.State() == appkit.ControlStateValueOn,
+				ActivityDetail: activityCheck.State() == appkit.ControlStateValueOn,
+				ActivityTrail:  trailCheck.State() == appkit.ControlStateValueOn,
+				ContextNumber:  ctxNumCheck.State() == appkit.ControlStateValueOn,
+				RateBottomBar:  rateBarCheck.State() == appkit.ControlStateValueOn,
+				RateReset:      resetCheck.State() == appkit.ControlStateValueOn,
+			}
+		}
+		pw.formProvider = readCurrentForm
+
+		// Re-render the preview whenever any element toggles.
+		for _, c := range []appkit.Button{ctxCheck, rateCheck, resetCheck, activityCheck, trailCheck, ctxNumCheck, rateBarCheck} {
+			c := c
+			action.Set(c, func(sender objc.Object) { pw.onFormChanged() })
+		}
 
 		// --- Footer: Cancel / Save ----------------------------------------
 		// A general error line (e.g. write failure) above the buttons.
@@ -228,9 +325,9 @@ func openSettingsWindow(envPath string) {
 			w.EndEditingFor(nil) // commit any in-progress field edit so StringValue is current
 			clearErrors()
 			f := settingsForm{
-				Source:        sourceField.StringValue(),
-				ServerURL:     urlField.StringValue(),
-				SourceColor:   colorField.StringValue(),
+				Source:         sourceField.StringValue(),
+				ServerURL:      urlField.StringValue(),
+				SourceColor:    colorField.StringValue(),
 				ContextPct:     ctxCheck.State() == appkit.ControlStateValueOn,
 				RatePct:        rateCheck.State() == appkit.ControlStateValueOn,
 				ActivityDetail: activityCheck.State() == appkit.ControlStateValueOn,
@@ -267,10 +364,17 @@ func openSettingsWindow(envPath string) {
 		// --- Window delegate: revert to Accessory + rearm guard on close. --
 		wd := &appkit.WindowDelegate{}
 		wd.SetWindowWillClose(func(notification foundation.Notification) {
+			pw.stop()
 			appkit.Application_SharedApplication().SetActivationPolicy(appkit.ApplicationActivationPolicyAccessory)
 			settingsWindow = appkit.Window{}
 		})
 		w.SetDelegate(wd)
+
+		// Seed the preview from /state (sample fallback) and start the
+		// number-slot rotation before the window becomes visible.
+		pw.base, pw.live = fetchBaseSession(urlField.StringValue(), 2*time.Second)
+		pw.render()
+		pw.startRotation()
 
 		// Arm the single-instance guard before showing.
 		settingsWindow = w
@@ -334,4 +438,24 @@ func colorToHex(c appkit.Color) string {
 		return v
 	}
 	return fmt.Sprintf("#%02x%02x%02x", to8(srgb.RedComponent()), to8(srgb.GreenComponent()), to8(srgb.BlueComponent()))
+}
+
+// thumbImage renders a 2x-scaled preview of a single element for the option row.
+func thumbImage(mut func(s *render.Session)) appkit.Image {
+	base := sampleBaseSession()
+	// Strip everything optional so only what `mut` enables shows.
+	base.ContextPct = nil
+	base.RateWindowPct = nil
+	base.RateResetAt = 0
+	base.RateReset = false
+	base.ContextNumber = false
+	base.RateBottomBar = false
+	base.Activity = ""
+	mut(&base)
+	cards := render.AvailableCards(base)
+	card := cards[len(cards)-1] // the element we just enabled (XY is cards[0])
+	robot := render.RGB{R: 0xaa, G: 0x66, B: 0xff}
+	frame := render.ComposeFrame(base, 1, 1, card, robot, []render.Session{base}, time.Now())
+	pix, w, h := render.RenderRGBA(frame, 2)
+	return rgbaToImage(pix, w, h)
 }
