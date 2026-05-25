@@ -9,6 +9,7 @@ import (
 
 	"github.com/dt/awtrix-ai-status/internal/render"
 
+	"github.com/progrium/darwinkit/dispatch"
 	"github.com/progrium/darwinkit/macos/appkit"
 	"github.com/progrium/darwinkit/macos/foundation"
 )
@@ -17,8 +18,8 @@ import (
 const previewScale = 7
 
 // previewWidget owns the preview image view, its rotation state, and the inputs
-// the rotation timer needs to re-render. formProvider returns the current live
-// control state; base is the session fetched from /state (or a sample).
+// the rotation goroutine needs to re-render. formProvider returns the current
+// live control state; base is the session fetched from /state (or a sample).
 type previewWidget struct {
 	imageView    appkit.ImageView
 	caption      appkit.TextField
@@ -27,7 +28,7 @@ type previewWidget struct {
 	base         render.Session
 	live         bool
 	cursor       int
-	timer        foundation.Timer
+	stopCh       chan struct{}
 }
 
 // rgbaToImage builds an NSImage from a width x height 8-bit RGBA buffer.
@@ -108,18 +109,37 @@ func (p *previewWidget) onFormChanged() {
 	p.render()
 }
 
-// startRotation advances the number slot every 1.6s on the main run loop.
+// startRotation advances the number slot every 1.6s. The tick is driven by a Go
+// ticker rather than an NSTimer block: DarwinKit's scheduled-timer block is
+// backed by a libffi closure that is freed before a delayed fire, crashing in
+// ffi_closure_SYSV_inner. Each tick instead hops to the main thread via a
+// short-lived DispatchAsync block (the same pattern the initial window open
+// uses) — created and run immediately, so it stays valid. All previewWidget
+// field access thus happens on the main thread.
 func (p *previewWidget) startRotation() {
-	p.timer = foundation.Timer_ScheduledTimerWithTimeIntervalRepeatsBlock(1.6, true, func(t foundation.Timer) {
-		p.cursor++
-		p.render()
-	})
+	p.stopCh = make(chan struct{})
+	go func() {
+		t := time.NewTicker(1600 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-p.stopCh:
+				return
+			case <-t.C:
+				dispatch.MainQueue().DispatchAsync(func() {
+					p.cursor++
+					p.render()
+				})
+			}
+		}
+	}()
 }
 
-// stop invalidates the rotation timer; safe to call once on window close.
+// stop ends the rotation goroutine; safe to call once on window close.
 func (p *previewWidget) stop() {
-	if !p.timer.IsNil() {
-		p.timer.Invalidate()
+	if p.stopCh != nil {
+		close(p.stopCh)
+		p.stopCh = nil
 	}
 }
 
