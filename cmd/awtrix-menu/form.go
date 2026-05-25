@@ -4,11 +4,11 @@ import "strings"
 
 // producer.env keys the settings window edits.
 const (
-	keySource     = "STATUS_SOURCE"
-	keyServerURL  = "STATUS_SERVER_URL"
-	keyToken      = "STATUS_TOKEN"
-	keyColor      = "STATUS_SOURCE_COLOR"
-	keyContextPct = "STATUS_CONTEXT_PCT_ENABLED"
+	keySource         = "STATUS_SOURCE"
+	keyServerURL      = "STATUS_SERVER_URL"
+	keyToken          = "STATUS_TOKEN"
+	keyColor          = "STATUS_SOURCE_COLOR"
+	keyContextPct     = "STATUS_CONTEXT_PCT_ENABLED"
 	keyRatePct        = "STATUS_RATE_PCT_ENABLED"
 	keyActivityDetail = "STATUS_ACTIVITY_DETAIL_ENABLED"
 	keyActivityTrail  = "STATUS_ACTIVITY_TRAIL_ENABLED"
@@ -20,9 +20,9 @@ const (
 // settingsForm is the editable view of producer.env shown in the window.
 // Token is write-only: "" means "keep the current value".
 type settingsForm struct {
-	Source        string
-	ServerURL     string
-	SourceColor   string
+	Source         string
+	ServerURL      string
+	SourceColor    string
 	ContextPct     bool
 	RatePct        bool
 	ActivityDetail bool
@@ -38,9 +38,9 @@ type settingsForm struct {
 // the secret never round-trips into the UI.
 func formFromEnv(rec *envRec) (settingsForm, bool) {
 	return settingsForm{
-		Source:        rec.get(keySource),
-		ServerURL:     rec.get(keyServerURL),
-		SourceColor:   rec.get(keyColor),
+		Source:         rec.get(keySource),
+		ServerURL:      rec.get(keyServerURL),
+		SourceColor:    rec.get(keyColor),
 		ContextPct:     isEnvTrue(rec.get(keyContextPct)),
 		RatePct:        isEnvTrue(rec.get(keyRatePct)),
 		ActivityDetail: isEnvTrue(rec.get(keyActivityDetail)),
