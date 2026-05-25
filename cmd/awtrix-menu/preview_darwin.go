@@ -28,20 +28,24 @@ type previewWidget struct {
 	live         bool
 	cursor       int
 	timer        foundation.Timer
-
-	// pixBuf retains the byte buffer backing the currently displayed image.
-	// NSBitmapImageRep references (does not copy) the planes we hand it, so
-	// this must stay reachable or AppKit will read freed memory.
-	pixBuf []byte
 }
 
-// rgbaToImage builds an NSImage from a width x height 8-bit RGBA buffer. The
-// caller must retain pix for as long as the returned image is in use.
+// rgbaToImage builds an NSImage from a width x height 8-bit RGBA buffer.
+//
+// initWithBitmapDataPlanes: takes `unsigned char **` — a pointer to an array of
+// plane pointers, NOT the pixel bytes. Passing &pix[0] makes AppKit dereference
+// the pixel data as a pointer and crash (SIGSEGV at an address that is literally
+// the first pixel's bytes). So we pass nil planes: AppKit then allocates its own
+// buffer, which we fill via BitmapData(). AppKit owns that buffer for the life of
+// the rep, so there is no Go-side lifetime hazard and pix need not be retained.
 func rgbaToImage(pix []byte, w, h int) appkit.Image {
 	rep := appkit.NewBitmapImageRepWithBitmapDataPlanesPixelsWidePixelsHighBitsPerSampleSamplesPerPixelHasAlphaIsPlanarColorSpaceNameBytesPerRowBitsPerPixel(
-		unsafe.Pointer(&pix[0]), w, h, 8, 4, true, false,
+		unsafe.Pointer(nil), w, h, 8, 4, true, false,
 		appkit.DeviceRGBColorSpace, w*4, 32,
 	)
+	if dst := rep.BitmapData(); dst != nil {
+		copy(unsafe.Slice(dst, w*h*4), pix)
+	}
 	img := appkit.NewImageWithSize(foundation.Size{Width: float64(w), Height: float64(h)})
 	img.AddRepresentation(rep)
 	return img
@@ -66,7 +70,6 @@ func (p *previewWidget) render() {
 
 	frame := render.ComposeFrame(sess, 1, 1, card, robotColor, []render.Session{sess}, time.Now())
 	pix, w, h := render.RenderRGBA(frame, previewScale)
-	p.pixBuf = pix // retain before the image references it
 	p.imageView.SetImage(rgbaToImage(pix, w, h))
 	caption := cardCaption(card)
 	if card == 2 && f.ActivityTrail {
