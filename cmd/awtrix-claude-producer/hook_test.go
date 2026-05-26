@@ -81,7 +81,11 @@ func TestHook_UserPromptSubmit_UpsertsRunning(t *testing.T) {
 	}
 }
 
-func TestHook_Stop_DeletesAndRemovesMarker(t *testing.T) {
+// Stop no longer deletes: the session stays present (sustained by the heartbeat
+// tick) until the Claude Code window closes (SessionEnd). Deleting on every Stop
+// dropped the display to the idle robot between turns and during text
+// generation, when no hook fires.
+func TestHook_Stop_KeepsMarkerForHeartbeat(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -94,11 +98,33 @@ func TestHook_Stop_DeletesAndRemovesMarker(t *testing.T) {
 	in := hookInput{HookEventName: "Stop", SessionID: "abc", CWD: "/repo"}
 	body, _ := json.Marshal(in)
 	dispatchHookForTest(t, "stop", body)
+	if h.deletes.Load() != 0 {
+		t.Errorf("stop should not delete; deletes = %d, want 0", h.deletes.Load())
+	}
+	if _, err := os.Stat(markerP); err != nil {
+		t.Errorf("marker should be preserved after stop (heartbeat keeps it present until SessionEnd): %v", err)
+	}
+}
+
+// SessionEnd is now the path that clears the session when the window closes.
+func TestHook_SessionEnd_DeletesMarker(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := hookInput{HookEventName: "SessionEnd", SessionID: "abc", CWD: "/repo", EndReason: "prompt_input_exit"}
+	body, _ := json.Marshal(in)
+	dispatchHookForTest(t, "session-end", body)
 	if h.deletes.Load() != 1 {
-		t.Errorf("deletes = %d, want 1", h.deletes.Load())
+		t.Errorf("session-end should delete; deletes = %d, want 1", h.deletes.Load())
 	}
 	if _, err := os.Stat(markerP); !os.IsNotExist(err) {
-		t.Errorf("marker should be removed after stop")
+		t.Errorf("marker should be removed after session-end")
 	}
 }
 
@@ -437,9 +463,9 @@ func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "abc.json"), []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in := hookInput{HookEventName: "Stop", SessionID: "abc", CWD: "/repo"}
+	in := hookInput{HookEventName: "SessionEnd", SessionID: "abc", CWD: "/repo", EndReason: "prompt_input_exit"}
 	body, _ := json.Marshal(in)
-	dispatchHookForTest(t, "stop", body)
+	dispatchHookForTest(t, "session-end", body)
 
 	if h.deletes.Load() != 1 {
 		t.Fatalf("deletes = %d, want 1", h.deletes.Load())

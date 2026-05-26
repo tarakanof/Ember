@@ -96,7 +96,12 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 		msg := pickFirstNonEmpty(in.Message, in.NotificationMessage)
 		handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
 	case "stop":
-		handleDelete(ctx, cfg, client, sessionID, markerP, lockP)
+		// Intentionally a no-op: keep the session present until the window
+		// closes (SessionEnd). Deleting on every Stop dropped the display to the
+		// idle robot between turns and during text generation, when no hook
+		// fires. The marker keeps its last state ("running") and the heartbeat
+		// tick re-posts it; SessionEnd clears it (or the marker TTL, for a window
+		// that closed without a clean SessionEnd).
 	case "stop-failure":
 		msg := pickFirstNonEmpty(in.ErrorType, in.Error, in.ErrorMessage, "error")
 		handleUpsert(ctx, cfg, client, sessionID, "error", msg, "", markerP, lockP)
