@@ -227,8 +227,7 @@ var glassWall = RGB{0xcc, 0xcc, 0xcc}
 // drawn in glassWall and the 16 interior pixels (cols 26–29 × rows 1–4) are
 // filled bottom-up in c, proportional to pct (≈6 % per pixel — far finer than
 // the old 4 row-levels, so e.g. 73 % and 99 % look different). The topmost
-// partial row fills center-out (cols 27,28 before 26,29) so the waterline
-// reads as a level rather than filling from one edge.
+// partial row fills left-to-right (cols 26→29).
 func drawGlass(f *Frame, pct *int, c RGB) {
 	if pct == nil {
 		return
@@ -250,8 +249,8 @@ func drawGlass(f *Frame, pct *int, c RGB) {
 	if n > glassInteriorPix {
 		n = glassInteriorPix
 	}
-	// Center-out column order within a row: 27, 28, 26, 29.
-	colOrder := [glassInteriorW]int{glassLeft + 2, glassLeft + 3, glassLeft + 1, glassRight - 1}
+	// Left-to-right column order within a row: 26, 27, 28, 29.
+	colOrder := [glassInteriorW]int{glassLeft + 1, glassLeft + 2, glassLeft + 3, glassRight - 1}
 	for row := 0; row < glassInteriorH && n > 0; row++ {
 		y := (glassBottomRow - 1) - row // 4, 3, 2, 1 (bottom-up)
 		k := n

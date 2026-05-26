@@ -214,7 +214,7 @@ func TestDrawGlass(t *testing.T) {
 		}
 	}
 
-	// Center-out partial row: 54% → 9px → rows 4,3 full + only center col 27 in row 2.
+	// Left-to-right partial row: 54% → 9px → rows 4,3 full + only leftmost col 26 in row 2.
 	f = &Frame{}
 	drawGlass(f, intPtr(54), fill)
 	for x := 26; x <= 29; x++ {
@@ -222,23 +222,23 @@ func TestDrawGlass(t *testing.T) {
 			t.Errorf("54%%: bottom two rows should be full (col %d)", x)
 		}
 	}
-	if !f.Dirty[2][27] {
-		t.Error("54%: center col 27 of the partial row should be lit")
+	if !f.Dirty[2][26] {
+		t.Error("54%: leftmost col 26 of the partial row should be lit")
 	}
-	for _, x := range []int{26, 28, 29} {
+	for _, x := range []int{27, 28, 29} {
 		if f.Dirty[2][x] {
-			t.Errorf("54%%: partial row fills center-out; col %d should still be dark", x)
+			t.Errorf("54%%: partial row fills left-to-right; col %d should still be dark", x)
 		}
 	}
 	if litInterior(f) != 9 {
 		t.Errorf("54%%: interior lit = %d, want 9", litInterior(f))
 	}
 
-	// 60% → 10px → partial row has the center PAIR (27,28); outer (26,29) dark.
+	// 60% → 10px → partial row has the left PAIR (26,27); right (28,29) dark.
 	f = &Frame{}
 	drawGlass(f, intPtr(60), fill)
-	if !f.Dirty[2][27] || !f.Dirty[2][28] || f.Dirty[2][26] || f.Dirty[2][29] {
-		t.Error("60%: partial row should be center pair 27,28 only")
+	if !f.Dirty[2][26] || !f.Dirty[2][27] || f.Dirty[2][28] || f.Dirty[2][29] {
+		t.Error("60%: partial row should be left pair 26,27 only")
 	}
 }
 
