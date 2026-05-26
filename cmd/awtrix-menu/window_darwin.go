@@ -205,8 +205,8 @@ func openSettingsWindow(envPath string) {
 		const (
 			checkW = 250.0
 			thumbX = 332.0
-			thumbW = 64.0
-			thumbH = 16.0
+			thumbW = 64.0 // 32 * thumbScale
+			thumbH = 16.0 // 8 * thumbScale
 		)
 		// newCheck builds a switch-style checkbox at (x, y).
 		newCheck := func(title string, on bool, x, y float64) appkit.Button {
@@ -226,11 +226,12 @@ func openSettingsWindow(envPath string) {
 			lbl.SetTextColor(appkit.Color_SecondaryLabelColor())
 			clockView.AddSubview(lbl)
 		}
-		// addThumb places a 2x element thumbnail to the right of a row at y.
-		addThumb := func(y float64, mut func(s *render.Session)) {
-			iv := appkit.NewImageViewWithFrame(foundation.Rect{Origin: foundation.Point{X: thumbX, Y: y + 3}, Size: foundation.Size{Width: thumbW, Height: thumbH}})
+		// addThumb places a full-display thumbnail at row y (vertically centered)
+		// showing only element r lit in its true position on the dark panel.
+		addThumb := func(y float64, r thumbRegion, mut func(s *render.Session)) {
+			iv := appkit.NewImageViewWithFrame(foundation.Rect{Origin: foundation.Point{X: thumbX, Y: y + 4}, Size: foundation.Size{Width: thumbW, Height: thumbH}})
 			iv.SetImageScaling(appkit.ImageScaleNone)
-			iv.SetImage(thumbImage(mut))
+			iv.SetImage(elementThumb(mut, r))
 			clockView.AddSubview(iv)
 		}
 
@@ -238,13 +239,13 @@ func openSettingsWindow(envPath string) {
 		newSubHeader("Number slot (rotates):", 234)
 
 		ctxNumCheck := newCheck("Context %", form.ContextNumber, 16, 210)
-		addThumb(210, func(s *render.Session) { s.ContextPct = ptr(47); s.ContextNumber = true })
+		addThumb(210, numberRegion, func(s *render.Session) { s.ContextPct = ptr(47); s.ContextNumber = true })
 
 		rateCheck := newCheck("5h rate-limit %", form.RatePct, 16, 186)
-		addThumb(186, func(s *render.Session) { s.RateWindowPct = ptr(47) })
+		addThumb(186, numberRegion, func(s *render.Session) { s.RateWindowPct = ptr(47) })
 
 		resetCheck := newCheck("Reset countdown", form.RateReset, 16, 162)
-		addThumb(162, func(s *render.Session) {
+		addThumb(162, numberRegion, func(s *render.Session) {
 			s.RateResetAt = time.Now().Add(3 * time.Hour).Unix()
 			s.RateReset = true
 		})
@@ -256,13 +257,13 @@ func openSettingsWindow(envPath string) {
 		newSubHeader("Right edge:", 86)
 
 		ctxCheck := newCheck("Context-window glass", form.ContextPct, 16, 62)
-		addThumb(62, func(s *render.Session) { s.ContextPct = ptr(47) })
+		addThumb(62, glassRegion, func(s *render.Session) { s.ContextPct = ptr(47) })
 
 		// -- Bottom row ----------------------------------------------------
 		newSubHeader("Bottom row:", 34)
 
 		rateBarCheck := newCheck("5h rate as bottom bar", form.RateBottomBar, 16, 10)
-		addThumb(10, func(s *render.Session) {
+		addThumb(10, barRegion, func(s *render.Session) {
 			s.RateWindowPct = ptr(47)
 			s.RateBottomBar = true
 		})
@@ -455,8 +456,29 @@ func colorToHex(c appkit.Color) string {
 	return fmt.Sprintf("#%02x%02x%02x", to8(srgb.RedComponent()), to8(srgb.GreenComponent()), to8(srgb.BlueComponent()))
 }
 
-// thumbImage renders a 2x-scaled preview of a single element for the option row.
-func thumbImage(mut func(s *render.Session)) appkit.Image {
+// thumbScale is the matrix-pixel -> screen-pixel block size for the per-element
+// option thumbnails. Each thumbnail is a full 32×8 display (64×16 px at 2x) so
+// the element's placement on the panel is visible.
+const thumbScale = 2
+
+// thumbRegion is a matrix sub-rectangle (cols [x0,x1) × rows [y0,y1)) isolating
+// one display element — see internal/render layout (numStart=12, glass cols
+// 25–30, bar row 7). The thumbnail keeps only this region lit.
+type thumbRegion struct{ x0, y0, x1, y1 int }
+
+var (
+	// numberRegion is the rotating number slot: 3 digits at cols 12–24, rows 1–5.
+	numberRegion = thumbRegion{12, 1, 25, 6}
+	// glassRegion is the context-window glass at cols 25–30, rows 1–5.
+	glassRegion = thumbRegion{25, 1, 31, 6}
+	// barRegion is the bottom bar at row 7, cols 11–31.
+	barRegion = thumbRegion{11, 7, 32, 8}
+)
+
+// elementThumb composes a sample frame via mut, masks it to element region r
+// (dropping the robot and every other element), and renders the full 32×8
+// display — a dark panel showing just that element in its true position.
+func elementThumb(mut func(s *render.Session), r thumbRegion) appkit.Image {
 	base := sampleBaseSession()
 	// Strip everything optional so only what `mut` enables shows.
 	base.ContextPct = nil
@@ -471,6 +493,7 @@ func thumbImage(mut func(s *render.Session)) appkit.Image {
 	card := cards[len(cards)-1] // the element we just enabled (XY is cards[0])
 	robot := render.RGB{R: 0xaa, G: 0x66, B: 0xff}
 	frame := render.ComposeFrame(base, 1, 1, card, robot, []render.Session{base}, time.Now())
-	pix, w, h := render.RenderRGBA(frame, 2)
+	masked := render.MaskFrameToRegion(frame, r.x0, r.y0, r.x1, r.y1)
+	pix, w, h := render.RenderRGBA(masked, thumbScale)
 	return rgbaToImage(pix, w, h)
 }

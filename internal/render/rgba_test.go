@@ -45,3 +45,34 @@ func TestRenderRGBAClampsScaleBelowOne(t *testing.T) {
 		t.Fatalf("len(pix) = %d, want %d", len(pix), 32*8*4)
 	}
 }
+
+func TestMaskFrameToRegionKeepsOnlyRegion(t *testing.T) {
+	var f Frame
+	paintCell(&f, 26, 2, RGB{0x00, 0xff, 0x00}) // inside cols [25,31)×rows [1,6)
+	paintCell(&f, 5, 0, RGB{0xff, 0x00, 0x00})  // robot area, must be cleared
+
+	m := MaskFrameToRegion(f, 25, 1, 31, 6)
+
+	// The in-region pixel keeps its colour and stays at its true position.
+	if !m.Dirty[2][26] || m.Pixels[2][26] != (RGB{0x00, 0xff, 0x00}) {
+		t.Errorf("in-region cell (26,2) = dirty:%v %v, want lit green", m.Dirty[2][26], m.Pixels[2][26])
+	}
+	// The robot pixel outside the region is cleared.
+	if m.Dirty[0][5] {
+		t.Errorf("out-of-region cell (5,0) should be cleared, but is lit")
+	}
+	// Full 32×8 extent is preserved (renders as a dark field at full size).
+	if pix, w, h := RenderRGBA(m, 2); w != 64 || h != 16 || len(pix) != 64*16*4 {
+		t.Errorf("masked frame renders %dx%d (len %d), want 64x16 full display", w, h, len(pix))
+	}
+}
+
+func TestMaskFrameToRegionClampsBounds(t *testing.T) {
+	var f Frame
+	paintCell(&f, 31, 7, RGB{0x00, 0x00, 0xff})
+	// Over-wide bounds must clamp, not panic, and keep the corner pixel.
+	m := MaskFrameToRegion(f, -4, -4, 99, 99)
+	if !m.Dirty[7][31] {
+		t.Error("clamped full-frame mask should keep corner pixel (31,7)")
+	}
+}

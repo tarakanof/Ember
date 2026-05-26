@@ -37,3 +37,32 @@ func RenderRGBA(f Frame, scale int) (pix []byte, w, h int) {
 	}
 	return pix, w, h
 }
+
+// MaskFrameToRegion returns a copy of f keeping only the cols [x0,x1) × rows
+// [y0,y1) sub-rectangle; every cell outside it is cleared to unlit. Rendered
+// full-size, the result is a dark 32×8 display showing one element in its true
+// position. Bounds are clamped to the 32×8 matrix.
+func MaskFrameToRegion(f Frame, x0, y0, x1, y1 int) Frame {
+	if x0 < 0 {
+		x0 = 0
+	}
+	if y0 < 0 {
+		y0 = 0
+	}
+	if x1 > 32 {
+		x1 = 32
+	}
+	if y1 > 8 {
+		y1 = 8
+	}
+	var out Frame
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if f.Dirty[y][x] {
+				out.Dirty[y][x] = true
+				out.Pixels[y][x] = f.Pixels[y][x]
+			}
+		}
+	}
+	return out
+}
