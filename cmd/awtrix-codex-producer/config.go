@@ -12,9 +12,14 @@ import (
 )
 
 const (
-	defaultPollIntervalMs        = 2000
-	minPollIntervalMs            = 250
-	defaultActivityWindowSeconds = 90
+	defaultPollIntervalMs = 2000
+	minPollIntervalMs     = 250
+	// A codex session has no "window closed" signal (the daemon only tails
+	// rollout files), so it idles after this much rollout inactivity. 300s keeps
+	// it shown through long thinking/between-turn gaps — parity with the Claude
+	// producer staying present for the session — while clearing a finished
+	// session within ~5 min. Override with STATUS_CODEX_ACTIVITY_WINDOW_SECONDS.
+	defaultActivityWindowSeconds = 300
 )
 
 type Config struct {

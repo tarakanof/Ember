@@ -29,8 +29,8 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.PollIntervalMs != 2000 {
 		t.Errorf("PollIntervalMs = %d, want 2000", cfg.PollIntervalMs)
 	}
-	if cfg.ActivityWindowSeconds != 90 {
-		t.Errorf("ActivityWindowSeconds = %d, want 90", cfg.ActivityWindowSeconds)
+	if cfg.ActivityWindowSeconds != 300 {
+		t.Errorf("ActivityWindowSeconds = %d, want 300", cfg.ActivityWindowSeconds)
 	}
 	if !cfg.ContextPctEnabled {
 		t.Error("ContextPctEnabled should default true")
