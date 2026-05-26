@@ -99,7 +99,7 @@ func defaultConfig() Config {
 		},
 		Display: DisplayConfig{
 			IdleText:             "AI idle",
-			StaleSeconds:         25,
+			StaleSeconds:         300,
 			DoneTTLSeconds:       30,
 			HeartbeatSeconds:     10,
 			RefreshSeconds:       5,
@@ -153,7 +153,10 @@ func (c *Config) applyDefaults() {
 		c.Display.IdleText = "AI idle"
 	}
 	if c.Display.StaleSeconds <= 0 {
-		c.Display.StaleSeconds = 25
+		// 300s tolerates a lapse in the producer heartbeat (and bridges quiet
+		// stretches within a session) so an active session isn't reaped to the
+		// idle robot mid-work. Matches the codex producer's activity window.
+		c.Display.StaleSeconds = 300
 	}
 	if c.Display.DoneTTLSeconds <= 0 {
 		c.Display.DoneTTLSeconds = 30

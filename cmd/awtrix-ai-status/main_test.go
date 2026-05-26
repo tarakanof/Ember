@@ -235,8 +235,8 @@ func TestPostStatusAcceptsValidRequest(t *testing.T) {
 
 func TestDefaultConfigTimingValues(t *testing.T) {
 	cfg := defaultConfig()
-	if cfg.Display.StaleSeconds != 25 {
-		t.Errorf("StaleSeconds = %d, want 25", cfg.Display.StaleSeconds)
+	if cfg.Display.StaleSeconds != 300 {
+		t.Errorf("StaleSeconds = %d, want 300", cfg.Display.StaleSeconds)
 	}
 	if cfg.Display.DoneTTLSeconds != 30 {
 		t.Errorf("DoneTTLSeconds = %d, want 30", cfg.Display.DoneTTLSeconds)
