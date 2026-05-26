@@ -15,7 +15,8 @@ import (
 )
 
 // previewScale is the matrix-pixel -> screen-pixel block size for the preview.
-const previewScale = 7
+// 12 makes the 32-wide matrix render at 384px, filling the preview box width.
+const previewScale = 12
 
 // previewWidget owns the preview image view, its rotation state, and the inputs
 // the rotation goroutine needs to re-render. formProvider returns the current

@@ -44,7 +44,7 @@ func openSettingsWindow(envPath string) {
 
 		const (
 			winW = 460.0
-			winH = 700.0
+			winH = 744.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
 			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
@@ -59,21 +59,25 @@ func openSettingsWindow(envPath string) {
 		// A dark backing box holding the pre-scaled 32x8 matrix preview, a
 		// caption for the current number-slot card, and a live/sample badge.
 		const (
-			previewW = 32 * previewScale // 224
-			previewH = 8 * previewScale  // 56
+			previewW    = 32 * previewScale // 384
+			previewH    = 8 * previewScale  // 96
+			previewBoxW = winW - 32         // 428
+			// previewView (the box content view) is inset ~6px each side.
+			previewContentW = previewBoxW - 12
+			backingX        = (previewContentW - previewW) / 2 // center the matrix
 		)
 		previewBox := appkit.NewBox()
 		previewBox.SetTitle("Preview")
 		previewBox.SetFrame(foundation.Rect{
 			Origin: foundation.Point{X: 16, Y: 572},
-			Size:   foundation.Size{Width: winW - 32, Height: 110},
+			Size:   foundation.Size{Width: previewBoxW, Height: 154},
 		})
 		previewView := appkit.NewView()
 		previewBox.SetContentView(previewView)
 
 		// Dark backing so the matrix pixels read against the panel.
 		previewBacking := appkit.NewView()
-		previewBacking.SetFrame(foundation.Rect{Origin: foundation.Point{X: 12, Y: 24}, Size: foundation.Size{Width: previewW, Height: previewH}})
+		previewBacking.SetFrame(foundation.Rect{Origin: foundation.Point{X: backingX, Y: 28}, Size: foundation.Size{Width: previewW, Height: previewH}})
 		previewBacking.SetWantsLayer(true)
 		if layer := previewBacking.Layer(); !layer.IsNil() {
 			layer.SetBackgroundColor(appkit.Color_BlackColor().CGColor())
@@ -84,14 +88,16 @@ func openSettingsWindow(envPath string) {
 		imageView.SetImageScaling(appkit.ImageScaleNone)
 		previewBacking.AddSubview(imageView)
 
+		// Caption (left) and live/sample badge (right) share the row below the
+		// matrix, since the full-width matrix leaves no room for a top-right badge.
 		previewCaption := appkit.TextField_LabelWithString("")
-		previewCaption.SetFrame(foundation.Rect{Origin: foundation.Point{X: 12, Y: 4}, Size: foundation.Size{Width: previewW + 60, Height: 16}})
+		previewCaption.SetFrame(foundation.Rect{Origin: foundation.Point{X: backingX, Y: 8}, Size: foundation.Size{Width: 300, Height: 16}})
 		previewCaption.SetFont(appkit.Font_SystemFontOfSize(10))
 		previewCaption.SetTextColor(appkit.Color_SecondaryLabelColor())
 		previewView.AddSubview(previewCaption)
 
 		previewBadge := appkit.TextField_LabelWithString("")
-		previewBadge.SetFrame(foundation.Rect{Origin: foundation.Point{X: winW - 32 - 80, Y: 60}, Size: foundation.Size{Width: 64, Height: 16}})
+		previewBadge.SetFrame(foundation.Rect{Origin: foundation.Point{X: backingX + previewW - 88, Y: 8}, Size: foundation.Size{Width: 88, Height: 16}})
 		previewBadge.SetFont(appkit.Font_SystemFontOfSize(10))
 		previewBadge.SetAlignment(appkit.TextAlignmentRight)
 		previewView.AddSubview(previewBadge)
