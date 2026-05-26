@@ -15,6 +15,29 @@ const (
 	sampleActivity = "Bash: npm test"
 )
 
+// Card indices mirror internal/render's unexported card iota (cardXY=0,
+// cardRate=1, cardTool=2, cardCtx=3, cardReset=4). The menu uses them to focus
+// the preview rotation on the card a just-toggled checkbox controls.
+const (
+	cardXY = iota
+	cardRate
+	cardTool
+	cardCtx
+	cardReset
+)
+
+// cursorForCard returns the rotation index in cards that shows card, or 0 (the
+// always-present X/Y card) when card isn't currently available — e.g. the
+// element was just disabled, so its card is gone from the rotation.
+func cursorForCard(cards []int, card int) int {
+	for i, c := range cards {
+		if c == card {
+			return i
+		}
+	}
+	return 0
+}
+
 // previewSession applies the current form to a base session (from /state or a
 // sample) and returns the Session the renderer should draw. The form decides
 // which elements appear; live values are preferred, with sample fallbacks so an

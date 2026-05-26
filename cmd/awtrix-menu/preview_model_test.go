@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 
 	"github.com/dt/awtrix-ai-status/internal/render"
 )
@@ -80,5 +81,62 @@ func TestPreviewSessionPrefersLiveValues(t *testing.T) {
 	}
 	if s.RateWindowPct == nil || *s.RateWindowPct != 55 {
 		t.Errorf("RateWindowPct = %v, want live 55", s.RateWindowPct)
+	}
+}
+
+func TestCursorForCard(t *testing.T) {
+	cards := []int{cardXY, cardRate, cardCtx} // indices 0, 1, 2
+	if got := cursorForCard(cards, cardRate); got != 1 {
+		t.Errorf("cursorForCard(cardRate) = %d, want 1", got)
+	}
+	if got := cursorForCard(cards, cardCtx); got != 2 {
+		t.Errorf("cursorForCard(cardCtx) = %d, want 2", got)
+	}
+	// A card that isn't available falls back to the X/Y card at index 0.
+	if got := cursorForCard(cards, cardReset); got != 0 {
+		t.Errorf("cursorForCard(absent) = %d, want 0", got)
+	}
+}
+
+// TestFocusedNumberSlotCardDiffersFromXY is the regression guard for the bug
+// where toggling a number-slot element re-rendered the X/Y card (which never
+// shows that element), so the toggle looked like a no-op. focusCard seeks the
+// element's own card; here we assert each value card renders a visibly
+// different frame from the X/Y card, so the toggle is observable.
+//
+// The tool card is the exception: its content is scrolling text drawn via the
+// device's detail payload, not a static bitmap, so ComposeFrame renders it like
+// the X/Y card. Its preview feedback is the caption, so we only assert that
+// focusing it actually lands on the tool card (which swaps the caption).
+func TestFocusedNumberSlotCardDiffersFromXY(t *testing.T) {
+	base := sampleBaseSession()
+	allOn := settingsForm{
+		ContextPct: true, RatePct: true, RateReset: true,
+		ActivityDetail: true, ActivityTrail: true, ContextNumber: true,
+		RateBottomBar: true, SourceColor: "#aa66ff",
+	}
+	robot := render.RGB{R: 0xaa, G: 0x66, B: 0xff}
+	s := previewSession(allOn, base)
+	cards := render.AvailableCards(s)
+	frameAt := func(card int) render.Frame {
+		shown := cards[cursorForCard(cards, card)]
+		return render.ComposeFrame(s, 1, 1, shown, robot, []render.Session{s}, time.Unix(0, 0))
+	}
+	xy := frameAt(cardXY)
+	for _, tc := range []struct {
+		name string
+		card int
+	}{
+		{"Context %", cardCtx},
+		{"5h rate-limit %", cardRate},
+		{"Reset countdown", cardReset},
+	} {
+		if frameAt(tc.card) == xy {
+			t.Errorf("%s card renders identically to the X/Y card; toggling it would be invisible in the preview", tc.name)
+		}
+	}
+	// Tool card: assert the rotation lands on it (drives the caption change).
+	if got := cards[cursorForCard(cards, cardTool)]; got != cardTool {
+		t.Errorf("focusing the tool card selected %d, want cardTool=%d; the caption would not update", got, cardTool)
 	}
 }

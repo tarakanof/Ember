@@ -289,11 +289,20 @@ func openSettingsWindow(envPath string) {
 		}
 		pw.formProvider = readCurrentForm
 
-		// Re-render the preview whenever any element toggles.
-		for _, c := range []appkit.Button{ctxCheck, rateCheck, resetCheck, activityCheck, trailCheck, ctxNumCheck, rateBarCheck} {
-			c := c
-			action.Set(c, func(sender objc.Object) { pw.onFormChanged() })
+		// Re-render the preview whenever any element toggles. Number-slot and
+		// tool checkboxes focus the rotation on the card they control so the
+		// change shows immediately; glass and bottom bar appear on every card,
+		// so they just re-render in place.
+		focus := func(card int) func(objc.Object) {
+			return func(sender objc.Object) { pw.focusCard(card) }
 		}
+		action.Set(ctxNumCheck, focus(cardCtx))
+		action.Set(rateCheck, focus(cardRate))
+		action.Set(resetCheck, focus(cardReset))
+		action.Set(activityCheck, focus(cardTool))
+		action.Set(trailCheck, focus(cardTool))
+		action.Set(ctxCheck, func(sender objc.Object) { pw.onFormChanged() })
+		action.Set(rateBarCheck, func(sender objc.Object) { pw.onFormChanged() })
 
 		// --- Footer: Cancel / Save ----------------------------------------
 		// A general error line (e.g. write failure) above the buttons.

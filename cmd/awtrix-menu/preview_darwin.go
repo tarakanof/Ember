@@ -103,10 +103,21 @@ func cardCaption(card int) string {
 	}
 }
 
-// onFormChanged resets the rotation to the first card and re-renders, so a
-// just-toggled element is immediately visible.
+// onFormChanged resets the rotation to the X/Y card and re-renders. Used for
+// persistent elements (glass, bottom bar) and the source colour, which all show
+// on the X/Y card, so the change is visible without seeking a specific card.
 func (p *previewWidget) onFormChanged() {
 	p.cursor = 0
+	p.render()
+}
+
+// focusCard re-renders with the rotation pointed at card, so toggling a
+// number-slot element shows that element immediately rather than the generic
+// X/Y card (which the rotation would otherwise land on). Falls back to the X/Y
+// card when card isn't currently available (element just disabled).
+func (p *previewWidget) focusCard(card int) {
+	sess := previewSession(p.formProvider(), p.base)
+	p.cursor = cursorForCard(render.AvailableCards(sess), card)
 	p.render()
 }
 
