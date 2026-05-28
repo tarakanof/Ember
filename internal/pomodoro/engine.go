@@ -30,12 +30,12 @@ type Settings struct {
 
 // Status is a point-in-time snapshot of the engine, computed for a given now.
 type Status struct {
-	Phase        Phase
-	Running      bool
-	Paused       bool
-	RemainingSec int
-	PlannedSec   int
-	Round        int // completed focus phases in the current cycle
+	Phase        Phase `json:"phase"`
+	Running      bool  `json:"running"`
+	Paused       bool  `json:"paused"`
+	RemainingSec int   `json:"remaining_sec"`
+	PlannedSec   int   `json:"planned_sec"`
+	Round        int   `json:"round"` // completed focus phases in the current cycle
 }
 
 // PhaseResult is emitted whenever a phase ends (completed, skipped, stopped).

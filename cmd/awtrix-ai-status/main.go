@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/dt/awtrix-ai-status/internal/pomodoro"
 )
 
 type AuthConfig struct {
@@ -401,6 +403,12 @@ type App struct {
 
 	metrics *metrics // populated by NewApp; never nil at runtime
 	coord   *coordinator
+
+	// engine + store are non-nil only when the Pomodoro feature is enabled
+	// (wired via EnablePomodoro). The engine is safe for concurrent use; the
+	// store is single-writer (driven from the coordinator/HTTP path).
+	engine *pomodoro.Engine
+	store  *pomodoro.Store
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -689,6 +697,17 @@ func (a *App) StartCoordinator(ctx context.Context) {
 
 	ticker := time.NewTicker(dwell)
 	defer ticker.Stop()
+
+	// While the Pomodoro feature is enabled, a 1 s ticker advances the engine
+	// and refreshes the countdown. pomoTick is a cheap no-op when the engine
+	// is idle, so the ticker runs unconditionally when the feature is wired.
+	var pomoC <-chan time.Time
+	if a.engine != nil {
+		pt := time.NewTicker(time.Second)
+		defer pt.Stop()
+		pomoC = pt.C
+	}
+
 	// Emit an initial tick so the first frame appears right after startup.
 	a.coord.Send(coordCmd{kind: cmdTick})
 	for {
@@ -697,6 +716,8 @@ func (a *App) StartCoordinator(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.coord.Send(coordCmd{kind: cmdTick})
+		case <-pomoC:
+			a.pomoTick()
 		}
 	}
 }
@@ -719,11 +740,25 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /version", handleVersion(a.versionInfo))
 	mux.Handle("GET /metrics", handleMetrics(a))
 
+	// Pomodoro reads are open like /state. The button hook is unauthenticated
+	// because the AWTRIX device's button_callback cannot send a bearer token;
+	// it only maps presses to timer actions, so LAN blast radius is minimal.
+	mux.HandleFunc("GET /v1/pomodoro/state", a.handlePomodoroState)
+	mux.HandleFunc("GET /v1/pomodoro/stats", a.handlePomodoroStats)
+	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
+
 	writeMux := http.NewServeMux()
 	writeMux.Handle("POST /v1/status", rateLimit(a, http.HandlerFunc(a.handleStatus)))
 	writeMux.Handle("DELETE /v1/status", rateLimit(a, http.HandlerFunc(a.handleDeleteStatus)))
 	writeMux.Handle("POST /v1/clear", rateLimit(a, http.HandlerFunc(a.handleClear)))
 	writeMux.Handle("POST /v1/notify", rateLimit(a, http.HandlerFunc(a.handleNotify)))
+	writeMux.Handle("POST /v1/pomodoro/start", rateLimit(a, http.HandlerFunc(a.handlePomodoroStart)))
+	writeMux.Handle("POST /v1/pomodoro/pause", rateLimit(a, http.HandlerFunc(a.handlePomodoroPause)))
+	writeMux.Handle("POST /v1/pomodoro/resume", rateLimit(a, http.HandlerFunc(a.handlePomodoroResume)))
+	writeMux.Handle("POST /v1/pomodoro/stop", rateLimit(a, http.HandlerFunc(a.handlePomodoroStop)))
+	writeMux.Handle("POST /v1/pomodoro/skip", rateLimit(a, http.HandlerFunc(a.handlePomodoroSkip)))
+	writeMux.Handle("GET /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigGet)))
+	writeMux.Handle("PUT /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigPut)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()
@@ -1131,6 +1166,15 @@ func main() {
 	app := NewApp(cfg, publisher, logger)
 	app.configPath = configPath
 	app.configSource = configSource
+
+	if cfg.Pomodoro.Enabled {
+		if err := app.initPomodoro(cfg.Pomodoro); err != nil {
+			logger.Error("pomodoro init failed", "err", err, "db_path", cfg.Pomodoro.DBPath)
+			os.Exit(1)
+		}
+		logger.Info("pomodoro enabled", "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

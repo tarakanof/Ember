@@ -75,9 +75,9 @@ func (s *Store) RecordPhase(r PhaseResult, started, ended time.Time) error {
 
 // DayStat is a per-day rollup of completed focus phases.
 type DayStat struct {
-	Date           string // YYYY-MM-DD in the query's timezone
-	CompletedFocus int
-	FocusMin       int
+	Date           string `json:"date"` // YYYY-MM-DD in the query's timezone
+	CompletedFocus int    `json:"completed_focus"`
+	FocusMin       int    `json:"focus_min"`
 }
 
 // dayBounds returns [start, end) unix seconds for the calendar day containing t.

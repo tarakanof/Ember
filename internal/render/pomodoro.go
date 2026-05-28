@@ -69,6 +69,10 @@ var breakMoon = []string{
 	"..XXX..",
 }
 
+// HexRGB parses a "#RRGGBB" colour string into an RGB. ok is false on malformed
+// input. Exported for callers (the service) that hold colours as config strings.
+func HexRGB(s string) (RGB, bool) { return parseHex(s) }
+
 func isZeroRGB(c RGB) bool { return c == RGB{} }
 
 func dimRGB(c RGB) RGB { return RGB{c.R / 2, c.G / 2, c.B / 2} }
