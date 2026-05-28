@@ -92,6 +92,9 @@ func onSystrayExit() {
 	os.Exit(0)
 }
 
+// refreshTrayIcon re-runs a menu update so a changed glyph pref takes effect now.
+func refreshTrayIcon(envPath string) { go updateMenu(envPath) }
+
 func updateMenu(envPath string) {
 	menuMu.Lock()
 	defer menuMu.Unlock()

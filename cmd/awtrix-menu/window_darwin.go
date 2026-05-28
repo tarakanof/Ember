@@ -314,6 +314,8 @@ func openSettingsWindow(envPath string) {
 		// --- Group 3: Launch at login --------------------------------------
 		home, _ := os.UserHomeDir()
 		uid := os.Getuid()
+		iconPrefs := loadMenuPrefs(menuPrefsPath(home))
+		clearIconCacheAndRefresh := func(envPath string) { refreshTrayIcon(envPath) }
 		selfDir := ""
 		if exe, err := os.Executable(); err == nil {
 			selfDir = filepath.Dir(exe)
@@ -448,6 +450,91 @@ func openSettingsWindow(envPath string) {
 		}
 		appTabView.AddSubview(launchBox)
 
+		// --- App icon picker -----------------------------------------------
+		// Laid out top-down below launchBox (which sits at Y = tabH-8-150, so
+		// its bottom edge is tabH-158). 8px gaps, no overlap.
+		const (
+			launchBottom = tabH - 158
+			appIconHdrY  = launchBottom - 8 - 16 // header row
+			swatchY      = appIconHdrY - 8 - 56  // 56px swatch row
+			trayHdrY     = swatchY - 8 - 16      // tray header row
+			yClaude      = trayHdrY - 8 - 26     // glyph dropdown rows (26px)
+			yCodex       = yClaude - 8 - 26
+			yIdle        = yCodex - 8 - 26
+		)
+
+		appIconHdr := appkit.TextField_LabelWithString("App icon (dock icon while this window is open)")
+		appIconHdr.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: appIconHdrY}, Size: foundation.Size{Width: 360, Height: 16}})
+		appIconHdr.SetFont(appkit.Font_BoldSystemFontOfSize(11))
+		appTabView.AddSubview(appIconHdr)
+
+		var iconButtons []appkit.Button
+		for i, pal := range appIconPalettes {
+			pal := pal
+			b := appkit.NewButton()
+			b.SetButtonType(appkit.ButtonTypeOnOff)
+			b.SetBordered(true)
+			b.SetTitle("")
+			if data, err := appIconPNG(pal); err == nil {
+				img := appkit.NewImageWithData(data)
+				b.SetImage(img)
+				b.SetImageScaling(appkit.ImageScaleProportionallyDown)
+			}
+			b.SetFrame(foundation.Rect{Origin: foundation.Point{X: float64(8 + i*64), Y: swatchY}, Size: foundation.Size{Width: 56, Height: 56}})
+			b.SetState(boolState(pal == iconPrefs.AppIcon))
+			appTabView.AddSubview(b)
+			iconButtons = append(iconButtons, b)
+		}
+		for i := range iconButtons {
+			i := i
+			action.Set(iconButtons[i], func(sender objc.Object) {
+				pal := appIconPalettes[i]
+				for j, b := range iconButtons {
+					b.SetState(boolState(j == i)) // radio behavior
+				}
+				iconPrefs.AppIcon = pal
+				_ = saveMenuPrefs(menuPrefsPath(home), iconPrefs)
+				applyAppIcon(pal)
+			})
+		}
+
+		// --- Tray glyph pickers --------------------------------------------
+		trayHdr := appkit.TextField_LabelWithString("Menu-bar icon (tinted by state)")
+		trayHdr.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: trayHdrY}, Size: foundation.Size{Width: 360, Height: 16}})
+		trayHdr.SetFont(appkit.Font_BoldSystemFontOfSize(11))
+		appTabView.AddSubview(trayHdr)
+
+		mkGlyphPopup := func(labelText, current string, y float64, apply func(string)) {
+			lbl := appkit.TextField_LabelWithString(labelText)
+			lbl.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: y + 2}, Size: foundation.Size{Width: 90, Height: 18}})
+			appTabView.AddSubview(lbl)
+			pop := appkit.NewPopUpButton()
+			pop.SetFrame(foundation.Rect{Origin: foundation.Point{X: 104, Y: y}, Size: foundation.Size{Width: 160, Height: 26}})
+			for _, g := range trayGlyphs {
+				pop.AddItemWithTitle(g)
+			}
+			pop.SelectItemWithTitle(current)
+			action.Set(pop, func(sender objc.Object) {
+				apply(pop.TitleOfSelectedItem())
+			})
+			appTabView.AddSubview(pop)
+		}
+		mkGlyphPopup("Claude:", iconPrefs.TrayClaudeGlyph, yClaude, func(g string) {
+			iconPrefs.TrayClaudeGlyph = g
+			_ = saveMenuPrefs(menuPrefsPath(home), iconPrefs)
+			clearIconCacheAndRefresh(envPath)
+		})
+		mkGlyphPopup("Codex:", iconPrefs.TrayCodexGlyph, yCodex, func(g string) {
+			iconPrefs.TrayCodexGlyph = g
+			_ = saveMenuPrefs(menuPrefsPath(home), iconPrefs)
+			clearIconCacheAndRefresh(envPath)
+		})
+		mkGlyphPopup("Idle:", iconPrefs.TrayIdleGlyph, yIdle, func(g string) {
+			iconPrefs.TrayIdleGlyph = g
+			_ = saveMenuPrefs(menuPrefsPath(home), iconPrefs)
+			clearIconCacheAndRefresh(envPath)
+		})
+
 		// --- Preview wiring ------------------------------------------------
 		// readCurrentForm mirrors the Save handler's control reads (minus the
 		// write-only token, which the preview does not use) so the preview
@@ -571,6 +658,9 @@ func openSettingsWindow(envPath string) {
 		pw.base, pw.live = fetchBaseSession(urlField.StringValue(), 2*time.Second)
 		pw.render()
 		pw.startRotation()
+
+		// Apply the chosen dock icon now the app is .regular (window visible).
+		applyAppIcon(iconPrefs.AppIcon)
 
 		// Arm the single-instance guard before showing.
 		settingsWindow = w
