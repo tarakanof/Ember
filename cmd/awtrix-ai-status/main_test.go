@@ -20,6 +20,8 @@ type recordingPublisher struct {
 	customApps []map[string]any
 	notify     []map[string]any
 	indicator  []map[string]any
+	settings   []map[string]any
+	switches   []string
 }
 
 func (p *recordingPublisher) CustomApp(_ context.Context, _ string, payload map[string]any) error {
@@ -41,6 +43,38 @@ func (p *recordingPublisher) Indicator(_ context.Context, _ int, payload map[str
 	defer p.mu.Unlock()
 	p.indicator = append(p.indicator, payload)
 	return nil
+}
+
+func (p *recordingPublisher) Settings(_ context.Context, payload map[string]any) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.settings = append(p.settings, payload)
+	return nil
+}
+
+func (p *recordingPublisher) Switch(_ context.Context, name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.switches = append(p.switches, name)
+	return nil
+}
+
+// SettingsSnapshot returns a copy of recorded settings calls under the lock.
+func (p *recordingPublisher) SettingsSnapshot() []map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]map[string]any, len(p.settings))
+	copy(out, p.settings)
+	return out
+}
+
+// SwitchesSnapshot returns a copy of recorded switch target names under the lock.
+func (p *recordingPublisher) SwitchesSnapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.switches))
+	copy(out, p.switches)
+	return out
 }
 
 // CustomAppsSnapshot returns a copy of customApps under the lock, safe for
@@ -576,6 +610,8 @@ type noopPublisher struct{}
 func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
 func (noopPublisher) Notify(context.Context, map[string]any) error            { return nil }
 func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
+func (noopPublisher) Settings(context.Context, map[string]any) error          { return nil }
+func (noopPublisher) Switch(context.Context, string) error                    { return nil }
 
 func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {
 	hits1, hits2 := 0, 0

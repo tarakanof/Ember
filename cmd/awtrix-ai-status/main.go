@@ -986,6 +986,12 @@ type Publisher interface {
 	CustomApp(ctx context.Context, name string, payload map[string]any) error
 	Notify(ctx context.Context, payload map[string]any) error
 	Indicator(ctx context.Context, index int, payload map[string]any) error
+	// Settings writes device settings (POST /api/settings), e.g. toggling app
+	// rotation (ATRANS) and native button navigation (BLOCKN) for Pomodoro
+	// takeover.
+	Settings(ctx context.Context, payload map[string]any) error
+	// Switch forces the device to the named app (POST /api/switch).
+	Switch(ctx context.Context, name string) error
 }
 
 type HTTPPublisher struct {
@@ -1035,6 +1041,22 @@ func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[st
 		return err
 	}
 	return p.postJSON(ctx, client, base+"/api/indicator"+strconv.Itoa(index), payload)
+}
+
+func (p *HTTPPublisher) Settings(ctx context.Context, payload map[string]any) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/settings", payload)
+}
+
+func (p *HTTPPublisher) Switch(ctx context.Context, name string) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/switch", map[string]any{"name": name})
 }
 
 func (p *HTTPPublisher) postJSON(ctx context.Context, client *http.Client, endpoint string, payload map[string]any) error {
