@@ -27,5 +27,19 @@
     "ack_timeout_seconds": 30,
     "frame_lifetime_seconds": 30,
     "idle_restore_seconds": 1200
+  },
+  "pomodoro": {
+    "enabled": false,
+    "focus_minutes": 25,
+    "short_break_minutes": 5,
+    "long_break_minutes": 15,
+    "rounds_before_long_break": 4,
+    "auto_start_next": false,
+    "sound": true,
+    "sound_melody": "",
+    "focus_color": "#FF3B30",
+    "break_color": "#2EE85E",
+    "db_path": "/var/lib/awtrix-ai-status/pomodoro.db",
+    "button_callback": true
   }
 }
