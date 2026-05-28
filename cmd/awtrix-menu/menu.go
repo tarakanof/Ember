@@ -33,7 +33,9 @@ var (
 )
 
 func onSystrayReady() {
-	systray.SetIcon(iconFor("idle", ""))
+	home0, _ := os.UserHomeDir()
+	prefs0 := loadMenuPrefs(menuPrefsPath(home0))
+	systray.SetIcon(iconFor("idle", "", prefs0))
 	systray.SetTooltip("AWTRIX: idle")
 
 	statusItem = systray.AddMenuItem("Loading…", "")
@@ -101,6 +103,7 @@ func updateMenu(envPath string) {
 	}
 	ttl := ttlFromEnv(rec)
 	view := readView(stateDir, ttl)
+	prefs := loadMenuPrefs(menuPrefsPath(home))
 
 	// Status text
 	statusText := "AWTRIX: idle"
@@ -126,9 +129,9 @@ func updateMenu(envPath string) {
 	systray.SetTooltip(tip)
 
 	// Icon
-	icon := iconFor(view.DominantState, view.DominantTool)
+	icon := iconFor(view.DominantState, view.DominantTool, prefs)
 	if view.DominantState == "" {
-		icon = iconFor("idle", "")
+		icon = iconFor("idle", "", prefs)
 	}
 	systray.SetIcon(icon)
 

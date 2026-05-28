@@ -11,7 +11,7 @@ import (
 func TestIconFor_AllStatesDecodable(t *testing.T) {
 	for _, tool := range []string{"claude", "codex"} {
 		for _, s := range []string{"idle", "running", "waiting", "error", "done"} {
-			data := iconFor(s, tool)
+			data := iconFor(s, tool, defaultMenuPrefs())
 			if len(data) == 0 {
 				t.Errorf("%s/%s: empty bytes", tool, s)
 				continue
@@ -24,25 +24,26 @@ func TestIconFor_AllStatesDecodable(t *testing.T) {
 }
 
 func TestIconFor_UnknownReturnsIdle(t *testing.T) {
-	if !bytes.Equal(iconFor("bogus", "claude"), iconFor("idle", "claude")) {
+	if !bytes.Equal(iconFor("bogus", "claude", defaultMenuPrefs()), iconFor("idle", "claude", defaultMenuPrefs())) {
 		t.Error("unknown state should fall back to idle")
 	}
 }
 
-func TestIconFor_EmptyToolFallsBackToClaude(t *testing.T) {
-	if !bytes.Equal(iconFor("running", ""), iconFor("running", "claude")) {
-		t.Error("empty tool should render as claude")
+func TestIconFor_EmptyToolUsesIdleGlyph(t *testing.T) {
+	p := defaultMenuPrefs() // claude=aicode, idle=awtrix (distinct glyphs)
+	if bytes.Equal(iconFor("running", "", p), iconFor("running", "claude", p)) {
+		t.Error("empty tool should use the idle glyph, distinct from the claude glyph")
 	}
 }
 
 func TestIconFor_CodexDiffersFromClaude(t *testing.T) {
-	if bytes.Equal(iconFor("running", "codex"), iconFor("running", "claude")) {
+	if bytes.Equal(iconFor("running", "codex", defaultMenuPrefs()), iconFor("running", "claude", defaultMenuPrefs())) {
 		t.Error("codex and claude running icons are identical; want distinct sprites")
 	}
 }
 
 func TestDrawIcon_RendersStateColor(t *testing.T) {
-	img, err := png.Decode(bytes.NewReader(iconFor("running", "claude")))
+	img, err := png.Decode(bytes.NewReader(iconFor("running", "claude", defaultMenuPrefs())))
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestDrawIcon_RendersStateColor(t *testing.T) {
 }
 
 func TestDrawIcon_ErrorDiffersFromRunning(t *testing.T) {
-	if bytes.Equal(iconFor("error", "claude"), iconFor("running", "claude")) {
+	if bytes.Equal(iconFor("error", "claude", defaultMenuPrefs()), iconFor("running", "claude", defaultMenuPrefs())) {
 		t.Error("error and running icons are identical; want distinct sprite+colour")
 	}
 }
@@ -102,5 +103,18 @@ func TestCodexSpriteCanonical(t *testing.T) {
 		if codexSprite[i] != want[i] {
 			t.Errorf("row %d = %q, want %q", i, codexSprite[i], want[i])
 		}
+	}
+}
+
+func TestGlyphForTool(t *testing.T) {
+	p := menuPrefs{TrayClaudeGlyph: "aicode", TrayCodexGlyph: "code", TrayIdleGlyph: "awtrix"}
+	if glyphForTool("codex", p) != "code" {
+		t.Error("codex glyph")
+	}
+	if glyphForTool("claude", p) != "aicode" {
+		t.Error("claude glyph")
+	}
+	if glyphForTool("", p) != "awtrix" || glyphForTool("weird", p) != "awtrix" {
+		t.Error("idle glyph for empty/unknown tool")
 	}
 }
