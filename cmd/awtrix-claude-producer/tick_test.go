@@ -145,6 +145,46 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	}
 }
 
+// heartbeatPass is the daemon's per-iteration body: it reloads config (so
+// producer.env edits apply without a restart) and runs one tick.
+func TestHeartbeatPass_RePostsMarker(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	body := []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	heartbeatPass(context.Background())
+	if h.posts.Load() != 1 {
+		t.Errorf("heartbeatPass should re-post the fresh marker; posts=%d", h.posts.Load())
+	}
+}
+
+func TestHeartbeatPass_NoConfig_NoOp(t *testing.T) {
+	h := newHookHarness(t)
+	// Blank out the config so Source/ServerURL are empty.
+	cfgPath := filepath.Join(h.home, ".config", "awtrix-ai-status", "producer.env")
+	if err := os.WriteFile(cfgPath, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "abc.json"),
+		[]byte(`{"source":"x","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	heartbeatPass(context.Background())
+	if h.posts.Load() != 0 || h.deletes.Load() != 0 {
+		t.Errorf("heartbeatPass with empty config must do nothing; posts=%d deletes=%d", h.posts.Load(), h.deletes.Load())
+	}
+}
+
 func TestProcessOneMarker_PreservesContextPctWhenEnabled(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "awtrix-ai-status")

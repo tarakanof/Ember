@@ -95,10 +95,10 @@ func generatePlist(binPath, home string, uid int) ([]byte, error) {
     <key>ProgramArguments</key>
     <array>
         <string>%s</string>
-        <string>tick</string>
+        <string>run</string>
     </array>
-    <key>StartInterval</key>
-    <integer>10</integer>
+    <key>KeepAlive</key>
+    <true/>
     <key>RunAtLoad</key>
     <true/>
     <key>ProcessType</key>

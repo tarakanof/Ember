@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
+
+const heartbeatInterval = 10 * time.Second
 
 func runTick() {
 	rotateProducerLogs()
@@ -19,6 +23,47 @@ func runTick() {
 	defer cancel()
 	dispatchTick(ctx, cfg)
 	os.Exit(0)
+}
+
+// runDaemon is the long-lived `run` subcommand: a KeepAlive LaunchAgent process
+// that re-posts live session markers every heartbeatInterval until SIGINT/SIGTERM.
+// It replaces the old per-tick StartInterval one-shot — a StartInterval job has
+// no self-recovery, so once launchd evicted it (crash, sleep/wake edge, a
+// bootout whose bootstrap didn't follow) it stayed silently unloaded until the
+// next login. KeepAlive lets launchd restart this process after any exit.
+func runDaemon() {
+	rotateProducerLogs()
+	// Validate config once up front; with KeepAlive, exiting here just makes
+	// launchd retry (throttled) until the operator finishes configuring.
+	if cfg, err := loadConfig(); err != nil || cfg.Source == "" || cfg.ServerURL == "" {
+		os.Exit(0)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		heartbeatPass(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// heartbeatPass runs one tick. It reloads config every pass so producer.env
+// edits (e.g. from the settings window) take effect without a daemon restart —
+// preserving the behaviour of the old one-shot, which re-read the file on every
+// invocation.
+func heartbeatPass(parent context.Context) {
+	cfg, err := loadConfig()
+	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	dispatchTick(ctx, cfg)
 }
 
 func dispatchTick(ctx context.Context, cfg Config) {
