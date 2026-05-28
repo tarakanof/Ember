@@ -1,6 +1,10 @@
 package main
 
-import "regexp"
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+)
 
 // component identifies one managed LaunchAgent. binary is the producer binary
 // name to delegate install/uninstall to; "" means the menu app itself
@@ -25,6 +29,24 @@ type componentState struct {
 
 // launchAtLogin reports whether the component will start at next login.
 func (s componentState) launchAtLogin() bool { return s.Installed && !s.Disabled }
+
+// resolveBinary locates a producer binary by name: PATH, then ~/go/bin, then the
+// directory of the running menu binary. Returns "" when not found. lookPath is
+// injected for testability (pass exec.LookPath in production).
+func resolveBinary(name string, lookPath func(string) (string, error), home, selfDir string) string {
+	if p, err := lookPath(name); err == nil && p != "" {
+		return p
+	}
+	for _, c := range []string{
+		filepath.Join(home, "go", "bin", name),
+		filepath.Join(selfDir, name),
+	} {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c
+		}
+	}
+	return ""
+}
 
 var disabledLineRe = regexp.MustCompile(`"([^"]+)"\s*=>\s*(enabled|disabled)`)
 
