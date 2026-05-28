@@ -4,6 +4,9 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/dt/awtrix-ai-status/internal/render"
@@ -44,7 +47,7 @@ func openSettingsWindow(envPath string) {
 
 		const (
 			winW = 460.0
-			winH = 744.0
+			winH = 902.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
 			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
@@ -69,7 +72,7 @@ func openSettingsWindow(envPath string) {
 		previewBox := appkit.NewBox()
 		previewBox.SetTitle("Preview")
 		previewBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 572},
+			Origin: foundation.Point{X: 16, Y: 730},
 			Size:   foundation.Size{Width: previewBoxW, Height: 154},
 		})
 		previewView := appkit.NewView()
@@ -120,7 +123,7 @@ func openSettingsWindow(envPath string) {
 		connBox := appkit.NewBox()
 		connBox.SetTitle("Connection")
 		connBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 348},
+			Origin: foundation.Point{X: 16, Y: 506},
 			Size:   foundation.Size{Width: winW - 32, Height: 212},
 		})
 		connView := appkit.NewView()
@@ -196,7 +199,7 @@ func openSettingsWindow(envPath string) {
 		clockBox := appkit.NewBox()
 		clockBox.SetTitle("Display elements")
 		clockBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 54},
+			Origin: foundation.Point{X: 16, Y: 212},
 			Size:   foundation.Size{Width: winW - 32, Height: 284},
 		})
 		clockView := appkit.NewView()
@@ -269,6 +272,139 @@ func openSettingsWindow(envPath string) {
 		})
 
 		content.AddSubview(clockBox)
+
+		// --- Group 3: Launch at login --------------------------------------
+		home, _ := os.UserHomeDir()
+		uid := os.Getuid()
+		selfDir := ""
+		if exe, err := os.Executable(); err == nil {
+			selfDir = filepath.Dir(exe)
+		}
+
+		launchBox := appkit.NewBox()
+		launchBox.SetTitle("Launch at login")
+		launchBox.SetFrame(foundation.Rect{
+			Origin: foundation.Point{X: 16, Y: 54},
+			Size:   foundation.Size{Width: winW - 32, Height: 150},
+		})
+		launchView := appkit.NewView()
+		launchBox.SetContentView(launchView)
+
+		rowTitles := map[string]string{
+			"com.awtrix-ai-status.menu":      "Menu bar app",
+			"com.awtrix-ai-status.heartbeat": "Claude producer",
+			"com.awtrix-ai-status.codex":     "Codex producer",
+		}
+		rowY := map[string]float64{
+			"com.awtrix-ai-status.menu":      98,
+			"com.awtrix-ai-status.heartbeat": 70,
+			"com.awtrix-ai-status.codex":     42,
+		}
+		launchErr := newErrorLabel(foundation.Rect{Origin: foundation.Point{X: 8, Y: 12}, Size: foundation.Size{Width: winW - 48, Height: 14}})
+		launchView.AddSubview(launchErr)
+
+		// Non-error info line (e.g. the "restart claude" hint after enabling the
+		// Claude producer). Shares the bottom of the box with launchErr but only
+		// one is set at a time; secondary color so it doesn't read as a failure.
+		launchNote := appkit.TextField_LabelWithString("")
+		launchNote.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 26}, Size: foundation.Size{Width: winW - 48, Height: 14}})
+		launchNote.SetFont(appkit.Font_SystemFontOfSize(10))
+		launchNote.SetTextColor(appkit.Color_SecondaryLabelColor())
+		launchView.AddSubview(launchNote)
+
+		for i := range managedComponents {
+			c := managedComponents[i] // capture per-iteration copy
+			y := rowY[c.label]
+			st := detectState(c, home, uid)
+
+			check := appkit.NewButton()
+			check.SetButtonType(appkit.ButtonTypeSwitch)
+			check.SetTitle(rowTitles[c.label])
+			check.SetState(boolState(st.launchAtLogin()))
+			check.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: y}, Size: foundation.Size{Width: 150, Height: rowH}})
+			launchView.AddSubview(check)
+
+			stateLbl := appkit.TextField_LabelWithString(st.stateLabel())
+			stateLbl.SetFrame(foundation.Rect{Origin: foundation.Point{X: 166, Y: y + 2}, Size: foundation.Size{Width: 92, Height: 18}})
+			stateLbl.SetFont(appkit.Font_SystemFontOfSize(11))
+			stateLbl.SetTextColor(appkit.Color_SecondaryLabelColor())
+			launchView.AddSubview(stateLbl)
+
+			var uninstallBtn appkit.Button
+			if c.binary != "" {
+				uninstallBtn = appkit.NewButtonWithTitle("Uninstall")
+				uninstallBtn.SetBezelStyle(appkit.BezelStyleRounded)
+				uninstallBtn.SetFrame(foundation.Rect{Origin: foundation.Point{X: 264, Y: y - 2}, Size: foundation.Size{Width: 92, Height: 28}})
+				uninstallBtn.SetEnabled(st.Installed)
+				launchView.AddSubview(uninstallBtn)
+			}
+
+			refresh := func() {
+				ns := detectState(c, home, uid)
+				check.SetState(boolState(ns.launchAtLogin()))
+				stateLbl.SetStringValue(ns.stateLabel())
+				if !uninstallBtn.IsNil() {
+					uninstallBtn.SetEnabled(ns.Installed)
+				}
+			}
+
+			runOps := func(successNote string, plan func(componentState, string) []op) {
+				go func() {
+					cur := detectState(c, home, uid)
+					binPath := ""
+					if c.binary != "" {
+						binPath = resolveBinary(c.binary, exec.LookPath, home, selfDir)
+					}
+					ops := plan(cur, binPath)
+					var err error
+					if c.binary != "" && binPath == "" && needsBinary(ops) {
+						err = fmt.Errorf("%s not found — build/install it first", c.binary)
+					} else {
+						for _, o := range ops {
+							if err = runOp(o, uid); err != nil {
+								break
+							}
+						}
+					}
+					ran := len(ops) > 0
+					dispatch.MainQueue().DispatchAsync(func() {
+						if err != nil {
+							launchErr.SetStringValue(err.Error())
+							launchNote.SetStringValue("")
+						} else {
+							launchErr.SetStringValue("")
+							if ran {
+								launchNote.SetStringValue(successNote)
+							}
+						}
+						refresh()
+					})
+				}()
+			}
+
+			action.Set(check, func(sender objc.Object) {
+				want := check.State() == appkit.ControlStateValueOn
+				note := ""
+				if want && c.binary == "awtrix-claude-producer" {
+					note = "Restart claude for it to pick up the new hooks."
+				}
+				runOps(note, func(cur componentState, binPath string) []op {
+					return planToggle(c, cur, want, binPath, agentPlistPath(home, c.label))
+				})
+			})
+
+			if !uninstallBtn.IsNil() {
+				action.Set(uninstallBtn, func(sender objc.Object) {
+					if !confirmUninstall(rowTitles[c.label]) {
+						return
+					}
+					runOps("", func(cur componentState, binPath string) []op {
+						return planUninstall(c, binPath)
+					})
+				})
+			}
+		}
+		content.AddSubview(launchBox)
 
 		// --- Preview wiring ------------------------------------------------
 		// readCurrentForm mirrors the Save handler's control reads (minus the
@@ -474,6 +610,27 @@ var (
 	// barRegion is the bottom bar at row 7, cols 11–31.
 	barRegion = thumbRegion{11, 7, 32, 8}
 )
+
+// needsBinary reports whether the plan includes an exec op (which requires a
+// resolved producer binary path).
+func needsBinary(ops []op) bool {
+	for _, o := range ops {
+		if o.kind == opExec {
+			return true
+		}
+	}
+	return false
+}
+
+// confirmUninstall shows a modal yes/no and returns true if the user confirms.
+func confirmUninstall(name string) bool {
+	alert := appkit.NewAlert()
+	alert.SetMessageText(fmt.Sprintf("Uninstall %s?", name))
+	alert.SetInformativeText("This removes its LaunchAgent (and, for the Claude producer, its hooks) and stops it now.")
+	alert.AddButtonWithTitle("Uninstall")
+	alert.AddButtonWithTitle("Cancel")
+	return alert.RunModal() == appkit.AlertFirstButtonReturn
+}
 
 // elementThumb composes a sample frame via mut, masks it to element region r
 // (dropping the robot and every other element), and renders the full 32×8
