@@ -46,6 +46,28 @@ type Config struct {
 	Auth      AuthConfig      `json:"auth"`
 	Display   DisplayConfig   `json:"display"`
 	RateLimit RateLimitConfig `json:"rate_limit"`
+	Pomodoro  PomodoroConfig  `json:"pomodoro"`
+}
+
+// PomodoroConfig holds the Pomodoro feature's static defaults. Runtime-editable
+// settings (durations, colours, toggles) are persisted in the stats store and
+// edited from the menu app; these values seed the engine at startup and provide
+// the fallbacks the store is initialised from.
+type PomodoroConfig struct {
+	Enabled               bool   `json:"enabled"`
+	FocusMinutes          int    `json:"focus_minutes"`
+	ShortBreakMinutes     int    `json:"short_break_minutes"`
+	LongBreakMinutes      int    `json:"long_break_minutes"`
+	RoundsBeforeLongBreak int    `json:"rounds_before_long_break"`
+	AutoStartNext         bool   `json:"auto_start_next"`
+	Sound                 bool   `json:"sound"`
+	SoundMelody           string `json:"sound_melody,omitempty"`
+	FocusColor            string `json:"focus_color"`
+	BreakColor            string `json:"break_color"`
+	DBPath                string `json:"db_path"`
+	// ButtonCallback enables mapping device button presses (delivered to
+	// /hooks/awtrix/button) to timer actions.
+	ButtonCallback bool `json:"button_callback"`
 }
 
 type RateLimitConfig struct {
@@ -114,6 +136,19 @@ func defaultConfig() Config {
 			Burst:            10,
 			RefillPerSec:     2.0,
 			IdleEvictSeconds: 300,
+		},
+		Pomodoro: PomodoroConfig{
+			Enabled:               false,
+			FocusMinutes:          25,
+			ShortBreakMinutes:     5,
+			LongBreakMinutes:      15,
+			RoundsBeforeLongBreak: 4,
+			AutoStartNext:         false,
+			Sound:                 true,
+			FocusColor:            "#FF3B30",
+			BreakColor:            "#2EE85E",
+			DBPath:                "/var/lib/awtrix-ai-status/pomodoro.db",
+			ButtonCallback:        true,
 		},
 	}
 }
@@ -195,6 +230,30 @@ func (c *Config) applyDefaults() {
 		c.RateLimit.IdleEvictSeconds = 300
 	}
 	// Disabled is a bool — zero value is false, the right default.
+
+	if c.Pomodoro.FocusMinutes <= 0 {
+		c.Pomodoro.FocusMinutes = 25
+	}
+	if c.Pomodoro.ShortBreakMinutes <= 0 {
+		c.Pomodoro.ShortBreakMinutes = 5
+	}
+	if c.Pomodoro.LongBreakMinutes <= 0 {
+		c.Pomodoro.LongBreakMinutes = 15
+	}
+	if c.Pomodoro.RoundsBeforeLongBreak <= 0 {
+		c.Pomodoro.RoundsBeforeLongBreak = 4
+	}
+	if c.Pomodoro.FocusColor == "" {
+		c.Pomodoro.FocusColor = "#FF3B30"
+	}
+	if c.Pomodoro.BreakColor == "" {
+		c.Pomodoro.BreakColor = "#2EE85E"
+	}
+	if c.Pomodoro.DBPath == "" {
+		c.Pomodoro.DBPath = "/var/lib/awtrix-ai-status/pomodoro.db"
+	}
+	// Sound and ButtonCallback are bools: their no-config defaults come from
+	// defaultConfig(); a config file controls them explicitly.
 }
 
 type StatusRequest struct {

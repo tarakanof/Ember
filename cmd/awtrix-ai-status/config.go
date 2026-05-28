@@ -78,5 +78,34 @@ func validateConfig(cfg Config) error {
 	if cfg.Display.IdleRestoreSeconds < 60 || cfg.Display.IdleRestoreSeconds > 3600 {
 		return fmt.Errorf("%w: display.idle_restore_seconds %d out of range [60, 3600]", ErrConfigValidate, cfg.Display.IdleRestoreSeconds)
 	}
+	if err := validatePomodoro(cfg.Pomodoro); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validatePomodoro enforces sane Pomodoro durations and well-formed colours.
+func validatePomodoro(p PomodoroConfig) error {
+	if p.FocusMinutes < 1 || p.FocusMinutes > 180 {
+		return fmt.Errorf("%w: pomodoro.focus_minutes %d out of range [1, 180]", ErrConfigValidate, p.FocusMinutes)
+	}
+	if p.ShortBreakMinutes < 1 || p.ShortBreakMinutes > 60 {
+		return fmt.Errorf("%w: pomodoro.short_break_minutes %d out of range [1, 60]", ErrConfigValidate, p.ShortBreakMinutes)
+	}
+	if p.LongBreakMinutes < 1 || p.LongBreakMinutes > 180 {
+		return fmt.Errorf("%w: pomodoro.long_break_minutes %d out of range [1, 180]", ErrConfigValidate, p.LongBreakMinutes)
+	}
+	if p.RoundsBeforeLongBreak < 1 || p.RoundsBeforeLongBreak > 12 {
+		return fmt.Errorf("%w: pomodoro.rounds_before_long_break %d out of range [1, 12]", ErrConfigValidate, p.RoundsBeforeLongBreak)
+	}
+	if !isHexColor(p.FocusColor) {
+		return fmt.Errorf("%w: pomodoro.focus_color %q must be #RRGGBB", ErrConfigValidate, p.FocusColor)
+	}
+	if !isHexColor(p.BreakColor) {
+		return fmt.Errorf("%w: pomodoro.break_color %q must be #RRGGBB", ErrConfigValidate, p.BreakColor)
+	}
+	if p.Enabled && p.DBPath == "" {
+		return fmt.Errorf("%w: pomodoro.db_path is required when pomodoro.enabled", ErrConfigValidate)
+	}
 	return nil
 }
