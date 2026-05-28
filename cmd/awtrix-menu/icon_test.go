@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"image"
 	"image/color"
 	"image/png"
 	"testing"
@@ -66,6 +67,22 @@ func TestDrawIcon_RendersStateColor(t *testing.T) {
 func TestDrawIcon_ErrorDiffersFromRunning(t *testing.T) {
 	if bytes.Equal(iconFor("error", "claude"), iconFor("running", "claude")) {
 		t.Error("error and running icons are identical; want distinct sprite+colour")
+	}
+}
+
+func TestTintAlpha(t *testing.T) {
+	// 2x1 source: left fully opaque black, right fully transparent.
+	src := image.NewNRGBA(image.Rect(0, 0, 2, 1))
+	src.SetNRGBA(0, 0, color.NRGBA{0, 0, 0, 255}) // alpha 255
+	src.SetNRGBA(1, 0, color.NRGBA{0, 0, 0, 0})   // alpha 0
+	red := color.RGBA{0xff, 0x00, 0x00, 0xff}
+
+	out := tintAlpha(src, red)
+	if got := out.RGBAAt(0, 0); got != (color.RGBA{0xff, 0, 0, 0xff}) {
+		t.Errorf("opaque pixel = %+v, want full red", got)
+	}
+	if got := out.RGBAAt(1, 0); got != (color.RGBA{0, 0, 0, 0}) {
+		t.Errorf("transparent pixel = %+v, want transparent", got)
 	}
 }
 

@@ -66,6 +66,27 @@ func stateColor(state string) color.RGBA {
 	}
 }
 
+// tintAlpha returns a new RGBA image where every pixel is color c scaled by the
+// source pixel's alpha (premultiplied). Used to paint a monochrome template
+// glyph in a state color while keeping its shape/anti-aliasing.
+func tintAlpha(src image.Image, c color.RGBA) *image.RGBA {
+	b := src.Bounds()
+	out := image.NewRGBA(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			_, _, _, a := src.At(x, y).RGBA() // 0..65535
+			af := float64(a) / 65535.0
+			out.SetRGBA(x, y, color.RGBA{
+				R: uint8(float64(c.R) * af),
+				G: uint8(float64(c.G) * af),
+				B: uint8(float64(c.B) * af),
+				A: uint8(af*255.0 + 0.5),
+			})
+		}
+	}
+	return out
+}
+
 var iconOnce sync.Once
 var iconCache = map[string][]byte{}
 
