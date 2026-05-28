@@ -66,6 +66,32 @@ func openSettingsWindow(envPath string) {
 		w.SetReleasedWhenClosed(false)
 		content := w.ContentView()
 
+		// --- Tab view ------------------------------------------------------
+		// Fills the area above the footer (footer stays at Y 8–48). Each tab's
+		// boxes are re-parented onto its container view below; NSTabView keeps
+		// all item views alive so the Save/preview closures still read them.
+		const tabH = winH - 60 - 36 // tab content height (minus tab-bar+inset)
+		tabView := appkit.NewTabView()
+		tabView.SetFrame(foundation.Rect{
+			Origin: foundation.Point{X: 8, Y: 52},
+			Size:   foundation.Size{Width: winW - 16, Height: winH - 60},
+		})
+
+		connTabView := appkit.NewView()
+		displayTabView := appkit.NewView()
+		appTabView := appkit.NewView()
+
+		mkItem := func(label string, v appkit.View) {
+			it := appkit.NewTabViewItem()
+			it.SetLabel(label)
+			it.SetView(v)
+			tabView.AddTabViewItem(it)
+		}
+		mkItem("Connection", connTabView)
+		mkItem("Display", displayTabView)
+		mkItem("App", appTabView)
+		content.AddSubview(tabView)
+
 		// --- Preview panel (top) -------------------------------------------
 		// A dark backing box holding the pre-scaled 32x8 matrix preview, a
 		// caption for the current number-slot card, and a live/sample badge.
@@ -80,7 +106,7 @@ func openSettingsWindow(envPath string) {
 		previewBox := appkit.NewBox()
 		previewBox.SetTitle("Preview")
 		previewBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 730},
+			Origin: foundation.Point{X: 8, Y: tabH - 8 - 154},
 			Size:   foundation.Size{Width: previewBoxW, Height: 154},
 		})
 		previewView := appkit.NewView()
@@ -115,7 +141,7 @@ func openSettingsWindow(envPath string) {
 
 		pw := &previewWidget{imageView: imageView, caption: previewCaption, badge: previewBadge}
 
-		content.AddSubview(previewBox)
+		displayTabView.AddSubview(previewBox)
 
 		// --- Group 1: Connection -------------------------------------------
 		// Box content coordinates are relative to the box's content view.
@@ -131,7 +157,7 @@ func openSettingsWindow(envPath string) {
 		connBox := appkit.NewBox()
 		connBox.SetTitle("Connection")
 		connBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 506},
+			Origin: foundation.Point{X: 8, Y: tabH - 8 - 212},
 			Size:   foundation.Size{Width: winW - 32, Height: 212},
 		})
 		connView := appkit.NewView()
@@ -199,7 +225,7 @@ func openSettingsWindow(envPath string) {
 			pw.onFormChanged()
 		})
 
-		content.AddSubview(connBox)
+		connTabView.AddSubview(connBox)
 
 		// --- Group 2: Display elements -------------------------------------
 		// Grouped by the screen region each element occupies. Checkbox rows on
@@ -207,7 +233,7 @@ func openSettingsWindow(envPath string) {
 		clockBox := appkit.NewBox()
 		clockBox.SetTitle("Display elements")
 		clockBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 212},
+			Origin: foundation.Point{X: 8, Y: tabH - 8 - 154 - 8 - 284},
 			Size:   foundation.Size{Width: winW - 32, Height: 284},
 		})
 		clockView := appkit.NewView()
@@ -279,7 +305,7 @@ func openSettingsWindow(envPath string) {
 			s.RateBottomBar = true
 		})
 
-		content.AddSubview(clockBox)
+		displayTabView.AddSubview(clockBox)
 
 		// groupClosed is set when the window closes so in-flight launch-at-login
 		// goroutines skip touching now-freed AppKit controls in their callback.
@@ -296,7 +322,7 @@ func openSettingsWindow(envPath string) {
 		launchBox := appkit.NewBox()
 		launchBox.SetTitle("Launch at login")
 		launchBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 54},
+			Origin: foundation.Point{X: 8, Y: tabH - 8 - 150},
 			Size:   foundation.Size{Width: winW - 32, Height: 150},
 		})
 		launchView := appkit.NewView()
@@ -420,7 +446,7 @@ func openSettingsWindow(envPath string) {
 				runOps(note, want)
 			})
 		}
-		content.AddSubview(launchBox)
+		appTabView.AddSubview(launchBox)
 
 		// --- Preview wiring ------------------------------------------------
 		// readCurrentForm mirrors the Save handler's control reads (minus the
