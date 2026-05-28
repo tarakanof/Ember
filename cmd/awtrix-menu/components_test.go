@@ -13,51 +13,36 @@ func TestPlistPathAndTarget(t *testing.T) {
 	if got := guiTarget(501, "com.x"); got != "gui/501/com.x" {
 		t.Errorf("guiTarget = %q", got)
 	}
-	if got := guiDomain(501); got != "gui/501" {
-		t.Errorf("guiDomain = %q", got)
-	}
 }
 
 func TestPlanToggle(t *testing.T) {
 	menu := component{label: "com.awtrix-ai-status.menu", binary: ""}
 	claude := component{label: "com.awtrix-ai-status.heartbeat", binary: "awtrix-claude-producer"}
-	plist := "/Users/x/Library/LaunchAgents/com.awtrix-ai-status.heartbeat.plist"
 
-	if ops := planToggle(claude, componentState{Installed: true}, true, "/bin/p", plist); ops != nil {
+	// Install a not-installed producer.
+	ops := planToggle(claude, componentState{}, true, "/bin/p")
+	if len(ops) != 1 || ops[0].bin != "/bin/p" || ops[0].args[0] != "install" {
+		t.Errorf("install expected, got %v", ops)
+	}
+	// Uninstall an installed producer.
+	ops = planToggle(claude, componentState{Installed: true}, false, "/bin/p")
+	if len(ops) != 1 || ops[0].bin != "/bin/p" || ops[0].args[0] != "uninstall" {
+		t.Errorf("uninstall expected, got %v", ops)
+	}
+	// No-op: already installed and want install.
+	if ops := planToggle(claude, componentState{Installed: true}, true, "/bin/p"); ops != nil {
 		t.Errorf("no-op expected, got %v", ops)
 	}
-	ops := planToggle(claude, componentState{Installed: true, Disabled: true}, true, "/bin/p", plist)
-	if len(ops) != 2 || ops[0].kind != opEnable || ops[1].kind != opBootstrap {
-		t.Errorf("enable+bootstrap expected, got %v", ops)
-	}
-	ops = planToggle(claude, componentState{Installed: true, Disabled: true, Loaded: true}, true, "/bin/p", plist)
-	if len(ops) != 1 || ops[0].kind != opEnable {
-		t.Errorf("enable-only expected, got %v", ops)
-	}
-	ops = planToggle(claude, componentState{}, true, "/bin/p", plist)
-	if len(ops) != 1 || ops[0].kind != opExec || ops[0].bin != "/bin/p" || ops[0].args[0] != "install" {
-		t.Errorf("exec install expected, got %v", ops)
-	}
-	ops = planToggle(menu, componentState{}, true, "", "")
-	if len(ops) != 1 || ops[0].kind != opInstallSelf {
-		t.Errorf("install-self expected, got %v", ops)
-	}
-	ops = planToggle(claude, componentState{Installed: true}, false, "/bin/p", plist)
-	if len(ops) != 1 || ops[0].kind != opDisable {
-		t.Errorf("disable expected, got %v", ops)
-	}
-	if ops := planToggle(claude, componentState{}, false, "/bin/p", plist); ops != nil {
+	// No-op: not installed and want uninstall.
+	if ops := planToggle(claude, componentState{}, false, "/bin/p"); ops != nil {
 		t.Errorf("no-op expected, got %v", ops)
 	}
-}
-
-func TestPlanUninstall(t *testing.T) {
-	if ops := planUninstall(component{binary: ""}, "/bin/p"); ops != nil {
-		t.Errorf("menu has no uninstall, got %v", ops)
+	// Menu row is read-only: never plans an op.
+	if ops := planToggle(menu, componentState{}, true, "/bin/p"); ops != nil {
+		t.Errorf("menu row must be read-only, got %v", ops)
 	}
-	ops := planUninstall(component{binary: "awtrix-codex-producer"}, "/bin/p")
-	if len(ops) != 1 || ops[0].kind != opExec || ops[0].args[0] != "uninstall" {
-		t.Errorf("exec uninstall expected, got %v", ops)
+	if ops := planToggle(menu, componentState{Installed: true}, false, "/bin/p"); ops != nil {
+		t.Errorf("menu row must be read-only, got %v", ops)
 	}
 }
 
@@ -88,24 +73,6 @@ func TestResolveBinary(t *testing.T) {
 	}
 }
 
-func TestParseDisabled(t *testing.T) {
-	out := `disabled services = {
-	"com.awtrix-ai-status.codex" => disabled
-	"com.awtrix-ai-status.menu" => enabled
-	"com.apple.something" => enabled
-}`
-	m := parseDisabled(out)
-	if !m["com.awtrix-ai-status.codex"] {
-		t.Error("codex should be disabled")
-	}
-	if m["com.awtrix-ai-status.menu"] {
-		t.Error("menu is listed enabled -> not disabled")
-	}
-	if m["com.awtrix-ai-status.heartbeat"] {
-		t.Error("absent label must default to not-disabled")
-	}
-}
-
 func TestComponentState_Derived(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -114,10 +81,8 @@ func TestComponentState_Derived(t *testing.T) {
 		wantLabel string
 	}{
 		{"not installed", componentState{}, false, "Not installed"},
-		{"installed enabled running", componentState{Installed: true, Loaded: true}, true, "On · running"},
-		{"installed enabled stopped", componentState{Installed: true}, true, "On · stopped"},
-		{"installed disabled but still running", componentState{Installed: true, Disabled: true, Loaded: true}, false, "Off · running"},
-		{"installed disabled stopped", componentState{Installed: true, Disabled: true}, false, "Off · stopped"},
+		{"installed running", componentState{Installed: true, Loaded: true}, true, "On · running"},
+		{"installed stopped", componentState{Installed: true}, true, "On · stopped"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

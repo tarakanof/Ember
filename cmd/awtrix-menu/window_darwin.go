@@ -315,11 +315,10 @@ func openSettingsWindow(envPath string) {
 		launchErr := newErrorLabel(foundation.Rect{Origin: foundation.Point{X: 8, Y: 12}, Size: foundation.Size{Width: winW - 48, Height: 14}})
 		launchView.AddSubview(launchErr)
 
-		// Info line: a standing note that this is launchd auto-start (separate
-		// from System Settings → Login Items), temporarily replaced by the
-		// "restart claude" hint after enabling the Claude producer. Secondary
-		// color so it never reads as an error (errors use launchErr above).
-		const launchInfoNote = "Controls launchd auto-start — independent of System Settings → Login Items."
+		// Info line explaining the install/uninstall model, temporarily replaced
+		// by the "restart claude" hint after installing the Claude producer.
+		// Secondary color so it never reads as an error (errors use launchErr).
+		const launchInfoNote = "On installs (launches at login, shown in System Settings → Login Items); Off uninstalls."
 		launchNote := appkit.TextField_LabelWithString(launchInfoNote)
 		launchNote.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 26}, Size: foundation.Size{Width: winW - 48, Height: 14}})
 		launchNote.SetFont(appkit.Font_SystemFontOfSize(10))
@@ -330,7 +329,6 @@ func openSettingsWindow(envPath string) {
 			c := managedComponents[i] // capture per-iteration copy
 			y := rowY[c.label]
 			st := detectState(c, home, uid)
-			var busy atomic.Bool
 
 			check := appkit.NewButton()
 			check.SetButtonType(appkit.ButtonTypeSwitch)
@@ -345,41 +343,42 @@ func openSettingsWindow(envPath string) {
 			stateLbl.SetTextColor(appkit.Color_SecondaryLabelColor())
 			launchView.AddSubview(stateLbl)
 
-			var uninstallBtn appkit.Button
-			if c.binary != "" {
-				uninstallBtn = appkit.NewButtonWithTitle("Uninstall")
-				uninstallBtn.SetBezelStyle(appkit.BezelStyleRounded)
-				uninstallBtn.SetFrame(foundation.Rect{Origin: foundation.Point{X: 264, Y: y - 2}, Size: foundation.Size{Width: 92, Height: 28}})
-				uninstallBtn.SetEnabled(st.Installed)
-				launchView.AddSubview(uninstallBtn)
+			// The menu app row is read-only: the app cannot cleanly install or
+			// uninstall itself from its own running process. Show a disabled
+			// checkbox + a CLI hint.
+			if c.binary == "" {
+				check.SetEnabled(false)
+				cliNote := appkit.TextField_LabelWithString("manage via CLI")
+				cliNote.SetFrame(foundation.Rect{Origin: foundation.Point{X: 264, Y: y + 2}, Size: foundation.Size{Width: 140, Height: 18}})
+				cliNote.SetFont(appkit.Font_SystemFontOfSize(10))
+				cliNote.SetTextColor(appkit.Color_TertiaryLabelColor())
+				launchView.AddSubview(cliNote)
+				continue
 			}
+
+			// Producer row: checkbox installs (on) / uninstalls (off).
+			var busy atomic.Bool
 
 			refresh := func() {
 				ns := detectState(c, home, uid)
 				check.SetState(boolState(ns.launchAtLogin()))
 				stateLbl.SetStringValue(ns.stateLabel())
-				if !uninstallBtn.IsNil() {
-					uninstallBtn.SetEnabled(ns.Installed)
-				}
 			}
 
-			runOps := func(successNote string, plan func(componentState, string) []op) {
+			runOps := func(successNote string, want bool) {
 				if !busy.CompareAndSwap(false, true) {
 					return // an operation for this row is already in flight
 				}
 				go func() {
 					cur := detectState(c, home, uid)
-					binPath := ""
-					if c.binary != "" {
-						binPath = resolveBinary(c.binary, exec.LookPath, home, selfDir)
-					}
-					ops := plan(cur, binPath)
+					binPath := resolveBinary(c.binary, exec.LookPath, home, selfDir)
+					ops := planToggle(c, cur, want, binPath)
 					var err error
-					if c.binary != "" && binPath == "" && needsBinary(ops) {
+					if binPath == "" && len(ops) > 0 {
 						err = fmt.Errorf("%s not found — build/install it first", c.binary)
 					} else {
 						for _, o := range ops {
-							if err = runOp(o, uid); err != nil {
+							if err = runOp(o); err != nil {
 								break
 							}
 						}
@@ -408,25 +407,18 @@ func openSettingsWindow(envPath string) {
 
 			action.Set(check, func(sender objc.Object) {
 				want := check.State() == appkit.ControlStateValueOn
+				// Turning OFF uninstalls (destructive) — confirm, and revert the
+				// checkbox if the user backs out.
+				if !want && !confirmUninstall(rowTitles[c.label]) {
+					check.SetState(appkit.ControlStateValueOn)
+					return
+				}
 				note := ""
 				if want && c.binary == "awtrix-claude-producer" {
 					note = "Restart claude for it to pick up the new hooks."
 				}
-				runOps(note, func(cur componentState, binPath string) []op {
-					return planToggle(c, cur, want, binPath, agentPlistPath(home, c.label))
-				})
+				runOps(note, want)
 			})
-
-			if !uninstallBtn.IsNil() {
-				action.Set(uninstallBtn, func(sender objc.Object) {
-					if !confirmUninstall(rowTitles[c.label]) {
-						return
-					}
-					runOps("", func(cur componentState, binPath string) []op {
-						return planUninstall(c, binPath)
-					})
-				})
-			}
 		}
 		content.AddSubview(launchBox)
 
@@ -636,17 +628,6 @@ var (
 	// barRegion is the bottom bar at row 7, cols 11–31.
 	barRegion = thumbRegion{11, 7, 32, 8}
 )
-
-// needsBinary reports whether the plan includes an exec op (which requires a
-// resolved producer binary path).
-func needsBinary(ops []op) bool {
-	for _, o := range ops {
-		if o.kind == opExec {
-			return true
-		}
-	}
-	return false
-}
 
 // confirmUninstall shows a modal yes/no and returns true if the user confirms.
 func confirmUninstall(name string) bool {
