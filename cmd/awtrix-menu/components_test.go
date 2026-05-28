@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+func TestPlistPathAndTarget(t *testing.T) {
+	if got := agentPlistPath("/Users/joe", "com.awtrix-ai-status.codex"); got != "/Users/joe/Library/LaunchAgents/com.awtrix-ai-status.codex.plist" {
+		t.Errorf("agentPlistPath = %q", got)
+	}
+	if got := guiTarget(501, "com.x"); got != "gui/501/com.x" {
+		t.Errorf("guiTarget = %q", got)
+	}
+	if got := guiDomain(501); got != "gui/501" {
+		t.Errorf("guiDomain = %q", got)
+	}
+}
+
 func TestPlanToggle(t *testing.T) {
 	menu := component{label: "com.awtrix-ai-status.menu", binary: ""}
 	claude := component{label: "com.awtrix-ai-status.heartbeat", binary: "awtrix-claude-producer"}

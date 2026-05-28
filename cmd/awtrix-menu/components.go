@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 )
@@ -125,4 +127,51 @@ func (s componentState) stateLabel() string {
 	default:
 		return "Disabled"
 	}
+}
+
+func agentPlistPath(home, label string) string {
+	return filepath.Join(home, "Library", "LaunchAgents", label+".plist")
+}
+
+func guiTarget(uid int, label string) string { return fmt.Sprintf("gui/%d/%s", uid, label) }
+func guiDomain(uid int) string               { return fmt.Sprintf("gui/%d", uid) }
+
+// detectState reads the live state of a component from the filesystem + launchd.
+func detectState(c component, home string, uid int) componentState {
+	st := componentState{}
+	if _, err := os.Stat(agentPlistPath(home, c.label)); err == nil {
+		st.Installed = true
+	}
+	if out, err := exec.Command("launchctl", "print-disabled", guiDomain(uid)).Output(); err == nil {
+		st.Disabled = parseDisabled(string(out))[c.label]
+	}
+	if exec.Command("launchctl", "print", guiTarget(uid, c.label)).Run() == nil {
+		st.Loaded = true
+	}
+	return st
+}
+
+// runOp executes one planned op. installSelf calls the menu's own install().
+func runOp(o op, uid int) error {
+	switch o.kind {
+	case opEnable:
+		return runCmd("launchctl", "enable", guiTarget(uid, o.label))
+	case opDisable:
+		return runCmd("launchctl", "disable", guiTarget(uid, o.label))
+	case opBootstrap:
+		return runCmd("launchctl", "bootstrap", guiDomain(uid), o.plist)
+	case opExec:
+		return runCmd(o.bin, o.args...)
+	case opInstallSelf:
+		return install()
+	}
+	return nil
+}
+
+func runCmd(name string, args ...string) error {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %v\n%s", name, err, out)
+	}
+	return nil
 }
