@@ -1,0 +1,66 @@
+package main
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/dt/awtrix-ai-status/internal/render"
+)
+
+func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	c := newCoordinator(cfg, func() *Config { return &cfg }, pub, realClock{}, testLogger(), nil)
+	c.ctx = context.Background()
+
+	snap := Snapshot{Now: time.Now()}
+	c.snapshot = func() Snapshot { return snap }
+
+	active := false
+	c.pomoView = func() (render.PomodoroView, bool) {
+		if !active {
+			return render.PomodoroView{}, false
+		}
+		return render.PomodoroView{Phase: "focus", RemainingSec: 1500, PlannedSec: 1500, FocusColor: render.RGB{R: 0xff}}, true
+	}
+
+	// Inactive: normal path, no device-takeover settings written.
+	c.publish(snap)
+	if n := len(pub.SettingsSnapshot()); n != 0 {
+		t.Fatalf("settings before active = %d, want 0", n)
+	}
+
+	// Activate → pomodoro frame published, takeover settings + switch fire once.
+	active = true
+	c.publish(snap)
+	apps := pub.CustomAppsSnapshot()
+	if len(apps) == 0 {
+		t.Fatal("expected a published custom app")
+	}
+	if _, ok := apps[len(apps)-1]["draw"]; !ok {
+		t.Fatalf("expected pomodoro draw payload, got %+v", apps[len(apps)-1])
+	}
+	s := pub.SettingsSnapshot()
+	if len(s) != 1 || s[0]["ATRANS"] != false || s[0]["BLOCKN"] != true {
+		t.Fatalf("takeover settings = %+v, want ATRANS:false BLOCKN:true once", s)
+	}
+	if sw := pub.SwitchesSnapshot(); len(sw) != 1 || sw[0] != cfg.AWTRIX.AppName {
+		t.Fatalf("switch = %+v, want [%s]", sw, cfg.AWTRIX.AppName)
+	}
+
+	// Still active: takeover is edge-triggered, not repeated.
+	c.publish(snap)
+	if n := len(pub.SettingsSnapshot()); n != 1 {
+		t.Fatalf("settings while still active = %d, want 1 (edge only)", n)
+	}
+
+	// Deactivate → rotation/nav restored once.
+	active = false
+	c.publish(snap)
+	s = pub.SettingsSnapshot()
+	if len(s) != 2 || s[1]["ATRANS"] != true || s[1]["BLOCKN"] != false {
+		t.Fatalf("restore settings = %+v, want ATRANS:true BLOCKN:false", s)
+	}
+}
