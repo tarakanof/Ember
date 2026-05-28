@@ -48,6 +48,30 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	if err != nil {
 		return
 	}
+	// Owner-liveness reap: if the Claude process that owns this session has
+	// exited (window closed / crash, with no SessionEnd), drop it now instead
+	// of keeping it alive via re-POST until the marker TTL. Markers without a
+	// recorded owner fall through to the TTL path below.
+	if pid, start, ok := markerOwner(markerP); ok && !ownerAlive(pid, start) {
+		_ = withLockEx(lockP, func() error {
+			pid2, start2, ok2 := markerOwner(markerP)
+			if ok2 && ownerAlive(pid2, start2) {
+				return nil // owner refreshed (resume) between observation and lock
+			}
+			body, err := os.ReadFile(markerP)
+			if err == nil {
+				var req StatusRequest
+				if json.Unmarshal(body, &req) == nil {
+					_ = client.Delete(ctx, DeleteRequest{
+						Source: req.Source, Tool: req.Tool, Session: req.Session,
+					})
+				}
+			}
+			_ = os.Remove(markerP)
+			return nil
+		})
+		return
+	}
 	if info.ModTime().Before(staleThreshold) {
 		// Stale: re-stat under exclusive lock, delete if still stale
 		_ = withLockEx(lockP, func() error {

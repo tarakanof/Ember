@@ -194,20 +194,20 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 		if err != nil {
 			return nil
 		}
-		var req StatusRequest
-		if json.Unmarshal(body, &req) != nil {
+		var m marker
+		if json.Unmarshal(body, &m) != nil {
 			return nil
 		}
 		if ratePct != nil {
-			req.RateWindowPct = ratePct
+			m.RateWindowPct = ratePct
 		}
 		if ctxPct != nil {
-			req.ContextPct = ctxPct
+			m.ContextPct = ctxPct
 		}
 		if resetAt != nil {
-			req.RateResetAt = *resetAt
+			m.RateResetAt = *resetAt
 		}
-		out, err := json.Marshal(req)
+		out, err := json.Marshal(m)
 		if err != nil {
 			return nil
 		}

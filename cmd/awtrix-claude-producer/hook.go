@@ -143,8 +143,10 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 		// Preserve statusline-owned fields (rate_window_pct, context_pct) that
 		// the hook path doesn't compute, so a hook event doesn't clobber the
 		// statusline's enrichment of this marker.
+		var ownerPID int
+		var ownerStart string
 		if old, err := readMarker(markerP); err == nil {
-			var prev StatusRequest
+			var prev marker
 			if json.Unmarshal(old, &prev) == nil {
 				req.RateWindowPct = prev.RateWindowPct
 				req.RateResetAt = prev.RateResetAt
@@ -154,9 +156,16 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 				if cfg.ActivityTrailEnabled && activity != "" {
 					req.Activity = producer.PrependTrail(activity, prev.Activity)
 				}
+				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
 			}
 		}
-		body, err := json.Marshal(req)
+		// Capture the owning Claude process once per session (preserved across
+		// later upserts), so the heartbeat can detect an ungraceful close.
+		if ownerPID == 0 {
+			ownerPID, ownerStart = detectOwner()
+		}
+		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart}
+		body, err := json.Marshal(m)
 		if err != nil {
 			return nil
 		}

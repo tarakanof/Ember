@@ -113,6 +113,36 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	}
 }
 
+// The statusline runs often; it must not strip the owner-liveness fields the
+// hook recorded, or the heartbeat could never detect an ungraceful close.
+func TestEnrichMarker_PreservesOwner(t *testing.T) {
+	dir := t.TempDir()
+	mp := markerPath(dir, "sess1")
+	seed := marker{
+		StatusRequest: StatusRequest{Source: "mbp", Tool: "claude", Session: "sess1", State: "running"},
+		OwnerPID:      12345,
+		OwnerStart:    "Wed May 28 10:00:00 2026",
+	}
+	body, _ := json.Marshal(seed)
+	if err := os.WriteFile(mp, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := readMarker(mp)
+	var got marker
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.OwnerPID != 12345 || got.OwnerStart != "Wed May 28 10:00:00 2026" {
+		t.Errorf("statusline stripped owner: pid=%d start=%q", got.OwnerPID, got.OwnerStart)
+	}
+	if got.RateWindowPct == nil || *got.RateWindowPct != 50 {
+		t.Errorf("enrich did not apply rate_window_pct")
+	}
+}
+
 func TestContextPctEnabled(t *testing.T) {
 	write := func(t *testing.T, body string) {
 		home := t.TempDir()
