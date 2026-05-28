@@ -2,6 +2,24 @@ package main
 
 import "testing"
 
+func TestParseDisabled(t *testing.T) {
+	out := `disabled services = {
+	"com.awtrix-ai-status.codex" => disabled
+	"com.awtrix-ai-status.menu" => enabled
+	"com.apple.something" => enabled
+}`
+	m := parseDisabled(out)
+	if !m["com.awtrix-ai-status.codex"] {
+		t.Error("codex should be disabled")
+	}
+	if m["com.awtrix-ai-status.menu"] {
+		t.Error("menu is listed enabled -> not disabled")
+	}
+	if m["com.awtrix-ai-status.heartbeat"] {
+		t.Error("absent label must default to not-disabled")
+	}
+}
+
 func TestComponentState_Derived(t *testing.T) {
 	cases := []struct {
 		name      string

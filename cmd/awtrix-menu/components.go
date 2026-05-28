@@ -1,5 +1,7 @@
 package main
 
+import "regexp"
+
 // component identifies one managed LaunchAgent. binary is the producer binary
 // name to delegate install/uninstall to; "" means the menu app itself
 // (installed in-process, no Uninstall button).
@@ -23,6 +25,19 @@ type componentState struct {
 
 // launchAtLogin reports whether the component will start at next login.
 func (s componentState) launchAtLogin() bool { return s.Installed && !s.Disabled }
+
+var disabledLineRe = regexp.MustCompile(`"([^"]+)"\s*=>\s*(enabled|disabled)`)
+
+// parseDisabled parses `launchctl print-disabled gui/$UID` output into
+// label -> isDisabled. Labels absent from the output are not present in the map
+// (callers read a missing key as false = not disabled).
+func parseDisabled(out string) map[string]bool {
+	m := map[string]bool{}
+	for _, match := range disabledLineRe.FindAllStringSubmatch(out, -1) {
+		m[match[1]] = match[2] == "disabled"
+	}
+	return m
+}
 
 // stateLabel is the human-readable status shown next to the checkbox.
 func (s componentState) stateLabel() string {
