@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/dt/awtrix-ai-status/internal/render"
@@ -273,6 +274,10 @@ func openSettingsWindow(envPath string) {
 
 		content.AddSubview(clockBox)
 
+		// groupClosed is set when the window closes so in-flight launch-at-login
+		// goroutines skip touching now-freed AppKit controls in their callback.
+		var groupClosed atomic.Bool
+
 		// --- Group 3: Launch at login --------------------------------------
 		home, _ := os.UserHomeDir()
 		uid := os.Getuid()
@@ -316,6 +321,7 @@ func openSettingsWindow(envPath string) {
 			c := managedComponents[i] // capture per-iteration copy
 			y := rowY[c.label]
 			st := detectState(c, home, uid)
+			var busy atomic.Bool
 
 			check := appkit.NewButton()
 			check.SetButtonType(appkit.ButtonTypeSwitch)
@@ -349,6 +355,9 @@ func openSettingsWindow(envPath string) {
 			}
 
 			runOps := func(successNote string, plan func(componentState, string) []op) {
+				if !busy.CompareAndSwap(false, true) {
+					return // an operation for this row is already in flight
+				}
 				go func() {
 					cur := detectState(c, home, uid)
 					binPath := ""
@@ -368,6 +377,9 @@ func openSettingsWindow(envPath string) {
 					}
 					ran := len(ops) > 0
 					dispatch.MainQueue().DispatchAsync(func() {
+						if groupClosed.Load() {
+							return // window closed mid-op; controls are gone
+						}
 						if err != nil {
 							launchErr.SetStringValue(err.Error())
 							launchNote.SetStringValue("")
@@ -378,6 +390,7 @@ func openSettingsWindow(envPath string) {
 							}
 						}
 						refresh()
+						busy.Store(false)
 					})
 				}()
 			}
@@ -516,6 +529,7 @@ func openSettingsWindow(envPath string) {
 		// --- Window delegate: revert to Accessory + rearm guard on close. --
 		wd := &appkit.WindowDelegate{}
 		wd.SetWindowWillClose(func(notification foundation.Notification) {
+			groupClosed.Store(true)
 			pw.stop()
 			appkit.Application_SharedApplication().SetActivationPolicy(appkit.ApplicationActivationPolicyAccessory)
 			settingsWindow = appkit.Window{}
