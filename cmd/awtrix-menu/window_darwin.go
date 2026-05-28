@@ -23,6 +23,13 @@ import (
 // only on the serial main queue, so the guard check and arm are race-free.
 var settingsWindow appkit.Window
 
+// settingsDelegate retains the window's delegate for the lifetime of the window.
+// NSWindow.delegate is a WEAK reference, so without a Go-side reference the
+// DarwinKit delegate proxy is garbage-collected after openSettingsWindow
+// returns; AppKit then messages a freed delegate on close (windowShouldClose:/
+// windowWillClose:) → SIGSEGV. Holding it here keeps it alive.
+var settingsDelegate *appkit.WindowDelegate
+
 // openSettingsWindow opens (or refocuses) the settings window. Safe to call
 // from any goroutine — it marshals all AppKit work onto the main thread.
 func openSettingsWindow(envPath string) {
@@ -308,10 +315,12 @@ func openSettingsWindow(envPath string) {
 		launchErr := newErrorLabel(foundation.Rect{Origin: foundation.Point{X: 8, Y: 12}, Size: foundation.Size{Width: winW - 48, Height: 14}})
 		launchView.AddSubview(launchErr)
 
-		// Non-error info line (e.g. the "restart claude" hint after enabling the
-		// Claude producer). Shares the bottom of the box with launchErr but only
-		// one is set at a time; secondary color so it doesn't read as a failure.
-		launchNote := appkit.TextField_LabelWithString("")
+		// Info line: a standing note that this is launchd auto-start (separate
+		// from System Settings → Login Items), temporarily replaced by the
+		// "restart claude" hint after enabling the Claude producer. Secondary
+		// color so it never reads as an error (errors use launchErr above).
+		const launchInfoNote = "Controls launchd auto-start — independent of System Settings → Login Items."
+		launchNote := appkit.TextField_LabelWithString(launchInfoNote)
 		launchNote.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 26}, Size: foundation.Size{Width: winW - 48, Height: 14}})
 		launchNote.SetFont(appkit.Font_SystemFontOfSize(10))
 		launchNote.SetTextColor(appkit.Color_SecondaryLabelColor())
@@ -382,11 +391,13 @@ func openSettingsWindow(envPath string) {
 						}
 						if err != nil {
 							launchErr.SetStringValue(err.Error())
-							launchNote.SetStringValue("")
+							launchNote.SetStringValue(launchInfoNote)
 						} else {
 							launchErr.SetStringValue("")
-							if ran {
+							if ran && successNote != "" {
 								launchNote.SetStringValue(successNote)
+							} else {
+								launchNote.SetStringValue(launchInfoNote)
 							}
 						}
 						refresh()
@@ -463,7 +474,7 @@ func openSettingsWindow(envPath string) {
 		cancelBtn.SetBezelStyle(appkit.BezelStyleRounded)
 		cancelBtn.SetFrame(foundation.Rect{Origin: foundation.Point{X: winW - 200, Y: 8}, Size: foundation.Size{Width: 88, Height: 28}})
 		action.Set(cancelBtn, func(sender objc.Object) {
-			w.PerformClose(nil)
+			w.Close() // Close() (not PerformClose) avoids sending windowShouldClose:
 		})
 		content.AddSubview(cancelBtn)
 
@@ -522,7 +533,7 @@ func openSettingsWindow(envPath string) {
 				generalErr.SetStringValue(fmt.Sprintf("could not save: %v", err))
 				return
 			}
-			w.PerformClose(nil)
+			w.Close() // Close() (not PerformClose) avoids sending windowShouldClose:
 		})
 		content.AddSubview(saveBtn)
 
@@ -535,6 +546,7 @@ func openSettingsWindow(envPath string) {
 			settingsWindow = appkit.Window{}
 		})
 		w.SetDelegate(wd)
+		settingsDelegate = wd // retain past this closure (weak delegate ref)
 
 		// Seed the preview from /state (sample fallback) and start the
 		// number-slot rotation before the window becomes visible.

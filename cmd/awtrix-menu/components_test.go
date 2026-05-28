@@ -114,10 +114,10 @@ func TestComponentState_Derived(t *testing.T) {
 		wantLabel string
 	}{
 		{"not installed", componentState{}, false, "Not installed"},
-		{"installed enabled running", componentState{Installed: true, Loaded: true}, true, "Running"},
-		{"installed enabled stopped", componentState{Installed: true}, true, "Disabled"},
-		{"installed disabled but still running", componentState{Installed: true, Disabled: true, Loaded: true}, false, "Running"},
-		{"installed disabled stopped", componentState{Installed: true, Disabled: true}, false, "Disabled"},
+		{"installed enabled running", componentState{Installed: true, Loaded: true}, true, "On · running"},
+		{"installed enabled stopped", componentState{Installed: true}, true, "On · stopped"},
+		{"installed disabled but still running", componentState{Installed: true, Disabled: true, Loaded: true}, false, "Off · running"},
+		{"installed disabled stopped", componentState{Installed: true, Disabled: true}, false, "Off · stopped"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

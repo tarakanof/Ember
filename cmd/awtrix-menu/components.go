@@ -117,16 +117,23 @@ func parseDisabled(out string) map[string]bool {
 	return m
 }
 
-// stateLabel is the human-readable status shown next to the checkbox.
+// stateLabel is the human-readable status shown next to the checkbox. It
+// encodes BOTH the launch-at-login setting (On/Off) and whether the process is
+// running now, so toggling the checkbox produces a visible change even though
+// disabling is non-destructive (the process keeps running this session).
 func (s componentState) stateLabel() string {
-	switch {
-	case !s.Installed:
+	if !s.Installed {
 		return "Not installed"
-	case s.Loaded:
-		return "Running"
-	default:
-		return "Disabled"
 	}
+	onoff := "Off"
+	if s.launchAtLogin() {
+		onoff = "On"
+	}
+	run := "stopped"
+	if s.Loaded {
+		run = "running"
+	}
+	return onoff + " · " + run
 }
 
 func agentPlistPath(home, label string) string {
