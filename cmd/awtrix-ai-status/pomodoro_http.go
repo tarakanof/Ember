@@ -353,6 +353,18 @@ func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
 	return nil
 }
 
+// resyncPomodoroAfterReload re-aligns the engine with the freshly reloaded
+// config and re-applies any settings persisted via the API, so a /admin/reload
+// neither silently reverts runtime Pomodoro edits nor leaves the engine
+// diverged from cfg. No-op when the feature is disabled.
+func (a *App) resyncPomodoroAfterReload() {
+	if a.engine == nil {
+		return
+	}
+	a.engine.UpdateSettings(engineSettings(a.cfg.Load().Pomodoro))
+	a.loadPersistedPomodoroSettings()
+}
+
 // loadPersistedPomodoroSettings applies any settings blob saved by a previous
 // run on top of the file config, so menu-app edits survive restarts.
 func (a *App) loadPersistedPomodoroSettings() {
@@ -394,10 +406,13 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	switch r.PostFormValue("button") {
 	case "middle", "select":
 		st := a.engine.Status(now)
-		if st.Running && !st.Paused {
+		switch {
+		case st.Running && !st.Paused:
 			a.engine.Pause(now)
-		} else {
-			a.engine.Resume(now)
+		case st.Phase == pomodoro.PhaseIdle:
+			a.engine.Start(pomodoro.PhaseFocus) // idle → begin a focus block
+		default:
+			a.engine.Resume(now) // paused or parked → resume/start
 		}
 	case "right":
 		if res := a.engine.Skip(now); res != nil {

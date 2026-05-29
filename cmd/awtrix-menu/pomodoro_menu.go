@@ -1,10 +1,15 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 )
+
+// errNoServer marks "no STATUS_SERVER_URL configured" so the menu shows the
+// Pomodoro lines as off rather than attempting a doomed HTTP call.
+var errNoServer = errors.New("no server URL")
 
 // buildPomoConfig parses and validates the Pomodoro settings form fields into a
 // pomoConfig, returning a user-facing error string on the first invalid field.
@@ -52,6 +57,16 @@ func buildPomoConfig(focus, short, long, rounds string, autoStart, sound bool, f
 		FocusColor:            focusColor,
 		BreakColor:            breakColor,
 	}, nil
+}
+
+// pomoToggleVerb maps the live timer state to the verb the menu's Pause/Resume
+// item should send: pause a running timer; resume a paused one or start a parked
+// next phase (auto-start off). Idle yields "resume" — a harmless server no-op.
+func pomoToggleVerb(st pomoState) string {
+	if st.Running && !st.Paused {
+		return "pause"
+	}
+	return "resume"
 }
 
 // pomoClientFromEnv builds a Pomodoro API client using the server URL + token

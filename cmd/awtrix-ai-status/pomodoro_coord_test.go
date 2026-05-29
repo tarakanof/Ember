@@ -64,3 +64,27 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 		t.Fatalf("restore settings = %+v, want ATRANS:true BLOCKN:false", s)
 	}
 }
+
+func TestCoordinatorRestoresTakeoverOnShutdown(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	c := newCoordinator(cfg, func() *Config { return &cfg }, pub, realClock{}, testLogger(), nil)
+
+	// Not in takeover → no restore call.
+	c.restorePomoTakeoverOnExit()
+	if n := len(pub.SettingsSnapshot()); n != 0 {
+		t.Fatalf("restore without active takeover wrote %d settings, want 0", n)
+	}
+
+	// In takeover → restore ATRANS/BLOCKN once and clear the flag.
+	c.pomoTakeover = true
+	c.restorePomoTakeoverOnExit()
+	s := pub.SettingsSnapshot()
+	if len(s) != 1 || s[0]["ATRANS"] != true || s[0]["BLOCKN"] != false {
+		t.Fatalf("shutdown restore settings = %+v, want ATRANS:true BLOCKN:false", s)
+	}
+	if c.pomoTakeover {
+		t.Fatal("takeover flag should be cleared after restore")
+	}
+}

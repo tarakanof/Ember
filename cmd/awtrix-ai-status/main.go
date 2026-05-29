@@ -1230,6 +1230,13 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("server shutdown failed", "err", err)
 	}
+	// Close the Pomodoro stats DB so WAL is checkpointed and in-flight writes
+	// are flushed before exit.
+	if app.store != nil {
+		if err := app.store.Close(); err != nil {
+			logger.Warn("pomodoro store close failed", "err", err)
+		}
+	}
 }
 
 // scanSubcommand walks args to find the first non-flag positional. It

@@ -72,9 +72,9 @@ func onSystrayReady() {
 	// then refreshes the menu so the new state shows immediately.
 	pomoAction := func(verb string) {
 		c := pomoClientFromEnv(envPath)
-		if verb == "pause" { // toggle based on live state
-			if st, err := c.State(); err == nil && st.Paused {
-				verb = "resume"
+		if verb == "pause" { // resolve toggle against live state (handles parked)
+			if st, err := c.State(); err == nil {
+				verb = pomoToggleVerb(st)
 			}
 		}
 		_ = c.Action(verb)
@@ -181,12 +181,28 @@ func updateMenu(envPath string) {
 	}
 
 	// Pomodoro status + today's stats (best-effort; "off" when disabled/unreachable).
+	// Fetch state + stats concurrently with a short timeout so an unreachable
+	// server can't stall the menu poll (which runs under menuMu) for long.
 	if pomoStatusItem != nil {
-		c := newPomodoroClient(url, rec.get("STATUS_TOKEN"))
-		st, stErr := c.State()
-		pomoStatusItem.SetTitle(pomoMenuTitle(st, stErr))
-		stats, statsErr := c.Stats()
-		pomoStatsItem.SetTitle(pomoStatsTitle(stats, statsErr))
+		if url == "" {
+			pomoStatusItem.SetTitle(pomoMenuTitle(pomoState{}, errNoServer))
+			pomoStatsItem.SetTitle(pomoStatsTitle(pomoStats{}, errNoServer))
+		} else {
+			c := newPomodoroClient(url, rec.get("STATUS_TOKEN"))
+			c.hc.Timeout = 1500 * time.Millisecond
+			var (
+				st              pomoState
+				stats           pomoStats
+				stErr, statsErr error
+				wg              sync.WaitGroup
+			)
+			wg.Add(2)
+			go func() { defer wg.Done(); st, stErr = c.State() }()
+			go func() { defer wg.Done(); stats, statsErr = c.Stats() }()
+			wg.Wait()
+			pomoStatusItem.SetTitle(pomoMenuTitle(st, stErr))
+			pomoStatsItem.SetTitle(pomoStatsTitle(stats, statsErr))
+		}
 	}
 }
 

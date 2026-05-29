@@ -53,3 +53,21 @@ func TestBuildPomoConfig(t *testing.T) {
 		t.Fatal("expected error for bad focus colour")
 	}
 }
+
+func TestPomoToggleVerb(t *testing.T) {
+	cases := []struct {
+		name string
+		st   pomoState
+		want string
+	}{
+		{"running", pomoState{Phase: "focus", Running: true}, "pause"},
+		{"paused", pomoState{Phase: "focus", Running: true, Paused: true}, "resume"},
+		{"parked", pomoState{Phase: "short_break", Running: false}, "resume"},
+		{"idle", pomoState{Phase: "idle"}, "resume"},
+	}
+	for _, tc := range cases {
+		if got := pomoToggleVerb(tc.st); got != tc.want {
+			t.Errorf("%s: got %q want %q", tc.name, got, tc.want)
+		}
+	}
+}

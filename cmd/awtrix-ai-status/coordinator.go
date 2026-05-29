@@ -217,6 +217,10 @@ func (c *coordinator) Send(cmd coordCmd) {
 // opportunistically — preempt latency wins over rotation jitter).
 func (c *coordinator) Run(ctx context.Context) {
 	c.ctx = ctx
+	// On shutdown, undo any active Pomodoro device takeover so a restart while
+	// a timer is running doesn't leave the device with rotation + native button
+	// navigation disabled.
+	defer c.restorePomoTakeoverOnExit()
 	for {
 		// Opportunistic drain: if cmds has work, prefer it.
 		select {
@@ -431,6 +435,21 @@ func (c *coordinator) applyPomoTakeover(active bool, appName string) {
 		}
 	}
 	c.pomoTakeover = active
+}
+
+// restorePomoTakeoverOnExit re-enables app rotation + native button navigation
+// if a Pomodoro takeover was active when the coordinator stops. Uses a fresh
+// context because the Run context is already cancelled on exit.
+func (c *coordinator) restorePomoTakeoverOnExit() {
+	if !c.pomoTakeover {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": true, "BLOCKN": false}); err != nil {
+		c.logger.Warn("pomo restore on shutdown failed", "err", err)
+	}
+	c.pomoTakeover = false
 }
 
 func (c *coordinator) publish(snap Snapshot) {

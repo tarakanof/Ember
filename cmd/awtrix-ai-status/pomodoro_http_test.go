@@ -205,3 +205,48 @@ func TestPomodoroStatsEndpointReflectsStore(t *testing.T) {
 		t.Fatalf("streak = %v, want 1", body["streak"])
 	}
 }
+
+func TestPomodoroButtonStartsFromIdle(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// Engine is idle. A middle press should begin a focus block.
+	form := url.Values{"button": {"middle"}, "state": {"1"}}
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/awtrix/button", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if st := pomoState(t, srv); st["phase"] != "focus" || st["running"] != true {
+		t.Fatalf("middle-from-idle should start focus, got %+v", st)
+	}
+}
+
+func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
+	app := newPomodoroApp(t)
+
+	// Persist a runtime edit (focus=30) via the API path.
+	if err := app.applyPomodoroSettings(pomodoroSettingsDTO{
+		FocusMinutes: 30, ShortBreakMinutes: 5, LongBreakMinutes: 15, RoundsBeforeLongBreak: 4,
+		FocusColor: "#FF3B30", BreakColor: "#2EE85E",
+	}); err != nil {
+		t.Fatalf("applyPomodoroSettings: %v", err)
+	}
+
+	// Simulate a config reload that resets the file's pomodoro block to 25/engine untouched.
+	cfg := *app.cfg.Load()
+	cfg.Pomodoro.FocusMinutes = 25
+	app.cfg.Store(&cfg)
+
+	app.resyncPomodoroAfterReload()
+
+	if got := app.cfg.Load().Pomodoro.FocusMinutes; got != 30 {
+		t.Fatalf("cfg focus after reload+resync = %d, want 30 (persisted edit)", got)
+	}
+	if got := app.engine.CurrentSettings().FocusMin; got != 30 {
+		t.Fatalf("engine focus after reload+resync = %d, want 30", got)
+	}
+}
