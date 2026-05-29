@@ -5,6 +5,7 @@ import AwtrixMenuKit
 struct AwtrixMenuApp: App {
     @State private var model = AppModel()
     private let pomodoro: PomodoroService
+    private var prefs = AppStoragePrefs()
 
     init() {
         let client = Bootstrap.makeClient()
@@ -19,7 +20,7 @@ struct AwtrixMenuApp: App {
         MenuBarExtra {
             MenuBarContentView(model: model, pomodoro: pomodoro)
         } label: {
-            MenuBarLabel(session: model.winningSession, prefs: .default)
+            MenuBarLabel(session: model.winningSession, prefs: prefs.menuPrefs)
         }
         .menuBarExtraStyle(.window)
     }
