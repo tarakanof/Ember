@@ -18,5 +18,10 @@ struct AwtrixMenuApp: App {
             SettingsView()
                 .environment(env)
         }
+
+        Window("AWTRIX Dashboard", id: "dashboard") {
+            DashboardView()
+                .environment(env)
+        }
     }
 }

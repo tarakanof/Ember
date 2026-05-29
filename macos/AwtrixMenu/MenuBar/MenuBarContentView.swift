@@ -3,6 +3,7 @@ import AwtrixMenuKit
 
 struct MenuBarContentView: View {
     @Environment(AppEnvironment.self) private var env
+    @Environment(\.openWindow) private var openWindow
 
     private func mmss(_ sec: Int) -> String {
         let s = max(0, sec); return String(format: "%d:%02d", s / 60, s % 60)
@@ -52,6 +53,10 @@ struct MenuBarContentView: View {
             }
 
             Divider()
+            Button("Dashboard…") {
+                openWindow(id: "dashboard")
+                NSApplication.shared.activate(ignoringOtherApps: true)
+            }
             SettingsLink { Text("Settings…") }
             Button("Quit AWTRIX Menu") { NSApplication.shared.terminate(nil) }
         }
