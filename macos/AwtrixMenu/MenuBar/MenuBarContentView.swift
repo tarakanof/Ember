@@ -2,22 +2,21 @@ import SwiftUI
 import AwtrixMenuKit
 
 struct MenuBarContentView: View {
-    @Bindable var model: AppModel
-    let pomodoro: PomodoroService
+    @Environment(AppEnvironment.self) private var env
 
     private func mmss(_ sec: Int) -> String {
         let s = max(0, sec); return String(format: "%d:%02d", s / 60, s % 60)
     }
 
     private func act(_ a: PomodoroAction) {
-        Task { try? await pomodoro.action(a); await model.refresh() }
+        Task { try? await env.pomodoro.action(a); await env.model.refresh() }
     }
 
     var body: some View {
+        let model = env.model
         VStack(alignment: .leading, spacing: 8) {
             if let s = model.winningSession {
-                Text("\(s.source) · \(s.tool) · \(s.state)")
-                    .font(.headline)
+                Text("\(s.source) · \(s.tool) · \(s.state)").font(.headline)
             } else {
                 Text(model.connected ? "Idle" : "Offline").font(.headline)
             }
@@ -53,6 +52,7 @@ struct MenuBarContentView: View {
             }
 
             Divider()
+            SettingsLink { Text("Settings…") }
             Button("Quit AWTRIX Menu") { NSApplication.shared.terminate(nil) }
         }
         .padding(12)
