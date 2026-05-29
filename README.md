@@ -377,8 +377,9 @@ Enable it in `config.json`:
 ```
 
 Durations/colours/toggles are also editable at runtime from the macOS menu app's
-**Pomodoro Settings…** window (and the menu's Pomodoro section has Start / Pause /
-Resume / Skip / Stop plus today's stats). Runtime edits persist in the SQLite DB
+settings window — a **Pomodoro tab** alongside the Status tab (and the menu's
+Pomodoro section has Start / Pause / Resume / Skip / Stop plus today's stats;
+"Pomodoro Settings…" opens that tab). Runtime edits persist in the SQLite DB
 and survive restarts. Stats (completed pomodoros, focus minutes, streak,
 per-day history) accumulate in `db_path` — mount a writable volume there in
 Docker (the image ships `/var/lib/awtrix-ai-status` as a `VOLUME`).
