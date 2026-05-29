@@ -5,7 +5,9 @@ struct SettingsView: View {
         TabView {
             ConnectionTab()
                 .tabItem { Label("Connection", systemImage: "network") }
+            PomodoroTab()
+                .tabItem { Label("Pomodoro", systemImage: "timer") }
         }
-        .frame(width: 460, height: 300)
+        .frame(width: 460, height: 360)
     }
 }

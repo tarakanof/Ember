@@ -45,6 +45,20 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     public var focusColor: String
     public var breakColor: String
 
+    public init(focusMinutes: Int, shortBreakMinutes: Int, longBreakMinutes: Int,
+                roundsBeforeLongBreak: Int, autoStartNext: Bool, sound: Bool,
+                soundMelody: String, focusColor: String, breakColor: String) {
+        self.focusMinutes = focusMinutes
+        self.shortBreakMinutes = shortBreakMinutes
+        self.longBreakMinutes = longBreakMinutes
+        self.roundsBeforeLongBreak = roundsBeforeLongBreak
+        self.autoStartNext = autoStartNext
+        self.sound = sound
+        self.soundMelody = soundMelody
+        self.focusColor = focusColor
+        self.breakColor = breakColor
+    }
+
     enum CodingKeys: String, CodingKey {
         case focusMinutes = "focus_minutes"
         case shortBreakMinutes = "short_break_minutes"
