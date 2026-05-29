@@ -41,3 +41,24 @@ import Foundation
         let _: Snapshot = try await client.get("/state")
     }
 }
+
+// The Go server marshals time.Time as RFC3339 with nanosecond fractional seconds
+// (e.g. "2026-05-29T20:33:44.336159758Z"). The decoder must parse both fractional
+// and non-fractional ISO8601, or /state decode fails and the app shows offline.
+@Test func decodesFractionalSecondTimestamps() async throws {
+    let client = stubbedClient { req in
+        let body = #"{"sessions":[{"source":"mbp","tool":"claude","session":"s","state":"running","message":"","updated_at":"2026-05-29T20:33:44.336159758Z"}]}"#
+        return (okResponse(req.url!), Data(body.utf8))
+    }
+    let snap: Snapshot = try await client.get("/state")
+    #expect(snap.sessions.first?.state == "running")
+}
+
+@Test func decodesNonFractionalTimestamps() async throws {
+    let client = stubbedClient { req in
+        let body = #"{"sessions":[{"source":"mbp","tool":"claude","session":"s","state":"done","message":"","updated_at":"2026-05-29T12:00:00Z"}]}"#
+        return (okResponse(req.url!), Data(body.utf8))
+    }
+    let snap: Snapshot = try await client.get("/state")
+    #expect(snap.sessions.first?.state == "done")
+}
