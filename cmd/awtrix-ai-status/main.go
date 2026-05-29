@@ -745,6 +745,9 @@ func (a *App) routes() http.Handler {
 	// it only maps presses to timer actions, so LAN blast radius is minimal.
 	mux.HandleFunc("GET /v1/pomodoro/state", a.handlePomodoroState)
 	mux.HandleFunc("GET /v1/pomodoro/stats", a.handlePomodoroStats)
+	// Open, read-only render preview for the menu app's Display tab. The
+	// specific GET pattern wins over the "/v1/" requireAuth catch-all below.
+	mux.HandleFunc("GET /v1/preview", a.handlePreview)
 	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
 
 	writeMux := http.NewServeMux()
