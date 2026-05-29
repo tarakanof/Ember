@@ -4,6 +4,7 @@ import AwtrixMenuKit
 struct MenuBarContentView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     private func mmss(_ sec: Int) -> String {
         let s = max(0, sec); return String(format: "%d:%02d", s / 60, s % 60)
@@ -54,10 +55,17 @@ struct MenuBarContentView: View {
 
             Divider()
             Button("Dashboard…") {
-                openWindow(id: "dashboard")
                 NSApplication.shared.activate(ignoringOtherApps: true)
+                openWindow(id: "dashboard")
             }
-            SettingsLink { Text("Settings…") }
+            // NB: a plain SettingsLink does NOT activate the app, so in this
+            // LSUIElement (accessory) app the Settings window opens behind and
+            // unfocused — it looks like nothing happened until some other window
+            // has activated the app first. Activate explicitly, then open.
+            Button("Settings…") {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                openSettings()
+            }
             Button("Quit AWTRIX Menu") { NSApplication.shared.terminate(nil) }
         }
         .padding(12)

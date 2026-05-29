@@ -14,31 +14,37 @@ struct ConnectionTab: View {
     @State private var loaded = false
 
     var body: some View {
-        Form {
-            Section("Producer") {
-                TextField("Source", text: $source)
-                TextField("Server URL", text: $serverURL)
-                    .textContentType(.URL)
-                HStack {
-                    TextField("Source color (#RRGGBB, blank = none)", text: $sourceColor)
-                    if let c = RGB(hex: sourceColor).map({ Color($0) }) {
-                        RoundedRectangle(cornerRadius: 3).fill(c).frame(width: 18, height: 18)
+        VStack(spacing: 0) {
+            Form {
+                Section("Producer") {
+                    TextField("Source", text: $source)
+                    TextField("Server URL", text: $serverURL)
+                        .textContentType(.URL)
+                    HStack {
+                        TextField("Source color", text: $sourceColor, prompt: Text("#RRGGBB · blank = none"))
+                        if let c = RGB(hex: sourceColor).map({ Color($0) }) {
+                            RoundedRectangle(cornerRadius: 3).fill(c).frame(width: 18, height: 18)
+                        }
                     }
+                    SecureField("Token", text: $token,
+                                prompt: Text(tokenIsSet ? "set — blank keeps it" : "not set"))
                 }
-                SecureField(tokenIsSet ? "Token (set — leave blank to keep)"
-                                       : "Token (not set)", text: $token)
             }
+            .formStyle(.grouped)
 
-            if let saveError { Text(saveError).foregroundStyle(.red).font(.caption) }
-            if let testResult { Text(testResult).font(.caption) }
-
-            HStack {
-                Button("Test connection") { Task { await test() } }
+            Divider()
+            HStack(spacing: 12) {
+                Button("Test Connection") { Task { await test() } }
+                if let saveError {
+                    Text(saveError).font(.caption).foregroundStyle(.red).lineLimit(1)
+                } else if let testResult {
+                    Text(testResult).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
                 Spacer()
                 Button("Save") { save() }.keyboardShortcut(.defaultAction)
             }
+            .padding(12)
         }
-        .padding()
         .task { if !loaded { load(); loaded = true } }
     }
 

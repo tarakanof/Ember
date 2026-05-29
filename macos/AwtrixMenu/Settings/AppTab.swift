@@ -42,7 +42,7 @@ struct AppTab: View {
                 }
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
 
     private func glyphPicker(_ label: String, _ binding: Binding<String>) -> some View {

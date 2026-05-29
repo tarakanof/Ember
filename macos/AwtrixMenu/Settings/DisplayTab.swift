@@ -11,39 +11,44 @@ struct DisplayTab: View {
     @State private var loaded = false
 
     var body: some View {
-        Form {
-            Section("Preview") {
-                if let preview, !preview.frames.isEmpty {
-                    PreviewCanvas(frames: preview.frames)
-                        .frame(height: 56)
-                    if !preview.activity.isEmpty {
-                        Text("Activity card: \(preview.activity)")
-                            .font(.caption).foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            Form {
+                Section("Preview") {
+                    if let preview, !preview.frames.isEmpty {
+                        PreviewCanvas(frames: preview.frames)
+                            .frame(height: 56)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                        if !preview.activity.isEmpty {
+                            Text("Activity card: \(preview.activity)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        RoundedRectangle(cornerRadius: 4).fill(.black).frame(height: 56)
+                            .overlay(Text(status ?? "No preview")
+                                .font(.caption).foregroundStyle(.secondary))
                     }
-                } else {
-                    RoundedRectangle(cornerRadius: 4).fill(.black).frame(height: 56)
-                        .overlay(Text(status ?? "No preview")
-                            .font(.caption).foregroundStyle(.secondary))
+                }
+
+                Section("Elements") {
+                    Toggle("Context %", isOn: $display.contextPct)
+                    Toggle("Context number", isOn: $display.contextNumber)
+                    Toggle("Rate-limit %", isOn: $display.ratePct)
+                    Toggle("Rate bottom bar", isOn: $display.rateBottomBar)
+                    Toggle("Rate reset countdown", isOn: $display.rateReset)
+                    Toggle("Activity detail", isOn: $display.activityDetail)
+                    Toggle("Activity trail (multi-session bar)", isOn: $display.activityTrail)
                 }
             }
+            .formStyle(.grouped)
 
-            Section("Elements") {
-                Toggle("Context %", isOn: $display.contextPct)
-                Toggle("Context number", isOn: $display.contextNumber)
-                Toggle("Rate-limit %", isOn: $display.ratePct)
-                Toggle("Rate bottom bar", isOn: $display.rateBottomBar)
-                Toggle("Rate reset countdown", isOn: $display.rateReset)
-                Toggle("Activity detail", isOn: $display.activityDetail)
-                Toggle("Activity trail (multi-session bar)", isOn: $display.activityTrail)
-            }
-
-            HStack {
-                if let status { Text(status).font(.caption).foregroundStyle(.secondary) }
+            Divider()
+            HStack(spacing: 12) {
+                if let status { Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
                 Button("Save") { save() }.keyboardShortcut(.defaultAction)
             }
+            .padding(12)
         }
-        .padding()
         .task {
             if !loaded {
                 let envFile = env.currentEnv()

@@ -12,6 +12,6 @@ struct SettingsView: View {
             AppTab()
                 .tabItem { Label("App", systemImage: "app.badge") }
         }
-        .frame(width: 460, height: 420)
+        .frame(width: 500, height: 440)
     }
 }
