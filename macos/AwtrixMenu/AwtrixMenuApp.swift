@@ -4,19 +4,20 @@ import AwtrixMenuKit
 @main
 struct AwtrixMenuApp: App {
     @State private var model = AppModel()
+    private let pomodoro: PomodoroService
 
     init() {
+        let client = Bootstrap.makeClient()
         let m = AppModel()
-        m.configure(client: Bootstrap.makeClient())
+        m.configure(client: client)
         m.startPolling()
         _model = State(initialValue: m)
+        pomodoro = PomodoroService(client: client)
     }
 
     var body: some Scene {
         MenuBarExtra {
-            Text(model.connected ? "Connected" : "Offline")
-            Divider()
-            Button("Quit") { NSApplication.shared.terminate(nil) }
+            MenuBarContentView(model: model, pomodoro: pomodoro)
         } label: {
             MenuBarLabel(session: model.winningSession, prefs: .default)
         }
