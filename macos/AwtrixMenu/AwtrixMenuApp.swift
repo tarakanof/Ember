@@ -10,7 +10,7 @@ struct AwtrixMenuApp: App {
             MenuBarContentView()
                 .environment(env)
         } label: {
-            MenuBarLabel(session: env.model.winningSession, prefs: .default)
+            MenuBarLabel(session: env.model.winningSession, prefs: env.prefs)
         }
         .menuBarExtraStyle(.window)
 

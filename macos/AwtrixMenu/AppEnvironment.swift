@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import AwtrixMenuKit
 
@@ -12,10 +13,48 @@ public final class AppEnvironment {
     public private(set) var pomodoro: PomodoroService
     public private(set) var preview: PreviewService
 
+    /// Menu-only prefs (icon palette + tray glyphs), persisted to UserDefaults.
+    /// Observed so the menu-bar label updates live when the App tab edits them.
+    public var prefs: MenuPrefs {
+        didSet {
+            AppEnvironment.savePrefs(prefs)
+            AppEnvironment.applyAppIcon(prefs.appIcon)
+        }
+    }
+
+    static let prefsDefaults = UserDefaults.standard
+
+    static func loadPrefs() -> MenuPrefs {
+        let d = prefsDefaults
+        return MenuPrefs(
+            appIcon: d.string(forKey: "appIcon") ?? MenuPrefs.default.appIcon,
+            trayClaudeGlyph: d.string(forKey: "trayClaudeGlyph") ?? MenuPrefs.default.trayClaudeGlyph,
+            trayCodexGlyph: d.string(forKey: "trayCodexGlyph") ?? MenuPrefs.default.trayCodexGlyph,
+            trayIdleGlyph: d.string(forKey: "trayIdleGlyph") ?? MenuPrefs.default.trayIdleGlyph
+        ).validated()
+    }
+
+    static func savePrefs(_ p: MenuPrefs) {
+        let d = prefsDefaults
+        d.set(p.appIcon, forKey: "appIcon")
+        d.set(p.trayClaudeGlyph, forKey: "trayClaudeGlyph")
+        d.set(p.trayCodexGlyph, forKey: "trayCodexGlyph")
+        d.set(p.trayIdleGlyph, forKey: "trayIdleGlyph")
+    }
+
+    /// Applies the chosen palette as the runtime app icon. No-op if the asset is
+    /// missing (the appicon-* assets arrive in C5 Task 2).
+    static func applyAppIcon(_ palette: String) {
+        if let img = NSImage(named: "appicon-\(palette)") {
+            NSApplication.shared.applicationIconImage = img
+        }
+    }
+
     let producerEnvPath: URL
 
     public init(producerEnvPath: URL = AppEnvironment.defaultEnvPath) {
         self.producerEnvPath = producerEnvPath
+        prefs = AppEnvironment.loadPrefs()
         let client = AppEnvironment.makeClient(path: producerEnvPath)
         pomodoro = PomodoroService(client: client)
         preview = PreviewService(client: client)
@@ -23,6 +62,7 @@ public final class AppEnvironment {
         model.startPolling()   // begin polling at launch (idempotent); self-started
                                // here so the menu-bar label updates without opening
                                // the popover first.
+        AppEnvironment.applyAppIcon(prefs.appIcon)
     }
 
     /// Re-read producer.env, rebuild the client, reconfigure model + service.
