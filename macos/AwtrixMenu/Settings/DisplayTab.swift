@@ -6,7 +6,7 @@ struct DisplayTab: View {
 
     @State private var display = DisplaySettings(reading: EnvFile(parsing: ""))
     @State private var sourceColor = ""
-    @State private var preview: AwtrixMenuKit.Preview?
+    @State private var preview: PreviewResponse?
     @State private var status: String?
     @State private var loaded = false
 
