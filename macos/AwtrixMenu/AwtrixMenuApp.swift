@@ -13,10 +13,12 @@ struct AwtrixMenuApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("AWTRIX", systemImage: "square.grid.3x3.fill") {
+        MenuBarExtra {
             Text(model.connected ? "Connected" : "Offline")
             Divider()
             Button("Quit") { NSApplication.shared.terminate(nil) }
+        } label: {
+            MenuBarLabel(session: model.winningSession, prefs: .default)
         }
         .menuBarExtraStyle(.window)
     }
