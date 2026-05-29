@@ -9,6 +9,8 @@ struct SettingsView: View {
                 .tabItem { Label("Display", systemImage: "rectangle.dashed") }
             PomodoroTab()
                 .tabItem { Label("Pomodoro", systemImage: "timer") }
+            AppTab()
+                .tabItem { Label("App", systemImage: "app.badge") }
         }
         .frame(width: 460, height: 420)
     }
