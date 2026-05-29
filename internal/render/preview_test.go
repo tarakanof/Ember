@@ -1,10 +1,63 @@
 package render
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSampleBaseSession(t *testing.T) {
 	s := SampleBaseSession()
 	if s.Source != "mbp" || s.Tool != "claude" || s.Session != "sample" || s.State != "running" {
 		t.Fatalf("unexpected sample base: %+v", s)
+	}
+}
+
+func TestPreviewSessionToggles(t *testing.T) {
+	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
+	base := Session{Source: "mbp", Tool: "claude", State: "running"}
+
+	off := PreviewSession(DraftDisplay{}, base, now)
+	if off.ContextPct != nil || off.RateWindowPct != nil {
+		t.Fatal("pct fields should be nil when toggles off")
+	}
+	if off.RateResetAt != 0 || off.RateReset {
+		t.Fatal("reset should be cleared when off")
+	}
+	if off.Activity != "" {
+		t.Fatal("activity should be empty when off")
+	}
+	if off.SourceColor != nil {
+		t.Fatal("source color should be nil when empty")
+	}
+
+	on := PreviewSession(DraftDisplay{
+		ContextPct: true, RatePct: true, RateReset: true,
+		ContextNumber: true, RateBottomBar: true, ActivityDetail: true,
+		SourceColor: "#ff8800",
+	}, base, now)
+	if on.ContextPct == nil || *on.ContextPct != samplePct {
+		t.Fatalf("ctx pct sample = %v", on.ContextPct)
+	}
+	if on.RateWindowPct == nil || *on.RateWindowPct != samplePct {
+		t.Fatalf("rate pct sample = %v", on.RateWindowPct)
+	}
+	if want := now.Add(sampleResetHrs * time.Hour).Unix(); on.RateResetAt != want {
+		t.Fatalf("reset at = %d want %d", on.RateResetAt, want)
+	}
+	if !on.RateReset || !on.ContextNumber || !on.RateBottomBar {
+		t.Fatal("bool fields should pass through")
+	}
+	if on.Activity != sampleActivity {
+		t.Fatalf("activity sample = %q", on.Activity)
+	}
+	if on.SourceColor == nil || *on.SourceColor != "#ff8800" {
+		t.Fatal("source color should be set")
+	}
+
+	live := base
+	live.ContextPct = ptrInt(10)
+	got := PreviewSession(DraftDisplay{ContextPct: true}, live, now)
+	if got.ContextPct == nil || *got.ContextPct != 10 {
+		t.Fatalf("live ctx pct should win over sample, got %v", got.ContextPct)
 	}
 }
