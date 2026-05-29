@@ -4,6 +4,10 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/dt/awtrix-ai-status/internal/render"
@@ -19,29 +23,31 @@ import (
 // only on the serial main queue, so the guard check and arm are race-free.
 var settingsWindow appkit.Window
 
+// settingsDelegate retains the window's delegate for the lifetime of the window.
+// NSWindow.delegate is a WEAK reference, so without a Go-side reference the
+// DarwinKit delegate proxy is garbage-collected after openSettingsWindow
+// returns; AppKit then messages a freed delegate on close (windowShouldClose:/
+// windowWillClose:) → SIGSEGV. Holding it here keeps it alive.
+var settingsDelegate *appkit.WindowDelegate
+
 // settingsTabView is the window's tab view, retained so a second open request
 // can switch tabs on the already-open window. Reset alongside settingsWindow.
 var settingsTabView appkit.TabView
 
-// settingsDelegate retains the window's delegate for the lifetime of the window.
-// NSWindow.delegate is a WEAK reference, so without a Go-side reference the
-// DarwinKit delegate proxy is garbage-collected after the build closure returns;
-// AppKit then messages a freed delegate on close (windowWillClose:) → SIGSEGV.
-// Holding it here keeps it alive. See [[project_darwinkit_retention_crashes]].
-var settingsDelegate *appkit.WindowDelegate
-
 // Tab indices within the settings window.
 const (
-	tabStatus   = 0
-	tabPomodoro = 1
+	tabConnection = 0
+	tabDisplay    = 1
+	tabPomodoro   = 2
+	tabApp        = 3
 )
 
-// openSettingsWindow opens (or refocuses) the settings window on the Status tab.
-func openSettingsWindow(envPath string) { openSettingsWindowOnTab(envPath, tabStatus) }
+// openSettingsWindow opens (or refocuses) the settings window. Safe to call
+// from any goroutine — it marshals all AppKit work onto the main thread.
+func openSettingsWindow(envPath string) { openSettingsWindowOnTab(envPath, tabConnection) }
 
 // openSettingsWindowOnTab opens (or refocuses) the settings window and selects
-// the given tab. Safe to call from any goroutine — it marshals all AppKit work
-// onto the main thread.
+// the given tab. Safe to call from any goroutine.
 func openSettingsWindowOnTab(envPath string, tab int) {
 	dispatch.MainQueue().DispatchAsync(func() {
 		app := appkit.Application_SharedApplication()
@@ -68,41 +74,46 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 		form, tokenSet := formFromEnv(rec)
 
 		const (
-			winW = 460.0 // content-area width the Status layout's coords assume
-			winH = 744.0
-			// The window is larger than the content area to leave room for the
-			// tab strip + bezel; each tab's content view then lands ~winW×winH,
-			// which is what the Status layout's absolute coordinates expect.
-			windowW = winW + 34.0
-			windowH = winH + 70.0
+			winW = 460.0
+			winH = 902.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
-			foundation.Rect{Size: foundation.Size{Width: windowW, Height: windowH}},
+			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
 			appkit.WindowStyleMaskTitled|appkit.WindowStyleMaskClosable,
 			appkit.BackingStoreBuffered, false,
 		)
 		w.SetTitle("AWTRIX Settings")
 		w.SetReleasedWhenClosed(false)
+		content := w.ContentView()
 
-		// Two-tab layout. Each tab item gets its own content view that the tab
-		// view sizes to its content area (~winW×winH).
+		// --- Tab view ------------------------------------------------------
+		// Fills the area above the footer (footer stays at Y 8–48). Each tab's
+		// boxes are re-parented onto its container view below; NSTabView keeps
+		// all item views alive so the Save/preview closures still read them.
+		const tabH = winH - 60 - 36 // tab content height (minus tab-bar+inset)
 		tabView := appkit.NewTabView()
-		tabView.SetFrame(w.ContentView().Bounds())
-		statusItem := appkit.NewTabViewItem()
-		statusItem.SetLabel("Status")
-		statusContent := appkit.NewView()
-		statusItem.SetView(statusContent)
-		pomoItem := appkit.NewTabViewItem()
-		pomoItem.SetLabel("Pomodoro")
-		pomoContent := appkit.NewView()
-		pomoItem.SetView(pomoContent)
-		tabView.AddTabViewItem(statusItem)
-		tabView.AddTabViewItem(pomoItem)
-		w.ContentView().AddSubview(tabView)
-		settingsTabView = tabView
+		tabView.SetFrame(foundation.Rect{
+			Origin: foundation.Point{X: 8, Y: 52},
+			Size:   foundation.Size{Width: winW - 16, Height: winH - 60},
+		})
 
-		// The existing Status controls build into the Status tab's content view.
-		content := statusContent
+		connTabView := appkit.NewView()
+		displayTabView := appkit.NewView()
+		pomoTabView := appkit.NewView()
+		appTabView := appkit.NewView()
+
+		mkItem := func(label string, v appkit.View) {
+			it := appkit.NewTabViewItem()
+			it.SetLabel(label)
+			it.SetView(v)
+			tabView.AddTabViewItem(it)
+		}
+		mkItem("Connection", connTabView) // tabConnection
+		mkItem("Display", displayTabView) // tabDisplay
+		mkItem("Pomodoro", pomoTabView)   // tabPomodoro
+		mkItem("App", appTabView)         // tabApp
+		content.AddSubview(tabView)
+		settingsTabView = tabView
 
 		// --- Preview panel (top) -------------------------------------------
 		// A dark backing box holding the pre-scaled 32x8 matrix preview, a
@@ -118,7 +129,7 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 		previewBox := appkit.NewBox()
 		previewBox.SetTitle("Preview")
 		previewBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 572},
+			Origin: foundation.Point{X: 8, Y: tabH - 8 - 154},
 			Size:   foundation.Size{Width: previewBoxW, Height: 154},
 		})
 		previewView := appkit.NewView()
@@ -153,7 +164,7 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 
 		pw := &previewWidget{imageView: imageView, caption: previewCaption, badge: previewBadge}
 
-		content.AddSubview(previewBox)
+		displayTabView.AddSubview(previewBox)
 
 		// --- Group 1: Connection -------------------------------------------
 		// Box content coordinates are relative to the box's content view.
@@ -169,7 +180,7 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 		connBox := appkit.NewBox()
 		connBox.SetTitle("Connection")
 		connBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 348},
+			Origin: foundation.Point{X: 8, Y: tabH - 8 - 212},
 			Size:   foundation.Size{Width: winW - 32, Height: 212},
 		})
 		connView := appkit.NewView()
@@ -237,7 +248,7 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 			pw.onFormChanged()
 		})
 
-		content.AddSubview(connBox)
+		connTabView.AddSubview(connBox)
 
 		// --- Group 2: Display elements -------------------------------------
 		// Grouped by the screen region each element occupies. Checkbox rows on
@@ -245,7 +256,7 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 		clockBox := appkit.NewBox()
 		clockBox.SetTitle("Display elements")
 		clockBox.SetFrame(foundation.Rect{
-			Origin: foundation.Point{X: 16, Y: 54},
+			Origin: foundation.Point{X: 8, Y: tabH - 8 - 154 - 8 - 284},
 			Size:   foundation.Size{Width: winW - 32, Height: 284},
 		})
 		clockView := appkit.NewView()
@@ -317,7 +328,235 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 			s.RateBottomBar = true
 		})
 
-		content.AddSubview(clockBox)
+		displayTabView.AddSubview(clockBox)
+
+		// groupClosed is set when the window closes so in-flight launch-at-login
+		// goroutines skip touching now-freed AppKit controls in their callback.
+		var groupClosed atomic.Bool
+
+		// --- Group 3: Launch at login --------------------------------------
+		home, _ := os.UserHomeDir()
+		uid := os.Getuid()
+		iconPrefs := loadMenuPrefs(menuPrefsPath(home))
+		clearIconCacheAndRefresh := func(envPath string) { refreshTrayIcon(envPath) }
+		selfDir := ""
+		if exe, err := os.Executable(); err == nil {
+			selfDir = filepath.Dir(exe)
+		}
+
+		launchBox := appkit.NewBox()
+		launchBox.SetTitle("Launch at login")
+		launchBox.SetFrame(foundation.Rect{
+			Origin: foundation.Point{X: 8, Y: tabH - 8 - 150},
+			Size:   foundation.Size{Width: winW - 32, Height: 150},
+		})
+		launchView := appkit.NewView()
+		launchBox.SetContentView(launchView)
+
+		rowTitles := map[string]string{
+			"com.awtrix-ai-status.menu":      "Menu bar app",
+			"com.awtrix-ai-status.heartbeat": "Claude producer",
+			"com.awtrix-ai-status.codex":     "Codex producer",
+		}
+		rowY := map[string]float64{
+			"com.awtrix-ai-status.menu":      98,
+			"com.awtrix-ai-status.heartbeat": 70,
+			"com.awtrix-ai-status.codex":     42,
+		}
+		launchErr := newErrorLabel(foundation.Rect{Origin: foundation.Point{X: 8, Y: 12}, Size: foundation.Size{Width: winW - 48, Height: 14}})
+		launchView.AddSubview(launchErr)
+
+		// Info line explaining the install/uninstall model, temporarily replaced
+		// by the "restart claude" hint after installing the Claude producer.
+		// Secondary color so it never reads as an error (errors use launchErr).
+		const launchInfoNote = "On installs (launches at login, shown in System Settings → Login Items); Off uninstalls."
+		launchNote := appkit.TextField_LabelWithString(launchInfoNote)
+		launchNote.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: 26}, Size: foundation.Size{Width: winW - 48, Height: 14}})
+		launchNote.SetFont(appkit.Font_SystemFontOfSize(10))
+		launchNote.SetTextColor(appkit.Color_SecondaryLabelColor())
+		launchView.AddSubview(launchNote)
+
+		for i := range managedComponents {
+			c := managedComponents[i] // capture per-iteration copy
+			y := rowY[c.label]
+			st := detectState(c, home, uid)
+
+			check := appkit.NewButton()
+			check.SetButtonType(appkit.ButtonTypeSwitch)
+			check.SetTitle(rowTitles[c.label])
+			check.SetState(boolState(st.launchAtLogin()))
+			check.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: y}, Size: foundation.Size{Width: 150, Height: rowH}})
+			launchView.AddSubview(check)
+
+			stateLbl := appkit.TextField_LabelWithString(st.stateLabel())
+			stateLbl.SetFrame(foundation.Rect{Origin: foundation.Point{X: 166, Y: y + 2}, Size: foundation.Size{Width: 92, Height: 18}})
+			stateLbl.SetFont(appkit.Font_SystemFontOfSize(11))
+			stateLbl.SetTextColor(appkit.Color_SecondaryLabelColor())
+			launchView.AddSubview(stateLbl)
+
+			// The menu app row is read-only: the app cannot cleanly install or
+			// uninstall itself from its own running process. Show a disabled
+			// checkbox + a CLI hint.
+			if c.binary == "" {
+				check.SetEnabled(false)
+				cliNote := appkit.TextField_LabelWithString("manage via CLI")
+				cliNote.SetFrame(foundation.Rect{Origin: foundation.Point{X: 264, Y: y + 2}, Size: foundation.Size{Width: 140, Height: 18}})
+				cliNote.SetFont(appkit.Font_SystemFontOfSize(10))
+				cliNote.SetTextColor(appkit.Color_TertiaryLabelColor())
+				launchView.AddSubview(cliNote)
+				continue
+			}
+
+			// Producer row: checkbox installs (on) / uninstalls (off).
+			var busy atomic.Bool
+
+			refresh := func() {
+				ns := detectState(c, home, uid)
+				check.SetState(boolState(ns.launchAtLogin()))
+				stateLbl.SetStringValue(ns.stateLabel())
+			}
+
+			runOps := func(successNote string, want bool) {
+				if !busy.CompareAndSwap(false, true) {
+					return // an operation for this row is already in flight
+				}
+				go func() {
+					cur := detectState(c, home, uid)
+					binPath := resolveBinary(c.binary, exec.LookPath, home, selfDir)
+					ops := planToggle(c, cur, want, binPath)
+					var err error
+					if binPath == "" && len(ops) > 0 {
+						err = fmt.Errorf("%s not found — build/install it first", c.binary)
+					} else {
+						for _, o := range ops {
+							if err = runOp(o); err != nil {
+								break
+							}
+						}
+					}
+					ran := len(ops) > 0
+					dispatch.MainQueue().DispatchAsync(func() {
+						if groupClosed.Load() {
+							return // window closed mid-op; controls are gone
+						}
+						if err != nil {
+							launchErr.SetStringValue(err.Error())
+							launchNote.SetStringValue(launchInfoNote)
+						} else {
+							launchErr.SetStringValue("")
+							if ran && successNote != "" {
+								launchNote.SetStringValue(successNote)
+							} else {
+								launchNote.SetStringValue(launchInfoNote)
+							}
+						}
+						refresh()
+						busy.Store(false)
+					})
+				}()
+			}
+
+			action.Set(check, func(sender objc.Object) {
+				want := check.State() == appkit.ControlStateValueOn
+				// Turning OFF uninstalls (destructive) — confirm, and revert the
+				// checkbox if the user backs out.
+				if !want && !confirmUninstall(rowTitles[c.label]) {
+					check.SetState(appkit.ControlStateValueOn)
+					return
+				}
+				note := ""
+				if want && c.binary == "awtrix-claude-producer" {
+					note = "Restart claude for it to pick up the new hooks."
+				}
+				runOps(note, want)
+			})
+		}
+		appTabView.AddSubview(launchBox)
+
+		// --- App icon picker -----------------------------------------------
+		// Laid out top-down below launchBox (which sits at Y = tabH-8-150, so
+		// its bottom edge is tabH-158). 8px gaps, no overlap.
+		const (
+			launchBottom = tabH - 158
+			appIconHdrY  = launchBottom - 8 - 16 // header row
+			swatchY      = appIconHdrY - 8 - 56  // 56px swatch row
+			trayHdrY     = swatchY - 8 - 16      // tray header row
+			yClaude      = trayHdrY - 8 - 26     // glyph dropdown rows (26px)
+			yCodex       = yClaude - 8 - 26
+			yIdle        = yCodex - 8 - 26
+		)
+
+		appIconHdr := appkit.TextField_LabelWithString("App icon (dock icon while this window is open)")
+		appIconHdr.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: appIconHdrY}, Size: foundation.Size{Width: 360, Height: 16}})
+		appIconHdr.SetFont(appkit.Font_BoldSystemFontOfSize(11))
+		appTabView.AddSubview(appIconHdr)
+
+		var iconButtons []appkit.Button
+		for i, pal := range appIconPalettes {
+			pal := pal
+			b := appkit.NewButton()
+			b.SetButtonType(appkit.ButtonTypeOnOff)
+			b.SetBordered(true)
+			b.SetTitle("")
+			if data, err := appIconPNG(pal); err == nil {
+				img := appkit.NewImageWithData(data)
+				b.SetImage(img)
+				b.SetImageScaling(appkit.ImageScaleProportionallyDown)
+			}
+			b.SetFrame(foundation.Rect{Origin: foundation.Point{X: float64(8 + i*64), Y: swatchY}, Size: foundation.Size{Width: 56, Height: 56}})
+			b.SetState(boolState(pal == iconPrefs.AppIcon))
+			appTabView.AddSubview(b)
+			iconButtons = append(iconButtons, b)
+		}
+		for i := range iconButtons {
+			i := i
+			action.Set(iconButtons[i], func(sender objc.Object) {
+				pal := appIconPalettes[i]
+				for j, b := range iconButtons {
+					b.SetState(boolState(j == i)) // radio behavior
+				}
+				iconPrefs.AppIcon = pal
+				_ = saveMenuPrefs(menuPrefsPath(home), iconPrefs)
+				applyAppIcon(pal)
+			})
+		}
+
+		// --- Tray glyph pickers --------------------------------------------
+		trayHdr := appkit.TextField_LabelWithString("Menu-bar icon (tinted by state)")
+		trayHdr.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: trayHdrY}, Size: foundation.Size{Width: 360, Height: 16}})
+		trayHdr.SetFont(appkit.Font_BoldSystemFontOfSize(11))
+		appTabView.AddSubview(trayHdr)
+
+		mkGlyphPopup := func(labelText, current string, y float64, apply func(string)) {
+			lbl := appkit.TextField_LabelWithString(labelText)
+			lbl.SetFrame(foundation.Rect{Origin: foundation.Point{X: 8, Y: y + 2}, Size: foundation.Size{Width: 90, Height: 18}})
+			appTabView.AddSubview(lbl)
+			pop := appkit.NewPopUpButton()
+			pop.SetFrame(foundation.Rect{Origin: foundation.Point{X: 104, Y: y}, Size: foundation.Size{Width: 160, Height: 26}})
+			for _, g := range trayGlyphs {
+				pop.AddItemWithTitle(g)
+			}
+			pop.SelectItemWithTitle(current)
+			action.Set(pop, func(sender objc.Object) {
+				apply(pop.TitleOfSelectedItem())
+			})
+			appTabView.AddSubview(pop)
+		}
+		mkGlyphPopup("Claude:", iconPrefs.TrayClaudeGlyph, yClaude, func(g string) {
+			iconPrefs.TrayClaudeGlyph = g
+			_ = saveMenuPrefs(menuPrefsPath(home), iconPrefs)
+			clearIconCacheAndRefresh(envPath)
+		})
+		mkGlyphPopup("Codex:", iconPrefs.TrayCodexGlyph, yCodex, func(g string) {
+			iconPrefs.TrayCodexGlyph = g
+			_ = saveMenuPrefs(menuPrefsPath(home), iconPrefs)
+			clearIconCacheAndRefresh(envPath)
+		})
+		mkGlyphPopup("Idle:", iconPrefs.TrayIdleGlyph, yIdle, func(g string) {
+			iconPrefs.TrayIdleGlyph = g
+			_ = saveMenuPrefs(menuPrefsPath(home), iconPrefs)
+			clearIconCacheAndRefresh(envPath)
+		})
 
 		// --- Preview wiring ------------------------------------------------
 		// readCurrentForm mirrors the Save handler's control reads (minus the
@@ -363,7 +602,7 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 		cancelBtn.SetBezelStyle(appkit.BezelStyleRounded)
 		cancelBtn.SetFrame(foundation.Rect{Origin: foundation.Point{X: winW - 200, Y: 8}, Size: foundation.Size{Width: 88, Height: 28}})
 		action.Set(cancelBtn, func(sender objc.Object) {
-			w.PerformClose(nil)
+			w.Close() // Close() (not PerformClose) avoids sending windowShouldClose:
 		})
 		content.AddSubview(cancelBtn)
 
@@ -422,13 +661,14 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 				generalErr.SetStringValue(fmt.Sprintf("could not save: %v", err))
 				return
 			}
-			w.PerformClose(nil)
+			w.Close() // Close() (not PerformClose) avoids sending windowShouldClose:
 		})
 		content.AddSubview(saveBtn)
 
 		// --- Window delegate: revert to Accessory + rearm guard on close. --
 		wd := &appkit.WindowDelegate{}
 		wd.SetWindowWillClose(func(notification foundation.Notification) {
+			groupClosed.Store(true)
 			pw.stop()
 			appkit.Application_SharedApplication().SetActivationPolicy(appkit.ApplicationActivationPolicyAccessory)
 			settingsWindow = appkit.Window{}
@@ -437,10 +677,9 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 		w.SetDelegate(wd)
 		settingsDelegate = wd // retain past this closure (weak delegate ref)
 
-		// Build the Pomodoro tab into its content view.
-		buildPomodoroTab(w, pomoContent, envPath)
-
-		// Select the requested tab.
+		// Build the Pomodoro tab into its content view, then select the
+		// requested tab.
+		buildPomodoroTab(w, pomoTabView, envPath)
 		tabView.SelectTabViewItemAtIndex(tab)
 
 		// Seed the preview from /state (sample fallback) and start the
@@ -448,6 +687,9 @@ func openSettingsWindowOnTab(envPath string, tab int) {
 		pw.base, pw.live = fetchBaseSession(urlField.StringValue(), 2*time.Second)
 		pw.render()
 		pw.startRotation()
+
+		// Apply the chosen dock icon now the app is .regular (window visible).
+		applyAppIcon(iconPrefs.AppIcon)
 
 		// Arm the single-instance guard before showing.
 		settingsWindow = w
@@ -531,6 +773,16 @@ var (
 	// barRegion is the bottom bar at row 7, cols 11–31.
 	barRegion = thumbRegion{11, 7, 32, 8}
 )
+
+// confirmUninstall shows a modal yes/no and returns true if the user confirms.
+func confirmUninstall(name string) bool {
+	alert := appkit.NewAlert()
+	alert.SetMessageText(fmt.Sprintf("Uninstall %s?", name))
+	alert.SetInformativeText("This removes its LaunchAgent (and, for the Claude producer, its hooks) and stops it now.")
+	alert.AddButtonWithTitle("Uninstall")
+	alert.AddButtonWithTitle("Cancel")
+	return alert.RunModal() == appkit.AlertFirstButtonReturn
+}
 
 // elementThumb composes a sample frame via mut, masks it to element region r
 // (dropping the robot and every other element), and renders the full 32×8
