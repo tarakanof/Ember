@@ -10,6 +10,7 @@ import AwtrixMenuKit
 public final class AppEnvironment {
     public let model = AppModel()
     public private(set) var pomodoro: PomodoroService
+    public private(set) var preview: PreviewService
 
     let producerEnvPath: URL
 
@@ -17,6 +18,7 @@ public final class AppEnvironment {
         self.producerEnvPath = producerEnvPath
         let client = AppEnvironment.makeClient(path: producerEnvPath)
         pomodoro = PomodoroService(client: client)
+        preview = PreviewService(client: client)
         model.configure(client: client)
         model.startPolling()   // begin polling at launch (idempotent); self-started
                                // here so the menu-bar label updates without opening
@@ -27,6 +29,7 @@ public final class AppEnvironment {
     public func reloadConnection() {
         let client = AppEnvironment.makeClient(path: producerEnvPath)
         pomodoro = PomodoroService(client: client)
+        preview = PreviewService(client: client)
         model.configure(client: client)
         Task { await model.refresh() }
     }
