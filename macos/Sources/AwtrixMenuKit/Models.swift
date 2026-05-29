@@ -141,7 +141,7 @@ public struct CardFrame: Codable, Sendable, Equatable {
     public var pixels: [String]
 }
 
-public struct Preview: Codable, Sendable, Equatable {
+public struct PreviewResponse: Codable, Sendable, Equatable {
     public var width: Int
     public var height: Int
     public var activity: String

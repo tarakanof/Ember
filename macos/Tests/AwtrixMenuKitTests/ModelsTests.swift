@@ -34,7 +34,7 @@ import Foundation
     let px = Array(repeating: "#000000", count: 256)
     let pxJSON = "[" + px.map { "\"\($0)\"" }.joined(separator: ",") + "]"
     let json = #"{"width":32,"height":8,"activity":"Bash: go test","frames":[{"card":"xy","pixels":\#(pxJSON)}]}"#
-    let p = try JSONDecoder().decode(Preview.self, from: Data(json.utf8))
+    let p = try JSONDecoder().decode(PreviewResponse.self, from: Data(json.utf8))
     #expect(p.width == 32)
     #expect(p.frames.count == 1)
     #expect(p.frames[0].card == "xy")

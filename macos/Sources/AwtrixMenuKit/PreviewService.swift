@@ -32,7 +32,7 @@ public struct DraftDisplay: Sendable, Equatable {
 public struct PreviewService: Sendable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
-    public func fetchPreview(_ draft: DraftDisplay) async throws -> Preview {
+    public func fetchPreview(_ draft: DraftDisplay) async throws -> PreviewResponse {
         try await client.get("/v1/preview", query: draft.queryItems)
     }
 }

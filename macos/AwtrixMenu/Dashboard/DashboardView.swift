@@ -4,7 +4,7 @@ import AwtrixMenuKit
 struct DashboardView: View {
     @Environment(AppEnvironment.self) private var env
 
-    @State private var preview: AwtrixMenuKit.Preview?
+    @State private var preview: PreviewResponse?
     @State private var refresh = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     private func mmss(_ sec: Int) -> String {
