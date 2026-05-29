@@ -85,6 +85,18 @@ type coordinator struct {
 	// In tests, the test sets it directly.
 	snapshot func() Snapshot
 
+	// pomoView, when non-nil, reports the current Pomodoro render view and
+	// whether a timer is active. An active Pomodoro preempts everything
+	// (including attention locks): publish renders its frame into the app
+	// slot and holds it. nil when the Pomodoro feature is disabled.
+	pomoView func() (render.PomodoroView, bool)
+
+	// pomoTakeover tracks whether the device is currently under Pomodoro
+	// takeover (rotation + native button-nav disabled). Edge-triggered: the
+	// ATRANS/BLOCKN settings are written only on the active↔idle transition.
+	// Coordinator-goroutine-owned (read/written only from publish).
+	pomoTakeover bool
+
 	// onPublishResult, if non-nil, is called after every publish attempt
 	// with the snapshot we tried to render and the error (nil on success).
 	// Used by App to update lastPublish* AND lastPublished (the legacy
@@ -205,6 +217,10 @@ func (c *coordinator) Send(cmd coordCmd) {
 // opportunistically — preempt latency wins over rotation jitter).
 func (c *coordinator) Run(ctx context.Context) {
 	c.ctx = ctx
+	// On shutdown, undo any active Pomodoro device takeover so a restart while
+	// a timer is running doesn't leave the device with rotation + native button
+	// navigation disabled.
+	defer c.restorePomoTakeoverOnExit()
 	for {
 		// Opportunistic drain: if cmds has work, prefer it.
 		select {
@@ -392,6 +408,50 @@ func (c *coordinator) onTick() {
 	c.publish(snap)
 }
 
+// applyPomoTakeover writes the device rotation/native-nav settings on the
+// active↔idle Pomodoro edge. While active: disable app rotation (ATRANS) and
+// native button navigation (BLOCKN) and force the device to the app slot so
+// the timer holds the screen and the buttons drive the timer instead of
+// switching apps. On return to idle: restore both. No-op when nothing changed.
+// Runs on the coordinator goroutine only.
+func (c *coordinator) applyPomoTakeover(active bool, appName string) {
+	if active == c.pomoTakeover {
+		return
+	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if active {
+		if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": false, "BLOCKN": true}); err != nil {
+			c.logger.Warn("pomo takeover settings failed", "err", err)
+		}
+		if err := c.publisher.Switch(ctx, appName); err != nil {
+			c.logger.Warn("pomo switch failed", "err", err)
+		}
+	} else {
+		if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": true, "BLOCKN": false}); err != nil {
+			c.logger.Warn("pomo restore settings failed", "err", err)
+		}
+	}
+	c.pomoTakeover = active
+}
+
+// restorePomoTakeoverOnExit re-enables app rotation + native button navigation
+// if a Pomodoro takeover was active when the coordinator stops. Uses a fresh
+// context because the Run context is already cancelled on exit.
+func (c *coordinator) restorePomoTakeoverOnExit() {
+	if !c.pomoTakeover {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": true, "BLOCKN": false}); err != nil {
+		c.logger.Warn("pomo restore on shutdown failed", "err", err)
+	}
+	c.pomoTakeover = false
+}
+
 func (c *coordinator) publish(snap Snapshot) {
 	cfg := c.loadCfg()
 	lifetime := cfg.Display.FrameLifetimeSeconds
@@ -401,25 +461,40 @@ func (c *coordinator) publish(snap Snapshot) {
 	idleRestore := time.Duration(cfg.Display.IdleRestoreSeconds) * time.Second
 	now := c.clk.Now()
 
-	keys := render.SortedActiveKeys(snap)
-	c.muTest.Lock()
-	mode := c.idleStateLocked(len(keys), now, idleRestore)
-	c.muTest.Unlock()
-
+	// Pomodoro preempt (highest priority). An active timer owns the display:
+	// render its frame and apply device takeover (edge-triggered). When it
+	// goes idle, restore rotation/native-nav and fall through to the normal
+	// session rendering below.
+	var pomoActive bool
 	var payload map[string]any
-	switch mode {
-	case idleModeActive:
-		// pointer/cardCursor/locked are read without muTest: publish runs only
-		// on the coordinator goroutine that also writes them; the lock exists
-		// solely so tests can read this state race-free.
-		payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime)
-	case idleModeDimmed:
-		payload = render.RenderIdleFrame(lifetime)
-	case idleModeOff:
-		// Countdown elapsed — let the device's lifetime expire so
-		// AWTRIX scheduler returns to native apps. No publish, no
-		// dedupe-state update.
-		return
+	if c.pomoView != nil {
+		if view, on := c.pomoView(); on {
+			pomoActive = true
+			payload = render.PomodoroPayload(view, lifetime)
+		}
+	}
+	c.applyPomoTakeover(pomoActive, cfg.AWTRIX.AppName)
+
+	if !pomoActive {
+		keys := render.SortedActiveKeys(snap)
+		c.muTest.Lock()
+		mode := c.idleStateLocked(len(keys), now, idleRestore)
+		c.muTest.Unlock()
+
+		switch mode {
+		case idleModeActive:
+			// pointer/cardCursor/locked are read without muTest: publish runs only
+			// on the coordinator goroutine that also writes them; the lock exists
+			// solely so tests can read this state race-free.
+			payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime)
+		case idleModeDimmed:
+			payload = render.RenderIdleFrame(lifetime)
+		case idleModeOff:
+			// Countdown elapsed — let the device's lifetime expire so
+			// AWTRIX scheduler returns to native apps. No publish, no
+			// dedupe-state update.
+			return
+		}
 	}
 	if payload == nil {
 		return

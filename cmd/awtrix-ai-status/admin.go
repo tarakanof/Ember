@@ -267,6 +267,9 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		app.cfg.Store(&newCfg)
+		// Keep the Pomodoro engine in sync with the reloaded config and
+		// re-apply API-persisted settings so a reload doesn't revert them.
+		app.resyncPomodoroAfterReload()
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,

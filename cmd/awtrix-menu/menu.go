@@ -27,6 +27,9 @@ var (
 	aboutMI     *systray.MenuItem
 	quitMI      *systray.MenuItem
 
+	pomoStatusItem *systray.MenuItem
+	pomoStatsItem  *systray.MenuItem
+
 	stateURL atomic.Value // string
 
 	menuMu sync.Mutex // serializes concurrent updateMenu calls
@@ -41,6 +44,19 @@ func onSystrayReady() {
 	countItem = systray.AddMenuItem("0 active sessions", "")
 	countItem.Disable()
 	systray.AddSeparator()
+
+	// --- Pomodoro section ----------------------------------------------
+	pomoStatusItem = systray.AddMenuItem("Pomodoro: …", "current timer state")
+	pomoStatusItem.Disable()
+	pomoStatsItem = systray.AddMenuItem("Today: —", "completed focus sessions today")
+	pomoStatsItem.Disable()
+	pomoStartMI := systray.AddMenuItem("  ▶ Start focus", "start a focus timer")
+	pomoPauseMI := systray.AddMenuItem("  ⏯ Pause / Resume", "toggle pause")
+	pomoSkipMI := systray.AddMenuItem("  ⏭ Skip phase", "skip to the next phase")
+	pomoStopMI := systray.AddMenuItem("  ⏹ Stop", "stop and clear the timer")
+	pomoSettingsMI := systray.AddMenuItem("  Pomodoro Settings…", "edit Pomodoro durations & colours")
+	systray.AddSeparator()
+
 	openStateMI = systray.AddMenuItem("Open server /state in browser", "")
 	settingsMI := systray.AddMenuItem("Settings…", "open the settings window")
 	doctorMI = systray.AddMenuItem("Doctor", "")
@@ -52,6 +68,19 @@ func onSystrayReady() {
 	home, _ := os.UserHomeDir()
 	envPath := filepath.Join(home, ".config", "awtrix-ai-status", "producer.env")
 
+	// pomoAction builds a client from the current env and runs a control verb,
+	// then refreshes the menu so the new state shows immediately.
+	pomoAction := func(verb string) {
+		c := pomoClientFromEnv(envPath)
+		if verb == "pause" { // resolve toggle against live state (handles parked)
+			if st, err := c.State(); err == nil {
+				verb = pomoToggleVerb(st)
+			}
+		}
+		_ = c.Action(verb)
+		go updateMenu(envPath)
+	}
+
 	// Click handlers
 	go func() {
 		for {
@@ -62,6 +91,16 @@ func onSystrayReady() {
 				}
 			case <-settingsMI.ClickedCh:
 				openSettingsWindow(envPath)
+			case <-pomoStartMI.ClickedCh:
+				go pomoAction("start")
+			case <-pomoPauseMI.ClickedCh:
+				go pomoAction("pause")
+			case <-pomoSkipMI.ClickedCh:
+				go pomoAction("skip")
+			case <-pomoStopMI.ClickedCh:
+				go pomoAction("stop")
+			case <-pomoSettingsMI.ClickedCh:
+				openPomodoroWindow(envPath)
 			case <-doctorMI.ClickedCh:
 				go openDoctor()
 			case <-reloadMI.ClickedCh:
@@ -139,6 +178,31 @@ func updateMenu(envPath string) {
 		openStateMI.Disable()
 	} else {
 		openStateMI.Enable()
+	}
+
+	// Pomodoro status + today's stats (best-effort; "off" when disabled/unreachable).
+	// Fetch state + stats concurrently with a short timeout so an unreachable
+	// server can't stall the menu poll (which runs under menuMu) for long.
+	if pomoStatusItem != nil {
+		if url == "" {
+			pomoStatusItem.SetTitle(pomoMenuTitle(pomoState{}, errNoServer))
+			pomoStatsItem.SetTitle(pomoStatsTitle(pomoStats{}, errNoServer))
+		} else {
+			c := newPomodoroClient(url, rec.get("STATUS_TOKEN"))
+			c.hc.Timeout = 1500 * time.Millisecond
+			var (
+				st              pomoState
+				stats           pomoStats
+				stErr, statsErr error
+				wg              sync.WaitGroup
+			)
+			wg.Add(2)
+			go func() { defer wg.Done(); st, stErr = c.State() }()
+			go func() { defer wg.Done(); stats, statsErr = c.Stats() }()
+			wg.Wait()
+			pomoStatusItem.SetTitle(pomoMenuTitle(st, stErr))
+			pomoStatsItem.SetTitle(pomoStatsTitle(stats, statsErr))
+		}
 	}
 }
 

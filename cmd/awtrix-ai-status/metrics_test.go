@@ -422,6 +422,8 @@ func (p *fakePublisher) Notify(ctx context.Context, payload map[string]any) erro
 func (p *fakePublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
 	return p.indicatorErr
 }
+func (p *fakePublisher) Settings(ctx context.Context, payload map[string]any) error { return nil }
+func (p *fakePublisher) Switch(ctx context.Context, name string) error              { return nil }
 
 func TestCoord_IncrementsOKCounter(t *testing.T) {
 	cfg := defaultConfig()

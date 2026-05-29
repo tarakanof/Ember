@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/dt/awtrix-ai-status/internal/pomodoro"
 )
 
 type AuthConfig struct {
@@ -46,6 +48,28 @@ type Config struct {
 	Auth      AuthConfig      `json:"auth"`
 	Display   DisplayConfig   `json:"display"`
 	RateLimit RateLimitConfig `json:"rate_limit"`
+	Pomodoro  PomodoroConfig  `json:"pomodoro"`
+}
+
+// PomodoroConfig holds the Pomodoro feature's static defaults. Runtime-editable
+// settings (durations, colours, toggles) are persisted in the stats store and
+// edited from the menu app; these values seed the engine at startup and provide
+// the fallbacks the store is initialised from.
+type PomodoroConfig struct {
+	Enabled               bool   `json:"enabled"`
+	FocusMinutes          int    `json:"focus_minutes"`
+	ShortBreakMinutes     int    `json:"short_break_minutes"`
+	LongBreakMinutes      int    `json:"long_break_minutes"`
+	RoundsBeforeLongBreak int    `json:"rounds_before_long_break"`
+	AutoStartNext         bool   `json:"auto_start_next"`
+	Sound                 bool   `json:"sound"`
+	SoundMelody           string `json:"sound_melody,omitempty"`
+	FocusColor            string `json:"focus_color"`
+	BreakColor            string `json:"break_color"`
+	DBPath                string `json:"db_path"`
+	// ButtonCallback enables mapping device button presses (delivered to
+	// /hooks/awtrix/button) to timer actions.
+	ButtonCallback bool `json:"button_callback"`
 }
 
 type RateLimitConfig struct {
@@ -114,6 +138,19 @@ func defaultConfig() Config {
 			Burst:            10,
 			RefillPerSec:     2.0,
 			IdleEvictSeconds: 300,
+		},
+		Pomodoro: PomodoroConfig{
+			Enabled:               false,
+			FocusMinutes:          25,
+			ShortBreakMinutes:     5,
+			LongBreakMinutes:      15,
+			RoundsBeforeLongBreak: 4,
+			AutoStartNext:         false,
+			Sound:                 true,
+			FocusColor:            "#FF3B30",
+			BreakColor:            "#2EE85E",
+			DBPath:                "/var/lib/awtrix-ai-status/pomodoro.db",
+			ButtonCallback:        true,
 		},
 	}
 }
@@ -195,6 +232,30 @@ func (c *Config) applyDefaults() {
 		c.RateLimit.IdleEvictSeconds = 300
 	}
 	// Disabled is a bool — zero value is false, the right default.
+
+	if c.Pomodoro.FocusMinutes <= 0 {
+		c.Pomodoro.FocusMinutes = 25
+	}
+	if c.Pomodoro.ShortBreakMinutes <= 0 {
+		c.Pomodoro.ShortBreakMinutes = 5
+	}
+	if c.Pomodoro.LongBreakMinutes <= 0 {
+		c.Pomodoro.LongBreakMinutes = 15
+	}
+	if c.Pomodoro.RoundsBeforeLongBreak <= 0 {
+		c.Pomodoro.RoundsBeforeLongBreak = 4
+	}
+	if c.Pomodoro.FocusColor == "" {
+		c.Pomodoro.FocusColor = "#FF3B30"
+	}
+	if c.Pomodoro.BreakColor == "" {
+		c.Pomodoro.BreakColor = "#2EE85E"
+	}
+	if c.Pomodoro.DBPath == "" {
+		c.Pomodoro.DBPath = "/var/lib/awtrix-ai-status/pomodoro.db"
+	}
+	// Sound and ButtonCallback are bools: their no-config defaults come from
+	// defaultConfig(); a config file controls them explicitly.
 }
 
 type StatusRequest struct {
@@ -342,6 +403,12 @@ type App struct {
 
 	metrics *metrics // populated by NewApp; never nil at runtime
 	coord   *coordinator
+
+	// engine + store are non-nil only when the Pomodoro feature is enabled
+	// (wired via EnablePomodoro). The engine is safe for concurrent use; the
+	// store is single-writer (driven from the coordinator/HTTP path).
+	engine *pomodoro.Engine
+	store  *pomodoro.Store
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -630,6 +697,17 @@ func (a *App) StartCoordinator(ctx context.Context) {
 
 	ticker := time.NewTicker(dwell)
 	defer ticker.Stop()
+
+	// While the Pomodoro feature is enabled, a 1 s ticker advances the engine
+	// and refreshes the countdown. pomoTick is a cheap no-op when the engine
+	// is idle, so the ticker runs unconditionally when the feature is wired.
+	var pomoC <-chan time.Time
+	if a.engine != nil {
+		pt := time.NewTicker(time.Second)
+		defer pt.Stop()
+		pomoC = pt.C
+	}
+
 	// Emit an initial tick so the first frame appears right after startup.
 	a.coord.Send(coordCmd{kind: cmdTick})
 	for {
@@ -638,6 +716,8 @@ func (a *App) StartCoordinator(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.coord.Send(coordCmd{kind: cmdTick})
+		case <-pomoC:
+			a.pomoTick()
 		}
 	}
 }
@@ -660,11 +740,25 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /version", handleVersion(a.versionInfo))
 	mux.Handle("GET /metrics", handleMetrics(a))
 
+	// Pomodoro reads are open like /state. The button hook is unauthenticated
+	// because the AWTRIX device's button_callback cannot send a bearer token;
+	// it only maps presses to timer actions, so LAN blast radius is minimal.
+	mux.HandleFunc("GET /v1/pomodoro/state", a.handlePomodoroState)
+	mux.HandleFunc("GET /v1/pomodoro/stats", a.handlePomodoroStats)
+	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
+
 	writeMux := http.NewServeMux()
 	writeMux.Handle("POST /v1/status", rateLimit(a, http.HandlerFunc(a.handleStatus)))
 	writeMux.Handle("DELETE /v1/status", rateLimit(a, http.HandlerFunc(a.handleDeleteStatus)))
 	writeMux.Handle("POST /v1/clear", rateLimit(a, http.HandlerFunc(a.handleClear)))
 	writeMux.Handle("POST /v1/notify", rateLimit(a, http.HandlerFunc(a.handleNotify)))
+	writeMux.Handle("POST /v1/pomodoro/start", rateLimit(a, http.HandlerFunc(a.handlePomodoroStart)))
+	writeMux.Handle("POST /v1/pomodoro/pause", rateLimit(a, http.HandlerFunc(a.handlePomodoroPause)))
+	writeMux.Handle("POST /v1/pomodoro/resume", rateLimit(a, http.HandlerFunc(a.handlePomodoroResume)))
+	writeMux.Handle("POST /v1/pomodoro/stop", rateLimit(a, http.HandlerFunc(a.handlePomodoroStop)))
+	writeMux.Handle("POST /v1/pomodoro/skip", rateLimit(a, http.HandlerFunc(a.handlePomodoroSkip)))
+	writeMux.Handle("GET /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigGet)))
+	writeMux.Handle("PUT /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigPut)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()
@@ -927,6 +1021,12 @@ type Publisher interface {
 	CustomApp(ctx context.Context, name string, payload map[string]any) error
 	Notify(ctx context.Context, payload map[string]any) error
 	Indicator(ctx context.Context, index int, payload map[string]any) error
+	// Settings writes device settings (POST /api/settings), e.g. toggling app
+	// rotation (ATRANS) and native button navigation (BLOCKN) for Pomodoro
+	// takeover.
+	Settings(ctx context.Context, payload map[string]any) error
+	// Switch forces the device to the named app (POST /api/switch).
+	Switch(ctx context.Context, name string) error
 }
 
 type HTTPPublisher struct {
@@ -976,6 +1076,22 @@ func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[st
 		return err
 	}
 	return p.postJSON(ctx, client, base+"/api/indicator"+strconv.Itoa(index), payload)
+}
+
+func (p *HTTPPublisher) Settings(ctx context.Context, payload map[string]any) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/settings", payload)
+}
+
+func (p *HTTPPublisher) Switch(ctx context.Context, name string) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/switch", map[string]any{"name": name})
 }
 
 func (p *HTTPPublisher) postJSON(ctx context.Context, client *http.Client, endpoint string, payload map[string]any) error {
@@ -1050,6 +1166,15 @@ func main() {
 	app := NewApp(cfg, publisher, logger)
 	app.configPath = configPath
 	app.configSource = configSource
+
+	if cfg.Pomodoro.Enabled {
+		if err := app.initPomodoro(cfg.Pomodoro); err != nil {
+			logger.Error("pomodoro init failed", "err", err, "db_path", cfg.Pomodoro.DBPath)
+			os.Exit(1)
+		}
+		logger.Info("pomodoro enabled", "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -1104,6 +1229,13 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Warn("server shutdown failed", "err", err)
+	}
+	// Close the Pomodoro stats DB so WAL is checkpointed and in-flight writes
+	// are flushed before exit.
+	if app.store != nil {
+		if err := app.store.Close(); err != nil {
+			logger.Warn("pomodoro store close failed", "err", err)
+		}
 	}
 }
 

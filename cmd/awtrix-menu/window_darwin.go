@@ -19,9 +19,30 @@ import (
 // only on the serial main queue, so the guard check and arm are race-free.
 var settingsWindow appkit.Window
 
-// openSettingsWindow opens (or refocuses) the settings window. Safe to call
-// from any goroutine — it marshals all AppKit work onto the main thread.
-func openSettingsWindow(envPath string) {
+// settingsTabView is the window's tab view, retained so a second open request
+// can switch tabs on the already-open window. Reset alongside settingsWindow.
+var settingsTabView appkit.TabView
+
+// settingsDelegate retains the window's delegate for the lifetime of the window.
+// NSWindow.delegate is a WEAK reference, so without a Go-side reference the
+// DarwinKit delegate proxy is garbage-collected after the build closure returns;
+// AppKit then messages a freed delegate on close (windowWillClose:) → SIGSEGV.
+// Holding it here keeps it alive. See [[project_darwinkit_retention_crashes]].
+var settingsDelegate *appkit.WindowDelegate
+
+// Tab indices within the settings window.
+const (
+	tabStatus   = 0
+	tabPomodoro = 1
+)
+
+// openSettingsWindow opens (or refocuses) the settings window on the Status tab.
+func openSettingsWindow(envPath string) { openSettingsWindowOnTab(envPath, tabStatus) }
+
+// openSettingsWindowOnTab opens (or refocuses) the settings window and selects
+// the given tab. Safe to call from any goroutine — it marshals all AppKit work
+// onto the main thread.
+func openSettingsWindowOnTab(envPath string, tab int) {
 	dispatch.MainQueue().DispatchAsync(func() {
 		app := appkit.Application_SharedApplication()
 		app.SetActivationPolicy(appkit.ApplicationActivationPolicyRegular)
@@ -30,8 +51,12 @@ func openSettingsWindow(envPath string) {
 		// forward so its window can become key.
 		appkit.RunningApplication_CurrentApplication().ActivateWithOptions(appkit.ApplicationActivateAllWindows)
 
-		// Single reused instance: refocus the existing window if alive.
+		// Single reused instance: refocus the existing window if alive,
+		// switching to the requested tab.
 		if !settingsWindow.IsNil() {
+			if !settingsTabView.IsNil() {
+				settingsTabView.SelectTabViewItemAtIndex(tab)
+			}
 			settingsWindow.MakeKeyAndOrderFront(nil)
 			return
 		}
@@ -43,17 +68,41 @@ func openSettingsWindow(envPath string) {
 		form, tokenSet := formFromEnv(rec)
 
 		const (
-			winW = 460.0
+			winW = 460.0 // content-area width the Status layout's coords assume
 			winH = 744.0
+			// The window is larger than the content area to leave room for the
+			// tab strip + bezel; each tab's content view then lands ~winW×winH,
+			// which is what the Status layout's absolute coordinates expect.
+			windowW = winW + 34.0
+			windowH = winH + 70.0
 		)
 		w := appkit.NewWindowWithContentRectStyleMaskBackingDefer(
-			foundation.Rect{Size: foundation.Size{Width: winW, Height: winH}},
+			foundation.Rect{Size: foundation.Size{Width: windowW, Height: windowH}},
 			appkit.WindowStyleMaskTitled|appkit.WindowStyleMaskClosable,
 			appkit.BackingStoreBuffered, false,
 		)
 		w.SetTitle("AWTRIX Settings")
 		w.SetReleasedWhenClosed(false)
-		content := w.ContentView()
+
+		// Two-tab layout. Each tab item gets its own content view that the tab
+		// view sizes to its content area (~winW×winH).
+		tabView := appkit.NewTabView()
+		tabView.SetFrame(w.ContentView().Bounds())
+		statusItem := appkit.NewTabViewItem()
+		statusItem.SetLabel("Status")
+		statusContent := appkit.NewView()
+		statusItem.SetView(statusContent)
+		pomoItem := appkit.NewTabViewItem()
+		pomoItem.SetLabel("Pomodoro")
+		pomoContent := appkit.NewView()
+		pomoItem.SetView(pomoContent)
+		tabView.AddTabViewItem(statusItem)
+		tabView.AddTabViewItem(pomoItem)
+		w.ContentView().AddSubview(tabView)
+		settingsTabView = tabView
+
+		// The existing Status controls build into the Status tab's content view.
+		content := statusContent
 
 		// --- Preview panel (top) -------------------------------------------
 		// A dark backing box holding the pre-scaled 32x8 matrix preview, a
@@ -383,8 +432,16 @@ func openSettingsWindow(envPath string) {
 			pw.stop()
 			appkit.Application_SharedApplication().SetActivationPolicy(appkit.ApplicationActivationPolicyAccessory)
 			settingsWindow = appkit.Window{}
+			settingsTabView = appkit.TabView{}
 		})
 		w.SetDelegate(wd)
+		settingsDelegate = wd // retain past this closure (weak delegate ref)
+
+		// Build the Pomodoro tab into its content view.
+		buildPomodoroTab(w, pomoContent, envPath)
+
+		// Select the requested tab.
+		tabView.SelectTabViewItemAtIndex(tab)
 
 		// Seed the preview from /state (sample fallback) and start the
 		// number-slot rotation before the window becomes visible.

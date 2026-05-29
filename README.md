@@ -348,3 +348,70 @@ them to point at your Unraid IP and the same token you set above.
   }
 }
 ```
+
+## Pomodoro timer
+
+An optional Pomodoro focus timer runs inside the same service/container. It is a
+top-priority display: while a timer is active it takes over the matrix (a
+graphics-first tomato/break pictogram, MM:SS countdown, and a remaining-time
+progress bar) and the device buttons drive it; when idle it shows nothing and
+the clock + AI-status behave normally.
+
+Enable it in `config.json`:
+
+```json
+"pomodoro": {
+  "enabled": true,
+  "focus_minutes": 25,
+  "short_break_minutes": 5,
+  "long_break_minutes": 15,
+  "rounds_before_long_break": 4,
+  "auto_start_next": false,
+  "sound": true,
+  "sound_melody": "",
+  "focus_color": "#FF3B30",
+  "break_color": "#2EE85E",
+  "db_path": "/var/lib/awtrix-ai-status/pomodoro.db",
+  "button_callback": true
+}
+```
+
+Durations/colours/toggles are also editable at runtime from the macOS menu app's
+settings window — a **Pomodoro tab** alongside the Status tab (and the menu's
+Pomodoro section has Start / Pause / Resume / Skip / Stop plus today's stats;
+"Pomodoro Settings…" opens that tab). Runtime edits persist in the SQLite DB
+and survive restarts. Stats (completed pomodoros, focus minutes, streak,
+per-day history) accumulate in `db_path` — mount a writable volume there in
+Docker (the image ships `/var/lib/awtrix-ai-status` as a `VOLUME`).
+
+### Endpoints
+
+```text
+# Control (bearer auth):
+POST /v1/pomodoro/start            # {"phase":"focus"} (phase optional)
+POST /v1/pomodoro/{pause,resume,stop,skip}
+GET  /v1/pomodoro/config
+PUT  /v1/pomodoro/config
+
+# Read (no auth):
+GET  /v1/pomodoro/state
+GET  /v1/pomodoro/stats
+
+# Device button callback (no auth — the device cannot send a token):
+POST /hooks/awtrix/button          # form: button=left|middle|right&state=1|0
+```
+
+### Device buttons
+
+To control the timer with the TC001's physical buttons, point the device's
+`button_callback` dev option at this service so it POSTs each press to
+`POST http://<service-host>:8080/hooks/awtrix/button`. Mapping (on press-down):
+**middle = pause/resume**, **right = skip phase**, **left = stop**. While a timer
+runs the service sets `BLOCKN:true` + `ATRANS:false` on the device so the buttons
+drive the timer instead of switching apps, and restores both when it stops.
+(If you run an MQTT broker instead, the same press semantics map to the
+`…/stats/buttonLeft|Select|Right` topics — not wired by default.)
+
+The stock TC001 piezo buzzer plays the phase-end chime as RTTTL; set
+`sound_melody` to a melody filename on the device, or leave it blank for the
+built-in chime.
