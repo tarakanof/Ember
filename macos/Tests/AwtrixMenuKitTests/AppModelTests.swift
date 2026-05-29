@@ -26,6 +26,8 @@ import Foundation
     #expect(await model.winningSession?.tool == "claude")
     #expect(await model.pomoState?.phase == "focus")
     #expect(await model.stats?.streak == 3)
+    #expect(await model.sessions.count == 1)
+    #expect(await model.sessions.first?.tool == "claude")
 }
 
 @Test func refreshMarksDisconnectedOnFailure() async throws {
@@ -35,4 +37,5 @@ import Foundation
     await model.refresh()
     #expect(await model.connected == false)
     #expect(await model.winningSession == nil)
+    #expect(await model.sessions.isEmpty)
 }

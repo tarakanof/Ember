@@ -7,6 +7,7 @@ import Observation
 @Observable
 public final class AppModel {
     public private(set) var connected = false
+    public private(set) var sessions: [Session] = []
     public private(set) var winningSession: Session?
     public private(set) var pomoState: PomoState?
     public private(set) var stats: PomoStats?
@@ -31,12 +32,14 @@ public final class AppModel {
             async let ps = pomodoro.state()
             async let st = pomodoro.stats()
             let (snapshot, pomo, stat) = try await (snap, ps, st)
+            sessions = snapshot.sessions
             winningSession = pickWinning(snapshot.sessions)
             pomoState = pomo
             stats = stat
             connected = true
         } catch {
             connected = false
+            sessions = []
             winningSession = nil
             pomoState = nil
             stats = nil

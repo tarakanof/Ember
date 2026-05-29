@@ -3,25 +3,25 @@ import AwtrixMenuKit
 
 @main
 struct AwtrixMenuApp: App {
-    @State private var model = AppModel()
-    private let pomodoro: PomodoroService
-    private var prefs = AppStoragePrefs()
-
-    init() {
-        let client = Bootstrap.makeClient()
-        let m = AppModel()
-        m.configure(client: client)
-        m.startPolling()
-        _model = State(initialValue: m)
-        pomodoro = PomodoroService(client: client)
-    }
+    @State private var env = AppEnvironment()   // self-starts polling in its init
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarContentView(model: model, pomodoro: pomodoro)
+            MenuBarContentView()
+                .environment(env)
         } label: {
-            MenuBarLabel(session: model.winningSession, prefs: prefs.menuPrefs)
+            MenuBarLabel(session: env.model.winningSession, prefs: env.prefs)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView()
+                .environment(env)
+        }
+
+        Window("AWTRIX Dashboard", id: "dashboard") {
+            DashboardView()
+                .environment(env)
+        }
     }
 }

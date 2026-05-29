@@ -1,0 +1,92 @@
+import AppKit
+import Foundation
+import AwtrixMenuKit
+
+/// App-wide coordinator: owns the producer.env path, the live APIClient, the
+/// AppModel (polled status/pomodoro), and a PomodoroService for menu actions.
+/// `reloadConnection()` re-reads producer.env, rebuilds the client, and
+/// reconfigures the model — so Connection-tab saves take effect without relaunch.
+@MainActor
+@Observable
+public final class AppEnvironment {
+    public let model = AppModel()
+    public private(set) var pomodoro: PomodoroService
+    public private(set) var preview: PreviewService
+
+    /// Menu-only prefs (icon palette + tray glyphs), persisted to UserDefaults.
+    /// Observed so the menu-bar label updates live when the App tab edits them.
+    public var prefs: MenuPrefs {
+        didSet {
+            AppEnvironment.savePrefs(prefs)
+            AppEnvironment.applyAppIcon(prefs.appIcon)
+        }
+    }
+
+    static let prefsDefaults = UserDefaults.standard
+
+    static func loadPrefs() -> MenuPrefs {
+        let d = prefsDefaults
+        return MenuPrefs(
+            appIcon: d.string(forKey: "appIcon") ?? MenuPrefs.default.appIcon,
+            trayClaudeGlyph: d.string(forKey: "trayClaudeGlyph") ?? MenuPrefs.default.trayClaudeGlyph,
+            trayCodexGlyph: d.string(forKey: "trayCodexGlyph") ?? MenuPrefs.default.trayCodexGlyph,
+            trayIdleGlyph: d.string(forKey: "trayIdleGlyph") ?? MenuPrefs.default.trayIdleGlyph
+        ).validated()
+    }
+
+    static func savePrefs(_ p: MenuPrefs) {
+        let d = prefsDefaults
+        d.set(p.appIcon, forKey: "appIcon")
+        d.set(p.trayClaudeGlyph, forKey: "trayClaudeGlyph")
+        d.set(p.trayCodexGlyph, forKey: "trayCodexGlyph")
+        d.set(p.trayIdleGlyph, forKey: "trayIdleGlyph")
+    }
+
+    /// Applies the chosen palette as the runtime app icon. No-op if the asset is
+    /// missing (the appicon-* assets arrive in C5 Task 2).
+    static func applyAppIcon(_ palette: String) {
+        if let img = NSImage(named: "appicon-\(palette)") {
+            NSApplication.shared.applicationIconImage = img
+        }
+    }
+
+    let producerEnvPath: URL
+
+    public init(producerEnvPath: URL = AppEnvironment.defaultEnvPath) {
+        self.producerEnvPath = producerEnvPath
+        prefs = AppEnvironment.loadPrefs()
+        let client = AppEnvironment.makeClient(path: producerEnvPath)
+        pomodoro = PomodoroService(client: client)
+        preview = PreviewService(client: client)
+        model.configure(client: client)
+        model.startPolling()   // begin polling at launch (idempotent); self-started
+                               // here so the menu-bar label updates without opening
+                               // the popover first.
+        AppEnvironment.applyAppIcon(prefs.appIcon)
+    }
+
+    /// Re-read producer.env, rebuild the client, reconfigure model + service.
+    public func reloadConnection() {
+        let client = AppEnvironment.makeClient(path: producerEnvPath)
+        pomodoro = PomodoroService(client: client)
+        preview = PreviewService(client: client)
+        model.configure(client: client)
+        Task { await model.refresh() }
+    }
+
+    /// Reads producer.env from disk (missing file -> empty env -> Offline client).
+    public func currentEnv() -> EnvFile {
+        let text = (try? String(contentsOf: producerEnvPath, encoding: .utf8)) ?? ""
+        return EnvFile(parsing: text)
+    }
+
+    static func makeClient(path: URL) -> APIClient {
+        let text = (try? String(contentsOf: path, encoding: .utf8)) ?? ""
+        return APIClient(producerEnv: EnvFile(parsing: text))
+    }
+
+    public static var defaultEnvPath: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/awtrix-ai-status/producer.env")
+    }
+}
