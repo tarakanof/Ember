@@ -1,6 +1,9 @@
 package render
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Sample values used when a draft toggle is enabled but the live base session
 // has no value to show (service unreachable, or the producer wasn't sending
@@ -86,4 +89,63 @@ func PreviewSession(d DraftDisplay, base Session, now time.Time) Session {
 	}
 
 	return s
+}
+
+// CardFrame is one rendered rotation card as a 32x8 grid of row-major
+// "#rrggbb" strings (256 entries). Undirty (off) pixels are "#000000".
+type CardFrame struct {
+	Card   string   `json:"card"`
+	Pixels []string `json:"pixels"`
+}
+
+// Preview is the /v1/preview response: every renderable card for the session
+// plus the activity string for the scrolling text/tool card (which has no
+// static grid form, so it is not included in Frames).
+type Preview struct {
+	Width    int         `json:"width"`
+	Height   int         `json:"height"`
+	Activity string      `json:"activity"`
+	Frames   []CardFrame `json:"frames"`
+}
+
+// PreviewFrames renders each card in AvailableCards(s) except the scrolling
+// tool card, using the established single-session preview call
+// (idx=1,total=1, robot colour from state, bottom bar fed the single session).
+func PreviewFrames(s Session, now time.Time) Preview {
+	p := Preview{Width: 32, Height: 8, Frames: []CardFrame{}}
+	for _, c := range AvailableCards(s) {
+		if c == cardTool {
+			p.Activity = s.Activity
+			continue
+		}
+		frame := ComposeFrame(s, 1, 1, c, colorForState(s.State), []Session{s}, now)
+		p.Frames = append(p.Frames, CardFrame{Card: cardName(c), Pixels: hexPixels(&frame)})
+	}
+	return p
+}
+
+func cardName(c int) string {
+	switch c {
+	case cardXY:
+		return "xy"
+	case cardRate:
+		return "rate"
+	case cardTool:
+		return "tool"
+	case cardCtx:
+		return "ctx"
+	case cardReset:
+		return "reset"
+	default:
+		panic(fmt.Sprintf("cardName: unknown card const %d", c))
+	}
+}
+
+func hexPixels(f *Frame) []string {
+	ints := framePixels(f)
+	out := make([]string, len(ints))
+	for i, v := range ints {
+		out[i] = fmt.Sprintf("#%06x", v)
+	}
+	return out
 }

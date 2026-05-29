@@ -1,6 +1,7 @@
 package render
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -59,5 +60,50 @@ func TestPreviewSessionToggles(t *testing.T) {
 	got := PreviewSession(DraftDisplay{ContextPct: true}, live, now)
 	if got.ContextPct == nil || *got.ContextPct != 10 {
 		t.Fatalf("live ctx pct should win over sample, got %v", got.ContextPct)
+	}
+}
+
+func TestPreviewFramesExcludesToolCardAndShape(t *testing.T) {
+	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
+	s := Session{
+		Source: "mbp", Tool: "claude", State: "running", Activity: "Bash: go test",
+		ContextPct: ptrInt(47), ContextNumber: true,
+		RateWindowPct: ptrInt(30),
+		RateReset:     true, RateResetAt: now.Add(3 * time.Hour).Unix(),
+	}
+	p := PreviewFrames(s, now)
+
+	if p.Width != 32 || p.Height != 8 {
+		t.Fatalf("dims = %dx%d", p.Width, p.Height)
+	}
+	var names []string
+	for _, f := range p.Frames {
+		names = append(names, f.Card)
+		if len(f.Pixels) != 256 {
+			t.Fatalf("card %s pixels = %d, want 256", f.Card, len(f.Pixels))
+		}
+		for _, px := range f.Pixels {
+			if len(px) != 7 || px[0] != '#' {
+				t.Fatalf("bad hex pixel %q", px)
+			}
+		}
+	}
+	// AvailableCards order is xy, rate, ctx, reset, tool; the tool card is dropped.
+	if want := []string{"xy", "rate", "ctx", "reset"}; !slices.Equal(names, want) {
+		t.Fatalf("cards = %v, want %v", names, want)
+	}
+	if p.Activity != "Bash: go test" {
+		t.Fatalf("activity = %q", p.Activity)
+	}
+}
+
+func TestPreviewFramesBareSession(t *testing.T) {
+	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
+	p := PreviewFrames(Session{Source: "mbp", Tool: "claude", State: "running"}, now)
+	if len(p.Frames) != 1 || p.Frames[0].Card != "xy" {
+		t.Fatalf("frames = %+v", p.Frames)
+	}
+	if p.Activity != "" {
+		t.Fatalf("activity = %q, want empty", p.Activity)
 	}
 }
