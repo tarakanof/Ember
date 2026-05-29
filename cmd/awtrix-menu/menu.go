@@ -36,7 +36,9 @@ var (
 )
 
 func onSystrayReady() {
-	systray.SetIcon(iconFor("idle", ""))
+	home0, _ := os.UserHomeDir()
+	prefs0 := loadMenuPrefs(menuPrefsPath(home0))
+	systray.SetIcon(iconFor("idle", "", prefs0))
 	systray.SetTooltip("AWTRIX: idle")
 
 	statusItem = systray.AddMenuItem("Loading…", "")
@@ -129,6 +131,9 @@ func onSystrayExit() {
 	os.Exit(0)
 }
 
+// refreshTrayIcon re-runs a menu update so a changed glyph pref takes effect now.
+func refreshTrayIcon(envPath string) { go updateMenu(envPath) }
+
 func updateMenu(envPath string) {
 	menuMu.Lock()
 	defer menuMu.Unlock()
@@ -140,6 +145,7 @@ func updateMenu(envPath string) {
 	}
 	ttl := ttlFromEnv(rec)
 	view := readView(stateDir, ttl)
+	prefs := loadMenuPrefs(menuPrefsPath(home))
 
 	// Status text
 	statusText := "AWTRIX: idle"
@@ -165,9 +171,9 @@ func updateMenu(envPath string) {
 	systray.SetTooltip(tip)
 
 	// Icon
-	icon := iconFor(view.DominantState, view.DominantTool)
+	icon := iconFor(view.DominantState, view.DominantTool, prefs)
 	if view.DominantState == "" {
-		icon = iconFor("idle", "")
+		icon = iconFor("idle", "", prefs)
 	}
 	systray.SetIcon(icon)
 

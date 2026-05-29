@@ -66,32 +66,71 @@ func stateColor(state string) color.RGBA {
 	}
 }
 
-var iconOnce sync.Once
-var iconCache = map[string][]byte{}
-
-func iconFor(state, tool string) []byte {
-	iconOnce.Do(func() {
-		for _, t := range []string{"claude", "codex"} {
-			for _, s := range []string{"idle", "running", "waiting", "error", "done"} {
-				iconCache[t+":"+s] = drawIcon(s, t)
-			}
+// tintAlpha returns a new RGBA image where every pixel is color c scaled by the
+// source pixel's alpha (premultiplied). Used to paint a monochrome template
+// glyph in a state color while keeping its shape/anti-aliasing.
+func tintAlpha(src image.Image, c color.RGBA) *image.RGBA {
+	b := src.Bounds()
+	out := image.NewRGBA(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			_, _, _, a := src.At(x, y).RGBA() // 0..65535
+			af := float64(a) / 65535.0
+			out.SetRGBA(x, y, color.RGBA{
+				R: uint8(float64(c.R) * af),
+				G: uint8(float64(c.G) * af),
+				B: uint8(float64(c.B) * af),
+				A: uint8(af*255.0 + 0.5),
+			})
 		}
-	})
-	if tool != "codex" {
-		tool = "claude"
 	}
-	if b, ok := iconCache[tool+":"+state]; ok {
-		return b
-	}
-	return iconCache["claude:idle"]
+	return out
 }
 
-func drawIcon(state, tool string) []byte {
+func glyphForTool(tool string, p menuPrefs) string {
+	switch tool {
+	case "codex":
+		return p.TrayCodexGlyph
+	case "claude":
+		return p.TrayClaudeGlyph
+	default: // "" / idle / unknown
+		return p.TrayIdleGlyph
+	}
+}
+
+var iconMu sync.Mutex
+var iconCache = map[string][]byte{}
+
+// iconFor returns the PNG for the tray icon: the prefs glyph for the leading
+// tool, tinted by the state color. Cached by glyph:state.
+func iconFor(state, tool string, p menuPrefs) []byte {
+	glyph := glyphForTool(tool, p)
+	key := glyph + ":" + state
+	iconMu.Lock()
+	defer iconMu.Unlock()
+	if b, ok := iconCache[key]; ok {
+		return b
+	}
+	b := drawIcon(state, glyph)
+	iconCache[key] = b
+	return b
+}
+
+func drawIcon(state, glyph string) []byte {
+	img, err := trayGlyphImage(glyph)
+	if err != nil {
+		return drawSpriteIcon(state) // last-resort: legacy robot sprite
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, tintAlpha(img, stateColor(state)))
+	return buf.Bytes()
+}
+
+// drawSpriteIcon is the pre-template fallback: the robot sprite painted in the
+// state color, kept so a missing/corrupt glyph asset never blanks the tray.
+func drawSpriteIcon(state string) []byte {
 	sprite := robotNormal
-	switch {
-	case tool == "codex":
-		sprite = codexSprite
-	case state == "error":
+	if state == "error" {
 		sprite = robotError
 	}
 	c := stateColor(state)
