@@ -3,6 +3,8 @@ import AwtrixMenuKit
 
 struct AppTab: View {
     @Environment(AppEnvironment.self) private var env
+    @State private var loginOn = LoginItemService.isEnabled
+    @State private var loginError: String?
 
     var body: some View {
         @Bindable var env = env
@@ -24,6 +26,20 @@ struct AppTab: View {
                 glyphPicker("Claude", $env.prefs.trayClaudeGlyph)
                 glyphPicker("Codex", $env.prefs.trayCodexGlyph)
                 glyphPicker("Idle / other", $env.prefs.trayIdleGlyph)
+            }
+
+            Section("Startup") {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { loginOn },
+                    set: { newValue in
+                        loginError = LoginItemService.setEnabled(newValue)
+                        loginOn = LoginItemService.isEnabled
+                    }))
+                Text(LoginItemService.statusText)
+                    .font(.caption).foregroundStyle(.secondary)
+                if let loginError {
+                    Text(loginError).font(.caption).foregroundStyle(.red)
+                }
             }
         }
         .padding()
