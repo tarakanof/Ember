@@ -1,0 +1,265 @@
+# Architecture
+
+How `awtrix-ai-status` is put together: the system model, the components, the
+wire protocol, the display layout, and the hard-won gotchas. This is the
+canonical design reference — read it before non-trivial changes. For operations
+(deploy / install / verify) see [`RUNBOOK.md`](RUNBOOK.md); for the full
+historical record see [`HISTORY.md`](HISTORY.md).
+
+## System model — the "Buddy" bridge
+
+The project mirrors Anthropic's `claude-desktop-buddy` shape:
+
+- The **AWTRIX clock** (Ulanzi TC001 running AWTRIX3 firmware) is the display
+  device — the "Buddy". Its firmware is **unmodified**; we drive it over HTTP.
+- **Host-side producers** (one per laptop/agent) are the bridge: they watch
+  local AI-agent activity and POST compact status to the server.
+- The **server** aggregates sessions from all producers, decides what to show,
+  and publishes frames to the clock.
+
+We own both halves of the bridge (producer + server); the firmware stays stock.
+A small stateful Go service was chosen over Node-RED because it can own session
+expiry, prioritization, display rotation, and multi-laptop fan-in cleanly.
+
+```
+ Claude Code (hooks)  ─┐
+ Codex CLI (rollout)  ─┤  producers → POST /v1/status →  ┌─────────┐   HTTP   ┌──────────┐
+ statusline           ─┘  (bearer token, per-session)    │ server  │ ───────► │ AWTRIX   │
+                                                          │ + coord │  frames  │ TC001    │
+ menu-bar app (macOS) ── HTTP client /state, /v1/preview ─┘         │          └──────────┘
+                          edits producer.env                        └─────────┘
+```
+
+## Components
+
+### Server — `cmd/awtrix-ai-status`
+
+The aggregator and the only writer to the device.
+
+- **HTTP endpoints.** Write (bearer-token auth via `STATUS_TOKEN`):
+  `POST /v1/status` (upsert: event or heartbeat), `DELETE /v1/status` (drop one
+  session, idempotent 204), `POST /v1/clear` (admin wipe), `POST /v1/notify`
+  (ad-hoc notification). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
+  `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below).
+  Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
+  `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro endpoints — see
+  below.
+- **Session model & staleness.** Each session is keyed by `(source, tool,
+  session)`. Per-state staleness: `stale_seconds` (default 300) for
+  running/waiting/idle, a 30 s `done_ttl_seconds` linger for done/error.
+  Sessions are reaped when stale.
+- **Render priority.** `waiting > error > running > done`; `idle` never wins
+  (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
+  an aggregate label is shown.
+- **The coordinator** (single-writer goroutine) owns all publish timing and
+  device state. Responsibilities: rotation across sessions by **stable session
+  key** (not slice index), attention **preempt** (jump to a waiting/error
+  session, breathe-pulse) with a 30 s ack timeout, the **number-slot card
+  cursor** (rotates cards within a session — see Display), publish **dedup**
+  (skip identical payloads inside the lifetime window), and the **idle tri-state
+  machine**: `ACTIVE` (sessions present → rotation/locked render) → `DIMMED`
+  (no sessions, countdown < `idle_restore_seconds` → dim-white robot) → `OFF`
+  (countdown elapsed → stop publishing; device auto-evicts via frame lifetime).
+- **Display hold.** Non-idle frames are published with `prio:true` + `force:true`
+  + a per-frame `lifetime` so the clock suppresses its native apps while we're
+  active, but **crash-safely** returns to them if the server dies (vs the sticky,
+  reboot-requiring `/api/settings` primitive — deliberately not used).
+
+### Producers
+
+All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
+`RotateLogIfLarge`) and are configured via `~/.config/awtrix-ai-status/producer.env`.
+
+- **Claude Code producer — `cmd/awtrix-claude-producer`.** Hook-based: Claude
+  fires hooks per invocation; the producer maps 8 events to states
+  (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, Notification,
+  Stop→DELETE, StopFailure→error, SessionEnd). Per-session flock + atomic
+  temp+rename marker writes. A long-lived **`run` daemon** (LaunchAgent
+  `com.awtrix-ai-status.heartbeat`, `KeepAlive=true`) ticks every 10 s to
+  re-POST/reap; it reloads `producer.env` each pass so settings-window edits
+  apply live. A `statusline` subcommand reads Claude's statusline JSON (the only
+  surface exposing rate %, reset, cost, model, PR) and enriches the marker.
+- **Codex CLI producer — `cmd/awtrix-codex-producer`.** Codex has **no hook
+  system**, so this is a long-lived **daemon that tails rollout JSONL**
+  (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop
+  (2 s), live-session map keyed by rollout UUID, byte-offset tailing, keepalive
+  re-POST (15 s) to stay under the server staleness reap. Filters to interactive
+  `session_meta.source == "cli"`. It also writes
+  `~/.local/state/awtrix-ai-status/sessions/<uuid>.json` markers so Codex shows
+  in the menu app. Codex gets a distinct **`>_`** sprite vs Claude's robot.
+
+### Menu-bar app — `macos/` (native SwiftUI)
+
+macOS menu-bar companion, a **pure HTTP client** of the server (it reads
+`GET /state`, `GET /v1/preview`, and drives the Pomodoro endpoints — it does
+**not** read the producers' local markers). The Connection tab edits
+`producer.env` (shared with the Go producers) and rebuilds the live client
+without relaunch. Hybrid layout:
+
+- **`AwtrixMenuKit` (`macos/Sources/`, SwiftPM)** — all testable logic, no scene
+  code: Codable models mirroring the wire shapes, `APIClient`, Status/Pomodoro/
+  Preview services, `pickWinning`, `EnvFile` + validation, the settings types,
+  and the `@Observable AppModel` + poller. Headless `swift test`.
+- **`AwtrixMenu` (`macos/AwtrixMenu/`, thin Xcode app)** — an `LSUIElement` agent
+  app: a `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a
+  `Settings` scene with four tabs (**Connection / Display / Pomodoro / App**),
+  and a status + preview **dashboard** `Window`. App-only prefs (icon palette,
+  tray glyphs) live in `UserDefaults`; launch-at-login is `SMAppService`.
+
+This replaced the retired Go `cmd/awtrix-menu` (`fyne.io/systray` + DarwinKit);
+its AppKit forensics are archived in [`HISTORY.md`](HISTORY.md). The Display tab's
+preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
+— produced by the same `internal/render` core the device uses (see below).
+
+### Render core — `internal/render`
+
+**Single source of truth** for both the device output and the menu preview, so
+the preview can't drift from the device. Holds sprites/glyphs (`font3x5`, robot,
+codex `>_`, glass, reset/hourglass), frame primitives (`Frame`, `RGB`,
+paint helpers), composition (`composeFrame`, cards, color logic, layout consts),
+and the `Session`/`Snapshot` types. `cmd/awtrix-ai-status` refers via type
+aliases; HTTP-payload shaping (`frameToCustomApp`) stays in the status binary.
+The menu preview is served by `GET /v1/preview`: the same core builds
+`PreviewSession` + `PreviewFrames` (per-card 32×8 color grids) as JSON, so the
+SwiftUI app paints exactly what the device shows without linking any Go. (A
+`RenderRGBA` helper still bridges a `Frame` to an RGBA buffer for any
+bitmap consumer.)
+
+### Pomodoro — `internal/pomodoro`
+
+A focus timer integrated into the **same service/container** (not a separate
+app). A pure `Engine` state machine (focus/short/long, pause/resume/skip/stop,
+auto-start) drives a **top-priority preempt inside the coordinator** — an active
+timer renders `render.RenderPomodoro` and holds the slot, edge-triggering device
+`ATRANS:false`/`BLOCKN:true` + `/api/switch` on start and restoring on stop.
+Stats persist in pure-Go SQLite (`modernc.org/sqlite`, no CGO → distroless build
+intact). API: `POST /v1/pomodoro/{start,pause,resume,stop,skip}` +
+`GET/PUT /v1/pomodoro/config` (bearer); open `GET /v1/pomodoro/{state,stats}`;
+**unauthenticated** `POST /hooks/awtrix/button` (the device can't send a token)
+mapping middle=pause/resume, right=skip, left=stop.
+
+## The "spine" — how display widgets are added
+
+Every configurable display signal follows one pattern:
+
+```
+menu checkbox  →  producer includes the wire field  →  render draws-if-present
+```
+
+`STATUS_CONTEXT_PCT_ENABLED` / the context glass is the canonical template. The
+`STATUS_*` flags gate only the **boolean wire fields** the producer sets
+(`context_number`, `rate_bottom_bar`, `rate_reset`, …); they do **not** gate the
+underlying data capture (the statusline producer enriches `rate_window_pct` /
+`rate_reset_at` / `context_pct` unconditionally). They are pure render-opt-in
+switches. To add a widget: add the toggle + wire field in the producer, render
+draws-if-present in `internal/render`, add a menu checkbox.
+
+## Wire protocol
+
+- **Required identity:** `source` / `tool` / `session` / `state`. Optional
+  enrichment fields (`context_pct`, `source_color`, `rate_window_pct`,
+  `rate_reset_at`, `activity`, the `STATUS_*` booleans, …).
+- **Strict vs forward-compat decode:** `handleStatus` (`POST /v1/status`) decodes
+  **non-strict** (unknown fields ignored) so newer producers can post fields an
+  older server doesn't know. `handleDeleteStatus` + `handleNotify` stay **strict**
+  (reject unknown fields / trailing tokens, 413 via `http.MaxBytesReader`).
+- **Auth:** bearer token on write endpoints, via `STATUS_TOKEN` env only —
+  never argv/URL/logs. `slog.LogValuer` redaction throughout.
+- **Liveness fields stay local:** process-liveness data (`owner_pid`,
+  `owner_start`) lives only in the local marker, embedded so the wire decoder
+  ignores it — never in the `StatusRequest` body.
+
+### Data reality (what flows from where)
+
+| Signal | Claude | Codex | Notes |
+|---|---|---|---|
+| state / tool / session | hooks | rollout JSONL | |
+| `context_pct` | statusline `context_window.used_percentage` | rollout token_count | transcript heuristic was removed (over-read) |
+| `rate_window_pct` (5h) | statusline `five_hour.used_percentage` | rollout `rate_limits.primary.used_percent` | |
+| `rate_reset_at` | statusline `…five_hour.resets_at` | rollout `…primary.resets_at` | epoch secs; countdown computed at render time (TZ-independent) |
+| `activity` / trail | hooks (`Tool: detail`) | rollout (`exec:`/`edit:`/`web:`/`mcp:`) | shared `PrependTrail` ring buffer |
+| `tokens_today`, cost, model, PR | — | — | wire field exists for tokens_today; **no producer fills it yet** |
+
+## Display layout (32×8 matrix)
+
+Each metric owns a screen region as a **graphic**; numeric readouts are opt-in
+and disambiguated by a pictogram (graphics-first principle).
+
+- **Robot / `>_` sprite** — cols 0–9, state-coloured (green=run, amber=wait,
+  red=err + `> <` chevron eyes, blue=done linger, grey=idle). Codex = `>_`.
+- **Number slot** — cols 12–24, a **rotating set of cards** advanced by the
+  coordinator's card cursor: `X/Y` (session index / total), context `NN⌷`, rate
+  `NN%` (green<70 / amber / red≥90), reset `N⧗` (ceil-hours to 5h reset), and
+  the scrolling tool/trail card. Source color tints the digits.
+- **Context glass** — right edge (interior cols ~26–29 × rows 1–4), 16-level
+  per-pixel bottom-up fill, state-coloured; topmost partial row fills center-out
+  so the waterline reads as a level.
+- **Bottom row (row 7)** — either the 5h rate-limit bar (`drawRateBar`, when
+  `rate_bottom_bar` on and rate present) or a session-count bar (1 px per
+  non-idle session, priority-sorted, capped at 21).
+- **Locked attention view** — 10-wide robot in cols 0–9, firmware-native
+  scrolling text (or `blinkText` "WAIT"/"ERR") in cols 11–31.
+
+## Gotchas & constraints (hard-won)
+
+### AWTRIX firmware (0.98)
+- **No multi-frame `draw` arrays.** A 2-frame pulse payload triggers `500
+  ErrorParsingJson` on the device. Use firmware-native `blinkText` instead.
+- **`textOffset` stacks on top of centering.** Custom apps default
+  `center:true`, and the firmware *adds* `textOffset` to the centered position →
+  text clips past col 31. Set `center:false` to make `textOffset` the literal
+  start column.
+- **Native-app suppression:** use `prio:true` + `force:true` + per-frame
+  `lifetime`, never `/api/settings` (sticky, some toggles need a reboot, not
+  crash-safe).
+- **Device button input** comes via the HTTP `button_callback` (no MQTT broker
+  needed); the device can't attach a token, hence the unauthenticated hook.
+- **Verify on-device** by reading `GET /api/screen` (256 RGB ints, 32×8
+  row-major) — see RUNBOOK for the ANSI-render + crafted-session technique.
+
+### DarwinKit / AppKit (retired Go menu)
+The Go `cmd/awtrix-menu` was replaced by the native SwiftUI app (`macos/`), so its
+hard-won DarwinKit/AppKit retention crashes (weak `NSWindow.delegate`, libffi
+`NSTimer`-block frees, `NSBitmapImageRep planes`, bundle-less activation policy,
+uncommitted `NSTextField` edits) are no longer live constraints. The full
+forensics are archived verbatim in [`HISTORY.md`](HISTORY.md).
+
+### Producer / deploy
+- **Process-liveness, not file-existence, detects session close.** A heartbeat
+  that re-posts any young marker keeps dead sessions alive for hours and defeats
+  every server staleness window. `SessionEnd` is unreliable (skipped on
+  window-close / Cmd-Q / SIGHUP / crash). Walk the hook's process ancestry past
+  the `sh` wrapper to the owning `claude`/`node` PID, record PID + `ps lstart`
+  (guards PID reuse), reap when it dies (~10 s). Audit any code that round-trips
+  the marker through the wire struct (it can silently strip the liveness fields).
+- **Producer↔server version skew is silent.** When a feature's render is in the
+  server but its data comes from a producer, shipping the producer alone shows
+  nothing — the lenient decoder drops the unknown field with no error. After any
+  render-side change, redeploy the server from current `main`; diagnose with
+  `GET /version` vs merge history.
+- **Syntactically-valid-but-wrong config defeats validation.** A
+  `STATUS_SERVER_URL` typo (`:800` for `:8080`) passed the URL validator but
+  dropped every POST. When "nothing shows," check the producer→server path first:
+  env URL, token match, `/state` contents. Reject semantic sentinels (e.g. a `0`
+  context window) and force the explicit blank instead.
+- **Pure-Go SQLite keeps the distroless static build** (`CGO_ENABLED=0`). Use a
+  Docker **named volume** for the writable DB as nonroot; open WAL +
+  `SetMaxOpenConns(1)`; `Close()` on shutdown to checkpoint the WAL.
+- **`/admin/reload` reverts runtime-persisted settings** unless the feature
+  re-applies them after the config `Store` (Pomodoro durations live in SQLite,
+  not the file).
+- **Building inside a git *worktree* hides the VCS revision** from Docker
+  `buildvcs` (the worktree `.git` is a file) → `version: unknown`. Build from a
+  normal checkout / CI.
+
+## Conventions
+
+- **Stdlib-first, but deps that earn their slot are welcome** (STYLE.md §11).
+  The Go server's only third-party dep is now `modernc.org/sqlite` — the
+  `fyne.io/systray` + `progrium/darwinkit` menu deps were dropped when the menu
+  became a native SwiftUI app (`macos/`). Hand-rolling protocol clients (the
+  deleted MQTT 3.1.1 client) was not worth the purity tax.
+- **Decompose "build feature X" into A/B/C sub-projects** with their own
+  spec → plan → implementation cycle when the work hides interface contracts;
+  keep them loosely coupled through a single locked protocol.
+- See [`STYLE.md`](STYLE.md) for the full coding guide.
