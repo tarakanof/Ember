@@ -1,3 +1,5 @@
+![Ember — a backend that serves apps to your AWTRIX pixel clock](Design/icons/ember-github-banner.png)
+
 # Ember
 
 Small status aggregator for showing Claude/Codex activity on an AWTRIX3 clock.
