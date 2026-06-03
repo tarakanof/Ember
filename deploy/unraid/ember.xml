@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ember</Name>
+  <Repository>dtarakanov/ember:latest</Repository>
+  <Registry>https://hub.docker.com/r/dtarakanov/ember</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <!-- No <Shell> element: distroless image has no shell. Unraid's Console
+       icon would invoke `docker exec -it ... sh` and fail; verification
+       and diagnostics go through `docker exec ember /ember <subcommand>`
+       from the Unraid host shell instead. -->
+  <Privileged>false</Privileged>
+  <Support>https://github.com/tarakanof/ember/issues</Support>
+  <Project>https://github.com/tarakanof/ember</Project>
+  <Overview>Display Claude/Codex activity on an Ulanzi TC001 running AWTRIX3.</Overview>
+  <!-- Description body wrapped in CDATA so shell snippets containing
+       `&&`, `<`, `>`, etc. don't have to be entity-escaped. Placed
+       here (right after <Overview>) per CA template convention; the
+       canonical metadata block is contiguous before <Config> entries. -->
+  <Description><![CDATA[
+Display Claude/Codex activity on an Ulanzi TC001 running AWTRIX3.
+
+**Before you click Apply on first install:**
+
+1. From your Unraid host shell (Terminal plugin or SSH), prepare appdata:
+   `mkdir -p /mnt/user/appdata/ember && curl -fsSL -o /mnt/user/appdata/ember/config.json https://raw.githubusercontent.com/tarakanof/ember/main/config.example.json`
+2. Edit it (`vi` or your preferred editor) and set `awtrix.http_base_url` to your AWTRIX device URL (e.g. `http://192.168.0.14`).
+3. Generate a token: `openssl rand -hex 32` — paste into the EMBER_TOKEN field above.
+4. Click Apply.
+
+**Verify after start (from the Unraid host shell, NOT the Console icon — the runtime image is distroless and has no shell):**
+`docker exec ember /ember doctor`
+Every check should be `[OK]`. Replace `ember` with whatever name you gave the container in the template UI.
+
+**Upgrade:** Click "Force Update" in the Unraid Docker UI. Pulls the latest `:latest` image; in-flight requests drain on stop.
+
+**Uninstall:** Stop + Remove the container. The appdata folder is preserved unless you delete it manually.
+
+See https://github.com/tarakanof/ember for full documentation.
+  ]]></Description>
+  <Category>Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/state</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/tarakanof/ember/main/deploy/unraid/ember.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/tarakanof/ember/main/deploy/unraid/ember-256.png</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+
+  <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp" Description="Server HTTP port" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+
+  <Config Name="Config dir" Target="/etc/ember" Default="/mnt/user/appdata/ember" Mode="ro" Description="Bind mount; on first start copy config.example.json from the repo into this folder as config.json and edit awtrix.http_base_url to match your device." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ember</Config>
+
+  <Config Name="EMBER_TOKEN" Target="EMBER_TOKEN" Default="" Mode="" Description="Bearer token producers must send on /v1/* writes. Choose anything random; copy it to your producer hosts." Type="Variable" Display="always" Required="true" Mask="true"/>
+
+  <Config Name="CONFIG_PATH" Target="CONFIG_PATH" Default="/etc/ember/config.json" Mode="" Description="Path to config.json inside the container. Default matches the bind mount above; only change if you renamed the file." Type="Variable" Display="advanced" Required="false" Mask="false">/etc/ember/config.json</Config>
+
+  <Config Name="EMBER_TLS_CERT_FILE" Target="EMBER_TLS_CERT_FILE" Default="" Mode="" Description="Optional. Path to a PEM cert inside the container to enable HTTPS. Set both this and EMBER_TLS_KEY_FILE; bind-mount your cert dir separately. See README's TLS section." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="EMBER_TLS_KEY_FILE" Target="EMBER_TLS_KEY_FILE" Default="" Mode="" Description="Optional. Path to the matching PEM key inside the container." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+  <Config Name="EMBER_HEALTHCHECK_INSECURE" Target="EMBER_HEALTHCHECK_INSECURE" Default="" Mode="" Description="Optional. Set to '1' if you enabled TLS with a self-signed cert and want the in-image healthcheck to skip TLS verification." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+
+</Container>

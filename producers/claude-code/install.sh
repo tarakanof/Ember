@@ -9,15 +9,15 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
-echo "Building awtrix-claude-producer..."
+echo "Building ember-claude-producer..."
 cd "$REPO_ROOT"
-go install ./cmd/awtrix-claude-producer/
+go install ./cmd/ember-claude-producer/
 
 GOBIN="$(go env GOBIN)"
 if [ -z "$GOBIN" ]; then
   GOBIN="$(go env GOPATH)/bin"
 fi
-BIN="$GOBIN/awtrix-claude-producer"
+BIN="$GOBIN/ember-claude-producer"
 
 if [ ! -x "$BIN" ]; then
   echo "Build succeeded but binary not found at $BIN" >&2

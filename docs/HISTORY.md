@@ -15,6 +15,8 @@
 > (root causes, review findings, deploy gotchas) are never lost. Newer detail
 > lives in git history and the curated docs above.
 
+> **Note:** the project was renamed **`awtrix-ai-status` → Ember** in 2026-06. This archive keeps the original name verbatim as the historical record.
+
 ---
 
 ## Summary

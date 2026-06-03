@@ -114,8 +114,7 @@ Two distinct cases:
 - `AGENTS.md` — repository conventions, build/test commands, secrets, runtime notes. The first thing any AI assistant reads.
 - `CLAUDE.md` — points at AGENTS.md (we keep one source of truth).
 - `docs/STYLE.md` — this file.
-- `docs/superpowers/specs/` — design contracts for non-trivial work, dated.
-- `docs/superpowers/plans/` — implementation plans matching specs, dated.
+- `Superpowers Specs/<project>/` (Obsidian vault) — design contracts + matching implementation plans for non-trivial work, dated.
 - Inline docs (godoc) — exported API only.
 
 When in doubt, write the spec, then point at it from the code's commit message. Don't paste the spec into the code.
@@ -133,7 +132,7 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 
 ### Files in this repo
 
-- `cmd/awtrix-ai-status/main.go` is the single-file regime. Acceptable until ~1200 lines, after which split by responsibility:
+- `cmd/ember/main.go` is the single-file regime. Acceptable until ~1200 lines, after which split by responsibility:
   - `server.go` — HTTP handlers, routing, middleware
   - `store.go` — `App`, sessions, render priority
   - `awtrix.go` — `HTTPPublisher`
@@ -262,8 +261,8 @@ Prefer types whose zero value is usable (`var mu sync.Mutex` works, no `NewMutex
 
 - One `Config` struct per binary. Sub-structs for cohesive groups (`HTTPConfig`, `AuthConfig`).
 - `defaultConfig()` returns the defaults; `loadConfig(path)` reads JSON and overlays; `(c *Config) applyDefaults()` fills zero values; validation rejects required-but-empty.
-- Env vars are explicitly bridged at config-load time, not scattered through the codebase. `os.Getenv("STATUS_TOKEN")` lives in `applyDefaults` only.
-- For an env-name override pattern: `Auth.StatusTokenEnv = "STATUS_TOKEN"` with `os.Getenv(c.Auth.StatusTokenEnv)`. This makes the env name swappable without forking config logic.
+- Env vars are explicitly bridged at config-load time, not scattered through the codebase. `os.Getenv("EMBER_TOKEN")` lives in `applyDefaults` only.
+- For an env-name override pattern: `Auth.StatusTokenEnv = "EMBER_TOKEN"` with `os.Getenv(c.Auth.StatusTokenEnv)`. This makes the env name swappable without forking config logic.
 
 ### Observability patterns specific to this project
 

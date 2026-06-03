@@ -1,6 +1,6 @@
 # Architecture
 
-How `awtrix-ai-status` is put together: the system model, the components, the
+How `ember` is put together: the system model, the components, the
 wire protocol, the display layout, and the hard-won gotchas. This is the
 canonical design reference — read it before non-trivial changes. For operations
 (deploy / install / verify) see [`RUNBOOK.md`](RUNBOOK.md); for the full
@@ -32,11 +32,11 @@ expiry, prioritization, display rotation, and multi-laptop fan-in cleanly.
 
 ## Components
 
-### Server — `cmd/awtrix-ai-status`
+### Server — `cmd/ember`
 
 The aggregator and the only writer to the device.
 
-- **HTTP endpoints.** Write (bearer-token auth via `STATUS_TOKEN`):
+- **HTTP endpoints.** Write (bearer-token auth via `EMBER_TOKEN`):
   `POST /v1/status` (upsert: event or heartbeat), `DELETE /v1/status` (drop one
   session, idempotent 204), `POST /v1/clear` (admin wipe), `POST /v1/notify`
   (ad-hoc notification). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
@@ -68,24 +68,24 @@ The aggregator and the only writer to the device.
 ### Producers
 
 All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
-`RotateLogIfLarge`) and are configured via `~/.config/awtrix-ai-status/producer.env`.
+`RotateLogIfLarge`) and are configured via `~/.config/ember/producer.env`.
 
-- **Claude Code producer — `cmd/awtrix-claude-producer`.** Hook-based: Claude
+- **Claude Code producer — `cmd/ember-claude-producer`.** Hook-based: Claude
   fires hooks per invocation; the producer maps 8 events to states
   (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, Notification,
   Stop→DELETE, StopFailure→error, SessionEnd). Per-session flock + atomic
   temp+rename marker writes. A long-lived **`run` daemon** (LaunchAgent
-  `com.awtrix-ai-status.heartbeat`, `KeepAlive=true`) ticks every 10 s to
+  `com.ember.heartbeat`, `KeepAlive=true`) ticks every 10 s to
   re-POST/reap; it reloads `producer.env` each pass so settings-window edits
   apply live. A `statusline` subcommand reads Claude's statusline JSON (the only
   surface exposing rate %, reset, cost, model, PR) and enriches the marker.
-- **Codex CLI producer — `cmd/awtrix-codex-producer`.** Codex has **no hook
+- **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop
   (2 s), live-session map keyed by rollout UUID, byte-offset tailing, keepalive
   re-POST (15 s) to stay under the server staleness reap. Filters to interactive
   `session_meta.source == "cli"`. It also writes
-  `~/.local/state/awtrix-ai-status/sessions/<uuid>.json` markers so Codex shows
+  `~/.local/state/ember/sessions/<uuid>.json` markers so Codex shows
   in the menu app. Codex gets a distinct **`>_`** sprite vs Claude's robot.
 
 ### Menu-bar app — `macos/` (native SwiftUI)
@@ -96,17 +96,17 @@ macOS menu-bar companion, a **pure HTTP client** of the server (it reads
 `producer.env` (shared with the Go producers) and rebuilds the live client
 without relaunch. Hybrid layout:
 
-- **`AwtrixMenuKit` (`macos/Sources/`, SwiftPM)** — all testable logic, no scene
+- **`EmberKit` (`macos/Sources/`, SwiftPM)** — all testable logic, no scene
   code: Codable models mirroring the wire shapes, `APIClient`, Status/Pomodoro/
   Preview services, `pickWinning`, `EnvFile` + validation, the settings types,
   and the `@Observable AppModel` + poller. Headless `swift test`.
-- **`AwtrixMenu` (`macos/AwtrixMenu/`, thin Xcode app)** — an `LSUIElement` agent
+- **`Ember` (`macos/Ember/`, thin Xcode app)** — an `LSUIElement` agent
   app: a `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a
   `Settings` scene with four tabs (**Connection / Display / Pomodoro / App**),
   and a status + preview **dashboard** `Window`. App-only prefs (icon palette,
   tray glyphs) live in `UserDefaults`; launch-at-login is `SMAppService`.
 
-This replaced the retired Go `cmd/awtrix-menu` (`fyne.io/systray` + DarwinKit);
+This replaced the retired Go menu (`fyne.io/systray` + DarwinKit);
 its AppKit forensics are archived in [`HISTORY.md`](HISTORY.md). The Display tab's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
 — produced by the same `internal/render` core the device uses (see below).
@@ -117,7 +117,7 @@ preview is **pixel-accurate** because it renders the server's `/v1/preview` grid
 the preview can't drift from the device. Holds sprites/glyphs (`font3x5`, robot,
 codex `>_`, glass, reset/hourglass), frame primitives (`Frame`, `RGB`,
 paint helpers), composition (`composeFrame`, cards, color logic, layout consts),
-and the `Session`/`Snapshot` types. `cmd/awtrix-ai-status` refers via type
+and the `Session`/`Snapshot` types. `cmd/ember` refers via type
 aliases; HTTP-payload shaping (`frameToCustomApp`) stays in the status binary.
 The menu preview is served by `GET /v1/preview`: the same core builds
 `PreviewSession` + `PreviewFrames` (per-card 32×8 color grids) as JSON, so the
@@ -146,8 +146,8 @@ Every configurable display signal follows one pattern:
 menu checkbox  →  producer includes the wire field  →  render draws-if-present
 ```
 
-`STATUS_CONTEXT_PCT_ENABLED` / the context glass is the canonical template. The
-`STATUS_*` flags gate only the **boolean wire fields** the producer sets
+`EMBER_CONTEXT_PCT_ENABLED` / the context glass is the canonical template. The
+`EMBER_*` flags gate only the **boolean wire fields** the producer sets
 (`context_number`, `rate_bottom_bar`, `rate_reset`, …); they do **not** gate the
 underlying data capture (the statusline producer enriches `rate_window_pct` /
 `rate_reset_at` / `context_pct` unconditionally). They are pure render-opt-in
@@ -158,12 +158,12 @@ draws-if-present in `internal/render`, add a menu checkbox.
 
 - **Required identity:** `source` / `tool` / `session` / `state`. Optional
   enrichment fields (`context_pct`, `source_color`, `rate_window_pct`,
-  `rate_reset_at`, `activity`, the `STATUS_*` booleans, …).
+  `rate_reset_at`, `activity`, the `EMBER_*` booleans, …).
 - **Strict vs forward-compat decode:** `handleStatus` (`POST /v1/status`) decodes
   **non-strict** (unknown fields ignored) so newer producers can post fields an
   older server doesn't know. `handleDeleteStatus` + `handleNotify` stay **strict**
   (reject unknown fields / trailing tokens, 413 via `http.MaxBytesReader`).
-- **Auth:** bearer token on write endpoints, via `STATUS_TOKEN` env only —
+- **Auth:** bearer token on write endpoints, via `EMBER_TOKEN` env only —
   never argv/URL/logs. `slog.LogValuer` redaction throughout.
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
@@ -218,7 +218,7 @@ and disambiguated by a pictogram (graphics-first principle).
   row-major) — see RUNBOOK for the ANSI-render + crafted-session technique.
 
 ### DarwinKit / AppKit (retired Go menu)
-The Go `cmd/awtrix-menu` was replaced by the native SwiftUI app (`macos/`), so its
+The retired Go menu was replaced by the native SwiftUI app (`macos/`), so its
 hard-won DarwinKit/AppKit retention crashes (weak `NSWindow.delegate`, libffi
 `NSTimer`-block frees, `NSBitmapImageRep planes`, bundle-less activation policy,
 uncommitted `NSTextField` edits) are no longer live constraints. The full
@@ -238,7 +238,7 @@ forensics are archived verbatim in [`HISTORY.md`](HISTORY.md).
   render-side change, redeploy the server from current `main`; diagnose with
   `GET /version` vs merge history.
 - **Syntactically-valid-but-wrong config defeats validation.** A
-  `STATUS_SERVER_URL` typo (`:800` for `:8080`) passed the URL validator but
+  `EMBER_SERVER_URL` typo (`:800` for `:8080`) passed the URL validator but
   dropped every POST. When "nothing shows," check the producer→server path first:
   env URL, token match, `/state` contents. Reject semantic sentinels (e.g. a `0`
   context window) and force the explicit blank instead.

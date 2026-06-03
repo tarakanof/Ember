@@ -1,5 +1,5 @@
 // Package producer holds the shared HTTP client, env-file parser, and log
-// rotation used by both the Claude and Codex awtrix-ai-status producers.
+// rotation used by both the Claude and Codex ember producers.
 package producer
 
 import (

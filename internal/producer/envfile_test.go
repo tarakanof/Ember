@@ -18,7 +18,7 @@ func TestReadEnvFile_Missing(t *testing.T) {
 
 func TestReadEnvFile_RejectsWidePermissions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "producer.env")
-	if err := os.WriteFile(path, []byte("STATUS_SOURCE=x\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("EMBER_SOURCE=x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadEnvFile(path); err == nil {
@@ -29,7 +29,7 @@ func TestReadEnvFile_RejectsWidePermissions(t *testing.T) {
 func TestReadEnvFile_RejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "real.env")
-	if err := os.WriteFile(target, []byte("STATUS_SOURCE=x\n"), 0o600); err != nil {
+	if err := os.WriteFile(target, []byte("EMBER_SOURCE=x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(dir, "producer.env")
@@ -43,7 +43,7 @@ func TestReadEnvFile_RejectsSymlink(t *testing.T) {
 
 func TestReadEnvFile_ParsesQuotesAndComments(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "producer.env")
-	content := "# comment\nSTATUS_SOURCE=mbp\nSTATUS_SERVER_URL=\"http://h:8080\"\n\nSTATUS_TOKEN=abc\n"
+	content := "# comment\nEMBER_SOURCE=mbp\nEMBER_SERVER_URL=\"http://h:8080\"\n\nEMBER_TOKEN=abc\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestReadEnvFile_ParsesQuotesAndComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for k, want := range map[string]string{"STATUS_SOURCE": "mbp", "STATUS_SERVER_URL": "http://h:8080", "STATUS_TOKEN": "abc"} {
+	for k, want := range map[string]string{"EMBER_SOURCE": "mbp", "EMBER_SERVER_URL": "http://h:8080", "EMBER_TOKEN": "abc"} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
 		}

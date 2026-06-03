@@ -182,8 +182,8 @@ var robotError = []string{
 }
 
 // codexSprite is the Codex ">_" mark (10×6), kept pixel-identical to the copy
-// in cmd/awtrix-menu/icon.go (guarded by TestCodexSpriteCanonical in both
-// packages). 2-px chevron (cols 0–3) + underscore (row 5, cols 5–9).
+// in the retired Go menu's icon renderer (guarded by TestCodexSpriteCanonical).
+// 2-px chevron (cols 0–3) + underscore (row 5, cols 5–9).
 var codexSprite = []string{
 	"XX........",
 	".XX.......",

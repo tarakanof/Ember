@@ -1,0 +1,27 @@
+import SwiftUI
+import EmberKit
+
+@main
+struct EmberApp: App {
+    @State private var env = AppEnvironment()   // self-starts polling in its init
+
+    var body: some Scene {
+        MenuBarExtra {
+            MenuBarContentView()
+                .environment(env)
+        } label: {
+            MenuBarLabel(session: env.model.winningSession, prefs: env.prefs)
+        }
+        .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView()
+                .environment(env)
+        }
+
+        Window("AWTRIX Dashboard", id: "dashboard") {
+            DashboardView()
+                .environment(env)
+        }
+    }
+}

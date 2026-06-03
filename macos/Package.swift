@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "AwtrixMenuKit",
+    name: "EmberKit",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "AwtrixMenuKit", targets: ["AwtrixMenuKit"]),
+        .library(name: "EmberKit", targets: ["EmberKit"]),
     ],
     targets: [
-        .target(name: "AwtrixMenuKit"),
-        .testTarget(name: "AwtrixMenuKitTests", dependencies: ["AwtrixMenuKit"]),
+        .target(name: "EmberKit"),
+        .testTarget(name: "EmberKitTests", dependencies: ["EmberKit"]),
     ]
 )

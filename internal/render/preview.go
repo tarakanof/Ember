@@ -26,7 +26,7 @@ func ptrInt(v int) *int { return &v }
 
 // DraftDisplay is the set of display toggles the Settings "Display" tab edits
 // that affect a single-session render. It is the 6 effective booleans consumed
-// by PreviewSession plus an optional source colour. (STATUS_ACTIVITY_TRAIL is
+// by PreviewSession plus an optional source colour. (EMBER_ACTIVITY_TRAIL is
 // intentionally absent: it affects the multi-session bar, not one session.)
 type DraftDisplay struct {
 	ContextPct     bool

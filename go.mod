@@ -1,4 +1,4 @@
-module github.com/dt/awtrix-ai-status
+module github.com/tarakanof/ember
 
 go 1.26
 

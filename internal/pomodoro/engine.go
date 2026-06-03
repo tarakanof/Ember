@@ -1,7 +1,7 @@
 // Package pomodoro implements a clock-injected Pomodoro timer state machine
 // and its statistics store. The engine is pure (no I/O): it advances only when
 // Tick is called with the current time, so it is fully deterministic in tests
-// and drives the device display from the awtrix-ai-status coordinator.
+// and drives the device display from the ember coordinator.
 package pomodoro
 
 import (

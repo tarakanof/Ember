@@ -4,11 +4,11 @@
   },
   "awtrix": {
     "http_base_url": "http://192.168.0.14",
-    "app_name": "ai_status",
+    "app_name": "ember",
     "timeout_seconds": 10
   },
   "auth": {
-    "status_token_env": "STATUS_TOKEN"
+    "status_token_env": "EMBER_TOKEN"
   },
   "rate_limit": {
     "disabled": false,
@@ -39,7 +39,7 @@
     "sound_melody": "",
     "focus_color": "#FF3B30",
     "break_color": "#2EE85E",
-    "db_path": "/var/lib/awtrix-ai-status/pomodoro.db",
+    "db_path": "/var/lib/ember/pomodoro.db",
     "button_callback": true
   }
 }

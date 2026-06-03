@@ -2,14 +2,14 @@
 
 ## Project
 
-`awtrix-ai-status` is a small Go service that shows Claude/Codex activity on an
+`ember` is a small Go service that shows Claude/Codex activity on an
 Ulanzi TC001 running AWTRIX3, plus an integrated Pomodoro timer. Host-side
 producers report agent status; the server aggregates and drives the clock over
 direct HTTP; a macOS menu-bar app configures it.
 
 Primary goals: stay lightweight enough for an Unraid Docker container; aggregate
 multiple laptop/session statuses; enforce bearer-token auth on write endpoints
-(`STATUS_TOKEN`); keep credentials and local machine details out of Git.
+(`EMBER_TOKEN`); keep credentials and local machine details out of Git.
 
 ## Read first
 
@@ -17,7 +17,7 @@ multiple laptop/session statuses; enforce bearer-token auth on write endpoints
   the "spine" pattern, wire protocol, display layout, and hard-won gotchas
   (firmware, menu app, deploy). Read before any non-trivial change.
 - **[`docs/RUNBOOK.md`](docs/RUNBOOK.md)** — build/test, deploy, producer & menu
-  install, the `STATUS_*` toggle reference, on-device verification.
+  install, the `EMBER_*` toggle reference, on-device verification.
 - **[`docs/STYLE.md`](docs/STYLE.md)** — coding guide. Read before non-trivial code.
 - **[`docs/HISTORY.md`](docs/HISTORY.md)** — archived full session log (forensics).
 
@@ -26,11 +26,11 @@ multiple laptop/session statuses; enforce bearer-token auth on write endpoints
 - AWTRIX device ID / topic prefix: `awtrix_05ffb8`
 - AWTRIX HTTP URL: `http://192.168.0.14` (firmware 0.98)
 - Home Assistant: `http://192.168.0.36:8123`
-- GitHub remote: `git@github.com:tarakanof/awtrix-ai-status.git`
-- GHCR (post first release): `ghcr.io/tarakanof/awtrix-ai-status`
+- GitHub remote: `git@github.com:tarakanof/ember.git`
+- Docker Hub (post first release): `docker.io/dtarakanov/ember`
 
 Do not write secrets into this repository. The write-endpoint bearer token is
-supplied via the `STATUS_TOKEN` environment variable.
+supplied via the `EMBER_TOKEN` environment variable.
 
 ## Coding Guidelines
 
@@ -65,11 +65,11 @@ Full behavior (staleness, render priority, the coordinator, display hold) is in
 
 The user's AI control-plane vault is at
 `/Users/dt/Library/Mobile Documents/iCloud~md~obsidian/Documents/AI`. The project
-task note is `AI/Tasks/AWTRIX AI status.md` — it holds **current status + the
+task note is `AI/Tasks/Ember.md` — it holds **current status + the
 canonical open-items/TODO list** (the repo no longer carries a `TODO.md`).
 
 **Superpowers spec/plan docs live in the vault** under
-`Superpowers Specs/awtrix-ai-status/` (flat — `…-design.md` specs alongside their
+`Superpowers Specs/ember/` (flat — `…-design.md` specs alongside their
 plans), **not** in this repo. The repo's old `docs/superpowers/` tree was migrated
 there on 2026-05-29; `.gitignore` still blocks `docs/superpowers/` so it can't
 reappear in-repo.
