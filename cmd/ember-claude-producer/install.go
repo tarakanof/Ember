@@ -12,6 +12,15 @@ import (
 
 const launchAgentLabel = "com.ember.heartbeat"
 
+// producerName is this binary's name; legacyProducerName is the pre-Ember
+// rebrand name. install/uninstall recognize hook + statusLine entries left by
+// EITHER, so upgrading from awtrix-claude-producer replaces them cleanly instead
+// of leaving the old entries to double-fire alongside the new ones.
+const (
+	producerName       = "ember-claude-producer"
+	legacyProducerName = "awtrix-claude-producer"
+)
+
 func runInstall() {
 	if err := install(); err != nil {
 		fmt.Fprintln(os.Stderr, "install failed:", err)
@@ -293,7 +302,7 @@ func entryMatchesProducer(e any) bool {
 			continue
 		}
 		cmd, _ := hm["command"].(string)
-		if strings.Contains(cmd, "ember-claude-producer") {
+		if strings.Contains(cmd, producerName) || strings.Contains(cmd, legacyProducerName) {
 			return true
 		}
 	}

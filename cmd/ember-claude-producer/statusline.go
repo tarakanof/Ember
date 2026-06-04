@@ -144,7 +144,9 @@ func statusLineIsOurs(v any) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(raw), "ember-claude-producer statusline")
+	s := string(raw)
+	return strings.Contains(s, producerName+" statusline") ||
+		strings.Contains(s, legacyProducerName+" statusline")
 }
 
 // runStatusline is the `statusline` subcommand: read the statusline JSON from
