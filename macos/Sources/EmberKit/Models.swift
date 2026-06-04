@@ -1,5 +1,12 @@
 import Foundation
 
+public struct AppToggle: Codable, Sendable, Equatable {
+    public var name: String
+    public var enabled: Bool
+}
+
+struct AppsList: Codable, Sendable { var apps: [AppToggle] }
+
 public struct PomoState: Codable, Sendable, Equatable {
     public var phase: String
     public var running: Bool
@@ -44,10 +51,12 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     public var soundMelody: String
     public var focusColor: String
     public var breakColor: String
+    public var maxSessionMinutes: Int
 
     public init(focusMinutes: Int, shortBreakMinutes: Int, longBreakMinutes: Int,
                 roundsBeforeLongBreak: Int, autoStartNext: Bool, sound: Bool,
-                soundMelody: String, focusColor: String, breakColor: String) {
+                soundMelody: String, focusColor: String, breakColor: String,
+                maxSessionMinutes: Int = 480) {
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
         self.longBreakMinutes = longBreakMinutes
@@ -57,6 +66,7 @@ public struct PomoConfig: Codable, Sendable, Equatable {
         self.soundMelody = soundMelody
         self.focusColor = focusColor
         self.breakColor = breakColor
+        self.maxSessionMinutes = maxSessionMinutes
     }
 
     enum CodingKeys: String, CodingKey {
@@ -69,6 +79,7 @@ public struct PomoConfig: Codable, Sendable, Equatable {
         case soundMelody = "sound_melody"
         case focusColor = "focus_color"
         case breakColor = "break_color"
+        case maxSessionMinutes = "max_session_minutes"
     }
 }
 

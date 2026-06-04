@@ -184,3 +184,34 @@ func TestApplyDefaults_RateLimitPreservesDisabled(t *testing.T) {
 		t.Error("Disabled flag was overwritten by applyDefaults")
 	}
 }
+
+func TestPomodoroDefaultsCapAndFocusMax(t *testing.T) {
+	c := defaultConfig()
+	if c.Pomodoro.MaxSessionMinutes != 480 {
+		t.Fatalf("default max_session_minutes = %d, want 480", c.Pomodoro.MaxSessionMinutes)
+	}
+}
+
+func TestValidatePomodoroFocusMaxAndCapRanges(t *testing.T) {
+	base := defaultConfig().Pomodoro
+	base.Enabled = true
+
+	ok := base
+	ok.FocusMinutes = 480
+	ok.MaxSessionMinutes = 0 // 0 = off is valid
+	if err := validatePomodoro(ok); err != nil {
+		t.Fatalf("focus=480 cap=0 should be valid, got %v", err)
+	}
+
+	bad := base
+	bad.FocusMinutes = 481
+	if err := validatePomodoro(bad); err == nil {
+		t.Fatal("focus=481 should be rejected")
+	}
+
+	badCap := base
+	badCap.MaxSessionMinutes = 1441
+	if err := validatePomodoro(badCap); err == nil {
+		t.Fatal("max_session_minutes=1441 should be rejected")
+	}
+}

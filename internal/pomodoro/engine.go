@@ -26,6 +26,7 @@ type Settings struct {
 	LongMin          int
 	RoundsBeforeLong int
 	AutoStartNext    bool
+	MaxSessionMin    int // 0 = no cap; else auto-stop the whole cycle after this many wall-clock minutes (pauses count toward it, unlike per-phase elapsed time)
 }
 
 // Status is a point-in-time snapshot of the engine, computed for a given now.
@@ -67,6 +68,8 @@ type Engine struct {
 	pausedAt    time.Time     // when the current pause began (valid iff paused)
 
 	focusCount int // completed focus phases since the last long break
+
+	sessionStartedAt time.Time // when the current cycle began (first Start out of idle); zero when idle
 }
 
 // New constructs an idle engine with the given settings.
@@ -141,7 +144,12 @@ func (e *Engine) elapsedLocked(now time.Time) time.Duration {
 // Start begins phase p (typically PhaseFocus) running from a full duration.
 func (e *Engine) Start(p Phase) {
 	e.mu.Lock()
-	e.beginLocked(p, e.clk.Now())
+	wasIdle := e.phase == PhaseIdle
+	now := e.clk.Now()
+	e.beginLocked(p, now)
+	if wasIdle {
+		e.sessionStartedAt = now
+	}
 	e.mu.Unlock()
 }
 
@@ -182,6 +190,7 @@ func (e *Engine) Stop(now time.Time) *PhaseResult {
 	e.running = false
 	e.paused = false
 	e.focusCount = 0
+	e.sessionStartedAt = time.Time{}
 	return res
 }
 
@@ -207,6 +216,16 @@ func (e *Engine) Tick(now time.Time) *PhaseResult {
 	defer e.mu.Unlock()
 	if !e.running || e.paused || e.phase == PhaseIdle {
 		return nil
+	}
+	if e.settings.MaxSessionMin > 0 && !e.sessionStartedAt.IsZero() &&
+		now.Sub(e.sessionStartedAt) >= time.Duration(e.settings.MaxSessionMin)*time.Minute {
+		res := e.endResultLocked(now, false, "max_session")
+		e.phase = PhaseIdle
+		e.running = false
+		e.paused = false
+		e.focusCount = 0
+		e.sessionStartedAt = time.Time{}
+		return res
 	}
 	planned := time.Duration(e.plannedSec(e.phase)) * time.Second
 	if e.elapsedLocked(now) < planned {

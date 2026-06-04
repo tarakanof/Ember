@@ -86,8 +86,8 @@ func validateConfig(cfg Config) error {
 
 // validatePomodoro enforces sane Pomodoro durations and well-formed colours.
 func validatePomodoro(p PomodoroConfig) error {
-	if p.FocusMinutes < 1 || p.FocusMinutes > 180 {
-		return fmt.Errorf("%w: pomodoro.focus_minutes %d out of range [1, 180]", ErrConfigValidate, p.FocusMinutes)
+	if p.FocusMinutes < 1 || p.FocusMinutes > 480 {
+		return fmt.Errorf("%w: pomodoro.focus_minutes %d out of range [1, 480]", ErrConfigValidate, p.FocusMinutes)
 	}
 	if p.ShortBreakMinutes < 1 || p.ShortBreakMinutes > 60 {
 		return fmt.Errorf("%w: pomodoro.short_break_minutes %d out of range [1, 60]", ErrConfigValidate, p.ShortBreakMinutes)
@@ -106,6 +106,9 @@ func validatePomodoro(p PomodoroConfig) error {
 	}
 	if p.Enabled && p.DBPath == "" {
 		return fmt.Errorf("%w: pomodoro.db_path is required when pomodoro.enabled", ErrConfigValidate)
+	}
+	if p.MaxSessionMinutes < 0 || p.MaxSessionMinutes > 1440 {
+		return fmt.Errorf("%w: pomodoro.max_session_minutes %d out of range [0, 1440]", ErrConfigValidate, p.MaxSessionMinutes)
 	}
 	return nil
 }

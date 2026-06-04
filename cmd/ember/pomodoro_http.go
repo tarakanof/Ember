@@ -33,6 +33,7 @@ type pomodoroSettingsDTO struct {
 	SoundMelody           string `json:"sound_melody"`
 	FocusColor            string `json:"focus_color"`
 	BreakColor            string `json:"break_color"`
+	MaxSessionMinutes     int    `json:"max_session_minutes"`
 }
 
 const pomodoroSettingsKey = "settings_json"
@@ -48,6 +49,7 @@ func dtoFromConfig(p PomodoroConfig) pomodoroSettingsDTO {
 		SoundMelody:           p.SoundMelody,
 		FocusColor:            p.FocusColor,
 		BreakColor:            p.BreakColor,
+		MaxSessionMinutes:     p.MaxSessionMinutes,
 	}
 }
 
@@ -58,6 +60,7 @@ func engineSettings(p PomodoroConfig) pomodoro.Settings {
 		LongMin:          p.LongBreakMinutes,
 		RoundsBeforeLong: p.RoundsBeforeLongBreak,
 		AutoStartNext:    p.AutoStartNext,
+		MaxSessionMin:    p.MaxSessionMinutes,
 	}
 }
 
@@ -77,6 +80,7 @@ func (a *App) initPomodoro(p PomodoroConfig) error {
 	engine := pomodoro.New(engineSettings(p), realClock{})
 	a.EnablePomodoro(engine, store)
 	a.loadPersistedPomodoroSettings()
+	a.loadHiddenApps()
 	return nil
 }
 
@@ -334,6 +338,7 @@ func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
 	p.SoundMelody = dto.SoundMelody
 	p.FocusColor = dto.FocusColor
 	p.BreakColor = dto.BreakColor
+	p.MaxSessionMinutes = dto.MaxSessionMinutes
 	if err := validatePomodoro(p); err != nil {
 		return err
 	}

@@ -88,3 +88,54 @@ func TestCoordinatorRestoresTakeoverOnShutdown(t *testing.T) {
 		t.Fatal("takeover flag should be cleared after restore")
 	}
 }
+
+func TestCoordinatorHiddenAppDoesNotGrabAttentionLock(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	c := newCoordinator(cfg, func() *Config { return &cfg }, pub, realClock{}, testLogger(), nil)
+	c.ctx = context.Background()
+
+	snap := Snapshot{Now: time.Now(), Sessions: []render.Session{
+		{Source: "mbp", Tool: "codex", Session: "b", State: "waiting"},
+	}}
+	c.snapshot = func() Snapshot { return snap }
+	c.hiddenApps = func() map[string]bool { return map[string]bool{"codex": true} }
+
+	// codex (hidden) transitions into an attention state.
+	c.onUpsert("mbp/codex/b", "running", "waiting")
+
+	if c.locked {
+		t.Fatalf("hidden codex grabbed the attention lock: lockedKey=%q", c.lockedKey)
+	}
+	if c.pointer == "mbp/codex/b" {
+		t.Fatalf("hidden codex became the pointer: %q", c.pointer)
+	}
+}
+
+func TestCoordinatorHidesAppFromDisplay(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	c := newCoordinator(cfg, func() *Config { return &cfg }, pub, realClock{}, testLogger(), nil)
+	c.ctx = context.Background()
+
+	snap := Snapshot{Now: time.Now(), Sessions: []render.Session{
+		{Source: "mbp", Tool: "claude", Session: "a", State: "running"},
+		{Source: "mbp", Tool: "codex", Session: "b", State: "running"},
+	}}
+	c.snapshot = func() Snapshot { return snap }
+
+	hidden := map[string]bool{"codex": true}
+	c.hiddenApps = func() map[string]bool { return hidden }
+
+	c.onTick()
+	if c.pointer == "mbp/codex/b" {
+		t.Fatalf("hidden codex session became the display pointer: %q", c.pointer)
+	}
+
+	// With codex hidden and claude present, the pointer must be the claude session.
+	if c.pointer != "mbp/claude/a" {
+		t.Fatalf("pointer = %q, want mbp/claude/a", c.pointer)
+	}
+}

@@ -11,9 +11,11 @@ public final class AppModel {
     public private(set) var winningSession: Session?
     public private(set) var pomoState: PomoState?
     public private(set) var stats: PomoStats?
+    public private(set) var apps: [AppToggle] = []
 
     private var status: StatusService?
     private var pomodoro: PomodoroService?
+    private var appsService: AppsService?
     private var pollTask: Task<Void, Never>?
 
     public init() {}
@@ -21,6 +23,7 @@ public final class AppModel {
     public func configure(client: APIClient) {
         status = StatusService(client: client)
         pomodoro = PomodoroService(client: client)
+        appsService = AppsService(client: client)
     }
 
     /// One refresh cycle. Each call is independent and non-fatal: a failure marks
@@ -36,6 +39,7 @@ public final class AppModel {
             winningSession = pickWinning(snapshot.sessions)
             pomoState = pomo
             stats = stat
+            if let appsService { apps = (try? await appsService.list()) ?? apps }
             connected = true
         } catch {
             connected = false
@@ -44,6 +48,13 @@ public final class AppModel {
             pomoState = nil
             stats = nil
         }
+    }
+
+    /// Toggle an app's clock visibility, then refresh so the list reflects it.
+    public func setApp(_ name: String, enabled: Bool) async {
+        guard let appsService else { return }
+        try? await appsService.set(name, enabled: enabled)
+        await refresh()
     }
 
     /// Starts a poll loop every `interval` seconds until stop(). Safe to call once.

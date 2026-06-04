@@ -225,6 +225,23 @@ func TestPomodoroButtonStartsFromIdle(t *testing.T) {
 	}
 }
 
+func TestPomodoroConfigPutRoundTripsCap(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	put := `{"focus_minutes":50,"short_break_minutes":5,"long_break_minutes":15,` +
+		`"rounds_before_long_break":4,"auto_start_next":true,"sound":false,` +
+		`"focus_color":"#112233","break_color":"#445566","max_session_minutes":120}`
+	if resp, _ := doReq(t, srv, http.MethodPut, "/v1/pomodoro/config", "", put); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put status = %d", resp.StatusCode)
+	}
+	_, got := doReq(t, srv, http.MethodGet, "/v1/pomodoro/config", "", "")
+	if got["max_session_minutes"] != float64(120) || got["focus_minutes"] != float64(50) {
+		t.Fatalf("config round-trip = %+v", got)
+	}
+}
+
 func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
 	app := newPomodoroApp(t)
 

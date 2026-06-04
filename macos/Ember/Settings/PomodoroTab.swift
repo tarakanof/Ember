@@ -7,7 +7,8 @@ struct PomodoroTab: View {
     @State private var config = PomoConfig(
         focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15,
         roundsBeforeLongBreak: 4, autoStartNext: false, sound: true,
-        soundMelody: "", focusColor: "#3aa0ff", breakColor: "#2ee85e")
+        soundMelody: "", focusColor: "#3aa0ff", breakColor: "#2ee85e",
+        maxSessionMinutes: 480)
     @State private var status: String?
     @State private var loadError: String?
     @State private var loaded = false
@@ -23,7 +24,7 @@ struct PomodoroTab: View {
 
                 Section("Durations") {
                     Stepper("Focus: \(config.focusMinutes) min",
-                            value: $config.focusMinutes, in: 1...180)
+                            value: $config.focusMinutes, in: 1...480)
                     Stepper("Short break: \(config.shortBreakMinutes) min",
                             value: $config.shortBreakMinutes, in: 1...60)
                     Stepper("Long break: \(config.longBreakMinutes) min",
@@ -37,6 +38,10 @@ struct PomodoroTab: View {
                     Toggle("Sound", isOn: $config.sound)
                     TextField("Melody", text: $config.soundMelody, prompt: Text("RTTTL or name"))
                         .disabled(!config.sound)
+                    Stepper(config.maxSessionMinutes == 0
+                            ? "Auto-stop: off"
+                            : "Auto-stop after: \(config.maxSessionMinutes / 60) h",
+                            value: $config.maxSessionMinutes, in: 0...1440, step: 60)
                 }
 
                 Section("Colours") {

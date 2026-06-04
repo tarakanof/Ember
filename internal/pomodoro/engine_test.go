@@ -226,3 +226,51 @@ func TestStopWhenIdleReturnsNil(t *testing.T) {
 		t.Fatalf("stop while idle = %+v, want nil", ended)
 	}
 }
+
+func TestMaxSessionCapStopsCycle(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	e := New(Settings{FocusMin: 25, ShortMin: 5, LongMin: 15, RoundsBeforeLong: 4,
+		AutoStartNext: true, MaxSessionMin: 30}, clk)
+	e.Start(PhaseFocus)
+
+	clk.advance(25 * time.Minute) // focus completes → break auto-starts
+	if ended := e.Tick(clk.Now()); ended == nil || ended.Phase != PhaseFocus {
+		t.Fatalf("focus completion = %+v, want focus completed", ended)
+	}
+	clk.advance(5 * time.Minute) // total 30m == cap
+	ended := e.Tick(clk.Now())
+	if ended == nil || ended.Completed || ended.Reason != "max_session" || ended.Phase != PhaseShort {
+		t.Fatalf("cap result = %+v, want not-completed max_session on short_break", ended)
+	}
+	if st := e.Status(clk.Now()); st.Phase != PhaseIdle || st.Running {
+		t.Fatalf("after cap = %+v, want idle not-running", st)
+	}
+}
+
+func TestMaxSessionZeroNeverCaps(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	e := New(Settings{FocusMin: 25, ShortMin: 5, LongMin: 15, RoundsBeforeLong: 4,
+		AutoStartNext: true, MaxSessionMin: 0}, clk)
+	e.Start(PhaseFocus)
+	for i := 0; i < 20; i++ { // run well past any plausible cap
+		clk.advance(25 * time.Minute)
+		e.Tick(clk.Now())
+	}
+	if st := e.Status(clk.Now()); st.Phase == PhaseIdle {
+		t.Fatal("MaxSessionMin=0 must never cap to idle")
+	}
+}
+
+func TestMaxSessionResetsAfterStop(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	e := New(Settings{FocusMin: 25, ShortMin: 5, LongMin: 15, RoundsBeforeLong: 4,
+		AutoStartNext: true, MaxSessionMin: 30}, clk)
+	e.Start(PhaseFocus)
+	clk.advance(10 * time.Minute)
+	e.Stop(clk.Now()) // ends the cycle; cap clock must reset
+	e.Start(PhaseFocus)
+	clk.advance(25 * time.Minute)
+	if ended := e.Tick(clk.Now()); ended == nil || ended.Reason != "completed" {
+		t.Fatalf("post-restart focus = %+v, want completed (cap clock reset)", ended)
+	}
+}

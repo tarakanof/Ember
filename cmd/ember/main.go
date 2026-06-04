@@ -69,7 +69,8 @@ type PomodoroConfig struct {
 	DBPath                string `json:"db_path"`
 	// ButtonCallback enables mapping device button presses (delivered to
 	// /hooks/awtrix/button) to timer actions.
-	ButtonCallback bool `json:"button_callback"`
+	ButtonCallback        bool `json:"button_callback"`
+	MaxSessionMinutes     int  `json:"max_session_minutes"` // 0 = no cap; whole cycle auto-stops after this many minutes
 }
 
 type RateLimitConfig struct {
@@ -151,6 +152,7 @@ func defaultConfig() Config {
 			BreakColor:            "#2EE85E",
 			DBPath:                "/var/lib/ember/pomodoro.db",
 			ButtonCallback:        true,
+			MaxSessionMinutes:     480,
 		},
 	}
 }
@@ -409,6 +411,9 @@ type App struct {
 	// store is single-writer (driven from the coordinator/HTTP path).
 	engine *pomodoro.Engine
 	store  *pomodoro.Store
+
+	appsMu     sync.Mutex      // guards hiddenApps
+	hiddenApps map[string]bool // tool names hidden from the device display
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -428,6 +433,8 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.coord = newCoordinator(cfg, a.cfg.Load, publisher, realClock{}, logger, a.metrics)
 	a.coord.snapshot = a.Snapshot
 	a.coord.onPublishResult = a.recordPublish
+	a.hiddenApps = map[string]bool{}
+	a.coord.hiddenApps = a.hiddenAppsSet
 	return a
 }
 
@@ -762,6 +769,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("POST /v1/pomodoro/skip", rateLimit(a, http.HandlerFunc(a.handlePomodoroSkip)))
 	writeMux.Handle("GET /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigGet)))
 	writeMux.Handle("PUT /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigPut)))
+	writeMux.Handle("GET /v1/apps", rateLimit(a, http.HandlerFunc(a.handleAppsGet)))
+	writeMux.Handle("PUT /v1/apps", rateLimit(a, http.HandlerFunc(a.handleAppsPut)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -90,6 +91,11 @@ type coordinator struct {
 	// (including attention locks): publish renders its frame into the app
 	// slot and holds it. nil when the Pomodoro feature is disabled.
 	pomoView func() (render.PomodoroView, bool)
+
+	// hiddenApps, when non-nil, returns the set of tool names to omit from the
+	// DEVICE display (rotation + attention lock). /state (Dashboard) is
+	// unaffected — only the coordinator's render path filters.
+	hiddenApps func() map[string]bool
 
 	// pomoTakeover tracks whether the device is currently under Pomodoro
 	// takeover (rotation + native button-nav disabled). Edge-triggered: the
@@ -264,7 +270,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 
 	c.muTest.Lock()
 	switch {
-	case attention && transition && !priorWasAttention:
+	case attention && transition && !priorWasAttention && !c.keyHidden(key):
 		// Fresh attention transition from a non-attention state.
 		c.pointer = key
 		c.cardCursor = 0
@@ -290,7 +296,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 	c.muTest.Unlock()
 
 	if c.snapshot != nil {
-		c.publish(c.snapshot())
+		c.publish(c.filteredSnapshot())
 	}
 }
 
@@ -307,7 +313,7 @@ func (c *coordinator) onDelete(key string) {
 	}
 	c.muTest.Unlock()
 	if c.snapshot != nil {
-		c.publish(c.snapshot())
+		c.publish(c.filteredSnapshot())
 	}
 }
 
@@ -340,11 +346,47 @@ func (c *coordinator) disarmLockTimerLocked() {
 	}
 }
 
+// keyHidden reports whether a session key's tool segment is in the hidden set.
+// Keys are "source/tool/session"; the tool is the second segment.
+func (c *coordinator) keyHidden(key string) bool {
+	if c.hiddenApps == nil {
+		return false
+	}
+	hidden := c.hiddenApps()
+	if len(hidden) == 0 {
+		return false
+	}
+	parts := strings.SplitN(key, "/", 3)
+	return len(parts) >= 2 && hidden[parts[1]]
+}
+
+// filteredSnapshot returns the snapshot with hidden-tool sessions removed, used
+// everywhere the coordinator computes the device display. nil hiddenApps or an
+// empty set returns the snapshot unchanged (no copy).
+func (c *coordinator) filteredSnapshot() Snapshot {
+	snap := c.snapshot()
+	if c.hiddenApps == nil {
+		return snap
+	}
+	hidden := c.hiddenApps()
+	if len(hidden) == 0 {
+		return snap
+	}
+	kept := make([]render.Session, 0, len(snap.Sessions))
+	for _, s := range snap.Sessions {
+		if !hidden[s.Tool] {
+			kept = append(kept, s)
+		}
+	}
+	snap.Sessions = kept
+	return snap
+}
+
 func (c *coordinator) onTick() {
 	if c.snapshot == nil {
 		return
 	}
-	snap := c.snapshot()
+	snap := c.filteredSnapshot()
 	keys := render.SortedActiveKeys(snap)
 
 	// Evaluate all lock-release conditions against the current snapshot:
