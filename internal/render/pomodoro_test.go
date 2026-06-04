@@ -60,6 +60,27 @@ func TestRenderPomodoroBreakUsesBreakColor(t *testing.T) {
 	}
 }
 
+func TestRenderPomodoroBreakCupIsGrayNotBreakColor(t *testing.T) {
+	bc := RGB{0x2e, 0xe8, 0x5e} // green
+	f := RenderPomodoro(PomodoroView{Phase: "short_break", RemainingSec: 300, PlannedSec: 300, BreakColor: bc})
+	// The mug rim (row 2, cols 1..5) must be the neutral gray, never the break colour.
+	cupPixels := 0
+	for x := 1; x <= 5; x++ {
+		if !f.Dirty[2][x] {
+			t.Fatalf("mug rim pixel (%d,2) not painted", x)
+		}
+		if f.Pixels[2][x] == bc {
+			t.Fatalf("mug rim pixel (%d,2) painted in break colour; want gray", x)
+		}
+		if f.Pixels[2][x] == pomoCupGray {
+			cupPixels++
+		}
+	}
+	if cupPixels != 5 {
+		t.Fatalf("gray mug rim pixels = %d, want 5", cupPixels)
+	}
+}
+
 func TestRenderPomodoroPausedDimsColor(t *testing.T) {
 	fc := RGB{0xff, 0x40, 0x20}
 	f := RenderPomodoro(PomodoroView{Phase: "focus", Paused: true, RemainingSec: 1500, PlannedSec: 1500, FocusColor: fc})

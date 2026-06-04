@@ -145,7 +145,7 @@ func defaultConfig() Config {
 			ShortBreakMinutes:     5,
 			LongBreakMinutes:      15,
 			RoundsBeforeLongBreak: 4,
-			AutoStartNext:         false,
+			AutoStartNext:         true,
 			Sound:                 true,
 			FocusColor:            "#FF3B30",
 			BreakColor:            "#2EE85E",

@@ -28,6 +28,8 @@ var (
 	pomoLongDefault  = RGB{0x4f, 0xa9, 0xff} // blue
 	pomoTrack        = RGB{0x22, 0x22, 0x22} // dim progress track
 	pomoStem         = RGB{0x3c, 0xb0, 0x43} // tomato leaves/stem
+	pomoCupGray      = RGB{0xb4, 0xb4, 0xb4} // coffee-mug body (neutral gray)
+	pomoSteam        = RGB{0x55, 0x55, 0x55} // dim steam wisp above the mug
 )
 
 // tomatoBody is the focus pictogram body (rows 2..6), painted in the phase
@@ -47,15 +49,21 @@ var tomatoStem = []string{
 	"..XXX..", // row1
 }
 
-// breakCup is the short-break pictogram (a mug with a handle).
-var breakCup = []string{
-	".......",
-	".XXXXX.",
-	".X...XX",
-	".X...X.",
-	".X...XX",
-	".XXXXX.",
-	"..XXX..",
+// coffeeMug is the short-break pictogram: a gray mug with a handle. The steam
+// wisp above is painted separately (dimmer) so it reads as a hot coffee.
+var coffeeMug = []string{
+	".......", // row0 (steam painted separately)
+	".......", // row1
+	".XXXXX.", // row2 rim
+	".X...XX", // row3 body + handle
+	".X...X.", // row4 body + handle
+	".X...XX", // row5 body + handle
+	".XXXXX.", // row6 base
+}
+
+var coffeeSteam = []string{
+	"..X.X..", // row0
+	"..X.X..", // row1
 }
 
 // breakMoon is the long-break pictogram (a crescent — "rest").
@@ -137,7 +145,10 @@ func RenderPomodoro(v PomodoroView) *Frame {
 		paintBitmap(f, 0, 0, tomatoBody, c)
 		paintBitmap(f, 0, 0, tomatoStem, pomoStem)
 	case pomoShort:
-		paintBitmap(f, 0, 0, breakCup, c)
+		// The mug is a fixed neutral gray (the requested "gray coffee cup"); the
+		// countdown + progress bar still carry the break colour for the phase cue.
+		paintBitmap(f, 0, 0, coffeeSteam, pomoSteam)
+		paintBitmap(f, 0, 0, coffeeMug, pomoCupGray)
 	case pomoLong:
 		paintBitmap(f, 0, 0, breakMoon, c)
 	}
