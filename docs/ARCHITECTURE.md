@@ -128,15 +128,33 @@ bitmap consumer.)
 ### Pomodoro — `internal/pomodoro`
 
 A focus timer integrated into the **same service/container** (not a separate
-app). A pure `Engine` state machine (focus/short/long, pause/resume/skip/stop,
-auto-start) drives a **top-priority preempt inside the coordinator** — an active
-timer renders `render.RenderPomodoro` and holds the slot, edge-triggering device
-`ATRANS:false`/`BLOCKN:true` + `/api/switch` on start and restoring on stop.
-Stats persist in pure-Go SQLite (`modernc.org/sqlite`, no CGO → distroless build
-intact). API: `POST /v1/pomodoro/{start,pause,resume,stop,skip}` +
-`GET/PUT /v1/pomodoro/config` (bearer); open `GET /v1/pomodoro/{state,stats}`;
-**unauthenticated** `POST /hooks/awtrix/button` (the device can't send a token)
-mapping middle=pause/resume, right=skip, left=stop.
+app). A pure `Engine` state machine (focus/short/long, pause/resume/skip/stop) drives a
+**top-priority preempt inside the coordinator** — an active timer renders
+`render.RenderPomodoro` and holds the slot, edge-triggering device
+`ATRANS:false`/`BLOCKN:true` + `/api/switch` on start and restoring on stop. The
+cycle **auto-advances** by default (`auto_start_next: true`) and **auto-stops**
+after a wall-clock budget (`max_session_minutes`, default 480 = 8h, `0` = off) so
+it never runs overnight; focus is configurable up to 8h. Stats persist in pure-Go
+SQLite (`modernc.org/sqlite`, no CGO → distroless build intact). Runtime config
+edits persist to the SQLite store (key `settings_json`, re-applied over the
+**read-only** bind-mounted `config.json` baseline at boot) — so the menu can
+change durations/colours/cap without a writable config file. API:
+`POST /v1/pomodoro/{start,pause,resume,stop,skip}` + `GET/PUT /v1/pomodoro/config`
+(bearer); open `GET /v1/pomodoro/{state,stats}`; **unauthenticated**
+`POST /hooks/awtrix/button` (the device can't send a token) mapping
+middle=pause/resume/start, right=skip, left=stop.
+
+### Per-app clock visibility — `/v1/apps`
+
+The menu can hide an AI app (tool) from the device. A server-held hidden-tool set
+(persisted to the SQLite store key `display_hidden_apps`) is consulted by the
+coordinator's `filteredSnapshot` + `keyHidden`, which drop hidden tools from the
+**display path only** — the rotation pointer *and* the attention lock.
+`GET /state` (Dashboard) stays unfiltered, so the Dashboard still lists every
+app. `GET /v1/apps` returns the known tools (baseline `claude`+`codex` ∪ tools
+seen in the live snapshot ∪ hidden) each with an `enabled` flag; `PUT /v1/apps`
+`{app,enabled}` toggles one and nudges a re-render. (The hidden set shares the
+Pomodoro store, so persistence is active whenever Pomodoro is enabled.)
 
 ## The "spine" — how display widgets are added
 

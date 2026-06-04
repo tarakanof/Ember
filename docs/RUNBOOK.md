@@ -87,6 +87,33 @@ Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The a
 reads `producer.env` for connection config and needs a server on a build that
 includes `GET /v1/preview` (added 2026-05; older servers 401 that route).
 
+The menu dropdown also runs the Pomodoro (Start/Pause/Resume/Skip/Stop) and has
+per-app clock toggles (`PUT /v1/apps`). Settings → Pomodoro exposes the focus
+duration (to 8h), the auto-stop cap ("Auto-stop after: N h", `0` = off), and
+colours; Settings → App picks the Dock/app icon + the menu-bar tray glyphs.
+
+## Device button → Pomodoro control
+
+The clock's three physical buttons drive the timer via the AWTRIX3 **developer**
+`button_callback` (an HTTP POST per press; no MQTT broker). On the clock's web
+file manager (`http://192.168.0.14`), add the key to `dev.json`:
+
+```json
+{ "button_callback": "http://<mac-lan-ip>:8080/hooks/awtrix/button" }
+```
+
+- Use the **Mac's LAN IP** (where the container publishes `:8080`) — *not*
+  `localhost`; it's DHCP, so a reservation keeps it stable.
+- `dev.json` applies **at boot only** — reboot the clock after editing. Other
+  dev keys (`temp_offset`, `hum_offset`) coexist; don't clobber them.
+- Ember's `pomodoro.button_callback` config bool must be `true` (default).
+- Mapping (press-down only): middle/select = pause / resume / start-from-idle,
+  right = skip, left = stop. Ember sets `BLOCKN:true` while a timer runs so the
+  buttons drive the timer instead of switching apps, restoring native nav on stop.
+- Smoke-test the server half without the device:
+  `curl -X POST -d "button=select&state=1" http://localhost:8080/hooks/awtrix/button`
+  (should start a focus).
+
 ## `EMBER_*` toggle reference (the "spine" flags)
 
 Each is a render-opt-in boolean (default off unless noted). They gate the wire
@@ -120,20 +147,28 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
    and the installed producer binary mtime — sometimes flipping `producer.env`
    toggles is the only step.
 
-## Unraid / Docker Hub release (pending — operator dance)
+## Docker Hub release
 
-Spec/plan for this live in the Obsidian vault
-(`Superpowers Specs/ember/`). The release workflow (`.github/workflows/docker-publish.yml`)
-fires when a strict-semver `vX.Y.Z` GitHub Release is published → multi-arch Docker Hub push. The post-merge dance:
+`v0.1.0`–`v0.1.2` are published (public, multi-arch). The release workflow
+(`.github/workflows/docker-publish.yml`) fires when a strict-semver `vX.Y.Z`
+GitHub Release is published → multi-arch Docker Hub push (SBOM + provenance).
+Requires repo var `DOCKERHUB_USERNAME` + secret `DOCKERHUB_TOKEN` — **set the
+token newline-safe** (`printf '%s' val | gh secret set DOCKERHUB_TOKEN`); a
+trailing newline causes a `malformed HTTP Authorization header` login failure.
 
-1. Pre-flight `v0.0.1-rc1` → confirm the strict-semver gate fails red, no push; delete tag.
-2. Sacrificial `v0.0.1` → confirm CI succeeds, image lands on Docker Hub.
-3. Verify anonymous pull (`docker logout && docker pull docker.io/dtarakanov/ember:0.1.0`).
-4. Real `v0.1.0` → confirm CI + image SHA matches the commit.
-5. Install on Unraid (template URL → appdata → token → Apply); verify
-   `docker exec … doctor` all `[OK]`; end-to-end producer wiring.
+To cut a release + repoint the live container:
 
-See `README.md` → "Unraid install" for the operator-facing walkthrough.
+```sh
+gh release create vX.Y.Z --target main --title vX.Y.Z --notes "…"   # triggers the workflow
+gh run watch <run-id> --exit-status                                  # multi-arch build ~2 min
+docker pull dtarakanov/ember:X.Y.Z
+docker rm -f ember && docker run -d --name ember … dtarakanov/ember:X.Y.Z   # same flags as `docker inspect ember`
+```
+
+Verify: `GET /version` reports `dirty:false`; `docker exec ember /ember doctor`
+all `[OK]`. For Unraid, see `README.md` → "Unraid install" + the
+`deploy/unraid/ember.xml` template. Spec/plan history lives in the Obsidian vault
+(`Superpowers Specs/ember/`).
 
 ## Home Assistant / Node-RED
 
