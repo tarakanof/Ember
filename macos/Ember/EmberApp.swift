@@ -14,7 +14,7 @@ struct EmberApp: App {
         } label: {
             MenuBarLabel(session: env.model.winningSession, prefs: env.prefs)
         }
-        .menuBarExtraStyle(.window)
+        .menuBarExtraStyle(.menu)
 
         Settings {
             SettingsView()
@@ -25,6 +25,8 @@ struct EmberApp: App {
             DashboardView()
                 .environment(env)
         }
+        .defaultSize(width: 380, height: 480)
+        .windowResizability(.contentSize)
     }
 }
 

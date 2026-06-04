@@ -75,11 +75,9 @@ struct DashboardView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-
-            Spacer()
         }
         .padding(20)
-        .frame(minWidth: 360, minHeight: 380)
+        .frame(width: 380, alignment: .leading)
         .task { await refreshPreview() }
         .onReceive(refresh) { _ in Task { await refreshPreview() } }
     }
