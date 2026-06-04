@@ -1,29 +1,29 @@
 import Testing
 @testable import EmberKit
 
-@Test func defaultsMatchOldMenu() {
+@Test func defaultsMatchMenu() {
     let p = MenuPrefs.default
     #expect(p.appIcon == "spark")
-    #expect(p.trayClaudeGlyph == "aicode")
-    #expect(p.trayCodexGlyph == "code")
-    #expect(p.trayIdleGlyph == "awtrix")
+    #expect(p.trayClaudeGlyph == "claude")
+    #expect(p.trayCodexGlyph == "codex")
+    #expect(p.trayIdleGlyph == "ember-e-pixel")
 }
 
 @Test func validateReplacesUnknownWithDefault() {
-    var p = MenuPrefs(appIcon: "bogus", trayClaudeGlyph: "code", trayCodexGlyph: "nope", trayIdleGlyph: "awtrix")
+    var p = MenuPrefs(appIcon: "bogus", trayClaudeGlyph: "codex", trayCodexGlyph: "nope", trayIdleGlyph: "ember")
     p = p.validated()
     #expect(p.appIcon == "spark")
-    #expect(p.trayClaudeGlyph == "code")
-    #expect(p.trayCodexGlyph == "code")
-    #expect(p.trayIdleGlyph == "awtrix")
+    #expect(p.trayClaudeGlyph == "codex")          // valid glyph kept
+    #expect(p.trayCodexGlyph == "codex")           // "nope" → default codex
+    #expect(p.trayIdleGlyph == "ember")            // valid glyph kept
 }
 
 @Test func glyphForToolMapping() {
     let p = MenuPrefs.default
-    #expect(glyphForTool("claude", p) == "aicode")
-    #expect(glyphForTool("codex", p) == "code")
-    #expect(glyphForTool("", p) == "awtrix")
-    #expect(glyphForTool("unknown", p) == "awtrix")
+    #expect(glyphForTool("claude", p) == "claude")
+    #expect(glyphForTool("codex", p) == "codex")
+    #expect(glyphForTool("", p) == "ember-e-pixel")
+    #expect(glyphForTool("unknown", p) == "ember-e-pixel")
 }
 
 @Test func stateColorMatchesPalette() {
@@ -36,5 +36,5 @@ import Testing
 
 @Test func listsExposed() {
     #expect(appIconPalettes == ["spark", "pixel-e"])
-    #expect(trayGlyphs == ["awtrix", "awtrix-screen", "aicode", "aicode-chat", "code", "code-hex", "pomodoro"])
+    #expect(trayGlyphs == ["ember", "ember-e", "ember-e-pixel", "claude", "codex", "pomodoro", "coffee"])
 }

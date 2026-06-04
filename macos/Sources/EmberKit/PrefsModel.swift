@@ -1,7 +1,7 @@
 import Foundation
 
 public let appIconPalettes = ["spark", "pixel-e"]
-public let trayGlyphs = ["awtrix", "awtrix-screen", "aicode", "aicode-chat", "code", "code-hex", "pomodoro"]
+public let trayGlyphs = ["ember", "ember-e", "ember-e-pixel", "claude", "codex", "pomodoro", "coffee"]
 
 /// Friendly label for an app-icon id (used by the App-tab picker).
 public func appIconDisplayName(_ id: String) -> String {
@@ -9,6 +9,20 @@ public func appIconDisplayName(_ id: String) -> String {
     case "spark":   return "Spark"
     case "pixel-e": return "Pixel E"
     default:        return id.capitalized
+    }
+}
+
+/// Friendly label for a tray-glyph id (used by the App-tab glyph pickers).
+public func trayGlyphDisplayName(_ id: String) -> String {
+    switch id {
+    case "ember":         return "Ember flame"
+    case "ember-e":       return "Ember E"
+    case "ember-e-pixel": return "Ember E (pixel)"
+    case "claude":        return "Claude"
+    case "codex":         return "Codex"
+    case "pomodoro":      return "Pomodoro"
+    case "coffee":        return "Coffee"
+    default:              return id.capitalized
     }
 }
 
@@ -29,8 +43,8 @@ public struct MenuPrefs: Equatable, Sendable {
     }
 
     public static let `default` = MenuPrefs(
-        appIcon: "spark", trayClaudeGlyph: "aicode",
-        trayCodexGlyph: "code", trayIdleGlyph: "awtrix")
+        appIcon: "spark", trayClaudeGlyph: "claude",
+        trayCodexGlyph: "codex", trayIdleGlyph: "ember-e-pixel")
 
     /// Replaces any unknown value with its default (matches menuprefs.go validate()).
     public func validated() -> MenuPrefs {

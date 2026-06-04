@@ -54,7 +54,7 @@ struct AppTab: View {
                     if let img = NSImage(named: "tray-\(g)") {
                         Image(nsImage: img).resizable().renderingMode(.template).frame(width: 16, height: 16)
                     }
-                    Text(g)
+                    Text(trayGlyphDisplayName(g))
                 }.tag(g)
             }
         }
