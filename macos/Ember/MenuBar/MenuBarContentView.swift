@@ -66,7 +66,7 @@ struct MenuBarContentView: View {
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 openSettings()
             }
-            Button("Quit AWTRIX Menu") { NSApplication.shared.terminate(nil) }
+            Button("Quit Ember") { NSApplication.shared.terminate(nil) }
         }
         .padding(12)
         .frame(width: 260)

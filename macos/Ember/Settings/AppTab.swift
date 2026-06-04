@@ -10,13 +10,15 @@ struct AppTab: View {
         @Bindable var env = env
         Form {
             Section("App icon") {
-                Picker("Palette", selection: $env.prefs.appIcon) {
+                Picker("Dock & app icon", selection: $env.prefs.appIcon) {
                     ForEach(appIconPalettes, id: \.self) { p in
                         HStack {
                             if let img = NSImage(named: "appicon-\(p)") {
-                                Image(nsImage: img).resizable().frame(width: 18, height: 18)
+                                Image(nsImage: img).resizable()
+                                    .frame(width: 18, height: 18)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
-                            Text(p)
+                            Text(appIconDisplayName(p))
                         }.tag(p)
                     }
                 }

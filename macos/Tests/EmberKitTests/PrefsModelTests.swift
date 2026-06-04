@@ -3,7 +3,7 @@ import Testing
 
 @Test func defaultsMatchOldMenu() {
     let p = MenuPrefs.default
-    #expect(p.appIcon == "multicolor-rgb")
+    #expect(p.appIcon == "spark")
     #expect(p.trayClaudeGlyph == "aicode")
     #expect(p.trayCodexGlyph == "code")
     #expect(p.trayIdleGlyph == "awtrix")
@@ -12,7 +12,7 @@ import Testing
 @Test func validateReplacesUnknownWithDefault() {
     var p = MenuPrefs(appIcon: "bogus", trayClaudeGlyph: "code", trayCodexGlyph: "nope", trayIdleGlyph: "awtrix")
     p = p.validated()
-    #expect(p.appIcon == "multicolor-rgb")
+    #expect(p.appIcon == "spark")
     #expect(p.trayClaudeGlyph == "code")
     #expect(p.trayCodexGlyph == "code")
     #expect(p.trayIdleGlyph == "awtrix")
@@ -35,6 +35,6 @@ import Testing
 }
 
 @Test func listsExposed() {
-    #expect(appIconPalettes == ["multicolor-rgb", "cyan-green", "warm-amber", "aurora"])
+    #expect(appIconPalettes == ["spark", "pixel-e"])
     #expect(trayGlyphs == ["awtrix", "awtrix-screen", "aicode", "aicode-chat", "code", "code-hex", "pomodoro"])
 }

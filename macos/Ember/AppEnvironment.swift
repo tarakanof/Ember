@@ -42,8 +42,8 @@ public final class AppEnvironment {
         d.set(p.trayIdleGlyph, forKey: "trayIdleGlyph")
     }
 
-    /// Applies the chosen palette as the runtime app icon. No-op if the asset is
-    /// missing (the appicon-* assets arrive in C5 Task 2).
+    /// Applies the chosen Ember icon as the runtime Dock icon (visible only while
+    /// a window is open — see AppDelegate). No-op if the asset is missing.
     static func applyAppIcon(_ palette: String) {
         if let img = NSImage(named: "appicon-\(palette)") {
             NSApplication.shared.applicationIconImage = img

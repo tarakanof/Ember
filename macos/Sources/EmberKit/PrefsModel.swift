@@ -1,7 +1,16 @@
 import Foundation
 
-public let appIconPalettes = ["multicolor-rgb", "cyan-green", "warm-amber", "aurora"]
+public let appIconPalettes = ["spark", "pixel-e"]
 public let trayGlyphs = ["awtrix", "awtrix-screen", "aicode", "aicode-chat", "code", "code-hex", "pomodoro"]
+
+/// Friendly label for an app-icon id (used by the App-tab picker).
+public func appIconDisplayName(_ id: String) -> String {
+    switch id {
+    case "spark":   return "Spark"
+    case "pixel-e": return "Pixel E"
+    default:        return id.capitalized
+    }
+}
 
 public struct RGB: Equatable, Sendable { public var r, g, b: UInt8
     public init(r: UInt8, g: UInt8, b: UInt8) { self.r = r; self.g = g; self.b = b }
@@ -20,7 +29,7 @@ public struct MenuPrefs: Equatable, Sendable {
     }
 
     public static let `default` = MenuPrefs(
-        appIcon: "multicolor-rgb", trayClaudeGlyph: "aicode",
+        appIcon: "spark", trayClaudeGlyph: "aicode",
         trayCodexGlyph: "code", trayIdleGlyph: "awtrix")
 
     /// Replaces any unknown value with its default (matches menuprefs.go validate()).
