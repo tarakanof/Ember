@@ -39,7 +39,8 @@ The aggregator and the only writer to the device.
 - **HTTP endpoints.** Write (bearer-token auth via `EMBER_TOKEN`):
   `POST /v1/status` (upsert: event or heartbeat), `DELETE /v1/status` (drop one
   session, idempotent 204), `POST /v1/clear` (admin wipe), `POST /v1/notify`
-  (ad-hoc notification). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
+  (ad-hoc notification), `POST /v1/usage` (per-tool subscription usage → the
+  always-on usage widget; see below). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
   `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below).
   Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
   `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro endpoints — see
@@ -78,7 +79,12 @@ All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
   `com.ember.heartbeat`, `KeepAlive=true`) ticks every 10 s to
   re-POST/reap; it reloads `producer.env` each pass so settings-window edits
   apply live. A `statusline` subcommand reads Claude's statusline JSON (the only
-  surface exposing rate %, reset, cost, model, PR) and enriches the marker.
+  surface exposing rate %, reset, cost, model, PR) and enriches the marker. The
+  daemon also runs a **usage poller goroutine** (~5 min) that reads the OAuth
+  token from the **macOS login Keychain** (item `Claude Code-credentials`; never
+  refreshes it — rotation races the Claude Code daemon) and GETs
+  `api.anthropic.com/api/oauth/usage`, posting the 5h/weekly/per-model windows to
+  `POST /v1/usage`. On 401 it stops (the user re-auths via Claude Code).
 - **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop
@@ -86,7 +92,10 @@ All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
   re-POST (15 s) to stay under the server staleness reap. Filters to interactive
   `session_meta.source == "cli"`. It also writes
   `~/.local/state/ember/sessions/<uuid>.json` markers so Codex shows
-  in the menu app. Codex gets a distinct **`>_`** sprite vs Claude's robot.
+  in the menu app. Codex gets a distinct **`>_`** sprite vs Claude's robot. It
+  also reads `rate_limits.primary` (5h) **and `secondary`** (weekly) from the
+  rollout `token_count` events and posts both to `POST /v1/usage` alongside each
+  status post (host-local reset labels formatted producer-side).
 
 ### Menu-bar app — `macos/` (native SwiftUI)
 
@@ -123,7 +132,10 @@ The menu preview is served by `GET /v1/preview`: the same core builds
 `PreviewSession` + `PreviewFrames` (per-card 32×8 color grids) as JSON, so the
 SwiftUI app paints exactly what the device shows without linking any Go. (A
 `RenderRGBA` helper still bridges a `Frame` to an RGBA buffer for any
-bitmap consumer.)
+bitmap consumer.) `usage.go` adds the usage-widget primitives (8×8 tool icons,
+threshold/dimmed bar colours, tight-colon clock) and the three payload builders
+(`UsageFiveHourPayload` / `UsageWeeklyPayload` / `UsageModelPayload`); the
+`font3x5` map gained `: h d O P S` glyphs for them.
 
 ### Pomodoro — `internal/pomodoro`
 
@@ -197,6 +209,30 @@ draws-if-present in `internal/render`, add a menu checkbox.
 | `rate_reset_at` | statusline `…five_hour.resets_at` | rollout `…primary.resets_at` | epoch secs; countdown computed at render time (TZ-independent) |
 | `activity` / trail | hooks (`Tool: detail`) | rollout (`exec:`/`edit:`/`web:`/`mcp:`) | shared `PrependTrail` ring buffer |
 | `tokens_today`, cost, model, PR | — | — | wire field exists for tokens_today; **no producer fills it yet** |
+| usage 5h / weekly / per-model | `api/oauth/usage` (Keychain, always-on) | rollout `rate_limits.primary`+`secondary` (session-only) | drives the standalone usage widget, not per-session cards |
+
+### AI usage widget (standalone apps)
+
+Account-global subscription usage doesn't fit the per-session card model, so it
+renders as its **own AWTRIX custom apps** that rotate natively alongside the main
+app + Pomodoro. The flow: producers `POST /v1/usage` → in-memory `UsageStore`
+(per tool; **not persisted** — every entry refreshes ≤5 min so a restart
+self-heals) → the coordinator **reconciles** `ember-usage-<tool>-{5h,7d,opus,sonnet}`
+apps each tick (push fresh, skip unchanged via payload-bytes diff, `ClearApp`
+stale/hidden/disabled). Per-tool show/hide reuses `/v1/apps`; the widget +
+per-model toggles are server config (`usage_widget`, `usage_per_model`, default
+on). Staleness TTL ≈ 2× the poll interval (10 min). Frame recipe: 8×8 tool icon
+(`db`), **5h = fully-drawn tight-colon clock** (single full-frame `db`),
+**7d = native-font day name** (`center:false` + `textOffset:9` + `noScroll`) over
+drawn icon/unit/bar (3 `db` ops), flush-right `5h`/`7d` unit (per-model swaps it
+for a gray `OP`/`SO` marker), and a dimmed (~55%) content-area threshold bar on
+row 7. **Claude 5h fallback:** when the authoritative endpoint usage is
+stale/absent (idle daemon, 401), the coordinator synthesises `ember-usage-claude-5h`
+from the live session's statusline `rate_window_pct` + a host-local
+`rate_reset_label` (the statusline producer formats the label on the Mac and
+posts it on the marker, so the UTC container renders it verbatim — no server-side
+timezone math). The endpoint path supersedes the fallback the moment fresh usage
+arrives (and only then are 7d + per-model shown).
 
 ## Display layout (32×8 matrix)
 

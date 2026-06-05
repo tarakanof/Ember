@@ -40,6 +40,10 @@ func runDaemon() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Poll the authoritative usage endpoint on its own slower cadence. Always
+	// runs when creds + ServerURL are present; whether the widget *displays* is
+	// a server-side toggle, so producer config stays unchanged.
+	go usagePollLoop(ctx)
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 	for {

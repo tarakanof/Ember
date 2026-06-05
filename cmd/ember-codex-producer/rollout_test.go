@@ -195,3 +195,40 @@ func TestBuildStatusRequest_SetsActivityFromTrail(t *testing.T) {
 		t.Errorf("req.Activity = %q, want the trail", req.Activity)
 	}
 }
+
+func TestFoldEventParsesSecondaryWeekly(t *testing.T) {
+	line := []byte(`{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":3.0,"resets_at":1780669527},"secondary":{"used_percent":18.0,"resets_at":1781168271}}}}`)
+	var d derived
+	d.foldEvent(line, false /*ctx*/, true /*rate*/, false /*trail*/)
+	if d.weeklyPct == nil || *d.weeklyPct != 18 {
+		t.Errorf("weeklyPct = %v", d.weeklyPct)
+	}
+	if d.weeklyResetAt != 1781168271 {
+		t.Errorf("weeklyResetAt = %d", d.weeklyResetAt)
+	}
+	if d.weeklyRaw != 18.0 || d.primaryRaw != 3.0 {
+		t.Errorf("raw = primary %v weekly %v", d.primaryRaw, d.weeklyRaw)
+	}
+}
+
+func TestBuildUsageRequest(t *testing.T) {
+	// No rate-limit data this pass -> ok=false.
+	if _, ok := buildUsageRequest(derived{state: "running"}); ok {
+		t.Error("no weekly reset should yield ok=false")
+	}
+	// Populated -> codex usage request with both windows.
+	d := derived{rateResetAt: 1780669527, primaryRaw: 3.0, weeklyResetAt: 1781168271, weeklyRaw: 18.0}
+	req, ok := buildUsageRequest(d)
+	if !ok {
+		t.Fatal("populated derived should yield ok=true")
+	}
+	if req.Tool != "codex" || req.Source != "codex_stream" {
+		t.Errorf("req = %+v", req)
+	}
+	if req.FiveHour == nil || req.FiveHour.UsedPercent != 3.0 {
+		t.Errorf("five_hour = %+v", req.FiveHour)
+	}
+	if req.SevenDay == nil || req.SevenDay.UsedPercent != 18.0 || req.SevenDay.ResetLabel == "" {
+		t.Errorf("seven_day = %+v", req.SevenDay)
+	}
+}

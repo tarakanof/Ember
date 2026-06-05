@@ -94,7 +94,7 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	cfg := Config{Source: "mbp", ServerURL: "http://x"}
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "sess1", "running", "m", "", markerP, lockP)
 	ra := int64(1778614633)
-	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, &ra); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, &ra, "14:25"); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := readMarker(markerP)
@@ -103,13 +103,19 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	if req.RateResetAt != 1778614633 {
 		t.Errorf("RateResetAt = %d, want 1778614633", req.RateResetAt)
 	}
-	// A subsequent hook upsert must PRESERVE the statusline-owned reset.
+	if req.RateResetLabel != "14:25" {
+		t.Errorf("RateResetLabel = %q, want 14:25", req.RateResetLabel)
+	}
+	// A subsequent hook upsert must PRESERVE the statusline-owned reset + label.
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "sess1", "running", "m2", "", markerP, lockP)
 	raw2, _ := readMarker(markerP)
 	var req2 StatusRequest
 	_ = json.Unmarshal(raw2, &req2)
 	if req2.RateResetAt != 1778614633 {
 		t.Errorf("hook clobbered RateResetAt: got %d", req2.RateResetAt)
+	}
+	if req2.RateResetLabel != "14:25" {
+		t.Errorf("hook clobbered RateResetLabel: got %q", req2.RateResetLabel)
 	}
 }
 
@@ -127,7 +133,7 @@ func TestEnrichMarker_PreservesOwner(t *testing.T) {
 	if err := os.WriteFile(mp, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, nil); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := readMarker(mp)
@@ -172,7 +178,7 @@ func TestEnrichMarker(t *testing.T) {
 	if err := os.WriteFile(mp, []byte(`{"source":"mbp","tool":"claude","session":"sess1","state":"running","message":"Bash"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "sess1", ratePtr(73), ratePtr(54), nil); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(73), ratePtr(54), nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(mp)
@@ -191,7 +197,7 @@ func TestEnrichMarker(t *testing.T) {
 	}
 
 	// nil ctx leaves context_pct untouched (rate-only enrichment).
-	if err := enrichMarker(dir, "sess1", ratePtr(80), nil, nil); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(80), nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	body, _ = os.ReadFile(mp)
@@ -205,7 +211,7 @@ func TestEnrichMarker(t *testing.T) {
 	}
 
 	// Absent marker → not created.
-	if err := enrichMarker(dir, "ghost", ratePtr(50), ratePtr(50), nil); err != nil {
+	if err := enrichMarker(dir, "ghost", ratePtr(50), ratePtr(50), nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(markerPath(dir, "ghost")); !os.IsNotExist(err) {
@@ -217,7 +223,7 @@ func TestEnrichMarker(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "bad", ratePtr(50), ratePtr(50), nil); err != nil {
+	if err := enrichMarker(dir, "bad", ratePtr(50), ratePtr(50), nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(bad); string(got) != "not json" {

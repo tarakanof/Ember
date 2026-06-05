@@ -42,7 +42,7 @@ func TestWatcher_FiltersExecSessions(t *testing.T) {
 	writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted)
 	writeRollout(t, dir, "rollout-exec.jsonl", now, metaExec, evStarted)
 	w := newTestWatcher(dir, now)
-	posts, _ := w.tick()
+	posts, _, _ := w.tick()
 	if len(posts) != 1 {
 		t.Fatalf("want 1 post (cli only), got %d: %+v", len(posts), posts)
 	}
@@ -56,11 +56,11 @@ func TestWatcher_PostsOnChangeNotEveryTick(t *testing.T) {
 	now := time.Now()
 	writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted)
 	w := newTestWatcher(dir, now)
-	if posts, _ := w.tick(); len(posts) != 1 {
+	if posts, _, _ := w.tick(); len(posts) != 1 {
 		t.Fatalf("first tick want 1 post, got %d", len(posts))
 	}
 	w.now = func() time.Time { return now.Add(2 * time.Second) }
-	if posts, _ := w.tick(); len(posts) != 0 {
+	if posts, _, _ := w.tick(); len(posts) != 0 {
 		t.Fatalf("unchanged tick want 0 posts, got %d", len(posts))
 	}
 }
@@ -72,7 +72,7 @@ func TestWatcher_KeepalivePost(t *testing.T) {
 	w := newTestWatcher(dir, now)
 	w.tick()
 	w.now = func() time.Time { return now.Add(16 * time.Second) }
-	if posts, _ := w.tick(); len(posts) != 1 {
+	if posts, _, _ := w.tick(); len(posts) != 1 {
 		t.Fatalf("keepalive tick want 1 post, got %d", len(posts))
 	}
 }
@@ -84,7 +84,7 @@ func TestWatcher_ReapsAgedSession(t *testing.T) {
 	w := newTestWatcher(dir, now)
 	w.tick()
 	w.now = func() time.Time { return now.Add(200 * time.Second) }
-	posts, deletes := w.tick()
+	posts, deletes, _ := w.tick()
 	if len(posts) != 0 {
 		t.Errorf("aged session must not keepalive-post, got %d", len(posts))
 	}
@@ -108,7 +108,7 @@ func TestWatcher_TailsAppendedEvents(t *testing.T) {
 	f.Close()
 	os.Chtimes(path, later, later)
 	w.now = func() time.Time { return later }
-	posts, _ := w.tick()
+	posts, _, _ := w.tick()
 	if len(posts) != 1 || posts[0].State != "done" {
 		t.Fatalf("want 1 done post after append, got %+v", posts)
 	}

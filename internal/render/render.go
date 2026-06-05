@@ -24,21 +24,22 @@ type Frame struct {
 // Session holds the current state of a single AI session as received via the
 // status endpoint.
 type Session struct {
-	Source        string    `json:"source"`
-	Tool          string    `json:"tool"`
-	Session       string    `json:"session"`
-	State         string    `json:"state"`
-	Message       string    `json:"message"`
-	TokensToday   int64     `json:"tokens_today,omitempty"`
-	ContextPct    *int      `json:"context_pct,omitempty"`
-	SourceColor   *string   `json:"source_color,omitempty"`
-	RateWindowPct *int      `json:"rate_window_pct,omitempty"`
-	Activity      string    `json:"activity,omitempty"`
-	ContextNumber bool      `json:"context_number,omitempty"`
-	RateBottomBar bool      `json:"rate_bottom_bar,omitempty"`
-	RateResetAt   int64     `json:"rate_reset_at,omitempty"`
-	RateReset     bool      `json:"rate_reset,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	Source         string    `json:"source"`
+	Tool           string    `json:"tool"`
+	Session        string    `json:"session"`
+	State          string    `json:"state"`
+	Message        string    `json:"message"`
+	TokensToday    int64     `json:"tokens_today,omitempty"`
+	ContextPct     *int      `json:"context_pct,omitempty"`
+	SourceColor    *string   `json:"source_color,omitempty"`
+	RateWindowPct  *int      `json:"rate_window_pct,omitempty"`
+	Activity       string    `json:"activity,omitempty"`
+	ContextNumber  bool      `json:"context_number,omitempty"`
+	RateBottomBar  bool      `json:"rate_bottom_bar,omitempty"`
+	RateResetAt    int64     `json:"rate_reset_at,omitempty"`
+	RateReset      bool      `json:"rate_reset,omitempty"`
+	RateResetLabel string    `json:"rate_reset_label,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Key returns the canonical slash-delimited key for this session.
@@ -116,19 +117,29 @@ const resetGlyph = '⧗'
 // exactly 5 strings of exactly 3 chars; 'X' = lit, '.' = transparent.
 // Glyphs are based on the classic Picopixel-style 3×5 family.
 var font3x5 = map[rune][]string{
-	'0':        {"XXX", "X.X", "X.X", "X.X", "XXX"},
-	'1':        {".X.", "XX.", ".X.", ".X.", "XXX"},
-	'2':        {"XXX", "..X", "XXX", "X..", "XXX"},
-	'3':        {"XXX", "..X", "XXX", "..X", "XXX"},
-	'4':        {"X.X", "X.X", "XXX", "..X", "..X"},
-	'5':        {"XXX", "X..", "XXX", "..X", "XXX"},
-	'6':        {"XXX", "X..", "XXX", "X.X", "XXX"},
-	'7':        {"XXX", "..X", "..X", "..X", "..X"},
-	'8':        {"XXX", "X.X", "XXX", "X.X", "XXX"},
-	'9':        {"XXX", "X.X", "XXX", "..X", "XXX"},
-	'/':        {"..X", "..X", ".X.", "X..", "X.."},
-	'+':        {"...", ".X.", "XXX", ".X.", "..."},
-	'%':        {"X.X", "..X", ".X.", "X..", "X.X"},
+	'0': {"XXX", "X.X", "X.X", "X.X", "XXX"},
+	'1': {".X.", "XX.", ".X.", ".X.", "XXX"},
+	'2': {"XXX", "..X", "XXX", "X..", "XXX"},
+	'3': {"XXX", "..X", "XXX", "..X", "XXX"},
+	'4': {"X.X", "X.X", "XXX", "..X", "..X"},
+	'5': {"XXX", "X..", "XXX", "..X", "XXX"},
+	'6': {"XXX", "X..", "XXX", "X.X", "XXX"},
+	'7': {"XXX", "..X", "..X", "..X", "..X"},
+	'8': {"XXX", "X.X", "XXX", "X.X", "XXX"},
+	'9': {"XXX", "X.X", "XXX", "..X", "XXX"},
+	'/': {"..X", "..X", ".X.", "X..", "X.."},
+	'+': {"...", ".X.", "XXX", ".X.", "..."},
+	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
+	// Usage-widget glyphs. ':' is 1-wide (tight clock colon); the letters are
+	// the 5h/7d unit suffixes + the per-model OP/SO markers. The tight clock is
+	// painted by drawClockInto (custom per-glyph advance), so the 1-wide ':'
+	// never reaches drawDigits' fixed +4 advance.
+	':':        {".", "X", ".", "X", "."},
+	'h':        {"X..", "X..", "XXX", "X.X", "X.X"},
+	'd':        {"..X", "..X", "XXX", "X.X", "XXX"},
+	'O':        {"XXX", "X.X", "X.X", "X.X", "XXX"},
+	'P':        {"XXX", "X.X", "XXX", "X..", "X.."},
+	'S':        {"XXX", "X..", "XXX", "..X", "XXX"},
 	glassGlyph: {"X.X", "X.X", "X.X", "XXX", "XXX"},
 	resetGlyph: {"XXX", ".X.", ".X.", ".X.", "XXX"},
 }

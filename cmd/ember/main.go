@@ -49,7 +49,19 @@ type Config struct {
 	Display   DisplayConfig   `json:"display"`
 	RateLimit RateLimitConfig `json:"rate_limit"`
 	Pomodoro  PomodoroConfig  `json:"pomodoro"`
+	// Usage-widget toggles. Pointers so the file can distinguish "unset"
+	// (nil → default on) from an explicit false; resolved via the helpers below.
+	UsageWidget   *bool `json:"usage_widget,omitempty"`
+	UsagePerModel *bool `json:"usage_per_model,omitempty"`
 }
+
+// usageWidgetEnabled reports whether the standalone AI-usage apps should be
+// pushed to the device. Default on (nil pointer).
+func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.UsageWidget }
+
+// usagePerModelEnabled reports whether the Claude per-model (Opus/Sonnet) usage
+// frames should be pushed. Default on (nil pointer).
+func (c Config) usagePerModelEnabled() bool { return c.UsagePerModel == nil || *c.UsagePerModel }
 
 // PomodoroConfig holds the Pomodoro feature's static defaults. Runtime-editable
 // settings (durations, colours, toggles) are persisted in the stats store and
@@ -69,8 +81,8 @@ type PomodoroConfig struct {
 	DBPath                string `json:"db_path"`
 	// ButtonCallback enables mapping device button presses (delivered to
 	// /hooks/awtrix/button) to timer actions.
-	ButtonCallback        bool `json:"button_callback"`
-	MaxSessionMinutes     int  `json:"max_session_minutes"` // 0 = no cap; whole cycle auto-stops after this many minutes
+	ButtonCallback    bool `json:"button_callback"`
+	MaxSessionMinutes int  `json:"max_session_minutes"` // 0 = no cap; whole cycle auto-stops after this many minutes
 }
 
 type RateLimitConfig struct {
@@ -261,20 +273,21 @@ func (c *Config) applyDefaults() {
 }
 
 type StatusRequest struct {
-	Source        string  `json:"source"`
-	Tool          string  `json:"tool"`
-	Session       string  `json:"session"`
-	State         string  `json:"state"`
-	Message       string  `json:"message"`
-	TokensToday   int64   `json:"tokens_today"`
-	ContextPct    *int    `json:"context_pct,omitempty"`
-	SourceColor   *string `json:"source_color,omitempty"`
-	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
-	Activity      string  `json:"activity,omitempty"`
-	ContextNumber bool    `json:"context_number,omitempty"`
-	RateBottomBar bool    `json:"rate_bottom_bar,omitempty"`
-	RateResetAt   int64   `json:"rate_reset_at,omitempty"`
-	RateReset     bool    `json:"rate_reset,omitempty"`
+	Source         string  `json:"source"`
+	Tool           string  `json:"tool"`
+	Session        string  `json:"session"`
+	State          string  `json:"state"`
+	Message        string  `json:"message"`
+	TokensToday    int64   `json:"tokens_today"`
+	ContextPct     *int    `json:"context_pct,omitempty"`
+	SourceColor    *string `json:"source_color,omitempty"`
+	RateWindowPct  *int    `json:"rate_window_pct,omitempty"`
+	Activity       string  `json:"activity,omitempty"`
+	ContextNumber  bool    `json:"context_number,omitempty"`
+	RateBottomBar  bool    `json:"rate_bottom_bar,omitempty"`
+	RateResetAt    int64   `json:"rate_reset_at,omitempty"`
+	RateReset      bool    `json:"rate_reset,omitempty"`
+	RateResetLabel string  `json:"rate_reset_label,omitempty"`
 }
 
 func (r StatusRequest) normalized() Session {
@@ -300,21 +313,22 @@ func (r StatusRequest) normalized() Session {
 	}
 
 	return Session{
-		Source:        source,
-		Tool:          tool,
-		Session:       session,
-		State:         state,
-		Message:       strings.TrimSpace(r.Message),
-		TokensToday:   r.TokensToday,
-		ContextPct:    r.ContextPct,
-		SourceColor:   r.SourceColor,
-		RateWindowPct: r.RateWindowPct,
-		Activity:      strings.TrimSpace(r.Activity),
-		ContextNumber: r.ContextNumber,
-		RateBottomBar: r.RateBottomBar,
-		RateResetAt:   r.RateResetAt,
-		RateReset:     r.RateReset,
-		UpdatedAt:     time.Now(),
+		Source:         source,
+		Tool:           tool,
+		Session:        session,
+		State:          state,
+		Message:        strings.TrimSpace(r.Message),
+		TokensToday:    r.TokensToday,
+		ContextPct:     r.ContextPct,
+		SourceColor:    r.SourceColor,
+		RateWindowPct:  r.RateWindowPct,
+		Activity:       strings.TrimSpace(r.Activity),
+		ContextNumber:  r.ContextNumber,
+		RateBottomBar:  r.RateBottomBar,
+		RateResetAt:    r.RateResetAt,
+		RateReset:      r.RateReset,
+		RateResetLabel: r.RateResetLabel,
+		UpdatedAt:      time.Now(),
 	}
 }
 
@@ -414,6 +428,10 @@ type App struct {
 
 	appsMu     sync.Mutex      // guards hiddenApps
 	hiddenApps map[string]bool // tool names hidden from the device display
+
+	// usage holds the latest per-tool subscription-usage snapshots posted to
+	// POST /v1/usage. In-memory only; refreshed on a <=5-min cadence.
+	usage *UsageStore
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -423,6 +441,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		sessions:    make(map[string]Session),
 		versionInfo: computeVersionInfo(),
 		startedAt:   time.Now(),
+		usage:       newUsageStore(),
 	}
 	a.cfg.Store(&cfg)
 	a.metrics = newMetrics()
@@ -435,6 +454,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.coord.onPublishResult = a.recordPublish
 	a.hiddenApps = map[string]bool{}
 	a.coord.hiddenApps = a.hiddenAppsSet
+	a.coord.usage = a.usage
 	return a
 }
 
@@ -771,6 +791,7 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("PUT /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigPut)))
 	writeMux.Handle("GET /v1/apps", rateLimit(a, http.HandlerFunc(a.handleAppsGet)))
 	writeMux.Handle("PUT /v1/apps", rateLimit(a, http.HandlerFunc(a.handleAppsPut)))
+	writeMux.Handle("POST /v1/usage", rateLimit(a, http.HandlerFunc(a.handleUsage)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()
@@ -1031,6 +1052,10 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 
 type Publisher interface {
 	CustomApp(ctx context.Context, name string, payload map[string]any) error
+	// ClearApp removes a custom app from the device (POST empty body to
+	// /api/custom?name=…). Used by the usage-app reconcile to drop stale/hidden
+	// apps.
+	ClearApp(ctx context.Context, name string) error
 	Notify(ctx context.Context, payload map[string]any) error
 	Indicator(ctx context.Context, index int, payload map[string]any) error
 	// Settings writes device settings (POST /api/settings), e.g. toggling app
@@ -1069,6 +1094,16 @@ func (p *HTTPPublisher) CustomApp(ctx context.Context, name string, payload map[
 		return err
 	}
 	return p.postJSON(ctx, client, base+"/api/custom?name="+url.QueryEscape(name), payload)
+}
+
+// ClearApp removes a custom app by POSTing an empty body to its /api/custom
+// slot — AWTRIX deletes a custom app when it receives an empty JSON object.
+func (p *HTTPPublisher) ClearApp(ctx context.Context, name string) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/custom?name="+url.QueryEscape(name), map[string]any{})
 }
 
 func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) error {

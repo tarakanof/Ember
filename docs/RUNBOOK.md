@@ -130,6 +130,43 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 | `EMBER_ACTIVITY_TRAIL_ENABLED` | last-N actions ticker (extends detail) |
 | `EMBER_SOURCE_COLOR` | hex tint for robot + X/Y digits |
 
+## AI usage widget (standalone usage apps)
+
+Always-on Claude + Codex subscription usage as separate device apps
+(`ember-usage-<tool>-{5h,7d,opus,sonnet}`), rotating alongside the main app.
+Unlike the spine flags above, its toggles are **server config (JSON), not
+`EMBER_*` env vars** — both default **on**:
+
+| Config field (server `config.json`) | Effect |
+|---|---|
+| `usage_widget` (default true) | master enable for the usage apps |
+| `usage_per_model` (default true) | Claude Opus/Sonnet weekly frames (`OP`/`SO`) |
+
+Per-tool show/hide reuses the existing per-app visibility (`PUT /v1/apps`) — hide
+`claude` or `codex` to drop its usage apps too.
+
+**Data sources & dependencies:**
+- **Claude (always-on):** the claude producer daemon polls
+  `api.anthropic.com/api/oauth/usage` every ~5 min using the OAuth token in the
+  **macOS login Keychain** (item `Claude Code-credentials`). Requires the user to
+  be logged into Claude Code on that Mac; the token is **read-only, never
+  refreshed**. On 401 the poller stops until the user re-auths in Claude Code.
+- **Codex (session-only):** posted from the rollout stream while a Codex session
+  is active; its apps clear ~10 min after the last session.
+- **Claude 5h fallback:** when the endpoint usage is stale/absent (daemon idle or
+  401) but a Claude session is live, the 5h app is synthesised from the
+  statusline `rate_window_pct` + host-local `rate_reset_label` (the statusline
+  posts the label so the UTC server renders it verbatim). 7d + per-model have no
+  fallback — they appear only with fresh endpoint data.
+- Entries are in-memory; stale tools (no post within ~10 min) are cleared from
+  the device automatically.
+
+**Verify it's flowing:** `GET /state` does not include usage (it's a separate
+store), but `curl -s -XPOST localhost:8080/v1/usage -H "Authorization: Bearer
+$EMBER_TOKEN" -d '{"tool":"claude","source":"endpoint","five_hour":{"used_percent":15,"reset_label":"14:25"}}'`
+then watching the clock for `ember-usage-claude-5h` in rotation confirms the
+push path. Toggle a tool off via `PUT /v1/apps` and confirm its app is cleared.
+
 ## On-device verification (no waiting for real data)
 
 1. **Read the live matrix:** `GET http://192.168.0.14/api/screen` returns 256

@@ -28,6 +28,11 @@ type StatusRequest struct {
 	RateBottomBar bool    `json:"rate_bottom_bar,omitempty"`
 	RateResetAt   int64   `json:"rate_reset_at,omitempty"`
 	RateReset     bool    `json:"rate_reset,omitempty"`
+	// RateResetLabel is the host-local "HH:MM" 5h-reset label set by the Claude
+	// statusline path. It exists so the server (which runs UTC in the container)
+	// can render a correct local label in the usage-widget 5h fallback without
+	// doing timezone math itself.
+	RateResetLabel string `json:"rate_reset_label,omitempty"`
 }
 
 // DeleteRequest is the DELETE /v1/status body.
@@ -66,6 +71,32 @@ func (c *Client) Delete(ctx context.Context, req DeleteRequest) error {
 		return err
 	}
 	return c.send(ctx, http.MethodDelete, "/v1/status", body)
+}
+
+// UsageWindow is one usage window (5h or weekly). ResetsAt is unix epoch
+// seconds; ResetLabel is the host-local display string ("14:25" or "MON").
+type UsageWindow struct {
+	UsedPercent float64 `json:"used_percent"`
+	ResetsAt    int64   `json:"resets_at,omitempty"`
+	ResetLabel  string  `json:"reset_label,omitempty"`
+}
+
+// UsageRequest is the POST /v1/usage body. Tool is "claude" or "codex".
+// Source is "endpoint" | "statusline" | "codex_stream". Models is Claude-only.
+type UsageRequest struct {
+	Tool     string                  `json:"tool"`
+	Source   string                  `json:"source"`
+	FiveHour *UsageWindow            `json:"five_hour,omitempty"`
+	SevenDay *UsageWindow            `json:"seven_day,omitempty"`
+	Models   map[string]*UsageWindow `json:"models,omitempty"` // "opus","sonnet"
+}
+
+func (c *Client) Usage(ctx context.Context, req UsageRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return c.send(ctx, http.MethodPost, "/v1/usage", body)
 }
 
 func (c *Client) send(ctx context.Context, method, path string, body []byte) error {

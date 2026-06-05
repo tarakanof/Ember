@@ -150,6 +150,7 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 			if json.Unmarshal(old, &prev) == nil {
 				req.RateWindowPct = prev.RateWindowPct
 				req.RateResetAt = prev.RateResetAt
+				req.RateResetLabel = prev.RateResetLabel
 				if cfg.ContextPctEnabled {
 					req.ContextPct = prev.ContextPct
 				}

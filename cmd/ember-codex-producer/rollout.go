@@ -19,6 +19,13 @@ type derived struct {
 	rateWindowPct *int
 	activity      string
 	rateResetAt   int64
+	// weekly (secondary) rate window, surfaced to the usage widget. weeklyPct is
+	// the clamped int; weeklyRaw/primaryRaw keep float precision for the usage
+	// payload (the status card uses the clamped ints).
+	weeklyPct     *int
+	weeklyResetAt int64
+	weeklyRaw     float64
+	primaryRaw    float64
 }
 
 type sessionMeta struct {
@@ -52,6 +59,10 @@ type eventPayload struct {
 			UsedPercent float64 `json:"used_percent"`
 			ResetsAt    int64   `json:"resets_at"`
 		} `json:"primary"`
+		Secondary struct {
+			UsedPercent float64 `json:"used_percent"`
+			ResetsAt    int64   `json:"resets_at"`
+		} `json:"secondary"`
 	} `json:"rate_limits"`
 	Command    []string                   `json:"command,omitempty"`
 	Changes    map[string]json.RawMessage `json:"changes,omitempty"`
@@ -108,6 +119,11 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 			r := clampPct(int(math.Round(p.RateLimits.Primary.UsedPercent)))
 			d.rateWindowPct = &r
 			d.rateResetAt = p.RateLimits.Primary.ResetsAt
+			d.primaryRaw = p.RateLimits.Primary.UsedPercent
+			wk := clampPct(int(math.Round(p.RateLimits.Secondary.UsedPercent)))
+			d.weeklyPct = &wk
+			d.weeklyResetAt = p.RateLimits.Secondary.ResetsAt
+			d.weeklyRaw = p.RateLimits.Secondary.UsedPercent
 		}
 	case p.Type == "task_complete":
 		d.state = "done"

@@ -48,7 +48,7 @@ func runDaemon() {
 // runOnce performs a single reconcile pass, issuing POSTs/DELETEs and keeping
 // the menu-bar marker files in sync (write on POST, remove on DELETE).
 func runOnce(ctx context.Context, w *watcher, client *producer.Client) {
-	posts, deletes := w.tick()
+	posts, deletes, usages := w.tick()
 	for _, req := range posts {
 		_ = client.Post(ctx, req)
 		if body, err := json.Marshal(req); err == nil {
@@ -58,6 +58,9 @@ func runOnce(ctx context.Context, w *watcher, client *producer.Client) {
 	for _, req := range deletes {
 		_ = client.Delete(ctx, req)
 		_ = removeMarker(w.cfg.StateDir, req.Session)
+	}
+	for _, u := range usages {
+		_ = client.Usage(ctx, u)
 	}
 }
 

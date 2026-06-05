@@ -136,3 +136,35 @@ func TestStatusRequest_OmitsResetWhenZero(t *testing.T) {
 		t.Errorf("reset fields should be omitted when zero/false, got %s", b)
 	}
 }
+
+func TestClientUsagePostsToV1Usage(t *testing.T) {
+	var gotPath, gotAuth string
+	var gotBody UsageRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok", time.Second)
+	err := c.Usage(context.Background(), UsageRequest{
+		Tool:     "claude",
+		Source:   "endpoint",
+		FiveHour: &UsageWindow{UsedPercent: 15.0, ResetsAt: 1780669527, ResetLabel: "14:25"},
+		SevenDay: &UsageWindow{UsedPercent: 58.0, ResetsAt: 1781168271, ResetLabel: "MON"},
+	})
+	if err != nil {
+		t.Fatalf("Usage: %v", err)
+	}
+	if gotPath != "/v1/usage" {
+		t.Errorf("path = %q, want /v1/usage", gotPath)
+	}
+	if gotAuth != "Bearer tok" {
+		t.Errorf("auth = %q", gotAuth)
+	}
+	if gotBody.Tool != "claude" || gotBody.FiveHour == nil || gotBody.FiveHour.ResetLabel != "14:25" {
+		t.Errorf("body = %+v", gotBody)
+	}
+}

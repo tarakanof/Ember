@@ -122,6 +122,14 @@ type coordinator struct {
 
 	publishCount atomic.Int64
 
+	// usage holds the latest per-tool usage snapshots; nil disables the usage
+	// widget. pushedUsagePayloads maps each pushed usage-app name to its
+	// last-pushed payload bytes, so reconcileUsageApps skips unchanged re-pushes
+	// (avoids device churn) and clears apps that drop out of the desired set.
+	// Both are coordinator-goroutine-owned (touched only from onTick).
+	usage               *UsageStore
+	pushedUsagePayloads map[string][]byte
+
 	// lastPayloadBytes + lastPublishedAt dedupe identical re-publishes
 	// within a window shorter than the AWTRIX app lifetime. Every
 	// re-POST to /api/custom resets the firmware app's render state,
@@ -448,6 +456,159 @@ func (c *coordinator) onTick() {
 	c.muTest.Unlock()
 
 	c.publish(snap)
+	c.reconcileUsageApps(c.clk.Now(), snap)
+}
+
+const (
+	// usageAppLifetime keeps a pushed usage app alive on the device well above
+	// the ~5-min producer refresh, so a brief reconcile gap never blanks it.
+	usageAppLifetime = 600 // seconds
+	// usageStaleTTL is ~2x the 5-min poll interval: past this with no fresh
+	// post, a tool's apps are cleared from the device.
+	usageStaleTTL = 10 * time.Minute
+)
+
+// usageApp pairs a device app name with the payload to push for it.
+type usageApp struct {
+	name    string
+	payload map[string]any
+}
+
+// usageAppsToPush returns the AWTRIX apps for all visible, fresh usage windows.
+// Stale (per usageStaleTTL) or hidden tools yield no apps. Percentages are
+// rounded to the nearest int for the bar/threshold colour.
+func usageAppsToPush(st *UsageStore, hidden map[string]bool, perModel bool, now time.Time, ttl time.Duration) []usageApp {
+	var out []usageApp
+	add := func(tool string, icon []string, color render.RGB) {
+		if hidden[tool] || !st.Fresh(tool, now, ttl) {
+			return
+		}
+		u, _ := st.Get(tool)
+		if u.FiveHour != nil {
+			out = append(out, usageApp{"ember-usage-" + tool + "-5h",
+				render.UsageFiveHourPayload(icon, color, u.FiveHour.ResetLabel, pctInt(u.FiveHour.UsedPercent), usageAppLifetime)})
+		}
+		if u.SevenDay != nil {
+			out = append(out, usageApp{"ember-usage-" + tool + "-7d",
+				render.UsageWeeklyPayload(icon, color, u.SevenDay.ResetLabel, pctInt(u.SevenDay.UsedPercent), '7', 'd', usageAppLifetime)})
+		}
+		if perModel {
+			for _, m := range []string{"opus", "sonnet"} {
+				if w := u.Models[m]; w != nil {
+					out = append(out, usageApp{"ember-usage-" + tool + "-" + m,
+						render.UsageModelPayload(icon, color, w.ResetLabel, m, pctInt(w.UsedPercent), usageAppLifetime)})
+				}
+			}
+		}
+	}
+	add("claude", render.UsageIconClaude(), render.UsageColorClaude())
+	add("codex", render.UsageIconCodex(), render.UsageColorCodex())
+	return out
+}
+
+// pctInt rounds a float utilization to the nearest int, clamped to 0..100.
+func pctInt(f float64) int {
+	n := int(f + 0.5)
+	if n < 0 {
+		return 0
+	}
+	if n > 100 {
+		return 100
+	}
+	return n
+}
+
+// claudeFallbackApp synthesizes an ember-usage-claude-5h app from the most
+// recent claude session's statusline rate data (rate_window_pct + the
+// host-local rate_reset_label). Used when the authoritative endpoint usage is
+// stale/absent so the 5h frame still shows while a Claude session is live.
+// snap is the already-tool-filtered snapshot, so a hidden claude tool yields no
+// session here and thus no fallback. ok=false when no usable session exists.
+func claudeFallbackApp(snap Snapshot) (usageApp, bool) {
+	var best *render.Session
+	for i := range snap.Sessions {
+		s := &snap.Sessions[i]
+		if s.Tool != "claude" || s.RateWindowPct == nil || s.RateResetLabel == "" {
+			continue
+		}
+		if best == nil || s.UpdatedAt.After(best.UpdatedAt) {
+			best = s
+		}
+	}
+	if best == nil {
+		return usageApp{}, false
+	}
+	payload := render.UsageFiveHourPayload(render.UsageIconClaude(), render.UsageColorClaude(),
+		best.RateResetLabel, *best.RateWindowPct, usageAppLifetime)
+	return usageApp{"ember-usage-claude-5h", payload}, true
+}
+
+// reconcileUsageApps pushes the desired set of usage apps to the device and
+// clears any previously-pushed app that is no longer desired. Unchanged apps
+// are skipped (payload-bytes diff) so the device isn't re-POSTed every tick.
+// No-op when the widget is disabled or no store is wired. Runs on the
+// coordinator goroutine only.
+func (c *coordinator) reconcileUsageApps(now time.Time, snap Snapshot) {
+	if c.usage == nil {
+		return
+	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cfg := c.loadCfg()
+	var desired []usageApp
+	if cfg.usageWidgetEnabled() {
+		var hidden map[string]bool
+		if c.hiddenApps != nil {
+			hidden = c.hiddenApps()
+		}
+		desired = usageAppsToPush(c.usage, hidden, cfg.usagePerModelEnabled(), now, usageStaleTTL)
+		// Claude 5h fallback: when the endpoint path produced no claude-5h app
+		// (usage stale/absent), synthesise it from the live session's statusline
+		// data so the 5h frame doesn't blank while Claude is active.
+		hasClaude5h := false
+		for _, a := range desired {
+			if a.name == "ember-usage-claude-5h" {
+				hasClaude5h = true
+				break
+			}
+		}
+		if !hasClaude5h {
+			if app, ok := claudeFallbackApp(snap); ok {
+				desired = append(desired, app)
+			}
+		}
+	}
+	seen := make(map[string]bool, len(desired))
+	for _, app := range desired {
+		seen[app.name] = true
+		body, err := json.Marshal(app.payload)
+		if err != nil {
+			continue
+		}
+		if prev, ok := c.pushedUsagePayloads[app.name]; ok && bytes.Equal(prev, body) {
+			continue // unchanged — skip re-push to avoid device churn
+		}
+		if err := c.publisher.CustomApp(ctx, app.name, app.payload); err != nil {
+			c.logger.Warn("usage app publish failed", "name", app.name, "err", err)
+			continue
+		}
+		if c.pushedUsagePayloads == nil {
+			c.pushedUsagePayloads = map[string][]byte{}
+		}
+		c.pushedUsagePayloads[app.name] = body
+	}
+	for name := range c.pushedUsagePayloads {
+		if seen[name] {
+			continue
+		}
+		if err := c.publisher.ClearApp(ctx, name); err != nil {
+			c.logger.Warn("usage app clear failed", "name", name, "err", err)
+			continue
+		}
+		delete(c.pushedUsagePayloads, name)
+	}
 }
 
 // applyPomoTakeover writes the device rotation/native-nav settings on the

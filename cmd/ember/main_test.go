@@ -16,19 +16,47 @@ import (
 )
 
 type recordingPublisher struct {
-	mu         sync.Mutex
-	customApps []map[string]any
-	notify     []map[string]any
-	indicator  []map[string]any
-	settings   []map[string]any
-	switches   []string
+	mu          sync.Mutex
+	customApps  []map[string]any
+	customNames []string
+	clearedApps []string
+	notify      []map[string]any
+	indicator   []map[string]any
+	settings    []map[string]any
+	switches    []string
 }
 
-func (p *recordingPublisher) CustomApp(_ context.Context, _ string, payload map[string]any) error {
+func (p *recordingPublisher) CustomApp(_ context.Context, name string, payload map[string]any) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.customApps = append(p.customApps, payload)
+	p.customNames = append(p.customNames, name)
 	return nil
+}
+
+func (p *recordingPublisher) ClearApp(_ context.Context, name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.clearedApps = append(p.clearedApps, name)
+	return nil
+}
+
+// ClearedAppsSnapshot returns a copy of cleared app names under the lock.
+func (p *recordingPublisher) ClearedAppsSnapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.clearedApps))
+	copy(out, p.clearedApps)
+	return out
+}
+
+// CustomNamesSnapshot returns a copy of pushed app names under the lock.
+func (p *recordingPublisher) CustomNamesSnapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.customNames))
+	copy(out, p.customNames)
+	return out
 }
 
 func (p *recordingPublisher) Notify(_ context.Context, payload map[string]any) error {
@@ -608,6 +636,7 @@ func TestRequireAuth_TokenRotation(t *testing.T) {
 type noopPublisher struct{}
 
 func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
+func (noopPublisher) ClearApp(context.Context, string) error                  { return nil }
 func (noopPublisher) Notify(context.Context, map[string]any) error            { return nil }
 func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
 func (noopPublisher) Settings(context.Context, map[string]any) error          { return nil }
