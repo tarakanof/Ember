@@ -123,12 +123,13 @@ type coordinator struct {
 	publishCount atomic.Int64
 
 	// usage holds the latest per-tool usage snapshots; nil disables the usage
-	// widget. pushedUsagePayloads maps each pushed usage-app name to its
-	// last-pushed payload bytes, so reconcileUsageApps skips unchanged re-pushes
-	// (avoids device churn) and clears apps that drop out of the desired set.
-	// Both are coordinator-goroutine-owned (touched only from onTick).
-	usage               *UsageStore
-	pushedUsagePayloads map[string][]byte
+	// widget. pushedUsageApps maps each pushed usage-app name to its last-pushed
+	// payload bytes + push time, so reconcileUsageApps skips unchanged re-pushes
+	// (avoids device churn) BUT still refreshes before the device's lifetime
+	// expires, and clears apps that drop out of the desired set. Both are
+	// coordinator-goroutine-owned (touched only from onTick).
+	usage           *UsageStore
+	pushedUsageApps map[string]pushedUsageApp
 
 	// lastPayloadBytes + lastPublishedAt dedupe identical re-publishes
 	// within a window shorter than the AWTRIX app lifetime. Every
@@ -466,7 +467,19 @@ const (
 	// usageStaleTTL is ~2x the 5-min poll interval: past this with no fresh
 	// post, a tool's apps are cleared from the device.
 	usageStaleTTL = 10 * time.Minute
+	// usageRefreshInterval forces a re-push of an unchanged usage app well
+	// before its on-device lifetime (usageAppLifetime) expires — otherwise a
+	// usage value that stops changing would let the device evict the app and
+	// never get refreshed. Must be < usageAppLifetime.
+	usageRefreshInterval = 4 * time.Minute
 )
+
+// pushedUsageApp records the payload bytes + push time of a usage app last sent
+// to the device, for change-and-staleness-aware re-push.
+type pushedUsageApp struct {
+	body []byte
+	at   time.Time
+}
 
 // usageApp pairs a device app name with the payload to push for it.
 type usageApp struct {
@@ -587,19 +600,23 @@ func (c *coordinator) reconcileUsageApps(now time.Time, snap Snapshot) {
 		if err != nil {
 			continue
 		}
-		if prev, ok := c.pushedUsagePayloads[app.name]; ok && bytes.Equal(prev, body) {
-			continue // unchanged — skip re-push to avoid device churn
+		// Skip the re-push only when the payload is unchanged AND it was pushed
+		// recently enough that the device hasn't evicted it (lifetime). Without
+		// the time bound, a usage value that stops changing would expire on the
+		// device and never be refreshed.
+		if prev, ok := c.pushedUsageApps[app.name]; ok && bytes.Equal(prev.body, body) && now.Sub(prev.at) < usageRefreshInterval {
+			continue
 		}
 		if err := c.publisher.CustomApp(ctx, app.name, app.payload); err != nil {
 			c.logger.Warn("usage app publish failed", "name", app.name, "err", err)
 			continue
 		}
-		if c.pushedUsagePayloads == nil {
-			c.pushedUsagePayloads = map[string][]byte{}
+		if c.pushedUsageApps == nil {
+			c.pushedUsageApps = map[string]pushedUsageApp{}
 		}
-		c.pushedUsagePayloads[app.name] = body
+		c.pushedUsageApps[app.name] = pushedUsageApp{body: body, at: now}
 	}
-	for name := range c.pushedUsagePayloads {
+	for name := range c.pushedUsageApps {
 		if seen[name] {
 			continue
 		}
@@ -607,7 +624,7 @@ func (c *coordinator) reconcileUsageApps(now time.Time, snap Snapshot) {
 			c.logger.Warn("usage app clear failed", "name", name, "err", err)
 			continue
 		}
-		delete(c.pushedUsagePayloads, name)
+		delete(c.pushedUsageApps, name)
 	}
 }
 

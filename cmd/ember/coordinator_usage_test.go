@@ -98,6 +98,35 @@ func TestReconcileUsageAppsPushesAndClears(t *testing.T) {
 	}
 }
 
+// TestReconcileUsageAppsRefreshesBeforeLifetimeExpiry guards the dedup/lifetime
+// fix: an unchanged usage app must still be re-pushed once usageRefreshInterval
+// elapses, so the device's lifetime never expires it without a refresh.
+func TestReconcileUsageAppsRefreshesBeforeLifetimeExpiry(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	c := app.coord
+	now := time.Now()
+	app.usage.Put("claude", ToolUsage{
+		FiveHour:  &UsageWindow{UsedPercent: 15, ResetLabel: "14:25"},
+		UpdatedAt: now,
+	})
+	c.reconcileUsageApps(now, Snapshot{})
+	if got := len(pub.CustomNamesSnapshot()); got != 1 {
+		t.Fatalf("first reconcile pushed %d, want 1", got)
+	}
+	// Unchanged + within the refresh interval -> no re-push (avoids churn).
+	c.reconcileUsageApps(now.Add(usageRefreshInterval-time.Minute), Snapshot{})
+	if got := len(pub.CustomNamesSnapshot()); got != 1 {
+		t.Errorf("within refresh interval re-pushed: %d, want 1", got)
+	}
+	// Unchanged but past the refresh interval (store still fresh) -> re-push so
+	// the device app is refreshed before its lifetime expires.
+	c.reconcileUsageApps(now.Add(usageRefreshInterval+time.Minute), Snapshot{})
+	if got := len(pub.CustomNamesSnapshot()); got != 2 {
+		t.Errorf("past refresh interval should re-push unchanged app: %d, want 2", got)
+	}
+}
+
 func TestReconcileUsageAppsDisabledClears(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
