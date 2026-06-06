@@ -161,7 +161,7 @@ func defaultConfig() Config {
 			AutoStartNext:         true,
 			Sound:                 true,
 			FocusColor:            "#FF0000",
-			BreakColor:            "#2EE85E",
+			BreakColor:            "#00FF00",
 			DBPath:                "/var/lib/ember/pomodoro.db",
 			ButtonCallback:        true,
 			MaxSessionMinutes:     480,
@@ -263,7 +263,7 @@ func (c *Config) applyDefaults() {
 		c.Pomodoro.FocusColor = "#FF0000"
 	}
 	if c.Pomodoro.BreakColor == "" {
-		c.Pomodoro.BreakColor = "#2EE85E"
+		c.Pomodoro.BreakColor = "#00FF00"
 	}
 	if c.Pomodoro.DBPath == "" {
 		c.Pomodoro.DBPath = "/var/lib/ember/pomodoro.db"

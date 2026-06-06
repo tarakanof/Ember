@@ -24,7 +24,7 @@ const (
 
 var (
 	pomoFocusDefault = RGB{0xff, 0x00, 0x00} // pure red
-	pomoShortDefault = RGB{0x2e, 0xe8, 0x5e} // green
+	pomoShortDefault = RGB{0x00, 0xff, 0x00} // pure green
 	pomoLongDefault  = RGB{0x4f, 0xa9, 0xff} // blue
 	pomoTrack        = RGB{0x22, 0x22, 0x22} // dim progress track
 	pomoStem         = RGB{0x3c, 0xb0, 0x43} // tomato leaves/stem
