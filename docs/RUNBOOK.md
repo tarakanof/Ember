@@ -101,10 +101,12 @@ colours; Settings → App picks the Dock/app icon + the menu-bar tray glyphs.
 Settings is a **sidebar window** (Connection / Display / Pomodoro / App), opened
 with ⌘, or the menu's "Settings…" item, and it **auto-applies** changes — there
 are no Save buttons. Display toggles write `producer.env` immediately; Connection
-commits each text field on **Return** (an invalid field shows a red caption and
-isn't written, leaving the others intact) and "Test Connection" lives in the
-toolbar; Pomodoro debounces a single `PUT /v1/pomodoro/config` ~600 ms after the
-last edit; colours use the native macOS colour picker (bridged to `#RRGGBB`).
+commits each text field on **Return or focus loss** (an invalid field shows a red
+caption and isn't written, leaving the others intact) and "Test Connection" lives
+in the toolbar; Pomodoro debounces a single `PUT /v1/pomodoro/config` ~600 ms
+after the last edit; colours use the native macOS colour picker (bridged to
+`#RRGGBB`). The source-colour toggle/picker stay disabled until Source + Server
+URL are set (the tint write validates all fields together).
 
 ## Device button → Pomodoro control
 
