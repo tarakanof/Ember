@@ -113,12 +113,17 @@ file manager (`http://192.168.0.14`), add the key to `dev.json`:
 - `dev.json` applies **at boot only** — reboot the clock after editing. Other
   dev keys (`temp_offset`, `hum_offset`) coexist; don't clobber them.
 - Ember's `pomodoro.button_callback` config bool must be `true` (default).
-- The Pomodoro view uses **on-device AWTRIX animated icons** (`/ICONS/3591.gif`
+- The Pomodoro view uses **on-device AWTRIX animated icons** (`/ICONS/29802.gif`
   tomato = focus, `/ICONS/6396.gif` coffee = break). They ship on the clock; if
   ever missing, re-upload via the device's icon gallery / file manager.
 - Mapping (press-down only): middle/select = pause / resume / start-from-idle,
   right = skip, left = stop. Ember sets `BLOCKN:true` while a timer runs so the
   buttons drive the timer instead of switching apps, restoring native nav on stop.
+- **Reboot recovery:** a running timer takes over the display
+  (`ATRANS:false`/`BLOCKN:true` + `/api/switch` to the app slot). A clock reboot
+  silently clears those, but Ember **re-asserts the takeover every 30s** while a
+  timer is active — so after a mid-timer reboot the screen re-pins to the timer
+  within ~30s without any manual step.
 - Smoke-test the server half without the device:
   `curl -X POST -d "button=select&state=1" http://localhost:8080/hooks/awtrix/button`
   (should start a focus).

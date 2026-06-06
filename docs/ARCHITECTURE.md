@@ -142,8 +142,13 @@ threshold/dimmed bar colours, tight-colon clock) and the three payload builders
 A focus timer integrated into the **same service/container** (not a separate
 app). A pure `Engine` state machine (focus/short/long, pause/resume/skip/stop) drives a
 **top-priority preempt inside the coordinator** — an active timer renders
-`render.RenderPomodoro` and holds the slot, edge-triggering device
-`ATRANS:false`/`BLOCKN:true` + `/api/switch` on start and restoring on stop. The
+`render.PomodoroPayload` (a built-in animated icon + native MM:SS + progress)
+and holds the slot, edge-triggering device `ATRANS:false`/`BLOCKN:true` +
+`/api/switch` on start and restoring on stop. Because a **device reboot**
+silently clears those settings and the forced slot while the coordinator's flag
+stays set, the takeover is **re-asserted every 30s** (`pomoReassertInterval`)
+while a timer stays active, so a reboot can't strand the timer in the app
+rotation. The
 cycle **auto-advances** by default (`auto_start_next: true`) and **auto-stops**
 after a wall-clock budget (`max_session_minutes`, default 480 = 8h, `0` = off) so
 it never runs overnight; focus is configurable up to 8h. Stats persist in pure-Go
