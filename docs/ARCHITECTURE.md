@@ -218,8 +218,10 @@ renders as its **own AWTRIX custom apps** that rotate natively alongside the mai
 app + Pomodoro. The flow: producers `POST /v1/usage` → in-memory `UsageStore`
 (per tool; **not persisted** — every entry refreshes ≤5 min so a restart
 self-heals) → the coordinator **reconciles** `ember-usage-<tool>-{5h,7d,opus,sonnet}`
-apps each tick (push fresh, skip unchanged via payload-bytes diff, `ClearApp`
-stale/hidden/disabled). Per-tool show/hide reuses `/v1/apps`; the widget +
+apps each tick: push changed payloads, re-push an unchanged app once
+`usageRefreshInterval` (4 min) elapses so it never outlives its on-device
+`lifetime` (600 s) without a refresh, and `ClearApp` stale/hidden/disabled ones.
+Per-tool show/hide reuses `/v1/apps`; the widget +
 per-model toggles are server config (`usage_widget`, `usage_per_model`, default
 on). Staleness TTL ≈ 2× the poll interval (10 min). Frame recipe: 8×8 tool icon
 (`db`), **5h = fully-drawn tight-colon clock** (single full-frame `db`),

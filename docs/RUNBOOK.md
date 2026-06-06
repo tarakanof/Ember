@@ -40,6 +40,12 @@ docker run -d --name ember --restart unless-stopped -p 8080:8080 \
 ```
 
 - `config.json` carries device URL, `app_name` (`ember`), publish timeout.
+  - **The server pushes its main status display to the device under
+    `awtrix.app_name`.** If the clock's rotation shows an unexpected app name
+    (e.g. a pre-rebrand `ai_status`), that's almost certainly a stale `app_name`
+    in `config.json` — not a stray external publisher. Fix the name and restart;
+    don't go hunting MQTT/other hosts. (`config.json` is a single-file bind
+    mount — edit then `docker restart ember` to apply.)
 - Token: `openssl rand -hex 32 > ~/.config/ember/token`.
 - **When recreating the container, `docker inspect` it first** to replicate
   exact mount destinations / env names rather than reconstructing from memory.
