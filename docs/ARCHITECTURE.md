@@ -239,22 +239,31 @@ arrives (and only then are 7d + per-model shown).
 ## Display layout (32×8 matrix)
 
 Each metric owns a screen region as a **graphic**; numeric readouts are opt-in
-and disambiguated by a pictogram (graphics-first principle).
+and disambiguated by a pictogram (graphics-first). Shares the usage widget's
+icon-left language (redesign 2026-06-06).
 
-- **Robot / `>_` sprite** — cols 0–9, state-coloured (green=run, amber=wait,
-  red=err + `> <` chevron eyes, blue=done linger, grey=idle). Codex = `>_`.
-- **Number slot** — cols 12–24, a **rotating set of cards** advanced by the
-  coordinator's card cursor: `X/Y` (session index / total), context `NN⌷`, rate
-  `NN%` (green<70 / amber / red≥90), reset `N⧗` (ceil-hours to 5h reset), and
-  the scrolling tool/trail card. Source color tints the digits.
+- **8×8 tool icon** — cols 0–7, **state-coloured** (green=run, amber=wait,
+  red=err, blue=done linger, grey=idle). Reuses the usage widget sprites
+  (Claude robot-face / Codex chevron) via `drawToolIcon8`; state is conveyed by
+  colour (no per-state icon variants). *(The old 10-wide robot/`>_` sprites are
+  retained in code but off the render path.)*
+- **Number slot** — cols 9–24 (`numStart=9`), a **rotating set of cards**: `X/Y`,
+  context `NN⌷`, rate `NN%` (green<70 / amber / red≥90), reset = the **HH:MM
+  reset clock** (drawn tight-colon, from the session's host-local
+  `rate_reset_label`; falls back to `N⧗` ceil-hours when no label, e.g. Codex),
+  and the scrolling tool/trail card. Source color tints `X/Y` digits.
 - **Context glass** — right edge (interior cols ~26–29 × rows 1–4), 16-level
-  per-pixel bottom-up fill, state-coloured; topmost partial row fills center-out
-  so the waterline reads as a level.
-- **Bottom row (row 7)** — either the 5h rate-limit bar (`drawRateBar`, when
-  `rate_bottom_bar` on and rate present) or a session-count bar (1 px per
-  non-idle session, priority-sorted, capped at 21).
-- **Locked attention view** — 10-wide robot in cols 0–9, firmware-native
-  scrolling text (or `blinkText` "WAIT"/"ERR") in cols 11–31.
+  per-pixel bottom-up fill, state-coloured.
+- **Bottom row (row 7)** — the 5h rate bar (`drawRateBar`, when `rate_bottom_bar`
+  on + rate present) styled as the **dimmed (~55%) threshold bar** over content
+  cols 8–31 (matching the usage apps); else a session-count bar (1 px per
+  non-idle session, priority-sorted).
+- **Locked attention view** — 8×8 tool icon in cols 0–7, firmware-native text
+  (`blinkText` "WAIT"/"ERR" or scrolling activity) at `textOffset:9`.
+- **Pomodoro view** — AWTRIX **built-in animated icon** (`icon` field: tomato
+  `3591` focus / coffee `6396` break) + native MM:SS countdown + native progress
+  bar; paused dims the phase colour. (Not a drawn `db`; the drawn
+  `RenderPomodoro` is retained for tests.)
 
 ## Gotchas & constraints (hard-won)
 

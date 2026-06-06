@@ -178,8 +178,63 @@ func RenderPomodoro(v PomodoroView) *Frame {
 	return f
 }
 
-// PomodoroPayload encodes a Pomodoro frame as an AWTRIX CustomApp payload
-// (single-frame draw, per firmware 0.98 constraints).
+// pomoIconID maps a phase to an on-device AWTRIX icon (animated GIF in /ICONS):
+// focus → tomato (3591), breaks → coffee (6396).
+func pomoIconID(phase string) string {
+	if phase == pomoFocus {
+		return "3591"
+	}
+	return "6396"
+}
+
+// pomoProgressPct returns the remaining-time fill as a 0..100 percentage for the
+// native AWTRIX progress bar.
+func pomoProgressPct(remaining, planned int) int {
+	if planned <= 0 {
+		return 0
+	}
+	p := (100*remaining + planned/2) / planned
+	if p < 0 {
+		return 0
+	}
+	if p > 100 {
+		return 100
+	}
+	return p
+}
+
+// PomodoroPayload encodes a Pomodoro frame using AWTRIX's built-in animated icon
+// (tomato for focus, coffee for breaks) + a native MM:SS countdown + the native
+// progress bar. Paused dims the phase colour (the animated icon keeps animating
+// — an accepted cosmetic). RenderPomodoro (the drawn variant) is retained for
+// tests / any future preview use.
 func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
-	return frameToCustomApp(RenderPomodoro(v), lifetimeSeconds)
+	c := pomoBaseColor(v)
+	if v.Paused {
+		c = dimRGB(c)
+	}
+	hex := fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B)
+	rem := v.RemainingSec
+	if rem < 0 {
+		rem = 0
+	}
+	mm := rem / 60
+	if mm > 99 {
+		mm = 99
+	}
+	ss := rem % 60
+	return map[string]any{
+		"icon":       pomoIconID(v.Phase),
+		"text":       fmt.Sprintf("%02d:%02d", mm, ss),
+		"color":      hex,
+		"center":     false,
+		"textOffset": 9,
+		"noScroll":   true,
+		"progress":   pomoProgressPct(rem, v.PlannedSec),
+		"progressC":  hex,
+		"lifetime":   lifetimeSeconds,
+		"duration":   lifetimeSeconds,
+		"prio":       true,
+		"force":      true,
+	}
 }

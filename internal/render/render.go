@@ -332,24 +332,21 @@ func drawSessionBar(f *Frame, sessions []Session) {
 	}
 }
 
-// drawRateBar paints the 5h rate-limit window as a horizontal fill bar at
-// row 7, cols 11–31 — the same footprint as the session-count bar it replaces
-// when the rate-bottom-bar toggle is on. The fill length is proportional to
-// pct (a minimum of 1 px for any non-zero rate, so low usage stays visible);
-// pct <= 0 paints nothing. The whole fill is a single colour c (the caller
-// passes rateColor(pct): green <70 / amber / red >=90).
-func drawRateBar(f *Frame, pct int, c RGB) {
-	if pct <= 0 {
-		return
+// drawRateBar paints the 5h rate-limit window as the usage-widget-style dimmed
+// threshold bar: content cols 8–31, row 7, fill = round(24*pct/100) in
+// dimThreshold(pct) over a usageTrack background — visually identical to the
+// usage apps' bars. The colour arg is retained for signature stability but
+// ignored (threshold colour is derived from pct).
+func drawRateBar(f *Frame, pct int, _ RGB) {
+	if pct < 0 {
+		pct = 0
 	}
 	if pct > 100 {
 		pct = 100
 	}
-	fillLen := (barWidth*pct + 50) / 100 // round(pct/100 * 21)
-	if fillLen < 1 {
-		fillLen = 1
+	for i, c := range usageBarPixels(pct) {
+		paintCell(f, 8+i, barRow, c)
 	}
-	paintRow(f, barStart, barStart+fillLen-1, barRow, c)
 }
 
 // framePixels extracts the 256-int row-major pixel array from a Frame.
@@ -696,8 +693,8 @@ func itoa(n int) string {
 	return strconv.Itoa(n)
 }
 
-// numStart is the left edge of the digit area (1-px gap after the robot).
-const numStart = 12
+// numStart is the left edge of the digit area (1-px gap after the 8×8 icon).
+const numStart = 9
 
 // detailPayload builds a robot(db) + AWTRIX-native-text payload. blink=true is
 // the WAIT/ERR fallback (static, blinking). blink=false is the activity detail
@@ -705,12 +702,12 @@ const numStart = 12
 // always false so textOffset is the literal start column (cols 11-31), clear of
 // the 10-wide robot.
 func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int) map[string]any {
-	pixels := composeRobotPixels(s, colorForState(s.State))
+	pixels := composeToolIconPixels(s, colorForState(s.State))
 	p := map[string]any{
-		"draw":       []any{map[string]any{"db": []any{0, 0, robotWidth, 8, pixels}}},
+		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, pixels}}},
 		"text":       text,
 		"color":      hexColor,
-		"textOffset": 11,
+		"textOffset": 9,
 		"center":     false,
 		"duration":   lifetimeSeconds,
 		"lifetime":   lifetimeSeconds,
@@ -823,7 +820,7 @@ func composeRobotPixels(s Session, robotColor RGB) []int {
 // active-session list `sessions` — see drawSessionBar.
 func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Session, now time.Time) Frame {
 	var f Frame
-	drawRobot(&f, s, robotColor)
+	drawToolIcon8(&f, s, robotColor)
 
 	switch {
 	case card == cardRate && s.RateWindowPct != nil:
@@ -836,8 +833,16 @@ func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 		// ever needs different thresholds than the rate window.
 		drawDigits(&f, ctxText(pct), numStart, 1, rateColor(pct))
 	case card == cardReset && s.RateResetAt > 0:
-		text, col := resetText(s.RateResetAt, now)
-		drawDigits(&f, text, numStart, 1, col)
+		if s.RateResetLabel != "" {
+			// New design: precise HH:MM reset time as a tight-colon clock (white
+			// digits + dimmed colon), reusing the usage widget's drawClockInto.
+			// The host-local label is posted by the statusline path.
+			drawClockInto(&f, s.RateResetLabel, numStart)
+		} else {
+			// Fallback (e.g. Codex, which posts no label): ceil-hours hourglass.
+			text, col := resetText(s.RateResetAt, now)
+			drawDigits(&f, text, numStart, 1, col)
+		}
 	default:
 		digitColor := colorWhite
 		if s.SourceColor != nil {
@@ -909,14 +914,46 @@ var idleDimWhite = RGB{0x66, 0x66, 0x66}
 // active rotation frames. Includes prio+force+lifetime so AWTRIX keeps
 // holding the slot until the countdown elapses and we stop publishing.
 func RenderIdleFrame(lifetimeSeconds int) map[string]any {
-	pixels := composeRobotPixels(Session{State: "idle"}, idleDimWhite)
+	pixels := composeToolIconPixels(Session{State: "idle"}, idleDimWhite)
 	return map[string]any{
 		"draw": []any{
-			map[string]any{"db": []any{0, 0, robotWidth, 8, pixels}},
+			map[string]any{"db": []any{0, 0, 8, 8, pixels}},
 		},
 		"lifetime": lifetimeSeconds,
 		"duration": lifetimeSeconds,
 		"prio":     true,
 		"force":    true,
 	}
+}
+
+// toolIcon8 returns the 8×8 tool sprite for a session: codex chevron, else the
+// Claude robot-face. Reuses the usage widget icons so the whole display shares
+// one icon set.
+func toolIcon8(s Session) []string {
+	if s.Tool == "codex" {
+		return usageIconCodex
+	}
+	return usageIconClaude
+}
+
+// drawToolIcon8 paints the 8×8 tool icon at cols 0-7 in colour c (the session
+// state colour for the status app).
+func drawToolIcon8(f *Frame, s Session, c RGB) { paintBitmap(f, 0, 0, toolIcon8(s), c) }
+
+// composeToolIconPixels paints just the 8×8 icon into a tight 8×8 = 64-int pixel
+// array (for the locked-attention / idle db, leaving cols 8-31 clear for native
+// text).
+func composeToolIconPixels(s Session, c RGB) []int {
+	var f Frame
+	drawToolIcon8(&f, s, c)
+	px := make([]int, 64)
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			if f.Dirty[y][x] {
+				cc := f.Pixels[y][x]
+				px[y*8+x] = (int(cc.R) << 16) | (int(cc.G) << 8) | int(cc.B)
+			}
+		}
+	}
+	return px
 }

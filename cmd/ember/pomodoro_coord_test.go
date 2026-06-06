@@ -39,8 +39,10 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 	if len(apps) == 0 {
 		t.Fatal("expected a published custom app")
 	}
-	if _, ok := apps[len(apps)-1]["draw"]; !ok {
-		t.Fatalf("expected pomodoro draw payload, got %+v", apps[len(apps)-1])
+	// Pomodoro now publishes a built-in animated icon payload (tomato/coffee)
+	// rather than a drawn db frame.
+	if got := apps[len(apps)-1]["icon"]; got != "3591" && got != "6396" {
+		t.Fatalf("expected pomodoro built-in icon payload, got %+v", apps[len(apps)-1])
 	}
 	s := pub.SettingsSnapshot()
 	if len(s) != 1 || s[0]["ATRANS"] != false || s[0]["BLOCKN"] != true {

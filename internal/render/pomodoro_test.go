@@ -90,16 +90,43 @@ func TestRenderPomodoroPausedDimsColor(t *testing.T) {
 	}
 }
 
-func TestPomodoroPayloadIsSingleDrawFrame(t *testing.T) {
-	payload := PomodoroPayload(PomodoroView{Phase: "focus", RemainingSec: 1500, PlannedSec: 1500}, 30)
-	draw, ok := payload["draw"].([]any)
-	if !ok {
-		t.Fatalf("payload draw not an array: %T", payload["draw"])
+func TestPomodoroPayloadUsesBuiltinIcon(t *testing.T) {
+	focus := PomodoroPayload(PomodoroView{Phase: "focus", RemainingSec: 1499, PlannedSec: 1500}, 30)
+	if focus["icon"] != "3591" {
+		t.Errorf("focus icon = %v, want 3591 (tomato)", focus["icon"])
 	}
-	if len(draw) != 1 {
-		t.Fatalf("draw frames = %d, want 1 (firmware 0.98 rejects multi-frame draw arrays)", len(draw))
+	if focus["text"] != "24:59" {
+		t.Errorf("text = %v, want 24:59", focus["text"])
 	}
-	if payload["lifetime"] != 30 {
-		t.Fatalf("lifetime = %v, want 30", payload["lifetime"])
+	if _, hasDraw := focus["draw"]; hasDraw {
+		t.Error("pomodoro payload should be icon+text, no draw")
+	}
+	if focus["noScroll"] != true || focus["center"] != false || focus["textOffset"] != 9 {
+		t.Errorf("text layout flags wrong: %+v", focus)
+	}
+	if pr, ok := focus["progress"].(int); !ok || pr < 99 || pr > 100 {
+		t.Errorf("progress = %v, want ~100", focus["progress"])
+	}
+	if focus["lifetime"] != 30 {
+		t.Errorf("lifetime = %v, want 30", focus["lifetime"])
+	}
+	brk := PomodoroPayload(PomodoroView{Phase: "short_break", RemainingSec: 300, PlannedSec: 300}, 30)
+	if brk["icon"] != "6396" {
+		t.Errorf("break icon = %v, want 6396 (coffee)", brk["icon"])
+	}
+	long := PomodoroPayload(PomodoroView{Phase: "long_break", RemainingSec: 900, PlannedSec: 900}, 30)
+	if long["icon"] != "6396" {
+		t.Errorf("long-break icon = %v, want 6396 (coffee)", long["icon"])
+	}
+}
+
+func TestPomodoroPayloadPausedDimsColour(t *testing.T) {
+	on := PomodoroPayload(PomodoroView{Phase: "focus", RemainingSec: 600, PlannedSec: 1500}, 30)
+	off := PomodoroPayload(PomodoroView{Phase: "focus", Paused: true, RemainingSec: 600, PlannedSec: 1500}, 30)
+	if on["color"] == off["color"] {
+		t.Errorf("paused must dim the colour; both = %v", on["color"])
+	}
+	if on["color"] != off["color"] && off["progressC"] != off["color"] {
+		t.Errorf("progressC should match the (dimmed) colour when paused")
 	}
 }

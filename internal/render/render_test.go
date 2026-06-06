@@ -257,8 +257,9 @@ func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
 		t.Fatal("expected non-nil payload for single running session")
 	}
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	if pixels[3*32+21] == 0 {
-		t.Errorf("expected '1/1' second digit lit at (21,3)")
+	// numStart=9: "1/1" -> '1'@9, '/'@13, '1'@17; second digit middle col 18.
+	if pixels[3*32+18] == 0 {
+		t.Errorf("expected '1/1' second digit lit at (18,3)")
 	}
 }
 
@@ -271,9 +272,9 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 	}}
 	payload := RenderForCoord(snap, "a/b/s2", cardXY, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// First digit '1' first sprite row col 1 → matrix (13, 1). Should be green.
-	if got, want := pixels[1*32+13], 0x2ee85e; got != want {
-		t.Errorf("digit colour at (13,1) = %#06x, want %#06x (s2 SourceColor)", got, want)
+	// numStart=9: first digit '1' middle col → matrix (10, 1). Should be green.
+	if got, want := pixels[1*32+10], 0x2ee85e; got != want {
+		t.Errorf("digit colour at (10,1) = %#06x, want %#06x (s2 SourceColor)", got, want)
 	}
 }
 
@@ -317,51 +318,38 @@ func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
 	assertBlinkText(t, payload, "WAIT", "#FFC14D")
 }
 
-// TestRenderForCoord_LockedAttention_PixelGeometry asserts the locked
-// payload uses the full 10-wide rotation sprite — both arm protrusions
-// (cols 0 & 9 on row 4), both eyes (cols 2 & 7 on rows 2-3), and all
-// four legs (cols 1, 3, 6, 8 on row 6). Guards against silent regression
-// to the 8-wide cramped variant.
+// TestRenderForCoord_LockedAttention_PixelGeometry asserts the locked payload
+// uses the 8×8 tool icon (usageIconClaude robot-face for a non-codex tool),
+// leaving cols 8-31 clear for the native blink text. Guards against regression
+// to the old 10-wide robot sprite.
 func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
-	draw := payload["draw"].([]any)
-	db := draw[0].(map[string]any)["db"].([]any)
-	if db[2] != 10 {
-		t.Fatalf("locked sprite width = %v, want 10 (rotation-sprite parity)", db[2])
+	db := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)
+	if db[2] != 8 || db[3] != 8 {
+		t.Fatalf("locked icon = %vx%v, want 8x8 tool icon", db[2], db[3])
 	}
 	pixels, ok := db[4].([]int)
-	if !ok || len(pixels) != 80 {
-		t.Fatalf("locked pixel array = %v, want []int of length 80 (10 cols × 8 rows)", db[4])
+	if !ok || len(pixels) != 64 {
+		t.Fatalf("locked pixel array = %v, want []int of length 64 (8×8)", db[4])
 	}
-	// Helper: pixel at (col, row) in the 10-wide layout.
-	at := func(x, y int) int { return pixels[y*10+x] }
-	// Row 4 is the arms row — both protrusions at col 0 and col 9 lit.
-	if at(0, 4) == 0 {
-		t.Errorf("row 4 col 0 (left arm protrusion) is dark, want lit")
+	at := func(x, y int) int { return pixels[y*8+x] }
+	// usageIconClaude: row0 "..X..X.." lights cols 2 & 5 (ears).
+	if at(2, 0) == 0 || at(5, 0) == 0 {
+		t.Errorf("row0 ears (cols 2,5) dark, want lit — not the Claude robot-face icon")
 	}
-	if at(9, 4) == 0 {
-		t.Errorf("row 4 col 9 (right arm protrusion) is dark, want lit — regression to 8-wide")
-	}
-	// Row 2-3 are the eyes — col 2 and col 7 must be DARK (the eye holes).
-	if at(2, 2) != 0 {
-		t.Errorf("row 2 col 2 (left eye hole) is lit, want dark")
-	}
-	if at(7, 2) != 0 {
-		t.Errorf("row 2 col 7 (right eye hole) is lit, want dark — regression to 8-wide")
-	}
-	// Row 6 is the legs row — all 4 legs at cols 1, 3, 6, 8 must be lit.
-	for _, x := range []int{1, 3, 6, 8} {
-		if at(x, 6) == 0 {
-			t.Errorf("row 6 col %d (leg) is dark, want lit — regression to 2-leg 8-wide variant", x)
+	// row4 "XXXXXXXX" — fully lit.
+	for x := 0; x < 8; x++ {
+		if at(x, 4) == 0 {
+			t.Errorf("row4 col %d dark, want lit (full row)", x)
 		}
 	}
-	// And cols 0, 2, 4, 5, 7, 9 on the legs row must be DARK.
-	for _, x := range []int{0, 2, 4, 5, 7, 9} {
-		if at(x, 6) != 0 {
-			t.Errorf("row 6 col %d is lit, want dark (only 4 specific leg pixels expected)", x)
+	// row7 "........" — fully dark, and nothing painted in cols 8-31 (text region).
+	for x := 0; x < 8; x++ {
+		if at(x, 7) != 0 {
+			t.Errorf("row7 col %d lit, want dark", x)
 		}
 	}
 }
@@ -376,8 +364,8 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if !ok || len(db) != 5 {
 		t.Fatalf("draw[0].db = %v, want [x,y,w,h,pixels]", draw[0])
 	}
-	if db[2] != robotWidth {
-		t.Errorf("draw[0].db width = %v, want %d (narrow region so AWTRIX text isn't clobbered)", db[2], robotWidth)
+	if db[2] != 8 {
+		t.Errorf("draw[0].db width = %v, want 8 (8×8 tool icon so AWTRIX text isn't clobbered)", db[2])
 	}
 	if got := payload["text"]; got != wantLabel {
 		t.Errorf("text = %v, want %q", got, wantLabel)
@@ -388,8 +376,8 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if got := payload["blinkText"]; got != 500 {
 		t.Errorf("blinkText = %v, want 500", got)
 	}
-	if got := payload["textOffset"]; got != 11 {
-		t.Errorf("textOffset = %v, want 11 (1-col gap after the 10-wide robot; text sits in cols 11-31 — 21 cols, fits 4-char labels)", got)
+	if got := payload["textOffset"]; got != 9 {
+		t.Errorf("textOffset = %v, want 9 (1-col gap after the 8×8 icon; text sits in cols 9-31 — 23 cols)", got)
 	}
 	if got := payload["noScroll"]; got != true {
 		t.Errorf("noScroll = %v, want true", got)
@@ -440,9 +428,9 @@ func TestRenderForCoord_Counts_XOverY(t *testing.T) {
 	}}
 	payload := RenderForCoord(snap, "a/b/s2", cardXY, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// "2/3": first digit '2' starts at col 12. '2' glyph row 0 is "XXX",
-	// so cols 12, 13, 14 are lit at row 1.
-	for x := 12; x <= 14; x++ {
+	// "2/3": first digit '2' starts at numStart=9. '2' glyph row 0 is "XXX",
+	// so cols 9, 10, 11 are lit at row 1.
+	for x := 9; x <= 11; x++ {
 		if pixels[1*32+x] == 0 {
 			t.Errorf("'2' top row should light col %d at row 1", x)
 		}
@@ -592,12 +580,12 @@ func TestRenderIdleFrame_Shape(t *testing.T) {
 	if !ok || len(db) != 5 {
 		t.Fatalf("draw[0].db = %v, want [x,y,w,h,pixels]", draw[0])
 	}
-	if db[2] != robotWidth {
-		t.Errorf("idle bitmap width = %v, want %d", db[2], robotWidth)
+	if db[2] != 8 {
+		t.Errorf("idle bitmap width = %v, want 8 (8×8 icon)", db[2])
 	}
 	pixels, ok := db[4].([]int)
-	if !ok || len(pixels) != robotWidth*8 {
-		t.Fatalf("idle pixels = %v, want %d ints", db[4], robotWidth*8)
+	if !ok || len(pixels) != 64 {
+		t.Fatalf("idle pixels = %v, want 64 ints", db[4])
 	}
 	// At least one pixel must be lit (the robot is drawn) and any lit
 	// pixel must be roughly 40% brightness (dim white).
@@ -803,16 +791,22 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 }
 
 func TestComposeFrame_CodexSprite(t *testing.T) {
-	f := ComposeFrame(Session{Tool: "codex", State: "running"}, 1, 1, cardXY, RGB{0x2e, 0xe8, 0x5e}, nil, time.Now())
-	// Underscore: frame row 6 (sprite row 5, painted at y=1), cols 5–9 lit.
-	for _, x := range []int{5, 6, 7, 8, 9} {
+	green := RGB{0x2e, 0xe8, 0x5e}
+	f := ComposeFrame(Session{Tool: "codex", State: "running"}, 1, 1, cardXY, green, nil, time.Now())
+	// New design: codex uses the 8×8 usageIconCodex chevron at cols 0-7, painted
+	// in the state colour. Row 0 lights col 0 ("X......."); row 6 lights the
+	// bottom run cols 0,3,4,5,6 ("X..XXXX.").
+	if !f.Dirty[0][0] || f.Pixels[0][0] != green {
+		t.Errorf("codex icon (0,0) not lit in state colour")
+	}
+	for _, x := range []int{0, 3, 4, 5, 6} {
 		if !f.Dirty[6][x] {
-			t.Errorf("codex underscore [%d,6] lit=false, want true", x)
+			t.Errorf("codex icon bottom row col %d not lit", x)
 		}
 	}
-	// NOT the robot's full-width arms: row 4 (sprite row 3) cols 0 and 9 must be dark for >_.
-	if f.Dirty[4][0] || f.Dirty[4][9] {
-		t.Error("codex frame lit robot arm cols at row 4; want >_ geometry, not robot")
+	// Distinct from the Claude robot-face, which lights (2,0) not (0,0).
+	if f.Dirty[0][2] {
+		t.Error("codex frame lit (2,0) — that's the Claude icon, not codex")
 	}
 }
 
@@ -866,33 +860,43 @@ func TestDrawRateBar(t *testing.T) {
 		}
 		return out
 	}
+	_ = litCols // dimmed bar paints the whole content area (track or fill); count fills below
+	// New design: usage-widget dimmed threshold bar over content cols 8-31.
+	// Every content cell is painted (track or fill), so we count dimThreshold fills.
+	fillCount := func(f *Frame, pct int) int {
+		n := 0
+		for x := 8; x < 32; x++ {
+			if f.Pixels[7][x] == dimThreshold(pct) {
+				n++
+			}
+		}
+		return n
+	}
 	tests := []struct {
-		name string
-		pct  int
-		want []int // lit cols on row 7
+		name      string
+		pct, want int
 	}{
-		{name: "zero — no bar", pct: 0, want: nil},
-		{name: "negative — no bar", pct: -5, want: nil},
-		{name: "tiny non-zero — min 1px", pct: 2, want: []int{11}}, // round(0.42)=0 → forced to 1
-		{name: "half — 11px", pct: 50, want: rangeInts(11, 21)},    // round(10.5)=11 → cols 11..21
-		{name: "full — 21px", pct: 100, want: rangeInts(11, 31)},
-		{name: "over 100 — clamped full", pct: 130, want: rangeInts(11, 31)},
+		{name: "zero — no fill", pct: 0, want: 0},
+		{name: "negative — clamped 0", pct: -5, want: 0},
+		{name: "tiny non-zero — min 1px", pct: 2, want: 1}, // round(0.48)=0 → forced to 1
+		{name: "half — 12px", pct: 50, want: 12},
+		{name: "full — 24px", pct: 100, want: 24},
+		{name: "over 100 — clamped full", pct: 130, want: 24},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &Frame{}
 			drawRateBar(f, tc.pct, colorRunning)
-			got := litCols(f)
-			if !slices.Equal(got, tc.want) {
-				t.Errorf("pct=%d lit cols = %v, want %v", tc.pct, got, tc.want)
+			if got := fillCount(f, tc.pct); got != tc.want {
+				t.Errorf("pct=%d fill = %d, want %d", tc.pct, got, tc.want)
 			}
 		})
 	}
-	// Colour is the one passed in.
+	// Colour is the dimmed threshold, derived from pct (the arg is ignored).
 	f := &Frame{}
 	drawRateBar(f, 50, colorError)
-	if f.Pixels[7][11] != colorError {
-		t.Errorf("fill colour = %v, want %v", f.Pixels[7][11], colorError)
+	if f.Pixels[7][8] != dimThreshold(50) {
+		t.Errorf("fill colour = %v, want dimThreshold(50) %v", f.Pixels[7][8], dimThreshold(50))
 	}
 }
 
@@ -912,18 +916,19 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 		{Source: "a", Tool: "claude", Session: "s2", State: "waiting", UpdatedAt: now},
 	}
 
-	// Toggle ON + rate present → rate bar (50% → cols 11..21, amber for 70<=? no, 50<70 → green).
+	// Toggle ON + rate present → dimmed threshold bar over content cols 8-31;
+	// 50% → 12 fills (cols 8-19) in dimThreshold(50), cols 20+ are track.
 	rw := 50
 	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, RateWindowPct: &rw, UpdatedAt: now}
 	f := ComposeFrame(s, 1, 2, cardXY, colorRunning, others, time.Now())
-	for x := 11; x <= 21; x++ {
-		if !f.Dirty[7][x] || f.Pixels[7][x] != rateColor(50) {
-			t.Fatalf("rate bar: col %d = %v dirty=%v, want %v", x, f.Pixels[7][x], f.Dirty[7][x], rateColor(50))
+	for x := 8; x <= 19; x++ {
+		if f.Pixels[7][x] != dimThreshold(50) {
+			t.Fatalf("rate bar: col %d = %v, want fill %v", x, f.Pixels[7][x], dimThreshold(50))
 		}
 	}
-	if f.Dirty[7][22] {
-		t.Errorf("rate bar over-filled past col 21")
+	if f.Pixels[7][20] == dimThreshold(50) {
+		t.Errorf("rate bar over-filled past col 19")
 	}
 
 	// Toggle OFF → session-count bar (2 sessions → cols 11,12 by priority: waiting, running).
@@ -1014,9 +1019,9 @@ func TestRenderForCoord_RateCard_PaintsThresholdColor(t *testing.T) {
 	}}
 	payload := RenderForCoord(snap, "a/b/s1", cardRate, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// "73%": '7' sprite row 0 is "XXX" at startY=1 → (12,1),(13,1),(14,1) lit amber.
-	if got, want := pixels[1*32+12], 0xffc14d; got != want {
-		t.Errorf("rate digit colour at (12,1) = %#06x, want %#06x (amber, 70-89)", got, want)
+	// "73%": '7' sprite row 0 is "XXX" at startY=1, numStart=9 → (9,1) lit amber.
+	if got, want := pixels[1*32+9], 0xffc14d; got != want {
+		t.Errorf("rate digit colour at (9,1) = %#06x, want %#06x (amber, 70-89)", got, want)
 	}
 }
 
@@ -1047,12 +1052,12 @@ func TestDetailPayload_Blink(t *testing.T) {
 	if p["noScroll"] != true {
 		t.Errorf("noScroll = %v, want true", p["noScroll"])
 	}
-	if p["textOffset"] != 11 || p["center"] != false {
-		t.Errorf("textOffset/center = %v/%v, want 11/false", p["textOffset"], p["center"])
+	if p["textOffset"] != 9 || p["center"] != false {
+		t.Errorf("textOffset/center = %v/%v, want 9/false", p["textOffset"], p["center"])
 	}
 	db := p["draw"].([]any)[0].(map[string]any)["db"].([]any)
-	if db[2] != robotWidth || len(db[4].([]int)) != robotWidth*8 {
-		t.Errorf("db width/len = %v/%d, want %d/%d", db[2], len(db[4].([]int)), robotWidth, robotWidth*8)
+	if db[2] != 8 || len(db[4].([]int)) != 64 {
+		t.Errorf("db width/len = %v/%d, want 8/64", db[2], len(db[4].([]int)))
 	}
 }
 
@@ -1068,8 +1073,8 @@ func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 	if _, has := p["noScroll"]; has {
 		t.Errorf("noScroll must be absent so firmware scrolls on overflow")
 	}
-	if p["textOffset"] != 11 || p["center"] != false {
-		t.Errorf("textOffset/center = %v/%v, want 11/false", p["textOffset"], p["center"])
+	if p["textOffset"] != 9 || p["center"] != false {
+		t.Errorf("textOffset/center = %v/%v, want 9/false", p["textOffset"], p["center"])
 	}
 }
 
@@ -1227,9 +1232,9 @@ func TestRenderForCoord_CtxCard(t *testing.T) {
 	// AvailableCards = [cardXY, cardCtx]; cursor 1 = cardCtx.
 	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// '4' sprite row 0 "X.X" at numStart=12,row1 → (12,1) lit green (45<70).
-	if pixels[1*32+12] != 0x2ee85e {
-		t.Errorf("ctx digit at (12,1) = %#06x, want green 0x2ee85e", pixels[1*32+12])
+	// '4' sprite row 0 "X.X" at numStart=9,row1 → (9,1) lit green (45<70).
+	if pixels[1*32+9] != 0x2ee85e {
+		t.Errorf("ctx digit at (9,1) = %#06x, want green 0x2ee85e", pixels[1*32+9])
 	}
 	if _, hasText := payload["text"]; hasText {
 		t.Error("ctx card is a pixel frame, not a text payload")
@@ -1292,5 +1297,124 @@ func TestComposeFrame_ResetCard(t *testing.T) {
 	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", RateResetAt: 1_000_000 + 3600}
 	if slices.Contains(AvailableCards(sOff), cardReset) {
 		t.Error("cardReset offered with toggle off")
+	}
+}
+
+func TestDrawToolIcon8(t *testing.T) {
+	red := RGB{0xff, 0, 0}
+	var fc Frame
+	drawToolIcon8(&fc, Session{Tool: "claude", State: "error"}, red)
+	if !fc.Dirty[0][2] || fc.Pixels[0][2] != red {
+		t.Errorf("claude icon top pixel not painted in state colour")
+	}
+	for y := 0; y < 8; y++ {
+		for x := 8; x < 32; x++ {
+			if fc.Dirty[y][x] {
+				t.Fatalf("icon painted outside 0-7 at %d,%d", x, y)
+			}
+		}
+	}
+	var fx Frame
+	drawToolIcon8(&fx, Session{Tool: "codex"}, red)
+	if !fx.Dirty[0][0] {
+		t.Errorf("codex icon top-left not painted")
+	}
+	if fx.Dirty[0][2] {
+		t.Errorf("codex must differ from claude at (2,0)")
+	}
+	px := composeToolIconPixels(Session{Tool: "claude"}, red)
+	if len(px) != 64 {
+		t.Fatalf("composeToolIconPixels len = %d, want 64", len(px))
+	}
+}
+
+func TestComposeFrameUsesToolIcon(t *testing.T) {
+	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running"}
+	f := ComposeFrame(s, 1, 2, cardXY, colorRunning, []Session{s}, time.Now())
+	if !f.Dirty[0][2] {
+		t.Errorf("icon not drawn at (2,0)")
+	}
+	lit := false
+	for y := 1; y <= 5; y++ {
+		if f.Dirty[y][9] || f.Dirty[y][10] || f.Dirty[y][11] {
+			lit = true
+		}
+	}
+	if !lit {
+		t.Errorf("X/Y digits not drawn at col 9")
+	}
+}
+
+func TestResetCardClockFromLabel(t *testing.T) {
+	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running",
+		RateResetAt: 1780669527, RateReset: true, RateResetLabel: "14:25"}
+	f := ComposeFrame(s, 1, 1, cardReset, colorRunning, []Session{s}, time.Now())
+	lit := false
+	for y := 1; y <= 5; y++ {
+		for x := 9; x <= 11; x++ {
+			if f.Dirty[y][x] {
+				lit = true
+			}
+		}
+	}
+	if !lit {
+		t.Errorf("reset clock not drawn from label")
+	}
+}
+
+func TestResetCardFallbackHourglass(t *testing.T) {
+	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running",
+		RateResetAt: 1780669527, RateReset: true} // no label
+	f := ComposeFrame(s, 1, 1, cardReset, colorRunning, []Session{s}, time.Unix(1780669000, 0))
+	lit := false
+	for y := 1; y <= 5; y++ {
+		if f.Dirty[y][9] || f.Dirty[y][10] || f.Dirty[y][11] {
+			lit = true
+		}
+	}
+	if !lit {
+		t.Errorf("hourglass fallback not drawn")
+	}
+}
+
+func TestRateBarDimmedThreshold(t *testing.T) {
+	var f Frame
+	drawRateBar(&f, 50, rateColor(50)) // colour arg ignored; uses dimThreshold
+	filled := 0
+	for x := 8; x < 32; x++ {
+		if f.Pixels[7][x] == dimThreshold(50) {
+			filled++
+		}
+	}
+	if filled != 12 { // 24-wide content, 50% -> 12
+		t.Errorf("filled = %d, want 12 dimmed cells", filled)
+	}
+	if f.Pixels[7][8] != dimThreshold(50) {
+		t.Errorf("bar must start at col 8 (content area)")
+	}
+}
+
+func TestDetailPayloadUses8pxIcon(t *testing.T) {
+	s := Session{Source: "a", Tool: "claude", Session: "s", State: "waiting"}
+	p := detailPayload(s, "WAIT", "#FFC14D", true, 30)
+	draws := p["draw"].([]any)
+	db := draws[0].(map[string]any)["db"].([]any)
+	if db[2] != 8 || db[3] != 8 {
+		t.Errorf("locked db not 8×8: %v %v", db[2], db[3])
+	}
+	if p["textOffset"] != 9 {
+		t.Errorf("textOffset = %v, want 9", p["textOffset"])
+	}
+}
+
+func TestIdleFrameUses8pxIcon(t *testing.T) {
+	p := RenderIdleFrame(30)
+	draws := p["draw"].([]any)
+	db := draws[0].(map[string]any)["db"].([]any)
+	if db[2] != 8 || db[3] != 8 {
+		t.Errorf("idle db not 8×8: %v %v", db[2], db[3])
+	}
+	if _, hasText := p["text"]; hasText {
+		t.Error("idle frame must stay text-free")
 	}
 }
