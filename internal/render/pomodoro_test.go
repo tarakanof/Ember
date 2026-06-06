@@ -92,8 +92,8 @@ func TestRenderPomodoroPausedDimsColor(t *testing.T) {
 
 func TestPomodoroPayloadUsesBuiltinIcon(t *testing.T) {
 	focus := PomodoroPayload(PomodoroView{Phase: "focus", RemainingSec: 1499, PlannedSec: 1500}, 30)
-	if focus["icon"] != "3591" {
-		t.Errorf("focus icon = %v, want 3591 (tomato)", focus["icon"])
+	if focus["icon"] != "29802" {
+		t.Errorf("focus icon = %v, want 29802 (tomato)", focus["icon"])
 	}
 	if focus["text"] != "24:59" {
 		t.Errorf("text = %v, want 24:59", focus["text"])
@@ -101,8 +101,16 @@ func TestPomodoroPayloadUsesBuiltinIcon(t *testing.T) {
 	if _, hasDraw := focus["draw"]; hasDraw {
 		t.Error("pomodoro payload should be icon+text, no draw")
 	}
-	if focus["noScroll"] != true || focus["center"] != false || focus["textOffset"] != 9 {
-		t.Errorf("text layout flags wrong: %+v", focus)
+	// With the built-in icon, the firmware centres the text after the icon — we
+	// must NOT set textOffset/center (that double-shifts + clips the last digit).
+	if focus["noScroll"] != true {
+		t.Errorf("noScroll = %v, want true", focus["noScroll"])
+	}
+	if _, has := focus["textOffset"]; has {
+		t.Errorf("textOffset must be unset (icon field auto-places text); got %v", focus["textOffset"])
+	}
+	if _, has := focus["center"]; has {
+		t.Errorf("center must be unset (firmware centres after the icon); got %v", focus["center"])
 	}
 	if pr, ok := focus["progress"].(int); !ok || pr < 99 || pr > 100 {
 		t.Errorf("progress = %v, want ~100", focus["progress"])

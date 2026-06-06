@@ -23,7 +23,7 @@ const (
 )
 
 var (
-	pomoFocusDefault = RGB{0xff, 0x3b, 0x30} // red
+	pomoFocusDefault = RGB{0xff, 0x00, 0x00} // pure red
 	pomoShortDefault = RGB{0x2e, 0xe8, 0x5e} // green
 	pomoLongDefault  = RGB{0x4f, 0xa9, 0xff} // blue
 	pomoTrack        = RGB{0x22, 0x22, 0x22} // dim progress track
@@ -178,11 +178,11 @@ func RenderPomodoro(v PomodoroView) *Frame {
 	return f
 }
 
-// pomoIconID maps a phase to an on-device AWTRIX icon (animated GIF in /ICONS):
-// focus → tomato (3591), breaks → coffee (6396).
+// pomoIconID maps a phase to an on-device AWTRIX icon (in /ICONS): focus →
+// tomato (29802), breaks → coffee (6396).
 func pomoIconID(phase string) string {
 	if phase == pomoFocus {
-		return "3591"
+		return "29802"
 	}
 	return "6396"
 }
@@ -223,18 +223,22 @@ func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 		mm = 99
 	}
 	ss := rem % 60
+	// NOTE: with the built-in `icon` field set, AWTRIX already reserves the
+	// left 8px and centres `text` in the remaining region — so we must NOT set
+	// `textOffset`/`center` here (doing so double-shifts the text right and
+	// clips the last digit, e.g. "23:45" → "23:4"). `noScroll` keeps the static
+	// MM:SS from scrolling. (This differs from the usage-widget frames, which
+	// draw the icon as a `db` and DO need center:false + textOffset.)
 	return map[string]any{
-		"icon":       pomoIconID(v.Phase),
-		"text":       fmt.Sprintf("%02d:%02d", mm, ss),
-		"color":      hex,
-		"center":     false,
-		"textOffset": 9,
-		"noScroll":   true,
-		"progress":   pomoProgressPct(rem, v.PlannedSec),
-		"progressC":  hex,
-		"lifetime":   lifetimeSeconds,
-		"duration":   lifetimeSeconds,
-		"prio":       true,
-		"force":      true,
+		"icon":      pomoIconID(v.Phase),
+		"text":      fmt.Sprintf("%02d:%02d", mm, ss),
+		"color":     hex,
+		"noScroll":  true,
+		"progress":  pomoProgressPct(rem, v.PlannedSec),
+		"progressC": hex,
+		"lifetime":  lifetimeSeconds,
+		"duration":  lifetimeSeconds,
+		"prio":      true,
+		"force":     true,
 	}
 }

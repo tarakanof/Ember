@@ -41,7 +41,7 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 	}
 	// Pomodoro now publishes a built-in animated icon payload (tomato/coffee)
 	// rather than a drawn db frame.
-	if got := apps[len(apps)-1]["icon"]; got != "3591" && got != "6396" {
+	if got := apps[len(apps)-1]["icon"]; got != "29802" && got != "6396" {
 		t.Fatalf("expected pomodoro built-in icon payload, got %+v", apps[len(apps)-1])
 	}
 	s := pub.SettingsSnapshot()

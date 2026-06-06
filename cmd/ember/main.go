@@ -160,7 +160,7 @@ func defaultConfig() Config {
 			RoundsBeforeLongBreak: 4,
 			AutoStartNext:         true,
 			Sound:                 true,
-			FocusColor:            "#FF3B30",
+			FocusColor:            "#FF0000",
 			BreakColor:            "#2EE85E",
 			DBPath:                "/var/lib/ember/pomodoro.db",
 			ButtonCallback:        true,
@@ -260,7 +260,7 @@ func (c *Config) applyDefaults() {
 		c.Pomodoro.RoundsBeforeLongBreak = 4
 	}
 	if c.Pomodoro.FocusColor == "" {
-		c.Pomodoro.FocusColor = "#FF3B30"
+		c.Pomodoro.FocusColor = "#FF0000"
 	}
 	if c.Pomodoro.BreakColor == "" {
 		c.Pomodoro.BreakColor = "#2EE85E"
