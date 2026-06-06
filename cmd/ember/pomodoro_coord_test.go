@@ -67,6 +67,63 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 	}
 }
 
+func TestCoordinatorReassertsTakeoverPeriodically(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	clk := &fakeClock{now: time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, func() *Config { return &cfg }, pub, clk, testLogger(), nil)
+	c.ctx = context.Background()
+
+	snap := Snapshot{Now: clk.Now()}
+	c.snapshot = func() Snapshot { return snap }
+	c.pomoView = func() (render.PomodoroView, bool) {
+		return render.PomodoroView{Phase: "focus", RemainingSec: 1500, PlannedSec: 1500, FocusColor: render.RGB{R: 0xff}}, true
+	}
+
+	// Activate → takeover settings + switch fire once.
+	c.publish(snap)
+	if n := len(pub.SettingsSnapshot()); n != 1 {
+		t.Fatalf("settings after activate = %d, want 1", n)
+	}
+	if n := len(pub.SwitchesSnapshot()); n != 1 {
+		t.Fatalf("switches after activate = %d, want 1", n)
+	}
+
+	// A publish within the re-assert interval does NOT re-issue (edge already
+	// applied; no need to churn the device).
+	clk.Advance(pomoReassertInterval / 2)
+	c.publish(snap)
+	if n := len(pub.SettingsSnapshot()); n != 1 {
+		t.Fatalf("settings within interval = %d, want 1 (no churn)", n)
+	}
+	if n := len(pub.SwitchesSnapshot()); n != 1 {
+		t.Fatalf("switches within interval = %d, want 1", n)
+	}
+
+	// Past the interval, the takeover is re-asserted (Settings + Switch) so a
+	// device reboot — which silently clears ATRANS/BLOCKN and the forced app
+	// slot — recovers without the coordinator observing the reboot.
+	clk.Advance(pomoReassertInterval)
+	c.publish(snap)
+	s := pub.SettingsSnapshot()
+	if len(s) != 2 || s[1]["ATRANS"] != false || s[1]["BLOCKN"] != true {
+		t.Fatalf("re-assert settings = %+v, want a 2nd ATRANS:false BLOCKN:true", s)
+	}
+	if n := len(pub.SwitchesSnapshot()); n != 2 {
+		t.Fatalf("switches after re-assert = %d, want 2", n)
+	}
+
+	// Deactivate → single restore, flag cleared.
+	c.pomoView = func() (render.PomodoroView, bool) { return render.PomodoroView{}, false }
+	clk.Advance(time.Second)
+	c.publish(snap)
+	s = pub.SettingsSnapshot()
+	if len(s) != 3 || s[2]["ATRANS"] != true || s[2]["BLOCKN"] != false {
+		t.Fatalf("restore settings = %+v, want ATRANS:true BLOCKN:false", s)
+	}
+}
+
 func TestCoordinatorRestoresTakeoverOnShutdown(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()

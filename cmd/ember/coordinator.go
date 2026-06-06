@@ -103,6 +103,12 @@ type coordinator struct {
 	// Coordinator-goroutine-owned (read/written only from publish).
 	pomoTakeover bool
 
+	// pomoAssertedAt is when the active takeover settings/switch were last
+	// pushed; publish re-asserts every pomoReassertInterval so a device reboot
+	// (which clears ATRANS/BLOCKN + the forced slot) can't strand the timer in
+	// the rotation. Coordinator-goroutine-owned.
+	pomoAssertedAt time.Time
+
 	// onPublishResult, if non-nil, is called after every publish attempt
 	// with the snapshot we tried to render and the error (nil on success).
 	// Used by App to update lastPublish* AND lastPublished (the legacy
@@ -628,14 +634,29 @@ func (c *coordinator) reconcileUsageApps(now time.Time, snap Snapshot) {
 	}
 }
 
+// pomoReassertInterval bounds how often an ACTIVE takeover re-pushes its
+// device settings + app switch. The takeover is otherwise edge-triggered, but
+// a device reboot silently clears ATRANS/BLOCKN and the forced app slot while
+// the coordinator's flag stays set — so the timer would rotate as a normal app
+// instead of holding the screen. Re-asserting on this cadence recovers the
+// takeover within one interval of a reboot without churning the device on
+// every publish.
+const pomoReassertInterval = 30 * time.Second
+
 // applyPomoTakeover writes the device rotation/native-nav settings on the
 // active↔idle Pomodoro edge. While active: disable app rotation (ATRANS) and
 // native button navigation (BLOCKN) and force the device to the app slot so
 // the timer holds the screen and the buttons drive the timer instead of
-// switching apps. On return to idle: restore both. No-op when nothing changed.
-// Runs on the coordinator goroutine only.
-func (c *coordinator) applyPomoTakeover(active bool, appName string) {
+// switching apps. On return to idle: restore both. While the takeover stays
+// active it is also re-asserted every pomoReassertInterval (reboot recovery,
+// see the const). Runs on the coordinator goroutine only.
+func (c *coordinator) applyPomoTakeover(active bool, appName string, now time.Time) {
 	if active == c.pomoTakeover {
+		// Steady state: re-assert periodically so a device reboot can't strand
+		// the timer in the rotation. Idle steady state needs nothing.
+		if active && now.Sub(c.pomoAssertedAt) >= pomoReassertInterval {
+			c.assertPomoTakeover(appName, now)
+		}
 		return
 	}
 	ctx := c.ctx
@@ -643,18 +664,29 @@ func (c *coordinator) applyPomoTakeover(active bool, appName string) {
 		ctx = context.Background()
 	}
 	if active {
-		if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": false, "BLOCKN": true}); err != nil {
-			c.logger.Warn("pomo takeover settings failed", "err", err)
-		}
-		if err := c.publisher.Switch(ctx, appName); err != nil {
-			c.logger.Warn("pomo switch failed", "err", err)
-		}
+		c.assertPomoTakeover(appName, now)
 	} else {
 		if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": true, "BLOCKN": false}); err != nil {
 			c.logger.Warn("pomo restore settings failed", "err", err)
 		}
 	}
 	c.pomoTakeover = active
+}
+
+// assertPomoTakeover (re-)issues the takeover settings + forced app switch and
+// records the time. Caller ensures a timer is active.
+func (c *coordinator) assertPomoTakeover(appName string, now time.Time) {
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": false, "BLOCKN": true}); err != nil {
+		c.logger.Warn("pomo takeover settings failed", "err", err)
+	}
+	if err := c.publisher.Switch(ctx, appName); err != nil {
+		c.logger.Warn("pomo switch failed", "err", err)
+	}
+	c.pomoAssertedAt = now
 }
 
 // restorePomoTakeoverOnExit re-enables app rotation + native button navigation
@@ -693,7 +725,7 @@ func (c *coordinator) publish(snap Snapshot) {
 			payload = render.PomodoroPayload(view, lifetime)
 		}
 	}
-	c.applyPomoTakeover(pomoActive, cfg.AWTRIX.AppName)
+	c.applyPomoTakeover(pomoActive, cfg.AWTRIX.AppName, now)
 
 	if !pomoActive {
 		keys := render.SortedActiveKeys(snap)
