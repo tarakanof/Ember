@@ -115,6 +115,9 @@ func TestPomodoroPayloadUsesBuiltinIcon(t *testing.T) {
 	if pr, ok := focus["progress"].(int); !ok || pr < 99 || pr > 100 {
 		t.Errorf("progress = %v, want ~100", focus["progress"])
 	}
+	if focus["progressBC"] != "#222222" {
+		t.Errorf("progressBC = %v, want #222222 (dim track)", focus["progressBC"])
+	}
 	if focus["lifetime"] != 30 {
 		t.Errorf("lifetime = %v, want 30", focus["lifetime"])
 	}

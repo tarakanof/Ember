@@ -229,16 +229,18 @@ func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 	// clips the last digit, e.g. "23:45" → "23:4"). `noScroll` keeps the static
 	// MM:SS from scrolling. (This differs from the usage-widget frames, which
 	// draw the icon as a `db` and DO need center:false + textOffset.)
+	trackHex := fmt.Sprintf("#%02X%02X%02X", pomoTrack.R, pomoTrack.G, pomoTrack.B)
 	return map[string]any{
-		"icon":      pomoIconID(v.Phase),
-		"text":      fmt.Sprintf("%02d:%02d", mm, ss),
-		"color":     hex,
-		"noScroll":  true,
-		"progress":  pomoProgressPct(rem, v.PlannedSec),
-		"progressC": hex,
-		"lifetime":  lifetimeSeconds,
-		"duration":  lifetimeSeconds,
-		"prio":      true,
-		"force":     true,
+		"icon":       pomoIconID(v.Phase),
+		"text":       fmt.Sprintf("%02d:%02d", mm, ss),
+		"color":      hex,
+		"noScroll":   true,
+		"progress":   pomoProgressPct(rem, v.PlannedSec),
+		"progressC":  hex,
+		"progressBC": trackHex, // dim track (else AWTRIX defaults to a white track)
+		"lifetime":   lifetimeSeconds,
+		"duration":   lifetimeSeconds,
+		"prio":       true,
+		"force":      true,
 	}
 }
