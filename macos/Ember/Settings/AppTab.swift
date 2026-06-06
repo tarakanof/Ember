@@ -9,7 +9,7 @@ struct AppTab: View {
     var body: some View {
         @Bindable var env = env
         Form {
-            Section("App icon") {
+            Section("Appearance") {
                 Picker("Dock & app icon", selection: $env.prefs.appIcon) {
                     ForEach(appIconPalettes, id: \.self) { p in
                         HStack {
@@ -22,12 +22,9 @@ struct AppTab: View {
                         }.tag(p)
                     }
                 }
-            }
-
-            Section("Tray glyphs") {
-                glyphPicker("Claude", $env.prefs.trayClaudeGlyph)
-                glyphPicker("Codex", $env.prefs.trayCodexGlyph)
-                glyphPicker("Idle / other", $env.prefs.trayIdleGlyph)
+                glyphPicker("Claude glyph", $env.prefs.trayClaudeGlyph)
+                glyphPicker("Codex glyph", $env.prefs.trayCodexGlyph)
+                glyphPicker("Idle / other glyph", $env.prefs.trayIdleGlyph)
             }
 
             Section("Startup") {
@@ -45,6 +42,7 @@ struct AppTab: View {
             }
         }
         .formStyle(.grouped)
+        .navigationTitle("App")
     }
 
     private func glyphPicker(_ label: String, _ binding: Binding<String>) -> some View {

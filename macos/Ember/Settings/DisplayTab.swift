@@ -11,44 +11,39 @@ struct DisplayTab: View {
     @State private var loaded = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section("Preview") {
-                    if let preview, !preview.frames.isEmpty {
-                        PreviewCanvas(frames: preview.frames)
-                            .frame(height: 56)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                        if !preview.activity.isEmpty {
-                            Text("Activity card: \(preview.activity)")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    } else {
-                        RoundedRectangle(cornerRadius: 4).fill(.black).frame(height: 56)
-                            .overlay(Text(status ?? "No preview")
-                                .font(.caption).foregroundStyle(.secondary))
+        Form {
+            Section("Preview") {
+                if let preview, !preview.frames.isEmpty {
+                    PreviewCanvas(frames: preview.frames)
+                        .frame(height: 56)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    if !preview.activity.isEmpty {
+                        Text("Activity card: \(preview.activity)")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                }
-
-                Section("Elements") {
-                    Toggle("Context %", isOn: $display.contextPct)
-                    Toggle("Context number", isOn: $display.contextNumber)
-                    Toggle("Rate-limit %", isOn: $display.ratePct)
-                    Toggle("Rate bottom bar", isOn: $display.rateBottomBar)
-                    Toggle("Rate reset countdown", isOn: $display.rateReset)
-                    Toggle("Activity detail", isOn: $display.activityDetail)
-                    Toggle("Activity trail (multi-session bar)", isOn: $display.activityTrail)
+                } else {
+                    RoundedRectangle(cornerRadius: 4).fill(.black).frame(height: 56)
+                        .overlay(Text(status ?? "No preview")
+                            .font(.caption).foregroundStyle(.secondary))
                 }
             }
-            .formStyle(.grouped)
 
-            Divider()
-            HStack(spacing: 12) {
-                if let status { Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                Spacer()
-                Button("Save") { save() }.keyboardShortcut(.defaultAction)
+            Section("Context") {
+                Toggle("Context %", isOn: $display.contextPct)
+                Toggle("Context number", isOn: $display.contextNumber)
             }
-            .padding(12)
+            Section("Rate limit") {
+                Toggle("Rate-limit %", isOn: $display.ratePct)
+                Toggle("Rate bottom bar", isOn: $display.rateBottomBar)
+                Toggle("Rate reset countdown", isOn: $display.rateReset)
+            }
+            Section("Activity") {
+                Toggle("Activity detail", isOn: $display.activityDetail)
+                Toggle("Activity trail (multi-session bar)", isOn: $display.activityTrail)
+            }
         }
+        .formStyle(.grouped)
+        .navigationTitle("Display")
         .task {
             if !loaded {
                 let envFile = env.currentEnv()
@@ -58,7 +53,16 @@ struct DisplayTab: View {
                 await refreshPreview()
             }
         }
-        .onChange(of: display) { _, _ in Task { await refreshPreview() } }
+        .onChange(of: display) { _, _ in
+            writeDisplay()                       // immediate auto-apply (no reload)
+            Task { await refreshPreview() }
+        }
+    }
+
+    private func writeDisplay() {
+        var envFile = env.currentEnv()
+        display.apply(to: &envFile)
+        try? envFile.write(to: env.producerEnvPath)   // best-effort, mirrors old Save
     }
 
     private func refreshPreview() async {
@@ -68,17 +72,6 @@ struct DisplayTab: View {
         } catch {
             preview = nil
             status = "Preview unavailable (server offline?)"
-        }
-    }
-
-    private func save() {
-        var envFile = env.currentEnv()
-        display.apply(to: &envFile)
-        do {
-            try envFile.write(to: env.producerEnvPath)
-            status = "Saved."
-        } catch {
-            status = "Save failed: \(error.localizedDescription)"
         }
     }
 }

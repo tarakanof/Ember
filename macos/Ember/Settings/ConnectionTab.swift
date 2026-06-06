@@ -4,77 +4,122 @@ import EmberKit
 struct ConnectionTab: View {
     @Environment(AppEnvironment.self) private var env
 
+    // Live editable fields.
     @State private var source = ""
     @State private var serverURL = ""
-    @State private var sourceColor = ""
-    @State private var token = ""           // blank = keep current
+    @State private var useSourceColor = false
+    @State private var sourceColorHex = "#FF8800"
+    @State private var token = ""            // blank = keep current
     @State private var tokenIsSet = false
-    @State private var saveError: String?
+
+    // Last-committed-valid snapshot of the env-backed fields. All writes apply
+    // from THIS (mutating one field), so a half-typed invalid field can't drop
+    // another field's value through ConnectionSettings' all-or-nothing apply.
+    @State private var committed = ConnectionSettings(source: "", serverURL: "", sourceColor: "")
+    @State private var save: SaveState = .idle
     @State private var testResult: String?
     @State private var loaded = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
-                Section("Producer") {
-                    TextField("Source", text: $source)
-                    TextField("Server URL", text: $serverURL)
-                        .textContentType(.URL)
-                    HStack {
-                        TextField("Source color", text: $sourceColor, prompt: Text("#RRGGBB · blank = none"))
-                        if let c = RGB(hex: sourceColor).map({ Color($0) }) {
-                            RoundedRectangle(cornerRadius: 3).fill(c).frame(width: 18, height: 18)
-                        }
-                    }
-                    SecureField("Token", text: $token,
-                                prompt: Text(tokenIsSet ? "set — blank keeps it" : "not set"))
-                }
-            }
-            .formStyle(.grouped)
+        Form {
+            Section {
+                TextField("Source", text: $source)
+                    .onSubmit { commit { $0.source = source } }
+                TextField("Server URL", text: $serverURL)
+                    .textContentType(.URL)
+                    .onSubmit { commit { $0.serverURL = serverURL } }
 
-            Divider()
-            HStack(spacing: 12) {
-                Button("Test Connection") { Task { await test() } }
-                if let saveError {
-                    Text(saveError).font(.caption).foregroundStyle(.red).lineLimit(1)
-                } else if let testResult {
-                    Text(testResult).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Toggle("Use source color", isOn: $useSourceColor)
+                    .onChange(of: useSourceColor) { _, on in
+                        commit { $0.sourceColor = on ? sourceColorHex : "" }
+                    }
+                if useSourceColor {
+                    ColorHexPicker(title: "Source color", hex: $sourceColorHex)
+                        .onChange(of: sourceColorHex) { _, hex in
+                            commit { $0.sourceColor = hex }
+                        }
                 }
-                Spacer()
-                Button("Save") { save() }.keyboardShortcut(.defaultAction)
+
+                SecureField("Token", text: $token,
+                            prompt: Text(tokenIsSet ? "set — blank keeps it" : "not set"))
+                    .onSubmit { commitToken() }
+            } header: {
+                Text("Producer")
+            } footer: {
+                statusCaption
             }
-            .padding(12)
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Connection")
+        .toolbar {
+            ToolbarItem {
+                Button("Test Connection") { Task { await test() } }
+            }
         }
         .task { if !loaded { load(); loaded = true } }
     }
 
+    @ViewBuilder private var statusCaption: some View {
+        switch save {
+        case .idle:
+            if let testResult { Text(testResult).font(.caption).foregroundStyle(.secondary) }
+        case .saving: Text("Saving…").font(.caption).foregroundStyle(.secondary)
+        case .saved:  Label("Saved", systemImage: "checkmark.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+        case .error(let m): Label(m, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.red)
+        }
+    }
+
     private func load() {
         let envFile = env.currentEnv()
-        let c = ConnectionSettings(reading: envFile)
-        source = c.source; serverURL = c.serverURL; sourceColor = c.sourceColor
+        committed = ConnectionSettings(reading: envFile)
+        source = committed.source
+        serverURL = committed.serverURL
+        useSourceColor = !committed.sourceColor.isEmpty
+        if useSourceColor { sourceColorHex = committed.sourceColor }
         tokenIsSet = ConnectionSettings.tokenIsSet(in: envFile)
         token = ""
     }
 
-    private func save() {
-        saveError = nil; testResult = nil
+    /// Applies a one-field mutation of the committed snapshot, validating ALL
+    /// fields (ConnectionSettings.apply is all-or-nothing) but only ever feeding
+    /// known-valid values for the OTHER fields.
+    private func commit(_ mutate: (inout ConnectionSettings) -> Void) {
+        var next = committed
+        mutate(&next)
         var envFile = env.currentEnv()
-        let c = ConnectionSettings(source: source, serverURL: serverURL, sourceColor: sourceColor)
         do {
-            try c.apply(to: &envFile, token: token)
+            try next.apply(to: &envFile, token: nil)
+            try envFile.write(to: env.producerEnvPath)
+            committed = next
+            env.reloadConnection()
+            save = .saved
+        } catch let e as ValidationError {
+            save = .error(e.message)
+        } catch {
+            save = .error(error.localizedDescription)
+        }
+    }
+
+    private func commitToken() {
+        guard !token.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        var envFile = env.currentEnv()
+        do {
+            try committed.apply(to: &envFile, token: token)
             try envFile.write(to: env.producerEnvPath)
             env.reloadConnection()
-            load()                    // refresh tokenIsSet / clear the secure field
-            testResult = "Saved."
+            token = ""; tokenIsSet = true
+            save = .saved
         } catch let e as ValidationError {
-            saveError = e.message
+            save = .error(e.message)
         } catch {
-            saveError = error.localizedDescription
+            save = .error(error.localizedDescription)
         }
     }
 
     private func test() async {
-        testResult = "Testing…"; saveError = nil
+        testResult = "Testing…"; save = .idle
         let envFile = env.currentEnv()
         let effToken = token.trimmingCharacters(in: .whitespaces).isEmpty
             ? envFile.get(SettingsKeys.token) : token
@@ -86,11 +131,11 @@ struct ConnectionTab: View {
             testResult = "✓ Connected (auth OK)"
         } catch let e as APIError {
             switch e {
-            case .notConfigured: testResult = "✗ No/invalid server URL"
-            case .http(401, _):  testResult = "✗ Unauthorized — check token"
+            case .notConfigured:  testResult = "✗ No/invalid server URL"
+            case .http(401, _):   testResult = "✗ Unauthorized — check token"
             case .http(let s, _): testResult = "✗ Server error (HTTP \(s))"
-            case .transport:     testResult = "✗ Unreachable"
-            case .decoding:      testResult = "✓ Reached server (unexpected body)"
+            case .transport:      testResult = "✗ Unreachable"
+            case .decoding:       testResult = "✓ Reached server (unexpected body)"
             }
         } catch {
             testResult = "✗ \(error.localizedDescription)"

@@ -16,9 +16,13 @@ struct EmberApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        Settings {
-            SettingsView()
+        Window("Ember Settings", id: "settings") {
+            SettingsRootView()
                 .environment(env)
+        }
+        .defaultSize(width: 700, height: 460)
+        .commands {
+            CommandGroup(replacing: .appSettings) { OpenSettingsCommandButton() }
         }
 
         Window("Dashboard", id: "dashboard") {
@@ -27,6 +31,17 @@ struct EmberApp: App {
         }
         .defaultSize(width: 380, height: 480)
         .windowResizability(.contentSize)
+    }
+}
+
+/// The standard ⌘, "Settings…" app-menu item, re-pointed at our Window (the
+/// classic `Settings` scene is gone). A View inside a CommandGroup picks up the
+/// scene's `openWindow` action.
+private struct OpenSettingsCommandButton: View {
+    @Environment(\.openWindow) private var openWindow
+    var body: some View {
+        Button("Settings…") { openWindow(id: "settings") }
+            .keyboardShortcut(",", modifiers: .command)
     }
 }
 

@@ -6,7 +6,6 @@ import EmberKit
 struct MenuBarContentView: View {
 	@Environment(AppEnvironment.self) private var env
 	@Environment(\.openWindow) private var openWindow
-	@Environment(\.openSettings) private var openSettings
 
 	private func mmss(_ sec: Int) -> String {
 		let s = max(0, sec); return String(format: "%d:%02d", s / 60, s % 60)
@@ -60,7 +59,7 @@ struct MenuBarContentView: View {
 		}
 		Button("Settings…") {
 			NSApplication.shared.activate(ignoringOtherApps: true)
-			openSettings()
+			openWindow(id: "settings")
 		}
 		.keyboardShortcut(",", modifiers: .command)
 
