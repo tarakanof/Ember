@@ -30,11 +30,13 @@ struct ConnectionTab: View {
                     .onSubmit { commit { $0.serverURL = serverURL } }
 
                 Toggle("Use source color", isOn: $useSourceColor)
+                    .disabled(!connectionConfigured)
                     .onChange(of: useSourceColor) { _, on in
                         commit { $0.sourceColor = on ? sourceColorHex : "" }
                     }
                 if useSourceColor {
                     ColorHexPicker(title: "Source color", hex: $sourceColorHex)
+                        .disabled(!connectionConfigured)
                         .onChange(of: sourceColorHex) { _, hex in
                             commit { $0.sourceColor = hex }
                         }
@@ -59,10 +61,23 @@ struct ConnectionTab: View {
         .task { if !loaded { load(); loaded = true } }
     }
 
+    /// A source-color tint can only be written once Source + Server URL are set,
+    /// because `ConnectionSettings.apply` validates every field together. Until
+    /// then the colour controls are disabled (rather than throwing a confusing
+    /// "source must not be empty" on a colour action).
+    private var connectionConfigured: Bool {
+        !committed.source.isEmpty && !committed.serverURL.isEmpty
+    }
+
     @ViewBuilder private var statusCaption: some View {
         switch save {
         case .idle:
-            if let testResult { Text(testResult).font(.caption).foregroundStyle(.secondary) }
+            if !connectionConfigured {
+                Text("Set Source and Server URL first to enable a colour tint.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if let testResult {
+                Text(testResult).font(.caption).foregroundStyle(.secondary)
+            }
         case .saving: Text("Saving…").font(.caption).foregroundStyle(.secondary)
         case .saved:  Label("Saved", systemImage: "checkmark.circle")
                         .font(.caption).foregroundStyle(.secondary)
