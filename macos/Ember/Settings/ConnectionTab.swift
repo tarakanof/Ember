@@ -20,13 +20,18 @@ struct ConnectionTab: View {
     @State private var testResult: String?
     @State private var loaded = false
 
+    private enum Field: Hashable { case source, serverURL, token }
+    @FocusState private var focusedField: Field?
+
     var body: some View {
         Form {
             Section {
                 TextField("Source", text: $source)
+                    .focused($focusedField, equals: .source)
                     .onSubmit { commit { $0.source = source } }
                 TextField("Server URL", text: $serverURL)
                     .textContentType(.URL)
+                    .focused($focusedField, equals: .serverURL)
                     .onSubmit { commit { $0.serverURL = serverURL } }
 
                 Toggle("Use source color", isOn: $useSourceColor)
@@ -44,6 +49,7 @@ struct ConnectionTab: View {
 
                 SecureField("Token", text: $token,
                             prompt: Text(tokenIsSet ? "set — blank keeps it" : "not set"))
+                    .focused($focusedField, equals: .token)
                     .onSubmit { commitToken() }
             } header: {
                 Text("Producer")
@@ -53,6 +59,7 @@ struct ConnectionTab: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Connection")
+        .onChange(of: focusedField) { old, _ in commitOnFocusLeave(old) }
         .toolbar {
             ToolbarItem {
                 Button("Test Connection") { Task { await test() } }
@@ -97,12 +104,25 @@ struct ConnectionTab: View {
         token = ""
     }
 
+    /// Commits whichever field just lost focus, so an edit is saved even if the
+    /// user tabs/clicks away without pressing Return. Idempotent with `.onSubmit`
+    /// (the `commit`/`commitToken` no-op guards swallow the duplicate).
+    private func commitOnFocusLeave(_ field: Field?) {
+        switch field {
+        case .source:    commit { $0.source = source }
+        case .serverURL: commit { $0.serverURL = serverURL }
+        case .token:     commitToken()
+        case .none:      break
+        }
+    }
+
     /// Applies a one-field mutation of the committed snapshot, validating ALL
     /// fields (ConnectionSettings.apply is all-or-nothing) but only ever feeding
     /// known-valid values for the OTHER fields.
     private func commit(_ mutate: (inout ConnectionSettings) -> Void) {
         var next = committed
         mutate(&next)
+        guard next != committed else { return }   // no-op (e.g. Return then blur): skip the write
         var envFile = env.currentEnv()
         do {
             try next.apply(to: &envFile, token: nil)
