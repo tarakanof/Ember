@@ -56,6 +56,20 @@ struct WeatherTab: View {
             } footer: {
                 statusCaption
             }
+
+            if config.useNativeIcons {
+                Section {
+                    ForEach(Self.iconConditions, id: \.key) { row in
+                        TextField(row.label, text: iconBinding(row.key),
+                                  prompt: Text(row.placeholder))
+                    }
+                } header: {
+                    Text("Native icon IDs")
+                } footer: {
+                    Text("LaMetric icon IDs (developer.lametric.com/icons). Leave blank to use the built-in default.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("Weather")
@@ -64,6 +78,29 @@ struct WeatherTab: View {
         }
         .task { if !loaded { await load(); loaded = true } }
         .onChange(of: config) { _, _ in scheduleSave() }
+    }
+
+    /// The six condition buckets + their built-in default IDs (shown as the
+    /// field placeholder). Keys match the server's render condition constants.
+    static let iconConditions: [(key: String, label: String, placeholder: String)] = [
+        ("clear", "Clear", "1338"),
+        ("clouds", "Clouds", "2286"),
+        ("fog", "Fog", "17056"),
+        ("rain", "Rain", "72"),
+        ("snow", "Snow", "2289"),
+        ("storm", "Storm", "11428"),
+    ]
+
+    /// Binds a condition's override ID; an empty value removes the key so the
+    /// server falls back to its default.
+    private func iconBinding(_ key: String) -> Binding<String> {
+        Binding(
+            get: { config.iconIds[key] ?? "" },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty { config.iconIds[key] = nil } else { config.iconIds[key] = trimmed }
+            }
+        )
     }
 
     @ViewBuilder private var statusCaption: some View {

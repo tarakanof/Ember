@@ -36,6 +36,23 @@ import Foundation
     #expect(back == c)
 }
 
+@Test func weatherConfigIconIdsRoundTripAndTolerateAbsent() throws {
+    // Absent icon_ids decodes to an empty map (server omits it when empty).
+    let noIcons = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#
+    let a = try JSONDecoder().decode(WeatherConfig.self, from: Data(noIcons.utf8))
+    #expect(a.iconIds.isEmpty)
+    #expect(a.rotateInApps)   // decodeIfPresent default holds
+
+    // Explicit overrides round-trip.
+    var c = WeatherConfig(enabled: true, latitude: 1, longitude: 2, useNativeIcons: true)
+    c.iconIds = ["rain": "999", "storm": "11428"]
+    let data = try JSONEncoder().encode(c)
+    #expect(String(decoding: data, as: UTF8.self).contains("icon_ids"))
+    let back = try JSONDecoder().decode(WeatherConfig.self, from: data)
+    #expect(back.iconIds["rain"] == "999")
+    #expect(back == c)
+}
+
 @Test func decodesRemindersConfigSnakeCase() throws {
     let json = #"""
     {"enabled":true,"timezone":"Europe/Amsterdam","popup_duration_seconds":10,

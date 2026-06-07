@@ -168,6 +168,21 @@ func TestApplyWeatherSettingsValidation(t *testing.T) {
 	}
 }
 
+func TestWeatherIconIDOverride(t *testing.T) {
+	cfg := WeatherConfig{}
+	if got := cfg.weatherIconID(render.WeatherRain); got != "72" {
+		t.Errorf("default rain icon = %q, want 72", got)
+	}
+	cfg.IconIDs = map[string]string{render.WeatherRain: "999"}
+	if got := cfg.weatherIconID(render.WeatherRain); got != "999" {
+		t.Errorf("override rain icon = %q, want 999", got)
+	}
+	// A condition with no override still falls back to the default.
+	if got := cfg.weatherIconID(render.WeatherSnow); got != "2289" {
+		t.Errorf("unset snow icon = %q, want default 2289", got)
+	}
+}
+
 // TestApplyWeatherSettingsPreservesDisables guards the review fix: a menu PUT
 // that turns the opt-in toggles off (and sets interval=0) must survive — earlier
 // applyWeatherSettings re-ran applyDefaults and forced them back on.

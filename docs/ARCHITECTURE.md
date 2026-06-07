@@ -175,8 +175,10 @@ coordinator reconciles a single **`ember-weather`** rotating tile (drawn 8×8 ic
 loop (`StartWeather`) fetches when due and fires `/api/notify` **popups**: on
 condition change (`popup_on_change`), on a fixed cadence (`popup_interval_minutes`,
 `0`=off), and a **sound alert** on severe-weather onset (`severe_alert`). Popups
-use a drawn icon by default; `use_native_icons` swaps in a native AWTRIX animated
-weather icon by ID. Config is fully runtime-editable (`GET/PUT /v1/weather/config`,
+use a drawn icon by default; `use_native_icons` swaps in a native AWTRIX/LaMetric
+animated weather icon by ID — per-condition IDs default to widely-used gallery
+icons and are overridable from the menu (`icon_ids`) so the user can curate from
+developer.lametric.com/icons. Config is fully runtime-editable (`GET/PUT /v1/weather/config`,
 persisted to store key `weather_json`), including `enabled` — so the menu can turn
 the whole widget on/off.
 

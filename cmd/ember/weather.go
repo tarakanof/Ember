@@ -35,23 +35,40 @@ type WeatherConfig struct {
 	SevereAlert          bool    `json:"severe_alert"`    // popup + sound on severe weather
 	SevereSound          string  `json:"severe_sound"`    // RTTTL or device sound name; empty = default
 	UseNativeIcons       bool    `json:"use_native_icons"`
+	// IconIDs optionally overrides the per-condition native AWTRIX/LaMetric icon
+	// ID used for popups (when UseNativeIcons is on). Keyed by condition bucket
+	// ("clear"/"clouds"/"fog"/"rain"/"snow"/"storm"); an empty/absent entry falls
+	// back to defaultWeatherIconIDs. Lets the user curate icons from the LaMetric
+	// gallery (developer.lametric.com/icons) without a code change.
+	IconIDs map[string]string `json:"icon_ids,omitempty"`
+}
+
+// weatherIconID resolves the native icon ID for a condition: the per-config
+// override if set, else the built-in default.
+func (c WeatherConfig) weatherIconID(cond string) string {
+	if id := c.IconIDs[cond]; id != "" {
+		return id
+	}
+	return defaultWeatherIconIDs[cond]
 }
 
 // defaultWeatherSevereSound is a short urgent RTTTL chime for severe-weather
 // popups when no custom sound is configured (TC001 piezo is RTTTL-only).
 const defaultWeatherSevereSound = "storm:d=4,o=5,b=160:8c6,8a,8c6,8a,8c6"
 
-// defaultWeatherIconIDs maps a condition to an AWTRIX/LaMetric animated weather
-// icon ID, used for popups only when UseNativeIcons is on. These are best-effort
-// gallery IDs; if a device lacks one it falls back to text. The reliable drawn
-// icon is always used for the rotating tile.
+// defaultWeatherIconIDs maps a condition to an AWTRIX/LaMetric weather icon ID,
+// used for popups only when UseNativeIcons is on. These are widely-used gallery
+// IDs (developer.lametric.com/icons) but are device-content dependent — if a
+// device lacks one it falls back to text, and the user can override any of them
+// via WeatherConfig.IconIDs. The reliable drawn icon is always used for the
+// rotating tile.
 var defaultWeatherIconIDs = map[string]string{
-	render.WeatherClear:  "2422",
-	render.WeatherClouds: "2283",
-	render.WeatherFog:    "25890",
-	render.WeatherRain:   "72",
-	render.WeatherSnow:   "2289",
-	render.WeatherStorm:  "11201",
+	render.WeatherClear:  "1338",  // sunny
+	render.WeatherClouds: "2286",  // partly cloudy
+	render.WeatherFog:    "17056", // fog
+	render.WeatherRain:   "72",    // rain
+	render.WeatherSnow:   "2289",  // snow
+	render.WeatherStorm:  "11428", // thunderstorm
 }
 
 func (c *WeatherConfig) applyDefaults() {
@@ -424,7 +441,7 @@ func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weath
 func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg WeatherConfig, durationSec int, sound string) {
 	iconID := ""
 	if cfg.UseNativeIcons {
-		iconID = defaultWeatherIconIDs[obs.Condition]
+		iconID = cfg.weatherIconID(obs.Condition)
 	}
 	payload := render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec, sound)
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)

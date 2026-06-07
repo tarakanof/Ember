@@ -99,13 +99,17 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var severeAlert: Bool
     public var severeSound: String
     public var useNativeIcons: Bool
+    /// Per-condition native icon-ID overrides (keyed "clear"/"clouds"/"fog"/
+    /// "rain"/"snow"/"storm"); empty falls back to the server's built-in IDs.
+    public var iconIds: [String: String]
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
                 latitude: Double = 0, longitude: Double = 0, locationName: String = "",
                 units: String = "metric", refreshMinutes: Int = 10, rotateInApps: Bool = true,
                 popupIntervalMinutes: Int = 120, popupDurationSeconds: Int = 30,
                 popupOnChange: Bool = true, severeAlert: Bool = true,
-                severeSound: String = "", useNativeIcons: Bool = false) {
+                severeSound: String = "", useNativeIcons: Bool = false,
+                iconIds: [String: String] = [:]) {
         self.enabled = enabled
         self.provider = provider
         self.latitude = latitude
@@ -120,6 +124,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         self.severeAlert = severeAlert
         self.severeSound = severeSound
         self.useNativeIcons = useNativeIcons
+        self.iconIds = iconIds
     }
 
     enum CodingKeys: String, CodingKey {
@@ -134,6 +139,28 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case severeAlert = "severe_alert"
         case severeSound = "severe_sound"
         case useNativeIcons = "use_native_icons"
+        case iconIds = "icon_ids"
+    }
+
+    /// Decode every field if-present (the server omits `icon_ids` when empty, and
+    /// older blobs predate it), so a partial payload never fails to decode.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? "open-meteo"
+        latitude = try c.decodeIfPresent(Double.self, forKey: .latitude) ?? 0
+        longitude = try c.decodeIfPresent(Double.self, forKey: .longitude) ?? 0
+        locationName = try c.decodeIfPresent(String.self, forKey: .locationName) ?? ""
+        units = try c.decodeIfPresent(String.self, forKey: .units) ?? "metric"
+        refreshMinutes = try c.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? 10
+        rotateInApps = try c.decodeIfPresent(Bool.self, forKey: .rotateInApps) ?? true
+        popupIntervalMinutes = try c.decodeIfPresent(Int.self, forKey: .popupIntervalMinutes) ?? 120
+        popupDurationSeconds = try c.decodeIfPresent(Int.self, forKey: .popupDurationSeconds) ?? 30
+        popupOnChange = try c.decodeIfPresent(Bool.self, forKey: .popupOnChange) ?? true
+        severeAlert = try c.decodeIfPresent(Bool.self, forKey: .severeAlert) ?? true
+        severeSound = try c.decodeIfPresent(String.self, forKey: .severeSound) ?? ""
+        useNativeIcons = try c.decodeIfPresent(Bool.self, forKey: .useNativeIcons) ?? false
+        iconIds = try c.decodeIfPresent([String: String].self, forKey: .iconIds) ?? [:]
     }
 }
 
