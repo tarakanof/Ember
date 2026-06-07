@@ -93,6 +93,10 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var units: String              // "metric" | "imperial"
     public var refreshMinutes: Int
     public var rotateInApps: Bool
+    public var forecastTile: Bool         // separate hourly-forecast bar tile
+    public var forecastHours: Int         // hours shown in the strip/tile (6..24)
+    public var sunPopups: Bool            // popup at sunrise/sunset
+    public var moonPhase: Bool            // moon phase on clear nights
     public var popupIntervalMinutes: Int  // 0 = no interval popups
     public var popupDurationSeconds: Int
     public var popupOnChange: Bool
@@ -106,6 +110,8 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public init(enabled: Bool = false, provider: String = "open-meteo",
                 latitude: Double = 0, longitude: Double = 0, locationName: String = "",
                 units: String = "metric", refreshMinutes: Int = 10, rotateInApps: Bool = true,
+                forecastTile: Bool = true, forecastHours: Int = 24,
+                sunPopups: Bool = true, moonPhase: Bool = true,
                 popupIntervalMinutes: Int = 120, popupDurationSeconds: Int = 30,
                 popupOnChange: Bool = true, severeAlert: Bool = true,
                 severeSound: String = "", useNativeIcons: Bool = false,
@@ -118,6 +124,10 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         self.units = units
         self.refreshMinutes = refreshMinutes
         self.rotateInApps = rotateInApps
+        self.forecastTile = forecastTile
+        self.forecastHours = forecastHours
+        self.sunPopups = sunPopups
+        self.moonPhase = moonPhase
         self.popupIntervalMinutes = popupIntervalMinutes
         self.popupDurationSeconds = popupDurationSeconds
         self.popupOnChange = popupOnChange
@@ -133,6 +143,10 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case units
         case refreshMinutes = "refresh_minutes"
         case rotateInApps = "rotate_in_apps"
+        case forecastTile = "forecast_tile"
+        case forecastHours = "forecast_hours"
+        case sunPopups = "sun_popups"
+        case moonPhase = "moon_phase"
         case popupIntervalMinutes = "popup_interval_minutes"
         case popupDurationSeconds = "popup_duration_seconds"
         case popupOnChange = "popup_on_change"
@@ -154,6 +168,10 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         units = try c.decodeIfPresent(String.self, forKey: .units) ?? "metric"
         refreshMinutes = try c.decodeIfPresent(Int.self, forKey: .refreshMinutes) ?? 10
         rotateInApps = try c.decodeIfPresent(Bool.self, forKey: .rotateInApps) ?? true
+        forecastTile = try c.decodeIfPresent(Bool.self, forKey: .forecastTile) ?? true
+        forecastHours = try c.decodeIfPresent(Int.self, forKey: .forecastHours) ?? 24
+        sunPopups = try c.decodeIfPresent(Bool.self, forKey: .sunPopups) ?? true
+        moonPhase = try c.decodeIfPresent(Bool.self, forKey: .moonPhase) ?? true
         popupIntervalMinutes = try c.decodeIfPresent(Int.self, forKey: .popupIntervalMinutes) ?? 120
         popupDurationSeconds = try c.decodeIfPresent(Int.self, forKey: .popupDurationSeconds) ?? 30
         popupOnChange = try c.decodeIfPresent(Bool.self, forKey: .popupOnChange) ?? true

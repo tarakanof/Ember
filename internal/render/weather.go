@@ -138,8 +138,23 @@ func WeatherColor(cond string) RGB {
 // 9–31 ≈ next 23h) when `hourly` is supplied. Mirrors the usage tiles (no
 // prio/force) so it rotates natively alongside them. lifetime seconds.
 func WeatherPayload(cond, tempText string, hourly []float64, lifetime int) map[string]any {
+	return weatherTile(cond, tempText, hourly, nil, lifetime)
+}
+
+// WeatherPayloadMoon is the clear-night variant: the left 8×8 icon shows the
+// moon phase (see MoonView) instead of the condition icon. Used when the caller
+// has determined it's night and the moon-phase option is on.
+func WeatherPayloadMoon(tempText string, hourly []float64, moon MoonView, lifetime int) map[string]any {
+	return weatherTile("", tempText, hourly, &moon, lifetime)
+}
+
+func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifetime int) map[string]any {
 	var f Frame
-	paintBitmap(&f, 0, 0, weatherIcon(cond), WeatherColor(cond))
+	if moon != nil {
+		paintBitmap(&f, 0, 0, moonSprite(*moon), moonColor)
+	} else {
+		paintBitmap(&f, 0, 0, weatherIcon(cond), WeatherColor(cond))
+	}
 	drawDigits(&f, tempText, 9, 1, colorWhite)
 	drawForecastStrip(&f, hourly, 9, 31, 7) // bottom-row hourly strip (temp text occupies rows 1–5)
 	return map[string]any{

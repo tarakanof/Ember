@@ -59,6 +59,19 @@ struct WeatherTab: View {
             }
 
             Section {
+                Toggle("Show forecast tile", isOn: $config.forecastTile)
+                Stepper("Forecast hours: \(config.forecastHours)",
+                        value: $config.forecastHours, in: 6...24, step: 1)
+                Toggle("Sunrise / sunset alerts", isOn: $config.sunPopups)
+                Toggle("Moon phase on clear nights", isOn: $config.moonPhase)
+            } header: {
+                Text("Forecast & sky")
+            } footer: {
+                Text("The forecast tile shows hourly temperature bars (height + colour = temperature). The weather tile also carries a one-pixel-per-hour strip. Sunrise/sunset and moon use your location, computed on-device.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle("Popup on condition change", isOn: $config.popupOnChange)
                 Stepper(config.popupIntervalMinutes == 0
                         ? "Interval popup: off"

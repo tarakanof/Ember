@@ -27,6 +27,7 @@ import Foundation
     let data = try JSONEncoder().encode(c)
     let s = String(decoding: data, as: UTF8.self)
     for key in ["location_name", "refresh_minutes", "rotate_in_apps",
+                "forecast_tile", "forecast_hours", "sun_popups", "moon_phase",
                 "popup_interval_minutes", "popup_duration_seconds",
                 "popup_on_change", "severe_alert", "severe_sound", "use_native_icons"] {
         #expect(s.contains(key), "encoded weather config missing key \(key)")
@@ -34,6 +35,28 @@ import Foundation
     // Round-trips back to an equal value.
     let back = try JSONDecoder().decode(WeatherConfig.self, from: data)
     #expect(back == c)
+}
+
+@Test func weatherConfigForecastSkyFieldsDecodeAndDefault() throws {
+    // Explicit values decode.
+    let json = #"""
+    {"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2,
+     "forecast_tile":false,"forecast_hours":12,"sun_popups":false,"moon_phase":false}
+    """#
+    let c = try JSONDecoder().decode(WeatherConfig.self, from: Data(json.utf8))
+    #expect(c.forecastTile == false)
+    #expect(c.forecastHours == 12)
+    #expect(c.sunPopups == false)
+    #expect(c.moonPhase == false)
+
+    // Absent (older blobs) → on-by-default, 24h. Guards the upgrade path so the
+    // menu never silently drops the features when re-saving an old config.
+    let old = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#
+    let d = try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8))
+    #expect(d.forecastTile)
+    #expect(d.forecastHours == 24)
+    #expect(d.sunPopups)
+    #expect(d.moonPhase)
 }
 
 @Test func weatherConfigIconIdsRoundTripAndTolerateAbsent() throws {

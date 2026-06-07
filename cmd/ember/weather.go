@@ -31,6 +31,8 @@ type WeatherConfig struct {
 	RotateInApps         bool    `json:"rotate_in_apps"`         // show the rotating tile
 	ForecastTile         bool    `json:"forecast_tile"`          // show the separate hourly-forecast bar tile
 	ForecastHours        int     `json:"forecast_hours"`         // hours shown in the strip/tile (6..24)
+	SunPopups            bool    `json:"sun_popups"`             // popup at sunrise/sunset
+	MoonPhase            bool    `json:"moon_phase"`             // show the moon phase on clear nights
 	PopupIntervalMinutes int     `json:"popup_interval_minutes"` // 0 = no interval popups
 	PopupDurationSeconds int     `json:"popup_duration_seconds"`
 	PopupOnChange        bool    `json:"popup_on_change"` // popup when the condition changes
@@ -116,6 +118,12 @@ func (c *WeatherConfig) applyDefaults() {
 	if !c.SevereAlert {
 		c.SevereAlert = true
 	}
+	if !c.SunPopups {
+		c.SunPopups = true
+	}
+	if !c.MoonPhase {
+		c.MoonPhase = true
+	}
 }
 
 func validateWeather(c WeatherConfig) error {
@@ -175,6 +183,10 @@ type weatherStore struct {
 	prevCondition string
 	prevSevere    bool
 	lastPopupAt   time.Time
+	// Sunrise/sunset popup dedupe: the UTC date ("2006-01-02") each last fired, so
+	// a given day's event fires at most once.
+	sunriseDoneDay string
+	sunsetDoneDay  string
 }
 
 func newWeatherStore() *weatherStore { return &weatherStore{} }
@@ -403,6 +415,10 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	if !cfg.Enabled {
 		return
 	}
+	// Sunrise/sunset popups are time-driven, not fetch-driven: check every tick
+	// (this runs each minute) so they fire near the actual event, independent of
+	// the provider refresh interval.
+	a.checkSunPopups(ctx, now, cfg)
 	// "Due" is gated on lastFetch (set on BOTH success and failure), not on
 	// `have`: a provider that keeps failing at startup must still back off a full
 	// refresh interval between attempts rather than retry every tick (api.met.no
@@ -474,6 +490,58 @@ func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weath
 		return true
 	}
 	return false
+}
+
+// sunPopupGrace is how soon after a sunrise/sunset instant we still fire the
+// popup. The poll runs each minute, so a ~2-min window reliably catches the
+// event without firing for an event that already passed (e.g. at startup).
+const sunPopupGrace = 2 * time.Minute
+
+// checkSunPopups fires a sunrise/sunset popup when `now` has just crossed the
+// event for the configured location, at most once per UTC day per event.
+func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConfig) {
+	if !cfg.SunPopups {
+		return
+	}
+	if cfg.Latitude == 0 && cfg.Longitude == 0 {
+		return // no location set
+	}
+	sunrise, sunset, ok := sunTimes(cfg.Latitude, cfg.Longitude, now)
+	if !ok {
+		return // polar day/night — no event today
+	}
+	today := now.UTC().Format("2006-01-02")
+	a.maybeFireSun(ctx, now, sunrise, true, today, cfg)
+	a.maybeFireSun(ctx, now, sunset, false, today, cfg)
+}
+
+func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig) {
+	if now.Before(event) || now.Sub(event) >= sunPopupGrace {
+		return // not in the firing window
+	}
+	a.weather.mu.Lock()
+	done := &a.weather.sunsetDoneDay
+	if rising {
+		done = &a.weather.sunriseDoneDay
+	}
+	if *done == today {
+		a.weather.mu.Unlock()
+		return // already fired today
+	}
+	*done = today
+	a.weather.mu.Unlock()
+
+	word := "SUNSET"
+	if rising {
+		word = "SUNRISE"
+	}
+	label := word + " " + localClock(event, cfg.Longitude)
+	payload := render.SunPopupPayload(rising, label, cfg.PopupDurationSeconds)
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := a.publisher.Notify(cctx, payload); err != nil {
+		a.logger.Warn("sun popup failed", "err", err)
+	}
 }
 
 func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg WeatherConfig, durationSec int, sound string) {

@@ -508,8 +508,16 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 		return
 	}
 
-	payload := render.WeatherPayload(obs.Condition, weatherTempText(obs.TempC, cfg.Units),
-		forecastWindow(obs.Hourly, cfg.ForecastHours), usageAppLifetime)
+	tempText := weatherTempText(obs.TempC, cfg.Units)
+	window := forecastWindow(obs.Hourly, cfg.ForecastHours)
+	var payload map[string]any
+	if cfg.MoonPhase && obs.Condition == render.WeatherClear &&
+		(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now) {
+		illum, waxing := moonIllumination(now)
+		payload = render.WeatherPayloadMoon(tempText, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
+	} else {
+		payload = render.WeatherPayload(obs.Condition, tempText, window, usageAppLifetime)
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return
