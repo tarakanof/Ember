@@ -29,6 +29,8 @@ type WeatherConfig struct {
 	Units                string  `json:"units"`                  // "metric" | "imperial"
 	RefreshMinutes       int     `json:"refresh_minutes"`        // poll cadence
 	RotateInApps         bool    `json:"rotate_in_apps"`         // show the rotating tile
+	ForecastTile         bool    `json:"forecast_tile"`          // show the separate hourly-forecast bar tile
+	ForecastHours        int     `json:"forecast_hours"`         // hours shown in the strip/tile (6..24)
 	PopupIntervalMinutes int     `json:"popup_interval_minutes"` // 0 = no interval popups
 	PopupDurationSeconds int     `json:"popup_duration_seconds"`
 	PopupOnChange        bool    `json:"popup_on_change"` // popup when the condition changes
@@ -98,6 +100,16 @@ func (c *WeatherConfig) applyDefaults() {
 	if !c.RotateInApps {
 		c.RotateInApps = true
 	}
+	if !c.ForecastTile {
+		c.ForecastTile = true
+	}
+	if c.ForecastHours <= 0 {
+		c.ForecastHours = 24
+	} else if c.ForecastHours < 6 {
+		c.ForecastHours = 6
+	} else if c.ForecastHours > 24 {
+		c.ForecastHours = 24
+	}
 	if !c.PopupOnChange {
 		c.PopupOnChange = true
 	}
@@ -140,7 +152,16 @@ type weatherObservation struct {
 	TempC     float64
 	Severe    bool
 	FetchedAt time.Time
+	// Hourly holds the next ~24 hourly temperatures (°C), ordered from the
+	// current hour. Drives the compact strip and the forecast tile; nil when the
+	// provider returned none (everything else still works).
+	Hourly []float64
 }
+
+// forecastFetchHours is how many hourly temps we ask providers for. The render
+// layer slices to the configured ForecastHours; we over-fetch a fixed window so
+// a config change doesn't require a refetch.
+const forecastFetchHours = 24
 
 // weatherStore holds the latest observation plus popup bookkeeping. All access
 // goes through the mutex; the poller writes, the coordinator reads for the tile.
@@ -213,19 +234,26 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url string, out any) erro
 }
 
 func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig) (weatherObservation, error) {
-	url := fmt.Sprintf("%s/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code",
-		strings.TrimRight(wf.openMeteoBase, "/"), cfg.Latitude, cfg.Longitude)
+	url := fmt.Sprintf("%s/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code&hourly=temperature_2m&forecast_hours=%d",
+		strings.TrimRight(wf.openMeteoBase, "/"), cfg.Latitude, cfg.Longitude, forecastFetchHours)
 	var body struct {
 		Current struct {
 			Temperature float64 `json:"temperature_2m"`
 			WeatherCode int     `json:"weather_code"`
 		} `json:"current"`
+		Hourly struct {
+			Temperature []float64 `json:"temperature_2m"`
+		} `json:"hourly"`
 	}
 	if err := wf.getJSON(ctx, url, &body); err != nil {
 		return weatherObservation{}, err
 	}
 	cond, severe := wmoCondition(body.Current.WeatherCode)
-	return weatherObservation{Condition: cond, TempC: body.Current.Temperature, Severe: severe}, nil
+	hourly := body.Hourly.Temperature
+	if len(hourly) > forecastFetchHours {
+		hourly = hourly[:forecastFetchHours]
+	}
+	return weatherObservation{Condition: cond, TempC: body.Current.Temperature, Severe: severe, Hourly: hourly}, nil
 }
 
 func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (weatherObservation, error) {
@@ -257,7 +285,17 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (we
 	}
 	first := body.Properties.Timeseries[0]
 	cond, severe := metSymbolCondition(first.Data.Next1Hours.Summary.SymbolCode)
-	return weatherObservation{Condition: cond, TempC: first.Data.Instant.Details.AirTemperature, Severe: severe}, nil
+	// The near-term timeseries entries are hourly (they widen to 6-hourly further
+	// out); take the next forecastFetchHours as the hourly window.
+	n := len(body.Properties.Timeseries)
+	if n > forecastFetchHours {
+		n = forecastFetchHours
+	}
+	hourly := make([]float64, n)
+	for i := 0; i < n; i++ {
+		hourly[i] = body.Properties.Timeseries[i].Data.Instant.Details.AirTemperature
+	}
+	return weatherObservation{Condition: cond, TempC: first.Data.Instant.Details.AirTemperature, Severe: severe, Hourly: hourly}, nil
 }
 
 // wmoCondition maps an Open-Meteo WMO weather code to a render condition bucket

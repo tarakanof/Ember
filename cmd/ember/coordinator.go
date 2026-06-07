@@ -140,8 +140,9 @@ type coordinator struct {
 	// weather, when non-nil, holds the latest observation. reconcileWeatherApp
 	// pushes/refreshes/clears the single "ember-weather" rotating tile from it,
 	// tracked by pushedWeather (same change-and-staleness logic as usage apps).
-	weather       *weatherStore
-	pushedWeather *pushedUsageApp
+	weather        *weatherStore
+	pushedWeather  *pushedUsageApp
+	pushedForecast *pushedUsageApp
 
 	// lastPayloadBytes + lastPublishedAt dedupe identical re-publishes
 	// within a window shorter than the AWTRIX app lifetime. Every
@@ -471,6 +472,7 @@ func (c *coordinator) onTick() {
 	c.publish(snap)
 	c.reconcileUsageApps(c.clk.Now(), snap)
 	c.reconcileWeatherApp(c.clk.Now())
+	c.reconcileForecastApp(c.clk.Now())
 }
 
 // weatherTileStaleTTL clears the weather tile if no fresh observation arrived
@@ -506,7 +508,8 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 		return
 	}
 
-	payload := render.WeatherPayload(obs.Condition, weatherTempText(obs.TempC, cfg.Units), usageAppLifetime)
+	payload := render.WeatherPayload(obs.Condition, weatherTempText(obs.TempC, cfg.Units),
+		forecastWindow(obs.Hourly, cfg.ForecastHours), usageAppLifetime)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return
@@ -519,6 +522,66 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 		return
 	}
 	c.pushedWeather = &pushedUsageApp{body: body, at: now}
+}
+
+// forecastWindow returns the first `hours` hourly temps (hours clamped to a sane
+// 1..24), or the whole slice when shorter. nil/empty in → nil out.
+func forecastWindow(hourly []float64, hours int) []float64 {
+	if hours <= 0 {
+		hours = 24
+	}
+	if hours > 24 {
+		hours = 24
+	}
+	if len(hourly) > hours {
+		return hourly[:hours]
+	}
+	return hourly
+}
+
+// reconcileForecastApp pushes/refreshes the standalone "ember-forecast" tile
+// (hourly temperature bars) when weather is enabled, the forecast tile is turned
+// on, and we have fresh hourly data; clears it otherwise. Same change-and-
+// staleness dedupe as reconcileWeatherApp. Coordinator goroutine only.
+func (c *coordinator) reconcileForecastApp(now time.Time) {
+	if c.weather == nil {
+		return
+	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const name = "ember-forecast"
+	cfg := c.loadCfg().Weather
+	obs, have := c.weather.current()
+	hourly := forecastWindow(obs.Hourly, cfg.ForecastHours)
+	want := cfg.Enabled && cfg.ForecastTile && have && len(hourly) > 0 &&
+		now.Sub(obs.FetchedAt) < weatherTileStaleTTL
+
+	if !want {
+		if c.pushedForecast != nil {
+			if err := c.publisher.ClearApp(ctx, name); err != nil {
+				c.logger.Warn("forecast tile clear failed", "err", err)
+				return
+			}
+			c.pushedForecast = nil
+		}
+		return
+	}
+
+	payload := render.ForecastPayload(hourly, usageAppLifetime)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	if c.pushedForecast != nil && bytes.Equal(c.pushedForecast.body, body) && now.Sub(c.pushedForecast.at) < usageRefreshInterval {
+		return
+	}
+	if err := c.publisher.CustomApp(ctx, name, payload); err != nil {
+		c.logger.Warn("forecast tile publish failed", "err", err)
+		return
+	}
+	c.pushedForecast = &pushedUsageApp{body: body, at: now}
 }
 
 const (

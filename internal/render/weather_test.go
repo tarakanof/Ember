@@ -3,7 +3,7 @@ package render
 import "testing"
 
 func TestWeatherPayloadHasDrawAndTemp(t *testing.T) {
-	p := WeatherPayload(WeatherRain, "21°", 600)
+	p := WeatherPayload(WeatherRain, "21°", nil, 600)
 	if p["lifetime"] != 600 {
 		t.Fatalf("lifetime = %v, want 600", p["lifetime"])
 	}

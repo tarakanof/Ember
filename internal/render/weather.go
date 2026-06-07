@@ -133,12 +133,15 @@ func WeatherColor(cond string) RGB {
 }
 
 // WeatherPayload returns the rotating-tile frame: the 8×8 condition icon at cols
-// 0–7 + the temperature text (e.g. "21°") drawn from col 9. Mirrors the usage
-// tiles (no prio/force) so it rotates natively alongside them. lifetime seconds.
-func WeatherPayload(cond, tempText string, lifetime int) map[string]any {
+// 0–7 + the temperature text (e.g. "21°") drawn from col 9, plus a compact
+// hourly-forecast strip on the bottom row (one colour-coded pixel per hour, cols
+// 9–31 ≈ next 23h) when `hourly` is supplied. Mirrors the usage tiles (no
+// prio/force) so it rotates natively alongside them. lifetime seconds.
+func WeatherPayload(cond, tempText string, hourly []float64, lifetime int) map[string]any {
 	var f Frame
 	paintBitmap(&f, 0, 0, weatherIcon(cond), WeatherColor(cond))
 	drawDigits(&f, tempText, 9, 1, colorWhite)
+	drawForecastStrip(&f, hourly, 9, 31, 7) // bottom-row hourly strip (temp text occupies rows 1–5)
 	return map[string]any{
 		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
 		"lifetime": lifetime, "duration": 6,
