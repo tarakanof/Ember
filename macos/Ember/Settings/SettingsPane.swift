@@ -7,7 +7,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .connection: "Connection"
-        case .display:    "Display"
+        case .display:    "Code agent"
         case .pomodoro:   "Pomodoro"
         case .app:        "App"
         }
@@ -16,7 +16,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .connection: "network"
-        case .display:    "rectangle.dashed"
+        case .display:    "chevron.left.forwardslash.chevron.right"
         case .pomodoro:   "timer"
         case .app:        "app.badge"
         }

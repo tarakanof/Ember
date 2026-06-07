@@ -7,6 +7,11 @@
 /.gocache/
 *.log
 
+# Xcode build products from local `xcodebuild` runs (the SwiftPM .build/ dir is
+# under macos/ too; both are local-only).
+/macos/build/
+/macos/.build/
+
 # Superpowers-skill artifacts (specs, plans, brainstorms) are local-only
 # scaffolding and not part of the shipped repo. STYLE.md (under docs/, not
 # docs/superpowers/) does ship.

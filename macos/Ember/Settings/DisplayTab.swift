@@ -29,21 +29,28 @@ struct DisplayTab: View {
             }
 
             Section("Context") {
-                Toggle("Context %", isOn: $display.contextPct)
-                Toggle("Context number", isOn: $display.contextNumber)
+                PictogramToggle(rows: DisplayPictogram.percent, color: DisplayPictogram.green,
+                                label: "Context %", isOn: $display.contextPct)
+                PictogramToggle(rows: DisplayPictogram.glass, color: DisplayPictogram.green,
+                                label: "Context number", isOn: $display.contextNumber)
             }
             Section("Rate limit") {
-                Toggle("Rate-limit %", isOn: $display.ratePct)
-                Toggle("Rate bottom bar", isOn: $display.rateBottomBar)
-                Toggle("Rate reset countdown", isOn: $display.rateReset)
+                PictogramToggle(rows: DisplayPictogram.percent, color: DisplayPictogram.amber,
+                                label: "Rate-limit %", isOn: $display.ratePct)
+                PictogramToggle(rows: DisplayPictogram.bottomBar, color: DisplayPictogram.amber,
+                                label: "Rate bottom bar", isOn: $display.rateBottomBar)
+                PictogramToggle(rows: DisplayPictogram.hourglass, color: DisplayPictogram.amber,
+                                label: "Rate reset countdown", isOn: $display.rateReset)
             }
             Section("Activity") {
-                Toggle("Activity detail", isOn: $display.activityDetail)
-                Toggle("Activity trail (multi-session bar)", isOn: $display.activityTrail)
+                PictogramToggle(rows: DisplayPictogram.textLines, color: DisplayPictogram.blue,
+                                label: "Activity detail", isOn: $display.activityDetail)
+                PictogramToggle(rows: DisplayPictogram.trail, color: DisplayPictogram.blue,
+                                label: "Activity trail (multi-session bar)", isOn: $display.activityTrail)
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Display")
+        .navigationTitle("Code agent")
         .task {
             if !loaded {
                 let envFile = env.currentEnv()
