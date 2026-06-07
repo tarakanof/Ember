@@ -169,18 +169,34 @@ A standalone widget that shows current conditions. The server fetches them
 by default, **MET Norway** selectable — on a `refresh_minutes` cadence. Provider
 codes (WMO for Open-Meteo, `symbol_code` for MET) map to six render buckets
 (`clear/clouds/fog/rain/snow/storm`) + a `severe` flag (`internal/render`
-`weather.go`). The latest observation lives in an in-memory `weatherStore`; the
-coordinator reconciles a single **`ember-weather`** rotating tile (drawn 8×8 icon
-+ temperature, same change-and-staleness dedupe as the usage apps). A 1-min poll
-loop (`StartWeather`) fetches when due and fires `/api/notify` **popups**: on
-condition change (`popup_on_change`), on a fixed cadence (`popup_interval_minutes`,
-`0`=off), and a **sound alert** on severe-weather onset (`severe_alert`). Popups
-use a drawn icon by default; `use_native_icons` swaps in a native AWTRIX/LaMetric
-animated weather icon by ID — per-condition IDs default to widely-used gallery
-icons and are overridable from the menu (`icon_ids`) so the user can curate from
-developer.lametric.com/icons. Config is fully runtime-editable (`GET/PUT /v1/weather/config`,
-persisted to store key `weather_json`), including `enabled` — so the menu can turn
-the whole widget on/off.
+`weather.go`). The fetch also pulls the next ~24 **hourly temperatures** and (Open-Meteo
+only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`). The
+latest observation lives in an in-memory `weatherStore`; the coordinator reconciles
+two rotating tiles with the same change-and-staleness dedupe as the usage apps:
+
+- **`ember-weather`** — 8×8 condition icon + current temperature + a 1-px
+  per-hour **forecast strip** along the bottom row, coloured by a cold→warm
+  temperature gradient (`render.TempColor`). On a **clear night** the icon becomes
+  the current **moon phase** (`moon_phase`; phase computed locally in
+  `cmd/ember/astro.go`, no API).
+- **`ember-forecast`** (`forecast_tile`, default on) — same icon+temp header, then
+  vertical **hourly temperature bars** filling the right (`forecast_hours`, 6..24;
+  bar height + colour = temperature).
+
+A 1-min poll loop (`StartWeather`) fetches when due and fires `/api/notify`
+**popups**: on condition change (`popup_on_change`), on a fixed cadence
+(`popup_interval_minutes`, `0`=off), a **sound alert** on severe-weather onset
+(`severe_alert`), and **sunrise/sunset** popups (`sun_popups`) — sun times computed
+locally from lat/lon (`astro.go` `sunTimes`, polar-safe), fired once per UTC day per
+event within a 2-min window; the label uses the location's real UTC offset (longitude
+fallback for MET). Popups use a drawn icon by default; `use_native_icons` swaps in a
+native AWTRIX/LaMetric animated weather icon by ID — per-condition IDs default to
+widely-used gallery icons and are overridable from the menu (`icon_ids`) so the user
+can curate from developer.lametric.com/icons. Firmware quirk: a notification's own
+`sound`/`rtttl` is silently dropped when it also carries a `draw`/`icon`, so chimes
+(severe, sun) are played separately via `POST /api/rtttl`|`/api/sound`. Config is
+fully runtime-editable (`GET/PUT /v1/weather/config`, persisted to store key
+`weather_json`), including `enabled` — so the menu can turn the whole widget on/off.
 
 ### Reminders — Apple Reminders + `POST /v1/reminders/fire`
 
