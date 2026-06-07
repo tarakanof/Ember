@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreLocation
 import EmberKit
 
 struct WeatherTab: View {
@@ -24,6 +25,7 @@ struct WeatherTab: View {
             }
 
             Section("Location") {
+                locationAccessRow(status: env.location.authStatus)
                 Picker("Provider", selection: $config.provider) {
                     Text("Open-Meteo").tag("open-meteo")
                     Text("MET Norway").tag("met-no")
@@ -93,6 +95,9 @@ struct WeatherTab: View {
         .toolbar {
             ToolbarItem { Button("Reload from server") { Task { await load() } } }
         }
+        // Refresh the access row on appear so a toggle flipped in System Settings
+        // (or another launch's grant) shows without relaunching.
+        .task { env.location.refreshAuthorization() }
         .task {
             if !loaded {
                 await load()
@@ -177,6 +182,35 @@ struct WeatherTab: View {
             if force { locateError = "Couldn't get your location — enter coordinates manually." }
         }
         locating = false
+    }
+
+    /// Persistent access-state row, mirroring the Reminders tab. Unlike EventKit,
+    /// CoreLocation's prompt is unreliable for a menu-bar (accessory) app, so the
+    /// "not enabled" state offers a best-effort in-app request AND the reliable
+    /// System Settings deep-link.
+    @ViewBuilder private func locationAccessRow(status: CLAuthorizationStatus) -> some View {
+        switch status {
+        case .authorizedWhenInUse, .authorizedAlways:
+            Label("Location access granted", systemImage: "checkmark.circle.fill")
+                .font(.caption).foregroundStyle(.green)
+        case .denied, .restricted:
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Location access denied", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red)
+                Text("Allow Location for Ember in System Settings ▸ Privacy & Security ▸ Location Services, then reopen this tab.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Button("Open Location Settings…") { openLocationSettings() }
+            }
+        default:   // .notDetermined and any future case
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Location access not enabled", systemImage: "circle.dashed")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Grant access to location") { env.location.requestAuthorization() }
+                Text("Menu-bar apps often don't get a prompt. If none appears, enable Ember manually:")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Button("Open Location Settings…") { openLocationSettings() }
+            }
+        }
     }
 
     /// Opens System Settings straight to the Location Services pane so the user

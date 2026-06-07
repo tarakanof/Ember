@@ -1,8 +1,10 @@
 import CoreLocation
+import Observation
 
 /// One-shot current-location lookup for the Weather tab: requests when-in-use
 /// authorization, gets a single fix, and reverse-geocodes a short place name.
 @MainActor
+@Observable
 public final class LocationService: NSObject, CLLocationManagerDelegate {
     public struct Fix: Sendable { public let latitude: Double; public let longitude: Double; public let name: String? }
     public enum LocationError: Error {
@@ -14,15 +16,37 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
         case authorizationUnavailable
     }
 
-    private let manager = CLLocationManager()
-    private var continuation: CheckedContinuation<CLLocation, Error>?
-    private var awaitingAuth = false
-    private var watchdog: Task<Void, Never>?
+    @ObservationIgnored private let manager = CLLocationManager()
+    @ObservationIgnored private var continuation: CheckedContinuation<CLLocation, Error>?
+    @ObservationIgnored private var awaitingAuth = false
+    @ObservationIgnored private var watchdog: Task<Void, Never>?
+
+    /// Observable mirror of the CoreLocation authorization status for the UI. The
+    /// delegate keeps it current (CLLocationManager's status isn't observable on
+    /// its own), so the Weather tab's access row updates live on grant/deny — and
+    /// when the user flips the toggle in System Settings while the tab is open.
+    public private(set) var authStatus: CLAuthorizationStatus = .notDetermined
 
     public override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyKilometer // weather doesn't need precision
+        authStatus = manager.authorizationStatus
+    }
+
+    /// Re-reads the current status; call when the Weather tab appears so a change
+    /// made in System Settings (or another launch's grant) shows without relaunch.
+    public func refreshAuthorization() {
+        authStatus = manager.authorizationStatus
+    }
+
+    /// Best-effort: ask macOS to present the authorization prompt. For an accessory
+    /// (menu-bar) app the system frequently won't show it — the Weather tab pairs
+    /// this with a System Settings deep-link, which is the reliable path. Any actual
+    /// decision arrives via `locationManagerDidChangeAuthorization`.
+    public func requestAuthorization() {
+        guard manager.authorizationStatus == .notDetermined else { refreshAuthorization(); return }
+        manager.requestWhenInUseAuthorization()
     }
 
     /// Detect the current location + place name. Throws on denial/failure.
@@ -81,6 +105,7 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
 
     nonisolated public func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
         Task { @MainActor in
+            self.authStatus = self.manager.authorizationStatus  // keep the UI's access row live
             guard self.awaitingAuth else { return }
             switch self.manager.authorizationStatus {
             case .authorizedWhenInUse, .authorizedAlways:
