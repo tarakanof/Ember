@@ -9,6 +9,8 @@ struct WeatherTab: View {
     @State private var loaded = false
     @State private var writer = DebouncedWriter(delay: .milliseconds(600))
     @State private var lastApplied: WeatherConfig?
+    @State private var locating = false
+    @State private var locateError: String?
 
     var body: some View {
         Form {
@@ -27,6 +29,15 @@ struct WeatherTab: View {
                 TextField("Name (optional)", text: $config.locationName, prompt: Text("Amsterdam"))
                 TextField("Latitude", value: $config.latitude, format: .number.precision(.fractionLength(0...4)))
                 TextField("Longitude", value: $config.longitude, format: .number.precision(.fractionLength(0...4)))
+                Button {
+                    Task { await detectLocation(force: true) }
+                } label: {
+                    Label(locating ? "Locating…" : "Use current location", systemImage: "location")
+                }
+                .disabled(locating)
+                if let locateError {
+                    Text(locateError).font(.caption).foregroundStyle(.red)
+                }
                 Picker("Units", selection: $config.units) {
                     Text("Metric (°C)").tag("metric")
                     Text("Imperial (°F)").tag("imperial")
@@ -76,7 +87,13 @@ struct WeatherTab: View {
         .toolbar {
             ToolbarItem { Button("Reload from server") { Task { await load() } } }
         }
-        .task { if !loaded { await load(); loaded = true } }
+        .task {
+            if !loaded {
+                await load()
+                loaded = true
+                await detectLocation(force: false)
+            }
+        }
         .onChange(of: config) { _, _ in scheduleSave() }
     }
 
@@ -129,6 +146,25 @@ struct WeatherTab: View {
                 await MainActor.run { save = .error("Save failed: \(error.localizedDescription)") }
             }
         }
+    }
+
+    private func detectLocation(force: Bool) async {
+        if !force && (config.latitude != 0 || config.longitude != 0) { return }
+        locating = true; locateError = nil
+        do {
+            let fix = try await env.location.current()
+            // The auto path (force:false) must not clobber coordinates the user
+            // started typing while detection was in flight.
+            if !force && (config.latitude != 0 || config.longitude != 0) { locating = false; return }
+            config.latitude = (fix.latitude * 10000).rounded() / 10000
+            config.longitude = (fix.longitude * 10000).rounded() / 10000
+            if let name = fix.name, (force || config.locationName.isEmpty) { config.locationName = name }
+        } catch LocationService.LocationError.denied {
+            locateError = "Location access denied — allow Location for Ember in System Settings, or enter coordinates manually."
+        } catch {
+            locateError = "Couldn't get your location — enter coordinates manually."
+        }
+        locating = false
     }
 
     private func load() async {

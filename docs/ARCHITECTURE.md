@@ -44,7 +44,7 @@ The aggregator and the only writer to the device.
   `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below).
   Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
   `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro, Weather
-  (`GET/PUT /v1/weather/config`), and Reminders (`GET/PUT /v1/reminders/config`)
+  (`GET/PUT /v1/weather/config`), and Reminders (`POST /v1/reminders/fire`)
   endpoints — see below.
 - **Session model & staleness.** Each session is keyed by `(source, tool,
   session)`. Per-state staleness: `stale_seconds` (default 300) for
@@ -182,22 +182,24 @@ developer.lametric.com/icons. Config is fully runtime-editable (`GET/PUT /v1/wea
 persisted to store key `weather_json`), including `enabled` — so the menu can turn
 the whole widget on/off.
 
-### Reminders — `cmd/ember/reminders.go`
+### Reminders — Apple Reminders + `POST /v1/reminders/fire`
 
-Scheduled **alarm popups** (no rotating tile): a list of `{id, time HH:MM, text,
-days, enabled, sound}` items evaluated every 30s (`StartReminders`) in the
-configured **IANA timezone** (the container runs UTC, so the tz makes `09:30`
-mean local). A match (`HH:MM` + weekday set, empty = every day) fires a
-**bell-icon** notification (`internal/render` `reminder.go`) at most **once per
-day** (a `reminderStore` records the last-fired date per id). Optional per-reminder
-chime; optional native-icon override. `GET/PUT /v1/reminders/config`, persisted to
-store key `reminders_json`.
+Reminders are sourced from the user's **Apple Reminders** (macOS), not an
+internal list. The **menu app** (`ReminderWatcher`, EventKit) polls incomplete
+reminders that have a due *time* and, when one comes due (within a short grace
+window, honoring an optional lead time), POSTs **`POST /v1/reminders/fire`**
+`{text, sound, duration, native_icon_id}` to the server, which renders the
+bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. The
+server is **stateless** for reminders — no list, no schedule, no stored config;
+all settings (enable/sound/lead/duration/icon) live app-side in UserDefaults.
+Consequence: reminders fire only while the Mac is awake and Ember is running (the
+Linux server can't read Apple Reminders).
 
-> **Shared store.** Weather/reminders config + hidden-apps + Pomodoro stats all
-> live in the one SQLite store. Opening it is hoisted into `ensureStore` (out of
-> `initPomodoro`) so weather/reminders persist even when Pomodoro is disabled;
-> `/admin/reload` re-applies all three features' persisted settings over the
-> reloaded file config.
+> **Shared store.** Weather config + hidden-apps + Pomodoro stats all live in the
+> one SQLite store. Opening it is hoisted into `ensureStore` (out of
+> `initPomodoro`) so weather config persists even when Pomodoro is disabled;
+> `/admin/reload` re-applies all persisted settings over the reloaded file
+> config.
 
 ### Per-app clock visibility — `/v1/apps`
 

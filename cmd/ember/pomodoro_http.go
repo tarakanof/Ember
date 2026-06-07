@@ -66,7 +66,7 @@ func engineSettings(p PomodoroConfig) pomodoro.Settings {
 
 // ensureStore opens the shared SQLite store at path (creating its directory)
 // once, idempotently. The store backs Pomodoro stats AND the key/value settings
-// used by hidden-apps, weather, and reminders — so any of those features can
+// used by hidden-apps and weather — so any of those features can
 // open it independently of whether Pomodoro is enabled.
 func (a *App) ensureStore(path string) error {
 	if a.store != nil {

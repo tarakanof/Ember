@@ -57,15 +57,5 @@
     "severe_alert": true,
     "severe_sound": "",
     "use_native_icons": false
-  },
-  "reminders": {
-    "enabled": false,
-    "timezone": "Europe/Amsterdam",
-    "popup_duration_seconds": 8,
-    "use_native_icon": false,
-    "native_icon_id": "",
-    "items": [
-      { "id": "standup", "time": "09:30", "text": "Daily stand-up", "days": [1, 2, 3, 4, 5], "enabled": true, "sound": true }
-    ]
   }
 }

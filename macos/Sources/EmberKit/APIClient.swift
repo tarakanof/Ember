@@ -85,4 +85,9 @@ public struct APIClient: Sendable {
         let data = try JSONEncoder().encode(body)
         _ = try await perform("PUT", path, query: [], body: data)
     }
+
+    public func post<B: Encodable>(_ path: String, body: B) async throws {
+        let data = try JSONEncoder().encode(body)
+        _ = try await perform("POST", path, query: [], body: data)
+    }
 }
