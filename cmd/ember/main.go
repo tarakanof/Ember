@@ -1084,9 +1084,12 @@ type Publisher interface {
 	// a button callback is configured).
 	DismissNotify(ctx context.Context) error
 	// PlayRTTTL plays an RTTTL melody via the device's dedicated /api/rtttl
-	// endpoint. Used for reminder chimes because a notification's own sound is
-	// dropped by the firmware when the notification also draws an icon.
+	// endpoint. Used for reminder/weather chimes because a notification's own sound
+	// is dropped by the firmware when the notification also draws an icon.
 	PlayRTTTL(ctx context.Context, rtttl string) error
+	// PlaySound plays a melody file already on the device (MELODIES) by name via
+	// /api/sound — the device-sound-name counterpart to PlayRTTTL.
+	PlaySound(ctx context.Context, name string) error
 	Indicator(ctx context.Context, index int, payload map[string]any) error
 	// Settings writes device settings (POST /api/settings), e.g. toggling app
 	// rotation (ATRANS) and native button navigation (BLOCKN) for Pomodoro
@@ -1171,6 +1174,14 @@ func (p *HTTPPublisher) PlayRTTTL(ctx context.Context, rtttl string) error {
 		return fmt.Errorf("awtrix rtttl http %s", resp.Status)
 	}
 	return nil
+}
+
+func (p *HTTPPublisher) PlaySound(ctx context.Context, name string) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/sound", map[string]any{"sound": name})
 }
 
 func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {

@@ -41,7 +41,7 @@ func TestWeatherPayloadHasDrawAndTemp(t *testing.T) {
 }
 
 func TestWeatherPopupDrawnVsNative(t *testing.T) {
-	drawn := WeatherPopupPayload(WeatherStorm, "STORM 18°", "", 30, "")
+	drawn := WeatherPopupPayload(WeatherStorm, "STORM 18°", "", 30)
 	if _, has := drawn["draw"]; !has {
 		t.Error("drawn popup must carry a draw op")
 	}
@@ -52,7 +52,7 @@ func TestWeatherPopupDrawnVsNative(t *testing.T) {
 		t.Error("drawn popup must not set a native icon")
 	}
 
-	native := WeatherPopupPayload(WeatherClear, "CLEAR 25°", "2422", 30, "")
+	native := WeatherPopupPayload(WeatherClear, "CLEAR 25°", "2422", 30)
 	if native["icon"] != "2422" {
 		t.Errorf("native popup icon = %v, want 2422", native["icon"])
 	}
@@ -64,14 +64,12 @@ func TestWeatherPopupDrawnVsNative(t *testing.T) {
 	}
 }
 
-func TestWeatherPopupSound(t *testing.T) {
-	withSound := WeatherPopupPayload(WeatherStorm, "STORM", "", 30, "alarm")
-	if withSound["sound"] != "alarm" {
-		t.Errorf("sound = %v, want alarm", withSound["sound"])
-	}
-	noSound := WeatherPopupPayload(WeatherStorm, "STORM", "", 30, "")
-	if _, has := noSound["sound"]; has {
-		t.Error("empty sound must omit the sound field")
+func TestWeatherPopupNeverCarriesSound(t *testing.T) {
+	// The chime is played separately (firmware drops a notification's sound under
+	// an icon), so the popup payload must never carry a sound field.
+	p := WeatherPopupPayload(WeatherStorm, "STORM", "", 30)
+	if _, has := p["sound"]; has {
+		t.Error("weather popup must not carry a sound field")
 	}
 }
 

@@ -443,11 +443,26 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	if cfg.UseNativeIcons {
 		iconID = cfg.weatherIconID(obs.Condition)
 	}
-	payload := render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec, sound)
+	payload := render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec)
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := a.publisher.Notify(cctx, payload); err != nil {
 		a.logger.Warn("weather popup failed", "err", err)
+		return
+	}
+	// Chime separately: the firmware drops a notification's own sound when it also
+	// draws/uses an icon, so play the severe-alert sound via /api/rtttl (an RTTTL
+	// string, detected by its ':' separators) or /api/sound (a device melody name).
+	if sound != "" {
+		var err error
+		if strings.Contains(sound, ":") {
+			err = a.publisher.PlayRTTTL(cctx, sound)
+		} else {
+			err = a.publisher.PlaySound(cctx, sound)
+		}
+		if err != nil {
+			a.logger.Warn("weather chime failed", "err", err)
+		}
 	}
 }
 

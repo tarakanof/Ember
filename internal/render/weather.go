@@ -148,9 +148,13 @@ func WeatherPayload(cond, tempText string, lifetime int) map[string]any {
 // WeatherPopupPayload returns a notification payload (drawn 8×8 icon + native
 // scrolling label) for an ad-hoc weather popup. iconID, when non-empty, replaces
 // the drawn icon with a native AWTRIX animated icon. durationSec controls how
-// long the popup holds; sound (RTTTL or a device sound name), when non-empty,
-// plays a chime (used for severe-weather alerts). The caller owns wakeup/stack.
-func WeatherPopupPayload(cond, label, iconID string, durationSec int, sound string) map[string]any {
+// long the popup holds. The caller owns wakeup/stack.
+//
+// The severe-alert chime is NOT carried here: on AWTRIX 0.98 a notification's
+// `sound` is silently dropped whenever the notification also has a `draw` or
+// `icon` (which a weather popup always does), so the caller plays it separately
+// via /api/rtttl (RTTTL) or /api/sound (device melody name).
+func WeatherPopupPayload(cond, label, iconID string, durationSec int) map[string]any {
 	p := map[string]any{
 		"text":     label,
 		"duration": durationSec,
@@ -168,9 +172,6 @@ func WeatherPopupPayload(cond, label, iconID string, durationSec int, sound stri
 		p["draw"] = []any{map[string]any{"db": []any{0, 0, 8, 8, iconPx}}}
 		p["center"] = false
 		p["textOffset"] = 9
-	}
-	if sound != "" {
-		p["sound"] = sound
 	}
 	return p
 }

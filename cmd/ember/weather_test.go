@@ -123,19 +123,27 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 
 	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 
-	// Severe transition fires with sound.
+	// Severe transition fires + chimes. The chime is NOT on the notification
+	// (firmware drops it under an icon) — it's played via /api/rtttl (the default
+	// severe sound is an RTTTL string).
 	storm := weatherObservation{Condition: render.WeatherStorm, TempC: 18, Severe: true, FetchedAt: now}
 	if !app.evaluateWeatherPopup(context.Background(), now, storm, render.WeatherClouds, false, time.Time{}, wcfg) {
 		t.Fatal("severe transition should fire")
 	}
 	pub.mu.Lock()
-	if len(pub.notify) != 1 || pub.notify[0]["sound"] == nil {
-		t.Errorf("severe popup should carry a sound: %+v", pub.notify)
+	if len(pub.notify) != 1 {
+		t.Errorf("severe transition should send one popup: %+v", pub.notify)
+	}
+	if _, has := pub.notify[0]["sound"]; has {
+		t.Error("severe popup must not carry sound on the notification")
+	}
+	if len(pub.rtttls) != 1 || pub.rtttls[0] != defaultWeatherSevereSound {
+		t.Errorf("severe alert should chime via /api/rtttl %q, got %v", defaultWeatherSevereSound, pub.rtttls)
 	}
 	pub.mu.Unlock()
 
 	// Already-severe (prevSevere true) does NOT re-fire on severe path; but a
-	// condition change still does (without sound).
+	// condition change still does (without any chime).
 	rain := weatherObservation{Condition: render.WeatherRain, TempC: 16, Severe: false, FetchedAt: now}
 	if !app.evaluateWeatherPopup(context.Background(), now, rain, render.WeatherStorm, true, now, wcfg) {
 		t.Fatal("condition change should fire")
@@ -144,6 +152,9 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 	last := pub.notify[len(pub.notify)-1]
 	if last["sound"] != nil {
 		t.Errorf("change popup should be silent: %+v", last)
+	}
+	if len(pub.rtttls) != 1 {
+		t.Errorf("a non-severe change popup must not chime: %v", pub.rtttls)
 	}
 	pub.mu.Unlock()
 
