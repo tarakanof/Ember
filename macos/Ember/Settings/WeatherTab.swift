@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import EmberKit
 
 struct WeatherTab: View {
@@ -11,6 +12,7 @@ struct WeatherTab: View {
     @State private var lastApplied: WeatherConfig?
     @State private var locating = false
     @State private var locateError: String?
+    @State private var locateNeedsSettings = false
 
     var body: some View {
         Form {
@@ -37,6 +39,10 @@ struct WeatherTab: View {
                 .disabled(locating)
                 if let locateError {
                     Text(locateError).font(.caption).foregroundStyle(.red)
+                    if locateNeedsSettings {
+                        Button("Open Location Settings…") { openLocationSettings() }
+                            .font(.caption)
+                    }
                 }
                 Picker("Units", selection: $config.units) {
                     Text("Metric (°C)").tag("metric")
@@ -150,7 +156,7 @@ struct WeatherTab: View {
 
     private func detectLocation(force: Bool) async {
         if !force && (config.latitude != 0 || config.longitude != 0) { return }
-        locating = true; locateError = nil
+        locating = true; locateError = nil; locateNeedsSettings = false
         do {
             let fix = try await env.location.current()
             // The auto path (force:false) must not clobber coordinates the user
@@ -160,11 +166,26 @@ struct WeatherTab: View {
             config.longitude = (fix.longitude * 10000).rounded() / 10000
             if let name = fix.name, (force || config.locationName.isEmpty) { config.locationName = name }
         } catch LocationService.LocationError.denied {
-            locateError = "Location access denied — allow Location for Ember in System Settings, or enter coordinates manually."
+            // Toggle is off for Ember; only the auto path stays quiet.
+            locateNeedsSettings = force
+            if force { locateError = "Location is off for Ember. Turn it on in System Settings ▸ Privacy & Security ▸ Location Services, then try again." }
+        } catch LocationService.LocationError.authorizationUnavailable {
+            // macOS never showed the permission prompt — usual for menu-bar apps.
+            locateNeedsSettings = force
+            if force { locateError = "macOS didn't show a location prompt (common for menu-bar apps). Enable Location for Ember in System Settings ▸ Privacy & Security ▸ Location Services, then try again." }
         } catch {
-            locateError = "Couldn't get your location — enter coordinates manually."
+            if force { locateError = "Couldn't get your location — enter coordinates manually." }
         }
         locating = false
+    }
+
+    /// Opens System Settings straight to the Location Services pane so the user
+    /// can flip Ember on. Each ad-hoc reinstall resets that toggle, so this is the
+    /// path back from a denied/never-prompted state.
+    private func openLocationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func load() async {

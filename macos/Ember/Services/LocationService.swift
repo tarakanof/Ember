@@ -5,7 +5,14 @@ import CoreLocation
 @MainActor
 public final class LocationService: NSObject, CLLocationManagerDelegate {
     public struct Fix: Sendable { public let latitude: Double; public let longitude: Double; public let name: String? }
-    public enum LocationError: Error { case denied, unavailable }
+    public enum LocationError: Error {
+        case denied        // the user explicitly turned Location off for Ember
+        case unavailable   // authorized, but no fix arrived (hardware/timeout)
+        /// We asked for authorization but macOS never resolved it — for a menu-bar
+        /// (accessory) app the system often does NOT present the "Allow location"
+        /// prompt, so the user has to enable Ember manually in System Settings.
+        case authorizationUnavailable
+    }
 
     private let manager = CLLocationManager()
     private var continuation: CheckedContinuation<CLLocation, Error>?
@@ -25,18 +32,22 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
         return Fix(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude, name: name)
     }
 
-    /// Resumes the in-flight continuation with `.unavailable` if neither a fix nor
-    /// an authorization decision arrives in time (e.g. the user dismisses the
-    /// prompt). Without this, a stuck request would orphan the continuation and
-    /// wedge the UI. Cancels any prior watchdog so each request gets a fresh timer.
+    /// Resumes the in-flight continuation if neither a fix nor an authorization
+    /// decision arrives in time. Without this, a stuck request would orphan the
+    /// continuation and wedge the UI. Cancels any prior watchdog so each request
+    /// gets a fresh timer. If we were still waiting on the authorization prompt
+    /// when it expires, that almost always means macOS never showed the prompt
+    /// (common for accessory apps) — surface that as `.authorizationUnavailable`
+    /// so the UI can point the user at System Settings instead of a generic error.
     private func startWatchdog() {
         watchdog?.cancel()
         watchdog = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 20_000_000_000)
             guard let self, let cont = self.continuation else { return }
+            let wasAwaitingAuth = self.awaitingAuth
             self.continuation = nil
             self.awaitingAuth = false
-            cont.resume(throwing: LocationError.unavailable)
+            cont.resume(throwing: wasAwaitingAuth ? LocationError.authorizationUnavailable : LocationError.unavailable)
         }
     }
 
