@@ -137,6 +137,58 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// One alarm. Mirrors the server's Reminder. `days` is a weekday set
+/// (0=Sun … 6=Sat); empty = every day. `time` is "HH:MM".
+public struct Reminder: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var time: String
+    public var text: String
+    public var days: [Int]
+    public var enabled: Bool
+    public var sound: Bool
+
+    public init(id: String, time: String = "09:00", text: String = "",
+                days: [Int] = [], enabled: Bool = true, sound: Bool = false) {
+        self.id = id
+        self.time = time
+        self.text = text
+        self.days = days
+        self.enabled = enabled
+        self.sound = sound
+    }
+
+    enum CodingKeys: String, CodingKey { case id, time, text, days, enabled, sound }
+}
+
+/// Mirrors the server's RemindersConfig (GET/PUT /v1/reminders/config).
+public struct RemindersConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var timezone: String
+    public var popupDurationSeconds: Int
+    public var useNativeIcon: Bool
+    public var nativeIconId: String
+    public var items: [Reminder]
+
+    public init(enabled: Bool = false, timezone: String = "",
+                popupDurationSeconds: Int = 8, useNativeIcon: Bool = false,
+                nativeIconId: String = "", items: [Reminder] = []) {
+        self.enabled = enabled
+        self.timezone = timezone
+        self.popupDurationSeconds = popupDurationSeconds
+        self.useNativeIcon = useNativeIcon
+        self.nativeIconId = nativeIconId
+        self.items = items
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, timezone
+        case popupDurationSeconds = "popup_duration_seconds"
+        case useNativeIcon = "use_native_icon"
+        case nativeIconId = "native_icon_id"
+        case items
+    }
+}
+
 /// Mirrors internal/render.Session. context_pct/source_color/rate_window_pct are
 /// the only semantically-optional (pointer) fields; the rest default on absence.
 public struct Session: Codable, Sendable, Equatable {

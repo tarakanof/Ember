@@ -270,9 +270,10 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// Keep the Pomodoro engine in sync with the reloaded config and
 		// re-apply API-persisted settings so a reload doesn't revert them.
 		app.resyncPomodoroAfterReload()
-		// Likewise re-apply menu-persisted weather settings over the freshly
-		// reloaded file config.
+		// Likewise re-apply menu-persisted weather/reminders settings over the
+		// freshly reloaded file config.
 		app.loadPersistedWeatherSettings()
+		app.loadPersistedReminderSettings()
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,

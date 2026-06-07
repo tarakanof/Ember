@@ -43,8 +43,9 @@ The aggregator and the only writer to the device.
   always-on usage widget; see below). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
   `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below).
   Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
-  `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro and Weather
-  (`GET/PUT /v1/weather/config`) endpoints — see below.
+  `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro, Weather
+  (`GET/PUT /v1/weather/config`), and Reminders (`GET/PUT /v1/reminders/config`)
+  endpoints — see below.
 - **Session model & staleness.** Each session is keyed by `(source, tool,
   session)`. Per-state staleness: `stale_seconds` (default 300) for
   running/waiting/idle, a 30 s `done_ttl_seconds` linger for done/error.
@@ -179,10 +180,22 @@ weather icon by ID. Config is fully runtime-editable (`GET/PUT /v1/weather/confi
 persisted to store key `weather_json`), including `enabled` — so the menu can turn
 the whole widget on/off.
 
-> **Shared store.** Weather config + hidden-apps + Pomodoro stats all live in the
-> one SQLite store. Opening it is hoisted into `ensureStore` (out of
-> `initPomodoro`) so weather persists even when Pomodoro is disabled;
-> `/admin/reload` re-applies the persisted settings over the reloaded file config.
+### Reminders — `cmd/ember/reminders.go`
+
+Scheduled **alarm popups** (no rotating tile): a list of `{id, time HH:MM, text,
+days, enabled, sound}` items evaluated every 30s (`StartReminders`) in the
+configured **IANA timezone** (the container runs UTC, so the tz makes `09:30`
+mean local). A match (`HH:MM` + weekday set, empty = every day) fires a
+**bell-icon** notification (`internal/render` `reminder.go`) at most **once per
+day** (a `reminderStore` records the last-fired date per id). Optional per-reminder
+chime; optional native-icon override. `GET/PUT /v1/reminders/config`, persisted to
+store key `reminders_json`.
+
+> **Shared store.** Weather/reminders config + hidden-apps + Pomodoro stats all
+> live in the one SQLite store. Opening it is hoisted into `ensureStore` (out of
+> `initPomodoro`) so weather/reminders persist even when Pomodoro is disabled;
+> `/admin/reload` re-applies all three features' persisted settings over the
+> reloaded file config.
 
 ### Per-app clock visibility — `/v1/apps`
 

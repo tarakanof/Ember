@@ -50,6 +50,7 @@ type Config struct {
 	RateLimit RateLimitConfig `json:"rate_limit"`
 	Pomodoro  PomodoroConfig  `json:"pomodoro"`
 	Weather   WeatherConfig   `json:"weather"`
+	Reminders RemindersConfig `json:"reminders"`
 	// Usage-widget toggles. Pointers so the file can distinguish "unset"
 	// (nil → default on) from an explicit false; resolved via the helpers below.
 	UsageWidget   *bool `json:"usage_widget,omitempty"`
@@ -273,6 +274,7 @@ func (c *Config) applyDefaults() {
 	// defaultConfig(); a config file controls them explicitly.
 
 	c.Weather.applyDefaults()
+	c.Reminders.applyDefaults()
 }
 
 type StatusRequest struct {
@@ -441,6 +443,10 @@ type App struct {
 	// weatherFetcher performs the provider HTTP calls. Both non-nil from NewApp.
 	weather        *weatherStore
 	weatherFetcher *weatherFetcher
+
+	// reminders holds the configured alarms + per-reminder last-fired dates; the
+	// reminder ticker evaluates them in the configured timezone. Non-nil from NewApp.
+	reminders *reminderStore
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -452,6 +458,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		startedAt:   time.Now(),
 		usage:       newUsageStore(),
 		weather:     newWeatherStore(),
+		reminders:   newReminderStore(),
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.cfg.Store(&cfg)
@@ -806,6 +813,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("POST /v1/usage", rateLimit(a, http.HandlerFunc(a.handleUsage)))
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
+	writeMux.Handle("GET /v1/reminders/config", rateLimit(a, http.HandlerFunc(a.handleRemindersConfigGet)))
+	writeMux.Handle("PUT /v1/reminders/config", rateLimit(a, http.HandlerFunc(a.handleRemindersConfigPut)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()
@@ -1235,14 +1244,20 @@ func main() {
 		}
 		logger.Info("pomodoro enabled", "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
 	}
-	// Weather only needs the store to *persist* menu edits; it runs fine
-	// in-memory. A store-open failure here (e.g. Pomodoro disabled and no
+	// Weather/reminders only need the store to *persist* menu edits; both run
+	// fine in-memory. A store-open failure here (e.g. Pomodoro disabled and no
 	// writable DB volume) must not block startup — warn and carry on.
 	if err := app.initWeather(cfg); err != nil {
 		logger.Warn("weather store init failed; config will not persist across restarts", "err", err)
 	}
+	if err := app.initReminders(cfg); err != nil {
+		logger.Warn("reminders store init failed; config will not persist across restarts", "err", err)
+	}
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
+	}
+	if cfg.Reminders.Enabled {
+		logger.Info("reminders enabled", "count", len(cfg.Reminders.Items), "tz", cfg.Reminders.Timezone)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -1255,6 +1270,7 @@ func main() {
 	go app.limiter.runSweeper(ctx)
 	go app.StartCoordinator(ctx)
 	go app.StartWeather(ctx)
+	go app.StartReminders(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

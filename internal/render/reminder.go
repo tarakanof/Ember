@@ -1,0 +1,46 @@
+package render
+
+// Reminder widget render primitives. A reminder is an alarm popup (a notification
+// — there is no rotating tile): a drawn bell icon + the reminder text, optionally
+// with a chime. Mirrors the weather popup shape.
+
+var reminderBell = []string{
+	"...XX...",
+	"..XXXX..",
+	"..XXXX..",
+	".XXXXXX.",
+	".XXXXXX.",
+	"XXXXXXXX",
+	"...XX...",
+	"........",
+}
+
+// reminderGold is the bell colour (a warm amber that reads as "alarm").
+var reminderGold = RGB{0xff, 0xcc, 0x33}
+
+// ReminderPopupPayload returns a notification payload for an alarm: a drawn bell
+// icon at cols 0–7 + the reminder text scrolling from col 9. iconID, when
+// non-empty, swaps in a native AWTRIX icon (firmware then owns the layout, so we
+// drop center/textOffset). sound (RTTTL or device sound name), when non-empty,
+// plays a chime. stack:true so two reminders due at the same minute queue rather
+// than the second replacing the first on-device.
+func ReminderPopupPayload(text, iconID string, durationSec int, sound string) map[string]any {
+	p := map[string]any{
+		"text":     text,
+		"duration": durationSec,
+		"wakeup":   true,
+		"stack":    true,
+		"color":    hexOf(reminderGold),
+	}
+	if iconID != "" {
+		p["icon"] = iconID
+	} else {
+		p["draw"] = []any{map[string]any{"db": []any{0, 0, 8, 8, bitmap8(reminderBell, reminderGold)}}}
+		p["center"] = false
+		p["textOffset"] = 9
+	}
+	if sound != "" {
+		p["sound"] = sound
+	}
+	return p
+}

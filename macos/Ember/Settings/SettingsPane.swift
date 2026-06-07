@@ -1,7 +1,7 @@
 import Foundation
 
 enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
-    case connection, display, pomodoro, weather, app
+    case connection, display, pomodoro, weather, reminders, app
     var id: String { rawValue }
 
     var title: String {
@@ -10,6 +10,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .display:    "Code agent"
         case .pomodoro:   "Pomodoro"
         case .weather:    "Weather"
+        case .reminders:  "Reminders"
         case .app:        "App"
         }
     }
@@ -20,6 +21,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .display:    "chevron.left.forwardslash.chevron.right"
         case .pomodoro:   "timer"
         case .weather:    "cloud.sun"
+        case .reminders:  "bell"
         case .app:        "app.badge"
         }
     }
