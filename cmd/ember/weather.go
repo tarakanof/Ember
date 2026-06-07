@@ -164,6 +164,11 @@ type weatherObservation struct {
 	// current hour. Drives the compact strip and the forecast tile; nil when the
 	// provider returned none (everything else still works).
 	Hourly []float64
+	// TZOffsetSeconds is the location's UTC offset (from Open-Meteo's timezone=auto);
+	// TZKnown is false when the provider didn't supply one (e.g. MET Norway), in
+	// which case sun labels fall back to the longitude approximation.
+	TZOffsetSeconds int
+	TZKnown         bool
 }
 
 // forecastFetchHours is how many hourly temps we ask providers for. The render
@@ -246,10 +251,11 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url string, out any) erro
 }
 
 func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig) (weatherObservation, error) {
-	url := fmt.Sprintf("%s/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code&hourly=temperature_2m&forecast_hours=%d",
+	url := fmt.Sprintf("%s/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code&hourly=temperature_2m&forecast_hours=%d&timezone=auto",
 		strings.TrimRight(wf.openMeteoBase, "/"), cfg.Latitude, cfg.Longitude, forecastFetchHours)
 	var body struct {
-		Current struct {
+		UTCOffsetSeconds int `json:"utc_offset_seconds"`
+		Current          struct {
 			Temperature float64 `json:"temperature_2m"`
 			WeatherCode int     `json:"weather_code"`
 		} `json:"current"`
@@ -265,7 +271,10 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 	if len(hourly) > forecastFetchHours {
 		hourly = hourly[:forecastFetchHours]
 	}
-	return weatherObservation{Condition: cond, TempC: body.Current.Temperature, Severe: severe, Hourly: hourly}, nil
+	return weatherObservation{
+		Condition: cond, TempC: body.Current.Temperature, Severe: severe, Hourly: hourly,
+		TZOffsetSeconds: body.UTCOffsetSeconds, TZKnown: true,
+	}, nil
 }
 
 func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (weatherObservation, error) {
@@ -510,12 +519,27 @@ func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConf
 	if !ok {
 		return // polar day/night — no event today
 	}
+	// Prefer the location's real UTC offset (from the last Open-Meteo fetch) for the
+	// label; fall back to the longitude approximation when unknown (e.g. MET Norway).
+	a.weather.mu.RLock()
+	tzKnown, tzOff := a.weather.obs.TZKnown, a.weather.obs.TZOffsetSeconds
+	a.weather.mu.RUnlock()
+
 	today := now.UTC().Format("2006-01-02")
-	a.maybeFireSun(ctx, now, sunrise, true, today, cfg)
-	a.maybeFireSun(ctx, now, sunset, false, today, cfg)
+	a.maybeFireSun(ctx, now, sunrise, true, today, cfg, tzKnown, tzOff)
+	a.maybeFireSun(ctx, now, sunset, false, today, cfg, tzKnown, tzOff)
 }
 
-func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig) {
+// sunClock formats an event instant for the popup label, using the known UTC
+// offset when available, else the longitude approximation.
+func sunClock(event time.Time, cfg WeatherConfig, tzKnown bool, tzOff int) string {
+	if tzKnown {
+		return event.UTC().Add(time.Duration(tzOff) * time.Second).Format("15:04")
+	}
+	return localClock(event, cfg.Longitude)
+}
+
+func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig, tzKnown bool, tzOff int) {
 	if now.Before(event) || now.Sub(event) >= sunPopupGrace {
 		return // not in the firing window
 	}
@@ -535,7 +559,7 @@ func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising boo
 	if rising {
 		word = "SUNRISE"
 	}
-	label := word + " " + localClock(event, cfg.Longitude)
+	label := word + " " + sunClock(event, cfg, tzKnown, tzOff)
 	payload := render.SunPopupPayload(rising, label, cfg.PopupDurationSeconds)
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

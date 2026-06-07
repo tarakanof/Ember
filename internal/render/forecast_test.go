@@ -67,23 +67,14 @@ func TestForecastStripCapsAtX1(t *testing.T) {
 	}
 }
 
-func TestForecastPayloadBarsHeightAndColour(t *testing.T) {
+func TestForecastBarsHeightAndColour(t *testing.T) {
+	var f Frame
 	hourly := []float64{0, 10, 20} // increasing → taller bars rightward
-	p := ForecastPayload(hourly, 600)
-	if p["lifetime"] != 600 {
-		t.Fatalf("lifetime = %v, want 600", p["lifetime"])
-	}
-	draw := p["draw"].([]any)
-	op := draw[0].(map[string]any)["db"].([]any)
-	pixels := op[4].([]int)
-	if len(pixels) != 256 {
-		t.Fatalf("frame pixel count = %d, want 256", len(pixels))
-	}
-	// Height per column: count lit pixels in each column (bottom-anchored).
+	drawForecastBars(&f, hourly, 0, 31)
 	height := func(x int) int {
 		h := 0
 		for y := 0; y < 8; y++ {
-			if pixels[y*32+x] != 0 {
+			if f.Dirty[y][x] {
 				h++
 			}
 		}
@@ -93,34 +84,68 @@ func TestForecastPayloadBarsHeightAndColour(t *testing.T) {
 	if !(h0 < h1 && h1 < h2) {
 		t.Errorf("bar heights not increasing: %d,%d,%d", h0, h1, h2)
 	}
-	// Coldest bar = min height 1, hottest = full 8.
 	if h0 != 1 {
 		t.Errorf("coldest bar height = %d, want 1", h0)
 	}
 	if h2 != 8 {
 		t.Errorf("hottest bar height = %d, want 8", h2)
 	}
-	// Bars are bottom-anchored: the bottom pixel of col 0 is lit.
-	if pixels[7*32+0] == 0 {
+	if !f.Dirty[7][0] {
 		t.Error("bars must be anchored to the bottom row")
 	}
-	// No data past the last hour.
-	if height(3) != 0 {
-		t.Error("forecast tile lit a column past the data")
+	if f.Pixels[7][2] != TempColor(20) {
+		t.Errorf("hottest bar colour = %v, want %v", f.Pixels[7][2], TempColor(20))
 	}
 }
 
-func TestForecastPayloadFlatWindowMidHeight(t *testing.T) {
-	p := ForecastPayload([]float64{15, 15, 15}, 600)
-	pixels := p["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+func TestForecastBarsFlatWindowMidHeight(t *testing.T) {
+	var f Frame
+	drawForecastBars(&f, []float64{15, 15, 15}, 0, 31)
 	h := 0
 	for y := 0; y < 8; y++ {
-		if pixels[y*32+0] != 0 {
+		if f.Dirty[y][0] {
 			h++
 		}
 	}
 	if h != 4 {
 		t.Errorf("flat-window bar height = %d, want 4 (mid)", h)
+	}
+}
+
+func TestForecastPayloadHasIconTempAndBars(t *testing.T) {
+	p := ForecastPayload(WeatherClear, "18°", []float64{10, 12, 14, 16}, 600)
+	if p["lifetime"] != 600 {
+		t.Fatalf("lifetime = %v, want 600", p["lifetime"])
+	}
+	pixels := p["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	// Icon region (cols 0–7) is lit.
+	iconLit := false
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			if pixels[y*32+x] != 0 {
+				iconLit = true
+			}
+		}
+	}
+	if !iconLit {
+		t.Error("forecast tile must draw the condition icon in cols 0–7")
+	}
+	// Temp text lit somewhere in cols 9–20.
+	tempLit := false
+	for y := 0; y < 8; y++ {
+		for x := 9; x < 21; x++ {
+			if pixels[y*32+x] != 0 {
+				tempLit = true
+			}
+		}
+	}
+	if !tempLit {
+		t.Error("forecast tile must draw the temperature text")
+	}
+	// Bars sit to the right of the temp (start ≥ 10 + 3 glyphs*4 = col 22) and
+	// are bottom-anchored.
+	if pixels[7*32+22] == 0 {
+		t.Error("forecast bars must start right of the temp and anchor to the bottom")
 	}
 }
 

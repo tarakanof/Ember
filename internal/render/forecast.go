@@ -62,39 +62,51 @@ func drawForecastStrip(f *Frame, hourly []float64, x0, x1, y int) {
 	}
 }
 
-// ForecastPayload renders the standalone forecast tile: one vertical bar per
-// hour (first ≤32 hours), bottom-anchored, height normalised to the window's
-// min/max (1..8 px) and coloured by TempColor. A flat window draws mid-height
-// bars; an empty slice draws an empty (cleared) tile. lifetime seconds.
-func ForecastPayload(hourly []float64, lifetime int) map[string]any {
-	var f Frame
+// drawForecastBars paints one vertical bar per hour across cols x0..x1
+// (inclusive), bottom-anchored, height normalised to the shown window's min/max
+// (1..8 px) and coloured by TempColor. A flat window draws mid-height bars.
+func drawForecastBars(f *Frame, hourly []float64, x0, x1 int) {
+	if x0 > x1 || len(hourly) == 0 {
+		return
+	}
 	n := len(hourly)
-	if n > 32 {
-		n = 32
+	if w := x1 - x0 + 1; n > w {
+		n = w
 	}
-	if n > 0 {
-		min, max := hourly[0], hourly[0]
-		for _, t := range hourly[:n] {
-			if t < min {
-				min = t
-			}
-			if t > max {
-				max = t
-			}
+	min, max := hourly[0], hourly[0]
+	for _, t := range hourly[:n] {
+		if t < min {
+			min = t
 		}
-		span := max - min
-		for i := 0; i < n; i++ {
-			t := hourly[i]
-			h := 4 // flat window → mid-height
-			if span >= 1e-9 {
-				h = 1 + int((t-min)/span*7.0+0.5) // 1..8
-			}
-			col := TempColor(t)
-			for y := 8 - h; y < 8; y++ {
-				paintCell(&f, i, y, col)
-			}
+		if t > max {
+			max = t
 		}
 	}
+	span := max - min
+	for i := 0; i < n; i++ {
+		t := hourly[i]
+		h := 4 // flat window → mid-height
+		if span >= 1e-9 {
+			h = 1 + int((t-min)/span*7.0+0.5) // 1..8
+		}
+		col := TempColor(t)
+		for y := 8 - h; y < 8; y++ {
+			paintCell(f, x0+i, y, col)
+		}
+	}
+}
+
+// ForecastPayload renders the standalone forecast tile in the same visual
+// language as the weather tile: the condition icon (cols 0–7) + current temp
+// (from col 9), then the hourly temperature bars filling the remaining width to
+// the right. An empty hourly slice draws icon+temp only. lifetime seconds.
+func ForecastPayload(cond, tempText string, hourly []float64, lifetime int) map[string]any {
+	var f Frame
+	paintBitmap(&f, 0, 0, weatherIcon(cond), WeatherColor(cond))
+	drawDigits(&f, tempText, 9, 1, colorWhite)
+	// Start the bars one column past the temp text (4px per glyph from col 9).
+	barStart := 10 + len([]rune(tempText))*4
+	drawForecastBars(&f, hourly, barStart, 31)
 	return map[string]any{
 		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
 		"lifetime": lifetime, "duration": 6,

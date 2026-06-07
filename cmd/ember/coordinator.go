@@ -577,7 +577,7 @@ func (c *coordinator) reconcileForecastApp(now time.Time) {
 		return
 	}
 
-	payload := render.ForecastPayload(hourly, usageAppLifetime)
+	payload := render.ForecastPayload(obs.Condition, weatherTempText(obs.TempC, cfg.Units), hourly, usageAppLifetime)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return

@@ -72,3 +72,16 @@ func TestLocalClockOffset(t *testing.T) {
 		t.Errorf("lon -30 → %q, want 10:00", got)
 	}
 }
+
+func TestSunClockUsesKnownOffset(t *testing.T) {
+	noonUTC := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	cfg := WeatherConfig{Longitude: 20.479}
+	// Known offset (CEST = +2h) → exact civil time, NOT the longitude approx (+1h).
+	if got := sunClock(noonUTC, cfg, true, 7200); got != "14:00" {
+		t.Errorf("known-offset clock = %q, want 14:00", got)
+	}
+	// Unknown offset → longitude approximation (round(20.479/15)=1h).
+	if got := sunClock(noonUTC, cfg, false, 0); got != "13:00" {
+		t.Errorf("fallback clock = %q, want 13:00", got)
+	}
+}

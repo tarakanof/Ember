@@ -81,7 +81,10 @@ func TestFetchOpenMeteo(t *testing.T) {
 		if r.URL.Query().Get("hourly") != "temperature_2m" {
 			t.Error("open-meteo fetch must request hourly temperature_2m")
 		}
-		w.Write([]byte(`{"current":{"temperature_2m":12.5,"weather_code":61},"hourly":{"temperature_2m":[12.5,13.0,13.5]}}`))
+		if r.URL.Query().Get("timezone") != "auto" {
+			t.Error("open-meteo fetch must request timezone=auto")
+		}
+		w.Write([]byte(`{"utc_offset_seconds":7200,"current":{"temperature_2m":12.5,"weather_code":61},"hourly":{"temperature_2m":[12.5,13.0,13.5]}}`))
 	}))
 	defer srv.Close()
 	wf := newWeatherFetcher()
@@ -95,6 +98,9 @@ func TestFetchOpenMeteo(t *testing.T) {
 	}
 	if len(obs.Hourly) != 3 || obs.Hourly[0] != 12.5 || obs.Hourly[2] != 13.5 {
 		t.Errorf("hourly = %v, want [12.5 13 13.5]", obs.Hourly)
+	}
+	if !obs.TZKnown || obs.TZOffsetSeconds != 7200 {
+		t.Errorf("tz = (%v,%d), want (true,7200)", obs.TZKnown, obs.TZOffsetSeconds)
 	}
 }
 
