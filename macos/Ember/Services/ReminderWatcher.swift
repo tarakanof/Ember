@@ -125,7 +125,7 @@ public final class ReminderWatcher {
             let title = r.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if title.isEmpty { continue }
             fired.insert(key)
-            NSLog("Ember reminders: firing \"\(title)\" (due \(due))")
+            NSLog("Ember reminders: firing \"\(title)\" (due \(due), sound=\(prefs.sound), hold=\(prefs.hold))")
             await fire(title: title)
         }
     }
@@ -134,7 +134,7 @@ public final class ReminderWatcher {
         let svc = RemindersService(client: client)
         do {
             try await svc.fire(text: title, sound: prefs.sound, duration: prefs.popupDuration,
-                               nativeIconId: prefs.useNativeIcon ? prefs.nativeIconId : "")
+                               nativeIconId: prefs.useNativeIcon ? prefs.nativeIconId : "", hold: prefs.hold)
         } catch {
             NSLog("Ember reminder fire failed: \(error)")
         }

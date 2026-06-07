@@ -23,6 +23,9 @@ type reminderFireRequest struct {
 	Sound        bool   `json:"sound"`
 	Duration     int    `json:"duration"`
 	NativeIconID string `json:"native_icon_id"`
+	// Hold makes the alarm take over the display until the user dismisses it
+	// (middle button) rather than auto-dismissing after Duration.
+	Hold bool `json:"hold"`
 }
 
 // handleReminderFire renders a bell-icon popup for an Apple Reminder that has come
@@ -52,7 +55,7 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	if req.Sound {
 		sound = defaultReminderSound
 	}
-	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, sound)
+	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, sound, req.Hold)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	if err := a.publisher.Notify(ctx, payload); err != nil {

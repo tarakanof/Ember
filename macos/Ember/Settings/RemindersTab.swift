@@ -17,14 +17,23 @@ struct RemindersTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Behaviour") {
+            Section {
                 Toggle("Enable", isOn: $watcher.prefs.enabled)
                     .disabled(watcher.authStatus != .fullAccess)
                 Toggle("Sound", isOn: $watcher.prefs.sound)
+                Toggle("Keep on screen until dismissed", isOn: $watcher.prefs.hold)
                 Stepper("Lead time: \(watcher.prefs.leadMinutes) min",
                         value: $watcher.prefs.leadMinutes, in: 0...60)
                 Stepper("Popup duration \(watcher.prefs.popupDuration) s",
                         value: $watcher.prefs.popupDuration, in: 1...120)
+                    .disabled(watcher.prefs.hold)
+            } header: {
+                Text("Behaviour")
+            } footer: {
+                Text(watcher.prefs.hold
+                     ? "The alarm takes over the clock until you press its middle button. Popup duration is ignored while this is on."
+                     : "The alarm interrupts for the popup duration, then the clock returns to its normal rotation.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Icon") {

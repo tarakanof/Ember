@@ -12,7 +12,8 @@ import Foundation
         #expect(obj?["sound"] as? Bool == true)
         #expect(obj?["duration"] as? Int == 8)
         #expect(obj?["native_icon_id"] as? String == "1234")
+        #expect(obj?["hold"] as? Bool == true)
         return (okResponse(req.url!, status: 204), Data())
     }
-    try await RemindersService(client: client).fire(text: "Walk", sound: true, duration: 8, nativeIconId: "1234")
+    try await RemindersService(client: client).fire(text: "Walk", sound: true, duration: 8, nativeIconId: "1234", hold: true)
 }

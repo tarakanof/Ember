@@ -23,13 +23,16 @@ var reminderGold = RGB{0xff, 0xcc, 0x33}
 // non-empty, swaps in a native AWTRIX icon (firmware then owns the layout, so we
 // drop center/textOffset). sound (RTTTL or device sound name), when non-empty,
 // plays a chime. stack:true so two reminders due at the same minute queue rather
-// than the second replacing the first on-device.
-func ReminderPopupPayload(text, iconID string, durationSec int, sound string) map[string]any {
+// than the second replacing the first on-device. hold:true makes the alarm take
+// over the display until the user dismisses it (middle button) instead of
+// auto-dismissing after durationSec — the alarm then ignores the duration.
+func ReminderPopupPayload(text, iconID string, durationSec int, sound string, hold bool) map[string]any {
 	p := map[string]any{
 		"text":     text,
 		"duration": durationSec,
 		"wakeup":   true,
 		"stack":    true,
+		"hold":     hold,
 		"color":    hexOf(reminderGold),
 	}
 	if iconID != "" {

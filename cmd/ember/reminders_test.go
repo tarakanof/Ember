@@ -11,7 +11,7 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
 	req := httptest.NewRequest(http.MethodPost, "/v1/reminders/fire",
-		strings.NewReader(`{"text":"Stand-up","sound":true,"duration":10}`))
+		strings.NewReader(`{"text":"Stand-up","sound":true,"duration":10,"hold":true}`))
 	w := httptest.NewRecorder()
 	app.handleReminderFire(w, req)
 	if w.Code != http.StatusNoContent {
@@ -31,6 +31,9 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	}
 	if p["sound"] == nil {
 		t.Error("sound=true should set a sound")
+	}
+	if p["hold"] != true {
+		t.Errorf("hold = %v, want true", p["hold"])
 	}
 	if _, hasDraw := p["draw"]; !hasDraw {
 		t.Error("no native_icon_id -> should draw the bell")

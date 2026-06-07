@@ -14,9 +14,10 @@ public struct RemindersService: Sendable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
 
-    public func fire(text: String, sound: Bool, duration: Int, nativeIconId: String) async throws {
+    public func fire(text: String, sound: Bool, duration: Int, nativeIconId: String, hold: Bool) async throws {
         try await client.post("/v1/reminders/fire",
-                              body: ReminderFireBody(text: text, sound: sound, duration: duration, nativeIconId: nativeIconId))
+                              body: ReminderFireBody(text: text, sound: sound, duration: duration,
+                                                     nativeIconId: nativeIconId, hold: hold))
     }
 }
 
@@ -25,8 +26,9 @@ struct ReminderFireBody: Encodable {
     var sound: Bool
     var duration: Int
     var nativeIconId: String
+    var hold: Bool
     enum CodingKeys: String, CodingKey {
-        case text, sound, duration
+        case text, sound, duration, hold
         case nativeIconId = "native_icon_id"
     }
 }
