@@ -17,6 +17,8 @@ public final class ReminderWatcher {
     nonisolated(unsafe) private let store = EKEventStore()
     private var loop: Task<Void, Never>?
     private var fired = Set<String>()
+    /// App Nap assertion held while the watcher runs (see applyEnabled).
+    private var activity: NSObjectProtocol?
 
     private let pollSeconds: UInt64 = 30
     private let grace: TimeInterval = 90
@@ -73,14 +75,26 @@ public final class ReminderWatcher {
     private func applyEnabled() {
         let shouldRun = prefs.enabled && authorization == .fullAccess
         if shouldRun, loop == nil {
+            // Hold a user-initiated activity assertion so macOS App Nap doesn't
+            // throttle/suspend our 30s poll Task while the app sits idle in the menu
+            // bar — without this, an idle LSUIElement app gets napped and reminders
+            // miss their fire window (they ring on phone/Mac but not the clock).
+            // `AllowingIdleSystemSleep` preserves "rings only while the Mac is awake":
+            // we defeat App Nap but never block system sleep.
+            activity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Watching Apple Reminders")
             loop = Task { [weak self] in
                 while !Task.isCancelled {
                     await self?.poll()
                     try? await Task.sleep(nanoseconds: (self?.pollSeconds ?? 30) * 1_000_000_000)
                 }
             }
+            NSLog("Ember reminders: watcher started")
         } else if !shouldRun, let l = loop {
             l.cancel(); loop = nil
+            if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
+            NSLog("Ember reminders: watcher stopped")
         }
     }
 
@@ -96,6 +110,7 @@ public final class ReminderWatcher {
         guard prefs.enabled, authorization == .fullAccess else { return }
         let now = Date()
         let reminders = await fetchIncompleteDueTimed()
+        NSLog("Ember reminders: poll fetched \(reminders.count) due-timed; next=\(reminders.map(\.due).filter { $0 >= now }.min().map(String.init(describing:)) ?? "none")")
         upcoming = reminders
             .map { UpcomingReminder(id: $0.id, title: $0.title, due: $0.due) }
             .filter { $0.due >= now }
@@ -110,6 +125,7 @@ public final class ReminderWatcher {
             let title = r.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if title.isEmpty { continue }
             fired.insert(key)
+            NSLog("Ember reminders: firing \"\(title)\" (due \(due))")
             await fire(title: title)
         }
     }
