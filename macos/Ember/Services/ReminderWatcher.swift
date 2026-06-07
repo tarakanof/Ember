@@ -42,6 +42,15 @@ public final class ReminderWatcher {
         EKEventStore.authorizationStatus(for: .reminder)
     }
 
+    /// Observable mirror of `authorization` for the UI — the raw EventKit status is
+    /// a non-observable global, so without this the Reminders tab wouldn't update
+    /// after the user grants/denies access. Refreshed on grant + when the tab appears.
+    public private(set) var authStatus: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
+
+    public func refreshAuthorization() {
+        authStatus = EKEventStore.authorizationStatus(for: .reminder)
+    }
+
     /// Rebuilds against a new client (Connection-tab change), like the other services.
     public func reconfigure(client: APIClient) {
         self.client = client
@@ -52,8 +61,9 @@ public final class ReminderWatcher {
     @discardableResult
     public func requestAccess() async -> EKAuthorizationStatus {
         do { _ = try await store.requestFullAccessToReminders() } catch { }
+        refreshAuthorization()
         applyEnabled()
-        return authorization
+        return authStatus
     }
 
     private func applyEnabled() {
@@ -110,7 +120,10 @@ public final class ReminderWatcher {
         }
     }
 
-    private static func dueDate(_ r: EKReminder) -> Date? {
+    // `nonisolated` is REQUIRED: this runs inside EventKit's fetchReminders
+    // completion block, which executes on a background dispatch queue. Without it
+    // the call would assert MainActor isolation off the main queue and SIGTRAP.
+    nonisolated private static func dueDate(_ r: EKReminder) -> Date? {
         guard let comps = r.dueDateComponents, comps.hour != nil else { return nil }
         return Calendar.current.date(from: comps)
     }

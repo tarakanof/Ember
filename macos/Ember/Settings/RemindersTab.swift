@@ -9,7 +9,7 @@ struct RemindersTab: View {
         @Bindable var watcher = env.reminderWatcher
         Form {
             Section {
-                accessRow(status: watcher.authorization)
+                accessRow(status: watcher.authStatus)
             } header: {
                 Text("Apple Reminders")
             } footer: {
@@ -19,7 +19,7 @@ struct RemindersTab: View {
 
             Section("Behaviour") {
                 Toggle("Enable", isOn: $watcher.prefs.enabled)
-                    .disabled(watcher.authorization != .fullAccess)
+                    .disabled(watcher.authStatus != .fullAccess)
                 Toggle("Sound", isOn: $watcher.prefs.sound)
                 Stepper("Lead time: \(watcher.prefs.leadMinutes) min",
                         value: $watcher.prefs.leadMinutes, in: 0...60)
@@ -49,17 +49,22 @@ struct RemindersTab: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Reminders")
+        // Re-read the status when the tab appears so a change made in System
+        // Settings (or another launch's grant) is reflected without a relaunch.
+        .task { env.reminderWatcher.refreshAuthorization() }
     }
 
     @ViewBuilder private func accessRow(status: EKAuthorizationStatus) -> some View {
         switch status {
         case .fullAccess:
-            Label("Access granted", systemImage: "checkmark.circle")
-                .font(.caption).foregroundStyle(.secondary)
+            Label("Reminders access granted", systemImage: "checkmark.circle.fill")
+                .font(.caption).foregroundStyle(.green)
         case .denied, .restricted:
             VStack(alignment: .leading, spacing: 4) {
-                Label("Access denied", systemImage: "exclamationmark.triangle")
+                Label("Reminders access denied", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(.red)
+                Text("Allow Reminders for Ember in System Settings → Privacy & Security → Reminders, then reopen this tab.")
+                    .font(.caption2).foregroundStyle(.secondary)
                 Button("Open System Settings…") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
                         NSWorkspace.shared.open(url)
@@ -67,8 +72,12 @@ struct RemindersTab: View {
                 }
             }
         default:
-            Button("Grant access to Reminders") {
-                Task { _ = await env.reminderWatcher.requestAccess() }
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Reminders access not granted", systemImage: "circle.dashed")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Grant access to Reminders") {
+                    Task { _ = await env.reminderWatcher.requestAccess() }
+                }
             }
         }
     }

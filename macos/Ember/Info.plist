@@ -26,6 +26,8 @@
     <true/>
     <key>NSRemindersFullAccessUsageDescription</key>
     <string>Ember rings your AWTRIX clock when an Apple Reminder with a due time comes due.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Ember rings your AWTRIX clock when an Apple Reminder with a due time comes due.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Ember uses your location to prefill the weather widget's coordinates.</string>
 </dict>
