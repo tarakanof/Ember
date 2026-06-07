@@ -158,9 +158,17 @@ func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
 	if st := pomoState(t, srv); st["paused"] == true {
 		t.Fatalf("held middle press should not pause Pomodoro = %+v", st)
 	}
-	// The middle press disarmed the window; a subsequent middle press now drives Pomodoro.
+	// The middle press disarmed the window and dismissed the on-clock notification.
 	if app.reminderHeldUntil.Load() != 0 {
 		t.Fatal("middle press should disarm reminderHeldUntil")
+	}
+	if rp, ok := app.publisher.(*recordingPublisher); ok {
+		rp.mu.Lock()
+		d := rp.dismissals
+		rp.mu.Unlock()
+		if d != 1 {
+			t.Fatalf("middle press should dismiss the notification once, got %d", d)
+		}
 	}
 	press("middle")
 	if st := pomoState(t, srv); st["paused"] != true {

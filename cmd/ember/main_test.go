@@ -24,6 +24,8 @@ type recordingPublisher struct {
 	indicator   []map[string]any
 	settings    []map[string]any
 	switches    []string
+	dismissals  int
+	rtttls      []string
 }
 
 func (p *recordingPublisher) CustomApp(_ context.Context, name string, payload map[string]any) error {
@@ -63,6 +65,20 @@ func (p *recordingPublisher) Notify(_ context.Context, payload map[string]any) e
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.notify = append(p.notify, payload)
+	return nil
+}
+
+func (p *recordingPublisher) DismissNotify(_ context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.dismissals++
+	return nil
+}
+
+func (p *recordingPublisher) PlayRTTTL(_ context.Context, rtttl string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rtttls = append(p.rtttls, rtttl)
 	return nil
 }
 
@@ -638,6 +654,8 @@ type noopPublisher struct{}
 func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
 func (noopPublisher) ClearApp(context.Context, string) error                  { return nil }
 func (noopPublisher) Notify(context.Context, map[string]any) error            { return nil }
+func (noopPublisher) DismissNotify(context.Context) error                     { return nil }
+func (noopPublisher) PlayRTTTL(context.Context, string) error                 { return nil }
 func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
 func (noopPublisher) Settings(context.Context, map[string]any) error          { return nil }
 func (noopPublisher) Switch(context.Context, string) error                    { return nil }

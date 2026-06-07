@@ -51,10 +51,6 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	if dur < 1 || dur > 300 {
 		dur = 8
 	}
-	sound := ""
-	if req.Sound {
-		sound = defaultReminderSound
-	}
 	a.logger.Info("reminder fire", "sound", req.Sound, "hold", req.Hold, "duration", dur, "native_icon", req.NativeIconID != "")
 	// While a hold:true alarm is on the clock, the device's button callback would
 	// otherwise start Pomodoro when the user presses a button to dismiss it. Arm a
@@ -62,13 +58,20 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	if req.Hold {
 		a.reminderHeldUntil.Store(time.Now().Add(15 * time.Minute).UnixNano())
 	}
-	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, sound, req.Hold)
+	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, req.Hold)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	if err := a.publisher.Notify(ctx, payload); err != nil {
 		a.logger.Warn("reminder fire failed", "err", err)
 		writeError(w, http.StatusBadGateway, err)
 		return
+	}
+	// Chime separately: AWTRIX 0.98 drops a notification's own sound when it also
+	// draws a bell icon, so play the RTTTL via the dedicated /api/rtttl endpoint.
+	if req.Sound {
+		if err := a.publisher.PlayRTTTL(ctx, defaultReminderSound); err != nil {
+			a.logger.Warn("reminder chime failed", "err", err)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

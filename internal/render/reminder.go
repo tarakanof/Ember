@@ -21,12 +21,15 @@ var reminderGold = RGB{0xff, 0xcc, 0x33}
 // ReminderPopupPayload returns a notification payload for an alarm: a drawn bell
 // icon at cols 0–7 + the reminder text scrolling from col 9. iconID, when
 // non-empty, swaps in a native AWTRIX icon (firmware then owns the layout, so we
-// drop center/textOffset). sound (RTTTL or device sound name), when non-empty,
-// plays a chime. stack:true so two reminders due at the same minute queue rather
-// than the second replacing the first on-device. hold:true makes the alarm take
-// over the display until the user dismisses it (middle button) instead of
-// auto-dismissing after durationSec — the alarm then ignores the duration.
-func ReminderPopupPayload(text, iconID string, durationSec int, sound string, hold bool) map[string]any {
+// drop center/textOffset). stack:true so two reminders due at the same minute
+// queue rather than the second replacing the first on-device. hold:true makes the
+// alarm take over the display until the user dismisses it (middle button) instead
+// of auto-dismissing after durationSec — the alarm then ignores the duration.
+//
+// The chime is NOT carried here: on AWTRIX 0.98 a notification's `sound`/`rtttl`
+// is silently dropped whenever the notification also has a `draw` or `icon`, so
+// the caller plays it separately via the device's /api/rtttl endpoint.
+func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[string]any {
 	p := map[string]any{
 		"text":     text,
 		"duration": durationSec,
@@ -41,9 +44,6 @@ func ReminderPopupPayload(text, iconID string, durationSec int, sound string, ho
 		p["draw"] = []any{map[string]any{"db": []any{0, 0, 8, 8, bitmap8(reminderBell, reminderGold)}}}
 		p["center"] = false
 		p["textOffset"] = 9
-	}
-	if sound != "" {
-		p["sound"] = sound
 	}
 	return p
 }

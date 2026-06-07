@@ -1078,6 +1078,15 @@ type Publisher interface {
 	// apps.
 	ClearApp(ctx context.Context, name string) error
 	Notify(ctx context.Context, payload map[string]any) error
+	// DismissNotify clears the currently-shown notification (POST
+	// /api/notify/dismiss). Used to acknowledge a held reminder alarm when the
+	// user presses a clock button (the firmware's own dismissal doesn't run while
+	// a button callback is configured).
+	DismissNotify(ctx context.Context) error
+	// PlayRTTTL plays an RTTTL melody via the device's dedicated /api/rtttl
+	// endpoint. Used for reminder chimes because a notification's own sound is
+	// dropped by the firmware when the notification also draws an icon.
+	PlayRTTTL(ctx context.Context, rtttl string) error
 	Indicator(ctx context.Context, index int, payload map[string]any) error
 	// Settings writes device settings (POST /api/settings), e.g. toggling app
 	// rotation (ATRANS) and native button navigation (BLOCKN) for Pomodoro
@@ -1133,6 +1142,35 @@ func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) erro
 		return err
 	}
 	return p.postJSON(ctx, client, base+"/api/notify", payload)
+}
+
+func (p *HTTPPublisher) DismissNotify(ctx context.Context) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	return p.postJSON(ctx, client, base+"/api/notify/dismiss", map[string]any{})
+}
+
+func (p *HTTPPublisher) PlayRTTTL(ctx context.Context, rtttl string) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/rtttl", strings.NewReader(rtttl))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "text/plain")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("awtrix rtttl http %s", resp.Status)
+	}
+	return nil
 }
 
 func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {

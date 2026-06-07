@@ -420,6 +420,8 @@ func (p *fakePublisher) ClearApp(ctx context.Context, name string) error { retur
 func (p *fakePublisher) Notify(ctx context.Context, payload map[string]any) error {
 	return p.notifyErr
 }
+func (p *fakePublisher) DismissNotify(ctx context.Context) error      { return nil }
+func (p *fakePublisher) PlayRTTTL(ctx context.Context, _ string) error { return nil }
 func (p *fakePublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
 	return p.indicatorErr
 }
