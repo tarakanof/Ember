@@ -40,15 +40,6 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
         authStatus = manager.authorizationStatus
     }
 
-    /// Best-effort: ask macOS to present the authorization prompt. For an accessory
-    /// (menu-bar) app the system frequently won't show it — the Weather tab pairs
-    /// this with a System Settings deep-link, which is the reliable path. Any actual
-    /// decision arrives via `locationManagerDidChangeAuthorization`.
-    public func requestAuthorization() {
-        guard manager.authorizationStatus == .notDetermined else { refreshAuthorization(); return }
-        manager.requestWhenInUseAuthorization()
-    }
-
     /// Detect the current location + place name. Throws on denial/failure.
     public func current() async throws -> Fix {
         let loc = try await requestFix()

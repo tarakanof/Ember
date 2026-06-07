@@ -218,8 +218,7 @@ struct WeatherTab: View {
             VStack(alignment: .leading, spacing: 4) {
                 Label("Location access not enabled", systemImage: "circle.dashed")
                     .font(.caption).foregroundStyle(.secondary)
-                Button("Grant access to location") { env.location.requestAuthorization() }
-                Text("Menu-bar apps often don't get a prompt. If none appears, enable Ember manually:")
+                Text("Menu-bar apps don't get a location prompt, so enable Ember manually in System Settings ▸ Privacy & Security ▸ Location Services.")
                     .font(.caption2).foregroundStyle(.secondary)
                 Button("Open Location Settings…") { openLocationSettings() }
             }
