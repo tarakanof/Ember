@@ -133,6 +133,41 @@ func TestPomodoroButtonHookMapsPresses(t *testing.T) {
 	}
 }
 
+func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	doReq(t, srv, http.MethodPost, "/v1/pomodoro/start", "", `{"phase":"focus"}`)
+	// Arm a held reminder window.
+	app.reminderHeldUntil.Store(time.Now().Add(time.Minute).UnixNano())
+
+	press := func(button string) {
+		form := url.Values{"button": {button}, "state": {"1"}, "uid": {"awtrix_test"}}
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/awtrix/button", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+
+	// While held, the middle press acknowledges the reminder — Pomodoro must NOT pause.
+	press("middle")
+	if st := pomoState(t, srv); st["paused"] == true {
+		t.Fatalf("held middle press should not pause Pomodoro = %+v", st)
+	}
+	// The middle press disarmed the window; a subsequent middle press now drives Pomodoro.
+	if app.reminderHeldUntil.Load() != 0 {
+		t.Fatal("middle press should disarm reminderHeldUntil")
+	}
+	press("middle")
+	if st := pomoState(t, srv); st["paused"] != true {
+		t.Fatalf("after disarm, middle press should pause = %+v", st)
+	}
+}
+
 func TestPomodoroAuthBoundaries(t *testing.T) {
 	app := newPomodoroApp(t)
 	// Force a token so /v1/ requires auth.

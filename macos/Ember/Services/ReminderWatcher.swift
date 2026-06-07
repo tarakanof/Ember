@@ -86,8 +86,16 @@ public final class ReminderWatcher {
                 reason: "Watching Apple Reminders")
             loop = Task { [weak self] in
                 while !Task.isCancelled {
-                    await self?.poll()
-                    try? await Task.sleep(nanoseconds: (self?.pollSeconds ?? 30) * 1_000_000_000)
+                    let next = await self?.poll()
+                    // Sleep until the next reminder's fire time (so it rings on time,
+                    // not up to a full poll-interval late), capped at pollSeconds so we
+                    // still re-fetch regularly to discover newly-created reminders.
+                    let cap = Double(self?.pollSeconds ?? 30)
+                    var secs = cap
+                    // Wake ~0.25s past the fire time so the next poll sees now ≥ fireTime
+                    // and fires on the first try (rather than a hair early and waiting).
+                    if let next { secs = min(cap, max(0.5, next.timeIntervalSinceNow + 0.25)) }
+                    try? await Task.sleep(nanoseconds: UInt64(secs * 1_000_000_000))
                 }
             }
             NSLog("Ember reminders: watcher started")
@@ -106,9 +114,13 @@ public final class ReminderWatcher {
         let due: Date
     }
 
-    private func poll() async {
-        guard prefs.enabled, authorization == .fullAccess else { return }
+    /// Polls Apple Reminders, fires any that are due, and returns the nearest
+    /// future fire time (due − lead) so the loop can sleep precisely until then.
+    @discardableResult
+    private func poll() async -> Date? {
+        guard prefs.enabled, authorization == .fullAccess else { return nil }
         let now = Date()
+        let lead = Double(prefs.leadMinutes) * 60
         let reminders = await fetchIncompleteDueTimed()
         NSLog("Ember reminders: poll fetched \(reminders.count) due-timed; next=\(reminders.map(\.due).filter { $0 >= now }.min().map(String.init(describing:)) ?? "none")")
         upcoming = reminders
@@ -128,6 +140,12 @@ public final class ReminderWatcher {
             NSLog("Ember reminders: firing \"\(title)\" (due \(due), sound=\(prefs.sound), hold=\(prefs.hold))")
             await fire(title: title)
         }
+
+        // Nearest not-yet-reached fire time, for precise wake-up scheduling.
+        return reminders
+            .map { $0.due.addingTimeInterval(-lead) }
+            .filter { $0 > now }
+            .min()
     }
 
     private func fire(title: String) async {

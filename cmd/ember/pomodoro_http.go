@@ -423,7 +423,18 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	switch r.PostFormValue("button") {
+	button := r.PostFormValue("button")
+	// If a hold:true reminder alarm is currently on the clock, this press is the
+	// user acknowledging it (the firmware dismisses the notification on the middle
+	// button) — don't also drive Pomodoro. The middle/select press disarms.
+	if held := a.reminderHeldUntil.Load(); held != 0 && now.UnixNano() < held {
+		if button == "middle" || button == "select" {
+			a.reminderHeldUntil.Store(0)
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	switch button {
 	case "middle", "select":
 		st := a.engine.Status(now)
 		switch {

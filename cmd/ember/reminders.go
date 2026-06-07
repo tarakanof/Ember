@@ -55,6 +55,13 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	if req.Sound {
 		sound = defaultReminderSound
 	}
+	a.logger.Info("reminder fire", "sound", req.Sound, "hold", req.Hold, "duration", dur, "native_icon", req.NativeIconID != "")
+	// While a hold:true alarm is on the clock, the device's button callback would
+	// otherwise start Pomodoro when the user presses a button to dismiss it. Arm a
+	// window so handleAwtrixButton treats that press as an acknowledgement instead.
+	if req.Hold {
+		a.reminderHeldUntil.Store(time.Now().Add(15 * time.Minute).UnixNano())
+	}
 	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, sound, req.Hold)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()

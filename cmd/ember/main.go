@@ -429,6 +429,12 @@ type App struct {
 	engine *pomodoro.Engine
 	store  *pomodoro.Store
 
+	// reminderHeldUntil is the unix-nano deadline during which a hold:true reminder
+	// alarm is assumed to be on the clock. While armed, a device button press is
+	// treated as acknowledging the alarm (the firmware dismisses on the middle
+	// button) rather than a Pomodoro action — the middle press disarms it. 0 = none.
+	reminderHeldUntil atomic.Int64
+
 	appsMu     sync.Mutex      // guards hiddenApps
 	hiddenApps map[string]bool // tool names hidden from the device display
 
