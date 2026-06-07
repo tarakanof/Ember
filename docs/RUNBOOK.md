@@ -98,15 +98,24 @@ per-app clock toggles (`PUT /v1/apps`). Settings → Pomodoro exposes the focus
 duration (to 8h), the auto-stop cap ("Auto-stop after: N h", `0` = off), and
 colours; Settings → App picks the Dock/app icon + the menu-bar tray glyphs.
 
-Settings is a **sidebar window** (Connection / Display / Pomodoro / App), opened
-with ⌘, or the menu's "Settings…" item, and it **auto-applies** changes — there
-are no Save buttons. Display toggles write `producer.env` immediately; Connection
-commits each text field on **Return or focus loss** (an invalid field shows a red
-caption and isn't written, leaving the others intact) and "Test Connection" lives
-in the toolbar; Pomodoro debounces a single `PUT /v1/pomodoro/config` ~600 ms
-after the last edit; colours use the native macOS colour picker (bridged to
-`#RRGGBB`). The source-colour toggle/picker stay disabled until Source + Server
-URL are set (the tint write validates all fields together).
+Settings is a **sidebar window** (Connection / **Code agent** / Pomodoro /
+Weather / App), opened with ⌘, or the menu's "Settings…" item, and it
+**auto-applies** changes — there are no Save buttons. The **Code agent** tab
+(formerly "Display") toggles write `producer.env` immediately, each with a
+pixel-art pictogram of what it adds to the 32×8 matrix; Connection commits each
+text field on **Return or focus loss** (an invalid field shows a red caption and
+isn't written, leaving the others intact) and "Test Connection" lives in the
+toolbar; Pomodoro/Weather each debounce a single `PUT` ~600 ms after the last
+edit; colours use the native macOS colour picker (bridged to `#RRGGBB`). The
+source-colour toggle/picker stay disabled until Source + Server URL are set (the
+tint write validates all fields together).
+
+The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway,
+lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound). It
+persists server-side (`/v1/weather/config` → the SQLite store) and survives
+`/admin/reload`. Weather runs regardless of whether Pomodoro is enabled — but it
+still writes to the Pomodoro `db_path` store, so a deploy that wants it persisted
+needs that writable volume mounted.
 
 ## Device button → Pomodoro control
 

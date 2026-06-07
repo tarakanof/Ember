@@ -129,7 +129,11 @@ var font3x5 = map[rune][]string{
 	'9': {"XXX", "X.X", "XXX", "..X", "XXX"},
 	'/': {"..X", "..X", ".X.", "X..", "X.."},
 	'+': {"...", ".X.", "XXX", ".X.", "..."},
+	'-': {"...", "...", "XXX", "...", "..."},
 	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
+	// Degree sign for the weather widget's temperature readout: a small ring in
+	// the top two rows (reads as "°" beside the digits, distinct from '0').
+	'°': {"XX.", "XX.", "...", "...", "..."},
 	// Usage-widget glyphs. ':' is 1-wide (tight clock colon); the letters are
 	// the 5h/7d unit suffixes + the per-model OP/SO markers. The tight clock is
 	// painted by drawClockInto (custom per-glyph advance), so the 1-wide ':'

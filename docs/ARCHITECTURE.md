@@ -43,8 +43,8 @@ The aggregator and the only writer to the device.
   always-on usage widget; see below). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
   `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below).
   Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
-  `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro endpoints — see
-  below.
+  `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro and Weather
+  (`GET/PUT /v1/weather/config`) endpoints — see below.
 - **Session model & staleness.** Each session is keyed by `(source, tool,
   session)`. Per-state staleness: `stale_seconds` (default 300) for
   running/waiting/idle, a 30 s `done_ttl_seconds` linger for done/error.
@@ -160,6 +160,29 @@ change durations/colours/cap without a writable config file. API:
 (bearer); open `GET /v1/pomodoro/{state,stats}`; **unauthenticated**
 `POST /hooks/awtrix/button` (the device can't send a token) mapping
 middle=pause/resume/start, right=skip, left=stop.
+
+### Weather — `cmd/ember/weather.go`
+
+A standalone widget that shows current conditions. The server fetches them
+**itself** (not via a producer) from a free, key-less provider — **Open-Meteo**
+by default, **MET Norway** selectable — on a `refresh_minutes` cadence. Provider
+codes (WMO for Open-Meteo, `symbol_code` for MET) map to six render buckets
+(`clear/clouds/fog/rain/snow/storm`) + a `severe` flag (`internal/render`
+`weather.go`). The latest observation lives in an in-memory `weatherStore`; the
+coordinator reconciles a single **`ember-weather`** rotating tile (drawn 8×8 icon
++ temperature, same change-and-staleness dedupe as the usage apps). A 1-min poll
+loop (`StartWeather`) fetches when due and fires `/api/notify` **popups**: on
+condition change (`popup_on_change`), on a fixed cadence (`popup_interval_minutes`,
+`0`=off), and a **sound alert** on severe-weather onset (`severe_alert`). Popups
+use a drawn icon by default; `use_native_icons` swaps in a native AWTRIX animated
+weather icon by ID. Config is fully runtime-editable (`GET/PUT /v1/weather/config`,
+persisted to store key `weather_json`), including `enabled` — so the menu can turn
+the whole widget on/off.
+
+> **Shared store.** Weather config + hidden-apps + Pomodoro stats all live in the
+> one SQLite store. Opening it is hoisted into `ensureStore` (out of
+> `initPomodoro`) so weather persists even when Pomodoro is disabled;
+> `/admin/reload` re-applies the persisted settings over the reloaded file config.
 
 ### Per-app clock visibility — `/v1/apps`
 

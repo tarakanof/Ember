@@ -12,6 +12,7 @@ public final class AppEnvironment {
     public let model = AppModel()
     public private(set) var pomodoro: PomodoroService
     public private(set) var preview: PreviewService
+    public private(set) var weather: WeatherService
 
     /// Menu-only prefs (icon palette + tray glyphs), persisted to UserDefaults.
     /// Observed so the menu-bar label updates live when the App tab edits them.
@@ -58,6 +59,7 @@ public final class AppEnvironment {
         let client = AppEnvironment.makeClient(path: producerEnvPath)
         pomodoro = PomodoroService(client: client)
         preview = PreviewService(client: client)
+        weather = WeatherService(client: client)
         model.configure(client: client)
         model.startPolling()   // begin polling at launch (idempotent); self-started
                                // here so the menu-bar label updates without opening
@@ -70,6 +72,7 @@ public final class AppEnvironment {
         let client = AppEnvironment.makeClient(path: producerEnvPath)
         pomodoro = PomodoroService(client: client)
         preview = PreviewService(client: client)
+        weather = WeatherService(client: client)
         model.configure(client: client)
         Task { await model.refresh() }
     }

@@ -41,5 +41,21 @@
     "break_color": "#2EE85E",
     "db_path": "/var/lib/ember/pomodoro.db",
     "button_callback": true
+  },
+  "weather": {
+    "enabled": false,
+    "provider": "open-meteo",
+    "latitude": 52.3676,
+    "longitude": 4.9041,
+    "location_name": "Amsterdam",
+    "units": "metric",
+    "refresh_minutes": 10,
+    "rotate_in_apps": true,
+    "popup_interval_minutes": 120,
+    "popup_duration_seconds": 30,
+    "popup_on_change": true,
+    "severe_alert": true,
+    "severe_sound": "",
+    "use_native_icons": false
   }
 }

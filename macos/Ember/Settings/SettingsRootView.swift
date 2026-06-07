@@ -25,6 +25,7 @@ struct SettingsRootView: View {
         case .connection: ConnectionTab()
         case .display:    DisplayTab()
         case .pomodoro:   PomodoroTab()
+        case .weather:    WeatherTab()
         case .app:        AppTab()
         }
     }

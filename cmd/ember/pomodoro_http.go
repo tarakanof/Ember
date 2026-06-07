@@ -64,21 +64,36 @@ func engineSettings(p PomodoroConfig) pomodoro.Settings {
 	}
 }
 
-// initPomodoro opens the stats store (creating its directory), constructs the
-// engine from config, wires both into the app, and re-applies any settings
-// persisted by a previous run. Called from main() when the feature is enabled.
-func (a *App) initPomodoro(p PomodoroConfig) error {
-	if dir := filepath.Dir(p.DBPath); dir != "" && dir != "." {
+// ensureStore opens the shared SQLite store at path (creating its directory)
+// once, idempotently. The store backs Pomodoro stats AND the key/value settings
+// used by hidden-apps and weather — so those features can open it independently
+// of whether Pomodoro is enabled.
+func (a *App) ensureStore(path string) error {
+	if a.store != nil {
+		return nil
+	}
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("create pomodoro db dir %q: %w", dir, err)
+			return fmt.Errorf("create store dir %q: %w", dir, err)
 		}
 	}
-	store, err := pomodoro.Open(p.DBPath)
+	store, err := pomodoro.Open(path)
 	if err != nil {
 		return err
 	}
+	a.store = store
+	return nil
+}
+
+// initPomodoro opens the shared store, constructs the engine from config, wires
+// both into the app, and re-applies any settings persisted by a previous run.
+// Called from main() when the feature is enabled.
+func (a *App) initPomodoro(p PomodoroConfig) error {
+	if err := a.ensureStore(p.DBPath); err != nil {
+		return err
+	}
 	engine := pomodoro.New(engineSettings(p), realClock{})
-	a.EnablePomodoro(engine, store)
+	a.EnablePomodoro(engine, a.store)
 	a.loadPersistedPomodoroSettings()
 	a.loadHiddenApps()
 	return nil

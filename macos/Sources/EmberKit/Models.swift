@@ -83,6 +83,60 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Mirrors the server's WeatherConfig (GET/PUT /v1/weather/config).
+public struct WeatherConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var provider: String           // "open-meteo" | "met-no"
+    public var latitude: Double
+    public var longitude: Double
+    public var locationName: String
+    public var units: String              // "metric" | "imperial"
+    public var refreshMinutes: Int
+    public var rotateInApps: Bool
+    public var popupIntervalMinutes: Int  // 0 = no interval popups
+    public var popupDurationSeconds: Int
+    public var popupOnChange: Bool
+    public var severeAlert: Bool
+    public var severeSound: String
+    public var useNativeIcons: Bool
+
+    public init(enabled: Bool = false, provider: String = "open-meteo",
+                latitude: Double = 0, longitude: Double = 0, locationName: String = "",
+                units: String = "metric", refreshMinutes: Int = 10, rotateInApps: Bool = true,
+                popupIntervalMinutes: Int = 120, popupDurationSeconds: Int = 30,
+                popupOnChange: Bool = true, severeAlert: Bool = true,
+                severeSound: String = "", useNativeIcons: Bool = false) {
+        self.enabled = enabled
+        self.provider = provider
+        self.latitude = latitude
+        self.longitude = longitude
+        self.locationName = locationName
+        self.units = units
+        self.refreshMinutes = refreshMinutes
+        self.rotateInApps = rotateInApps
+        self.popupIntervalMinutes = popupIntervalMinutes
+        self.popupDurationSeconds = popupDurationSeconds
+        self.popupOnChange = popupOnChange
+        self.severeAlert = severeAlert
+        self.severeSound = severeSound
+        self.useNativeIcons = useNativeIcons
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, provider, latitude, longitude
+        case locationName = "location_name"
+        case units
+        case refreshMinutes = "refresh_minutes"
+        case rotateInApps = "rotate_in_apps"
+        case popupIntervalMinutes = "popup_interval_minutes"
+        case popupDurationSeconds = "popup_duration_seconds"
+        case popupOnChange = "popup_on_change"
+        case severeAlert = "severe_alert"
+        case severeSound = "severe_sound"
+        case useNativeIcons = "use_native_icons"
+    }
+}
+
 /// Mirrors internal/render.Session. context_pct/source_color/rate_window_pct are
 /// the only semantically-optional (pointer) fields; the rest default on absence.
 public struct Session: Codable, Sendable, Equatable {

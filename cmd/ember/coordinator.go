@@ -137,6 +137,12 @@ type coordinator struct {
 	usage           *UsageStore
 	pushedUsageApps map[string]pushedUsageApp
 
+	// weather, when non-nil, holds the latest observation. reconcileWeatherApp
+	// pushes/refreshes/clears the single "ember-weather" rotating tile from it,
+	// tracked by pushedWeather (same change-and-staleness logic as usage apps).
+	weather       *weatherStore
+	pushedWeather *pushedUsageApp
+
 	// lastPayloadBytes + lastPublishedAt dedupe identical re-publishes
 	// within a window shorter than the AWTRIX app lifetime. Every
 	// re-POST to /api/custom resets the firmware app's render state,
@@ -464,6 +470,55 @@ func (c *coordinator) onTick() {
 
 	c.publish(snap)
 	c.reconcileUsageApps(c.clk.Now(), snap)
+	c.reconcileWeatherApp(c.clk.Now())
+}
+
+// weatherTileStaleTTL clears the weather tile if no fresh observation arrived
+// within this window (≈3× the default 10-min poll), so a wedged poller doesn't
+// leave a stale temperature on the device indefinitely.
+const weatherTileStaleTTL = 30 * time.Minute
+
+// reconcileWeatherApp pushes/refreshes the single "ember-weather" rotating tile
+// when the feature is enabled, set to rotate, and has a fresh observation; it
+// clears the tile otherwise. Mirrors reconcileUsageApps' change-and-staleness
+// dedupe. Runs on the coordinator goroutine only.
+func (c *coordinator) reconcileWeatherApp(now time.Time) {
+	if c.weather == nil {
+		return
+	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const name = "ember-weather"
+	cfg := c.loadCfg().Weather
+	obs, have := c.weather.current()
+	want := cfg.Enabled && cfg.RotateInApps && have && now.Sub(obs.FetchedAt) < weatherTileStaleTTL
+
+	if !want {
+		if c.pushedWeather != nil {
+			if err := c.publisher.ClearApp(ctx, name); err != nil {
+				c.logger.Warn("weather tile clear failed", "err", err)
+				return
+			}
+			c.pushedWeather = nil
+		}
+		return
+	}
+
+	payload := render.WeatherPayload(obs.Condition, weatherTempText(obs.TempC, cfg.Units), usageAppLifetime)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	if c.pushedWeather != nil && bytes.Equal(c.pushedWeather.body, body) && now.Sub(c.pushedWeather.at) < usageRefreshInterval {
+		return
+	}
+	if err := c.publisher.CustomApp(ctx, name, payload); err != nil {
+		c.logger.Warn("weather tile publish failed", "err", err)
+		return
+	}
+	c.pushedWeather = &pushedUsageApp{body: body, at: now}
 }
 
 const (

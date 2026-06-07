@@ -54,7 +54,8 @@ The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
 
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}`,
-`GET/PUT /v1/pomodoro/config`. Read (no auth): `GET /state`, `GET /healthz`,
+`GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/weather/config`.
+Read (no auth): `GET /state`, `GET /healthz`,
 `GET /v1/preview`, `GET /v1/pomodoro/{state,stats}`. Operator: `/admin/doctor`, `/admin/reload`,
 `/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`.
 
