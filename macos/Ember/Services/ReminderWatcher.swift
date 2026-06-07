@@ -10,7 +10,11 @@ import EmberKit
 @MainActor
 @Observable
 public final class ReminderWatcher {
-    private let store = EKEventStore()
+    // nonisolated(unsafe): EKEventStore is used both from the MainActor
+    // (requestAccess) and from the nonisolated background fetch below. EventKit
+    // serialises its own fetch work on its internal queue, so sharing the one
+    // store across those is the standard EventKit pattern.
+    nonisolated(unsafe) private let store = EKEventStore()
     private var loop: Task<Void, Never>?
     private var fired = Set<String>()
 
@@ -120,15 +124,19 @@ public final class ReminderWatcher {
         }
     }
 
-    // `nonisolated` is REQUIRED: this runs inside EventKit's fetchReminders
-    // completion block, which executes on a background dispatch queue. Without it
-    // the call would assert MainActor isolation off the main queue and SIGTRAP.
     nonisolated private static func dueDate(_ r: EKReminder) -> Date? {
         guard let comps = r.dueDateComponents, comps.hour != nil else { return nil }
         return Calendar.current.date(from: comps)
     }
 
-    private func fetchIncompleteDueTimed() async -> [Snapshot] {
+    // `nonisolated` is REQUIRED. EventKit invokes the fetchReminders completion on
+    // its OWN background queue (com.apple.eventkit.reminders.search). If this method
+    // were MainActor-isolated, Swift would infer the completion closure as
+    // @MainActor too and insert an executor-isolation check at its entry — which
+    // traps (SIGTRAP) when EventKit runs it off the main queue. Making the method
+    // nonisolated makes the closures nonisolated; the `await` resumes back on the
+    // MainActor with the Sendable [Snapshot].
+    nonisolated private func fetchIncompleteDueTimed() async -> [Snapshot] {
         await withCheckedContinuation { cont in
             let pred = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
             store.fetchReminders(matching: pred) { rems in
