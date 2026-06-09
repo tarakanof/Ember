@@ -162,7 +162,10 @@ struct ConnectionTab: View {
         let client = APIClient(baseURL: url.isEmpty ? nil : URL(string: url),
                                token: effToken.isEmpty ? nil : effToken)
         do {
-            let _: PomoConfig = try await client.get("/v1/pomodoro/config")
+            // Probe an always-mounted, auth-required endpoint. (Pomodoro's
+            // config route is only registered when the feature is enabled, so
+            // it 404s on a perfectly healthy connection when Pomodoro is off.)
+            try await client.send("GET", "/v1/apps")
             testResult = "✓ Connected (auth OK)"
         } catch let e as APIError {
             switch e {
