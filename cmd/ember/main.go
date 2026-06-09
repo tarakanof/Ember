@@ -1326,6 +1326,28 @@ func main() {
 	// stall startup for long; a no-op when a reachable URL is already configured.
 	app.initDeviceDiscovery(ctx)
 
+	// Advertise the server over mDNS so the macOS app can discover it (requires
+	// host/macvlan networking to reach the LAN). Non-fatal; off via
+	// EMBER_MDNS_ADVERTISE=0.
+	if discovery.AdvertiseEnabled(os.Getenv("EMBER_MDNS_ADVERTISE")) {
+		if port, perr := discovery.PortFromAddr(cfg.HTTP.Addr); perr == nil {
+			ver := app.versionInfo.Revision
+			if ver == "" {
+				ver = "dev"
+			}
+			logger.Info("mDNS advertising enabled", "service", "_ember._tcp", "port", port)
+			go func() {
+				if err := discovery.Advertise(ctx, "Ember", port, ver); err != nil && ctx.Err() == nil {
+					logger.Warn("mDNS advertise stopped", "err", err)
+				}
+			}()
+		} else {
+			logger.Warn("mDNS advertise skipped: cannot parse port", "addr", cfg.HTTP.Addr, "err", perr)
+		}
+	} else {
+		logger.Info("mDNS advertising disabled (EMBER_MDNS_ADVERTISE)")
+	}
+
 	if err := app.ClearIndicators(context.Background()); err != nil {
 		logger.Warn("clear indicators on startup failed", "err", err)
 	}
