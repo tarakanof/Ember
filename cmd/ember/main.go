@@ -825,6 +825,11 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/device/discover", rateLimit(a, http.HandlerFunc(a.handleDeviceDiscover)))
 	writeMux.Handle("GET /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigGet)))
 	writeMux.Handle("PUT /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigPut)))
+	writeMux.Handle("GET /v1/device/settings", rateLimit(a, http.HandlerFunc(a.handleDeviceSettingsGet)))
+	writeMux.Handle("PUT /v1/device/settings", rateLimit(a, http.HandlerFunc(a.handleDeviceSettingsPut)))
+	writeMux.Handle("GET /v1/device/stats", rateLimit(a, http.HandlerFunc(a.handleDeviceStats)))
+	writeMux.Handle("POST /v1/device/reboot", rateLimit(a, http.HandlerFunc(a.handleDeviceReboot)))
+	writeMux.Handle("POST /v1/device/notify/dismiss", rateLimit(a, http.HandlerFunc(a.handleDeviceDismiss)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()
