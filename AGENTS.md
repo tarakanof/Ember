@@ -19,15 +19,14 @@ multiple laptop/session statuses; enforce bearer-token auth on write endpoints
 - **[`docs/RUNBOOK.md`](docs/RUNBOOK.md)** — build/test, deploy, producer & menu
   install, the `EMBER_*` toggle reference, on-device verification.
 - **[`docs/STYLE.md`](docs/STYLE.md)** — coding guide. Read before non-trivial code.
-- **[`docs/HISTORY.md`](docs/HISTORY.md)** — archived full session log (forensics).
 
 ## Local Context
 
-- AWTRIX device ID / topic prefix: `awtrix_05ffb8`
-- AWTRIX HTTP URL: `http://192.168.0.14` (firmware 0.98)
-- Home Assistant: `http://192.168.0.36:8123`
 - GitHub remote: `git@github.com:tarakanof/ember.git`
 - Docker Hub (post first release): `docker.io/dtarakanov/ember`
+- Deployment-specific values (the AWTRIX device ID / topic prefix, its HTTP URL,
+  the Home Assistant host) live in `AGENTS.local.md` — a gitignored, local-only
+  file. Copy `AGENTS.local.md.example` to `AGENTS.local.md` and fill in your own.
 
 Do not write secrets into this repository. The write-endpoint bearer token is
 supplied via the `EMBER_TOKEN` environment variable.
@@ -64,10 +63,10 @@ Full behavior (staleness, render priority, the coordinator, display hold) is in
 
 ## Obsidian workflow
 
-The user's AI control-plane vault is at
-`/Users/dt/Library/Mobile Documents/iCloud~md~obsidian/Documents/AI`. The project
-task note is `AI/Tasks/Ember.md` — it holds **current status + the
-canonical open-items/TODO list** (the repo no longer carries a `TODO.md`).
+Documentation lives in Obsidian (the vault path is recorded in the local-only
+`AGENTS.local.md`). The project task note is `AI/Tasks/Ember.md` — it holds
+**current status + the canonical open-items/TODO list** (the repo no longer
+carries a `TODO.md`).
 
 **Superpowers spec/plan docs live in the vault** under
 `Superpowers Specs/ember/` (flat — `…-design.md` specs alongside their

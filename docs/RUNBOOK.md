@@ -1,8 +1,7 @@
 # Runbook
 
 How to build, deploy, install, and verify `ember`. For the system
-design see [`ARCHITECTURE.md`](ARCHITECTURE.md); for the historical record see
-[`HISTORY.md`](HISTORY.md).
+design see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Build & test
 
@@ -18,7 +17,7 @@ go run ./cmd/ember -config config.example.json
 
 If a sandboxed shell can't write the default build cache, use a repo-local one:
 `GOCACHE="$PWD/.gocache" go test ./...`. In a shell with a stale
-`GOROOT=/Users/dt/.go`, prefix with `unset GOROOT &&`.
+`GOROOT=~/.go`, prefix with `unset GOROOT &&`.
 
 ## Local server deployment (dev Mac, OrbStack)
 

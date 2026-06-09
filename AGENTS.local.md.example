@@ -1,0 +1,17 @@
+# Local-only context (template)
+
+Copy this file to `AGENTS.local.md` (gitignored) and fill in your own
+deployment-specific values. AGENTS.md points here for anything that should not
+live in the public repo.
+
+## Devices / hosts
+
+- AWTRIX device ID / topic prefix: `awtrix_xxxxxx`
+- AWTRIX HTTP URL: `http://<awtrix-ip>`
+- Home Assistant: `http://<home-assistant-host>:8123`
+
+## Documentation / vault
+
+- Obsidian AI control-plane vault path: `<path-to-vault>`
+  (project task note: `AI/Tasks/Ember.md`; Superpowers specs/plans under
+  `Superpowers Specs/ember/`).

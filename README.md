@@ -13,11 +13,22 @@ The service is intentionally light:
 
 ## Current Target
 
-The first target clock discovered in Home Assistant:
+A single AWTRIX3 clock on the local network (configure yours in `config.json`):
 
-- AWTRIX prefix: `awtrix_05ffb8`
-- AWTRIX HTTP URL: `http://192.168.0.14`
+- AWTRIX prefix: `awtrix_xxxxxx` (your device's MQTT topic prefix)
+- AWTRIX HTTP URL: `http://<awtrix-ip>`
 - Firmware: `0.98`
+
+## Hardware & firmware
+
+Ember drives a clock running [AWTRIX 3](https://github.com/Blueforcer/awtrix3) —
+Blueforcer's open-source firmware for the [Ulanzi](https://www.ulanzi.com) TC001
+"Smart Pixel Clock" (or a self-built 32×8 matrix). Ember talks to it over the
+firmware's HTTP API; see the [AWTRIX 3 docs](https://blueforcer.github.io/awtrix3/)
+for flashing and the API reference.
+
+Ember is an independent project, not affiliated with or endorsed by Ulanzi or the
+AWTRIX firmware.
 
 ## Local Go
 
@@ -322,7 +333,7 @@ them to point at your Unraid IP and the same token you set above.
 {
   "http": { "addr": ":8080" },
   "awtrix": {
-    "http_base_url": "http://192.168.0.14",
+    "http_base_url": "http://<awtrix-ip>",
     "app_name": "ember",
     "timeout_seconds": 5
   },

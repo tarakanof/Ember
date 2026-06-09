@@ -4,6 +4,11 @@
 /ember-codex-producer
 /config.json
 /dist/
+
+# Local-only agent context (deployment-specific hosts, vault path). Ships as
+# AGENTS.local.md.example; the filled-in copy stays local.
+/AGENTS.local.md
+/CLAUDE.local.md
 /.gocache/
 *.log
 
@@ -17,3 +22,4 @@
 # docs/superpowers/) does ship.
 /docs/superpowers/
 /.superpowers/
+/.claire/

@@ -6,9 +6,9 @@ import "testing"
 // healthy periodic agent (between ticks: not currently running, last run OK).
 const sampleLaunchctlPrint = `com.ember.heartbeat = {
 	active count = 0
-	path = /Users/dt/Library/LaunchAgents/com.ember.heartbeat.plist
+	path = /Users/joe/Library/LaunchAgents/com.ember.heartbeat.plist
 	state = not running
-	program = /Users/dt/go/bin/ember-claude-producer
+	program = /Users/joe/go/bin/ember-claude-producer
 	runs = 7
 	last exit code = 0
 }`
@@ -20,7 +20,7 @@ func TestLaunchctlField(t *testing.T) {
 		{"runs", "7"},
 		{"last exit code", "0"},
 		{"state", "not running"},
-		{"program", "/Users/dt/go/bin/ember-claude-producer"},
+		{"program", "/Users/joe/go/bin/ember-claude-producer"},
 		{"missing", ""},
 	}
 	for _, c := range cases {

@@ -3,8 +3,7 @@
 How `ember` is put together: the system model, the components, the
 wire protocol, the display layout, and the hard-won gotchas. This is the
 canonical design reference — read it before non-trivial changes. For operations
-(deploy / install / verify) see [`RUNBOOK.md`](RUNBOOK.md); for the full
-historical record see [`HISTORY.md`](HISTORY.md).
+(deploy / install / verify) see [`RUNBOOK.md`](RUNBOOK.md).
 
 ## System model — the "Buddy" bridge
 
@@ -116,8 +115,7 @@ without relaunch. Hybrid layout:
   and a status + preview **dashboard** `Window`. App-only prefs (icon palette,
   tray glyphs) live in `UserDefaults`; launch-at-login is `SMAppService`.
 
-This replaced the retired Go menu (`fyne.io/systray` + DarwinKit);
-its AppKit forensics are archived in [`HISTORY.md`](HISTORY.md). The Display tab's
+This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Display tab's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
 — produced by the same `internal/render` core the device uses (see below).
 
@@ -347,8 +345,7 @@ icon-left language (redesign 2026-06-06).
 The retired Go menu was replaced by the native SwiftUI app (`macos/`), so its
 hard-won DarwinKit/AppKit retention crashes (weak `NSWindow.delegate`, libffi
 `NSTimer`-block frees, `NSBitmapImageRep planes`, bundle-less activation policy,
-uncommitted `NSTextField` edits) are no longer live constraints. The full
-forensics are archived verbatim in [`HISTORY.md`](HISTORY.md).
+uncommitted `NSTextField` edits) are no longer live constraints.
 
 ### Producer / deploy
 - **Process-liveness, not file-existence, detects session close.** A heartbeat

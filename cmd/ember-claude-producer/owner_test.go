@@ -63,7 +63,7 @@ func TestResolveOwner_DirectClaude(t *testing.T) {
 // Our own binary must be skipped if it appears in the chain.
 func TestResolveOwner_SkipsSelf(t *testing.T) {
 	procs := map[int]fakeProc{
-		100: {ppid: 80, comm: "/Users/dt/go/bin/ember-claude-producer"},
+		100: {ppid: 80, comm: "/Users/joe/go/bin/ember-claude-producer"},
 		80:  {ppid: 70, comm: "claude"},
 		70:  {ppid: 1, comm: "-zsh"},
 	}
