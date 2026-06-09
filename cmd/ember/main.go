@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
@@ -447,17 +448,25 @@ type App struct {
 	// weatherFetcher performs the provider HTTP calls. Both non-nil from NewApp.
 	weather        *weatherStore
 	weatherFetcher *weatherFetcher
+
+	// deviceBaseline is the clock URL from config.json captured at boot, before
+	// any store override or auto-discovery. deviceSource() uses it to tell
+	// "config" from "discovered". browseFn is the mDNS browse, overridable in tests.
+	deviceBaseline string
+	browseFn       func(context.Context, time.Duration) ([]discovery.Candidate, error)
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
-		publisher:   publisher,
-		logger:      logger,
-		sessions:    make(map[string]Session),
-		versionInfo: computeVersionInfo(),
-		startedAt:   time.Now(),
-		usage:       newUsageStore(),
-		weather:     newWeatherStore(),
+		publisher:      publisher,
+		logger:         logger,
+		sessions:       make(map[string]Session),
+		versionInfo:    computeVersionInfo(),
+		startedAt:      time.Now(),
+		usage:          newUsageStore(),
+		weather:        newWeatherStore(),
+		deviceBaseline: cfg.AWTRIX.HTTPBaseURL,
+		browseFn:       discovery.BrowseAWTRIX,
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.cfg.Store(&cfg)
@@ -813,6 +822,9 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
 	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
+	writeMux.Handle("GET /v1/device/discover", rateLimit(a, http.HandlerFunc(a.handleDeviceDiscover)))
+	writeMux.Handle("GET /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigGet)))
+	writeMux.Handle("PUT /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigPut)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()
@@ -1303,6 +1315,11 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Resolve the clock address before the coordinator publishes: store override
+	// > reachable config.json baseline > mDNS auto-discovery. Bounded so it can't
+	// stall startup for long; a no-op when a reachable URL is already configured.
+	app.initDeviceDiscovery(ctx)
 
 	if err := app.ClearIndicators(context.Background()); err != nil {
 		logger.Warn("clear indicators on startup failed", "err", err)
