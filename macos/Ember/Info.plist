@@ -30,5 +30,11 @@
     <string>Ember rings your AWTRIX clock when an Apple Reminder with a due time comes due.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Ember uses your location to prefill the weather widget's coordinates.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Ember finds your Ember server and AWTRIX clock on the local network.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_ember._tcp</string>
+    </array>
 </dict>
 </plist>

@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
@@ -491,18 +492,27 @@ type App struct {
 	// weatherFetcher performs the provider HTTP calls. Both non-nil from NewApp.
 	weather        *weatherStore
 	weatherFetcher *weatherFetcher
+
+	// deviceBaseline is the clock URL from config.json captured at boot, before
+	// any store override or auto-discovery. deviceSource() uses it to tell
+	// "config" from "discovered". browseFn is the mDNS browse, overridable in tests.
+	deviceBaseline   string
+	deviceAutoPicked bool // set once at boot when discovery chose the clock URL
+	browseFn         func(context.Context, time.Duration) ([]discovery.Candidate, error)
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
-		publisher:    publisher,
-		logger:       logger,
-		sessions:     make(map[string]Session),
-		versionInfo:  computeVersionInfo(),
-		startedAt:    time.Now(),
-		usage:        newUsageStore(),
-		weather:      newWeatherStore(),
-		activityLast: make(map[string]time.Time),
+		publisher:      publisher,
+		logger:         logger,
+		sessions:       make(map[string]Session),
+		versionInfo:    computeVersionInfo(),
+		startedAt:      time.Now(),
+		usage:          newUsageStore(),
+		weather:        newWeatherStore(),
+		activityLast:   make(map[string]time.Time),
+		deviceBaseline: cfg.AWTRIX.HTTPBaseURL,
+		browseFn:       discovery.BrowseAWTRIX,
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.cfg.Store(&cfg)
@@ -861,6 +871,14 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
 	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
+	writeMux.Handle("GET /v1/device/discover", rateLimit(a, http.HandlerFunc(a.handleDeviceDiscover)))
+	writeMux.Handle("GET /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigGet)))
+	writeMux.Handle("PUT /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigPut)))
+	writeMux.Handle("GET /v1/device/settings", rateLimit(a, http.HandlerFunc(a.handleDeviceSettingsGet)))
+	writeMux.Handle("PUT /v1/device/settings", rateLimit(a, http.HandlerFunc(a.handleDeviceSettingsPut)))
+	writeMux.Handle("GET /v1/device/stats", rateLimit(a, http.HandlerFunc(a.handleDeviceStats)))
+	writeMux.Handle("POST /v1/device/reboot", rateLimit(a, http.HandlerFunc(a.handleDeviceReboot)))
+	writeMux.Handle("POST /v1/device/notify/dismiss", rateLimit(a, http.HandlerFunc(a.handleDeviceDismiss)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()
@@ -1352,6 +1370,33 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Resolve the clock address before the coordinator publishes: store override
+	// > reachable config.json baseline > mDNS auto-discovery. Bounded so it can't
+	// stall startup for long; a no-op when a reachable URL is already configured.
+	app.initDeviceDiscovery(ctx)
+
+	// Advertise the server over mDNS so the macOS app can discover it (requires
+	// host/macvlan networking to reach the LAN). Non-fatal; off via
+	// EMBER_MDNS_ADVERTISE=0.
+	if discovery.AdvertiseEnabled(os.Getenv("EMBER_MDNS_ADVERTISE")) {
+		if port, perr := discovery.PortFromAddr(cfg.HTTP.Addr); perr == nil {
+			ver := app.versionInfo.Revision
+			if ver == "" {
+				ver = "dev"
+			}
+			logger.Info("mDNS advertising enabled", "service", "_ember._tcp", "port", port)
+			go func() {
+				if err := discovery.Advertise(ctx, "Ember", port, ver); err != nil && ctx.Err() == nil {
+					logger.Warn("mDNS advertise stopped", "err", err)
+				}
+			}()
+		} else {
+			logger.Warn("mDNS advertise skipped: cannot parse port", "addr", cfg.HTTP.Addr, "err", perr)
+		}
+	} else {
+		logger.Info("mDNS advertising disabled (EMBER_MDNS_ADVERTISE)")
+	}
 
 	if err := app.ClearIndicators(context.Background()); err != nil {
 		logger.Warn("clear indicators on startup failed", "err", err)

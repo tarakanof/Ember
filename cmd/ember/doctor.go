@@ -76,8 +76,13 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		}
 	}
 
-	// 3. awtrix_reachable
-	res.Checks["awtrix_reachable"] = checkAWTRIXReachable(ctx, cfg)
+	// 3. awtrix_reachable (detail notes where the clock URL came from:
+	// store override / config.json / mDNS discovery)
+	awtrixCheck := checkAWTRIXReachable(ctx, cfg)
+	if app != nil {
+		awtrixCheck.Detail += fmt.Sprintf(" [source=%s]", app.deviceSource())
+	}
+	res.Checks["awtrix_reachable"] = awtrixCheck
 
 	// 4. http_listening (skipped offline)
 	if app == nil || app.listener == nil {
