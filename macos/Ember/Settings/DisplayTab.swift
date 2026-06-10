@@ -78,7 +78,6 @@ struct DisplayTab: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Code agent")
         .task {
             if !loaded {
                 let envFile = env.currentEnv()

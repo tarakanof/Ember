@@ -114,7 +114,6 @@ struct ConnectionTab: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Connection")
         .onChange(of: focusedField) { old, _ in commitOnFocusLeave(old) }
         .toolbar {
             ToolbarItem {
