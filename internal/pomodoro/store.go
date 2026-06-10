@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS activity (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  recorded_at  INTEGER NOT NULL,
+  source       TEXT NOT NULL,
+  tool         TEXT NOT NULL,
+  session_key  TEXT NOT NULL,
+  state        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_activity_recorded ON activity(recorded_at);
 `
 
 // Open opens (creating if needed) the SQLite database at path and ensures the

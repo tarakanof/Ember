@@ -57,8 +57,10 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/reminders/fire`, `GET/PUT /v1/device/config`, `GET /v1/device/discover`,
 `GET/PUT /v1/device/settings`, `GET /v1/device/stats`,
 `POST /v1/device/{reboot,notify/dismiss}`. Read (no auth): `GET /state`, `GET /healthz`,
-`GET /v1/preview`, `GET /v1/pomodoro/{state,stats}`. Operator: `/admin/doctor`, `/admin/reload`,
-`/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`.
+`GET /v1/preview`, `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
+`GET /v1/pomodoro/dashboard` (HTML). Operator: `/admin/doctor`, `/admin/reload`,
+`/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`
+(middle=play/pause on press; left=stop, right=skip on release; left+right held=toggle).
 
 The `/v1/device/*` group discovers the clock (mDNS) and proxies its
 `/api/settings|stats|reboot|notify` to the menu's Device tab; the effective clock

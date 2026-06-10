@@ -126,11 +126,54 @@ func TestPomodoroButtonHookMapsPresses(t *testing.T) {
 	if st := pomoState(t, srv); st["paused"] != false {
 		t.Fatalf("second middle press should resume = %+v", st)
 	}
-	// Left stops.
+	// Left stops — on release, so a chord can pre-empt it. The press alone is a no-op.
 	press("left", "1")
-	if st := pomoState(t, srv); st["phase"] != "idle" {
-		t.Fatalf("left press should stop = %+v", st)
+	if st := pomoState(t, srv); st["phase"] == "idle" {
+		t.Fatalf("left press-down alone should not stop yet = %+v", st)
 	}
+	press("left", "0")
+	if st := pomoState(t, srv); st["phase"] != "idle" {
+		t.Fatalf("left release should stop = %+v", st)
+	}
+}
+
+func TestPomodoroButtonChordToggles(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	press := func(button, state string) {
+		form := url.Values{"button": {button}, "state": {state}, "uid": {"awtrix_test"}}
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/awtrix/button", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+
+	// From idle: a left+right chord starts a focus block.
+	press("left", "1")
+	press("right", "1") // both held → chord fires
+	if st := pomoState(t, srv); st["phase"] != "focus" || st["running"] != true {
+		t.Fatalf("chord from idle should start focus, got %+v", st)
+	}
+	// Releasing the chord must NOT fire the single left=stop / right=skip actions.
+	press("left", "0")
+	press("right", "0")
+	if st := pomoState(t, srv); st["phase"] != "focus" {
+		t.Fatalf("chord release should be suppressed, got %+v", st)
+	}
+
+	// While focused: another chord stops (the "disable" toggle).
+	press("right", "1")
+	press("left", "1") // both held again → chord
+	if st := pomoState(t, srv); st["phase"] != "idle" {
+		t.Fatalf("chord while focused should stop, got %+v", st)
+	}
+	press("right", "0")
+	press("left", "0")
 }
 
 func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {

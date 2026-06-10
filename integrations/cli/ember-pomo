@@ -1,0 +1,176 @@
+#!/bin/sh
+# ember-pomo — control the Ember Pomodoro timer from anywhere over HTTP.
+#
+# It is a thin, dependency-light wrapper over endpoints the server already
+# exposes (see docs/ARCHITECTURE.md): the only hard requirement is `curl`.
+# `jq` or `python3` are used for pretty output when present, but are optional.
+#
+# Configuration (in precedence order):
+#   1. Environment: EMBER_URL, EMBER_TOKEN
+#   2. Config file: $EMBER_CLI_ENV, else $XDG_CONFIG_HOME/ember/cli.env,
+#      else ~/.config/ember/cli.env  — shell `KEY=value` lines.
+#
+#   EMBER_URL    base URL of the server      (default: http://localhost:8080)
+#   EMBER_TOKEN  bearer token for writes     (required for start/stop/pause/...
+#                                              unless the server runs open)
+#
+# Usage:
+#   ember-pomo start [focus|short|long]   begin a phase (default: focus)
+#   ember-pomo stop                       end the current phase, back to idle
+#   ember-pomo pause                      freeze the countdown
+#   ember-pomo resume                     resume a paused / parked phase
+#   ember-pomo skip                       skip to the next phase
+#   ember-pomo toggle                     play/pause — mirrors the clock's
+#                                         middle button (idle->focus,
+#                                         running->pause, paused->resume)
+#   ember-pomo status                     print the live timer state (JSON)
+#   ember-pomo stats                      print usage statistics (JSON)
+#   ember-pomo remaining                  print "MM:SS phase" for status bars
+#
+# Exit codes: 0 ok, 1 usage error, 2 config error, 3 HTTP/network error.
+
+set -eu
+
+prog=${0##*/}
+
+# ---- config -----------------------------------------------------------------
+
+_load_env_file() {
+	# Source KEY=value lines without executing arbitrary code: only assignments.
+	[ -f "$1" ] || return 0
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in
+		''|'#'*) continue ;;
+		EMBER_URL=*)   [ -n "${EMBER_URL:-}" ]   || EMBER_URL=${line#EMBER_URL=} ;;
+		EMBER_TOKEN=*) [ -n "${EMBER_TOKEN:-}" ] || EMBER_TOKEN=${line#EMBER_TOKEN=} ;;
+		esac
+	done <"$1"
+}
+
+_cfg_file=${EMBER_CLI_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/ember/cli.env}
+_load_env_file "$_cfg_file"
+
+EMBER_URL=${EMBER_URL:-http://localhost:8080}
+EMBER_URL=${EMBER_URL%/} # strip trailing slash
+EMBER_TOKEN=${EMBER_TOKEN:-}
+
+# ---- helpers ----------------------------------------------------------------
+
+die() { printf '%s: %s\n' "$prog" "$1" >&2; exit "${2:-1}"; }
+
+# pretty-print a JSON body on stdin if a tool is available, else pass through.
+_pretty() {
+	if command -v jq >/dev/null 2>&1; then jq .
+	elif command -v python3 >/dev/null 2>&1; then python3 -m json.tool
+	else cat
+	fi
+}
+
+# _req METHOD PATH [--auth] [--data JSON]
+# Performs the call; prints the body; exits 3 on transport/HTTP>=400.
+_req() {
+	method=$1; path=$2; shift 2
+	auth=0; data=''
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--auth) auth=1 ;;
+		--data) data=$2; shift ;;
+		esac
+		shift
+	done
+
+	set -- -fsS --connect-timeout "${EMBER_CONNECT_TIMEOUT:-5}" --max-time "${EMBER_MAX_TIME:-15}" \
+		-X "$method" -o /tmp/ember-pomo.$$ -w '%{http_code}'
+	if [ "$auth" = 1 ]; then
+		[ -n "$EMBER_TOKEN" ] || set -- "$@" # token may be empty if server is open
+		[ -n "$EMBER_TOKEN" ] && set -- "$@" -H "Authorization: Bearer $EMBER_TOKEN"
+	fi
+	if [ -n "$data" ]; then
+		set -- "$@" -H 'Content-Type: application/json' --data "$data"
+	fi
+
+	code=$(curl "$@" "$EMBER_URL$path" 2>/tmp/ember-pomo.err.$$) || {
+		err=$(cat /tmp/ember-pomo.err.$$ 2>/dev/null || true)
+		rm -f /tmp/ember-pomo.$$ /tmp/ember-pomo.err.$$
+		die "request failed: $method $path${err:+ ($err)}" 3
+	}
+	body=$(cat /tmp/ember-pomo.$$ 2>/dev/null || true)
+	rm -f /tmp/ember-pomo.$$ /tmp/ember-pomo.err.$$
+	case "$code" in
+	2*) printf '%s' "$body" ;;
+	401|403) die "unauthorized (HTTP $code) — set EMBER_TOKEN in $_cfg_file" 3 ;;
+	404) die "endpoint not found (HTTP $code) — is the Pomodoro feature enabled?" 3 ;;
+	*)   die "server returned HTTP $code${body:+: $body}" 3 ;;
+	esac
+}
+
+# extract a top-level string/number field from a flat JSON object (no deps).
+_json_field() {
+	# _json_field FIELD  <json
+	sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\)\"\{0,1\}.*/\1/p" | head -n1
+}
+
+# ---- commands ---------------------------------------------------------------
+
+cmd_start() {
+	phase=${1:-focus}
+	case "$phase" in
+	focus|short|long) ;;
+	*) die "unknown phase '$phase' (use focus|short|long)" ;;
+	esac
+	# API phase names: focus, short_break, long_break
+	case "$phase" in
+	short) phase=short_break ;;
+	long)  phase=long_break ;;
+	esac
+	_req POST /v1/pomodoro/start --auth --data "{\"phase\":\"$phase\"}" | _pretty
+}
+
+cmd_simple() { # stop|pause|resume|skip
+	_req POST "/v1/pomodoro/$1" --auth | _pretty
+}
+
+cmd_status() { _req GET /v1/pomodoro/state | _pretty; }
+cmd_stats()  { _req GET /v1/pomodoro/stats | _pretty; }
+
+cmd_toggle() {
+	state=$(_req GET /v1/pomodoro/state)
+	phase=$(printf '%s' "$state" | _json_field phase)
+	running=$(printf '%s' "$state" | _json_field running)
+	paused=$(printf '%s' "$state" | _json_field paused)
+	if [ "$phase" = idle ]; then
+		cmd_start focus
+	elif [ "$running" = true ] && [ "$paused" != true ]; then
+		cmd_simple pause
+	else
+		cmd_simple resume
+	fi
+}
+
+cmd_remaining() { # compact "MM:SS phase" for status bars / Alfred subtitles
+	state=$(_req GET /v1/pomodoro/state)
+	phase=$(printf '%s' "$state" | _json_field phase)
+	rem=$(printf '%s' "$state" | _json_field remaining_sec)
+	[ -n "$rem" ] || rem=0
+	printf '%02d:%02d %s\n' "$((rem / 60))" "$((rem % 60))" "$phase"
+}
+
+usage() {
+	sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//; s/^#$//'
+	exit "${1:-0}"
+}
+
+# ---- dispatch ---------------------------------------------------------------
+
+[ $# -ge 1 ] || usage 1
+cmd=$1; shift || true
+case "$cmd" in
+start)            cmd_start "$@" ;;
+stop|pause|resume|skip) cmd_simple "$cmd" ;;
+toggle)           cmd_toggle ;;
+status|state)     cmd_status ;;
+stats)            cmd_stats ;;
+remaining)        cmd_remaining ;;
+-h|--help|help)   usage 0 ;;
+*)                die "unknown command '$cmd' (try: $prog --help)" ;;
+esac

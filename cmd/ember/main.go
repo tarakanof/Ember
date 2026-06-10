@@ -85,6 +85,29 @@ type PomodoroConfig struct {
 	// /hooks/awtrix/button) to timer actions.
 	ButtonCallback    bool `json:"button_callback"`
 	MaxSessionMinutes int  `json:"max_session_minutes"` // 0 = no cap; whole cycle auto-stops after this many minutes
+
+	// Stats/dashboard knobs (read at request time by the stats handlers; not part
+	// of the runtime DTO). Zero values fall back to sensible defaults at use.
+	WorkHoursGapMinutes int `json:"work_hours_gap_minutes"` // gap (min) that splits one work session from the next (default 15)
+	DayStartHour        int `json:"day_start_hour"`         // logical day boundary 0-23; pre-this-hour activity counts to the previous day (default 4)
+	StreakGraceDays     int `json:"streak_grace_days"`      // missed days tolerated within the current streak (default 1; 0 = strict)
+	DailyGoalSessions   int `json:"daily_goal_sessions"`    // completed-focus target per day (default 8; 0 = disabled)
+	WeeklyGoalDays      int `json:"weekly_goal_days"`       // active-day target per week (default 5; 0 = disabled)
+	// WorkHoursIncludeActivity overlays AI-coding-session activity (from
+	// /v1/status) onto the work-hours view and enables persisting that activity
+	// timeline. When false, work-hours uses Pomodoro focus blocks only.
+	WorkHoursIncludeActivity bool `json:"work_hours_include_activity"`
+}
+
+// Effective stats knobs, coercing zero/missing values (e.g. from an older config
+// file) to defaults. DayStartHour and the goals legitimately allow 0, so only
+// the gap is coerced.
+func (p PomodoroConfig) workHoursGap() time.Duration {
+	g := p.WorkHoursGapMinutes
+	if g <= 0 {
+		g = 15
+	}
+	return time.Duration(g) * time.Minute
 }
 
 type RateLimitConfig struct {
@@ -155,18 +178,24 @@ func defaultConfig() Config {
 			IdleEvictSeconds: 300,
 		},
 		Pomodoro: PomodoroConfig{
-			Enabled:               false,
-			FocusMinutes:          25,
-			ShortBreakMinutes:     5,
-			LongBreakMinutes:      15,
-			RoundsBeforeLongBreak: 4,
-			AutoStartNext:         true,
-			Sound:                 true,
-			FocusColor:            "#FF0000",
-			BreakColor:            "#00FF00",
-			DBPath:                "/var/lib/ember/pomodoro.db",
-			ButtonCallback:        true,
-			MaxSessionMinutes:     480,
+			Enabled:                  false,
+			FocusMinutes:             25,
+			ShortBreakMinutes:        5,
+			LongBreakMinutes:         15,
+			RoundsBeforeLongBreak:    4,
+			AutoStartNext:            true,
+			Sound:                    true,
+			FocusColor:               "#FF0000",
+			BreakColor:               "#00FF00",
+			DBPath:                   "/var/lib/ember/pomodoro.db",
+			ButtonCallback:           true,
+			MaxSessionMinutes:        480,
+			WorkHoursGapMinutes:      15,
+			DayStartHour:             4,
+			StreakGraceDays:          1,
+			DailyGoalSessions:        8,
+			WeeklyGoalDays:           5,
+			WorkHoursIncludeActivity: true,
 		},
 	}
 }
@@ -436,6 +465,21 @@ type App struct {
 	// button) rather than a Pomodoro action — the middle press disarms it. 0 = none.
 	reminderHeldUntil atomic.Int64
 
+	// btnMu guards the left/right press-edge state used to synthesise a
+	// simultaneous left+right "chord" (the firmware has no native chord). A
+	// chord toggles Pomodoro start/stop; the individual left/right actions fire
+	// on release so a chord can pre-empt them.
+	btnMu        sync.Mutex
+	btnLeftDown  time.Time // zero when up
+	btnRightDown time.Time // zero when up
+	btnChord     bool      // a chord fired and is still being released
+
+	// activityLast throttles activity-heartbeat persistence to at most one row
+	// per session per activityThrottle window (producers post every 2-10s, far
+	// finer than the work-hours sessionization needs). Guarded by activityMu.
+	activityMu   sync.Mutex
+	activityLast map[string]time.Time
+
 	appsMu     sync.Mutex      // guards hiddenApps
 	hiddenApps map[string]bool // tool names hidden from the device display
 
@@ -466,6 +510,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		startedAt:      time.Now(),
 		usage:          newUsageStore(),
 		weather:        newWeatherStore(),
+		activityLast:   make(map[string]time.Time),
 		deviceBaseline: cfg.AWTRIX.HTTPBaseURL,
 		browseFn:       discovery.BrowseAWTRIX,
 	}
@@ -800,6 +845,9 @@ func (a *App) routes() http.Handler {
 	// it only maps presses to timer actions, so LAN blast radius is minimal.
 	mux.HandleFunc("GET /v1/pomodoro/state", a.handlePomodoroState)
 	mux.HandleFunc("GET /v1/pomodoro/stats", a.handlePomodoroStats)
+	mux.HandleFunc("GET /v1/pomodoro/heatmap", a.handlePomodoroHeatmap)
+	mux.HandleFunc("GET /v1/pomodoro/workhours", a.handlePomodoroWorkHours)
+	mux.HandleFunc("GET /v1/pomodoro/dashboard", a.handlePomodoroDashboard)
 	// Open, read-only render preview for the menu app's Display tab. The
 	// specific GET pattern wins over the "/v1/" requireAuth catch-all below.
 	mux.HandleFunc("GET /v1/preview", a.handlePreview)
@@ -873,6 +921,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	normalized := req.normalized()
 	render, prior := a.Upsert(req)
+	a.recordActivityHeartbeat(normalized, time.Now())
 	a.coord.Send(coordCmd{
 		kind:       cmdUpsert,
 		sessionKey: normalized.Key(),
