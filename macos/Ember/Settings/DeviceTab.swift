@@ -69,17 +69,9 @@ struct DeviceTab: View {
 
     /// Live mirror of the clock's display, like the AWTRIX mobile app's header.
     /// While the clock is unreachable the empty grid keeps the panel visible.
-    /// Perceptual dimming for the mirror: the matrix's PWM brightness is
-    /// linear, but the eye isn't — gamma keeps a bri of 2 visibly "dim" rather
-    /// than black, while bri 255 stays full strength.
-    private var screenDim: Double {
-        guard let bri = stats?.bri else { return 1 }
-        return pow(Double(max(0, min(255, bri))) / 255, 0.4)
-    }
-
     @ViewBuilder private var screenSection: some View {
         Section {
-            MatrixScreenView(pixels: screen ?? Array(repeating: 0, count: 256), dim: screenDim)
+            MatrixScreenView(pixels: screen ?? Array(repeating: 0, count: 256))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity)
@@ -390,8 +382,7 @@ struct DeviceTab: View {
             if s == nil, let base = config?.baseURL, !base.isEmpty {
                 s = try? await DeviceService.directScreen(clockBaseURL: base)
             }
-            // Refresh stats every 5th tick so the mirror tracks auto-brightness
-            // dimming (and the battery/firmware rows stay live).
+            // Refresh stats every 5th tick so the battery/firmware rows stay live.
             if tick % 5 == 0, let st = try? await env.device.stats() {
                 stats = st
             }

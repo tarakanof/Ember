@@ -3,12 +3,11 @@ import SwiftUI
 /// Live mirror of the clock's 32×8 LED matrix (24-bit RGB ints, row-major, as
 /// served by /v1/device/screen). Lit pixels are drawn as rounded squares over a
 /// soft blurred halo so they read as glowing LEDs; unlit pixels keep a faint
-/// grid dot so the panel shape stays visible.
+/// grid dot so the panel shape stays visible. Colours are shown at full
+/// vibrancy — the panel's global brightness isn't simulated, since multiplying
+/// every pixel's opacity flattens the per-pixel contrast the buffer carries.
 struct MatrixScreenView: View {
     let pixels: [Int]
-    /// 0…1 multiplier mirroring the matrix's effective brightness; lit pixels
-    /// keep a small floor so a heavily dimmed display still reads as "on".
-    var dim: Double = 1
     var width: Int = 32
     var height: Int = 8
 
@@ -33,7 +32,7 @@ struct MatrixScreenView: View {
                         let i = y * width + x
                         guard i < pixels.count, pixels[i] != 0 else { continue }
                         let halo = cell(x, y).insetBy(dx: -pw * 0.15, dy: -ph * 0.15)
-                        glow.fill(Path(ellipseIn: halo), with: .color(color(pixels[i]).opacity(0.55 * dim)))
+                        glow.fill(Path(ellipseIn: halo), with: .color(color(pixels[i]).opacity(0.55)))
                     }
                 }
             }
@@ -47,7 +46,7 @@ struct MatrixScreenView: View {
                     if pixels[i] == 0 {
                         ctx.fill(p, with: .color(.white.opacity(0.05)))
                     } else {
-                        ctx.fill(p, with: .color(color(pixels[i]).opacity(max(dim, 0.12))))
+                        ctx.fill(p, with: .color(color(pixels[i])))
                     }
                 }
             }
