@@ -23,6 +23,7 @@ struct SettingsRootView: View {
     private func detail(for pane: SettingsPane) -> some View {
         switch pane {
         case .connection: ConnectionTab()
+        case .device:     DeviceTab()
         case .display:    DisplayTab()
         case .pomodoro:   PomodoroTab()
         case .weather:    WeatherTab()
