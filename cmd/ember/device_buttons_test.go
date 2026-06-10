@@ -12,7 +12,7 @@ func TestBuildCallbackURL(t *testing.T) {
 		ip, addr, want string
 	}{
 		{"192.168.0.2", ":3627", "http://192.168.0.2:3627/hooks/awtrix/button"},
-		{"10.0.0.5", "0.0.0.0:8080", "http://10.0.0.5:8080/hooks/awtrix/button"},
+		{"10.0.0.5", "0.0.0.0:3627", "http://10.0.0.5:3627/hooks/awtrix/button"},
 		{"", ":3627", ""},           // no IP → no URL
 		{"192.168.0.2", "", ""},     // no addr → no URL
 		{"192.168.0.2", "junk", ""}, // unparseable addr → no URL

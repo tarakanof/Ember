@@ -206,7 +206,7 @@ func TestIPLimiter_BurstReductionClampsImmediately(t *testing.T) {
 func TestClientIP_StripsPort(t *testing.T) {
 	cases := map[string]string{
 		"192.168.1.5:54321": "192.168.1.5",
-		"[::1]:8080":        "::1",
+		"[::1]:3627":        "::1",
 		"10.0.0.1":          "10.0.0.1",
 	}
 	for in, want := range cases {
