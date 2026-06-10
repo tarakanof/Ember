@@ -27,11 +27,14 @@ Display Claude/Codex activity on an Ulanzi TC001 running AWTRIX3.
 
 **Before you click Apply on first install:**
 
-1. From your Unraid host shell (Terminal plugin or SSH), prepare appdata:
+1. From your Unraid host shell (Terminal plugin or SSH), fetch the config (it ships with the default port `:3627` preset):
    `mkdir -p /mnt/user/appdata/ember && curl -fsSL -o /mnt/user/appdata/ember/config.json https://raw.githubusercontent.com/tarakanof/ember/main/config.example.json`
-2. Optionally set `awtrix.http_base_url` to your AWTRIX device URL (e.g. `http://192.168.0.14`). You can leave it blank — with host networking Ember auto-discovers the clock on the LAN via mDNS.
-3. Generate a token: `openssl rand -hex 32` — paste into the EMBER_TOKEN field above.
-4. Click Apply. This container uses **host networking** (required for mDNS discovery); make sure port 3627 is free on the Unraid host.
+2. **Create the writable data dir and give it to the container's non-root user (UID 65532) — the image runs as distroless `nonroot`, so an un-chowned appdata bind fails with `unable to open database file`:**
+   `mkdir -p /mnt/user/appdata/ember/data && chown -R 65532:65532 /mnt/user/appdata/ember/data`
+   (Skip this and the server still runs, but can't persist Pomodoro stats, Weather/Reminders config, or the menu-chosen clock URL.)
+3. Optionally set `awtrix.http_base_url` to your AWTRIX device URL (e.g. `http://192.168.0.14`). You can leave it as-is — with host networking Ember auto-discovers the clock on the LAN via mDNS.
+4. Generate a token: `openssl rand -hex 32` — paste into the EMBER_TOKEN field above.
+5. Click Apply. This container uses **host networking** (required for mDNS discovery); make sure port 3627 is free on the Unraid host.
 
 **Verify after start (from the Unraid host shell, NOT the Console icon — the runtime image is distroless and has no shell):**
 `docker exec ember /ember doctor`
