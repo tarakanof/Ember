@@ -15,6 +15,21 @@ public struct DeviceService: Sendable {
     public func stats() async throws -> DeviceStats {
         try await client.get("/v1/device/stats")
     }
+    /// The clock's live framebuffer: 24-bit RGB ints, row-major 32×8.
+    public func screen() async throws -> [Int] {
+        try await client.get("/v1/device/screen")
+    }
+    /// Fallback for servers that predate /v1/device/screen: read the clock's
+    /// /api/screen directly (read-only, same LAN — what the AWTRIX app does).
+    public static func directScreen(clockBaseURL: String) async throws -> [Int] {
+        let base = clockBaseURL.hasSuffix("/") ? String(clockBaseURL.dropLast()) : clockBaseURL
+        guard let url = URL(string: base + "/api/screen") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 5
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode([Int].self, from: data)
+    }
     public func reboot() async throws {
         try await client.send("POST", "/v1/device/reboot")
     }

@@ -20,11 +20,14 @@ struct DeviceTab: View {
     @State private var discovered: [DiscoveredClock] = []
     @State private var discovering = false
     @State private var buttons: ButtonStatus?
+    @State private var screen: [Int]?
 
     private let overlays = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"]
 
     var body: some View {
         Form {
+            screenSection
+
             if let loadError {
                 Section {
                     Label(loadError, systemImage: "exclamationmark.triangle.fill")
@@ -52,6 +55,7 @@ struct DeviceTab: View {
                 loaded = true
             }
         }
+        .task { await pollScreen() }
         .onChange(of: settings) { _, _ in scheduleSave() }
         .confirmationDialog("Reboot the clock?", isPresented: $confirmReboot, titleVisibility: .visible) {
             Button("Reboot", role: .destructive) { Task { await perform { try await env.device.reboot() } } }
@@ -62,6 +66,27 @@ struct DeviceTab: View {
     }
 
     // MARK: Sections
+
+    /// Live mirror of the clock's display, like the AWTRIX mobile app's header.
+    /// While the clock is unreachable the empty grid keeps the panel visible.
+    /// Perceptual dimming for the mirror: the matrix's PWM brightness is
+    /// linear, but the eye isn't — gamma keeps a bri of 2 visibly "dim" rather
+    /// than black, while bri 255 stays full strength.
+    private var screenDim: Double {
+        guard let bri = stats?.bri else { return 1 }
+        return pow(Double(max(0, min(255, bri))) / 255, 0.4)
+    }
+
+    @ViewBuilder private var screenSection: some View {
+        Section {
+            MatrixScreenView(pixels: screen ?? Array(repeating: 0, count: 256), dim: screenDim)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(.black)
+                .listRowInsets(EdgeInsets())
+        }
+    }
 
     @ViewBuilder private var clockSection: some View {
         Section {
@@ -347,6 +372,35 @@ struct DeviceTab: View {
     }
 
     // MARK: Load / save
+
+    /// Mirrors the clock's display while the tab is visible (the .task modifier
+    /// cancels this loop on disappear). Prefers the server proxy; against an
+    /// older server without /v1/device/screen it falls back to reading the
+    /// clock directly, re-probing the proxy every 30 ticks. Backs off to 3s
+    /// while nothing is reachable.
+    private func pollScreen() async {
+        var preferProxy = true
+        var tick = 0
+        while !Task.isCancelled {
+            var s: [Int]?
+            if preferProxy || tick % 30 == 0 {
+                s = try? await env.device.screen()
+                preferProxy = s != nil
+            }
+            if s == nil, let base = config?.baseURL, !base.isEmpty {
+                s = try? await DeviceService.directScreen(clockBaseURL: base)
+            }
+            // Refresh stats every 5th tick so the mirror tracks auto-brightness
+            // dimming (and the battery/firmware rows stay live).
+            if tick % 5 == 0, let st = try? await env.device.stats() {
+                stats = st
+            }
+            if Task.isCancelled { return }
+            screen = s
+            tick += 1
+            try? await Task.sleep(for: .seconds(s == nil ? 3 : 1))
+        }
+    }
 
     private func load() async {
         save = .idle

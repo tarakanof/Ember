@@ -229,6 +229,24 @@ func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 	w.Write(body)
 }
 
+// handleDeviceScreen passes through the clock's live framebuffer
+// (GET /api/screen — 256 ints, 24-bit RGB, row-major 32×8) so the menu app can
+// mirror the display.
+func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
+	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/screen", nil)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	if status != http.StatusOK {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(body)
+}
+
 func (a *App) handleDeviceReboot(w http.ResponseWriter, r *http.Request) {
 	a.proxyAction(w, r, "/api/reboot")
 }
