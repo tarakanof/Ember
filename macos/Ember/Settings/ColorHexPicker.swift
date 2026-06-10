@@ -20,12 +20,10 @@ struct ColorHexPicker: View {
         )
     }
 
-    private var currentColor: Color { (RGB(hex: hex).map(Color.init)) ?? .white }
-
     var body: some View {
         LabeledContent {
             Button { showPopover.toggle() } label: {
-                SwatchCircle(color: currentColor, diameter: 22)
+                SwatchCircle(color: colorBinding.wrappedValue, diameter: 22)
             }
             .buttonStyle(.plain)
             .popover(isPresented: $showPopover, arrowEdge: .bottom) {
@@ -57,13 +55,12 @@ private struct SwatchCircle: View {
             .frame(width: diameter, height: diameter)
             .overlay(Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1))
             .overlay {
-                if selected {
-                    Circle()
-                        .strokeBorder(Color.accentColor, lineWidth: 2)
-                        .padding(-3)
-                }
+                Circle()
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(-3)
+                    .opacity(selected ? 1 : 0)
             }
-            .padding(selected ? 3 : 0)
+            .padding(3)
     }
 }
 
@@ -78,7 +75,7 @@ private struct ColorSwatchPopover: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            ColorPicker("", selection: colorBinding, supportsOpacity: false)
+            ColorPicker("Colour wheel", selection: colorBinding, supportsOpacity: false)
                 .labelsHidden()
 
             Divider().frame(height: 24)
@@ -92,7 +89,7 @@ private struct ColorSwatchPopover: View {
                     SwatchCircle(
                         color: presetRGB.map(Color.init) ?? .white,
                         diameter: 24,
-                        selected: presetRGB != nil && presetRGB == currentRGB
+                        selected: presetRGB == currentRGB
                     )
                 }
                 .buttonStyle(.plain)
