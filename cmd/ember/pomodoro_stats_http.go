@@ -34,6 +34,43 @@ func clampQueryInt(r *http.Request, key string, def, lo, hi int) int {
 // zone, matching how the engine stamps phases.
 func (a *App) statsLoc() *time.Location { return time.Local }
 
+// activityThrottle bounds how often a session's active state is persisted to the
+// activity timeline. Producers heartbeat every 2-10s; the work-hours view only
+// needs sub-15-min resolution, so one row per session per window is plenty.
+const activityThrottle = 2 * time.Minute
+
+// activeWorkState reports whether a session state counts as "actively working"
+// for work-hours purposes. idle and done do not.
+func activeWorkState(state string) bool {
+	switch state {
+	case "running", "waiting", "error":
+		return true
+	default:
+		return false
+	}
+}
+
+// recordActivityHeartbeat persists an activity row for an actively-working
+// session, throttled to one row per session per activityThrottle window. No-op
+// when the store is absent or the overlay is disabled.
+func (a *App) recordActivityHeartbeat(s Session, now time.Time) {
+	if a.store == nil || !a.cfg.Load().Pomodoro.WorkHoursIncludeActivity || !activeWorkState(s.State) {
+		return
+	}
+	key := s.Key()
+	a.activityMu.Lock()
+	if last, ok := a.activityLast[key]; ok && now.Sub(last) < activityThrottle {
+		a.activityMu.Unlock()
+		return
+	}
+	a.activityLast[key] = now
+	a.activityMu.Unlock()
+
+	if err := a.store.RecordActivity(now, s.Source, s.Tool, key, s.State); err != nil {
+		a.logger.Warn("activity record failed", "err", err)
+	}
+}
+
 // loadPhaseRecords fetches the phase rows ending within the last `days` days.
 func (a *App) loadPhaseRecords(now time.Time, days int) ([]pomodoro.PhaseRecord, error) {
 	lo := now.AddDate(0, 0, -days)

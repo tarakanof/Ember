@@ -45,7 +45,8 @@
     "day_start_hour": 4,
     "streak_grace_days": 1,
     "daily_goal_sessions": 8,
-    "weekly_goal_days": 5
+    "weekly_goal_days": 5,
+    "work_hours_include_activity": true
   },
   "weather": {
     "enabled": false,

@@ -219,6 +219,38 @@ func TestRollup(t *testing.T) {
 	}
 }
 
+func TestActivityBetweenRoundTrip(t *testing.T) {
+	st, err := Open(t.TempDir() + "/a.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	base := utc(2026, 6, 10, 9, 0)
+	must := func(e error) {
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
+	must(st.RecordActivity(base, "Claude", "claude", "Claude/claude/s1", "running"))
+	must(st.RecordActivity(base.Add(time.Minute), "Codex", "codex", "Codex/codex/s2", "waiting"))
+	must(st.RecordActivity(base.Add(48*time.Hour), "Claude", "claude", "Claude/claude/s1", "running")) // outside
+
+	got, err := st.ActivityBetween(base.Add(-time.Hour), base.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 rows in window, got %d", len(got))
+	}
+	if got[0].SessionKey != "Claude/claude/s1" || got[0].State != "running" || got[0].Tool != "claude" {
+		t.Errorf("row0 = %+v", got[0])
+	}
+	if got[0].At.Unix() != base.Unix() {
+		t.Errorf("row0 ts = %d, want %d", got[0].At.Unix(), base.Unix())
+	}
+}
+
 func TestPhasesBetweenRoundTrip(t *testing.T) {
 	st, err := Open(t.TempDir() + "/a.db")
 	if err != nil {

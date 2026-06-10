@@ -64,6 +64,59 @@ func (s *Store) PhasesBetween(lo, hi time.Time) ([]PhaseRecord, error) {
 	return out, rows.Err()
 }
 
+// ActivityRecord is one persisted AI-coding-session activity heartbeat —
+// evidence that a session was actively working at recorded_at.
+type ActivityRecord struct {
+	At         time.Time
+	Source     string
+	Tool       string
+	SessionKey string
+	State      string
+}
+
+// RecordActivity inserts one activity heartbeat.
+func (s *Store) RecordActivity(at time.Time, source, tool, sessionKey, state string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO activity (recorded_at, source, tool, session_key, state)
+		 VALUES (?, ?, ?, ?, ?)`,
+		at.Unix(), source, tool, sessionKey, state,
+	)
+	if err != nil {
+		return fmt.Errorf("record activity: %w", err)
+	}
+	return nil
+}
+
+// ActivityBetween returns activity heartbeats in [lo, hi), oldest first.
+func (s *Store) ActivityBetween(lo, hi time.Time) ([]ActivityRecord, error) {
+	rows, err := s.db.Query(
+		`SELECT recorded_at, source, tool, session_key, state
+		   FROM activity
+		  WHERE recorded_at >= ? AND recorded_at < ?
+		  ORDER BY recorded_at ASC`,
+		lo.Unix(), hi.Unix(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("activity between: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ActivityRecord
+	for rows.Next() {
+		var (
+			at                              int64
+			source, tool, sessionKey, state string
+		)
+		if err := rows.Scan(&at, &source, &tool, &sessionKey, &state); err != nil {
+			return nil, fmt.Errorf("scan activity: %w", err)
+		}
+		out = append(out, ActivityRecord{
+			At: time.Unix(at, 0), Source: source, Tool: tool, SessionKey: sessionKey, State: state,
+		})
+	}
+	return out, rows.Err()
+}
+
 // CompletionStat summarises focus-phase outcomes over a record set. Abandoned =
 // any non-completed focus phase (stopped / skipped / max_session).
 type CompletionStat struct {

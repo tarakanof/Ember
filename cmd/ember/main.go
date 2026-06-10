@@ -92,6 +92,10 @@ type PomodoroConfig struct {
 	StreakGraceDays     int `json:"streak_grace_days"`      // missed days tolerated within the current streak (default 1; 0 = strict)
 	DailyGoalSessions   int `json:"daily_goal_sessions"`    // completed-focus target per day (default 8; 0 = disabled)
 	WeeklyGoalDays      int `json:"weekly_goal_days"`       // active-day target per week (default 5; 0 = disabled)
+	// WorkHoursIncludeActivity overlays AI-coding-session activity (from
+	// /v1/status) onto the work-hours view and enables persisting that activity
+	// timeline. When false, work-hours uses Pomodoro focus blocks only.
+	WorkHoursIncludeActivity bool `json:"work_hours_include_activity"`
 }
 
 // Effective stats knobs, coercing zero/missing values (e.g. from an older config
@@ -173,23 +177,24 @@ func defaultConfig() Config {
 			IdleEvictSeconds: 300,
 		},
 		Pomodoro: PomodoroConfig{
-			Enabled:               false,
-			FocusMinutes:          25,
-			ShortBreakMinutes:     5,
-			LongBreakMinutes:      15,
-			RoundsBeforeLongBreak: 4,
-			AutoStartNext:         true,
-			Sound:                 true,
-			FocusColor:            "#FF0000",
-			BreakColor:            "#00FF00",
-			DBPath:                "/var/lib/ember/pomodoro.db",
-			ButtonCallback:        true,
-			MaxSessionMinutes:     480,
-			WorkHoursGapMinutes:   15,
-			DayStartHour:          4,
-			StreakGraceDays:       1,
-			DailyGoalSessions:     8,
-			WeeklyGoalDays:        5,
+			Enabled:                  false,
+			FocusMinutes:             25,
+			ShortBreakMinutes:        5,
+			LongBreakMinutes:         15,
+			RoundsBeforeLongBreak:    4,
+			AutoStartNext:            true,
+			Sound:                    true,
+			FocusColor:               "#FF0000",
+			BreakColor:               "#00FF00",
+			DBPath:                   "/var/lib/ember/pomodoro.db",
+			ButtonCallback:           true,
+			MaxSessionMinutes:        480,
+			WorkHoursGapMinutes:      15,
+			DayStartHour:             4,
+			StreakGraceDays:          1,
+			DailyGoalSessions:        8,
+			WeeklyGoalDays:           5,
+			WorkHoursIncludeActivity: true,
 		},
 	}
 }
@@ -468,6 +473,12 @@ type App struct {
 	btnRightDown time.Time // zero when up
 	btnChord     bool      // a chord fired and is still being released
 
+	// activityLast throttles activity-heartbeat persistence to at most one row
+	// per session per activityThrottle window (producers post every 2-10s, far
+	// finer than the work-hours sessionization needs). Guarded by activityMu.
+	activityMu   sync.Mutex
+	activityLast map[string]time.Time
+
 	appsMu     sync.Mutex      // guards hiddenApps
 	hiddenApps map[string]bool // tool names hidden from the device display
 
@@ -484,13 +495,14 @@ type App struct {
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
-		publisher:   publisher,
-		logger:      logger,
-		sessions:    make(map[string]Session),
-		versionInfo: computeVersionInfo(),
-		startedAt:   time.Now(),
-		usage:       newUsageStore(),
-		weather:     newWeatherStore(),
+		publisher:    publisher,
+		logger:       logger,
+		sessions:     make(map[string]Session),
+		versionInfo:  computeVersionInfo(),
+		startedAt:    time.Now(),
+		usage:        newUsageStore(),
+		weather:      newWeatherStore(),
+		activityLast: make(map[string]time.Time),
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.cfg.Store(&cfg)
@@ -891,6 +903,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	normalized := req.normalized()
 	render, prior := a.Upsert(req)
+	a.recordActivityHeartbeat(normalized, time.Now())
 	a.coord.Send(coordCmd{
 		kind:       cmdUpsert,
 		sessionKey: normalized.Key(),

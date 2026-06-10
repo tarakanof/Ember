@@ -107,6 +107,46 @@ func TestPomodoroWorkHoursEndpoint(t *testing.T) {
 	}
 }
 
+func TestStatusRecordsActivityThrottled(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	post := func(state string) {
+		body := `{"source":"Claude","tool":"claude","session":"s1","state":"` + state + `"}`
+		if resp, _ := doReq(t, srv, http.MethodPost, "/v1/status", "", body); resp.StatusCode != http.StatusOK {
+			t.Fatalf("status post %s = %d", state, resp.StatusCode)
+		}
+	}
+	post("running") // records
+	post("running") // throttled (within 2m window) → no new row
+	post("idle")    // not an active state → no row
+
+	rows, err := app.store.ActivityBetween(time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("want 1 throttled activity row, got %d", len(rows))
+	}
+	if rows[0].SessionKey != "Claude/claude/s1" || rows[0].State != "running" {
+		t.Errorf("row = %+v", rows[0])
+	}
+
+	// Disabling the overlay stops recording.
+	cfg := *app.cfg.Load()
+	cfg.Pomodoro.WorkHoursIncludeActivity = false
+	app.cfg.Store(&cfg)
+	app.activityMu.Lock()
+	delete(app.activityLast, "Claude/claude/s1") // clear throttle so a row could be written
+	app.activityMu.Unlock()
+	post("running")
+	rows, _ = app.store.ActivityBetween(time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	if len(rows) != 1 {
+		t.Fatalf("overlay disabled should not record; got %d rows", len(rows))
+	}
+}
+
 func TestPomodoroDashboardServesHTML(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
