@@ -276,6 +276,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// And the menu-chosen clock URL (Device tab), so a reload doesn't drop
 		// the store override back to the file-config baseline.
 		app.loadPersistedDeviceBaseURL()
+		app.loadPersistedUsageSettings()
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,

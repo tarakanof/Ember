@@ -24,6 +24,7 @@ const defaultPomoMelody = "pomo:d=4,o=5,b=125:8g6,8c7,8e7"
 // pomodoroSettingsDTO is the wire shape for GET/PUT /v1/pomodoro/config and the
 // persisted-settings blob in the store.
 type pomodoroSettingsDTO struct {
+	Enabled               *bool  `json:"enabled,omitempty"`
 	FocusMinutes          int    `json:"focus_minutes"`
 	ShortBreakMinutes     int    `json:"short_break_minutes"`
 	LongBreakMinutes      int    `json:"long_break_minutes"`
@@ -39,7 +40,9 @@ type pomodoroSettingsDTO struct {
 const pomodoroSettingsKey = "settings_json"
 
 func dtoFromConfig(p PomodoroConfig) pomodoroSettingsDTO {
+	enabled := p.Enabled
 	return pomodoroSettingsDTO{
+		Enabled:               &enabled,
 		FocusMinutes:          p.FocusMinutes,
 		ShortBreakMinutes:     p.ShortBreakMinutes,
 		LongBreakMinutes:      p.LongBreakMinutes,
@@ -107,10 +110,17 @@ func (a *App) EnablePomodoro(engine *pomodoro.Engine, store *pomodoro.Store) {
 	a.coord.pomoView = a.pomoView
 }
 
+// pomodoroOn reports whether the Pomodoro feature is both available (engine
+// wired — the store opened) and enabled (the runtime cfg flag, persisted). The
+// engine is always wired at boot now; this flag gates the feature.
+func (a *App) pomodoroOn() bool {
+	return a.engine != nil && a.cfg.Load().Pomodoro.Enabled
+}
+
 // pomoView builds the render view for the coordinator from the live engine
 // status and the configured colours. Returns active=false when idle/disabled.
 func (a *App) pomoView() (render.PomodoroView, bool) {
-	if a.engine == nil {
+	if !a.pomodoroOn() {
 		return render.PomodoroView{}, false
 	}
 	st := a.engine.Status(time.Now())
@@ -141,7 +151,7 @@ func (a *App) nudgePomo() {
 // engine, records completed/elapsed phases, fires the phase-end alert, and
 // nudges a re-render while a timer is active.
 func (a *App) pomoTick() {
-	if a.engine == nil {
+	if !a.pomodoroOn() {
 		return
 	}
 	now := time.Now()
@@ -207,7 +217,7 @@ func validPomodoroPhase(p pomodoro.Phase) bool {
 }
 
 func (a *App) handlePomodoroStart(w http.ResponseWriter, r *http.Request) {
-	if a.engine == nil {
+	if !a.pomodoroOn() {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
@@ -233,7 +243,7 @@ func (a *App) handlePomodoroStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePomodoroPause(w http.ResponseWriter, r *http.Request) {
-	if a.engine == nil {
+	if !a.pomodoroOn() {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
@@ -243,7 +253,7 @@ func (a *App) handlePomodoroPause(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePomodoroResume(w http.ResponseWriter, r *http.Request) {
-	if a.engine == nil {
+	if !a.pomodoroOn() {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
@@ -253,7 +263,7 @@ func (a *App) handlePomodoroResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePomodoroStop(w http.ResponseWriter, r *http.Request) {
-	if a.engine == nil {
+	if !a.pomodoroOn() {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
@@ -266,7 +276,7 @@ func (a *App) handlePomodoroStop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePomodoroSkip(w http.ResponseWriter, r *http.Request) {
-	if a.engine == nil {
+	if !a.pomodoroOn() {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
@@ -279,7 +289,7 @@ func (a *App) handlePomodoroSkip(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePomodoroState(w http.ResponseWriter, r *http.Request) {
-	if a.engine == nil {
+	if !a.pomodoroOn() {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
@@ -287,18 +297,13 @@ func (a *App) handlePomodoroState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePomodoroConfigGet(w http.ResponseWriter, r *http.Request) {
-	if a.engine == nil {
-		writeError(w, http.StatusNotFound, errPomodoroDisabled)
-		return
-	}
+	// Always available (incl. when disabled) so the app can show the Enable
+	// toggle and the current settings.
 	writeJSON(w, http.StatusOK, dtoFromConfig(a.cfg.Load().Pomodoro))
 }
 
 func (a *App) handlePomodoroConfigPut(w http.ResponseWriter, r *http.Request) {
-	if a.engine == nil {
-		writeError(w, http.StatusNotFound, errPomodoroDisabled)
-		return
-	}
+	// No enabled-gate: this is how the app turns the feature on.
 	var dto pomodoroSettingsDTO
 	if err := decodeJSON(w, r, &dto, false); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -326,6 +331,12 @@ func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
 	p.FocusColor = dto.FocusColor
 	p.BreakColor = dto.BreakColor
 	p.MaxSessionMinutes = dto.MaxSessionMinutes
+	// enabled is a tri-state on the wire: nil means "leave unchanged" so a
+	// settings-only PUT (older clients, the durations form) can't accidentally
+	// disable the feature.
+	if dto.Enabled != nil {
+		p.Enabled = *dto.Enabled
+	}
 	if err := validatePomodoro(p); err != nil {
 		return err
 	}
@@ -333,9 +344,15 @@ func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
 	a.cfg.Store(&cur)
 	if a.engine != nil {
 		a.engine.UpdateSettings(engineSettings(p))
+		// An explicit disable must not strand a running timer on the clock.
+		if dto.Enabled != nil && !*dto.Enabled && a.engine.Status(time.Now()).Phase != pomodoro.PhaseIdle {
+			a.engine.Stop(time.Now())
+		}
 	}
 	if a.store != nil {
-		if blob, err := json.Marshal(dto); err == nil {
+		// Persist the resolved config (always carries enabled) so it survives a
+		// restart even if the incoming DTO omitted enabled.
+		if blob, err := json.Marshal(dtoFromConfig(p)); err == nil {
 			if err := a.store.PutSetting(pomodoroSettingsKey, string(blob)); err != nil {
 				a.logger.Warn("pomodoro settings persist failed", "err", err)
 			}
@@ -391,7 +408,7 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	// the clock's button_callback is configured + reaching us (surfaced via
 	// GET /v1/device/buttons), independent of whether Pomodoro acts on it.
 	a.lastButtonAt.Store(time.Now().Unix())
-	if a.engine == nil || !a.cfg.Load().Pomodoro.ButtonCallback {
+	if !a.pomodoroOn() || !a.cfg.Load().Pomodoro.ButtonCallback {
 		w.WriteHeader(http.StatusOK) // accept-and-ignore; device keeps posting
 		return
 	}
