@@ -30,6 +30,32 @@ import Foundation
     #expect(await model.sessions.first?.tool == "claude")
 }
 
+// Pomodoro endpoints 404 while the feature is disabled on the server. That must
+// degrade (no timer/stats) — not blank the dashboard and show Offline while
+// /state is perfectly healthy.
+@Test func refreshStaysConnectedWhenPomodoroDisabled() async throws {
+    let client = stubbedClient { req in
+        let p = req.url!.path
+        if p.hasPrefix("/v1/pomodoro/") {
+            return (okResponse(req.url!, status: 404),
+                    Data(#"{"error":"pomodoro feature is not enabled"}"#.utf8))
+        }
+        if p == "/state" {
+            return (okResponse(req.url!),
+                    Data(#"{"sessions":[{"source":"mbp","tool":"claude","session":"s","state":"running","message":""}]}"#.utf8))
+        }
+        return (okResponse(req.url!), Data("{}".utf8))
+    }
+    let model = await AppModel()
+    await model.configure(client: client)
+    await model.refresh()
+
+    #expect(await model.connected)
+    #expect(await model.sessions.count == 1)
+    #expect(await model.pomoState == nil)
+    #expect(await model.stats == nil)
+}
+
 @Test func refreshMarksDisconnectedOnFailure() async throws {
     let client = stubbedClient { req in (okResponse(req.url!, status: 500), Data("boom".utf8)) }
     let model = await AppModel()

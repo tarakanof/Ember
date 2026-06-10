@@ -29,7 +29,7 @@ struct PomodoroTab: View {
                 Stepper("Short break: \(config.shortBreakMinutes) min",
                         value: $config.shortBreakMinutes, in: 1...60)
                 Stepper("Long break: \(config.longBreakMinutes) min",
-                        value: $config.longBreakMinutes, in: 1...120)
+                        value: $config.longBreakMinutes, in: 1...180)
                 Stepper("Rounds before long break: \(config.roundsBeforeLongBreak)",
                         value: $config.roundsBeforeLongBreak, in: 1...12)
             }
@@ -100,7 +100,7 @@ struct PomodoroTab: View {
             config = try await env.pomodoro.getConfig()
             lastApplied = config
         } catch {
-            save = .error("Couldn't load Pomodoro config (server offline or pomodoro disabled).")
+            save = .error("Couldn't load Pomodoro config — \(error.localizedDescription)")
         }
     }
 }

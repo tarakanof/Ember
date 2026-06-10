@@ -26,19 +26,21 @@ public final class AppModel {
         appsService = AppsService(client: client)
     }
 
-    /// One refresh cycle. Each call is independent and non-fatal: a failure marks
-    /// disconnected and clears the live fields rather than throwing.
+    /// One refresh cycle. Each call is independent and non-fatal: a /state
+    /// failure marks disconnected and clears the live fields rather than
+    /// throwing. The pomodoro endpoints 404 while that feature is disabled on
+    /// the server — that only blanks the timer/stats, never connectedness.
     public func refresh() async {
         guard let status, let pomodoro else { return }
+        async let snap = status.fetchSnapshot()
+        async let ps = pomodoro.state()
+        async let st = pomodoro.stats()
+        pomoState = try? await ps
+        stats = try? await st
         do {
-            async let snap = status.fetchSnapshot()
-            async let ps = pomodoro.state()
-            async let st = pomodoro.stats()
-            let (snapshot, pomo, stat) = try await (snap, ps, st)
+            let snapshot = try await snap
             sessions = snapshot.sessions
             winningSession = pickWinning(snapshot.sessions)
-            pomoState = pomo
-            stats = stat
             if let appsService { apps = (try? await appsService.list()) ?? apps }
             connected = true
         } catch {
