@@ -46,6 +46,10 @@ docker run -d --name ember --restart unless-stopped -p 8080:8080 \
     don't go hunting MQTT/other hosts. (`config.json` is a single-file bind
     mount — edit then `docker restart ember` to apply.)
 - Token: `openssl rand -hex 32 > ~/.config/ember/token`.
+- **mDNS discovery needs host networking.** The `-p 8080:8080` form above is fine
+  for everything except clock/server discovery (multicast doesn't cross the
+  bridge). For the discovery features, run with `--network host` and drop `-p`
+  (the production/Unraid path; see "Discovery & mDNS" and "Docker Hub release").
 - **When recreating the container, `docker inspect` it first** to replicate
   exact mount destinations / env names rather than reconstructing from memory.
 - **After any render-side change, rebuild + redeploy from current `main`** —
@@ -236,9 +240,13 @@ push path. Toggle a tool off via `PUT /v1/apps` and confirm its app is cleared.
 
 ## Docker Hub release
 
-`v0.1.0`–`v0.1.2` are published (public, multi-arch). The release workflow
+Releases are published on strict-semver `vX.Y.Z` tags (latest: `v0.2.0`),
+public + multi-arch. **A redeploy is release-driven: there is no `latest`-from-`main`
+auto-build** — you cut a Release, the workflow builds + pushes the image, then you
+repoint the container. The release workflow
 (`.github/workflows/docker-publish.yml`) fires when a strict-semver `vX.Y.Z`
-GitHub Release is published → multi-arch Docker Hub push (SBOM + provenance).
+GitHub Release is published (or a `workflow_dispatch` on a `vX.Y.Z` tag ref) →
+multi-arch Docker Hub push (SBOM + provenance).
 Requires repo var `DOCKERHUB_USERNAME` + secret `DOCKERHUB_TOKEN` — **set the
 token newline-safe** (`printf '%s' val | gh secret set DOCKERHUB_TOKEN`); a
 trailing newline causes a `malformed HTTP Authorization header` login failure.
@@ -249,8 +257,21 @@ To cut a release + repoint the live container:
 gh release create vX.Y.Z --target main --title vX.Y.Z --notes "…"   # triggers the workflow
 gh run watch <run-id> --exit-status                                  # multi-arch build ~2 min
 docker pull dtarakanov/ember:X.Y.Z
-docker rm -f ember && docker run -d --name ember … dtarakanov/ember:X.Y.Z   # same flags as `docker inspect ember`
+# recreate with HOST networking (required for mDNS discovery — see "Discovery
+# & mDNS"); drop any -p 8080:8080 mapping and make sure :8080 is free on the host.
+docker rm -f ember && docker run -d --name ember --restart unless-stopped \
+  --network host \
+  -e EMBER_TOKEN="$(cat ~/.config/ember/token)" \
+  -v ~/.config/ember/config.json:/etc/ember/config.json \
+  -v ember-pomodoro:/var/lib/ember \
+  dtarakanov/ember:X.Y.Z   # else replicate exact flags from `docker inspect ember`
 ```
+
+> On **Unraid** the bundled template (`deploy/unraid/ember.xml`) already sets
+> `Network: host`; after the new release, just bump the container's tag (or
+> "Force update" on `:latest`) and apply. Switching an existing bridge container
+> to host networking requires removing + re-adding it (network mode can't change
+> in place).
 
 Verify: `GET /version` reports `dirty:false`; `docker exec ember /ember doctor`
 all `[OK]`. For Unraid, see `README.md` → "Unraid install" + the
