@@ -19,7 +19,16 @@ public final class ServerDiscovery {
         }
     }
 
+    /// Why the discovered-servers list might be empty, so the UI can stop showing
+    /// an indefinite "Searching…" when the browse can't actually run.
+    public enum Status: Equatable, Sendable {
+        case searching     // browsing (or just started)
+        case needsAccess   // browse is waiting — usually Local Network access is off
+        case unavailable   // browse failed outright
+    }
+
     public private(set) var servers: [Found] = []
+    public private(set) var status: Status = .searching
     private var browser: NWBrowser?
     private var pending: [ObjectIdentifier: NWConnection] = [:]
 
@@ -27,9 +36,28 @@ public final class ServerDiscovery {
 
     public func start() {
         guard browser == nil else { return }
+        status = .searching
         let params = NWParameters()
         params.includePeerToPeer = false
         let b = NWBrowser(for: .bonjour(type: "_ember._tcp", domain: nil), using: params)
+        b.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor [weak self] in
+                switch state {
+                case .ready:
+                    self?.status = .searching
+                // A browse that can't proceed parks in .waiting — on a fresh build
+                // that's almost always missing Local Network access. Surface it so
+                // the UI can prompt instead of spinning forever. If results arrive
+                // anyway, the list is shown regardless of status.
+                case .waiting:
+                    self?.status = .needsAccess
+                case .failed:
+                    self?.status = .unavailable
+                default:
+                    break
+                }
+            }
+        }
         b.browseResultsChangedHandler = { [weak self] results, _ in
             let endpoints = results.compactMap { result -> (String, NWEndpoint)? in
                 if case let .service(name, _, _, _) = result.endpoint { return (name, result.endpoint) }
@@ -39,6 +67,13 @@ public final class ServerDiscovery {
         }
         b.start(queue: .main)
         browser = b
+    }
+
+    /// Tears down and restarts the browse — used by the "Rescan" button, e.g. after
+    /// the user grants Local Network access.
+    public func restart() {
+        stop()
+        start()
     }
 
     public func stop() {

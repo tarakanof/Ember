@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import EmberKit
 
 struct ConnectionTab: View {
@@ -58,10 +59,7 @@ struct ConnectionTab: View {
             }
 
             Section {
-                if env.serverDiscovery.servers.isEmpty {
-                    Label("Searching the local network…", systemImage: "antenna.radiowaves.left.and.right")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
+                if !env.serverDiscovery.servers.isEmpty {
                     ForEach(env.serverDiscovery.servers) { s in
                         Button {
                             serverURL = s.urlString
@@ -73,7 +71,29 @@ struct ConnectionTab: View {
                         }
                         .buttonStyle(.plain)
                     }
+                } else {
+                    switch env.serverDiscovery.status {
+                    case .needsAccess:
+                        Label("Local Network access needed", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption).foregroundStyle(.orange)
+                    case .unavailable:
+                        Label("Network discovery unavailable", systemImage: "wifi.exclamationmark")
+                            .font(.caption).foregroundStyle(.secondary)
+                    case .searching:
+                        Label("Searching the local network…", systemImage: "antenna.radiowaves.left.and.right")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    // macOS doesn't reliably signal a denied Local Network grant, so
+                    // whenever nothing is found, surface the grant path explicitly.
+                    Text("No server found? Ember needs Local Network access to discover one via Bonjour.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Button {
+                        openLocalNetworkSettings()
+                    } label: {
+                        Label("Grant Local Network Access…", systemImage: "lock.shield")
+                    }
                 }
+                Button("Rescan") { env.serverDiscovery.restart() }
             } header: {
                 Text("Discovered servers")
             } footer: {
@@ -201,6 +221,14 @@ struct ConnectionTab: View {
             }
         } catch {
             testResult = "✗ \(error.localizedDescription)"
+        }
+    }
+
+    /// Opens System Settings at the Local Network privacy pane so the user can
+    /// enable Ember (needed for Bonjour server discovery).
+    private func openLocalNetworkSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork") {
+            NSWorkspace.shared.open(url)
         }
     }
 }
