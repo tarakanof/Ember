@@ -6,6 +6,8 @@ import EmberKit
 /// colour back as uppercase "#RRGGBB" on change.
 struct ColorHexPicker: View {
     let title: String
+    var symbol: String? = nil
+    var tint: Color = .gray
     @Binding var hex: String
 
     private var colorBinding: Binding<Color> {
@@ -16,6 +18,12 @@ struct ColorHexPicker: View {
     }
 
     var body: some View {
-        ColorPicker(title, selection: colorBinding, supportsOpacity: false)
+        ColorPicker(selection: colorBinding, supportsOpacity: false) {
+            if let symbol {
+                RowLabel(title, symbol: symbol, tint: tint)
+            } else {
+                Text(title)
+            }
+        }
     }
 }
