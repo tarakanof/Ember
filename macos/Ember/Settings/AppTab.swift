@@ -51,7 +51,7 @@ struct AppTab: View {
 
             Section("About") {
                 LabeledContent("App version") { Text(appVersion).foregroundStyle(.secondary) }
-                LabeledContent("Server") { Text(serverVersion ?? "—").foregroundStyle(.secondary) }
+                LabeledContent("Server version") { Text(serverVersion ?? "—").foregroundStyle(.secondary) }
             }
         }
         .formStyle(.grouped)
