@@ -178,7 +178,7 @@ struct DeviceTab: View {
             } else {
                 Text("No button presses seen yet").font(.caption).foregroundStyle(.secondary)
             }
-            if let cb = buttons?.expectedCallback, !cb.isEmpty {
+            if let cb = expectedCallback {
                 LabeledContent("Expected callback") {
                     Text(cb).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                 }
@@ -189,7 +189,7 @@ struct DeviceTab: View {
                     Label("Copy callback URL", systemImage: "doc.on.doc")
                 }
             }
-            if let base = config?.baseURL, let url = URL(string: base) {
+            if let url = fileManagerURL {
                 Button {
                     NSWorkspace.shared.open(url)
                 } label: {
@@ -199,9 +199,30 @@ struct DeviceTab: View {
         } header: {
             Text("Buttons")
         } footer: {
-            Text("Drive Pomodoro from the clock's physical buttons. If they don't respond, set button_callback to the URL above in the clock's file manager (dev.json), then reboot the clock.")
+            Text("Drive Pomodoro from the clock's physical buttons. If they don't respond, set button_callback to the Expected callback URL above in the clock's file manager (dev.json), then reboot the clock.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    /// The clock's button_callback should point at the Ember server. Prefer the
+    /// server-reported value (the clock's-eye address); fall back to deriving it
+    /// from the configured server URL so it shows even against an older server
+    /// that lacks /v1/device/buttons.
+    private var expectedCallback: String? {
+        if let s = buttons?.expectedCallback, !s.isEmpty { return s }
+        let su = env.currentEnv().get(SettingsKeys.serverURL).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !su.isEmpty else { return nil }
+        return trimSlash(su) + "/hooks/awtrix/button"
+    }
+
+    /// The AWTRIX file editor lives at <clock>/edit (where dev.json is edited).
+    private var fileManagerURL: URL? {
+        guard let base = config?.baseURL, !base.isEmpty else { return nil }
+        return URL(string: trimSlash(base) + "/edit")
+    }
+
+    private func trimSlash(_ s: String) -> String {
+        s.hasSuffix("/") ? String(s.dropLast()) : s
     }
 
     private func agoText(_ s: Int) -> String {
