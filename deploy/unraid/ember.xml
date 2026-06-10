@@ -3,7 +3,12 @@
   <Name>ember</Name>
   <Repository>dtarakanov/ember:latest</Repository>
   <Registry>https://hub.docker.com/r/dtarakanov/ember</Registry>
-  <Network>bridge</Network>
+  <!-- Host networking is required: clock + server mDNS discovery (and the
+       _ember._tcp advertisement) need multicast, which does not cross the
+       default Docker bridge. With host networking the server binds the host's
+       :8080 directly (ensure it's free); the WebUI Port config below is then
+       informational. Set EMBER_MDNS_ADVERTISE=0 to disable advertising. -->
+  <Network>host</Network>
   <MyIP/>
   <!-- No <Shell> element: distroless image has no shell. Unraid's Console
        icon would invoke `docker exec -it ... sh` and fail; verification
@@ -52,7 +57,7 @@ See https://github.com/tarakanof/ember for full documentation.
 
   <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp" Description="Server HTTP port" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
 
-  <Config Name="Config dir" Target="/etc/ember" Default="/mnt/user/appdata/ember" Mode="ro" Description="Bind mount; on first start copy config.example.json from the repo into this folder as config.json and edit awtrix.http_base_url to match your device." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ember</Config>
+  <Config Name="Config dir" Target="/etc/ember" Default="/mnt/user/appdata/ember" Mode="ro" Description="Bind mount; on first start copy config.example.json from the repo into this folder as config.json and set awtrix.http_base_url to your device (or leave it blank — on host networking Ember auto-discovers the clock via mDNS)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ember</Config>
 
   <Config Name="EMBER_TOKEN" Target="EMBER_TOKEN" Default="" Mode="" Description="Bearer token producers must send on /v1/* writes. Choose anything random; copy it to your producer hosts." Type="Variable" Display="always" Required="true" Mask="true"/>
 
