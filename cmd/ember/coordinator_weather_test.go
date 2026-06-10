@@ -76,6 +76,49 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 	}
 }
 
+// After a server restart the in-memory push trackers start empty, but ember-
+// managed custom apps from the previous run are still on the device. Adopting
+// the device's app loop must let the reconcilers clear the ones no longer
+// wanted (here: weather disabled), without touching the base/native apps.
+func TestAdoptClearsStaleManagedAppsAfterRestart(t *testing.T) {
+	pub := &recordingPublisher{loopApps: []string{
+		"Time", "ember", "ember-weather", "ember-forecast", "ember-usage-claude-5h",
+	}}
+	cfg := defaultConfig()
+	cfg.Weather.applyDefaults()
+	cfg.Weather.Enabled = false // weather off → its tiles should be cleared
+	app := NewApp(cfg, pub, testLogger())
+	c := app.coord
+	now := time.Now()
+
+	if !c.adoptDeviceManagedApps() {
+		t.Fatal("adopt should succeed when the device loop is readable")
+	}
+	c.reconcileWeatherApp(now)
+	c.reconcileForecastApp(now)
+	c.reconcileUsageApps(now, Snapshot{})
+
+	cleared := pub.ClearedAppsSnapshot()
+	for _, want := range []string{"ember-weather", "ember-forecast", "ember-usage-claude-5h"} {
+		found := false
+		for _, c := range cleared {
+			if c == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected %q to be cleared after adopt, got %v", want, cleared)
+		}
+	}
+	for _, keep := range []string{"ember", "Time"} {
+		for _, c := range cleared {
+			if c == keep {
+				t.Errorf("base/native app %q must never be cleared, got %v", keep, cleared)
+			}
+		}
+	}
+}
+
 func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 	now := time.Now()
 	// Forecast tile turned off → nothing pushed even with hourly data.

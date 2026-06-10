@@ -417,6 +417,7 @@ func (p *fakePublisher) CustomApp(ctx context.Context, name string, payload map[
 	return p.customAppErr
 }
 func (p *fakePublisher) ClearApp(ctx context.Context, name string) error { return nil }
+func (p *fakePublisher) ListApps(ctx context.Context) ([]string, error)  { return nil, nil }
 func (p *fakePublisher) Notify(ctx context.Context, payload map[string]any) error {
 	return p.notifyErr
 }

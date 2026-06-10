@@ -1155,6 +1155,11 @@ type Publisher interface {
 	// /api/custom?name=…). Used by the usage-app reconcile to drop stale/hidden
 	// apps.
 	ClearApp(ctx context.Context, name string) error
+	// ListApps returns the names of every app currently in the device's
+	// rotation (GET /api/loop), native and custom alike. Used on startup to
+	// adopt ember-managed custom apps left from a previous run so they can be
+	// reconciled/cleared even though the in-memory push trackers start empty.
+	ListApps(ctx context.Context) ([]string, error)
 	Notify(ctx context.Context, payload map[string]any) error
 	// DismissNotify clears the currently-shown notification (POST
 	// /api/notify/dismiss). Used to acknowledge a held reminder alarm when the
@@ -1215,6 +1220,37 @@ func (p *HTTPPublisher) ClearApp(ctx context.Context, name string) error {
 		return err
 	}
 	return p.postJSON(ctx, client, base+"/api/custom?name="+url.QueryEscape(name), map[string]any{})
+}
+
+// ListApps fetches the device's app rotation (GET /api/loop) and returns the
+// app names. The firmware responds with a JSON object mapping each app name to
+// its rotation index; we only need the keys.
+func (p *HTTPPublisher) ListApps(ctx context.Context) ([]string, error) {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/loop", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("device /api/loop: status %d", resp.StatusCode)
+	}
+	var loop map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&loop); err != nil {
+		return nil, fmt.Errorf("device /api/loop: %w", err)
+	}
+	names := make([]string, 0, len(loop))
+	for name := range loop {
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) error {

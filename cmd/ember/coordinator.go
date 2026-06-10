@@ -144,6 +144,13 @@ type coordinator struct {
 	pushedWeather  *pushedUsageApp
 	pushedForecast *pushedUsageApp
 
+	// adoptedApps records whether we've seeded the push trackers from the
+	// device's actual app loop yet (once per process, on the first reachable
+	// tick). Until then ember-managed apps left on the device by a previous run
+	// are invisible to the reconcilers and never get cleared. See
+	// adoptDeviceManagedApps.
+	adoptedApps bool
+
 	// lastPayloadBytes + lastPublishedAt dedupe identical re-publishes
 	// within a window shorter than the AWTRIX app lifetime. Every
 	// re-POST to /api/custom resets the firmware app's render state,
@@ -408,6 +415,12 @@ func (c *coordinator) onTick() {
 	if c.snapshot == nil {
 		return
 	}
+	// Once per process, adopt the ember-managed apps already on the device so the
+	// reconciles below can clear any left over from a previous run (retried on a
+	// later tick if the device is unreachable now).
+	if !c.adoptedApps {
+		c.adoptedApps = c.adoptDeviceManagedApps()
+	}
 	snap := c.filteredSnapshot()
 	keys := render.SortedActiveKeys(snap)
 
@@ -473,6 +486,50 @@ func (c *coordinator) onTick() {
 	c.reconcileUsageApps(c.clk.Now(), snap)
 	c.reconcileWeatherApp(c.clk.Now())
 	c.reconcileForecastApp(c.clk.Now())
+}
+
+// adoptDeviceManagedApps seeds the in-memory push trackers from the apps
+// actually present on the device, so ember-managed custom apps (weather,
+// forecast, usage) left over from a previous process can be reconciled — and
+// cleared when no longer wanted — even though the trackers start empty after a
+// restart. Each adopted entry is seeded as stale (zero payload + time) so the
+// normal reconcile re-pushes it if still desired, or clears it if not. The base
+// rotating app and native apps (Time, etc.) are deliberately left untouched.
+// Returns false if the device loop can't be read, so the caller retries on a
+// later tick once the device is reachable. Runs on the coordinator goroutine.
+func (c *coordinator) adoptDeviceManagedApps() bool {
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	names, err := c.publisher.ListApps(ctx)
+	if err != nil {
+		c.logger.Warn("device app loop read failed; deferring adopt", "err", err)
+		return false
+	}
+	baseApp := c.loadCfg().AWTRIX.AppName
+	for _, name := range names {
+		switch {
+		case name == baseApp:
+			// The main rotating app is owned by publish(), not the reconcilers.
+		case name == "ember-weather":
+			if c.pushedWeather == nil {
+				c.pushedWeather = &pushedUsageApp{}
+			}
+		case name == "ember-forecast":
+			if c.pushedForecast == nil {
+				c.pushedForecast = &pushedUsageApp{}
+			}
+		case strings.HasPrefix(name, "ember-usage-"):
+			if c.pushedUsageApps == nil {
+				c.pushedUsageApps = map[string]pushedUsageApp{}
+			}
+			if _, ok := c.pushedUsageApps[name]; !ok {
+				c.pushedUsageApps[name] = pushedUsageApp{}
+			}
+		}
+	}
+	return true
 }
 
 // weatherTileStaleTTL clears the weather tile if no fresh observation arrived
