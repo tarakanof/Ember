@@ -55,7 +55,6 @@ struct PomodoroTab: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Pomodoro")
         .toolbar {
             ToolbarItem { Button("Reload from server") { Task { await load() } } }
         }

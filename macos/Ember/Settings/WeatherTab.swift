@@ -104,7 +104,6 @@ struct WeatherTab: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Weather")
         .toolbar {
             ToolbarItem { Button("Reload from server") { Task { await load() } } }
         }

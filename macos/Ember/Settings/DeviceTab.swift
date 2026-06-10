@@ -20,6 +20,7 @@ struct DeviceTab: View {
     @State private var discovered: [DiscoveredClock] = []
     @State private var discovering = false
     @State private var buttons: ButtonStatus?
+    @State private var clockExpanded = false
 
     private let overlays = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"]
 
@@ -39,13 +40,30 @@ struct DeviceTab: View {
             generalSection
             nativeAppsSection
             timeDateSection
-            actionsSection
             buttonsSection
         }
         .formStyle(.grouped)
-        .navigationTitle("Device")
         .disabled(loadError != nil && !loaded)
         .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
+                Button { Task { await perform { try await env.device.previousApp() } } } label: {
+                    Image(systemName: "chevron.backward")
+                }
+                .help("Previous app")
+                Button { Task { await perform { try await env.device.nextApp() } } } label: {
+                    Image(systemName: "chevron.forward")
+                }
+                .help("Next app")
+                Button { Task { await perform { try await env.device.dismiss() } } } label: {
+                    Image(systemName: "bell.slash.fill")
+                }
+                .help("Dismiss notification")
+                Button(role: .destructive) { confirmReboot = true } label: {
+                    Image(systemName: "power")
+                }
+                .help("Reboot clock")
+            }
+            ToolbarItem { statusCaption }
             ToolbarItem { Button("Reload from clock") { Task { await load() } } }
         }
         .task {
@@ -80,7 +98,7 @@ struct DeviceTab: View {
     }
 
     @ViewBuilder private var clockSection: some View {
-        Section {
+        Section(isExpanded: $clockExpanded) {
             LabeledContent { Text(config?.baseURL ?? "—").foregroundStyle(.secondary) } label: {
                 RowLabel("Address", symbol: "globe", tint: .blue)
             }
@@ -115,11 +133,10 @@ struct DeviceTab: View {
                 }
                 .buttonStyle(.plain)
             }
-        } header: {
-            Text("Clock")
-        } footer: {
             Text("Ember auto-discovers the clock via mDNS. Use “Discover clocks” to pick a specific one; your choice is saved on the server and overrides auto-discovery.")
                 .font(.caption).foregroundStyle(.secondary)
+        } header: {
+            Text("Clock")
         }
     }
 
@@ -216,36 +233,6 @@ struct DeviceTab: View {
             ColorHexPicker(title: "Inactive weekday", symbol: "circle", tint: .gray, hex: s(\.wdci, "#666666"))
         } header: {
             Text("Time & Date")
-        }
-    }
-
-    @ViewBuilder private var actionsSection: some View {
-        Section {
-            LabeledContent {
-                HStack(spacing: 8) {
-                    Button { Task { await perform { try await env.device.previousApp() } } } label: {
-                        Image(systemName: "chevron.backward")
-                    }
-                    .help("Previous app")
-                    Button { Task { await perform { try await env.device.nextApp() } } } label: {
-                        Image(systemName: "chevron.forward")
-                    }
-                    .help("Next app")
-                }
-                .buttonStyle(.bordered)
-            } label: {
-                RowLabel("Switch app", symbol: "rectangle.on.rectangle", tint: .blue)
-            }
-            Button { Task { await perform { try await env.device.dismiss() } } } label: {
-                RowLabel("Dismiss notification", symbol: "bell.slash.fill", tint: .gray)
-            }
-            Button(role: .destructive) { confirmReboot = true } label: {
-                RowLabel("Reboot clock", symbol: "power", tint: .red)
-            }
-        } header: {
-            Text("Actions")
-        } footer: {
-            statusCaption
         }
     }
 

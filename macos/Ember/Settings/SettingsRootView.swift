@@ -12,11 +12,11 @@ struct SettingsRootView: View {
                 Label(pane.title, systemImage: pane.systemImage)
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 220)
-            .navigationTitle("Ember Settings")
         } detail: {
             detail(for: selection ?? .connection)
                 .frame(minWidth: 460, idealWidth: 500, minHeight: 360)
         }
+        .toolbar(removing: .title)
     }
 
     @ViewBuilder

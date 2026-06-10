@@ -57,7 +57,6 @@ struct RemindersTab: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Reminders")
         // Re-read the status when the tab appears so a change made in System
         // Settings (or another launch's grant) is reflected without a relaunch.
         .task { env.reminderWatcher.refreshAuthorization() }

@@ -55,7 +55,6 @@ struct AppTab: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("App")
         .task { serverVersion = await env.serverVersion() }
     }
 
