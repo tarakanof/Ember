@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/brutella/dnssd"
@@ -71,11 +72,27 @@ func Reachable(ctx context.Context, cl *http.Client, baseURL string) (string, bo
 	return p.Version, ok
 }
 
+// filterCandidates probes every resolved host concurrently and keeps the AWTRIX
+// ones. Probing in parallel (each bounded by the client timeout) keeps the total
+// phase ≈ one probe regardless of how many _http._tcp hosts the LAN advertises.
+// Results are index-ordered so output is deterministic.
 func filterCandidates(ctx context.Context, cl *http.Client, svcs []service) []Candidate {
-	var out []Candidate
-	for _, s := range svcs {
-		if p, ok := probe(ctx, cl, s.baseURL); ok {
-			out = append(out, Candidate{Host: s.host, BaseURL: s.baseURL, UID: p.UID, Version: p.Version})
+	found := make([]*Candidate, len(svcs))
+	var wg sync.WaitGroup
+	for i, s := range svcs {
+		wg.Add(1)
+		go func(i int, s service) {
+			defer wg.Done()
+			if p, ok := probe(ctx, cl, s.baseURL); ok {
+				found[i] = &Candidate{Host: s.host, BaseURL: s.baseURL, UID: p.UID, Version: p.Version}
+			}
+		}(i, s)
+	}
+	wg.Wait()
+	out := make([]Candidate, 0, len(svcs))
+	for _, c := range found {
+		if c != nil {
+			out = append(out, *c)
 		}
 	}
 	return out
@@ -129,6 +146,11 @@ func BrowseAWTRIX(ctx context.Context, timeout time.Duration) ([]Candidate, erro
 	for _, s := range seen {
 		svcs = append(svcs, s)
 	}
+	// Bound the probe phase separately: bctx is already spent on the lookup, so
+	// reusing it would fail every probe. A fresh short budget caps total
+	// discovery (lookup window + probe window) instead of running unbounded.
+	pctx, pcancel := context.WithTimeout(ctx, 2*time.Second)
+	defer pcancel()
 	cl := &http.Client{Timeout: 1500 * time.Millisecond}
-	return filterCandidates(ctx, cl, svcs), nil
+	return filterCandidates(pctx, cl, svcs), nil
 }

@@ -18,15 +18,19 @@ func TestValidateDeviceSettings(t *testing.T) {
 		t.Fatalf("valid settings rejected: %v", err)
 	}
 	bad := []map[string]any{
-		{"BRI": float64(999)},                // out of range
-		{"VOL": float64(-1)},                 // out of range
-		{"NOPE": true},                       // unknown key
-		{"ABRI": "yes"},                      // wrong type
-		{"TCOL": "purple"},                   // bad color
-		{"TMODE": float64(9)},                // out of range
-		{"BRI": float64(12.5)},               // non-integer
-		{"OVERLAY": "rainbow"},               // not in enum
-		{"TFORMAT": strings.Repeat("x", 32)}, // too long
+		{"BRI": float64(999)},                                  // out of range
+		{"VOL": float64(-1)},                                   // out of range
+		{"NOPE": true},                                         // unknown key
+		{"ABRI": "yes"},                                        // wrong type
+		{"TCOL": "purple"},                                     // bad color
+		{"TMODE": float64(9)},                                  // out of range
+		{"BRI": float64(12.5)},                                 // non-integer
+		{"OVERLAY": "rainbow"},                                 // not in enum
+		{"TFORMAT": strings.Repeat("x", 32)},                   // too long
+		{"CHCOL": []any{float64(255), float64(0)}},             // 2-element array
+		{"CHCOL": []any{float64(300), float64(0), float64(0)}}, // component out of range
+		{"CHCOL": []any{float64(1), float64(2), float64(3), float64(4)}}, // 4-element array
+		{"CHCOL": []any{float64(1.5), float64(0), float64(0)}},           // non-integer component
 	}
 	for i, b := range bad {
 		if err := validateDeviceSettings(b); err == nil {
@@ -108,6 +112,35 @@ func TestDeviceActionsProxy(t *testing.T) {
 	joined := strings.Join(hits, ",")
 	if !strings.Contains(joined, "/api/reboot") || !strings.Contains(joined, "/api/notify/dismiss") {
 		t.Fatalf("device endpoints hit: %v", hits)
+	}
+}
+
+func TestDeviceProxyMapsDeviceErrorTo502(t *testing.T) {
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer dev.Close()
+	a := newTestAppWithStore(t)
+	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+		t.Fatal(err)
+	}
+	// GET maps a device 500 to 502.
+	gw := httptest.NewRecorder()
+	a.handleDeviceSettingsGet(gw, httptest.NewRequest("GET", "/v1/device/settings", nil))
+	if gw.Code != http.StatusBadGateway {
+		t.Fatalf("get code=%d want 502", gw.Code)
+	}
+	// PUT (valid body) maps a device 500 to 502.
+	pw := httptest.NewRecorder()
+	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"BRI":120}`)))
+	if pw.Code != http.StatusBadGateway {
+		t.Fatalf("put code=%d want 502", pw.Code)
+	}
+	// Reboot maps a device 500 to 502.
+	rw := httptest.NewRecorder()
+	a.handleDeviceReboot(rw, httptest.NewRequest("POST", "/v1/device/reboot", nil))
+	if rw.Code != http.StatusBadGateway {
+		t.Fatalf("reboot code=%d want 502", rw.Code)
 	}
 }
 

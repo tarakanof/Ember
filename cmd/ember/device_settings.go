@@ -193,7 +193,7 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 	var m map[string]any
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&m); err != nil {
+	if err := decodeJSON(w, r, &m, false); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

@@ -452,8 +452,9 @@ type App struct {
 	// deviceBaseline is the clock URL from config.json captured at boot, before
 	// any store override or auto-discovery. deviceSource() uses it to tell
 	// "config" from "discovered". browseFn is the mDNS browse, overridable in tests.
-	deviceBaseline string
-	browseFn       func(context.Context, time.Duration) ([]discovery.Candidate, error)
+	deviceBaseline   string
+	deviceAutoPicked bool // set once at boot when discovery chose the clock URL
+	browseFn         func(context.Context, time.Duration) ([]discovery.Candidate, error)
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {

@@ -53,12 +53,16 @@ func (a *App) deviceSource() string {
 	}
 	cur := a.cfg.Load().AWTRIX.HTTPBaseURL
 	switch {
-	case cur != "" && cur == a.deviceBaseline:
-		return "config"
-	case cur != "":
-		return "discovered"
-	default:
+	case cur == "":
 		return "none"
+	case a.deviceAutoPicked:
+		// Discovery set this URL at boot — even if it happens to equal the
+		// (unreachable) config.json baseline, it was reached via discovery.
+		return "discovered"
+	case cur == a.deviceBaseline:
+		return "config"
+	default:
+		return "discovered"
 	}
 }
 
@@ -87,6 +91,7 @@ func (a *App) initDeviceDiscovery(ctx context.Context) {
 	cur := *a.cfg.Load()
 	cur.AWTRIX.HTTPBaseURL = cands[0].BaseURL
 	a.cfg.Store(&cur) // in-memory only; not persisted
+	a.deviceAutoPicked = true
 	a.logger.Info("clock auto-discovered", "base_url", cands[0].BaseURL, "uid", cands[0].UID)
 }
 
