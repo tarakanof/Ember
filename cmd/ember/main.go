@@ -499,6 +499,11 @@ type App struct {
 	deviceBaseline   string
 	deviceAutoPicked bool // set once at boot when discovery chose the clock URL
 	browseFn         func(context.Context, time.Duration) ([]discovery.Candidate, error)
+
+	// lastButtonAt is the unix-seconds time of the most recent device button
+	// POST to /hooks/awtrix/button (0 = never). Proves the clock's button_callback
+	// reaches us; surfaced via GET /v1/device/buttons.
+	lastButtonAt atomic.Int64
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -879,6 +884,7 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/device/stats", rateLimit(a, http.HandlerFunc(a.handleDeviceStats)))
 	writeMux.Handle("POST /v1/device/reboot", rateLimit(a, http.HandlerFunc(a.handleDeviceReboot)))
 	writeMux.Handle("POST /v1/device/notify/dismiss", rateLimit(a, http.HandlerFunc(a.handleDeviceDismiss)))
+	writeMux.Handle("GET /v1/device/buttons", rateLimit(a, http.HandlerFunc(a.handleDeviceButtons)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
 	adminMux := http.NewServeMux()

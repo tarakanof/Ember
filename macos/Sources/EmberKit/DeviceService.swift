@@ -31,4 +31,7 @@ public struct DeviceService: Sendable {
     public func discover() async throws -> DiscoverResult {
         try await client.get("/v1/device/discover")
     }
+    public func buttons() async throws -> ButtonStatus {
+        try await client.get("/v1/device/buttons")
+    }
 }

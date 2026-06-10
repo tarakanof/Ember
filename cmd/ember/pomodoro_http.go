@@ -387,6 +387,10 @@ const pomoChordWindow = 1500 * time.Millisecond
 // right=skip (on release, so a chord can pre-empt them); left+right held
 // together=toggle start/stop (synthesised, since the firmware has no chord).
 func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
+	// Record receipt before any early-return: a POST landing here at all proves
+	// the clock's button_callback is configured + reaching us (surfaced via
+	// GET /v1/device/buttons), independent of whether Pomodoro acts on it.
+	a.lastButtonAt.Store(time.Now().Unix())
 	if a.engine == nil || !a.cfg.Load().Pomodoro.ButtonCallback {
 		w.WriteHeader(http.StatusOK) // accept-and-ignore; device keeps posting
 		return
