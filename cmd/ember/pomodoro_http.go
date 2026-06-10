@@ -377,10 +377,15 @@ func (a *App) loadPersistedPomodoroSettings() {
 	}
 }
 
+// pomoChordWindow bounds how far apart the two presses of a left+right "chord"
+// may be, and expires a held edge whose release was lost.
+const pomoChordWindow = 1500 * time.Millisecond
+
 // handleAwtrixButton ingests device button-callback POSTs (form-encoded:
 // button, state, uid). Unauthenticated by design — the device cannot send a
-// bearer token. Acts only on press-down (state=1): middle=pause/resume,
-// right=skip, left=stop.
+// bearer token. Mapping: middle=pause/resume/start (on press); left=stop and
+// right=skip (on release, so a chord can pre-empt them); left+right held
+// together=toggle start/stop (synthesised, since the firmware has no chord).
 func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	if a.engine == nil || !a.cfg.Load().Pomodoro.ButtonCallback {
 		w.WriteHeader(http.StatusOK) // accept-and-ignore; device keeps posting
@@ -390,18 +395,16 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if r.PostFormValue("state") != "1" {
-		w.WriteHeader(http.StatusOK) // ignore release edges
-		return
-	}
 	now := time.Now()
 	button := r.PostFormValue("button")
-	// If a hold:true reminder alarm is currently on the clock, this press is the
-	// user acknowledging it — don't drive Pomodoro. The firmware's own dismissal
-	// doesn't run while a button callback is configured, so the server dismisses
-	// the notification itself; the middle/select press disarms the window.
+	down := r.PostFormValue("state") == "1"
+
+	// While a hold:true reminder alarm is on the clock, any button edge is the
+	// user acknowledging it — not a Pomodoro action. The firmware's own dismissal
+	// doesn't run with a button callback configured, so the server dismisses the
+	// notification itself; a middle/select press disarms the window.
 	if held := a.reminderHeldUntil.Load(); held != 0 && now.UnixNano() < held {
-		if button == "middle" || button == "select" {
+		if down && (button == "middle" || button == "select") {
 			a.reminderHeldUntil.Store(0)
 			if a.publisher != nil {
 				if err := a.publisher.DismissNotify(r.Context()); err != nil {
@@ -412,17 +415,87 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+
+	acted := false
 	switch button {
 	case "middle", "select":
-		st := a.engine.Status(now)
-		switch {
-		case st.Running && !st.Paused:
-			a.engine.Pause(now)
-		case st.Phase == pomodoro.PhaseIdle:
-			a.engine.Start(pomodoro.PhaseFocus) // idle → begin a focus block
-		default:
-			a.engine.Resume(now) // paused or parked → resume/start
+		if down {
+			a.pomoMiddlePress(now)
+			acted = true
 		}
+	case "left", "right":
+		acted = a.pomoSideButton(button, down, now)
+	}
+	if acted {
+		a.nudgePomo()
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// pomoMiddlePress is the middle/select play-pause: running→pause, idle→start
+// focus, paused/parked→resume.
+func (a *App) pomoMiddlePress(now time.Time) {
+	st := a.engine.Status(now)
+	switch {
+	case st.Running && !st.Paused:
+		a.engine.Pause(now)
+	case st.Phase == pomodoro.PhaseIdle:
+		a.engine.Start(pomodoro.PhaseFocus)
+	default:
+		a.engine.Resume(now)
+	}
+}
+
+// pomoSideButton processes a left/right edge, synthesising a simultaneous
+// left+right chord (toggle start/stop) from the per-button press state. Single
+// actions (left=stop, right=skip) fire on release so a chord pre-empts them.
+// Returns whether the engine state changed. btnMu guards the edge state.
+func (a *App) pomoSideButton(button string, down bool, now time.Time) bool {
+	a.btnMu.Lock()
+	// Expire stale holds (a lost release edge) so they can't trigger phantom
+	// chords or wedge the chord flag.
+	if !a.btnLeftDown.IsZero() && now.Sub(a.btnLeftDown) > pomoChordWindow {
+		a.btnLeftDown = time.Time{}
+	}
+	if !a.btnRightDown.IsZero() && now.Sub(a.btnRightDown) > pomoChordWindow {
+		a.btnRightDown = time.Time{}
+	}
+	if a.btnLeftDown.IsZero() && a.btnRightDown.IsZero() {
+		a.btnChord = false
+	}
+
+	if down {
+		if button == "left" {
+			a.btnLeftDown = now
+		} else {
+			a.btnRightDown = now
+		}
+		bothHeld := !a.btnLeftDown.IsZero() && !a.btnRightDown.IsZero()
+		if bothHeld && !a.btnChord {
+			a.btnChord = true
+			a.btnMu.Unlock()
+			a.pomoChordToggle(now)
+			return true
+		}
+		a.btnMu.Unlock()
+		return false // single action waits for release; or the chord's 2nd press
+	}
+
+	// Release edge.
+	if button == "left" {
+		a.btnLeftDown = time.Time{}
+	} else {
+		a.btnRightDown = time.Time{}
+	}
+	wasChord := a.btnChord
+	if a.btnLeftDown.IsZero() && a.btnRightDown.IsZero() {
+		a.btnChord = false
+	}
+	a.btnMu.Unlock()
+	if wasChord {
+		return false // this release belongs to a chord; suppress the single action
+	}
+	switch button {
 	case "right":
 		if res := a.engine.Skip(now); res != nil {
 			a.recordPhase(res, now)
@@ -432,6 +505,17 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 			a.recordPhase(res, now)
 		}
 	}
-	a.nudgePomo()
-	w.WriteHeader(http.StatusOK)
+	return true
+}
+
+// pomoChordToggle is the left+right chord action: start a focus block when
+// idle, otherwise stop (the "start / disable" toggle).
+func (a *App) pomoChordToggle(now time.Time) {
+	if a.engine.Status(now).Phase == pomodoro.PhaseIdle {
+		a.engine.Start(pomodoro.PhaseFocus)
+		return
+	}
+	if res := a.engine.Stop(now); res != nil {
+		a.recordPhase(res, now)
+	}
 }

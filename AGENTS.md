@@ -55,8 +55,10 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}`,
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/weather/config`,
 `POST /v1/reminders/fire`. Read (no auth): `GET /state`, `GET /healthz`,
-`GET /v1/preview`, `GET /v1/pomodoro/{state,stats}`. Operator: `/admin/doctor`, `/admin/reload`,
-`/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`.
+`GET /v1/preview`, `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
+`GET /v1/pomodoro/dashboard` (HTML). Operator: `/admin/doctor`, `/admin/reload`,
+`/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`
+(middle=play/pause on press; left=stop, right=skip on release; left+right held=toggle).
 
 Full behavior (staleness, render priority, the coordinator, display hold) is in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).

@@ -459,6 +459,15 @@ type App struct {
 	// button) rather than a Pomodoro action — the middle press disarms it. 0 = none.
 	reminderHeldUntil atomic.Int64
 
+	// btnMu guards the left/right press-edge state used to synthesise a
+	// simultaneous left+right "chord" (the firmware has no native chord). A
+	// chord toggles Pomodoro start/stop; the individual left/right actions fire
+	// on release so a chord can pre-empt them.
+	btnMu        sync.Mutex
+	btnLeftDown  time.Time // zero when up
+	btnRightDown time.Time // zero when up
+	btnChord     bool      // a chord fired and is still being released
+
 	appsMu     sync.Mutex      // guards hiddenApps
 	hiddenApps map[string]bool // tool names hidden from the device display
 
