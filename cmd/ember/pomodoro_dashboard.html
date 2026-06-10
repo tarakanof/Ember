@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ember · Pomodoro</title>
+<style>
+  :root {
+    --bg: #0f1115; --card: #181b22; --line: #262b35; --ink: #e6e9ef;
+    --dim: #8b93a3; --focus: #ff463a; --break: #2ee85e; --accent: #5b8cff;
+    --warm0: #1d2230; --warm1: #3a2b1f; --warm2: #6b3a1c; --warm3: #b85a18; --warm4: #ff8a1f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0; font-weight: 650; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 0 0 12px; font-weight: 600; }
+  .sub { color: var(--dim); font-size: 13px; }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); align-items: start; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card.wide { grid-column: 1 / -1; }
+  .big { font-size: 30px; font-weight: 700; line-height: 1.1; }
+  .row { display: flex; gap: 22px; flex-wrap: wrap; }
+  .stat { display: flex; flex-direction: column; gap: 2px; }
+  .stat .k { color: var(--dim); font-size: 12px; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .ok { background: rgba(46,232,94,.14); color: var(--break); }
+  .no { background: rgba(255,70,58,.14); color: var(--focus); }
+  svg { display: block; overflow: visible; }
+  .muted { color: var(--dim); }
+  .legend { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12px; margin-top: 10px; }
+  .legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  footer { color: var(--dim); font-size: 12px; margin-top: 22px; }
+  a { color: var(--accent); }
+  .err { background: rgba(255,70,58,.1); border: 1px solid var(--focus); color: #ffb4ae; padding: 12px 14px; border-radius: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🍅 Pomodoro</h1>
+  <span class="sub" id="subhead">loading…</span>
+</header>
+<div id="err"></div>
+<div class="grid" id="grid"></div>
+<footer>
+  Served by Ember · all stats computed server-side ·
+  <span id="meta"></span>
+</footer>
+
+<script>
+"use strict";
+const $ = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content.firstChild; };
+const fmtMin = (m) => { m = Math.round(m); const h = Math.floor(m / 60), r = m % 60; return h ? `${h}h ${r}m` : `${r}m`; };
+const fmtClock = (iso) => { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); };
+const pct = (x) => Math.round(x * 100);
+const SVGNS = "http://www.w3.org/2000/svg";
+function svg(w, h) { const s = document.createElementNS(SVGNS, "svg"); s.setAttribute("viewBox", `0 0 ${w} ${h}`); s.setAttribute("width", "100%"); return s; }
+function el(name, attrs, parent) { const e = document.createElementNS(SVGNS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+
+async function getJSON(path) {
+  const r = await fetch(path, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`${path} → HTTP ${r.status}`);
+  return r.json();
+}
+
+// ---- chart builders ---------------------------------------------------------
+
+function card(title, body, wide) {
+  const c = $(`<div class="card${wide ? " wide" : ""}"><h2>${title}</h2></div>`);
+  if (body) c.appendChild(body);
+  return c;
+}
+
+// Progress ring: value/goal as an arc.
+function ring(value, goal, label, met) {
+  const size = 120, r = 48, cx = size / 2, cy = size / 2, C = 2 * Math.PI * r;
+  const frac = goal > 0 ? Math.min(1, value / goal) : 0;
+  const s = svg(size, size);
+  el("circle", { cx, cy, r, fill: "none", stroke: "var(--line)", "stroke-width": 12 }, s);
+  el("circle", {
+    cx, cy, r, fill: "none", stroke: met ? "var(--break)" : "var(--accent)", "stroke-width": 12,
+    "stroke-linecap": "round", "stroke-dasharray": C, "stroke-dashoffset": C * (1 - frac),
+    transform: `rotate(-90 ${cx} ${cy})`,
+  }, s);
+  const t1 = el("text", { x: cx, y: cy - 2, "text-anchor": "middle", fill: "var(--ink)", "font-size": 22, "font-weight": 700 }, s);
+  t1.textContent = goal > 0 ? `${value}/${goal}` : `${value}`;
+  const t2 = el("text", { x: cx, y: cy + 18, "text-anchor": "middle", fill: "var(--dim)", "font-size": 11 }, s);
+  t2.textContent = label;
+  return s;
+}
+
+// Vertical bars with labels.
+function bars(data, opt) {
+  opt = opt || {};
+  const max = Math.max(1, ...data.map((d) => d.v));
+  const H = 120, TM = 16, s = svg(data.length * 28, H + TM + 26); // TM = headroom for value labels
+  data.forEach((d, i) => {
+    const bw = 20, x = i * 28 + 4, h = (d.v / max) * H, y = TM + H - h;
+    el("rect", { x, y, width: bw, height: Math.max(h, d.v > 0 ? 2 : 0), rx: 4, fill: opt.color || "var(--accent)", opacity: d.dim ? .45 : 1 }, s);
+    if (d.v > 0) { const t = el("text", { x: x + bw / 2, y: y - 4, "text-anchor": "middle", fill: "var(--dim)", "font-size": 9 }, s); t.textContent = opt.fmt ? opt.fmt(d.v) : d.v; }
+    const lb = el("text", { x: x + bw / 2, y: TM + H + 16, "text-anchor": "middle", fill: "var(--dim)", "font-size": 9 }, s); lb.textContent = d.l;
+  });
+  return s;
+}
+
+// Line chart for a trend.
+function line(data) {
+  if (!data.length) return $(`<p class="muted">No data yet.</p>`);
+  const W = Math.max(260, data.length * 46), H = 130, pad = 24;
+  const max = Math.max(1, ...data.map((d) => d.v));
+  const x = (i) => pad + (i * (W - 2 * pad)) / Math.max(1, data.length - 1);
+  const y = (v) => H - pad - (v / max) * (H - 2 * pad);
+  const s = svg(W, H);
+  el("line", { x1: pad, y1: H - pad, x2: W - pad, y2: H - pad, stroke: "var(--line)" }, s);
+  let dpath = "";
+  data.forEach((d, i) => { dpath += (i ? "L" : "M") + x(i) + " " + y(d.v) + " "; });
+  el("path", { d: dpath, fill: "none", stroke: "var(--accent)", "stroke-width": 2.5, "stroke-linejoin": "round" }, s);
+  data.forEach((d, i) => {
+    el("circle", { cx: x(i), cy: y(d.v), r: 3, fill: "var(--accent)" }, s);
+    const lb = el("text", { x: x(i), y: H - 8, "text-anchor": "middle", fill: "var(--dim)", "font-size": 9 }, s); lb.textContent = d.l;
+  });
+  return s;
+}
+
+// Donut for completion split.
+function donut(completed, abandoned) {
+  const total = completed + abandoned, size = 130, r = 50, cx = size / 2, cy = size / 2, C = 2 * Math.PI * r;
+  const frac = total ? completed / total : 0;
+  const s = svg(size, size);
+  el("circle", { cx, cy, r, fill: "none", stroke: "var(--focus)", "stroke-width": 16, opacity: .5 }, s);
+  el("circle", { cx, cy, r, fill: "none", stroke: "var(--break)", "stroke-width": 16, "stroke-dasharray": `${C * frac} ${C}`, transform: `rotate(-90 ${cx} ${cy})` }, s);
+  const t = el("text", { x: cx, y: cy + 6, "text-anchor": "middle", fill: "var(--ink)", "font-size": 22, "font-weight": 700 }, s);
+  t.textContent = total ? pct(frac) + "%" : "—";
+  return s;
+}
+
+// GitHub-style calendar heatmap from {key: minutes}.
+function calendarHeatmap(byDay, weeks) {
+  const cell = 13, gap = 3, today = new Date(); today.setHours(0, 0, 0, 0);
+  const start = new Date(today); start.setDate(start.getDate() - (weeks * 7 - 1));
+  start.setDate(start.getDate() - start.getDay()); // back to Sunday
+  const cols = Math.ceil(((today - start) / 86400000 + 1) / 7);
+  const W = cols * (cell + gap) + 30, H = 7 * (cell + gap) + 16;
+  const s = svg(W, H);
+  const max = Math.max(1, ...Object.values(byDay));
+  const shade = (m) => m <= 0 ? "var(--warm0)" : m < max * .25 ? "var(--warm1)" : m < max * .5 ? "var(--warm2)" : m < max * .75 ? "var(--warm3)" : "var(--warm4)";
+  ["", "M", "", "W", "", "F", ""].forEach((d, i) => { if (d) { const t = el("text", { x: 0, y: i * (cell + gap) + cell, fill: "var(--dim)", "font-size": 9 }, s); t.textContent = d; } });
+  let d = new Date(start), col = 0;
+  while (d <= today) {
+    const wd = d.getDay();
+    const key = d.toISOString().slice(0, 10);
+    const m = byDay[key] || 0;
+    const rc = el("rect", { x: 22 + col * (cell + gap), y: wd * (cell + gap), width: cell, height: cell, rx: 3, fill: shade(m) }, s);
+    const tt = el("title", {}, rc); tt.textContent = `${key}: ${fmtMin(m)}`;
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() === 0) col++;
+  }
+  return s;
+}
+
+// Weekday × hour grid heatmap.
+function gridHeatmap(grid) {
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const cell = 13, gap = 2, x0 = 34, y0 = 14;
+  const W = x0 + 24 * (cell + gap), H = y0 + 7 * (cell + gap) + 4;
+  const s = svg(W, H);
+  let max = 1; grid.forEach((row) => row.forEach((v) => { if (v > max) max = v; }));
+  const shade = (m) => m <= 0 ? "var(--warm0)" : m < max * .25 ? "var(--warm1)" : m < max * .5 ? "var(--warm2)" : m < max * .75 ? "var(--warm3)" : "var(--warm4)";
+  for (let h = 0; h < 24; h += 6) { const t = el("text", { x: x0 + h * (cell + gap), y: 10, fill: "var(--dim)", "font-size": 9 }, s); t.textContent = h; }
+  grid.forEach((row, wd) => {
+    const t = el("text", { x: 0, y: y0 + wd * (cell + gap) + cell - 1, fill: "var(--dim)", "font-size": 9 }, s); t.textContent = days[wd];
+    row.forEach((v, h) => {
+      const rc = el("rect", { x: x0 + h * (cell + gap), y: y0 + wd * (cell + gap), width: cell, height: cell, rx: 2, fill: shade(v) }, s);
+      const tt = el("title", {}, rc); tt.textContent = `${days[wd]} ${String(h).padStart(2, "0")}:00 — ${fmtMin(v)}`;
+    });
+  });
+  return s;
+}
+
+const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const dow = (key) => WD[new Date(key + "T12:00:00").getDay()];
+const dnum = (key) => new Date(key + "T12:00:00").getDate();
+
+// ---- assembly ---------------------------------------------------------------
+
+async function main() {
+  let stats, heat, work;
+  try {
+    [stats, heat, work] = await Promise.all([
+      getJSON("stats"), getJSON("heatmap?days=84"), getJSON("workhours?days=14"),
+    ]);
+  } catch (e) {
+    document.getElementById("err").innerHTML = `<div class="err">Could not load stats: ${e.message}. Is the Pomodoro feature enabled?</div>`;
+    document.getElementById("subhead").textContent = "";
+    return;
+  }
+  const grid = document.getElementById("grid");
+  const g = stats.goal, c = stats.completion;
+
+  document.getElementById("subhead").innerHTML =
+    `🔥 <b>${stats.streak}</b>-day streak` +
+    (stats.longest_streak > stats.streak ? ` · best ${stats.longest_streak}` : "") +
+    ` · ${fmtMin(stats.today.focus_min)} focused today`;
+
+  // Goals
+  const goalBody = $(`<div class="row" style="justify-content:space-around"></div>`);
+  goalBody.appendChild(ring(g.today_completed, g.daily_sessions, "today", g.daily_met));
+  goalBody.appendChild(ring(g.week_active_days, g.weekly_days, "days/wk", g.weekly_met));
+  const goalCard = card("Goals", goalBody);
+  goalCard.appendChild($(`<div class="legend">${g.daily_met ? '<span class="pill ok">daily met</span>' : '<span class="pill no">daily to go</span>'} ${g.weekly_met ? '<span class="pill ok">weekly met</span>' : '<span class="pill no">weekly to go</span>'}</div>`));
+  grid.appendChild(goalCard);
+
+  // Today's work hours
+  const td = work.days[0] || {};
+  const whBody = $(`<div></div>`);
+  whBody.appendChild($(`<div class="row">
+      <div class="stat"><span class="big">${td.active_sec ? fmtMin(td.active_sec / 60) : "—"}</span><span class="k">active focus today</span></div>
+    </div>`));
+  whBody.appendChild($(`<div class="row" style="margin-top:14px">
+      <div class="stat"><span>${fmtClock(td.work_start)} – ${fmtClock(td.work_end)}</span><span class="k">work span</span></div>
+      <div class="stat"><span>${td.break_sec ? fmtMin(td.break_sec / 60) : "—"}</span><span class="k">break</span></div>
+      <div class="stat"><span>${td.longest_sec ? fmtMin(td.longest_sec / 60) : "—"}</span><span class="k">longest session</span></div>
+    </div>`));
+  grid.appendChild(card("Work hours · today", whBody));
+
+  // Completion donut (30d)
+  const compBody = $(`<div class="row" style="align-items:center;gap:18px"></div>`);
+  compBody.appendChild(donut(c.completed_focus, c.abandoned_focus));
+  compBody.appendChild($(`<div>
+      <div class="stat"><span class="big">${c.completed_focus}</span><span class="k">completed · 30d</span></div>
+      <div class="stat" style="margin-top:8px"><span class="muted">${c.abandoned_focus} abandoned</span></div>
+    </div>`));
+  const compCard = card("Completion rate", compBody);
+  compCard.appendChild($(`<div class="legend"><i style="background:var(--break)"></i>completed <i style="background:var(--focus);opacity:.5"></i>abandoned</div>`));
+  grid.appendChild(compCard);
+
+  // Daily focus bars (last 7, from history; reverse to chronological)
+  const hist = stats.history.slice().reverse();
+  const dailyCard = card("Focus · last 7 days",
+    bars(hist.map((d, i) => ({ l: dow(d.date), v: d.focus_min, dim: i === hist.length - 1 ? false : false })), { color: "var(--focus)", fmt: (v) => v }));
+  dailyCard.appendChild($(`<div class="legend">minutes of completed focus per day</div>`));
+  grid.appendChild(dailyCard);
+
+  // Weekly trend line
+  const wk = (stats.weekly || []).map((b) => ({ l: b.key.replace(/^\d+-/, ""), v: Math.round(b.focus_min / 60 * 10) / 10 }));
+  const trendCard = card("Weekly focus trend", line(wk), true);
+  trendCard.appendChild($(`<div class="legend">hours of completed focus per ISO week (last ${wk.length})</div>`));
+  grid.appendChild(trendCard);
+
+  // Work-hours per day (active hours)
+  const whDays = work.days.slice().reverse();
+  const whBars = card(`Active hours · last ${whDays.length} days`,
+    bars(whDays.map((d) => ({ l: dow(d.date), v: Math.round(d.active_sec / 360) / 10 })), { color: "var(--accent)", fmt: (v) => v }), true);
+  whBars.appendChild($(`<div class="legend">active focus hours per day · sessions split when idle &gt; ${work.gap_min} min</div>`));
+  grid.appendChild(whBars);
+
+  // Calendar heatmap
+  const byDay = {}; (heat.calendar || []).forEach((b) => { byDay[b.key] = b.focus_min; });
+  const calCard = card("Consistency · 12 weeks", calendarHeatmap(byDay, 12), true);
+  calCard.appendChild($(`<div class="legend"><i style="background:var(--warm0)"></i>none <i style="background:var(--warm2)"></i> <i style="background:var(--warm3)"></i> <i style="background:var(--warm4)"></i>more</div>`));
+  grid.appendChild(calCard);
+
+  // When most productive
+  const wmCard = card("When you focus", gridHeatmap(heat.grid), true);
+  wmCard.appendChild($(`<div class="legend">completed-focus minutes by weekday × hour</div>`));
+  grid.appendChild(wmCard);
+
+  document.getElementById("meta").textContent = `updated ${new Date().toLocaleTimeString()}`;
+}
+main();
+</script>
+</body>
+</html>

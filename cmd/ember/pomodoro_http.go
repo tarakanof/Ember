@@ -286,34 +286,6 @@ func (a *App) handlePomodoroState(w http.ResponseWriter, r *http.Request) {
 	a.writePomoState(w)
 }
 
-func (a *App) handlePomodoroStats(w http.ResponseWriter, r *http.Request) {
-	if a.store == nil {
-		writeError(w, http.StatusNotFound, errPomodoroDisabled)
-		return
-	}
-	now := time.Now()
-	today, err := a.store.Today(now)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	hist, err := a.store.History(now, 7)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	streak, err := a.store.Streak(now)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"today":   today,
-		"history": hist,
-		"streak":  streak,
-	})
-}
-
 func (a *App) handlePomodoroConfigGet(w http.ResponseWriter, r *http.Request) {
 	if a.engine == nil {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)

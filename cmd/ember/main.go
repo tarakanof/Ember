@@ -814,6 +814,9 @@ func (a *App) routes() http.Handler {
 	// it only maps presses to timer actions, so LAN blast radius is minimal.
 	mux.HandleFunc("GET /v1/pomodoro/state", a.handlePomodoroState)
 	mux.HandleFunc("GET /v1/pomodoro/stats", a.handlePomodoroStats)
+	mux.HandleFunc("GET /v1/pomodoro/heatmap", a.handlePomodoroHeatmap)
+	mux.HandleFunc("GET /v1/pomodoro/workhours", a.handlePomodoroWorkHours)
+	mux.HandleFunc("GET /v1/pomodoro/dashboard", a.handlePomodoroDashboard)
 	// Open, read-only render preview for the menu app's Display tab. The
 	// specific GET pattern wins over the "/v1/" requireAuth catch-all below.
 	mux.HandleFunc("GET /v1/preview", a.handlePreview)
