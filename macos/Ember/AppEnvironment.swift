@@ -93,6 +93,14 @@ public final class AppEnvironment {
         return EnvFile(parsing: text)
     }
 
+    /// Best-effort fetch of the connected server's build (`GET /version`, no auth).
+    /// Returns nil when the server is unreachable/unconfigured.
+    public func serverVersion() async -> String? {
+        let client = AppEnvironment.makeClient(path: producerEnvPath)
+        let info: VersionInfo? = try? await client.get("/version")
+        return info?.short
+    }
+
     static func makeClient(path: URL) -> APIClient {
         let text = (try? String(contentsOf: path, encoding: .utf8)) ?? ""
         return APIClient(producerEnv: EnvFile(parsing: text))

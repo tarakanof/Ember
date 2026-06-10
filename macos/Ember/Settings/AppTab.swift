@@ -5,6 +5,14 @@ struct AppTab: View {
     @Environment(AppEnvironment.self) private var env
     @State private var loginOn = LoginItemService.isEnabled
     @State private var loginError: String?
+    @State private var serverVersion: String?
+
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
+    }
 
     var body: some View {
         @Bindable var env = env
@@ -40,9 +48,15 @@ struct AppTab: View {
                     Text(loginError).font(.caption).foregroundStyle(.red)
                 }
             }
+
+            Section("About") {
+                LabeledContent("App version") { Text(appVersion).foregroundStyle(.secondary) }
+                LabeledContent("Server") { Text(serverVersion ?? "—").foregroundStyle(.secondary) }
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("App")
+        .task { serverVersion = await env.serverVersion() }
     }
 
     private func glyphPicker(_ label: String, _ binding: Binding<String>) -> some View {

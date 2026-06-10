@@ -15,6 +15,9 @@ struct DeviceTab: View {
     @State private var writer = DebouncedWriter(delay: .milliseconds(600))
     @State private var lastApplied: DeviceSettings?
     @State private var confirmReboot = false
+    @State private var config: DeviceConfig?
+    @State private var discovered: [DiscoveredClock] = []
+    @State private var discovering = false
 
     private let overlays = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"]
 
@@ -27,12 +30,7 @@ struct DeviceTab: View {
                 }
             }
 
-            Section {
-                LabeledContent("Battery") { Text(stats?.bat.map { "\($0)%" } ?? "—") }
-                LabeledContent("Firmware") { Text(stats?.version ?? "—") }
-            } header: {
-                Text("Clock")
-            }
+            clockSection
 
             generalSection
             nativeAppsSection
@@ -61,6 +59,41 @@ struct DeviceTab: View {
     }
 
     // MARK: Sections
+
+    @ViewBuilder private var clockSection: some View {
+        Section {
+            LabeledContent("Address") { Text(config?.baseURL ?? "—").foregroundStyle(.secondary) }
+            LabeledContent("Source") { Text(config?.source ?? "—").foregroundStyle(.secondary) }
+            LabeledContent("Battery") { Text(stats?.bat.map { "\($0)%" } ?? "—") }
+            LabeledContent("Firmware") { Text(stats?.version ?? "—") }
+            Button {
+                Task { await discoverClocks() }
+            } label: {
+                Label(discovering ? "Scanning…" : "Discover clocks", systemImage: "antenna.radiowaves.left.and.right")
+            }
+            .disabled(discovering)
+            ForEach(discovered) { c in
+                Button {
+                    Task { await pickClock(c) }
+                } label: {
+                    HStack {
+                        Image(systemName: c.baseURL == config?.baseURL ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(c.baseURL == config?.baseURL ? .green : .secondary)
+                        VStack(alignment: .leading) {
+                            Text(c.baseURL)
+                            Text("\(c.host) · fw \(c.version)").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        } header: {
+            Text("Clock")
+        } footer: {
+            Text("Ember auto-discovers the clock via mDNS. Use “Discover clocks” to pick a specific one; your choice is saved on the server and overrides auto-discovery.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
 
     @ViewBuilder private var generalSection: some View {
         Section {
@@ -161,6 +194,7 @@ struct DeviceTab: View {
 
     private func load() async {
         save = .idle
+        config = try? await env.device.config()
         do {
             async let s = env.device.settings()
             async let st = try? env.device.stats()
@@ -172,6 +206,24 @@ struct DeviceTab: View {
             loadError = "Unauthorized — check the token in Connection."
         } catch {
             loadError = "Clock unreachable — check Connection and discovery."
+        }
+    }
+
+    /// Browses the LAN (server-side) for AWTRIX clocks and lists them to pick from.
+    private func discoverClocks() async {
+        discovering = true
+        defer { discovering = false }
+        discovered = (try? await env.device.discover())?.candidates ?? []
+    }
+
+    /// Persists the chosen clock on the server, then reloads from it.
+    private func pickClock(_ c: DiscoveredClock) async {
+        do {
+            try await env.device.setConfig(baseURL: c.baseURL)
+            discovered = []
+            await load()
+        } catch {
+            save = .error("Couldn't switch clock: \(error.localizedDescription)")
         }
     }
 
