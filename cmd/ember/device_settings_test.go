@@ -155,3 +155,46 @@ func TestDeviceSettingsNoClockConfigured(t *testing.T) {
 		t.Fatalf("code=%d want 502", w.Code)
 	}
 }
+
+func TestDeviceScreenProxy(t *testing.T) {
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/screen" {
+			w.WriteHeader(404)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[16711680,0,255]`))
+	}))
+	defer dev.Close()
+	a := newTestAppWithStore(t)
+	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+		t.Fatal(err)
+	}
+	rw := httptest.NewRecorder()
+	a.handleDeviceScreen(rw, httptest.NewRequest("GET", "/v1/device/screen", nil))
+	if rw.Code != 200 {
+		t.Fatalf("code=%d want 200", rw.Code)
+	}
+	if got := strings.TrimSpace(rw.Body.String()); got != `[16711680,0,255]` {
+		t.Fatalf("body=%q", got)
+	}
+	if ct := rw.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("content-type=%q", ct)
+	}
+}
+
+func TestDeviceScreenProxyMapsErrorTo502(t *testing.T) {
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer dev.Close()
+	a := newTestAppWithStore(t)
+	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+		t.Fatal(err)
+	}
+	rw := httptest.NewRecorder()
+	a.handleDeviceScreen(rw, httptest.NewRequest("GET", "/v1/device/screen", nil))
+	if rw.Code != http.StatusBadGateway {
+		t.Fatalf("code=%d want 502", rw.Code)
+	}
+}

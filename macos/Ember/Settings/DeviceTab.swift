@@ -20,11 +20,14 @@ struct DeviceTab: View {
     @State private var discovered: [DiscoveredClock] = []
     @State private var discovering = false
     @State private var buttons: ButtonStatus?
+    @State private var screen: [Int]?
 
     private let overlays = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"]
 
     var body: some View {
         Form {
+            screenSection
+
             if let loadError {
                 Section {
                     Label(loadError, systemImage: "exclamationmark.triangle.fill")
@@ -52,6 +55,7 @@ struct DeviceTab: View {
                 loaded = true
             }
         }
+        .task { await pollScreen() }
         .onChange(of: settings) { _, _ in scheduleSave() }
         .confirmationDialog("Reboot the clock?", isPresented: $confirmReboot, titleVisibility: .visible) {
             Button("Reboot", role: .destructive) { Task { await perform { try await env.device.reboot() } } }
@@ -62,6 +66,19 @@ struct DeviceTab: View {
     }
 
     // MARK: Sections
+
+    /// Live mirror of the clock's display, like the AWTRIX mobile app's header.
+    /// While the clock is unreachable the empty grid keeps the panel visible.
+    @ViewBuilder private var screenSection: some View {
+        Section {
+            MatrixScreenView(pixels: screen ?? Array(repeating: 0, count: 256))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(.black)
+                .listRowInsets(EdgeInsets())
+        }
+    }
 
     @ViewBuilder private var clockSection: some View {
         Section {
@@ -347,6 +364,17 @@ struct DeviceTab: View {
     }
 
     // MARK: Load / save
+
+    /// Mirrors the clock's display while the tab is visible (the .task modifier
+    /// cancels this loop on disappear). Backs off to 3s while unreachable.
+    private func pollScreen() async {
+        while !Task.isCancelled {
+            let s = try? await env.device.screen()
+            if Task.isCancelled { return }
+            screen = s
+            try? await Task.sleep(for: .seconds(s == nil ? 3 : 1))
+        }
+    }
 
     private func load() async {
         save = .idle

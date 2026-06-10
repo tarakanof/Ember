@@ -15,6 +15,10 @@ public struct DeviceService: Sendable {
     public func stats() async throws -> DeviceStats {
         try await client.get("/v1/device/stats")
     }
+    /// The clock's live framebuffer: 24-bit RGB ints, row-major 32×8.
+    public func screen() async throws -> [Int] {
+        try await client.get("/v1/device/screen")
+    }
     public func reboot() async throws {
         try await client.send("POST", "/v1/device/reboot")
     }
