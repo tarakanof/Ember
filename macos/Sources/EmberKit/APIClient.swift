@@ -12,6 +12,35 @@ public enum APIError: Error, Equatable, Sendable {
     }
 }
 
+// Without this conformance, settings footers render the NSError bridge —
+// "EmberKit.APIError error 0." — instead of what the server actually said.
+extension APIError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notConfigured:
+            return "Server not configured — set the server URL in Connection settings."
+        case .http(let status, let body):
+            let detail = Self.serverErrorText(body)
+            return detail.isEmpty ? "HTTP \(status)" : "HTTP \(status) — \(detail)"
+        case .transport(let message):
+            return message
+        case .decoding(let message):
+            return "Unexpected server response — \(message)"
+        }
+    }
+
+    /// The server wraps errors as {"error":"…"}; show that field when present,
+    /// else fall back to the (trimmed) raw body snippet.
+    private static func serverErrorText(_ body: String) -> String {
+        if let data = body.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let msg = obj["error"] as? String, !msg.isEmpty {
+            return msg
+        }
+        return body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 /// Thin URLSession wrapper: injects the bearer token, encodes/decodes JSON, and
 /// maps non-2xx + transport + decode failures to APIError. Sendable so it can be
 /// captured by the Poller's tasks.

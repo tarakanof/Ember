@@ -100,7 +100,7 @@ struct PomodoroTab: View {
             config = try await env.pomodoro.getConfig()
             lastApplied = config
         } catch {
-            save = .error("Couldn't load Pomodoro config (server offline or pomodoro disabled).")
+            save = .error("Couldn't load Pomodoro config — \(error.localizedDescription)")
         }
     }
 }
