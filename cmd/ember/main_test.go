@@ -27,6 +27,15 @@ type recordingPublisher struct {
 	dismissals  int
 	rtttls      []string
 	sounds      []string
+	loopApps    []string // app names returned by ListApps (device rotation)
+}
+
+func (p *recordingPublisher) ListApps(_ context.Context) ([]string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.loopApps))
+	copy(out, p.loopApps)
+	return out, nil
 }
 
 func (p *recordingPublisher) CustomApp(_ context.Context, name string, payload map[string]any) error {
@@ -661,6 +670,7 @@ type noopPublisher struct{}
 
 func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
 func (noopPublisher) ClearApp(context.Context, string) error                  { return nil }
+func (noopPublisher) ListApps(context.Context) ([]string, error)              { return nil, nil }
 func (noopPublisher) Notify(context.Context, map[string]any) error            { return nil }
 func (noopPublisher) DismissNotify(context.Context) error                     { return nil }
 func (noopPublisher) PlayRTTTL(context.Context, string) error                 { return nil }
