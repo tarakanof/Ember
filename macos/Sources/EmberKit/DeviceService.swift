@@ -36,6 +36,14 @@ public struct DeviceService: Sendable {
     public func dismiss() async throws {
         try await client.send("POST", "/v1/device/notify/dismiss")
     }
+    /// Advance the clock to the next app in its rotation (AWTRIX /api/nextapp).
+    public func nextApp() async throws {
+        try await client.send("POST", "/v1/device/app/next")
+    }
+    /// Step the clock back to the previous app (AWTRIX /api/previousapp).
+    public func previousApp() async throws {
+        try await client.send("POST", "/v1/device/app/previous")
+    }
 
     public func config() async throws -> DeviceConfig {
         try await client.get("/v1/device/config")

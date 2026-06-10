@@ -106,11 +106,16 @@ func TestDeviceActionsProxy(t *testing.T) {
 	a.handleDeviceReboot(rw, httptest.NewRequest("POST", "/v1/device/reboot", nil))
 	dw := httptest.NewRecorder()
 	a.handleDeviceDismiss(dw, httptest.NewRequest("POST", "/v1/device/notify/dismiss", nil))
-	if rw.Code != 200 || dw.Code != 200 {
-		t.Fatalf("reboot=%d dismiss=%d", rw.Code, dw.Code)
+	nw := httptest.NewRecorder()
+	a.handleDeviceNextApp(nw, httptest.NewRequest("POST", "/v1/device/app/next", nil))
+	pw := httptest.NewRecorder()
+	a.handleDevicePrevApp(pw, httptest.NewRequest("POST", "/v1/device/app/previous", nil))
+	if rw.Code != 200 || dw.Code != 200 || nw.Code != 200 || pw.Code != 200 {
+		t.Fatalf("reboot=%d dismiss=%d next=%d prev=%d", rw.Code, dw.Code, nw.Code, pw.Code)
 	}
 	joined := strings.Join(hits, ",")
-	if !strings.Contains(joined, "/api/reboot") || !strings.Contains(joined, "/api/notify/dismiss") {
+	if !strings.Contains(joined, "/api/reboot") || !strings.Contains(joined, "/api/notify/dismiss") ||
+		!strings.Contains(joined, "/api/nextapp") || !strings.Contains(joined, "/api/previousapp") {
 		t.Fatalf("device endpoints hit: %v", hits)
 	}
 }

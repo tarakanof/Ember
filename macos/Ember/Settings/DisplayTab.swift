@@ -35,8 +35,6 @@ struct DisplayTab: View {
                         .overlay(Text(status ?? "No preview")
                             .font(.caption).foregroundStyle(.secondary))
                 }
-            } header: {
-                Text("Preview")
             } footer: {
                 if let preview, !preview.activity.isEmpty {
                     Text("How your enabled elements render, cycling the cards — updates live as you toggle. Activity card: \(preview.activity)")
