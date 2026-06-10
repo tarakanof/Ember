@@ -99,5 +99,9 @@ private struct ColorSwatchPopover: View {
                 .help(preset.name)
             }
         }
+        // Floor matching the natural width of the wheel + 10 swatches in one row,
+        // so the popover can't compress/clip the strip under tighter layout
+        // pressure (localization, larger control sizes). See review note [2].
+        .frame(minWidth: 360)
     }
 }
