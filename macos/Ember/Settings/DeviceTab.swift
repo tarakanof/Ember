@@ -366,12 +366,25 @@ struct DeviceTab: View {
     // MARK: Load / save
 
     /// Mirrors the clock's display while the tab is visible (the .task modifier
-    /// cancels this loop on disappear). Backs off to 3s while unreachable.
+    /// cancels this loop on disappear). Prefers the server proxy; against an
+    /// older server without /v1/device/screen it falls back to reading the
+    /// clock directly, re-probing the proxy every 30 ticks. Backs off to 3s
+    /// while nothing is reachable.
     private func pollScreen() async {
+        var preferProxy = true
+        var tick = 0
         while !Task.isCancelled {
-            let s = try? await env.device.screen()
+            var s: [Int]?
+            if preferProxy || tick % 30 == 0 {
+                s = try? await env.device.screen()
+                preferProxy = s != nil
+            }
+            if s == nil, let base = config?.baseURL, !base.isEmpty {
+                s = try? await DeviceService.directScreen(clockBaseURL: base)
+            }
             if Task.isCancelled { return }
             screen = s
+            tick += 1
             try? await Task.sleep(for: .seconds(s == nil ? 3 : 1))
         }
     }
