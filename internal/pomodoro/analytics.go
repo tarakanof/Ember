@@ -199,6 +199,62 @@ func WorkSessions(recs []PhaseRecord, gap time.Duration) []WorkSession {
 	return out
 }
 
+// Interval is a time span [Start, End].
+type Interval struct {
+	Start time.Time
+	End   time.Time
+}
+
+// mergeIntervals returns the union of the given intervals, additionally bridging
+// any gap ≤ bridge into one interval. Input order is irrelevant. Overlaps are
+// de-duplicated (the union never double-counts), so totalSec of the result is
+// true wall-clock coverage. Zero-width intervals are kept (they can anchor a
+// session) but add no duration.
+func mergeIntervals(ivs []Interval, bridge time.Duration) []Interval {
+	if len(ivs) == 0 {
+		return nil
+	}
+	sorted := append([]Interval(nil), ivs...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Start.Before(sorted[j].Start) })
+	out := []Interval{sorted[0]}
+	for _, v := range sorted[1:] {
+		cur := &out[len(out)-1]
+		if !v.Start.After(cur.End.Add(bridge)) { // v.Start <= cur.End + bridge → merge
+			if v.End.After(cur.End) {
+				cur.End = v.End
+			}
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// totalSec sums interval durations (non-negative).
+func totalSec(ivs []Interval) int {
+	s := 0
+	for _, v := range ivs {
+		if d := int(v.End.Sub(v.Start) / time.Second); d > 0 {
+			s += d
+		}
+	}
+	return s
+}
+
+// activitySpans reconstructs continuous active spans from discrete activity
+// heartbeats: consecutive heartbeats no more than maxGap apart form one span
+// [first, last]. An isolated heartbeat yields a zero-width span.
+func activitySpans(acts []ActivityRecord, maxGap time.Duration) []Interval {
+	if len(acts) == 0 {
+		return nil
+	}
+	ivs := make([]Interval, 0, len(acts))
+	for _, a := range acts {
+		ivs = append(ivs, Interval{a.At, a.At})
+	}
+	return mergeIntervals(ivs, maxGap)
+}
+
 // DaySummary is the headline work-hours rollup for one calendar day.
 type DaySummary struct {
 	Date       string    `json:"date"`
@@ -244,6 +300,59 @@ func DayWork(recs []PhaseRecord, day time.Time, gap time.Duration, dayStartHour 
 		}
 	}
 	d.SpanSec = int(d.WorkEnd.Sub(d.WorkStart) / time.Second)
+	d.BreakSec = d.SpanSec - d.ActiveSec
+	if d.BreakSec < 0 {
+		d.BreakSec = 0
+	}
+	return d
+}
+
+// DayWorkOverlay is DayWork extended with AI-coding-session activity: focus
+// blocks and reconstructed activity spans (heartbeats merged within activityGap)
+// are unioned — so overlap is never double-counted — then sessionized with gap.
+// ActiveSec is true active wall-clock (focus ∪ activity); span/break/longest are
+// derived as in DayWork.
+func DayWorkOverlay(focus []PhaseRecord, acts []ActivityRecord, day time.Time, gap, activityGap time.Duration, dayStartHour int, loc *time.Location) DaySummary {
+	key := dayKey(day, dayStartHour, loc)
+
+	var ivs []Interval
+	for _, r := range focus {
+		if r.Phase == PhaseFocus && r.EndedAt.After(r.StartedAt) && dayKey(r.StartedAt, dayStartHour, loc) == key {
+			ivs = append(ivs, Interval{r.StartedAt, r.EndedAt})
+		}
+	}
+	var dayActs []ActivityRecord
+	for _, a := range acts {
+		if dayKey(a.At, dayStartHour, loc) == key {
+			dayActs = append(dayActs, a)
+		}
+	}
+	ivs = append(ivs, activitySpans(dayActs, activityGap)...)
+
+	active := mergeIntervals(ivs, 0) // true union → real active time, no double count
+	d := DaySummary{Date: key}
+	if len(active) == 0 {
+		return d
+	}
+	sessions := mergeIntervals(active, gap) // bridge short idle gaps into work sessions
+	d.Sessions = len(sessions)
+	d.WorkStart = sessions[0].Start
+	d.WorkEnd = sessions[len(sessions)-1].End
+	d.SpanSec = int(d.WorkEnd.Sub(d.WorkStart) / time.Second)
+	d.ActiveSec = totalSec(active)
+
+	// LongestSec: the most active wall-clock within a single session.
+	for _, s := range sessions {
+		secs := 0
+		for _, iv := range active {
+			if !iv.Start.Before(s.Start) && !iv.End.After(s.End) {
+				secs += int(iv.End.Sub(iv.Start) / time.Second)
+			}
+		}
+		if secs > d.LongestSec {
+			d.LongestSec = secs
+		}
+	}
 	d.BreakSec = d.SpanSec - d.ActiveSec
 	if d.BreakSec < 0 {
 		d.BreakSec = 0

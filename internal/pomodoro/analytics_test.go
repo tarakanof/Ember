@@ -219,6 +219,76 @@ func TestRollup(t *testing.T) {
 	}
 }
 
+func TestMergeIntervals(t *testing.T) {
+	iv := func(h1, m1, h2, m2 int) Interval {
+		return Interval{utc(2026, 6, 10, h1, m1), utc(2026, 6, 10, h2, m2)}
+	}
+	// Overlapping and touching intervals merge at bridge 0; order irrelevant.
+	got := mergeIntervals([]Interval{iv(9, 40, 9, 50), iv(9, 0, 9, 30), iv(9, 20, 9, 40)}, 0)
+	if len(got) != 1 || !got[0].Start.Equal(utc(2026, 6, 10, 9, 0)) || !got[0].End.Equal(utc(2026, 6, 10, 9, 50)) {
+		t.Fatalf("union = %+v", got)
+	}
+	// A real gap is not bridged at 0.
+	if got := mergeIntervals([]Interval{iv(9, 0, 9, 10), iv(9, 30, 9, 40)}, 0); len(got) != 2 {
+		t.Fatalf("want 2 separate, got %+v", got)
+	}
+	// ...but is at a 30-min bridge.
+	if got := mergeIntervals([]Interval{iv(9, 0, 9, 10), iv(9, 30, 9, 40)}, 30*time.Minute); len(got) != 1 {
+		t.Fatalf("want 1 bridged, got %+v", got)
+	}
+	if totalSec(mergeIntervals([]Interval{iv(9, 0, 9, 10), iv(9, 5, 9, 20)}, 0)) != 20*60 {
+		t.Errorf("overlap should not double count")
+	}
+}
+
+func TestActivitySpans(t *testing.T) {
+	var hb []ActivityRecord
+	for tm := utc(2026, 6, 10, 9, 10); !tm.After(utc(2026, 6, 10, 9, 20)); tm = tm.Add(2 * time.Minute) {
+		hb = append(hb, ActivityRecord{At: tm})
+	}
+	hb = append(hb, ActivityRecord{At: utc(2026, 6, 10, 9, 40)}) // isolated, 20m later
+	spans := activitySpans(hb, 5*time.Minute)
+	if len(spans) != 2 {
+		t.Fatalf("want 2 spans, got %+v", spans)
+	}
+	if !spans[0].Start.Equal(utc(2026, 6, 10, 9, 10)) || !spans[0].End.Equal(utc(2026, 6, 10, 9, 20)) {
+		t.Errorf("span0 = %+v", spans[0])
+	}
+}
+
+func TestDayWorkOverlayDedupAndExtend(t *testing.T) {
+	loc := time.UTC
+	focus := []PhaseRecord{focus(utc(2026, 6, 10, 9, 0), 25, true, "completed")} // 9:00–9:25
+	var acts []ActivityRecord
+	add := func(from, to time.Time) {
+		for tm := from; !tm.After(to); tm = tm.Add(2 * time.Minute) {
+			acts = append(acts, ActivityRecord{At: tm, SessionKey: "Claude/claude/s1", State: "running"})
+		}
+	}
+	add(utc(2026, 6, 10, 9, 10), utc(2026, 6, 10, 9, 20)) // overlaps focus → adds nothing
+	add(utc(2026, 6, 10, 9, 35), utc(2026, 6, 10, 9, 45)) // after focus → adds 10m, 10m gap → same session
+
+	d := DayWorkOverlay(focus, acts, utc(2026, 6, 10, 12, 0), 15*time.Minute, 5*time.Minute, 0, loc)
+	if d.Sessions != 1 {
+		t.Fatalf("want 1 bridged session, got %d (%+v)", d.Sessions, d)
+	}
+	if d.ActiveSec != 35*60 { // 25m focus ∪ 10m post-focus activity (overlap deduped)
+		t.Errorf("active = %d, want %d", d.ActiveSec, 35*60)
+	}
+	if d.SpanSec != 45*60 { // 9:00 → 9:45
+		t.Errorf("span = %d, want %d", d.SpanSec, 45*60)
+	}
+	if d.BreakSec != 10*60 {
+		t.Errorf("break = %d, want %d", d.BreakSec, 10*60)
+	}
+
+	// With the overlay's activity excluded (Pomodoro-only DayWork), only the focus counts.
+	base := DayWork(focus, utc(2026, 6, 10, 12, 0), 15*time.Minute, 0, loc)
+	if base.ActiveSec != 25*60 {
+		t.Errorf("pomodoro-only active = %d, want %d", base.ActiveSec, 25*60)
+	}
+}
+
 func TestActivityBetweenRoundTrip(t *testing.T) {
 	st, err := Open(t.TempDir() + "/a.db")
 	if err != nil {
