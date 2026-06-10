@@ -58,7 +58,7 @@ See https://github.com/tarakanof/ember for full documentation.
   <!-- No published-port Config: with Network: host the server binds the host's
        :8080 directly (set via config.json http.addr), so a -p mapping is moot. -->
 
-  <Config Name="Data dir" Target="/var/lib/ember" Default="/mnt/user/appdata/ember-data" Mode="rw" Description="Writable store for Pomodoro stats, Weather/Reminders config, and the menu-chosen clock URL (the SQLite db_path). Without this volume those reset on every container update. Must be writable." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ember-data</Config>
+  <Config Name="Data dir" Target="/var/lib/ember" Default="/mnt/user/appdata/ember/data" Mode="rw" Description="Writable store for Pomodoro stats, Weather/Reminders config, and the menu-chosen clock URL (the SQLite db_path). Without this volume those reset on every container update. Must be writable." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ember/data</Config>
 
   <Config Name="Config dir" Target="/etc/ember" Default="/mnt/user/appdata/ember" Mode="ro" Description="Bind mount; on first start copy config.example.json from the repo into this folder as config.json and set awtrix.http_base_url to your device (or leave it blank — on host networking Ember auto-discovers the clock via mDNS)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ember</Config>
 
