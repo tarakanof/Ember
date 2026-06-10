@@ -99,7 +99,7 @@ func TestDayWorkSummary(t *testing.T) {
 		// previous day — must be excluded
 		focus(utc(2026, 6, 9, 14, 0), 25, true, "completed"),
 	}
-	d := DayWork(recs, utc(2026, 6, 10, 12, 0), 15*time.Minute, time.UTC)
+	d := DayWork(recs, utc(2026, 6, 10, 12, 0), 15*time.Minute, 0, time.UTC)
 	if d.Sessions != 2 {
 		t.Errorf("sessions = %d, want 2", d.Sessions)
 	}
@@ -145,13 +145,13 @@ func TestStreaksWithGrace(t *testing.T) {
 
 	// Strict: today + 2 prior days, then a gap.
 	active := mk("2026-06-10", "2026-06-09", "2026-06-08", "2026-06-06")
-	s := Streaks(active, today, 0)
+	s := Streaks(active, today, 0, 0)
 	if s.Current != 3 {
 		t.Errorf("strict current = %d, want 3", s.Current)
 	}
 
 	// Grace 1: the 06-07 gap is forgiven, so 06-06 joins → current 4.
-	s = Streaks(active, today, 1)
+	s = Streaks(active, today, 0, 1)
 	if s.Current != 4 {
 		t.Errorf("grace current = %d, want 4", s.Current)
 	}
@@ -163,12 +163,34 @@ func TestStreaksWithGrace(t *testing.T) {
 
 	// No activity today, grace 0 → current 0.
 	noToday := mk("2026-06-09", "2026-06-08")
-	if got := Streaks(noToday, today, 0).Current; got != 0 {
+	if got := Streaks(noToday, today, 0, 0).Current; got != 0 {
 		t.Errorf("inactive today strict = %d, want 0", got)
 	}
 	// No activity today but grace 1 → yesterday's run counts.
-	if got := Streaks(noToday, today, 1).Current; got != 2 {
+	if got := Streaks(noToday, today, 0, 1).Current; got != 2 {
 		t.Errorf("inactive today grace1 = %d, want 2", got)
+	}
+}
+
+func TestDayStartHourShiftsBoundary(t *testing.T) {
+	loc := time.UTC
+	// A focus block at 01:30 on the 11th. With dayStartHour=4 it belongs to the
+	// logical day of the 10th (the night-owl session).
+	recs := []PhaseRecord{focus(utc(2026, 6, 11, 1, 30), 25, true, "completed")}
+
+	naive := ActiveFocusDays(recs, 0, loc)
+	if !naive["2026-06-11"] {
+		t.Errorf("naive should bucket to the 11th, got %v", naive)
+	}
+	shifted := ActiveFocusDays(recs, 4, loc)
+	if !shifted["2026-06-10"] || shifted["2026-06-11"] {
+		t.Errorf("dayStart=4 should bucket 01:30 to the 10th, got %v", shifted)
+	}
+
+	// And the streak anchored at 02:00 on the 11th still counts that block as
+	// "today" (the logical 10th).
+	if got := Streaks(shifted, utc(2026, 6, 11, 2, 0), 4, 0).Current; got != 1 {
+		t.Errorf("night-owl streak current = %d, want 1", got)
 	}
 }
 
@@ -179,7 +201,7 @@ func TestRollup(t *testing.T) {
 		focus(utc(2026, 6, 15, 9, 0), 50, true, "completed"), // Mon, 2026-W25
 		focus(utc(2026, 6, 15, 10, 0), 25, false, "stopped"), // abandoned → ignored
 	}
-	weekly := Rollup(recs, GranWeek, time.UTC)
+	weekly := Rollup(recs, GranWeek, 0, time.UTC)
 	if len(weekly) != 2 {
 		t.Fatalf("weekly buckets = %d, want 2: %+v", len(weekly), weekly)
 	}
@@ -191,7 +213,7 @@ func TestRollup(t *testing.T) {
 		t.Errorf("week1 = %+v", weekly[1])
 	}
 
-	monthly := Rollup(recs, GranMonth, time.UTC)
+	monthly := Rollup(recs, GranMonth, 0, time.UTC)
 	if len(monthly) != 1 || monthly[0].Key != "2026-06" || monthly[0].Sessions != 3 {
 		t.Errorf("monthly = %+v", monthly)
 	}

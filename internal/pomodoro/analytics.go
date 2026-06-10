@@ -158,19 +158,27 @@ type DaySummary struct {
 	LongestSec int       `json:"longest_sec"` // longest single session's active time
 }
 
-// DayWork sessionizes the focus phases that started on the calendar day of
-// `day` (in loc) and summarises them. now lets WorkEnd reflect an in-progress
-// day (it is clamped to the last activity, never earlier than the last block).
-func DayWork(recs []PhaseRecord, day time.Time, gap time.Duration, loc *time.Location) DaySummary {
-	dayKey := day.In(loc).Format("2006-01-02")
+// dayKey is the logical calendar day a timestamp belongs to, accounting for a
+// configurable day-start hour: with dayStartHour=4, anything before 04:00 local
+// counts toward the previous day (so a 01:00 night-owl session is still
+// "yesterday's work"). dayStartHour=0 is naive calendar midnight.
+func dayKey(t time.Time, dayStartHour int, loc *time.Location) string {
+	return t.In(loc).Add(-time.Duration(dayStartHour) * time.Hour).Format("2006-01-02")
+}
+
+// DayWork sessionizes the focus phases on the logical day of `day` (per
+// dayStartHour, in loc) and summarises them. WorkEnd reflects the last activity;
+// pass `now` as `day` for an in-progress day to anchor the window to the present.
+func DayWork(recs []PhaseRecord, day time.Time, gap time.Duration, dayStartHour int, loc *time.Location) DaySummary {
+	key := dayKey(day, dayStartHour, loc)
 	var inDay []PhaseRecord
 	for _, r := range recs {
-		if r.Phase == PhaseFocus && r.StartedAt.In(loc).Format("2006-01-02") == dayKey {
+		if r.Phase == PhaseFocus && dayKey(r.StartedAt, dayStartHour, loc) == key {
 			inDay = append(inDay, r)
 		}
 	}
 	sessions := WorkSessions(inDay, gap)
-	d := DaySummary{Date: dayKey, Sessions: len(sessions)}
+	d := DaySummary{Date: key, Sessions: len(sessions)}
 	if len(sessions) == 0 {
 		return d
 	}
@@ -211,26 +219,27 @@ type StreakInfo struct {
 	Longest int `json:"longest"`
 }
 
-// ActiveFocusDays returns the set of calendar days (YYYY-MM-DD in loc) that have
-// at least one completed focus phase.
-func ActiveFocusDays(recs []PhaseRecord, loc *time.Location) map[string]bool {
+// ActiveFocusDays returns the set of logical days (YYYY-MM-DD, per dayStartHour
+// in loc) that have at least one completed focus phase.
+func ActiveFocusDays(recs []PhaseRecord, dayStartHour int, loc *time.Location) map[string]bool {
 	m := make(map[string]bool)
 	for _, r := range recs {
 		if r.Phase == PhaseFocus && r.Completed {
-			m[r.EndedAt.In(loc).Format("2006-01-02")] = true
+			m[dayKey(r.EndedAt, dayStartHour, loc)] = true
 		}
 	}
 	return m
 }
 
 // Streaks computes the current and longest streak from a set of active days
-// (keyed YYYY-MM-DD). The current streak counts qualifying days ending at
+// (keyed YYYY-MM-DD, as produced by ActiveFocusDays with the same dayStartHour).
+// The current streak counts qualifying days ending at the logical day of
 // `today`, tolerating up to graceDays missed days within the look-back window
 // before it ends (graceDays=0 is the strict "miss-resets" rule). Missed days do
 // not themselves add to the count — only qualifying days do.
-func Streaks(active map[string]bool, today time.Time, graceDays int) StreakInfo {
+func Streaks(active map[string]bool, today time.Time, dayStartHour, graceDays int) StreakInfo {
 	loc := today.Location()
-	d := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, loc)
+	d, _ := time.ParseInLocation("2006-01-02", dayKey(today, dayStartHour, loc), loc)
 
 	current, misses := 0, 0
 	for i := 0; i < 4000; i++ { // hard bound: ~11y look-back
@@ -291,15 +300,17 @@ type Bucket struct {
 }
 
 // Rollup aggregates completed focus phases into chronologically-ordered buckets
-// at the requested granularity. Abandoned and non-focus phases are excluded.
-func Rollup(recs []PhaseRecord, gran Granularity, loc *time.Location) []Bucket {
+// at the requested granularity, honouring dayStartHour for the day boundary.
+// Abandoned and non-focus phases are excluded.
+func Rollup(recs []PhaseRecord, gran Granularity, dayStartHour int, loc *time.Location) []Bucket {
 	idx := make(map[string]*Bucket)
 	var order []string
 	for _, r := range recs {
 		if r.Phase != PhaseFocus || !r.Completed {
 			continue
 		}
-		key := bucketKey(r.EndedAt.In(loc), gran)
+		shifted := r.EndedAt.In(loc).Add(-time.Duration(dayStartHour) * time.Hour)
+		key := bucketKey(shifted, gran)
 		b := idx[key]
 		if b == nil {
 			b = &Bucket{Key: key}

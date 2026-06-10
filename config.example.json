@@ -40,7 +40,12 @@
     "focus_color": "#FF3B30",
     "break_color": "#2EE85E",
     "db_path": "/var/lib/ember/pomodoro.db",
-    "button_callback": true
+    "button_callback": true,
+    "work_hours_gap_minutes": 15,
+    "day_start_hour": 4,
+    "streak_grace_days": 1,
+    "daily_goal_sessions": 8,
+    "weekly_goal_days": 5
   },
   "weather": {
     "enabled": false,

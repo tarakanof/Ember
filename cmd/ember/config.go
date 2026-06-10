@@ -110,5 +110,20 @@ func validatePomodoro(p PomodoroConfig) error {
 	if p.MaxSessionMinutes < 0 || p.MaxSessionMinutes > 1440 {
 		return fmt.Errorf("%w: pomodoro.max_session_minutes %d out of range [0, 1440]", ErrConfigValidate, p.MaxSessionMinutes)
 	}
+	if p.WorkHoursGapMinutes < 0 || p.WorkHoursGapMinutes > 180 {
+		return fmt.Errorf("%w: pomodoro.work_hours_gap_minutes %d out of range [0, 180]", ErrConfigValidate, p.WorkHoursGapMinutes)
+	}
+	if p.DayStartHour < 0 || p.DayStartHour > 23 {
+		return fmt.Errorf("%w: pomodoro.day_start_hour %d out of range [0, 23]", ErrConfigValidate, p.DayStartHour)
+	}
+	if p.StreakGraceDays < 0 || p.StreakGraceDays > 7 {
+		return fmt.Errorf("%w: pomodoro.streak_grace_days %d out of range [0, 7]", ErrConfigValidate, p.StreakGraceDays)
+	}
+	if p.DailyGoalSessions < 0 || p.DailyGoalSessions > 50 {
+		return fmt.Errorf("%w: pomodoro.daily_goal_sessions %d out of range [0, 50]", ErrConfigValidate, p.DailyGoalSessions)
+	}
+	if p.WeeklyGoalDays < 0 || p.WeeklyGoalDays > 7 {
+		return fmt.Errorf("%w: pomodoro.weekly_goal_days %d out of range [0, 7]", ErrConfigValidate, p.WeeklyGoalDays)
+	}
 	return nil
 }

@@ -84,6 +84,25 @@ type PomodoroConfig struct {
 	// /hooks/awtrix/button) to timer actions.
 	ButtonCallback    bool `json:"button_callback"`
 	MaxSessionMinutes int  `json:"max_session_minutes"` // 0 = no cap; whole cycle auto-stops after this many minutes
+
+	// Stats/dashboard knobs (read at request time by the stats handlers; not part
+	// of the runtime DTO). Zero values fall back to sensible defaults at use.
+	WorkHoursGapMinutes int `json:"work_hours_gap_minutes"` // gap (min) that splits one work session from the next (default 15)
+	DayStartHour        int `json:"day_start_hour"`         // logical day boundary 0-23; pre-this-hour activity counts to the previous day (default 4)
+	StreakGraceDays     int `json:"streak_grace_days"`      // missed days tolerated within the current streak (default 1; 0 = strict)
+	DailyGoalSessions   int `json:"daily_goal_sessions"`    // completed-focus target per day (default 8; 0 = disabled)
+	WeeklyGoalDays      int `json:"weekly_goal_days"`       // active-day target per week (default 5; 0 = disabled)
+}
+
+// Effective stats knobs, coercing zero/missing values (e.g. from an older config
+// file) to defaults. DayStartHour and the goals legitimately allow 0, so only
+// the gap is coerced.
+func (p PomodoroConfig) workHoursGap() time.Duration {
+	g := p.WorkHoursGapMinutes
+	if g <= 0 {
+		g = 15
+	}
+	return time.Duration(g) * time.Minute
 }
 
 type RateLimitConfig struct {
@@ -166,6 +185,11 @@ func defaultConfig() Config {
 			DBPath:                "/var/lib/ember/pomodoro.db",
 			ButtonCallback:        true,
 			MaxSessionMinutes:     480,
+			WorkHoursGapMinutes:   15,
+			DayStartHour:          4,
+			StreakGraceDays:       1,
+			DailyGoalSessions:     8,
+			WeeklyGoalDays:        5,
 		},
 	}
 }
