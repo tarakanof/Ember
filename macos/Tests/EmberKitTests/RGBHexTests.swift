@@ -15,6 +15,18 @@ import Testing
     #expect(RGB(hex: "#12345") == nil)
 }
 
+// The colour picker (ColorHexPicker / AWTRIXPalette selection-ring match) leans on
+// this parser's exact "#RRGGBB only" contract — guard the shapes it must reject and
+// the lowercase→uppercase canonicalisation the swatch comparison relies on.
+@Test func hexParserGuardsLengthAlphaAndCase() {
+    #expect(RGB(hex: "#80FF0000") == nil)        // 8-digit / alpha-prefixed not supported
+    #expect(RGB(hex: "#FF0000FF") == nil)        // 8-digit / alpha-suffixed not supported
+    #expect(RGB(hex: "#FFF") == nil)             // 3-digit shorthand is not expanded
+    #expect(RGB(hex: "#1234567") == nil)         // 7 digits is one too many
+    #expect(RGB(hex: "#FF 000") == nil)          // 7 chars but embedded non-hex
+    #expect(RGB(hex: "#abcdef")?.hex == "#ABCDEF") // lowercase accepted, canonical uppercase out
+}
+
 @Test func settingsKeysMatchProducerEnv() {
     #expect(SettingsKeys.source == "EMBER_SOURCE")
     #expect(SettingsKeys.serverURL == "EMBER_SERVER_URL")

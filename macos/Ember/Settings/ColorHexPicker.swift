@@ -16,6 +16,9 @@ struct ColorHexPicker: View {
     private var colorBinding: Binding<Color> {
         Binding(
             get: { (RGB(hex: hex).map(Color.init)) ?? .white },
+            // The wheel can produce wide-gamut colours, but the AWTRIX matrix is
+            // 8-bit sRGB and the wire format is "#RRGGBB", so RGB(_:) deliberately
+            // quantises into that space on writeback. This coercion is intended.
             set: { hex = RGB($0).hex }
         )
     }
