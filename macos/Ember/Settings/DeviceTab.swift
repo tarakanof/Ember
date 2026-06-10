@@ -65,14 +65,23 @@ struct DeviceTab: View {
 
     @ViewBuilder private var clockSection: some View {
         Section {
-            LabeledContent("Address") { Text(config?.baseURL ?? "—").foregroundStyle(.secondary) }
-            LabeledContent("Source") { Text(config?.source ?? "—").foregroundStyle(.secondary) }
-            LabeledContent("Battery") { Text(stats?.bat.map { "\($0)%" } ?? "—") }
-            LabeledContent("Firmware") { Text(stats?.version ?? "—") }
+            LabeledContent { Text(config?.baseURL ?? "—").foregroundStyle(.secondary) } label: {
+                RowLabel("Address", symbol: "globe", tint: .blue)
+            }
+            LabeledContent { Text(config?.source ?? "—").foregroundStyle(.secondary) } label: {
+                RowLabel("Source", symbol: "point.3.connected.trianglepath.dotted", tint: .indigo)
+            }
+            LabeledContent { Text(stats?.bat.map { "\($0)%" } ?? "—") } label: {
+                RowLabel("Battery", symbol: "battery.75percent", tint: .green)
+            }
+            LabeledContent { Text(stats?.version ?? "—") } label: {
+                RowLabel("Firmware", symbol: "cpu", tint: .gray)
+            }
             Button {
                 Task { await discoverClocks() }
             } label: {
-                Label(discovering ? "Scanning…" : "Discover clocks", systemImage: "antenna.radiowaves.left.and.right")
+                RowLabel(discovering ? "Scanning…" : "Discover clocks",
+                         symbol: "antenna.radiowaves.left.and.right", tint: .teal)
             }
             .disabled(discovering)
             ForEach(discovered) { c in
@@ -100,23 +109,44 @@ struct DeviceTab: View {
 
     @ViewBuilder private var generalSection: some View {
         Section {
-            Toggle("Uppercase letters", isOn: b(\.uppercase))
-            Toggle("Block buttons", isOn: b(\.blockn))
-            Toggle("Auto brightness", isOn: b(\.abri))
-            VStack(alignment: .leading) {
-                LabeledContent("Brightness", value: "\(i(\.bri, 80).wrappedValue)")
-                Slider(value: doubleBinding(\.bri, 80), in: 0...255, step: 1)
-                    .disabled(b(\.abri).wrappedValue)
+            Toggle(isOn: b(\.uppercase)) {
+                RowLabel("Uppercase letters", symbol: "textformat", tint: .blue)
             }
-            Stepper("Volume: \(i(\.vol, 25).wrappedValue)", value: i(\.vol, 25), in: 0...30)
-            Stepper("App time: \(i(\.atime, 7).wrappedValue)s", value: i(\.atime, 7), in: 1...60)
-            ColorHexPicker(title: "Text color", hex: s(\.tcol, "#FFFFFF"))
-            Toggle("Auto transition", isOn: b(\.atrans))
-            Stepper("Transition effect: \(i(\.teff, 1).wrappedValue)", value: i(\.teff, 1), in: 0...10)
-            Stepper("Transition speed: \(i(\.tspeed, 400).wrappedValue)ms", value: i(\.tspeed, 400), in: 0...2000, step: 50)
-            Stepper("Scroll speed: \(i(\.sspeed, 100).wrappedValue)%", value: i(\.sspeed, 100), in: 10...500, step: 10)
-            Picker("Overlay", selection: s(\.overlay, "clear")) {
+            Toggle(isOn: b(\.blockn)) {
+                RowLabel("Block buttons", symbol: "hand.raised.fill", tint: .orange)
+            }
+            Toggle(isOn: b(\.abri)) {
+                RowLabel("Auto brightness", symbol: "sun.max.fill", tint: .yellow)
+            }
+            sliderRow("Brightness", symbol: "sun.min.fill", tint: .yellow,
+                      value: i(\.bri, 80), range: 0...255) { "\($0)" }
+                .disabled(b(\.abri).wrappedValue)
+            sliderRow("Volume", symbol: "speaker.wave.2.fill", tint: .pink,
+                      value: i(\.vol, 25), range: 0...30) { "\($0)" }
+            sliderRow("App time", symbol: "timer", tint: .orange,
+                      value: i(\.atime, 7), range: 1...60) { "\($0)s" }
+            ColorHexPicker(title: "Text color", symbol: "paintpalette.fill", tint: .teal, hex: s(\.tcol, "#FFFFFF"))
+            Toggle(isOn: b(\.atrans)) {
+                RowLabel("Auto transition", symbol: "arrow.left.arrow.right", tint: .green)
+            }
+            Picker(selection: i(\.teff, 1)) {
+                ForEach(TransitionEffect.allCases) { e in
+                    Text(e.displayName).tag(e.rawValue)
+                }
+                if TransitionEffect(rawValue: i(\.teff, 1).wrappedValue) == nil {
+                    Text("Effect \(i(\.teff, 1).wrappedValue)").tag(i(\.teff, 1).wrappedValue)
+                }
+            } label: {
+                RowLabel("Transition effect", symbol: "sparkles", tint: .purple)
+            }
+            sliderRow("Transition speed", symbol: "gauge.with.needle", tint: .cyan,
+                      value: i(\.tspeed, 400), range: 0...2000, step: 50) { "\($0)ms" }
+            sliderRow("Scroll speed", symbol: "forward.fill", tint: .mint,
+                      value: i(\.sspeed, 100), range: 10...500, step: 10) { "\($0)%" }
+            Picker(selection: s(\.overlay, "clear")) {
                 ForEach(overlays, id: \.self) { Text($0.capitalized).tag($0) }
+            } label: {
+                RowLabel("Overlay", symbol: "cloud.snow.fill", tint: .blue)
             }
         } header: {
             Text("General")
@@ -128,11 +158,11 @@ struct DeviceTab: View {
 
     @ViewBuilder private var nativeAppsSection: some View {
         Section {
-            Toggle("Time", isOn: b(\.tim))
-            Toggle("Date", isOn: b(\.dat))
-            Toggle("Temperature", isOn: b(\.temp))
-            Toggle("Humidity", isOn: b(\.hum))
-            Toggle("Battery", isOn: b(\.bat))
+            Toggle(isOn: b(\.tim)) { RowLabel("Time", symbol: "clock.fill", tint: .blue) }
+            Toggle(isOn: b(\.dat)) { RowLabel("Date", symbol: "calendar", tint: .red) }
+            Toggle(isOn: b(\.temp)) { RowLabel("Temperature", symbol: "thermometer.medium", tint: .orange) }
+            Toggle(isOn: b(\.hum)) { RowLabel("Humidity", symbol: "humidity.fill", tint: .teal) }
+            Toggle(isOn: b(\.bat)) { RowLabel("Battery", symbol: "battery.50percent", tint: .green) }
         } header: {
             Text("Native Apps")
         } footer: {
@@ -143,16 +173,31 @@ struct DeviceTab: View {
 
     @ViewBuilder private var timeDateSection: some View {
         Section {
-            TextField("Time format", text: s(\.tformat, "%H %M"))
-            TextField("Date format", text: s(\.dformat, "%d.%m.%y"))
-            Toggle("Start week on Monday", isOn: b(\.som))
-            Stepper("Time mode: \(i(\.tmode, 1).wrappedValue)", value: i(\.tmode, 1), in: 0...6)
-            ColorHexPicker(title: "Calendar header", hex: s(\.chcol, "#FF0000"))
-            ColorHexPicker(title: "Calendar body", hex: s(\.cbcol, "#FFFFFF"))
-            ColorHexPicker(title: "Calendar text", hex: s(\.ctcol, "#000000"))
-            Toggle("Show weekday", isOn: b(\.wd))
-            ColorHexPicker(title: "Active weekday", hex: s(\.wdca, "#FFFFFF"))
-            ColorHexPicker(title: "Inactive weekday", hex: s(\.wdci, "#666666"))
+            formatPicker("Time format", symbol: "clock.badge", tint: .blue,
+                         selection: s(\.tformat, "%H %M"), options: DeviceFormats.timeFormats)
+            formatPicker("Date format", symbol: "calendar.badge.clock", tint: .red,
+                         selection: s(\.dformat, "%d.%m.%y"), options: DeviceFormats.dateFormats)
+            Toggle(isOn: b(\.som)) {
+                RowLabel("Start week on Monday", symbol: "calendar.day.timeline.left", tint: .purple)
+            }
+            Picker(selection: i(\.tmode, 1)) {
+                ForEach(0...6, id: \.self) { m in
+                    Text("Style \(m)").tag(m)
+                }
+                if !(0...6).contains(i(\.tmode, 1).wrappedValue) {
+                    Text("Style \(i(\.tmode, 1).wrappedValue)").tag(i(\.tmode, 1).wrappedValue)
+                }
+            } label: {
+                RowLabel("Time style", symbol: "squares.below.rectangle", tint: .indigo)
+            }
+            ColorHexPicker(title: "Calendar header", symbol: "calendar.circle.fill", tint: .red, hex: s(\.chcol, "#FF0000"))
+            ColorHexPicker(title: "Calendar body", symbol: "square.fill", tint: .gray, hex: s(\.cbcol, "#FFFFFF"))
+            ColorHexPicker(title: "Calendar text", symbol: "textformat.123", tint: .brown, hex: s(\.ctcol, "#000000"))
+            Toggle(isOn: b(\.wd)) {
+                RowLabel("Show weekday", symbol: "w.square.fill", tint: .cyan)
+            }
+            ColorHexPicker(title: "Active weekday", symbol: "circle.fill", tint: .green, hex: s(\.wdca, "#FFFFFF"))
+            ColorHexPicker(title: "Inactive weekday", symbol: "circle", tint: .gray, hex: s(\.wdci, "#666666"))
         } header: {
             Text("Time & Date")
         }
@@ -160,8 +205,12 @@ struct DeviceTab: View {
 
     @ViewBuilder private var actionsSection: some View {
         Section {
-            Button("Dismiss notification") { Task { await perform { try await env.device.dismiss() } } }
-            Button("Reboot clock", role: .destructive) { confirmReboot = true }
+            Button { Task { await perform { try await env.device.dismiss() } } } label: {
+                RowLabel("Dismiss notification", symbol: "bell.slash.fill", tint: .gray)
+            }
+            Button(role: .destructive) { confirmReboot = true } label: {
+                RowLabel("Reboot clock", symbol: "power", tint: .red)
+            }
         } header: {
             Text("Actions")
         } footer: {
@@ -172,28 +221,32 @@ struct DeviceTab: View {
     @ViewBuilder private var buttonsSection: some View {
         Section {
             if let secs = buttons?.secondsSince {
-                LabeledContent("Last button press") {
+                LabeledContent {
                     Text(agoText(secs)).foregroundStyle(secs < 3600 ? .green : .secondary)
+                } label: {
+                    RowLabel("Last button press", symbol: "button.horizontal.top.press", tint: .green)
                 }
             } else {
                 Text("No button presses seen yet").font(.caption).foregroundStyle(.secondary)
             }
             if let cb = expectedCallback {
-                LabeledContent("Expected callback") {
+                LabeledContent {
                     Text(cb).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                } label: {
+                    RowLabel("Expected callback", symbol: "link", tint: .blue)
                 }
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(cb, forType: .string)
                 } label: {
-                    Label("Copy callback URL", systemImage: "doc.on.doc")
+                    RowLabel("Copy callback URL", symbol: "doc.on.doc", tint: .gray)
                 }
             }
             if let url = fileManagerURL {
                 Button {
                     NSWorkspace.shared.open(url)
                 } label: {
-                    Label("Open clock file manager", systemImage: "folder")
+                    RowLabel("Open clock file manager", symbol: "folder.fill", tint: .blue)
                 }
             }
         } header: {
@@ -241,6 +294,46 @@ struct DeviceTab: View {
         }
     }
 
+    // MARK: Row builders
+
+    /// Tahoe-style slider row: badge + title leading, slider with a trailing
+    /// value readout in the content column.
+    private func sliderRow(_ title: String, symbol: String, tint: Color,
+                           value: Binding<Int>, range: ClosedRange<Double>, step: Double = 1,
+                           display: @escaping (Int) -> String) -> some View {
+        LabeledContent {
+            HStack(spacing: 8) {
+                Slider(
+                    value: Binding(get: { Double(value.wrappedValue) }, set: { value.wrappedValue = Int($0) }),
+                    in: range, step: step
+                )
+                .frame(maxWidth: 240)
+                Text(display(value.wrappedValue))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 56, alignment: .trailing)
+            }
+        } label: {
+            RowLabel(title, symbol: symbol, tint: tint)
+        }
+    }
+
+    /// Picker over the firmware's documented format strings, each shown as a
+    /// live example ("14:05 · %H:%M"). A custom value already on the device is
+    /// kept as an extra option instead of blanking the picker.
+    private func formatPicker(_ title: String, symbol: String, tint: Color,
+                              selection: Binding<String>, options: [String]) -> some View {
+        let current = selection.wrappedValue
+        let all = options.contains(current) ? options : options + [current]
+        return Picker(selection: selection) {
+            ForEach(all, id: \.self) { f in
+                Text("\(DeviceFormats.example(f))  ·  \(f)").monospacedDigit().tag(f)
+            }
+        } label: {
+            RowLabel(title, symbol: symbol, tint: tint)
+        }
+    }
+
     // MARK: Binding helpers (optional settings field <-> non-optional control)
 
     private func b(_ kp: WritableKeyPath<DeviceSettings, Bool?>, _ def: Bool = false) -> Binding<Bool> {
@@ -248,9 +341,6 @@ struct DeviceTab: View {
     }
     private func i(_ kp: WritableKeyPath<DeviceSettings, Int?>, _ def: Int) -> Binding<Int> {
         Binding(get: { settings[keyPath: kp] ?? def }, set: { settings[keyPath: kp] = $0 })
-    }
-    private func doubleBinding(_ kp: WritableKeyPath<DeviceSettings, Int?>, _ def: Int) -> Binding<Double> {
-        Binding(get: { Double(settings[keyPath: kp] ?? def) }, set: { settings[keyPath: kp] = Int($0) })
     }
     private func s(_ kp: WritableKeyPath<DeviceSettings, String?>, _ def: String) -> Binding<String> {
         Binding(get: { settings[keyPath: kp] ?? def }, set: { settings[keyPath: kp] = $0 })
