@@ -19,7 +19,7 @@ func TestPortFromAddr(t *testing.T) {
 		addr string
 		want int
 	}{
-		{":8080", 8080},
+		{":3627", 3627},
 		{"0.0.0.0:9000", 9000},
 		{"127.0.0.1:80", 80},
 	} {

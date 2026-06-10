@@ -18,7 +18,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/ember /ember
 COPY --from=build --chown=nonroot:nonroot /out/data/var/lib/ember /var/lib/ember
 VOLUME ["/var/lib/ember"]
-EXPOSE 8080
+EXPOSE 3627
 USER nonroot:nonroot
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD ["/ember", "healthcheck"]

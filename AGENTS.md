@@ -42,7 +42,7 @@ The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
   JSON, tests, logs, or docs.
 - TDD by default for new behavior. Run `gofmt` and `go test ./... -race` before
   every commit.
-- Don't leave long-running local test services on port `8080`.
+- Don't leave long-running local test services on port `3627`.
 - One logical change per commit. Commit body explains *why*, not *what*.
 - **No `Co-Authored-By` trailers** in commits.
 - AI assistants (Claude Code, Codex CLI, Gemini CLI): this guide governs current

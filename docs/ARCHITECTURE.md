@@ -377,7 +377,7 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   render-side change, redeploy the server from current `main`; diagnose with
   `GET /version` vs merge history.
 - **Syntactically-valid-but-wrong config defeats validation.** A
-  `EMBER_SERVER_URL` typo (`:800` for `:8080`) passed the URL validator but
+  `EMBER_SERVER_URL` typo (`:800` for `:3627`) passed the URL validator but
   dropped every POST. When "nothing shows," check the producer→server path first:
   env URL, token match, `/state` contents. Reject semantic sentinels (e.g. a `0`
   context window) and force the explicit blank instead.

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const defaultHealthcheckURL = "http://127.0.0.1:8080/healthz"
+const defaultHealthcheckURL = "http://127.0.0.1:3627/healthz"
 
 // healthcheckTarget returns the URL the in-image healthcheck should probe.
 // EMBER_HEALTHCHECK_URL overrides; otherwise the default points at the
@@ -26,7 +26,7 @@ func healthcheckTarget() string {
 	if os.Getenv(envTLSCertFile) != "" {
 		scheme = "https"
 	}
-	return fmt.Sprintf("%s://127.0.0.1:8080/healthz", scheme)
+	return fmt.Sprintf("%s://127.0.0.1:3627/healthz", scheme)
 }
 
 // healthcheckOnce does a single probe against url. The 2 s client timeout

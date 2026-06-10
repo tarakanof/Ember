@@ -22,10 +22,10 @@ import Testing
 
 @Test func appliesConnectionSettingValuesAndKeepsTokenWhenBlank() throws {
     var env = EnvFile(parsing: "EMBER_TOKEN=existing\n")
-    let c = ConnectionSettings(source: "laptop", serverURL: "https://h:8080", sourceColor: "#ff8800")
+    let c = ConnectionSettings(source: "laptop", serverURL: "https://h:3627", sourceColor: "#ff8800")
     try c.apply(to: &env, token: "")
     #expect(env.get(SettingsKeys.source) == "laptop")
-    #expect(env.get(SettingsKeys.serverURL) == "https://h:8080")
+    #expect(env.get(SettingsKeys.serverURL) == "https://h:3627")
     #expect(env.get(SettingsKeys.sourceColor) == "#ff8800")
     #expect(env.get(SettingsKeys.token) == "existing")
 }

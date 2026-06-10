@@ -35,7 +35,7 @@ func deadAddr(t *testing.T) string {
 func TestHealthcheckTarget_Default(t *testing.T) {
 	t.Setenv("EMBER_HEALTHCHECK_URL", "")
 	got := healthcheckTarget()
-	want := "http://127.0.0.1:8080/healthz"
+	want := "http://127.0.0.1:3627/healthz"
 	if got != want {
 		t.Errorf("healthcheckTarget() = %q, want %q", got, want)
 	}
@@ -86,7 +86,7 @@ func TestHealthcheckOnce_Down(t *testing.T) {
 // runHealthcheckSubprocess invokes `go run . healthcheck` with a context
 // timeout. CONFIG_PATH points at a missing file so that, if the dispatcher
 // is broken, loadConfig() returns an error and the subprocess exits 1
-// before binding :8080. (A trailing `-config` CLI arg would not work —
+// before binding :3627. (A trailing `-config` CLI arg would not work —
 // flag.Parse() stops at the first positional.)
 func runHealthcheckSubprocess(t *testing.T, healthURL string) error {
 	t.Helper()
@@ -137,7 +137,7 @@ func TestHealthcheckTarget_TLSDefault(t *testing.T) {
 	t.Setenv("EMBER_HEALTHCHECK_URL", "")
 	t.Setenv("EMBER_TLS_CERT_FILE", "/some/path")
 	got := healthcheckTarget()
-	want := "https://127.0.0.1:8080/healthz"
+	want := "https://127.0.0.1:3627/healthz"
 	if got != want {
 		t.Errorf("healthcheckTarget() = %q, want %q", got, want)
 	}

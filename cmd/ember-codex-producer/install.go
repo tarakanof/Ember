@@ -125,7 +125,7 @@ func reloadLaunchAgent(uid int, plistPath string) error {
 func envExample() string {
 	return `# ember producer configuration (shared by Claude + Codex producers)
 EMBER_SOURCE=set-me-to-this-laptop-id
-EMBER_SERVER_URL=http://192.168.0.36:8080
+EMBER_SERVER_URL=http://192.168.0.36:3627
 EMBER_TOKEN=set-me-to-the-server-bearer-token
 
 # Optional (defaults shown):

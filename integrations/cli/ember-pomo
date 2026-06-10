@@ -10,7 +10,7 @@
 #   2. Config file: $EMBER_CLI_ENV, else $XDG_CONFIG_HOME/ember/cli.env,
 #      else ~/.config/ember/cli.env  — shell `KEY=value` lines.
 #
-#   EMBER_URL    base URL of the server      (default: http://localhost:8080)
+#   EMBER_URL    base URL of the server      (default: http://localhost:3627)
 #   EMBER_TOKEN  bearer token for writes     (required for start/stop/pause/...
 #                                              unless the server runs open)
 #
@@ -50,7 +50,7 @@ _load_env_file() {
 _cfg_file=${EMBER_CLI_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/ember/cli.env}
 _load_env_file "$_cfg_file"
 
-EMBER_URL=${EMBER_URL:-http://localhost:8080}
+EMBER_URL=${EMBER_URL:-http://localhost:3627}
 EMBER_URL=${EMBER_URL%/} # strip trailing slash
 EMBER_TOKEN=${EMBER_TOKEN:-}
 
