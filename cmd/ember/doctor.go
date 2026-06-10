@@ -220,7 +220,7 @@ func checkBuild() CheckResult {
 func runDoctor(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	configPath := fs.String("config", "", "path to config JSON file")
-	serverURL := fs.String("server-url", "http://127.0.0.1:8080", "doctor server URL (online mode)")
+	serverURL := fs.String("server-url", "http://127.0.0.1:3627", "doctor server URL (online mode)")
 	offline := fs.Bool("offline", false, "skip the server probe; run static checks only")
 	asJSON := fs.Bool("json", false, "print result as JSON")
 	_ = fs.Parse(args)

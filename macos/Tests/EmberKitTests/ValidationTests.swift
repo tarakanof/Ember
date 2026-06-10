@@ -3,7 +3,7 @@ import Testing
 
 @Test func serverURLRules() {
     #expect((try? validateServerURL("http://192.168.0.14")) == "http://192.168.0.14")
-    #expect((try? validateServerURL("https://host:8080/x")) == "https://host:8080/x")
+    #expect((try? validateServerURL("https://host:3627/x")) == "https://host:3627/x")
     #expect((try? validateServerURL("")) == nil)
     #expect((try? validateServerURL("ftp://h")) == nil)
     #expect((try? validateServerURL("http://u:p@h")) == nil)

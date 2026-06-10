@@ -14,7 +14,7 @@ func TestVersion_PrintsBinaryName(t *testing.T) {
 	defer cancel()
 	// CONFIG_PATH points at a missing file so that, if the dispatcher is
 	// broken, loadConfig() returns an error and the subprocess exits 1
-	// before binding :8080. flag.Parse() stops at the first positional
+	// before binding :3627. flag.Parse() stops at the first positional
 	// (`version`), so a trailing `-config` CLI arg would never be parsed.
 	cmd := exec.CommandContext(ctx, "go", "run", ".", "version")
 	cmd.Env = append(cmd.Environ(), "CONFIG_PATH=/nonexistent/awtrix.json")

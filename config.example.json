@@ -1,6 +1,6 @@
 {
   "http": {
-    "addr": ":8080"
+    "addr": ":3627"
   },
   "awtrix": {
     "http_base_url": "http://192.168.0.14",

@@ -149,7 +149,7 @@ type DisplayConfig struct {
 func defaultConfig() Config {
 	return Config{
 		HTTP: HTTPConfig{
-			Addr: ":8080",
+			Addr: ":3627",
 		},
 		AWTRIX: AWTRIXConfig{
 			HTTPBaseURL:    "http://192.168.0.14",
@@ -220,7 +220,7 @@ func loadConfig(path string) (Config, error) {
 
 func (c *Config) applyDefaults() {
 	if c.HTTP.Addr == "" {
-		c.HTTP.Addr = ":8080"
+		c.HTTP.Addr = ":3627"
 	}
 	if c.AWTRIX.HTTPBaseURL == "" {
 		c.AWTRIX.HTTPBaseURL = "http://192.168.0.14"

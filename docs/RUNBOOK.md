@@ -31,7 +31,7 @@ captured in `docker inspect ember`.
 docker buildx build -t ember:local .
 
 # run: token via env, config bind-mounted, Pomodoro DB on a named volume
-docker run -d --name ember --restart unless-stopped -p 8080:8080 \
+docker run -d --name ember --restart unless-stopped -p 3627:3627 \
   -e EMBER_TOKEN="$(cat ~/.config/ember/token)" \
   -v ~/.config/ember/config.json:/etc/ember/config.json \
   -v ember-pomodoro:/var/lib/ember \
@@ -46,7 +46,7 @@ docker run -d --name ember --restart unless-stopped -p 8080:8080 \
     don't go hunting MQTT/other hosts. (`config.json` is a single-file bind
     mount — edit then `docker restart ember` to apply.)
 - Token: `openssl rand -hex 32 > ~/.config/ember/token`.
-- **mDNS discovery needs host networking.** The `-p 8080:8080` form above is fine
+- **mDNS discovery needs host networking.** The `-p 3627:3627` form above is fine
   for everything except clock/server discovery (multicast doesn't cross the
   bridge). For the discovery features, run with `--network host` and drop `-p`
   (the production/Unraid path; see "Discovery & mDNS" and "Docker Hub release").
@@ -128,10 +128,10 @@ The clock's three physical buttons drive the timer via the AWTRIX3 **developer**
 file manager (`http://192.168.0.14`), add the key to `dev.json`:
 
 ```json
-{ "button_callback": "http://<mac-lan-ip>:8080/hooks/awtrix/button" }
+{ "button_callback": "http://<mac-lan-ip>:3627/hooks/awtrix/button" }
 ```
 
-- Use the **Mac's LAN IP** (where the container publishes `:8080`) — *not*
+- Use the **Mac's LAN IP** (where the container publishes `:3627`) — *not*
   `localhost`; it's DHCP, so a reservation keeps it stable.
 - `dev.json` applies **at boot only** — reboot the clock after editing. Other
   dev keys (`temp_offset`, `hum_offset`) coexist; don't clobber them.
@@ -148,7 +148,7 @@ file manager (`http://192.168.0.14`), add the key to `dev.json`:
   timer is active — so after a mid-timer reboot the screen re-pins to the timer
   within ~30s without any manual step.
 - Smoke-test the server half without the device:
-  `curl -X POST -d "button=select&state=1" http://localhost:8080/hooks/awtrix/button`
+  `curl -X POST -d "button=select&state=1" http://localhost:3627/hooks/awtrix/button`
   (should start a focus).
 
 ## `EMBER_*` toggle reference (the "spine" flags)
@@ -216,7 +216,7 @@ tab proxies the clock's own settings through `/v1/device/*`.
   the device automatically.
 
 **Verify it's flowing:** `GET /state` does not include usage (it's a separate
-store), but `curl -s -XPOST localhost:8080/v1/usage -H "Authorization: Bearer
+store), but `curl -s -XPOST localhost:3627/v1/usage -H "Authorization: Bearer
 $EMBER_TOKEN" -d '{"tool":"claude","source":"endpoint","five_hour":{"used_percent":15,"reset_label":"14:25"}}'`
 then watching the clock for `ember-usage-claude-5h` in rotation confirms the
 push path. Toggle a tool off via `PUT /v1/apps` and confirm its app is cleared.
@@ -258,7 +258,7 @@ gh release create vX.Y.Z --target main --title vX.Y.Z --notes "…"   # triggers
 gh run watch <run-id> --exit-status                                  # multi-arch build ~2 min
 docker pull dtarakanov/ember:X.Y.Z
 # recreate with HOST networking (required for mDNS discovery — see "Discovery
-# & mDNS"); drop any -p 8080:8080 mapping and make sure :8080 is free on the host.
+# & mDNS"); drop any -p 3627:3627 mapping and make sure :3627 is free on the host.
 docker rm -f ember && docker run -d --name ember --restart unless-stopped \
   --network host \
   -e EMBER_TOKEN="$(cat ~/.config/ember/token)" \

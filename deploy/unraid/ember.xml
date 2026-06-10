@@ -6,7 +6,7 @@
   <!-- Host networking is required: clock + server mDNS discovery (and the
        _ember._tcp advertisement) need multicast, which does not cross the
        default Docker bridge. With host networking the server binds the host's
-       :8080 directly (ensure it's free), so no published-port mapping is used.
+       :3627 directly (ensure it's free), so no published-port mapping is used.
        Set EMBER_MDNS_ADVERTISE=0 to disable advertising. -->
   <Network>host</Network>
   <MyIP/>
@@ -31,7 +31,7 @@ Display Claude/Codex activity on an Ulanzi TC001 running AWTRIX3.
    `mkdir -p /mnt/user/appdata/ember && curl -fsSL -o /mnt/user/appdata/ember/config.json https://raw.githubusercontent.com/tarakanof/ember/main/config.example.json`
 2. Optionally set `awtrix.http_base_url` to your AWTRIX device URL (e.g. `http://192.168.0.14`). You can leave it blank — with host networking Ember auto-discovers the clock on the LAN via mDNS.
 3. Generate a token: `openssl rand -hex 32` — paste into the EMBER_TOKEN field above.
-4. Click Apply. This container uses **host networking** (required for mDNS discovery); make sure port 8080 is free on the Unraid host.
+4. Click Apply. This container uses **host networking** (required for mDNS discovery); make sure port 3627 is free on the Unraid host.
 
 **Verify after start (from the Unraid host shell, NOT the Console icon — the runtime image is distroless and has no shell):**
 `docker exec ember /ember doctor`
@@ -44,7 +44,7 @@ Every check should be `[OK]`. Replace `ember` with whatever name you gave the co
 See https://github.com/tarakanof/ember for full documentation.
   ]]></Description>
   <Category>Tools:</Category>
-  <WebUI>http://[IP]:8080/state</WebUI>
+  <WebUI>http://[IP]:3627/state</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/tarakanof/ember/main/deploy/unraid/ember.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/tarakanof/ember/main/deploy/unraid/ember-256.png</Icon>
   <ExtraParams/>
@@ -56,7 +56,7 @@ See https://github.com/tarakanof/ember for full documentation.
   <Requires/>
 
   <!-- No published-port Config: with Network: host the server binds the host's
-       :8080 directly (set via config.json http.addr), so a -p mapping is moot. -->
+       :3627 directly (set via config.json http.addr), so a -p mapping is moot. -->
 
   <Config Name="Data dir" Target="/var/lib/ember" Default="/mnt/user/appdata/ember/data" Mode="rw" Description="Writable store for Pomodoro stats, Weather/Reminders config, and the menu-chosen clock URL (the SQLite db_path). Without this volume those reset on every container update. Must be writable." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/ember/data</Config>
 

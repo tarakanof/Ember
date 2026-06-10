@@ -24,7 +24,7 @@ func AdvertiseEnabled(v string) bool {
 	}
 }
 
-// PortFromAddr extracts the numeric port from a listen address like ":8080" or
+// PortFromAddr extracts the numeric port from a listen address like ":3627" or
 // "0.0.0.0:9000".
 func PortFromAddr(addr string) (int, error) {
 	_, p, err := net.SplitHostPort(addr)

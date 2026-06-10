@@ -43,7 +43,7 @@ func TestReadEnvFile_RejectsSymlink(t *testing.T) {
 
 func TestReadEnvFile_ParsesQuotesAndComments(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "producer.env")
-	content := "# comment\nEMBER_SOURCE=mbp\nEMBER_SERVER_URL=\"http://h:8080\"\n\nEMBER_TOKEN=abc\n"
+	content := "# comment\nEMBER_SOURCE=mbp\nEMBER_SERVER_URL=\"http://h:3627\"\n\nEMBER_TOKEN=abc\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestReadEnvFile_ParsesQuotesAndComments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for k, want := range map[string]string{"EMBER_SOURCE": "mbp", "EMBER_SERVER_URL": "http://h:8080", "EMBER_TOKEN": "abc"} {
+	for k, want := range map[string]string{"EMBER_SOURCE": "mbp", "EMBER_SERVER_URL": "http://h:3627", "EMBER_TOKEN": "abc"} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
 		}

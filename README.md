@@ -49,7 +49,7 @@ EMBER_TOKEN=dev-token go run ./cmd/ember -config config.json
 Post a demo running status:
 
 ```sh
-curl -X POST http://localhost:8080/v1/status \
+curl -X POST http://localhost:3627/v1/status \
   -H 'Authorization: Bearer dev-token' \
   -H 'Content-Type: application/json' \
   -d '{"source":"dt-mbp","tool":"codex","session":"awtrix","state":"running","message":"building"}'
@@ -58,7 +58,7 @@ curl -X POST http://localhost:8080/v1/status \
 Post a waiting approval:
 
 ```sh
-curl -X POST http://localhost:8080/v1/status \
+curl -X POST http://localhost:3627/v1/status \
   -H 'Authorization: Bearer dev-token' \
   -H 'Content-Type: application/json' \
   -d '{"source":"dt-mbp","tool":"claude","session":"desktop","state":"waiting","message":"approve Bash"}'
@@ -67,7 +67,7 @@ curl -X POST http://localhost:8080/v1/status \
 Drop a single session:
 
 ```sh
-curl -X DELETE http://localhost:8080/v1/status \
+curl -X DELETE http://localhost:3627/v1/status \
   -H 'Authorization: Bearer dev-token' \
   -H 'Content-Type: application/json' \
   -d '{"source":"dt-mbp","tool":"claude","session":"desktop"}'
@@ -76,13 +76,13 @@ curl -X DELETE http://localhost:8080/v1/status \
 Wipe everything (admin):
 
 ```sh
-curl -X POST http://localhost:8080/v1/clear -H 'Authorization: Bearer dev-token'
+curl -X POST http://localhost:3627/v1/clear -H 'Authorization: Bearer dev-token'
 ```
 
 Inspect current state (no auth):
 
 ```sh
-curl http://localhost:8080/state | jq
+curl http://localhost:3627/state | jq
 ```
 
 ## Protocol
@@ -117,7 +117,7 @@ a registry is wired up — Phase 2.)
 **Run:**
 ```sh
 docker run --rm -d --name ember \
-  -p 8080:8080 \
+  -p 3627:3627 \
   -e EMBER_TOKEN="$(cat ~/.config/ember/token)" \
   -v /path/to/config.json:/etc/ember/config.json:ro \
   ember:dev
@@ -132,20 +132,20 @@ docker exec ember /ember healthcheck && echo OK
 docker logs ember
 
 # Operator HTTP (read):
-curl http://localhost:8080/version
-curl -H "Authorization: Bearer $EMBER_TOKEN" http://localhost:8080/admin/doctor
+curl http://localhost:3627/version
+curl -H "Authorization: Bearer $EMBER_TOKEN" http://localhost:3627/admin/doctor
 
 # Operator HTTP (mutate): hot-reload config without restart.
 # Edit your bind-mounted config.json, then:
 curl -X POST -H "Authorization: Bearer $EMBER_TOKEN" \
-  http://localhost:8080/admin/reload
+  http://localhost:3627/admin/reload
 ```
 
 The binary's `healthcheck` subcommand defaults to probing
-`http://127.0.0.1:8080/healthz`. If you bind the server to a non-default
+`http://127.0.0.1:3627/healthz`. If you bind the server to a non-default
 port via `config.json`, set `EMBER_HEALTHCHECK_URL` to match.
 
-The `doctor` subcommand defaults to `http://127.0.0.1:8080/admin/doctor`.
+The `doctor` subcommand defaults to `http://127.0.0.1:3627/admin/doctor`.
 Override with `--server-url`. Use `--offline` for pre-flight checks before
 starting the server.
 
@@ -169,7 +169,7 @@ can read. Example:
 
 ```sh
 docker run --rm -d --name ember \
-  -p 8443:8080 \
+  -p 8443:3627 \
   -e EMBER_TOKEN="$(cat ~/.config/ember/token)" \
   -e EMBER_TLS_CERT_FILE=/certs/cert.pem \
   -e EMBER_TLS_KEY_FILE=/certs/key.pem \
@@ -212,7 +212,7 @@ Scrape config snippet (Prometheus):
 - job_name: ember
   scrape_interval: 15s
   static_configs:
-    - targets: ['homelab.lan:8080']
+    - targets: ['homelab.lan:3627']
 ```
 
 **Rate limiting:** the server enforces a per-source-IP token-bucket
@@ -288,7 +288,7 @@ or the device is offline. Edit the file on the Unraid host
 
 ```sh
 curl -X POST -H "Authorization: Bearer <EMBER_TOKEN>" \
-  http://<unraid-ip>:8080/admin/reload
+  http://<unraid-ip>:3627/admin/reload
 ```
 
 to pick up the change without restarting the container.
@@ -318,7 +318,7 @@ if you care about hygiene.
 
 The container is the *server* half. Producers (your Mac menu-bar
 app and any `ember-claude-producer` cron) run on operator
-laptops and POST to `http://<unraid-ip>:8080/v1/status` with the
+laptops and POST to `http://<unraid-ip>:3627/v1/status` with the
 bearer token. See:
 
 - `macos/` — native macOS menu-bar app (Ember.app, built with Xcode)
@@ -331,7 +331,7 @@ them to point at your Unraid IP and the same token you set above.
 
 ```json
 {
-  "http": { "addr": ":8080" },
+  "http": { "addr": ":3627" },
   "awtrix": {
     "http_base_url": "http://<awtrix-ip>",
     "app_name": "ember",
@@ -411,7 +411,7 @@ POST /hooks/awtrix/button          # form: button=left|middle|right&state=1|0
 
 To control the timer with the TC001's physical buttons, point the device's
 `button_callback` dev option at this service so it POSTs each press to
-`POST http://<service-host>:8080/hooks/awtrix/button`. Mapping (on press-down):
+`POST http://<service-host>:3627/hooks/awtrix/button`. Mapping (on press-down):
 **middle = pause/resume**, **right = skip phase**, **left = stop**. While a timer
 runs the service sets `BLOCKN:true` + `ATRANS:false` on the device so the buttons
 drive the timer instead of switching apps, and restores both when it stops.
