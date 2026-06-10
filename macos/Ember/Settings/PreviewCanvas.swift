@@ -1,9 +1,10 @@
 import SwiftUI
 import EmberKit
 
-/// Draws the 32×8 AWTRIX matrix from /v1/preview card frames, scaled to fit and
-/// cycling through the cards on a timer (mirroring the device rotation). Each
-/// pixel is a filled square; "#000000" (off) renders black on the black panel.
+/// Renders the simulated /v1/preview card frames in the glowing-LED matrix
+/// design (via `MatrixScreenView`), cycling through the cards on a timer to
+/// mirror the device rotation. Each frame's "#rrggbb" pixels are converted to
+/// the 24-bit ints `MatrixScreenView` expects.
 struct PreviewCanvas: View {
     let frames: [CardFrame]
     var width: Int = 32
@@ -12,27 +13,20 @@ struct PreviewCanvas: View {
     @State private var index = 0
     @State private var timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
 
+    private var pixels: [Int] {
+        guard !frames.isEmpty else { return Array(repeating: 0, count: width * height) }
+        let frame = frames[min(index, frames.count - 1)]
+        return frame.pixels.map { hex in
+            Int(hex.hasPrefix("#") ? hex.dropFirst() : hex[...], radix: 16) ?? 0
+        }
+    }
+
     var body: some View {
-        Canvas { ctx, size in
-            guard !frames.isEmpty else { return }
-            let frame = frames[min(index, frames.count - 1)]
-            let pw = size.width / CGFloat(width)
-            let ph = size.height / CGFloat(height)
-            for y in 0..<height {
-                for x in 0..<width {
-                    let i = y * width + x
-                    guard i < frame.pixels.count, let rgb = RGB(hex: frame.pixels[i]) else { continue }
-                    let rect = CGRect(x: CGFloat(x) * pw, y: CGFloat(y) * ph, width: pw + 0.5, height: ph + 0.5)
-                    ctx.fill(Path(rect), with: .color(Color(rgb)))
-                }
+        MatrixScreenView(pixels: pixels, width: width, height: height)
+            .onReceive(timer) { _ in
+                guard !frames.isEmpty else { return }
+                index = (index + 1) % frames.count
             }
-        }
-        .background(.black)
-        .aspectRatio(CGFloat(width) / CGFloat(height), contentMode: .fit)
-        .onReceive(timer) { _ in
-            guard !frames.isEmpty else { return }
-            index = (index + 1) % frames.count
-        }
-        .onChange(of: frames.count) { _, n in if index >= n { index = 0 } }
+            .onChange(of: frames.count) { _, n in if index >= n { index = 0 } }
     }
 }
