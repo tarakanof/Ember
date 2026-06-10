@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import EmberKit
 
 /// AWTRIX clock settings, proxied through the Ember server (/v1/device/*). Mirrors
@@ -18,6 +19,7 @@ struct DeviceTab: View {
     @State private var config: DeviceConfig?
     @State private var discovered: [DiscoveredClock] = []
     @State private var discovering = false
+    @State private var buttons: ButtonStatus?
 
     private let overlays = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"]
 
@@ -36,6 +38,7 @@ struct DeviceTab: View {
             nativeAppsSection
             timeDateSection
             actionsSection
+            buttonsSection
         }
         .formStyle(.grouped)
         .navigationTitle("Device")
@@ -166,6 +169,48 @@ struct DeviceTab: View {
         }
     }
 
+    @ViewBuilder private var buttonsSection: some View {
+        Section {
+            if let secs = buttons?.secondsSince {
+                LabeledContent("Last button press") {
+                    Text(agoText(secs)).foregroundStyle(secs < 3600 ? .green : .secondary)
+                }
+            } else {
+                Text("No button presses seen yet").font(.caption).foregroundStyle(.secondary)
+            }
+            if let cb = buttons?.expectedCallback, !cb.isEmpty {
+                LabeledContent("Expected callback") {
+                    Text(cb).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(cb, forType: .string)
+                } label: {
+                    Label("Copy callback URL", systemImage: "doc.on.doc")
+                }
+            }
+            if let base = config?.baseURL, let url = URL(string: base) {
+                Button {
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    Label("Open clock file manager", systemImage: "folder")
+                }
+            }
+        } header: {
+            Text("Buttons")
+        } footer: {
+            Text("Drive Pomodoro from the clock's physical buttons. If they don't respond, set button_callback to the URL above in the clock's file manager (dev.json), then reboot the clock.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func agoText(_ s: Int) -> String {
+        if s < 60 { return "\(s)s ago" }
+        if s < 3600 { return "\(s / 60)m ago" }
+        if s < 86400 { return "\(s / 3600)h ago" }
+        return "\(s / 86400)d ago"
+    }
+
     @ViewBuilder private var statusCaption: some View {
         switch save {
         case .idle:   EmptyView()
@@ -195,6 +240,7 @@ struct DeviceTab: View {
     private func load() async {
         save = .idle
         config = try? await env.device.config()
+        buttons = try? await env.device.buttons()
         do {
             async let s = env.device.settings()
             async let st = try? env.device.stats()

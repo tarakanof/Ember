@@ -107,3 +107,23 @@ public struct DiscoverResult: Codable, Equatable, Sendable {
     public var effective: String
     public var source: String
 }
+
+/// GET /v1/device/buttons — the button_callback the clock should hold, and how
+/// long ago the server last received a button press (nil = never).
+public struct ButtonStatus: Codable, Equatable, Sendable {
+    public var expectedCallback: String?
+    public var lastPressUnix: Int?
+    public var secondsSince: Int?
+    enum CodingKeys: String, CodingKey {
+        case expectedCallback = "expected_callback"
+        case lastPressUnix = "last_press_unix"
+        case secondsSince = "seconds_since"
+    }
+    public init() {}
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        expectedCallback = (try? c.decodeIfPresent(String.self, forKey: .expectedCallback)) ?? nil
+        lastPressUnix = (try? c.decodeIfPresent(Int.self, forKey: .lastPressUnix)) ?? nil
+        secondsSince = (try? c.decodeIfPresent(Int.self, forKey: .secondsSince)) ?? nil
+    }
+}
