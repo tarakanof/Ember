@@ -20,6 +20,7 @@ struct ConnectionTab: View {
     @State private var save: SaveState = .idle
     @State private var testResult: String?
     @State private var loaded = false
+    @State private var serverVersion: String?
 
     private enum Field: Hashable { case source, serverURL, token }
     @FocusState private var focusedField: Field?
@@ -56,6 +57,17 @@ struct ConnectionTab: View {
                 Text("Producer")
             } footer: {
                 statusCaption
+            }
+
+            Section {
+                LabeledContent("Server version") {
+                    Text(serverVersion ?? "—").foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Server")
+            } footer: {
+                Text("Build reported by the connected server (GET /version). Shows “—” while unreachable.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
@@ -110,6 +122,7 @@ struct ConnectionTab: View {
             }
         }
         .task { if !loaded { load(); loaded = true } }
+        .task(id: committed.serverURL) { serverVersion = await env.serverVersion() }
     }
 
     /// A source-color tint can only be written once Source + Server URL are set,
