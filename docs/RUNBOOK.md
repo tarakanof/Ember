@@ -101,9 +101,9 @@ per-app clock toggles (`PUT /v1/apps`). Settings → Pomodoro exposes the focus
 duration (to 8h), the auto-stop cap ("Auto-stop after: N h", `0` = off), and
 colours; Settings → App picks the Dock/app icon + the menu-bar tray glyphs.
 
-Settings is a **sidebar window** (Connection / **Code agent** / Pomodoro /
-Weather / Reminders / App), opened with ⌘, or the menu's "Settings…" item, and it
-**auto-applies** changes — there are no Save buttons. The **Code agent** tab
+Settings is a **sidebar window** (Connection / **Device** / **Code agent** /
+Pomodoro / Weather / Reminders / App), opened with ⌘, or the menu's "Settings…"
+item, and it **auto-applies** changes — there are no Save buttons. The **Code agent** tab
 (formerly "Display") toggles write `producer.env` immediately, each with a
 pixel-art pictogram of what it adds to the 32×8 matrix; Connection commits each
 text field on **Return or focus loss** (an invalid field shows a red caption and
@@ -112,6 +112,16 @@ toolbar; Pomodoro/Weather/Reminders each debounce a single `PUT` ~600 ms after
 the last edit; colours use the native macOS colour picker (bridged to `#RRGGBB`).
 The source-colour toggle/picker stay disabled until Source + Server URL are set
 (the tint write validates all fields together).
+
+The **Connection** tab also lists **Discovered servers** (Ember servers found via
+Bonjour/`_ember._tcp`); tapping one fills the Server URL. When the list is empty it
+offers a **Grant Local Network Access…** button (macOS gates Bonjour browsing
+behind the Local Network privacy permission) + **Rescan**. The **Device** tab is
+the AWTRIX clock's own settings (General / Native Apps / Time & Date / Actions),
+proxied through the server (`/v1/device/*`) — brightness, volume, app time,
+transitions, native-app toggles, calendar colours, Reboot / Dismiss — plus a
+**Discover clocks** picker (mDNS) to choose which AWTRIX the server drives. The
+**App** tab's *About* shows the app version + the connected server's `/version`.
 
 The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway,
 lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound); the
