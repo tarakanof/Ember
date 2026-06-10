@@ -69,8 +69,11 @@ public struct DeviceStats: Codable, Equatable, Sendable {
     public var bat: Int?
     public var version: String?
     public var ram: Int?
+    /// The matrix's current effective brightness (0–255) — reflects
+    /// auto-brightness dimming, unlike the BRI setting.
+    public var bri: Int?
 
-    enum CodingKeys: String, CodingKey { case bat, version, ram }
+    enum CodingKeys: String, CodingKey { case bat, version, ram, bri }
 
     public init() {}
     public init(from decoder: Decoder) throws {
@@ -78,6 +81,7 @@ public struct DeviceStats: Codable, Equatable, Sendable {
         bat = (try? c.decodeIfPresent(Int.self, forKey: .bat)) ?? nil
         version = (try? c.decodeIfPresent(String.self, forKey: .version)) ?? nil
         ram = (try? c.decodeIfPresent(Int.self, forKey: .ram)) ?? nil
+        bri = (try? c.decodeIfPresent(Int.self, forKey: .bri)) ?? nil
     }
 }
 

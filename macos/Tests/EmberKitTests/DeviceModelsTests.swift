@@ -51,3 +51,10 @@ import Foundation
     #expect(r.candidates[0].id == "http://10.0.0.9")
     #expect(r.source == "discovered")
 }
+
+@Test func deviceStatsDecodesLiveBrightness() throws {
+    let json = #"{"bat":100,"version":"0.98","ram":118772,"bri":2}"#
+    let s = try JSONDecoder().decode(DeviceStats.self, from: Data(json.utf8))
+    #expect(s.bat == 100)
+    #expect(s.bri == 2)
+}

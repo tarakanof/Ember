@@ -6,6 +6,9 @@ import SwiftUI
 /// grid dot so the panel shape stays visible.
 struct MatrixScreenView: View {
     let pixels: [Int]
+    /// 0…1 multiplier mirroring the matrix's effective brightness; lit pixels
+    /// keep a small floor so a heavily dimmed display still reads as "on".
+    var dim: Double = 1
     var width: Int = 32
     var height: Int = 8
 
@@ -30,7 +33,7 @@ struct MatrixScreenView: View {
                         let i = y * width + x
                         guard i < pixels.count, pixels[i] != 0 else { continue }
                         let halo = cell(x, y).insetBy(dx: -pw * 0.15, dy: -ph * 0.15)
-                        glow.fill(Path(ellipseIn: halo), with: .color(color(pixels[i]).opacity(0.55)))
+                        glow.fill(Path(ellipseIn: halo), with: .color(color(pixels[i]).opacity(0.55 * dim)))
                     }
                 }
             }
@@ -44,7 +47,7 @@ struct MatrixScreenView: View {
                     if pixels[i] == 0 {
                         ctx.fill(p, with: .color(.white.opacity(0.05)))
                     } else {
-                        ctx.fill(p, with: .color(color(pixels[i])))
+                        ctx.fill(p, with: .color(color(pixels[i]).opacity(max(dim, 0.12))))
                     }
                 }
             }
