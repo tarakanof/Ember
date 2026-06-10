@@ -17,7 +17,21 @@ struct DisplayTab: View {
 
     var body: some View {
         Form {
-            Section("Preview") {
+            Section {
+                LiveMatrixMirror()
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(.black)
+                    .listRowInsets(EdgeInsets())
+            } header: {
+                Text("Live display")
+            } footer: {
+                Text("What's on the clock right now.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 if let preview, !preview.frames.isEmpty {
                     PreviewCanvas(frames: preview.frames)
                         .frame(height: 56)
@@ -31,6 +45,11 @@ struct DisplayTab: View {
                         .overlay(Text(status ?? "No preview")
                             .font(.caption).foregroundStyle(.secondary))
                 }
+            } header: {
+                Text("Preview")
+            } footer: {
+                Text("How your enabled elements render — updates live as you toggle, before the clock rotates to show them.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Context") {
