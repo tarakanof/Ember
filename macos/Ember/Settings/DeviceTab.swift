@@ -221,6 +221,21 @@ struct DeviceTab: View {
 
     @ViewBuilder private var actionsSection: some View {
         Section {
+            LabeledContent {
+                HStack(spacing: 8) {
+                    Button { Task { await perform { try await env.device.previousApp() } } } label: {
+                        Image(systemName: "chevron.backward")
+                    }
+                    .help("Previous app")
+                    Button { Task { await perform { try await env.device.nextApp() } } } label: {
+                        Image(systemName: "chevron.forward")
+                    }
+                    .help("Next app")
+                }
+                .buttonStyle(.bordered)
+            } label: {
+                RowLabel("Switch app", symbol: "rectangle.on.rectangle", tint: .blue)
+            }
             Button { Task { await perform { try await env.device.dismiss() } } } label: {
                 RowLabel("Dismiss notification", symbol: "bell.slash.fill", tint: .gray)
             }

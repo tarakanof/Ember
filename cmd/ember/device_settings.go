@@ -255,6 +255,16 @@ func (a *App) handleDeviceDismiss(w http.ResponseWriter, r *http.Request) {
 	a.proxyAction(w, r, "/api/notify/dismiss")
 }
 
+// handleDeviceNextApp / handleDevicePrevApp advance the clock to the next or
+// previous app in its rotation (AWTRIX /api/nextapp, /api/previousapp).
+func (a *App) handleDeviceNextApp(w http.ResponseWriter, r *http.Request) {
+	a.proxyAction(w, r, "/api/nextapp")
+}
+
+func (a *App) handleDevicePrevApp(w http.ResponseWriter, r *http.Request) {
+	a.proxyAction(w, r, "/api/previousapp")
+}
+
 // proxyAction POSTs an empty body to a clock action endpoint and maps the result.
 func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, path string) {
 	_, status, err := a.proxyToDevice(r.Context(), http.MethodPost, path, []byte("{}"))

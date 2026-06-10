@@ -887,6 +887,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/device/screen", rateLimit(a, http.HandlerFunc(a.handleDeviceScreen)))
 	writeMux.Handle("POST /v1/device/reboot", rateLimit(a, http.HandlerFunc(a.handleDeviceReboot)))
 	writeMux.Handle("POST /v1/device/notify/dismiss", rateLimit(a, http.HandlerFunc(a.handleDeviceDismiss)))
+	writeMux.Handle("POST /v1/device/app/next", rateLimit(a, http.HandlerFunc(a.handleDeviceNextApp)))
+	writeMux.Handle("POST /v1/device/app/previous", rateLimit(a, http.HandlerFunc(a.handleDevicePrevApp)))
 	writeMux.Handle("GET /v1/device/buttons", rateLimit(a, http.HandlerFunc(a.handleDeviceButtons)))
 	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
 
