@@ -178,6 +178,23 @@ Unlike the spine flags above, its toggles are **server config (JSON), not
 Per-tool show/hide reuses the existing per-app visibility (`PUT /v1/apps`) — hide
 `claude` or `codex` to drop its usage apps too.
 
+## Discovery & mDNS
+
+The server finds the AWTRIX clock on the LAN (mDNS browse of `_http._tcp`, then a
+`/api/stats` fingerprint) and advertises itself as `_ember._tcp` so the macOS app
+can auto-fill the server URL (Connection tab → "Discovered servers"). The Device
+tab proxies the clock's own settings through `/v1/device/*`.
+
+- **Host networking is required** for either direction — multicast doesn't cross
+  the default Docker bridge. Run the container with `--network host` (or macvlan).
+- Effective clock URL precedence: writable-store override (menu's Device tab) >
+  reachable `awtrix.http_base_url` from `config.json` > mDNS auto-pick (in-memory;
+  never written back to the read-only config). `/admin/doctor`'s
+  `awtrix_reachable` detail notes the source.
+- `EMBER_MDNS_ADVERTISE` (default on; `0`/`false` disables) gates only the
+  advertising side; clock discovery and the Device tab still work with a
+  configured URL.
+
 **Data sources & dependencies:**
 - **Claude (always-on):** the claude producer daemon polls
   `api.anthropic.com/api/oauth/usage` every ~5 min using the OAuth token in the
