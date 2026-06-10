@@ -3,6 +3,7 @@ import EmberKit
 
 struct DashboardView: View {
     @Environment(AppEnvironment.self) private var env
+    @Environment(\.openURL) private var openURL
 
     @State private var preview: PreviewResponse?
     @State private var refresh = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
@@ -12,6 +13,16 @@ struct DashboardView: View {
     }
     private func act(_ a: PomodoroAction) {
         Task { try? await env.pomodoro.action(a); await env.model.refresh() }
+    }
+
+    /// Opens the server-rendered stats dashboard in the default browser. All
+    /// stats are computed server-side; this view just links to the page.
+    private func openStatsDashboard() {
+        var base = ConnectionSettings(reading: env.currentEnv()).serverURL
+            .trimmingCharacters(in: .whitespaces)
+        guard !base.isEmpty else { return }
+        if base.hasSuffix("/") { base.removeLast() }
+        if let url = URL(string: base + "/v1/pomodoro/dashboard") { openURL(url) }
     }
 
     var body: some View {
@@ -74,6 +85,11 @@ struct DashboardView: View {
                     Text("Today: \(st.today.completedFocus) focus · \(st.today.focusMin) min · streak \(st.streak)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Button { openStatsDashboard() } label: {
+                    Label("Stats Dashboard", systemImage: "chart.bar.xaxis")
+                }
+                .buttonStyle(.link)
+                .help("Open the full Pomodoro stats dashboard in your browser")
             }
         }
         .padding(20)
