@@ -273,6 +273,9 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// Likewise re-apply menu-persisted weather settings over the
 		// freshly reloaded file config.
 		app.loadPersistedWeatherSettings()
+		// And the menu-chosen clock URL (Device tab), so a reload doesn't drop
+		// the store override back to the file-config baseline.
+		app.loadPersistedDeviceBaseURL()
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,

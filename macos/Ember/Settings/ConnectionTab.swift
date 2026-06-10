@@ -56,6 +56,30 @@ struct ConnectionTab: View {
             } footer: {
                 statusCaption
             }
+
+            Section {
+                if env.serverDiscovery.servers.isEmpty {
+                    Label("Searching the local network…", systemImage: "antenna.radiowaves.left.and.right")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(env.serverDiscovery.servers) { s in
+                        Button {
+                            serverURL = s.urlString
+                            commit { $0.serverURL = s.urlString }
+                        } label: {
+                            LabeledContent(s.name) {
+                                Text(s.urlString).foregroundStyle(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } header: {
+                Text("Discovered servers")
+            } footer: {
+                Text("Ember servers found on your network via Bonjour. Tap one to fill the Server URL. Requires the server on host networking and Local Network access for Ember.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("Connection")

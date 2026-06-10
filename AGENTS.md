@@ -54,9 +54,18 @@ The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}`,
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/weather/config`,
-`POST /v1/reminders/fire`. Read (no auth): `GET /state`, `GET /healthz`,
+`POST /v1/reminders/fire`, `GET/PUT /v1/device/config`, `GET /v1/device/discover`,
+`GET/PUT /v1/device/settings`, `GET /v1/device/stats`,
+`POST /v1/device/{reboot,notify/dismiss}`. Read (no auth): `GET /state`, `GET /healthz`,
 `GET /v1/preview`, `GET /v1/pomodoro/{state,stats}`. Operator: `/admin/doctor`, `/admin/reload`,
 `/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`.
+
+The `/v1/device/*` group discovers the clock (mDNS) and proxies its
+`/api/settings|stats|reboot|notify` to the menu's Device tab; the effective clock
+URL resolves as store override > reachable `config.json` baseline > mDNS auto-pick.
+The server also advertises itself as `_ember._tcp` (default on; `EMBER_MDNS_ADVERTISE=0`
+to disable). **mDNS in both directions needs the container on host (or macvlan)
+networking** — multicast doesn't cross the default Docker bridge.
 
 Full behavior (staleness, render priority, the coordinator, display hold) is in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).

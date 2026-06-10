@@ -227,6 +227,22 @@ seen in the live snapshot ∪ hidden) each with an `enabled` flag; `PUT /v1/apps
 `{app,enabled}` toggles one and nudges a re-render. (The hidden set shares the
 Pomodoro store, so persistence is active whenever Pomodoro is enabled.)
 
+### Device discovery & control — `internal/discovery`, `cmd/ember/device*.go`
+
+The server finds the clock on the LAN by mDNS (browse `_http._tcp`, then a
+`/api/stats` fingerprint keyed on a non-empty `uid`) instead of relying on a
+hardcoded address. The effective clock URL resolves as **writable-store override
+> reachable `config.json` baseline > mDNS auto-pick** (the auto-pick is in-memory
+only; the read-only `config.json` is never written). The server also advertises
+itself as `_ember._tcp` so the menu app can discover it (gated by
+`EMBER_MDNS_ADVERTISE`). Both directions require host/macvlan networking.
+
+The menu's Device tab manages the clock's *own* firmware settings — but **the
+server stays the only writer to the device**: the tab calls `/v1/device/settings`
+(bearer auth), and the server whitelists + range-validates each AWTRIX key before
+forwarding to the clock's unauthenticated `/api/settings`. `ATRANS`/`BLOCKN`
+remain transiently owned by the Pomodoro coordinator during a focus block.
+
 ## The "spine" — how display widgets are added
 
 Every configurable display signal follows one pattern:
