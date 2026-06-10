@@ -107,6 +107,33 @@ func TestPomodoroWorkHoursEndpoint(t *testing.T) {
 	}
 }
 
+func TestPomodoroWorkHoursOverlay(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	now := time.Now()
+
+	// A 25-min focus block, then AI activity for ~10 min after it (10-min gap →
+	// same work session). Overlay active = 25m focus + 10m activity = 35m.
+	recFocus(t, app, now.Add(-40*time.Minute), 25, true, "completed") // [-65m, -40m]
+	for tm := now.Add(-30 * time.Minute); !tm.After(now.Add(-20 * time.Minute)); tm = tm.Add(2 * time.Minute) {
+		if err := app.store.RecordActivity(tm, "Claude", "claude", "Claude/claude/s1", "running"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/workhours?days=2", "", "")
+	if body["include_activity"] != true {
+		t.Fatalf("include_activity = %v, want true", body["include_activity"])
+	}
+	d0 := body["days"].([]any)[0].(map[string]any)
+	active := d0["active_sec"].(float64)
+	// Must exceed focus-only (25m) because the post-focus activity span adds ~10m.
+	if active < 34*60 {
+		t.Errorf("overlay active_sec = %v, want ~2100 (35m incl. activity)", active)
+	}
+}
+
 func TestStatusRecordsActivityThrottled(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())

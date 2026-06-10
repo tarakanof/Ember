@@ -216,9 +216,10 @@ async function main() {
 
   // Today's work hours
   const td = work.days[0] || {};
+  const activeLabel = work.include_activity ? "active today (focus + AI)" : "active focus today";
   const whBody = $(`<div></div>`);
   whBody.appendChild($(`<div class="row">
-      <div class="stat"><span class="big">${td.active_sec ? fmtMin(td.active_sec / 60) : "—"}</span><span class="k">active focus today</span></div>
+      <div class="stat"><span class="big">${td.active_sec ? fmtMin(td.active_sec / 60) : "—"}</span><span class="k">${activeLabel}</span></div>
     </div>`));
   whBody.appendChild($(`<div class="row" style="margin-top:14px">
       <div class="stat"><span>${fmtClock(td.work_start)} – ${fmtClock(td.work_end)}</span><span class="k">work span</span></div>
@@ -255,7 +256,8 @@ async function main() {
   const whDays = work.days.slice().reverse();
   const whBars = card(`Active hours · last ${whDays.length} days`,
     bars(whDays.map((d) => ({ l: dow(d.date), v: Math.round(d.active_sec / 360) / 10 })), { color: "var(--accent)", fmt: (v) => v }), true);
-  whBars.appendChild($(`<div class="legend">active focus hours per day · sessions split when idle &gt; ${work.gap_min} min</div>`));
+  const whSrc = work.include_activity ? "focus blocks + AI coding sessions" : "focus blocks";
+  whBars.appendChild($(`<div class="legend">active hours/day (${whSrc}) · sessions split when idle &gt; ${work.gap_min} min</div>`));
   grid.appendChild(whBars);
 
   // Calendar heatmap

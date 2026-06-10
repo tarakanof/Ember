@@ -221,14 +221,21 @@ func (a *App) handlePomodoroHeatmap(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// activitySpanGap reconstructs continuous active spans from activity heartbeats:
+// heartbeats no more than this apart are one span. Matches the RescueTime-style
+// 5-minute idle rule and comfortably exceeds the 2-min recording throttle.
+const activitySpanGap = 5 * time.Minute
+
 // pomodoroWorkHours is the wire shape for GET /v1/pomodoro/workhours.
 type pomodoroWorkHours struct {
-	Days   []pomodoro.DaySummary `json:"days"` // most-recent first
-	GapMin int                   `json:"gap_min"`
+	Days            []pomodoro.DaySummary `json:"days"` // most-recent first
+	GapMin          int                   `json:"gap_min"`
+	IncludeActivity bool                  `json:"include_activity"` // AI-session activity overlaid onto focus blocks
 }
 
 // handlePomodoroWorkHours serves GET /v1/pomodoro/workhours?days=14 — the
-// sessionized work-hours summary per logical day.
+// sessionized work-hours summary per logical day. When the overlay is enabled,
+// AI-coding-session activity is unioned with the focus blocks.
 func (a *App) handlePomodoroWorkHours(w http.ResponseWriter, r *http.Request) {
 	if a.store == nil {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
@@ -243,13 +250,25 @@ func (a *App) handlePomodoroWorkHours(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	var acts []pomodoro.ActivityRecord
+	if p.WorkHoursIncludeActivity {
+		if acts, err = a.store.ActivityBetween(now.AddDate(0, 0, -(days+1)), now.Add(time.Minute)); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
 	out := make([]pomodoro.DaySummary, 0, days)
 	for i := 0; i < days; i++ {
 		day := now.AddDate(0, 0, -i)
-		summary := pomodoro.DayWork(recs, day, p.workHoursGap(), p.DayStartHour, loc)
-		// DayWork anchors WorkEnd to the last block; for the current day, leave it
-		// as-is (last activity) rather than "now" to avoid an open-ended span.
+		var summary pomodoro.DaySummary
+		if p.WorkHoursIncludeActivity {
+			summary = pomodoro.DayWorkOverlay(recs, acts, day, p.workHoursGap(), activitySpanGap, p.DayStartHour, loc)
+		} else {
+			summary = pomodoro.DayWork(recs, day, p.workHoursGap(), p.DayStartHour, loc)
+		}
 		out = append(out, summary)
 	}
-	writeJSON(w, http.StatusOK, pomodoroWorkHours{Days: out, GapMin: int(p.workHoursGap() / time.Minute)})
+	writeJSON(w, http.StatusOK, pomodoroWorkHours{
+		Days: out, GapMin: int(p.workHoursGap() / time.Minute), IncludeActivity: p.WorkHoursIncludeActivity,
+	})
 }
