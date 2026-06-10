@@ -17,19 +17,33 @@ struct DisplayTab: View {
 
     var body: some View {
         Form {
-            Section("Preview") {
+            Section {
                 if let preview, !preview.frames.isEmpty {
                     PreviewCanvas(frames: preview.frames)
-                        .frame(height: 56)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                    if !preview.activity.isEmpty {
-                        Text("Activity card: \(preview.activity)")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(.black)
+                        .listRowInsets(EdgeInsets())
                 } else {
-                    RoundedRectangle(cornerRadius: 4).fill(.black).frame(height: 56)
+                    MatrixScreenView(pixels: Array(repeating: 0, count: 256))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(.black)
+                        .listRowInsets(EdgeInsets())
                         .overlay(Text(status ?? "No preview")
                             .font(.caption).foregroundStyle(.secondary))
+                }
+            } header: {
+                Text("Preview")
+            } footer: {
+                if let preview, !preview.activity.isEmpty {
+                    Text("How your enabled elements render, cycling the cards — updates live as you toggle. Activity card: \(preview.activity)")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("How your enabled elements render, cycling the cards — updates live as you toggle, before the clock rotates to show them.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
 
