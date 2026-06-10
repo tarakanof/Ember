@@ -42,6 +42,7 @@ public struct PomoStats: Codable, Sendable, Equatable {
 }
 
 public struct PomoConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
     public var focusMinutes: Int
     public var shortBreakMinutes: Int
     public var longBreakMinutes: Int
@@ -56,7 +57,8 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     public init(focusMinutes: Int, shortBreakMinutes: Int, longBreakMinutes: Int,
                 roundsBeforeLongBreak: Int, autoStartNext: Bool, sound: Bool,
                 soundMelody: String, focusColor: String, breakColor: String,
-                maxSessionMinutes: Int = 480) {
+                maxSessionMinutes: Int = 480, enabled: Bool = false) {
+        self.enabled = enabled
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
         self.longBreakMinutes = longBreakMinutes
@@ -70,6 +72,7 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case enabled
         case focusMinutes = "focus_minutes"
         case shortBreakMinutes = "short_break_minutes"
         case longBreakMinutes = "long_break_minutes"
@@ -80,6 +83,20 @@ public struct PomoConfig: Codable, Sendable, Equatable {
         case focusColor = "focus_color"
         case breakColor = "break_color"
         case maxSessionMinutes = "max_session_minutes"
+    }
+}
+
+/// Runtime AI-usage-widget toggles (GET/PUT /v1/usage/config).
+public struct UsageConfig: Codable, Sendable, Equatable {
+    public var usageWidget: Bool
+    public var usagePerModel: Bool
+    public init(usageWidget: Bool = true, usagePerModel: Bool = true) {
+        self.usageWidget = usageWidget
+        self.usagePerModel = usagePerModel
+    }
+    enum CodingKeys: String, CodingKey {
+        case usageWidget = "usage_widget"
+        case usagePerModel = "usage_per_model"
     }
 }
 

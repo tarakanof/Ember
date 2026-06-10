@@ -10,6 +10,11 @@ struct DisplayTab: View {
     @State private var status: String?
     @State private var loaded = false
 
+    // Server-backed AI-usage-widget toggles (GET/PUT /v1/usage/config), debounced.
+    @State private var usage = UsageConfig()
+    @State private var lastUsage: UsageConfig?
+    @State private var usageWriter = DebouncedWriter(delay: .milliseconds(600))
+
     var body: some View {
         Form {
             Section("Preview") {
@@ -48,6 +53,17 @@ struct DisplayTab: View {
                 PictogramToggle(rows: DisplayPictogram.trail, color: DisplayPictogram.blue,
                                 label: "Activity trail (multi-session bar)", isOn: $display.activityTrail)
             }
+
+            Section {
+                Toggle("Show usage apps", isOn: $usage.usageWidget)
+                Toggle("Per-model (Opus / Sonnet)", isOn: $usage.usagePerModel)
+                    .disabled(!usage.usageWidget)
+            } header: {
+                Text("Usage widget")
+            } footer: {
+                Text("Standalone AI-usage clock apps (Claude/Codex 5h + 7d, optional Opus/Sonnet). Server-side — applies within a few seconds.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("Code agent")
@@ -57,12 +73,23 @@ struct DisplayTab: View {
                 display = DisplaySettings(reading: envFile)
                 sourceColor = ConnectionSettings(reading: envFile).sourceColor
                 loaded = true
+                if let u = try? await env.usage.getConfig() { usage = u; lastUsage = u }
                 await refreshPreview()
             }
         }
         .onChange(of: display) { _, _ in
             writeDisplay()                       // immediate auto-apply (no reload)
             Task { await refreshPreview() }
+        }
+        .onChange(of: usage) { _, _ in scheduleUsageSave() }
+    }
+
+    private func scheduleUsageSave() {
+        guard usage != lastUsage else { return }   // initial load / no-op
+        let u = usage
+        usageWriter.schedule {
+            try? await env.usage.putConfig(u)
+            await MainActor.run { lastUsage = u }
         }
     }
 

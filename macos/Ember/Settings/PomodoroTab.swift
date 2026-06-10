@@ -16,6 +16,13 @@ struct PomodoroTab: View {
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Enable Pomodoro", isOn: $config.enabled)
+            } footer: {
+                Text("Runs the Pomodoro timer on the clock and lets the device buttons control it. Takes effect immediately — no restart.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Durations") {
                 Stepper("Focus: \(config.focusMinutes) min",
                         value: $config.focusMinutes, in: 1...480)

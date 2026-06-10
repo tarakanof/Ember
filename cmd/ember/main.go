@@ -873,6 +873,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/apps", rateLimit(a, http.HandlerFunc(a.handleAppsGet)))
 	writeMux.Handle("PUT /v1/apps", rateLimit(a, http.HandlerFunc(a.handleAppsPut)))
 	writeMux.Handle("POST /v1/usage", rateLimit(a, http.HandlerFunc(a.handleUsage)))
+	writeMux.Handle("GET /v1/usage/config", rateLimit(a, http.HandlerFunc(a.handleUsageConfigGet)))
+	writeMux.Handle("PUT /v1/usage/config", rateLimit(a, http.HandlerFunc(a.handleUsageConfigPut)))
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
 	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
@@ -1357,12 +1359,14 @@ func main() {
 	app.configPath = configPath
 	app.configSource = configSource
 
-	if cfg.Pomodoro.Enabled {
-		if err := app.initPomodoro(cfg.Pomodoro); err != nil {
-			logger.Error("pomodoro init failed", "err", err, "db_path", cfg.Pomodoro.DBPath)
-			os.Exit(1)
-		}
-		logger.Info("pomodoro enabled", "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
+	// Always wire the Pomodoro engine so the feature can be toggled at runtime
+	// from the app (cfg.Pomodoro.Enabled — persisted to the store — gates whether
+	// it runs). Non-fatal: if the store can't open, the feature is simply
+	// unavailable until the data dir is writable.
+	if err := app.initPomodoro(cfg.Pomodoro); err != nil {
+		logger.Warn("pomodoro init failed; feature unavailable until the data store is writable", "err", err, "db_path", cfg.Pomodoro.DBPath)
+	} else {
+		logger.Info("pomodoro wired", "enabled", app.cfg.Load().Pomodoro.Enabled, "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
 	}
 	// Weather only needs the store to *persist* menu edits; it runs fine
 	// in-memory. A store-open failure here (e.g. Pomodoro disabled and no
@@ -1370,6 +1374,7 @@ func main() {
 	if err := app.initWeather(cfg); err != nil {
 		logger.Warn("weather store init failed; config will not persist across restarts", "err", err)
 	}
+	app.loadPersistedUsageSettings() // runtime usage-widget toggles over the file baseline
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}

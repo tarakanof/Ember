@@ -9,6 +9,15 @@ public struct WeatherService: Sendable {
     public func putConfig(_ cfg: WeatherConfig) async throws { try await client.put("/v1/weather/config", body: cfg) }
 }
 
+/// Typed wrapper over GET/PUT /v1/usage/config (the AI-usage-widget toggles).
+public struct UsageService: Sendable {
+    let client: APIClient
+    public init(client: APIClient) { self.client = client }
+
+    public func getConfig() async throws -> UsageConfig { try await client.get("/v1/usage/config") }
+    public func putConfig(_ cfg: UsageConfig) async throws { try await client.put("/v1/usage/config", body: cfg) }
+}
+
 /// Fires an Apple Reminder's alarm on the clock via POST /v1/reminders/fire.
 public struct RemindersService: Sendable {
     let client: APIClient
