@@ -20,6 +20,8 @@ func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 		ContextNumber:  queryBool(q.Get("context_number")),
 		RateBottomBar:  queryBool(q.Get("rate_bottom_bar")),
 		RateReset:      queryBool(q.Get("rate_reset")),
+		SourceCard:     queryBoolDefault(q.Get("source_card"), true),
+		SessionBar:     queryBoolDefault(q.Get("session_bar"), true),
 		SourceColor:    strings.TrimSpace(q.Get("source_color")),
 	}
 
@@ -43,4 +45,14 @@ func queryBool(v string) bool {
 	default:
 		return false
 	}
+}
+
+// queryBoolDefault returns def when v is absent/blank, otherwise delegates to
+// queryBool. The new params (source_card, session_bar) default ON so a
+// pre-rework menu app (which doesn't send them) previews unchanged.
+func queryBoolDefault(v string, def bool) bool {
+	if strings.TrimSpace(v) == "" {
+		return def
+	}
+	return queryBool(v)
 }

@@ -25,7 +25,7 @@ func SampleBaseSession() Session {
 func ptrInt(v int) *int { return &v }
 
 // DraftDisplay is the set of display toggles the Settings "Display" tab edits
-// that affect a single-session render. It is the 6 effective booleans consumed
+// that affect a single-session render. It is the 8 effective booleans consumed
 // by PreviewSession plus an optional source colour. (EMBER_ACTIVITY_TRAIL is
 // intentionally absent: it affects the multi-session bar, not one session.)
 type DraftDisplay struct {
@@ -35,6 +35,8 @@ type DraftDisplay struct {
 	ContextNumber  bool
 	RateBottomBar  bool
 	ActivityDetail bool
+	SourceCard     bool
+	SessionBar     bool
 	SourceColor    string // "" = no tint
 }
 
@@ -87,6 +89,9 @@ func PreviewSession(d DraftDisplay, base Session, now time.Time) Session {
 	} else {
 		s.SourceColor = nil
 	}
+
+	s.SourceCard = &d.SourceCard
+	s.SessionBar = &d.SessionBar
 
 	return s
 }
