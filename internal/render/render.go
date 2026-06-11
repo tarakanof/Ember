@@ -456,7 +456,7 @@ func CardsForSession(s Session, u *UsageView) int { return len(AvailableCards(s,
 // rateText renders a 5h-rate percent as "NN%". Clamped to 0..99 so the
 // 3-glyph value always fits cols 12–22 (before the glass at col 25); the
 // red threshold colour already signals a maxed window, so 99 vs 100 is
-// immaterial on an ambient display.
+// immaterial on an ambient display. Used by the usage-card faces.
 func rateText(pct int) string {
 	if pct < 0 {
 		pct = 0
@@ -467,23 +467,11 @@ func rateText(pct int) string {
 	return itoa(pct) + "%"
 }
 
-// ctxText renders a context-window percent as "NN" + the glass pictogram.
-// Clamped 0..99 so the 3-glyph value fits the number slot (the glass at cols
-// 25-30 conveys 100% anyway).
-func ctxText(pct int) string {
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 99 {
-		pct = 99
-	}
-	return itoa(pct) + string(glassGlyph)
-}
-
 // resetText renders the time until the 5h rate-limit window resets as ceil-hours
 // (0..9) + the hourglass glyph, with an urgency colour: amber in the final hour
 // (remaining < 1h), green otherwise. remaining is clamped to >=0, so a stale
 // past timestamp renders "0" until the next post carries the next window.
+// Used by the usage-card faces.
 func resetText(resetAt int64, now time.Time) (string, RGB) {
 	remaining := resetAt - now.Unix()
 	if remaining < 0 {
@@ -808,10 +796,10 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 // iconNeutral when absent/invalid, so each machine has a persistent identity
 // colour. The inner feature — Claude eye sockets or the Codex "_" cursor —
 // is painted in the state colour (green/amber/red/blue) so activity is always
-// readable. Card text colours are per-card (source = source colour or white,
-// rate/ctx = threshold colour). Glass uses the state colour. Row 7 receives
-// either the rate bar (when RateBottomBar is set and data is present), the
-// session-count bar (when sessionBarEnabled), or nothing.
+// readable. Card text colours are per-card (source = source colour or white;
+// usage faces land in the next commit). Glass uses the state colour. Row 7
+// receives either the rate bar (when RateBottomBar is set and data is
+// present), the session-count bar (when sessionBarEnabled), or nothing.
 func ComposeFrame(s Session, card int, sessions []Session, now time.Time) Frame {
 	var f Frame
 	drawToolIcon8(&f, s, iconBodyColor(s), colorForState(s.State))

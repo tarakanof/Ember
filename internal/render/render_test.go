@@ -1099,19 +1099,6 @@ func TestRenderForCoord_LockedAttention_NoActivityStillBlinks(t *testing.T) {
 	}
 }
 
-func TestCtxText(t *testing.T) {
-	g := string(glassGlyph)
-	if got := ctxText(45); got != "45"+g {
-		t.Errorf("ctxText(45) = %q, want %q", got, "45"+g)
-	}
-	if got := ctxText(150); got != "99"+g {
-		t.Errorf("ctxText(150) = %q, want clamp to 99", got)
-	}
-	if got := ctxText(-5); got != "0"+g {
-		t.Errorf("ctxText(-5) = %q, want 0", got)
-	}
-}
-
 func TestGlassGlyphSprite(t *testing.T) {
 	g := glyph(glassGlyph)
 	if len(g) != 5 {
