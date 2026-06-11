@@ -84,6 +84,58 @@ enum DisplayPictogram {
         "........",
     ]
 
+    static let neutral = Color(red: 0.8, green: 0.8, blue: 0.8)
+
+    // Source-name card: two 3×5 letters ("AB").
+    static let sourceCard = [
+        "........", "XXX.XX..", "X.X.X.X.", "XXX.XX..",
+        "X.X.X.X.", "X.X.XX..", "........", "........",
+    ]
+    // Rate-limit % card: "8" + the render font's %.
+    static let ratePct = [
+        "........", "XXX.X.X.", "X.X...X.", "XXX..X..",
+        "X.X.X...", "XXX.X.X.", "........", "........",
+    ]
+    // Context-number card: "7" + the context-glass glyph.
+    static let contextNumber = [
+        "........", "XXX.X.X.", "..X.X.X.", "..X.X.X.",
+        "..X.XXX.", "..X.XXX.", "........", "........",
+    ]
+    // Reset countdown: clock "1:5" (digit 1 / colon / digit 5, 3×5 font).
+    static let resetClock = [
+        "........", ".X..XXX.", "XX.XX...", ".X..XXX.",
+        ".X.X..X.", "XXX.XXX.", "........", "........",
+    ]
+    // Context glass: walls + bottom + partial fill (the actual drawGlass shape).
+    static let contextGlass = [
+        "........", ".X....X.", ".X....X.", ".X.XX.X.",
+        ".XXXXXX.", "........", "........", "........",
+    ]
+    // Bottom-bar modes: per-session pixels vs the solid rate bar.
+    static let barSession = [
+        "........", "........", "........", "........",
+        "........", "........", "X.X.X.X.", "........",
+    ]
+    static let barRate = [
+        "........", "........", "........", "........",
+        "........", "........", "XXXXXX..", "........",
+    ]
+    // The 8×8 tool icons (body rows of the render sprites) — used by the
+    // behavior rows as a legend for body=source / eyes=state.
+    static let claudeIcon = [
+        "..X..X..", ".XXXXXX.", ".X.XX.X.", "XX.XX.XX",
+        "XXXXXXXX", ".X....X.", ".XXXXXX.", "........",
+    ]
+    static let codexIcon = [
+        "X.......", ".X......", "..X.....", "...X....",
+        "..X.....", ".X......", "X..XXXX.", "........",
+    ]
+    // Chime bell (attention-chime behavior row).
+    static let bell = [
+        "...X....", "..XXX...", "..XXX...", ".XXXXX..",
+        "........", "...X....", "........", "........",
+    ]
+
     // Scrolling activity text — three short lines.
     static let textLines = [
         "........",
