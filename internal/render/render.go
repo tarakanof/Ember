@@ -736,11 +736,11 @@ func itoa(n int) string {
 // numStart is the left edge of the digit area (1-px gap after the 8×8 icon).
 const numStart = 9
 
-// detailPayload builds a robot(db) + AWTRIX-native-text payload. blink=true is
-// the WAIT/ERR fallback (static, blinking). blink=false is the activity detail
+// detailPayload builds an 8×8 icon (db) + AWTRIX-native-text payload. blink=true
+// is the WAIT/ERR fallback (static, blinking). blink=false is the activity detail
 // (firmware shows it static when it fits, scrolls when it overflows). center is
-// always false so textOffset is the literal start column (cols 11-31), clear of
-// the 10-wide robot.
+// always false so textOffset is the literal start column (cols 9-31), clear of
+// the 8-wide icon.
 func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int) map[string]any {
 	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
 	p := map[string]any{
@@ -886,15 +886,9 @@ func ComposeFrame(s Session, card int, sessions []Session, now time.Time) Frame 
 			drawDigits(&f, text, numStart, 1, col)
 		}
 	case card == cardSource && s.Source != "":
-		digitColor := colorWhite
-		if s.SourceColor != nil {
-			if c, ok := parseHex(*s.SourceColor); ok {
-				digitColor = c
-			}
-		}
-		drawDigits(&f, sourceCardText(s.Source), numStart, 1, digitColor)
+		drawDigits(&f, sourceCardText(s.Source), numStart, 1, sourceColorOr(s, colorWhite))
 	default:
-		// card == -1 (no cards available) or data went missing: blank number slot.
+		// card == cardNone (no cards available) or data went missing: blank number slot.
 	}
 
 	glassFillColor := colorForState(s.State)
@@ -952,15 +946,17 @@ func stateHex(state string) string {
 var idleDimWhite = RGB{0x66, 0x66, 0x66}
 
 // RenderIdleFrame returns the dimmed-robot payload emitted during the
-// G.2 idle-restore countdown. No digits, no glass, no text — the robot
-// dims to ~40% white and the rest of the matrix stays dark, leaving an
+// G.2 idle-restore countdown. No digits, no glass, no text — the body dims
+// to ~40% white and the rest of the matrix stays dark, leaving an
 // unambiguous "AI idle" signal that's also visually distinct from the
-// active rotation frames. Includes prio+force+lifetime so AWTRIX keeps
-// holding the slot until the countdown elapses and we stop publishing.
+// active rotation frames. The eye sockets / cursor overlay are left dark
+// (not painted) so the sprite silhouette is preserved even in the idle dim.
+// Includes prio+force+lifetime so AWTRIX keeps holding the slot until the
+// countdown elapses and we stop publishing.
 func RenderIdleFrame(lifetimeSeconds int) map[string]any {
-	// Idle dim deliberately overrides identity: the dim-white colour covers both
-	// body and overlay so the icon reads as "no active work" regardless of source.
-	pixels := composeToolIconPixels(Session{State: "idle"}, idleDimWhite, idleDimWhite)
+	// Idle dims the body only; deliberately skips the feature overlay so the
+	// eye sockets / cursor remain dark, preserving the sprite silhouette.
+	pixels := composeToolIconBodyPixels(Session{State: "idle"}, idleDimWhite)
 	return map[string]any{
 		"draw": []any{
 			map[string]any{"db": []any{0, 0, 8, 8, pixels}},
@@ -987,8 +983,10 @@ func toolIcon8(s Session) []string {
 // fall back to a state colour.
 var iconNeutral = RGB{0xcc, 0xcc, 0xcc}
 
-// claudeEyes8 lights the robot-face eye sockets (the 2×2-px holes of
-// usageIconClaude, rows 2-3 × cols 2,5) in the state colour.
+// claudeEyes8 lights the robot-face eye sockets in the state colour.
+// Each eye is 1 col × 2 rows; there are two eyes (cols 2 and 5, rows 2-3).
+// These positions are holes in usageIconClaude (body sprite), so painting
+// the overlay fills the sockets without disturbing the body.
 var claudeEyes8 = []string{
 	"........",
 	"........",
@@ -1013,15 +1011,25 @@ var codexCursor8 = []string{
 	"........",
 }
 
-func iconBodyColor(s Session) RGB {
+// sourceColorOr returns the session's source colour when it parses, else fallback.
+func sourceColorOr(s Session, fallback RGB) RGB {
 	if s.SourceColor != nil {
 		if c, ok := parseHex(*s.SourceColor); ok {
 			return c
 		}
 	}
-	return iconNeutral
+	return fallback
 }
 
+// iconBodyColor returns the colour for the 8×8 icon body: the session's source
+// colour when present and valid, else iconNeutral. The state channel lives in
+// the eye/cursor overlay, so the body must never fall back to a state colour.
+func iconBodyColor(s Session) RGB {
+	return sourceColorOr(s, iconNeutral)
+}
+
+// iconOverlay8 returns the 8×8 feature overlay for a session: the Codex cursor
+// bitmap for Codex sessions, else the Claude eye-socket bitmap.
 func iconOverlay8(s Session) []string {
 	if s.Tool == "codex" {
 		return codexCursor8
@@ -1037,13 +1045,10 @@ func drawToolIcon8(f *Frame, s Session, body, feature RGB) {
 	paintBitmap(f, 0, 0, iconOverlay8(s), feature)
 }
 
-// composeToolIconPixels paints just the 8×8 icon into a tight 8×8 = 64-int pixel
-// array (for the locked-attention / idle db, leaving cols 8-31 clear for native
-// text). body is the identity colour; feature is the state colour for the
-// eye/cursor overlay.
-func composeToolIconPixels(s Session, body, feature RGB) []int {
-	var f Frame
-	drawToolIcon8(&f, s, body, feature)
+// packIcon8 extracts the 8×8 top-left region of f into a 64-int row-major
+// pixel array (0xRRGGBB; undirty cells emit 0). It is the 8-wide analogue of
+// framePixels and is the shared packing step for the icon db ops.
+func packIcon8(f *Frame) []int {
 	px := make([]int, 64)
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {
@@ -1054,4 +1059,24 @@ func composeToolIconPixels(s Session, body, feature RGB) []int {
 		}
 	}
 	return px
+}
+
+// composeToolIconBodyPixels paints only the body (no overlay) of the 8×8 tool
+// icon into a 64-int pixel array. Used by RenderIdleFrame so the idle dim
+// covers the body but deliberately leaves the eye sockets / cursor dark,
+// preserving the sprite silhouette.
+func composeToolIconBodyPixels(s Session, body RGB) []int {
+	var f Frame
+	paintBitmap(&f, 0, 0, toolIcon8(s), body)
+	return packIcon8(&f)
+}
+
+// composeToolIconPixels paints the full 8×8 icon (body + feature overlay) into
+// a tight 8×8 = 64-int pixel array (for the locked-attention db, leaving cols
+// 8-31 clear for native text). body is the identity colour; feature is the
+// state colour for the eye/cursor overlay.
+func composeToolIconPixels(s Session, body, feature RGB) []int {
+	var f Frame
+	drawToolIcon8(&f, s, body, feature)
+	return packIcon8(&f)
 }
