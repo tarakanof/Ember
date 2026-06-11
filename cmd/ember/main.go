@@ -909,6 +909,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("PUT /v1/usage/config", rateLimit(a, http.HandlerFunc(a.handleUsageConfigPut)))
 	writeMux.Handle("GET /v1/display/config", rateLimit(a, http.HandlerFunc(a.handleDisplayConfigGet)))
 	writeMux.Handle("PUT /v1/display/config", rateLimit(a, http.HandlerFunc(a.handleDisplayConfigPut)))
+	writeMux.Handle("GET /v1/quiet/config", rateLimit(a, http.HandlerFunc(a.handleQuietConfigGet)))
+	writeMux.Handle("PUT /v1/quiet/config", rateLimit(a, http.HandlerFunc(a.handleQuietConfigPut)))
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
 	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
@@ -1449,6 +1451,7 @@ func main() {
 	}
 	app.loadPersistedUsageSettings()   // runtime usage-widget toggles over the file baseline
 	app.loadPersistedDisplaySettings() // runtime display config overrides over the file baseline
+	app.loadPersistedQuietSettings()   // quiet-hours override over the file baseline
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}

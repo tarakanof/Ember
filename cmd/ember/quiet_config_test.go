@@ -113,3 +113,46 @@ func TestValidateQuietHours(t *testing.T) {
 		}
 	})
 }
+
+func TestQuietConfigDTOValidate(t *testing.T) {
+	t.Run("good DTO accepted", func(t *testing.T) {
+		good := quietConfigDTO{Enabled: true, Start: "22:00", End: "08:00"}
+		if err := good.validate(); err != nil {
+			t.Errorf("good DTO rejected: %v", err)
+		}
+	})
+
+	for _, bad := range []struct {
+		name string
+		dto  quietConfigDTO
+	}{
+		{"bad start", quietConfigDTO{Start: "24:00", End: "08:00"}},
+		{"empty end", quietConfigDTO{Start: "22:00", End: ""}},
+	} {
+		bad := bad // capture loop var
+		t.Run(bad.name, func(t *testing.T) {
+			if err := bad.dto.validate(); err == nil {
+				t.Errorf("bad DTO %+v accepted", bad.dto)
+			}
+		})
+	}
+}
+
+func TestQuietDTODefaultsAndApply(t *testing.T) {
+	a := newTestAppWithStore(t)
+
+	t.Run("default DTO shows disabled with 22:00-08:00 window", func(t *testing.T) {
+		d := a.quietDTO()
+		if d.Enabled || d.Start != "22:00" || d.End != "08:00" {
+			t.Fatalf("default DTO = %+v, want disabled 22:00-08:00", d)
+		}
+	})
+
+	t.Run("applyQuietSettings updates live config", func(t *testing.T) {
+		a.applyQuietSettings(quietConfigDTO{Enabled: true, Start: "23:00", End: "07:00"})
+		q := a.cfg.Load().QuietHours
+		if !q.Enabled || q.Start != "23:00" || q.End != "07:00" {
+			t.Fatalf("applied config = %+v", q)
+		}
+	})
+}
