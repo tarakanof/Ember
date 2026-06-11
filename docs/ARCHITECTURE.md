@@ -349,6 +349,15 @@ snapshot. Gated only by `limit_alarm` (usage config, default on); deliberately
 independent of the usage card threshold (the alarm is about resuming work, not
 tiles).
 
+**Quiet hours.** A global night mute (`quiet_hours` config: `enabled`,
+`start`/`end` `"HH:MM"`, default off / 22:00–08:00; runtime override via
+`GET/PUT /v1/quiet/config`, store key `quiet_json`). Enforced by a
+`quietPublisher` decorator around the device publisher — during the window
+(server-local wall clock; overnight wrap supported; `start == end` = never)
+Notify payloads lose their `sound`/`rtttl` keys and `PlayRTTTL`/`PlaySound`
+no-op, so every sound source is covered at one choke point. Visual output is
+untouched; sounds resume on the first event after the window.
+
 ## Display layout (32×8 matrix)
 
 Each metric owns a screen region as a **graphic**; numeric readouts are opt-in
