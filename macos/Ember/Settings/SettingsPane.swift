@@ -8,7 +8,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .connection: "Connection"
         case .device:     "Device"
-        case .display:    "Code agent"
+        case .display:    "Agent"
         case .pomodoro:   "Pomodoro"
         case .weather:    "Weather"
         case .reminders:  "Reminders"

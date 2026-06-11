@@ -36,54 +36,6 @@ enum DisplayPictogram {
     static let amber = Color(red: 1.0, green: 0.76, blue: 0.30)
     static let blue = Color(red: 0.31, green: 0.66, blue: 1.0)
 
-    // Percent sign (3×5 from the render font) — the "%" number card.
-    static let percent = [
-        "........",
-        ".X...X..",
-        "....X...",
-        "...X....",
-        "..X.....",
-        ".X...X..",
-        "........",
-        "........",
-    ]
-
-    // Context-window glass tumbler (the ⌷ pictogram, partially filled).
-    static let glass = [
-        "........",
-        "........",
-        "..X.X...",
-        "..X.X...",
-        "..XXX...",
-        "..XXX...",
-        "..XXX...",
-        "........",
-    ]
-
-    // Reset hourglass (the ⧗ pictogram) — the HH:MM reset countdown card.
-    static let hourglass = [
-        "........",
-        "..XXX...",
-        "...X....",
-        "...X....",
-        "...X....",
-        "..XXX...",
-        "........",
-        "........",
-    ]
-
-    // A single dimmed bottom bar across the content area (row 7).
-    static let bottomBar = [
-        "........",
-        "........",
-        "........",
-        "........",
-        "........",
-        "........",
-        "XXXXXX..",
-        "........",
-    ]
-
     static let neutral = Color(red: 0.8, green: 0.8, blue: 0.8)
 
     // Source-name card: two 3×5 letters ("AB").
