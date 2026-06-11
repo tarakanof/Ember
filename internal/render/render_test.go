@@ -130,47 +130,6 @@ func TestDrawDigits(t *testing.T) {
 	}
 }
 
-func TestDrawRobotNormal(t *testing.T) {
-	f := &Frame{}
-	drawRobot(f, Session{State: "running"}, RGB{0x2e, 0xe8, 0x5e})
-
-	mustLit := [][2]int{
-		{1, 1}, {2, 1}, {3, 1}, {7, 1}, {8, 1},
-		{0, 4}, {9, 4},
-		{1, 6}, {3, 6}, {6, 6}, {8, 6},
-	}
-	for _, p := range mustLit {
-		if !f.Dirty[p[1]][p[0]] {
-			t.Errorf("normal: [%d,%d] lit = false, want true", p[0], p[1])
-		}
-	}
-
-	mustDark := [][2]int{{2, 2}, {2, 3}, {7, 2}, {7, 3}}
-	for _, p := range mustDark {
-		if f.Dirty[p[1]][p[0]] {
-			t.Errorf("normal: [%d,%d] lit = true, want false (eye hole)", p[0], p[1])
-		}
-	}
-}
-
-func TestDrawRobotError(t *testing.T) {
-	f := &Frame{}
-	drawRobot(f, Session{State: "error"}, RGB{0xff, 0x3a, 0x3a})
-
-	holes := [][2]int{{2, 2}, {3, 3}, {2, 4}, {7, 2}, {6, 3}, {7, 4}}
-	for _, p := range holes {
-		if f.Dirty[p[1]][p[0]] {
-			t.Errorf("error: [%d,%d] lit = true, want false (chevron hole)", p[0], p[1])
-		}
-	}
-
-	for _, x := range []int{0, 9} {
-		if !f.Dirty[4][x] {
-			t.Errorf("error: arm protrusion at [%d,4] lit = false, want true", x)
-		}
-	}
-}
-
 func intPtr(v int) *int { return &v }
 
 // litInterior counts lit pixels in the glass interior (cols 26-29, rows 1-4).
@@ -819,25 +778,6 @@ func TestComposeFrame_CodexSprite(t *testing.T) {
 	// Distinct from the Claude robot-face, which lights (2,0) not (0,0).
 	if f.Dirty[0][2] {
 		t.Error("codex frame lit (2,0) — that's the Claude icon, not codex")
-	}
-}
-
-func TestCodexSpriteCanonical(t *testing.T) {
-	want := []string{
-		"XX........",
-		".XX.......",
-		"..XX......",
-		"..XX......",
-		".XX.......",
-		"XX...XXXXX",
-	}
-	if len(codexSprite) != len(want) {
-		t.Fatalf("codexSprite has %d rows, want %d", len(codexSprite), len(want))
-	}
-	for i := range want {
-		if codexSprite[i] != want[i] {
-			t.Errorf("row %d = %q, want %q", i, codexSprite[i], want[i])
-		}
 	}
 }
 

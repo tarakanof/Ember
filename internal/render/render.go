@@ -200,58 +200,6 @@ func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
 	}
 }
 
-// robotNormal is the 10-wide × 6-tall mark painted at cols 0–9, rows 1–6.
-// Head top, two 1-px eye holes (cols 2 & 7), arms full-width at row 4
-// (protruding to cols 0 & 9), body, and four legs at cols 1, 3, 6, 8.
-var robotNormal = []string{
-	".XXXXXXXX.", // row 1: head top
-	".X.XXXX.X.", // row 2: eyes upper (col 2 & col 7 dark)
-	".X.XXXX.X.", // row 3: eyes lower
-	"XXXXXXXXXX", // row 4: arms
-	".XXXXXXXX.", // row 5: body
-	".X.X..X.X.", // row 6: legs
-}
-
-// robotError differs only in rows 2–4: 3-px tall chevron eye holes
-// (> <) sloping inward, plus matching eye-notches in the arms row.
-// The arm protrusions at cols 0 and 9 remain lit.
-var robotError = []string{
-	".XXXXXXXX.",
-	".X.XXXX.X.", // row 2: outer holes (col 2 & 7)
-	".XX.XX.XX.", // row 3: apex holes (col 3 & 6)
-	"XX.XXXX.XX", // row 4: outer holes (col 2 & 7) + arm protrusions retained
-	".XXXXXXXX.",
-	".X.X..X.X.",
-}
-
-// codexSprite is the Codex ">_" mark (10×6), kept pixel-identical to the copy
-// in the retired Go menu's icon renderer (guarded by TestCodexSpriteCanonical).
-// 2-px chevron (cols 0–3) + underscore (row 5, cols 5–9).
-var codexSprite = []string{
-	"XX........",
-	".XX.......",
-	"..XX......",
-	"..XX......",
-	".XX.......",
-	"XX...XXXXX",
-}
-
-// spriteFor selects the 10-wide mark for a session: Codex gets ">_"; Claude
-// gets the robot (chevron-eye variant on error).
-func spriteFor(s Session) []string {
-	if s.Tool == "codex" {
-		return codexSprite
-	}
-	if s.State == "error" {
-		return robotError
-	}
-	return robotNormal
-}
-
-func drawRobot(f *Frame, s Session, c RGB) {
-	paintBitmap(f, 0, 1, spriteFor(s), c)
-}
-
 const (
 	glassLeft        = 25
 	glassRight       = 30
@@ -737,10 +685,10 @@ func itoa(n int) string {
 const numStart = 9
 
 // detailPayload builds an 8×8 icon (db) + AWTRIX-native-text payload. blink=true
-// is the WAIT/ERR fallback (static, blinking). blink=false is the activity detail
-// (firmware shows it static when it fits, scrolls when it overflows). center is
-// always false so textOffset is the literal start column (cols 9-31), clear of
-// the 8-wide icon.
+// is the WAIT/ERR attention label (blinking; scrolls when the label overflows the
+// free columns). blink=false is the activity detail (firmware shows it static when
+// it fits, scrolls when it overflows). center is always false so textOffset is the
+// literal start column (cols 9-31), clear of the 8-wide icon.
 func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int) map[string]any {
 	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
 	p := map[string]any{
@@ -824,37 +772,6 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	}
 	frame := ComposeFrame(*session, selected, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds)
-}
-
-// robotWidth is the horizontal extent of the locked-frame bitmap and
-// the idle-dim bitmap. The remaining 32-robotWidth columns are left
-// blank so AWTRIX renders the blinking attention text in that area
-// (locked path) or stay dark (idle path). Set to 10 — matches the
-// rotation-frame sprite so all 4 legs and both arm protrusions are
-// preserved. AWTRIX default 3×5 font: "WAIT" ≈ 15 px, "ERR" ≈ 10 px,
-// both fit in the remaining 22 cols (10-31) with noScroll:true.
-const robotWidth = 10
-
-// composeRobotPixels paints just the robot sprite into a tight
-// robotWidth×8 = 80-int pixel array. Uses the same 10-wide
-// robot{Normal,Error} sprites as the rotation frame so all 4 legs and
-// both arm protrusions are preserved. Called by RenderForCoord (locked
-// attention path) and RenderIdleFrame (dim-white countdown).
-func composeRobotPixels(s Session, robotColor RGB) []int {
-	sprite := spriteFor(s)
-	var f Frame
-	paintBitmap(&f, 0, 1, sprite, robotColor)
-	pixels := make([]int, robotWidth*8)
-	for y := 0; y < 8; y++ {
-		for x := 0; x < robotWidth; x++ {
-			if !f.Dirty[y][x] {
-				continue
-			}
-			c := f.Pixels[y][x]
-			pixels[y*robotWidth+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
-		}
-	}
-	return pixels
 }
 
 // ComposeFrame paints the standard layout for one session. The icon body
