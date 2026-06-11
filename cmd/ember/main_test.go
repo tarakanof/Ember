@@ -158,6 +158,15 @@ func (p *recordingPublisher) IndicatorSnapshot() []map[string]any {
 	return out
 }
 
+// RTTTLsSnapshot returns a copy of recorded PlayRTTTL calls under the lock.
+func (p *recordingPublisher) RTTTLsSnapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.rtttls))
+	copy(out, p.rtttls)
+	return out
+}
+
 func TestStatusRequestNormalizesDefaults(t *testing.T) {
 	session := StatusRequest{}.normalized()
 
