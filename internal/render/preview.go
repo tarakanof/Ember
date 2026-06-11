@@ -43,11 +43,11 @@ type DraftDisplay struct {
 	SourceColor    string // "" = no tint
 }
 
-// PreviewSession applies a draft to a base session and returns the Session the
-// renderer should draw. Live values are preferred; sample fallbacks ensure an
-// enabled element is never blank. now seeds the rate-reset sample so the reset
-// card renders ~sampleResetHrs ahead. Ported from the old menu's previewSession.
-func PreviewSession(d DraftDisplay, base Session, now time.Time) Session {
+// PreviewSession applies draft toggles to a base session and returns the
+// Session the renderer should draw. Live values are preferred; sample fallbacks
+// ensure an enabled element is never blank. Ported from the old menu's
+// previewSession.
+func PreviewSession(d DraftDisplay, base Session) Session {
 	s := base
 
 	if d.ContextPct {

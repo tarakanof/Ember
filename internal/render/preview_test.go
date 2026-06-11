@@ -15,10 +15,9 @@ func TestSampleBaseSession(t *testing.T) {
 }
 
 func TestPreviewSessionToggles(t *testing.T) {
-	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
 	base := Session{Source: "mbp", Tool: "claude", State: "running"}
 
-	off := PreviewSession(DraftDisplay{}, base, now)
+	off := PreviewSession(DraftDisplay{}, base)
 	if off.ContextPct != nil || off.RateWindowPct != nil {
 		t.Fatal("pct fields should be nil when toggles off")
 	}
@@ -32,7 +31,7 @@ func TestPreviewSessionToggles(t *testing.T) {
 	on := PreviewSession(DraftDisplay{
 		ContextPct: true, RateBottomBar: true, ActivityDetail: true,
 		SourceColor: "#ff8800",
-	}, base, now)
+	}, base)
 	if on.ContextPct == nil || *on.ContextPct != samplePct {
 		t.Fatalf("ctx pct sample = %v", on.ContextPct)
 	}
@@ -51,22 +50,30 @@ func TestPreviewSessionToggles(t *testing.T) {
 
 	live := base
 	live.ContextPct = ptrInt(10)
-	got := PreviewSession(DraftDisplay{ContextPct: true}, live, now)
+	got := PreviewSession(DraftDisplay{ContextPct: true}, live)
 	if got.ContextPct == nil || *got.ContextPct != 10 {
 		t.Fatalf("live ctx pct should win over sample, got %v", got.ContextPct)
+	}
+
+	// Live-value leakage: RateWindowPct must be nil when RateBottomBar is off,
+	// even if the base session carries a live value.
+	liveRate := base
+	liveRate.RateWindowPct = ptrInt(75)
+	leaked := PreviewSession(DraftDisplay{RateBottomBar: false}, liveRate)
+	if leaked.RateWindowPct != nil {
+		t.Fatalf("live RateWindowPct leaked through disabled RateBottomBar: %v", leaked.RateWindowPct)
 	}
 }
 
 func TestPreviewSessionSlimDraft(t *testing.T) {
-	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
 	base := Session{Source: "mbp", Tool: "claude", State: "running"}
 
-	off := PreviewSession(DraftDisplay{}, base, now)
+	off := PreviewSession(DraftDisplay{}, base)
 	if off.ContextPct != nil || off.RateWindowPct != nil || off.Activity != "" {
 		t.Fatalf("all-off draft leaked data: %+v", off)
 	}
 
-	on := PreviewSession(DraftDisplay{ContextPct: true, RateBottomBar: true, ActivityDetail: true}, base, now)
+	on := PreviewSession(DraftDisplay{ContextPct: true, RateBottomBar: true, ActivityDetail: true}, base)
 	if on.ContextPct == nil || *on.ContextPct != samplePct {
 		t.Fatal("context sample missing")
 	}
@@ -80,7 +87,7 @@ func TestPreviewSessionSlimDraft(t *testing.T) {
 
 func TestPreviewFramesIncludeUsageCards(t *testing.T) {
 	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
-	s := PreviewSession(DraftDisplay{SourceCard: true, RateBottomBar: true}, SampleBaseSession(), now)
+	s := PreviewSession(DraftDisplay{SourceCard: true, RateBottomBar: true}, SampleBaseSession())
 	p := PreviewFrames(s, SampleUsageView(), now)
 	names := map[string]bool{}
 	for _, f := range p.Frames {

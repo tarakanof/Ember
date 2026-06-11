@@ -142,6 +142,9 @@ func TestPreviewEndpointOpenAndShaped(t *testing.T) {
 	if !seen["source"] {
 		t.Fatalf("expected source card, got %v", seen)
 	}
+	if !seen["usage-5h"] {
+		t.Fatalf("expected usage-5h card (usage_card defaults true), got %v", seen)
+	}
 	if seen["tool"] {
 		t.Fatal("tool card must not be a grid frame")
 	}

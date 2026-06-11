@@ -43,7 +43,7 @@ func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 	if win, _, _ := render.PickWinning(snap.Sessions); win != nil {
 		base = *win
 	}
-	s := render.PreviewSession(d, base, now)
+	s := render.PreviewSession(d, base)
 	writeJSON(w, http.StatusOK, render.PreviewFrames(s, u, now))
 }
 
