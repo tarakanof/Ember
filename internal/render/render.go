@@ -24,25 +24,25 @@ type Frame struct {
 // Session holds the current state of a single AI session as received via the
 // status endpoint.
 type Session struct {
-	Source         string    `json:"source"`
-	Tool           string    `json:"tool"`
-	Session        string    `json:"session"`
-	State          string    `json:"state"`
-	Message        string    `json:"message"`
-	TokensToday    int64     `json:"tokens_today,omitempty"`
-	ContextPct     *int      `json:"context_pct,omitempty"`
-	SourceColor    *string   `json:"source_color,omitempty"`
-	RateWindowPct  *int      `json:"rate_window_pct,omitempty"`
-	Activity       string    `json:"activity,omitempty"`
-	ContextNumber  bool      `json:"context_number,omitempty"`
-	RateBottomBar  bool      `json:"rate_bottom_bar,omitempty"`
-	RateResetAt    int64     `json:"rate_reset_at,omitempty"`
-	RateReset      bool      `json:"rate_reset,omitempty"`
-	RateResetLabel string    `json:"rate_reset_label,omitempty"`
+	Source         string  `json:"source"`
+	Tool           string  `json:"tool"`
+	Session        string  `json:"session"`
+	State          string  `json:"state"`
+	Message        string  `json:"message"`
+	TokensToday    int64   `json:"tokens_today,omitempty"`
+	ContextPct     *int    `json:"context_pct,omitempty"`
+	SourceColor    *string `json:"source_color,omitempty"`
+	RateWindowPct  *int    `json:"rate_window_pct,omitempty"`
+	Activity       string  `json:"activity,omitempty"`
+	ContextNumber  bool    `json:"context_number,omitempty"`
+	RateBottomBar  bool    `json:"rate_bottom_bar,omitempty"`
+	RateResetAt    int64   `json:"rate_reset_at,omitempty"`
+	RateReset      bool    `json:"rate_reset,omitempty"`
+	RateResetLabel string  `json:"rate_reset_label,omitempty"`
 	// SourceCard / SessionBar are *bool so a producer that predates them (nil)
 	// keeps the element ON — absent must never regress the display.
-	SourceCard *bool `json:"source_card,omitempty"`
-	SessionBar *bool `json:"session_bar,omitempty"`
+	SourceCard *bool     `json:"source_card,omitempty"`
+	SessionBar *bool     `json:"session_bar,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
@@ -807,11 +807,14 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	}
 
 	cards := AvailableCards(*session)
-	ci := card
-	if ci < 0 || ci >= len(cards) {
-		ci = 0
+	selected := -1 // no cards: blank number slot (icon/glass/bar still render)
+	if len(cards) > 0 {
+		ci := card
+		if ci < 0 || ci >= len(cards) {
+			ci = 0
+		}
+		selected = cards[ci]
 	}
-	selected := cards[ci]
 	if selected == cardTool {
 		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
 	}
