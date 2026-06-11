@@ -192,3 +192,24 @@ func UsageModelPayload(icon []string, tool RGB, day, model string, pct, lifetime
 	}
 	return usageWeeklyPayload(icon, tool, day, pct, d, l, lifetime, usageGray, usageGray)
 }
+
+// LimitResetPopupPayload is the "5h limit reset — back to work" notification:
+// drawn 8×8 tool icon + brand-coloured text, auto-dismiss. The chime is NOT in
+// the payload (fw 0.98 drops a notification's sound when it draws) — the
+// caller plays it via PlayRTTTL, same as reminders.
+func LimitResetPopupPayload(tool string, durationSec int) map[string]any {
+	icon, color, label := usageIconClaude, usageColorClaude, "CLAUDE 5H RESET"
+	if tool == "codex" {
+		icon, color, label = usageIconCodex, usageColorCodex, "CODEX 5H RESET"
+	}
+	return map[string]any{
+		"text":       label,
+		"duration":   durationSec,
+		"wakeup":     true,
+		"stack":      true,
+		"color":      hexOf(color),
+		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, bitmap8(icon, color)}}},
+		"center":     false,
+		"textOffset": 9,
+	}
+}

@@ -95,7 +95,7 @@ var nonReloadableLeaves = []string{
 }
 
 // diffConfig returns dotted leaf paths whose values differ between oldCfg
-// and newCfg. Hand-rolled (no reflection) across all 18 config leaves so a
+// and newCfg. Hand-rolled (no reflection) across all 21 config leaves so a
 // new field added later forces a compile-time prompt to extend this list.
 func diffConfig(oldCfg, newCfg Config) []string {
 	var changed []string
@@ -140,6 +140,15 @@ func diffConfig(oldCfg, newCfg Config) []string {
 	}
 	if oldCfg.Display.IdleRestoreSeconds != newCfg.Display.IdleRestoreSeconds {
 		changed = append(changed, "display.idle_restore_seconds")
+	}
+	if oldCfg.Display.AckTimeoutSeconds != newCfg.Display.AckTimeoutSeconds {
+		changed = append(changed, "display.ack_timeout_seconds")
+	}
+	if oldCfg.Display.RotationDwellSeconds != newCfg.Display.RotationDwellSeconds {
+		changed = append(changed, "display.rotation_dwell_seconds")
+	}
+	if oldCfg.Display.AttentionChime != newCfg.Display.AttentionChime {
+		changed = append(changed, "display.attention_chime")
 	}
 	if oldCfg.RateLimit.Disabled != newCfg.RateLimit.Disabled {
 		changed = append(changed, "rate_limit.disabled")
@@ -278,6 +287,8 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// the store override back to the file-config baseline.
 		app.loadPersistedDeviceBaseURL()
 		app.loadPersistedUsageSettings()
+		// Likewise re-apply display config overrides so a reload doesn't revert them.
+		app.loadPersistedDisplaySettings()
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,

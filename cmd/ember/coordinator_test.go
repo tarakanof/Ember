@@ -18,8 +18,8 @@ func TestNewCoordinator_DefaultsFromConfig(t *testing.T) {
 
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
 
-	if c.ackTimeout != 30*time.Second {
-		t.Errorf("ackTimeout = %v, want 30s", c.ackTimeout)
+	if got := c.ackTimeoutDur(); got != 30*time.Second {
+		t.Errorf("ackTimeoutDur() = %v, want 30s", got)
 	}
 	if cap(c.cmds) < 8 {
 		t.Errorf("cmds channel buffer = %d, want a comfortable margin (>=8) so producer bursts don't drop transitions", cap(c.cmds))
@@ -423,7 +423,7 @@ func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
 	gotLocked := c.locked
 	c.muTest.RUnlock()
 	if gotLocked {
-		t.Errorf("locked = true after 31s, want false (ack timeout %v)", c.ackTimeout)
+		t.Errorf("locked = true after 31s, want false (ack timeout %v)", c.ackTimeoutDur())
 	}
 }
 

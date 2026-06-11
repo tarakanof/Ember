@@ -76,9 +76,12 @@ func TestUsageConfigToggles(t *testing.T) {
 	if !a.cfg.Load().usageWidgetEnabled() {
 		t.Fatal("usage widget should default on")
 	}
+	if !a.cfg.Load().limitAlarmEnabled() {
+		t.Fatal("limit alarm should default on")
+	}
 	pw := httptest.NewRecorder()
 	a.handleUsageConfigPut(pw, httptest.NewRequest("PUT", "/v1/usage/config",
-		strings.NewReader(`{"usage_widget":false,"usage_per_model":true}`)))
+		strings.NewReader(`{"usage_widget":false,"usage_per_model":true,"limit_alarm":false}`)))
 	if pw.Code != http.StatusOK {
 		t.Fatalf("put: code=%d body=%s", pw.Code, pw.Body.String())
 	}
@@ -88,12 +91,44 @@ func TestUsageConfigToggles(t *testing.T) {
 	if !a.cfg.Load().usagePerModelEnabled() {
 		t.Fatal("per-model should be on after PUT")
 	}
+	if a.cfg.Load().limitAlarmEnabled() {
+		t.Fatal("limit alarm should be off after PUT")
+	}
 	if v, ok, _ := a.store.GetSetting(usageSettingsKey); !ok || !strings.Contains(v, `"usage_widget":false`) {
 		t.Fatalf("usage not persisted: %q ok=%v", v, ok)
+	}
+	if v, ok, _ := a.store.GetSetting(usageSettingsKey); !ok || !strings.Contains(v, `"limit_alarm":false`) {
+		t.Fatalf("limit_alarm not persisted: %q ok=%v", v, ok)
 	}
 	gw := httptest.NewRecorder()
 	a.handleUsageConfigGet(gw, httptest.NewRequest("GET", "/v1/usage/config", nil))
 	if !strings.Contains(gw.Body.String(), `"usage_widget":false`) {
 		t.Fatalf("get: %s", gw.Body.String())
+	}
+	if !strings.Contains(gw.Body.String(), `"limit_alarm":false`) {
+		t.Fatalf("get missing limit_alarm: %s", gw.Body.String())
+	}
+}
+
+// TestUsageConfigLegacyBlobKeepsLimitAlarmDefault verifies that a blob written
+// before "limit_alarm" existed (i.e. it has no limit_alarm key) does not
+// silently disable the alarm on load.
+func TestUsageConfigLegacyBlobKeepsLimitAlarmDefault(t *testing.T) {
+	a := newTestAppWithStore(t)
+	// Persist a legacy blob that has no limit_alarm key.
+	legacy := `{"usage_widget":true,"usage_per_model":false}`
+	if err := a.store.PutSetting(usageSettingsKey, legacy); err != nil {
+		t.Fatalf("PutSetting: %v", err)
+	}
+	a.loadPersistedUsageSettings()
+	if !a.cfg.Load().limitAlarmEnabled() {
+		t.Error("legacy blob without limit_alarm key must not disable the alarm (default=true)")
+	}
+	// Other fields from the legacy blob should still be respected.
+	if !a.cfg.Load().usageWidgetEnabled() {
+		t.Error("usage_widget should be true from legacy blob")
+	}
+	if a.cfg.Load().usagePerModelEnabled() {
+		t.Error("usage_per_model should be false from legacy blob")
 	}
 }

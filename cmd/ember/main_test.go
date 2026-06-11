@@ -28,6 +28,10 @@ type recordingPublisher struct {
 	rtttls      []string
 	sounds      []string
 	loopApps    []string // app names returned by ListApps (device rotation)
+
+	// failNotify, when non-nil, is called on each Notify call and returns an
+	// error to simulate a device-unreachable condition. Return nil to succeed.
+	failNotify func() error
 }
 
 func (p *recordingPublisher) ListApps(_ context.Context) ([]string, error) {
@@ -71,7 +75,24 @@ func (p *recordingPublisher) CustomNamesSnapshot() []string {
 	return out
 }
 
+// NotifySnapshot returns a copy of recorded Notify payloads under the lock.
+func (p *recordingPublisher) NotifySnapshot() []map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]map[string]any, len(p.notify))
+	copy(out, p.notify)
+	return out
+}
+
 func (p *recordingPublisher) Notify(_ context.Context, payload map[string]any) error {
+	p.mu.Lock()
+	fn := p.failNotify
+	p.mu.Unlock()
+	if fn != nil {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.notify = append(p.notify, payload)
@@ -155,6 +176,15 @@ func (p *recordingPublisher) IndicatorSnapshot() []map[string]any {
 	defer p.mu.Unlock()
 	out := make([]map[string]any, len(p.indicator))
 	copy(out, p.indicator)
+	return out
+}
+
+// RTTTLsSnapshot returns a copy of recorded PlayRTTTL calls under the lock.
+func (p *recordingPublisher) RTTTLsSnapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.rtttls))
+	copy(out, p.rtttls)
 	return out
 }
 
@@ -1064,8 +1094,8 @@ func TestDefaultConfig_G2Fields(t *testing.T) {
 	if cfg.Display.FrameLifetimeSeconds != 30 {
 		t.Errorf("FrameLifetimeSeconds = %d, want 30", cfg.Display.FrameLifetimeSeconds)
 	}
-	if cfg.Display.IdleRestoreSeconds != 1200 {
-		t.Errorf("IdleRestoreSeconds = %d, want 1200", cfg.Display.IdleRestoreSeconds)
+	if cfg.Display.IdleRestoreSeconds != 120 {
+		t.Errorf("IdleRestoreSeconds = %d, want 120", cfg.Display.IdleRestoreSeconds)
 	}
 }
 

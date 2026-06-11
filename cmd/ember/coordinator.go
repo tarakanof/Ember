@@ -58,8 +58,6 @@ type coordinator struct {
 	// Ticks: 1-slot drop-on-full channel. Stale ticks carry no info.
 	ticks chan struct{}
 
-	ackTimeout time.Duration
-
 	// State owned by the goroutine. Tests read it via muTest below.
 	pointer       string
 	cardCursor    int
@@ -67,9 +65,10 @@ type coordinator struct {
 	lockedKey     string
 	lockEnteredAt time.Time
 	// lockReleaseTimer is a wallclock-based safety net that fires a tick
-	// after ackTimeout, guaranteeing release even if dwell happens to be
-	// configured larger than ackTimeout (the tick-driven check in onTick
-	// is otherwise the only release path on a sleepy rotation cadence).
+	// after the attention hold (ackTimeoutDur), guaranteeing release even if
+	// dwell happens to be configured larger than the hold (the tick-driven
+	// check in onTick is otherwise the only release path on a sleepy
+	// rotation cadence).
 	// Tests still drive release via fakeClock + Send(cmdTick); the timer
 	// uses real wallclock and so does nothing in those test setups —
 	// behaviour stays test-friendly.
@@ -136,6 +135,12 @@ type coordinator struct {
 	// coordinator-goroutine-owned (touched only from onTick).
 	usage           *UsageStore
 	pushedUsageApps map[string]pushedUsageApp
+
+	// alarmArmed/alarmFired track the 5h limit-reset alarm per tool (key:
+	// tool, value: ResetsAt epoch). In-memory by design; see checkLimitAlarms.
+	// Coordinator-goroutine-owned (touched only from onTick).
+	alarmArmed map[string]int64
+	alarmFired map[string]int64
 
 	// weather, when non-nil, holds the latest observation. reconcileWeatherApp
 	// pushes/refreshes/clears the single "ember-weather" rotating tile from it,
@@ -214,9 +219,8 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 		// carry the only signal of an attention transition. Ticks have
 		// their own narrow drop-on-full channel since stale ticks add
 		// no information (the next tick catches up).
-		cmds:       make(chan coordCmd, 64),
-		ticks:      make(chan struct{}, 1),
-		ackTimeout: time.Duration(cfg.Display.AckTimeoutSeconds) * time.Second,
+		cmds:  make(chan coordCmd, 64),
+		ticks: make(chan struct{}, 1),
 	}
 }
 
@@ -297,6 +301,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 	priorWasAttention := prior == "waiting" || prior == "error"
 	transition := prior != next
 
+	freshLock := false
 	c.muTest.Lock()
 	switch {
 	case attention && transition && !priorWasAttention && !c.keyHidden(key):
@@ -307,11 +312,12 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 		c.lockedKey = key
 		c.lockEnteredAt = c.clk.Now()
 		c.armLockTimerLocked()
+		freshLock = true
 	case attention && transition && priorWasAttention && c.locked && c.lockedKey == key:
 		// Same session shifting between waiting and error (e.g.,
 		// waiting → error during an approval prompt that then failed).
 		// Reset the ack timer so the new attention class gets its own
-		// 30s window — but DON'T re-target the pointer.
+		// window — but DON'T re-target the pointer and DON'T re-chime.
 		c.lockEnteredAt = c.clk.Now()
 		c.armLockTimerLocked()
 	case !attention && c.locked && c.lockedKey == key:
@@ -323,6 +329,16 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 		c.disarmLockTimerLocked()
 	}
 	c.muTest.Unlock()
+
+	if freshLock && c.loadCfg().Display.AttentionChime {
+		ctx := c.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := c.publisher.PlayRTTTL(ctx, attentionRTTTL); err != nil {
+			c.logger.Warn("attention chime failed", "err", err)
+		}
+	}
 
 	if c.snapshot != nil {
 		c.publish(c.filteredSnapshot())
@@ -356,13 +372,30 @@ func (c *coordinator) onClear() {
 	c.muTest.Unlock()
 }
 
+// attentionRTTTL is the optional lock-acquisition chime (display.attention_chime).
+const attentionRTTTL = "attn:d=16,o=6,b=200:c,e,g"
+
+// ackTimeoutDur reads the attention-hold duration live so a /v1/display/config
+// PUT applies to the CURRENT lock without restart.
+func (c *coordinator) ackTimeoutDur() time.Duration {
+	sec := c.loadCfg().Display.AckTimeoutSeconds
+	if sec <= 0 {
+		sec = 30
+	}
+	return time.Duration(sec) * time.Second
+}
+
 // armLockTimerLocked installs (or replaces) the wallclock safety-net
-// timer that fires a cmdTick after ackTimeout. Caller must hold muTest.
+// timer that fires a cmdTick after the current ackTimeoutDur. Caller must hold muTest.
+// The timer is armed with the value at arm time; if the hold is shortened
+// mid-lock via a config PUT, the tick-driven release check in onTick still
+// releases promptly (it re-reads live on every tick), but this safety-net
+// timer may fire later than the new shorter value.
 func (c *coordinator) armLockTimerLocked() {
 	if c.lockReleaseTimer != nil {
 		c.lockReleaseTimer.Stop()
 	}
-	c.lockReleaseTimer = time.AfterFunc(c.ackTimeout, func() {
+	c.lockReleaseTimer = time.AfterFunc(c.ackTimeoutDur(), func() {
 		c.Send(coordCmd{kind: cmdTick})
 	})
 }
@@ -443,7 +476,7 @@ func (c *coordinator) onTick() {
 				}
 			}
 		}
-		if releaseReason == "" && c.clk.Now().Sub(c.lockEnteredAt) >= c.ackTimeout {
+		if releaseReason == "" && c.clk.Now().Sub(c.lockEnteredAt) >= c.ackTimeoutDur() {
 			releaseReason = "ack_timeout"
 		}
 		if releaseReason != "" {
@@ -486,6 +519,8 @@ func (c *coordinator) onTick() {
 	c.reconcileUsageApps(c.clk.Now(), snap)
 	c.reconcileWeatherApp(c.clk.Now())
 	c.reconcileForecastApp(c.clk.Now())
+	// After the usage reconcile so the alarm sees the freshest store state.
+	c.checkLimitAlarms(c.clk.Now(), snap)
 }
 
 // adoptDeviceManagedApps seeds the in-memory push trackers from the apps

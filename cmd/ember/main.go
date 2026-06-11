@@ -55,6 +55,7 @@ type Config struct {
 	// (nil → default on) from an explicit false; resolved via the helpers below.
 	UsageWidget   *bool `json:"usage_widget,omitempty"`
 	UsagePerModel *bool `json:"usage_per_model,omitempty"`
+	LimitAlarm    *bool `json:"limit_alarm,omitempty"`
 }
 
 // usageWidgetEnabled reports whether the standalone AI-usage apps should be
@@ -64,6 +65,10 @@ func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.Us
 // usagePerModelEnabled reports whether the Claude per-model (Opus/Sonnet) usage
 // frames should be pushed. Default on (nil pointer).
 func (c Config) usagePerModelEnabled() bool { return c.UsagePerModel == nil || *c.UsagePerModel }
+
+// limitAlarmEnabled reports whether the 5h-limit reset popup+chime is armed.
+// Default on (nil pointer).
+func (c Config) limitAlarmEnabled() bool { return c.LimitAlarm == nil || *c.LimitAlarm }
 
 // PomodoroConfig holds the Pomodoro feature's static defaults. Runtime-editable
 // settings (durations, colours, toggles) are persisted in the stats store and
@@ -137,8 +142,9 @@ type DisplayConfig struct {
 	RotationDwellSeconds int    `json:"rotation_dwell_seconds"`
 	AckTimeoutSeconds    int    `json:"ack_timeout_seconds"`
 	// G.2:
-	FrameLifetimeSeconds int `json:"frame_lifetime_seconds"`
-	IdleRestoreSeconds   int `json:"idle_restore_seconds"`
+	FrameLifetimeSeconds int  `json:"frame_lifetime_seconds"`
+	IdleRestoreSeconds   int  `json:"idle_restore_seconds"`
+	AttentionChime       bool `json:"attention_chime"`
 	// PulseStyle is parsed but ignored. Kept so configs from G.1b that
 	// still carry "pulse_style": "breathe" continue to parse under
 	// DisallowUnknownFields. AWTRIX firmware has no multi-frame draw
@@ -169,7 +175,7 @@ func defaultConfig() Config {
 			RotationDwellSeconds: 3,
 			AckTimeoutSeconds:    30,
 			FrameLifetimeSeconds: 30,
-			IdleRestoreSeconds:   1200,
+			IdleRestoreSeconds:   120,
 		},
 		RateLimit: RateLimitConfig{
 			Disabled:         false,
@@ -259,7 +265,7 @@ func (c *Config) applyDefaults() {
 		c.Display.FrameLifetimeSeconds = 30
 	}
 	if c.Display.IdleRestoreSeconds <= 0 {
-		c.Display.IdleRestoreSeconds = 1200
+		c.Display.IdleRestoreSeconds = 120
 	}
 	if c.Auth.StatusTokenEnv == "" {
 		c.Auth.StatusTokenEnv = "EMBER_TOKEN"
@@ -879,6 +885,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("POST /v1/usage", rateLimit(a, http.HandlerFunc(a.handleUsage)))
 	writeMux.Handle("GET /v1/usage/config", rateLimit(a, http.HandlerFunc(a.handleUsageConfigGet)))
 	writeMux.Handle("PUT /v1/usage/config", rateLimit(a, http.HandlerFunc(a.handleUsageConfigPut)))
+	writeMux.Handle("GET /v1/display/config", rateLimit(a, http.HandlerFunc(a.handleDisplayConfigGet)))
+	writeMux.Handle("PUT /v1/display/config", rateLimit(a, http.HandlerFunc(a.handleDisplayConfigPut)))
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
 	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
@@ -1417,7 +1425,8 @@ func main() {
 	if err := app.initWeather(cfg); err != nil {
 		logger.Warn("weather store init failed; config will not persist across restarts", "err", err)
 	}
-	app.loadPersistedUsageSettings() // runtime usage-widget toggles over the file baseline
+	app.loadPersistedUsageSettings()   // runtime usage-widget toggles over the file baseline
+	app.loadPersistedDisplaySettings() // runtime display config overrides over the file baseline
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}

@@ -55,12 +55,19 @@ The aggregator and the only writer to the device.
 - **The coordinator** (single-writer goroutine) owns all publish timing and
   device state. Responsibilities: rotation across sessions by **stable session
   key** (not slice index), attention **preempt** (jump to a waiting/error
-  session, breathe-pulse) with a 30 s ack timeout, the **number-slot card
-  cursor** (rotates cards within a session — see Display), publish **dedup**
-  (skip identical payloads inside the lifetime window), and the **idle tri-state
-  machine**: `ACTIVE` (sessions present → rotation/locked render) → `DIMMED`
-  (no sessions, countdown < `idle_restore_seconds` → dim-white robot) → `OFF`
-  (countdown elapsed → stop publishing; device auto-evicts via frame lifetime).
+  session) with an attention hold (`ack_timeout_seconds`, default 30 s, **read
+  live** so a runtime PUT applies to the current lock) and an optional **chime**
+  on fresh lock acquisition (`attention_chime`, via `/api/rtttl`), the
+  **number-slot card cursor** (rotates cards within a session — see Display),
+  publish **dedup** (skip identical payloads inside the lifetime window), and
+  the **idle tri-state machine**: `ACTIVE` (sessions present → rotation/locked
+  render) → `DIMMED` (no sessions, countdown < `idle_restore_seconds`, default
+  120 s → dim-white icon) → `OFF` (countdown elapsed → stop publishing; device
+  auto-evicts via frame lifetime; a runtime value of 0 skips the dim phase
+  entirely). The three behavior knobs are runtime-editable via
+  `GET/PUT /v1/display/config` using the standard **baseline + store-override**
+  pattern (config.json baseline; SQLite `display_json` override wins, survives
+  restarts and `/admin/reload`) — same shape as weather/pomodoro/usage config.
 - **Display hold.** Non-idle frames are published with `prio:true` + `force:true`
   + a per-frame `lifetime` so the clock suppresses its native apps while we're
   active, but **crash-safely** returns to them if the server dies (vs the sticky,
@@ -313,6 +320,19 @@ from the live session's statusline `rate_window_pct` + a host-local
 posts it on the marker, so the UTC container renders it verbatim — no server-side
 timezone math). The endpoint path supersedes the fallback the moment fresh usage
 arrives (and only then are 7d + per-model shown).
+
+**5h limit-reset alarm.** A small per-tool state machine in the coordinator
+(`usage_alarm.go`, checked each tick after the usage reconcile): when the
+effective 5h window — fresh endpoint usage, else the live-session statusline
+fallback — reads **≥ 99.5 % with a known future reset**, it arms for that
+`resets_at`; once the reset passes (+60 s grace, never early) it fires **one**
+auto-dismiss notification (`CLAUDE 5H RESET` / `CODEX 5H RESET`, drawn tool
+icon) plus an RTTTL chime. Drifted reset estimates re-arm instead of firing; an
+unreachable device retries next tick (armed state preserved); fired alarms
+dedupe per `(tool, resets_at)`. State is in-memory by design — a restart
+mid-window re-arms from the next snapshot. Gated only by `limit_alarm` (usage
+config, default on); deliberately independent of usage-app visibility (the
+alarm is about resuming work, not about tiles).
 
 ## Display layout (32×8 matrix)
 
