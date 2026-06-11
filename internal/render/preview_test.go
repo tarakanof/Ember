@@ -88,8 +88,8 @@ func TestPreviewFramesExcludesToolCardAndShape(t *testing.T) {
 			}
 		}
 	}
-	// AvailableCards order is xy, rate, ctx, reset, tool; the tool card is dropped.
-	if want := []string{"xy", "rate", "ctx", "reset"}; !slices.Equal(names, want) {
+	// AvailableCards order is source, rate, ctx, reset, tool; the tool card is dropped.
+	if want := []string{"source", "rate", "ctx", "reset"}; !slices.Equal(names, want) {
 		t.Fatalf("cards = %v, want %v", names, want)
 	}
 	if p.Activity != "Bash: go test" {
@@ -100,7 +100,7 @@ func TestPreviewFramesExcludesToolCardAndShape(t *testing.T) {
 func TestPreviewFramesBareSession(t *testing.T) {
 	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
 	p := PreviewFrames(Session{Source: "mbp", Tool: "claude", State: "running"}, now)
-	if len(p.Frames) != 1 || p.Frames[0].Card != "xy" {
+	if len(p.Frames) != 1 || p.Frames[0].Card != "source" {
 		t.Fatalf("frames = %+v", p.Frames)
 	}
 	if p.Activity != "" {

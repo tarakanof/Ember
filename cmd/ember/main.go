@@ -321,6 +321,8 @@ type StatusRequest struct {
 	RateResetAt    int64   `json:"rate_reset_at,omitempty"`
 	RateReset      bool    `json:"rate_reset,omitempty"`
 	RateResetLabel string  `json:"rate_reset_label,omitempty"`
+	SourceCard     *bool   `json:"source_card,omitempty"`
+	SessionBar     *bool   `json:"session_bar,omitempty"`
 }
 
 func (r StatusRequest) normalized() Session {
@@ -361,6 +363,8 @@ func (r StatusRequest) normalized() Session {
 		RateResetAt:    r.RateResetAt,
 		RateReset:      r.RateReset,
 		RateResetLabel: r.RateResetLabel,
+		SourceCard:     r.SourceCard,
+		SessionBar:     r.SessionBar,
 		UpdatedAt:      time.Now(),
 	}
 }

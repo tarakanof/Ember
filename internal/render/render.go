@@ -24,22 +24,26 @@ type Frame struct {
 // Session holds the current state of a single AI session as received via the
 // status endpoint.
 type Session struct {
-	Source         string    `json:"source"`
-	Tool           string    `json:"tool"`
-	Session        string    `json:"session"`
-	State          string    `json:"state"`
-	Message        string    `json:"message"`
-	TokensToday    int64     `json:"tokens_today,omitempty"`
-	ContextPct     *int      `json:"context_pct,omitempty"`
-	SourceColor    *string   `json:"source_color,omitempty"`
-	RateWindowPct  *int      `json:"rate_window_pct,omitempty"`
-	Activity       string    `json:"activity,omitempty"`
-	ContextNumber  bool      `json:"context_number,omitempty"`
-	RateBottomBar  bool      `json:"rate_bottom_bar,omitempty"`
-	RateResetAt    int64     `json:"rate_reset_at,omitempty"`
-	RateReset      bool      `json:"rate_reset,omitempty"`
-	RateResetLabel string    `json:"rate_reset_label,omitempty"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	Source         string  `json:"source"`
+	Tool           string  `json:"tool"`
+	Session        string  `json:"session"`
+	State          string  `json:"state"`
+	Message        string  `json:"message"`
+	TokensToday    int64   `json:"tokens_today,omitempty"`
+	ContextPct     *int    `json:"context_pct,omitempty"`
+	SourceColor    *string `json:"source_color,omitempty"`
+	RateWindowPct  *int    `json:"rate_window_pct,omitempty"`
+	Activity       string  `json:"activity,omitempty"`
+	ContextNumber  bool    `json:"context_number,omitempty"`
+	RateBottomBar  bool    `json:"rate_bottom_bar,omitempty"`
+	RateResetAt    int64   `json:"rate_reset_at,omitempty"`
+	RateReset      bool    `json:"rate_reset,omitempty"`
+	RateResetLabel string  `json:"rate_reset_label,omitempty"`
+	// SourceCard / SessionBar are *bool so a producer that predates them (nil)
+	// keeps the element ON — absent must never regress the display.
+	SourceCard *bool     `json:"source_card,omitempty"`
+	SessionBar *bool     `json:"session_bar,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Key returns the canonical slash-delimited key for this session.
@@ -146,6 +150,30 @@ var font3x5 = map[rune][]string{
 	'S':        {"XXX", "X..", "XXX", "..X", "XXX"},
 	glassGlyph: {"X.X", "X.X", "X.X", "XXX", "XXX"},
 	resetGlyph: {"XXX", ".X.", ".X.", ".X.", "XXX"},
+	// Source-name card letters (A-Z minus the pre-existing O/P/S above).
+	'A': {"XXX", "X.X", "XXX", "X.X", "X.X"},
+	'B': {"XX.", "X.X", "XX.", "X.X", "XX."},
+	'C': {"XXX", "X..", "X..", "X..", "XXX"},
+	'D': {"XX.", "X.X", "X.X", "X.X", "XX."},
+	'E': {"XXX", "X..", "XXX", "X..", "XXX"},
+	'F': {"XXX", "X..", "XXX", "X..", "X.."},
+	'G': {"XXX", "X..", "X.X", "X.X", "XXX"},
+	'H': {"X.X", "X.X", "XXX", "X.X", "X.X"},
+	'I': {"XXX", ".X.", ".X.", ".X.", "XXX"},
+	'J': {"..X", "..X", "..X", "X.X", "XXX"},
+	'K': {"X.X", "X.X", "XX.", "X.X", "X.X"},
+	'L': {"X..", "X..", "X..", "X..", "XXX"},
+	'M': {"XXX", "XXX", "X.X", "X.X", "X.X"},
+	'N': {"X.X", "XXX", "X.X", "X.X", "X.X"},
+	'Q': {"XXX", "X.X", "X.X", "XXX", "..X"},
+	'R': {"XX.", "X.X", "XX.", "X.X", "X.X"},
+	'T': {"XXX", ".X.", ".X.", ".X.", ".X."},
+	'U': {"X.X", "X.X", "X.X", "X.X", "XXX"},
+	'V': {"X.X", "X.X", "X.X", "X.X", ".X."},
+	'W': {"X.X", "X.X", "XXX", "XXX", "X.X"},
+	'X': {"X.X", "X.X", ".X.", "X.X", "X.X"},
+	'Y': {"X.X", "X.X", ".X.", ".X.", ".X."},
+	'Z': {"XXX", "..X", ".X.", "X..", "XXX"},
 }
 
 // glyph returns the sprite for the given rune, or nil when unsupported.
@@ -170,58 +198,6 @@ func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
 		}
 		x += 4 // 3-wide glyph + 1-px spacer
 	}
-}
-
-// robotNormal is the 10-wide × 6-tall mark painted at cols 0–9, rows 1–6.
-// Head top, two 1-px eye holes (cols 2 & 7), arms full-width at row 4
-// (protruding to cols 0 & 9), body, and four legs at cols 1, 3, 6, 8.
-var robotNormal = []string{
-	".XXXXXXXX.", // row 1: head top
-	".X.XXXX.X.", // row 2: eyes upper (col 2 & col 7 dark)
-	".X.XXXX.X.", // row 3: eyes lower
-	"XXXXXXXXXX", // row 4: arms
-	".XXXXXXXX.", // row 5: body
-	".X.X..X.X.", // row 6: legs
-}
-
-// robotError differs only in rows 2–4: 3-px tall chevron eye holes
-// (> <) sloping inward, plus matching eye-notches in the arms row.
-// The arm protrusions at cols 0 and 9 remain lit.
-var robotError = []string{
-	".XXXXXXXX.",
-	".X.XXXX.X.", // row 2: outer holes (col 2 & 7)
-	".XX.XX.XX.", // row 3: apex holes (col 3 & 6)
-	"XX.XXXX.XX", // row 4: outer holes (col 2 & 7) + arm protrusions retained
-	".XXXXXXXX.",
-	".X.X..X.X.",
-}
-
-// codexSprite is the Codex ">_" mark (10×6), kept pixel-identical to the copy
-// in the retired Go menu's icon renderer (guarded by TestCodexSpriteCanonical).
-// 2-px chevron (cols 0–3) + underscore (row 5, cols 5–9).
-var codexSprite = []string{
-	"XX........",
-	".XX.......",
-	"..XX......",
-	"..XX......",
-	".XX.......",
-	"XX...XXXXX",
-}
-
-// spriteFor selects the 10-wide mark for a session: Codex gets ">_"; Claude
-// gets the robot (chevron-eye variant on error).
-func spriteFor(s Session) []string {
-	if s.Tool == "codex" {
-		return codexSprite
-	}
-	if s.State == "error" {
-		return robotError
-	}
-	return robotNormal
-}
-
-func drawRobot(f *Frame, s Session, c RGB) {
-	paintBitmap(f, 0, 1, spriteFor(s), c)
 }
 
 const (
@@ -289,12 +265,10 @@ const (
 // drawSessionBar paints one pixel per non-idle session at row 7, starting
 // from cols barStart..barEnd. Pixels are coloured by each session's state
 // using the existing state-colour palette. Order is priority-first
-// (waiting > error > running > done) then (source, tool, session) lex —
-// identical to the X/Y rotation order so the leftmost pixel corresponds
-// to rotation slot 1/Y. Sessions in state "idle" are excluded. If more
-// than barWidth (21) non-idle sessions exist, only the first 21 are
-// painted; no special overflow indicator is drawn (the digit area's
-// X/9+ truncation already conveys overflow).
+// (waiting > error > running > done) then (source, tool, session) lex.
+// Sessions in state "idle" are excluded. If more than barWidth (21)
+// non-idle sessions exist, only the first 21 are painted; overflow is
+// simply not indicated.
 func drawSessionBar(f *Frame, sessions []Session) {
 	type entry struct {
 		prio  int
@@ -393,24 +367,46 @@ var (
 	colorWhite   = RGB{0xff, 0xff, 0xff}
 )
 
+// cardNone is passed to ComposeFrame when no cards are available — the number
+// slot is left blank (icon/glass/bar still render). The default branch in
+// ComposeFrame's switch handles any unrecognised value including cardNone.
+const cardNone = -1
+
 // Card identifies which readout the number slot shows for the current
-// session: cardXY is the rotation index "X/Y", cardRate is the 5h rate-limit
+// session: cardSource is the source-name card, cardRate is the 5h rate-limit
 // "NN%", cardTool is the scrolling activity detail, cardCtx is the context
 // window percent "NN⌷".
 const (
-	cardXY = iota
+	cardSource = iota // source-name card (replaces the old X/Y rotation card)
 	cardRate
 	cardTool
 	cardCtx
 	cardReset
 )
 
-// AvailableCards returns the cards this session offers, in rotation order:
-// X/Y always; the rate card when RateWindowPct is set; the tool card only for
-// a running session that carries an Activity string. The rotation cursor
-// indexes this slice, so a session can have X/Y+tool without a rate card.
+func sourceCardEnabled(s Session) bool { return s.SourceCard == nil || *s.SourceCard }
+func sessionBarEnabled(s Session) bool { return s.SessionBar == nil || *s.SessionBar }
+
+// sourceCardText uppercases and truncates a source name to the 4 glyphs that
+// fit the drawn text area (cols 9-23 = 15 px = 4×4−1; full-frame db apps
+// cannot scroll native text, so longer names are cut, not scrolled).
+func sourceCardText(source string) string {
+	up := strings.ToUpper(source)
+	r := []rune(up)
+	if len(r) > 4 {
+		r = r[:4]
+	}
+	return string(r)
+}
+
+// AvailableCards returns the cards this session offers, in rotation order.
+// May return an empty slice (every card disabled/data-absent): the frame then
+// shows icon + glass + bar with a blank number slot.
 func AvailableCards(s Session) []int {
-	cards := []int{cardXY}
+	var cards []int
+	if sourceCardEnabled(s) && s.Source != "" {
+		cards = append(cards, cardSource)
+	}
 	if s.RateWindowPct != nil {
 		cards = append(cards, cardRate)
 	}
@@ -677,18 +673,6 @@ func parseHex(s string) (RGB, bool) {
 	}, true
 }
 
-// formatXY returns "X/Y", capping at "X/9+" when total exceeds 9.
-// idx is 1-based.
-func formatXY(idx, total int) string {
-	if total <= 9 {
-		return itoa(idx) + "/" + itoa(total)
-	}
-	if idx > 9 {
-		idx = 9
-	}
-	return itoa(idx) + "/9+"
-}
-
 // itoa is a small stdlib-only digit-to-string for the count formatter.
 func itoa(n int) string {
 	if n < 10 {
@@ -700,13 +684,13 @@ func itoa(n int) string {
 // numStart is the left edge of the digit area (1-px gap after the 8×8 icon).
 const numStart = 9
 
-// detailPayload builds a robot(db) + AWTRIX-native-text payload. blink=true is
-// the WAIT/ERR fallback (static, blinking). blink=false is the activity detail
-// (firmware shows it static when it fits, scrolls when it overflows). center is
-// always false so textOffset is the literal start column (cols 11-31), clear of
-// the 10-wide robot.
+// detailPayload builds an 8×8 icon (db) + AWTRIX-native-text payload. blink=true
+// is the WAIT/ERR attention label (blinking; scrolls when the label overflows the
+// free columns). blink=false is the activity detail (firmware shows it static when
+// it fits, scrolls when it overflows). center is always false so textOffset is the
+// literal start column (cols 9-31), clear of the 8-wide icon.
 func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int) map[string]any {
-	pixels := composeToolIconPixels(s, colorForState(s.State))
+	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
 	p := map[string]any{
 		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, pixels}}},
 		"text":       text,
@@ -720,7 +704,11 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 	}
 	if blink {
 		p["blinkText"] = 500
-		p["noScroll"] = true
+		// "WAIT"/"ERR" alone fit the 23 free cols (9-31); with a source name appended
+		// the firmware must be allowed to scroll (~4 px/char native font).
+		if len(text) <= 5 {
+			p["noScroll"] = true
+		}
 	}
 	return p
 }
@@ -760,71 +748,44 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if session == nil {
 		return nil
 	}
-	idx := slices.Index(keys, chosen) + 1 // 1-based rotation index
-	total := len(keys)
-
-	stateColor := colorForState(session.State)
-
 	if locked && (session.State == "waiting" || session.State == "error") {
-		if session.Activity != "" {
-			return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
-		}
+		// Attention names WHO/WHERE (tool icon + source), not which tool call —
+		// activity detail no longer substitutes here (2026-06-11 redesign).
 		label, hex := attentionLabelAndColor(session.State)
+		if session.Source != "" {
+			label += " " + strings.ToUpper(session.Source)
+		}
 		return detailPayload(*session, label, hex, true, lifetimeSeconds)
 	}
 
 	cards := AvailableCards(*session)
-	ci := card
-	if ci < 0 || ci >= len(cards) {
-		ci = 0
+	selected := cardNone // no cards: blank number slot (icon/glass/bar still render)
+	if len(cards) > 0 {
+		ci := card
+		if ci < 0 || ci >= len(cards) {
+			ci = 0
+		}
+		selected = cards[ci]
 	}
-	selected := cards[ci]
 	if selected == cardTool {
 		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
 	}
-	frame := ComposeFrame(*session, idx, total, selected, stateColor, snap.Sessions, snap.Now)
+	frame := ComposeFrame(*session, selected, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
-// robotWidth is the horizontal extent of the locked-frame bitmap and
-// the idle-dim bitmap. The remaining 32-robotWidth columns are left
-// blank so AWTRIX renders the blinking attention text in that area
-// (locked path) or stay dark (idle path). Set to 10 — matches the
-// rotation-frame sprite so all 4 legs and both arm protrusions are
-// preserved. AWTRIX default 3×5 font: "WAIT" ≈ 15 px, "ERR" ≈ 10 px,
-// both fit in the remaining 22 cols (10-31) with noScroll:true.
-const robotWidth = 10
-
-// composeRobotPixels paints just the robot sprite into a tight
-// robotWidth×8 = 80-int pixel array. Uses the same 10-wide
-// robot{Normal,Error} sprites as the rotation frame so all 4 legs and
-// both arm protrusions are preserved. Called by RenderForCoord (locked
-// attention path) and RenderIdleFrame (dim-white countdown).
-func composeRobotPixels(s Session, robotColor RGB) []int {
-	sprite := spriteFor(s)
+// ComposeFrame paints the standard layout for one session. The icon body
+// (cols 0-7) is painted in the session's source colour (s.SourceColor), or
+// iconNeutral when absent/invalid, so each machine has a persistent identity
+// colour. The inner feature — Claude eye sockets or the Codex "_" cursor —
+// is painted in the state colour (green/amber/red/blue) so activity is always
+// readable. Card text colours are per-card (source = source colour or white,
+// rate/ctx = threshold colour). Glass uses the state colour. Row 7 receives
+// either the rate bar (when RateBottomBar is set and data is present), the
+// session-count bar (when sessionBarEnabled), or nothing.
+func ComposeFrame(s Session, card int, sessions []Session, now time.Time) Frame {
 	var f Frame
-	paintBitmap(&f, 0, 1, sprite, robotColor)
-	pixels := make([]int, robotWidth*8)
-	for y := 0; y < 8; y++ {
-		for x := 0; x < robotWidth; x++ {
-			if !f.Dirty[y][x] {
-				continue
-			}
-			c := f.Pixels[y][x]
-			pixels[y*robotWidth+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
-		}
-	}
-	return pixels
-}
-
-// ComposeFrame paints the standard layout for one session using the
-// supplied robot colour. Digits stay source-coloured (or white fallback)
-// regardless of robot colour. Glass uses the session's state colour
-// directly. Row 7 receives the session-count bar drawn from the full
-// active-session list `sessions` — see drawSessionBar.
-func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Session, now time.Time) Frame {
-	var f Frame
-	drawToolIcon8(&f, s, robotColor)
+	drawToolIcon8(&f, s, iconBodyColor(s), colorForState(s.State))
 
 	switch {
 	case card == cardRate && s.RateWindowPct != nil:
@@ -847,14 +808,10 @@ func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 			text, col := resetText(s.RateResetAt, now)
 			drawDigits(&f, text, numStart, 1, col)
 		}
+	case card == cardSource && s.Source != "":
+		drawDigits(&f, sourceCardText(s.Source), numStart, 1, sourceColorOr(s, colorWhite))
 	default:
-		digitColor := colorWhite
-		if s.SourceColor != nil {
-			if c, ok := parseHex(*s.SourceColor); ok {
-				digitColor = c
-			}
-		}
-		drawDigits(&f, formatXY(idx, total), numStart, 1, digitColor)
+		// card == cardNone (no cards available) or data went missing: blank number slot.
 	}
 
 	glassFillColor := colorForState(s.State)
@@ -863,7 +820,7 @@ func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 	if s.RateBottomBar && s.RateWindowPct != nil {
 		pct := *s.RateWindowPct
 		drawRateBar(&f, pct, rateColor(pct))
-	} else {
+	} else if sessionBarEnabled(s) {
 		drawSessionBar(&f, sessions)
 	}
 	return f
@@ -912,13 +869,17 @@ func stateHex(state string) string {
 var idleDimWhite = RGB{0x66, 0x66, 0x66}
 
 // RenderIdleFrame returns the dimmed-robot payload emitted during the
-// G.2 idle-restore countdown. No digits, no glass, no text — the robot
-// dims to ~40% white and the rest of the matrix stays dark, leaving an
+// G.2 idle-restore countdown. No digits, no glass, no text — the body dims
+// to ~40% white and the rest of the matrix stays dark, leaving an
 // unambiguous "AI idle" signal that's also visually distinct from the
-// active rotation frames. Includes prio+force+lifetime so AWTRIX keeps
-// holding the slot until the countdown elapses and we stop publishing.
+// active rotation frames. The eye sockets / cursor overlay are left dark
+// (not painted) so the sprite silhouette is preserved even in the idle dim.
+// Includes prio+force+lifetime so AWTRIX keeps holding the slot until the
+// countdown elapses and we stop publishing.
 func RenderIdleFrame(lifetimeSeconds int) map[string]any {
-	pixels := composeToolIconPixels(Session{State: "idle"}, idleDimWhite)
+	// Idle dims the body only; deliberately skips the feature overlay so the
+	// eye sockets / cursor remain dark, preserving the sprite silhouette.
+	pixels := composeToolIconBodyPixels(Session{State: "idle"}, idleDimWhite)
 	return map[string]any{
 		"draw": []any{
 			map[string]any{"db": []any{0, 0, 8, 8, pixels}},
@@ -940,16 +901,77 @@ func toolIcon8(s Session) []string {
 	return usageIconClaude
 }
 
-// drawToolIcon8 paints the 8×8 tool icon at cols 0-7 in colour c (the session
-// state colour for the status app).
-func drawToolIcon8(f *Frame, s Session, c RGB) { paintBitmap(f, 0, 0, toolIcon8(s), c) }
+// iconNeutral is the icon body when no (valid) source colour is configured —
+// the state channel lives in the eye/cursor overlay, so the body must never
+// fall back to a state colour.
+var iconNeutral = RGB{0xcc, 0xcc, 0xcc}
 
-// composeToolIconPixels paints just the 8×8 icon into a tight 8×8 = 64-int pixel
-// array (for the locked-attention / idle db, leaving cols 8-31 clear for native
-// text).
-func composeToolIconPixels(s Session, c RGB) []int {
-	var f Frame
-	drawToolIcon8(&f, s, c)
+// claudeEyes8 lights the robot-face eye sockets in the state colour.
+// Each eye is 1 col × 2 rows; there are two eyes (cols 2 and 5, rows 2-3).
+// These positions are holes in usageIconClaude (body sprite), so painting
+// the overlay fills the sockets without disturbing the body.
+var claudeEyes8 = []string{
+	"........",
+	"........",
+	"..X..X..",
+	"..X..X..",
+	"........",
+	"........",
+	"........",
+	"........",
+}
+
+// codexCursor8 is the "_" cursor of usageIconCodex (row 6, cols 3-6); painted
+// after the body it overrides those pixels with the state colour.
+var codexCursor8 = []string{
+	"........",
+	"........",
+	"........",
+	"........",
+	"........",
+	"........",
+	"...XXXX.",
+	"........",
+}
+
+// sourceColorOr returns the session's source colour when it parses, else fallback.
+func sourceColorOr(s Session, fallback RGB) RGB {
+	if s.SourceColor != nil {
+		if c, ok := parseHex(*s.SourceColor); ok {
+			return c
+		}
+	}
+	return fallback
+}
+
+// iconBodyColor returns the colour for the 8×8 icon body: the session's source
+// colour when present and valid, else iconNeutral. The state channel lives in
+// the eye/cursor overlay, so the body must never fall back to a state colour.
+func iconBodyColor(s Session) RGB {
+	return sourceColorOr(s, iconNeutral)
+}
+
+// iconOverlay8 returns the 8×8 feature overlay for a session: the Codex cursor
+// bitmap for Codex sessions, else the Claude eye-socket bitmap.
+func iconOverlay8(s Session) []string {
+	if s.Tool == "codex" {
+		return codexCursor8
+	}
+	return claudeEyes8
+}
+
+// drawToolIcon8 paints the 8×8 tool icon at cols 0-7. body is the identity
+// colour (source colour or neutral) for the icon sprite; feature is the state
+// colour painted over the inner detail (Claude eye sockets / Codex "_" cursor).
+func drawToolIcon8(f *Frame, s Session, body, feature RGB) {
+	paintBitmap(f, 0, 0, toolIcon8(s), body)
+	paintBitmap(f, 0, 0, iconOverlay8(s), feature)
+}
+
+// packIcon8 extracts the 8×8 top-left region of f into a 64-int row-major
+// pixel array (0xRRGGBB; undirty cells emit 0). It is the 8-wide analogue of
+// framePixels and is the shared packing step for the icon db ops.
+func packIcon8(f *Frame) []int {
 	px := make([]int, 64)
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {
@@ -960,4 +982,24 @@ func composeToolIconPixels(s Session, c RGB) []int {
 		}
 	}
 	return px
+}
+
+// composeToolIconBodyPixels paints only the body (no overlay) of the 8×8 tool
+// icon into a 64-int pixel array. Used by RenderIdleFrame so the idle dim
+// covers the body but deliberately leaves the eye sockets / cursor dark,
+// preserving the sprite silhouette.
+func composeToolIconBodyPixels(s Session, body RGB) []int {
+	var f Frame
+	paintBitmap(&f, 0, 0, toolIcon8(s), body)
+	return packIcon8(&f)
+}
+
+// composeToolIconPixels paints the full 8×8 icon (body + feature overlay) into
+// a tight 8×8 = 64-int pixel array (for the locked-attention db, leaving cols
+// 8-31 clear for native text). body is the identity colour; feature is the
+// state colour for the eye/cursor overlay.
+func composeToolIconPixels(s Session, body, feature RGB) []int {
+	var f Frame
+	drawToolIcon8(&f, s, body, feature)
+	return packIcon8(&f)
 }

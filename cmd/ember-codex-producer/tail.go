@@ -59,5 +59,7 @@ func buildStatusRequest(cfg Config, uuid string, d derived) producer.StatusReque
 		sc := cfg.SourceColor
 		req.SourceColor = &sc
 	}
+	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
+	req.SourceCard, req.SessionBar = &sc, &sb
 	return req
 }

@@ -33,6 +33,8 @@ type Config struct {
 	ContextNumberEnabled  bool
 	RateBottomBarEnabled  bool
 	RateResetEnabled      bool
+	SourceCardEnabled     bool
+	SessionBarEnabled     bool
 	PollIntervalMs        int
 	ActivityWindowSeconds int
 	SessionsDir           string
@@ -56,6 +58,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("context_number_enabled", c.ContextNumberEnabled),
 		slog.Bool("rate_bottom_bar_enabled", c.RateBottomBarEnabled),
 		slog.Bool("rate_reset_enabled", c.RateResetEnabled),
+		slog.Bool("source_card_enabled", c.SourceCardEnabled),
+		slog.Bool("session_bar_enabled", c.SessionBarEnabled),
 		slog.Int("poll_interval_ms", c.PollIntervalMs),
 		slog.Int("activity_window_seconds", c.ActivityWindowSeconds),
 		slog.String("sessions_dir", c.SessionsDir),
@@ -72,6 +76,8 @@ func loadConfig() (Config, error) {
 		ContextPctEnabled:     true,
 		RatePctEnabled:        true,
 		ActivityTrailEnabled:  true,
+		SourceCardEnabled:     true,
+		SessionBarEnabled:     true,
 		PollIntervalMs:        defaultPollIntervalMs,
 		ActivityWindowSeconds: defaultActivityWindowSeconds,
 		SessionsDir:           filepath.Join(home, ".codex", "sessions"),
@@ -127,6 +133,20 @@ func loadConfig() (Config, error) {
 			switch strings.ToLower(v) {
 			case "true", "1", "yes", "on":
 				cfg.RateResetEnabled = true
+			}
+		case "EMBER_SOURCE_CARD":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.SourceCardEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.SourceCardEnabled = true
+			}
+		case "EMBER_SESSION_BAR":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.SessionBarEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.SessionBarEnabled = true
 			}
 		case "EMBER_CODEX_POLL_INTERVAL_MS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {

@@ -139,6 +139,8 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 		sc := cfg.SourceColor
 		req.SourceColor = &sc
 	}
+	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
+	req.SourceCard, req.SessionBar = &sc, &sb
 	_ = withLockEx(lockP, func() error {
 		// Preserve statusline-owned fields (rate_window_pct, context_pct) that
 		// the hook path doesn't compute, so a hook event doesn't clobber the

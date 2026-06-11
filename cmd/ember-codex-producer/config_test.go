@@ -252,3 +252,35 @@ func TestLoadConfig_CodexRateBottomBarExplicitFalse(t *testing.T) {
 		t.Error("=false should stay disabled")
 	}
 }
+
+func TestLoadConfig_CodexSourceCardDefaultsTrue(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\n")
+	cfg, _ := loadConfig()
+	if !cfg.SourceCardEnabled {
+		t.Error("SourceCardEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_CodexSourceCardDisabled(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_SOURCE_CARD=false\n")
+	cfg, _ := loadConfig()
+	if cfg.SourceCardEnabled {
+		t.Error("EMBER_SOURCE_CARD=false should disable SourceCardEnabled")
+	}
+}
+
+func TestLoadConfig_CodexSessionBarDefaultsTrue(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\n")
+	cfg, _ := loadConfig()
+	if !cfg.SessionBarEnabled {
+		t.Error("SessionBarEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_CodexSessionBarDisabled(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_SESSION_BAR=false\n")
+	cfg, _ := loadConfig()
+	if cfg.SessionBarEnabled {
+		t.Error("EMBER_SESSION_BAR=false should disable SessionBarEnabled")
+	}
+}

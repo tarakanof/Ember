@@ -25,7 +25,7 @@ func SampleBaseSession() Session {
 func ptrInt(v int) *int { return &v }
 
 // DraftDisplay is the set of display toggles the Settings "Display" tab edits
-// that affect a single-session render. It is the 6 effective booleans consumed
+// that affect a single-session render. It is the 8 effective booleans consumed
 // by PreviewSession plus an optional source colour. (EMBER_ACTIVITY_TRAIL is
 // intentionally absent: it affects the multi-session bar, not one session.)
 type DraftDisplay struct {
@@ -35,6 +35,8 @@ type DraftDisplay struct {
 	ContextNumber  bool
 	RateBottomBar  bool
 	ActivityDetail bool
+	SourceCard     bool
+	SessionBar     bool
 	SourceColor    string // "" = no tint
 }
 
@@ -88,6 +90,9 @@ func PreviewSession(d DraftDisplay, base Session, now time.Time) Session {
 		s.SourceColor = nil
 	}
 
+	s.SourceCard = &d.SourceCard
+	s.SessionBar = &d.SessionBar
+
 	return s
 }
 
@@ -109,8 +114,8 @@ type Preview struct {
 }
 
 // PreviewFrames renders each card in AvailableCards(s) except the scrolling
-// tool card, using the established single-session preview call
-// (idx=1,total=1, robot colour from state, bottom bar fed the single session).
+// tool card, using the robot colour from state and the single session as the
+// bottom-bar source.
 func PreviewFrames(s Session, now time.Time) Preview {
 	p := Preview{Width: 32, Height: 8, Frames: []CardFrame{}}
 	for _, c := range AvailableCards(s) {
@@ -118,7 +123,7 @@ func PreviewFrames(s Session, now time.Time) Preview {
 			p.Activity = s.Activity
 			continue
 		}
-		frame := ComposeFrame(s, 1, 1, c, colorForState(s.State), []Session{s}, now)
+		frame := ComposeFrame(s, c, []Session{s}, now)
 		p.Frames = append(p.Frames, CardFrame{Card: cardName(c), Pixels: hexPixels(&frame)})
 	}
 	return p
@@ -126,8 +131,8 @@ func PreviewFrames(s Session, now time.Time) Preview {
 
 func cardName(c int) string {
 	switch c {
-	case cardXY:
-		return "xy"
+	case cardSource:
+		return "source"
 	case cardRate:
 		return "rate"
 	case cardTool:

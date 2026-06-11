@@ -237,3 +237,40 @@ func TestProcessOneMarker_StripsContextPctWhenDisabled(t *testing.T) {
 		t.Errorf("disabled: tick should strip context_pct from re-post, got: %s", got)
 	}
 }
+
+func TestProcessOneMarker_ReGatesSourceCardAndSessionBarWhenDisabled(t *testing.T) {
+	h := newHookHarness(t)
+	cfgDir := filepath.Join(h.home, ".config", "ember")
+	// Config has both toggles disabled; marker was written when they were enabled.
+	env := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\nEMBER_SOURCE_CARD=false\nEMBER_SESSION_BAR=false\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := "tick-sc-sb-off"
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, sessionID+".json")
+	// Marker carries source_card:true and session_bar:true (written when enabled).
+	if err := os.WriteFile(markerP,
+		[]byte(`{"source":"test-mbp","tool":"claude","session":"`+sessionID+`","state":"running","source_card":true,"session_bar":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if h.posts.Load() != 1 {
+		t.Fatalf("posts = %d, want 1", h.posts.Load())
+	}
+	got := (*h.bodies)[0]
+	var posted StatusRequest
+	if err := json.Unmarshal([]byte(got), &posted); err != nil {
+		t.Fatalf("unmarshal posted body: %v", err)
+	}
+	if posted.SourceCard == nil || *posted.SourceCard {
+		t.Errorf("re-gate: source_card should be false in re-post, got %v", posted.SourceCard)
+	}
+	if posted.SessionBar == nil || *posted.SessionBar {
+		t.Errorf("re-gate: session_bar should be false in re-post, got %v", posted.SessionBar)
+	}
+}
