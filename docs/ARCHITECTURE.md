@@ -311,10 +311,11 @@ producers `POST /v1/usage` → in-memory `UsageStore` (per tool; **not persisted
 — every entry refreshes ≤5 min so a restart self-heals) → the coordinator
 builds `UsageView` structs from `effectiveFiveHour` each tick and includes a
 usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
-(default 60; `0` = always show). The usage card rotates through four faces per
-tool: **5h clock** (fully-drawn tight-colon), **reset** (HH:MM reset clock),
-**7d** (native-font day name with icon/unit/bar), **per-model** (`OP`/`SO`
-weekly frames). Per-tool show/hide reuses `/v1/apps`; the widget + per-model
+(default 60; `0` = always show). The usage card rotates through up to five faces per
+tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
+(HH:MM reset clock), **7d** (pixel-drawn font3x5 "7d" prefix + 2-digit percent
+in threshold colour, via `drawUnitPctFace`), **model-A** and **model-B**
+(`OP`/`SO` weekly frames). Per-tool show/hide reuses `/v1/apps`; the widget + per-model
 toggles remain server config (`usage_widget`, `usage_per_model`, default on);
 `usage_threshold_pct` is also server config (`GET/PUT /v1/usage/config`, store
 key `usage_json`, default 60, 0 = always). **Claude 5h fallback:** when the

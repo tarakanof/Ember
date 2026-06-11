@@ -1361,6 +1361,46 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 	}
 }
 
+func TestRenderIdleUsagePayload_MultiTool(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+
+	// claude: 5h + 7d faces (2 faces).
+	// codex: 5h only — no SevenDayPct, no ResetLabel, but ResetAt set.
+	// Fixed order: claude faces first, then codex → 3 faces total.
+	p7 := 42
+	views := map[string]*UsageView{
+		"claude": {FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7},
+		"codex":  {FiveHourPct: 73, ResetAt: now.Add(2 * time.Hour).Unix()},
+	}
+
+	p0 := RenderIdleUsagePayload(views, 0, now, 30) // claude 5h
+	p1 := RenderIdleUsagePayload(views, 1, now, 30) // claude 7d
+	p2 := RenderIdleUsagePayload(views, 2, now, 30) // codex 5h
+	p3 := RenderIdleUsagePayload(views, 3, now, 30) // wraps → claude 5h
+
+	if p0 == nil || p1 == nil || p2 == nil || p3 == nil {
+		t.Fatal("all cursors over hot tools: want non-nil payloads")
+	}
+
+	b0, _ := json.Marshal(p0)
+	b1, _ := json.Marshal(p1)
+	b2, _ := json.Marshal(p2)
+	b3, _ := json.Marshal(p3)
+
+	if bytes.Equal(b0, b1) {
+		t.Error("cursor 0 (claude 5h) and cursor 1 (claude 7d) must differ")
+	}
+	if bytes.Equal(b0, b2) {
+		t.Error("cursor 0 (claude 5h) and cursor 2 (codex 5h) must differ")
+	}
+	if bytes.Equal(b1, b2) {
+		t.Error("cursor 1 (claude 7d) and cursor 2 (codex 5h) must differ")
+	}
+	if !bytes.Equal(b0, b3) {
+		t.Error("cursor 3 must wrap to cursor 0 (claude 5h)")
+	}
+}
+
 func TestRenderForCoordUsesUsageView(t *testing.T) {
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	s := Session{Source: "mbp", Tool: "claude", Session: "x", State: "running",

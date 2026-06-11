@@ -62,8 +62,8 @@ type Config struct {
 	UsageThresholdPct *int `json:"usage_threshold_pct,omitempty"`
 }
 
-// usageWidgetEnabled reports whether the standalone AI-usage apps should be
-// pushed to the device. Default on (nil pointer).
+// usageWidgetEnabled reports whether the in-app usage card and the idle usage
+// frame are enabled. Default on (nil pointer).
 func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.UsageWidget }
 
 // usagePerModelEnabled reports whether the Claude per-model (Opus/Sonnet) usage
