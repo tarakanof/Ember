@@ -1,29 +1,21 @@
 package main
 
-import (
-	"fmt"
-	"runtime"
-	"runtime/debug"
-)
+import "fmt"
+
+// version is the semantic release version, injected at build time via
+// -ldflags "-X main.version=X.Y.Z" (see Dockerfile + docker-publish.yml). Local
+// and source builds leave it "dev"; the exact commit is always available
+// separately as the VCS revision (computeVersionInfo).
+var version = "dev"
 
 func runVersion() {
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		fmt.Printf("ember (build info unavailable, %s)\n", runtime.Version())
-		return
+	v := computeVersionInfo()
+	rev := v.Revision
+	if rev == "" {
+		rev = "unknown"
 	}
-	rev, modified := "unknown", false
-	for _, s := range bi.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			rev = s.Value
-		case "vcs.modified":
-			modified = s.Value == "true"
-		}
+	if v.Dirty {
+		rev += "+dirty"
 	}
-	dirty := ""
-	if modified {
-		dirty = "+dirty"
-	}
-	fmt.Printf("ember %s%s (%s)\n", rev, dirty, runtime.Version())
+	fmt.Printf("ember %s (%s, %s)\n", v.Version, rev, v.GoVersion)
 }

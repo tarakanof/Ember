@@ -7,8 +7,11 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 ARG TARGETOS TARGETARCH
+# VERSION is the semver release, passed by docker-publish.yml from the git tag;
+# local/source builds default to "dev". Injected into main.version for /version.
+ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -buildvcs=true -ldflags="-s -w" \
+    go build -trimpath -buildvcs=true -ldflags="-s -w -X main.version=$VERSION" \
     -o /out/ember ./cmd/ember
 # Pre-create the Pomodoro data dir so the distroless (no-shell) image ships a
 # writable, nonroot-owned location for the SQLite stats DB.

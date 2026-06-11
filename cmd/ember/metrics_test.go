@@ -232,6 +232,9 @@ func TestRender_GaugesReadFromApp(t *testing.T) {
 	if !strings.Contains(body, `,go_version=`) {
 		t.Errorf("build_info line missing go_version label:\n%s", body)
 	}
+	if !strings.Contains(body, `,version="dev"`) {
+		t.Errorf("build_info line missing version label (want dev in tests):\n%s", body)
+	}
 }
 
 func TestRender_LastPublishUnixZeroWhenNoPublish(t *testing.T) {

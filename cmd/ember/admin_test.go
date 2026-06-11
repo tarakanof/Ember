@@ -40,7 +40,7 @@ func TestVersionHandler_PublicAndJSON(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	for _, k := range []string{"binary", "revision", "dirty", "go_version"} {
+	for _, k := range []string{"binary", "version", "revision", "dirty", "go_version"} {
 		if _, ok := body[k]; !ok {
 			t.Errorf("response missing field %q (got %#v)", k, body)
 		}
