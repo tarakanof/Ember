@@ -190,9 +190,40 @@ Unlike the spine flags above, its toggles are **server config (JSON), not
 |---|---|
 | `usage_widget` (default true) | master enable for the usage apps |
 | `usage_per_model` (default true) | Claude Opus/Sonnet weekly frames (`OP`/`SO`) |
+| `limit_alarm` (default true) | auto-dismiss popup + chime when a 5h window resets (see below) |
+
+Runtime overrides for all three fields: `GET/PUT /v1/usage/config` (bearer auth,
+store key `usage_json`). Partial PUT bodies are safe — missing fields keep their
+current values (pre-seeded from the live config before decode).
 
 Per-tool show/hide reuses the existing per-app visibility (`PUT /v1/apps`) — hide
 `claude` or `codex` to drop its usage apps too.
+
+**5h limit-reset alarm.** When a tool's 5h window reaches ≥99.5% with a known
+future reset time, the coordinator arms an alarm. Once the reset (+60 s grace)
+passes it fires one auto-dismiss popup ("CLAUDE 5H RESET" / "CODEX 5H RESET",
+drawn tool icon, 10 s) and an RTTTL chime. If fresh data shows the reset
+estimate drifted to a later time, the alarm re-arms rather than fires; if the
+device is unreachable it retries next tick. State is in-memory: a restart
+mid-window simply re-arms from the next snapshot. Deduped per (tool, resetAt).
+Toggle with `limit_alarm` above.
+
+## Display behavior config
+
+Runtime display knobs: `GET/PUT /v1/display/config` (bearer auth, store key
+`display_json`). `config.json` is the baseline; a PUT overrides and persists to
+the SQLite store, surviving restarts and `POST /admin/reload`.
+
+| Field | Range | Default (config.json) | Notes |
+|---|---|---|---|
+| `idle_hide_minutes` | 0–60 | 2 (was 20 in older configs) | minutes until the dimmed-idle frame stops publishing; **0 = hide immediately** (no dim phase) |
+| `attention_hold_seconds` | 5–300 | 30 | how long the coordinator holds the attention lock before auto-releasing; read live, so a PUT applies to the current lock |
+| `attention_chime` | bool | false | plays a short RTTTL note on every fresh waiting/error lock acquisition |
+
+`config.json` validation enforces `idle_restore_seconds` in [60, 3600] (whole
+seconds, no zero-hide); the runtime DTO exposes the same knob as whole minutes
+(0–60) with 0 meaning immediate hide. Existing explicit `config.json` values are
+unaffected by the default change — only bare/default installs change.
 
 ## Discovery & mDNS
 
@@ -289,6 +320,14 @@ Verify: `GET /version` reports `dirty:false`; `docker exec ember /ember doctor`
 all `[OK]`. For Unraid, see `README.md` → "Unraid install" + the
 `deploy/unraid/ember.xml` template. Spec/plan history lives in the Obsidian vault
 (`Superpowers Specs/ember/`).
+
+## Upgrade notes
+
+**`display.idle_restore_seconds` default changed 1200 → 120 (2 min).** Only
+bare/default installs are affected — any deployment with an explicit
+`idle_restore_seconds` in `config.json` keeps its value unchanged. If an
+existing deployment has a runtime store override (set via `PUT
+/v1/display/config`), that persisted value also wins over the new default.
 
 ## Home Assistant / Node-RED
 
