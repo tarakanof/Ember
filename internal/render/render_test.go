@@ -285,8 +285,9 @@ func TestRenderForCoord_LockedAttention_EmitsBlinkText(t *testing.T) {
 		wantLabel string
 		wantColor string
 	}{
-		{"waiting", "WAIT", "#FFC14D"},
-		{"error", "ERR", "#FF3A3A"},
+		// Source "a" is appended (uppercased) to the attention label.
+		{"waiting", "WAIT A", "#FFC14D"},
+		{"error", "ERR A", "#FF3A3A"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.state, func(t *testing.T) {
@@ -315,8 +316,9 @@ func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
 	}}
 	// Pointer locked on s2 (waiting) even though s1 (error) sorts first
 	// because state priority puts error ahead of waiting.
+	// Source "a" is appended to the attention label.
 	payload := RenderForCoord(snap, "a/b/s2", cardSource, true, 30)
-	assertBlinkText(t, payload, "WAIT", "#FFC14D")
+	assertBlinkText(t, payload, "WAIT A", "#FFC14D")
 }
 
 // TestRenderForCoord_LockedAttention_PixelGeometry asserts the locked payload
@@ -380,8 +382,16 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if got := payload["textOffset"]; got != 9 {
 		t.Errorf("textOffset = %v, want 9 (1-col gap after the 8×8 icon; text sits in cols 9-31 — 23 cols)", got)
 	}
-	if got := payload["noScroll"]; got != true {
-		t.Errorf("noScroll = %v, want true", got)
+	// noScroll is set only when the label fits the 22 free cols (≤5 chars);
+	// longer labels (source appended) must be allowed to scroll.
+	if len(wantLabel) <= 5 {
+		if got := payload["noScroll"]; got != true {
+			t.Errorf("noScroll = %v, want true (short label fits without scroll)", got)
+		}
+	} else {
+		if _, has := payload["noScroll"]; has {
+			t.Errorf("noScroll must be absent for long label %q (firmware must scroll)", wantLabel)
+		}
 	}
 	if got := payload["center"]; got != false {
 		t.Errorf("center = %v, want false (AWTRIX defaults center=true and adds textOffset, clipping text past col 31)", got)
@@ -1154,16 +1164,19 @@ func TestRenderForCoord_CursorOutOfRange_ClampsToFirstCard(t *testing.T) {
 	}
 }
 
-func TestRenderForCoord_LockedAttention_ScrollsActivity(t *testing.T) {
+func TestRenderForCoord_LockedAttention_ActivityDoesNotSubstituteLabel(t *testing.T) {
+	// 2026-06-11 redesign: activity detail no longer substitutes the attention
+	// label. The frame always shows "WAIT <SOURCE>" so the user knows which
+	// agent/computer needs them, regardless of what tool call is in progress.
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", Activity: "Bash: rm -rf x", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
-	if payload["text"] != "Bash: rm -rf x" {
-		t.Errorf("locked text = %v, want the activity string", payload["text"])
+	if payload["text"] != "WAIT A" {
+		t.Errorf("locked text = %v, want WAIT A (source label, not activity)", payload["text"])
 	}
-	if _, has := payload["blinkText"]; has {
-		t.Errorf("locked attention with activity must not blink")
+	if payload["blinkText"] != 500 {
+		t.Errorf("locked attention must blink; blinkText = %v", payload["blinkText"])
 	}
 	if payload["color"] != "#FFC14D" {
 		t.Errorf("color = %v, want waiting amber #FFC14D", payload["color"])
@@ -1171,12 +1184,14 @@ func TestRenderForCoord_LockedAttention_ScrollsActivity(t *testing.T) {
 }
 
 func TestRenderForCoord_LockedAttention_NoActivityStillBlinks(t *testing.T) {
+	// Source "a" is appended — activity (absent here) never drove the label
+	// anyway after the 2026-06-11 redesign.
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
-	if payload["text"] != "WAIT" || payload["blinkText"] != 500 {
-		t.Errorf("no-activity waiting should blink WAIT, got text=%v blink=%v", payload["text"], payload["blinkText"])
+	if payload["text"] != "WAIT A" || payload["blinkText"] != 500 {
+		t.Errorf("waiting should blink WAIT A, got text=%v blink=%v", payload["text"], payload["blinkText"])
 	}
 }
 

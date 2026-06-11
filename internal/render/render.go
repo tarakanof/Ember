@@ -756,7 +756,11 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 	}
 	if blink {
 		p["blinkText"] = 500
-		p["noScroll"] = true
+		// "WAIT"/"ERR" alone fit the 22 free cols; with a source name appended
+		// the firmware must be allowed to scroll (~4 px/char native font).
+		if len(text) <= 5 {
+			p["noScroll"] = true
+		}
 	}
 	return p
 }
@@ -797,10 +801,12 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		return nil
 	}
 	if locked && (session.State == "waiting" || session.State == "error") {
-		if session.Activity != "" {
-			return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
-		}
+		// Attention names WHO/WHERE (tool icon + source), not which tool call —
+		// activity detail no longer substitutes here (2026-06-11 redesign).
 		label, hex := attentionLabelAndColor(session.State)
+		if session.Source != "" {
+			label += " " + strings.ToUpper(session.Source)
+		}
 		return detailPayload(*session, label, hex, true, lifetimeSeconds)
 	}
 
