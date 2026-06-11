@@ -92,7 +92,8 @@ All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
   re-POST (15 s) to stay under the server staleness reap. Filters to interactive
   `session_meta.source == "cli"`. It also writes
   `~/.local/state/ember/sessions/<uuid>.json` markers so Codex shows
-  in the menu app. Codex gets a distinct **`>_`** sprite vs Claude's robot. It
+  in the menu app. Codex gets a distinct **chevron+underscore** 8×8 icon vs
+  Claude's robot-face (the `_` cursor overlaid in the state colour). It
   also reads `rate_limits.primary` (5h) **and `secondary`** (weekly) from the
   rollout `token_count` events and posts both to `POST /v1/usage` alongside each
   status post (host-local reset labels formatted producer-side).
@@ -122,10 +123,10 @@ preview is **pixel-accurate** because it renders the server's `/v1/preview` grid
 ### Render core — `internal/render`
 
 **Single source of truth** for both the device output and the menu preview, so
-the preview can't drift from the device. Holds sprites/glyphs (`font3x5`, robot,
-codex `>_`, glass, reset/hourglass), frame primitives (`Frame`, `RGB`,
-paint helpers), composition (`composeFrame`, cards, color logic, layout consts),
-and the `Session`/`Snapshot` types. `cmd/ember` refers via type
+the preview can't drift from the device. Holds sprites/glyphs (`font3x5`,
+8×8 tool icons, overlay sprites, glass, reset/hourglass), frame primitives
+(`Frame`, `RGB`, paint helpers), composition (`ComposeFrame`, cards, color
+logic, layout consts), and the `Session`/`Snapshot` types. `cmd/ember` refers via type
 aliases; HTTP-payload shaping (`frameToCustomApp`) stays in the status binary.
 The menu preview is served by `GET /v1/preview`: the same core builds
 `PreviewSession` + `PreviewFrames` (per-card 32×8 color grids) as JSON, so the
@@ -283,6 +284,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
 | `rate_window_pct` (5h) | statusline `five_hour.used_percentage` | rollout `rate_limits.primary.used_percent` | |
 | `rate_reset_at` | statusline `…five_hour.resets_at` | rollout `…primary.resets_at` | epoch secs; countdown computed at render time (TZ-independent) |
 | `activity` / trail | hooks (`Tool: detail`) | rollout (`exec:`/`edit:`/`web:`/`mcp:`) | shared `PrependTrail` ring buffer |
+| `source_card` | producer.env `EMBER_SOURCE_CARD` | — | `*bool`; absent = on; hides source-name card when false |
+| `session_bar` | producer.env `EMBER_SESSION_BAR` | — | `*bool`; absent = on; hides session-pixel bar when false |
 | `tokens_today`, cost, model, PR | — | — | wire field exists for tokens_today; **no producer fills it yet** |
 | usage 5h / weekly / per-model | `api/oauth/usage` (Keychain, always-on) | rollout `rate_limits.primary`+`secondary` (session-only) | drives the standalone usage widget, not per-session cards |
 
@@ -317,24 +320,32 @@ Each metric owns a screen region as a **graphic**; numeric readouts are opt-in
 and disambiguated by a pictogram (graphics-first). Shares the usage widget's
 icon-left language (redesign 2026-06-06).
 
-- **8×8 tool icon** — cols 0–7, **state-coloured** (green=run, amber=wait,
-  red=err, blue=done linger, grey=idle). Reuses the usage widget sprites
-  (Claude robot-face / Codex chevron) via `drawToolIcon8`; state is conveyed by
-  colour (no per-state icon variants). *(The old 10-wide robot/`>_` sprites are
-  retained in code but off the render path.)*
-- **Number slot** — cols 9–24 (`numStart=9`), a **rotating set of cards**: `X/Y`,
-  context `NN⌷`, rate `NN%` (green<70 / amber / red≥90), reset = the **HH:MM
-  reset clock** (drawn tight-colon, from the session's host-local
-  `rate_reset_label`; falls back to `N⧗` ceil-hours when no label, e.g. Codex),
-  and the scrolling tool/trail card. Source color tints `X/Y` digits.
+- **8×8 tool icon** — cols 0–7. Body painted in the session's **source colour**
+  (`EMBER_SOURCE_COLOR` / `source_color` wire field; neutral `#CCCCCC` fallback
+  when absent or invalid), so each machine has a persistent identity colour.
+  State is shown by the inner feature: Claude **eye sockets** / Codex **`_`
+  cursor** painted in the state colour (green=run, amber=wait, red=err,
+  blue=done). Idle dim frame: body drops to ~40% gray; eye sockets / cursor stay
+  dark, preserving the silhouette. Reuses the usage-widget sprites
+  (Claude robot-face / Codex chevron) via `drawToolIcon8`.
+- **Number slot** — cols 9–24 (`numStart=9`), a **rotating set of cards**:
+  **source-name card** (source uppercased, truncated to 4 glyphs, tinted in the
+  source colour or white; replaces the old `X/Y` rotation card), context `NN⌷`,
+  rate `NN%` (green<70 / amber / red≥90), reset = the **HH:MM reset clock**
+  (drawn tight-colon, from the session's host-local `rate_reset_label`; falls
+  back to `N⧗` ceil-hours when no label, e.g. Codex), and the scrolling
+  tool/trail card. Wire fields `source_card` / `session_bar` are `*bool`
+  (absent = on; a producer that predates them never regresses the display).
 - **Context glass** — right edge (interior cols ~26–29 × rows 1–4), 16-level
   per-pixel bottom-up fill, state-coloured.
-- **Bottom row (row 7)** — the 5h rate bar (`drawRateBar`, when `rate_bottom_bar`
-  on + rate present) styled as the **dimmed (~55%) threshold bar** over content
-  cols 8–31 (matching the usage apps); else a session-count bar (1 px per
-  non-idle session, priority-sorted).
-- **Locked attention view** — 8×8 tool icon in cols 0–7, firmware-native text
-  (`blinkText` "WAIT"/"ERR" or scrolling activity) at `textOffset:9`.
+- **Bottom row (row 7)** — three-way: the 5h rate bar (`drawRateBar`, when
+  `rate_bottom_bar` on + rate present), styled as the **dimmed (~55%) threshold
+  bar** over content cols 8–31; else the session-pixel bar (1 px per non-idle
+  session, priority-sorted, when `session_bar` on); else off.
+- **Locked attention view** — 8×8 tool icon in cols 0–7, firmware-native
+  blinking text `WAIT <SOURCE>` / `ERR <SOURCE>` at `textOffset:9`; scrolls when
+  the label overflows the 23 free columns. Activity detail no longer substitutes
+  here — the label always names which agent/computer needs attention.
 - **Pomodoro view** — AWTRIX **built-in animated icon** (`icon` field: tomato
   `3591` focus / coffee `6396` break) + native MM:SS countdown + native progress
   bar; paused dims the phase colour. (Not a drawn `db`; the drawn
