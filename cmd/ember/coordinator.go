@@ -466,7 +466,7 @@ func (c *coordinator) onTick() {
 		c.cardCursor = 0
 	case c.pointer == "" || !slices.Contains(keys, c.pointer):
 		// First tick or the pointed-at session was reaped: restart at the
-		// first session's xy card.
+		// first session's first card.
 		c.pointer = keys[0]
 		c.cardCursor = 0
 	default:

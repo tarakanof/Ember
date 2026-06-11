@@ -284,8 +284,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
 | `rate_window_pct` (5h) | statusline `five_hour.used_percentage` | rollout `rate_limits.primary.used_percent` | |
 | `rate_reset_at` | statusline `…five_hour.resets_at` | rollout `…primary.resets_at` | epoch secs; countdown computed at render time (TZ-independent) |
 | `activity` / trail | hooks (`Tool: detail`) | rollout (`exec:`/`edit:`/`web:`/`mcp:`) | shared `PrependTrail` ring buffer |
-| `source_card` | producer.env `EMBER_SOURCE_CARD` | — | `*bool`; absent = on; hides source-name card when false |
-| `session_bar` | producer.env `EMBER_SESSION_BAR` | — | `*bool`; absent = on; hides session-pixel bar when false |
+| `source_card` | producer.env `EMBER_SOURCE_CARD` | producer.env `EMBER_SOURCE_CARD` | `*bool`; absent = on; hides source-name card when false |
+| `session_bar` | producer.env `EMBER_SESSION_BAR` | producer.env `EMBER_SESSION_BAR` | `*bool`; absent = on; hides session-pixel bar when false |
 | `tokens_today`, cost, model, PR | — | — | wire field exists for tokens_today; **no producer fills it yet** |
 | usage 5h / weekly / per-model | `api/oauth/usage` (Keychain, always-on) | rollout `rate_limits.primary`+`secondary` (session-only) | drives the standalone usage widget, not per-session cards |
 

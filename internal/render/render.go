@@ -704,7 +704,7 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 	}
 	if blink {
 		p["blinkText"] = 500
-		// "WAIT"/"ERR" alone fit the 22 free cols; with a source name appended
+		// "WAIT"/"ERR" alone fit the 23 free cols (9-31); with a source name appended
 		// the firmware must be allowed to scroll (~4 px/char native font).
 		if len(text) <= 5 {
 			p["noScroll"] = true
