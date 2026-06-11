@@ -90,13 +90,41 @@ public struct PomoConfig: Codable, Sendable, Equatable {
 public struct UsageConfig: Codable, Sendable, Equatable {
     public var usageWidget: Bool
     public var usagePerModel: Bool
-    public init(usageWidget: Bool = true, usagePerModel: Bool = true) {
+    public var limitAlarm: Bool
+    public init(usageWidget: Bool = true, usagePerModel: Bool = true, limitAlarm: Bool = true) {
         self.usageWidget = usageWidget
         self.usagePerModel = usagePerModel
+        self.limitAlarm = limitAlarm
     }
     enum CodingKeys: String, CodingKey {
         case usageWidget = "usage_widget"
         case usagePerModel = "usage_per_model"
+        case limitAlarm = "limit_alarm"
+    }
+    /// Custom decoder so `limit_alarm` absent in older-server payloads defaults
+    /// to `true` instead of failing or silently becoming `false`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        usageWidget = try c.decode(Bool.self, forKey: .usageWidget)
+        usagePerModel = try c.decode(Bool.self, forKey: .usagePerModel)
+        limitAlarm = try c.decodeIfPresent(Bool.self, forKey: .limitAlarm) ?? true
+    }
+}
+
+/// Mirrors the server's runtime display behavior (GET/PUT /v1/display/config).
+public struct DisplayConfig: Codable, Sendable, Equatable {
+    public var idleHideMinutes: Int
+    public var attentionHoldSeconds: Int
+    public var attentionChime: Bool
+    public init(idleHideMinutes: Int = 2, attentionHoldSeconds: Int = 30, attentionChime: Bool = false) {
+        self.idleHideMinutes = idleHideMinutes
+        self.attentionHoldSeconds = attentionHoldSeconds
+        self.attentionChime = attentionChime
+    }
+    enum CodingKeys: String, CodingKey {
+        case idleHideMinutes = "idle_hide_minutes"
+        case attentionHoldSeconds = "attention_hold_seconds"
+        case attentionChime = "attention_chime"
     }
 }
 

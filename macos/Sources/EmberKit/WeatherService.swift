@@ -18,6 +18,15 @@ public struct UsageService: Sendable {
     public func putConfig(_ cfg: UsageConfig) async throws { try await client.put("/v1/usage/config", body: cfg) }
 }
 
+/// Typed wrapper over GET/PUT /v1/display/config (agent-app behavior).
+public struct DisplayService: Sendable {
+    let client: APIClient
+    public init(client: APIClient) { self.client = client }
+
+    public func getConfig() async throws -> DisplayConfig { try await client.get("/v1/display/config") }
+    public func putConfig(_ cfg: DisplayConfig) async throws { try await client.put("/v1/display/config", body: cfg) }
+}
+
 /// Fires an Apple Reminder's alarm on the clock via POST /v1/reminders/fire.
 public struct RemindersService: Sendable {
     let client: APIClient
