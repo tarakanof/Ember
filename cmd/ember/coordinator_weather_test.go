@@ -96,7 +96,7 @@ func TestAdoptClearsStaleManagedAppsAfterRestart(t *testing.T) {
 	}
 	c.reconcileWeatherApp(now)
 	c.reconcileForecastApp(now)
-	c.reconcileUsageApps(now, Snapshot{})
+	c.clearLegacyUsageApps()
 
 	cleared := pub.ClearedAppsSnapshot()
 	for _, want := range []string{"ember-weather", "ember-forecast", "ember-usage-claude-5h"} {
