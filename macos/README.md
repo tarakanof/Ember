@@ -13,7 +13,7 @@ API are unchanged; this app is a pure client.
   `@Observable AppModel` + poller. Tested headlessly with `swift test`.
 - **`Ember/`** — the thin SwiftUI app target (`LSUIElement` agent app):
   `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a `Settings`
-  sidebar window (Connection / Device / Code agent / Pomodoro / Weather /
+  sidebar window (Connection / Device / Agent / Pomodoro / Weather /
   Reminders / App), and a status + preview **dashboard** `Window`. `AppEnvironment`
   owns the live `APIClient`, models, services, prefs, and `ServerDiscovery`
   (Bonjour `_ember._tcp` browse). The **Device** tab drives the AWTRIX clock's own

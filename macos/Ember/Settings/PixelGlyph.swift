@@ -29,7 +29,7 @@ struct PixelGlyph: View {
     }
 }
 
-/// The pictograms for each Code-agent (Display) toggle. Colours echo the device:
+/// The pictograms for each Agent-pane toggle. Colours echo the device:
 /// green for context, amber for rate, blue/white for activity.
 enum DisplayPictogram {
     static let green = Color(red: 0.18, green: 0.91, blue: 0.37)
@@ -72,16 +72,6 @@ enum DisplayPictogram {
         "........", "........", "........", "........",
         "........", "........", "XXXXXX..", "........",
     ]
-    // The 8×8 tool icons (body rows of the render sprites) — used by the
-    // behavior rows as a legend for body=source / eyes=state.
-    static let claudeIcon = [
-        "..X..X..", ".XXXXXX.", ".X.XX.X.", "XX.XX.XX",
-        "XXXXXXXX", ".X....X.", ".XXXXXX.", "........",
-    ]
-    static let codexIcon = [
-        "X.......", ".X......", "..X.....", "...X....",
-        "..X.....", ".X......", "X..XXXX.", "........",
-    ]
     // Chime bell (attention-chime behavior row).
     static let bell = [
         "...X....", "..XXX...", "..XXX...", ".XXXXX..",
@@ -113,7 +103,7 @@ enum DisplayPictogram {
     ]
 }
 
-/// A Code-agent settings toggle with its pictogram on the left and the label
+/// An Agent-pane settings toggle with its pictogram on the left and the label
 /// after it. The switch stays on the trailing edge (native Form/Toggle layout).
 struct PictogramToggle: View {
     let rows: [String]

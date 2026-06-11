@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Display tab's nine producer.env toggles. Read uses the producer's default
+/// The Agent pane's nine producer.env toggles. Read uses the producer's default
 /// semantics (envTrue = default-on, envOn = default-off); apply writes "true"/"false".
 /// Ports the retired Go menu's form.go display half.
 public struct DisplaySettings: Equatable, Sendable {
