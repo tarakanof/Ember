@@ -11,4 +11,6 @@ public enum SettingsKeys {
     public static let contextNumber = "EMBER_CONTEXT_NUMBER_ENABLED"
     public static let rateBottomBar = "EMBER_RATE_BOTTOM_BAR"
     public static let rateReset = "EMBER_RATE_RESET"
+    public static let sourceCard = "EMBER_SOURCE_CARD"
+    public static let sessionBar = "EMBER_SESSION_BAR"
 }
