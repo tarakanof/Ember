@@ -368,15 +368,72 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	}
 }
 
-func TestFrameToCustomApp_IncludesPrioForce(t *testing.T) {
+func TestFrameToCustomApp_Hold_IncludesPrioForce(t *testing.T) {
 	var f Frame
 	paintCell(&f, 0, 0, RGB{0xff, 0x00, 0x00})
-	payload := frameToCustomApp(&f, 30)
+	payload := frameToCustomApp(&f, 30, true)
 	if payload["prio"] != true {
 		t.Errorf("prio = %v, want true (display hold above native rotation)", payload["prio"])
 	}
 	if payload["force"] != true {
 		t.Errorf("force = %v, want true (push to front of app stack)", payload["force"])
+	}
+	if payload["duration"] != 30 {
+		t.Errorf("duration = %v, want lifetime (held frames own the screen)", payload["duration"])
+	}
+}
+
+func TestFrameToCustomApp_NoHold_RotatesNatively(t *testing.T) {
+	var f Frame
+	paintCell(&f, 0, 0, RGB{0xff, 0x00, 0x00})
+	payload := frameToCustomApp(&f, 30, false)
+	if _, has := payload["prio"]; has {
+		t.Errorf("prio must be absent without hold (frame rotates like any app)")
+	}
+	if _, has := payload["force"]; has {
+		t.Errorf("force must be absent without hold (no snap-to-front on update)")
+	}
+	if payload["duration"] != rotateDwellSeconds {
+		t.Errorf("duration = %v, want %d (short dwell, same as the weather tiles)", payload["duration"], rotateDwellSeconds)
+	}
+	if payload["lifetime"] != 30 {
+		t.Errorf("lifetime = %v, want 30 (crash-safe eviction unchanged)", payload["lifetime"])
+	}
+}
+
+func TestRenderForCoord_Running_NoDisplayHold(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
+	}}
+	payload := RenderForCoord(snap, "a/b/s1", cardSource, false, 30, nil)
+	if _, has := payload["prio"]; has {
+		t.Errorf("running frame must not set prio (hold is reserved for locked attention)")
+	}
+	if _, has := payload["force"]; has {
+		t.Errorf("running frame must not set force (updates must not snap the display back)")
+	}
+	if payload["duration"] != rotateDwellSeconds {
+		t.Errorf("duration = %v, want %d", payload["duration"], rotateDwellSeconds)
+	}
+	if payload["lifetime"] != 30 {
+		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
+	}
+}
+
+func TestRenderForCoord_RunningToolCard_NoDisplayHold(t *testing.T) {
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", Activity: "Bash: npm test", UpdatedAt: time.Now()},
+	}}
+	// AvailableCards = [cardSource, cardTool]; cursor 1 selects the tool card.
+	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30, nil)
+	if _, has := payload["prio"]; has {
+		t.Errorf("tool-card detail must not set prio while running")
+	}
+	if _, has := payload["force"]; has {
+		t.Errorf("tool-card detail must not set force while running")
+	}
+	if payload["duration"] != rotateDwellSeconds {
+		t.Errorf("duration = %v, want %d", payload["duration"], rotateDwellSeconds)
 	}
 }
 
@@ -453,7 +510,7 @@ func TestFrameToCustomApp(t *testing.T) {
 	paintCell(f, 0, 0, RGB{0xff, 0x00, 0x00})
 	paintCell(f, 31, 7, RGB{0x00, 0xff, 0x00})
 
-	payload := frameToCustomApp(f, 30)
+	payload := frameToCustomApp(f, 30, false)
 	draw, ok := payload["draw"].([]any)
 	if !ok || len(draw) != 1 {
 		t.Fatalf("payload[draw] = %v, want one-element slice", payload["draw"])
@@ -968,7 +1025,7 @@ func TestPercentGlyphDecodable(t *testing.T) {
 
 func TestDetailPayload_Blink(t *testing.T) {
 	s := Session{Source: "a", Tool: "b", Session: "w", State: "waiting"}
-	p := detailPayload(s, "WAIT", "#FFC14D", true, 30)
+	p := detailPayload(s, "WAIT", "#FFC14D", true, 30, true)
 	if p["text"] != "WAIT" || p["color"] != "#FFC14D" {
 		t.Errorf("text/color = %v/%v", p["text"], p["color"])
 	}
@@ -989,7 +1046,7 @@ func TestDetailPayload_Blink(t *testing.T) {
 
 func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 	s := Session{Source: "a", Tool: "b", Session: "r", State: "running"}
-	p := detailPayload(s, "Bash: npm test", "#2EE85E", false, 30)
+	p := detailPayload(s, "Bash: npm test", "#2EE85E", false, 30, false)
 	if p["text"] != "Bash: npm test" {
 		t.Errorf("text = %v", p["text"])
 	}
@@ -1249,7 +1306,7 @@ func TestAvailableCardsUsageGating(t *testing.T) {
 
 func TestDetailPayloadUses8pxIcon(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "waiting"}
-	p := detailPayload(s, "WAIT", "#FFC14D", true, 30)
+	p := detailPayload(s, "WAIT", "#FFC14D", true, 30, true)
 	draws := p["draw"].([]any)
 	db := draws[0].(map[string]any)["db"].([]any)
 	if db[2] != 8 || db[3] != 8 {

@@ -109,6 +109,6 @@ func ForecastPayload(cond, tempText string, hourly []float64, lifetime int) map[
 	drawForecastBars(&f, hourly, barStart, 31)
 	return map[string]any{
 		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
-		"lifetime": lifetime, "duration": 6,
+		"lifetime": lifetime, "duration": rotateDwellSeconds,
 	}
 }

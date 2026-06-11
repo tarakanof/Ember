@@ -362,19 +362,30 @@ func framePixels(f *Frame) []int {
 	return pixels
 }
 
+// rotateDwellSeconds is the on-screen dwell for frames published WITHOUT the
+// display hold — the same short slot the weather/forecast tiles get, so a
+// merely-running agent rotates alongside them instead of owning the screen.
+const rotateDwellSeconds = 6
+
 // frameToCustomApp encodes a Frame as an AWTRIX CustomApp payload using
 // one db (draw bitmap) operation. Pixels are emitted row-major as
-// 0xRRGGBB ints — undirty pixels emit 0 (black/off).
-func frameToCustomApp(f *Frame, lifetimeSeconds int) map[string]any {
-	return map[string]any{
+// 0xRRGGBB ints — undirty pixels emit 0 (black/off). hold=true publishes
+// with prio+force and a full-lifetime duration (display hold); hold=false
+// rotates natively with a short dwell.
+func frameToCustomApp(f *Frame, lifetimeSeconds int, hold bool) map[string]any {
+	p := map[string]any{
 		"draw": []any{
 			map[string]any{"db": []any{0, 0, 32, 8, framePixels(f)}},
 		},
 		"lifetime": lifetimeSeconds,
-		"duration": lifetimeSeconds,
-		"prio":     true,
-		"force":    true,
+		"duration": rotateDwellSeconds,
 	}
+	if hold {
+		p["duration"] = lifetimeSeconds
+		p["prio"] = true
+		p["force"] = true
+	}
+	return p
 }
 
 var (
@@ -747,8 +758,9 @@ const unitStart = 25
 // is the WAIT/ERR attention label (blinking; scrolls when the label overflows the
 // free columns). blink=false is the activity detail (firmware shows it static when
 // it fits, scrolls when it overflows). center is always false so textOffset is the
-// literal start column (cols 9-31), clear of the 8-wide icon.
-func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int) map[string]any {
+// literal start column (cols 9-31), clear of the 8-wide icon. hold follows
+// the frameToCustomApp contract (prio+force+full duration vs short dwell).
+func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int, hold bool) map[string]any {
 	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
 	p := map[string]any{
 		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, pixels}}},
@@ -756,10 +768,13 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 		"color":      hexColor,
 		"textOffset": 9,
 		"center":     false,
-		"duration":   lifetimeSeconds,
+		"duration":   rotateDwellSeconds,
 		"lifetime":   lifetimeSeconds,
-		"prio":       true,
-		"force":      true,
+	}
+	if hold {
+		p["duration"] = lifetimeSeconds
+		p["prio"] = true
+		p["force"] = true
 	}
 	if blink {
 		p["blinkText"] = 500
@@ -817,7 +832,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		if session.Source != "" {
 			label += " " + strings.ToUpper(session.Source)
 		}
-		return detailPayload(*session, label, hex, true, lifetimeSeconds)
+		return detailPayload(*session, label, hex, true, lifetimeSeconds, true)
 	}
 
 	// Resolve the per-tool usage view; nil map access is safe in Go.
@@ -833,10 +848,10 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		selected = cards[ci]
 	}
 	if selected == cardTool {
-		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
+		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds, false)
 	}
 	frame := ComposeFrame(*session, selected, u, snap.Sessions, snap.Now)
-	return frameToCustomApp(&frame, lifetimeSeconds)
+	return frameToCustomApp(&frame, lifetimeSeconds, false)
 }
 
 // ComposeFrame paints the standard layout for one session. The icon body
@@ -998,7 +1013,7 @@ func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Ti
 		drawUsageUnit(&f, "5h")
 		drawBarInto(&f, u.FiveHourPct)
 	}
-	return frameToCustomApp(&f, lifetimeSeconds)
+	return frameToCustomApp(&f, lifetimeSeconds, true)
 }
 
 // toolIcon8 returns the 8×8 tool sprite for a session: codex chevron, else the

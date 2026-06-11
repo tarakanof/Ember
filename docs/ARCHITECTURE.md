@@ -68,10 +68,15 @@ The aggregator and the only writer to the device.
   `GET/PUT /v1/display/config` using the standard **baseline + store-override**
   pattern (config.json baseline; SQLite `display_json` override wins, survives
   restarts and `/admin/reload`) — same shape as weather/pomodoro/usage config.
-- **Display hold.** Non-idle frames are published with `prio:true` + `force:true`
-  + a per-frame `lifetime` so the clock suppresses its native apps while we're
-  active, but **crash-safely** returns to them if the server dies (vs the sticky,
-  reboot-requiring `/api/settings` primitive — deliberately not used).
+- **Display hold.** Reserved for attention: only the **locked** waiting/error
+  frame (and the idle hot-usage frame) is published with `prio:true` +
+  `force:true` + `duration=lifetime`, snapping the clock to it and holding it
+  for the attention window. Merely-running frames carry no `prio`/`force` and a
+  short `duration` (6 s, same as the weather/forecast tiles) so an active agent
+  rotates alongside the other apps instead of owning the screen. Every frame
+  still has a per-frame `lifetime`, so the clock **crash-safely** returns to
+  native apps if the server dies (vs the sticky, reboot-requiring
+  `/api/settings` primitive — deliberately not used).
 
 ### Producers
 
