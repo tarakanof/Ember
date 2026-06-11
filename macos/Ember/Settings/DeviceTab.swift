@@ -22,6 +22,10 @@ struct DeviceTab: View {
     @State private var buttons: ButtonStatus?
     @State private var clockExpanded = false
 
+    @State private var quiet = QuietConfig()
+    @State private var lastQuiet: QuietConfig?
+    @State private var quietWriter = DebouncedWriter(delay: .milliseconds(600))
+
     private let overlays = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"]
 
     var body: some View {
@@ -38,6 +42,7 @@ struct DeviceTab: View {
             clockSection
 
             generalSection
+            quietSection
             nativeAppsSection
             timeDateSection
             buttonsSection
@@ -187,6 +192,60 @@ struct DeviceTab: View {
             Text("“Block buttons” may be briefly overridden while a Pomodoro is running.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    @ViewBuilder private var quietSection: some View {
+        Section {
+            Toggle(isOn: $quiet.enabled) {
+                RowLabel("Mute sounds at night", symbol: "moon.zzz.fill", tint: .indigo)
+            }
+            DatePicker(selection: timeBinding($quiet.start), displayedComponents: .hourAndMinute) {
+                RowLabel("From", symbol: "moon.fill", tint: .purple)
+            }
+            .disabled(!quiet.enabled)
+            DatePicker(selection: timeBinding($quiet.end), displayedComponents: .hourAndMinute) {
+                RowLabel("Until", symbol: "sunrise.fill", tint: .orange)
+            }
+            .disabled(!quiet.enabled)
+        } header: {
+            Text("Quiet hours")
+        } footer: {
+            Text("Server-side: all clock sounds (pomodoro, alarms, reminders, weather) are muted during the window. Visual notifications still show. Times are the server's local time.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .task {
+            if lastQuiet == nil, let q = try? await env.quiet.getConfig() {
+                quiet = q
+                lastQuiet = q
+            }
+        }
+        .onChange(of: quiet) { _, _ in scheduleQuietSave() }
+    }
+
+    private func scheduleQuietSave() {
+        guard quiet != lastQuiet else { return } // initial load / no-op
+        let q = quiet
+        quietWriter.schedule {
+            try? await env.quiet.putConfig(q)
+            await MainActor.run { self.lastQuiet = q }
+        }
+    }
+
+    /// Bridges an "HH:MM" string to the Date a .hourAndMinute DatePicker wants.
+    private func timeBinding(_ hhmm: Binding<String>) -> Binding<Date> {
+        Binding(
+            get: {
+                let parts = hhmm.wrappedValue.split(separator: ":").compactMap { Int($0) }
+                var c = DateComponents()
+                c.hour = parts.count > 0 ? parts[0] : 0
+                c.minute = parts.count > 1 ? parts[1] : 0
+                return Calendar.current.date(from: c) ?? .distantPast
+            },
+            set: { date in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+                hhmm.wrappedValue = String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+            }
+        )
     }
 
     @ViewBuilder private var nativeAppsSection: some View {

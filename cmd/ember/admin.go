@@ -289,6 +289,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.loadPersistedUsageSettings()
 		// Likewise re-apply display config overrides so a reload doesn't revert them.
 		app.loadPersistedDisplaySettings()
+		app.loadPersistedQuietSettings()
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,

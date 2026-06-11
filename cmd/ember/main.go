@@ -60,6 +60,8 @@ type Config struct {
 	// frame): the card shows only when a tool's 5h window is >= this percent.
 	// nil → default 60; 0 = always show.
 	UsageThresholdPct *int `json:"usage_threshold_pct,omitempty"`
+	// QuietHours mutes all device sounds during the window (server-local time).
+	QuietHours QuietHoursConfig `json:"quiet_hours"`
 }
 
 // usageWidgetEnabled reports whether the in-app usage card and the idle usage
@@ -556,7 +558,11 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	if hp, ok := publisher.(*HTTPPublisher); ok {
 		hp.app = a
 	}
-	a.coord = newCoordinator(cfg, a.cfg.Load, publisher, realClock{}, logger, a.metrics)
+	// All device traffic flows through the quiet-hours gate; the raw publisher
+	// is never handed out past this point.
+	quiet := &quietPublisher{next: publisher, cfg: a.cfg.Load, now: time.Now}
+	a.publisher = quiet
+	a.coord = newCoordinator(cfg, a.cfg.Load, quiet, realClock{}, logger, a.metrics)
 	a.coord.snapshot = a.Snapshot
 	a.coord.onPublishResult = a.recordPublish
 	a.hiddenApps = map[string]bool{}
@@ -907,6 +913,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("PUT /v1/usage/config", rateLimit(a, http.HandlerFunc(a.handleUsageConfigPut)))
 	writeMux.Handle("GET /v1/display/config", rateLimit(a, http.HandlerFunc(a.handleDisplayConfigGet)))
 	writeMux.Handle("PUT /v1/display/config", rateLimit(a, http.HandlerFunc(a.handleDisplayConfigPut)))
+	writeMux.Handle("GET /v1/quiet/config", rateLimit(a, http.HandlerFunc(a.handleQuietConfigGet)))
+	writeMux.Handle("PUT /v1/quiet/config", rateLimit(a, http.HandlerFunc(a.handleQuietConfigPut)))
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
 	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
@@ -1447,6 +1455,7 @@ func main() {
 	}
 	app.loadPersistedUsageSettings()   // runtime usage-widget toggles over the file baseline
 	app.loadPersistedDisplaySettings() // runtime display config overrides over the file baseline
+	app.loadPersistedQuietSettings()   // quiet-hours override over the file baseline
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}

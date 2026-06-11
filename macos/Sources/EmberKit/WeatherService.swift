@@ -27,6 +27,15 @@ public struct DisplayService: Sendable {
     public func putConfig(_ cfg: DisplayConfig) async throws { try await client.put("/v1/display/config", body: cfg) }
 }
 
+/// Typed wrapper over GET/PUT /v1/quiet/config (server-side night mute).
+public struct QuietService: Sendable {
+    let client: APIClient
+    public init(client: APIClient) { self.client = client }
+
+    public func getConfig() async throws -> QuietConfig { try await client.get("/v1/quiet/config") }
+    public func putConfig(_ cfg: QuietConfig) async throws { try await client.put("/v1/quiet/config", body: cfg) }
+}
+
 /// Fires an Apple Reminder's alarm on the clock via POST /v1/reminders/fire.
 public struct RemindersService: Sendable {
     let client: APIClient

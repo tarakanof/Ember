@@ -63,5 +63,6 @@
     "severe_alert": true,
     "severe_sound": "",
     "use_native_icons": false
-  }
+  },
+  "quiet_hours": { "enabled": false, "start": "22:00", "end": "08:00" }
 }

@@ -405,6 +405,15 @@ const (
 	cardUsageModelB
 )
 
+// isUsageCard reports whether card is one of the account-usage faces.
+func isUsageCard(card int) bool {
+	switch card {
+	case cardUsage5h, cardUsageReset, cardUsage7d, cardUsageModelA, cardUsageModelB:
+		return true
+	}
+	return false
+}
+
 func sourceCardEnabled(s Session) bool { return s.SourceCard == nil || *s.SourceCard }
 func sessionBarEnabled(s Session) bool { return s.SessionBar == nil || *s.SessionBar }
 
@@ -513,23 +522,20 @@ func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 	drawDigits(f, text, numStart, 1, col)
 }
 
-// drawUnitPctFace paints a two-glyph gray unit ("7d", "OP", "SO") followed by
-// a clamped 2-digit percent in the threshold colour — the "7d42" face shape.
-func drawUnitPctFace(f *Frame, unit string, pct int) {
-	drawDigits(f, unit, numStart, 1, usageGray)
-	drawDigits(f, pctDigits(pct), numStart+8, 1, rateColor(pct))
+// drawUsageUnit paints the two-glyph gray window label ("5h", "7d", "OP",
+// "SO") at the right edge — the slot the context glass occupies on non-usage
+// cards. Context is a session metric, so usage faces show their window
+// instead of the glass.
+func drawUsageUnit(f *Frame, unit string) {
+	drawDigits(f, unit, unitStart, 1, usageGray)
 }
 
-// pctDigits is rateText without the % sign (the unit glyphs already say
-// what the number is): clamped 0..99 so it always fits two glyphs.
-func pctDigits(pct int) string {
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 99 {
-		pct = 99
-	}
-	return itoa(pct)
+// drawUnitPctFace paints a clamped percent ("42%") in the threshold colour at
+// the number slot plus the gray unit label at the right edge — the shared
+// shape of the 7d and per-model faces.
+func drawUnitPctFace(f *Frame, unit string, pct int) {
+	drawDigits(f, rateText(pct), numStart, 1, rateColor(pct))
+	drawUsageUnit(f, unit)
 }
 
 // PickWinning returns the priority-winning session, its state colour, and
@@ -732,6 +738,11 @@ func itoa(n int) string {
 // numStart is the left edge of the digit area (1-px gap after the 8×8 icon).
 const numStart = 9
 
+// unitStart is the left edge of the usage-face unit label ("5h"/"7d"/model
+// marker): two 3×5 glyphs at cols 25–31, the slot the context glass occupies
+// on non-usage cards.
+const unitStart = 25
+
 // detailPayload builds an 8×8 icon (db) + AWTRIX-native-text payload. blink=true
 // is the WAIT/ERR attention label (blinking; scrolls when the label overflows the
 // free columns). blink=false is the activity detail (firmware shows it static when
@@ -850,8 +861,10 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 		} else {
 			drawDigits(&f, rateText(u.FiveHourPct), numStart, 1, rateColor(u.FiveHourPct))
 		}
+		drawUsageUnit(&f, "5h")
 	case card == cardUsageReset && u != nil:
 		drawUsageClock(&f, u, now)
+		drawUsageUnit(&f, "5h") // the countdown belongs to the 5h window
 	case card == cardUsage7d && u != nil && u.SevenDayPct != nil:
 		drawUnitPctFace(&f, "7d", *u.SevenDayPct)
 	case card == cardUsageModelA && u != nil && len(u.Models) > 0:
@@ -864,8 +877,11 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 		// card == cardNone (no cards available): blank number slot.
 	}
 
-	glassFillColor := colorForState(s.State)
-	drawGlass(&f, s.ContextPct, glassFillColor)
+	// The context glass is a session metric; usage faces replace it with the
+	// window unit label, so only non-usage cards draw it.
+	if !isUsageCard(card) {
+		drawGlass(&f, s.ContextPct, colorForState(s.State))
+	}
 
 	if s.RateBottomBar && s.RateWindowPct != nil {
 		pct := *s.RateWindowPct
@@ -979,6 +995,7 @@ func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Ti
 		drawBarInto(&f, *u.SevenDayPct)
 	} else {
 		drawUsageClock(&f, u, now)
+		drawUsageUnit(&f, "5h")
 		drawBarInto(&f, u.FiveHourPct)
 	}
 	return frameToCustomApp(&f, lifetimeSeconds)

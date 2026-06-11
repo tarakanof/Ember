@@ -81,6 +81,9 @@ func validateConfig(cfg Config) error {
 	if err := validatePomodoro(cfg.Pomodoro); err != nil {
 		return err
 	}
+	if err := validateQuietHours(cfg.QuietHours); err != nil {
+		return err
+	}
 	return nil
 }
 

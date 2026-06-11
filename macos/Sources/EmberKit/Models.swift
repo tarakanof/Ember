@@ -117,6 +117,19 @@ public struct UsageConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Quiet-hours window (GET/PUT /v1/quiet/config): the server mutes all device
+/// sounds during the window (server-local time); visuals are unaffected.
+public struct QuietConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var start: String // "HH:MM"
+    public var end: String   // "HH:MM"
+    public init(enabled: Bool = false, start: String = "22:00", end: String = "08:00") {
+        self.enabled = enabled
+        self.start = start
+        self.end = end
+    }
+}
+
 /// Mirrors the server's runtime display behavior (GET/PUT /v1/display/config).
 public struct DisplayConfig: Codable, Sendable, Equatable {
     public var idleHideMinutes: Int

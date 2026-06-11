@@ -313,9 +313,12 @@ builds `UsageView` structs from `effectiveFiveHour` each tick and includes a
 usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
 (default 60; `0` = always show). The usage card rotates through up to five faces per
 tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
-(HH:MM reset clock), **7d** (pixel-drawn font3x5 "7d" prefix + 2-digit percent
-in threshold colour, via `drawUnitPctFace`), **model-A** and **model-B**
-(`OP`/`SO` weekly frames). Per-tool show/hide reuses `/v1/apps`; the widget + per-model
+(HH:MM reset clock), **7d** (percent in threshold colour, via
+`drawUnitPctFace`), **model-A** and **model-B** (`OP`/`SO` weekly frames).
+Every usage face replaces the context glass with a gray **window unit label**
+at the right edge (`drawUsageUnit`, cols 25–31): `5h` on the clock/reset/pct
+faces, `7d` / `OP` / `SO` on the weekly faces — the glass is a session metric
+and only non-usage cards draw it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
 toggles remain server config (`usage_widget`, `usage_per_model`, default on);
 `usage_threshold_pct` is also server config (`GET/PUT /v1/usage/config`, store
 key `usage_json`, default 60, 0 = always). **Claude 5h fallback:** when the
@@ -346,6 +349,15 @@ snapshot. Gated only by `limit_alarm` (usage config, default on); deliberately
 independent of the usage card threshold (the alarm is about resuming work, not
 tiles).
 
+**Quiet hours.** A global night mute (`quiet_hours` config: `enabled`,
+`start`/`end` `"HH:MM"`, default off / 22:00–08:00; runtime override via
+`GET/PUT /v1/quiet/config`, store key `quiet_json`). Enforced by a
+`quietPublisher` decorator around the device publisher — during the window
+(server-local wall clock; overnight wrap supported; `start == end` = never)
+Notify payloads lose their `sound`/`rtttl` keys and `PlayRTTTL`/`PlaySound`
+no-op, so every sound source is covered at one choke point. Visual output is
+untouched; sounds resume on the first event after the window.
+
 ## Display layout (32×8 matrix)
 
 Each metric owns a screen region as a **graphic**; numeric readouts are opt-in
@@ -368,7 +380,8 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   are `*bool` (absent = on; a producer that predates them never regresses the
   display).
 - **Context glass** — right edge (interior cols ~26–29 × rows 1–4), 16-level
-  per-pixel bottom-up fill, state-coloured.
+  per-pixel bottom-up fill, state-coloured. Non-usage cards only — usage faces
+  paint the gray window unit label (`5h`/`7d`/`OP`/`SO`) in this slot instead.
 - **Bottom row (row 7)** — three-way: the 5h rate bar (`drawRateBar`, when
   `rate_bottom_bar` on + rate present), styled as the **dimmed (~55%) threshold
   bar** over content cols 8–31; else the session-pixel bar (1 px per non-idle
@@ -398,6 +411,14 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   needed); the device can't attach a token, hence the unauthenticated hook.
 - **Verify on-device** by reading `GET /api/screen` (256 RGB ints, 32×8
   row-major) — see RUNBOOK for the ANSI-render + crafted-session technique.
+- **Hue shifts with brightness — the `GAMMA` setting is ignored.** The
+  firmware's `gammaCorrection()` computes gamma from the current brightness:
+  `logMap(actualBri, 2, 180, 0.535, 2.3, 1.9)`. At the auto-brightness floor
+  (`min_brightness` default **2**, i.e. any dark room) gamma ≈ 0.535, which
+  *boosts* mid-range channels: orange `#FF7F00` (G=50%) displays as ≈`#FFB000`
+  — yellow. At bright daylight (BRI→180) gamma → 2.3 and the same orange goes
+  deep red-orange. No payload colour fixes this; raise `min_brightness` in the
+  device's `dev.json` (~20–40) to keep night-time gamma near neutral.
 
 ### DarwinKit / AppKit (retired Go menu)
 The retired Go menu was replaced by the native SwiftUI app (`macos/`), so its

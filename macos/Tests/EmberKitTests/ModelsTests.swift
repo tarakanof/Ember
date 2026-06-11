@@ -52,3 +52,18 @@ import Foundation
     #expect(p.frames[0].pixels.count == 256)
     #expect(p.activity == "Bash: go test")
 }
+
+@Test func quietConfigRoundTripAndDefaults() throws {
+    let def = QuietConfig()
+    #expect(!def.enabled)
+    #expect(def.start == "22:00")
+    #expect(def.end == "08:00")
+
+    let cfg = QuietConfig(enabled: true, start: "23:30", end: "07:15")
+    let data = try JSONEncoder().encode(cfg)
+    let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(obj["enabled"] as? Bool == true)
+    #expect(obj["start"] as? String == "23:30")
+    #expect(obj["end"] as? String == "07:15")
+    #expect(try JSONDecoder().decode(QuietConfig.self, from: data) == cfg)
+}
