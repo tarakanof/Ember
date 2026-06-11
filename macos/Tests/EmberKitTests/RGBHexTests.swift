@@ -33,6 +33,8 @@ import Testing
     #expect(SettingsKeys.token == "EMBER_TOKEN")
     #expect(SettingsKeys.sourceColor == "EMBER_SOURCE_COLOR")
     #expect(SettingsKeys.contextNumber == "EMBER_CONTEXT_NUMBER_ENABLED")
+    #expect(SettingsKeys.sourceCard == "EMBER_SOURCE_CARD")
+    #expect(SettingsKeys.sessionBar == "EMBER_SESSION_BAR")
 }
 
 @Test func rgbProducesUppercaseHex() {

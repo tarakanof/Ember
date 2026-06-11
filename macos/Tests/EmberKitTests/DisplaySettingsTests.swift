@@ -5,6 +5,7 @@ import Foundation
 @Test func readsDisplayDefaultsWhenAbsent() {
     let d = DisplaySettings(reading: EnvFile(parsing: ""))
     #expect(d.contextPct); #expect(d.ratePct); #expect(d.activityDetail); #expect(d.activityTrail)
+    #expect(d.sourceCard); #expect(d.sessionBar)
     #expect(!d.contextNumber); #expect(!d.rateBottomBar); #expect(!d.rateReset)
 }
 
@@ -21,7 +22,7 @@ import Foundation
     #expect(!d.rateReset)
 }
 
-@Test func appliesAllSevenTogglesAsTrueFalse() {
+@Test func appliesTogglesAsTrueFalse() {
     var env = EnvFile(parsing: "")
     var d = DisplaySettings(reading: EnvFile(parsing: ""))
     d.contextNumber = true
