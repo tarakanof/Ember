@@ -402,6 +402,14 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   needed); the device can't attach a token, hence the unauthenticated hook.
 - **Verify on-device** by reading `GET /api/screen` (256 RGB ints, 32×8
   row-major) — see RUNBOOK for the ANSI-render + crafted-session technique.
+- **Hue shifts with brightness — the `GAMMA` setting is ignored.** The
+  firmware's `gammaCorrection()` computes gamma from the current brightness:
+  `logMap(actualBri, 2, 180, 0.535, 2.3, 1.9)`. At the auto-brightness floor
+  (`min_brightness` default **2**, i.e. any dark room) gamma ≈ 0.535, which
+  *boosts* mid-range channels: orange `#FF7F00` (G=50%) displays as ≈`#FFB000`
+  — yellow. At bright daylight (BRI→180) gamma → 2.3 and the same orange goes
+  deep red-orange. No payload colour fixes this; raise `min_brightness` in the
+  device's `dev.json` (~20–40) to keep night-time gamma near neutral.
 
 ### DarwinKit / AppKit (retired Go menu)
 The retired Go menu was replaced by the native SwiftUI app (`macos/`), so its
