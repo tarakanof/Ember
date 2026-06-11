@@ -286,3 +286,93 @@ func TestUsageViewsHiddenTool(t *testing.T) {
 		t.Fatalf("hidden tool: want no view, got %+v", v)
 	}
 }
+
+// TestIdleOverThresholdPublishesUsageFrame verifies that when the idle countdown
+// elapses and at least one tool's 5h usage is over the threshold, the coordinator
+// publishes the dimmed usage frame instead of letting the device lifetime expire.
+func TestIdleOverThresholdPublishesUsageFrame(t *testing.T) {
+	c, st, _, clk := makeAlarmCoord(t)
+	// Override IdleRestoreSeconds to something short so we don't have to
+	// advance 120s (still within usageStaleTTL=10min, but this is cleaner).
+	cfg := *c.loadCfg()
+	cfg.Display.IdleRestoreSeconds = 60
+	c.loadCfg = func() *Config { return &cfg }
+
+	now := clk.Now()
+	// Fresh claude usage over threshold (default 60%). Store freshness is based
+	// on UpdatedAt; the data must still be within usageStaleTTL=10min at the
+	// time of the second tick (61s later — well within 600s).
+	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 87, ResetLabel: "17:30"}, UpdatedAt: now})
+	c.snapshot = func() Snapshot { return Snapshot{Now: clk.Now()} } // no sessions → idle
+
+	// First tick: starts the idle countdown (idleModeDimmed → publishes dim frame).
+	c.onTick()
+	// Advance past the idle countdown.
+	clk.Advance(61 * time.Second)
+	before := c.publishCount.Load()
+	// Second tick: countdown elapsed → idleModeOff. Over-threshold usage must
+	// cause the coordinator to publish the dimmed usage frame (not return early).
+	c.onTick()
+	if c.publishCount.Load() == before {
+		t.Fatal("idle over threshold: expected a usage-frame publish after countdown elapsed")
+	}
+}
+
+// TestIdleUnderThresholdStopsPublishing verifies that when the idle countdown
+// elapses and no tool's 5h usage is over the threshold, the coordinator does NOT
+// publish — the app lifetime expires and AWTRIX returns to native apps.
+func TestIdleUnderThresholdStopsPublishing(t *testing.T) {
+	c, st, _, clk := makeAlarmCoord(t)
+	cfg := *c.loadCfg()
+	cfg.Display.IdleRestoreSeconds = 60
+	c.loadCfg = func() *Config { return &cfg }
+
+	now := clk.Now()
+	// Usage at 30% — below the default 60% threshold. The view is absent,
+	// so RenderIdleUsagePayload returns nil and publish bails out as before.
+	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 30, ResetLabel: "17:30"}, UpdatedAt: now})
+	c.snapshot = func() Snapshot { return Snapshot{Now: clk.Now()} }
+
+	c.onTick()
+	clk.Advance(61 * time.Second)
+	before := c.publishCount.Load()
+	c.onTick()
+	if c.publishCount.Load() != before {
+		t.Fatal("idle under threshold: expected NO publish (app should expire)")
+	}
+}
+
+// TestIdleCardCursorAdvancesOnEmptyKeys verifies that consecutive dwell ticks
+// with no active sessions increment cardCursor, which drives face rotation in
+// RenderIdleUsagePayload (cursor wraps inside render).
+func TestIdleCardCursorAdvancesOnEmptyKeys(t *testing.T) {
+	c, st, _, clk := makeAlarmCoord(t)
+	cfg := *c.loadCfg()
+	cfg.Display.IdleRestoreSeconds = 60
+	c.loadCfg = func() *Config { return &cfg }
+
+	now := clk.Now()
+	// Claude with both 5h and 7d gives two faces so cursor rotation is meaningful.
+	st.Put("claude", ToolUsage{
+		FiveHour:  &UsageWindow{UsedPercent: 87, ResetLabel: "17:30"},
+		SevenDay:  &UsageWindow{UsedPercent: 55, ResetLabel: "MON"},
+		UpdatedAt: now,
+	})
+	c.snapshot = func() Snapshot { return Snapshot{Now: clk.Now()} }
+
+	// First tick starts the idle countdown; cardCursor goes 0→1.
+	c.onTick()
+	c.muTest.RLock()
+	cursorAfterFirst := c.cardCursor
+	c.muTest.RUnlock()
+
+	c.onTick()
+	c.muTest.RLock()
+	cursorAfterSecond := c.cardCursor
+	c.muTest.RUnlock()
+
+	if cursorAfterSecond != cursorAfterFirst+1 {
+		t.Fatalf("cardCursor after two empty-keys ticks: %d → %d, want +1 increment",
+			cursorAfterFirst, cursorAfterSecond)
+	}
+}

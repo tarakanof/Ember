@@ -492,7 +492,8 @@ func (c *coordinator) onTick() {
 	switch {
 	case len(keys) == 0:
 		c.pointer = ""
-		c.cardCursor = 0
+		// cardCursor doubles as the idle usage-face cursor (wraps in render).
+		c.cardCursor++
 	case c.locked:
 		// Locked: hold the target; cards never cycle during attention.
 		c.pointer = c.lockedKey
@@ -1030,10 +1031,14 @@ func (c *coordinator) publish(snap Snapshot) {
 		case idleModeDimmed:
 			payload = render.RenderIdleFrame(lifetime)
 		case idleModeOff:
-			// Countdown elapsed — let the device's lifetime expire so
-			// AWTRIX scheduler returns to native apps. No publish, no
-			// dedupe-state update.
-			return
+			// Countdown elapsed. If a tool's 5h window is over the usage
+			// threshold, keep the slot alive with the dimmed usage frame so a
+			// hot window stays visible while the user is away. Otherwise let
+			// the device's lifetime expire (AWTRIX returns to native apps).
+			payload = render.RenderIdleUsagePayload(c.usageViews(now, snap), c.cardCursor, now, lifetime)
+			if payload == nil {
+				return
+			}
 		}
 	}
 	if payload == nil {
