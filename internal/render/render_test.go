@@ -70,8 +70,8 @@ func TestFontLookup(t *testing.T) {
 			}
 		}
 	}
-	if glyph('Z') != nil {
-		t.Fatalf("glyph('Z') = non-nil, want nil for unsupported rune")
+	if glyph('?') != nil {
+		t.Fatalf("glyph('?') = non-nil, want nil for unsupported rune")
 	}
 }
 
