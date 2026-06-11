@@ -29,6 +29,8 @@ type Config struct {
 	ContextNumberEnabled  bool
 	RateBottomBarEnabled  bool
 	RateResetEnabled      bool
+	SourceCardEnabled     bool
+	SessionBarEnabled     bool
 }
 
 // LogValue redacts the token. Implements slog.LogValuer.
@@ -50,6 +52,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("context_number_enabled", c.ContextNumberEnabled),
 		slog.Bool("rate_bottom_bar_enabled", c.RateBottomBarEnabled),
 		slog.Bool("rate_reset_enabled", c.RateResetEnabled),
+		slog.Bool("source_card_enabled", c.SourceCardEnabled),
+		slog.Bool("session_bar_enabled", c.SessionBarEnabled),
 	)
 }
 
@@ -60,6 +64,8 @@ func loadConfig() (Config, error) {
 		ContextPctEnabled:     true,
 		ActivityDetailEnabled: true,
 		ActivityTrailEnabled:  true,
+		SourceCardEnabled:     true,
+		SessionBarEnabled:     true,
 	}
 	path, err := envFilePath()
 	if err != nil {
@@ -123,6 +129,20 @@ func loadConfig() (Config, error) {
 			switch strings.ToLower(v) {
 			case "true", "1", "yes", "on":
 				cfg.RateResetEnabled = true
+			}
+		case "EMBER_SOURCE_CARD":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.SourceCardEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.SourceCardEnabled = true
+			}
+		case "EMBER_SESSION_BAR":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.SessionBarEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.SessionBarEnabled = true
 			}
 		}
 	}

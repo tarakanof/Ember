@@ -19,7 +19,6 @@ type StatusRequest struct {
 	Session       string  `json:"session"`
 	State         string  `json:"state"`
 	Message       string  `json:"message,omitempty"`
-	TokensToday   int64   `json:"tokens_today,omitempty"`
 	ContextPct    *int    `json:"context_pct,omitempty"`
 	SourceColor   *string `json:"source_color,omitempty"`
 	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
@@ -33,6 +32,8 @@ type StatusRequest struct {
 	// can render a correct local label in the usage-widget 5h fallback without
 	// doing timezone math itself.
 	RateResetLabel string `json:"rate_reset_label,omitempty"`
+	SourceCard     *bool  `json:"source_card,omitempty"`
+	SessionBar     *bool  `json:"session_bar,omitempty"`
 }
 
 // DeleteRequest is the DELETE /v1/status body.

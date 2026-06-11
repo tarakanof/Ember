@@ -287,3 +287,69 @@ func TestLoadConfig_RateResetOn(t *testing.T) {
 		t.Error("=true should enable")
 	}
 }
+
+func TestLoadConfig_SourceCardDefaultsTrue(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("EMBER_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if !cfg.SourceCardEnabled {
+		t.Error("SourceCardEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_SourceCardDisabled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("EMBER_SOURCE=mbp\nEMBER_SOURCE_CARD=false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.SourceCardEnabled {
+		t.Error("EMBER_SOURCE_CARD=false should disable SourceCardEnabled")
+	}
+}
+
+func TestLoadConfig_SessionBarDefaultsTrue(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte("EMBER_SOURCE=mbp\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if !cfg.SessionBarEnabled {
+		t.Error("SessionBarEnabled default = false, want true")
+	}
+}
+
+func TestLoadConfig_SessionBarDisabled(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"),
+		[]byte("EMBER_SOURCE=mbp\nEMBER_SESSION_BAR=false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	if cfg.SessionBarEnabled {
+		t.Error("EMBER_SESSION_BAR=false should disable SessionBarEnabled")
+	}
+}
