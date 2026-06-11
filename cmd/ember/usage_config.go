@@ -68,7 +68,10 @@ func (a *App) handleUsageConfigGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleUsageConfigPut(w http.ResponseWriter, r *http.Request) {
-	var dto usageConfigDTO
+	// Pre-seed from the live config so a partial body only changes the fields
+	// it names (same schema-evolution guard as loadPersistedUsageSettings) —
+	// otherwise a future client omitting a newer field would silently zero it.
+	dto := a.usageDTO()
 	if err := decodeJSON(w, r, &dto, false); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

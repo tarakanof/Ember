@@ -48,7 +48,10 @@ func effectiveFiveHour(st *UsageStore, snap Snapshot, tool string, now time.Time
 func (c *coordinator) checkLimitAlarms(now time.Time, snap Snapshot) {
 	if c.usage == nil || !c.loadCfg().limitAlarmEnabled() {
 		// Drop any armed state so re-enabling hours later can't fire a stale
-		// "reset" popup for a window that long since passed.
+		// "reset" popup for a window that long since passed. alarmFired is
+		// deliberately left intact: its entries hold past resetAt values, so
+		// the resetAt>now arm guard already blocks them — nilling it too
+		// would be harmless but suggests the dedupe depends on this path.
 		c.alarmArmed = nil
 		return
 	}

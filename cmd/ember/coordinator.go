@@ -519,6 +519,7 @@ func (c *coordinator) onTick() {
 	c.reconcileUsageApps(c.clk.Now(), snap)
 	c.reconcileWeatherApp(c.clk.Now())
 	c.reconcileForecastApp(c.clk.Now())
+	// After the usage reconcile so the alarm sees the freshest store state.
 	c.checkLimitAlarms(c.clk.Now(), snap)
 }
 
