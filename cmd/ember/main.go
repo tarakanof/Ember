@@ -56,10 +56,14 @@ type Config struct {
 	UsageWidget   *bool `json:"usage_widget,omitempty"`
 	UsagePerModel *bool `json:"usage_per_model,omitempty"`
 	LimitAlarm    *bool `json:"limit_alarm,omitempty"`
+	// UsageThresholdPct gates the in-app usage card (and the idle usage
+	// frame): the card shows only when a tool's 5h window is >= this percent.
+	// nil → default 60; 0 = always show.
+	UsageThresholdPct *int `json:"usage_threshold_pct,omitempty"`
 }
 
-// usageWidgetEnabled reports whether the standalone AI-usage apps should be
-// pushed to the device. Default on (nil pointer).
+// usageWidgetEnabled reports whether the in-app usage card and the idle usage
+// frame are enabled. Default on (nil pointer).
 func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.UsageWidget }
 
 // usagePerModelEnabled reports whether the Claude per-model (Opus/Sonnet) usage
@@ -69,6 +73,22 @@ func (c Config) usagePerModelEnabled() bool { return c.UsagePerModel == nil || *
 // limitAlarmEnabled reports whether the 5h-limit reset popup+chime is armed.
 // Default on (nil pointer).
 func (c Config) limitAlarmEnabled() bool { return c.LimitAlarm == nil || *c.LimitAlarm }
+
+// usageThresholdPct returns the 5h-percent gate for the usage card, clamped
+// to 0..100. Default 60 (nil pointer); 0 means "always show".
+func (c Config) usageThresholdPct() int {
+	if c.UsageThresholdPct == nil {
+		return 60
+	}
+	v := *c.UsageThresholdPct
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
+}
 
 // PomodoroConfig holds the Pomodoro feature's static defaults. Runtime-editable
 // settings (durations, colours, toggles) are persisted in the stats store and

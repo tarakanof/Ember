@@ -179,7 +179,7 @@ codes (WMO for Open-Meteo, `symbol_code` for MET) map to six render buckets
 `weather.go`). The fetch also pulls the next ~24 **hourly temperatures** and (Open-Meteo
 only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`). The
 latest observation lives in an in-memory `weatherStore`; the coordinator reconciles
-two rotating tiles with the same change-and-staleness dedupe as the usage apps:
+two rotating tiles with the same change-and-staleness dedupe as the usage card:
 
 - **`ember-weather`** — 8×8 condition icon + current temperature + a 1-px
   per-hour **forecast strip** along the bottom row, coloured by a cold→warm
@@ -268,6 +268,12 @@ underlying data capture (the statusline producer enriches `rate_window_pct` /
 switches. To add a widget: add the toggle + wire field in the producer, render
 draws-if-present in `internal/render`, add a menu checkbox.
 
+> **Retired toggles (2026-06 single-app display rework):** `EMBER_RATE_PCT_ENABLED`,
+> `EMBER_CONTEXT_NUMBER_ENABLED`, and `EMBER_RATE_RESET` are **no-ops** — the server
+> no longer reads the `rate_pct`, `context_number`, and `rate_reset` session fields.
+> Producers still parse and post them (no-op at the wire level), so existing
+> `producer.env` files with these keys are safe; they can be removed at any time.
+
 ## Wire protocol
 
 - **Required identity:** `source` / `tool` / `session` / `state`. Optional
@@ -295,51 +301,56 @@ draws-if-present in `internal/render`, add a menu checkbox.
 | `source_card` | producer.env `EMBER_SOURCE_CARD` | producer.env `EMBER_SOURCE_CARD` | `*bool`; absent = on; hides source-name card when false |
 | `session_bar` | producer.env `EMBER_SESSION_BAR` | producer.env `EMBER_SESSION_BAR` | `*bool`; absent = on; hides session-pixel bar when false |
 | `tokens_today`, cost, model, PR | — | — | wire field exists for tokens_today; **no producer fills it yet** |
-| usage 5h / weekly / per-model | `api/oauth/usage` (Keychain, always-on) | rollout `rate_limits.primary`+`secondary` (session-only) | drives the standalone usage widget, not per-session cards |
+| usage 5h / weekly / per-model | `api/oauth/usage` (Keychain, always-on) | rollout `rate_limits.primary`+`secondary` (session-only) | drives the usage card inside the main `ember` app (threshold-gated) |
 
-### AI usage widget (standalone apps)
+### AI usage card (threshold-gated, single app)
 
-Account-global subscription usage doesn't fit the per-session card model, so it
-renders as its **own AWTRIX custom apps** that rotate natively alongside the main
-app + Pomodoro. The flow: producers `POST /v1/usage` → in-memory `UsageStore`
-(per tool; **not persisted** — every entry refreshes ≤5 min so a restart
-self-heals) → the coordinator **reconciles** `ember-usage-<tool>-{5h,7d,opus,sonnet}`
-apps each tick: push changed payloads, re-push an unchanged app once
-`usageRefreshInterval` (4 min) elapses so it never outlives its on-device
-`lifetime` (600 s) without a refresh, and `ClearApp` stale/hidden/disabled ones.
-Per-tool show/hide reuses `/v1/apps`; the widget +
-per-model toggles are server config (`usage_widget`, `usage_per_model`, default
-on). Staleness TTL ≈ 2× the poll interval (10 min). Frame recipe: 8×8 tool icon
-(`db`), **5h = fully-drawn tight-colon clock** (single full-frame `db`),
-**7d = native-font day name** (`center:false` + `textOffset:9` + `noScroll`) over
-drawn icon/unit/bar (3 `db` ops), flush-right `5h`/`7d` unit (per-model swaps it
-for a gray `OP`/`SO` marker), and a dimmed (~55%) content-area threshold bar on
-row 7. **Claude 5h fallback:** when the authoritative endpoint usage is
-stale/absent (idle daemon, 401), the coordinator synthesises `ember-usage-claude-5h`
-from the live session's statusline `rate_window_pct` + a host-local
-`rate_reset_label` (the statusline producer formats the label on the Mac and
-posts it on the marker, so the UTC container renders it verbatim — no server-side
-timezone math). The endpoint path supersedes the fallback the moment fresh usage
-arrives (and only then are 7d + per-model shown).
+Account-global subscription usage renders inside the main `ember` app as a
+**usage card** in the number-slot rotation — no standalone apps. The flow:
+producers `POST /v1/usage` → in-memory `UsageStore` (per tool; **not persisted**
+— every entry refreshes ≤5 min so a restart self-heals) → the coordinator
+builds `UsageView` structs from `effectiveFiveHour` each tick and includes a
+usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
+(default 60; `0` = always show). The usage card rotates through up to five faces per
+tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
+(HH:MM reset clock), **7d** (pixel-drawn font3x5 "7d" prefix + 2-digit percent
+in threshold colour, via `drawUnitPctFace`), **model-A** and **model-B**
+(`OP`/`SO` weekly frames). Per-tool show/hide reuses `/v1/apps`; the widget + per-model
+toggles remain server config (`usage_widget`, `usage_per_model`, default on);
+`usage_threshold_pct` is also server config (`GET/PUT /v1/usage/config`, store
+key `usage_json`, default 60, 0 = always). **Claude 5h fallback:** when the
+authoritative endpoint usage is stale/absent (idle daemon, 401), the
+coordinator synthesises a 5h face from the live session's statusline
+`rate_window_pct` + a host-local `rate_reset_label` (the statusline producer
+formats the label on the Mac and posts it on the marker, so the UTC container
+renders it verbatim — no server-side timezone math). The endpoint supersedes
+the fallback the moment fresh usage arrives (and only then are 7d + per-model
+shown). On startup the coordinator **clears any legacy `ember-usage-*` apps**
+left on the device from the previous standalone model.
+
+**Idle usage frame.** When all sessions expire and a tool is over threshold,
+the coordinator publishes a **dimmed usage frame** (the same usage card content
+at ~40% brightness) during the `DIMMED` phase instead of going dark
+immediately. Under threshold the app leaves the device rotation normally.
 
 **5h limit-reset alarm.** A small per-tool state machine in the coordinator
-(`usage_alarm.go`, checked each tick after the usage reconcile): when the
-effective 5h window — fresh endpoint usage, else the live-session statusline
-fallback — reads **≥ 99.5 % with a known future reset**, it arms for that
-`resets_at`; once the reset passes (+60 s grace, never early) it fires **one**
-auto-dismiss notification (`CLAUDE 5H RESET` / `CODEX 5H RESET`, drawn tool
-icon) plus an RTTTL chime. Drifted reset estimates re-arm instead of firing; an
-unreachable device retries next tick (armed state preserved); fired alarms
-dedupe per `(tool, resets_at)`. State is in-memory by design — a restart
-mid-window re-arms from the next snapshot. Gated only by `limit_alarm` (usage
-config, default on); deliberately independent of usage-app visibility (the
-alarm is about resuming work, not about tiles).
+(`usage_alarm.go`, checked each tick): when the effective 5h window — fresh
+endpoint usage, else the live-session statusline fallback — reads **≥ 99.5 %
+with a known future reset**, it arms for that `resets_at`; once the reset
+passes (+60 s grace, never early) it fires **one** auto-dismiss notification
+(`CLAUDE 5H RESET` / `CODEX 5H RESET`, drawn tool icon) plus an RTTTL chime.
+Drifted reset estimates re-arm instead of firing; an unreachable device retries
+next tick (armed state preserved); fired alarms dedupe per `(tool, resets_at)`.
+State is in-memory by design — a restart mid-window re-arms from the next
+snapshot. Gated only by `limit_alarm` (usage config, default on); deliberately
+independent of the usage card threshold (the alarm is about resuming work, not
+tiles).
 
 ## Display layout (32×8 matrix)
 
 Each metric owns a screen region as a **graphic**; numeric readouts are opt-in
-and disambiguated by a pictogram (graphics-first). Shares the usage widget's
-icon-left language (redesign 2026-06-06).
+and disambiguated by a pictogram (graphics-first). Icon-left language throughout
+(redesign 2026-06-06).
 
 - **8×8 tool icon** — cols 0–7. Body painted in the session's **source colour**
   (`EMBER_SOURCE_COLOR` / `source_color` wire field; neutral `#CCCCCC` fallback
@@ -347,16 +358,15 @@ icon-left language (redesign 2026-06-06).
   State is shown by the inner feature: Claude **eye sockets** / Codex **`_`
   cursor** painted in the state colour (green=run, amber=wait, red=err,
   blue=done). Idle dim frame: body drops to ~40% gray; eye sockets / cursor stay
-  dark, preserving the silhouette. Reuses the usage-widget sprites
+  dark, preserving the silhouette. Shares the usage card sprites
   (Claude robot-face / Codex chevron) via `drawToolIcon8`.
 - **Number slot** — cols 9–24 (`numStart=9`), a **rotating set of cards**:
   **source-name card** (source uppercased, truncated to 4 glyphs, tinted in the
-  source colour or white; replaces the old `X/Y` rotation card), context `NN⌷`,
-  rate `NN%` (green<70 / amber / red≥90), reset = the **HH:MM reset clock**
-  (drawn tight-colon, from the session's host-local `rate_reset_label`; falls
-  back to `N⧗` ceil-hours when no label, e.g. Codex), and the scrolling
-  tool/trail card. Wire fields `source_card` / `session_bar` are `*bool`
-  (absent = on; a producer that predates them never regresses the display).
+  source colour or white), **usage card** (when 5h ≥ `usage_threshold_pct`:
+  5h clock → reset clock → 7d → per-model faces, rotating), context `NN⌷`,
+  and the scrolling tool/trail card. Wire fields `source_card` / `session_bar`
+  are `*bool` (absent = on; a producer that predates them never regresses the
+  display).
 - **Context glass** — right edge (interior cols ~26–29 × rows 1–4), 16-level
   per-pixel bottom-up fill, state-coloured.
 - **Bottom row (row 7)** — three-way: the 5h rate bar (`drawRateBar`, when

@@ -72,20 +72,20 @@ func main() {
 	// 1. Claude, running, source colour blue, source card "MBP", session bar.
 	s1 := render.Session{Source: "mbp", Tool: "claude", Session: "t1", State: "running",
 		SourceColor: &blue, ContextPct: &pct50, RateWindowPct: &pct85, UpdatedAt: now}
-	f1 := render.ComposeFrame(s1, 0 /* cardSource */, []render.Session{s1}, now)
+	f1 := render.ComposeFrame(s1, 0 /* cardSource */, nil, []render.Session{s1}, now)
 	_ = push(*baseURL, "ember-test-claude", frameApp(&f1, lifetime))
 
 	// 2. Codex, error state (red cursor), source colour orange, source card.
 	s2 := render.Session{Source: "studio", Tool: "codex", Session: "t2", State: "error",
 		SourceColor: &orange, RateWindowPct: &pct50, UpdatedAt: now}
-	f2 := render.ComposeFrame(s2, 0, []render.Session{s2}, now)
+	f2 := render.ComposeFrame(s2, 0, nil, []render.Session{s2}, now)
 	_ = push(*baseURL, "ember-test-codex", frameApp(&f2, lifetime))
 
 	// 3. Attention frame: waiting claude from "mbp" (blinking WAIT MBP).
 	s3 := render.Session{Source: "mbp", Tool: "claude", Session: "t3", State: "waiting",
 		SourceColor: &blue, UpdatedAt: now}
 	snap := render.Snapshot{Now: now, Sessions: []render.Session{s3}}
-	if p := render.RenderForCoord(snap, s3.Key(), 0, true, lifetime); p != nil {
+	if p := render.RenderForCoord(snap, s3.Key(), 0, true, lifetime, nil); p != nil {
 		p["lifetime"] = lifetime
 		p["duration"] = lifetime
 		_ = push(*baseURL, "ember-test-attn", p)
@@ -94,7 +94,7 @@ func main() {
 	// 4. No source colour: neutral body + amber waiting eyes.
 	s4 := render.Session{Source: "nas", Tool: "claude", Session: "t4", State: "waiting",
 		ContextPct: &pct85, UpdatedAt: now}
-	f4 := render.ComposeFrame(s4, 0, []render.Session{s4}, now)
+	f4 := render.ComposeFrame(s4, 0, nil, []render.Session{s4}, now)
 	_ = push(*baseURL, "ember-test-neutral", frameApp(&f4, lifetime))
 
 	fmt.Println("\nApps rotate for ~3 min then expire; re-run with -clear to drop them now.")

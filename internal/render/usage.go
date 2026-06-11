@@ -19,13 +19,6 @@ var (
 	usageTrack       = RGB{0x2c, 0x2c, 0x2c}
 )
 
-// Exported accessors so cmd/ember can build usage apps without re-declaring the
-// sprites/colours (they stay package-private, single source of truth).
-func UsageIconClaude() []string { return usageIconClaude }
-func UsageIconCodex() []string  { return usageIconCodex }
-func UsageColorClaude() RGB     { return usageColorClaude }
-func UsageColorCodex() RGB      { return usageColorCodex }
-
 func usageThreshold(pct int) RGB { // green/amber/red
 	switch {
 	case pct < 70:
@@ -75,41 +68,6 @@ func bitmap8(icon []string, c RGB) []int {
 	return px
 }
 
-// unitBitmap renders two 3-wide glyphs side-by-side (a at local x0, b at x3)
-// into a 6x5 = 30 row-major int array (for a db [26,1,6,5] draw op). Each glyph
-// gets its own colour so the unit can be tool+gray (5h/7d) or gray+gray
-// (per-model OP/SO markers, which have no leading digit).
-func unitBitmap(a, b rune, aColor, bColor RGB) []int {
-	px := make([]int, 6*5)
-	put := func(g []string, x0 int, c RGB) {
-		if g == nil {
-			return
-		}
-		for y, row := range g {
-			for x, ch := range row {
-				col := x0 + x
-				if ch == 'X' && col >= 0 && col < 6 && y < 5 {
-					px[y*6+col] = toInt(c)
-				}
-			}
-		}
-	}
-	put(glyph(a), 0, aColor)
-	put(glyph(b), 3, bColor)
-	return px
-}
-
-// drawUnitInto paints the flush-right unit (digit in tool colour + gray letter)
-// at cols 26-31, rows 1-5, into a Frame (used by the fully-drawn 5h frame).
-func drawUnitInto(f *Frame, digit, letter rune, tool RGB) {
-	if g := glyph(digit); g != nil {
-		paintBitmap(f, 26, 1, g, tool)
-	}
-	if g := glyph(letter); g != nil {
-		paintBitmap(f, 29, 1, g, usageGray)
-	}
-}
-
 // drawClockInto paints HH:MM left-aligned at x, rows 1-5, with a tight, dimmed
 // colon (0-px kerning around ':'). Uses per-glyph advance (NOT drawDigits) so
 // the 1-wide ':' and 3-wide digits pack tightly.
@@ -141,56 +99,6 @@ func drawBarInto(f *Frame, pct int) {
 	for i, c := range usageBarPixels(pct) {
 		paintCell(f, 8+i, 7, c)
 	}
-}
-
-// UsageFiveHourPayload returns a fully-drawn 5h frame (icon + tight clock +
-// unit + bar) as a single full-frame db op. lifetime is in seconds.
-func UsageFiveHourPayload(icon []string, tool RGB, hhmm string, pct int, lifetime int) map[string]any {
-	var f Frame
-	paintBitmap(&f, 0, 0, icon, tool)
-	drawClockInto(&f, hhmm, 9)
-	drawUnitInto(&f, '5', 'h', tool)
-	drawBarInto(&f, pct)
-	return map[string]any{
-		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
-		"lifetime": lifetime, "duration": 6,
-	}
-}
-
-// usageWeeklyPayload is the shared weekly/per-model builder: native-font day
-// name + drawn icon/unit/bar (3 db ops). uA/uB colour the two unit glyphs.
-func usageWeeklyPayload(icon []string, tool RGB, day string, pct int, uDigit, uLetter rune, lifetime int, uA, uB RGB) map[string]any {
-	iconPx := bitmap8(icon, tool)
-	unitPx := unitBitmap(uDigit, uLetter, uA, uB)
-	barPx := make([]any, 24)
-	for i, c := range usageBarPixels(pct) {
-		barPx[i] = toInt(c)
-	}
-	return map[string]any{
-		"draw": []any{
-			map[string]any{"db": []any{0, 0, 8, 8, iconPx}},
-			map[string]any{"db": []any{26, 1, 6, 5, unitPx}},
-			map[string]any{"db": []any{8, 7, 24, 1, barPx}},
-		},
-		"text": day, "center": false, "textOffset": 9, "noScroll": true,
-		"color": "FFFFFF", "lifetime": lifetime, "duration": 6,
-	}
-}
-
-// UsageWeeklyPayload: native-font day name + drawn icon/unit/bar. The unit digit
-// is tool-coloured, the unit letter gray.
-func UsageWeeklyPayload(icon []string, tool RGB, day string, pct int, uDigit, uLetter rune, lifetime int) map[string]any {
-	return usageWeeklyPayload(icon, tool, day, pct, uDigit, uLetter, lifetime, tool, usageGray)
-}
-
-// UsageModelPayload: per-model weekly frame. The unit slot shows the model
-// marker (opus -> "OP", sonnet -> "SO"), both glyphs gray (no leading digit).
-func UsageModelPayload(icon []string, tool RGB, day, model string, pct, lifetime int) map[string]any {
-	d, l := 'O', 'P'
-	if model == "sonnet" {
-		d, l = 'S', 'O'
-	}
-	return usageWeeklyPayload(icon, tool, day, pct, d, l, lifetime, usageGray, usageGray)
 }
 
 // LimitResetPopupPayload is the "5h limit reset — back to work" notification:

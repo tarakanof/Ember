@@ -10,17 +10,19 @@ import (
 const usageSettingsKey = "usage_json"
 
 type usageConfigDTO struct {
-	UsageWidget   bool `json:"usage_widget"`
-	UsagePerModel bool `json:"usage_per_model"`
-	LimitAlarm    bool `json:"limit_alarm"`
+	UsageWidget       bool `json:"usage_widget"`
+	UsagePerModel     bool `json:"usage_per_model"`
+	LimitAlarm        bool `json:"limit_alarm"`
+	UsageThresholdPct int  `json:"usage_threshold_pct"`
 }
 
 func (a *App) usageDTO() usageConfigDTO {
 	c := a.cfg.Load()
 	return usageConfigDTO{
-		UsageWidget:   c.usageWidgetEnabled(),
-		UsagePerModel: c.usagePerModelEnabled(),
-		LimitAlarm:    c.limitAlarmEnabled(),
+		UsageWidget:       c.usageWidgetEnabled(),
+		UsagePerModel:     c.usagePerModelEnabled(),
+		LimitAlarm:        c.limitAlarmEnabled(),
+		UsageThresholdPct: c.usageThresholdPct(),
 	}
 }
 
@@ -33,7 +35,16 @@ func (a *App) applyUsageSettings(dto usageConfigDTO) {
 	cur.UsageWidget = &uw
 	cur.UsagePerModel = &upm
 	cur.LimitAlarm = &la
+	thr := dto.UsageThresholdPct
+	if thr < 0 {
+		thr = 0
+	}
+	if thr > 100 {
+		thr = 100
+	}
+	cur.UsageThresholdPct = &thr
 	a.cfg.Store(&cur)
+	dto.UsageThresholdPct = thr // persist the clamped value, not the raw PUT value
 	if a.store != nil {
 		if blob, err := json.Marshal(dto); err == nil {
 			if err := a.store.PutSetting(usageSettingsKey, string(blob)); err != nil {

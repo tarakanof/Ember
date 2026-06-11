@@ -11,7 +11,7 @@ func TestSourceCardAvailability(t *testing.T) {
 	base := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running"}
 
 	// Default (nil pointer): source card present and first.
-	cards := AvailableCards(base)
+	cards := AvailableCards(base, nil)
 	if len(cards) == 0 || cards[0] != cardSource {
 		t.Fatalf("default cards = %v, want cardSource first", cards)
 	}
@@ -19,7 +19,7 @@ func TestSourceCardAvailability(t *testing.T) {
 	// Explicitly disabled: absent.
 	off := base
 	off.SourceCard = bptr(false)
-	for _, c := range AvailableCards(off) {
+	for _, c := range AvailableCards(off, nil) {
 		if c == cardSource {
 			t.Fatal("cardSource present despite source_card=false")
 		}
@@ -28,7 +28,7 @@ func TestSourceCardAvailability(t *testing.T) {
 	// Empty source: absent even when enabled.
 	noSrc := base
 	noSrc.Source = ""
-	for _, c := range AvailableCards(noSrc) {
+	for _, c := range AvailableCards(noSrc, nil) {
 		if c == cardSource {
 			t.Fatal("cardSource present despite empty source")
 		}
@@ -37,7 +37,7 @@ func TestSourceCardAvailability(t *testing.T) {
 
 func TestAvailableCardsMayBeEmpty(t *testing.T) {
 	s := Session{Source: "", Tool: "claude", Session: "s1", State: "done"}
-	if got := AvailableCards(s); len(got) != 0 {
+	if got := AvailableCards(s, nil); len(got) != 0 {
 		t.Fatalf("cards = %v, want empty", got)
 	}
 }
@@ -47,7 +47,7 @@ func TestRenderForCoordNoCardsDoesNotPanic(t *testing.T) {
 	// frame (icon/bar only), not panic on an empty card slice.
 	s := Session{Source: "", Tool: "claude", Session: "s1", State: "done", UpdatedAt: time.Now()}
 	snap := Snapshot{Now: time.Now(), Sessions: []Session{s}}
-	p := RenderForCoord(snap, s.Key(), 0, false, 30)
+	p := RenderForCoord(snap, s.Key(), 0, false, 30, nil)
 	if p == nil {
 		t.Fatal("expected a payload for an active (done) session")
 	}
@@ -67,7 +67,7 @@ func TestSourceCardText(t *testing.T) {
 func TestComposeFrameSourceCard(t *testing.T) {
 	col := "#3366FF"
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceColor: &col}
-	f := ComposeFrame(s, cardSource, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
 	// 'M' glyph top-left pixel at numStart, row 1, in the source colour.
 	want := RGB{0x33, 0x66, 0xFF}
 	if !f.Dirty[1][numStart] || f.Pixels[1][numStart] != want {
@@ -79,7 +79,7 @@ func TestComposeFrameNoCardBlankNumberSlot(t *testing.T) {
 	// source_card=false + non-empty Source: card -1 must draw NOTHING in the
 	// number slot (cols 9-23, rows 1-5) — regression for the review finding.
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceCard: bptr(false)}
-	f := ComposeFrame(s, cardNone, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardNone, nil, []Session{s}, time.Now())
 	for y := 1; y <= 5; y++ {
 		for x := numStart; x <= 23; x++ {
 			if f.Dirty[y][x] {
@@ -94,7 +94,7 @@ func TestComposeFrameBottomBarModes(t *testing.T) {
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", RateWindowPct: &pct}
 
 	// Default: session bar (one running pixel at barStart).
-	f := ComposeFrame(s, cardSource, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
 	if !f.Dirty[barRow][barStart] {
 		t.Fatal("expected session bar pixel at default settings")
 	}
@@ -102,7 +102,7 @@ func TestComposeFrameBottomBarModes(t *testing.T) {
 	// session_bar=false, no rate bar: row 7 empty.
 	off := s
 	off.SessionBar = bptr(false)
-	f = ComposeFrame(off, cardSource, []Session{off}, time.Now())
+	f = ComposeFrame(off, cardSource, nil, []Session{off}, time.Now())
 	for x := 0; x < 32; x++ {
 		if f.Dirty[barRow][x] {
 			t.Fatalf("row 7 pixel %d lit with bar mode off", x)
@@ -112,7 +112,7 @@ func TestComposeFrameBottomBarModes(t *testing.T) {
 	// rate bar wins regardless of session_bar.
 	rate := off
 	rate.RateBottomBar = true
-	f = ComposeFrame(rate, cardSource, []Session{rate}, time.Now())
+	f = ComposeFrame(rate, cardSource, nil, []Session{rate}, time.Now())
 	if !f.Dirty[barRow][8] {
 		t.Fatal("expected rate bar at col 8")
 	}

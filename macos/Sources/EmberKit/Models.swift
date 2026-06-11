@@ -91,23 +91,29 @@ public struct UsageConfig: Codable, Sendable, Equatable {
     public var usageWidget: Bool
     public var usagePerModel: Bool
     public var limitAlarm: Bool
-    public init(usageWidget: Bool = true, usagePerModel: Bool = true, limitAlarm: Bool = true) {
+    public var usageThresholdPct: Int
+    public init(usageWidget: Bool = true, usagePerModel: Bool = true,
+                limitAlarm: Bool = true, usageThresholdPct: Int = 60) {
         self.usageWidget = usageWidget
         self.usagePerModel = usagePerModel
         self.limitAlarm = limitAlarm
+        self.usageThresholdPct = usageThresholdPct
     }
     enum CodingKeys: String, CodingKey {
         case usageWidget = "usage_widget"
         case usagePerModel = "usage_per_model"
         case limitAlarm = "limit_alarm"
+        case usageThresholdPct = "usage_threshold_pct"
     }
-    /// Custom decoder so `limit_alarm` absent in older-server payloads defaults
-    /// to `true` instead of failing or silently becoming `false`.
+    /// Custom decoder so fields absent in older-server payloads default gracefully:
+    /// `limit_alarm` defaults to `true`, `usage_threshold_pct` defaults to 60.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         usageWidget = try c.decode(Bool.self, forKey: .usageWidget)
         usagePerModel = try c.decode(Bool.self, forKey: .usagePerModel)
         limitAlarm = try c.decodeIfPresent(Bool.self, forKey: .limitAlarm) ?? true
+        // Older servers (pre single-app display) omit the threshold.
+        usageThresholdPct = try c.decodeIfPresent(Int.self, forKey: .usageThresholdPct) ?? 60
     }
 }
 

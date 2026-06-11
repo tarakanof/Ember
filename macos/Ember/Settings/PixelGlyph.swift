@@ -43,21 +43,6 @@ enum DisplayPictogram {
         "........", "XXX.XX..", "X.X.X.X.", "XXX.XX..",
         "X.X.X.X.", "X.X.XX..", "........", "........",
     ]
-    // Rate-limit % card: "8" + the render font's %.
-    static let ratePct = [
-        "........", "XXX.X.X.", "X.X...X.", "XXX..X..",
-        "X.X.X...", "XXX.X.X.", "........", "........",
-    ]
-    // Context-number card: "7" + the context-glass glyph.
-    static let contextNumber = [
-        "........", "XXX.X.X.", "..X.X.X.", "..X.X.X.",
-        "..X.XXX.", "..X.XXX.", "........", "........",
-    ]
-    // Reset countdown: clock "1:5" (digit 1 / colon / digit 5, 3×5 font).
-    static let resetClock = [
-        "........", ".X..XXX.", "XX.XX...", ".X..XXX.",
-        ".X.X..X.", "XXX.XXX.", "........", "........",
-    ]
     // Context glass: walls + bottom + partial fill (the actual drawGlass shape).
     static let contextGlass = [
         "........", ".X....X.", ".X....X.", ".X.XX.X.",

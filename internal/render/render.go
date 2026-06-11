@@ -51,6 +51,24 @@ func (s Session) Key() string {
 	return s.Source + "/" + s.Tool + "/" + s.Session
 }
 
+// UsageView is the per-tool account-usage data the usage card renders.
+// The coordinator builds one per tool from the UsageStore (endpoint data
+// preferred, statusline fallback) and only when the tool's 5h window is
+// over the configured threshold — render never sees a below-threshold view.
+type UsageView struct {
+	FiveHourPct int
+	ResetLabel  string // host-local "HH:MM"; "" → hourglass fallback from ResetAt
+	ResetAt     int64  // unix; used only when ResetLabel is ""
+	SevenDayPct *int   // nil when the 7d window is unknown
+	Models      []ModelUsage
+}
+
+// ModelUsage is one per-model usage face ("OP" opus / "SO" sonnet).
+type ModelUsage struct {
+	Marker string // exactly two font3x5 glyphs
+	Pct    int
+}
+
 // Snapshot is a point-in-time view of all sessions plus the computed Render.
 type Snapshot struct {
 	Now      time.Time `json:"now"`
@@ -373,15 +391,18 @@ var (
 const cardNone = -1
 
 // Card identifies which readout the number slot shows for the current
-// session: cardSource is the source-name card, cardRate is the 5h rate-limit
-// "NN%", cardTool is the scrolling activity detail, cardCtx is the context
-// window percent "NN⌷".
+// session. cardSource is the source-name card; cardTool the scrolling
+// activity detail; the cardUsage* family is the account-usage card —
+// present only when the coordinator passes a UsageView (5h window over
+// the configured threshold).
 const (
-	cardSource = iota // source-name card (replaces the old X/Y rotation card)
-	cardRate
-	cardTool
-	cardCtx
-	cardReset
+	cardSource      = iota // source-name card
+	cardTool               // scrolling activity detail
+	cardUsage5h            // 5h window: reset clock (rate-bar mode) or "NN%" (otherwise)
+	cardUsageReset         // 5h reset clock when the bar is NOT in rate mode
+	cardUsage7d            // 7-day window: "7dNN"
+	cardUsageModelA        // per-model faces (Models[0] / Models[1])
+	cardUsageModelB
 )
 
 func sourceCardEnabled(s Session) bool { return s.SourceCard == nil || *s.SourceCard }
@@ -400,21 +421,29 @@ func sourceCardText(source string) string {
 }
 
 // AvailableCards returns the cards this session offers, in rotation order.
-// May return an empty slice (every card disabled/data-absent): the frame then
-// shows icon + glass + bar with a blank number slot.
-func AvailableCards(s Session) []int {
+// u is the session tool's usage view (nil = below threshold / widget off /
+// no data): without it no usage faces appear. May return an empty slice —
+// the frame then shows icon + glass + bar with a blank number slot.
+func AvailableCards(s Session, u *UsageView) []int {
 	var cards []int
 	if sourceCardEnabled(s) && s.Source != "" {
 		cards = append(cards, cardSource)
 	}
-	if s.RateWindowPct != nil {
-		cards = append(cards, cardRate)
-	}
-	if s.ContextNumber && s.ContextPct != nil {
-		cards = append(cards, cardCtx)
-	}
-	if s.RateReset && s.RateResetAt > 0 {
-		cards = append(cards, cardReset)
+	if u != nil {
+		cards = append(cards, cardUsage5h)
+		if !s.RateBottomBar && (u.ResetLabel != "" || u.ResetAt > 0) {
+			// Pct occupies the 5h face, so the reset clock needs its own card.
+			cards = append(cards, cardUsageReset)
+		}
+		if u.SevenDayPct != nil {
+			cards = append(cards, cardUsage7d)
+		}
+		if len(u.Models) > 0 {
+			cards = append(cards, cardUsageModelA)
+		}
+		if len(u.Models) > 1 {
+			cards = append(cards, cardUsageModelB)
+		}
 	}
 	if s.State == "running" && s.Activity != "" {
 		cards = append(cards, cardTool)
@@ -422,12 +451,12 @@ func AvailableCards(s Session) []int {
 	return cards
 }
 
-func CardsForSession(s Session) int { return len(AvailableCards(s)) }
+func CardsForSession(s Session, u *UsageView) int { return len(AvailableCards(s, u)) }
 
 // rateText renders a 5h-rate percent as "NN%". Clamped to 0..99 so the
-// 3-glyph value always fits cols 12–22 (before the glass at col 25); the
+// 3-glyph value always fits cols 9–19 (before the glass at col 25); the
 // red threshold colour already signals a maxed window, so 99 vs 100 is
-// immaterial on an ambient display.
+// immaterial on an ambient display. Used by the usage-card faces.
 func rateText(pct int) string {
 	if pct < 0 {
 		pct = 0
@@ -438,23 +467,11 @@ func rateText(pct int) string {
 	return itoa(pct) + "%"
 }
 
-// ctxText renders a context-window percent as "NN" + the glass pictogram.
-// Clamped 0..99 so the 3-glyph value fits the number slot (the glass at cols
-// 25-30 conveys 100% anyway).
-func ctxText(pct int) string {
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 99 {
-		pct = 99
-	}
-	return itoa(pct) + string(glassGlyph)
-}
-
 // resetText renders the time until the 5h rate-limit window resets as ceil-hours
 // (0..9) + the hourglass glyph, with an urgency colour: amber in the final hour
 // (remaining < 1h), green otherwise. remaining is clamped to >=0, so a stale
 // past timestamp renders "0" until the next post carries the next window.
+// Used by the usage-card faces.
 func resetText(resetAt int64, now time.Time) (string, RGB) {
 	remaining := resetAt - now.Unix()
 	if remaining < 0 {
@@ -482,6 +499,37 @@ func rateColor(pct int) RGB {
 	default:
 		return colorRunning
 	}
+}
+
+// drawUsageClock paints the 5h reset readout: the host-local HH:MM tight
+// clock when the label is known, else the ceil-hours hourglass (codex, or
+// statusline data without a label).
+func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
+	if u.ResetLabel != "" {
+		drawClockInto(f, u.ResetLabel, numStart)
+		return
+	}
+	text, col := resetText(u.ResetAt, now)
+	drawDigits(f, text, numStart, 1, col)
+}
+
+// drawUnitPctFace paints a two-glyph gray unit ("7d", "OP", "SO") followed by
+// a clamped 2-digit percent in the threshold colour — the "7d42" face shape.
+func drawUnitPctFace(f *Frame, unit string, pct int) {
+	drawDigits(f, unit, numStart, 1, usageGray)
+	drawDigits(f, pctDigits(pct), numStart+8, 1, rateColor(pct))
+}
+
+// pctDigits is rateText without the % sign (the unit glyphs already say
+// what the number is): clamped 0..99 so it always fits two glyphs.
+func pctDigits(pct int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 99 {
+		pct = 99
+	}
+	return itoa(pct)
 }
 
 // PickWinning returns the priority-winning session, its state colour, and
@@ -729,7 +777,10 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 // bitmap leaves clear. A full-width draw would paint zeros across the
 // right side of the matrix and clobber the text underneath — verified
 // empirically against device 0.98.
-func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int) map[string]any {
+//
+// usage: per-tool account usage views (keyed by tool name, e.g. "claude").
+// A nil map is valid — cards that need usage data simply won't appear.
+func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int, usage map[string]*UsageView) map[string]any {
 	keys := SortedActiveKeys(snap)
 	if len(keys) == 0 {
 		return nil
@@ -758,7 +809,10 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		return detailPayload(*session, label, hex, true, lifetimeSeconds)
 	}
 
-	cards := AvailableCards(*session)
+	// Resolve the per-tool usage view; nil map access is safe in Go.
+	u := usage[session.Tool]
+
+	cards := AvailableCards(*session, u)
 	selected := cardNone // no cards: blank number slot (icon/glass/bar still render)
 	if len(cards) > 0 {
 		ci := card
@@ -770,7 +824,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if selected == cardTool {
 		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
 	}
-	frame := ComposeFrame(*session, selected, snap.Sessions, snap.Now)
+	frame := ComposeFrame(*session, selected, u, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -779,39 +833,35 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 // iconNeutral when absent/invalid, so each machine has a persistent identity
 // colour. The inner feature — Claude eye sockets or the Codex "_" cursor —
 // is painted in the state colour (green/amber/red/blue) so activity is always
-// readable. Card text colours are per-card (source = source colour or white,
-// rate/ctx = threshold colour). Glass uses the state colour. Row 7 receives
-// either the rate bar (when RateBottomBar is set and data is present), the
-// session-count bar (when sessionBarEnabled), or nothing.
-func ComposeFrame(s Session, card int, sessions []Session, now time.Time) Frame {
+// readable. Card text colours are per-card: source = source colour or white;
+// 5h/7d/model percent = threshold colour (green <70 / amber 70–89 / red ≥90);
+// reset clock = white digits with a dimmed colon; hourglass fallback = urgency
+// colour (amber in the final hour, green otherwise). Glass uses the state
+// colour. Row 7 receives either the rate bar (when RateBottomBar is set and
+// data is present), the session-count bar (when sessionBarEnabled), or nothing.
+func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now time.Time) Frame {
 	var f Frame
 	drawToolIcon8(&f, s, iconBodyColor(s), colorForState(s.State))
 
 	switch {
-	case card == cardRate && s.RateWindowPct != nil:
-		pct := *s.RateWindowPct
-		drawDigits(&f, rateText(pct), numStart, 1, rateColor(pct))
-	case card == cardCtx && s.ContextPct != nil:
-		pct := *s.ContextPct
-		// Deliberately reuses rateColor's green/amber/red fullness thresholds
-		// (70/90) — same "how full" semantics. Split into a ctxColor if context
-		// ever needs different thresholds than the rate window.
-		drawDigits(&f, ctxText(pct), numStart, 1, rateColor(pct))
-	case card == cardReset && s.RateResetAt > 0:
-		if s.RateResetLabel != "" {
-			// New design: precise HH:MM reset time as a tight-colon clock (white
-			// digits + dimmed colon), reusing the usage widget's drawClockInto.
-			// The host-local label is posted by the statusline path.
-			drawClockInto(&f, s.RateResetLabel, numStart)
+	case card == cardUsage5h && u != nil:
+		if s.RateBottomBar {
+			drawUsageClock(&f, u, now) // pct lives on the bar; slot shows the clock
 		} else {
-			// Fallback (e.g. Codex, which posts no label): ceil-hours hourglass.
-			text, col := resetText(s.RateResetAt, now)
-			drawDigits(&f, text, numStart, 1, col)
+			drawDigits(&f, rateText(u.FiveHourPct), numStart, 1, rateColor(u.FiveHourPct))
 		}
+	case card == cardUsageReset && u != nil:
+		drawUsageClock(&f, u, now)
+	case card == cardUsage7d && u != nil && u.SevenDayPct != nil:
+		drawUnitPctFace(&f, "7d", *u.SevenDayPct)
+	case card == cardUsageModelA && u != nil && len(u.Models) > 0:
+		drawUnitPctFace(&f, u.Models[0].Marker, u.Models[0].Pct)
+	case card == cardUsageModelB && u != nil && len(u.Models) > 1:
+		drawUnitPctFace(&f, u.Models[1].Marker, u.Models[1].Pct)
 	case card == cardSource && s.Source != "":
 		drawDigits(&f, sourceCardText(s.Source), numStart, 1, sourceColorOr(s, colorWhite))
 	default:
-		// card == cardNone (no cards available) or data went missing: blank number slot.
+		// card == cardNone (no cards available): blank number slot.
 	}
 
 	glassFillColor := colorForState(s.State)
@@ -889,6 +939,49 @@ func RenderIdleFrame(lifetimeSeconds int) map[string]any {
 		"prio":     true,
 		"force":    true,
 	}
+}
+
+// idleUsageTools is the fixed tool order for idle usage faces.
+var idleUsageTools = []string{"claude", "codex"}
+
+// RenderIdleUsagePayload renders the idle-with-hot-usage frame: dimmed tool
+// icon + one usage face + the dimmed threshold bar. views holds only tools
+// over the threshold (the coordinator gates); cursor picks the face across
+// all hot tools (claude faces first, then codex), wrapping. Returns nil when
+// no tool is hot — the caller then simply stops publishing (classic idle-off).
+func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Time, lifetimeSeconds int) map[string]any {
+	type face struct {
+		tool   string
+		weekly bool
+	}
+	var faces []face
+	for _, tool := range idleUsageTools {
+		u := views[tool]
+		if u == nil {
+			continue
+		}
+		faces = append(faces, face{tool, false})
+		if u.SevenDayPct != nil {
+			faces = append(faces, face{tool, true})
+		}
+	}
+	if len(faces) == 0 {
+		return nil
+	}
+	// Modulo that handles negative cursor values safely.
+	fc := faces[((cursor%len(faces))+len(faces))%len(faces)]
+	u := views[fc.tool]
+
+	var f Frame
+	paintBitmap(&f, 0, 0, toolIcon8(Session{Tool: fc.tool}), idleDimWhite)
+	if fc.weekly {
+		drawUnitPctFace(&f, "7d", *u.SevenDayPct)
+		drawBarInto(&f, *u.SevenDayPct)
+	} else {
+		drawUsageClock(&f, u, now)
+		drawBarInto(&f, u.FiveHourPct)
+	}
+	return frameToCustomApp(&f, lifetimeSeconds)
 }
 
 // toolIcon8 returns the 8×8 tool sprite for a session: codex chevron, else the

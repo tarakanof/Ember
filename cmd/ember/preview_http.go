@@ -11,18 +11,30 @@ import (
 // handlePreview renders the current winning session (or a sample) under the
 // draft display toggles into per-card 32x8 color grids. Open and read-only:
 // it never publishes to the device or stores state.
+//
+// Query params:
+//   - context_pct       bool  (default false)
+//   - rate_bottom_bar   bool  (default false)
+//   - activity_detail   bool  (default false)
+//   - source_card       bool  (default true)
+//   - session_bar       bool  (default true)
+//   - source_color      string hex, e.g. %23ff8800 (default "")
+//   - usage_card        bool  (default true) — includes sample usage faces
+//
+// Deprecated params ignored (old clients): rate_pct, context_number, rate_reset.
 func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	d := render.DraftDisplay{
 		ContextPct:     queryBool(q.Get("context_pct")),
-		RatePct:        queryBool(q.Get("rate_pct")),
 		ActivityDetail: queryBool(q.Get("activity_detail")),
-		ContextNumber:  queryBool(q.Get("context_number")),
 		RateBottomBar:  queryBool(q.Get("rate_bottom_bar")),
-		RateReset:      queryBool(q.Get("rate_reset")),
 		SourceCard:     queryBoolDefault(q.Get("source_card"), true),
 		SessionBar:     queryBoolDefault(q.Get("session_bar"), true),
 		SourceColor:    strings.TrimSpace(q.Get("source_color")),
+	}
+	var u *render.UsageView
+	if queryBoolDefault(q.Get("usage_card"), true) {
+		u = render.SampleUsageView()
 	}
 
 	now := time.Now()
@@ -31,8 +43,8 @@ func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 	if win, _, _ := render.PickWinning(snap.Sessions); win != nil {
 		base = *win
 	}
-	s := render.PreviewSession(d, base, now)
-	writeJSON(w, http.StatusOK, render.PreviewFrames(s, now))
+	s := render.PreviewSession(d, base)
+	writeJSON(w, http.StatusOK, render.PreviewFrames(s, u, now))
 }
 
 // queryBool treats explicit truthy strings as true; anything else (including

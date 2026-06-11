@@ -107,8 +107,8 @@ item, and it **auto-applies** changes — there are no Save buttons. The **Agent
 (formerly "Code agent"/"Display") groups by scope: per-Mac card/bar toggles write
 `producer.env` immediately (each with a pixel-art pictogram of what it adds to
 the 32×8 matrix, plus a three-way Bottom bar picker), while the behavior group
-(hide-when-idle, attention hold, attention chime) and the standalone-apps group
-(usage apps, per-model, limit reset alarm) debounce server `PUT`s; Connection commits each
+(hide-when-idle, attention hold, attention chime) and the usage group
+(usage card, threshold, per-model, limit reset alarm) debounce server `PUT`s; Connection commits each
 text field on **Return or focus loss** (an invalid field shows a red caption and
 isn't written, leaving the others intact) and "Test Connection" lives in the
 toolbar; Pomodoro/Weather/Reminders each debounce a single `PUT` ~600 ms after
@@ -172,35 +172,40 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 | Env var | Effect |
 |---|---|
 | `EMBER_CONTEXT_PCT_ENABLED` (default true) | context glass fill |
-| `EMBER_CONTEXT_NUMBER_ENABLED` | `NN⌷` context-number card in the number slot |
-| `EMBER_RATE_PCT_ENABLED` (default true) | 5h rate `NN%` card |
+| `EMBER_CONTEXT_NUMBER_ENABLED` | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
+| `EMBER_RATE_PCT_ENABLED` (default true) | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
 | `EMBER_RATE_BOTTOM_BAR` | 5h rate as the row-7 bottom bar |
-| `EMBER_RATE_RESET` | `N⧗` reset-countdown card |
+| `EMBER_RATE_RESET` | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
 | `EMBER_ACTIVITY_DETAIL_ENABLED` | scrolling `Tool: detail` + `cardTool` |
 | `EMBER_ACTIVITY_TRAIL_ENABLED` | last-N actions ticker (extends detail) |
 | `EMBER_SOURCE_COLOR` | hex body colour for the 8×8 icon + source-name card digits |
 | `EMBER_SOURCE_CARD` (default true) | source-name card (uppercased, 4 glyphs) in the number slot; set false to hide |
 | `EMBER_SESSION_BAR` (default true) | session-pixel bar on row 7 (1 px per non-idle session); set false to hide |
 
-## AI usage widget (standalone usage apps)
+## AI usage card (threshold-gated, inside the main app)
 
-Always-on Claude + Codex subscription usage as separate device apps
-(`ember-usage-<tool>-{5h,7d,opus,sonnet}`), rotating alongside the main app.
+Claude + Codex subscription usage renders as a **usage card** inside the main
+`ember` app — no standalone `ember-usage-*` apps. The card appears in the
+number-slot rotation **only when the tool's 5h window ≥ `usage_threshold_pct`**
+(default 60; 0 = always show). Startup clears any legacy `ember-usage-*` apps
+left on the device.
+
 Unlike the spine flags above, its toggles are **server config (JSON), not
 `EMBER_*` env vars** — both default **on**:
 
-| Config field (server `config.json`) | Effect |
+| Config field (`/v1/usage/config`) | Effect |
 |---|---|
-| `usage_widget` (default true) | master enable for the usage apps |
-| `usage_per_model` (default true) | Claude Opus/Sonnet weekly frames (`OP`/`SO`) |
+| `usage_widget` (default true) | master enable for the usage card |
+| `usage_per_model` (default true) | Claude Opus/Sonnet weekly faces (`OP`/`SO`) |
+| `usage_threshold_pct` (default 60) | 5h % floor to show the usage card; `0` = always |
 | `limit_alarm` (default true) | auto-dismiss popup + chime when a 5h window resets (see below) |
 
-Runtime overrides for all three fields: `GET/PUT /v1/usage/config` (bearer auth,
+Runtime overrides for all fields: `GET/PUT /v1/usage/config` (bearer auth,
 store key `usage_json`). Partial PUT bodies are safe — missing fields keep their
 current values (pre-seeded from the live config before decode).
 
 Per-tool show/hide reuses the existing per-app visibility (`PUT /v1/apps`) — hide
-`claude` or `codex` to drop its usage apps too.
+`claude` or `codex` to drop its usage card faces too.
 
 **5h limit-reset alarm.** When a tool's 5h window reaches ≥99.5% with a known
 future reset time, the coordinator arms an alarm. Once the reset (+60 s grace)
@@ -252,20 +257,22 @@ tab proxies the clock's own settings through `/v1/device/*`.
   be logged into Claude Code on that Mac; the token is **read-only, never
   refreshed**. On 401 the poller stops until the user re-auths in Claude Code.
 - **Codex (session-only):** posted from the rollout stream while a Codex session
-  is active; its apps clear ~10 min after the last session.
+  is active; usage card faces clear ~10 min after the last session.
 - **Claude 5h fallback:** when the endpoint usage is stale/absent (daemon idle or
-  401) but a Claude session is live, the 5h app is synthesised from the
+  401) but a Claude session is live, the 5h face is synthesised from the
   statusline `rate_window_pct` + host-local `rate_reset_label` (the statusline
   posts the label so the UTC server renders it verbatim). 7d + per-model have no
   fallback — they appear only with fresh endpoint data.
 - Entries are in-memory; stale tools (no post within ~10 min) are cleared from
-  the device automatically.
+  the usage card automatically.
 
 **Verify it's flowing:** `GET /state` does not include usage (it's a separate
-store), but `curl -s -XPOST localhost:3627/v1/usage -H "Authorization: Bearer
-$EMBER_TOKEN" -d '{"tool":"claude","source":"endpoint","five_hour":{"used_percent":15,"reset_label":"14:25"}}'`
-then watching the clock for `ember-usage-claude-5h` in rotation confirms the
-push path. Toggle a tool off via `PUT /v1/apps` and confirm its app is cleared.
+store), but posting a crafted usage payload:
+`curl -s -XPOST localhost:3627/v1/usage -H "Authorization: Bearer $EMBER_TOKEN" \
+  -d '{"tool":"claude","source":"endpoint","five_hour":{"used_percent":75,"reset_label":"14:25"}}'`
+then watching the clock's `ember` app show the usage card face in rotation confirms
+the push path (threshold default is 60 — post ≥60% to trigger it). Toggle a tool
+off via `PUT /v1/apps` and confirm its usage faces disappear.
 
 ## On-device verification (no waiting for real data)
 
