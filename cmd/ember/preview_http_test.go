@@ -137,11 +137,11 @@ func TestPreviewEndpointOpenAndShaped(t *testing.T) {
 			t.Fatalf("card %s pixels = %d, want 256", f.Card, len(f.Pixels))
 		}
 	}
-	if !seen["source"] || !seen["ctx"] {
-		t.Fatalf("expected source and ctx cards, got %v", seen)
+	// ctx card is gone (usage cards are Task 3+; preview uses AvailableCards(s, nil)).
+	// Source card is always present; the tool card is excluded from Frames (no static grid).
+	if !seen["source"] {
+		t.Fatalf("expected source card, got %v", seen)
 	}
-	// Sample base session is running with activity enabled -> tool card present
-	// -> Activity surfaced; "tool" must NOT appear as a grid frame.
 	if seen["tool"] {
 		t.Fatal("tool card must not be a grid frame")
 	}

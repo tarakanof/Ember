@@ -505,7 +505,7 @@ func (c *coordinator) onTick() {
 	default:
 		// Advance within the current session's cards, else move to the next
 		// session. n is resolved from the pre-advance pointer.
-		n := render.CardsForSession(render.SessionByKey(snap, c.pointer))
+		n := render.CardsForSession(render.SessionByKey(snap, c.pointer), nil)
 		if c.cardCursor+1 < n {
 			c.cardCursor++
 		} else {

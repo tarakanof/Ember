@@ -11,7 +11,7 @@ func TestSourceCardAvailability(t *testing.T) {
 	base := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running"}
 
 	// Default (nil pointer): source card present and first.
-	cards := AvailableCards(base)
+	cards := AvailableCards(base, nil)
 	if len(cards) == 0 || cards[0] != cardSource {
 		t.Fatalf("default cards = %v, want cardSource first", cards)
 	}
@@ -19,7 +19,7 @@ func TestSourceCardAvailability(t *testing.T) {
 	// Explicitly disabled: absent.
 	off := base
 	off.SourceCard = bptr(false)
-	for _, c := range AvailableCards(off) {
+	for _, c := range AvailableCards(off, nil) {
 		if c == cardSource {
 			t.Fatal("cardSource present despite source_card=false")
 		}
@@ -28,7 +28,7 @@ func TestSourceCardAvailability(t *testing.T) {
 	// Empty source: absent even when enabled.
 	noSrc := base
 	noSrc.Source = ""
-	for _, c := range AvailableCards(noSrc) {
+	for _, c := range AvailableCards(noSrc, nil) {
 		if c == cardSource {
 			t.Fatal("cardSource present despite empty source")
 		}
@@ -37,7 +37,7 @@ func TestSourceCardAvailability(t *testing.T) {
 
 func TestAvailableCardsMayBeEmpty(t *testing.T) {
 	s := Session{Source: "", Tool: "claude", Session: "s1", State: "done"}
-	if got := AvailableCards(s); len(got) != 0 {
+	if got := AvailableCards(s, nil); len(got) != 0 {
 		t.Fatalf("cards = %v, want empty", got)
 	}
 }

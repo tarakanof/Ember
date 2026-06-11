@@ -113,12 +113,13 @@ type Preview struct {
 	Frames   []CardFrame `json:"frames"`
 }
 
-// PreviewFrames renders each card in AvailableCards(s) except the scrolling
-// tool card, using the robot colour from state and the single session as the
-// bottom-bar source.
+// PreviewFrames renders each card in AvailableCards(s, nil) except the
+// scrolling tool card, using the robot colour from state and the single
+// session as the bottom-bar source. Usage faces are absent because no
+// UsageView is passed (preview always renders the base card set).
 func PreviewFrames(s Session, now time.Time) Preview {
 	p := Preview{Width: 32, Height: 8, Frames: []CardFrame{}}
-	for _, c := range AvailableCards(s) {
+	for _, c := range AvailableCards(s, nil) {
 		if c == cardTool {
 			p.Activity = s.Activity
 			continue
@@ -133,14 +134,18 @@ func cardName(c int) string {
 	switch c {
 	case cardSource:
 		return "source"
-	case cardRate:
-		return "rate"
 	case cardTool:
 		return "tool"
-	case cardCtx:
-		return "ctx"
-	case cardReset:
-		return "reset"
+	case cardUsage5h:
+		return "usage-5h"
+	case cardUsageReset:
+		return "usage-reset"
+	case cardUsage7d:
+		return "usage-7d"
+	case cardUsageModelA:
+		return "usage-model-a"
+	case cardUsageModelB:
+		return "usage-model-b"
 	default:
 		panic(fmt.Sprintf("cardName: unknown card const %d", c))
 	}

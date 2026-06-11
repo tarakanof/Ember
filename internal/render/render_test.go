@@ -964,34 +964,6 @@ func TestPercentGlyphDecodable(t *testing.T) {
 	}
 }
 
-func TestRenderForCoord_RateCard_PaintsThresholdColor(t *testing.T) {
-	pct := 73
-	snap := Snapshot{Sessions: []Session{
-		{Source: "a", Tool: "b", Session: "s1", State: "running", RateWindowPct: &pct, UpdatedAt: time.Now()},
-	}}
-	payload := RenderForCoord(snap, "a/b/s1", cardRate, false, 30)
-	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// "73%": '7' sprite row 0 is "XXX" at startY=1, numStart=9 → (9,1) lit amber.
-	if got, want := pixels[1*32+9], 0xffc14d; got != want {
-		t.Errorf("rate digit colour at (9,1) = %#06x, want %#06x (amber, 70-89)", got, want)
-	}
-}
-
-func TestRenderForCoord_RateCard_FallsBackToSourceCardWhenNoData(t *testing.T) {
-	snap := Snapshot{Sessions: []Session{
-		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
-	}}
-	rate := RenderForCoord(snap, "a/b/s1", cardRate, false, 30)
-	source := RenderForCoord(snap, "a/b/s1", cardSource, false, 30)
-	rp := rate["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	sp := source["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	for i := range rp {
-		if rp[i] != sp[i] {
-			t.Fatalf("rate card with no data differs from source card at index %d; want identical (fallback to source card)", i)
-		}
-	}
-}
-
 func TestDetailPayload_Blink(t *testing.T) {
 	s := Session{Source: "a", Tool: "b", Session: "w", State: "waiting"}
 	p := detailPayload(s, "WAIT", "#FFC14D", true, 30)
@@ -1031,44 +1003,36 @@ func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 }
 
 func TestCardsForSession(t *testing.T) {
-	pct := 50
-	if got := CardsForSession(Session{Source: "mbp"}); got != 1 {
-		t.Errorf("CardsForSession(no rate) = %d, want 1", got)
+	// CardsForSession is a thin wrapper over AvailableCards; nil view → source only.
+	if got := CardsForSession(Session{Source: "mbp"}, nil); got != 1 {
+		t.Errorf("CardsForSession(nil view) = %d, want 1", got)
 	}
-	if got := CardsForSession(Session{Source: "mbp", RateWindowPct: &pct}); got != 2 {
-		t.Errorf("CardsForSession(with rate) = %d, want 2", got)
-	}
-	zero := 0
-	if got := CardsForSession(Session{Source: "mbp", RateWindowPct: &zero}); got != 2 {
-		t.Errorf("CardsForSession(rate=&0) = %d, want 2 (0%% is present)", got)
+	p7 := 30
+	u := &UsageView{FiveHourPct: 80, SevenDayPct: &p7}
+	if got := CardsForSession(Session{Source: "mbp", RateBottomBar: true}, u); got != 3 {
+		// source + usage5h + usage7d (no reset card in rate-bar mode)
+		t.Errorf("CardsForSession(rate-bar, 5h+7d) = %d, want 3", got)
 	}
 }
 
 func TestAvailableCards(t *testing.T) {
-	pct := 50
+	// nil view: only source and tool cards are possible.
 	cases := []struct {
 		name string
 		s    Session
 		want []int
 	}{
 		{"source only", Session{Source: "mbp", State: "running"}, []int{cardSource}},
-		{"source+rate", Session{Source: "mbp", State: "running", RateWindowPct: &pct}, []int{cardSource, cardRate}},
 		{"source+tool", Session{Source: "mbp", State: "running", Activity: "Bash: x"}, []int{cardSource, cardTool}},
-		{"source+rate+tool", Session{Source: "mbp", State: "running", RateWindowPct: &pct, Activity: "Bash: x"}, []int{cardSource, cardRate, cardTool}},
 		{"tool needs running", Session{Source: "mbp", State: "waiting", Activity: "Bash: x"}, []int{cardSource}},
 		{"tool needs activity", Session{Source: "mbp", State: "running"}, []int{cardSource}},
 		{"no source → empty", Session{State: "running"}, []int{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := AvailableCards(tc.s)
-			if len(got) != len(tc.want) {
+			got := AvailableCards(tc.s, nil)
+			if !slices.Equal(got, tc.want) {
 				t.Fatalf("AvailableCards = %v, want %v", got, tc.want)
-			}
-			for i := range got {
-				if got[i] != tc.want[i] {
-					t.Fatalf("AvailableCards = %v, want %v", got, tc.want)
-				}
 			}
 		})
 	}
@@ -1160,45 +1124,6 @@ func TestGlassGlyphSprite(t *testing.T) {
 	}
 }
 
-func TestAvailableCards_Ctx(t *testing.T) {
-	pct := 45
-	got := AvailableCards(Session{Source: "mbp", State: "running", ContextNumber: true, ContextPct: &pct})
-	if len(got) != 2 || got[0] != cardSource || got[1] != cardCtx {
-		t.Fatalf("ctx on+pct: AvailableCards = %v, want [cardSource cardCtx]", got)
-	}
-	if c := AvailableCards(Session{Source: "mbp", State: "running", ContextNumber: true}); len(c) != 1 {
-		t.Errorf("ctx on but no pct: want [cardSource], got %v", c)
-	}
-	if c := AvailableCards(Session{Source: "mbp", State: "running", ContextPct: &pct}); len(c) != 1 {
-		t.Errorf("ctx off: want [cardSource], got %v", c)
-	}
-	rate := 50
-	all := AvailableCards(Session{Source: "mbp", State: "running", RateWindowPct: &rate, ContextNumber: true, ContextPct: &pct, Activity: "Bash: x"})
-	want := []int{cardSource, cardRate, cardCtx, cardTool}
-	for i := range want {
-		if all[i] != want[i] {
-			t.Fatalf("order = %v, want %v", all, want)
-		}
-	}
-}
-
-func TestRenderForCoord_CtxCard(t *testing.T) {
-	pct := 45
-	snap := Snapshot{Sessions: []Session{
-		{Source: "a", Tool: "b", Session: "s1", State: "running", ContextNumber: true, ContextPct: &pct, UpdatedAt: time.Now()},
-	}}
-	// AvailableCards = [cardSource, cardCtx]; cursor 1 = cardCtx.
-	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30)
-	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// '4' sprite row 0 "X.X" at numStart=9,row1 → (9,1) lit green (45<70).
-	if pixels[1*32+9] != 0x2ee85e {
-		t.Errorf("ctx digit at (9,1) = %#06x, want green 0x2ee85e", pixels[1*32+9])
-	}
-	if _, hasText := payload["text"]; hasText {
-		t.Error("ctx card is a pixel frame, not a text payload")
-	}
-}
-
 func TestResetText(t *testing.T) {
 	base := time.Unix(1_000_000, 0)
 	tests := []struct {
@@ -1226,35 +1151,6 @@ func TestResetGlyphInFont(t *testing.T) {
 	g := glyph(resetGlyph)
 	if g == nil || len(g) != 5 {
 		t.Fatalf("resetGlyph not a 5-row sprite: %v", g)
-	}
-}
-
-func TestComposeFrame_ResetCard(t *testing.T) {
-	now := time.Unix(1_000_000, 0)
-	// Toggle on + resetAt set → reset card shows ceil-hours + hourglass.
-	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
-		RateReset: true, RateResetAt: 1_000_000 + 2*3600 + 60} // ~2h01m → ceil 3
-	if got := CardsForSession(s); got < 2 {
-		t.Fatalf("cardReset not offered: CardsForSession=%d", got)
-	}
-	f := ComposeFrame(s, cardReset, nil, now)
-	// "3" first glyph at numStart..numStart+2; verify a lit pixel exists there.
-	lit := false
-	for x := numStart; x < numStart+3; x++ {
-		for y := 1; y < 6; y++ {
-			if f.Dirty[y][x] {
-				lit = true
-			}
-		}
-	}
-	if !lit {
-		t.Error("reset card drew no digits in the number slot")
-	}
-
-	// Toggle off → cardReset not offered.
-	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", RateResetAt: 1_000_000 + 3600}
-	if slices.Contains(AvailableCards(sOff), cardReset) {
-		t.Error("cardReset offered with toggle off")
 	}
 }
 
@@ -1309,38 +1205,6 @@ func TestComposeFrameUsesToolIcon(t *testing.T) {
 	}
 }
 
-func TestResetCardClockFromLabel(t *testing.T) {
-	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running",
-		RateResetAt: 1780669527, RateReset: true, RateResetLabel: "14:25"}
-	f := ComposeFrame(s, cardReset, []Session{s}, time.Now())
-	lit := false
-	for y := 1; y <= 5; y++ {
-		for x := 9; x <= 11; x++ {
-			if f.Dirty[y][x] {
-				lit = true
-			}
-		}
-	}
-	if !lit {
-		t.Errorf("reset clock not drawn from label")
-	}
-}
-
-func TestResetCardFallbackHourglass(t *testing.T) {
-	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running",
-		RateResetAt: 1780669527, RateReset: true} // no label
-	f := ComposeFrame(s, cardReset, []Session{s}, time.Unix(1780669000, 0))
-	lit := false
-	for y := 1; y <= 5; y++ {
-		if f.Dirty[y][9] || f.Dirty[y][10] || f.Dirty[y][11] {
-			lit = true
-		}
-	}
-	if !lit {
-		t.Errorf("hourglass fallback not drawn")
-	}
-}
-
 func TestRateBarDimmedThreshold(t *testing.T) {
 	var f Frame
 	drawRateBar(&f, 50, rateColor(50)) // colour arg ignored; uses dimThreshold
@@ -1355,6 +1219,42 @@ func TestRateBarDimmedThreshold(t *testing.T) {
 	}
 	if f.Pixels[7][8] != dimThreshold(50) {
 		t.Errorf("bar must start at col 8 (content area)")
+	}
+}
+
+func TestAvailableCardsUsageGating(t *testing.T) {
+	s := Session{Source: "mbp", Tool: "claude", State: "running", RateBottomBar: true}
+
+	// No usage view -> only the source card (rate/ctx/reset cards are gone).
+	cards := AvailableCards(s, nil)
+	if len(cards) != 1 || cards[0] != cardSource {
+		t.Fatalf("nil view: got %v, want [cardSource]", cards)
+	}
+
+	// Full view, rate-bar mode: 5h face (clock), 7d, two models. No cardUsageReset
+	// (the 5h face already shows the clock; pct lives on the bar).
+	p7 := 42
+	u := &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7,
+		Models: []ModelUsage{{Marker: "OP", Pct: 51}, {Marker: "SO", Pct: 12}}}
+	cards = AvailableCards(s, u)
+	want := []int{cardSource, cardUsage5h, cardUsage7d, cardUsageModelA, cardUsageModelB}
+	if !slices.Equal(cards, want) {
+		t.Fatalf("rate-bar mode: got %v, want %v", cards, want)
+	}
+
+	// Sessions-bar mode: pct moves into the 5h face, so the clock needs its own card.
+	s.RateBottomBar = false
+	cards = AvailableCards(s, u)
+	want = []int{cardSource, cardUsage5h, cardUsageReset, cardUsage7d, cardUsageModelA, cardUsageModelB}
+	if !slices.Equal(cards, want) {
+		t.Fatalf("sessions-bar mode: got %v, want %v", cards, want)
+	}
+
+	// View without optional data: just the 5h face (+ reset since not rate-bar mode, ResetAt set).
+	cards = AvailableCards(s, &UsageView{FiveHourPct: 61, ResetAt: 1})
+	want = []int{cardSource, cardUsage5h, cardUsageReset}
+	if !slices.Equal(cards, want) {
+		t.Fatalf("minimal view: got %v, want %v", cards, want)
 	}
 }
 

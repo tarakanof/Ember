@@ -63,13 +63,13 @@ func TestPreviewSessionToggles(t *testing.T) {
 	}
 }
 
-func TestPreviewFramesExcludesToolCardAndShape(t *testing.T) {
+func TestPreviewFramesExcludesToolCard(t *testing.T) {
+	// PreviewFrames uses AvailableCards(s, nil): no usage view, so only
+	// source and tool are possible. The tool card is excluded from Frames
+	// (it has no static grid form) and reflected in Activity instead.
 	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
 	s := Session{
 		Source: "mbp", Tool: "claude", State: "running", Activity: "Bash: go test",
-		ContextPct: ptrInt(47), ContextNumber: true,
-		RateWindowPct: ptrInt(30),
-		RateReset:     true, RateResetAt: now.Add(3 * time.Hour).Unix(),
 	}
 	p := PreviewFrames(s, now)
 
@@ -88,8 +88,8 @@ func TestPreviewFramesExcludesToolCardAndShape(t *testing.T) {
 			}
 		}
 	}
-	// AvailableCards order is source, rate, ctx, reset, tool; the tool card is dropped.
-	if want := []string{"source", "rate", "ctx", "reset"}; !slices.Equal(names, want) {
+	// AvailableCards(s, nil): source + tool; tool is excluded from Frames.
+	if want := []string{"source"}; !slices.Equal(names, want) {
 		t.Fatalf("cards = %v, want %v", names, want)
 	}
 	if p.Activity != "Bash: go test" {
