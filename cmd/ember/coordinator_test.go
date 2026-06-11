@@ -100,10 +100,13 @@ func TestCoord_Tick_TwoSessions_AdvancesPointer(t *testing.T) {
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	// Use distinct Source values so each session's source card draws different
+	// text ("MBP" vs "STUD"), preventing the dedup logic from suppressing the
+	// second publish when payloads would otherwise be identical.
 	c.snapshot = func() Snapshot {
 		return Snapshot{Sessions: []Session{
-			{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},
-			{Source: "a", Tool: "b", Session: "s2", State: "running", UpdatedAt: clk.Now()},
+			{Source: "mbp", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},
+			{Source: "studio", Tool: "b", Session: "s2", State: "running", UpdatedAt: clk.Now()},
 		}}
 	}
 
@@ -122,8 +125,8 @@ func TestCoord_Tick_TwoSessions_AdvancesPointer(t *testing.T) {
 	c.muTest.RLock()
 	gotPtr := c.pointer
 	c.muTest.RUnlock()
-	if gotPtr != "a/b/s2" {
-		t.Errorf("pointer after 2 ticks = %q, want a|b|s2 (wrap-from-s1)", gotPtr)
+	if gotPtr != "studio/b/s2" {
+		t.Errorf("pointer after 2 ticks = %q, want studio/b/s2 (wrap-from-s1)", gotPtr)
 	}
 }
 

@@ -126,8 +126,8 @@ func PreviewFrames(s Session, now time.Time) Preview {
 
 func cardName(c int) string {
 	switch c {
-	case cardXY:
-		return "xy"
+	case cardSource:
+		return "source"
 	case cardRate:
 		return "rate"
 	case cardTool:

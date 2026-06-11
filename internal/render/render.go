@@ -39,7 +39,11 @@ type Session struct {
 	RateResetAt    int64     `json:"rate_reset_at,omitempty"`
 	RateReset      bool      `json:"rate_reset,omitempty"`
 	RateResetLabel string    `json:"rate_reset_label,omitempty"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	// SourceCard / SessionBar are *bool so a producer that predates them (nil)
+	// keeps the element ON — absent must never regress the display.
+	SourceCard *bool `json:"source_card,omitempty"`
+	SessionBar *bool `json:"session_bar,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Key returns the canonical slash-delimited key for this session.
@@ -418,23 +422,40 @@ var (
 )
 
 // Card identifies which readout the number slot shows for the current
-// session: cardXY is the rotation index "X/Y", cardRate is the 5h rate-limit
+// session: cardSource is the source-name card, cardRate is the 5h rate-limit
 // "NN%", cardTool is the scrolling activity detail, cardCtx is the context
 // window percent "NN⌷".
 const (
-	cardXY = iota
+	cardSource = iota // source-name card (replaces the old X/Y rotation card)
 	cardRate
 	cardTool
 	cardCtx
 	cardReset
 )
 
-// AvailableCards returns the cards this session offers, in rotation order:
-// X/Y always; the rate card when RateWindowPct is set; the tool card only for
-// a running session that carries an Activity string. The rotation cursor
-// indexes this slice, so a session can have X/Y+tool without a rate card.
+func sourceCardEnabled(s Session) bool { return s.SourceCard == nil || *s.SourceCard }
+func sessionBarEnabled(s Session) bool { return s.SessionBar == nil || *s.SessionBar }
+
+// sourceCardText uppercases and truncates a source name to the 4 glyphs that
+// fit the drawn text area (cols 9-23 = 15 px = 4×4−1; full-frame db apps
+// cannot scroll native text, so longer names are cut, not scrolled).
+func sourceCardText(source string) string {
+	up := strings.ToUpper(source)
+	r := []rune(up)
+	if len(r) > 4 {
+		r = r[:4]
+	}
+	return string(r)
+}
+
+// AvailableCards returns the cards this session offers, in rotation order.
+// May return an empty slice (every card disabled/data-absent): the frame then
+// shows icon + glass + bar with a blank number slot.
 func AvailableCards(s Session) []int {
-	cards := []int{cardXY}
+	var cards []int
+	if sourceCardEnabled(s) && s.Source != "" {
+		cards = append(cards, cardSource)
+	}
 	if s.RateWindowPct != nil {
 		cards = append(cards, cardRate)
 	}
@@ -701,18 +722,6 @@ func parseHex(s string) (RGB, bool) {
 	}, true
 }
 
-// formatXY returns "X/Y", capping at "X/9+" when total exceeds 9.
-// idx is 1-based.
-func formatXY(idx, total int) string {
-	if total <= 9 {
-		return itoa(idx) + "/" + itoa(total)
-	}
-	if idx > 9 {
-		idx = 9
-	}
-	return itoa(idx) + "/9+"
-}
-
 // itoa is a small stdlib-only digit-to-string for the count formatter.
 func itoa(n int) string {
 	if n < 10 {
@@ -878,7 +887,7 @@ func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 				digitColor = c
 			}
 		}
-		drawDigits(&f, formatXY(idx, total), numStart, 1, digitColor)
+		drawDigits(&f, sourceCardText(s.Source), numStart, 1, digitColor)
 	}
 
 	glassFillColor := colorForState(s.State)

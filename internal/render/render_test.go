@@ -243,7 +243,7 @@ func TestDrawGlass(t *testing.T) {
 }
 
 func TestRenderForCoord_NoActive_ReturnsNil(t *testing.T) {
-	if got := RenderForCoord(Snapshot{}, "", cardXY, false, 30); got != nil {
+	if got := RenderForCoord(Snapshot{}, "", cardSource, false, 30); got != nil {
 		t.Fatalf("empty snapshot: got %v, want nil", got)
 	}
 }
@@ -252,14 +252,15 @@ func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "c", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "missing/key/nope", cardXY, false, 30)
+	payload := RenderForCoord(snap, "missing/key/nope", cardSource, false, 30)
 	if payload == nil {
 		t.Fatal("expected non-nil payload for single running session")
 	}
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// numStart=9: "1/1" -> '1'@9, '/'@13, '1'@17; second digit middle col 18.
-	if pixels[3*32+18] == 0 {
-		t.Errorf("expected '1/1' second digit lit at (18,3)")
+	// Source "a" → sourceCardText "A"; 'A' glyph row 0 "XXX" at numStart=9, drawY=1.
+	// cols 9,10,11 should be lit (white, no SourceColor set).
+	if pixels[1*32+9] == 0 {
+		t.Errorf("expected source 'A' first column lit at (9,1)")
 	}
 }
 
@@ -270,7 +271,7 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", SourceColor: &purple, UpdatedAt: time.Now()},
 		{Source: "a", Tool: "b", Session: "s2", State: "running", SourceColor: &green, UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/s2", cardXY, false, 30)
+	payload := RenderForCoord(snap, "a/b/s2", cardSource, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// numStart=9: first digit '1' middle col → matrix (10, 1). Should be green.
 	if got, want := pixels[1*32+10], 0x2ee85e; got != want {
@@ -292,7 +293,7 @@ func TestRenderForCoord_LockedAttention_EmitsBlinkText(t *testing.T) {
 			snap := Snapshot{Sessions: []Session{
 				{Source: "a", Tool: "b", Session: "w", State: tc.state, UpdatedAt: time.Now()},
 			}}
-			payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
+			payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
 			assertBlinkText(t, payload, tc.wantLabel, tc.wantColor)
 		})
 	}
@@ -314,7 +315,7 @@ func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
 	}}
 	// Pointer locked on s2 (waiting) even though s1 (error) sorts first
 	// because state priority puts error ahead of waiting.
-	payload := RenderForCoord(snap, "a/b/s2", cardXY, true, 30)
+	payload := RenderForCoord(snap, "a/b/s2", cardSource, true, 30)
 	assertBlinkText(t, payload, "WAIT", "#FFC14D")
 }
 
@@ -326,7 +327,7 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
+	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
 	db := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)
 	if db[2] != 8 || db[3] != 8 {
 		t.Fatalf("locked icon = %vx%v, want 8x8 tool icon", db[2], db[3])
@@ -412,7 +413,7 @@ func TestRenderForCoord_LockedButNotAttentionState_SingleFrame(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/r", cardXY, true, 30)
+	payload := RenderForCoord(snap, "a/b/r", cardSource, true, 30)
 	frames := payload["draw"].([]any)
 	if len(frames) != 1 {
 		t.Fatalf("locked running: expected 1 frame, got %d", len(frames))
@@ -426,7 +427,7 @@ func TestRenderForCoord_Counts_XOverY(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s2", State: "running", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "s3", State: "running", UpdatedAt: now},
 	}}
-	payload := RenderForCoord(snap, "a/b/s2", cardXY, false, 30)
+	payload := RenderForCoord(snap, "a/b/s2", cardSource, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// "2/3": first digit '2' starts at numStart=9. '2' glyph row 0 is "XXX",
 	// so cols 9, 10, 11 are lit at row 1.
@@ -792,7 +793,7 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 
 func TestComposeFrame_CodexSprite(t *testing.T) {
 	green := RGB{0x2e, 0xe8, 0x5e}
-	f := ComposeFrame(Session{Tool: "codex", State: "running"}, 1, 1, cardXY, green, nil, time.Now())
+	f := ComposeFrame(Session{Tool: "codex", State: "running"}, 1, 1, cardSource, green, nil, time.Now())
 	// New design: codex uses the 8×8 usageIconCodex chevron at cols 0-7, painted
 	// in the state colour. Row 0 lights col 0 ("X......."); row 6 lights the
 	// bottom run cols 0,3,4,5,6 ("X..XXXX.").
@@ -921,7 +922,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 	rw := 50
 	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, RateWindowPct: &rw, UpdatedAt: now}
-	f := ComposeFrame(s, 1, 2, cardXY, colorRunning, others, time.Now())
+	f := ComposeFrame(s, 1, 2, cardSource, colorRunning, others, time.Now())
 	for x := 8; x <= 19; x++ {
 		if f.Pixels[7][x] != dimThreshold(50) {
 			t.Fatalf("rate bar: col %d = %v, want fill %v", x, f.Pixels[7][x], dimThreshold(50))
@@ -933,7 +934,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 
 	// Toggle OFF → session-count bar (2 sessions → cols 11,12 by priority: waiting, running).
 	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now}
-	fOff := ComposeFrame(sOff, 1, 2, cardXY, colorRunning, others, time.Now())
+	fOff := ComposeFrame(sOff, 1, 2, cardSource, colorRunning, others, time.Now())
 	if fOff.Pixels[7][11] != colorWaiting || fOff.Pixels[7][12] != colorRunning {
 		t.Errorf("session bar: got col11=%v col12=%v, want waiting,running", fOff.Pixels[7][11], fOff.Pixels[7][12])
 	}
@@ -941,7 +942,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 	// Toggle ON but no rate data → graceful fallback to the session-count bar.
 	sFallback := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, UpdatedAt: now}
-	fFallback := ComposeFrame(sFallback, 1, 2, cardXY, colorRunning, others, time.Now())
+	fFallback := ComposeFrame(sFallback, 1, 2, cardSource, colorRunning, others, time.Now())
 	if fFallback.Pixels[7][11] != colorWaiting || fFallback.Pixels[7][12] != colorRunning {
 		t.Errorf("fallback: got col11=%v col12=%v, want session bar (waiting,running)", fFallback.Pixels[7][11], fFallback.Pixels[7][12])
 	}
@@ -953,7 +954,7 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "s2", State: "waiting", UpdatedAt: now},
 	}}
-	payload := RenderForCoord(snap, "a/b/s1", cardXY, false, 30)
+	payload := RenderForCoord(snap, "a/b/s1", cardSource, false, 30)
 	if payload == nil {
 		t.Fatal("expected non-nil payload")
 	}
@@ -1030,7 +1031,7 @@ func TestRenderForCoord_RateCard_FallsBackToXYWhenNoData(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
 	}}
 	rate := RenderForCoord(snap, "a/b/s1", cardRate, false, 30)
-	xy := RenderForCoord(snap, "a/b/s1", cardXY, false, 30)
+	xy := RenderForCoord(snap, "a/b/s1", cardSource, false, 30)
 	rp := rate["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	xp := xy["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	for i := range rp {
@@ -1080,14 +1081,14 @@ func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 
 func TestCardsForSession(t *testing.T) {
 	pct := 50
-	if got := CardsForSession(Session{}); got != 1 {
+	if got := CardsForSession(Session{Source: "mbp"}); got != 1 {
 		t.Errorf("CardsForSession(no rate) = %d, want 1", got)
 	}
-	if got := CardsForSession(Session{RateWindowPct: &pct}); got != 2 {
+	if got := CardsForSession(Session{Source: "mbp", RateWindowPct: &pct}); got != 2 {
 		t.Errorf("CardsForSession(with rate) = %d, want 2", got)
 	}
 	zero := 0
-	if got := CardsForSession(Session{RateWindowPct: &zero}); got != 2 {
+	if got := CardsForSession(Session{Source: "mbp", RateWindowPct: &zero}); got != 2 {
 		t.Errorf("CardsForSession(rate=&0) = %d, want 2 (0%% is present)", got)
 	}
 }
@@ -1099,12 +1100,13 @@ func TestAvailableCards(t *testing.T) {
 		s    Session
 		want []int
 	}{
-		{"xy only", Session{State: "running"}, []int{cardXY}},
-		{"xy+rate", Session{State: "running", RateWindowPct: &pct}, []int{cardXY, cardRate}},
-		{"xy+tool", Session{State: "running", Activity: "Bash: x"}, []int{cardXY, cardTool}},
-		{"xy+rate+tool", Session{State: "running", RateWindowPct: &pct, Activity: "Bash: x"}, []int{cardXY, cardRate, cardTool}},
-		{"tool needs running", Session{State: "waiting", Activity: "Bash: x"}, []int{cardXY}},
-		{"tool needs activity", Session{State: "running"}, []int{cardXY}},
+		{"source only", Session{Source: "mbp", State: "running"}, []int{cardSource}},
+		{"source+rate", Session{Source: "mbp", State: "running", RateWindowPct: &pct}, []int{cardSource, cardRate}},
+		{"source+tool", Session{Source: "mbp", State: "running", Activity: "Bash: x"}, []int{cardSource, cardTool}},
+		{"source+rate+tool", Session{Source: "mbp", State: "running", RateWindowPct: &pct, Activity: "Bash: x"}, []int{cardSource, cardRate, cardTool}},
+		{"tool needs running", Session{Source: "mbp", State: "waiting", Activity: "Bash: x"}, []int{cardSource}},
+		{"tool needs activity", Session{Source: "mbp", State: "running"}, []int{cardSource}},
+		{"no source → empty", Session{State: "running"}, []int{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1125,7 +1127,7 @@ func TestRenderForCoord_ToolCard_EmitsScrollingDetail(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "s1", State: "running", Activity: "Bash: npm test", UpdatedAt: time.Now()},
 	}}
-	// AvailableCards = [cardXY, cardTool]; cursor 1 selects the tool card.
+	// AvailableCards = [cardSource, cardTool]; cursor 1 selects the tool card.
 	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30)
 	if payload["text"] != "Bash: npm test" {
 		t.Errorf("text = %v, want the activity string", payload["text"])
@@ -1155,7 +1157,7 @@ func TestRenderForCoord_LockedAttention_ScrollsActivity(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", Activity: "Bash: rm -rf x", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
+	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
 	if payload["text"] != "Bash: rm -rf x" {
 		t.Errorf("locked text = %v, want the activity string", payload["text"])
 	}
@@ -1171,7 +1173,7 @@ func TestRenderForCoord_LockedAttention_NoActivityStillBlinks(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/w", cardXY, true, 30)
+	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
 	if payload["text"] != "WAIT" || payload["blinkText"] != 500 {
 		t.Errorf("no-activity waiting should blink WAIT, got text=%v blink=%v", payload["text"], payload["blinkText"])
 	}
@@ -1204,19 +1206,19 @@ func TestGlassGlyphSprite(t *testing.T) {
 
 func TestAvailableCards_Ctx(t *testing.T) {
 	pct := 45
-	got := AvailableCards(Session{State: "running", ContextNumber: true, ContextPct: &pct})
-	if len(got) != 2 || got[0] != cardXY || got[1] != cardCtx {
-		t.Fatalf("ctx on+pct: AvailableCards = %v, want [cardXY cardCtx]", got)
+	got := AvailableCards(Session{Source: "mbp", State: "running", ContextNumber: true, ContextPct: &pct})
+	if len(got) != 2 || got[0] != cardSource || got[1] != cardCtx {
+		t.Fatalf("ctx on+pct: AvailableCards = %v, want [cardSource cardCtx]", got)
 	}
-	if c := AvailableCards(Session{State: "running", ContextNumber: true}); len(c) != 1 {
-		t.Errorf("ctx on but no pct: want [cardXY], got %v", c)
+	if c := AvailableCards(Session{Source: "mbp", State: "running", ContextNumber: true}); len(c) != 1 {
+		t.Errorf("ctx on but no pct: want [cardSource], got %v", c)
 	}
-	if c := AvailableCards(Session{State: "running", ContextPct: &pct}); len(c) != 1 {
-		t.Errorf("ctx off: want [cardXY], got %v", c)
+	if c := AvailableCards(Session{Source: "mbp", State: "running", ContextPct: &pct}); len(c) != 1 {
+		t.Errorf("ctx off: want [cardSource], got %v", c)
 	}
 	rate := 50
-	all := AvailableCards(Session{State: "running", RateWindowPct: &rate, ContextNumber: true, ContextPct: &pct, Activity: "Bash: x"})
-	want := []int{cardXY, cardRate, cardCtx, cardTool}
+	all := AvailableCards(Session{Source: "mbp", State: "running", RateWindowPct: &rate, ContextNumber: true, ContextPct: &pct, Activity: "Bash: x"})
+	want := []int{cardSource, cardRate, cardCtx, cardTool}
 	for i := range want {
 		if all[i] != want[i] {
 			t.Fatalf("order = %v, want %v", all, want)
@@ -1229,7 +1231,7 @@ func TestRenderForCoord_CtxCard(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "s1", State: "running", ContextNumber: true, ContextPct: &pct, UpdatedAt: time.Now()},
 	}}
-	// AvailableCards = [cardXY, cardCtx]; cursor 1 = cardCtx.
+	// AvailableCards = [cardSource, cardCtx]; cursor 1 = cardCtx.
 	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// '4' sprite row 0 "X.X" at numStart=9,row1 → (9,1) lit green (45<70).
@@ -1330,7 +1332,7 @@ func TestDrawToolIcon8(t *testing.T) {
 
 func TestComposeFrameUsesToolIcon(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running"}
-	f := ComposeFrame(s, 1, 2, cardXY, colorRunning, []Session{s}, time.Now())
+	f := ComposeFrame(s, 1, 2, cardSource, colorRunning, []Session{s}, time.Now())
 	if !f.Dirty[0][2] {
 		t.Errorf("icon not drawn at (2,0)")
 	}

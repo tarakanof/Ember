@@ -13,7 +13,7 @@ func TestPreviewEndpointOpenAndShaped(t *testing.T) {
 	defer srv.Close()
 
 	// No /state sessions -> sample fallback (state "running", tool "claude").
-	// Enable context number + pct so the ctx card appears alongside xy.
+	// Enable context number + pct so the ctx card appears alongside source.
 	url := srv.URL + "/v1/preview?context_pct=true&context_number=true&rate_pct=false" +
 		"&rate_bottom_bar=false&rate_reset=false&activity_detail=true&source_color=%23ff8800"
 
@@ -51,8 +51,8 @@ func TestPreviewEndpointOpenAndShaped(t *testing.T) {
 			t.Fatalf("card %s pixels = %d, want 256", f.Card, len(f.Pixels))
 		}
 	}
-	if !seen["xy"] || !seen["ctx"] {
-		t.Fatalf("expected xy and ctx cards, got %v", seen)
+	if !seen["source"] || !seen["ctx"] {
+		t.Fatalf("expected source and ctx cards, got %v", seen)
 	}
 	// Sample base session is running with activity enabled -> tool card present
 	// -> Activity surfaced; "tool" must NOT appear as a grid frame.
