@@ -44,6 +44,7 @@ func (a *App) applyUsageSettings(dto usageConfigDTO) {
 	}
 	cur.UsageThresholdPct = &thr
 	a.cfg.Store(&cur)
+	dto.UsageThresholdPct = thr // persist the clamped value, not the raw PUT value
 	if a.store != nil {
 		if blob, err := json.Marshal(dto); err == nil {
 			if err := a.store.PutSetting(usageSettingsKey, string(blob)); err != nil {
