@@ -278,6 +278,8 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// the store override back to the file-config baseline.
 		app.loadPersistedDeviceBaseURL()
 		app.loadPersistedUsageSettings()
+		// Likewise re-apply display config overrides so a reload doesn't revert them.
+		app.loadPersistedDisplaySettings()
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,

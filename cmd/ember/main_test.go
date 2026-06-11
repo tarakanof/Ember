@@ -1064,8 +1064,8 @@ func TestDefaultConfig_G2Fields(t *testing.T) {
 	if cfg.Display.FrameLifetimeSeconds != 30 {
 		t.Errorf("FrameLifetimeSeconds = %d, want 30", cfg.Display.FrameLifetimeSeconds)
 	}
-	if cfg.Display.IdleRestoreSeconds != 1200 {
-		t.Errorf("IdleRestoreSeconds = %d, want 1200", cfg.Display.IdleRestoreSeconds)
+	if cfg.Display.IdleRestoreSeconds != 120 {
+		t.Errorf("IdleRestoreSeconds = %d, want 120", cfg.Display.IdleRestoreSeconds)
 	}
 }
 
