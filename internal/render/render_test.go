@@ -790,18 +790,21 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 }
 
 func TestComposeFrame_CodexSprite(t *testing.T) {
-	green := RGB{0x2e, 0xe8, 0x5e}
-	f := ComposeFrame(Session{Tool: "codex", State: "running"}, cardSource, green, nil, time.Now())
-	// New design: codex uses the 8×8 usageIconCodex chevron at cols 0-7, painted
-	// in the state colour. Row 0 lights col 0 ("X......."); row 6 lights the
-	// bottom run cols 0,3,4,5,6 ("X..XXXX.").
-	if !f.Dirty[0][0] || f.Pixels[0][0] != green {
-		t.Errorf("codex icon (0,0) not lit in state colour")
+	// No SourceColor → neutral body; state colour covers the "_" cursor overlay.
+	f := ComposeFrame(Session{Tool: "codex", State: "running"}, cardSource, nil, time.Now())
+	// Row 0 col 0 lights the chevron body in iconNeutral.
+	if !f.Dirty[0][0] || f.Pixels[0][0] != iconNeutral {
+		t.Errorf("codex icon (0,0) not lit in neutral body colour: %v", f.Pixels[0][0])
 	}
-	for _, x := range []int{0, 3, 4, 5, 6} {
-		if !f.Dirty[6][x] {
-			t.Errorf("codex icon bottom row col %d not lit", x)
+	// Row 6 cols 3-6 are the "_" cursor — state colour (running = green).
+	for _, x := range []int{3, 4, 5, 6} {
+		if !f.Dirty[6][x] || f.Pixels[6][x] != colorRunning {
+			t.Errorf("codex cursor col %d not lit in running colour: dirty=%v val=%v", x, f.Dirty[6][x], f.Pixels[6][x])
 		}
+	}
+	// Row 6 col 0 is chevron body (iconNeutral), not cursor.
+	if !f.Dirty[6][0] || f.Pixels[6][0] != iconNeutral {
+		t.Errorf("codex chevron tail (6,0) should be neutral body: %v", f.Pixels[6][0])
 	}
 	// Distinct from the Claude robot-face, which lights (2,0) not (0,0).
 	if f.Dirty[0][2] {
@@ -920,7 +923,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 	rw := 50
 	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, RateWindowPct: &rw, UpdatedAt: now}
-	f := ComposeFrame(s, cardSource, colorRunning, others, time.Now())
+	f := ComposeFrame(s, cardSource, others, time.Now())
 	for x := 8; x <= 19; x++ {
 		if f.Pixels[7][x] != dimThreshold(50) {
 			t.Fatalf("rate bar: col %d = %v, want fill %v", x, f.Pixels[7][x], dimThreshold(50))
@@ -932,7 +935,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 
 	// Toggle OFF → session-count bar (2 sessions → cols 11,12 by priority: waiting, running).
 	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now}
-	fOff := ComposeFrame(sOff, cardSource, colorRunning, others, time.Now())
+	fOff := ComposeFrame(sOff, cardSource, others, time.Now())
 	if fOff.Pixels[7][11] != colorWaiting || fOff.Pixels[7][12] != colorRunning {
 		t.Errorf("session bar: got col11=%v col12=%v, want waiting,running", fOff.Pixels[7][11], fOff.Pixels[7][12])
 	}
@@ -940,7 +943,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 	// Toggle ON but no rate data → graceful fallback to the session-count bar.
 	sFallback := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, UpdatedAt: now}
-	fFallback := ComposeFrame(sFallback, cardSource, colorRunning, others, time.Now())
+	fFallback := ComposeFrame(sFallback, cardSource, others, time.Now())
 	if fFallback.Pixels[7][11] != colorWaiting || fFallback.Pixels[7][12] != colorRunning {
 		t.Errorf("fallback: got col11=%v col12=%v, want session bar (waiting,running)", fFallback.Pixels[7][11], fFallback.Pixels[7][12])
 	}
@@ -1279,7 +1282,7 @@ func TestComposeFrame_ResetCard(t *testing.T) {
 	if got := CardsForSession(s); got < 2 {
 		t.Fatalf("cardReset not offered: CardsForSession=%d", got)
 	}
-	f := ComposeFrame(s, cardReset, colorRunning, nil, now)
+	f := ComposeFrame(s, cardReset, nil, now)
 	// "3" first glyph at numStart..numStart+2; verify a lit pixel exists there.
 	lit := false
 	for x := numStart; x < numStart+3; x++ {
@@ -1302,10 +1305,16 @@ func TestComposeFrame_ResetCard(t *testing.T) {
 
 func TestDrawToolIcon8(t *testing.T) {
 	red := RGB{0xff, 0, 0}
+	blue := RGB{0x00, 0x00, 0xff}
 	var fc Frame
-	drawToolIcon8(&fc, Session{Tool: "claude", State: "error"}, red)
+	drawToolIcon8(&fc, Session{Tool: "claude", State: "error"}, red, blue)
+	// Body pixel (row 0, col 2 — lit in usageIconClaude, not in claudeEyes8) is red.
 	if !fc.Dirty[0][2] || fc.Pixels[0][2] != red {
-		t.Errorf("claude icon top pixel not painted in state colour")
+		t.Errorf("claude icon body pixel (2,0) not painted in body colour: %v", fc.Pixels[0][2])
+	}
+	// Eye pixel (row 2, col 2 — a hole in body, lit in claudeEyes8) is blue.
+	if !fc.Dirty[2][2] || fc.Pixels[2][2] != blue {
+		t.Errorf("claude eye pixel (2,2) not painted in feature colour: %v", fc.Pixels[2][2])
 	}
 	for y := 0; y < 8; y++ {
 		for x := 8; x < 32; x++ {
@@ -1315,14 +1324,14 @@ func TestDrawToolIcon8(t *testing.T) {
 		}
 	}
 	var fx Frame
-	drawToolIcon8(&fx, Session{Tool: "codex"}, red)
+	drawToolIcon8(&fx, Session{Tool: "codex"}, red, blue)
 	if !fx.Dirty[0][0] {
 		t.Errorf("codex icon top-left not painted")
 	}
 	if fx.Dirty[0][2] {
 		t.Errorf("codex must differ from claude at (2,0)")
 	}
-	px := composeToolIconPixels(Session{Tool: "claude"}, red)
+	px := composeToolIconPixels(Session{Tool: "claude"}, red, blue)
 	if len(px) != 64 {
 		t.Fatalf("composeToolIconPixels len = %d, want 64", len(px))
 	}
@@ -1330,7 +1339,7 @@ func TestDrawToolIcon8(t *testing.T) {
 
 func TestComposeFrameUsesToolIcon(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running"}
-	f := ComposeFrame(s, cardSource, colorRunning, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardSource, []Session{s}, time.Now())
 	if !f.Dirty[0][2] {
 		t.Errorf("icon not drawn at (2,0)")
 	}
@@ -1348,7 +1357,7 @@ func TestComposeFrameUsesToolIcon(t *testing.T) {
 func TestResetCardClockFromLabel(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running",
 		RateResetAt: 1780669527, RateReset: true, RateResetLabel: "14:25"}
-	f := ComposeFrame(s, cardReset, colorRunning, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardReset, []Session{s}, time.Now())
 	lit := false
 	for y := 1; y <= 5; y++ {
 		for x := 9; x <= 11; x++ {
@@ -1365,7 +1374,7 @@ func TestResetCardClockFromLabel(t *testing.T) {
 func TestResetCardFallbackHourglass(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running",
 		RateResetAt: 1780669527, RateReset: true} // no label
-	f := ComposeFrame(s, cardReset, colorRunning, []Session{s}, time.Unix(1780669000, 0))
+	f := ComposeFrame(s, cardReset, []Session{s}, time.Unix(1780669000, 0))
 	lit := false
 	for y := 1; y <= 5; y++ {
 		if f.Dirty[y][9] || f.Dirty[y][10] || f.Dirty[y][11] {
