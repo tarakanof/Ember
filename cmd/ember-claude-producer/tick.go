@@ -158,6 +158,8 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 		if !cfg.ContextPctEnabled {
 			req.ContextPct = nil
 		}
+		sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
+		req.SourceCard, req.SessionBar = &sc, &sb
 		_ = client.Post(ctx, req)
 		return nil
 	})
