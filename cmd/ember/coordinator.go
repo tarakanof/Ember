@@ -504,8 +504,10 @@ func (c *coordinator) onTick() {
 		c.cardCursor = 0
 	default:
 		// Advance within the current session's cards, else move to the next
-		// session. n is resolved from the pre-advance pointer.
-		n := render.CardsForSession(render.SessionByKey(snap, c.pointer), nil)
+		// session. n is resolved from the pre-advance pointer. Usage views are
+		// passed so card count includes any usage card that is over threshold.
+		sess := render.SessionByKey(snap, c.pointer)
+		n := render.CardsForSession(sess, c.usageViews(c.clk.Now(), snap)[sess.Tool])
 		if c.cardCursor+1 < n {
 			c.cardCursor++
 		} else {
@@ -755,6 +757,74 @@ func pctInt(f float64) int {
 	return n
 }
 
+// usageViews builds the per-tool usage views the render layer consumes:
+// endpoint usage preferred, statusline fallback (same precedence as the
+// limit alarm via effectiveFiveHour), gated at usage_threshold_pct. Hidden
+// tools and below-threshold tools are absent. Returns nil when the widget
+// is off or no store is wired.
+func (c *coordinator) usageViews(now time.Time, snap Snapshot) map[string]*render.UsageView {
+	cfg := c.loadCfg()
+	if c.usage == nil || !cfg.usageWidgetEnabled() {
+		return nil
+	}
+	thr := cfg.usageThresholdPct()
+	var hidden map[string]bool
+	if c.hiddenApps != nil {
+		hidden = c.hiddenApps()
+	}
+	views := map[string]*render.UsageView{}
+	for _, tool := range []string{"claude", "codex"} {
+		if hidden[tool] {
+			continue
+		}
+		pct, resetAt, ok := effectiveFiveHour(c.usage, snap, tool, now)
+		if !ok || pctInt(pct) < thr {
+			continue
+		}
+		v := &render.UsageView{FiveHourPct: pctInt(pct), ResetAt: resetAt}
+		if c.usage.Fresh(tool, now, usageStaleTTL) {
+			u, _ := c.usage.Get(tool)
+			if u.FiveHour != nil {
+				v.ResetLabel = u.FiveHour.ResetLabel
+			}
+			if u.SevenDay != nil {
+				p := pctInt(u.SevenDay.UsedPercent)
+				v.SevenDayPct = &p
+			}
+			if cfg.usagePerModelEnabled() {
+				for _, m := range []string{"opus", "sonnet"} {
+					if w := u.Models[m]; w != nil {
+						marker := "OP"
+						if m == "sonnet" {
+							marker = "SO"
+						}
+						v.Models = append(v.Models, render.ModelUsage{Marker: marker, Pct: pctInt(w.UsedPercent)})
+					}
+				}
+			}
+		} else {
+			// Statusline fallback: the newest live session's host-local label.
+			// effectiveFiveHour already accepted a session, but didn't give us
+			// the label — find the same best session to populate ResetLabel.
+			var best *render.Session
+			for i := range snap.Sessions {
+				s := &snap.Sessions[i]
+				if s.Tool != tool || s.RateResetLabel == "" {
+					continue
+				}
+				if best == nil || s.UpdatedAt.After(best.UpdatedAt) {
+					best = s
+				}
+			}
+			if best != nil {
+				v.ResetLabel = best.RateResetLabel
+			}
+		}
+		views[tool] = v
+	}
+	return views
+}
+
 // claudeFallbackApp synthesizes an ember-usage-claude-5h app from the most
 // recent claude session's statusline rate data (rate_window_pct + the
 // host-local rate_reset_label). Used when the authoritative endpoint usage is
@@ -956,8 +1026,7 @@ func (c *coordinator) publish(snap Snapshot) {
 			// pointer/cardCursor/locked are read without muTest: publish runs only
 			// on the coordinator goroutine that also writes them; the lock exists
 			// solely so tests can read this state race-free.
-			// nil usage views for now — next commit wires real per-tool views.
-			payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime, nil)
+			payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime, c.usageViews(now, snap))
 		case idleModeDimmed:
 			payload = render.RenderIdleFrame(lifetime)
 		case idleModeOff:

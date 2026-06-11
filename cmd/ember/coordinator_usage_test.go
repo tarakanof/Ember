@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/render"
 )
 
 func TestUsageReconcilePicksVisibleFreshApps(t *testing.T) {
@@ -209,5 +211,78 @@ func TestReconcileUsesFallbackWhenEndpointStale(t *testing.T) {
 	}
 	if names["ember-usage-claude-7d"] == 0 {
 		t.Error("endpoint usage should add the 7d app")
+	}
+}
+
+func TestUsageViewsThresholdGate(t *testing.T) {
+	c, st, _, clk := makeAlarmCoord(t)
+	now := clk.Now()
+
+	// Below threshold (default 60) -> no view.
+	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 30, ResetLabel: "14:25"}, UpdatedAt: now})
+	if v := c.usageViews(now, Snapshot{}); v["claude"] != nil {
+		t.Fatalf("30%% < 60%%: want no view, got %+v", v["claude"])
+	}
+
+	// Over threshold -> view with label, 7d, models (per-model default on).
+	st.Put("claude", ToolUsage{
+		FiveHour:  &UsageWindow{UsedPercent: 87, ResetLabel: "17:30"},
+		SevenDay:  &UsageWindow{UsedPercent: 42},
+		Models:    map[string]*UsageWindow{"opus": {UsedPercent: 51}},
+		UpdatedAt: now,
+	})
+	v := c.usageViews(now, Snapshot{})["claude"]
+	if v == nil || v.FiveHourPct != 87 || v.ResetLabel != "17:30" {
+		t.Fatalf("87%% >= 60%%: bad view %+v", v)
+	}
+	if v.SevenDayPct == nil || *v.SevenDayPct != 42 {
+		t.Fatalf("7d missing: %+v", v)
+	}
+	if len(v.Models) != 1 || v.Models[0].Marker != "OP" || v.Models[0].Pct != 51 {
+		t.Fatalf("models: %+v", v.Models)
+	}
+}
+
+func TestUsageViewsStatuslineFallback(t *testing.T) {
+	c, _, _, clk := makeAlarmCoord(t)
+	now := clk.Now()
+	// No endpoint usage; a live claude session reports 90% + a reset label.
+	// effectiveFiveHour's fallback requires RateResetAt != 0 to accept a session.
+	pct := 90
+	snap := Snapshot{Now: now, Sessions: []render.Session{{
+		Source: "mbp", Tool: "claude", Session: "s", State: "running",
+		RateWindowPct: &pct, RateResetAt: now.Add(time.Hour).Unix(),
+		RateResetLabel: "13:00", UpdatedAt: now,
+	}}}
+	v := c.usageViews(now, snap)["claude"]
+	if v == nil || v.FiveHourPct != 90 || v.ResetLabel != "13:00" {
+		t.Fatalf("fallback view: %+v", v)
+	}
+	if v.SevenDayPct != nil {
+		t.Fatal("statusline fallback has no 7d window")
+	}
+}
+
+func TestUsageViewsWidgetOffYieldsNil(t *testing.T) {
+	c, st, _, clk := makeAlarmCoord(t)
+	now := clk.Now()
+	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 99, ResetLabel: "17:30"}, UpdatedAt: now})
+	cfg := *c.loadCfg()
+	off := false
+	cfg.UsageWidget = &off
+	c.loadCfg = func() *Config { return &cfg }
+	if v := c.usageViews(now, Snapshot{}); v != nil {
+		t.Fatalf("widget off: want nil views, got %+v", v)
+	}
+}
+
+func TestUsageViewsHiddenTool(t *testing.T) {
+	c, st, _, clk := makeAlarmCoord(t)
+	now := clk.Now()
+	// Fresh hot usage for claude, but claude is hidden from the device display.
+	st.Put("claude", ToolUsage{FiveHour: &UsageWindow{UsedPercent: 99, ResetLabel: "17:30"}, UpdatedAt: now})
+	c.hiddenApps = func() map[string]bool { return map[string]bool{"claude": true} }
+	if v := c.usageViews(now, Snapshot{})["claude"]; v != nil {
+		t.Fatalf("hidden tool: want no view, got %+v", v)
 	}
 }
