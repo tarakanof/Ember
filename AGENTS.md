@@ -31,6 +31,16 @@ multiple laptop/session statuses; enforce bearer-token auth on write endpoints
 Do not write secrets into this repository. The write-endpoint bearer token is
 supplied via the `EMBER_TOKEN` environment variable.
 
+## Releasing
+
+Cut a release with `scripts/release.sh <X.Y.Z> ["title"]`, run from a clean,
+in-sync `main`. It bumps the macOS app `MARKETING_VERSION` in `macos/project.yml`
+(the only version not already derived from the git tag), commits, tags `vX.Y.Z`,
+and publishes a GitHub Release — which triggers
+[`docker-publish.yml`](.github/workflows/docker-publish.yml) to build and push the
+server image to Docker Hub (`:X.Y.Z`, `:latest`). It prompts before pushing (`-y`
+to skip). Afterwards, update the Unraid container to pull the new image.
+
 ## Coding Guidelines
 
 The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
