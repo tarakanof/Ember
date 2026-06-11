@@ -53,12 +53,6 @@ struct DisplayTab: View {
             Section {
                 PictogramToggle(rows: DisplayPictogram.sourceCard, color: DisplayPictogram.neutral,
                                 label: "Source name card", isOn: $display.sourceCard)
-                PictogramToggle(rows: DisplayPictogram.ratePct, color: DisplayPictogram.amber,
-                                label: "Rate-limit %", isOn: $display.ratePct)
-                PictogramToggle(rows: DisplayPictogram.contextNumber, color: DisplayPictogram.green,
-                                label: "Context number", isOn: $display.contextNumber)
-                PictogramToggle(rows: DisplayPictogram.resetClock, color: DisplayPictogram.amber,
-                                label: "Rate reset countdown", isOn: $display.rateReset)
                 PictogramToggle(rows: DisplayPictogram.textLines, color: DisplayPictogram.blue,
                                 label: "Activity detail", isOn: $display.activityDetail)
                 PictogramToggle(rows: DisplayPictogram.contextGlass, color: DisplayPictogram.green,
@@ -78,7 +72,7 @@ struct DisplayTab: View {
             } header: {
                 Text("Agent app — this Mac")
             } footer: {
-                Text("Cards and bars for sessions started from this Mac (producer.env — applies on the producers' next poll). Icon body uses the Source color from Connection; eyes/cursor show state. Context glass off also stops context reporting (hides the glass and the context-number card).")
+                Text("Cards and bars for sessions started from this Mac (producer.env — applies on the producers' next poll). Icon body uses the Source color from Connection; eyes/cursor show state. Context glass off also stops context reporting (hides the glass).")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -101,14 +95,19 @@ struct DisplayTab: View {
             }
 
             Section {
-                Toggle("Show usage apps", isOn: $usage.usageWidget)
+                Toggle("Usage card", isOn: $usage.usageWidget)
+                Stepper(usage.usageThresholdPct == 0
+                        ? "Show always (5h ≥ 0 %)"
+                        : "Show when 5h ≥ \(usage.usageThresholdPct) %",
+                        value: $usage.usageThresholdPct, in: 0...100, step: 5)
+                    .disabled(!usage.usageWidget)
                 Toggle("Per-model (Opus / Sonnet)", isOn: $usage.usagePerModel)
                     .disabled(!usage.usageWidget)
                 Toggle("Limit reset alarm", isOn: $usage.limitAlarm)
             } header: {
-                Text("Standalone apps")
+                Text("Usage")
             } footer: {
-                Text("Server-side. Usage apps: Claude/Codex 5h + 7d tiles. Limit reset alarm: popup + chime when a maxed 5h window resets.")
+                Text("Server-side. The usage card joins the Agent app's rotation when the 5h window reaches the threshold (0 = always) and keeps a dimmed frame on screen while idle. Limit reset alarm: popup + chime when a maxed 5h window resets.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
