@@ -180,8 +180,8 @@ func (m *metrics) render(w io.Writer, app *App) {
 	}
 	fmt.Fprintln(w, "# HELP ember_build_info Build identity (gauge fixed at 1; identity in labels).")
 	fmt.Fprintln(w, "# TYPE ember_build_info gauge")
-	fmt.Fprintf(w, "ember_build_info{revision=\"%s\",go_version=\"%s\"} 1\n",
-		promLabelValue(rev), promLabelValue(v.GoVersion))
+	fmt.Fprintf(w, "ember_build_info{revision=\"%s\",go_version=\"%s\",version=\"%s\"} 1\n",
+		promLabelValue(rev), promLabelValue(v.GoVersion), promLabelValue(v.Version))
 }
 
 // statusRecorder wraps http.ResponseWriter to capture the first

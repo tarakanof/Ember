@@ -14,13 +14,14 @@ import (
 // versionInfo is the JSON body served by /version. Computed once at startup.
 type versionInfo struct {
 	Binary    string `json:"binary"`
+	Version   string `json:"version"`
 	Revision  string `json:"revision"`
 	Dirty     bool   `json:"dirty"`
 	GoVersion string `json:"go_version"`
 }
 
 func computeVersionInfo() versionInfo {
-	info := versionInfo{Binary: "ember", GoVersion: runtime.Version()}
+	info := versionInfo{Binary: "ember", Version: version, GoVersion: runtime.Version()}
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		for _, s := range bi.Settings {
 			switch s.Key {
