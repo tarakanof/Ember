@@ -454,7 +454,7 @@ func AvailableCards(s Session, u *UsageView) []int {
 func CardsForSession(s Session, u *UsageView) int { return len(AvailableCards(s, u)) }
 
 // rateText renders a 5h-rate percent as "NN%". Clamped to 0..99 so the
-// 3-glyph value always fits cols 12–22 (before the glass at col 25); the
+// 3-glyph value always fits cols 9–19 (before the glass at col 25); the
 // red threshold colour already signals a maxed window, so 99 vs 100 is
 // immaterial on an ambient display. Used by the usage-card faces.
 func rateText(pct int) string {

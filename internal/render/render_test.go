@@ -1274,7 +1274,7 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	p7 := 95
 	u := &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7,
-		Models: []ModelUsage{{Marker: "OP", Pct: 51}}}
+		Models: []ModelUsage{{Marker: "OP", Pct: 51}, {Marker: "SO", Pct: 12}}}
 	s := Session{Source: "mbp", Tool: "claude", State: "running", RateBottomBar: true}
 
 	// 5h face in rate-bar mode: clock at numStart — '1' row 0 is ".X." so its
@@ -1282,6 +1282,9 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	f := ComposeFrame(s, cardUsage5h, u, []Session{s}, now)
 	if !f.Dirty[1][10] {
 		t.Fatal("5h face: clock not painted")
+	}
+	if f.Pixels[1][10] != colorWhite {
+		t.Fatalf("5h face: clock pixel color = %v, want white %v", f.Pixels[1][10], colorWhite)
 	}
 
 	// 5h face in sessions-bar mode: "87%" digits in rateColor(87)=amber.
@@ -1305,6 +1308,16 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	f = ComposeFrame(s, cardUsageModelA, u, []Session{s}, now)
 	if got := f.Pixels[1][9]; got != usageGray {
 		t.Fatalf("model marker: pixel = %v, want gray %v", got, usageGray)
+	}
+
+	// Model B face: gray "SO" + green 12. '1' row 0 is ".X." so the first
+	// lit pct pixel is x=18, not 17.
+	f = ComposeFrame(s, cardUsageModelB, u, []Session{s}, now)
+	if got := f.Pixels[1][9]; got != usageGray {
+		t.Fatalf("model B marker: pixel = %v, want gray %v", got, usageGray)
+	}
+	if got := f.Pixels[1][18]; got != rateColor(12) {
+		t.Fatalf("model B pct: pixel = %v, want green %v", got, rateColor(12))
 	}
 
 	// Reset face without a label: hourglass fallback (resetText colour).
