@@ -134,7 +134,11 @@ func (a *App) loadPersistedQuietSettings() {
 	if err != nil || !ok {
 		return
 	}
-	var dto quietConfigDTO
+	// Pre-seed from the live config so missing keys in a legacy blob (e.g.
+	// blobs written before a new field existed) keep their default values
+	// rather than unmarshalling as zero and silently disabling the feature
+	// (same schema-evolution guard as loadPersistedUsageSettings).
+	dto := a.quietDTO()
 	if err := json.Unmarshal([]byte(blob), &dto); err != nil {
 		a.logger.Warn("quiet persisted settings parse failed", "err", err)
 		return
