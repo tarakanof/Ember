@@ -2,10 +2,10 @@ import SwiftUI
 
 /// A tiny pixel-art tile rendered the way the device draws it: an 8-row grid of
 /// `X` (lit) / `.` (off) strings, painted in one accent colour on black. Used as
-/// the per-option pictogram in the Code-agent (Display) tab so each toggle shows
-/// *what it adds to the 32×8 matrix*. These mirror the render core's visual
-/// language (percent sign, context glass, reset hourglass, bottom bars, text
-/// lines) — illustrative, not pixel-exact copies of a live frame.
+/// the per-option pictogram in the Agent tab so each toggle shows *what it adds
+/// to the 32×8 matrix*. These mirror the render core's visual language (source
+/// letters, rate %, context glass, reset clock, bottom bars, text lines, the
+/// tool icons) — illustrative, not pixel-exact copies of a live frame.
 struct PixelGlyph: View {
     let rows: [String]
     var color: Color
