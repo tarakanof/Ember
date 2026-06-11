@@ -51,8 +51,9 @@ func TestLimitAlarmArmsFiresOnce(t *testing.T) {
 		t.Fatalf("at T0+100: expected 0 notifies (inside grace), got %d", len(pub.NotifySnapshot()))
 	}
 
-	// Make the store stale: advance past usageStaleTTL without re-Put.
-	// Then at T0+160 (past armed+grace = T0+150) -> fires.
+	// At T0+160 (past armed+grace = T0+150) the store is still fresh and still
+	// reports (100, T0+90); the drift guard doesn't apply (resetAt == armed,
+	// not later), so the alarm fires.
 	clk.Advance(60 * time.Second) // now T0+160
 	c.checkLimitAlarms(clk.Now(), snap)
 	notifies := pub.NotifySnapshot()

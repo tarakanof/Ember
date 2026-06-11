@@ -47,6 +47,9 @@ func effectiveFiveHour(st *UsageStore, snap Snapshot, tool string, now time.Time
 // next snapshot. Coordinator-goroutine-owned.
 func (c *coordinator) checkLimitAlarms(now time.Time, snap Snapshot) {
 	if c.usage == nil || !c.loadCfg().limitAlarmEnabled() {
+		// Drop any armed state so re-enabling hours later can't fire a stale
+		// "reset" popup for a window that long since passed.
+		c.alarmArmed = nil
 		return
 	}
 	if c.alarmArmed == nil {
