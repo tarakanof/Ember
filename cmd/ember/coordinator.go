@@ -521,7 +521,6 @@ func (c *coordinator) onTick() {
 	c.clearLegacyUsageApps()
 	c.reconcileWeatherApp(c.clk.Now())
 	c.reconcileForecastApp(c.clk.Now())
-	// After the usage reconcile so the alarm sees the freshest store state.
 	c.checkLimitAlarms(c.clk.Now(), snap)
 }
 
@@ -576,8 +575,8 @@ const weatherTileStaleTTL = 30 * time.Minute
 
 // reconcileWeatherApp pushes/refreshes the single "ember-weather" rotating tile
 // when the feature is enabled, set to rotate, and has a fresh observation; it
-// clears the tile otherwise. Mirrors reconcileUsageApps' change-and-staleness
-// dedupe. Runs on the coordinator goroutine only.
+// clears the tile otherwise. Unchanged payloads pushed recently are skipped
+// (change-and-staleness dedupe). Runs on the coordinator goroutine only.
 func (c *coordinator) reconcileWeatherApp(now time.Time) {
 	if c.weather == nil {
 		return
