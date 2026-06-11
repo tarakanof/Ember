@@ -47,7 +47,7 @@ func TestRenderForCoordNoCardsDoesNotPanic(t *testing.T) {
 	// frame (icon/bar only), not panic on an empty card slice.
 	s := Session{Source: "", Tool: "claude", Session: "s1", State: "done", UpdatedAt: time.Now()}
 	snap := Snapshot{Now: time.Now(), Sessions: []Session{s}}
-	p := RenderForCoord(snap, s.Key(), 0, false, 30)
+	p := RenderForCoord(snap, s.Key(), 0, false, 30, nil)
 	if p == nil {
 		t.Fatal("expected a payload for an active (done) session")
 	}

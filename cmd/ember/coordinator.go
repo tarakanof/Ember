@@ -956,7 +956,8 @@ func (c *coordinator) publish(snap Snapshot) {
 			// pointer/cardCursor/locked are read without muTest: publish runs only
 			// on the coordinator goroutine that also writes them; the lock exists
 			// solely so tests can read this state race-free.
-			payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime)
+			// nil usage views for now — next commit wires real per-tool views.
+			payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime, nil)
 		case idleModeDimmed:
 			payload = render.RenderIdleFrame(lifetime)
 		case idleModeOff:

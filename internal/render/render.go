@@ -777,7 +777,10 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 // bitmap leaves clear. A full-width draw would paint zeros across the
 // right side of the matrix and clobber the text underneath — verified
 // empirically against device 0.98.
-func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int) map[string]any {
+//
+// usage: per-tool account usage views (keyed by tool name, e.g. "claude").
+// A nil map is valid — cards that need usage data simply won't appear.
+func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int, usage map[string]*UsageView) map[string]any {
 	keys := SortedActiveKeys(snap)
 	if len(keys) == 0 {
 		return nil
@@ -806,7 +809,10 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		return detailPayload(*session, label, hex, true, lifetimeSeconds)
 	}
 
-	cards := AvailableCards(*session, nil)
+	// Resolve the per-tool usage view; nil map access is safe in Go.
+	u := usage[session.Tool]
+
+	cards := AvailableCards(*session, u)
 	selected := cardNone // no cards: blank number slot (icon/glass/bar still render)
 	if len(cards) > 0 {
 		ci := card
@@ -818,7 +824,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if selected == cardTool {
 		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
 	}
-	frame := ComposeFrame(*session, selected, nil, snap.Sessions, snap.Now) // usage view threaded in the next commit
+	frame := ComposeFrame(*session, selected, u, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -933,6 +939,49 @@ func RenderIdleFrame(lifetimeSeconds int) map[string]any {
 		"prio":     true,
 		"force":    true,
 	}
+}
+
+// idleUsageTools is the fixed tool order for idle usage faces.
+var idleUsageTools = []string{"claude", "codex"}
+
+// RenderIdleUsagePayload renders the idle-with-hot-usage frame: dimmed tool
+// icon + one usage face + the dimmed threshold bar. views holds only tools
+// over the threshold (the coordinator gates); cursor picks the face across
+// all hot tools (claude faces first, then codex), wrapping. Returns nil when
+// no tool is hot — the caller then simply stops publishing (classic idle-off).
+func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Time, lifetimeSeconds int) map[string]any {
+	type face struct {
+		tool   string
+		weekly bool
+	}
+	var faces []face
+	for _, tool := range idleUsageTools {
+		u := views[tool]
+		if u == nil {
+			continue
+		}
+		faces = append(faces, face{tool, false})
+		if u.SevenDayPct != nil {
+			faces = append(faces, face{tool, true})
+		}
+	}
+	if len(faces) == 0 {
+		return nil
+	}
+	// Modulo that handles negative cursor values safely.
+	fc := faces[((cursor%len(faces))+len(faces))%len(faces)]
+	u := views[fc.tool]
+
+	var f Frame
+	paintBitmap(&f, 0, 0, toolIcon8(Session{Tool: fc.tool}), idleDimWhite)
+	if fc.weekly {
+		drawUnitPctFace(&f, "7d", *u.SevenDayPct)
+		drawBarInto(&f, *u.SevenDayPct)
+	} else {
+		drawUsageClock(&f, u, now)
+		drawBarInto(&f, u.FiveHourPct)
+	}
+	return frameToCustomApp(&f, lifetimeSeconds)
 }
 
 // toolIcon8 returns the 8×8 tool sprite for a session: codex chevron, else the

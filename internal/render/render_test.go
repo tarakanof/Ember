@@ -1,6 +1,8 @@
 package render
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"testing"
@@ -202,7 +204,7 @@ func TestDrawGlass(t *testing.T) {
 }
 
 func TestRenderForCoord_NoActive_ReturnsNil(t *testing.T) {
-	if got := RenderForCoord(Snapshot{}, "", cardSource, false, 30); got != nil {
+	if got := RenderForCoord(Snapshot{}, "", cardSource, false, 30, nil); got != nil {
 		t.Fatalf("empty snapshot: got %v, want nil", got)
 	}
 }
@@ -211,7 +213,7 @@ func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "c", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "missing/key/nope", cardSource, false, 30)
+	payload := RenderForCoord(snap, "missing/key/nope", cardSource, false, 30, nil)
 	if payload == nil {
 		t.Fatal("expected non-nil payload for single running session")
 	}
@@ -230,7 +232,7 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", SourceColor: &purple, UpdatedAt: time.Now()},
 		{Source: "a", Tool: "b", Session: "s2", State: "running", SourceColor: &green, UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/s2", cardSource, false, 30)
+	payload := RenderForCoord(snap, "a/b/s2", cardSource, false, 30, nil)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// numStart=9: first digit '1' middle col → matrix (10, 1). Should be green.
 	if got, want := pixels[1*32+10], 0x2ee85e; got != want {
@@ -253,7 +255,7 @@ func TestRenderForCoord_LockedAttention_EmitsBlinkText(t *testing.T) {
 			snap := Snapshot{Sessions: []Session{
 				{Source: "a", Tool: "b", Session: "w", State: tc.state, UpdatedAt: time.Now()},
 			}}
-			payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
+			payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30, nil)
 			assertBlinkText(t, payload, tc.wantLabel, tc.wantColor)
 		})
 	}
@@ -276,7 +278,7 @@ func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
 	// Pointer locked on s2 (waiting) even though s1 (error) sorts first
 	// because state priority puts error ahead of waiting.
 	// Source "a" is appended to the attention label.
-	payload := RenderForCoord(snap, "a/b/s2", cardSource, true, 30)
+	payload := RenderForCoord(snap, "a/b/s2", cardSource, true, 30, nil)
 	assertBlinkText(t, payload, "WAIT A", "#FFC14D")
 }
 
@@ -288,7 +290,7 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
+	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30, nil)
 	db := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)
 	if db[2] != 8 || db[3] != 8 {
 		t.Fatalf("locked icon = %vx%v, want 8x8 tool icon", db[2], db[3])
@@ -382,7 +384,7 @@ func TestRenderForCoord_LockedButNotAttentionState_SingleFrame(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/r", cardSource, true, 30)
+	payload := RenderForCoord(snap, "a/b/r", cardSource, true, 30, nil)
 	frames := payload["draw"].([]any)
 	if len(frames) != 1 {
 		t.Fatalf("locked running: expected 1 frame, got %d", len(frames))
@@ -394,7 +396,7 @@ func TestRenderForCoord_SourceCard_DrawsSourceGlyph(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "mbp", Tool: "b", Session: "s1", State: "running", UpdatedAt: now},
 	}}
-	payload := RenderForCoord(snap, "mbp/b/s1", cardSource, false, 30)
+	payload := RenderForCoord(snap, "mbp/b/s1", cardSource, false, 30, nil)
 	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	// source card shows "MBP": 'M' glyph row 0 is "XXX" at numStart=9 → cols 9,10,11 lit in white.
 	want := (0xff << 16) | (0xff << 8) | 0xff // colorWhite when no SourceColor
@@ -905,7 +907,7 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "s2", State: "waiting", UpdatedAt: now},
 	}}
-	payload := RenderForCoord(snap, "a/b/s1", cardSource, false, 30)
+	payload := RenderForCoord(snap, "a/b/s1", cardSource, false, 30, nil)
 	if payload == nil {
 		t.Fatal("expected non-nil payload")
 	}
@@ -1043,7 +1045,7 @@ func TestRenderForCoord_ToolCard_EmitsScrollingDetail(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", Activity: "Bash: npm test", UpdatedAt: time.Now()},
 	}}
 	// AvailableCards = [cardSource, cardTool]; cursor 1 selects the tool card.
-	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30)
+	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30, nil)
 	if payload["text"] != "Bash: npm test" {
 		t.Errorf("text = %v, want the activity string", payload["text"])
 	}
@@ -1062,7 +1064,7 @@ func TestRenderForCoord_CursorOutOfRange_ClampsToFirstCard(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/s1", 2, false, 30)
+	payload := RenderForCoord(snap, "a/b/s1", 2, false, 30, nil)
 	if _, hasText := payload["text"]; hasText {
 		t.Errorf("out-of-range card index must clamp to first card and return a pixel frame, not a text payload")
 	}
@@ -1075,7 +1077,7 @@ func TestRenderForCoord_LockedAttention_ActivityDoesNotSubstituteLabel(t *testin
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", Activity: "Bash: rm -rf x", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
+	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30, nil)
 	if payload["text"] != "WAIT A" {
 		t.Errorf("locked text = %v, want WAIT A (source label, not activity)", payload["text"])
 	}
@@ -1093,7 +1095,7 @@ func TestRenderForCoord_LockedAttention_NoActivityStillBlinks(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
-	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30)
+	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30, nil)
 	if payload["text"] != "WAIT A" || payload["blinkText"] != 500 {
 		t.Errorf("waiting should blink WAIT A, got text=%v blink=%v", payload["text"], payload["blinkText"])
 	}
@@ -1325,5 +1327,53 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	f = ComposeFrame(s2, cardUsageReset, u2, []Session{s2}, now)
 	if got := f.Pixels[1][9]; got != colorRunning { // 3 hours left -> green
 		t.Fatalf("reset fallback: pixel = %v, want green %v", got, colorRunning)
+	}
+}
+
+func TestRenderIdleUsagePayload(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+
+	if RenderIdleUsagePayload(nil, 0, now, 30) != nil {
+		t.Fatal("no views: want nil payload")
+	}
+	if RenderIdleUsagePayload(map[string]*UsageView{}, 0, now, 30) != nil {
+		t.Fatal("empty views: want nil payload")
+	}
+
+	p7 := 42
+	views := map[string]*UsageView{
+		"claude": {FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7},
+	}
+	p0 := RenderIdleUsagePayload(views, 0, now, 30) // 5h face
+	p1 := RenderIdleUsagePayload(views, 1, now, 30) // 7d face
+	p2 := RenderIdleUsagePayload(views, 2, now, 30) // wraps to 5h
+	if p0 == nil || p1 == nil {
+		t.Fatal("hot view: want non-nil payloads")
+	}
+	b0, _ := json.Marshal(p0)
+	b1, _ := json.Marshal(p1)
+	b2, _ := json.Marshal(p2)
+	if bytes.Equal(b0, b1) {
+		t.Fatal("faces 0 and 1 should differ")
+	}
+	if !bytes.Equal(b0, b2) {
+		t.Fatal("cursor should wrap (face 2 == face 0)")
+	}
+}
+
+func TestRenderForCoordUsesUsageView(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	s := Session{Source: "mbp", Tool: "claude", Session: "x", State: "running",
+		RateBottomBar: true, UpdatedAt: now}
+	snap := Snapshot{Now: now, Sessions: []Session{s}}
+	views := map[string]*UsageView{"claude": {FiveHourPct: 87, ResetLabel: "17:30"}}
+
+	// card index 1 = cardUsage5h (after cardSource) only when views are passed.
+	withUsage := RenderForCoord(snap, s.Key(), 1, false, 30, views)
+	without := RenderForCoord(snap, s.Key(), 1, false, 30, nil)
+	bu, _ := json.Marshal(withUsage)
+	bw, _ := json.Marshal(without)
+	if bytes.Equal(bu, bw) {
+		t.Fatal("usage view should change the rendered card")
 	}
 }

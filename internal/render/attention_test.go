@@ -14,7 +14,7 @@ func waitingSnap() Snapshot {
 
 func TestAttentionFrameNamesSource(t *testing.T) {
 	snap := waitingSnap()
-	p := RenderForCoord(snap, snap.Sessions[0].Key(), 0, true, 30)
+	p := RenderForCoord(snap, snap.Sessions[0].Key(), 0, true, 30, nil)
 	text, _ := p["text"].(string)
 	if text != "WAIT MBP" {
 		t.Fatalf("attention text = %q, want %q", text, "WAIT MBP")
@@ -36,7 +36,7 @@ func TestAttentionFrameShortLabelNoScroll(t *testing.T) {
 	// steady blink.
 	s := Session{Source: "", Tool: "claude", Session: "s1", State: "waiting", UpdatedAt: time.Now()}
 	snap := Snapshot{Now: time.Now(), Sessions: []Session{s}}
-	p := RenderForCoord(snap, s.Key(), 0, true, 30)
+	p := RenderForCoord(snap, s.Key(), 0, true, 30, nil)
 	if text, _ := p["text"].(string); text != "WAIT" {
 		t.Fatalf("text = %q, want WAIT", text)
 	}

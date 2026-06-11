@@ -85,7 +85,7 @@ func main() {
 	s3 := render.Session{Source: "mbp", Tool: "claude", Session: "t3", State: "waiting",
 		SourceColor: &blue, UpdatedAt: now}
 	snap := render.Snapshot{Now: now, Sessions: []render.Session{s3}}
-	if p := render.RenderForCoord(snap, s3.Key(), 0, true, lifetime); p != nil {
+	if p := render.RenderForCoord(snap, s3.Key(), 0, true, lifetime, nil); p != nil {
 		p["lifetime"] = lifetime
 		p["duration"] = lifetime
 		_ = push(*baseURL, "ember-test-attn", p)
