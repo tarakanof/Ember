@@ -65,9 +65,10 @@ type coordinator struct {
 	lockedKey     string
 	lockEnteredAt time.Time
 	// lockReleaseTimer is a wallclock-based safety net that fires a tick
-	// after ackTimeout, guaranteeing release even if dwell happens to be
-	// configured larger than ackTimeout (the tick-driven check in onTick
-	// is otherwise the only release path on a sleepy rotation cadence).
+	// after the attention hold (ackTimeoutDur), guaranteeing release even if
+	// dwell happens to be configured larger than the hold (the tick-driven
+	// check in onTick is otherwise the only release path on a sleepy
+	// rotation cadence).
 	// Tests still drive release via fakeClock + Send(cmdTick); the timer
 	// uses real wallclock and so does nothing in those test setups —
 	// behaviour stays test-friendly.

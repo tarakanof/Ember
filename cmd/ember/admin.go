@@ -144,6 +144,9 @@ func diffConfig(oldCfg, newCfg Config) []string {
 	if oldCfg.Display.AckTimeoutSeconds != newCfg.Display.AckTimeoutSeconds {
 		changed = append(changed, "display.ack_timeout_seconds")
 	}
+	if oldCfg.Display.RotationDwellSeconds != newCfg.Display.RotationDwellSeconds {
+		changed = append(changed, "display.rotation_dwell_seconds")
+	}
 	if oldCfg.Display.AttentionChime != newCfg.Display.AttentionChime {
 		changed = append(changed, "display.attention_chime")
 	}
