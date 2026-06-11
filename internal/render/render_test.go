@@ -1275,12 +1275,30 @@ func TestIdleFrameUses8pxIcon(t *testing.T) {
 func TestComposeFrameUsageFaces(t *testing.T) {
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	p7 := 95
+	ctx := 47
 	u := &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7,
 		Models: []ModelUsage{{Marker: "OP", Pct: 51}, {Marker: "SO", Pct: 12}}}
-	s := Session{Source: "mbp", Tool: "claude", State: "running", RateBottomBar: true}
+	s := Session{Source: "mbp", Tool: "claude", State: "running", RateBottomBar: true, ContextPct: &ctx}
+
+	// requireUnit asserts the gray window label at the unit slot and that the
+	// context glass is absent: units paint usageGray, so any glassWall-coloured
+	// pixel in the glass columns betrays a drawn glass.
+	requireUnit := func(t *testing.T, f *Frame, face string) {
+		t.Helper()
+		if got := f.Pixels[1][unitStart]; got != usageGray {
+			t.Fatalf("%s: unit pixel = %v, want gray %v", face, got, usageGray)
+		}
+		for y := glassTopRow; y <= glassBottomRow; y++ {
+			for x := glassLeft; x <= glassRight; x++ {
+				if f.Dirty[y][x] && f.Pixels[y][x] == glassWall {
+					t.Fatalf("%s: context glass must not be drawn on usage faces (wall at %d,%d)", face, x, y)
+				}
+			}
+		}
+	}
 
 	// 5h face in rate-bar mode: clock at numStart — '1' row 0 is ".X." so its
-	// lit pixel is x=numStart+1.
+	// lit pixel is x=numStart+1 — plus the "5h" unit where the glass was.
 	f := ComposeFrame(s, cardUsage5h, u, []Session{s}, now)
 	if !f.Dirty[1][10] {
 		t.Fatal("5h face: clock not painted")
@@ -1288,45 +1306,52 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	if f.Pixels[1][10] != colorWhite {
 		t.Fatalf("5h face: clock pixel color = %v, want white %v", f.Pixels[1][10], colorWhite)
 	}
+	requireUnit(t, &f, "5h clock face")
 
-	// 5h face in sessions-bar mode: "87%" digits in rateColor(87)=amber.
+	// 5h face in sessions-bar mode: "87%" digits in rateColor(87)=amber + unit.
 	s2 := s
 	s2.RateBottomBar = false
 	f = ComposeFrame(s2, cardUsage5h, u, []Session{s2}, now)
 	if got := f.Pixels[1][9]; got != rateColor(87) {
 		t.Fatalf("5h pct face: pixel = %v, want amber %v", got, rateColor(87))
 	}
+	requireUnit(t, &f, "5h pct face")
 
-	// 7d face: gray "7d" then red 95.
+	// 7d face: red "95%" at numStart, gray "7d" unit at the right edge.
 	f = ComposeFrame(s, cardUsage7d, u, []Session{s}, now)
-	if got := f.Pixels[1][9]; got != usageGray {
-		t.Fatalf("7d unit: pixel = %v, want gray %v", got, usageGray)
-	}
-	if got := f.Pixels[1][17]; got != rateColor(95) {
+	if got := f.Pixels[1][9]; got != rateColor(95) {
 		t.Fatalf("7d pct: pixel = %v, want red %v", got, rateColor(95))
 	}
+	requireUnit(t, &f, "7d face")
 
-	// Model face: gray "OP" + pct.
+	// Model face: green "51%" + gray "OP" unit.
 	f = ComposeFrame(s, cardUsageModelA, u, []Session{s}, now)
-	if got := f.Pixels[1][9]; got != usageGray {
-		t.Fatalf("model marker: pixel = %v, want gray %v", got, usageGray)
+	if got := f.Pixels[1][9]; got != rateColor(51) {
+		t.Fatalf("model pct: pixel = %v, want green %v", got, rateColor(51))
 	}
+	requireUnit(t, &f, "model A face")
 
-	// Model B face: gray "SO" + green 12. '1' row 0 is ".X." so the first
-	// lit pct pixel is x=18, not 17.
+	// Model B face: green "12%" + gray "SO" unit. '1' row 0 is ".X." so the
+	// first lit pct pixel is x=10, not 9.
 	f = ComposeFrame(s, cardUsageModelB, u, []Session{s}, now)
-	if got := f.Pixels[1][9]; got != usageGray {
-		t.Fatalf("model B marker: pixel = %v, want gray %v", got, usageGray)
-	}
-	if got := f.Pixels[1][18]; got != rateColor(12) {
+	if got := f.Pixels[1][10]; got != rateColor(12) {
 		t.Fatalf("model B pct: pixel = %v, want green %v", got, rateColor(12))
 	}
+	requireUnit(t, &f, "model B face")
 
-	// Reset face without a label: hourglass fallback (resetText colour).
+	// Reset face without a label: hourglass fallback (resetText colour) + "5h"
+	// unit (the countdown belongs to the 5h window).
 	u2 := &UsageView{FiveHourPct: 61, ResetAt: now.Add(3 * time.Hour).Unix()}
 	f = ComposeFrame(s2, cardUsageReset, u2, []Session{s2}, now)
 	if got := f.Pixels[1][9]; got != colorRunning { // 3 hours left -> green
 		t.Fatalf("reset fallback: pixel = %v, want green %v", got, colorRunning)
+	}
+	requireUnit(t, &f, "reset face")
+
+	// The source card keeps the context glass: (30,1) is its right wall.
+	f = ComposeFrame(s, cardSource, u, []Session{s}, now)
+	if got := f.Pixels[1][30]; got != glassWall {
+		t.Fatalf("source card glass wall: pixel = %v, want %v", got, glassWall)
 	}
 }
 
@@ -1358,6 +1383,14 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 	}
 	if !bytes.Equal(b0, b2) {
 		t.Fatal("cursor should wrap (face 2 == face 0)")
+	}
+
+	// The idle 5h face carries the gray "5h" unit label: '5' top-left lights
+	// (unitStart, 1), i.e. pixel index 1*32+unitStart in the db payload.
+	px := p0["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	wantGray := (int(usageGray.R) << 16) | (int(usageGray.G) << 8) | int(usageGray.B)
+	if got := px[1*32+unitStart]; got != wantGray {
+		t.Errorf("idle 5h face unit pixel = %#06x, want gray %#06x", got, wantGray)
 	}
 }
 

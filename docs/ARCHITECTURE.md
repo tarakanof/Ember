@@ -313,9 +313,12 @@ builds `UsageView` structs from `effectiveFiveHour` each tick and includes a
 usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
 (default 60; `0` = always show). The usage card rotates through up to five faces per
 tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
-(HH:MM reset clock), **7d** (pixel-drawn font3x5 "7d" prefix + 2-digit percent
-in threshold colour, via `drawUnitPctFace`), **model-A** and **model-B**
-(`OP`/`SO` weekly frames). Per-tool show/hide reuses `/v1/apps`; the widget + per-model
+(HH:MM reset clock), **7d** (percent in threshold colour, via
+`drawUnitPctFace`), **model-A** and **model-B** (`OP`/`SO` weekly frames).
+Every usage face replaces the context glass with a gray **window unit label**
+at the right edge (`drawUsageUnit`, cols 25–31): `5h` on the clock/reset/pct
+faces, `7d` / `OP` / `SO` on the weekly faces — the glass is a session metric
+and only non-usage cards draw it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
 toggles remain server config (`usage_widget`, `usage_per_model`, default on);
 `usage_threshold_pct` is also server config (`GET/PUT /v1/usage/config`, store
 key `usage_json`, default 60, 0 = always). **Claude 5h fallback:** when the
@@ -368,7 +371,8 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   are `*bool` (absent = on; a producer that predates them never regresses the
   display).
 - **Context glass** — right edge (interior cols ~26–29 × rows 1–4), 16-level
-  per-pixel bottom-up fill, state-coloured.
+  per-pixel bottom-up fill, state-coloured. Non-usage cards only — usage faces
+  paint the gray window unit label (`5h`/`7d`/`OP`/`SO`) in this slot instead.
 - **Bottom row (row 7)** — three-way: the 5h rate bar (`drawRateBar`, when
   `rate_bottom_bar` on + rate present), styled as the **dimmed (~55%) threshold
   bar** over content cols 8–31; else the session-pixel bar (1 px per non-idle
