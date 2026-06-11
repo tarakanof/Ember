@@ -123,7 +123,7 @@ without relaunch. Hybrid layout:
   and a status + preview **dashboard** `Window`. App-only prefs (icon palette,
   tray glyphs) live in `UserDefaults`; launch-at-login is `SMAppService`.
 
-This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Display tab's
+This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agent tab's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
 — produced by the same `internal/render` core the device uses (see below).
 
