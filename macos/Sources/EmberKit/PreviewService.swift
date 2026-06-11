@@ -1,6 +1,6 @@
 import Foundation
 
-/// The six display toggles that affect a single-session render, plus an optional
+/// The eight display toggles that affect a single-session render, plus an optional
 /// source colour. Maps 1:1 to GET /v1/preview query params. activity_trail is
 /// deliberately absent (it has no single-session effect; see the spec).
 public struct DraftDisplay: Sendable, Equatable {
@@ -10,6 +10,8 @@ public struct DraftDisplay: Sendable, Equatable {
     public var contextNumber = false
     public var rateBottomBar = false
     public var rateReset = false
+    public var sourceCard = true
+    public var sessionBar = true
     public var sourceColor = ""   // "" = omit param
     public init() {}
 
@@ -21,6 +23,8 @@ public struct DraftDisplay: Sendable, Equatable {
             URLQueryItem(name: "context_number", value: contextNumber ? "true" : "false"),
             URLQueryItem(name: "rate_bottom_bar", value: rateBottomBar ? "true" : "false"),
             URLQueryItem(name: "rate_reset", value: rateReset ? "true" : "false"),
+            URLQueryItem(name: "source_card", value: sourceCard ? "true" : "false"),
+            URLQueryItem(name: "session_bar", value: sessionBar ? "true" : "false"),
         ]
         if !sourceColor.isEmpty {
             items.append(URLQueryItem(name: "source_color", value: sourceColor))

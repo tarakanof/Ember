@@ -2,7 +2,7 @@ import SwiftUI
 import EmberKit
 
 /// Self-contained live mirror of the clock's 32×8 matrix, reused by the Device
-/// and Code-agent tabs. Polls the server's `/v1/device/screen` proxy while
+/// and Agent tabs. Polls the server's `/v1/device/screen` proxy while
 /// visible; against an older server that predates it (404), falls back to
 /// reading the clock's `/api/screen` directly (what the AWTRIX app does). Backs
 /// off to 3s while nothing is reachable. Renders through `MatrixScreenView`.

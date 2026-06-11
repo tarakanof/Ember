@@ -101,11 +101,14 @@ per-app clock toggles (`PUT /v1/apps`). Settings → Pomodoro exposes the focus
 duration (to 8h), the auto-stop cap ("Auto-stop after: N h", `0` = off), and
 colours; Settings → App picks the Dock/app icon + the menu-bar tray glyphs.
 
-Settings is a **sidebar window** (Connection / **Device** / **Code agent** /
+Settings is a **sidebar window** (Connection / **Device** / **Agent** /
 Pomodoro / Weather / Reminders / App), opened with ⌘, or the menu's "Settings…"
-item, and it **auto-applies** changes — there are no Save buttons. The **Code agent** tab
-(formerly "Display") toggles write `producer.env` immediately, each with a
-pixel-art pictogram of what it adds to the 32×8 matrix; Connection commits each
+item, and it **auto-applies** changes — there are no Save buttons. The **Agent** tab
+(formerly "Code agent"/"Display") groups by scope: per-Mac card/bar toggles write
+`producer.env` immediately (each with a pixel-art pictogram of what it adds to
+the 32×8 matrix, plus a three-way Bottom bar picker), while the behavior group
+(hide-when-idle, attention hold, attention chime) and the standalone-apps group
+(usage apps, per-model, limit reset alarm) debounce server `PUT`s; Connection commits each
 text field on **Return or focus loss** (an invalid field shows a red caption and
 isn't written, leaving the others intact) and "Test Connection" lives in the
 toolbar; Pomodoro/Weather/Reminders each debounce a single `PUT` ~600 ms after

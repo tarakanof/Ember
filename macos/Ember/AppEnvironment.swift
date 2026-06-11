@@ -14,6 +14,7 @@ public final class AppEnvironment {
     public private(set) var preview: PreviewService
     public private(set) var weather: WeatherService
     public private(set) var usage: UsageService
+    public private(set) var displayConfig: DisplayService
     public private(set) var device: DeviceService
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
@@ -66,6 +67,7 @@ public final class AppEnvironment {
         preview = PreviewService(client: client)
         weather = WeatherService(client: client)
         usage = UsageService(client: client)
+        displayConfig = DisplayService(client: client)
         device = DeviceService(client: client)
         reminderWatcher = ReminderWatcher(client: client)
         model.configure(client: client)
@@ -84,6 +86,7 @@ public final class AppEnvironment {
         preview = PreviewService(client: client)
         weather = WeatherService(client: client)
         usage = UsageService(client: client)
+        displayConfig = DisplayService(client: client)
         device = DeviceService(client: client)
         reminderWatcher.reconfigure(client: client)
         model.configure(client: client)

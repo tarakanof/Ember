@@ -31,6 +31,8 @@ struct ConnectionTab: View {
                 TextField("Source", text: $source)
                     .focused($focusedField, equals: .source)
                     .onSubmit { commit { $0.source = source } }
+                Text("Short source names (≤ 4 chars) display best on the clock.")
+                    .font(.caption).foregroundStyle(.secondary)
                 TextField("Server URL", text: $serverURL)
                     .textContentType(.URL)
                     .focused($focusedField, equals: .serverURL)

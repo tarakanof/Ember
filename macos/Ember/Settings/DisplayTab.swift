@@ -15,6 +15,11 @@ struct DisplayTab: View {
     @State private var lastUsage: UsageConfig?
     @State private var usageWriter = DebouncedWriter(delay: .milliseconds(600))
 
+    // Server-backed display behavior config (GET/PUT /v1/display/config), debounced.
+    @State private var displayCfg = DisplayConfig()
+    @State private var lastDisplayCfg: DisplayConfig?
+    @State private var displayWriter = DebouncedWriter(delay: .milliseconds(600))
+
     var body: some View {
         Form {
             Section {
@@ -45,35 +50,65 @@ struct DisplayTab: View {
                 }
             }
 
-            Section("Context") {
-                PictogramToggle(rows: DisplayPictogram.percent, color: DisplayPictogram.green,
-                                label: "Context %", isOn: $display.contextPct)
-                PictogramToggle(rows: DisplayPictogram.glass, color: DisplayPictogram.green,
-                                label: "Context number", isOn: $display.contextNumber)
-            }
-            Section("Rate limit") {
-                PictogramToggle(rows: DisplayPictogram.percent, color: DisplayPictogram.amber,
+            Section {
+                PictogramToggle(rows: DisplayPictogram.sourceCard, color: DisplayPictogram.neutral,
+                                label: "Source name card", isOn: $display.sourceCard)
+                PictogramToggle(rows: DisplayPictogram.ratePct, color: DisplayPictogram.amber,
                                 label: "Rate-limit %", isOn: $display.ratePct)
-                PictogramToggle(rows: DisplayPictogram.bottomBar, color: DisplayPictogram.amber,
-                                label: "Rate bottom bar", isOn: $display.rateBottomBar)
-                PictogramToggle(rows: DisplayPictogram.hourglass, color: DisplayPictogram.amber,
+                PictogramToggle(rows: DisplayPictogram.contextNumber, color: DisplayPictogram.green,
+                                label: "Context number", isOn: $display.contextNumber)
+                PictogramToggle(rows: DisplayPictogram.resetClock, color: DisplayPictogram.amber,
                                 label: "Rate reset countdown", isOn: $display.rateReset)
-            }
-            Section("Activity") {
                 PictogramToggle(rows: DisplayPictogram.textLines, color: DisplayPictogram.blue,
                                 label: "Activity detail", isOn: $display.activityDetail)
+                PictogramToggle(rows: DisplayPictogram.contextGlass, color: DisplayPictogram.green,
+                                label: "Context glass", isOn: $display.contextPct)
+                Picker(selection: $display.bottomBarMode) {
+                    ForEach(BottomBarMode.allCases) { Text($0.rawValue).tag($0) }
+                } label: {
+                    HStack(spacing: 10) {
+                        PixelGlyph(rows: display.bottomBarMode == .rate
+                                   ? DisplayPictogram.barRate : DisplayPictogram.barSession,
+                                   color: DisplayPictogram.amber)
+                        Text("Bottom bar")
+                    }
+                }
                 PictogramToggle(rows: DisplayPictogram.trail, color: DisplayPictogram.blue,
                                 label: "Activity trail (multi-session bar)", isOn: $display.activityTrail)
+            } header: {
+                Text("Agent app — this Mac")
+            } footer: {
+                Text("Cards and bars for sessions started from this Mac (producer.env — applies on the producers' next poll). Icon body uses the Source color from Connection; eyes/cursor show state. Context glass off also stops context reporting (hides the glass and the context-number card).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Stepper("Hide when idle: \(displayCfg.idleHideMinutes) min",
+                        value: $displayCfg.idleHideMinutes, in: 0...60)
+                Stepper("Attention hold: \(displayCfg.attentionHoldSeconds) s",
+                        value: $displayCfg.attentionHoldSeconds, in: 5...300, step: 5)
+                Toggle(isOn: $displayCfg.attentionChime) {
+                    HStack(spacing: 10) {
+                        PixelGlyph(rows: DisplayPictogram.bell, color: DisplayPictogram.amber)
+                        Text("Attention chime")
+                    }
+                }
+            } header: {
+                Text("Agent app — behavior")
+            } footer: {
+                Text("Server-side, applies within seconds, all machines. Idle: dims, then leaves the rotation; returns on activity (0 = hide immediately).")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
                 Toggle("Show usage apps", isOn: $usage.usageWidget)
                 Toggle("Per-model (Opus / Sonnet)", isOn: $usage.usagePerModel)
                     .disabled(!usage.usageWidget)
+                Toggle("Limit reset alarm", isOn: $usage.limitAlarm)
             } header: {
-                Text("Usage widget")
+                Text("Standalone apps")
             } footer: {
-                Text("Standalone AI-usage clock apps (Claude/Codex 5h + 7d, optional Opus/Sonnet). Server-side — applies within a few seconds.")
+                Text("Server-side. Usage apps: Claude/Codex 5h + 7d tiles. Limit reset alarm: popup + chime when a maxed 5h window resets.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -85,6 +120,7 @@ struct DisplayTab: View {
                 sourceColor = ConnectionSettings(reading: envFile).sourceColor
                 loaded = true
                 if let u = try? await env.usage.getConfig() { usage = u; lastUsage = u }
+                if let d = try? await env.displayConfig.getConfig() { displayCfg = d; lastDisplayCfg = d }
                 await refreshPreview()
             }
         }
@@ -93,6 +129,7 @@ struct DisplayTab: View {
             Task { await refreshPreview() }
         }
         .onChange(of: usage) { _, _ in scheduleUsageSave() }
+        .onChange(of: displayCfg) { _, _ in scheduleDisplayCfgSave() }
     }
 
     private func scheduleUsageSave() {
@@ -101,6 +138,15 @@ struct DisplayTab: View {
         usageWriter.schedule {
             try? await env.usage.putConfig(u)
             await MainActor.run { lastUsage = u }
+        }
+    }
+
+    private func scheduleDisplayCfgSave() {
+        guard displayCfg != lastDisplayCfg else { return }   // initial load / no-op
+        let d = displayCfg
+        displayWriter.schedule {
+            try? await env.displayConfig.putConfig(d)
+            await MainActor.run { lastDisplayCfg = d }
         }
     }
 
