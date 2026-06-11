@@ -5,12 +5,9 @@ public enum SettingsKeys {
     public static let token = "EMBER_TOKEN"
     public static let sourceColor = "EMBER_SOURCE_COLOR"
     public static let contextPct = "EMBER_CONTEXT_PCT_ENABLED"
-    public static let ratePct = "EMBER_RATE_PCT_ENABLED"
     public static let activityDetail = "EMBER_ACTIVITY_DETAIL_ENABLED"
     public static let activityTrail = "EMBER_ACTIVITY_TRAIL_ENABLED"
-    public static let contextNumber = "EMBER_CONTEXT_NUMBER_ENABLED"
     public static let rateBottomBar = "EMBER_RATE_BOTTOM_BAR"
-    public static let rateReset = "EMBER_RATE_RESET"
     public static let sourceCard = "EMBER_SOURCE_CARD"
     public static let sessionBar = "EMBER_SESSION_BAR"
 }

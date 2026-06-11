@@ -30,6 +30,17 @@ import Foundation
     #expect(s.activity == "")
 }
 
+@Test func usageConfigThresholdDecodesWithOlderServerDefault() throws {
+    // Older server: no usage_threshold_pct in the body -> default 60.
+    let old = #"{"usage_widget":true,"usage_per_model":false,"limit_alarm":true}"#
+    let cfg = try JSONDecoder().decode(UsageConfig.self, from: Data(old.utf8))
+    #expect(cfg.usageThresholdPct == 60)
+
+    let new = #"{"usage_widget":true,"usage_per_model":false,"limit_alarm":true,"usage_threshold_pct":75}"#
+    let cfg2 = try JSONDecoder().decode(UsageConfig.self, from: Data(new.utf8))
+    #expect(cfg2.usageThresholdPct == 75)
+}
+
 @Test func decodesPreviewResponse() throws {
     let px = Array(repeating: "#000000", count: 256)
     let pxJSON = "[" + px.map { "\"\($0)\"" }.joined(separator: ",") + "]"
