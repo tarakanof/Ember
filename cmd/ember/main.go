@@ -60,6 +60,8 @@ type Config struct {
 	// frame): the card shows only when a tool's 5h window is >= this percent.
 	// nil → default 60; 0 = always show.
 	UsageThresholdPct *int `json:"usage_threshold_pct,omitempty"`
+	// QuietHours mutes all device sounds during the window (server-local time).
+	QuietHours QuietHoursConfig `json:"quiet_hours"`
 }
 
 // usageWidgetEnabled reports whether the in-app usage card and the idle usage
