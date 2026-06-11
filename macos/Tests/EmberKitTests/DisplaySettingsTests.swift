@@ -11,10 +11,18 @@ import Foundation
 
 @Test func readsDisplayExplicitValues() {
     let d = DisplaySettings(reading: EnvFile(parsing: """
-    EMBER_CONTEXT_PCT_ENABLED=false
-    EMBER_RATE_BOTTOM_BAR=on
-    """))
+EMBER_CONTEXT_PCT_ENABLED=false
+EMBER_ACTIVITY_DETAIL_ENABLED=false
+EMBER_ACTIVITY_TRAIL_ENABLED=false
+EMBER_SOURCE_CARD=false
+EMBER_SESSION_BAR=false
+EMBER_RATE_BOTTOM_BAR=on
+"""))
     #expect(!d.contextPct)
+    #expect(!d.activityDetail)
+    #expect(!d.activityTrail)
+    #expect(!d.sourceCard)
+    #expect(!d.sessionBar)
     #expect(d.rateBottomBar)
 }
 
@@ -24,6 +32,7 @@ import Foundation
     d.activityDetail = false
     d.apply(to: &env)
     #expect(env.get(SettingsKeys.activityDetail) == "false")
+    #expect(env.get(SettingsKeys.activityTrail) == "true")
     #expect(env.get(SettingsKeys.contextPct) == "true")
 }
 
