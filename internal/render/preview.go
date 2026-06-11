@@ -10,7 +10,6 @@ import (
 // that field yet). Chosen to look representative on the preview.
 const (
 	samplePct      = 47
-	sampleResetHrs = 3
 	sampleActivity = "Bash: npm test"
 )
 
@@ -21,18 +20,22 @@ func SampleBaseSession() Session {
 	return Session{Source: "mbp", Tool: "claude", Session: "sample", State: "running"}
 }
 
+// SampleUsageView is the representative usage card shown in the preview
+// (87% — amber, over the default threshold — resetting 17:30; 7d at 42%).
+func SampleUsageView() *UsageView {
+	p := 42
+	return &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p}
+}
+
 // ptrInt returns a pointer to v, for Session optional-int fields.
 func ptrInt(v int) *int { return &v }
 
-// DraftDisplay is the set of display toggles the Settings "Display" tab edits
-// that affect a single-session render. It is the 8 effective booleans consumed
-// by PreviewSession plus an optional source colour. (EMBER_ACTIVITY_TRAIL is
-// intentionally absent: it affects the multi-session bar, not one session.)
+// DraftDisplay is the set of display toggles the Settings "Agent" pane edits
+// that affect a single-session render. (Activity trail is intentionally
+// absent: it affects the multi-session bar, not one session. The usage card
+// is driven separately — the handler passes a sample UsageView.)
 type DraftDisplay struct {
 	ContextPct     bool
-	RatePct        bool
-	RateReset      bool
-	ContextNumber  bool
 	RateBottomBar  bool
 	ActivityDetail bool
 	SourceCard     bool
@@ -55,24 +58,13 @@ func PreviewSession(d DraftDisplay, base Session, now time.Time) Session {
 		s.ContextPct = nil
 	}
 
-	if d.RatePct {
+	if d.RateBottomBar {
 		if s.RateWindowPct == nil {
 			s.RateWindowPct = ptrInt(samplePct)
 		}
 	} else {
 		s.RateWindowPct = nil
 	}
-
-	s.RateReset = d.RateReset
-	if d.RateReset {
-		if s.RateResetAt == 0 {
-			s.RateResetAt = now.Add(sampleResetHrs * time.Hour).Unix()
-		}
-	} else {
-		s.RateResetAt = 0
-	}
-
-	s.ContextNumber = d.ContextNumber
 	s.RateBottomBar = d.RateBottomBar
 
 	if d.ActivityDetail {
@@ -113,18 +105,18 @@ type Preview struct {
 	Frames   []CardFrame `json:"frames"`
 }
 
-// PreviewFrames renders each card in AvailableCards(s, nil) except the
+// PreviewFrames renders each card in AvailableCards(s, u) except the
 // scrolling tool card, using the robot colour from state and the single
-// session as the bottom-bar source. Usage faces are absent because no
-// UsageView is passed (preview always renders the base card set).
-func PreviewFrames(s Session, now time.Time) Preview {
+// session as the bottom-bar source. Pass a non-nil UsageView to include
+// usage faces in the preview.
+func PreviewFrames(s Session, u *UsageView, now time.Time) Preview {
 	p := Preview{Width: 32, Height: 8, Frames: []CardFrame{}}
-	for _, c := range AvailableCards(s, nil) {
+	for _, c := range AvailableCards(s, u) {
 		if c == cardTool {
 			p.Activity = s.Activity
 			continue
 		}
-		frame := ComposeFrame(s, c, nil, []Session{s}, now)
+		frame := ComposeFrame(s, c, u, []Session{s}, now)
 		p.Frames = append(p.Frames, CardFrame{Card: cardName(c), Pixels: hexPixels(&frame)})
 	}
 	return p

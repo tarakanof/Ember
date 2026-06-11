@@ -12,9 +12,8 @@ func TestPreviewSourceCardDefaultOnAndOff(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// Common "old client" params — no source_card or session_bar.
-	oldParams := "context_pct=false&context_number=false&rate_pct=false" +
-		"&rate_bottom_bar=false&rate_reset=false&activity_detail=false"
+	// Common params — no source_card or session_bar; deprecated params are ignored.
+	oldParams := "context_pct=false&rate_bottom_bar=false&activity_detail=false"
 
 	decodeFrames := func(rawURL string) []struct {
 		Card   string   `json:"card"`
@@ -99,9 +98,10 @@ func TestPreviewEndpointOpenAndShaped(t *testing.T) {
 	defer srv.Close()
 
 	// No /state sessions -> sample fallback (state "running", tool "claude").
-	// Enable context number + pct so the ctx card appears alongside source.
-	url := srv.URL + "/v1/preview?context_pct=true&context_number=true&rate_pct=false" +
-		"&rate_bottom_bar=false&rate_reset=false&activity_detail=true&source_color=%23ff8800"
+	// Enable context_pct and activity; deprecated params (rate_pct, context_number,
+	// rate_reset) are silently ignored.
+	url := srv.URL + "/v1/preview?context_pct=true&rate_bottom_bar=false" +
+		"&activity_detail=true&source_color=%23ff8800"
 
 	resp, err := http.Get(url) // no Authorization header: endpoint must be open
 	if err != nil {
@@ -137,8 +137,8 @@ func TestPreviewEndpointOpenAndShaped(t *testing.T) {
 			t.Fatalf("card %s pixels = %d, want 256", f.Card, len(f.Pixels))
 		}
 	}
-	// ctx card is gone (usage cards are Task 3+; preview uses AvailableCards(s, nil)).
 	// Source card is always present; the tool card is excluded from Frames (no static grid).
+	// Usage cards are present because usage_card defaults true.
 	if !seen["source"] {
 		t.Fatalf("expected source card, got %v", seen)
 	}
