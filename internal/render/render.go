@@ -501,6 +501,37 @@ func rateColor(pct int) RGB {
 	}
 }
 
+// drawUsageClock paints the 5h reset readout: the host-local HH:MM tight
+// clock when the label is known, else the ceil-hours hourglass (codex, or
+// statusline data without a label).
+func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
+	if u.ResetLabel != "" {
+		drawClockInto(f, u.ResetLabel, numStart)
+		return
+	}
+	text, col := resetText(u.ResetAt, now)
+	drawDigits(f, text, numStart, 1, col)
+}
+
+// drawUnitPctFace paints a two-glyph gray unit ("7d", "OP", "SO") followed by
+// a clamped 2-digit percent in the threshold colour — the "7d42" face shape.
+func drawUnitPctFace(f *Frame, unit string, pct int) {
+	drawDigits(f, unit, numStart, 1, usageGray)
+	drawDigits(f, pctDigits(pct), numStart+8, 1, rateColor(pct))
+}
+
+// pctDigits is rateText without the % sign (the unit glyphs already say
+// what the number is): clamped 0..99 so it always fits two glyphs.
+func pctDigits(pct int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 99 {
+		pct = 99
+	}
+	return itoa(pct)
+}
+
 // PickWinning returns the priority-winning session, its state colour, and
 // the total active session count (any non-idle session). When no session
 // is active, win is nil. Priority order: waiting > error > running > done.
@@ -787,7 +818,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if selected == cardTool {
 		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
 	}
-	frame := ComposeFrame(*session, selected, snap.Sessions, snap.Now)
+	frame := ComposeFrame(*session, selected, nil, snap.Sessions, snap.Now) // usage view threaded in the next commit
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -796,19 +827,35 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 // iconNeutral when absent/invalid, so each machine has a persistent identity
 // colour. The inner feature — Claude eye sockets or the Codex "_" cursor —
 // is painted in the state colour (green/amber/red/blue) so activity is always
-// readable. Card text colours are per-card (source = source colour or white;
-// usage faces land in the next commit). Glass uses the state colour. Row 7
-// receives either the rate bar (when RateBottomBar is set and data is
-// present), the session-count bar (when sessionBarEnabled), or nothing.
-func ComposeFrame(s Session, card int, sessions []Session, now time.Time) Frame {
+// readable. Card text colours are per-card: source = source colour or white;
+// 5h/7d/model percent = threshold colour (green <70 / amber 70–89 / red ≥90);
+// reset clock = white digits with a dimmed colon; hourglass fallback = urgency
+// colour (amber in the final hour, green otherwise). Glass uses the state
+// colour. Row 7 receives either the rate bar (when RateBottomBar is set and
+// data is present), the session-count bar (when sessionBarEnabled), or nothing.
+func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now time.Time) Frame {
 	var f Frame
 	drawToolIcon8(&f, s, iconBodyColor(s), colorForState(s.State))
 
 	switch {
+	case card == cardUsage5h && u != nil:
+		if s.RateBottomBar {
+			drawUsageClock(&f, u, now) // pct lives on the bar; slot shows the clock
+		} else {
+			drawDigits(&f, rateText(u.FiveHourPct), numStart, 1, rateColor(u.FiveHourPct))
+		}
+	case card == cardUsageReset && u != nil:
+		drawUsageClock(&f, u, now)
+	case card == cardUsage7d && u != nil && u.SevenDayPct != nil:
+		drawUnitPctFace(&f, "7d", *u.SevenDayPct)
+	case card == cardUsageModelA && u != nil && len(u.Models) > 0:
+		drawUnitPctFace(&f, u.Models[0].Marker, u.Models[0].Pct)
+	case card == cardUsageModelB && u != nil && len(u.Models) > 1:
+		drawUnitPctFace(&f, u.Models[1].Marker, u.Models[1].Pct)
 	case card == cardSource && s.Source != "":
 		drawDigits(&f, sourceCardText(s.Source), numStart, 1, sourceColorOr(s, colorWhite))
 	default:
-		// card == cardNone (no cards available) or usage faces (Task 3): blank number slot.
+		// card == cardNone (no cards available): blank number slot.
 	}
 
 	glassFillColor := colorForState(s.State)

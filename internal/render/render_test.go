@@ -760,7 +760,7 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 
 func TestComposeFrame_CodexSprite(t *testing.T) {
 	// No SourceColor → neutral body; state colour covers the "_" cursor overlay.
-	f := ComposeFrame(Session{Tool: "codex", State: "running"}, cardSource, nil, time.Now())
+	f := ComposeFrame(Session{Tool: "codex", State: "running"}, cardSource, nil, nil, time.Now())
 	// Row 0 col 0 lights the chevron body in iconNeutral.
 	if !f.Dirty[0][0] || f.Pixels[0][0] != iconNeutral {
 		t.Errorf("codex icon (0,0) not lit in neutral body colour: %v", f.Pixels[0][0])
@@ -873,7 +873,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 	rw := 50
 	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, RateWindowPct: &rw, UpdatedAt: now}
-	f := ComposeFrame(s, cardSource, others, time.Now())
+	f := ComposeFrame(s, cardSource, nil, others, time.Now())
 	for x := 8; x <= 19; x++ {
 		if f.Pixels[7][x] != dimThreshold(50) {
 			t.Fatalf("rate bar: col %d = %v, want fill %v", x, f.Pixels[7][x], dimThreshold(50))
@@ -885,7 +885,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 
 	// Toggle OFF → session-count bar (2 sessions → cols 11,12 by priority: waiting, running).
 	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now}
-	fOff := ComposeFrame(sOff, cardSource, others, time.Now())
+	fOff := ComposeFrame(sOff, cardSource, nil, others, time.Now())
 	if fOff.Pixels[7][11] != colorWaiting || fOff.Pixels[7][12] != colorRunning {
 		t.Errorf("session bar: got col11=%v col12=%v, want waiting,running", fOff.Pixels[7][11], fOff.Pixels[7][12])
 	}
@@ -893,7 +893,7 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 	// Toggle ON but no rate data → graceful fallback to the session-count bar.
 	sFallback := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, UpdatedAt: now}
-	fFallback := ComposeFrame(sFallback, cardSource, others, time.Now())
+	fFallback := ComposeFrame(sFallback, cardSource, nil, others, time.Now())
 	if fFallback.Pixels[7][11] != colorWaiting || fFallback.Pixels[7][12] != colorRunning {
 		t.Errorf("fallback: got col11=%v col12=%v, want session bar (waiting,running)", fFallback.Pixels[7][11], fFallback.Pixels[7][12])
 	}
@@ -1177,7 +1177,7 @@ func TestDrawToolIcon8(t *testing.T) {
 
 func TestComposeFrameUsesToolIcon(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "running"}
-	f := ComposeFrame(s, cardSource, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
 	if !f.Dirty[0][2] {
 		t.Errorf("icon not drawn at (2,0)")
 	}
@@ -1267,5 +1267,50 @@ func TestIdleFrameUses8pxIcon(t *testing.T) {
 	}
 	if _, hasText := p["text"]; hasText {
 		t.Error("idle frame must stay text-free")
+	}
+}
+
+func TestComposeFrameUsageFaces(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	p7 := 95
+	u := &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7,
+		Models: []ModelUsage{{Marker: "OP", Pct: 51}}}
+	s := Session{Source: "mbp", Tool: "claude", State: "running", RateBottomBar: true}
+
+	// 5h face in rate-bar mode: clock at numStart — '1' row 0 is ".X." so its
+	// lit pixel is x=numStart+1.
+	f := ComposeFrame(s, cardUsage5h, u, []Session{s}, now)
+	if !f.Dirty[1][10] {
+		t.Fatal("5h face: clock not painted")
+	}
+
+	// 5h face in sessions-bar mode: "87%" digits in rateColor(87)=amber.
+	s2 := s
+	s2.RateBottomBar = false
+	f = ComposeFrame(s2, cardUsage5h, u, []Session{s2}, now)
+	if got := f.Pixels[1][9]; got != rateColor(87) {
+		t.Fatalf("5h pct face: pixel = %v, want amber %v", got, rateColor(87))
+	}
+
+	// 7d face: gray "7d" then red 95.
+	f = ComposeFrame(s, cardUsage7d, u, []Session{s}, now)
+	if got := f.Pixels[1][9]; got != usageGray {
+		t.Fatalf("7d unit: pixel = %v, want gray %v", got, usageGray)
+	}
+	if got := f.Pixels[1][17]; got != rateColor(95) {
+		t.Fatalf("7d pct: pixel = %v, want red %v", got, rateColor(95))
+	}
+
+	// Model face: gray "OP" + pct.
+	f = ComposeFrame(s, cardUsageModelA, u, []Session{s}, now)
+	if got := f.Pixels[1][9]; got != usageGray {
+		t.Fatalf("model marker: pixel = %v, want gray %v", got, usageGray)
+	}
+
+	// Reset face without a label: hourglass fallback (resetText colour).
+	u2 := &UsageView{FiveHourPct: 61, ResetAt: now.Add(3 * time.Hour).Unix()}
+	f = ComposeFrame(s2, cardUsageReset, u2, []Session{s2}, now)
+	if got := f.Pixels[1][9]; got != colorRunning { // 3 hours left -> green
+		t.Fatalf("reset fallback: pixel = %v, want green %v", got, colorRunning)
 	}
 }

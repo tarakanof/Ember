@@ -50,7 +50,7 @@ func TestRenderIdleFrameKeepsEyeSocketsDark(t *testing.T) {
 func TestIconInvalidHexFallsBackToNeutral(t *testing.T) {
 	bad := "not-a-colour"
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceColor: &bad}
-	f := ComposeFrame(s, cardSource, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
 	// Body pixel at (row 1, col 1) must use iconNeutral when source colour is invalid.
 	if f.Pixels[1][1] != iconNeutral {
 		t.Fatalf("body with invalid hex = %v, want iconNeutral %v", f.Pixels[1][1], iconNeutral)
@@ -60,7 +60,7 @@ func TestIconInvalidHexFallsBackToNeutral(t *testing.T) {
 func TestIconBodySourceColoredEyesStateColored(t *testing.T) {
 	col := "#3366FF"
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceColor: &col}
-	f := ComposeFrame(s, cardSource, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
 
 	body := RGB{0x33, 0x66, 0xFF}
 	// Head-top pixel (row 1, col 1 of usageIconClaude) carries the source colour.
@@ -75,7 +75,7 @@ func TestIconBodySourceColoredEyesStateColored(t *testing.T) {
 
 func TestIconNeutralFallbackWithoutSourceColor(t *testing.T) {
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "waiting"}
-	f := ComposeFrame(s, cardSource, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
 	if f.Pixels[1][1] != iconNeutral {
 		t.Fatalf("body = %v, want neutral %v", f.Pixels[1][1], iconNeutral)
 	}
@@ -87,7 +87,7 @@ func TestIconNeutralFallbackWithoutSourceColor(t *testing.T) {
 func TestCodexCursorStateColored(t *testing.T) {
 	col := "#3366FF"
 	s := Session{Source: "mbp", Tool: "codex", Session: "s1", State: "error", SourceColor: &col}
-	f := ComposeFrame(s, cardSource, []Session{s}, time.Now())
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
 	if f.Pixels[0][0] != (RGB{0x33, 0x66, 0xFF}) {
 		t.Fatalf("chevron = %v, want source colour", f.Pixels[0][0])
 	}

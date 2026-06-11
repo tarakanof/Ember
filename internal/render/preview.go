@@ -124,7 +124,7 @@ func PreviewFrames(s Session, now time.Time) Preview {
 			p.Activity = s.Activity
 			continue
 		}
-		frame := ComposeFrame(s, c, []Session{s}, now)
+		frame := ComposeFrame(s, c, nil, []Session{s}, now)
 		p.Frames = append(p.Frames, CardFrame{Card: cardName(c), Pixels: hexPixels(&frame)})
 	}
 	return p
