@@ -109,8 +109,8 @@ type Preview struct {
 }
 
 // PreviewFrames renders each card in AvailableCards(s) except the scrolling
-// tool card, using the established single-session preview call
-// (idx=1,total=1, robot colour from state, bottom bar fed the single session).
+// tool card, using the robot colour from state and the single session as the
+// bottom-bar source.
 func PreviewFrames(s Session, now time.Time) Preview {
 	p := Preview{Width: 32, Height: 8, Frames: []CardFrame{}}
 	for _, c := range AvailableCards(s) {
@@ -118,7 +118,7 @@ func PreviewFrames(s Session, now time.Time) Preview {
 			p.Activity = s.Activity
 			continue
 		}
-		frame := ComposeFrame(s, 1, 1, c, colorForState(s.State), []Session{s}, now)
+		frame := ComposeFrame(s, c, colorForState(s.State), []Session{s}, now)
 		p.Frames = append(p.Frames, CardFrame{Card: cardName(c), Pixels: hexPixels(&frame)})
 	}
 	return p

@@ -317,12 +317,10 @@ const (
 // drawSessionBar paints one pixel per non-idle session at row 7, starting
 // from cols barStart..barEnd. Pixels are coloured by each session's state
 // using the existing state-colour palette. Order is priority-first
-// (waiting > error > running > done) then (source, tool, session) lex —
-// identical to the X/Y rotation order so the leftmost pixel corresponds
-// to rotation slot 1/Y. Sessions in state "idle" are excluded. If more
-// than barWidth (21) non-idle sessions exist, only the first 21 are
-// painted; no special overflow indicator is drawn (the digit area's
-// X/9+ truncation already conveys overflow).
+// (waiting > error > running > done) then (source, tool, session) lex.
+// Sessions in state "idle" are excluded. If more than barWidth (21)
+// non-idle sessions exist, only the first 21 are painted; overflow is
+// simply not indicated.
 func drawSessionBar(f *Frame, sessions []Session) {
 	type entry struct {
 		prio  int
@@ -793,9 +791,6 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if session == nil {
 		return nil
 	}
-	idx := slices.Index(keys, chosen) + 1 // 1-based rotation index
-	total := len(keys)
-
 	stateColor := colorForState(session.State)
 
 	if locked && (session.State == "waiting" || session.State == "error") {
@@ -818,7 +813,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if selected == cardTool {
 		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds)
 	}
-	frame := ComposeFrame(*session, idx, total, selected, stateColor, snap.Sessions, snap.Now)
+	frame := ComposeFrame(*session, selected, stateColor, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds)
 }
 
@@ -856,9 +851,10 @@ func composeRobotPixels(s Session, robotColor RGB) []int {
 // ComposeFrame paints the standard layout for one session using the
 // supplied robot colour. Digits stay source-coloured (or white fallback)
 // regardless of robot colour. Glass uses the session's state colour
-// directly. Row 7 receives the session-count bar drawn from the full
-// active-session list `sessions` — see drawSessionBar.
-func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Session, now time.Time) Frame {
+// directly. Row 7 receives either the rate bar (when RateBottomBar is set
+// and data is present), the session-count bar (when sessionBarEnabled), or
+// nothing — see drawSessionBar / drawRateBar.
+func ComposeFrame(s Session, card int, robotColor RGB, sessions []Session, now time.Time) Frame {
 	var f Frame
 	drawToolIcon8(&f, s, robotColor)
 
@@ -883,7 +879,7 @@ func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 			text, col := resetText(s.RateResetAt, now)
 			drawDigits(&f, text, numStart, 1, col)
 		}
-	default:
+	case card == cardSource && s.Source != "":
 		digitColor := colorWhite
 		if s.SourceColor != nil {
 			if c, ok := parseHex(*s.SourceColor); ok {
@@ -891,6 +887,8 @@ func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 			}
 		}
 		drawDigits(&f, sourceCardText(s.Source), numStart, 1, digitColor)
+	default:
+		// card == -1 (no cards available) or data went missing: blank number slot.
 	}
 
 	glassFillColor := colorForState(s.State)
@@ -899,7 +897,7 @@ func ComposeFrame(s Session, idx, total, card int, robotColor RGB, sessions []Se
 	if s.RateBottomBar && s.RateWindowPct != nil {
 		pct := *s.RateWindowPct
 		drawRateBar(&f, pct, rateColor(pct))
-	} else {
+	} else if sessionBarEnabled(s) {
 		drawSessionBar(&f, sessions)
 	}
 	return f
