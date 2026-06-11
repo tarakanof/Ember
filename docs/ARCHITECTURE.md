@@ -119,7 +119,8 @@ without relaunch. Hybrid layout:
   and the `@Observable AppModel` + poller. Headless `swift test`.
 - **`Ember` (`macos/Ember/`, thin Xcode app)** — an `LSUIElement` agent
   app: a `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a
-  `Settings` scene with four tabs (**Connection / Display / Pomodoro / App**),
+  sidebar `Settings` window (**Connection / Device / Agent / Pomodoro / Weather /
+  Reminders / App**),
   and a status + preview **dashboard** `Window`. App-only prefs (icon palette,
   tray glyphs) live in `UserDefaults`; launch-at-login is `SMAppService`.
 
