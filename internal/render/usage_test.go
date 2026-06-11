@@ -1,6 +1,8 @@
 package render
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestUsageBarFill(t *testing.T) {
 	// 24-wide content bar, 50% -> 12 filled
@@ -60,6 +62,25 @@ func TestFiveHourPayloadIsSingleDrawNoText(t *testing.T) {
 	draws := p["draw"].([]any)
 	if len(draws) != 1 {
 		t.Errorf("want 1 full-frame draw, got %d", len(draws))
+	}
+}
+
+func TestLimitResetPopupPayload(t *testing.T) {
+	p := LimitResetPopupPayload("claude", 10)
+	if p["text"] != "CLAUDE 5H RESET" {
+		t.Fatalf("text = %v", p["text"])
+	}
+	if _, hasHold := p["hold"]; hasHold {
+		t.Fatal("popup must auto-dismiss (no hold)")
+	}
+	if p["duration"] != 10 {
+		t.Fatalf("duration = %v", p["duration"])
+	}
+	if _, ok := p["draw"]; !ok {
+		t.Fatal("expected drawn tool icon")
+	}
+	if p2 := LimitResetPopupPayload("codex", 10); p2["text"] != "CODEX 5H RESET" {
+		t.Fatalf("codex text = %v", p2["text"])
 	}
 }
 

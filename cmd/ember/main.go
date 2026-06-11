@@ -55,6 +55,7 @@ type Config struct {
 	// (nil → default on) from an explicit false; resolved via the helpers below.
 	UsageWidget   *bool `json:"usage_widget,omitempty"`
 	UsagePerModel *bool `json:"usage_per_model,omitempty"`
+	LimitAlarm    *bool `json:"limit_alarm,omitempty"`
 }
 
 // usageWidgetEnabled reports whether the standalone AI-usage apps should be
@@ -64,6 +65,10 @@ func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.Us
 // usagePerModelEnabled reports whether the Claude per-model (Opus/Sonnet) usage
 // frames should be pushed. Default on (nil pointer).
 func (c Config) usagePerModelEnabled() bool { return c.UsagePerModel == nil || *c.UsagePerModel }
+
+// limitAlarmEnabled reports whether the 5h-limit reset popup+chime is armed.
+// Default on (nil pointer).
+func (c Config) limitAlarmEnabled() bool { return c.LimitAlarm == nil || *c.LimitAlarm }
 
 // PomodoroConfig holds the Pomodoro feature's static defaults. Runtime-editable
 // settings (durations, colours, toggles) are persisted in the stats store and

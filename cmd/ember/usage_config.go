@@ -12,21 +12,27 @@ const usageSettingsKey = "usage_json"
 type usageConfigDTO struct {
 	UsageWidget   bool `json:"usage_widget"`
 	UsagePerModel bool `json:"usage_per_model"`
+	LimitAlarm    bool `json:"limit_alarm"`
 }
 
 func (a *App) usageDTO() usageConfigDTO {
 	c := a.cfg.Load()
-	return usageConfigDTO{UsageWidget: c.usageWidgetEnabled(), UsagePerModel: c.usagePerModelEnabled()}
+	return usageConfigDTO{
+		UsageWidget:   c.usageWidgetEnabled(),
+		UsagePerModel: c.usagePerModelEnabled(),
+		LimitAlarm:    c.limitAlarmEnabled(),
+	}
 }
 
 // applyUsageSettings swaps the toggles into the live config and persists them.
-// The coordinator reads usageWidgetEnabled()/usagePerModelEnabled() live, so the
-// change takes effect on the next reconcile tick.
+// The coordinator reads usageWidgetEnabled()/usagePerModelEnabled()/limitAlarmEnabled()
+// live, so the change takes effect on the next reconcile tick.
 func (a *App) applyUsageSettings(dto usageConfigDTO) {
 	cur := *a.cfg.Load()
-	uw, upm := dto.UsageWidget, dto.UsagePerModel
+	uw, upm, la := dto.UsageWidget, dto.UsagePerModel, dto.LimitAlarm
 	cur.UsageWidget = &uw
 	cur.UsagePerModel = &upm
+	cur.LimitAlarm = &la
 	a.cfg.Store(&cur)
 	if a.store != nil {
 		if blob, err := json.Marshal(dto); err == nil {
@@ -46,7 +52,10 @@ func (a *App) loadPersistedUsageSettings() {
 	if err != nil || !ok {
 		return
 	}
-	var dto usageConfigDTO
+	// Pre-seed from the current config so missing keys in a legacy blob (e.g.
+	// blobs written before limit_alarm existed) keep their default values
+	// rather than unmarshalling as false and silently disabling the feature.
+	dto := a.usageDTO()
 	if err := json.Unmarshal([]byte(blob), &dto); err != nil {
 		a.logger.Warn("usage persisted settings parse failed", "err", err)
 		return

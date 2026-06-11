@@ -28,6 +28,10 @@ type recordingPublisher struct {
 	rtttls      []string
 	sounds      []string
 	loopApps    []string // app names returned by ListApps (device rotation)
+
+	// failNotify, when non-nil, is called on each Notify call and returns an
+	// error to simulate a device-unreachable condition. Return nil to succeed.
+	failNotify func() error
 }
 
 func (p *recordingPublisher) ListApps(_ context.Context) ([]string, error) {
@@ -71,7 +75,24 @@ func (p *recordingPublisher) CustomNamesSnapshot() []string {
 	return out
 }
 
+// NotifySnapshot returns a copy of recorded Notify payloads under the lock.
+func (p *recordingPublisher) NotifySnapshot() []map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]map[string]any, len(p.notify))
+	copy(out, p.notify)
+	return out
+}
+
 func (p *recordingPublisher) Notify(_ context.Context, payload map[string]any) error {
+	p.mu.Lock()
+	fn := p.failNotify
+	p.mu.Unlock()
+	if fn != nil {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.notify = append(p.notify, payload)

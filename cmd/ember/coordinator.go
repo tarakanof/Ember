@@ -136,6 +136,12 @@ type coordinator struct {
 	usage           *UsageStore
 	pushedUsageApps map[string]pushedUsageApp
 
+	// alarmArmed/alarmFired track the 5h limit-reset alarm per tool (key:
+	// tool, value: ResetsAt epoch). In-memory by design; see checkLimitAlarms.
+	// Coordinator-goroutine-owned (touched only from onTick).
+	alarmArmed map[string]int64
+	alarmFired map[string]int64
+
 	// weather, when non-nil, holds the latest observation. reconcileWeatherApp
 	// pushes/refreshes/clears the single "ember-weather" rotating tile from it,
 	// tracked by pushedWeather (same change-and-staleness logic as usage apps).
@@ -513,6 +519,7 @@ func (c *coordinator) onTick() {
 	c.reconcileUsageApps(c.clk.Now(), snap)
 	c.reconcileWeatherApp(c.clk.Now())
 	c.reconcileForecastApp(c.clk.Now())
+	c.checkLimitAlarms(c.clk.Now(), snap)
 }
 
 // adoptDeviceManagedApps seeds the in-memory push trackers from the apps
