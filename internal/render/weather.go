@@ -159,7 +159,7 @@ func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifeti
 	drawForecastStrip(&f, hourly, 9, 31, 7) // bottom-row hourly strip (temp text occupies rows 1–5)
 	return map[string]any{
 		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
-		"lifetime": lifetime, "duration": 6,
+		"lifetime": lifetime, "duration": rotateDwellSeconds,
 	}
 }
 
