@@ -558,7 +558,11 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	if hp, ok := publisher.(*HTTPPublisher); ok {
 		hp.app = a
 	}
-	a.coord = newCoordinator(cfg, a.cfg.Load, publisher, realClock{}, logger, a.metrics)
+	// All device traffic flows through the quiet-hours gate; the raw publisher
+	// is never handed out past this point.
+	quiet := &quietPublisher{next: publisher, cfg: a.cfg.Load, now: time.Now}
+	a.publisher = quiet
+	a.coord = newCoordinator(cfg, a.cfg.Load, quiet, realClock{}, logger, a.metrics)
 	a.coord.snapshot = a.Snapshot
 	a.coord.onPublishResult = a.recordPublish
 	a.hiddenApps = map[string]bool{}
