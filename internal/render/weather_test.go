@@ -144,8 +144,8 @@ func TestWeatherTileFrame_MatchesPayloadPixels(t *testing.T) {
 	if got := framePixels(&f); !slicesEqualInt(got, want) {
 		t.Errorf("exported weather frame diverges from the payload bitmap")
 	}
-	ff := ForecastTileFrame(WeatherRain, "21°", hourly)
-	pf := ForecastPayload(WeatherRain, "21°", hourly, 90)
+	ff := ForecastTileFrame(hourly)
+	pf := ForecastPayload(hourly, 90)
 	wantF := pf["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
 	if got := framePixels(&ff); !slicesEqualInt(got, wantF) {
 		t.Errorf("exported forecast frame diverges from the payload bitmap")

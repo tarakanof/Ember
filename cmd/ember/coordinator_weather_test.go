@@ -220,12 +220,15 @@ func TestReconcileTilesNativeIcons(t *testing.T) {
 	if len(apps) != 2 {
 		t.Fatalf("expected weather+forecast pushes, got %d", len(apps))
 	}
-	for i, p := range apps {
-		if p["icon"] != "72" { // rain default gallery ID
-			t.Errorf("payload %d icon = %v, want 72", i, p["icon"])
-		}
-		if _, has := p["text"]; has {
-			t.Errorf("payload %d carries native text; digits must stay drawn", i)
-		}
+	// Conditions tile carries the native icon; digits stay drawn.
+	if apps[0]["icon"] != "72" { // rain default gallery ID
+		t.Errorf("weather payload icon = %v, want 72", apps[0]["icon"])
+	}
+	if _, has := apps[0]["text"]; has {
+		t.Errorf("weather payload carries native text; digits must stay drawn")
+	}
+	// The forecast tile is full-width bars — no icon slot, native mode is moot.
+	if _, has := apps[1]["icon"]; has {
+		t.Errorf("forecast payload must not carry an icon (bars own the matrix)")
 	}
 }

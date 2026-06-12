@@ -186,23 +186,25 @@ only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`).
 latest observation lives in an in-memory `weatherStore`; the coordinator reconciles
 two rotating tiles with the same change-and-staleness dedupe as the usage card:
 
-- **`ember-weather`** — 8×8 condition icon + current temperature + a 1-px
-  per-hour **forecast strip** along the bottom row, coloured by a cold→warm
-  temperature gradient (`render.TempColor`). On a **clear night** the icon becomes
-  the current **moon phase** (`moon_phase`; phase computed locally in
-  `cmd/ember/astro.go`, no API).
-- **`ember-forecast`** (`forecast_tile`, default on) — same icon+temp header, then
-  vertical **hourly temperature bars** filling the right (`forecast_hours`, 6..24;
-  bar height + colour = temperature).
+- **`ember-weather`** — 8×8 condition icon + the current temperature **centred**
+  in the free area + a 2-px-tall per-hour **forecast strip** (rows 6–7),
+  coloured by a cold→warm temperature gradient (`render.TempColor`). On a
+  **clear night** the icon becomes the current **moon phase** (`moon_phase`;
+  phase computed locally in `cmd/ember/astro.go`, no API).
+- **`ember-forecast`** (`forecast_tile`, default on) — **full-width hourly
+  temperature bars** (no icon/temp — those live on the conditions tile, so the
+  two tiles read differently at a glance); bars are stretched evenly across
+  all 32 columns (`forecast_hours`, 6..24; bar height + colour = temperature).
 
-**Native tile icons** (`tile_native_icons`, default off): both tiles swap the
-drawn 8×8 condition sprite for the **native animated AWTRIX/LaMetric icon**
-(same `icon_ids` mapping as popups) while digits/strip/bars stay drawn,
+**Native tile icon** (`tile_native_icons`, default off): the **conditions
+tile** swaps its drawn 8×8 sprite for the **native animated AWTRIX/LaMetric
+icon** (same `icon_ids` mapping as popups) while digits/strip stay drawn,
 emitted as a **partial bitmap** (`db` over cols 8–31). Device-verified
 (2026-06-12): db coords are absolute and render alongside `icon`; the clock
 downloads a gallery icon on first reference, so a fresh ID is blank for a few
 seconds. The **moon phase wins** over native icons on clear nights (no
-per-phase gallery set). Independent of `use_native_icons` (popup-only).
+per-phase gallery set). The forecast tile has no icon slot. Independent of
+`use_native_icons` (popup-only).
 
 **Weather preview** — `GET /v1/weather/preview` (open, read-only, mirrors
 `/v1/preview`): renders the tiles under draft query params (`rotate_in_apps`,

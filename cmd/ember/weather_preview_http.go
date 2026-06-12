@@ -52,7 +52,7 @@ func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
 		p.Frames = append(p.Frames, render.CardFrame{Card: "weather", Pixels: render.HexPixels(&f)})
 	}
 	if queryBoolDefault(q.Get("forecast_tile"), true) && len(window) > 0 {
-		f := render.ForecastTileFrame(obs.Condition, tempText, window)
+		f := render.ForecastTileFrame(window)
 		p.Frames = append(p.Frames, render.CardFrame{Card: "forecast", Pixels: render.HexPixels(&f)})
 	}
 	writeJSON(w, http.StatusOK, p)

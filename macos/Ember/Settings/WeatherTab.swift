@@ -30,11 +30,11 @@ struct WeatherTab: View {
                     panelPreview(
                         title: "CURRENT CONDITIONS", card: "weather",
                         enabled: config.rotateInApps,
-                        caption: "Condition icon (moon on clear nights) · current temp · bottom row: next-\(config.forecastHours) h temperature strip, blue = cold → red = warm.")
+                        caption: "Condition icon (moon on clear nights) · current temp · bottom strip: next \(config.forecastHours) h, blue = cold → red = warm.")
                     panelPreview(
                         title: "HOURLY FORECAST", card: "forecast",
                         enabled: config.forecastTile,
-                        caption: "Hourly temperature bars — height and colour = temperature, next \(config.forecastHours) h.")
+                        caption: "Full-width temperature bars — height and colour = temperature, next \(config.forecastHours) h.")
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -88,6 +88,7 @@ struct WeatherTab: View {
 
             Section(isExpanded: $conditionsExpanded) {
                 Toggle("Show on clock", isOn: $config.rotateInApps)
+                Toggle("Native animated icon", isOn: $config.tileNativeIcons)
                 Toggle("Moon phase on clear nights", isOn: $config.moonPhase)
             } header: {
                 Text("Current conditions panel")
@@ -100,7 +101,6 @@ struct WeatherTab: View {
             }
 
             Section(isExpanded: $sharedExpanded) {
-                Toggle("Native animated icon", isOn: $config.tileNativeIcons)
                 Stepper("Hours ahead: \(config.forecastHours)",
                         value: $config.forecastHours, in: 6...24, step: 1)
                 Stepper("Refresh every \(config.refreshMinutes) min",
@@ -135,7 +135,7 @@ struct WeatherTab: View {
                 } header: {
                     Text("Native icon IDs")
                 } footer: {
-                    Text("LaMetric icon IDs (developer.lametric.com/icons), used by popups and tiles. Leave blank to use the built-in default. The clock downloads an icon on first use, so a new ID can be blank for a few seconds.")
+                    Text("LaMetric icon IDs (developer.lametric.com/icons), used by popups and the conditions tile. Leave blank to use the built-in default. The clock downloads an icon on first use, so a new ID can be blank for a few seconds.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
