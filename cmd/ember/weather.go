@@ -198,6 +198,21 @@ type weatherObservation struct {
 // a config change doesn't require a refetch.
 const forecastFetchHours = 24
 
+// airFetchHours is the hourly-AQI window we request: the tile strip has 23
+// columns, so 24 values cover it with the current hour included.
+const airFetchHours = 24
+
+// airObservation is one air-quality reading: the current European AQI (EAQI),
+// the headline particulates (logged/labelled only — not rendered), and the
+// hourly AQI forecast that drives the tile's trend strip.
+type airObservation struct {
+	AQI       float64
+	PM25      float64
+	PM10      float64
+	HourlyAQI []float64
+	FetchedAt time.Time
+}
+
 // weatherStore holds the latest observation plus popup bookkeeping. All access
 // goes through the mutex; the poller writes, the coordinator reads for the tile.
 type weatherStore struct {
@@ -214,6 +229,15 @@ type weatherStore struct {
 	// a given day's event fires at most once.
 	sunriseDoneDay string
 	sunsetDoneDay  string
+
+	// Air quality (poller-owned writes, coordinator reads for the tile).
+	air     airObservation
+	haveAir bool
+	// prevAQI is the popup edge state: the threshold popup fires only when a
+	// reading crosses up over the threshold from below (or on the very first
+	// reading — a restart mid-episode should still alert).
+	prevAQI     float64
+	havePrevAQI bool
 }
 
 func newWeatherStore() *weatherStore { return &weatherStore{} }
@@ -224,23 +248,31 @@ func (s *weatherStore) current() (weatherObservation, bool) {
 	return s.obs, s.have
 }
 
+func (s *weatherStore) currentAir() (airObservation, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.air, s.haveAir
+}
+
 // ---- provider fetch ----
 
 // weatherFetcher performs provider HTTP calls. Base URLs are fields so tests can
 // point them at httptest servers.
 type weatherFetcher struct {
-	client        *http.Client
-	openMeteoBase string
-	metNoBase     string
-	userAgent     string
+	client         *http.Client
+	openMeteoBase  string
+	metNoBase      string
+	airQualityBase string
+	userAgent      string
 }
 
 func newWeatherFetcher() *weatherFetcher {
 	return &weatherFetcher{
-		client:        &http.Client{Timeout: 12 * time.Second},
-		openMeteoBase: "https://api.open-meteo.com",
-		metNoBase:     "https://api.met.no",
-		userAgent:     "ember-weather/0.1 (github.com/tarakanof/ember)",
+		client:         &http.Client{Timeout: 12 * time.Second},
+		openMeteoBase:  "https://api.open-meteo.com",
+		metNoBase:      "https://api.met.no",
+		airQualityBase: "https://air-quality-api.open-meteo.com",
+		userAgent:      "ember-weather/0.1 (github.com/tarakanof/ember)",
 	}
 }
 
@@ -339,6 +371,32 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (we
 		hourly[i] = body.Properties.Timeseries[i].Data.Instant.Details.AirTemperature
 	}
 	return weatherObservation{Condition: cond, TempC: first.Data.Instant.Details.AirTemperature, Severe: severe, Hourly: hourly}, nil
+}
+
+// fetchAirQuality reads the current + hourly European AQI from the Open-Meteo
+// air-quality API. Always Open-Meteo regardless of cfg.Provider — MET Norway
+// has no air-quality product. Free and keyless, same terms as the forecast API.
+func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig) (airObservation, error) {
+	url := fmt.Sprintf("%s/v1/air-quality?latitude=%.4f&longitude=%.4f&current=european_aqi,pm2_5,pm10&hourly=european_aqi&forecast_hours=%d&timezone=auto",
+		strings.TrimRight(wf.airQualityBase, "/"), cfg.Latitude, cfg.Longitude, airFetchHours)
+	var body struct {
+		Current struct {
+			AQI  float64 `json:"european_aqi"`
+			PM25 float64 `json:"pm2_5"`
+			PM10 float64 `json:"pm10"`
+		} `json:"current"`
+		Hourly struct {
+			AQI []float64 `json:"european_aqi"`
+		} `json:"hourly"`
+	}
+	if err := wf.getJSON(ctx, url, &body); err != nil {
+		return airObservation{}, err
+	}
+	hourly := body.Hourly.AQI
+	if len(hourly) > airFetchHours {
+		hourly = hourly[:airFetchHours]
+	}
+	return airObservation{AQI: body.Current.AQI, PM25: body.Current.PM25, PM10: body.Current.PM10, HourlyAQI: hourly}, nil
 }
 
 // wmoCondition maps an Open-Meteo WMO weather code to a render condition bucket
@@ -461,6 +519,9 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	if !due {
 		return
 	}
+	// Air quality rides the same due-gate but fetches independently: one
+	// provider failing must not starve the other.
+	a.pollAir(ctx, now, cfg)
 	obs, err := a.weatherFetcher.fetch(ctx, cfg)
 	if err != nil {
 		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
@@ -496,6 +557,38 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	}
 	a.weather.mu.Unlock()
 	a.nudgePomo() // prompt the coordinator to reconcile the tile promptly
+}
+
+// pollAir fetches the air-quality observation when anything consumes it (tile
+// or popup), stores it, and fires the edge-triggered threshold popup. Failures
+// log and keep the last observation; the tile clears via the stale TTL.
+func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
+	if !cfg.AirTile && cfg.AirPopupThreshold <= 0 {
+		return
+	}
+	obs, err := a.weatherFetcher.fetchAirQuality(ctx, cfg)
+	if err != nil {
+		a.logger.Warn("air-quality fetch failed", "err", err)
+		return
+	}
+	obs.FetchedAt = now
+	a.weather.mu.Lock()
+	prev, havePrev := a.weather.prevAQI, a.weather.havePrevAQI
+	a.weather.air = obs
+	a.weather.haveAir = true
+	a.weather.prevAQI = obs.AQI
+	a.weather.havePrevAQI = true
+	a.weather.mu.Unlock()
+
+	t := float64(cfg.AirPopupThreshold)
+	if cfg.AirPopupThreshold > 0 && obs.AQI >= t && (!havePrev || prev < t) {
+		payload := render.AirPopupPayload(obs.AQI, cfg.PopupDurationSeconds)
+		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := a.publisher.Notify(cctx, payload); err != nil {
+			a.logger.Warn("air popup failed", "err", err)
+		}
+	}
 }
 
 // evaluateWeatherPopup decides whether to fire a popup and does so. Returns true
