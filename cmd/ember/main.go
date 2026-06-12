@@ -24,6 +24,10 @@ import (
 	"syscall"
 	"time"
 
+	// Embedded tz database: TZID resolution must work in the distroless container
+	// image that ships no zoneinfo files; the meetings ICS parser uses LoadLocation.
+	_ "time/tzdata"
+
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
@@ -534,6 +538,12 @@ type App struct {
 	// or stored; only the count is exposed via the config GET endpoint.
 	meetingsURLs []string
 
+	// meetings holds upcoming occurrences + popup bookkeeping; the poller
+	// (StartMeetings) writes it and the coordinator reads it for the tile.
+	// meetingsFetcher performs the ICS HTTP calls. Both non-nil from NewApp.
+	meetings        *meetingsStore
+	meetingsFetcher *icsFetcher
+
 	// iconFetch downloads a LaMetric gallery icon by ID for the weather icon
 	// provisioner (ensureWeatherIcons); injectable in tests. iconMu serialises
 	// provisioner runs.
@@ -567,6 +577,8 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		browseFn:       discovery.BrowseAWTRIX,
 	}
 	a.weatherFetcher = newWeatherFetcher()
+	a.meetings = newMeetingsStore()
+	a.meetingsFetcher = newICSFetcher()
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
 	a.metrics = newMetrics()
@@ -1569,6 +1581,9 @@ func main() {
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}
+	if cfg.Meetings.Enabled && len(app.meetingsURLs) > 0 {
+		logger.Info("meetings enabled", "ics_feeds", len(app.meetingsURLs))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -1607,6 +1622,7 @@ func main() {
 	go app.limiter.runSweeper(ctx)
 	go app.StartCoordinator(ctx)
 	go app.StartWeather(ctx)
+	go app.StartMeetings(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,
