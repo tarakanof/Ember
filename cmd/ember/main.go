@@ -935,6 +935,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/device/settings", rateLimit(a, http.HandlerFunc(a.handleDeviceSettingsGet)))
 	writeMux.Handle("PUT /v1/device/settings", rateLimit(a, http.HandlerFunc(a.handleDeviceSettingsPut)))
 	writeMux.Handle("GET /v1/device/stats", rateLimit(a, http.HandlerFunc(a.handleDeviceStats)))
+	writeMux.Handle("GET /v1/device/sensors", rateLimit(a, http.HandlerFunc(a.handleDeviceSensorsGet)))
+	writeMux.Handle("PUT /v1/device/sensors", rateLimit(a, http.HandlerFunc(a.handleDeviceSensorsPut)))
 	writeMux.Handle("GET /v1/device/screen", rateLimit(a, http.HandlerFunc(a.handleDeviceScreen)))
 	writeMux.Handle("POST /v1/device/reboot", rateLimit(a, http.HandlerFunc(a.handleDeviceReboot)))
 	writeMux.Handle("POST /v1/device/notify/dismiss", rateLimit(a, http.HandlerFunc(a.handleDeviceDismiss)))
