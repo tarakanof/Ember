@@ -112,3 +112,19 @@ func ForecastPayload(cond, tempText string, hourly []float64, lifetime int) map[
 		"lifetime": lifetime, "duration": rotateDwellSeconds,
 	}
 }
+
+// ForecastPayloadNative is the native-icon variant of ForecastPayload: the
+// animated icon takes cols 0-7; temp digits + hourly bars stay drawn and are
+// emitted as a partial bitmap over cols 8-31 (same layout as drawn mode, same
+// device-verified absolute-coords mechanism as WeatherPayloadNative).
+func ForecastPayloadNative(iconID, tempText string, hourly []float64, lifetime int) map[string]any {
+	var f Frame
+	drawDigits(&f, tempText, 9, 1, colorWhite)
+	barStart := 10 + len([]rune(tempText))*4
+	drawForecastBars(&f, hourly, barStart, 31)
+	return map[string]any{
+		"icon":     iconID,
+		"draw":     []any{map[string]any{"db": []any{8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8)}}},
+		"lifetime": lifetime, "duration": rotateDwellSeconds,
+	}
+}
