@@ -23,6 +23,16 @@ struct PreviewCanvas: View {
 
     var body: some View {
         MatrixScreenView(pixels: pixels, width: width, height: height)
+            .overlay(alignment: .bottomTrailing) {
+                if frames.count > 1 {
+                    Text("\(min(index, frames.count - 1) + 1) of \(frames.count)")
+                        .font(.caption2).monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(.black.opacity(0.65), in: Capsule())
+                        .padding(3)
+                }
+            }
             .onReceive(timer) { _ in
                 guard !frames.isEmpty else { return }
                 index = (index + 1) % frames.count

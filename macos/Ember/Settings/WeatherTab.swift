@@ -14,17 +14,49 @@ struct WeatherTab: View {
     @State private var locating = false
     @State private var locateError: String?
     @State private var locateNeedsSettings = false
+    @State private var preview: PreviewResponse?
+
+    // Per-section fold state, persisted so the user's arrangement sticks.
+    @AppStorage("weatherFold.location") private var locationExpanded = false
+    @AppStorage("weatherFold.tile") private var tileExpanded = false
+    @AppStorage("weatherFold.forecast") private var forecastExpanded = false
+    @AppStorage("weatherFold.popups") private var popupsExpanded = false
 
     var body: some View {
         Form {
             Section {
-                Toggle("Enable weather", isOn: $config.enabled)
+                if let preview, !preview.frames.isEmpty {
+                    PreviewCanvas(frames: preview.frames)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(.black)
+                        .listRowInsets(EdgeInsets())
+                } else {
+                    MatrixScreenView(pixels: Array(repeating: 0, count: 256))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(.black)
+                        .listRowInsets(EdgeInsets())
+                        .overlay(Text("No preview").font(.caption).foregroundStyle(.secondary))
+                }
             } footer: {
-                Text("Conditions are fetched server-side from a free, key-less provider and shown as a rotating tile plus optional popups.")
+                Text("The weather panels as the clock shows them, cycling — updates as you change options. Native animated icons appear on the device only (the preview shows the drawn icon).")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Location") {
+            Section {
+                Toggle("Enable weather", isOn: $config.enabled)
+            } footer: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Conditions are fetched server-side from a free, key-less provider and shown as a rotating tile plus optional popups.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    statusCaption
+                }
+            }
+
+            Section(isExpanded: $locationExpanded) {
                 locationAccessRow(status: env.location.authStatus)
                 Picker("Provider", selection: $config.provider) {
                     Text("Open-Meteo").tag("open-meteo")
@@ -50,28 +82,32 @@ struct WeatherTab: View {
                     Text("Metric (°C)").tag("metric")
                     Text("Imperial (°F)").tag("imperial")
                 }
+            } header: {
+                Text("Location")
             }
 
-            Section("Tile") {
+            Section(isExpanded: $tileExpanded) {
                 Toggle("Show rotating tile", isOn: $config.rotateInApps)
+                Toggle("Native animated icon on tiles", isOn: $config.tileNativeIcons)
                 Stepper("Refresh every \(config.refreshMinutes) min",
                         value: $config.refreshMinutes, in: 5...120, step: 5)
+            } header: {
+                Text("Tile")
             }
 
-            Section {
+            Section(isExpanded: $forecastExpanded) {
                 Toggle("Show forecast tile", isOn: $config.forecastTile)
                 Stepper("Forecast hours: \(config.forecastHours)",
                         value: $config.forecastHours, in: 6...24, step: 1)
                 Toggle("Sunrise / sunset alerts", isOn: $config.sunPopups)
                 Toggle("Moon phase on clear nights", isOn: $config.moonPhase)
-            } header: {
-                Text("Forecast & sky")
-            } footer: {
                 Text("The forecast tile shows hourly temperature bars (height + colour = temperature). The weather tile also carries a one-pixel-per-hour strip. Sunrise/sunset and moon use your location, computed on-device.")
                     .font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("Forecast & sky")
             }
 
-            Section {
+            Section(isExpanded: $popupsExpanded) {
                 Toggle("Popup on condition change", isOn: $config.popupOnChange)
                 Stepper(config.popupIntervalMinutes == 0
                         ? "Interval popup: off"
@@ -85,11 +121,9 @@ struct WeatherTab: View {
                 Toggle("Use native animated icons in popups", isOn: $config.useNativeIcons)
             } header: {
                 Text("Popups")
-            } footer: {
-                statusCaption
             }
 
-            if config.useNativeIcons {
+            if config.useNativeIcons || config.tileNativeIcons {
                 Section {
                     ForEach(Self.iconConditions, id: \.key) { row in
                         TextField(row.label, text: iconBinding(row.key),
@@ -98,7 +132,7 @@ struct WeatherTab: View {
                 } header: {
                     Text("Native icon IDs")
                 } footer: {
-                    Text("LaMetric icon IDs (developer.lametric.com/icons). Leave blank to use the built-in default.")
+                    Text("LaMetric icon IDs (developer.lametric.com/icons), used by popups and tiles. Leave blank to use the built-in default. The clock downloads an icon on first use, so a new ID can be blank for a few seconds.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -154,12 +188,21 @@ struct WeatherTab: View {
         }
     }
 
+    /// Refreshes the top preview from the draft config. No-auth endpoint;
+    /// failures just keep the last frames (or the blank placeholder).
+    private func refreshPreview(_ cfg: WeatherConfig) async {
+        if let p = try? await env.preview.fetchWeatherPreview(cfg) {
+            preview = p
+        }
+    }
+
     private func scheduleSave() {
         guard loaded else { return }
         guard config != lastApplied else { return }
         save = .saving
         let cfg = config
         writer.schedule {
+            await refreshPreview(cfg)
             do {
                 try await env.weather.putConfig(cfg)
                 await MainActor.run { lastApplied = cfg; save = .saved }
@@ -241,5 +284,6 @@ struct WeatherTab: View {
         } catch {
             save = .error("Couldn't load weather config (server offline?).")
         }
+        await refreshPreview(config)
     }
 }

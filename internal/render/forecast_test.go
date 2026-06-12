@@ -158,3 +158,20 @@ func TestWeatherPayloadIncludesStrip(t *testing.T) {
 		t.Error("weather tile bottom-row strip not drawn")
 	}
 }
+
+func TestForecastPayloadNative(t *testing.T) {
+	p := ForecastPayloadNative("72", "12°", []float64{10, 11, 12, 13}, 90)
+	if p["icon"] != "72" {
+		t.Errorf("icon = %v, want 72", p["icon"])
+	}
+	if _, has := p["text"]; has {
+		t.Errorf("text must be absent (digits are drawn)")
+	}
+	db := p["draw"].([]any)[0].(map[string]any)["db"].([]any)
+	if db[0] != 8 || db[2] != 24 {
+		t.Fatalf("db rect x/w = %v/%v, want 8/24", db[0], db[2])
+	}
+	if len(db[4].([]int)) != 192 {
+		t.Fatalf("partial bitmap len = %d, want 192", len(db[4].([]int)))
+	}
+}

@@ -362,6 +362,24 @@ func framePixels(f *Frame) []int {
 	return pixels
 }
 
+// framePixelsRect emits the pixels of the w×h rectangle anchored at (x0,y0)
+// row-major as 0xRRGGBB ints (undirty/out-of-bounds pixels emit 0), for
+// partial db draws that leave the native-icon columns untouched.
+func framePixelsRect(f *Frame, x0, y0, w, h int) []int {
+	out := make([]int, w*h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			fx, fy := x0+x, y0+y
+			if fx < 0 || fx >= 32 || fy < 0 || fy >= 8 || !f.Dirty[fy][fx] {
+				continue
+			}
+			c := f.Pixels[fy][fx]
+			out[y*w+x] = (int(c.R) << 16) | (int(c.G) << 8) | int(c.B)
+		}
+	}
+	return out
+}
+
 // rotateDwellSeconds is the on-screen dwell for frames published WITHOUT the
 // display hold — the same short slot the weather/forecast tiles get, so a
 // merely-running agent rotates alongside them instead of owning the screen.

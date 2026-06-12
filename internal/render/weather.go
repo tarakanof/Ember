@@ -148,7 +148,10 @@ func WeatherPayloadMoon(tempText string, hourly []float64, moon MoonView, lifeti
 	return weatherTile("", tempText, hourly, &moon, lifetime)
 }
 
-func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifetime int) map[string]any {
+// WeatherTileFrame composes the drawn rotating-tile frame: condition icon (or
+// moon phase when moon is non-nil), temperature digits, bottom-row hourly
+// strip. Shared by the device payload and /v1/weather/preview.
+func WeatherTileFrame(cond, tempText string, hourly []float64, moon *MoonView) Frame {
 	var f Frame
 	if moon != nil {
 		paintBitmap(&f, 0, 0, moonSprite(*moon), moonColor)
@@ -157,8 +160,31 @@ func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifeti
 	}
 	drawDigits(&f, tempText, 9, 1, colorWhite)
 	drawForecastStrip(&f, hourly, 9, 31, 7) // bottom-row hourly strip (temp text occupies rows 1–5)
+	return f
+}
+
+func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifetime int) map[string]any {
+	f := WeatherTileFrame(cond, tempText, hourly, moon)
 	return map[string]any{
 		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
+		"lifetime": lifetime, "duration": rotateDwellSeconds,
+	}
+}
+
+// WeatherPayloadNative is the native-icon variant of WeatherPayload: the
+// animated AWTRIX/LaMetric icon (resolved by the caller via the popup icon-ID
+// mapping) occupies cols 0-7 while the temperature digits and the hourly strip
+// stay drawn, emitted as a partial bitmap over cols 8-31 — identical layout to
+// the drawn tile, no firmware text layout involved. Verified on device
+// 2026-06-12: db coords are absolute and render alongside icon; gallery icons
+// download on first reference, so a fresh ID can be blank for a few seconds.
+func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime int) map[string]any {
+	var f Frame
+	drawDigits(&f, tempText, 9, 1, colorWhite)
+	drawForecastStrip(&f, hourly, 9, 31, 7)
+	return map[string]any{
+		"icon":     iconID,
+		"draw":     []any{map[string]any{"db": []any{8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8)}}},
 		"lifetime": lifetime, "duration": rotateDwellSeconds,
 	}
 }

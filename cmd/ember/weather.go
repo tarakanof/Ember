@@ -45,6 +45,11 @@ type WeatherConfig struct {
 	// back to defaultWeatherIconIDs. Lets the user curate icons from the LaMetric
 	// gallery (developer.lametric.com/icons) without a code change.
 	IconIDs map[string]string `json:"icon_ids,omitempty"`
+	// TileNativeIcons swaps the drawn 8×8 condition sprite on the rotating
+	// weather/forecast tiles for the native animated icon (same IconIDs
+	// mapping as popups). Digits/strip/bars stay drawn. Independent of
+	// UseNativeIcons, which is popup-only.
+	TileNativeIcons bool `json:"tile_native_icons"`
 }
 
 // weatherIconID resolves the native icon ID for a condition: the per-config
@@ -61,11 +66,10 @@ func (c WeatherConfig) weatherIconID(cond string) string {
 const defaultWeatherSevereSound = "storm:d=4,o=5,b=160:8c6,8a,8c6,8a,8c6"
 
 // defaultWeatherIconIDs maps a condition to an AWTRIX/LaMetric weather icon ID,
-// used for popups only when UseNativeIcons is on. These are widely-used gallery
-// IDs (developer.lametric.com/icons) but are device-content dependent — if a
-// device lacks one it falls back to text, and the user can override any of them
-// via WeatherConfig.IconIDs. The reliable drawn icon is always used for the
-// rotating tile.
+// used for popups (UseNativeIcons) and the rotating tiles (TileNativeIcons).
+// These are widely-used gallery IDs (developer.lametric.com/icons); the device
+// downloads one on first reference (briefly blank until cached), and the user
+// can override any of them via WeatherConfig.IconIDs.
 var defaultWeatherIconIDs = map[string]string{
 	render.WeatherClear:  "1338",  // sunny
 	render.WeatherClouds: "2286",  // partly cloudy

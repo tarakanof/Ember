@@ -107,3 +107,62 @@ func TestWeatherColorDistinct(t *testing.T) {
 		}
 	}
 }
+
+func TestWeatherPayloadNative(t *testing.T) {
+	p := WeatherPayloadNative("2286", "21°", []float64{18, 19, 20}, 90)
+	if p["icon"] != "2286" {
+		t.Errorf("icon = %v, want 2286", p["icon"])
+	}
+	if _, has := p["text"]; has {
+		t.Errorf("text must be absent (digits are drawn, not native text)")
+	}
+	if p["lifetime"] != 90 || p["duration"] != rotateDwellSeconds {
+		t.Errorf("lifetime/duration = %v/%v, want 90/%d", p["lifetime"], p["duration"], rotateDwellSeconds)
+	}
+	db := p["draw"].([]any)[0].(map[string]any)["db"].([]any)
+	if db[0] != 8 || db[1] != 0 || db[2] != 24 || db[3] != 8 {
+		t.Fatalf("db rect = %v %v %v %v, want 8 0 24 8 (icon cols left alone)", db[0], db[1], db[2], db[3])
+	}
+	px := db[4].([]int)
+	if len(px) != 192 {
+		t.Fatalf("partial bitmap len = %d, want 192", len(px))
+	}
+	sum := 0
+	for _, v := range px {
+		sum += v
+	}
+	if sum == 0 {
+		t.Errorf("partial bitmap is empty — digits/strip not drawn")
+	}
+}
+
+func TestWeatherTileFrame_MatchesPayloadPixels(t *testing.T) {
+	hourly := []float64{18, 19, 20}
+	f := WeatherTileFrame(WeatherRain, "21°", hourly, nil)
+	p := WeatherPayload(WeatherRain, "21°", hourly, 90)
+	want := p["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	if got := framePixels(&f); !slicesEqualInt(got, want) {
+		t.Errorf("exported weather frame diverges from the payload bitmap")
+	}
+	ff := ForecastTileFrame(WeatherRain, "21°", hourly)
+	pf := ForecastPayload(WeatherRain, "21°", hourly, 90)
+	wantF := pf["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	if got := framePixels(&ff); !slicesEqualInt(got, wantF) {
+		t.Errorf("exported forecast frame diverges from the payload bitmap")
+	}
+	if hp := HexPixels(&f); len(hp) != 256 || hp[0][0] != '#' {
+		t.Errorf("HexPixels: len %d / first %q, want 256 / #-prefixed", len(hp), hp[0])
+	}
+}
+
+func slicesEqualInt(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

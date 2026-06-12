@@ -105,6 +105,10 @@ type Preview struct {
 	Frames   []CardFrame `json:"frames"`
 }
 
+// HexPixels exports a frame as the row-major "#rrggbb" strings preview JSON
+// consumers expect (see CardFrame.Pixels).
+func HexPixels(f *Frame) []string { return hexPixels(f) }
+
 // PreviewFrames renders each card in AvailableCards(s, u) except the
 // scrolling tool card, using the robot colour from state and the single
 // session as the bottom-bar source. Pass a non-nil UsageView to include

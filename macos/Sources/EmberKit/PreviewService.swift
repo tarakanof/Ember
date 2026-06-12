@@ -35,4 +35,15 @@ public struct PreviewService: Sendable {
     public func fetchPreview(_ draft: DraftDisplay) async throws -> PreviewResponse {
         try await client.get("/v1/preview", query: draft.queryItems)
     }
+
+    /// Weather-tab preview: GET /v1/weather/preview with the draft weather
+    /// config's display-relevant fields. Same response shape as /v1/preview.
+    public func fetchWeatherPreview(_ cfg: WeatherConfig) async throws -> PreviewResponse {
+        try await client.get("/v1/weather/preview", query: [
+            URLQueryItem(name: "rotate_in_apps", value: cfg.rotateInApps ? "true" : "false"),
+            URLQueryItem(name: "forecast_tile", value: cfg.forecastTile ? "true" : "false"),
+            URLQueryItem(name: "forecast_hours", value: String(cfg.forecastHours)),
+            URLQueryItem(name: "units", value: cfg.units),
+        ])
+    }
 }

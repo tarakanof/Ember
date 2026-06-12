@@ -892,6 +892,7 @@ func (a *App) routes() http.Handler {
 	// Open, read-only render preview for the menu app's Display tab. The
 	// specific GET pattern wins over the "/v1/" requireAuth catch-all below.
 	mux.HandleFunc("GET /v1/preview", a.handlePreview)
+	mux.HandleFunc("GET /v1/weather/preview", a.handleWeatherPreview)
 	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
 
 	writeMux := http.NewServeMux()

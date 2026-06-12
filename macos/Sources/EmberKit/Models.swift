@@ -170,6 +170,9 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     /// Per-condition native icon-ID overrides (keyed "clear"/"clouds"/"fog"/
     /// "rain"/"snow"/"storm"); empty falls back to the server's built-in IDs.
     public var iconIds: [String: String]
+    /// Native animated icon on the rotating weather/forecast tiles (digits and
+    /// strip/bars stay drawn). Independent of `useNativeIcons` (popups).
+    public var tileNativeIcons: Bool
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
                 latitude: Double = 0, longitude: Double = 0, locationName: String = "",
@@ -179,7 +182,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
                 popupIntervalMinutes: Int = 120, popupDurationSeconds: Int = 30,
                 popupOnChange: Bool = true, severeAlert: Bool = true,
                 severeSound: String = "", useNativeIcons: Bool = false,
-                iconIds: [String: String] = [:]) {
+                iconIds: [String: String] = [:], tileNativeIcons: Bool = false) {
         self.enabled = enabled
         self.provider = provider
         self.latitude = latitude
@@ -199,6 +202,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         self.severeSound = severeSound
         self.useNativeIcons = useNativeIcons
         self.iconIds = iconIds
+        self.tileNativeIcons = tileNativeIcons
     }
 
     enum CodingKeys: String, CodingKey {
@@ -218,6 +222,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case severeSound = "severe_sound"
         case useNativeIcons = "use_native_icons"
         case iconIds = "icon_ids"
+        case tileNativeIcons = "tile_native_icons"
     }
 
     /// Decode every field if-present (the server omits `icon_ids` when empty, and
@@ -243,6 +248,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         severeSound = try c.decodeIfPresent(String.self, forKey: .severeSound) ?? ""
         useNativeIcons = try c.decodeIfPresent(Bool.self, forKey: .useNativeIcons) ?? false
         iconIds = try c.decodeIfPresent([String: String].self, forKey: .iconIds) ?? [:]
+        tileNativeIcons = try c.decodeIfPresent(Bool.self, forKey: .tileNativeIcons) ?? false
     }
 }
 

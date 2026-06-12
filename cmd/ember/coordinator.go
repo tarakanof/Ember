@@ -604,11 +604,15 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 	tempText := weatherTempText(obs.TempC, cfg.Units)
 	window := forecastWindow(obs.Hourly, cfg.ForecastHours)
 	var payload map[string]any
-	if cfg.MoonPhase && obs.Condition == render.WeatherClear &&
-		(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now) {
+	switch {
+	case cfg.MoonPhase && obs.Condition == render.WeatherClear &&
+		(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
+		// Moon wins over native icons — there is no per-phase gallery set.
 		illum, waxing := moonIllumination(now)
 		payload = render.WeatherPayloadMoon(tempText, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
-	} else {
+	case cfg.TileNativeIcons:
+		payload = render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, window, usageAppLifetime)
+	default:
 		payload = render.WeatherPayload(obs.Condition, tempText, window, usageAppLifetime)
 	}
 	body, err := json.Marshal(payload)
@@ -670,7 +674,13 @@ func (c *coordinator) reconcileForecastApp(now time.Time) {
 		return
 	}
 
-	payload := render.ForecastPayload(obs.Condition, weatherTempText(obs.TempC, cfg.Units), hourly, usageAppLifetime)
+	tempText := weatherTempText(obs.TempC, cfg.Units)
+	var payload map[string]any
+	if cfg.TileNativeIcons {
+		payload = render.ForecastPayloadNative(cfg.weatherIconID(obs.Condition), tempText, hourly, usageAppLifetime)
+	} else {
+		payload = render.ForecastPayload(obs.Condition, tempText, hourly, usageAppLifetime)
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return
