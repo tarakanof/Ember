@@ -28,10 +28,40 @@ type recordingPublisher struct {
 	rtttls      []string
 	sounds      []string
 	loopApps    []string // app names returned by ListApps (device rotation)
+	icons       []string // filenames returned by ListIcons (/ICONS folder)
+	iconsErr    error    // when non-nil, ListIcons fails with it
+	putIcons    []string // filenames uploaded via PutIcon
 
 	// failNotify, when non-nil, is called on each Notify call and returns an
 	// error to simulate a device-unreachable condition. Return nil to succeed.
 	failNotify func() error
+}
+
+func (p *recordingPublisher) ListIcons(_ context.Context) ([]string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.iconsErr != nil {
+		return nil, p.iconsErr
+	}
+	out := make([]string, len(p.icons))
+	copy(out, p.icons)
+	return out, nil
+}
+
+func (p *recordingPublisher) PutIcon(_ context.Context, filename string, _ []byte) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.putIcons = append(p.putIcons, filename)
+	return nil
+}
+
+// PutIconNamesSnapshot returns a copy of uploaded icon filenames under the lock.
+func (p *recordingPublisher) PutIconNamesSnapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.putIcons))
+	copy(out, p.putIcons)
+	return out
 }
 
 func (p *recordingPublisher) ListApps(_ context.Context) ([]string, error) {
@@ -700,6 +730,8 @@ type noopPublisher struct{}
 
 func (noopPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
 func (noopPublisher) ClearApp(context.Context, string) error                  { return nil }
+func (noopPublisher) ListIcons(context.Context) ([]string, error)             { return nil, nil }
+func (noopPublisher) PutIcon(context.Context, string, []byte) error           { return nil }
 func (noopPublisher) ListApps(context.Context) ([]string, error)              { return nil, nil }
 func (noopPublisher) Notify(context.Context, map[string]any) error            { return nil }
 func (noopPublisher) DismissNotify(context.Context) error                     { return nil }

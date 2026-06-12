@@ -200,11 +200,19 @@ two rotating tiles with the same change-and-staleness dedupe as the usage card:
 tile** swaps its drawn 8×8 sprite for the **native animated AWTRIX/LaMetric
 icon** (same `icon_ids` mapping as popups) while digits/strip stay drawn,
 emitted as a **partial bitmap** (`db` over cols 8–31). Device-verified
-(2026-06-12): db coords are absolute and render alongside `icon`; the clock
-downloads a gallery icon on first reference, so a fresh ID is blank for a few
-seconds. The **moon phase wins** over native icons on clear nights (no
-per-phase gallery set). The forecast tile has no icon slot. Independent of
-`use_native_icons` (popup-only).
+(2026-06-12): db coords are absolute and render alongside `icon`. The **moon
+phase wins** over native icons on clear nights (no per-phase gallery set).
+The forecast tile has no icon slot. Independent of `use_native_icons`
+(popup-only).
+
+**Icon provisioning** (`ensureWeatherIcons`): the device's own on-demand
+gallery downloads proved unreliable (observed failing for hours → iconless
+tile), so the **server provisions icons**: on startup and on every weather
+config apply it lists the clock's `/ICONS` folder (`GET /list?dir=/ICONS`),
+downloads any missing configured icon ID from the LaMetric gallery
+(`.gif`→`.jpg` fallback), and uploads it (`multipart POST /edit`,
+`Publisher.ListIcons`/`PutIcon`). List failures abort the run; per-icon
+failures log and retry on the next apply/restart.
 
 **Weather preview** — `GET /v1/weather/preview` (open, read-only, mirrors
 `/v1/preview`): renders the tiles under draft query params (`rotate_in_apps`,

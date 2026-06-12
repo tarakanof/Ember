@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -525,6 +526,12 @@ type App struct {
 	weather        *weatherStore
 	weatherFetcher *weatherFetcher
 
+	// iconFetch downloads a LaMetric gallery icon by ID for the weather icon
+	// provisioner (ensureWeatherIcons); injectable in tests. iconMu serialises
+	// provisioner runs.
+	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
+	iconMu    sync.Mutex
+
 	// deviceBaseline is the clock URL from config.json captured at boot, before
 	// any store override or auto-discovery. deviceSource() uses it to tell
 	// "config" from "discovered". browseFn is the mDNS browse, overridable in tests.
@@ -552,6 +559,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		browseFn:       discovery.BrowseAWTRIX,
 	}
 	a.weatherFetcher = newWeatherFetcher()
+	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
@@ -1221,6 +1229,14 @@ type Publisher interface {
 	Settings(ctx context.Context, payload map[string]any) error
 	// Switch forces the device to the named app (POST /api/switch).
 	Switch(ctx context.Context, name string) error
+	// ListIcons returns the filenames in the device's /ICONS LittleFS folder
+	// (GET /list?dir=/ICONS — a filesystem route, not under /api). Used by the
+	// weather icon provisioner to find missing gallery icons.
+	ListIcons(ctx context.Context) ([]string, error)
+	// PutIcon uploads an icon file into /ICONS (multipart POST /edit). The
+	// device's own on-demand gallery downloads are unreliable, so the server
+	// provisions icons itself.
+	PutIcon(ctx context.Context, filename string, data []byte) error
 }
 
 type HTTPPublisher struct {
@@ -1292,6 +1308,70 @@ func (p *HTTPPublisher) ListApps(ctx context.Context) ([]string, error) {
 		names = append(names, name)
 	}
 	return names, nil
+}
+
+func (p *HTTPPublisher) ListIcons(ctx context.Context) ([]string, error) {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/list?dir=/ICONS", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("device /list ICONS: status %d", resp.StatusCode)
+	}
+	var entries []struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return nil, fmt.Errorf("device /list ICONS: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	return names, nil
+}
+
+func (p *HTTPPublisher) PutIcon(ctx context.Context, filename string, data []byte) error {
+	base, client, err := p.baseAndClient()
+	if err != nil {
+		return err
+	}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	// The device stores the file at the path given as the part's filename.
+	fw, err := mw.CreateFormFile("data", "/ICONS/"+filename)
+	if err != nil {
+		return err
+	}
+	if _, err := fw.Write(data); err != nil {
+		return err
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/edit", &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("device /edit upload %s: status %d", filename, resp.StatusCode)
+	}
+	return nil
 }
 
 func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) error {

@@ -69,3 +69,9 @@ func (q *quietPublisher) Settings(ctx context.Context, payload map[string]any) e
 func (q *quietPublisher) Switch(ctx context.Context, name string) error {
 	return q.next.Switch(ctx, name)
 }
+func (q *quietPublisher) ListIcons(ctx context.Context) ([]string, error) {
+	return q.next.ListIcons(ctx)
+}
+func (q *quietPublisher) PutIcon(ctx context.Context, filename string, data []byte) error {
+	return q.next.PutIcon(ctx, filename, data)
+}
