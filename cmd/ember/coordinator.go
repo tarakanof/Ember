@@ -149,6 +149,12 @@ type coordinator struct {
 	pushedForecast *pushedUsageApp
 	pushedAir      *pushedUsageApp
 
+	// meetings, when non-nil, holds the upcoming occurrences. reconcileMeetingApp
+	// pushes/refreshes/clears the "ember-meet" countdown tile from it, tracked by
+	// pushedMeeting (same change-and-staleness logic as the weather tiles).
+	meetings      *meetingsStore
+	pushedMeeting *pushedUsageApp
+
 	// adoptedApps records whether we've seeded the push trackers from the
 	// device's actual app loop yet (once per process, on the first reachable
 	// tick). Until then ember-managed apps left on the device by a previous run
@@ -523,6 +529,7 @@ func (c *coordinator) onTick() {
 	c.reconcileWeatherApp(c.clk.Now())
 	c.reconcileForecastApp(c.clk.Now())
 	c.reconcileAirApp(c.clk.Now())
+	c.reconcileMeetingApp(c.clk.Now())
 	c.checkLimitAlarms(c.clk.Now(), snap)
 }
 
@@ -561,6 +568,10 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 		case name == "ember-air":
 			if c.pushedAir == nil {
 				c.pushedAir = &pushedUsageApp{}
+			}
+		case name == "ember-meet":
+			if c.pushedMeeting == nil {
+				c.pushedMeeting = &pushedUsageApp{}
 			}
 		case strings.HasPrefix(name, "ember-usage-"):
 			if c.pushedUsageApps == nil {
@@ -737,6 +748,63 @@ func (c *coordinator) reconcileAirApp(now time.Time) {
 		return
 	}
 	c.pushedAir = &pushedUsageApp{body: body, at: now}
+}
+
+// meetingMinutes is the displayed whole-minute countdown: ceil(remaining), min 1.
+// The tile never shows "0m" — it leaves the rotation at start.
+func meetingMinutes(now, start time.Time) int {
+	m := int((start.Sub(now) + time.Minute - 1) / time.Minute)
+	if m < 1 {
+		m = 1
+	}
+	return m
+}
+
+// reconcileMeetingApp pushes/refreshes the standalone "ember-meet" countdown
+// tile when meetings are enabled, the next meeting is inside the lead window,
+// and the feed data is fresh; clears it otherwise (including at meeting start —
+// the countdown never shows 0m). Same change-and-staleness dedupe as the
+// weather tiles. The minute-by-minute countdown needs no timer: the payload
+// text changes each minute, so the bytes-diff naturally re-pushes.
+// Coordinator goroutine only.
+func (c *coordinator) reconcileMeetingApp(now time.Time) {
+	if c.meetings == nil {
+		return
+	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const name = "ember-meet"
+	cfg := c.loadCfg().Meetings
+	occ, ok := c.meetings.next(now)
+	want := cfg.Enabled && ok && c.meetings.fresh(now) &&
+		occ.Start.Sub(now) <= time.Duration(cfg.TileLeadMinutes)*time.Minute
+
+	if !want {
+		if c.pushedMeeting != nil {
+			if err := c.publisher.ClearApp(ctx, name); err != nil {
+				c.logger.Warn("meeting tile clear failed", "err", err)
+				return
+			}
+			c.pushedMeeting = nil
+		}
+		return
+	}
+
+	payload := render.MeetingPayload(sanitizeMeetingTitle(occ.Title), meetingMinutes(now, occ.Start), usageAppLifetime)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	if c.pushedMeeting != nil && bytes.Equal(c.pushedMeeting.body, body) && now.Sub(c.pushedMeeting.at) < usageRefreshInterval {
+		return
+	}
+	if err := c.publisher.CustomApp(ctx, name, payload); err != nil {
+		c.logger.Warn("meeting tile publish failed", "err", err)
+		return
+	}
+	c.pushedMeeting = &pushedUsageApp{body: body, at: now}
 }
 
 const (

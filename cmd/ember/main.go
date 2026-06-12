@@ -597,6 +597,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.coord.hiddenApps = a.hiddenAppsSet
 	a.coord.usage = a.usage
 	a.coord.weather = a.weather
+	a.coord.meetings = a.meetings
 	return a
 }
 
