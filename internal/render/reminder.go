@@ -1,5 +1,7 @@
 package render
 
+import "strings"
+
 // Reminder widget render primitives. A reminder is an alarm popup (a notification
 // — there is no rotating tile): a drawn bell icon + the reminder text, optionally
 // with a chime. Mirrors the weather popup shape.
@@ -29,6 +31,18 @@ var reminderGold = RGB{0xff, 0xcc, 0x33}
 // The chime is NOT carried here: on AWTRIX 0.98 a notification's `sound`/`rtttl`
 // is silently dropped whenever the notification also has a `draw` or `icon`, so
 // the caller plays it separately via the device's /api/rtttl endpoint.
+// ReminderPopupFrame composes the drawn alarm-popup frame for settings
+// previews: the gold bell at cols 0-7 + the text from col 9 in the 3×5 font
+// (uppercased — the font has no lowercase; overlong text clips at the right
+// edge, where the device would scroll instead). The device payload keeps its
+// own firmware text layout — this frame is preview-only.
+func ReminderPopupFrame(text string) Frame {
+	var f Frame
+	paintBitmap(&f, 0, 0, reminderBell, reminderGold)
+	drawDigits(&f, strings.ToUpper(text), 9, 1, reminderGold)
+	return f
+}
+
 func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[string]any {
 	p := map[string]any{
 		"text":     text,
