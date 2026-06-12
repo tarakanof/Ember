@@ -148,7 +148,10 @@ func WeatherPayloadMoon(tempText string, hourly []float64, moon MoonView, lifeti
 	return weatherTile("", tempText, hourly, &moon, lifetime)
 }
 
-func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifetime int) map[string]any {
+// WeatherTileFrame composes the drawn rotating-tile frame: condition icon (or
+// moon phase when moon is non-nil), temperature digits, bottom-row hourly
+// strip. Shared by the device payload and /v1/weather/preview.
+func WeatherTileFrame(cond, tempText string, hourly []float64, moon *MoonView) Frame {
 	var f Frame
 	if moon != nil {
 		paintBitmap(&f, 0, 0, moonSprite(*moon), moonColor)
@@ -157,6 +160,11 @@ func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifeti
 	}
 	drawDigits(&f, tempText, 9, 1, colorWhite)
 	drawForecastStrip(&f, hourly, 9, 31, 7) // bottom-row hourly strip (temp text occupies rows 1–5)
+	return f
+}
+
+func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifetime int) map[string]any {
+	f := WeatherTileFrame(cond, tempText, hourly, moon)
 	return map[string]any{
 		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
 		"lifetime": lifetime, "duration": rotateDwellSeconds,

@@ -135,3 +135,34 @@ func TestWeatherPayloadNative(t *testing.T) {
 		t.Errorf("partial bitmap is empty — digits/strip not drawn")
 	}
 }
+
+func TestWeatherTileFrame_MatchesPayloadPixels(t *testing.T) {
+	hourly := []float64{18, 19, 20}
+	f := WeatherTileFrame(WeatherRain, "21°", hourly, nil)
+	p := WeatherPayload(WeatherRain, "21°", hourly, 90)
+	want := p["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	if got := framePixels(&f); !slicesEqualInt(got, want) {
+		t.Errorf("exported weather frame diverges from the payload bitmap")
+	}
+	ff := ForecastTileFrame(WeatherRain, "21°", hourly)
+	pf := ForecastPayload(WeatherRain, "21°", hourly, 90)
+	wantF := pf["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	if got := framePixels(&ff); !slicesEqualInt(got, wantF) {
+		t.Errorf("exported forecast frame diverges from the payload bitmap")
+	}
+	if hp := HexPixels(&f); len(hp) != 256 || hp[0][0] != '#' {
+		t.Errorf("HexPixels: len %d / first %q, want 256 / #-prefixed", len(hp), hp[0])
+	}
+}
+
+func slicesEqualInt(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
