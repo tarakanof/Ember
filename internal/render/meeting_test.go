@@ -74,6 +74,14 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 }
 
 func TestMeetingTileFrame(t *testing.T) {
+	// Lowercase title must render identically to uppercase (font3x5 has no
+	// lowercase glyphs; the function must uppercase before drawing).
+	fLower := MeetingTileFrame("standup", 12)
+	fUpper := MeetingTileFrame("STANDUP", 12)
+	if fLower != fUpper {
+		t.Error("MeetingTileFrame(\"standup\", 12) pixels differ from MeetingTileFrame(\"STANDUP\", 12): title must be uppercased before drawing")
+	}
+
 	f := MeetingTileFrame("STANDUP", 12)
 
 	iconLit := false

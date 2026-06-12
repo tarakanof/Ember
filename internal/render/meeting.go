@@ -1,6 +1,9 @@
 package render
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Meeting render primitives: a rotating countdown tile ("ember-meet") and the
 // T-minus popup. Both pair a drawn 8×8 calendar icon (cols 0–7) with native
@@ -93,6 +96,6 @@ func MeetingTileFrame(title string, minutes int) Frame {
 	var f Frame
 	paintBitmap(&f, 0, 0, meetingCalPage, meetingInk)
 	paintBitmap(&f, 0, 0, meetingCalRings, meetingRed)
-	drawDigits(&f, fmt.Sprintf("%s %dM", title, minutes), 9, 1, meetingInk)
+	drawDigits(&f, strings.ToUpper(fmt.Sprintf("%s %dM", title, minutes)), 9, 1, meetingInk)
 	return f
 }
