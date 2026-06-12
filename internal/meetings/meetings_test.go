@@ -172,6 +172,36 @@ func TestExpandDSTBoundary(t *testing.T) {
 	}
 }
 
+// TestExpandOverrideMovedBeforeWindow verifies that a RECURRENCE-ID override
+// whose new DTSTART is before the poll window is excluded from results.
+// The fixture has a daily event starting 2026-06-15; the Wed 2026-06-17
+// instance is overridden to 2026-06-10 09:30 Belgrade (before window start).
+// Polling from 2026-06-15 for 5 days should yield Mon/Tue/Thu/Fri but NOT
+// the backward-moved occurrence.
+func TestExpandOverrideMovedBeforeWindow(t *testing.T) {
+	from := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	occs, err := meetings.Expand(mustLoad(t, "override_backward.ics"), from, 5*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+
+	// The Wed instance was moved to 2026-06-10 (before window), so it must be absent.
+	// In-window occurrences: Mon 15, Tue 16, [Wed 17 overridden out], Thu 18, Fri 19.
+	for _, occ := range occs {
+		if occ.Title == "Weekly (moved back)" {
+			t.Errorf("override moved before window must not appear, but got: %v", occ)
+		}
+		if occ.Start.Before(from) {
+			t.Errorf("occurrence before window start: %v", occ)
+		}
+	}
+
+	// Also assert the four un-overridden in-window occurrences are present.
+	if len(occs) != 4 {
+		t.Errorf("want 4 occurrences (Mon/Tue/Thu/Fri), got %d: %v", len(occs), occs)
+	}
+}
+
 func TestMergeSortsAndDedupes(t *testing.T) {
 	a := []meetings.Occurrence{
 		{UID: "a@test", Title: "Alpha", Start: time.Date(2026, 6, 9, 10, 0, 0, 0, time.UTC), End: time.Date(2026, 6, 9, 11, 0, 0, 0, time.UTC)},

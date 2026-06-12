@@ -104,7 +104,7 @@ func Expand(data []byte, from time.Time, horizon time.Duration) ([]Occurrence, e
 			}
 			key := overrideKey{uid: uid, recurrID: masterStart.UTC().Format(time.RFC3339)}
 			if ov, ok := overrides[key]; ok {
-				occ, keep := applyOverride(ov, uid, until)
+				occ, keep := applyOverride(ov, uid, from, until)
 				if keep {
 					result = append(result, occ)
 				}
@@ -152,7 +152,7 @@ func Expand(data []byte, from time.Time, horizon time.Duration) ([]Occurrence, e
 			}
 			ovKey := overrideKey{uid: uid, recurrID: instKey}
 			if ov, ok := overrides[ovKey]; ok {
-				occ, keep := applyOverride(ov, uid, until)
+				occ, keep := applyOverride(ov, uid, from, until)
 				if keep {
 					result = append(result, occ)
 				}
@@ -209,9 +209,9 @@ func Expand(data []byte, from time.Time, horizon time.Duration) ([]Occurrence, e
 }
 
 // applyOverride converts a RECURRENCE-ID override event into an Occurrence,
-// returning (occ, true) when the override's new Start is in [0, until) and
+// returning (occ, true) when the override's new Start is in [from, until) and
 // the override is not cancelled or all-day.
-func applyOverride(ov *ics.VEvent, uid string, until time.Time) (Occurrence, bool) {
+func applyOverride(ov *ics.VEvent, uid string, from, until time.Time) (Occurrence, bool) {
 	if statusProp := ov.GetProperty(ics.ComponentPropertyStatus); statusProp != nil {
 		if strings.EqualFold(statusProp.Value, string(ics.ObjectStatusCancelled)) {
 			return Occurrence{}, false
@@ -225,7 +225,7 @@ func applyOverride(ov *ics.VEvent, uid string, until time.Time) (Occurrence, boo
 	if err != nil || allDay {
 		return Occurrence{}, false
 	}
-	if !ovStart.Before(until) {
+	if ovStart.Before(from) || !ovStart.Before(until) {
 		return Occurrence{}, false
 	}
 	ovEnd := ovStart
@@ -296,13 +296,34 @@ func parseICSTime(value string, params map[string][]string) (t time.Time, allDay
 }
 
 // unescapeText reverses ICS text escaping (RFC 5545 §3.3.11).
+// It processes escape sequences left-to-right in a single pass so that \\n
+// correctly yields a backslash followed by the letter n (not `\` + space).
 func unescapeText(s string) string {
-	s = strings.ReplaceAll(s, `\,`, ",")
-	s = strings.ReplaceAll(s, `\;`, ";")
-	s = strings.ReplaceAll(s, `\n`, " ")
-	s = strings.ReplaceAll(s, `\N`, " ")
-	s = strings.ReplaceAll(s, `\\`, `\`)
-	return s
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '\\':
+				b.WriteByte('\\')
+			case ',':
+				b.WriteByte(',')
+			case ';':
+				b.WriteByte(';')
+			case 'n', 'N':
+				b.WriteByte(' ')
+			default:
+				// Unknown escape: emit as-is.
+				b.WriteByte(s[i])
+				b.WriteByte(s[i+1])
+			}
+			i += 2
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 // eventUID returns the UID of a VEVENT, or empty string if absent.
