@@ -199,3 +199,33 @@ func TestReconcileWeatherTileDisabledOrNoRotate(t *testing.T) {
 		t.Errorf("rotate-off should push nothing, got %d", got)
 	}
 }
+
+func TestReconcileTilesNativeIcons(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.Weather.applyDefaults()
+	cfg.Weather.Enabled = true
+	cfg.Weather.TileNativeIcons = true
+	app := NewApp(cfg, pub, testLogger())
+	now := time.Now()
+	app.weather.mu.Lock()
+	app.weather.obs = weatherObservation{Condition: render.WeatherRain, TempC: 12,
+		Hourly: []float64{10, 11, 12}, FetchedAt: now}
+	app.weather.have = true
+	app.weather.mu.Unlock()
+
+	app.coord.reconcileWeatherApp(now)
+	app.coord.reconcileForecastApp(now)
+	apps := pub.CustomAppsSnapshot()
+	if len(apps) != 2 {
+		t.Fatalf("expected weather+forecast pushes, got %d", len(apps))
+	}
+	for i, p := range apps {
+		if p["icon"] != "72" { // rain default gallery ID
+			t.Errorf("payload %d icon = %v, want 72", i, p["icon"])
+		}
+		if _, has := p["text"]; has {
+			t.Errorf("payload %d carries native text; digits must stay drawn", i)
+		}
+	}
+}
