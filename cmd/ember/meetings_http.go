@@ -5,7 +5,8 @@ import (
 )
 
 // initMeetings opens the shared store and re-applies persisted meeting
-// settings (menu edits survive restarts). The poll loop is started separately.
+// settings (menu edits survive restarts). The poll loop (StartMeetings, added
+// with the poller) is started separately from run().
 func (a *App) initMeetings(cfg Config) error {
 	if err := a.ensureStore(cfg.Pomodoro.DBPath); err != nil {
 		return err

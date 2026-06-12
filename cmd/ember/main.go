@@ -1550,7 +1550,13 @@ func main() {
 	}
 	// ICS calendar URLs are credentials; they live only in the env var and are
 	// never logged as strings, stored, or echoed in API responses (count only).
-	app.meetingsURLs = parseICSURLs(os.Getenv("EMBER_MEETINGS_ICS_URLS"))
+	{
+		var meetingsDropped int
+		app.meetingsURLs, meetingsDropped = parseICSURLs(os.Getenv("EMBER_MEETINGS_ICS_URLS"))
+		if meetingsDropped > 0 {
+			logger.Warn("meetings ICS feed entries ignored (unsupported scheme)", "dropped", meetingsDropped)
+		}
+	}
 	if len(app.meetingsURLs) > 0 {
 		logger.Info("meetings ICS feeds configured", "count", len(app.meetingsURLs))
 	}

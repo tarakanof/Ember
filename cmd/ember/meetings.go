@@ -97,20 +97,35 @@ func (a *App) loadPersistedMeetingsSettings() {
 	}
 }
 
-// parseICSURLs splits a comma-separated list of ICS feed URLs, trims whitespace,
-// and keeps only entries with an http:// or https:// scheme. Returns nil for
-// empty input or no valid entries.
-func parseICSURLs(s string) []string {
+// parseICSURLs splits a comma-separated list of ICS feed URLs, trims
+// whitespace, and keeps only entries with an http://, https://, webcal://, or
+// webcals:// scheme (scheme comparison is case-insensitive). webcal:// and
+// webcals:// are rewritten to https:// — they are plain HTTP subscription
+// links used by iCloud and other calendar providers. Returns nil urls and 0
+// dropped for empty input. dropped counts non-empty entries that were rejected
+// due to an unsupported scheme. URLs containing literal commas are unsupported
+// by the comma separator (real Google/Outlook/iCloud feed URLs contain none).
+func parseICSURLs(s string) (urls []string, dropped int) {
 	if s == "" {
-		return nil
+		return nil, 0
 	}
 	parts := strings.Split(s, ",")
-	var out []string
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
-		if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-			out = append(out, p)
+		if p == "" {
+			continue
+		}
+		lower := strings.ToLower(p)
+		switch {
+		case strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://"):
+			urls = append(urls, p)
+		case strings.HasPrefix(lower, "webcals://"):
+			urls = append(urls, "https://"+p[len("webcals://"):])
+		case strings.HasPrefix(lower, "webcal://"):
+			urls = append(urls, "https://"+p[len("webcal://"):])
+		default:
+			dropped++
 		}
 	}
-	return out
+	return urls, dropped
 }

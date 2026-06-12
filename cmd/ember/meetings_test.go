@@ -53,12 +53,14 @@ func TestMeetingsConfigValidate(t *testing.T) {
 	}
 }
 
-func TestMeetingsConfigPutPersistsAndZeroSurvives(t *testing.T) {
+func TestMeetingsConfigZeroSurvivesPut(t *testing.T) {
 	const token = "test-token"
 	cfg := defaultConfig()
 	cfg.Auth.StatusToken = token
 	app, srv := newTestServer(t, cfg)
-	_ = app.ensureStore(t.TempDir() + "/m.db")
+	if err := app.ensureStore(t.TempDir() + "/m.db"); err != nil {
+		t.Fatalf("ensureStore: %v", err)
+	}
 
 	body := `{"enabled":true,"tile_lead_minutes":60,"popup_lead_minutes":0,"chime":true}`
 	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/v1/meetings/config", strings.NewReader(body))
@@ -123,25 +125,38 @@ func TestMeetingsConfigGetReportsURLCount(t *testing.T) {
 
 func TestParseICSURLs(t *testing.T) {
 	cases := []struct {
-		name  string
-		input string
-		want  int
+		name        string
+		input       string
+		wantCount   int
+		wantDropped int
 	}{
-		{"two trimmed entries", " http://a/x.ics , ,https://b/y.ics ", 2},
-		{"ftp dropped", "ftp://x", 0},
-		{"no scheme dropped", "x.ics", 0},
-		{"empty string", "", 0},
+		{"two trimmed entries", " http://a/x.ics , ,https://b/y.ics ", 2, 0},
+		{"ftp dropped", "ftp://x", 0, 1},
+		{"no scheme dropped", "x.ics", 0, 1},
+		{"empty string", "", 0, 0},
+		// Finding 1: scheme comparison is case-insensitive; original casing preserved
+		{"uppercase HTTPS accepted", "HTTPS://host/x.ics", 1, 0},
+		{"mixed case Http accepted", "Http://host/x.ics", 1, 0},
+		// Finding 1: webcal/webcals rewritten to https
+		{"webcal rewritten to https", "webcal://host/x.ics", 1, 0},
+		{"webcals rewritten to https", "webcals://host/x.ics", 1, 0},
+		// dropped count is correct when mix of valid and invalid
+		{"one valid one ftp", "https://good/a.ics,ftp://bad/b.ics", 1, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseICSURLs(tc.input)
-			if len(got) != tc.want {
-				t.Errorf("parseICSURLs(%q) = %v (len %d), want len %d", tc.input, got, len(got), tc.want)
+			got, dropped := parseICSURLs(tc.input)
+			if len(got) != tc.wantCount {
+				t.Errorf("parseICSURLs(%q) urls len = %d, want %d; urls=%v", tc.input, len(got), tc.wantCount, got)
+			}
+			if dropped != tc.wantDropped {
+				t.Errorf("parseICSURLs(%q) dropped = %d, want %d", tc.input, dropped, tc.wantDropped)
 			}
 		})
 	}
-	// Verify trimming for the two-entry case
-	trimmed := parseICSURLs(" http://a/x.ics , ,https://b/y.ics ")
+
+	// Verify trimming and webcal rewrite for specific cases.
+	trimmed, _ := parseICSURLs(" http://a/x.ics , ,https://b/y.ics ")
 	if len(trimmed) == 2 {
 		if trimmed[0] != "http://a/x.ics" {
 			t.Errorf("first entry not trimmed: got %q", trimmed[0])
@@ -149,6 +164,15 @@ func TestParseICSURLs(t *testing.T) {
 		if trimmed[1] != "https://b/y.ics" {
 			t.Errorf("second entry not trimmed: got %q", trimmed[1])
 		}
+	}
+	// webcal rewrite: scheme replaced, rest of URL intact.
+	webcalURLs, _ := parseICSURLs("webcal://cal.example.com/feed.ics")
+	if len(webcalURLs) != 1 || webcalURLs[0] != "https://cal.example.com/feed.ics" {
+		t.Errorf("webcal rewrite: got %v, want [https://cal.example.com/feed.ics]", webcalURLs)
+	}
+	webcalsURLs, _ := parseICSURLs("webcals://cal.example.com/feed.ics")
+	if len(webcalsURLs) != 1 || webcalsURLs[0] != "https://cal.example.com/feed.ics" {
+		t.Errorf("webcals rewrite: got %v, want [https://cal.example.com/feed.ics]", webcalsURLs)
 	}
 }
 
