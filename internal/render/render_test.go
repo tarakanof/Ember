@@ -368,6 +368,28 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	}
 }
 
+func TestFramePixelsRect(t *testing.T) {
+	var f Frame
+	paintCell(&f, 8, 0, RGB{0x00, 0xff, 0x00})  // top-left of the rect
+	paintCell(&f, 31, 7, RGB{0xff, 0x00, 0x00}) // bottom-right of the rect
+	paintCell(&f, 0, 0, RGB{0x00, 0x00, 0xff})  // outside (icon area) — excluded
+	px := framePixelsRect(&f, 8, 0, 24, 8)
+	if len(px) != 24*8 {
+		t.Fatalf("len = %d, want 192", len(px))
+	}
+	if px[0] != 0x00ff00 {
+		t.Errorf("rect (0,0) = %#06x, want green (frame col 8)", px[0])
+	}
+	if px[7*24+23] != 0xff0000 {
+		t.Errorf("rect (23,7) = %#06x, want red (frame col 31)", px[7*24+23])
+	}
+	for i, v := range px {
+		if v == 0x0000ff {
+			t.Errorf("blue pixel leaked into rect at %d (frame col 0 is outside)", i)
+		}
+	}
+}
+
 func TestFrameToCustomApp_Hold_IncludesPrioForce(t *testing.T) {
 	var f Frame
 	paintCell(&f, 0, 0, RGB{0xff, 0x00, 0x00})
