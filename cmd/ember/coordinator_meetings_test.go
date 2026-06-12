@@ -168,26 +168,43 @@ func TestMeetingTileClearsAtStart(t *testing.T) {
 	}
 }
 
-// TestMeetingTileClearsWhenStale: pushed; then lastFetchOK aged 61m → ClearApp.
+// TestMeetingTileClearsWhenStale: pushed at `now`; clock advances 61 min so
+// lastFetchOK is stale, BUT the meeting is still in the future and inside the
+// lead window at stalePast — the only reason want=false is fresh(stalePast)==false.
 func TestMeetingTileClearsWhenStale(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c, pub, store := meetingCoordFixture(t, now, 60)
-	start := now.Add(30 * time.Minute)
+
+	// stalePast is the evaluation time: 61 minutes past now, beyond meetingsStaleTTL.
+	stalePast := now.Add(meetingsStaleTTL + time.Minute)
+
+	// Step 1: push the tile at `now` using a meeting inside the window at `now`.
 	seedMeeting(store, meetings.Occurrence{
 		UID:   "uid5",
 		Title: "STANDUP",
-		Start: start,
-		End:   start.Add(30 * time.Minute),
+		Start: now.Add(30 * time.Minute),
+		End:   now.Add(45 * time.Minute),
 	})
-
 	c.reconcileMeetingApp(now)
 	if got := len(pub.CustomNamesSnapshot()); got != 1 {
 		t.Fatalf("setup: want 1 push, got %d", got)
 	}
 
-	// Age the lastFetchOK past meetingsStaleTTL (60 min).
-	stalePast := now.Add(meetingsStaleTTL + time.Minute)
-	// Note: lastFetchOK stays at `now`, so fresh(stalePast) = false.
+	// Step 2: replace the meeting with one at stalePast+30m so that at stalePast:
+	//   next(stalePast) → Start=stalePast+30m, still future → ok=true
+	//   Start.Sub(stalePast)=30m ≤ 60m lead → inside window
+	//   fresh(stalePast) → false (lastFetchOK=now, 61m old)
+	// want = Enabled && ok && fresh(stalePast) → false, so ClearApp must fire.
+	// (If fresh() were removed from reconcileMeetingApp, want would be true and
+	// the tile would be refreshed rather than cleared — the test would fail.)
+	meetingStart := stalePast.Add(30 * time.Minute)
+	seedMeeting(store, meetings.Occurrence{
+		UID:   "uid5",
+		Title: "STANDUP",
+		Start: meetingStart,
+		End:   meetingStart.Add(30 * time.Minute),
+	})
+	// lastFetchOK stays at `now`, so fresh(stalePast) = false.
 	c.reconcileMeetingApp(stalePast)
 
 	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-meet" {
@@ -246,7 +263,7 @@ func TestMeetingTileAdopted(t *testing.T) {
 	}
 
 	// With meetings disabled, reconcile should ClearApp.
-	now := time.Now()
+	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c.reconcileMeetingApp(now)
 	cleared := pub.ClearedAppsSnapshot()
 	found := false
