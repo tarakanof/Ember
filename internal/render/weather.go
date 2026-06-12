@@ -148,9 +148,24 @@ func WeatherPayloadMoon(tempText string, hourly []float64, moon MoonView, lifeti
 	return weatherTile("", tempText, hourly, &moon, lifetime)
 }
 
+// drawWeatherBody paints the conditions tile's right side (cols 9-31): the
+// temperature digits centred in the free area (rows 0-4) and the 2px-tall
+// hourly strip (rows 6-7). Shared by the drawn tile, the native-icon variant,
+// and the moon variant so the layout can't drift.
+func drawWeatherBody(f *Frame, tempText string, hourly []float64) {
+	textW := len([]rune(tempText))*4 - 1
+	x := 9 + (23-textW)/2
+	if x < 9 {
+		x = 9
+	}
+	drawDigits(f, tempText, x, 0, colorWhite)
+	drawForecastStrip(f, hourly, 9, 31, 6)
+	drawForecastStrip(f, hourly, 9, 31, 7)
+}
+
 // WeatherTileFrame composes the drawn rotating-tile frame: condition icon (or
-// moon phase when moon is non-nil), temperature digits, bottom-row hourly
-// strip. Shared by the device payload and /v1/weather/preview.
+// moon phase when moon is non-nil), centred temperature digits, 2px-tall
+// hourly strip. Shared by the device payload and /v1/weather/preview.
 func WeatherTileFrame(cond, tempText string, hourly []float64, moon *MoonView) Frame {
 	var f Frame
 	if moon != nil {
@@ -158,8 +173,7 @@ func WeatherTileFrame(cond, tempText string, hourly []float64, moon *MoonView) F
 	} else {
 		paintBitmap(&f, 0, 0, weatherIcon(cond), WeatherColor(cond))
 	}
-	drawDigits(&f, tempText, 9, 1, colorWhite)
-	drawForecastStrip(&f, hourly, 9, 31, 7) // bottom-row hourly strip (temp text occupies rows 1–5)
+	drawWeatherBody(&f, tempText, hourly)
 	return f
 }
 
@@ -180,8 +194,7 @@ func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifeti
 // download on first reference, so a fresh ID can be blank for a few seconds.
 func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime int) map[string]any {
 	var f Frame
-	drawDigits(&f, tempText, 9, 1, colorWhite)
-	drawForecastStrip(&f, hourly, 9, 31, 7)
+	drawWeatherBody(&f, tempText, hourly)
 	return map[string]any{
 		"icon":     iconID,
 		"draw":     []any{map[string]any{"db": []any{8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8)}}},

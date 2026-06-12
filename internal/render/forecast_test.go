@@ -112,66 +112,85 @@ func TestForecastBarsFlatWindowMidHeight(t *testing.T) {
 	}
 }
 
-func TestForecastPayloadHasIconTempAndBars(t *testing.T) {
-	p := ForecastPayload(WeatherClear, "18°", []float64{10, 12, 14, 16}, 600)
+func TestForecastPayloadFullWidthBars(t *testing.T) {
+	p := ForecastPayload([]float64{10, 12, 14, 16, 18, 20}, 600)
 	if p["lifetime"] != 600 {
 		t.Fatalf("lifetime = %v, want 600", p["lifetime"])
 	}
+	if _, has := p["icon"]; has {
+		t.Error("forecast tile must not carry a native icon (bars own the matrix)")
+	}
 	pixels := p["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// Icon region (cols 0–7) is lit.
-	iconLit := false
-	for y := 0; y < 8; y++ {
-		for x := 0; x < 8; x++ {
-			if pixels[y*32+x] != 0 {
-				iconLit = true
-			}
+	// Bars stretch across the whole matrix: bottom row lit at both edges.
+	if pixels[7*32+0] == 0 {
+		t.Error("bars must start at col 0 (no icon/temp on the forecast tile)")
+	}
+	if pixels[7*32+31] == 0 {
+		t.Error("bars must reach col 31 (stretched to full width)")
+	}
+	// No white temp digits anywhere (the temp lives on the conditions tile).
+	white := (0xff << 16) | (0xff << 8) | 0xff
+	for i, v := range pixels {
+		if v == white {
+			t.Fatalf("white temp pixel at %d — forecast tile must be bars only", i)
 		}
-	}
-	if !iconLit {
-		t.Error("forecast tile must draw the condition icon in cols 0–7")
-	}
-	// Temp text lit somewhere in cols 9–20.
-	tempLit := false
-	for y := 0; y < 8; y++ {
-		for x := 9; x < 21; x++ {
-			if pixels[y*32+x] != 0 {
-				tempLit = true
-			}
-		}
-	}
-	if !tempLit {
-		t.Error("forecast tile must draw the temperature text")
-	}
-	// Bars sit to the right of the temp (start ≥ 10 + 3 glyphs*4 = col 22) and
-	// are bottom-anchored.
-	if pixels[7*32+22] == 0 {
-		t.Error("forecast bars must start right of the temp and anchor to the bottom")
 	}
 }
 
-func TestWeatherPayloadIncludesStrip(t *testing.T) {
+func TestForecastBarsScaledDistributesWidth(t *testing.T) {
+	var f Frame
+	// 4 bars over 32 cols → each bar 8 cols wide; warmest bar tallest.
+	drawForecastBarsScaled(&f, []float64{0, 10, 20, 30}, 0, 31)
+	for x := 0; x < 32; x++ {
+		if !f.Dirty[7][x] {
+			t.Fatalf("bottom row col %d not lit — bars must fill the width", x)
+		}
+	}
+	// First bar (coldest) colour at col 0, last bar (warmest) at col 31.
+	if f.Pixels[7][0] != TempColor(0) || f.Pixels[7][31] != TempColor(30) {
+		t.Errorf("edge bar colours = %v/%v, want %v/%v",
+			f.Pixels[7][0], f.Pixels[7][31], TempColor(0), TempColor(30))
+	}
+	// Warmest bar reaches the top row; coldest does not.
+	if !f.Dirty[0][31] {
+		t.Error("warmest bar should reach the top row")
+	}
+	if f.Dirty[0][0] {
+		t.Error("coldest bar should not reach the top row")
+	}
+}
+
+func TestWeatherPayloadIncludesTwoRowStrip(t *testing.T) {
 	hourly := []float64{-5, 25}
 	p := WeatherPayload(WeatherClear, "21°", hourly, 600)
 	pixels := p["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	// Bottom row, col 9 and 10 should carry the strip colours.
-	if pixels[7*32+9] == 0 || pixels[7*32+10] == 0 {
-		t.Error("weather tile bottom-row strip not drawn")
+	// The strip is 2px tall (rows 6-7), cols 9+.
+	for _, row := range []int{6, 7} {
+		if pixels[row*32+9] == 0 || pixels[row*32+10] == 0 {
+			t.Errorf("weather tile strip row %d not drawn", row)
+		}
 	}
 }
 
-func TestForecastPayloadNative(t *testing.T) {
-	p := ForecastPayloadNative("72", "12°", []float64{10, 11, 12, 13}, 90)
-	if p["icon"] != "72" {
-		t.Errorf("icon = %v, want 72", p["icon"])
+func TestWeatherTileCentersTemp(t *testing.T) {
+	// "21°" = 3 glyphs = 11px wide; centred in cols 9-31 → starts at col 15.
+	f := WeatherTileFrame(WeatherClear, "21°", nil, nil)
+	for y := 0; y < 5; y++ {
+		for x := 9; x < 15; x++ {
+			if f.Dirty[y][x] {
+				t.Fatalf("digit pixel at (%d,%d) — temp must be centred, not left-aligned", x, y)
+			}
+		}
 	}
-	if _, has := p["text"]; has {
-		t.Errorf("text must be absent (digits are drawn)")
+	lit := false
+	for y := 0; y < 5; y++ {
+		for x := 15; x <= 25; x++ {
+			if f.Dirty[y][x] {
+				lit = true
+			}
+		}
 	}
-	db := p["draw"].([]any)[0].(map[string]any)["db"].([]any)
-	if db[0] != 8 || db[2] != 24 {
-		t.Fatalf("db rect x/w = %v/%v, want 8/24", db[0], db[2])
-	}
-	if len(db[4].([]int)) != 192 {
-		t.Fatalf("partial bitmap len = %d, want 192", len(db[4].([]int)))
+	if !lit {
+		t.Error("centred temp digits not drawn")
 	}
 }

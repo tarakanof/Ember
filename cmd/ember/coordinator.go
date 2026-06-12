@@ -674,13 +674,7 @@ func (c *coordinator) reconcileForecastApp(now time.Time) {
 		return
 	}
 
-	tempText := weatherTempText(obs.TempC, cfg.Units)
-	var payload map[string]any
-	if cfg.TileNativeIcons {
-		payload = render.ForecastPayloadNative(cfg.weatherIconID(obs.Condition), tempText, hourly, usageAppLifetime)
-	} else {
-		payload = render.ForecastPayload(obs.Condition, tempText, hourly, usageAppLifetime)
-	}
+	payload := render.ForecastPayload(hourly, usageAppLifetime)
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return

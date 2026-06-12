@@ -96,43 +96,62 @@ func drawForecastBars(f *Frame, hourly []float64, x0, x1 int) {
 	}
 }
 
-// ForecastTileFrame composes the drawn forecast-tile frame: condition icon,
-// temperature digits, hourly bars filling the right. Shared by the device
-// payload and /v1/weather/preview.
-func ForecastTileFrame(cond, tempText string, hourly []float64) Frame {
-	var f Frame
-	paintBitmap(&f, 0, 0, weatherIcon(cond), WeatherColor(cond))
-	drawDigits(&f, tempText, 9, 1, colorWhite)
-	// Start the bars one column past the temp text (4px per glyph from col 9).
-	barStart := 10 + len([]rune(tempText))*4
-	drawForecastBars(&f, hourly, barStart, 31)
-	return f
-}
-
-// ForecastPayload renders the standalone forecast tile in the same visual
-// language as the weather tile: the condition icon (cols 0–7) + current temp
-// (from col 9), then the hourly temperature bars filling the remaining width to
-// the right. An empty hourly slice draws icon+temp only. lifetime seconds.
-func ForecastPayload(cond, tempText string, hourly []float64, lifetime int) map[string]any {
-	f := ForecastTileFrame(cond, tempText, hourly)
-	return map[string]any{
-		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
-		"lifetime": lifetime, "duration": rotateDwellSeconds,
+// drawForecastBarsScaled paints the hourly bars stretched across cols x0..x1:
+// each hour gets an even share of the width (some bars 1px wider than others
+// when it doesn't divide evenly), bottom-anchored, same height/colour rules as
+// drawForecastBars. Used by the full-matrix forecast tile.
+func drawForecastBarsScaled(f *Frame, hourly []float64, x0, x1 int) {
+	if x0 > x1 || len(hourly) == 0 {
+		return
+	}
+	n := len(hourly)
+	w := x1 - x0 + 1
+	if n > w {
+		n = w // more hours than columns: 1px each, the tail is cut
+	}
+	min, max := hourly[0], hourly[0]
+	for _, t := range hourly[:n] {
+		if t < min {
+			min = t
+		}
+		if t > max {
+			max = t
+		}
+	}
+	span := max - min
+	for i := 0; i < n; i++ {
+		t := hourly[i]
+		h := 4 // flat window → mid-height
+		if span >= 1e-9 {
+			h = 1 + int((t-min)/span*7.0+0.5) // 1..8
+		}
+		col := TempColor(t)
+		xs, xe := x0+i*w/n, x0+(i+1)*w/n-1
+		for x := xs; x <= xe; x++ {
+			for y := 8 - h; y < 8; y++ {
+				paintCell(f, x, y, col)
+			}
+		}
 	}
 }
 
-// ForecastPayloadNative is the native-icon variant of ForecastPayload: the
-// animated icon takes cols 0-7; temp digits + hourly bars stay drawn and are
-// emitted as a partial bitmap over cols 8-31 (same layout as drawn mode, same
-// device-verified absolute-coords mechanism as WeatherPayloadNative).
-func ForecastPayloadNative(iconID, tempText string, hourly []float64, lifetime int) map[string]any {
+// ForecastTileFrame composes the drawn forecast-tile frame: the hourly
+// temperature bars stretched across the full 32-col matrix — no icon, no temp
+// digits (those live on the conditions tile), so the two tiles read
+// differently at a glance. Shared by the device payload and
+// /v1/weather/preview.
+func ForecastTileFrame(hourly []float64) Frame {
 	var f Frame
-	drawDigits(&f, tempText, 9, 1, colorWhite)
-	barStart := 10 + len([]rune(tempText))*4
-	drawForecastBars(&f, hourly, barStart, 31)
+	drawForecastBarsScaled(&f, hourly, 0, 31)
+	return f
+}
+
+// ForecastPayload renders the standalone forecast tile: full-width hourly
+// temperature bars (height + colour = temperature). lifetime seconds.
+func ForecastPayload(hourly []float64, lifetime int) map[string]any {
+	f := ForecastTileFrame(hourly)
 	return map[string]any{
-		"icon":     iconID,
-		"draw":     []any{map[string]any{"db": []any{8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8)}}},
+		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
 		"lifetime": lifetime, "duration": rotateDwellSeconds,
 	}
 }
