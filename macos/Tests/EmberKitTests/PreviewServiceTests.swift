@@ -31,6 +31,21 @@ import Foundation
     #expect(p.frames.first?.pixels.count == 256)
 }
 
+@Test func weatherPreviewSendsAirTileFlag() async throws {
+    var cfg = WeatherConfig(enabled: true, latitude: 1, longitude: 2)
+    cfg.airTile = false
+    let client = stubbedClient { req in
+        #expect(req.url?.path == "/v1/weather/preview")
+        let items = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let q = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(q["air_tile"] == "false")
+        let px = "[" + Array(repeating: "\"#000000\"", count: 256).joined(separator: ",") + "]"
+        return (okResponse(req.url!), Data(#"{"width":32,"height":8,"activity":"","frames":[{"card":"weather","pixels":\#(px)}]}"#.utf8))
+    }
+    let p = try await PreviewService(client: client).fetchWeatherPreview(cfg)
+    #expect(p.frames.first?.card == "weather")
+}
+
 @Test func pomodoroPreviewSendsDraftConfig() async throws {
     let cfg = PomoConfig(focusMinutes: 50, shortBreakMinutes: 10, longBreakMinutes: 20,
                          roundsBeforeLongBreak: 4, autoStartNext: false, sound: true,

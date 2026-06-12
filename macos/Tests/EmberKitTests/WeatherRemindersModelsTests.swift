@@ -59,6 +59,35 @@ import Foundation
     #expect(d.moonPhase)
 }
 
+@Test func weatherConfigAirFieldsDecodeAndDefault() throws {
+    // Explicit values decode.
+    let json = #"""
+    {"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2,
+     "air_tile":false,"air_popup_threshold":0}
+    """#
+    let c = try JSONDecoder().decode(WeatherConfig.self, from: Data(json.utf8))
+    #expect(c.airTile == false)
+    #expect(c.airPopupThreshold == 0)
+
+    // Absent (older blobs/servers) → the server's own load defaults, so a
+    // re-save never silently turns the feature off.
+    let old = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#
+    let d = try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8))
+    #expect(d.airTile)
+    #expect(d.airPopupThreshold == 80)
+
+    // Encodes the server keys and round-trips.
+    var e = WeatherConfig(enabled: true, latitude: 1, longitude: 2)
+    e.airTile = false
+    e.airPopupThreshold = 120
+    let data = try JSONEncoder().encode(e)
+    let s = String(decoding: data, as: UTF8.self)
+    #expect(s.contains("air_tile"))
+    #expect(s.contains("air_popup_threshold"))
+    let back = try JSONDecoder().decode(WeatherConfig.self, from: data)
+    #expect(back == e)
+}
+
 @Test func weatherConfigIconIdsRoundTripAndTolerateAbsent() throws {
     // Absent icon_ids decodes to an empty map (server omits it when empty).
     let noIcons = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#

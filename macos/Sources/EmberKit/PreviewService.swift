@@ -42,6 +42,7 @@ public struct PreviewService: Sendable {
         try await client.get("/v1/weather/preview", query: [
             URLQueryItem(name: "rotate_in_apps", value: cfg.rotateInApps ? "true" : "false"),
             URLQueryItem(name: "forecast_tile", value: cfg.forecastTile ? "true" : "false"),
+            URLQueryItem(name: "air_tile", value: cfg.airTile ? "true" : "false"),
             URLQueryItem(name: "forecast_hours", value: String(cfg.forecastHours)),
             URLQueryItem(name: "units", value: cfg.units),
         ])
