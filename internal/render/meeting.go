@@ -12,7 +12,7 @@ import (
 // carried in the popup payload (AWTRIX 0.98 drops a notification's own sound
 // when it also has draw/icon) — the caller plays it via /api/rtttl.
 
-// meetingCalPage is the calendar body: solid border, blank interior.
+// meetingCalPage is the calendar body: solid border, sparse date dots inside.
 var meetingCalPage = []string{
 	"........",
 	"XXXXXXXX",
