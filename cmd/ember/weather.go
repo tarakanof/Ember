@@ -50,6 +50,13 @@ type WeatherConfig struct {
 	// mapping as popups). Digits/strip/bars stay drawn. Independent of
 	// UseNativeIcons, which is popup-only.
 	TileNativeIcons bool `json:"tile_native_icons"`
+	// AirTile shows the rotating air-quality tile (European AQI from the
+	// Open-Meteo air-quality API — always Open-Meteo regardless of Provider;
+	// MET Norway has no AQ product). Shares the weather location + refresh.
+	AirTile bool `json:"air_tile"`
+	// AirPopupThreshold fires a popup when the European AQI rises across this
+	// value (edge-triggered, re-arms below it). 0 disables the popup.
+	AirPopupThreshold int `json:"air_popup_threshold"`
 }
 
 // weatherIconID resolves the native icon ID for a condition: the per-config
@@ -128,6 +135,14 @@ func (c *WeatherConfig) applyDefaults() {
 	if !c.MoonPhase {
 		c.MoonPhase = true
 	}
+	if !c.AirTile {
+		c.AirTile = true
+	}
+	if c.AirPopupThreshold < 0 {
+		c.AirPopupThreshold = 0
+	} else if c.AirPopupThreshold == 0 {
+		c.AirPopupThreshold = 80 // EAQI "very poor"
+	}
 }
 
 func validateWeather(c WeatherConfig) error {
@@ -152,6 +167,9 @@ func validateWeather(c WeatherConfig) error {
 	}
 	if c.PopupDurationSeconds < 1 || c.PopupDurationSeconds > 300 {
 		return errors.New("weather.popup_duration_seconds must be 1..300")
+	}
+	if c.AirPopupThreshold < 0 || c.AirPopupThreshold > 200 {
+		return errors.New("weather.air_popup_threshold must be 0..200")
 	}
 	return nil
 }

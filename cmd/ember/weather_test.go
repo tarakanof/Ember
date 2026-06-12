@@ -229,6 +229,48 @@ func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	}
 }
 
+func TestWeatherAirDefaults(t *testing.T) {
+	var c WeatherConfig
+	c.applyDefaults()
+	if !c.AirTile {
+		t.Error("air_tile should default on at file load")
+	}
+	if c.AirPopupThreshold != 80 {
+		t.Errorf("air_popup_threshold default = %d, want 80", c.AirPopupThreshold)
+	}
+	neg := WeatherConfig{AirPopupThreshold: -5}
+	neg.applyDefaults()
+	if neg.AirPopupThreshold != 0 {
+		t.Errorf("negative threshold = %d, want clamped to 0 (off)", neg.AirPopupThreshold)
+	}
+	set := WeatherConfig{AirPopupThreshold: 60}
+	set.applyDefaults()
+	if set.AirPopupThreshold != 60 {
+		t.Errorf("explicit threshold clobbered: %d, want 60", set.AirPopupThreshold)
+	}
+}
+
+func TestWeatherAirValidation(t *testing.T) {
+	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	bad := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirPopupThreshold: 201}
+	if err := app.applyWeatherSettings(bad); err == nil {
+		t.Error("air_popup_threshold 201 should be rejected")
+	}
+	bad.AirPopupThreshold = -1
+	if err := app.applyWeatherSettings(bad); err == nil {
+		t.Error("air_popup_threshold -1 should be rejected")
+	}
+	// A menu PUT turning the tile + popup off must survive (no re-defaulting).
+	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: false, AirPopupThreshold: 0}
+	if err := app.applyWeatherSettings(off); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+	got := app.cfg.Load().Weather
+	if got.AirTile || got.AirPopupThreshold != 0 {
+		t.Errorf("air disables clobbered: tile=%v threshold=%d", got.AirTile, got.AirPopupThreshold)
+	}
+}
+
 // TestPollWeatherBackoffAndSeed guards two review fixes: (1) a failing provider
 // is not refetched until a full refresh interval elapses (no 60s hammering while
 // have==false); (2) the first successful observation seeds the interval clock so
