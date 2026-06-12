@@ -210,43 +210,55 @@ func (a *App) pollMeetings(ctx context.Context, now time.Time) {
 	a.nudgePomo()
 }
 
-// checkMeetingPopup fires a T-minus notification if a meeting is approaching
-// and hasn't already been notified for this occurrence.
+// checkMeetingPopup fires a T-minus notification for every upcoming occurrence
+// whose lead window [start−lead, start−lead+grace) contains now. Using a
+// snapshot of up to 10 future occurrences rather than just the first (next())
+// ensures back-to-back meetings — and any two meetings whose windows overlap
+// the same tick — are each notified. Capping at 10 is safe: having more than
+// 10 distinct meetings inside a single lead window (max 60 min) is not a real
+// calendar scenario, and the fired-map dedupe guarantees each fires at most once.
 func (a *App) checkMeetingPopup(ctx context.Context, now time.Time, cfg MeetingsConfig) {
 	if cfg.PopupLeadMinutes <= 0 || !a.meetings.fresh(now) {
 		return
 	}
-	occ, ok := a.meetings.next(now)
-	if !ok {
+	upcoming := a.meetings.snapshot(now, 10)
+	if len(upcoming) == 0 {
 		return
 	}
-	fireAt := occ.Start.Add(-time.Duration(cfg.PopupLeadMinutes) * time.Minute)
-	if now.Before(fireAt) || now.Sub(fireAt) >= meetingPopupGrace {
-		return
-	}
-	key := occ.UID + "|" + occ.Start.UTC().Format(time.RFC3339)
 
-	// Mark-before-fire under the store lock: prevents a double popup if two
-	// goroutines (unlikely but possible on startup) race to the same window.
-	a.meetings.mu.Lock()
-	if _, done := a.meetings.fired[key]; done {
-		a.meetings.mu.Unlock()
-		return
-	}
-	a.meetings.fired[key] = struct{}{}
-	a.meetings.mu.Unlock()
+	lead := time.Duration(cfg.PopupLeadMinutes) * time.Minute
 
-	payload := render.MeetingPopupPayload(sanitizeMeetingTitle(occ.Title), cfg.PopupLeadMinutes, meetingPopupDurationSeconds)
+	// Single timeout context shared across all popups in this tick.
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := a.publisher.Notify(cctx, payload); err != nil {
-		a.logger.Warn("meeting popup failed", "err", err)
-	}
-	if cfg.Chime {
-		// Chime separately: the firmware drops a notification's own sound when
-		// it has draw/icon; quietPublisher mutes it at night.
-		if err := a.publisher.PlayRTTTL(cctx, defaultMeetingChime); err != nil {
-			a.logger.Warn("meeting chime failed", "err", err)
+
+	for _, occ := range upcoming {
+		fireAt := occ.Start.Add(-lead)
+		if now.Before(fireAt) || now.Sub(fireAt) >= meetingPopupGrace {
+			continue
+		}
+		key := occ.UID + "|" + occ.Start.UTC().Format(time.RFC3339)
+
+		// Mark-before-fire under the store lock: prevents a double popup if two
+		// goroutines (unlikely but possible on startup) race to the same window.
+		a.meetings.mu.Lock()
+		if _, done := a.meetings.fired[key]; done {
+			a.meetings.mu.Unlock()
+			continue
+		}
+		a.meetings.fired[key] = struct{}{}
+		a.meetings.mu.Unlock()
+
+		payload := render.MeetingPopupPayload(sanitizeMeetingTitle(occ.Title), cfg.PopupLeadMinutes, meetingPopupDurationSeconds)
+		if err := a.publisher.Notify(cctx, payload); err != nil {
+			a.logger.Warn("meeting popup failed", "err", err)
+		}
+		if cfg.Chime {
+			// Chime separately: the firmware drops a notification's own sound when
+			// it has draw/icon; quietPublisher mutes it at night.
+			if err := a.publisher.PlayRTTTL(cctx, defaultMeetingChime); err != nil {
+				a.logger.Warn("meeting chime failed", "err", err)
+			}
 		}
 	}
 }
@@ -284,10 +296,11 @@ func sanitizeMeetingTitle(s string) string {
 		}
 	}
 	result := strings.TrimSpace(b.String())
-	// Cap at 24 runes.
+	// Cap at 24 runes, then strip any trailing space the cap may have exposed
+	// (e.g. when the 24th rune is a space that TrimSpace above didn't see yet).
 	if utf8.RuneCountInString(result) > 24 {
 		runes := []rune(result)
-		result = string(runes[:24])
+		result = strings.TrimRight(string(runes[:24]), " ")
 	}
 	if result == "" {
 		return "MEETING"

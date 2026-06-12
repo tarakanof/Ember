@@ -446,6 +446,12 @@ func TestSanitizeMeetingTitle(t *testing.T) {
 		{"Café sync!", "CAF SYNC"},
 		{"", "MEETING"},
 		{"This title is way too long and should be truncated to 24 runes!", "THIS TITLE IS WAY TOO LO"},
+		// Finding 3: if the 24th rune is a space the trailing space must be stripped.
+		// "ABCDEFGHIJ KLMNOPQRSTU VW" has a space at index 21; pad to make the
+		// cut land exactly on a space: 23 non-space chars + space at position 23 (0-indexed).
+		// Simplest: 23 'A's followed by a space followed by more text → cap gives "AAAAAAAAAAAAAAAAAAAAAA A"
+		// (23 A's + space = 24 runes) → TrimRight should yield 23 A's.
+		{"AAAAAAAAAAAAAAAAAAAAAAA XYZ", "AAAAAAAAAAAAAAAAAAAAAAA"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.input, func(t *testing.T) {
@@ -454,5 +460,159 @@ func TestSanitizeMeetingTitle(t *testing.T) {
 				t.Errorf("sanitizeMeetingTitle(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestMeetingPopupBackToBackMeetings verifies that checkMeetingPopup fires a
+// popup for every upcoming occurrence whose lead window contains now, not only
+// the first one returned by next().
+//
+// The classic missed-popup scenario: A at now+2m and B at now+3m with lead=2m.
+//
+//	A: fireAt = now,   window = [now,   now+2m)
+//	B: fireAt = now+1m, window = [now+1m, now+3m)
+//
+// At tick 0 (now): A fires. next() returns A (Start=now+2m > now), so A is
+// checked and fires — B's window hasn't opened yet. Good.
+//
+// At tick 1 (now+1m): with the OLD single-next() code, next(now+1m) returns A
+// again (A.Start=now+2m > now+1m). A is already deduped → nothing fires. B's
+// window [now+1m, now+3m) contains now+1m and should fire, but it is never
+// checked. This is the bug the loop over snapshot() fixes.
+func TestMeetingPopupBackToBackMeetings(t *testing.T) {
+	now := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+	meetA := now.Add(2 * time.Minute) // fireAt_A = now
+	meetB := now.Add(3 * time.Minute) // fireAt_B = now+1m
+
+	pub := &recordingPublisher{}
+	app := newMeetingsTestApp(t, pub) // lead=2, chime=true
+	app.meetings.mu.Lock()
+	app.meetings.upcoming = []meetings.Occurrence{
+		{UID: "meetA@test", Title: "Alpha", Start: meetA, End: meetA.Add(30 * time.Minute)},
+		{UID: "meetB@test", Title: "Beta", Start: meetB, End: meetB.Add(30 * time.Minute)},
+	}
+	app.meetings.lastFetchOK = now
+	app.meetings.mu.Unlock()
+
+	cfg := app.cfg.Load().Meetings
+
+	// Tick 0 (t=now): A's window [now, now+2m) contains now → A fires; B does not.
+	app.checkMeetingPopup(context.Background(), now, cfg)
+	pub.mu.Lock()
+	notifyAt0 := len(pub.notify)
+	pub.mu.Unlock()
+	if notifyAt0 != 1 {
+		t.Fatalf("tick 0: Notify count = %d, want 1 (A only)", notifyAt0)
+	}
+	pub.mu.Lock()
+	txt0 := pub.notify[0]["text"]
+	pub.mu.Unlock()
+	if txt0 != "ALPHA IN 2M" {
+		t.Errorf("tick 0 popup text = %q, want %q", txt0, "ALPHA IN 2M")
+	}
+
+	// Tick 1 (t=now+1m): A is deduped; B's window [now+1m, now+3m) contains now+1m → B fires.
+	app.checkMeetingPopup(context.Background(), now.Add(time.Minute), cfg)
+	pub.mu.Lock()
+	notifyAt1 := len(pub.notify)
+	pub.mu.Unlock()
+	if notifyAt1 != 2 {
+		t.Fatalf("tick 1: total Notify count = %d, want 2 (A deduped, B fires)", notifyAt1)
+	}
+	pub.mu.Lock()
+	txt1 := pub.notify[1]["text"]
+	pub.mu.Unlock()
+	if txt1 != "BETA IN 2M" {
+		t.Errorf("tick 1 popup text = %q, want %q", txt1, "BETA IN 2M")
+	}
+
+	// Sanity: no double-fire — another call at the same tick must not add more.
+	app.checkMeetingPopup(context.Background(), now.Add(time.Minute), cfg)
+	pub.mu.Lock()
+	notifyAfterRedupe := len(pub.notify)
+	pub.mu.Unlock()
+	if notifyAfterRedupe != 2 {
+		t.Errorf("dedupe: total Notify count = %d, want 2 (no double-fire)", notifyAfterRedupe)
+	}
+}
+
+// TestMeetingPopupBothWindowsSameTick verifies that when two meetings' lead
+// windows both contain now, a single checkMeetingPopup call fires both popups.
+func TestMeetingPopupBothWindowsSameTick(t *testing.T) {
+	now := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+	// lead=2m: fireAt_A = now+2m-2m = now, fireAt_B = now+2m-2m = now (same start)
+	meetStart := now.Add(2 * time.Minute)
+
+	pub := &recordingPublisher{}
+	app := newMeetingsTestApp(t, pub) // lead=2, chime=true
+	app.meetings.mu.Lock()
+	app.meetings.upcoming = []meetings.Occurrence{
+		{UID: "c1@test", Title: "Call One", Start: meetStart, End: meetStart.Add(30 * time.Minute)},
+		{UID: "c2@test", Title: "Call Two", Start: meetStart, End: meetStart.Add(45 * time.Minute)},
+	}
+	app.meetings.lastFetchOK = now
+	app.meetings.mu.Unlock()
+
+	cfg := app.cfg.Load().Meetings
+	app.checkMeetingPopup(context.Background(), now, cfg)
+
+	pub.mu.Lock()
+	notifyCount := len(pub.notify)
+	pub.mu.Unlock()
+	if notifyCount != 2 {
+		t.Fatalf("same-tick two-meeting: Notify count = %d, want 2", notifyCount)
+	}
+}
+
+// TestPollMeetingsPrunesFiredMap verifies the pruning logic inside pollMeetings:
+// entries whose embedded start is >2h before now are removed; recent entries and
+// malformed keys are retained.
+func TestPollMeetingsPrunesFiredMap(t *testing.T) {
+	now := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+
+	icsData := singleEventICS("prune-event@test", "Prune Test", now.Add(30*time.Minute))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/calendar")
+		w.Write(icsData)
+	}))
+	defer srv.Close()
+
+	pub := &recordingPublisher{}
+	app := newMeetingsTestApp(t, pub)
+	app.meetingsURLs = []string{srv.URL}
+	app.meetingsFetcher = newICSFetcher()
+
+	// Seed the fired map with three entries:
+	//   (a) start 3h before now → must be pruned
+	//   (b) start 10min before now → must be retained (within 2h)
+	//   (c) malformed key (no "|") → must be retained (not crashed)
+	old := now.Add(-3 * time.Hour).UTC().Format(time.RFC3339)
+	recent := now.Add(-10 * time.Minute).UTC().Format(time.RFC3339)
+	keyOld := "uid-old@test|" + old
+	keyRecent := "uid-recent@test|" + recent
+	keyMalformed := "garbage"
+
+	app.meetings.mu.Lock()
+	app.meetings.fired[keyOld] = struct{}{}
+	app.meetings.fired[keyRecent] = struct{}{}
+	app.meetings.fired[keyMalformed] = struct{}{}
+	app.meetings.mu.Unlock()
+
+	app.pollMeetings(context.Background(), now)
+
+	app.meetings.mu.RLock()
+	_, hasOld := app.meetings.fired[keyOld]
+	_, hasRecent := app.meetings.fired[keyRecent]
+	_, hasMalformed := app.meetings.fired[keyMalformed]
+	app.meetings.mu.RUnlock()
+
+	if hasOld {
+		t.Error("fired[keyOld] should have been pruned (start >2h before now)")
+	}
+	if !hasRecent {
+		t.Error("fired[keyRecent] should be retained (start only 10min before now)")
+	}
+	if !hasMalformed {
+		t.Error("fired[keyMalformed] should be retained (malformed keys are kept, not crashed)")
 	}
 }
