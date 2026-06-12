@@ -26,6 +26,15 @@ struct DeviceTab: View {
     @State private var lastQuiet: QuietConfig?
     @State private var quietWriter = DebouncedWriter(delay: .milliseconds(600))
 
+    @State private var sensorsOnDevice: SensorCalibration?
+    @State private var sensorsEdit = SensorCalibration()
+    @State private var confirmSensorApply = false
+
+    /// The Ulanzi build's compiled-in offsets, applied when dev.json has none
+    /// (-9 °C compensates the device's self-heating). Display-only.
+    private let firmwareTempOffset = -9.0
+    private let firmwareHumOffset = 0.0
+
     private let overlays = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"]
 
     var body: some View {
@@ -44,6 +53,7 @@ struct DeviceTab: View {
             generalSection
             quietSection
             nativeAppsSection
+            sensorsSection
             timeDateSection
             buttonsSection
         }
@@ -115,6 +125,12 @@ struct DeviceTab: View {
             }
             LabeledContent { Text(stats?.version ?? "—") } label: {
                 RowLabel("Firmware", symbol: "cpu", tint: .gray)
+            }
+            LabeledContent { Text(stats?.temp.map { String(format: "%.1f °C", $0) } ?? "—") } label: {
+                RowLabel("Temperature", symbol: "thermometer.medium", tint: .orange)
+            }
+            LabeledContent { Text(stats?.hum.map { String(format: "%.0f %%", $0) } ?? "—") } label: {
+                RowLabel("Humidity", symbol: "humidity.fill", tint: .teal)
             }
             Button {
                 Task { await discoverClocks() }
@@ -260,6 +276,89 @@ struct DeviceTab: View {
         } footer: {
             Text("Changes to the built-in apps apply after a clock reboot.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Calibration of the clock's internal temp/hum sensor. Unlike the rest of
+    /// the tab this does NOT auto-apply: offsets live in dev.json and need a
+    /// reboot, so changes are staged and applied explicitly.
+    @ViewBuilder private var sensorsSection: some View {
+        Section {
+            offsetRow("Temperature offset", symbol: "thermometer.and.liquid.waves", tint: .orange,
+                      value: offsetBinding(\.tempOffset, firmwareTempOffset), step: 0.5,
+                      measured: stats?.temp, applied: sensorsOnDevice?.tempOffset ?? firmwareTempOffset,
+                      unit: "°C")
+            offsetRow("Humidity offset", symbol: "humidity", tint: .teal,
+                      value: offsetBinding(\.humOffset, firmwareHumOffset), step: 1,
+                      measured: stats?.hum, applied: sensorsOnDevice?.humOffset ?? firmwareHumOffset,
+                      unit: "%")
+            HStack {
+                Button("Reset to firmware defaults") {
+                    sensorsEdit = SensorCalibration()
+                }
+                .disabled(sensorsEdit == SensorCalibration() && sensorsOnDevice == SensorCalibration())
+                Spacer()
+                Button("Apply & Reboot Clock") { confirmSensorApply = true }
+                    .disabled(sensorsOnDevice == nil || sensorsEdit == sensorsOnDevice)
+                    .confirmationDialog("Apply sensor calibration?", isPresented: $confirmSensorApply,
+                                        titleVisibility: .visible) {
+                        Button("Apply & Reboot", role: .destructive) { Task { await applySensors() } }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Offsets are written to the clock's dev.json and only take effect after a reboot. The display will go dark for a few seconds.")
+                    }
+            }
+        } header: {
+            Text("Sensor Calibration")
+        } footer: {
+            Text("The firmware default (\(Int(firmwareTempOffset)) °C) compensates the clock's self-heating. Compare the measured value with a trusted thermometer and adjust the offset by the difference.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Stepper row with the measured reading and, when the offset differs from
+    /// what the clock currently applies, a predicted post-reboot value.
+    private func offsetRow(_ title: String, symbol: String, tint: Color,
+                           value: Binding<Double>, step: Double,
+                           measured: Double?, applied: Double, unit: String) -> some View {
+        LabeledContent {
+            VStack(alignment: .trailing, spacing: 2) {
+                Stepper(value: value, in: -50...50, step: step) {
+                    Text(String(format: "%+.1f %@", value.wrappedValue, unit))
+                        .monospacedDigit()
+                        .frame(minWidth: 72, alignment: .trailing)
+                }
+                if let measured {
+                    if value.wrappedValue != applied {
+                        Text(String(format: "now %.1f → %.1f %@ after apply",
+                                    measured, measured - applied + value.wrappedValue, unit))
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    } else {
+                        Text(String(format: "measured %.1f %@", measured, unit))
+                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                }
+            }
+        } label: {
+            RowLabel(title, symbol: symbol, tint: tint)
+        }
+    }
+
+    private func offsetBinding(_ kp: WritableKeyPath<SensorCalibration, Double?>,
+                               _ def: Double) -> Binding<Double> {
+        Binding(get: { sensorsEdit[keyPath: kp] ?? def }, set: { sensorsEdit[keyPath: kp] = $0 })
+    }
+
+    private func applySensors() async {
+        save = .saving
+        do {
+            try await env.device.updateSensors(sensorsEdit)
+            sensorsOnDevice = sensorsEdit
+            save = .saved
+        } catch let e as APIError where e.isUnauthorized {
+            save = .error("Unauthorized — check the token in Connection.")
+        } catch {
+            save = .error("Calibration failed: \(error.localizedDescription)")
         }
     }
 
@@ -440,6 +539,8 @@ struct DeviceTab: View {
         save = .idle
         config = try? await env.device.config()
         buttons = try? await env.device.buttons()
+        sensorsOnDevice = try? await env.device.sensors()
+        sensorsEdit = sensorsOnDevice ?? SensorCalibration()
         do {
             async let s = env.device.settings()
             async let st = try? env.device.stats()

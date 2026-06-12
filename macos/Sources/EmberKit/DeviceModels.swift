@@ -72,8 +72,13 @@ public struct DeviceStats: Codable, Equatable, Sendable {
     /// The matrix's current effective brightness (0–255) — reflects
     /// auto-brightness dimming, unlike the BRI setting.
     public var bri: Int?
+    /// Internal sensor readings (already offset-corrected by the firmware).
+    /// Absent when the clock's sensor_reading is disabled.
+    public var temp: Double?
+    public var hum: Double?
+    public var lux: Double?
 
-    enum CodingKeys: String, CodingKey { case bat, version, ram, bri }
+    enum CodingKeys: String, CodingKey { case bat, version, ram, bri, temp, hum, lux }
 
     public init() {}
     public init(from decoder: Decoder) throws {
@@ -82,6 +87,34 @@ public struct DeviceStats: Codable, Equatable, Sendable {
         version = (try? c.decodeIfPresent(String.self, forKey: .version)) ?? nil
         ram = (try? c.decodeIfPresent(Int.self, forKey: .ram)) ?? nil
         bri = (try? c.decodeIfPresent(Int.self, forKey: .bri)) ?? nil
+        temp = (try? c.decodeIfPresent(Double.self, forKey: .temp)) ?? nil
+        hum = (try? c.decodeIfPresent(Double.self, forKey: .hum)) ?? nil
+        lux = (try? c.decodeIfPresent(Double.self, forKey: .lux)) ?? nil
+    }
+}
+
+/// The clock's sensor calibration offsets (GET/PUT /v1/device/sensors), stored
+/// in dev.json on the device. nil = not set, the firmware default applies.
+/// encode(to:) writes explicit nulls — the server treats null as "remove the
+/// key" (reset to firmware default), while an absent key means "leave as is".
+public struct SensorCalibration: Codable, Equatable, Sendable {
+    public var tempOffset: Double?
+    public var humOffset: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case tempOffset = "temp_offset"
+        case humOffset = "hum_offset"
+    }
+
+    public init(tempOffset: Double? = nil, humOffset: Double? = nil) {
+        self.tempOffset = tempOffset
+        self.humOffset = humOffset
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(tempOffset, forKey: .tempOffset)
+        try c.encode(humOffset, forKey: .humOffset)
     }
 }
 
