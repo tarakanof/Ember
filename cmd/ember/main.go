@@ -901,6 +901,8 @@ func (a *App) routes() http.Handler {
 	// specific GET pattern wins over the "/v1/" requireAuth catch-all below.
 	mux.HandleFunc("GET /v1/preview", a.handlePreview)
 	mux.HandleFunc("GET /v1/weather/preview", a.handleWeatherPreview)
+	mux.HandleFunc("GET /v1/pomodoro/preview", a.handlePomodoroPreview)
+	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
 	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
 
 	writeMux := http.NewServeMux()
