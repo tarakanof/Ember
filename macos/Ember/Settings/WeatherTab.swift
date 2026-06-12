@@ -27,14 +27,16 @@ struct WeatherTab: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
-                    panelPreview(
-                        title: "CURRENT CONDITIONS", card: "weather",
+                    PanelPreview(
+                        title: "CURRENT CONDITIONS",
+                        caption: "Condition icon (moon on clear nights) · current temp · bottom strip: next \(config.forecastHours) h, blue = cold → red = warm.",
                         enabled: config.rotateInApps,
-                        caption: "Condition icon (moon on clear nights) · current temp · bottom strip: next \(config.forecastHours) h, blue = cold → red = warm.")
-                    panelPreview(
-                        title: "HOURLY FORECAST", card: "forecast",
+                        frame: preview?.frames.first(where: { $0.card == "weather" }))
+                    PanelPreview(
+                        title: "HOURLY FORECAST",
+                        caption: "Full-width temperature bars — height and colour = temperature, next \(config.forecastHours) h.",
                         enabled: config.forecastTile,
-                        caption: "Full-width temperature bars — height and colour = temperature, next \(config.forecastHours) h.")
+                        frame: preview?.frames.first(where: { $0.card == "forecast" }))
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -188,30 +190,6 @@ struct WeatherTab: View {
                         .font(.caption).foregroundStyle(.secondary)
         case .error(let m): Label(m, systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.red)
-        }
-    }
-
-    /// One named, static panel preview: title row (with an "— off" suffix when
-    /// the panel is disabled), the 32×8 frame dimmed when off, and a caption
-    /// decoding what the pixels mean. Lives on the section's black backdrop, so
-    /// text colours are explicit (not theme-dependent).
-    @ViewBuilder private func panelPreview(title: String, card: String, enabled: Bool, caption: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text(title).font(.caption2.weight(.semibold)).foregroundStyle(Color.white.opacity(0.75))
-                if !enabled {
-                    Text("— off").font(.caption2).foregroundStyle(Color.white.opacity(0.4))
-                }
-            }
-            Group {
-                if let frame = preview?.frames.first(where: { $0.card == card }) {
-                    PreviewCanvas(frames: [frame])
-                } else {
-                    MatrixScreenView(pixels: Array(repeating: 0, count: 256))
-                }
-            }
-            .opacity(enabled ? 1 : 0.35)
-            Text(caption).font(.caption2).foregroundStyle(Color.white.opacity(0.45))
         }
     }
 
