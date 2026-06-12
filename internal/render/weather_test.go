@@ -107,3 +107,31 @@ func TestWeatherColorDistinct(t *testing.T) {
 		}
 	}
 }
+
+func TestWeatherPayloadNative(t *testing.T) {
+	p := WeatherPayloadNative("2286", "21°", []float64{18, 19, 20}, 90)
+	if p["icon"] != "2286" {
+		t.Errorf("icon = %v, want 2286", p["icon"])
+	}
+	if _, has := p["text"]; has {
+		t.Errorf("text must be absent (digits are drawn, not native text)")
+	}
+	if p["lifetime"] != 90 || p["duration"] != rotateDwellSeconds {
+		t.Errorf("lifetime/duration = %v/%v, want 90/%d", p["lifetime"], p["duration"], rotateDwellSeconds)
+	}
+	db := p["draw"].([]any)[0].(map[string]any)["db"].([]any)
+	if db[0] != 8 || db[1] != 0 || db[2] != 24 || db[3] != 8 {
+		t.Fatalf("db rect = %v %v %v %v, want 8 0 24 8 (icon cols left alone)", db[0], db[1], db[2], db[3])
+	}
+	px := db[4].([]int)
+	if len(px) != 192 {
+		t.Fatalf("partial bitmap len = %d, want 192", len(px))
+	}
+	sum := 0
+	for _, v := range px {
+		sum += v
+	}
+	if sum == 0 {
+		t.Errorf("partial bitmap is empty — digits/strip not drawn")
+	}
+}

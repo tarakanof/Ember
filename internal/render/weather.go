@@ -163,6 +163,24 @@ func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifeti
 	}
 }
 
+// WeatherPayloadNative is the native-icon variant of WeatherPayload: the
+// animated AWTRIX/LaMetric icon (resolved by the caller via the popup icon-ID
+// mapping) occupies cols 0-7 while the temperature digits and the hourly strip
+// stay drawn, emitted as a partial bitmap over cols 8-31 — identical layout to
+// the drawn tile, no firmware text layout involved. Verified on device
+// 2026-06-12: db coords are absolute and render alongside icon; gallery icons
+// download on first reference, so a fresh ID can be blank for a few seconds.
+func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime int) map[string]any {
+	var f Frame
+	drawDigits(&f, tempText, 9, 1, colorWhite)
+	drawForecastStrip(&f, hourly, 9, 31, 7)
+	return map[string]any{
+		"icon":     iconID,
+		"draw":     []any{map[string]any{"db": []any{8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8)}}},
+		"lifetime": lifetime, "duration": rotateDwellSeconds,
+	}
+}
+
 // WeatherPopupPayload returns a notification payload (drawn 8×8 icon + native
 // scrolling label) for an ad-hoc weather popup. iconID, when non-empty, replaces
 // the drawn icon with a native AWTRIX animated icon. durationSec controls how
