@@ -18,31 +18,31 @@ struct WeatherTab: View {
 
     // Per-section fold state, persisted so the user's arrangement sticks.
     @AppStorage("weatherFold.location") private var locationExpanded = false
-    @AppStorage("weatherFold.tile") private var tileExpanded = false
+    @AppStorage("weatherFold.conditions") private var conditionsExpanded = false
     @AppStorage("weatherFold.forecast") private var forecastExpanded = false
+    @AppStorage("weatherFold.shared") private var sharedExpanded = false
     @AppStorage("weatherFold.popups") private var popupsExpanded = false
 
     var body: some View {
         Form {
             Section {
-                if let preview, !preview.frames.isEmpty {
-                    PreviewCanvas(frames: preview.frames)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(.black)
-                        .listRowInsets(EdgeInsets())
-                } else {
-                    MatrixScreenView(pixels: Array(repeating: 0, count: 256))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(.black)
-                        .listRowInsets(EdgeInsets())
-                        .overlay(Text("No preview").font(.caption).foregroundStyle(.secondary))
+                VStack(alignment: .leading, spacing: 14) {
+                    panelPreview(
+                        title: "CURRENT CONDITIONS", card: "weather",
+                        enabled: config.rotateInApps,
+                        caption: "Condition icon (moon on clear nights) · current temp · bottom row: next-\(config.forecastHours) h temperature strip, blue = cold → red = warm.")
+                    panelPreview(
+                        title: "HOURLY FORECAST", card: "forecast",
+                        enabled: config.forecastTile,
+                        caption: "Hourly temperature bars — height and colour = temperature, next \(config.forecastHours) h.")
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.black)
+                .listRowInsets(EdgeInsets())
             } footer: {
-                Text("The weather panels as the clock shows them, cycling — updates as you change options. Native animated icons appear on the device only (the preview shows the drawn icon).")
+                Text("Updates as you change options. Native animated icons appear on the device only (the preview shows the drawn icon).")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -86,29 +86,32 @@ struct WeatherTab: View {
                 Text("Location")
             }
 
-            Section(isExpanded: $tileExpanded) {
-                Toggle("Show rotating tile", isOn: $config.rotateInApps)
-                Toggle("Native animated icon on tiles", isOn: $config.tileNativeIcons)
-                Stepper("Refresh every \(config.refreshMinutes) min",
-                        value: $config.refreshMinutes, in: 5...120, step: 5)
+            Section(isExpanded: $conditionsExpanded) {
+                Toggle("Show on clock", isOn: $config.rotateInApps)
+                Toggle("Moon phase on clear nights", isOn: $config.moonPhase)
             } header: {
-                Text("Tile")
+                Text("Current conditions panel")
             }
 
             Section(isExpanded: $forecastExpanded) {
-                Toggle("Show forecast tile", isOn: $config.forecastTile)
-                Stepper("Forecast hours: \(config.forecastHours)",
-                        value: $config.forecastHours, in: 6...24, step: 1)
-                Toggle("Sunrise / sunset alerts", isOn: $config.sunPopups)
-                Toggle("Moon phase on clear nights", isOn: $config.moonPhase)
-                Text("The forecast tile shows hourly temperature bars (height + colour = temperature). The weather tile also carries a one-pixel-per-hour strip. Sunrise/sunset and moon use your location, computed on-device.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Show on clock", isOn: $config.forecastTile)
             } header: {
-                Text("Forecast & sky")
+                Text("Hourly forecast panel")
+            }
+
+            Section(isExpanded: $sharedExpanded) {
+                Toggle("Native animated icon", isOn: $config.tileNativeIcons)
+                Stepper("Hours ahead: \(config.forecastHours)",
+                        value: $config.forecastHours, in: 6...24, step: 1)
+                Stepper("Refresh every \(config.refreshMinutes) min",
+                        value: $config.refreshMinutes, in: 5...120, step: 5)
+            } header: {
+                Text("Both tiles")
             }
 
             Section(isExpanded: $popupsExpanded) {
                 Toggle("Popup on condition change", isOn: $config.popupOnChange)
+                Toggle("Sunrise / sunset alerts", isOn: $config.sunPopups)
                 Stepper(config.popupIntervalMinutes == 0
                         ? "Interval popup: off"
                         : "Interval popup every \(config.popupIntervalMinutes) min",
@@ -188,10 +191,39 @@ struct WeatherTab: View {
         }
     }
 
-    /// Refreshes the top preview from the draft config. No-auth endpoint;
+    /// One named, static panel preview: title row (with an "— off" suffix when
+    /// the panel is disabled), the 32×8 frame dimmed when off, and a caption
+    /// decoding what the pixels mean. Lives on the section's black backdrop, so
+    /// text colours are explicit (not theme-dependent).
+    @ViewBuilder private func panelPreview(title: String, card: String, enabled: Bool, caption: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(title).font(.caption2.weight(.semibold)).foregroundStyle(Color.white.opacity(0.75))
+                if !enabled {
+                    Text("— off").font(.caption2).foregroundStyle(Color.white.opacity(0.4))
+                }
+            }
+            Group {
+                if let frame = preview?.frames.first(where: { $0.card == card }) {
+                    PreviewCanvas(frames: [frame])
+                } else {
+                    MatrixScreenView(pixels: Array(repeating: 0, count: 256))
+                }
+            }
+            .opacity(enabled ? 1 : 0.35)
+            Text(caption).font(.caption2).foregroundStyle(Color.white.opacity(0.45))
+        }
+    }
+
+    /// Refreshes the top preview from the draft config. Both panels are always
+    /// requested (enable toggles dim the previews locally instead of hiding
+    /// them, so the option↔panel mapping stays visible). No-auth endpoint;
     /// failures just keep the last frames (or the blank placeholder).
     private func refreshPreview(_ cfg: WeatherConfig) async {
-        if let p = try? await env.preview.fetchWeatherPreview(cfg) {
+        var draft = cfg
+        draft.rotateInApps = true
+        draft.forecastTile = true
+        if let p = try? await env.preview.fetchWeatherPreview(draft) {
             preview = p
         }
     }
