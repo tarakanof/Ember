@@ -27,7 +27,8 @@ type Occurrence struct {
 // Expand parses an ICS calendar from data, expands all recurring events, and
 // returns occurrences whose Start falls in [from, from+horizon). All-day
 // events and cancelled events are skipped. EXDATE exclusions and RECURRENCE-ID
-// overrides are applied.
+// overrides are applied. Events that fail to parse are skipped individually;
+// one malformed event never discards the rest of the feed.
 func Expand(data []byte, from time.Time, horizon time.Duration) ([]Occurrence, error) {
 	cal, err := ics.ParseCalendar(bytes.NewReader(data))
 	if err != nil {
@@ -142,6 +143,10 @@ func Expand(data []byte, from time.Time, horizon time.Duration) ([]Occurrence, e
 		// Between is inclusive on both ends when inc=true; we want [from, until).
 		// Pass inc=true, then filter out the exact boundary.
 		instances := r.Between(from, until, true)
+		// consumedOvKeys tracks which overrides were matched by an in-window
+		// instance. Overrides whose original instance falls OUTSIDE the window
+		// are processed separately below.
+		consumedOvKeys := make(map[overrideKey]bool)
 		for _, inst := range instances {
 			if !inst.Before(until) {
 				continue // exclude exact upper bound
@@ -152,6 +157,7 @@ func Expand(data []byte, from time.Time, horizon time.Duration) ([]Occurrence, e
 			}
 			ovKey := overrideKey{uid: uid, recurrID: instKey}
 			if ov, ok := overrides[ovKey]; ok {
+				consumedOvKeys[ovKey] = true
 				occ, keep := applyOverride(ov, uid, from, until)
 				if keep {
 					result = append(result, occ)
@@ -166,42 +172,42 @@ func Expand(data []byte, from time.Time, horizon time.Duration) ([]Occurrence, e
 				End:   instEnd,
 			})
 		}
+
+		// Handle overrides whose original instance was OUTSIDE the window (e.g.,
+		// "next Monday moved to tomorrow"). r.Between only generates instances
+		// within [from, until), so those overrides are never consumed above.
+		// An override always represents the event's latest truth, so apply it
+		// regardless of whether the original instant was EXDATE'd — EXDATE on
+		// the original instant does not cancel the rescheduled occurrence.
+		for ovKey, ov := range overrides {
+			if ovKey.uid != uid {
+				continue
+			}
+			if consumedOvKeys[ovKey] {
+				continue
+			}
+			occ, keep := applyOverride(ov, uid, from, until)
+			if keep {
+				result = append(result, occ)
+			}
+		}
 	}
 
-	// Overrides whose master is not in the feed are treated as plain single events.
+	// Overrides whose master is not in the feed are treated as plain single
+	// events. Reuse applyOverride so cancelled and out-of-window orphans are
+	// consistently filtered (same rules as master-present overrides).
 	masterUIDs := make(map[string]bool, len(masters))
 	for _, e := range masters {
 		masterUIDs[eventUID(e)] = true
 	}
-	for _, ov := range overrides {
-		uid := eventUID(ov)
-		if masterUIDs[uid] {
+	for key, ov := range overrides {
+		if masterUIDs[key.uid] {
 			continue // already handled above
 		}
-		startProp := ov.GetProperty(ics.ComponentPropertyDtStart)
-		if startProp == nil {
-			continue
+		occ, keep := applyOverride(ov, key.uid, from, until)
+		if keep {
+			result = append(result, occ)
 		}
-		ovStart, allDay, err := parseICSTime(startProp.Value, startProp.ICalParameters)
-		if err != nil || allDay {
-			continue
-		}
-		if ovStart.Before(from) || !ovStart.Before(until) {
-			continue
-		}
-		ovEnd := ovStart
-		if endProp := ov.GetProperty(ics.ComponentPropertyDtEnd); endProp != nil {
-			t, ad, err := parseICSTime(endProp.Value, endProp.ICalParameters)
-			if err == nil && !ad {
-				ovEnd = t
-			}
-		}
-		result = append(result, Occurrence{
-			UID:   uid,
-			Title: unescapeText(eventSummary(ov)),
-			Start: ovStart,
-			End:   ovEnd,
-		})
 	}
 
 	sortOccurrences(result)
@@ -298,6 +304,8 @@ func parseICSTime(value string, params map[string][]string) (t time.Time, allDay
 // unescapeText reverses ICS text escaping (RFC 5545 §3.3.11).
 // It processes escape sequences left-to-right in a single pass so that \\n
 // correctly yields a backslash followed by the letter n (not `\` + space).
+// \n (newline-escape) is mapped to a single space — a deliberate lossy choice
+// for one-line clock display where multi-line text must collapse to a single line.
 func unescapeText(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -344,12 +352,17 @@ func eventSummary(e *ics.VEvent) string {
 	return p.Value
 }
 
-// sortOccurrences sorts in-place by Start ascending, then Title ascending.
+// sortOccurrences sorts in-place by Start ascending, then Title ascending,
+// then UID ascending (UID as final tie-break ensures a stable, deterministic
+// order because slices.SortFunc is not guaranteed to be stable).
 func sortOccurrences(occs []Occurrence) {
 	slices.SortFunc(occs, func(a, b Occurrence) int {
 		if c := a.Start.Compare(b.Start); c != 0 {
 			return c
 		}
-		return strings.Compare(a.Title, b.Title)
+		if c := strings.Compare(a.Title, b.Title); c != 0 {
+			return c
+		}
+		return strings.Compare(a.UID, b.UID)
 	})
 }

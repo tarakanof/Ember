@@ -13,11 +13,11 @@ func TestUnescapeText(t *testing.T) {
 		{"newline lower", `a\nb`, "a b"},
 		{"newline upper", `a\Nb`, "a b"},
 		{"backslash", `a\\b`, `a\b`},
-		// The tricky case: literal \\n must not become \<space>; the \\ is a
-		// single backslash, then \n is a newline-escape → `\` + space.
-		// RFC 5545 says \\n is an escaped backslash followed by a literal n
-		// (since \\ → \, then n is just the letter n). Verify left-to-right
-		// ordering: \\n → `\n` (backslash + letter n, not newline-space).
+		// The tricky case: in the Go raw string `\\n` the two characters are
+		// backslash + n — processed left-to-right: \\ → single backslash, then
+		// n is just the letter n (not a newline-escape, because the preceding \\
+		// already consumed both backslash characters). Result: `\n` (backslash
+		// + letter n, not newline-space). This matches RFC 5545 §3.3.11.
 		{"backslash-then-n", `\\n`, `\n`},
 		{"mixed", `hello\,world\;foo\\bar\nend`, `hello,world;foo\bar end`},
 	}

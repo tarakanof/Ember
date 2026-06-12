@@ -202,6 +202,79 @@ func TestExpandOverrideMovedBeforeWindow(t *testing.T) {
 	}
 }
 
+// TestExpandOverrideMovedIntoWindow verifies that a RECURRENCE-ID override
+// whose original instance is OUTSIDE the window but whose new DTSTART is
+// INSIDE the window is included in results (the "pull next week forward" case).
+// The fixture has a weekly Monday event; the Jun-22 instance is overridden to
+// Jun-16 11:00 Belgrade (09:00 UTC). Window: 2026-06-15T00:00Z for 5 days.
+func TestExpandOverrideMovedIntoWindow(t *testing.T) {
+	from := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	occs, err := meetings.Expand(mustLoad(t, "override_forward.ics"), from, 5*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+
+	// Expect:
+	//   Mon Jun-15 08:00Z — in-window instance (10:00 Belgrade = UTC+2)
+	//   Tue Jun-16 09:00Z — override of Jun-22, moved forward into window (11:00 Belgrade)
+	// Must NOT appear:
+	//   Mon Jun-22 — original instance is outside the window; its override IS in-window above
+	wantLen := 2
+	if len(occs) != wantLen {
+		t.Fatalf("want %d occurrences, got %d: %v", wantLen, len(occs), occs)
+	}
+
+	jun15 := time.Date(2026, 6, 15, 8, 0, 0, 0, time.UTC)
+	if !occs[0].Start.UTC().Equal(jun15) {
+		t.Errorf("[0] Start: want %v, got %v", jun15, occs[0].Start.UTC())
+	}
+	if occs[0].Title != "Weekly Monday" {
+		t.Errorf("[0] Title: want %q, got %q", "Weekly Monday", occs[0].Title)
+	}
+
+	jun16 := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
+	if !occs[1].Start.UTC().Equal(jun16) {
+		t.Errorf("[1] Start: want %v, got %v", jun16, occs[1].Start.UTC())
+	}
+	if occs[1].Title != "Weekly Monday (moved forward)" {
+		t.Errorf("[1] Title: want %q, got %q", "Weekly Monday (moved forward)", occs[1].Title)
+	}
+
+	// Confirm no occurrence falls outside the window.
+	until := from.Add(5 * 24 * time.Hour)
+	for _, occ := range occs {
+		if occ.Start.Before(from) || !occ.Start.Before(until) {
+			t.Errorf("occurrence outside window: %v", occ)
+		}
+	}
+}
+
+// TestExpandSkipsCancelledOrphanOverride verifies that an orphan override
+// (master event not in feed) with STATUS:CANCELLED is not surfaced.
+func TestExpandSkipsCancelledOrphanOverride(t *testing.T) {
+	const icsData = "BEGIN:VCALENDAR\r\n" +
+		"VERSION:2.0\r\n" +
+		"PRODID:-//ember-test//EN\r\n" +
+		"BEGIN:VEVENT\r\n" +
+		"UID:orphan-cancelled@test\r\n" +
+		"RECURRENCE-ID;TZID=Europe/Belgrade:20260616T100000\r\n" +
+		"DTSTART;TZID=Europe/Belgrade:20260616T100000\r\n" +
+		"DTEND;TZID=Europe/Belgrade:20260616T110000\r\n" +
+		"STATUS:CANCELLED\r\n" +
+		"SUMMARY:Orphan Cancelled\r\n" +
+		"END:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+
+	from := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	occs, err := meetings.Expand([]byte(icsData), from, 5*24*time.Hour)
+	if err != nil {
+		t.Fatalf("Expand: %v", err)
+	}
+	if len(occs) != 0 {
+		t.Errorf("want 0 occurrences for cancelled orphan override, got %d: %v", len(occs), occs)
+	}
+}
+
 func TestMergeSortsAndDedupes(t *testing.T) {
 	a := []meetings.Occurrence{
 		{UID: "a@test", Title: "Alpha", Start: time.Date(2026, 6, 9, 10, 0, 0, 0, time.UTC), End: time.Date(2026, 6, 9, 11, 0, 0, 0, time.UTC)},
