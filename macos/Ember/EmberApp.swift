@@ -73,7 +73,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let wanted: NSApplication.ActivationPolicy = hasWindow ? .regular : .accessory
             if NSApp.activationPolicy() != wanted {
                 NSApp.setActivationPolicy(wanted)
-                if wanted == .regular { NSApp.activate(ignoringOtherApps: true) }
+                if wanted == .regular {
+                    NSApp.activate(ignoringOtherApps: true)
+                    // Promoting to .regular makes the Dock fall back to the
+                    // bundle's static AppIcon; the runtime icon set at launch
+                    // (while still an accessory) is lost. Re-apply it.
+                    AppEnvironment.applyAppIcon(AppEnvironment.loadPrefs().appIcon)
+                }
             }
         }
     }
