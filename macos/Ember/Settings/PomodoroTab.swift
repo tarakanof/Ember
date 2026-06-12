@@ -13,9 +13,38 @@ struct PomodoroTab: View {
     @State private var loaded = false
     @State private var writer = DebouncedWriter(delay: .milliseconds(600))
     @State private var lastApplied: PomoConfig?   // last value loaded-from / saved-to server; suppresses no-op saves
+    @State private var preview: PreviewResponse?
 
     var body: some View {
         Form {
+            Section {
+                VStack(alignment: .leading, spacing: 14) {
+                    PanelPreview(
+                        title: "FOCUS",
+                        caption: "Tomato + countdown in your focus colour · bottom bar: time left in the phase.",
+                        enabled: config.enabled,
+                        frame: preview?.frames.first(where: { $0.card == "focus" }))
+                    PanelPreview(
+                        title: "SHORT BREAK",
+                        caption: "Coffee mug + countdown in your break colour.",
+                        enabled: config.enabled,
+                        frame: preview?.frames.first(where: { $0.card == "short_break" }))
+                    PanelPreview(
+                        title: "LONG BREAK",
+                        caption: "Crescent + countdown in your break colour — after \(config.roundsBeforeLongBreak) rounds.",
+                        enabled: config.enabled,
+                        frame: preview?.frames.first(where: { $0.card == "long_break" }))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.black)
+                .listRowInsets(EdgeInsets())
+            } footer: {
+                Text("Updates as you change options. One panel at a time, matching the current phase. The clock itself shows an animated tomato/coffee icon — the preview shows the drawn equivalent.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section {
                 Toggle("Enable Pomodoro", isOn: $config.enabled)
             } footer: {
@@ -73,6 +102,15 @@ struct PomodoroTab: View {
         }
     }
 
+    /// Refreshes the top preview from the draft config. All three phase panels
+    /// are always requested (the enable toggle dims them locally). No-auth
+    /// endpoint; failures keep the last frames (or the blank placeholder).
+    private func refreshPreview(_ cfg: PomoConfig) async {
+        if let p = try? await env.preview.fetchPomodoroPreview(cfg) {
+            preview = p
+        }
+    }
+
     private func scheduleSave() {
         guard loaded else { return }                 // ignore the initial load mutation
         guard config != lastApplied else { return }   // initial load / no-op change: nothing to save
@@ -82,6 +120,7 @@ struct PomodoroTab: View {
         save = .saving
         let cfg = config
         writer.schedule {
+            await refreshPreview(cfg)
             do {
                 try await env.pomodoro.putConfig(cfg)
                 await MainActor.run { lastApplied = cfg; save = .saved }
@@ -101,5 +140,6 @@ struct PomodoroTab: View {
         } catch {
             save = .error("Couldn't load Pomodoro config — \(error.localizedDescription)")
         }
+        await refreshPreview(config)
     }
 }

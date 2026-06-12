@@ -31,6 +31,36 @@ import Foundation
     #expect(p.frames.first?.pixels.count == 256)
 }
 
+@Test func pomodoroPreviewSendsDraftConfig() async throws {
+    let cfg = PomoConfig(focusMinutes: 50, shortBreakMinutes: 10, longBreakMinutes: 20,
+                         roundsBeforeLongBreak: 4, autoStartNext: false, sound: true,
+                         soundMelody: "", focusColor: "#ff00ff", breakColor: "#00ffff")
+    let client = stubbedClient { req in
+        #expect(req.url?.path == "/v1/pomodoro/preview")
+        let items = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let q = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(q["focus_minutes"] == "50")
+        #expect(q["short_break_minutes"] == "10")
+        #expect(q["long_break_minutes"] == "20")
+        #expect(q["focus_color"] == "#ff00ff")
+        #expect(q["break_color"] == "#00ffff")
+        let px = "[" + Array(repeating: "\"#000000\"", count: 256).joined(separator: ",") + "]"
+        return (okResponse(req.url!), Data(#"{"width":32,"height":8,"activity":"","frames":[{"card":"focus","pixels":\#(px)}]}"#.utf8))
+    }
+    let p = try await PreviewService(client: client).fetchPomodoroPreview(cfg)
+    #expect(p.frames.first?.card == "focus")
+}
+
+@Test func reminderPreviewHitsEndpoint() async throws {
+    let client = stubbedClient { req in
+        #expect(req.url?.path == "/v1/reminders/preview")
+        let px = "[" + Array(repeating: "\"#000000\"", count: 256).joined(separator: ",") + "]"
+        return (okResponse(req.url!), Data(#"{"width":32,"height":8,"activity":"","frames":[{"card":"reminder","pixels":\#(px)}]}"#.utf8))
+    }
+    let p = try await PreviewService(client: client).fetchReminderPreview()
+    #expect(p.frames.first?.card == "reminder")
+}
+
 @Test func emptySourceColorOmitsParam() async throws {
     let client = stubbedClient { req in
         let items = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []

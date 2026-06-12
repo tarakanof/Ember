@@ -224,6 +224,16 @@ Weather tab "Display" section, which also folds Location/Tile/Forecast/Popups
 into collapsible sections and overlays a "1 of N" cycle indicator
 (`PreviewCanvas`, shared with the Display tab).
 
+**Pomodoro / Reminders previews** — same open, read-only pattern:
+`GET /v1/pomodoro/preview` renders one drawn frame per phase
+(`focus`/`short_break`/`long_break` via `RenderPomodoro`, 70 % of the phase
+remaining so the progress bar reads mid-session) under draft params
+(`focus_minutes`, `short_break_minutes`, `long_break_minutes`, `focus_color`,
+`break_color`); the device itself shows the native animated icon + firmware
+text (`PomodoroPayload`). `GET /v1/reminders/preview` renders the bell alarm
+popup (`ReminderPopupFrame`, optional `text` param). Both feed the stacked
+"Display" sections on top of the menu app's Pomodoro and Reminders tabs.
+
 A 1-min poll loop (`StartWeather`) fetches when due and fires `/api/notify`
 **popups**: on condition change (`popup_on_change`), on a fixed cadence
 (`popup_interval_minutes`, `0`=off), a **sound alert** on severe-weather onset
