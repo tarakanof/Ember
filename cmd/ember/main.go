@@ -52,6 +52,7 @@ type Config struct {
 	RateLimit RateLimitConfig `json:"rate_limit"`
 	Pomodoro  PomodoroConfig  `json:"pomodoro"`
 	Weather   WeatherConfig   `json:"weather"`
+	Meetings  MeetingsConfig  `json:"meetings"`
 	// Usage-widget toggles. Pointers so the file can distinguish "unset"
 	// (nil → default on) from an explicit false; resolved via the helpers below.
 	UsageWidget   *bool `json:"usage_widget,omitempty"`
@@ -332,6 +333,7 @@ func (c *Config) applyDefaults() {
 	// defaultConfig(); a config file controls them explicitly.
 
 	c.Weather.applyDefaults()
+	c.Meetings.applyDefaults()
 }
 
 type StatusRequest struct {
@@ -525,6 +527,12 @@ type App struct {
 	// weatherFetcher performs the provider HTTP calls. Both non-nil from NewApp.
 	weather        *weatherStore
 	weatherFetcher *weatherFetcher
+
+	// meetingsURLs holds the ICS calendar feed URLs parsed from
+	// EMBER_MEETINGS_ICS_URLS at startup. These are credentials (possession =
+	// calendar read access) and are never serialised to JSON, logged as strings,
+	// or stored; only the count is exposed via the config GET endpoint.
+	meetingsURLs []string
 
 	// iconFetch downloads a LaMetric gallery icon by ID for the weather icon
 	// provisioner (ensureWeatherIcons); injectable in tests. iconMu serialises
@@ -928,6 +936,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("PUT /v1/quiet/config", rateLimit(a, http.HandlerFunc(a.handleQuietConfigPut)))
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
+	writeMux.Handle("GET /v1/meetings/config", rateLimit(a, http.HandlerFunc(a.handleMeetingsConfigGet)))
+	writeMux.Handle("PUT /v1/meetings/config", rateLimit(a, http.HandlerFunc(a.handleMeetingsConfigPut)))
 	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
 	writeMux.Handle("GET /v1/device/discover", rateLimit(a, http.HandlerFunc(a.handleDeviceDiscover)))
 	writeMux.Handle("GET /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigGet)))
@@ -1537,6 +1547,15 @@ func main() {
 	// writable DB volume) must not block startup — warn and carry on.
 	if err := app.initWeather(cfg); err != nil {
 		logger.Warn("weather store init failed; config will not persist across restarts", "err", err)
+	}
+	// ICS calendar URLs are credentials; they live only in the env var and are
+	// never logged as strings, stored, or echoed in API responses (count only).
+	app.meetingsURLs = parseICSURLs(os.Getenv("EMBER_MEETINGS_ICS_URLS"))
+	if len(app.meetingsURLs) > 0 {
+		logger.Info("meetings ICS feeds configured", "count", len(app.meetingsURLs))
+	}
+	if err := app.initMeetings(cfg); err != nil {
+		logger.Warn("meetings store init failed; config will not persist across restarts", "err", err)
 	}
 	app.loadPersistedUsageSettings()   // runtime usage-widget toggles over the file baseline
 	app.loadPersistedDisplaySettings() // runtime display config overrides over the file baseline
