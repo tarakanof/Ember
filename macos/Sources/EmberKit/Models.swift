@@ -173,6 +173,10 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     /// Native animated icon on the rotating weather/forecast tiles (digits and
     /// strip/bars stay drawn). Independent of `useNativeIcons` (popups).
     public var tileNativeIcons: Bool
+    /// Rotating air-quality tile (current European AQI + hourly trend strip).
+    public var airTile: Bool
+    /// Popup when the European AQI crosses this value; 0 disables it.
+    public var airPopupThreshold: Int
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
                 latitude: Double = 0, longitude: Double = 0, locationName: String = "",
@@ -182,7 +186,8 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
                 popupIntervalMinutes: Int = 120, popupDurationSeconds: Int = 30,
                 popupOnChange: Bool = true, severeAlert: Bool = true,
                 severeSound: String = "", useNativeIcons: Bool = false,
-                iconIds: [String: String] = [:], tileNativeIcons: Bool = false) {
+                iconIds: [String: String] = [:], tileNativeIcons: Bool = false,
+                airTile: Bool = true, airPopupThreshold: Int = 80) {
         self.enabled = enabled
         self.provider = provider
         self.latitude = latitude
@@ -203,6 +208,8 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         self.useNativeIcons = useNativeIcons
         self.iconIds = iconIds
         self.tileNativeIcons = tileNativeIcons
+        self.airTile = airTile
+        self.airPopupThreshold = airPopupThreshold
     }
 
     enum CodingKeys: String, CodingKey {
@@ -223,6 +230,8 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case useNativeIcons = "use_native_icons"
         case iconIds = "icon_ids"
         case tileNativeIcons = "tile_native_icons"
+        case airTile = "air_tile"
+        case airPopupThreshold = "air_popup_threshold"
     }
 
     /// Decode every field if-present (the server omits `icon_ids` when empty, and
@@ -249,6 +258,10 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         useNativeIcons = try c.decodeIfPresent(Bool.self, forKey: .useNativeIcons) ?? false
         iconIds = try c.decodeIfPresent([String: String].self, forKey: .iconIds) ?? [:]
         tileNativeIcons = try c.decodeIfPresent(Bool.self, forKey: .tileNativeIcons) ?? false
+        // Absent on older blobs/servers → the server's own load defaults, so a
+        // re-save never silently turns the feature off (forecast convention).
+        airTile = try c.decodeIfPresent(Bool.self, forKey: .airTile) ?? true
+        airPopupThreshold = try c.decodeIfPresent(Int.self, forKey: .airPopupThreshold) ?? 80
     }
 }
 

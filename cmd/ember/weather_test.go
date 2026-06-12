@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -226,6 +228,220 @@ func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	if got.RotateInApps || got.PopupOnChange || got.SevereAlert || got.PopupIntervalMinutes != 0 {
 		t.Errorf("disables were clobbered: rotate=%v onChange=%v severe=%v interval=%d",
 			got.RotateInApps, got.PopupOnChange, got.SevereAlert, got.PopupIntervalMinutes)
+	}
+}
+
+func TestWeatherAirDefaults(t *testing.T) {
+	var c WeatherConfig
+	c.applyDefaults()
+	if !c.AirTile {
+		t.Error("air_tile should default on at file load")
+	}
+	if c.AirPopupThreshold != 80 {
+		t.Errorf("air_popup_threshold default = %d, want 80", c.AirPopupThreshold)
+	}
+	neg := WeatherConfig{AirPopupThreshold: -5}
+	neg.applyDefaults()
+	if neg.AirPopupThreshold != 0 {
+		t.Errorf("negative threshold = %d, want clamped to 0 (off)", neg.AirPopupThreshold)
+	}
+	set := WeatherConfig{AirPopupThreshold: 60}
+	set.applyDefaults()
+	if set.AirPopupThreshold != 60 {
+		t.Errorf("explicit threshold clobbered: %d, want 60", set.AirPopupThreshold)
+	}
+}
+
+func TestWeatherAirValidation(t *testing.T) {
+	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	bad := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirPopupThreshold: 201}
+	if err := app.applyWeatherSettings(bad); err == nil {
+		t.Error("air_popup_threshold 201 should be rejected")
+	}
+	bad.AirPopupThreshold = -1
+	if err := app.applyWeatherSettings(bad); err == nil {
+		t.Error("air_popup_threshold -1 should be rejected")
+	}
+	// A menu PUT turning the tile + popup off must survive (no re-defaulting).
+	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: false, AirPopupThreshold: 0}
+	if err := app.applyWeatherSettings(off); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+	got := app.cfg.Load().Weather
+	if got.AirTile || got.AirPopupThreshold != 0 {
+		t.Errorf("air disables clobbered: tile=%v threshold=%d", got.AirTile, got.AirPopupThreshold)
+	}
+}
+
+func TestFetchAirQuality(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("latitude") == "" {
+			t.Error("missing latitude query")
+		}
+		if q.Get("current") != "european_aqi,pm2_5,pm10" {
+			t.Errorf("current = %q, want european_aqi,pm2_5,pm10", q.Get("current"))
+		}
+		if q.Get("hourly") != "european_aqi" {
+			t.Error("air fetch must request hourly european_aqi")
+		}
+		w.Write([]byte(`{"current":{"european_aqi":38,"pm2_5":4.8,"pm10":6.5},"hourly":{"european_aqi":[38,39,40]}}`))
+	}))
+	defer srv.Close()
+	wf := newWeatherFetcher()
+	wf.airQualityBase = srv.URL
+	obs, err := wf.fetchAirQuality(context.Background(), WeatherConfig{Latitude: 44.8, Longitude: 20.5})
+	if err != nil {
+		t.Fatalf("fetchAirQuality: %v", err)
+	}
+	if obs.AQI != 38 || obs.PM25 != 4.8 || obs.PM10 != 6.5 {
+		t.Errorf("obs = %+v, want AQI 38 / pm2.5 4.8 / pm10 6.5", obs)
+	}
+	if len(obs.HourlyAQI) != 3 || obs.HourlyAQI[2] != 40 {
+		t.Errorf("hourly = %v, want [38 39 40]", obs.HourlyAQI)
+	}
+}
+
+// newAirTestApp wires an App at a stubbed weather provider + a stubbed AQ
+// server whose AQI is read from *aqi on each hit (counted in *hits).
+func newAirTestApp(t *testing.T, pub *recordingPublisher, aqi *float64, hits *int32) *App {
+	t.Helper()
+	weatherSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"current":{"temperature_2m":20,"weather_code":0}}`))
+	}))
+	t.Cleanup(weatherSrv.Close)
+	airSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(hits, 1)
+		fmt.Fprintf(w, `{"current":{"european_aqi":%g},"hourly":{"european_aqi":[%g]}}`, *aqi, *aqi)
+	}))
+	t.Cleanup(airSrv.Close)
+
+	cfg := defaultConfig()
+	cfg.Weather.applyDefaults()
+	cfg.Weather.Enabled = true
+	cfg.Weather.RefreshMinutes = 10
+	cfg.Weather.PopupIntervalMinutes = 0 // keep interval popups out of the way
+	cfg.Weather.AirPopupThreshold = 80
+	app := NewApp(cfg, pub, testLogger())
+	app.weatherFetcher = newWeatherFetcher()
+	app.weatherFetcher.openMeteoBase = weatherSrv.URL
+	app.weatherFetcher.airQualityBase = airSrv.URL
+	return app
+}
+
+func TestPollAirStoresAndPopsOnEdge(t *testing.T) {
+	pub := &recordingPublisher{}
+	aqi := 50.0
+	var hits int32
+	app := newAirTestApp(t, pub, &aqi, &hits)
+	t0 := time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC)
+
+	countAirPopups := func() int {
+		pub.mu.Lock()
+		defer pub.mu.Unlock()
+		n := 0
+		for _, p := range pub.notify {
+			if s, _ := p["text"].(string); strings.HasPrefix(s, "AIR ") {
+				n++
+			}
+		}
+		return n
+	}
+
+	// Below threshold: stored, no popup.
+	app.pollWeather(context.Background(), t0)
+	air, have := app.weather.currentAir()
+	if !have || air.AQI != 50 || len(air.HourlyAQI) != 1 {
+		t.Fatalf("air obs not stored: %+v have=%v", air, have)
+	}
+	if countAirPopups() != 0 {
+		t.Fatal("below-threshold reading must not pop")
+	}
+
+	// Rising edge across 80 → one popup, in the bucket colour.
+	aqi = 85
+	app.pollWeather(context.Background(), t0.Add(11*time.Minute))
+	if countAirPopups() != 1 {
+		t.Fatalf("rising edge should fire exactly one popup, got %d", countAirPopups())
+	}
+
+	// Still above: no re-fire.
+	aqi = 90
+	app.pollWeather(context.Background(), t0.Add(22*time.Minute))
+	if countAirPopups() != 1 {
+		t.Fatalf("staying above threshold must not re-fire, got %d", countAirPopups())
+	}
+
+	// Drop below re-arms; next crossing fires again.
+	aqi = 70
+	app.pollWeather(context.Background(), t0.Add(33*time.Minute))
+	aqi = 81
+	app.pollWeather(context.Background(), t0.Add(44*time.Minute))
+	if countAirPopups() != 2 {
+		t.Fatalf("re-armed crossing should fire a second popup, got %d", countAirPopups())
+	}
+}
+
+func TestPollAirFirstObservationAboveThresholdPops(t *testing.T) {
+	// A restart mid-episode should still alert (severe-weather precedent).
+	pub := &recordingPublisher{}
+	aqi := 120.0
+	var hits int32
+	app := newAirTestApp(t, pub, &aqi, &hits)
+	app.pollWeather(context.Background(), time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	found := false
+	for _, p := range pub.notify {
+		if p["text"] == "AIR EXTREME 120" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("first above-threshold observation should pop, notify=%v", pub.notify)
+	}
+}
+
+func TestPollAirGatedByConfig(t *testing.T) {
+	pub := &recordingPublisher{}
+	aqi := 50.0
+	var hits int32
+	app := newAirTestApp(t, pub, &aqi, &hits)
+	cur := *app.cfg.Load()
+	cur.Weather.AirTile = false
+	cur.Weather.AirPopupThreshold = 0
+	app.cfg.Store(&cur)
+	app.pollWeather(context.Background(), time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
+	if got := atomic.LoadInt32(&hits); got != 0 {
+		t.Errorf("AQ fetched %d times with tile+popup both off, want 0", got)
+	}
+}
+
+func TestPollAirFailureKeepsWeatherWorking(t *testing.T) {
+	pub := &recordingPublisher{}
+	weatherSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"current":{"temperature_2m":20,"weather_code":0}}`))
+	}))
+	defer weatherSrv.Close()
+	airSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer airSrv.Close()
+
+	cfg := defaultConfig()
+	cfg.Weather.applyDefaults()
+	cfg.Weather.Enabled = true
+	app := NewApp(cfg, pub, testLogger())
+	app.weatherFetcher = newWeatherFetcher()
+	app.weatherFetcher.openMeteoBase = weatherSrv.URL
+	app.weatherFetcher.airQualityBase = airSrv.URL
+
+	app.pollWeather(context.Background(), time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
+	if _, have := app.weather.current(); !have {
+		t.Error("a failing AQ fetch must not block the weather observation")
+	}
+	if _, haveAir := app.weather.currentAir(); haveAir {
+		t.Error("failed AQ fetch must not record an observation")
 	}
 }
 

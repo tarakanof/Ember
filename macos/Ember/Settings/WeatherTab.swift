@@ -22,6 +22,7 @@ struct WeatherTab: View {
     @AppStorage("weatherFold.forecast") private var forecastExpanded = false
     @AppStorage("weatherFold.shared") private var sharedExpanded = false
     @AppStorage("weatherFold.popups") private var popupsExpanded = false
+    @AppStorage("weatherFold.air") private var airExpanded = false
 
     var body: some View {
         Form {
@@ -37,6 +38,11 @@ struct WeatherTab: View {
                         caption: "Full-width temperature bars — height and colour = temperature, next \(config.forecastHours) h.",
                         enabled: config.forecastTile,
                         frame: preview?.frames.first(where: { $0.card == "forecast" }))
+                    PanelPreview(
+                        title: "AIR QUALITY",
+                        caption: "European AQI in its scale colour · bottom strip: next 24 h trend.",
+                        enabled: config.airTile,
+                        frame: preview?.frames.first(where: { $0.card == "air" }))
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -100,6 +106,20 @@ struct WeatherTab: View {
                 Toggle("Show on clock", isOn: $config.forecastTile)
             } header: {
                 Text("Hourly forecast panel")
+            }
+
+            // NB: Section(isExpanded:content:header:footer:) doesn't exist, so
+            // the scale legend lives inside the fold as a caption row.
+            Section(isExpanded: $airExpanded) {
+                Toggle("Show on clock", isOn: $config.airTile)
+                Stepper(config.airPopupThreshold == 0
+                        ? "Alert popup: off"
+                        : "Alert popup at AQI ≥ \(config.airPopupThreshold)",
+                        value: $config.airPopupThreshold, in: 0...200, step: 10)
+                Text("European AQI: 0–20 good · 20–40 fair · 40–60 moderate · 60–80 poor · 80–100 very poor · 100+ extreme. The alert fires once as the AQI crosses the threshold.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("Air quality panel")
             }
 
             Section(isExpanded: $sharedExpanded) {
@@ -193,7 +213,7 @@ struct WeatherTab: View {
         }
     }
 
-    /// Refreshes the top preview from the draft config. Both panels are always
+    /// Refreshes the top preview from the draft config. All panels are always
     /// requested (enable toggles dim the previews locally instead of hiding
     /// them, so the option↔panel mapping stays visible). No-auth endpoint;
     /// failures just keep the last frames (or the blank placeholder).
@@ -201,6 +221,7 @@ struct WeatherTab: View {
         var draft = cfg
         draft.rotateInApps = true
         draft.forecastTile = true
+        draft.airTile = true
         if let p = try? await env.preview.fetchWeatherPreview(draft) {
             preview = p
         }

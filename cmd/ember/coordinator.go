@@ -147,6 +147,7 @@ type coordinator struct {
 	weather        *weatherStore
 	pushedWeather  *pushedUsageApp
 	pushedForecast *pushedUsageApp
+	pushedAir      *pushedUsageApp
 
 	// adoptedApps records whether we've seeded the push trackers from the
 	// device's actual app loop yet (once per process, on the first reachable
@@ -521,6 +522,7 @@ func (c *coordinator) onTick() {
 	c.clearLegacyUsageApps()
 	c.reconcileWeatherApp(c.clk.Now())
 	c.reconcileForecastApp(c.clk.Now())
+	c.reconcileAirApp(c.clk.Now())
 	c.checkLimitAlarms(c.clk.Now(), snap)
 }
 
@@ -555,6 +557,10 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 		case name == "ember-forecast":
 			if c.pushedForecast == nil {
 				c.pushedForecast = &pushedUsageApp{}
+			}
+		case name == "ember-air":
+			if c.pushedAir == nil {
+				c.pushedAir = &pushedUsageApp{}
 			}
 		case strings.HasPrefix(name, "ember-usage-"):
 			if c.pushedUsageApps == nil {
@@ -687,6 +693,50 @@ func (c *coordinator) reconcileForecastApp(now time.Time) {
 		return
 	}
 	c.pushedForecast = &pushedUsageApp{body: body, at: now}
+}
+
+// reconcileAirApp pushes/refreshes the standalone "ember-air" tile (current
+// European AQI + hourly trend strip) when weather is enabled, the air tile is
+// turned on, and the air observation is fresh; clears it otherwise. Same
+// change-and-staleness dedupe as the other weather tiles. Coordinator
+// goroutine only.
+func (c *coordinator) reconcileAirApp(now time.Time) {
+	if c.weather == nil {
+		return
+	}
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	const name = "ember-air"
+	cfg := c.loadCfg().Weather
+	air, have := c.weather.currentAir()
+	want := cfg.Enabled && cfg.AirTile && have && now.Sub(air.FetchedAt) < weatherTileStaleTTL
+
+	if !want {
+		if c.pushedAir != nil {
+			if err := c.publisher.ClearApp(ctx, name); err != nil {
+				c.logger.Warn("air tile clear failed", "err", err)
+				return
+			}
+			c.pushedAir = nil
+		}
+		return
+	}
+
+	payload := render.AirPayload(air.AQI, air.HourlyAQI, usageAppLifetime)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	if c.pushedAir != nil && bytes.Equal(c.pushedAir.body, body) && now.Sub(c.pushedAir.at) < usageRefreshInterval {
+		return
+	}
+	if err := c.publisher.CustomApp(ctx, name, payload); err != nil {
+		c.logger.Warn("air tile publish failed", "err", err)
+		return
+	}
+	c.pushedAir = &pushedUsageApp{body: body, at: now}
 }
 
 const (

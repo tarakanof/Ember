@@ -184,7 +184,7 @@ codes (WMO for Open-Meteo, `symbol_code` for MET) map to six render buckets
 `weather.go`). The fetch also pulls the next ~24 **hourly temperatures** and (Open-Meteo
 only) the location's **UTC offset** (`&timezone=auto` → `utc_offset_seconds`). The
 latest observation lives in an in-memory `weatherStore`; the coordinator reconciles
-two rotating tiles with the same change-and-staleness dedupe as the usage card:
+three rotating tiles with the same change-and-staleness dedupe as the usage card:
 
 - **`ember-weather`** — 8×8 condition icon + the current temperature **centred**
   in the free area + a 2-px-tall per-hour **forecast strip** (rows 6–7),
@@ -195,6 +195,18 @@ two rotating tiles with the same change-and-staleness dedupe as the usage card:
   temperature bars** (no icon/temp — those live on the conditions tile, so the
   two tiles read differently at a glance); bars are stretched evenly across
   all 32 columns (`forecast_hours`, 6..24; bar height + colour = temperature).
+- **`ember-air`** (`air_tile`, default on) — **air quality**: 8×8 drawn wind
+  icon + the current **European AQI** value, both in the official EEA bucket
+  colour (good→extreme; `render.AQIColor`/`AQIWord`, discrete — the scale is
+  bucketed), + a 2-px per-hour **AQI trend strip** (rows 6–7, next 24 h, each
+  pixel its own bucket colour). Data comes from the **Open-Meteo air-quality
+  API** (`fetchAirQuality`, always Open-Meteo regardless of `provider` — MET
+  Norway has no AQ product), riding `pollWeather`'s due-gate but fetched
+  independently so one provider failing never starves the other.
+  **`air_popup_threshold`** (0=off; file-load default 80 = "very poor") fires
+  an edge-triggered `AIR <WORD> <N>` popup when the AQI crosses up over the
+  threshold (re-arms below; a first reading already above it also fires, so a
+  restart mid-episode still alerts — severe-weather precedent). No sound.
 
 **Native tile icon** (`tile_native_icons`, default off): the **conditions
 tile** swaps its drawn 8×8 sprite for the **native animated AWTRIX/LaMetric
@@ -216,9 +228,10 @@ failures log and retry on the next apply/restart.
 
 **Weather preview** — `GET /v1/weather/preview` (open, read-only, mirrors
 `/v1/preview`): renders the tiles under draft query params (`rotate_in_apps`,
-`forecast_tile`, `forecast_hours`, `units`) into the same `{frames}` grids,
-using the live observation when present, else a canned sample (21 °C clouds,
-sinusoidal 24 h arc) so it never renders blank. Native-icon mode previews with
+`forecast_tile`, `air_tile`, `forecast_hours`, `units`) into the same
+`{frames}` grids, using the live observations when present, else canned
+samples (21 °C clouds, sinusoidal 24 h arc; AQI 42 easing off overnight) so it
+never renders blank. Native-icon mode previews with
 the drawn sprite (the canvas can't animate gallery icons). Feeds the menu's
 Weather tab "Display" section, which also folds Location/Tile/Forecast/Popups
 into collapsible sections and overlays a "1 of N" cycle indicator
