@@ -40,23 +40,50 @@ func decodeWeatherPreview(t *testing.T, url string) render.Preview {
 func TestWeatherPreview_SampleFallbackAndFlags(t *testing.T) {
 	_, srv := weatherPreviewServer(t)
 
-	// No live observation → sample data, both tiles by default.
+	// No live observation → sample data, all three tiles by default.
 	p := decodeWeatherPreview(t, srv.URL+"/v1/weather/preview")
-	if len(p.Frames) != 2 || p.Frames[0].Card != "weather" || p.Frames[1].Card != "forecast" {
-		t.Fatalf("default frames = %+v, want [weather forecast]", p.Frames)
+	if len(p.Frames) != 3 || p.Frames[0].Card != "weather" || p.Frames[1].Card != "forecast" || p.Frames[2].Card != "air" {
+		t.Fatalf("default frames = %+v, want [weather forecast air]", p.Frames)
 	}
 	if len(p.Frames[0].Pixels) != 256 {
 		t.Errorf("pixels len = %d, want 256", len(p.Frames[0].Pixels))
 	}
+	if len(p.Frames[2].Pixels) != 256 {
+		t.Errorf("air pixels len = %d, want 256", len(p.Frames[2].Pixels))
+	}
 
 	// Toggles drop their tile.
 	p = decodeWeatherPreview(t, srv.URL+"/v1/weather/preview?forecast_tile=false")
-	if len(p.Frames) != 1 || p.Frames[0].Card != "weather" {
-		t.Fatalf("forecast off: frames = %+v, want [weather]", p.Frames)
+	if len(p.Frames) != 2 || p.Frames[0].Card != "weather" || p.Frames[1].Card != "air" {
+		t.Fatalf("forecast off: frames = %+v, want [weather air]", p.Frames)
 	}
-	p = decodeWeatherPreview(t, srv.URL+"/v1/weather/preview?rotate_in_apps=false&forecast_tile=false")
+	p = decodeWeatherPreview(t, srv.URL+"/v1/weather/preview?air_tile=false")
+	if len(p.Frames) != 2 || p.Frames[1].Card != "forecast" {
+		t.Fatalf("air off: frames = %+v, want [weather forecast]", p.Frames)
+	}
+	p = decodeWeatherPreview(t, srv.URL+"/v1/weather/preview?rotate_in_apps=false&forecast_tile=false&air_tile=false")
 	if len(p.Frames) != 0 {
-		t.Fatalf("both off: %d frames, want 0", len(p.Frames))
+		t.Fatalf("all off: %d frames, want 0", len(p.Frames))
+	}
+}
+
+func TestWeatherPreview_AirLiveObservationWins(t *testing.T) {
+	app, srv := weatherPreviewServer(t)
+	app.weather.mu.Lock()
+	app.weather.air = airObservation{AQI: 150, HourlyAQI: []float64{150, 140}, FetchedAt: time.Now()}
+	app.weather.haveAir = true
+	app.weather.mu.Unlock()
+
+	live := decodeWeatherPreview(t, srv.URL+"/v1/weather/preview?rotate_in_apps=false&forecast_tile=false")
+	app.weather.mu.Lock()
+	app.weather.haveAir = false
+	app.weather.mu.Unlock()
+	sample := decodeWeatherPreview(t, srv.URL+"/v1/weather/preview?rotate_in_apps=false&forecast_tile=false")
+	if len(live.Frames) != 1 || len(sample.Frames) != 1 {
+		t.Fatal("both variants must render the air frame")
+	}
+	if slicesEqualStr(live.Frames[0].Pixels, sample.Frames[0].Pixels) {
+		t.Errorf("live air observation must render differently from the sample")
 	}
 }
 
