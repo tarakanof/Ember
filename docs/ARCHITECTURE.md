@@ -195,6 +195,25 @@ two rotating tiles with the same change-and-staleness dedupe as the usage card:
   vertical **hourly temperature bars** filling the right (`forecast_hours`, 6..24;
   bar height + colour = temperature).
 
+**Native tile icons** (`tile_native_icons`, default off): both tiles swap the
+drawn 8×8 condition sprite for the **native animated AWTRIX/LaMetric icon**
+(same `icon_ids` mapping as popups) while digits/strip/bars stay drawn,
+emitted as a **partial bitmap** (`db` over cols 8–31). Device-verified
+(2026-06-12): db coords are absolute and render alongside `icon`; the clock
+downloads a gallery icon on first reference, so a fresh ID is blank for a few
+seconds. The **moon phase wins** over native icons on clear nights (no
+per-phase gallery set). Independent of `use_native_icons` (popup-only).
+
+**Weather preview** — `GET /v1/weather/preview` (open, read-only, mirrors
+`/v1/preview`): renders the tiles under draft query params (`rotate_in_apps`,
+`forecast_tile`, `forecast_hours`, `units`) into the same `{frames}` grids,
+using the live observation when present, else a canned sample (21 °C clouds,
+sinusoidal 24 h arc) so it never renders blank. Native-icon mode previews with
+the drawn sprite (the canvas can't animate gallery icons). Feeds the menu's
+Weather tab "Display" section, which also folds Location/Tile/Forecast/Popups
+into collapsible sections and overlays a "1 of N" cycle indicator
+(`PreviewCanvas`, shared with the Display tab).
+
 A 1-min poll loop (`StartWeather`) fetches when due and fires `/api/notify`
 **popups**: on condition change (`popup_on_change`), on a fixed cadence
 (`popup_interval_minutes`, `0`=off), a **sound alert** on severe-weather onset
