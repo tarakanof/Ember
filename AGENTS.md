@@ -67,7 +67,8 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/reminders/fire`, `GET/PUT /v1/device/config`, `GET /v1/device/discover`,
 `GET/PUT /v1/device/settings`, `GET/PUT /v1/quiet/config`, `GET /v1/device/stats`,
 `POST /v1/device/{reboot,notify/dismiss}`. Read (no auth): `GET /state`, `GET /healthz`,
-`GET /v1/preview`, `GET /v1/weather/preview`, `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
+`GET /v1/preview`, `GET /v1/{weather,pomodoro,reminders}/preview`,
+`GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
 `GET /v1/pomodoro/dashboard` (HTML). Operator: `/admin/doctor`, `/admin/reload`,
 `/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (middle=play/pause on press; left=stop, right=skip on release; left+right held=toggle).
