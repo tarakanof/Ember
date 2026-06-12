@@ -46,4 +46,23 @@ public struct PreviewService: Sendable {
             URLQueryItem(name: "units", value: cfg.units),
         ])
     }
+
+    /// Pomodoro-tab preview: GET /v1/pomodoro/preview with the draft config's
+    /// display-relevant fields. Returns one frame per phase
+    /// (focus / short_break / long_break).
+    public func fetchPomodoroPreview(_ cfg: PomoConfig) async throws -> PreviewResponse {
+        try await client.get("/v1/pomodoro/preview", query: [
+            URLQueryItem(name: "focus_minutes", value: String(cfg.focusMinutes)),
+            URLQueryItem(name: "short_break_minutes", value: String(cfg.shortBreakMinutes)),
+            URLQueryItem(name: "long_break_minutes", value: String(cfg.longBreakMinutes)),
+            URLQueryItem(name: "focus_color", value: cfg.focusColor),
+            URLQueryItem(name: "break_color", value: cfg.breakColor),
+        ])
+    }
+
+    /// Reminders-tab preview: GET /v1/reminders/preview — the bell alarm popup
+    /// with the server's sample text. One "reminder" frame.
+    public func fetchReminderPreview() async throws -> PreviewResponse {
+        try await client.get("/v1/reminders/preview", query: [])
+    }
 }
