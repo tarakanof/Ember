@@ -122,7 +122,9 @@ offers a **Grant Local Network Access…** button (macOS gates Bonjour browsing
 behind the Local Network privacy permission) + **Rescan**. The **Device** tab is
 the AWTRIX clock's own settings (General / Native Apps / Time & Date / Actions),
 proxied through the server (`/v1/device/*`) — brightness, volume, app time,
-transitions, native-app toggles, calendar colours, Reboot / Dismiss — plus a
+transitions, native-app toggles, calendar colours, sensor calibration
+(temp/hum offsets, written to the clock's `dev.json`; **Apply reboots the
+clock**), Reboot / Dismiss — plus a
 **Discover clocks** picker (mDNS) to choose which AWTRIX the server drives. The
 **App** tab's *About* shows the app version + the connected server's `/version`.
 

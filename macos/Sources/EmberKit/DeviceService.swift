@@ -15,6 +15,15 @@ public struct DeviceService: Sendable {
     public func stats() async throws -> DeviceStats {
         try await client.get("/v1/device/stats")
     }
+    /// The calibration offsets in the clock's dev.json (nil = firmware default).
+    public func sensors() async throws -> SensorCalibration {
+        try await client.get("/v1/device/sensors")
+    }
+    /// Writes the offsets into dev.json and reboots the clock (offsets only
+    /// apply at boot).
+    public func updateSensors(_ cal: SensorCalibration) async throws {
+        try await client.put("/v1/device/sensors", body: cal)
+    }
     /// The clock's live framebuffer: 24-bit RGB ints, row-major 32×8.
     public func screen() async throws -> [Int] {
         try await client.get("/v1/device/screen")

@@ -58,3 +58,37 @@ import Foundation
     #expect(s.bat == 100)
     #expect(s.bri == 2)
 }
+
+@Test func deviceStatsDecodesSensorReadings() throws {
+    // temp arrives as an int when temp_dec_places is 0; both must decode.
+    let json = #"{"bat":100,"temp":24,"hum":41.5,"lux":230}"#
+    let s = try JSONDecoder().decode(DeviceStats.self, from: Data(json.utf8))
+    #expect(s.temp == 24)
+    #expect(s.hum == 41.5)
+    #expect(s.lux == 230)
+}
+
+@Test func deviceStatsToleratesMissingSensors() throws {
+    // sensor_reading:false omits temp/hum entirely.
+    let json = #"{"bat":100,"version":"0.98"}"#
+    let s = try JSONDecoder().decode(DeviceStats.self, from: Data(json.utf8))
+    #expect(s.temp == nil)
+    #expect(s.hum == nil)
+}
+
+@Test func sensorCalibrationDecodesNulls() throws {
+    let json = #"{"temp_offset":-7.5,"hum_offset":null}"#
+    let c = try JSONDecoder().decode(SensorCalibration.self, from: Data(json.utf8))
+    #expect(c.tempOffset == -7.5)
+    #expect(c.humOffset == nil)
+}
+
+@Test func sensorCalibrationEncodesExplicitNulls() throws {
+    // The server treats null as "remove the key from dev.json" and an absent
+    // key as "leave unchanged" — reset-to-default needs the explicit null.
+    let data = try JSONEncoder().encode(SensorCalibration(tempOffset: -4))
+    let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(obj["temp_offset"] as? Double == -4)
+    #expect(obj.index(forKey: "hum_offset") != nil)
+    #expect(obj["hum_offset"] is NSNull)
+}

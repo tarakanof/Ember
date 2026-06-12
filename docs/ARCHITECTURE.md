@@ -309,6 +309,16 @@ server stays the only writer to the device**: the tab calls `/v1/device/settings
 forwarding to the clock's unauthenticated `/api/settings`. `ATRANS`/`BLOCKN`
 remain transiently owned by the Pomodoro coordinator during a focus block.
 
+Sensor calibration (`GET/PUT /v1/device/sensors`) follows the same proxy rule
+but targets `dev.json` on the clock's LittleFS, since the firmware has no
+settings-API key for `temp_offset`/`hum_offset`. The PUT read-merges the
+existing file (preserving unrelated keys — notably `button_callback`, which
+Pomodoro buttons depend on), uploads it through the device's multipart `/edit`
+route (the icon-provisioning mechanism), and reboots the clock because dev.json
+is only read at boot. The Ulanzi firmware default is `temp_offset:-9`
+(self-heating compensation); a dev.json value replaces that default, so the
+menu treats −9/0 — not 0/0 — as the baseline.
+
 ## The "spine" — how display widgets are added
 
 Every configurable display signal follows one pattern:
