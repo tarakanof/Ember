@@ -20,6 +20,7 @@ type CheckStatus string
 
 const (
 	StatusOK      CheckStatus = "ok"
+	StatusWarn    CheckStatus = "warn"
 	StatusFail    CheckStatus = "fail"
 	StatusSkipped CheckStatus = "skipped"
 )
@@ -122,6 +123,13 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	// 8. build
 	res.Checks["build"] = checkBuild()
 
+	// 9. meetings  (skipped offline)
+	if app == nil {
+		res.Checks["meetings"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
+	} else {
+		res.Checks["meetings"] = checkMeetings(app, cfg)
+	}
+
 	res.OK = true
 	for _, c := range res.Checks {
 		if c.Status != StatusOK {
@@ -212,6 +220,44 @@ func checkBuild() CheckResult {
 		dirty = "+dirty"
 	}
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("rev=%s%s go=%s", rev, dirty, runtime.Version())}
+}
+
+// checkMeetings reports the state of the meetings / ICS calendar feature.
+// Covers: not configured, URLs present but never fetched or stale, and healthy
+// with an upcoming count. URL strings never appear in the output — they are
+// credentials. Feed count and next-meeting title are safe.
+func checkMeetings(app *App, cfg *Config) CheckResult {
+	if len(app.meetingsURLs) == 0 {
+		return CheckResult{Status: StatusOK, Detail: "not configured (EMBER_MEETINGS_ICS_URLS unset)"}
+	}
+	feedCount := len(app.meetingsURLs)
+	now := time.Now()
+	lastOK := app.meetings.lastOK()
+	if lastOK.IsZero() {
+		return CheckResult{
+			Status: StatusWarn,
+			Detail: fmt.Sprintf("%d feed(s); never successfully fetched", feedCount),
+		}
+	}
+	age := now.Sub(lastOK)
+	if age >= meetingsStaleTTL {
+		return CheckResult{
+			Status: StatusWarn,
+			Detail: fmt.Sprintf("%d feed(s); last successful fetch %v ago (stale)", feedCount, age.Round(time.Second)),
+		}
+	}
+	occ, ok := app.meetings.next(now)
+	if !ok {
+		return CheckResult{
+			Status: StatusOK,
+			Detail: fmt.Sprintf("%d feed(s); no upcoming meetings", feedCount),
+		}
+	}
+	mins := meetingMinutes(now, occ.Start)
+	return CheckResult{
+		Status: StatusOK,
+		Detail: fmt.Sprintf("%d feed(s); next: %s in %dm", feedCount, sanitizeMeetingTitle(occ.Title), mins),
+	}
 }
 
 // runDoctor parses doctor-specific flags from args, runs the diagnostic
@@ -324,6 +370,8 @@ func renderDoctorText(w io.Writer, res DoctorResult) {
 		c := res.Checks[k]
 		marker := "[OK]     "
 		switch c.Status {
+		case StatusWarn:
+			marker = "[WARN]   "
 		case StatusFail:
 			marker = "[FAIL]   "
 		case StatusSkipped:

@@ -62,6 +62,13 @@ func (s *meetingsStore) fresh(now time.Time) bool {
 	return !s.lastFetchOK.IsZero() && now.Sub(s.lastFetchOK) < meetingsStaleTTL
 }
 
+// lastOK returns the time of the last successful fetch (zero if never fetched).
+func (s *meetingsStore) lastOK() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastFetchOK
+}
+
 // snapshot returns up to n future occurrences (Start.After(now)) as a copy,
 // safe for the coordinator to read without holding the lock.
 func (s *meetingsStore) snapshot(now time.Time, n int) []meetings.Occurrence {

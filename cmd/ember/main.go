@@ -924,6 +924,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/weather/preview", a.handleWeatherPreview)
 	mux.HandleFunc("GET /v1/pomodoro/preview", a.handlePomodoroPreview)
 	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
+	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
+	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
 	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
 
 	writeMux := http.NewServeMux()
