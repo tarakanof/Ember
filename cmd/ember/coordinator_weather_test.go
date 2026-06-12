@@ -76,13 +76,64 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 	}
 }
 
+func TestReconcileAirTilePushesAndClears(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.Weather.applyDefaults()
+	cfg.Weather.Enabled = true
+	cfg.Weather.AirTile = true
+	app := NewApp(cfg, pub, testLogger())
+	c := app.coord
+	now := time.Now()
+
+	// A fresh air observation pushes the single ember-air tile.
+	app.weather.mu.Lock()
+	app.weather.air = airObservation{AQI: 42, HourlyAQI: []float64{40, 45, 50}, FetchedAt: now}
+	app.weather.haveAir = true
+	app.weather.mu.Unlock()
+	c.reconcileAirApp(now)
+	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-air" {
+		t.Fatalf("expected one ember-air push, got %v", names)
+	}
+
+	// Unchanged within the refresh interval → no re-push.
+	c.reconcileAirApp(now.Add(time.Minute))
+	if got := len(pub.CustomNamesSnapshot()); got != 1 {
+		t.Errorf("unchanged air tile re-pushed: %d, want 1", got)
+	}
+
+	// Stale observation → cleared.
+	c.reconcileAirApp(now.Add(weatherTileStaleTTL + time.Minute))
+	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-air" {
+		t.Errorf("stale air tile should be cleared, got %v", cleared)
+	}
+}
+
+func TestReconcileAirTileDisabled(t *testing.T) {
+	now := time.Now()
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.Weather.applyDefaults()
+	cfg.Weather.Enabled = true
+	cfg.Weather.AirTile = false
+	app := NewApp(cfg, pub, testLogger())
+	app.weather.mu.Lock()
+	app.weather.air = airObservation{AQI: 42, HourlyAQI: []float64{40}, FetchedAt: now}
+	app.weather.haveAir = true
+	app.weather.mu.Unlock()
+	app.coord.reconcileAirApp(now)
+	if got := len(pub.CustomNamesSnapshot()); got != 0 {
+		t.Errorf("air-off should push nothing, got %d", got)
+	}
+}
+
 // After a server restart the in-memory push trackers start empty, but ember-
 // managed custom apps from the previous run are still on the device. Adopting
 // the device's app loop must let the reconcilers clear the ones no longer
 // wanted (here: weather disabled), without touching the base/native apps.
 func TestAdoptClearsStaleManagedAppsAfterRestart(t *testing.T) {
 	pub := &recordingPublisher{loopApps: []string{
-		"Time", "ember", "ember-weather", "ember-forecast", "ember-usage-claude-5h",
+		"Time", "ember", "ember-weather", "ember-forecast", "ember-air", "ember-usage-claude-5h",
 	}}
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
@@ -96,10 +147,11 @@ func TestAdoptClearsStaleManagedAppsAfterRestart(t *testing.T) {
 	}
 	c.reconcileWeatherApp(now)
 	c.reconcileForecastApp(now)
+	c.reconcileAirApp(now)
 	c.clearLegacyUsageApps()
 
 	cleared := pub.ClearedAppsSnapshot()
-	for _, want := range []string{"ember-weather", "ember-forecast", "ember-usage-claude-5h"} {
+	for _, want := range []string{"ember-weather", "ember-forecast", "ember-air", "ember-usage-claude-5h"} {
 		found := false
 		for _, c := range cleared {
 			if c == want {
