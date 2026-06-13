@@ -66,4 +66,9 @@ public struct PreviewService: Sendable {
     public func fetchReminderPreview() async throws -> PreviewResponse {
         try await client.get("/v1/reminders/preview", query: [])
     }
+
+    /// Meetings-tab preview: GET /v1/meetings/preview — the ember-meet countdown tile.
+    public func fetchMeetingsPreview() async throws -> PreviewResponse {
+        try await client.get("/v1/meetings/preview", query: [])
+    }
 }

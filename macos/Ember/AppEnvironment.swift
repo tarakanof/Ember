@@ -17,6 +17,7 @@ public final class AppEnvironment {
     public private(set) var quiet: QuietService
     public private(set) var displayConfig: DisplayService
     public private(set) var device: DeviceService
+    public private(set) var meetings: MeetingsService
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
@@ -71,6 +72,7 @@ public final class AppEnvironment {
         quiet = QuietService(client: client)
         displayConfig = DisplayService(client: client)
         device = DeviceService(client: client)
+        meetings = MeetingsService(client: client)
         reminderWatcher = ReminderWatcher(client: client)
         model.configure(client: client)
         model.startPolling()   // begin polling at launch (idempotent); self-started
@@ -91,6 +93,7 @@ public final class AppEnvironment {
         quiet = QuietService(client: client)
         displayConfig = DisplayService(client: client)
         device = DeviceService(client: client)
+        meetings = MeetingsService(client: client)
         reminderWatcher.reconfigure(client: client)
         model.configure(client: client)
         Task { await model.refresh() }

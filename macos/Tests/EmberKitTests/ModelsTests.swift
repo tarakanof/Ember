@@ -53,6 +53,59 @@ import Foundation
     #expect(p.activity == "Bash: go test")
 }
 
+@Test func testMeetingsConfigDecodesFull() throws {
+    let json = #"{"enabled":false,"tile_lead_minutes":30,"popup_lead_minutes":5,"chime":false,"ics_urls_configured":2}"#
+    let cfg = try JSONDecoder().decode(MeetingsConfig.self, from: Data(json.utf8))
+    #expect(cfg.enabled == false)
+    #expect(cfg.tileLeadMinutes == 30)
+    #expect(cfg.popupLeadMinutes == 5)
+    #expect(cfg.chime == false)
+    #expect(cfg.icsUrlsConfigured == 2)
+}
+
+@Test func testMeetingsConfigDecodesPartial() throws {
+    let json = #"{}"#
+    let cfg = try JSONDecoder().decode(MeetingsConfig.self, from: Data(json.utf8))
+    #expect(cfg.enabled == true)
+    #expect(cfg.tileLeadMinutes == 60)
+    #expect(cfg.popupLeadMinutes == 2)
+    #expect(cfg.chime == true)
+    #expect(cfg.icsUrlsConfigured == 0)
+}
+
+@Test func testMeetingsConfigEncodesSnakeCase() throws {
+    let cfg = MeetingsConfig(enabled: true, tileLeadMinutes: 60, popupLeadMinutes: 2, chime: true, icsUrlsConfigured: 3)
+    let data = try JSONEncoder().encode(cfg)
+    let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    #expect(obj["enabled"] != nil)
+    #expect(obj["tile_lead_minutes"] != nil)
+    #expect(obj["popup_lead_minutes"] != nil)
+    #expect(obj["chime"] != nil)
+    // round-trip
+    let dec = JSONDecoder()
+    let cfg2 = try dec.decode(MeetingsConfig.self, from: data)
+    #expect(cfg2 == cfg)
+}
+
+@Test func testMeetingsStateDecodes() throws {
+    let json = #"{"upcoming":[{"title":"STANDUP","start":"2026-06-12T09:30:00Z"}],"fetched_at":"2026-06-12T09:00:00Z"}"#
+    let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+    let state = try dec.decode(MeetingsState.self, from: Data(json.utf8))
+    #expect(state.upcoming.count == 1)
+    #expect(state.upcoming[0].title == "STANDUP")
+    // start must decode as a Date (non-zero interval since 1970)
+    #expect(state.upcoming[0].start.timeIntervalSince1970 > 0)
+    #expect(state.fetchedAt != nil)
+}
+
+@Test func testMeetingsStateDecodesEmpty() throws {
+    let json = #"{"upcoming":[]}"#
+    let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+    let state = try dec.decode(MeetingsState.self, from: Data(json.utf8))
+    #expect(state.upcoming.isEmpty)
+    #expect(state.fetchedAt == nil)
+}
+
 @Test func quietConfigRoundTripAndDefaults() throws {
     let def = QuietConfig()
     #expect(!def.enabled)
