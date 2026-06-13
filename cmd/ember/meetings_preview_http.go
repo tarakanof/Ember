@@ -30,6 +30,9 @@ func (a *App) handleMeetingsPreview(w http.ResponseWriter, r *http.Request) {
 // URLs never appear here. Timestamps are RFC3339 truncated to whole seconds:
 // Go marshals fractional seconds by default and Swift's .iso8601 decoder
 // rejects them.
+// Intentionally does NOT gate on fresh() (unlike handleMeetingsPreview above):
+// a stale list is more useful than an empty one; the caller receives fetched_at
+// and can judge staleness itself.
 func (a *App) handleMeetingsState(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	type item struct {

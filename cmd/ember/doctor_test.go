@@ -386,6 +386,32 @@ func TestRenderDoctorText_WarnSummary(t *testing.T) {
 	}
 }
 
+// TestCheckMeetingsDisabledWithURLs: URLs set but cfg.Meetings.Enabled = false
+// and never fetched → StatusOK (not StatusWarn), detail mentions "disabled".
+// Rationale: the poller never runs when disabled, so lastOK stays zero; that is
+// expected and must not surface as a "feed broken" warning.
+func TestCheckMeetingsDisabledWithURLs(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := newMeetingsTestApp(t, pub)
+	app.meetingsURLs = []string{
+		"http://calendar.example.com/feed1.ics",
+		"http://calendar.example.com/feed2.ics",
+	}
+	// lastFetchOK is zero (never fetched) — the poller never ran because disabled.
+
+	cfg := app.cfg.Load()
+	cfg.Meetings.Enabled = false
+
+	got := checkMeetings(app, cfg)
+
+	if got.Status != StatusOK {
+		t.Errorf("status = %q, want %q (disabled widget must not warn)", got.Status, StatusOK)
+	}
+	if !strings.Contains(got.Detail, "disabled") {
+		t.Errorf("detail should mention 'disabled'; got %q", got.Detail)
+	}
+}
+
 // TestCheckMeetingsStale: URLs set, lastFetchOK 61m in the past → StatusWarn
 // with the age mentioned in the detail.
 func TestCheckMeetingsStale(t *testing.T) {

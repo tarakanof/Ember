@@ -244,6 +244,7 @@ func TestDoctorMeetingsCheck(t *testing.T) {
 		a := newTestAppWithStore(t)
 		a.meetingsURLs = []string{"https://secret.example.com/feed.ics"}
 		cfg := a.cfg.Load()
+		cfg.Meetings.Enabled = true // poller is active; never fetched is genuinely broken
 		res := checkMeetings(a, cfg)
 		if res.Status != StatusWarn {
 			t.Errorf("status: got %q, want WARN", res.Status)
