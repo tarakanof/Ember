@@ -202,6 +202,67 @@ func TestMeetingsState(t *testing.T) {
 	}
 }
 
+func TestMeetingsStateUID(t *testing.T) {
+	// Two occurrences with the SAME title and SAME start but DIFFERENT UIDs must
+	// both appear in the response and each must carry its distinct uid field.
+	// This guards against the same-title/same-start aliasing bug.
+	now := time.Now().UTC().Truncate(time.Second)
+
+	a := newTestAppWithStore(t)
+
+	occs := []meetings.Occurrence{
+		{UID: "alpha@feed1", Title: "STANDUP", Start: now.Add(time.Hour)},
+		{UID: "beta@feed2", Title: "STANDUP", Start: now.Add(time.Hour)},
+	}
+	seedMeetingsStore(a.meetings, occs, now)
+
+	w := httptest.NewRecorder()
+	a.handleMeetingsState(w, httptest.NewRequest("GET", "/v1/meetings/state", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", w.Code, w.Body)
+	}
+
+	var got struct {
+		Upcoming []struct {
+			Title string `json:"title"`
+			Start string `json:"start"`
+			UID   string `json:"uid"`
+		} `json:"upcoming"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if len(got.Upcoming) != 2 {
+		t.Fatalf("upcoming count: got %d, want 2 (both occurrences with same title+start but different UIDs)", len(got.Upcoming))
+	}
+
+	uids := map[string]bool{}
+	for i, item := range got.Upcoming {
+		if item.UID == "" {
+			t.Errorf("upcoming[%d]: uid is empty — uid must be present in state payload", i)
+		}
+		if item.Title != "STANDUP" {
+			t.Errorf("upcoming[%d].title: got %q, want STANDUP", i, item.Title)
+		}
+		if strings.Contains(item.Start, ".") {
+			t.Errorf("upcoming[%d].start %q contains fractional seconds", i, item.Start)
+		}
+		// No ICS URL must appear — uid is an event ID, not a feed URL.
+		if strings.Contains(item.UID, "://") {
+			t.Errorf("upcoming[%d].uid %q looks like a URL — must not expose feed URLs", i, item.UID)
+		}
+		uids[item.UID] = true
+	}
+	if !uids["alpha@feed1"] {
+		t.Error("uid alpha@feed1 not found in response")
+	}
+	if !uids["beta@feed2"] {
+		t.Error("uid beta@feed2 not found in response")
+	}
+}
+
 func TestMeetingsStateEmpty(t *testing.T) {
 	// An empty store must return {"upcoming":[]} (NOT null) and no fetched_at.
 	a := newTestAppWithStore(t)

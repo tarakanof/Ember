@@ -305,12 +305,28 @@ public struct MeetingsConfig: Codable, Sendable, Equatable {
 /// Mirrors GET /v1/meetings/state — the menu's upcoming-meetings sanity list.
 public struct MeetingsState: Codable, Sendable, Equatable {
     public struct Item: Codable, Sendable, Equatable {
+        public var uid: String
         public var title: String
         public var start: Date
-        public var id: String { "\(title)|\(start.timeIntervalSince1970)" }
-        public init(title: String, start: Date) {
+        // Identity uses uid+start so two distinct events with the same title and
+        // same whole-second start (possible across feeds) keep separate rows.
+        // When uid is absent (older server), falls back to title|start.
+        public var id: String {
+            uid.isEmpty ? "\(title)|\(start.timeIntervalSince1970)"
+                        : "\(uid)|\(start.timeIntervalSince1970)"
+        }
+        // uid defaults to "" for older-server payloads that omit it.
+        public init(uid: String = "", title: String, start: Date) {
+            self.uid = uid
             self.title = title
             self.start = start
+        }
+        enum CodingKeys: String, CodingKey { case uid, title, start }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            uid   = try c.decodeIfPresent(String.self, forKey: .uid) ?? ""
+            title = try c.decode(String.self, forKey: .title)
+            start = try c.decode(Date.self, forKey: .start)
         }
     }
     public var upcoming: [Item]

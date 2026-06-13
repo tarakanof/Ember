@@ -36,13 +36,14 @@ func (a *App) handleMeetingsPreview(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleMeetingsState(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	type item struct {
+		UID   string    `json:"uid"`
 		Title string    `json:"title"`
 		Start time.Time `json:"start"`
 	}
 	occs := a.meetings.snapshot(now, 5)
 	items := make([]item, 0, len(occs))
 	for _, o := range occs {
-		items = append(items, item{Title: o.Title, Start: o.Start.UTC().Truncate(time.Second)})
+		items = append(items, item{UID: o.UID, Title: o.Title, Start: o.Start.UTC().Truncate(time.Second)})
 	}
 	resp := struct {
 		Upcoming  []item     `json:"upcoming"`

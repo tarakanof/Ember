@@ -106,6 +106,35 @@ import Foundation
     #expect(state.fetchedAt == nil)
 }
 
+@Test func testMeetingsStateItemUID() throws {
+    // Items must carry the uid from the server, and two items with the same
+    // title+start but different UIDs must produce different id values.
+    let json = #"""
+    {"upcoming":[
+      {"uid":"alpha@feed1","title":"STANDUP","start":"2026-06-12T09:30:00Z"},
+      {"uid":"beta@feed2","title":"STANDUP","start":"2026-06-12T09:30:00Z"}
+    ],"fetched_at":"2026-06-12T09:00:00Z"}
+    """#
+    let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+    let state = try dec.decode(MeetingsState.self, from: Data(json.utf8))
+    #expect(state.upcoming.count == 2)
+    #expect(state.upcoming[0].uid == "alpha@feed1")
+    #expect(state.upcoming[1].uid == "beta@feed2")
+    // Same title and same start — different uid must produce different ids.
+    #expect(state.upcoming[0].id != state.upcoming[1].id)
+}
+
+@Test func testMeetingsStateItemUIDOlderServer() throws {
+    // Older server payload without uid must still decode (uid defaults to "").
+    let json = #"{"upcoming":[{"title":"STANDUP","start":"2026-06-12T09:30:00Z"}]}"#
+    let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
+    let state = try dec.decode(MeetingsState.self, from: Data(json.utf8))
+    #expect(state.upcoming.count == 1)
+    #expect(state.upcoming[0].uid == "")
+    // id must still be non-empty (falls back to title|start form).
+    #expect(!state.upcoming[0].id.isEmpty)
+}
+
 @Test func quietConfigRoundTripAndDefaults() throws {
     let def = QuietConfig()
     #expect(!def.enabled)
