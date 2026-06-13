@@ -287,3 +287,129 @@ func TestRunDoctorChecks_HTTPListening_PlainScheme(t *testing.T) {
 		t.Errorf("http_listening detail = %q; want it to contain scheme=http (and not https)", got)
 	}
 }
+
+// TestDoctorWarnIsNonFatal: when the meetings feed is configured but its
+// lastFetchOK is beyond meetingsStaleTTL, checkMeetings returns StatusWarn.
+// runDoctorChecks must then set res.OK = true (warn is non-fatal).
+func TestDoctorWarnIsNonFatal(t *testing.T) {
+	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer awtrix.Close()
+
+	app := newAppForDoctor(t, awtrix.URL)
+	// Configure a meetings URL; set lastFetchOK 61m ago so meetings warns.
+	app.meetingsURLs = []string{"http://calendar.example.com/feed.ics"}
+	app.meetings.mu.Lock()
+	app.meetings.lastFetchOK = time.Now().Add(-61 * time.Minute)
+	app.meetings.mu.Unlock()
+
+	res := runDoctorChecks(context.Background(), app, app.cfg.Load())
+
+	if c := res.Checks["meetings"]; c.Status != StatusWarn {
+		t.Errorf("meetings status = %q, want %q (detail=%q)", c.Status, StatusWarn, c.Detail)
+	}
+	if !res.OK {
+		t.Errorf("OK = false with only a WARN; want true (warn must be non-fatal)")
+	}
+}
+
+// TestAdminDoctorWarnReturns200: when the meetings check warns (URLs set, never
+// fetched), /admin/doctor must return 200, not 503. A stale-but-configured
+// calendar feed must not make monitoring see the server as unavailable.
+func TestAdminDoctorWarnReturns200(t *testing.T) {
+	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer awtrix.Close()
+
+	app := newAppForDoctor(t, awtrix.URL)
+	// Inject a meetings URL so checkMeetings enters the "configured" path.
+	// lastFetchOK is zero (never fetched) → StatusWarn.
+	app.meetingsURLs = []string{"http://calendar.example.com/feed.ics"}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	app.listener = ln
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	req, err := http.NewRequest("GET", srv.URL+"/admin/doctor", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200 (warn must not cause 503)", resp.StatusCode)
+	}
+	var body DoctorResult
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.OK {
+		t.Errorf("OK = false, want true (warn must be non-fatal)")
+	}
+	if c := body.Checks["meetings"]; c.Status != StatusWarn {
+		t.Errorf("meetings status = %q, want %q", c.Status, StatusWarn)
+	}
+}
+
+// TestRenderDoctorText_WarnSummary: when there is one WARN and no FAILs, the
+// summary line must say "OK (1 warning)" rather than plain "OK (online)".
+func TestRenderDoctorText_WarnSummary(t *testing.T) {
+	res := DoctorResult{
+		OK:   true,
+		Mode: "online",
+		Checks: map[string]CheckResult{
+			"build":    {Status: StatusOK, Detail: "rev=abc"},
+			"meetings": {Status: StatusWarn, Detail: "1 feed(s); never successfully fetched"},
+		},
+	}
+	var buf strings.Builder
+	renderDoctorText(&buf, res)
+	out := buf.String()
+	if !strings.Contains(out, "1 warning") {
+		t.Errorf("summary should mention warn count; got:\n%s", out)
+	}
+	if strings.Contains(out, "FAIL") {
+		t.Errorf("summary should not say FAIL; got:\n%s", out)
+	}
+}
+
+// TestCheckMeetingsStale: URLs set, lastFetchOK 61m in the past → StatusWarn
+// with the age mentioned in the detail.
+func TestCheckMeetingsStale(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := newMeetingsTestApp(t, pub)
+	app.meetingsURLs = []string{"http://calendar.example.com/feed.ics"}
+	// Seed a lastFetchOK 61 minutes before real now (beyond meetingsStaleTTL = 60m).
+	// Use time.Now() so the age calculation in checkMeetings (which also calls
+	// time.Now()) yields a positive age ≥ meetingsStaleTTL.
+	app.meetings.mu.Lock()
+	app.meetings.lastFetchOK = time.Now().Add(-61 * time.Minute)
+	app.meetings.mu.Unlock()
+
+	cfg := app.cfg.Load()
+	got := checkMeetings(app, cfg)
+
+	if got.Status != StatusWarn {
+		t.Errorf("status = %q, want %q", got.Status, StatusWarn)
+	}
+	if !strings.Contains(got.Detail, "stale") {
+		t.Errorf("detail should mention 'stale'; got %q", got.Detail)
+	}
+	// The age (≈61m) must appear so operators can diagnose the feed.
+	if !strings.Contains(got.Detail, "ago") {
+		t.Errorf("detail should mention age ('ago'); got %q", got.Detail)
+	}
+}

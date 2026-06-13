@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// CheckStatus is one of "ok" | "fail" | "skipped".
+// CheckStatus is one of "ok" | "warn" | "fail" | "skipped".
 type CheckStatus string
 
 const (
@@ -25,26 +25,28 @@ const (
 	StatusSkipped CheckStatus = "skipped"
 )
 
-// CheckResult is one of the eight named checks in DoctorResult.
+// CheckResult is one of the named checks in DoctorResult.
 type CheckResult struct {
 	Status CheckStatus `json:"status"`
 	Detail string      `json:"detail,omitempty"`
 }
 
-// DoctorResult is the full diagnostic. OK is the AND of every Checks[k].Status == StatusOK.
-// Skipped is NOT ok — automation should treat OK==true as healthy and OK==false as
-// either failed or partial (look at Mode + per-check Status).
+// DoctorResult is the full diagnostic. OK is true when no check has StatusFail
+// or StatusSkipped. Warn does NOT flip OK — a stale-but-configured meetings feed
+// should not make monitoring see the server as unavailable.
+// Skipped IS non-OK (offline mode is partial by design); automation must treat
+// OK==false as either failed or partial and inspect Mode + per-check Status.
 type DoctorResult struct {
 	OK     bool                   `json:"ok"`
 	Mode   string                 `json:"mode"` // "online" or "offline"
 	Checks map[string]CheckResult `json:"checks"`
 }
 
-// runDoctorChecks runs the eight checks. With app==nil, runtime checks are
+// runDoctorChecks runs all named checks. With app==nil, runtime checks are
 // marked skipped (offline pre-flight mode). Otherwise online: the running
 // server's state is used.
 func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
-	res := DoctorResult{Checks: make(map[string]CheckResult, 8)}
+	res := DoctorResult{Checks: make(map[string]CheckResult, 9)}
 	if app == nil {
 		res.Mode = "offline"
 	} else {
@@ -130,9 +132,15 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		res.Checks["meetings"] = checkMeetings(app, cfg)
 	}
 
+	// StatusWarn is non-fatal: a stale meetings feed (or the startup window
+	// before the first ICS poll) must not make /admin/doctor return 503 and
+	// must not make `ember doctor` exit 1 on the online path.
+	// StatusSkipped IS fatal (offline mode is partial by design — existing
+	// semantics preserved: TestRunDoctorChecks_OfflineMarksRuntimeSkipped
+	// asserts OK==false when skipped checks are present).
 	res.OK = true
 	for _, c := range res.Checks {
-		if c.Status != StatusOK {
+		if c.Status == StatusFail || c.Status == StatusSkipped {
 			res.OK = false
 			break
 		}
@@ -379,13 +387,15 @@ func renderDoctorText(w io.Writer, res DoctorResult) {
 		}
 		fmt.Fprintf(w, "%s %-*s  %s\n", marker, maxKey, k, c.Detail)
 	}
-	failCount, skipCount := 0, 0
+	failCount, skipCount, warnCount := 0, 0, 0
 	for _, c := range res.Checks {
 		switch c.Status {
 		case StatusFail:
 			failCount++
 		case StatusSkipped:
 			skipCount++
+		case StatusWarn:
+			warnCount++
 		}
 	}
 	switch {
@@ -393,6 +403,8 @@ func renderDoctorText(w io.Writer, res DoctorResult) {
 		fmt.Fprintf(w, "\nFAIL (%d failed, %d skipped, mode=%s)\n", failCount, skipCount, res.Mode)
 	case res.Mode == "offline":
 		fmt.Fprintf(w, "\nOK (offline, partial — %d skipped)\n", skipCount)
+	case warnCount > 0:
+		fmt.Fprintf(w, "\nOK (%d warning(s), online)\n", warnCount)
 	default:
 		fmt.Fprintln(w, "\nOK (online)")
 	}
