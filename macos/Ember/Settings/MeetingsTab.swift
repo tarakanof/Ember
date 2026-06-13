@@ -31,7 +31,7 @@ struct MeetingsTab: View {
                     .background(.black)
                     .listRowInsets(EdgeInsets())
             } footer: {
-                Text("Updates as you change options. The preview uses a sample meeting when no live data is available (the device shows your real next meeting).")
+                Text("Shows your real next meeting, or a sample when there's no live data. The options below don't change this preview.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -89,6 +89,10 @@ struct MeetingsTab: View {
                     Text("No meetings in the next 36 hours.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                if let fetchedAt = state?.fetchedAt {
+                    Text("Updated \(fetchedAt, style: .relative) ago")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Upcoming")
             }
@@ -117,7 +121,7 @@ struct MeetingsTab: View {
         }
     }
 
-    private func refreshPreview(_ cfg: MeetingsConfig) async {
+    private func refreshPreview() async {
         if let p = try? await env.preview.fetchMeetingsPreview() {
             preview = p
         }
@@ -129,7 +133,6 @@ struct MeetingsTab: View {
         save = .saving
         let cfg = config
         writer.schedule {
-            await refreshPreview(cfg)
             do {
                 try await env.meetings.putConfig(cfg)
                 await MainActor.run { lastApplied = cfg; save = .saved }
@@ -149,7 +152,7 @@ struct MeetingsTab: View {
         } catch {
             save = .error("Couldn't load meetings config (server offline?).")
         }
-        await refreshPreview(config)
+        await refreshPreview()
         state = try? await env.meetings.state()
     }
 }
