@@ -71,8 +71,11 @@ func MeetingPayload(title string, minutes, lifetime int) map[string]any {
 
 // MeetingPopupPayload returns the T-minus notification payload: drawn calendar
 // icon at cols 0–7 + native scrolling "<TITLE> IN <N>M" text from col 9.
-// wakeup:true wakes a sleeping display; stack:false lets a later popup for the
-// same meeting replace an earlier one rather than queuing duplicates.
+// wakeup:true wakes a sleeping display; stack:true lets simultaneous popups
+// for DISTINCT meetings queue rather than replacing each other on-device
+// (back-to-back meetings in the same tick each get their own notification).
+// Same-occurrence deduplication is handled caller-side by the fired map, so
+// stack:true does not cause duplicates for the same event.
 // The chime is NOT included here — AWTRIX 0.98 silently drops sound/rtttl
 // whenever the notification carries a draw or icon op; the caller sends it
 // separately via /api/rtttl.
@@ -82,7 +85,7 @@ func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]
 		"color":      hexOf(meetingInk),
 		"duration":   durationSec,
 		"wakeup":     true,
-		"stack":      false,
+		"stack":      true,
 		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, meetingIconPixels()}}},
 		"center":     false,
 		"textOffset": 9,
