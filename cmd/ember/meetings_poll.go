@@ -152,11 +152,6 @@ func (a *App) pollMeetings(ctx context.Context, now time.Time) {
 		return
 	}
 
-	// Popup check runs EVERY tick (timing is minute-granular; fetches are 5-min).
-	// This mirrors the sun-popup precedent: time-driven checks must not be
-	// blocked by the provider refresh gate.
-	a.checkMeetingPopup(ctx, now, cfg)
-
 	// Due-gate on lastFetch (set on BOTH success and failure), not on whether
 	// we have data: a failing feed must back off the full refresh interval
 	// between attempts rather than retry every tick. lastFetch zero = never
@@ -164,57 +159,66 @@ func (a *App) pollMeetings(ctx context.Context, now time.Time) {
 	a.meetings.mu.RLock()
 	due := a.meetings.lastFetch.IsZero() || now.Sub(a.meetings.lastFetch) >= meetingsRefreshInterval
 	a.meetings.mu.RUnlock()
-	if !due {
-		return
-	}
 
-	// Record the attempt time before fetching (on both success and failure paths
-	// below) so a failing feed backs off a full interval.
-	a.meetings.mu.Lock()
-	a.meetings.lastFetch = now
-	a.meetings.mu.Unlock()
-
-	var lists [][]meetings.Occurrence
-	for i, u := range a.meetingsURLs {
-		data, err := a.meetingsFetcher.fetch(ctx, u)
-		if err != nil {
-			// Log by index only — never log the URL (it's a credential).
-			a.logger.Warn("meetings fetch failed", "url_index", i, "err", err)
-			continue
-		}
-		occs, err := meetings.Expand(data, now, meetingsHorizon)
-		if err != nil {
-			a.logger.Warn("meetings parse failed", "url_index", i, "err", err)
-			continue
-		}
-		lists = append(lists, occs)
-	}
-
-	if len(lists) > 0 {
-		merged := meetings.Merge(lists...)
+	if due {
+		// Record the attempt time before fetching (on both success and failure
+		// paths below) so a failing feed backs off a full interval.
 		a.meetings.mu.Lock()
-		a.meetings.upcoming = merged
-		a.meetings.lastFetchOK = now
-		// Prune fired entries whose embedded start is more than 2h before now.
-		for key := range a.meetings.fired {
-			pipe := strings.LastIndex(key, "|")
-			if pipe < 0 {
-				continue
-			}
-			startStr := key[pipe+1:]
-			startTime, err := time.Parse(time.RFC3339, startStr)
-			if err != nil {
-				continue
-			}
-			if now.Sub(startTime) > 2*time.Hour {
-				delete(a.meetings.fired, key)
-			}
-		}
+		a.meetings.lastFetch = now
 		a.meetings.mu.Unlock()
-	}
-	// On all-failure: keep previous upcoming, do not advance lastFetchOK.
 
-	a.nudgePomo()
+		var lists [][]meetings.Occurrence
+		anySuccess := false
+		for i, u := range a.meetingsURLs {
+			data, err := a.meetingsFetcher.fetch(ctx, u)
+			if err != nil {
+				// Log by index only — never log the URL (it's a credential).
+				a.logger.Warn("meetings fetch failed", "url_index", i, "err", err)
+				continue
+			}
+			occs, err := meetings.Expand(data, now, meetingsHorizon)
+			if err != nil {
+				a.logger.Warn("meetings parse failed", "url_index", i, "err", err)
+				continue
+			}
+			lists = append(lists, occs)
+			anySuccess = true
+		}
+
+		// At least one feed succeeded (even with zero occurrences): replace
+		// upcoming wholesale so a genuinely empty calendar clears the store.
+		// On all-failure: keep previous upcoming, do not advance lastFetchOK.
+		if anySuccess {
+			merged := meetings.Merge(lists...)
+			a.meetings.mu.Lock()
+			a.meetings.upcoming = merged
+			a.meetings.lastFetchOK = now
+			// Prune fired entries whose embedded start is more than 2h before now.
+			for key := range a.meetings.fired {
+				pipe := strings.LastIndex(key, "|")
+				if pipe < 0 {
+					continue
+				}
+				startStr := key[pipe+1:]
+				startTime, err := time.Parse(time.RFC3339, startStr)
+				if err != nil {
+					continue
+				}
+				if now.Sub(startTime) > 2*time.Hour {
+					delete(a.meetings.fired, key)
+				}
+			}
+			a.meetings.mu.Unlock()
+		}
+
+		a.nudgePomo()
+	}
+
+	// Popup check runs EVERY tick (timing is minute-granular; fetches are 5-min).
+	// On due ticks it runs AFTER the fetch so the popup sees fresh data — a
+	// cancelled/moved meeting in the just-arriving ICS update cannot fire from
+	// the previous snapshot. On non-due ticks it runs against the existing store.
+	a.checkMeetingPopup(ctx, now, cfg)
 }
 
 // checkMeetingPopup fires a T-minus notification for every upcoming occurrence

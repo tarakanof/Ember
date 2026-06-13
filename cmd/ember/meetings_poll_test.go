@@ -564,6 +564,66 @@ func TestMeetingPopupBothWindowsSameTick(t *testing.T) {
 	}
 }
 
+// TestPollMeetingsRefreshesBeforePopup verifies that on a due-fetch tick, the
+// feed is fetched and merged BEFORE checkMeetingPopup evaluates, so a meeting
+// that was removed from the calendar does not fire a popup from stale state.
+//
+// Setup: store contains M1 at now+2m (its popup window contains now with lead=2).
+// lastFetch is zero (never fetched → due). The feed returns an empty VCALENDAR
+// (successful fetch, zero occurrences). With the correct ordering (fetch first,
+// then popup), upcoming becomes empty → no popup fires. With the old ordering
+// (popup first, then fetch), M1 is still in upcoming when the popup check runs
+// and fires once from stale state.
+func TestPollMeetingsRefreshesBeforePopup(t *testing.T) {
+	now := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+
+	// Empty calendar — successful fetch that yields zero occurrences.
+	emptyICS := []byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//ember-test//EN\r\nEND:VCALENDAR\r\n")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/calendar")
+		w.Write(emptyICS)
+	}))
+	defer srv.Close()
+
+	pub := &recordingPublisher{}
+	app := newMeetingsTestApp(t, pub) // lead=2, chime=true
+	app.meetingsURLs = []string{srv.URL}
+	app.meetingsFetcher = newICSFetcher()
+
+	// Seed store: M1 at now+2m, feed fresh enough that fresh(now) returns true,
+	// but lastFetch zero so a fetch is due.
+	m1Start := now.Add(2 * time.Minute)
+	app.meetings.mu.Lock()
+	app.meetings.upcoming = []meetings.Occurrence{{
+		UID:   "m1@test",
+		Title: "Cancelled Meeting",
+		Start: m1Start,
+		End:   m1Start.Add(30 * time.Minute),
+	}}
+	app.meetings.lastFetchOK = now // fresh (within 60-min staleness TTL)
+	// lastFetch left at zero → fetch is due
+	app.meetings.mu.Unlock()
+
+	app.pollMeetings(context.Background(), now)
+
+	pub.mu.Lock()
+	notifyCount := len(pub.notify)
+	pub.mu.Unlock()
+
+	if notifyCount != 0 {
+		t.Errorf("stale M1 popup fired despite fresh feed replacing it: Notify count = %d, want 0", notifyCount)
+	}
+
+	// Also verify that the store was actually cleared (empty fetch replaced M1).
+	app.meetings.mu.RLock()
+	upcomingLen := len(app.meetings.upcoming)
+	app.meetings.mu.RUnlock()
+	if upcomingLen != 0 {
+		t.Errorf("upcoming after empty-feed fetch = %d occurrences, want 0", upcomingLen)
+	}
+}
+
 // TestPollMeetingsPrunesFiredMap verifies the pruning logic inside pollMeetings:
 // entries whose embedded start is >2h before now are removed; recent entries and
 // malformed keys are retained.
