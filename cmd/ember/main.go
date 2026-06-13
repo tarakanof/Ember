@@ -24,6 +24,10 @@ import (
 	"syscall"
 	"time"
 
+	// Embedded tz database: TZID resolution must work in the distroless container
+	// image that ships no zoneinfo files; the meetings ICS parser uses LoadLocation.
+	_ "time/tzdata"
+
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
@@ -52,6 +56,7 @@ type Config struct {
 	RateLimit RateLimitConfig `json:"rate_limit"`
 	Pomodoro  PomodoroConfig  `json:"pomodoro"`
 	Weather   WeatherConfig   `json:"weather"`
+	Meetings  MeetingsConfig  `json:"meetings"`
 	// Usage-widget toggles. Pointers so the file can distinguish "unset"
 	// (nil → default on) from an explicit false; resolved via the helpers below.
 	UsageWidget   *bool `json:"usage_widget,omitempty"`
@@ -332,6 +337,7 @@ func (c *Config) applyDefaults() {
 	// defaultConfig(); a config file controls them explicitly.
 
 	c.Weather.applyDefaults()
+	c.Meetings.applyDefaults()
 }
 
 type StatusRequest struct {
@@ -526,6 +532,18 @@ type App struct {
 	weather        *weatherStore
 	weatherFetcher *weatherFetcher
 
+	// meetingsURLs holds the ICS calendar feed URLs parsed from
+	// EMBER_MEETINGS_ICS_URLS at startup. These are credentials (possession =
+	// calendar read access) and are never serialised to JSON, logged as strings,
+	// or stored; only the count is exposed via the config GET endpoint.
+	meetingsURLs []string
+
+	// meetings holds upcoming occurrences + popup bookkeeping; the poller
+	// (StartMeetings) writes it and the coordinator reads it for the tile.
+	// meetingsFetcher performs the ICS HTTP calls. Both non-nil from NewApp.
+	meetings        *meetingsStore
+	meetingsFetcher *icsFetcher
+
 	// iconFetch downloads a LaMetric gallery icon by ID for the weather icon
 	// provisioner (ensureWeatherIcons); injectable in tests. iconMu serialises
 	// provisioner runs.
@@ -559,6 +577,8 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		browseFn:       discovery.BrowseAWTRIX,
 	}
 	a.weatherFetcher = newWeatherFetcher()
+	a.meetings = newMeetingsStore()
+	a.meetingsFetcher = newICSFetcher()
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
 	a.metrics = newMetrics()
@@ -577,6 +597,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.coord.hiddenApps = a.hiddenAppsSet
 	a.coord.usage = a.usage
 	a.coord.weather = a.weather
+	a.coord.meetings = a.meetings
 	return a
 }
 
@@ -903,6 +924,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/weather/preview", a.handleWeatherPreview)
 	mux.HandleFunc("GET /v1/pomodoro/preview", a.handlePomodoroPreview)
 	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
+	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
+	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
 	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
 
 	writeMux := http.NewServeMux()
@@ -928,6 +951,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("PUT /v1/quiet/config", rateLimit(a, http.HandlerFunc(a.handleQuietConfigPut)))
 	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
 	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
+	writeMux.Handle("GET /v1/meetings/config", rateLimit(a, http.HandlerFunc(a.handleMeetingsConfigGet)))
+	writeMux.Handle("PUT /v1/meetings/config", rateLimit(a, http.HandlerFunc(a.handleMeetingsConfigPut)))
 	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
 	writeMux.Handle("GET /v1/device/discover", rateLimit(a, http.HandlerFunc(a.handleDeviceDiscover)))
 	writeMux.Handle("GET /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigGet)))
@@ -1538,11 +1563,29 @@ func main() {
 	if err := app.initWeather(cfg); err != nil {
 		logger.Warn("weather store init failed; config will not persist across restarts", "err", err)
 	}
+	// ICS calendar URLs are credentials; they live only in the env var and are
+	// never logged as strings, stored, or echoed in API responses (count only).
+	{
+		var meetingsDropped int
+		app.meetingsURLs, meetingsDropped = parseICSURLs(os.Getenv("EMBER_MEETINGS_ICS_URLS"))
+		if meetingsDropped > 0 {
+			logger.Warn("meetings ICS feed entries ignored (unsupported scheme)", "dropped", meetingsDropped)
+		}
+	}
+	if len(app.meetingsURLs) > 0 {
+		logger.Info("meetings ICS feeds configured", "count", len(app.meetingsURLs))
+	}
+	if err := app.initMeetings(cfg); err != nil {
+		logger.Warn("meetings store init failed; config will not persist across restarts", "err", err)
+	}
 	app.loadPersistedUsageSettings()   // runtime usage-widget toggles over the file baseline
 	app.loadPersistedDisplaySettings() // runtime display config overrides over the file baseline
 	app.loadPersistedQuietSettings()   // quiet-hours override over the file baseline
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
+	}
+	if cfg.Meetings.Enabled && len(app.meetingsURLs) > 0 {
+		logger.Info("meetings enabled", "ics_feeds", len(app.meetingsURLs))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -1582,6 +1625,7 @@ func main() {
 	go app.limiter.runSweeper(ctx)
 	go app.StartCoordinator(ctx)
 	go app.StartWeather(ctx)
+	go app.StartMeetings(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

@@ -265,6 +265,82 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Mirrors the server's MeetingsConfig (GET/PUT /v1/meetings/config). The ICS
+/// feed URLs are env-only server-side secrets; the server reports only their
+/// count via `icsUrlsConfigured` (read-only — ignored on PUT).
+public struct MeetingsConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var tileLeadMinutes: Int
+    public var popupLeadMinutes: Int   // 0 = popup off
+    public var chime: Bool
+    public var icsUrlsConfigured: Int  // server-reported, read-only
+
+    public init(enabled: Bool = true, tileLeadMinutes: Int = 60,
+                popupLeadMinutes: Int = 2, chime: Bool = true, icsUrlsConfigured: Int = 0) {
+        self.enabled = enabled
+        self.tileLeadMinutes = tileLeadMinutes
+        self.popupLeadMinutes = popupLeadMinutes
+        self.chime = chime
+        self.icsUrlsConfigured = icsUrlsConfigured
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, chime
+        case tileLeadMinutes = "tile_lead_minutes"
+        case popupLeadMinutes = "popup_lead_minutes"
+        case icsUrlsConfigured = "ics_urls_configured"
+    }
+
+    /// Older-server tolerance: every field decodeIfPresent ?? its default (WeatherConfig convention).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        tileLeadMinutes = try c.decodeIfPresent(Int.self, forKey: .tileLeadMinutes) ?? 60
+        popupLeadMinutes = try c.decodeIfPresent(Int.self, forKey: .popupLeadMinutes) ?? 2
+        chime = try c.decodeIfPresent(Bool.self, forKey: .chime) ?? true
+        icsUrlsConfigured = try c.decodeIfPresent(Int.self, forKey: .icsUrlsConfigured) ?? 0
+    }
+}
+
+/// Mirrors GET /v1/meetings/state — the menu's upcoming-meetings sanity list.
+public struct MeetingsState: Codable, Sendable, Equatable {
+    public struct Item: Codable, Sendable, Equatable {
+        public var uid: String
+        public var title: String
+        public var start: Date
+        // Identity uses uid+start so two distinct events with the same title and
+        // same whole-second start (possible across feeds) keep separate rows.
+        // When uid is absent (older server), falls back to title|start.
+        public var id: String {
+            uid.isEmpty ? "\(title)|\(start.timeIntervalSince1970)"
+                        : "\(uid)|\(start.timeIntervalSince1970)"
+        }
+        // uid defaults to "" for older-server payloads that omit it.
+        public init(uid: String = "", title: String, start: Date) {
+            self.uid = uid
+            self.title = title
+            self.start = start
+        }
+        enum CodingKeys: String, CodingKey { case uid, title, start }
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            uid   = try c.decodeIfPresent(String.self, forKey: .uid) ?? ""
+            title = try c.decode(String.self, forKey: .title)
+            start = try c.decode(Date.self, forKey: .start)
+        }
+    }
+    public var upcoming: [Item]
+    public var fetchedAt: Date?
+    public init(upcoming: [Item] = [], fetchedAt: Date? = nil) {
+        self.upcoming = upcoming
+        self.fetchedAt = fetchedAt
+    }
+    enum CodingKeys: String, CodingKey {
+        case upcoming
+        case fetchedAt = "fetched_at"
+    }
+}
+
 /// Mirrors internal/render.Session. context_pct/source_color/rate_window_pct are
 /// the only semantically-optional (pointer) fields; the rest default on absence.
 public struct Session: Codable, Sendable, Equatable {

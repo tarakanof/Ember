@@ -281,6 +281,87 @@ Linux server can't read Apple Reminders).
 > `/admin/reload` re-applies all persisted settings over the reloaded file
 > config.
 
+### Meetings — next-meeting countdown (`internal/meetings`, `cmd/ember/meetings*.go`)
+
+A server-side ICS poller that puts a rotating **`ember-meet`** countdown tile on
+the device before each calendar meeting, optionally with a T-minus popup and
+chime.
+
+**ICS parser — `internal/meetings`.** Pure functions, no I/O. Parses one or more
+ICS feeds (`github.com/arran4/golang-ical`) and expands recurring events into
+concrete occurrences (`github.com/teambition/rrule-go`). These are the server's
+3rd and 4th non-stdlib deps (after `modernc.org/sqlite` and `brutella/dnssd`).
+Both earn their slot: ICS folding/escaping and RRULE/DST-correct recurrence
+expansion are not hand-rollable safely — a weekly 09:00 meeting must stay at
+09:00 across DST transitions, which requires iterating in the original timezone.
+All-day events (`VALUE=DATE`) and `STATUS:CANCELLED` events are actively skipped;
+EXDATE exclusions and `RECURRENCE-ID` overrides are applied. Floating-time values
+(no TZID, no trailing `Z`) fall back to server-local (UTC in the container) — a
+documented limitation. The binary imports `time/tzdata` so the distroless image
+carries the embedded tz database needed for `TZID` resolution.
+
+**Feed URLs — env only.** ICS feed URLs are **credentials** (possession = calendar
+read access). They live solely in `EMBER_MEETINGS_ICS_URLS` (comma-separated;
+`webcal://` and `webcals://` are accepted and rewritten to `https://`;
+scheme comparison is case-insensitive). They are never stored in the JSON config,
+the SQLite store, logs, or any API response. `GET /v1/meetings/config` returns an
+`ics_urls_configured` count only.
+
+**Poller (`StartMeetings`, `pollMeetings`).** Mirrors `StartWeather` exactly: a
+1-min ticker, an initial fetch for a prompt first tile, and two-level timing:
+- **5-min due-gate** (`meetingsRefreshInterval`): feeds are fetched at most once
+  per 5 minutes. The gate is set on both success and failure so a failing feed
+  backs off the full interval between attempts (not every tick).
+- **36-hour recurrence horizon** (`meetingsHorizon`): `Expand` generates only
+  occurrences within the next 36 hours — enough for any workday-ahead view.
+- **60-min staleness guard** (`meetingsStaleTTL`): the tile and popup only act
+  while the last *successful* fetch is less than 60 minutes old. If feeds go
+  dark, the tile and popup silently stop rather than ghost a cancelled meeting.
+  A stale feed is a non-fatal `WARN` in `/admin/doctor`; it never causes a 503.
+- **Per-URL failure isolation**: if one feed fails to fetch or parse, the others
+  still contribute to the upcoming list; `lastFetchOK` advances only when at
+  least one feed succeeds.
+
+**Coordinator (`reconcileMeetingApp`).** Uses the shared `reconcileTile` helper
+(also used by `ember-weather`, `ember-forecast`, and `ember-air`) for the
+clear/dedupe/re-push state machine. `ember-meet` joins the rotation when the next
+meeting is within `tile_lead_minutes` (default 60) and the feed is fresh; it
+leaves the rotation at meeting start (the tile never shows "0m"). The countdown
+payload changes each minute, so the payload-bytes diff naturally re-pushes without
+a dedicated timer — the same mechanism that refreshes the weather tiles.
+
+**Popup and chime.** An edge-triggered T-minus popup fires at
+`start − popup_lead_minutes` (default 2; 0 = off), deduped per occurrence
+(`UID|start` key), with a 2-minute grace window covering a missed tick. The chime
+is played separately via `POST /api/rtttl`: the AWTRIX firmware silently drops a
+notification's own `sound`/`rtttl` when the payload also carries a `draw`/`icon`,
+so the chime must be a standalone request — the same pattern used by
+the severe-weather and 5h-reset alarms. Quiet hours mute the chime (audio only —
+the popup visual always shows).
+
+**Config and persistence.** `MeetingsConfig` (`enabled`, `tile_lead_minutes`,
+`popup_lead_minutes`, `chime`) is persisted to SQLite store key `meetings_json`
+via the same baseline + store-override pattern as weather/pomodoro/usage config.
+API: `GET/PUT /v1/meetings/config` (bearer auth).
+
+**Read endpoints (no auth).** `GET /v1/meetings/preview` renders the `ember-meet`
+tile into a 32×8 frame grid, using the live next occurrence when present and a
+STANDUP/12 min sample otherwise (never blank). `GET /v1/meetings/state` returns
+up to 5 upcoming occurrences (`{title, start}` RFC3339 whole-seconds) plus
+`fetched_at` for the menu's Upcoming list.
+
+**macOS Meetings tab.** Preview, enable toggle, feed-count status (count only —
+the tab can't see or set URLs; it shows the count from `ics_urls_configured` and
+points the user at the env var), tile-lead and popup-lead steppers, chime toggle,
+and the upcoming-meetings list.
+
+**Limitations.** Declined-event filtering is best-effort: the server only skips
+`CANCELLED` and all-day events. Declined-but-`CONFIRMED` events appear if the
+feed includes them (most ICS exports from Google/iCloud omit declined events, but
+that is feed-side behaviour, not enforced here). Floating-time ICS values fall
+back to UTC in the container. Calendars without an ICS export URL (e.g. shared
+Exchange calendars without a subscription link) do not appear.
+
 ### Per-app clock visibility — `/v1/apps`
 
 The menu can hide an AI app (tool) from the device. A server-held hidden-tool set
@@ -524,7 +605,9 @@ uncommitted `NSTextField` edits) are no longer live constraints.
 ## Conventions
 
 - **Stdlib-first, but deps that earn their slot are welcome** (STYLE.md §11).
-  The Go server's only third-party dep is now `modernc.org/sqlite` — the
+  The Go server's third-party deps are `modernc.org/sqlite` (pure-Go SQLite,
+  keeps CGO off), `brutella/dnssd` (mDNS), `arran4/golang-ical` (ICS
+  tokenising), and `teambition/rrule-go` (RRULE/DST-correct recurrence). The
   `fyne.io/systray` + `progrium/darwinkit` menu deps were dropped when the menu
   became a native SwiftUI app (`macos/`). Hand-rolling protocol clients (the
   deleted MQTT 3.1.1 client) was not worth the purity tax.

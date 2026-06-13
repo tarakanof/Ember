@@ -149,6 +149,12 @@ type coordinator struct {
 	pushedForecast *pushedUsageApp
 	pushedAir      *pushedUsageApp
 
+	// meetings, when non-nil, holds the upcoming occurrences. reconcileMeetingApp
+	// pushes/refreshes/clears the "ember-meet" countdown tile from it, tracked by
+	// pushedMeeting (same change-and-staleness logic as the weather tiles).
+	meetings      *meetingsStore
+	pushedMeeting *pushedUsageApp
+
 	// adoptedApps records whether we've seeded the push trackers from the
 	// device's actual app loop yet (once per process, on the first reachable
 	// tick). Until then ember-managed apps left on the device by a previous run
@@ -523,6 +529,7 @@ func (c *coordinator) onTick() {
 	c.reconcileWeatherApp(c.clk.Now())
 	c.reconcileForecastApp(c.clk.Now())
 	c.reconcileAirApp(c.clk.Now())
+	c.reconcileMeetingApp(c.clk.Now())
 	c.checkLimitAlarms(c.clk.Now(), snap)
 }
 
@@ -562,6 +569,10 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 			if c.pushedAir == nil {
 				c.pushedAir = &pushedUsageApp{}
 			}
+		case name == "ember-meet":
+			if c.pushedMeeting == nil {
+				c.pushedMeeting = &pushedUsageApp{}
+			}
 		case strings.HasPrefix(name, "ember-usage-"):
 			if c.pushedUsageApps == nil {
 				c.pushedUsageApps = map[string]pushedUsageApp{}
@@ -579,60 +590,68 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 // leave a stale temperature on the device indefinitely.
 const weatherTileStaleTTL = 30 * time.Minute
 
-// reconcileWeatherApp pushes/refreshes the single "ember-weather" rotating tile
-// when the feature is enabled, set to rotate, and has a fresh observation; it
-// clears the tile otherwise. Unchanged payloads pushed recently are skipped
-// (change-and-staleness dedupe). Runs on the coordinator goroutine only.
-func (c *coordinator) reconcileWeatherApp(now time.Time) {
-	if c.weather == nil {
-		return
-	}
+// reconcileTile owns the shared clear/dedupe/push state machine for the
+// standalone rotating tiles (weather/forecast/air/meeting). The per-tile
+// decisions — whether the tile should be on the device and what it shows —
+// stay at the call sites: want gates, buildPayload runs only when want is
+// true. tracker is the per-tile *pushedUsageApp pointer-to-pointer so this
+// helper can nil it on clear. Coordinator goroutine only.
+func (c *coordinator) reconcileTile(now time.Time, name string, tracker **pushedUsageApp, want bool, buildPayload func() map[string]any) {
 	ctx := c.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	const name = "ember-weather"
-	cfg := c.loadCfg().Weather
-	obs, have := c.weather.current()
-	want := cfg.Enabled && cfg.RotateInApps && have && now.Sub(obs.FetchedAt) < weatherTileStaleTTL
-
 	if !want {
-		if c.pushedWeather != nil {
+		if *tracker != nil {
 			if err := c.publisher.ClearApp(ctx, name); err != nil {
-				c.logger.Warn("weather tile clear failed", "err", err)
+				c.logger.Warn("tile clear failed", "app", name, "err", err)
 				return
 			}
-			c.pushedWeather = nil
+			*tracker = nil
 		}
 		return
 	}
-
-	tempText := weatherTempText(obs.TempC, cfg.Units)
-	window := forecastWindow(obs.Hourly, cfg.ForecastHours)
-	var payload map[string]any
-	switch {
-	case cfg.MoonPhase && obs.Condition == render.WeatherClear &&
-		(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
-		// Moon wins over native icons — there is no per-phase gallery set.
-		illum, waxing := moonIllumination(now)
-		payload = render.WeatherPayloadMoon(tempText, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
-	case cfg.TileNativeIcons:
-		payload = render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, window, usageAppLifetime)
-	default:
-		payload = render.WeatherPayload(obs.Condition, tempText, window, usageAppLifetime)
-	}
+	payload := buildPayload()
 	body, err := json.Marshal(payload)
 	if err != nil {
+		c.logger.Warn("tile payload marshal failed", "app", name, "err", err)
 		return
 	}
-	if c.pushedWeather != nil && bytes.Equal(c.pushedWeather.body, body) && now.Sub(c.pushedWeather.at) < usageRefreshInterval {
+	if *tracker != nil && bytes.Equal((*tracker).body, body) && now.Sub((*tracker).at) < usageRefreshInterval {
 		return
 	}
 	if err := c.publisher.CustomApp(ctx, name, payload); err != nil {
-		c.logger.Warn("weather tile publish failed", "err", err)
+		c.logger.Warn("tile publish failed", "app", name, "err", err)
 		return
 	}
-	c.pushedWeather = &pushedUsageApp{body: body, at: now}
+	*tracker = &pushedUsageApp{body: body, at: now}
+}
+
+// reconcileWeatherApp pushes/refreshes the single "ember-weather" rotating tile
+// when the feature is enabled, set to rotate, and has a fresh observation; it
+// clears the tile otherwise. Coordinator goroutine only.
+func (c *coordinator) reconcileWeatherApp(now time.Time) {
+	if c.weather == nil {
+		return
+	}
+	cfg := c.loadCfg().Weather
+	obs, have := c.weather.current()
+	want := cfg.Enabled && cfg.RotateInApps && have && now.Sub(obs.FetchedAt) < weatherTileStaleTTL
+	c.reconcileTile(now, "ember-weather", &c.pushedWeather, want, func() map[string]any {
+		tempText := weatherTempText(obs.TempC, cfg.Units)
+		window := forecastWindow(obs.Hourly, cfg.ForecastHours)
+		switch {
+		case cfg.MoonPhase && obs.Condition == render.WeatherClear &&
+			(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
+			// Moon wins over native icons — there is no per-phase gallery set.
+			illum, waxing := moonIllumination(now)
+			return render.WeatherPayloadMoon(tempText, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
+		case cfg.TileNativeIcons:
+			return render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, window, usageAppLifetime)
+		default:
+			return render.WeatherPayload(obs.Condition, tempText, window, usageAppLifetime)
+		}
+	})
 }
 
 // forecastWindow returns the first `hours` hourly temps (hours clamped to a sane
@@ -652,91 +671,64 @@ func forecastWindow(hourly []float64, hours int) []float64 {
 
 // reconcileForecastApp pushes/refreshes the standalone "ember-forecast" tile
 // (hourly temperature bars) when weather is enabled, the forecast tile is turned
-// on, and we have fresh hourly data; clears it otherwise. Same change-and-
-// staleness dedupe as reconcileWeatherApp. Coordinator goroutine only.
+// on, and we have fresh hourly data; clears it otherwise. Coordinator goroutine only.
 func (c *coordinator) reconcileForecastApp(now time.Time) {
 	if c.weather == nil {
 		return
 	}
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	const name = "ember-forecast"
 	cfg := c.loadCfg().Weather
 	obs, have := c.weather.current()
 	hourly := forecastWindow(obs.Hourly, cfg.ForecastHours)
 	want := cfg.Enabled && cfg.ForecastTile && have && len(hourly) > 0 &&
 		now.Sub(obs.FetchedAt) < weatherTileStaleTTL
-
-	if !want {
-		if c.pushedForecast != nil {
-			if err := c.publisher.ClearApp(ctx, name); err != nil {
-				c.logger.Warn("forecast tile clear failed", "err", err)
-				return
-			}
-			c.pushedForecast = nil
-		}
-		return
-	}
-
-	payload := render.ForecastPayload(hourly, usageAppLifetime)
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	if c.pushedForecast != nil && bytes.Equal(c.pushedForecast.body, body) && now.Sub(c.pushedForecast.at) < usageRefreshInterval {
-		return
-	}
-	if err := c.publisher.CustomApp(ctx, name, payload); err != nil {
-		c.logger.Warn("forecast tile publish failed", "err", err)
-		return
-	}
-	c.pushedForecast = &pushedUsageApp{body: body, at: now}
+	c.reconcileTile(now, "ember-forecast", &c.pushedForecast, want, func() map[string]any {
+		return render.ForecastPayload(hourly, usageAppLifetime)
+	})
 }
 
 // reconcileAirApp pushes/refreshes the standalone "ember-air" tile (current
 // European AQI + hourly trend strip) when weather is enabled, the air tile is
-// turned on, and the air observation is fresh; clears it otherwise. Same
-// change-and-staleness dedupe as the other weather tiles. Coordinator
+// turned on, and the air observation is fresh; clears it otherwise. Coordinator
 // goroutine only.
 func (c *coordinator) reconcileAirApp(now time.Time) {
 	if c.weather == nil {
 		return
 	}
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	const name = "ember-air"
 	cfg := c.loadCfg().Weather
 	air, have := c.weather.currentAir()
 	want := cfg.Enabled && cfg.AirTile && have && now.Sub(air.FetchedAt) < weatherTileStaleTTL
+	c.reconcileTile(now, "ember-air", &c.pushedAir, want, func() map[string]any {
+		return render.AirPayload(air.AQI, air.HourlyAQI, usageAppLifetime)
+	})
+}
 
-	if !want {
-		if c.pushedAir != nil {
-			if err := c.publisher.ClearApp(ctx, name); err != nil {
-				c.logger.Warn("air tile clear failed", "err", err)
-				return
-			}
-			c.pushedAir = nil
-		}
-		return
+// meetingMinutes is the displayed whole-minute countdown: ceil(remaining), min 1.
+// The tile never shows "0m" — it leaves the rotation at start.
+func meetingMinutes(now, start time.Time) int {
+	m := int((start.Sub(now) + time.Minute - 1) / time.Minute)
+	if m < 1 {
+		m = 1
 	}
+	return m
+}
 
-	payload := render.AirPayload(air.AQI, air.HourlyAQI, usageAppLifetime)
-	body, err := json.Marshal(payload)
-	if err != nil {
+// reconcileMeetingApp pushes/refreshes the standalone "ember-meet" countdown
+// tile when meetings are enabled, the next meeting is inside the lead window,
+// and the feed data is fresh; clears it otherwise (including at meeting start —
+// the countdown never shows 0m). The minute-by-minute countdown needs no timer:
+// the payload text changes each minute, so the bytes-diff naturally re-pushes.
+// Coordinator goroutine only.
+func (c *coordinator) reconcileMeetingApp(now time.Time) {
+	if c.meetings == nil {
 		return
 	}
-	if c.pushedAir != nil && bytes.Equal(c.pushedAir.body, body) && now.Sub(c.pushedAir.at) < usageRefreshInterval {
-		return
-	}
-	if err := c.publisher.CustomApp(ctx, name, payload); err != nil {
-		c.logger.Warn("air tile publish failed", "err", err)
-		return
-	}
-	c.pushedAir = &pushedUsageApp{body: body, at: now}
+	cfg := c.loadCfg().Meetings
+	occ, ok := c.meetings.next(now)
+	want := cfg.Enabled && ok && c.meetings.fresh(now) &&
+		occ.Start.Sub(now) <= time.Duration(cfg.TileLeadMinutes)*time.Minute
+	c.reconcileTile(now, "ember-meet", &c.pushedMeeting, want, func() map[string]any {
+		return render.MeetingPayload(sanitizeMeetingTitle(occ.Title), meetingMinutes(now, occ.Start), usageAppLifetime)
+	})
 }
 
 const (

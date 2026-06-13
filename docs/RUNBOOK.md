@@ -184,6 +184,21 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 | `EMBER_SOURCE_CARD` (default true) | source-name card (uppercased, 4 glyphs) in the number slot; set false to hide |
 | `EMBER_SESSION_BAR` (default true) | session-pixel bar on row 7 (1 px per non-idle session); set false to hide |
 
+## Meetings calendar widget
+
+`EMBER_MEETINGS_ICS_URLS` — comma-separated ICS feed URLs (the meetings widget is
+inert without this var). `webcal://` and `webcals://` are accepted and rewritten
+to `https://`. These are **credentials** (possession = calendar read access):
+they are never stored in the JSON config, the SQLite store, any log, or any API
+response. The feed count (never the URLs) is visible at `/admin/doctor` and the
+`GET /v1/meetings/config` response (`ics_urls_configured`).
+
+**On-device verification.** Set `EMBER_MEETINGS_ICS_URLS`, restart the container,
+enable the widget in Settings → Meetings. Within `tile_lead_minutes` of the next
+meeting the `ember-meet` tile appears in the rotation. A stale feed (last
+successful fetch ≥ 60 min ago) shows as a `[WARN]` in `/admin/doctor` — non-fatal,
+does not affect other checks.
+
 ## AI usage card (threshold-gated, inside the main app)
 
 Claude + Codex subscription usage renders as a **usage card** inside the main

@@ -3,7 +3,9 @@ module github.com/tarakanof/ember
 go 1.26
 
 require (
+	github.com/arran4/golang-ical v0.3.5
 	github.com/brutella/dnssd v1.2.14
+	github.com/teambition/rrule-go v1.8.2
 	modernc.org/sqlite v1.51.0
 )
 
