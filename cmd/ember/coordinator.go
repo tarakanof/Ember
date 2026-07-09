@@ -252,15 +252,24 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 // go to a wide 64-slot buffer; when THAT fills we drop the command rather than
 // block, counting it and warning (throttled).
 //
-// Dropping a state-change command is safe: it is a re-render *nudge*, not the
-// state itself. The authoritative state lives in App.sessions (already updated
-// by Upsert/Delete/Clear before Send is called), and producers re-POST
-// heartbeats every 10–15 s. Each dwell tick re-reads that snapshot, so a
-// dropped upsert/delete/clear only delays the display reflecting it until the
-// next tick (~dwell seconds); the tick-driven reap/drain/preempt logic in
-// onTick converges to the correct frame. The one thing we'd lose on a drop is
-// the immediate preempt latency for a fresh attention transition — acceptable
-// versus back-pressuring every producer.
+// Dropping a state-change command is an accepted tradeoff, in two parts:
+//
+// (a) Display state self-heals. The authoritative state lives in App.sessions
+// (already updated by Upsert/Delete/Clear before Send is called), producers
+// re-POST heartbeats every 10–15 s, and each dwell tick re-reads that
+// snapshot: onTick's release logic (reap/drain/ack-timeout) and pointer
+// advance converge the frame within ~one dwell interval, so a dropped
+// delete/clear/non-attention upsert only delays the display by a tick.
+//
+// (b) A dropped FRESH-attention upsert loses that edge's preempt+chime
+// permanently. Lock acquisition is edge-triggered and lives ONLY in onUpsert
+// (attention && transition && !priorWasAttention); onTick has no acquisition
+// path, and a heartbeat re-POST of a still-waiting session is
+// waiting→waiting (no transition), so it cannot re-acquire. The preempt is
+// gone until the session's next transition edge. Accepted because it only
+// happens during a sustained >64-command burst while the coordinator is
+// wedged on an unreachable device, and the session still appears in the
+// normal rotation — versus back-pressuring every producer.
 func (c *coordinator) Send(cmd coordCmd) {
 	if cmd.kind == cmdTick {
 		select {
