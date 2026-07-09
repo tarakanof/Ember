@@ -92,7 +92,47 @@ func dispatchTick(ctx context.Context, cfg Config) {
 	}
 }
 
+// markerTool decodes just the "tool" field from a marker file, without
+// requiring the full StatusRequest shape. Used to gate the Claude daemon's
+// marker scan to Claude-owned markers only. ok is false when the file is
+// missing or not valid JSON.
+func markerTool(markerP string) (tool string, ok bool) {
+	body, err := os.ReadFile(markerP)
+	if err != nil {
+		return "", false
+	}
+	var m struct {
+		Tool string `json:"tool"`
+	}
+	if err := json.Unmarshal(body, &m); err != nil {
+		return "", false
+	}
+	return m.Tool, true
+}
+
 func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, lockP string, staleThreshold time.Time) {
+	// Ownership gate: ~/.local/state/ember/sessions is shared with the Codex
+	// producer (cmd/ember-codex-producer), which writes its own markers with
+	// "tool":"codex" and already fully owns their lifecycle (POST/reap/DELETE
+	// via its own daemon). Before this gate, the Claude heartbeat re-POSTed
+	// (resurrecting sessions the Codex daemon had just DELETEd), reaped
+	// crash-orphaned Codex markers on its own TTL, and stamped Claude-only
+	// settings (SourceCard/SessionBar, ContextPctEnabled) onto Codex sessions.
+	//
+	// Investigation (both marker write paths, verified in this tree): the
+	// Claude producer always writes an explicit "tool":"claude" (hook.go
+	// handleUpsert/handleDelete), and the Codex producer always writes an
+	// explicit "tool":"codex" (ember-codex-producer/watcher.go, tail.go).
+	// Neither producer ever emits an empty/missing Tool today, so an
+	// empty/missing Tool can only be a marker written before this field
+	// existed (pre-upgrade) — by definition written by the (older) Claude
+	// producer, since Codex marker-writing was introduced after the field.
+	// Decision: treat missing/empty Tool as "claude" for that backward
+	// compatibility case; skip any other non-empty, non-"claude" Tool
+	// entirely (no Stat, no lock, no read past this check, no POST/DELETE).
+	if tool, ok := markerTool(markerP); ok && tool != "" && tool != "claude" {
+		return
+	}
 	info, err := os.Stat(markerP)
 	if err != nil {
 		return

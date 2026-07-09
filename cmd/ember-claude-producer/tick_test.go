@@ -238,6 +238,67 @@ func TestProcessOneMarker_StripsContextPctWhenDisabled(t *testing.T) {
 	}
 }
 
+// TestTick_CodexMarker_SkippedEntirely is the Task-7 regression test: the
+// Claude daemon shares the marker dir with the Codex producer. A codex
+// marker — fresh or stale — must never be POSTed, reaped/DELETEd, or
+// rewritten by the Claude daemon; the Codex daemon owns its own markers'
+// full lifecycle.
+func TestTick_CodexMarker_SkippedEntirely(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "codex-sess.json")
+	body := []byte(`{"source":"test-mbp","tool":"codex","session":"codex-sess","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Make it stale too, so we also exercise the reap path.
+	old := time.Now().Add(-7 * time.Hour)
+	if err := os.Chtimes(markerP, old, old); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if h.posts.Load() != 0 {
+		t.Errorf("codex marker must not be POSTed by the claude daemon; posts=%d", h.posts.Load())
+	}
+	if h.deletes.Load() != 0 {
+		t.Errorf("codex marker must not be DELETEd/reaped by the claude daemon; deletes=%d", h.deletes.Load())
+	}
+	after, err := os.ReadFile(markerP)
+	if err != nil {
+		t.Fatalf("codex marker must not be removed by the claude daemon: %v", err)
+	}
+	if string(after) != string(body) {
+		t.Errorf("codex marker content must be left untouched, got: %s", after)
+	}
+}
+
+// TestTick_LegacyMarkerNoToolField_TreatedAsClaude verifies the documented
+// backward-compat decision: a marker predating the "tool" field (missing or
+// empty) is treated as a claude marker, since both current producers always
+// write an explicit "tool" value — an empty Tool can only mean a pre-upgrade
+// marker written by the (older) Claude producer.
+func TestTick_LegacyMarkerNoToolField_TreatedAsClaude(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "legacy-sess.json")
+	body := []byte(`{"source":"test-mbp","session":"legacy-sess","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if h.posts.Load() != 1 {
+		t.Errorf("legacy no-tool marker should be treated as claude and re-posted; posts=%d", h.posts.Load())
+	}
+}
+
 func TestProcessOneMarker_ReGatesSourceCardAndSessionBarWhenDisabled(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "ember")
