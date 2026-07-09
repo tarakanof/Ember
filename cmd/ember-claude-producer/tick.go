@@ -3,15 +3,25 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 const heartbeatInterval = 10 * time.Second
+
+// tickFailLog throttles POST/DELETE failure warnings across daemon ticks
+// (~1/min per failure kind). It's a process-lifetime singleton rather than a
+// per-call value because dispatchTick builds a fresh *Client every pass
+// (heartbeatPass reloads config live, see below) — state that should persist
+// across passes has to live outside that per-pass client.
+var tickFailLog = producer.NewFailureLogger(time.Minute)
 
 func runTick() {
 	rotateProducerLogs()
@@ -79,7 +89,7 @@ func dispatchTick(ctx context.Context, cfg Config) {
 	if err != nil {
 		return
 	}
-	client := NewClient(cfg)
+	client := NewDaemonClient(cfg)
 	staleThreshold := time.Now().Add(-time.Duration(cfg.HeartbeatTTLHours) * time.Hour)
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
@@ -151,9 +161,11 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			if err == nil {
 				var req StatusRequest
 				if json.Unmarshal(body, &req) == nil {
-					_ = client.Delete(ctx, DeleteRequest{
+					if err := client.Delete(ctx, DeleteRequest{
 						Source: req.Source, Tool: req.Tool, Session: req.Session,
-					})
+					}); err != nil {
+						tickFailLog.Warn(slog.Default(), "claude_delete", "status DELETE failed", "err", err)
+					}
 				}
 			}
 			_ = os.Remove(markerP)
@@ -175,9 +187,11 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			if err == nil {
 				var req StatusRequest
 				if json.Unmarshal(body, &req) == nil {
-					_ = client.Delete(ctx, DeleteRequest{
+					if err := client.Delete(ctx, DeleteRequest{
 						Source: req.Source, Tool: req.Tool, Session: req.Session,
-					})
+					}); err != nil {
+						tickFailLog.Warn(slog.Default(), "claude_delete", "status DELETE failed", "err", err)
+					}
 				}
 			}
 			_ = os.Remove(markerP)
@@ -200,7 +214,9 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 		}
 		sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
 		req.SourceCard, req.SessionBar = &sc, &sb
-		_ = client.Post(ctx, req)
+		if err := client.Post(ctx, req); err != nil {
+			tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
+		}
 		return nil
 	})
 }

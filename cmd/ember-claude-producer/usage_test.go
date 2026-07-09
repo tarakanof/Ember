@@ -34,3 +34,12 @@ func TestResetLabels(t *testing.T) {
 		t.Errorf("dayLabel = %q, want MON", got)
 	}
 }
+
+// TestFetchUsage_UsesDedicatedTimeoutClient guards against fetchUsage falling
+// back to http.DefaultClient (no Timeout, so one stalled TLS connection hangs
+// the usage widget until the daemon restarts).
+func TestFetchUsage_UsesDedicatedTimeoutClient(t *testing.T) {
+	if usageHTTPClient.Timeout != 30*time.Second {
+		t.Errorf("usageHTTPClient.Timeout = %v, want 30s", usageHTTPClient.Timeout)
+	}
+}

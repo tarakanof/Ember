@@ -58,6 +58,12 @@ func NewClient(serverURL, token string, timeout time.Duration) *Client {
 	}
 }
 
+// Timeout reports the HTTP client's configured Timeout, for asserting client
+// configuration in tests without exercising a real network call.
+func (c *Client) Timeout() time.Duration {
+	return c.httpClient.Timeout
+}
+
 func (c *Client) Post(ctx context.Context, req StatusRequest) error {
 	body, err := json.Marshal(req)
 	if err != nil {

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -296,6 +298,84 @@ func TestTick_LegacyMarkerNoToolField_TreatedAsClaude(t *testing.T) {
 	dispatchTick(context.Background(), cfg)
 	if h.posts.Load() != 1 {
 		t.Errorf("legacy no-tool marker should be treated as claude and re-posted; posts=%d", h.posts.Load())
+	}
+}
+
+// TestDispatchTick_WarnsOnPostFailure is the Task-9 error-visibility
+// regression test: a failing status POST must produce a throttled slog Warn
+// instead of being silently discarded (previously `_ = client.Post(...)`).
+func TestDispatchTick_WarnsOnPostFailure(t *testing.T) {
+	tickFailLog.Reset()
+	h := newHookHarness(t)
+	h.srv.Close()
+	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer h.srv.Close()
+	cfgDir := filepath.Join(h.home, ".config", "ember")
+	envContent := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(envContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	body := []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if !strings.Contains(buf.String(), "kind=claude_post") {
+		t.Errorf("expected a throttled claude_post warning, got: %s", buf.String())
+	}
+}
+
+// TestDispatchTick_ThrottlesRepeatedPostFailures confirms a second failing
+// tick within the throttle period does not log a second warning.
+func TestDispatchTick_ThrottlesRepeatedPostFailures(t *testing.T) {
+	tickFailLog.Reset()
+	h := newHookHarness(t)
+	h.srv.Close()
+	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer h.srv.Close()
+	cfgDir := filepath.Join(h.home, ".config", "ember")
+	envContent := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(envContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	body := []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	dispatchTick(context.Background(), cfg)
+	if n := strings.Count(buf.String(), "kind=claude_post"); n != 1 {
+		t.Errorf("expected exactly 1 throttled warning across 2 failing ticks, got %d: %s", n, buf.String())
 	}
 }
 

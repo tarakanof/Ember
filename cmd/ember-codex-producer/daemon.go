@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,6 +15,11 @@ import (
 )
 
 const httpTimeout = 5 * time.Second
+
+// daemonFailLog throttles POST/DELETE failure warnings across ticks (~1/min
+// per failure kind), so a stalled server doesn't flood the log every
+// pollInterval.
+var daemonFailLog = producer.NewFailureLogger(time.Minute)
 
 // runDaemon is the entry point for `ember-codex-producer run` (and the bare
 // default). It polls until SIGINT/SIGTERM.
@@ -50,13 +56,17 @@ func runDaemon() {
 func runOnce(ctx context.Context, w *watcher, client *producer.Client) {
 	posts, deletes, usages := w.tick()
 	for _, req := range posts {
-		_ = client.Post(ctx, req)
+		if err := client.Post(ctx, req); err != nil {
+			daemonFailLog.Warn(slog.Default(), "codex_post", "status POST failed", "err", err)
+		}
 		if body, err := json.Marshal(req); err == nil {
 			_ = writeMarker(w.cfg.StateDir, req.Session, body)
 		}
 	}
 	for _, req := range deletes {
-		_ = client.Delete(ctx, req)
+		if err := client.Delete(ctx, req); err != nil {
+			daemonFailLog.Warn(slog.Default(), "codex_delete", "status DELETE failed", "err", err)
+		}
 		_ = removeMarker(w.cfg.StateDir, req.Session)
 	}
 	for _, u := range usages {

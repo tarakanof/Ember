@@ -283,7 +283,7 @@ func producerHookEntries(binPath string) []producerHookEntry {
 		{event: "Notification", matcher: "permission_prompt", command: cmd("notification")},
 		{event: "Stop", matcher: "", command: cmd("stop")},
 		{event: "StopFailure", matcher: "", command: cmd("stop-failure")},
-		{event: "SessionEnd", matcher: "logout|prompt_input_exit|bypass_permissions_disabled|other", command: cmd("session-end")},
+		{event: "SessionEnd", matcher: "logout|prompt_input_exit|bypass_permissions_disabled|other|clear", command: cmd("session-end")},
 	}
 }
 
