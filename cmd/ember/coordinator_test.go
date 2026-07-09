@@ -318,6 +318,29 @@ func TestCoord_DeleteWhileLocked_ReleasesLock(t *testing.T) {
 	}
 }
 
+// TestCoord_ClearPublishes verifies onClear publishes through the same path
+// its siblings (onUpsert/onDelete) use, instead of only mutating state and
+// leaving the last frame on the device until the next dwell tick.
+func TestCoord_ClearPublishes(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	c.snapshot = func() Snapshot { return Snapshot{} }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	c.Send(coordCmd{kind: cmdClear})
+	time.Sleep(50 * time.Millisecond)
+
+	if len(publisher.CustomAppsSnapshot()) == 0 {
+		t.Errorf("onClear published 0 frames; want a publish like onUpsert/onDelete")
+	}
+}
+
 func TestCoord_ReapReleasesLock(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()

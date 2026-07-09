@@ -14,6 +14,46 @@ import (
 	"testing"
 )
 
+// TestDiffConfig_ReportsChangeInEveryTopLevelSection guards against the
+// hand-rolled leaf list going stale: diffConfig must surface a changed path
+// for every top-level Config section, including ones with no dedicated leaf
+// entries today (Weather, Meetings, QuietHours, Pomodoro, usage toggles).
+func TestDiffConfig_ReportsChangeInEveryTopLevelSection(t *testing.T) {
+	base := defaultConfig()
+	base.applyDefaults()
+
+	cases := []struct {
+		name       string
+		mutate     func(*Config)
+		wantPrefix string
+	}{
+		{"http", func(c *Config) { c.HTTP.Addr = c.HTTP.Addr + "x" }, "http."},
+		{"awtrix", func(c *Config) { c.AWTRIX.AppName = c.AWTRIX.AppName + "x" }, "awtrix."},
+		{"auth", func(c *Config) { c.Auth.StatusToken = c.Auth.StatusToken + "x" }, "auth."},
+		{"display", func(c *Config) { c.Display.IdleText = c.Display.IdleText + "x" }, "display."},
+		{"rate_limit", func(c *Config) { c.RateLimit.Burst++ }, "rate_limit."},
+		{"pomodoro", func(c *Config) { c.Pomodoro.Enabled = !c.Pomodoro.Enabled }, "pomodoro."},
+		{"weather", func(c *Config) { c.Weather.Enabled = !c.Weather.Enabled }, "weather."},
+		{"meetings", func(c *Config) { c.Meetings.TileLeadMinutes++ }, "meetings."},
+		{"quiet_hours", func(c *Config) { c.QuietHours.Enabled = !c.QuietHours.Enabled }, "quiet_hours."},
+		{"usage_widget", func(c *Config) { b := true; c.UsageWidget = &b }, "usage_widget"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			newCfg := base
+			tc.mutate(&newCfg)
+			changed := diffConfig(base, newCfg)
+			for _, f := range changed {
+				if strings.HasPrefix(f, tc.wantPrefix) {
+					return
+				}
+			}
+			t.Errorf("diffConfig missed section %q: changed=%v", tc.name, changed)
+		})
+	}
+}
+
 func TestVersionHandler_PublicAndJSON(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"

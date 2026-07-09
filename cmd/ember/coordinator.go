@@ -376,6 +376,10 @@ func (c *coordinator) onClear() {
 	c.lockedKey = ""
 	c.disarmLockTimerLocked()
 	c.muTest.Unlock()
+
+	if c.snapshot != nil {
+		c.publish(c.filteredSnapshot())
+	}
 }
 
 // attentionRTTTL is the optional lock-acquisition chime (display.attention_chime).

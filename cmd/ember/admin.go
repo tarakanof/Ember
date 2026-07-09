@@ -8,8 +8,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"runtime"
 	"runtime/debug"
+	"strings"
 )
 
 // versionInfo is the JSON body served by /version. Computed once at startup.
@@ -96,74 +98,49 @@ var nonReloadableLeaves = []string{
 }
 
 // diffConfig returns dotted leaf paths whose values differ between oldCfg
-// and newCfg. Hand-rolled (no reflection) across all 21 config leaves so a
-// new field added later forces a compile-time prompt to extend this list.
+// and newCfg. It walks Config's fields via reflection (one level into each
+// nested config struct), deriving each path from the field's json tag —
+// there is no hand-rolled leaf list to go stale, so a newly added Config
+// field is diffed automatically the moment it exists, with no code change
+// required here.
 func diffConfig(oldCfg, newCfg Config) []string {
 	var changed []string
-	if oldCfg.HTTP.Addr != newCfg.HTTP.Addr {
-		changed = append(changed, "http.addr")
-	}
-	if oldCfg.AWTRIX.HTTPBaseURL != newCfg.AWTRIX.HTTPBaseURL {
-		changed = append(changed, "awtrix.http_base_url")
-	}
-	if oldCfg.AWTRIX.AppName != newCfg.AWTRIX.AppName {
-		changed = append(changed, "awtrix.app_name")
-	}
-	if oldCfg.AWTRIX.TimeoutSeconds != newCfg.AWTRIX.TimeoutSeconds {
-		changed = append(changed, "awtrix.timeout_seconds")
-	}
-	if oldCfg.Auth.StatusToken != newCfg.Auth.StatusToken {
-		changed = append(changed, "auth.status_token")
-	}
-	if oldCfg.Auth.StatusTokenEnv != newCfg.Auth.StatusTokenEnv {
-		changed = append(changed, "auth.status_token_env")
-	}
-	if oldCfg.Display.IdleText != newCfg.Display.IdleText {
-		changed = append(changed, "display.idle_text")
-	}
-	if oldCfg.Display.StaleSeconds != newCfg.Display.StaleSeconds {
-		changed = append(changed, "display.stale_seconds")
-	}
-	if oldCfg.Display.DoneTTLSeconds != newCfg.Display.DoneTTLSeconds {
-		changed = append(changed, "display.done_ttl_seconds")
-	}
-	if oldCfg.Display.HeartbeatSeconds != newCfg.Display.HeartbeatSeconds {
-		changed = append(changed, "display.heartbeat_seconds")
-	}
-	if oldCfg.Display.RefreshSeconds != newCfg.Display.RefreshSeconds {
-		changed = append(changed, "display.refresh_seconds")
-	}
-	if oldCfg.Display.NotifyOnWaiting != newCfg.Display.NotifyOnWaiting {
-		changed = append(changed, "display.notify_on_waiting")
-	}
-	if oldCfg.Display.FrameLifetimeSeconds != newCfg.Display.FrameLifetimeSeconds {
-		changed = append(changed, "display.frame_lifetime_seconds")
-	}
-	if oldCfg.Display.IdleRestoreSeconds != newCfg.Display.IdleRestoreSeconds {
-		changed = append(changed, "display.idle_restore_seconds")
-	}
-	if oldCfg.Display.AckTimeoutSeconds != newCfg.Display.AckTimeoutSeconds {
-		changed = append(changed, "display.ack_timeout_seconds")
-	}
-	if oldCfg.Display.RotationDwellSeconds != newCfg.Display.RotationDwellSeconds {
-		changed = append(changed, "display.rotation_dwell_seconds")
-	}
-	if oldCfg.Display.AttentionChime != newCfg.Display.AttentionChime {
-		changed = append(changed, "display.attention_chime")
-	}
-	if oldCfg.RateLimit.Disabled != newCfg.RateLimit.Disabled {
-		changed = append(changed, "rate_limit.disabled")
-	}
-	if oldCfg.RateLimit.Burst != newCfg.RateLimit.Burst {
-		changed = append(changed, "rate_limit.burst")
-	}
-	if oldCfg.RateLimit.RefillPerSec != newCfg.RateLimit.RefillPerSec {
-		changed = append(changed, "rate_limit.refill_per_sec")
-	}
-	if oldCfg.RateLimit.IdleEvictSeconds != newCfg.RateLimit.IdleEvictSeconds {
-		changed = append(changed, "rate_limit.idle_evict_seconds")
-	}
+	diffStructFields(reflect.ValueOf(oldCfg), reflect.ValueOf(newCfg), "", &changed)
 	return changed
+}
+
+// diffStructFields appends prefix-qualified json-tag paths for every field of
+// oldV/newV (both must be the same struct type) whose values differ. Struct-
+// typed fields recurse one level deeper (Config's nesting is exactly one
+// level: Config -> {HTTP,AWTRIX,Auth,Display,RateLimit,Weather,Meetings,
+// QuietHours,Pomodoro} -> scalars/pointers/maps); anything else is compared
+// with reflect.DeepEqual, which correctly distinguishes nil vs. non-nil
+// pointers (the pattern used throughout Config for "unset vs. explicit
+// false/zero" optional fields).
+func diffStructFields(oldV, newV reflect.Value, prefix string, changed *[]string) {
+	t := oldV.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue // unexported
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		ofv, nfv := oldV.Field(i), newV.Field(i)
+		if ofv.Kind() == reflect.Struct {
+			diffStructFields(ofv, nfv, path, changed)
+			continue
+		}
+		if !reflect.DeepEqual(ofv.Interface(), nfv.Interface()) {
+			*changed = append(*changed, path)
+		}
+	}
 }
 
 // nonReloadableChange returns the first changed leaf path that appears in

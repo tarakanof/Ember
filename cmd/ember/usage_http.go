@@ -1,10 +1,16 @@
 package main
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
+	"regexp"
 	"time"
 )
+
+// toolNameRe bounds the "tool" key an authed client can post: lowercase
+// alnum/underscore/hyphen, 1..32 chars. Without this an authed-but-buggy
+// client could grow UsageStore.byTool with unbounded garbage keys.
+var toolNameRe = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
 // handleUsage stores a posted per-tool usage snapshot. The "POST /v1/usage"
 // pattern enforces the verb, so no method check is needed here. Auth is applied
@@ -17,9 +23,50 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		SevenDay *UsageWindow            `json:"seven_day"`
 		Models   map[string]*UsageWindow `json:"models"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Tool == "" {
-		http.Error(w, "bad request", http.StatusBadRequest)
+	if err := decodeJSON(w, r, &req, true); err != nil {
+		var maxBytes *http.MaxBytesError
+		reason := "parse"
+		status := http.StatusBadRequest
+		if errors.As(err, &maxBytes) {
+			reason = "too_large"
+			status = http.StatusRequestEntityTooLarge
+		}
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", reason,
+		)
+		writeError(w, status, err)
 		return
+	}
+	if !toolNameRe.MatchString(req.Tool) {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", "tool",
+		)
+		writeError(w, http.StatusBadRequest, errors.New("tool must match ^[a-z0-9_-]{1,32}$"))
+		return
+	}
+	windows := []*UsageWindow{req.FiveHour, req.SevenDay}
+	for _, win := range req.Models {
+		windows = append(windows, win)
+	}
+	for _, win := range windows {
+		if win == nil {
+			continue
+		}
+		if win.UsedPercent < 0 || win.UsedPercent > 100 {
+			a.logger.InfoContext(r.Context(), "request rejected",
+				"remote_addr", r.RemoteAddr,
+				"path", r.URL.Path,
+				"reason", "validation",
+				"field", "used_percent",
+			)
+			writeError(w, http.StatusBadRequest, errors.New("used_percent must be within [0,100]"))
+			return
+		}
 	}
 	a.usage.Put(req.Tool, ToolUsage{
 		FiveHour:  req.FiveHour,
