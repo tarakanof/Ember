@@ -96,6 +96,71 @@ func TestWatcher_ReapsAgedSession(t *testing.T) {
 	}
 }
 
+func TestWatcher_RecoversFromTruncation(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	path := writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted, evAgent)
+	w := newTestWatcher(dir, now)
+	if posts, _, _ := w.tick(); len(posts) != 1 || posts[0].State != "running" {
+		t.Fatalf("first tick want 1 running post, got %+v", posts)
+	}
+	// Rewrite the file smaller (truncation/rotation): the new size is below the
+	// stored offset, so a naive seek would read nothing and keep stale state.
+	later := now.Add(3 * time.Second)
+	if err := os.WriteFile(path, []byte(metaCLI+"\n"+evDone+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.Chtimes(path, later, later)
+	w.now = func() time.Time { return later }
+	posts, _, _ := w.tick()
+	if len(posts) != 1 || posts[0].State != "done" {
+		t.Fatalf("want 1 done post after truncation recovery, got %+v", posts)
+	}
+}
+
+func TestWatcher_TracksSessionOlderThanWindow(t *testing.T) {
+	dir := t.TempDir()
+	day0 := time.Now().UTC()
+	path := writeRollout(t, dir, "rollout-cli.jsonl", day0, metaCLI, evStarted)
+	w := newTestWatcher(dir, day0)
+	if posts, _, _ := w.tick(); len(posts) != 1 {
+		t.Fatalf("initial discovery want 1 post, got %d", len(posts))
+	}
+	// Two UTC days later the file's date dir falls outside the candidate window,
+	// but the session is still active (fresh append + recent mtime).
+	day2 := day0.Add(48 * time.Hour)
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	f.WriteString(evDone + "\n")
+	f.Close()
+	os.Chtimes(path, day2, day2)
+	w.now = func() time.Time { return day2 }
+	posts, deletes, _ := w.tick()
+	if len(deletes) != 0 {
+		t.Fatalf("active tracked session must not be deleted, got %+v", deletes)
+	}
+	if len(posts) != 1 || posts[0].State != "done" {
+		t.Fatalf("want 1 done post from out-of-window tracked session, got %+v", posts)
+	}
+}
+
+func TestWatcher_PrunesIgnoredOutsideWindow(t *testing.T) {
+	dir := t.TempDir()
+	day0 := time.Now().UTC()
+	exec := writeRollout(t, dir, "rollout-exec.jsonl", day0, metaExec, evStarted)
+	w := newTestWatcher(dir, day0)
+	w.tick()
+	if !w.ignored[exec] {
+		t.Fatalf("exec (non-cli) session should be ignored after first tick")
+	}
+	// Two UTC days later the exec file is outside the candidate window.
+	day2 := day0.Add(48 * time.Hour)
+	w.now = func() time.Time { return day2 }
+	w.tick()
+	if w.ignored[exec] {
+		t.Fatalf("ignored entry outside candidate window should be pruned, have %d", len(w.ignored))
+	}
+}
+
 func TestWatcher_TailsAppendedEvents(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
