@@ -21,9 +21,7 @@ func (a *App) applyDeviceBaseURL(raw string) error {
 	if _, err := url.ParseRequestURI(raw); err != nil {
 		return fmt.Errorf("invalid base_url %q", raw)
 	}
-	cur := *a.cfg.Load()
-	cur.AWTRIX.HTTPBaseURL = raw
-	a.cfg.Store(&cur)
+	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = raw })
 	if a.store != nil {
 		if err := a.store.PutSetting(deviceBaseURLKey, raw); err != nil {
 			a.logger.Warn("device base url persist failed", "err", err)
@@ -88,9 +86,8 @@ func (a *App) initDeviceDiscovery(ctx context.Context) {
 		a.logger.Info("clock discovery found no device", "configured", a.cfg.Load().AWTRIX.HTTPBaseURL)
 		return
 	}
-	cur := *a.cfg.Load()
-	cur.AWTRIX.HTTPBaseURL = cands[0].BaseURL
-	a.cfg.Store(&cur) // in-memory only; not persisted
+	base := cands[0].BaseURL
+	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = base }) // in-memory only; not persisted
 	a.deviceAutoPicked = true
 	a.logger.Info("clock auto-discovered", "base_url", cands[0].BaseURL, "uid", cands[0].UID)
 }

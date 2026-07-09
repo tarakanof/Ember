@@ -472,6 +472,7 @@ func isHexColor(s string) bool {
 
 type App struct {
 	cfg          atomic.Pointer[Config] // hot-swappable; read with cfg.Load() per request
+	cfgMu        sync.Mutex             // serializes cfg's read-copy-write; see updateConfig
 	configPath   string                 // resolved at startup; "" when running on defaults
 	configSource string                 // "flag" | "env" | "cwd" | "defaults"
 	publisher    Publisher
@@ -600,6 +601,20 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.coord.weather = a.weather
 	a.coord.meetings = a.meetings
 	return a
+}
+
+// updateConfig serializes a config read-copy-write: it locks cfgMu, loads
+// the current config, lets mutate apply changes to a copy, and stores the
+// result. This closes the lost-update window that a bare
+// `cur := *a.cfg.Load(); cur.X = ...; a.cfg.Store(&cur)` leaves open when two
+// settings appliers race — the loser's stale copy would silently revert the
+// winner's change. Readers stay lock-free via cfg.Load() (unchanged).
+func (a *App) updateConfig(mutate func(*Config)) {
+	a.cfgMu.Lock()
+	cur := *a.cfg.Load()
+	mutate(&cur)
+	a.cfg.Store(&cur)
+	a.cfgMu.Unlock()
 }
 
 // recordPublish updates the last-publish telemetry + lastPublished

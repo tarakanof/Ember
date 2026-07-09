@@ -43,11 +43,11 @@ func (a *App) displayDTO() displayConfigDTO {
 // persists them to the store so they survive restarts. The coordinator reads
 // these fields live, so the change takes effect on the next reconcile tick.
 func (a *App) applyDisplaySettings(dto displayConfigDTO) {
-	cur := *a.cfg.Load()
-	cur.Display.IdleRestoreSeconds = dto.IdleHideMinutes * 60
-	cur.Display.AckTimeoutSeconds = dto.AttentionHoldSeconds
-	cur.Display.AttentionChime = dto.AttentionChime
-	a.cfg.Store(&cur)
+	a.updateConfig(func(cur *Config) {
+		cur.Display.IdleRestoreSeconds = dto.IdleHideMinutes * 60
+		cur.Display.AckTimeoutSeconds = dto.AttentionHoldSeconds
+		cur.Display.AttentionChime = dto.AttentionChime
+	})
 	if a.store != nil {
 		if blob, err := json.Marshal(dto); err == nil {
 			if err := a.store.PutSetting(displaySettingsKey, string(blob)); err != nil {

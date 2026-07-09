@@ -65,9 +65,7 @@ func (a *App) applyMeetingsSettings(cfg MeetingsConfig) error {
 	if err := validateMeetings(cfg); err != nil {
 		return err
 	}
-	cur := *a.cfg.Load()
-	cur.Meetings = cfg
-	a.cfg.Store(&cur)
+	a.updateConfig(func(cur *Config) { cur.Meetings = cfg })
 	if a.store != nil {
 		if blob, err := json.Marshal(cfg); err == nil {
 			if err := a.store.PutSetting(meetingsSettingsKey, string(blob)); err != nil {

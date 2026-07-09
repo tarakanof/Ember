@@ -319,6 +319,7 @@ func (a *App) handlePomodoroConfigPut(w http.ResponseWriter, r *http.Request) {
 // applyPomodoroSettings validates the DTO, swaps it into the live config,
 // updates the engine, and persists it to the store for restart durability.
 func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
+	a.cfgMu.Lock()
 	cur := *a.cfg.Load()
 	p := cur.Pomodoro
 	p.FocusMinutes = dto.FocusMinutes
@@ -338,10 +339,12 @@ func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
 		p.Enabled = *dto.Enabled
 	}
 	if err := validatePomodoro(p); err != nil {
+		a.cfgMu.Unlock()
 		return err
 	}
 	cur.Pomodoro = p
 	a.cfg.Store(&cur)
+	a.cfgMu.Unlock()
 	if a.engine != nil {
 		a.engine.UpdateSettings(engineSettings(p))
 		// An explicit disable must not strand a running timer on the clock.

@@ -725,9 +725,7 @@ func (a *App) applyWeatherSettings(cfg WeatherConfig) error {
 	if err := validateWeather(cfg); err != nil {
 		return err
 	}
-	cur := *a.cfg.Load()
-	cur.Weather = cfg
-	a.cfg.Store(&cur)
+	a.updateConfig(func(cur *Config) { cur.Weather = cfg })
 	if a.store != nil {
 		if blob, err := json.Marshal(cfg); err == nil {
 			if err := a.store.PutSetting(weatherSettingsKey, string(blob)); err != nil {

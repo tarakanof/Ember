@@ -262,15 +262,23 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		newCfg.applyDefaults()
 		// Token isn't in the JSON file (env-only), so carry it over from
 		// the running config to keep the diff honest.
+		//
+		// The load (oldCfg) through the store below is one critical section
+		// under cfgMu: it must observe and replace the same config value a
+		// concurrent settings PUT (via updateConfig) would, or one of the two
+		// changes is silently lost.
+		app.cfgMu.Lock()
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
 		if err := validateConfig(newCfg); err != nil {
+			app.cfgMu.Unlock()
 			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
 			writeError(w, http.StatusUnprocessableEntity, err)
 			return
 		}
 		changed := diffConfig(oldCfg, newCfg)
 		if hit := nonReloadableChange(changed); hit != "" {
+			app.cfgMu.Unlock()
 			oldVal := formatLeafValue(oldCfg, hit)
 			newVal := formatLeafValue(newCfg, hit)
 			logOutcome(http.StatusConflict, len(changed), hit)
@@ -278,6 +286,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		app.cfg.Store(&newCfg)
+		app.cfgMu.Unlock()
 		// Keep the Pomodoro engine in sync with the reloaded config and
 		// re-apply API-persisted settings so a reload doesn't revert them.
 		app.resyncPomodoroAfterReload()
