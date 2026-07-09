@@ -432,7 +432,11 @@ draws-if-present in `internal/render`, add a menu checkbox.
   older server doesn't know. `handleDeleteStatus` + `handleNotify` stay **strict**
   (reject unknown fields / trailing tokens, 413 via `http.MaxBytesReader`).
 - **Auth:** bearer token on write endpoints, via `EMBER_TOKEN` env only —
-  never argv/URL/logs. `slog.LogValuer` redaction throughout.
+  never argv/URL/logs. `slog.LogValuer` redaction throughout. **Fails closed:**
+  an unset `EMBER_TOKEN` rejects every `/v1` write with 401 (same policy as the
+  `/admin` surface); the token is compared in constant time, and the per-IP
+  rate limiter sits *outside* auth so rejected 401s still consume budget (a
+  wrong-token flood is throttled to 429).
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
   ignores it — never in the `StatusRequest` body.

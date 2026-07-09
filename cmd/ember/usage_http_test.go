@@ -24,7 +24,7 @@ func TestUsageHTTPStoresPayload(t *testing.T) {
 
 func TestUsageHTTPRequiresAuth(t *testing.T) {
 	_, srv := newTestServerWithToken(t, "secret-token")
-	resp := postJSON(t, srv, "/v1/usage", map[string]any{"tool": "claude"}, nil) // no Authorization header
+	resp := postJSON(t, srv, "/v1/usage", map[string]any{"tool": "claude"}, map[string]string{}) // no Authorization header
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}

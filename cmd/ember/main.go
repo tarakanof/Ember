@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -929,46 +930,49 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
 
 	writeMux := http.NewServeMux()
-	writeMux.Handle("POST /v1/status", rateLimit(a, http.HandlerFunc(a.handleStatus)))
-	writeMux.Handle("DELETE /v1/status", rateLimit(a, http.HandlerFunc(a.handleDeleteStatus)))
-	writeMux.Handle("POST /v1/clear", rateLimit(a, http.HandlerFunc(a.handleClear)))
-	writeMux.Handle("POST /v1/notify", rateLimit(a, http.HandlerFunc(a.handleNotify)))
-	writeMux.Handle("POST /v1/pomodoro/start", rateLimit(a, http.HandlerFunc(a.handlePomodoroStart)))
-	writeMux.Handle("POST /v1/pomodoro/pause", rateLimit(a, http.HandlerFunc(a.handlePomodoroPause)))
-	writeMux.Handle("POST /v1/pomodoro/resume", rateLimit(a, http.HandlerFunc(a.handlePomodoroResume)))
-	writeMux.Handle("POST /v1/pomodoro/stop", rateLimit(a, http.HandlerFunc(a.handlePomodoroStop)))
-	writeMux.Handle("POST /v1/pomodoro/skip", rateLimit(a, http.HandlerFunc(a.handlePomodoroSkip)))
-	writeMux.Handle("GET /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigGet)))
-	writeMux.Handle("PUT /v1/pomodoro/config", rateLimit(a, http.HandlerFunc(a.handlePomodoroConfigPut)))
-	writeMux.Handle("GET /v1/apps", rateLimit(a, http.HandlerFunc(a.handleAppsGet)))
-	writeMux.Handle("PUT /v1/apps", rateLimit(a, http.HandlerFunc(a.handleAppsPut)))
-	writeMux.Handle("POST /v1/usage", rateLimit(a, http.HandlerFunc(a.handleUsage)))
-	writeMux.Handle("GET /v1/usage/config", rateLimit(a, http.HandlerFunc(a.handleUsageConfigGet)))
-	writeMux.Handle("PUT /v1/usage/config", rateLimit(a, http.HandlerFunc(a.handleUsageConfigPut)))
-	writeMux.Handle("GET /v1/display/config", rateLimit(a, http.HandlerFunc(a.handleDisplayConfigGet)))
-	writeMux.Handle("PUT /v1/display/config", rateLimit(a, http.HandlerFunc(a.handleDisplayConfigPut)))
-	writeMux.Handle("GET /v1/quiet/config", rateLimit(a, http.HandlerFunc(a.handleQuietConfigGet)))
-	writeMux.Handle("PUT /v1/quiet/config", rateLimit(a, http.HandlerFunc(a.handleQuietConfigPut)))
-	writeMux.Handle("GET /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigGet)))
-	writeMux.Handle("PUT /v1/weather/config", rateLimit(a, http.HandlerFunc(a.handleWeatherConfigPut)))
-	writeMux.Handle("GET /v1/meetings/config", rateLimit(a, http.HandlerFunc(a.handleMeetingsConfigGet)))
-	writeMux.Handle("PUT /v1/meetings/config", rateLimit(a, http.HandlerFunc(a.handleMeetingsConfigPut)))
-	writeMux.Handle("POST /v1/reminders/fire", rateLimit(a, http.HandlerFunc(a.handleReminderFire)))
-	writeMux.Handle("GET /v1/device/discover", rateLimit(a, http.HandlerFunc(a.handleDeviceDiscover)))
-	writeMux.Handle("GET /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigGet)))
-	writeMux.Handle("PUT /v1/device/config", rateLimit(a, http.HandlerFunc(a.handleDeviceConfigPut)))
-	writeMux.Handle("GET /v1/device/settings", rateLimit(a, http.HandlerFunc(a.handleDeviceSettingsGet)))
-	writeMux.Handle("PUT /v1/device/settings", rateLimit(a, http.HandlerFunc(a.handleDeviceSettingsPut)))
-	writeMux.Handle("GET /v1/device/stats", rateLimit(a, http.HandlerFunc(a.handleDeviceStats)))
-	writeMux.Handle("GET /v1/device/sensors", rateLimit(a, http.HandlerFunc(a.handleDeviceSensorsGet)))
-	writeMux.Handle("PUT /v1/device/sensors", rateLimit(a, http.HandlerFunc(a.handleDeviceSensorsPut)))
-	writeMux.Handle("GET /v1/device/screen", rateLimit(a, http.HandlerFunc(a.handleDeviceScreen)))
-	writeMux.Handle("POST /v1/device/reboot", rateLimit(a, http.HandlerFunc(a.handleDeviceReboot)))
-	writeMux.Handle("POST /v1/device/notify/dismiss", rateLimit(a, http.HandlerFunc(a.handleDeviceDismiss)))
-	writeMux.Handle("POST /v1/device/app/next", rateLimit(a, http.HandlerFunc(a.handleDeviceNextApp)))
-	writeMux.Handle("POST /v1/device/app/previous", rateLimit(a, http.HandlerFunc(a.handleDevicePrevApp)))
-	writeMux.Handle("GET /v1/device/buttons", rateLimit(a, http.HandlerFunc(a.handleDeviceButtons)))
-	mux.Handle("/v1/", requireAuth(a, a.logger, writeMux))
+	writeMux.Handle("POST /v1/status", http.HandlerFunc(a.handleStatus))
+	writeMux.Handle("DELETE /v1/status", http.HandlerFunc(a.handleDeleteStatus))
+	writeMux.Handle("POST /v1/clear", http.HandlerFunc(a.handleClear))
+	writeMux.Handle("POST /v1/notify", http.HandlerFunc(a.handleNotify))
+	writeMux.Handle("POST /v1/pomodoro/start", http.HandlerFunc(a.handlePomodoroStart))
+	writeMux.Handle("POST /v1/pomodoro/pause", http.HandlerFunc(a.handlePomodoroPause))
+	writeMux.Handle("POST /v1/pomodoro/resume", http.HandlerFunc(a.handlePomodoroResume))
+	writeMux.Handle("POST /v1/pomodoro/stop", http.HandlerFunc(a.handlePomodoroStop))
+	writeMux.Handle("POST /v1/pomodoro/skip", http.HandlerFunc(a.handlePomodoroSkip))
+	writeMux.Handle("GET /v1/pomodoro/config", http.HandlerFunc(a.handlePomodoroConfigGet))
+	writeMux.Handle("PUT /v1/pomodoro/config", http.HandlerFunc(a.handlePomodoroConfigPut))
+	writeMux.Handle("GET /v1/apps", http.HandlerFunc(a.handleAppsGet))
+	writeMux.Handle("PUT /v1/apps", http.HandlerFunc(a.handleAppsPut))
+	writeMux.Handle("POST /v1/usage", http.HandlerFunc(a.handleUsage))
+	writeMux.Handle("GET /v1/usage/config", http.HandlerFunc(a.handleUsageConfigGet))
+	writeMux.Handle("PUT /v1/usage/config", http.HandlerFunc(a.handleUsageConfigPut))
+	writeMux.Handle("GET /v1/display/config", http.HandlerFunc(a.handleDisplayConfigGet))
+	writeMux.Handle("PUT /v1/display/config", http.HandlerFunc(a.handleDisplayConfigPut))
+	writeMux.Handle("GET /v1/quiet/config", http.HandlerFunc(a.handleQuietConfigGet))
+	writeMux.Handle("PUT /v1/quiet/config", http.HandlerFunc(a.handleQuietConfigPut))
+	writeMux.Handle("GET /v1/weather/config", http.HandlerFunc(a.handleWeatherConfigGet))
+	writeMux.Handle("PUT /v1/weather/config", http.HandlerFunc(a.handleWeatherConfigPut))
+	writeMux.Handle("GET /v1/meetings/config", http.HandlerFunc(a.handleMeetingsConfigGet))
+	writeMux.Handle("PUT /v1/meetings/config", http.HandlerFunc(a.handleMeetingsConfigPut))
+	writeMux.Handle("POST /v1/reminders/fire", http.HandlerFunc(a.handleReminderFire))
+	writeMux.Handle("GET /v1/device/discover", http.HandlerFunc(a.handleDeviceDiscover))
+	writeMux.Handle("GET /v1/device/config", http.HandlerFunc(a.handleDeviceConfigGet))
+	writeMux.Handle("PUT /v1/device/config", http.HandlerFunc(a.handleDeviceConfigPut))
+	writeMux.Handle("GET /v1/device/settings", http.HandlerFunc(a.handleDeviceSettingsGet))
+	writeMux.Handle("PUT /v1/device/settings", http.HandlerFunc(a.handleDeviceSettingsPut))
+	writeMux.Handle("GET /v1/device/stats", http.HandlerFunc(a.handleDeviceStats))
+	writeMux.Handle("GET /v1/device/sensors", http.HandlerFunc(a.handleDeviceSensorsGet))
+	writeMux.Handle("PUT /v1/device/sensors", http.HandlerFunc(a.handleDeviceSensorsPut))
+	writeMux.Handle("GET /v1/device/screen", http.HandlerFunc(a.handleDeviceScreen))
+	writeMux.Handle("POST /v1/device/reboot", http.HandlerFunc(a.handleDeviceReboot))
+	writeMux.Handle("POST /v1/device/notify/dismiss", http.HandlerFunc(a.handleDeviceDismiss))
+	writeMux.Handle("POST /v1/device/app/next", http.HandlerFunc(a.handleDeviceNextApp))
+	writeMux.Handle("POST /v1/device/app/previous", http.HandlerFunc(a.handleDevicePrevApp))
+	writeMux.Handle("GET /v1/device/buttons", http.HandlerFunc(a.handleDeviceButtons))
+	// Limiter outermost, auth inside: requests rejected by auth (401) still
+	// consume rate-limit budget, so an attacker hammering wrong tokens gets
+	// throttled to 429 instead of probing at full speed.
+	mux.Handle("/v1/", rateLimit(a, requireAuth(a, a.logger, writeMux)))
 
 	adminMux := http.NewServeMux()
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))
@@ -1196,17 +1200,23 @@ func writeError(w http.ResponseWriter, status int, err error) {
 // requireAuth wraps next with bearer-token auth. Reads the token from
 // app.cfg.Load() per request so token rotation via container restart
 // (or future /admin/reload) takes effect for the next request after the
-// swap. Empty token preserves the existing dev-mode policy: writes
-// remain open. (Admin endpoints get the stricter adminRequireAuth.)
+// swap. Fails closed: an empty configured token rejects every write, so a
+// misconfigured deploy never silently exposes /v1 writes to the LAN.
+// (Admin endpoints use the identical policy via adminRequireAuth.)
 func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := app.cfg.Load().Auth.StatusToken
 		if token == "" {
-			next.ServeHTTP(w, r)
+			logger.InfoContext(r.Context(), "auth disabled",
+				"remote_addr", r.RemoteAddr,
+				"path", r.URL.Path,
+				"method", r.Method,
+			)
+			writeError(w, http.StatusUnauthorized, errors.New("writes disabled: EMBER_TOKEN unset"))
 			return
 		}
 		expected := "Bearer " + token
-		if r.Header.Get("Authorization") != expected {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
 			logger.InfoContext(r.Context(), "auth rejected",
 				"remote_addr", r.RemoteAddr,
 				"path", r.URL.Path,

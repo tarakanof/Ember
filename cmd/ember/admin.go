@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,7 +58,7 @@ func adminRequireAuth(app *App, logger *slog.Logger, next http.Handler) http.Han
 			writeError(w, http.StatusUnauthorized, errors.New("admin disabled: EMBER_TOKEN unset"))
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer "+token {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
 			logger.InfoContext(r.Context(), "admin auth rejected",
 				"remote_addr", r.RemoteAddr,
 				"path", r.URL.Path,

@@ -45,7 +45,10 @@ docker run -d --name ember --restart unless-stopped -p 3627:3627 \
     in `config.json` — not a stray external publisher. Fix the name and restart;
     don't go hunting MQTT/other hosts. (`config.json` is a single-file bind
     mount — edit then `docker restart ember` to apply.)
-- Token: `openssl rand -hex 32 > ~/.config/ember/token`.
+- Token: `openssl rand -hex 32 > ~/.config/ember/token`. **`EMBER_TOKEN` is
+  mandatory:** auth fails closed, so with it unset every `/v1` write (and every
+  `/admin` call) returns 401 — read endpoints (`/state`, `/healthz`, previews)
+  stay open. If writes suddenly 401 after a deploy, check the env var first.
 - **mDNS discovery needs host networking.** The `-p 3627:3627` form above is fine
   for everything except clock/server discovery (multicast doesn't cross the
   bridge). For the discovery features, run with `--network host` and drop `-p`

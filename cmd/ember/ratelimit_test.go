@@ -262,7 +262,7 @@ func TestRateLimit_429Response(t *testing.T) {
 	}
 }
 
-func TestRateLimit_AppliesPostAuth(t *testing.T) {
+func TestRateLimit_CountsUnauthorizedAttempts(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.Auth.StatusToken = "tok"
@@ -276,50 +276,30 @@ func TestRateLimit_AppliesPostAuth(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// Wrong token: expect 401 (auth runs first; no token consumed).
-	req1, err := http.NewRequest("POST", srv.URL+"/v1/status", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req1.Header.Set("Authorization", "Bearer wrong")
-	resp1, err := srv.Client().Do(req1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp1.Body.Close()
-	if resp1.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("wrong token: code = %d, want 401", resp1.StatusCode)
-	}
-
-	// First authed call passes auth + rate limit; reaches handler (4xx but
-	// not 401 or 429 is the point — the handler may 400 because body is nil).
-	req2, err := http.NewRequest("POST", srv.URL+"/v1/status", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req2.Header.Set("Authorization", "Bearer tok")
-	resp2, err := srv.Client().Do(req2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode == http.StatusUnauthorized || resp2.StatusCode == http.StatusTooManyRequests {
-		t.Fatalf("first authed call: code = %d, want neither 401 nor 429", resp2.StatusCode)
+	wrongToken := func() int {
+		req, err := http.NewRequest("POST", srv.URL+"/v1/status", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer wrong")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
 	}
 
-	// Second authed call: bucket drained, expect 429.
-	req3, err := http.NewRequest("POST", srv.URL+"/v1/status", nil)
-	if err != nil {
-		t.Fatal(err)
+	// First unauthorized attempt passes the limiter (consuming the only
+	// token in the bucket) and is then rejected by auth → 401.
+	if code := wrongToken(); code != http.StatusUnauthorized {
+		t.Fatalf("first wrong-token call: code = %d, want 401", code)
 	}
-	req3.Header.Set("Authorization", "Bearer tok")
-	resp3, err := srv.Client().Do(req3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp3.Body.Close()
-	if resp3.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("second authed call: code = %d, want 429", resp3.StatusCode)
+	// Second unauthorized attempt from the same IP: the limiter sits outside
+	// auth now, so the drained bucket throttles the request before auth runs
+	// → 429. This is the point of the reorder: 401s consume rate-limit budget.
+	if code := wrongToken(); code != http.StatusTooManyRequests {
+		t.Fatalf("second wrong-token call: code = %d, want 429 (401s must consume limiter budget)", code)
 	}
 }
 

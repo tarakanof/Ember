@@ -18,6 +18,7 @@ func newPomodoroApp(t *testing.T) *App {
 	cfg := defaultConfig()
 	cfg.Pomodoro.Enabled = true
 	cfg.applyDefaults()
+	cfg.Auth.StatusToken = testToken
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
 	eng := pomodoro.New(pomodoro.Settings{FocusMin: 25, ShortMin: 5, LongMin: 15, RoundsBeforeLong: 4}, realClock{})
 	store, err := pomodoro.Open(filepath.Join(t.TempDir(), "p.db"))
@@ -41,9 +42,12 @@ func doReq(t *testing.T, srv *httptest.Server, method, path, token, body string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	// An empty token means "use the default test token" so write endpoints
+	// (fail-closed) are reachable; auth-boundary tests pass an explicit token.
+	if token == "" {
+		token = testToken
 	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -228,9 +232,9 @@ func TestPomodoroAuthBoundaries(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// Write endpoint without token → 401.
-	if resp, _ := doReq(t, srv, http.MethodPost, "/v1/pomodoro/start", "", `{"phase":"focus"}`); resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("start without token = %d, want 401", resp.StatusCode)
+	// Write endpoint with a non-matching token → 401.
+	if resp, _ := doReq(t, srv, http.MethodPost, "/v1/pomodoro/start", "wrong", `{"phase":"focus"}`); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("start with wrong token = %d, want 401", resp.StatusCode)
 	}
 	// Read state is open.
 	if resp, _ := doReq(t, srv, http.MethodGet, "/v1/pomodoro/state", "", ""); resp.StatusCode != http.StatusOK {
