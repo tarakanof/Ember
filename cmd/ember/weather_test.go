@@ -504,3 +504,50 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 		t.Errorf("interval popup didn't fire after a full interval: %d popups, want 1", popups)
 	}
 }
+
+// validWeatherConfig returns a WeatherConfig that passes every validateWeather
+// check except whatever the test mutates, so icon-id cases exercise only the
+// IconIDs branch.
+func validWeatherConfig() WeatherConfig {
+	return WeatherConfig{
+		Provider:             "open-meteo",
+		Units:                "metric",
+		RefreshMinutes:       10,
+		PopupDurationSeconds: 30,
+		AirPopupThreshold:    80,
+	}
+}
+
+func TestValidateWeatherIconIDs(t *testing.T) {
+	cases := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{"numeric ok", "123", false},
+		{"path traversal rejected", "../dev", true},
+		{"alpha suffix rejected", "12a", true},
+		{"empty rejected", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := validWeatherConfig()
+			cfg.IconIDs = map[string]string{"clear": c.id}
+			err := validateWeather(cfg)
+			if (err != nil) != c.wantErr {
+				t.Errorf("validateWeather icon_ids[clear]=%q err=%v, wantErr=%v", c.id, err, c.wantErr)
+			}
+			if c.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "clear") {
+					t.Errorf("error should name the offending key %q, got %v", "clear", err)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateWeatherOKWithoutIconIDs(t *testing.T) {
+	if err := validateWeather(validWeatherConfig()); err != nil {
+		t.Errorf("baseline valid config should pass validateWeather: %v", err)
+	}
+}

@@ -247,6 +247,7 @@ func loadConfig(path string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.applyDefaults()
+	sanitizeConfigBaseline(&cfg)
 	if err := validateConfig(cfg); err != nil {
 		return Config{}, err
 	}
@@ -258,7 +259,7 @@ func (c *Config) applyDefaults() {
 		c.HTTP.Addr = ":3627"
 	}
 	if c.AWTRIX.HTTPBaseURL == "" {
-		c.AWTRIX.HTTPBaseURL = "http://192.168.0.14"
+		c.AWTRIX.HTTPBaseURL = defaultDeviceBaseURL
 	}
 	if c.AWTRIX.AppName == "" {
 		c.AWTRIX.AppName = "ember"

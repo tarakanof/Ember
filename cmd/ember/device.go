@@ -15,11 +15,36 @@ import (
 // config-persistence pattern).
 const deviceBaseURLKey = "device_base_url"
 
+// defaultDeviceBaseURL is the fallback clock URL used both when config.json
+// omits awtrix.http_base_url (see Config.applyDefaults) and when a
+// hand-edited baseline fails validDeviceURL (see sanitizeConfigBaseline).
+const defaultDeviceBaseURL = "http://192.168.0.14"
+
+// validDeviceURL reports (via a non-nil error) whether raw is unsafe to use as
+// the clock's base URL. The /v1/device/* proxies forward requests to this URL
+// verbatim, so it must be an absolute http/https URL with a non-empty host —
+// otherwise a file:, gopher:, or bare-path value could be used for SSRF or to
+// read local files. Applied to both the PUT /v1/device/config body and the
+// config.json baseline (see sanitizeConfigBaseline).
+func validDeviceURL(raw string) error {
+	u, err := url.ParseRequestURI(raw)
+	if err != nil {
+		return fmt.Errorf("invalid base_url %q: %v", raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("base_url %q: scheme must be http or https, got %q", raw, u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("base_url %q: host is required", raw)
+	}
+	return nil
+}
+
 // applyDeviceBaseURL validates a clock base URL, swaps it into the live config,
 // and persists it to the store. Mirrors applyWeatherSettings.
 func (a *App) applyDeviceBaseURL(raw string) error {
-	if _, err := url.ParseRequestURI(raw); err != nil {
-		return fmt.Errorf("invalid base_url %q", raw)
+	if err := validDeviceURL(raw); err != nil {
+		return err
 	}
 	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = raw })
 	if a.store != nil {

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
+	"log/slog"
 	"os"
 )
 
@@ -50,6 +50,26 @@ func parseConfigFile(path string) (Config, error) {
 	return cfg, nil
 }
 
+// sanitizeConfigBaseline repairs config.json values that fail the SSRF-guard
+// validators (validDeviceURL, weatherIconIDPattern) but that we don't want to
+// treat as fatal load errors — a hand-edited config.json shouldn't crash the
+// server at startup. Invalid entries are logged and replaced/dropped in
+// place; validateConfig runs afterward as a defense-in-depth check that
+// should now always pass for these two fields.
+func sanitizeConfigBaseline(cfg *Config) {
+	if err := validDeviceURL(cfg.AWTRIX.HTTPBaseURL); err != nil {
+		slog.Default().Warn("config.json awtrix.http_base_url invalid, falling back to default",
+			"value", cfg.AWTRIX.HTTPBaseURL, "err", err, "default", defaultDeviceBaseURL)
+		cfg.AWTRIX.HTTPBaseURL = defaultDeviceBaseURL
+	}
+	for k, v := range cfg.Weather.IconIDs {
+		if !weatherIconIDPattern.MatchString(v) {
+			slog.Default().Warn("config.json weather.icon_ids entry invalid, dropping", "key", k, "value", v)
+			delete(cfg.Weather.IconIDs, k)
+		}
+	}
+}
+
 // validateConfig enforces required fields and well-formedness. Returns
 // ErrConfigValidate-wrapped on failure. Run AFTER applyDefaults so empty
 // optional fields don't trigger.
@@ -57,8 +77,8 @@ func validateConfig(cfg Config) error {
 	if cfg.AWTRIX.HTTPBaseURL == "" {
 		return fmt.Errorf("%w: awtrix.http_base_url is required", ErrConfigValidate)
 	}
-	if _, err := url.ParseRequestURI(cfg.AWTRIX.HTTPBaseURL); err != nil {
-		return fmt.Errorf("%w: awtrix.http_base_url %q: %v", ErrConfigValidate, cfg.AWTRIX.HTTPBaseURL, err)
+	if err := validDeviceURL(cfg.AWTRIX.HTTPBaseURL); err != nil {
+		return fmt.Errorf("%w: awtrix.http_base_url: %v", ErrConfigValidate, err)
 	}
 	if cfg.AWTRIX.TimeoutSeconds <= 0 {
 		return fmt.Errorf("%w: awtrix.timeout_seconds must be > 0", ErrConfigValidate)

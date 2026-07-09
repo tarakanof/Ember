@@ -8,6 +8,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -145,6 +147,14 @@ func (c *WeatherConfig) applyDefaults() {
 	}
 }
 
+// weatherIconIDPattern matches a LaMetric gallery icon ID: 1-10 ASCII digits.
+// IconIDs values flow unvalidated into a device file path (/ICONS/<id>.<ext>)
+// and the LaMetric gallery fetch URL (fetchLaMetricIcon in icon_provision.go),
+// so a non-numeric value such as "../dev" could escape /ICONS or reach an
+// arbitrary gallery path. Enforced both in validateWeather (PUT path) and at
+// config.json baseline load (sanitizeConfigBaseline in config.go).
+var weatherIconIDPattern = regexp.MustCompile(`^[0-9]{1,10}$`)
+
 func validateWeather(c WeatherConfig) error {
 	switch c.Provider {
 	case "open-meteo", "met-no":
@@ -170,6 +180,19 @@ func validateWeather(c WeatherConfig) error {
 	}
 	if c.AirPopupThreshold < 0 || c.AirPopupThreshold > 200 {
 		return errors.New("weather.air_popup_threshold must be 0..200")
+	}
+	// Sort keys so a config with multiple invalid entries always names the
+	// same (lowest) offending key, keeping the 400 message deterministic.
+	keys := make([]string, 0, len(c.IconIDs))
+	for k := range c.IconIDs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := c.IconIDs[k]
+		if !weatherIconIDPattern.MatchString(v) {
+			return fmt.Errorf("weather.icon_ids[%s] %q must be a numeric LaMetric icon id (1-10 digits)", k, v)
+		}
 	}
 	return nil
 }
