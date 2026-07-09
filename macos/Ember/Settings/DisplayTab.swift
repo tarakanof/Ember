@@ -9,6 +9,7 @@ struct DisplayTab: View {
     @State private var preview: PreviewResponse?
     @State private var status: String?
     @State private var loaded = false
+    @State private var save: SaveState = .idle
 
     // Server-backed AI-usage-widget toggles (GET/PUT /v1/usage/config), debounced.
     @State private var usage = UsageConfig()
@@ -142,6 +143,9 @@ struct DisplayTab: View {
             }
         }
         .formStyle(.grouped)
+        .toolbar {
+            ToolbarItem { statusCaption }
+        }
         .task {
             if !loaded {
                 let envFile = env.currentEnv()
@@ -182,28 +186,56 @@ struct DisplayTab: View {
         }
     }
 
+    @ViewBuilder private var statusCaption: some View {
+        switch save {
+        case .idle:   EmptyView()
+        case .saving: Text("Saving…").font(.caption).foregroundStyle(.secondary)
+        case .saved:  Label("Saved", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+        case .error(let m): Label(m, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red)
+        }
+    }
+
     private func scheduleUsageSave() {
         guard usage != lastUsage else { return }   // initial load / no-op
+        save = .saving
         let u = usage
         usageWriter.schedule {
-            try? await env.usage.putConfig(u)
-            await MainActor.run { lastUsage = u }
+            do {
+                try await env.usage.putConfig(u)
+                await MainActor.run { lastUsage = u; save = .saved }
+            } catch let e as APIError where e.isUnauthorized {
+                await MainActor.run { save = .error("Unauthorized — check the token in Connection.") }
+            } catch {
+                await MainActor.run { save = .error("Save failed: \(error.localizedDescription)") }
+            }
         }
     }
 
     private func scheduleDisplayCfgSave() {
         guard displayCfg != lastDisplayCfg else { return }   // initial load / no-op
+        save = .saving
         let d = displayCfg
         displayWriter.schedule {
-            try? await env.displayConfig.putConfig(d)
-            await MainActor.run { lastDisplayCfg = d }
+            do {
+                try await env.displayConfig.putConfig(d)
+                await MainActor.run { lastDisplayCfg = d; save = .saved }
+            } catch let e as APIError where e.isUnauthorized {
+                await MainActor.run { save = .error("Unauthorized — check the token in Connection.") }
+            } catch {
+                await MainActor.run { save = .error("Save failed: \(error.localizedDescription)") }
+            }
         }
     }
 
     private func writeDisplay() {
         var envFile = env.currentEnv()
         display.apply(to: &envFile)
-        try? envFile.write(to: env.producerEnvPath)   // best-effort, mirrors old Save
+        do {
+            try envFile.write(to: env.producerEnvPath)
+            save = .saved
+        } catch {
+            save = .error("Save failed: \(error.localizedDescription)")
+        }
     }
 
     private func refreshPreview() async {

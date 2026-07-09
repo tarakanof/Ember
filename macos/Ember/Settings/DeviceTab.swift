@@ -240,10 +240,17 @@ struct DeviceTab: View {
 
     private func scheduleQuietSave() {
         guard quiet != lastQuiet else { return } // initial load / no-op
+        save = .saving
         let q = quiet
         quietWriter.schedule {
-            try? await env.quiet.putConfig(q)
-            await MainActor.run { self.lastQuiet = q }
+            do {
+                try await env.quiet.putConfig(q)
+                await MainActor.run { lastQuiet = q; save = .saved }
+            } catch let e as APIError where e.isUnauthorized {
+                await MainActor.run { save = .error("Unauthorized — check the token in Connection.") }
+            } catch {
+                await MainActor.run { save = .error("Save failed: \(error.localizedDescription)") }
+            }
         }
     }
 

@@ -68,7 +68,7 @@ struct MeetingsTab: View {
                         value: $config.popupLeadMinutes, in: 0...60, step: 1)
                 Toggle("Chime", isOn: $config.chime)
                     .disabled(config.popupLeadMinutes == 0)
-                Text("The chime is muted during quiet hours (set under Pomodoro).")
+                Text("The chime is muted during quiet hours (set under Device).")
                     .font(.caption).foregroundStyle(.secondary)
             } header: {
                 Text("Popup")
