@@ -127,6 +127,10 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		// Truncation/rotation recovery: a file smaller than the stored offset was
 		// truncated or replaced. Reset the offset and re-derive from scratch so a
 		// full re-read doesn't double-apply state (e.g. the activity trail).
+		// Limitation: a same-size file replacement isn't detected (only
+		// size < offset triggers recovery) — acceptable for append-only
+		// rollout JSONL, which never gets replaced by another file of the
+		// exact same byte length.
 		if info.Size() < ss.offset {
 			ss.offset = 0
 			ss.derived = derived{}

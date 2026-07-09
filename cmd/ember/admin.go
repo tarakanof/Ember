@@ -98,11 +98,11 @@ var nonReloadableLeaves = []string{
 }
 
 // diffConfig returns dotted leaf paths whose values differ between oldCfg
-// and newCfg. It walks Config's fields via reflection (one level into each
-// nested config struct), deriving each path from the field's json tag —
-// there is no hand-rolled leaf list to go stale, so a newly added Config
-// field is diffed automatically the moment it exists, with no code change
-// required here.
+// and newCfg. It walks Config's fields via reflection (unbounded recursion
+// into nested config structs, see diffStructFields), deriving each path from
+// the field's json tag — there is no hand-rolled leaf list to go stale, so a
+// newly added Config field is diffed automatically the moment it exists,
+// with no code change required here.
 func diffConfig(oldCfg, newCfg Config) []string {
 	var changed []string
 	diffStructFields(reflect.ValueOf(oldCfg), reflect.ValueOf(newCfg), "", &changed)
@@ -237,6 +237,12 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		newCfg.applyDefaults()
+		// Same baseline repair loadConfig applies at startup: drop/replace
+		// values that fail the SSRF-guard validators (e.g. a hand-edited
+		// weather.icon_ids path-traversal entry) instead of loading them
+		// live — a hand-edited config.json shouldn't bypass the guard just
+		// because it arrived via reload instead of startup.
+		sanitizeConfigBaseline(&newCfg)
 		// Token isn't in the JSON file (env-only), so carry it over from
 		// the running config to keep the diff honest.
 		//

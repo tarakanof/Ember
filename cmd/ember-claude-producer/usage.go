@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -117,7 +118,9 @@ func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 			"sonnet": win(u.SevenDaySonnet, loc, dayLabel),
 		},
 	}
-	_ = client.Usage(ctx, req) // Client is producer.Client (see client.go alias)
+	if err := client.Usage(ctx, req); err != nil { // Client is producer.Client (see client.go alias)
+		tickFailLog.Warn(slog.Default(), "claude_usage", "usage POST failed", "err", err)
+	}
 }
 
 // usagePollLoop polls the usage endpoint every usagePollInterval until ctx is

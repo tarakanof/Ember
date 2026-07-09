@@ -322,6 +322,45 @@ func TestAdminReload_NonReloadable409(t *testing.T) {
 	}
 }
 
+// TestAdminReload_InvalidIconIDsDroppedWithWarn mirrors
+// TestLoadConfig_InvalidIconIDsDroppedWithWarn (config_test.go) but exercises
+// the /admin/reload path: it must run the same sanitizeConfigBaseline repair
+// as startup, so a hand-edited config.json containing a path-traversal
+// weather.icon_ids value is dropped rather than loaded live.
+func TestAdminReload_InvalidIconIDsDroppedWithWarn(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"},"weather":{"icon_ids":{"clear":"123"}}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	newBody := `{"awtrix":{"http_base_url":"http://x"},"weather":{"icon_ids":{"clear":"123","clouds":"../dev"}}}`
+	if err := os.WriteFile(path, []byte(newBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, respBody)
+	}
+	got := app.cfg.Load().Weather.IconIDs
+	if got["clear"] != "123" {
+		t.Errorf("valid icon id was dropped: %+v", got)
+	}
+	if _, ok := got["clouds"]; ok {
+		t.Errorf("path-traversal icon id survived reload: %+v", got)
+	}
+}
+
 func TestAdminReload_ParseError400(t *testing.T) {
 	body := `{"awtrix":{"http_base_url":"http://x"}}`
 	app, path := newAppForReload(t, body)

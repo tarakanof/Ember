@@ -90,7 +90,8 @@ func (a *App) ensureStore(path string) error {
 
 // initPomodoro opens the shared store, constructs the engine from config, wires
 // both into the app, and re-applies any settings persisted by a previous run.
-// Called from main() when the feature is enabled.
+// Called unconditionally from main() — cfg.Pomodoro.Enabled only gates
+// whether the engine actually runs, not whether it's wired up.
 func (a *App) initPomodoro(p PomodoroConfig) error {
 	if err := a.ensureStore(p.DBPath); err != nil {
 		return err

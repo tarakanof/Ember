@@ -33,6 +33,12 @@ func clampUsageWindow(win *UsageWindow) {
 // handleUsage stores a posted per-tool usage snapshot. The "POST /v1/usage"
 // pattern enforces the verb, so no method check is needed here. Auth is applied
 // by the requireAuth wrapper around the /v1/ mux.
+//
+// decodeJSON is called with strict=true, so an unknown field 400s here —
+// unlike the non-strict POST /v1/status. Deliberate tradeoff: this matches
+// handleNotify's discipline (also strict) rather than status's leniency,
+// since both producers are updated in lockstep with this server and a typo'd
+// field should surface immediately instead of silently being dropped.
 func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Tool     string                  `json:"tool"`

@@ -70,7 +70,9 @@ func runOnce(ctx context.Context, w *watcher, client *producer.Client) {
 		_ = removeMarker(w.cfg.StateDir, req.Session)
 	}
 	for _, u := range usages {
-		_ = client.Usage(ctx, u)
+		if err := client.Usage(ctx, u); err != nil {
+			daemonFailLog.Warn(slog.Default(), "codex_usage", "usage POST failed", "err", err)
+		}
 	}
 }
 
