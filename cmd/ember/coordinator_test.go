@@ -33,6 +33,74 @@ func TestNewCoordinator_DefaultsFromConfig(t *testing.T) {
 
 // fakeClock is already declared in ratelimit_test.go (same package).
 
+// blockingPublisher wedges the coordinator goroutine inside publish() the way
+// an unreachable device does: CustomApp blocks until release is closed. All
+// other Publisher methods delegate to the embedded recordingPublisher.
+type blockingPublisher struct {
+	*recordingPublisher
+	release chan struct{}
+}
+
+func (p *blockingPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+	<-p.release
+	return p.recordingPublisher.CustomApp(ctx, name, payload)
+}
+
+// TestCoord_Send_DoesNotBackPressureProducers is the Task-6 guard: when the
+// coordinator goroutine is wedged on a black-holed device (CustomApp never
+// returns), producer-driven Send calls (upsert/delete/clear — the work
+// handleStatus/handleClear/handleDeleteStatus do after touching App state)
+// must return promptly rather than block behind the full command buffer.
+// Send is the only unbounded-blocking step in those handlers, so bounding
+// Send latency bounds handler latency. A rising drop counter proves the
+// overflow is being shed, not silently queued/blocked.
+func TestCoord_Send_DoesNotBackPressureProducers(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	pub := &blockingPublisher{recordingPublisher: &recordingPublisher{}, release: make(chan struct{})}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	m := newMetrics()
+	c := newCoordinator(cfg, nil, pub, clk, nil, m)
+	c.snapshot = func() Snapshot {
+		return Snapshot{Sessions: []Session{
+			{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},
+		}}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.Run(ctx)
+
+	// First command wedges the goroutine inside publish()->CustomApp forever.
+	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "running", newState: "running"})
+	t.Cleanup(func() { close(pub.release) }) // let Run drain + exit at teardown
+
+	// Flood well past the 64-slot buffer. With the goroutine wedged, a blocking
+	// Send would deadlock here; a non-blocking Send drops the overflow.
+	const flood = 500
+	done := make(chan time.Duration, 1)
+	go func() {
+		start := time.Now()
+		for i := 0; i < flood; i++ {
+			c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "running", newState: "running"})
+		}
+		done <- time.Since(start)
+	}()
+
+	select {
+	case d := <-done:
+		if d > 2*time.Second {
+			t.Errorf("flooding %d Send calls took %v; producer handlers are being back-pressured", flood, d)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Send flood blocked > 3s while device wedged — coordinator back-pressures producer HTTP handlers")
+	}
+
+	if got := m.commandsDropped.Load(); got == 0 {
+		t.Errorf("commands_dropped counter = 0, want > 0 (overflow past the 64-slot buffer must be dropped and counted)")
+	}
+}
+
 func TestCoord_Tick_SingleSession_PublishesOnce(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()

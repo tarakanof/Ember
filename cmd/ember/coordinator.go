@@ -171,7 +171,17 @@ type coordinator struct {
 	// retry on the next tick.
 	lastPayloadBytes []byte
 	lastPublishedAt  time.Time
+
+	// lastDropWarnNano throttles the "command dropped" warning to at most
+	// ~1/min so a wedged device (onTick blocking on unreachable-device HTTP)
+	// can't turn every dropped producer command into a log line. Holds the
+	// wallclock UnixNano of the last emitted warning; updated with a CAS so
+	// the throttle itself never blocks or allocates on the hot Send path.
+	lastDropWarnNano atomic.Int64
 }
+
+// dropWarnInterval bounds how often Send logs a dropped-command warning.
+const dropWarnInterval = time.Minute
 
 type coordIdleMode int
 
@@ -230,13 +240,27 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 	}
 }
 
-// Send enqueues a command. Stale ticks (cmdTick) are dropped when their
-// 1-slot channel is full — the next tick will pick up wherever the
-// snapshot has landed. State-change commands (upsert/delete/clear) go
-// to a wide buffer (64 slots); if THAT fills, we log at warn rather
-// than drop, because losing an attention transition would defeat the
-// preempt machinery. On a wedged channel, the runtime panic from a
-// full-buffer send is preferable to silent loss.
+// Send enqueues a command. It NEVER blocks: every caller of Send is either
+// the tick ticker/timer or a producer-driven HTTP handler (handleStatus,
+// handleClear, handleDeleteStatus), and the coordinator goroutine can stall
+// for tens of seconds inside onTick when the device is unreachable (up to ~7
+// sequential 10 s-timeout device HTTP calls). A blocking Send would wedge
+// those HTTP handlers behind the coordinator, so producers time out.
+//
+// Stale ticks (cmdTick) drop on their 1-slot channel — the next tick picks up
+// wherever the snapshot has landed. State-change commands (upsert/delete/clear)
+// go to a wide 64-slot buffer; when THAT fills we drop the command rather than
+// block, counting it and warning (throttled).
+//
+// Dropping a state-change command is safe: it is a re-render *nudge*, not the
+// state itself. The authoritative state lives in App.sessions (already updated
+// by Upsert/Delete/Clear before Send is called), and producers re-POST
+// heartbeats every 10–15 s. Each dwell tick re-reads that snapshot, so a
+// dropped upsert/delete/clear only delays the display reflecting it until the
+// next tick (~dwell seconds); the tick-driven reap/drain/preempt logic in
+// onTick converges to the correct frame. The one thing we'd lose on a drop is
+// the immediate preempt latency for a fresh attention transition — acceptable
+// versus back-pressuring every producer.
 func (c *coordinator) Send(cmd coordCmd) {
 	if cmd.kind == cmdTick {
 		select {
@@ -249,9 +273,26 @@ func (c *coordinator) Send(cmd coordCmd) {
 	select {
 	case c.cmds <- cmd:
 	default:
-		c.logger.Warn("coord: cmd channel full — blocking briefly", "kind", cmd.kind, "session_key", cmd.sessionKey)
-		c.cmds <- cmd
+		c.metrics.incCommandDropped()
+		c.warnDropThrottled(cmd)
 	}
+}
+
+// warnDropThrottled logs a dropped-command warning at most once per
+// dropWarnInterval. A single atomic CAS gates the log so a flood of drops
+// (the exact situation that triggers this) doesn't spam the log or contend on
+// a mutex on the Send hot path.
+func (c *coordinator) warnDropThrottled(cmd coordCmd) {
+	now := time.Now().UnixNano()
+	last := c.lastDropWarnNano.Load()
+	if now-last < int64(dropWarnInterval) {
+		return
+	}
+	if !c.lastDropWarnNano.CompareAndSwap(last, now) {
+		return // another goroutine just emitted the warning
+	}
+	c.logger.Warn("coord: cmd channel full — dropping command (state self-heals via heartbeats/next tick)",
+		"kind", cmd.kind, "session_key", cmd.sessionKey)
 }
 
 // Run is the goroutine entry point. Cancels cleanly on ctx.Done.
