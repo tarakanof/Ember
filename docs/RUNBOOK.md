@@ -275,7 +275,9 @@ tab proxies the clock's own settings through `/v1/device/*`.
   `api.anthropic.com/api/oauth/usage` every ~5 min using the OAuth token in the
   **macOS login Keychain** (item `Claude Code-credentials`). Requires the user to
   be logged into Claude Code on that Mac; the token is **read-only, never
-  refreshed**. On 401 the poller stops until the user re-auths in Claude Code.
+  refreshed**. On 401 (or any other non-200/transient error) the poller just
+  skips that tick and keeps polling every ~5 min — it never stops the loop —
+  until the user re-auths in Claude Code.
 - **Codex (session-only):** posted from the rollout stream while a Codex session
   is active; usage card faces clear ~10 min after the last session.
 - **Claude 5h fallback:** when the endpoint usage is stale/absent (daemon idle or

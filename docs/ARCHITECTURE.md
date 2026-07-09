@@ -64,7 +64,11 @@ The aggregator and the only writer to the device.
   render) → `DIMMED` (no sessions, countdown < `idle_restore_seconds`, default
   120 s → dim-white icon) → `OFF` (countdown elapsed → stop publishing; device
   auto-evicts via frame lifetime; a runtime value of 0 skips the dim phase
-  entirely). The three behavior knobs are runtime-editable via
+  entirely). `Send` is **non-blocking**: producer commands (upsert/delete/clear)
+  are dropped (with `ember_coordinator_commands_dropped_total` incremented)
+  rather than blocking the caller when the command buffer is full — a dropped
+  fresh-attention upsert permanently loses that edge's preempt+chime, an
+  accepted tradeoff versus back-pressuring every producer. The three behavior knobs are runtime-editable via
   `GET/PUT /v1/display/config` using the standard **baseline + store-override**
   pattern (config.json baseline; SQLite `display_json` override wins, survives
   restarts and `/admin/reload`) — same shape as weather/pomodoro/usage config.
@@ -82,6 +86,12 @@ The aggregator and the only writer to the device.
 
 All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
 `RotateLogIfLarge`) and are configured via `~/.config/ember/producer.env`.
+**Shared marker directory contract:** producers write session markers into the
+same `~/.local/state/ember/sessions/` directory, but each daemon only owns
+markers whose `tool` field matches its own (e.g. the Claude daemon skips a
+marker with `tool: "codex"`); a marker with a missing/empty `tool` (a legacy
+marker written before the field existed) is treated as Claude's so old
+markers still get reaped.
 
 - **Claude Code producer — `cmd/ember-claude-producer`.** Hook-based: Claude
   fires hooks per invocation; the producer maps 8 events to states
@@ -96,7 +106,9 @@ All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
   token from the **macOS login Keychain** (item `Claude Code-credentials`; never
   refreshes it — rotation races the Claude Code daemon) and GETs
   `api.anthropic.com/api/oauth/usage`, posting the 5h/weekly/per-model windows to
-  `POST /v1/usage`. On 401 it stops (the user re-auths via Claude Code).
+  `POST /v1/usage`. On 401 (or any non-200/transient error) it just skips that
+  poll and retries at the next tick — it keeps polling every ~5 min forever
+  until the user re-auths via Claude Code, it never stops the loop.
 - **Codex CLI producer — `cmd/ember-codex-producer`.** Codex has **no hook
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop
@@ -372,7 +384,9 @@ coordinator's `filteredSnapshot` + `keyHidden`, which drop hidden tools from the
 app. `GET /v1/apps` returns the known tools (baseline `claude`+`codex` ∪ tools
 seen in the live snapshot ∪ hidden) each with an `enabled` flag; `PUT /v1/apps`
 `{app,enabled}` toggles one and nudges a re-render. (The hidden set shares the
-Pomodoro store, so persistence is active whenever Pomodoro is enabled.)
+Pomodoro SQLite store, but `ensureStore` is called unconditionally at boot —
+independent of whether Pomodoro itself is enabled — so persistence is active
+regardless of the Pomodoro setting; see "Shared store" below.)
 
 ### Device discovery & control — `internal/discovery`, `cmd/ember/device*.go`
 
