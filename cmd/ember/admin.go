@@ -110,13 +110,13 @@ func diffConfig(oldCfg, newCfg Config) []string {
 }
 
 // diffStructFields appends prefix-qualified json-tag paths for every field of
-// oldV/newV (both must be the same struct type) whose values differ. Struct-
-// typed fields recurse one level deeper (Config's nesting is exactly one
-// level: Config -> {HTTP,AWTRIX,Auth,Display,RateLimit,Weather,Meetings,
-// QuietHours,Pomodoro} -> scalars/pointers/maps); anything else is compared
-// with reflect.DeepEqual, which correctly distinguishes nil vs. non-nil
-// pointers (the pattern used throughout Config for "unset vs. explicit
-// false/zero" optional fields).
+// oldV/newV (both must be the same struct type) whose values differ.
+// Struct-typed fields recurse unconditionally, however deep the nesting goes
+// (today Config nests exactly one struct level, but a deeper future section
+// is handled without changes here); every non-struct field is compared with
+// reflect.DeepEqual, which correctly distinguishes nil vs. non-nil pointers
+// (the pattern used throughout Config for "unset vs. explicit false/zero"
+// optional fields).
 func diffStructFields(oldV, newV reflect.Value, prefix string, changed *[]string) {
 	t := oldV.Type()
 	for i := 0; i < t.NumField(); i++ {

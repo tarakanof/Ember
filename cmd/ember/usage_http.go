@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"regexp"
 	"time"
@@ -11,6 +12,23 @@ import (
 // alnum/underscore/hyphen, 1..32 chars. Without this an authed-but-buggy
 // client could grow UsageStore.byTool with unbounded garbage keys.
 var toolNameRe = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
+
+// clampUsageWindow normalizes a posted window's UsedPercent into [0,100]
+// in place (negative → 0, >100 → 100). NaN — unreachable via JSON, which
+// has no NaN literal, but conceivable from a future non-JSON caller — is
+// normalized to 0 rather than stored (NaN poisons every comparison
+// downstream, e.g. the usage-threshold gate). nil windows are a no-op.
+func clampUsageWindow(win *UsageWindow) {
+	if win == nil {
+		return
+	}
+	switch {
+	case math.IsNaN(win.UsedPercent), win.UsedPercent < 0:
+		win.UsedPercent = 0
+	case win.UsedPercent > 100:
+		win.UsedPercent = 100
+	}
+}
 
 // handleUsage stores a posted per-tool usage snapshot. The "POST /v1/usage"
 // pattern enforces the verb, so no method check is needed here. Auth is applied
@@ -49,24 +67,15 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("tool must match ^[a-z0-9_-]{1,32}$"))
 		return
 	}
-	windows := []*UsageWindow{req.FiveHour, req.SevenDay}
+	// The producers post UNCLAMPED upstream values (the claude producer
+	// forwards Anthropic's raw utilization; the codex producer keeps raw
+	// floats), and out-of-range values genuinely occur — so clamp into
+	// [0,100] instead of rejecting, matching the coordinator's own pctInt
+	// convention.
+	clampUsageWindow(req.FiveHour)
+	clampUsageWindow(req.SevenDay)
 	for _, win := range req.Models {
-		windows = append(windows, win)
-	}
-	for _, win := range windows {
-		if win == nil {
-			continue
-		}
-		if win.UsedPercent < 0 || win.UsedPercent > 100 {
-			a.logger.InfoContext(r.Context(), "request rejected",
-				"remote_addr", r.RemoteAddr,
-				"path", r.URL.Path,
-				"reason", "validation",
-				"field", "used_percent",
-			)
-			writeError(w, http.StatusBadRequest, errors.New("used_percent must be within [0,100]"))
-			return
-		}
+		clampUsageWindow(win)
 	}
 	a.usage.Put(req.Tool, ToolUsage{
 		FiveHour:  req.FiveHour,
