@@ -386,7 +386,7 @@ func TestRenderDoctorText_WarnSummary(t *testing.T) {
 	}
 }
 
-// TestCheckMeetingsDisabledWithURLs: URLs set but cfg.Meetings.Enabled = false
+// TestCheckMeetingsDisabledWithURLs: URLs set but cfg.Meetings.Enabled = boolPtr(false)
 // and never fetched → StatusOK (not StatusWarn), detail mentions "disabled".
 // Rationale: the poller never runs when disabled, so lastOK stays zero; that is
 // expected and must not surface as a "feed broken" warning.
@@ -400,7 +400,7 @@ func TestCheckMeetingsDisabledWithURLs(t *testing.T) {
 	// lastFetchOK is zero (never fetched) — the poller never ran because disabled.
 
 	cfg := app.cfg.Load()
-	cfg.Meetings.Enabled = false
+	cfg.Meetings.Enabled = boolPtr(false)
 
 	got := checkMeetings(app, cfg)
 

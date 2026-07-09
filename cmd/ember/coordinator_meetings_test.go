@@ -16,7 +16,7 @@ func meetingCoordFixture(t *testing.T, now time.Time, leadMinutes int) (*coordin
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
 	cfg.Meetings.applyDefaults()
-	cfg.Meetings.Enabled = true
+	cfg.Meetings.Enabled = boolPtr(true)
 	cfg.Meetings.TileLeadMinutes = leadMinutes
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
@@ -231,7 +231,7 @@ func TestMeetingTileClearsWhenDisabled(t *testing.T) {
 
 	// Disable meetings.
 	cfg := *c.loadCfg()
-	cfg.Meetings.Enabled = false
+	cfg.Meetings.Enabled = boolPtr(false)
 	c.loadCfg = func() *Config { return &cfg }
 
 	c.reconcileMeetingApp(now)
@@ -248,7 +248,7 @@ func TestMeetingTileAdopted(t *testing.T) {
 	}}
 	cfg := defaultConfig()
 	cfg.Meetings.applyDefaults()
-	cfg.Meetings.Enabled = false // disable so the tile is cleared
+	cfg.Meetings.Enabled = boolPtr(false) // disable so the tile is cleared
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
 

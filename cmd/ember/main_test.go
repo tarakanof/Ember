@@ -1048,8 +1048,6 @@ func TestStatusRequestValidate_OptionalFields(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
-func intPtr(v int) *int { return &v }
-
 func TestIndicatorsOffOnStartup(t *testing.T) {
 	cfg := defaultConfig()
 	publisher := &recordingPublisher{}

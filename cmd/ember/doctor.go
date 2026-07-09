@@ -238,7 +238,7 @@ func checkMeetings(app *App, cfg *Config) CheckResult {
 	if len(app.meetingsURLs) == 0 {
 		return CheckResult{Status: StatusOK, Detail: "not configured (EMBER_MEETINGS_ICS_URLS unset)"}
 	}
-	if !cfg.Meetings.Enabled {
+	if !cfg.Meetings.IsEnabled() {
 		return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("%d feed(s) configured but meetings disabled", len(app.meetingsURLs))}
 	}
 	feedCount := len(app.meetingsURLs)

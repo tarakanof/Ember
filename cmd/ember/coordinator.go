@@ -636,12 +636,12 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 	}
 	cfg := c.loadCfg().Weather
 	obs, have := c.weather.current()
-	want := cfg.Enabled && cfg.RotateInApps && have && now.Sub(obs.FetchedAt) < weatherTileStaleTTL
+	want := cfg.Enabled && cfg.RotateInAppsEnabled() && have && now.Sub(obs.FetchedAt) < weatherTileStaleTTL
 	c.reconcileTile(now, "ember-weather", &c.pushedWeather, want, func() map[string]any {
 		tempText := weatherTempText(obs.TempC, cfg.Units)
 		window := forecastWindow(obs.Hourly, cfg.ForecastHours)
 		switch {
-		case cfg.MoonPhase && obs.Condition == render.WeatherClear &&
+		case cfg.MoonPhaseEnabled() && obs.Condition == render.WeatherClear &&
 			(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
 			// Moon wins over native icons — there is no per-phase gallery set.
 			illum, waxing := moonIllumination(now)
@@ -679,7 +679,7 @@ func (c *coordinator) reconcileForecastApp(now time.Time) {
 	cfg := c.loadCfg().Weather
 	obs, have := c.weather.current()
 	hourly := forecastWindow(obs.Hourly, cfg.ForecastHours)
-	want := cfg.Enabled && cfg.ForecastTile && have && len(hourly) > 0 &&
+	want := cfg.Enabled && cfg.ForecastTileEnabled() && have && len(hourly) > 0 &&
 		now.Sub(obs.FetchedAt) < weatherTileStaleTTL
 	c.reconcileTile(now, "ember-forecast", &c.pushedForecast, want, func() map[string]any {
 		return render.ForecastPayload(hourly, usageAppLifetime)
@@ -696,7 +696,7 @@ func (c *coordinator) reconcileAirApp(now time.Time) {
 	}
 	cfg := c.loadCfg().Weather
 	air, have := c.weather.currentAir()
-	want := cfg.Enabled && cfg.AirTile && have && now.Sub(air.FetchedAt) < weatherTileStaleTTL
+	want := cfg.Enabled && cfg.AirTileEnabled() && have && now.Sub(air.FetchedAt) < weatherTileStaleTTL
 	c.reconcileTile(now, "ember-air", &c.pushedAir, want, func() map[string]any {
 		return render.AirPayload(air.AQI, air.HourlyAQI, usageAppLifetime)
 	})
@@ -724,7 +724,7 @@ func (c *coordinator) reconcileMeetingApp(now time.Time) {
 	}
 	cfg := c.loadCfg().Meetings
 	occ, ok := c.meetings.next(now)
-	want := cfg.Enabled && ok && c.meetings.fresh(now) &&
+	want := cfg.IsEnabled() && ok && c.meetings.fresh(now) &&
 		occ.Start.Sub(now) <= time.Duration(cfg.TileLeadMinutes)*time.Minute
 	c.reconcileTile(now, "ember-meet", &c.pushedMeeting, want, func() map[string]any {
 		return render.MeetingPayload(sanitizeMeetingTitle(occ.Title), meetingMinutes(now, occ.Start), usageAppLifetime)

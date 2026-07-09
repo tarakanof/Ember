@@ -1610,7 +1610,7 @@ func main() {
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}
-	if cfg.Meetings.Enabled && len(app.meetingsURLs) > 0 {
+	if cfg.Meetings.IsEnabled() && len(app.meetingsURLs) > 0 {
 		logger.Info("meetings enabled", "ics_feeds", len(app.meetingsURLs))
 	}
 

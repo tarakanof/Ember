@@ -219,22 +219,22 @@ func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	off := WeatherConfig{
 		Enabled: true, Provider: "open-meteo", Units: "metric", Latitude: 52, Longitude: 4,
 		RefreshMinutes: 10, PopupDurationSeconds: 30,
-		RotateInApps: false, PopupOnChange: false, SevereAlert: false, PopupIntervalMinutes: 0,
+		RotateInApps: boolPtr(false), PopupOnChange: boolPtr(false), SevereAlert: boolPtr(false), PopupIntervalMinutes: intPtr(0),
 	}
 	if err := app.applyWeatherSettings(off); err != nil {
 		t.Fatalf("config rejected: %v", err)
 	}
 	got := app.cfg.Load().Weather
-	if got.RotateInApps || got.PopupOnChange || got.SevereAlert || got.PopupIntervalMinutes != 0 {
+	if got.RotateInAppsEnabled() || got.PopupOnChangeEnabled() || got.SevereAlertEnabled() || got.PopupIntervalMins() != 0 {
 		t.Errorf("disables were clobbered: rotate=%v onChange=%v severe=%v interval=%d",
-			got.RotateInApps, got.PopupOnChange, got.SevereAlert, got.PopupIntervalMinutes)
+			got.RotateInAppsEnabled(), got.PopupOnChangeEnabled(), got.SevereAlertEnabled(), got.PopupIntervalMins())
 	}
 }
 
 func TestWeatherAirDefaults(t *testing.T) {
 	var c WeatherConfig
 	c.applyDefaults()
-	if !c.AirTile {
+	if !c.AirTileEnabled() {
 		t.Error("air_tile should default on at file load")
 	}
 	if c.AirPopupThreshold != 80 {
@@ -263,13 +263,13 @@ func TestWeatherAirValidation(t *testing.T) {
 		t.Error("air_popup_threshold -1 should be rejected")
 	}
 	// A menu PUT turning the tile + popup off must survive (no re-defaulting).
-	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: false, AirPopupThreshold: 0}
+	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: boolPtr(false), AirPopupThreshold: 0}
 	if err := app.applyWeatherSettings(off); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 	got := app.cfg.Load().Weather
-	if got.AirTile || got.AirPopupThreshold != 0 {
-		t.Errorf("air disables clobbered: tile=%v threshold=%d", got.AirTile, got.AirPopupThreshold)
+	if got.AirTileEnabled() || got.AirPopupThreshold != 0 {
+		t.Errorf("air disables clobbered: tile=%v threshold=%d", got.AirTileEnabled(), got.AirPopupThreshold)
 	}
 }
 
@@ -320,7 +320,7 @@ func newAirTestApp(t *testing.T, pub *recordingPublisher, aqi *float64, hits *in
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RefreshMinutes = 10
-	cfg.Weather.PopupIntervalMinutes = 0 // keep interval popups out of the way
+	cfg.Weather.PopupIntervalMinutes = intPtr(0) // keep interval popups out of the way
 	cfg.Weather.AirPopupThreshold = 80
 	app := NewApp(cfg, pub, testLogger())
 	app.weatherFetcher = newWeatherFetcher()
@@ -408,7 +408,7 @@ func TestPollAirGatedByConfig(t *testing.T) {
 	var hits int32
 	app := newAirTestApp(t, pub, &aqi, &hits)
 	cur := *app.cfg.Load()
-	cur.Weather.AirTile = false
+	cur.Weather.AirTile = boolPtr(false)
 	cur.Weather.AirPopupThreshold = 0
 	app.cfg.Store(&cur)
 	app.pollWeather(context.Background(), time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
@@ -467,7 +467,7 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RefreshMinutes = 10
-	cfg.Weather.PopupIntervalMinutes = 120
+	cfg.Weather.PopupIntervalMinutes = intPtr(120)
 	app := NewApp(cfg, pub, testLogger())
 	app.weatherFetcher = newWeatherFetcher()
 	app.weatherFetcher.openMeteoBase = srv.URL
