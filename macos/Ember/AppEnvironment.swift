@@ -21,6 +21,7 @@ public final class AppEnvironment {
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
+    public let producers: ProducerInstallService
 
     /// Menu-only prefs (icon palette + tray glyphs), persisted to UserDefaults.
     /// Observed so the menu-bar label updates live when the App tab edits them.
@@ -74,6 +75,13 @@ public final class AppEnvironment {
         device = DeviceService(client: client)
         meetings = MeetingsService(client: client)
         reminderWatcher = ReminderWatcher(client: client)
+        producers = ProducerInstallService(
+            sm: RealSMAppService(),
+            runner: ProcessCommandRunner(),
+            bundleMacOSDir: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS"),
+            home: FileManager.default.homeDirectoryForCurrentUser,
+            fileExists: { FileManager.default.fileExists(atPath: $0) }
+        )
         model.configure(client: client)
         model.startPolling()   // begin polling at launch (idempotent); self-started
                                // here so the menu-bar label updates without opening
@@ -81,6 +89,9 @@ public final class AppEnvironment {
         reminderWatcher.start()
         serverDiscovery.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
+        // Best-effort: re-register any already-enabled producer LaunchAgents so a
+        // newly bundled binary takes over after an app update. Never blocks launch.
+        try? producers.reconcileAfterUpdate()
     }
 
     /// Re-read producer.env, rebuild the client, reconfigure model + service.
