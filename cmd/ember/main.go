@@ -568,6 +568,13 @@ type App struct {
 	deviceAutoPicked bool // set once at boot when discovery chose the clock URL
 	browseFn         func(context.Context, time.Duration) ([]discovery.Candidate, error)
 
+	// deviceRediscoverMu single-flights rediscoverClock so the boot check and
+	// the periodic probe can't browse mDNS concurrently. lastRediscoverAt /
+	// lastRediscoverResult record the most recent attempt for /admin/doctor.
+	deviceRediscoverMu   sync.Mutex
+	lastRediscoverAt     atomic.Int64 // unix secs, 0 = never
+	lastRediscoverResult atomic.Value // string: "reachable" | "swapped" | "no-device"
+
 	// lastButtonAt is the unix-seconds time of the most recent device button
 	// POST to /hooks/awtrix/button (0 = never). Proves the clock's button_callback
 	// reaches us; surfaced via GET /v1/device/buttons.

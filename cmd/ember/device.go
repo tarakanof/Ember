@@ -89,32 +89,53 @@ func (a *App) deviceSource() string {
 	}
 }
 
-// initDeviceDiscovery runs once at boot. Resolution precedence:
-//  1. writable-store override (menu choice) — wins, return.
-//  2. config.json baseline, if it's reachable right now — keep.
-//  3. mDNS auto-discovery — set in-memory only (never writes read-only config).
-//
-// The browse is bounded so it can't stall startup for long.
+// initDeviceDiscovery runs once at boot (and can be re-run by the periodic
+// probe): it delegates to rediscoverClock, which checks the current effective
+// clock URL — regardless of whether it came from a store override,
+// config.json, or a prior discovery — and falls back to mDNS auto-discovery
+// if it's unreachable. A stale store override no longer permanently blocks
+// re-discovery: it's just another URL that gets checked for reachability.
 func (a *App) initDeviceDiscovery(ctx context.Context) {
 	a.loadPersistedDeviceBaseURL()
-	if a.deviceSource() == "store" {
-		return
-	}
+	_ = a.rediscoverClock(ctx)
+}
+
+// rediscoverClock checks whether the current effective clock URL is
+// reachable; if not, it browses mDNS and swaps in the first reachable
+// candidate (in-memory only — never persisted to config.json or the store).
+// Returns true if the URL changed. Records the attempt (time + outcome) for
+// /admin/doctor. Safe to call from boot and from a periodic probe; callers
+// are serialized via deviceRediscoverMu so two browses can't race.
+func (a *App) rediscoverClock(ctx context.Context) bool {
+	a.deviceRediscoverMu.Lock()
+	defer a.deviceRediscoverMu.Unlock()
+
+	defer a.lastRediscoverAt.Store(time.Now().Unix())
+
 	cl := &http.Client{Timeout: 1500 * time.Millisecond}
 	if base := a.cfg.Load().AWTRIX.HTTPBaseURL; base != "" {
 		if _, ok := discovery.Reachable(ctx, cl, base); ok {
-			return
+			a.lastRediscoverResult.Store("reachable")
+			return false
 		}
 	}
-	cands, err := a.browseFn(ctx, 3*time.Second)
+
+	browse := a.browseFn
+	if browse == nil {
+		browse = discovery.BrowseAWTRIX
+	}
+	cands, err := browse(ctx, 3*time.Second)
 	if err != nil || len(cands) == 0 {
+		a.lastRediscoverResult.Store("no-device")
 		a.logger.Info("clock discovery found no device", "configured", a.cfg.Load().AWTRIX.HTTPBaseURL)
-		return
+		return false
 	}
 	base := cands[0].BaseURL
 	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = base }) // in-memory only; not persisted
 	a.deviceAutoPicked = true
+	a.lastRediscoverResult.Store("swapped")
 	a.logger.Info("clock auto-discovered", "base_url", cands[0].BaseURL, "uid", cands[0].UID)
+	return true
 }
 
 func (a *App) handleDeviceConfigGet(w http.ResponseWriter, r *http.Request) {
