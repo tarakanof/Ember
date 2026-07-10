@@ -98,6 +98,45 @@ func TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride(t *testing.T) 
 	}
 }
 
+// TestDeviceSource_StaleStoreOverrideReportsDiscovered covers the reporting
+// side of the fall-through fix: once rediscoverClock swaps away from an
+// unreachable store override to a discovered candidate (in-memory only), the
+// store entry still exists but no longer matches the effective URL, so
+// deviceSource must report "discovered", not "store".
+func TestDeviceSource_StaleStoreOverrideReportsDiscovered(t *testing.T) {
+	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"uid":"awtrix_test"}`))
+	}))
+	defer clock.Close()
+
+	a := newTestAppWithStore(t)
+	if err := a.store.PutSetting(deviceBaseURLKey, "http://127.0.0.1:9"); err != nil { // stale store override
+		t.Fatal(err)
+	}
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
+	}
+
+	a.initDeviceDiscovery(context.Background())
+
+	if got := a.deviceSource(); got != "discovered" {
+		t.Fatalf("deviceSource()=%q want discovered (effective url=%s)", got, a.cfg.Load().AWTRIX.HTTPBaseURL)
+	}
+}
+
+// TestDeviceSource_MatchingStoreOverrideStillReportsStore is the regression
+// guard: when the store value still equals the effective URL (the common
+// case — no stale-pin incident), deviceSource must keep reporting "store".
+func TestDeviceSource_MatchingStoreOverrideStillReportsStore(t *testing.T) {
+	a := newTestAppWithStore(t)
+	if err := a.applyDeviceBaseURL("http://10.0.0.5"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.deviceSource(); got != "store" {
+		t.Fatalf("deviceSource()=%q want store", got)
+	}
+}
+
 func TestAutoRediscoverEnabled_DefaultsToTrue(t *testing.T) {
 	var cfg AWTRIXConfig
 	if !cfg.AutoRediscoverEnabled() {
