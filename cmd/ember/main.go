@@ -160,6 +160,17 @@ type AWTRIXConfig struct {
 	HTTPBaseURL    string `json:"http_base_url"`
 	AppName        string `json:"app_name"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
+	// AutoRediscover gates the periodic StartDeviceWatch probe loop (see
+	// device.go). nil/absent defaults to enabled, matching the *bool toggle
+	// pattern used elsewhere (usage_widget, meetings.enabled, weather.*).
+	AutoRediscover *bool `json:"auto_rediscover,omitempty"`
+}
+
+// AutoRediscoverEnabled reports whether the periodic clock re-discovery probe
+// (StartDeviceWatch) should run. nil (field absent from config.json/store) ⇒
+// enabled, so old config blobs without the field keep self-healing on.
+func (c AWTRIXConfig) AutoRediscoverEnabled() bool {
+	return c.AutoRediscover == nil || *c.AutoRediscover
 }
 
 type DisplayConfig struct {
@@ -567,6 +578,13 @@ type App struct {
 	deviceBaseline   string
 	deviceAutoPicked bool // set once at boot when discovery chose the clock URL
 	browseFn         func(context.Context, time.Duration) ([]discovery.Candidate, error)
+
+	// deviceRediscoverMu single-flights rediscoverClock so the boot check and
+	// the periodic probe can't browse mDNS concurrently. lastRediscoverAt /
+	// lastRediscoverResult record the most recent attempt for /admin/doctor.
+	deviceRediscoverMu   sync.Mutex
+	lastRediscoverAt     atomic.Int64 // unix secs, 0 = never
+	lastRediscoverResult atomic.Value // string: "reachable" | "swapped" | "no-device"
 
 	// lastButtonAt is the unix-seconds time of the most recent device button
 	// POST to /hooks/awtrix/button (0 = never). Proves the clock's button_callback
@@ -1664,6 +1682,16 @@ func main() {
 	go app.StartCoordinator(ctx)
 	go app.StartWeather(ctx)
 	go app.StartMeetings(ctx)
+
+	// Periodic self-healing re-discovery: re-check the effective clock URL
+	// every minute and swap to a reachable mDNS candidate if it's gone dark.
+	// Off via awtrix.auto_rediscover=false.
+	if cfg.AWTRIX.AutoRediscoverEnabled() {
+		logger.Info("clock auto-rediscover enabled", "interval", "60s")
+		go app.StartDeviceWatch(ctx, 60*time.Second)
+	} else {
+		logger.Info("clock auto-rediscover disabled (awtrix.auto_rediscover)")
+	}
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

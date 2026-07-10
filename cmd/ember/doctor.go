@@ -14,6 +14,8 @@ import (
 	"runtime/debug"
 	"sort"
 	"time"
+
+	"github.com/tarakanof/ember/internal/discovery"
 )
 
 // CheckStatus is one of "ok" | "warn" | "fail" | "skipped".
@@ -26,10 +28,18 @@ const (
 	StatusSkipped CheckStatus = "skipped"
 )
 
-// CheckResult is one of the named checks in DoctorResult.
+// CheckResult is one of the named checks in DoctorResult. The BaseURL/Source/
+// Reachable/LastRediscoverAt/LastRediscoverResult fields are only populated by
+// the `clock` check; every other check leaves them zero and they're omitted
+// from JSON.
 type CheckResult struct {
-	Status CheckStatus `json:"status"`
-	Detail string      `json:"detail,omitempty"`
+	Status               CheckStatus `json:"status"`
+	Detail               string      `json:"detail,omitempty"`
+	BaseURL              string      `json:"base_url,omitempty"`
+	Source               string      `json:"source,omitempty"`
+	Reachable            *bool       `json:"reachable,omitempty"`
+	LastRediscoverAt     *int64      `json:"last_rediscover_at,omitempty"`
+	LastRediscoverResult string      `json:"last_rediscover_result,omitempty"`
 }
 
 // DoctorResult is the full diagnostic. OK is true when no check has StatusFail
@@ -47,7 +57,7 @@ type DoctorResult struct {
 // marked skipped (offline pre-flight mode). Otherwise online: the running
 // server's state is used.
 func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
-	res := DoctorResult{Checks: make(map[string]CheckResult, 9)}
+	res := DoctorResult{Checks: make(map[string]CheckResult, 10)}
 	if app == nil {
 		res.Mode = "offline"
 	} else {
@@ -131,6 +141,13 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		res.Checks["meetings"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["meetings"] = checkMeetings(app, cfg)
+	}
+
+	// 10. clock  (skipped offline; needs app state for source + rediscover history)
+	if app == nil {
+		res.Checks["clock"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
+	} else {
+		res.Checks["clock"] = checkClock(ctx, app)
 	}
 
 	// StatusWarn is non-fatal: a stale meetings feed (or the startup window
@@ -269,6 +286,45 @@ func checkMeetings(app *App, cfg *Config) CheckResult {
 	return CheckResult{
 		Status: StatusOK,
 		Detail: fmt.Sprintf("%d feed(s); next: %s in %dm", feedCount, sanitizeMeetingTitle(occ.Title), mins),
+	}
+}
+
+// checkClock reports live reachability of the effective clock URL alongside
+// where that URL came from (deviceSource) and the outcome of the most recent
+// self-healing re-discovery attempt (T1/T2). Unlike awtrix_reachable (which
+// is fail-capable and part of the older static check), a transient blip here
+// only warns — the periodic probe (StartDeviceWatch) is expected to recover
+// it, so doctor must not 503 on a momentary miss.
+func checkClock(ctx context.Context, app *App) CheckResult {
+	baseURL := app.cfg.Load().AWTRIX.HTTPBaseURL
+	source := app.deviceSource()
+
+	probeCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	cl := &http.Client{Timeout: 1500 * time.Millisecond}
+	_, reachable := discovery.Reachable(probeCtx, cl, baseURL)
+
+	var lastAt *int64
+	if v := app.lastRediscoverAt.Load(); v != 0 {
+		lastAt = &v
+	}
+	lastResult, _ := app.lastRediscoverResult.Load().(string)
+
+	status := StatusOK
+	detail := fmt.Sprintf("base_url=%s source=%s reachable=%v", baseURL, source, reachable)
+	if !reachable {
+		status = StatusWarn
+		detail += " (unreachable; periodic re-discovery probe will retry)"
+	}
+
+	return CheckResult{
+		Status:               status,
+		Detail:               detail,
+		BaseURL:              baseURL,
+		Source:               source,
+		Reachable:            &reachable,
+		LastRediscoverAt:     lastAt,
+		LastRediscoverResult: lastResult,
 	}
 }
 

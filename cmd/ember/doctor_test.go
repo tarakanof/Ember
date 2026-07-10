@@ -95,6 +95,86 @@ func TestRunDoctorChecks_OfflineMarksRuntimeSkipped(t *testing.T) {
 	}
 }
 
+func TestRunDoctorChecks_ClockReachable(t *testing.T) {
+	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/stats" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"uid":"aabbcc","version":"0.98"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer awtrix.Close()
+
+	app := newAppForDoctor(t, awtrix.URL)
+	cfg := app.cfg.Load()
+
+	// Populate the T1/T2 atomics the way boot / the periodic probe would, so
+	// the clock check has a real last-rediscover record to surface.
+	app.rediscoverClock(context.Background())
+
+	res := runDoctorChecks(context.Background(), app, cfg)
+	c, ok := res.Checks["clock"]
+	if !ok {
+		t.Fatalf("missing clock check")
+	}
+	if c.Status != StatusOK {
+		t.Errorf("clock status = %q, want %q (detail=%q)", c.Status, StatusOK, c.Detail)
+	}
+	if c.Reachable == nil || !*c.Reachable {
+		t.Errorf("clock reachable = %v, want true", c.Reachable)
+	}
+	if c.BaseURL != awtrix.URL {
+		t.Errorf("clock base_url = %q, want %q", c.BaseURL, awtrix.URL)
+	}
+	if c.Source != "config" {
+		t.Errorf("clock source = %q, want %q", c.Source, "config")
+	}
+	if c.LastRediscoverAt == nil {
+		t.Errorf("clock last_rediscover_at = nil, want set after rediscoverClock ran")
+	}
+	if c.LastRediscoverResult != "reachable" {
+		t.Errorf("clock last_rediscover_result = %q, want %q", c.LastRediscoverResult, "reachable")
+	}
+	if !res.OK {
+		t.Errorf("OK = false, want true when clock reachable")
+	}
+}
+
+// TestRunDoctorChecks_ClockUnreachableWarnsButDoesNotFailOverall isolates the
+// clock check's own contract: give it a URL that responds 200 (so the
+// fail-capable awtrix_reachable check stays OK) but without the AWTRIX uid
+// fingerprint (so discovery.Reachable, and therefore clock, sees it as not a
+// real clock). clock alone must not flip res.OK to false — mirrors the
+// meetings-stale WARN precedent.
+func TestRunDoctorChecks_ClockUnreachableWarnsButDoesNotFailOverall(t *testing.T) {
+	notAClock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK) // 200, but no AWTRIX JSON body/uid
+	}))
+	defer notAClock.Close()
+
+	app := newAppForDoctor(t, notAClock.URL)
+	cfg := app.cfg.Load()
+
+	res := runDoctorChecks(context.Background(), app, cfg)
+	c, ok := res.Checks["clock"]
+	if !ok {
+		t.Fatalf("missing clock check")
+	}
+	if c.Status != StatusWarn {
+		t.Errorf("clock status = %q, want %q (detail=%q)", c.Status, StatusWarn, c.Detail)
+	}
+	if c.Reachable == nil || *c.Reachable {
+		t.Errorf("clock reachable = %v, want false", c.Reachable)
+	}
+	if awtrixCheck := res.Checks["awtrix_reachable"]; awtrixCheck.Status != StatusOK {
+		t.Fatalf("fixture broken: awtrix_reachable = %q, want %q (detail=%q)", awtrixCheck.Status, StatusOK, awtrixCheck.Detail)
+	}
+	if !res.OK {
+		t.Errorf("OK = false, want true — a warn-status clock check must not flip overall OK")
+	}
+}
+
 func TestRunDoctorChecks_AWTRIXUnreachable(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = strings.Replace(deadAddr(t), "/healthz", "", 1) // closed port
