@@ -296,9 +296,14 @@ type producerHookEntry struct {
 }
 
 func producerHookEntries(binPath string) []producerHookEntry {
-	logRedirect := ` >/dev/null 2>>$HOME/Library/Logs/ember-claude-producer.log`
+	logRedirect := ` >>$HOME/Library/Logs/ember-claude-producer.log 2>&1`
 	cmd := func(eventName string) string {
-		return binPath + " hook " + eventName + logRedirect
+		// Self-healing: if the bundled binary is gone (app deleted/moved),
+		// `[ -x BIN ]` is false and `|| true` yields exit 0 — Claude Code sees
+		// success, never a hook error. entryMatchesProducer still matches on the
+		// producer-name substring below.
+		inner := `"` + binPath + `" hook ` + eventName + logRedirect
+		return `[ -x "` + binPath + `" ] && ` + inner + ` || true`
 	}
 	return []producerHookEntry{
 		{event: "SessionStart", matcher: "", command: cmd("session-start")},

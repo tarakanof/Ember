@@ -31,7 +31,7 @@ func TestMergeSettings_ReplacesLegacyAwtrixHooks(t *testing.T) {
 	if strings.Contains(string(body), "awtrix-claude-producer") {
 		t.Errorf("upgrade left the legacy awtrix-claude-producer hook (would double-fire):\n%s", body)
 	}
-	if !strings.Contains(string(body), "ember-claude-producer hook stop") {
+	if !strings.Contains(string(body), `ember-claude-producer\" hook stop`) {
 		t.Errorf("new ember hook missing after upgrade:\n%s", body)
 	}
 }
