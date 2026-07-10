@@ -21,6 +21,7 @@ public final class AppEnvironment {
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
+    public let producers: ProducerInstallService
 
     /// Menu-only prefs (icon palette + tray glyphs), persisted to UserDefaults.
     /// Observed so the menu-bar label updates live when the App tab edits them.
@@ -32,6 +33,7 @@ public final class AppEnvironment {
     }
 
     static let prefsDefaults = UserDefaults.standard
+    static let lastReconciledVersionKey = "producers.lastReconciledVersion"
 
     static func loadPrefs() -> MenuPrefs {
         let d = prefsDefaults
@@ -74,6 +76,13 @@ public final class AppEnvironment {
         device = DeviceService(client: client)
         meetings = MeetingsService(client: client)
         reminderWatcher = ReminderWatcher(client: client)
+        producers = ProducerInstallService(
+            sm: RealSMAppService(),
+            runner: ProcessCommandRunner(),
+            bundleMacOSDir: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS"),
+            home: FileManager.default.homeDirectoryForCurrentUser,
+            fileExists: { FileManager.default.fileExists(atPath: $0) }
+        )
         model.configure(client: client)
         model.startPolling()   // begin polling at launch (idempotent); self-started
                                // here so the menu-bar label updates without opening
@@ -81,6 +90,20 @@ public final class AppEnvironment {
         reminderWatcher.start()
         serverDiscovery.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
+        // Best-effort: re-register any already-enabled producer LaunchAgents so a
+        // newly bundled binary takes over after an app update. Gated on the bundle
+        // version actually changing since the last reconcile, so a normal launch
+        // doesn't churn the LaunchAgent DB (and risk re-surfacing "needs approval").
+        // Never blocks launch.
+        let currentVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+            ?? ""
+        let defaults = UserDefaults.standard
+        let lastReconciledVersion = defaults.string(forKey: Self.lastReconciledVersionKey)
+        if shouldReconcileAfterUpdate(currentVersion: currentVersion, lastReconciledVersion: lastReconciledVersion) {
+            try? producers.reconcileAfterUpdate()
+            defaults.set(currentVersion, forKey: Self.lastReconciledVersionKey)
+        }
     }
 
     /// Re-read producer.env, rebuild the client, reconfigure model + service.

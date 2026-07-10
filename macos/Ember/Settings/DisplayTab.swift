@@ -93,6 +93,8 @@ struct DisplayTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            ProducersToggleSection()
+
             Section(isExpanded: $sourceExpanded) {
                 PictogramToggle(rows: DisplayPictogram.sourceCard, color: DisplayPictogram.neutral,
                                 label: "Show source card", isOn: $display.sourceCard)
