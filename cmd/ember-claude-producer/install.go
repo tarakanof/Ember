@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 const launchAgentLabel = "com.ember.heartbeat"
@@ -169,16 +171,7 @@ func xmlEscape(s string) string {
 }
 
 func producerEnvExampleContent() string {
-	return `# ember-claude-producer configuration
-# Required:
-EMBER_SOURCE=set-me-to-this-laptop-id
-EMBER_SERVER_URL=http://192.168.0.36:3627
-EMBER_TOKEN=set-me-to-the-server-bearer-token
-
-# Optional (defaults shown):
-# EMBER_HEARTBEAT_TTL_HOURS=6
-# EMBER_HOOK_TIMEOUT_MS=500
-`
+	return producer.EnvExample()
 }
 
 func reloadLaunchAgent(uid int, plistPath string) error {

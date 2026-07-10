@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 const launchAgentLabel = "com.ember.codex"
@@ -155,16 +157,5 @@ func reloadLaunchAgent(uid int, plistPath string) error {
 }
 
 func envExample() string {
-	return `# ember producer configuration (shared by Claude + Codex producers)
-EMBER_SOURCE=set-me-to-this-laptop-id
-EMBER_SERVER_URL=http://192.168.0.36:3627
-EMBER_TOKEN=set-me-to-the-server-bearer-token
-
-# Optional (defaults shown):
-# EMBER_SOURCE_COLOR=#aa66ff
-# EMBER_CONTEXT_PCT_ENABLED=true
-# EMBER_CODEX_POLL_INTERVAL_MS=2000
-# EMBER_CODEX_ACTIVITY_WINDOW_SECONDS=300
-# EMBER_CODEX_SESSIONS_DIR=~/.codex/sessions
-`
+	return producer.EnvExample()
 }
