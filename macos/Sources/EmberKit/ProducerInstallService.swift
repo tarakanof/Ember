@@ -6,6 +6,25 @@ public enum ProducerInstallError: Error, Equatable, Sendable {
     case configureFailed(exit: Int32)
 }
 
+/// The per-agent LaunchAgent registration state, derived from
+/// `SMAppServiceControlling.status(plistName:)`.
+public enum AgentState: Sendable, Equatable {
+    case off
+    case needsApproval
+    case on
+    case error(String)
+}
+
+/// The aggregate toggle state shown in the UI, derived across all
+/// *detected* agents (see `ProducerInstallService.detectedAgents()`).
+public enum ToggleState: Sendable, Equatable {
+    case off
+    case needsApproval
+    case on
+    case partial
+    case error
+}
+
 /// Orchestrates detection, install, and uninstall of the unified installer's
 /// producer agents (Claude heartbeat producer, Codex producer). Install
 /// shells out to the producer binary's `configure` subcommand, then
@@ -67,6 +86,44 @@ public final class ProducerInstallService {
     public func uninstall(_ agent: ProducerAgent) throws {
         try sm.unregister(plistName: agent.plistName)
         _ = try runner.run(executable: executablePath(for: agent), arguments: ["deconfigure"])
+    }
+
+    /// Derives the LaunchAgent registration state for `agent` from
+    /// `sm.status(plistName:)`.
+    public func agentState(_ agent: ProducerAgent) -> AgentState {
+        switch sm.status(plistName: agent.plistName) {
+        case .enabled:
+            return .on
+        case .requiresApproval:
+            return .needsApproval
+        case .notRegistered:
+            return .off
+        case .notFound:
+            return .error("plist not found")
+        }
+    }
+
+    /// Aggregates `agentState(_:)` across `detectedAgents()` into a single
+    /// toggle state: all `.on` → `.on`; any `.error` → `.error`; else any
+    /// `.needsApproval` → `.needsApproval`; a mix of `.on`/`.off` →
+    /// `.partial`; all `.off` (or no detected agents) → `.off`.
+    public func toggleState() -> ToggleState {
+        let states = detectedAgents().map(agentState)
+        guard !states.isEmpty else { return .off }
+
+        if states.allSatisfy({ $0 == .on }) {
+            return .on
+        }
+        if states.contains(where: { if case .error = $0 { return true } else { return false } }) {
+            return .error
+        }
+        if states.contains(.needsApproval) {
+            return .needsApproval
+        }
+        if states.contains(.on) {
+            return .partial
+        }
+        return .off
     }
 
     private func executablePath(for agent: ProducerAgent) -> String {
