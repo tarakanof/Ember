@@ -1196,6 +1196,21 @@ func TestStatusRequest_ActivityLengthValidated(t *testing.T) {
 	}
 }
 
+// Producers truncate activity to 80 runes; the server must count runes, not
+// bytes, or a multibyte activity (≤80 chars but >80 bytes) 400s every status
+// POST for that session. Regression guard for the rune/byte mismatch.
+func TestStatusRequest_ActivityMultibyteWithin80Runes(t *testing.T) {
+	// 80 Cyrillic runes = 160 bytes: valid by rune count, would fail by bytes.
+	activity := strings.Repeat("я", 80)
+	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: activity}).validate(); err != nil {
+		t.Errorf("80-rune multibyte activity should be valid, got %v", err)
+	}
+	// 81 runes must still be rejected.
+	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: strings.Repeat("я", 81)}).validate(); err == nil {
+		t.Errorf("81-rune activity should be rejected")
+	}
+}
+
 func TestStatusRequest_ContextNumberRoundTrips(t *testing.T) {
 	s := StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", ContextNumber: true}.normalized()
 	if !s.ContextNumber {

@@ -303,6 +303,45 @@ func TestRateLimit_CountsUnauthorizedAttempts(t *testing.T) {
 	}
 }
 
+// Admin endpoints authenticate with the same token as /v1/, so their 401s must
+// also consume rate-limit budget — otherwise an attacker throttled on /v1/
+// could keep probing the token at full speed via /admin/ 401s.
+func TestRateLimit_CountsUnauthorizedAdminAttempts(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.Auth.StatusToken = "tok"
+	cfg.RateLimit.Burst = 1
+	cfg.RateLimit.RefillPerSec = 0.5
+	cfg.applyDefaults()
+
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, discardLogger())
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	wrongToken := func() int {
+		req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer wrong")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := wrongToken(); code != http.StatusUnauthorized {
+		t.Fatalf("first wrong-token admin call: code = %d, want 401", code)
+	}
+	if code := wrongToken(); code != http.StatusTooManyRequests {
+		t.Fatalf("second wrong-token admin call: code = %d, want 429 (admin 401s must consume limiter budget)", code)
+	}
+}
+
 func TestRunSweeper_ExitsOnContextCancel(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"

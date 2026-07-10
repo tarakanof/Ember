@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	// Embedded tz database: TZID resolution must work in the distroless container
 	// image that ships no zoneinfo files; the meetings ICS parser uses LoadLocation.
@@ -438,8 +439,12 @@ func (r StatusRequest) validate() error {
 			return fmt.Errorf("rate_window_pct out of range %d (must be 0..100)", *r.RateWindowPct)
 		}
 	}
-	if len(strings.TrimSpace(r.Activity)) > 80 {
-		return fmt.Errorf("activity too long (%d chars, max 80)", len(strings.TrimSpace(r.Activity)))
+	// Count runes, not bytes: producers truncate activity to 80 runes
+	// (internal/producer.Truncate), so a multibyte activity (Cyrillic, emoji)
+	// can exceed 80 bytes while still being ≤80 characters. A byte check here
+	// 400s the whole status POST for such activity.
+	if n := utf8.RuneCountInString(strings.TrimSpace(r.Activity)); n > 80 {
+		return fmt.Errorf("activity too long (%d chars, max 80)", n)
 	}
 	if r.RateResetAt < 0 {
 		return fmt.Errorf("rate_reset_at must be a non-negative unix timestamp, got %d", r.RateResetAt)
@@ -993,7 +998,11 @@ func (a *App) routes() http.Handler {
 	adminMux := http.NewServeMux()
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))
 	adminMux.Handle("POST /admin/reload", handleAdminReload(a))
-	mux.Handle("/admin/", adminRequireAuth(a, a.logger, adminMux))
+	// Same limiter-outside-auth ordering as /v1/: admin endpoints authenticate
+	// with the same token, so their 401s must consume rate-limit budget too —
+	// otherwise an attacker throttled on /v1/ could probe the token at full
+	// speed via /admin/ 401s.
+	mux.Handle("/admin/", rateLimit(a, adminRequireAuth(a, a.logger, adminMux)))
 
 	// Order: logging outermost so the access log sees the original
 	// response status; observeRequests inside so it can read the same.
