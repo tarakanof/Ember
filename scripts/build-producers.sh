@@ -24,3 +24,10 @@ build_universal() {
 
 build_universal ember-claude-producer ember-claude-producer
 build_universal ember-codex-producer  ember-codex-producer
+
+# Bundle the SMAppService LaunchAgent plists alongside the signed binaries.
+LA_DIR="$APP/Contents/Library/LaunchAgents"
+mkdir -p "$LA_DIR"
+cp "$REPO/macos/Ember/LaunchAgents/com.ember.heartbeat.plist" "$LA_DIR/"
+cp "$REPO/macos/Ember/LaunchAgents/com.ember.codex.plist"     "$LA_DIR/"
+for p in "$LA_DIR"/com.ember.*.plist; do plutil -lint "$p" >/dev/null; done

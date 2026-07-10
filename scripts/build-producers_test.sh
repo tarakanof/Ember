@@ -33,4 +33,19 @@ for bin in ember-claude-producer ember-codex-producer; do
   echo "ok: $bin ($info)"
 done
 
+for label in com.ember.heartbeat com.ember.codex; do
+  plist="$APP/Contents/Library/LaunchAgents/$label.plist"
+  [ -f "$plist" ] || fail "$label.plist missing at $plist"
+
+  plutil -lint "$plist" >/dev/null || fail "$label.plist failed plutil -lint"
+
+  got_label="$(plutil -extract Label raw -o - "$plist")"
+  [ "$got_label" = "$label" ] || fail "$label.plist: Label '$got_label' != filename '$label'"
+
+  bundle_program="$(plutil -extract BundleProgram raw -o - "$plist")"
+  [ -f "$APP/$bundle_program" ] || fail "$label.plist: BundleProgram '$bundle_program' does not exist in bundle"
+
+  echo "ok: $label.plist"
+done
+
 echo "build-producers_test.sh: PASS"
