@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"runtime"
@@ -282,7 +283,11 @@ func runDoctor(args []string) {
 	asJSON := fs.Bool("json", false, "print result as JSON")
 	_ = fs.Parse(args)
 
-	cfg, err := loadConfig(*configPath)
+	// doctor is a standalone CLI invocation with no app-wide structured
+	// logger; build a bare stderr one so baseline-repair warnings from
+	// loadConfig are still visible instead of silently dropped.
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	cfg, err := loadConfig(*configPath, logger)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "doctor: config:", err)
 		os.Exit(1)

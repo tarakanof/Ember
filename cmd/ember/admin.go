@@ -242,7 +242,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// weather.icon_ids path-traversal entry) instead of loading them
 		// live — a hand-edited config.json shouldn't bypass the guard just
 		// because it arrived via reload instead of startup.
-		sanitizeConfigBaseline(&newCfg)
+		sanitizeConfigBaseline(&newCfg, app.logger)
 		// Token isn't in the JSON file (env-only), so carry it over from
 		// the running config to keep the diff honest.
 		//

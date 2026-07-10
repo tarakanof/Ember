@@ -236,7 +236,10 @@ func defaultConfig() Config {
 	}
 }
 
-func loadConfig(path string) (Config, error) {
+// loadConfig resolves and loads the server's config, logging any
+// SSRF/icon-id baseline repairs (see sanitizeConfigBaseline) through logger
+// rather than the unconfigured slog default handler.
+func loadConfig(path string, logger *slog.Logger) (Config, error) {
 	resolved, _ := resolveConfigPath(path)
 	if resolved == "" {
 		cfg := defaultConfig()
@@ -248,7 +251,7 @@ func loadConfig(path string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.applyDefaults()
-	sanitizeConfigBaseline(&cfg)
+	sanitizeConfigBaseline(&cfg, logger)
 	if err := validateConfig(cfg); err != nil {
 		return Config{}, err
 	}
@@ -1558,7 +1561,7 @@ func main() {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	configPath, configSource := resolveConfigPath(*configFlag)
-	cfg, err := loadConfig(*configFlag)
+	cfg, err := loadConfig(*configFlag, logger)
 	if err != nil {
 		logger.Error("load config failed", "err", err)
 		os.Exit(1)

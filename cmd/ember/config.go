@@ -53,18 +53,18 @@ func parseConfigFile(path string) (Config, error) {
 // sanitizeConfigBaseline repairs config.json values that fail the SSRF-guard
 // validators (validDeviceURL, weatherIconIDPattern) but that we don't want to
 // treat as fatal load errors — a hand-edited config.json shouldn't crash the
-// server at startup. Invalid entries are logged and replaced/dropped in
-// place; validateConfig runs afterward as a defense-in-depth check that
+// server at startup. Invalid entries are logged to logger and replaced/dropped
+// in place; validateConfig runs afterward as a defense-in-depth check that
 // should now always pass for these two fields.
-func sanitizeConfigBaseline(cfg *Config) {
+func sanitizeConfigBaseline(cfg *Config, logger *slog.Logger) {
 	if err := validDeviceURL(cfg.AWTRIX.HTTPBaseURL); err != nil {
-		slog.Default().Warn("config.json awtrix.http_base_url invalid, falling back to default",
+		logger.Warn("config.json awtrix.http_base_url invalid, falling back to default",
 			"value", cfg.AWTRIX.HTTPBaseURL, "err", err, "default", defaultDeviceBaseURL)
 		cfg.AWTRIX.HTTPBaseURL = defaultDeviceBaseURL
 	}
 	for k, v := range cfg.Weather.IconIDs {
 		if !weatherIconIDPattern.MatchString(v) {
-			slog.Default().Warn("config.json weather.icon_ids entry invalid, dropping", "key", k, "value", v)
+			logger.Warn("config.json weather.icon_ids entry invalid, dropping", "key", k, "value", v)
 			delete(cfg.Weather.IconIDs, k)
 		}
 	}
