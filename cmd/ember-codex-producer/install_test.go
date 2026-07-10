@@ -12,7 +12,6 @@ func TestGeneratePlist_DaemonShape(t *testing.T) {
 		"<key>KeepAlive</key>",
 		"<key>RunAtLoad</key>",
 		"<string>run</string>",
-		"/Users/x/Library/Logs/ember-codex-producer.log",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plist missing %q\n---\n%s", want, out)
@@ -20,6 +19,9 @@ func TestGeneratePlist_DaemonShape(t *testing.T) {
 	}
 	if strings.Contains(out, "StartInterval") {
 		t.Error("daemon plist must not use StartInterval")
+	}
+	if strings.Contains(out, "StandardOutPath") || strings.Contains(out, "StandardErrorPath") {
+		t.Error("plist must not set StandardOutPath/StandardErrorPath; the daemon opens its own log via producer.OpenDaemonLog")
 	}
 }
 

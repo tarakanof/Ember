@@ -32,8 +32,8 @@ func TestGeneratePlist_StructureAndPaths(t *testing.T) {
 	if !strings.Contains(s, "<key>KeepAlive</key>") {
 		t.Errorf("daemon plist must set KeepAlive so launchd restarts it after a crash/eviction")
 	}
-	if !strings.Contains(s, "/Users/joe/Library/Logs/ember-tick.log") {
-		t.Errorf("missing log path")
+	if strings.Contains(s, "StandardOutPath") || strings.Contains(s, "StandardErrorPath") {
+		t.Errorf("plist must not set StandardOutPath/StandardErrorPath; the daemon opens its own log via producer.OpenDaemonLog:\n%s", s)
 	}
 	// XML well-formed (skip the DOCTYPE which encoding/xml doesn't parse)
 	idx := strings.Index(s, "<plist")
@@ -99,7 +99,7 @@ func TestMergeSettings_FreshInstall(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"PreToolUse"`, `"UserPromptSubmit"`, `"Stop"`, `"PermissionRequest"`,
-		`/usr/local/bin/ember-claude-producer hook`,
+		`\"/usr/local/bin/ember-claude-producer\" hook`,
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("settings.json missing %q\nbody: %s", want, body)
@@ -125,7 +125,7 @@ func TestMergeSettings_PreservesUserPermissions(t *testing.T) {
 	if !strings.Contains(string(body), `Bash(grep:*)`) {
 		t.Errorf("user permissions block dropped: %s", body)
 	}
-	if !strings.Contains(string(body), `ember-claude-producer hook`) {
+	if !strings.Contains(string(body), `ember-claude-producer\" hook`) {
 		t.Errorf("hooks not added: %s", body)
 	}
 }
@@ -143,6 +143,28 @@ func TestMergeSettings_Idempotent(t *testing.T) {
 	second, _ := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
 	if string(first) != string(second) {
 		t.Errorf("re-running install changed settings:\nfirst: %s\nsecond: %s", first, second)
+	}
+}
+
+func TestProducerHookEntries_SelfHealingGuard(t *testing.T) {
+	bin := "/Applications/Ember.app/Contents/MacOS/ember-claude-producer"
+	for _, e := range producerHookEntries(bin) {
+		if !strings.HasPrefix(e.command, `[ -x "`+bin+`" ] && `) {
+			t.Errorf("hook %q command not guarded: %s", e.event, e.command)
+		}
+		if !strings.HasSuffix(strings.TrimSpace(e.command), "|| true") {
+			t.Errorf("hook %q command missing `|| true`: %s", e.event, e.command)
+		}
+	}
+}
+
+// The guarded command must still be recognized as ours for upgrade/uninstall.
+func TestEntryMatchesProducer_GuardedCommand(t *testing.T) {
+	bin := "/Applications/Ember.app/Contents/MacOS/ember-claude-producer"
+	entry := producerHookEntries(bin)[0]
+	asAny := map[string]any{"hooks": []any{map[string]any{"type": "command", "command": entry.command}}}
+	if !entryMatchesProducer(asAny) {
+		t.Errorf("entryMatchesProducer did not recognize guarded command: %s", entry.command)
 	}
 }
 

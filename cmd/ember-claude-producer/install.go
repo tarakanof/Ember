@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 const launchAgentLabel = "com.ember.heartbeat"
@@ -29,7 +31,56 @@ func runInstall() {
 	fmt.Println("Install complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
 }
 
+func runConfigure() {
+	if err := configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "configure failed:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Configure complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
+}
+
 func install() error {
+	if err := configure(); err != nil {
+		return err
+	}
+	binPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("os.Executable: %w", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	uid := os.Getuid()
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+	plistData, err := generatePlist(binPath, home, uid)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
+		return err
+	}
+	return reloadLaunchAgent(uid, plistPath)
+}
+
+// configureAt performs the daemon-independent install work: dirs, producer.env,
+// and the ~/.claude/settings.json hook + statusLine merge. It intentionally does
+// NOT touch LaunchAgents — daemon activation is launchctl (CLI) or SMAppService
+// (app). binPath is baked into the hook commands (self-healing, Task 2).
+func configureAt(home, binPath string) error {
+	if err := createInstallDirs(home); err != nil {
+		return err
+	}
+	envPath := filepath.Join(home, ".config", "ember", "producer.env")
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		if err := os.WriteFile(envPath, []byte(producerEnvExampleContent()), 0o600); err != nil {
+			return err
+		}
+	}
+	return mergeSettingsJSON(home, binPath)
+}
+
+func configure() error {
 	binPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
@@ -41,31 +92,7 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	uid := os.Getuid()
-	if err := createInstallDirs(home); err != nil {
-		return err
-	}
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	plistData, err := generatePlist(binPath, home, uid)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
-		return err
-	}
-	if err := reloadLaunchAgent(uid, plistPath); err != nil {
-		return err
-	}
-	envPath := filepath.Join(home, ".config", "ember", "producer.env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if err := os.WriteFile(envPath, []byte(producerEnvExampleContent()), 0o600); err != nil {
-			return err
-		}
-	}
-	if err := mergeSettingsJSON(home, binPath); err != nil {
-		return err
-	}
-	return nil
+	return configureAt(home, binPath)
 }
 
 func createInstallDirs(home string) error {
@@ -94,7 +121,6 @@ func shellSafePath(p string) bool {
 }
 
 func generatePlist(binPath, home string, uid int) ([]byte, error) {
-	stdoutPath := filepath.Join(home, "Library", "Logs", "ember-tick.log")
 	const tmpl = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -116,10 +142,6 @@ func generatePlist(binPath, home string, uid int) ([]byte, error) {
     <integer>10</integer>
     <key>LowPriorityIO</key>
     <true/>
-    <key>StandardOutPath</key>
-    <string>%s</string>
-    <key>StandardErrorPath</key>
-    <string>%s</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -131,8 +153,6 @@ func generatePlist(binPath, home string, uid int) ([]byte, error) {
 	out := fmt.Sprintf(tmpl,
 		xmlEscape(launchAgentLabel),
 		xmlEscape(binPath),
-		xmlEscape(stdoutPath),
-		xmlEscape(stdoutPath),
 	)
 	return []byte(out), nil
 }
@@ -144,16 +164,7 @@ func xmlEscape(s string) string {
 }
 
 func producerEnvExampleContent() string {
-	return `# ember-claude-producer configuration
-# Required:
-EMBER_SOURCE=set-me-to-this-laptop-id
-EMBER_SERVER_URL=http://192.168.0.36:3627
-EMBER_TOKEN=set-me-to-the-server-bearer-token
-
-# Optional (defaults shown):
-# EMBER_HEARTBEAT_TTL_HOURS=6
-# EMBER_HOOK_TIMEOUT_MS=500
-`
+	return producer.EnvExample()
 }
 
 func reloadLaunchAgent(uid int, plistPath string) error {
@@ -271,9 +282,14 @@ type producerHookEntry struct {
 }
 
 func producerHookEntries(binPath string) []producerHookEntry {
-	logRedirect := ` >/dev/null 2>>$HOME/Library/Logs/ember-claude-producer.log`
+	logRedirect := ` >>$HOME/Library/Logs/ember-claude-producer.log 2>&1`
 	cmd := func(eventName string) string {
-		return binPath + " hook " + eventName + logRedirect
+		// Self-healing: if the bundled binary is gone (app deleted/moved),
+		// `[ -x BIN ]` is false and `|| true` yields exit 0 — Claude Code sees
+		// success, never a hook error. entryMatchesProducer still matches on the
+		// producer-name substring below.
+		inner := `"` + binPath + `" hook ` + eventName + logRedirect
+		return `[ -x "` + binPath + `" ] && ` + inner + ` || true`
 	}
 	return []producerHookEntry{
 		{event: "SessionStart", matcher: "", command: cmd("session-start")},

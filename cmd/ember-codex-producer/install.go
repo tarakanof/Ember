@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 const launchAgentLabel = "com.ember.codex"
@@ -20,7 +22,60 @@ func runInstall() {
 	fmt.Println("Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
 }
 
+func runConfigure() {
+	if err := configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "configure failed:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Configure complete. Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
+}
+
 func install() error {
+	if err := configure(); err != nil {
+		return err
+	}
+	binPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("os.Executable: %w", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	_ = exec.Command("xattr", "-d", "com.apple.quarantine", binPath).Run()
+
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+	if err := os.WriteFile(plistPath, generatePlist(binPath, home), 0o644); err != nil {
+		return err
+	}
+	return reloadLaunchAgent(os.Getuid(), plistPath)
+}
+
+// configureAt performs the daemon-independent install work: dirs + producer.env
+// seed. Codex has no settings.json/hooks, so unlike the Claude producer this is
+// the entirety of configure. It intentionally does NOT touch LaunchAgents —
+// daemon activation is launchctl, handled by install().
+func configureAt(home string) error {
+	for _, d := range []string{
+		filepath.Join(home, ".config", "ember"),
+		filepath.Join(home, ".local", "state", "ember", "sessions"),
+		filepath.Join(home, "Library", "Logs"),
+		filepath.Join(home, "Library", "LaunchAgents"),
+	} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return err
+		}
+	}
+	envPath := filepath.Join(home, ".config", "ember", "producer.env")
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		if err := os.WriteFile(envPath, []byte(envExample()), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func configure() error {
 	binPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
@@ -32,32 +87,10 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	for _, d := range []string{
-		filepath.Join(home, ".config", "ember"),
-		filepath.Join(home, "Library", "Logs"),
-		filepath.Join(home, "Library", "LaunchAgents"),
-	} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
-		}
-	}
-	_ = exec.Command("xattr", "-d", "com.apple.quarantine", binPath).Run()
-
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if err := os.WriteFile(plistPath, generatePlist(binPath, home), 0o644); err != nil {
-		return err
-	}
-	envPath := filepath.Join(home, ".config", "ember", "producer.env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if err := os.WriteFile(envPath, []byte(envExample()), 0o600); err != nil {
-			return err
-		}
-	}
-	return reloadLaunchAgent(os.Getuid(), plistPath)
+	return configureAt(home)
 }
 
 func generatePlist(binPath, home string) []byte {
-	logPath := filepath.Join(home, "Library", "Logs", "ember-codex-producer.log")
 	const tmpl = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -79,10 +112,6 @@ func generatePlist(binPath, home string) []byte {
     <integer>10</integer>
     <key>LowPriorityIO</key>
     <true/>
-    <key>StandardOutPath</key>
-    <string>%s</string>
-    <key>StandardErrorPath</key>
-    <string>%s</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -91,7 +120,7 @@ func generatePlist(binPath, home string) []byte {
 </dict>
 </plist>
 `
-	return []byte(fmt.Sprintf(tmpl, xmlEscape(launchAgentLabel), xmlEscape(binPath), xmlEscape(logPath), xmlEscape(logPath)))
+	return []byte(fmt.Sprintf(tmpl, xmlEscape(launchAgentLabel), xmlEscape(binPath)))
 }
 
 func xmlEscape(s string) string {
@@ -123,16 +152,5 @@ func reloadLaunchAgent(uid int, plistPath string) error {
 }
 
 func envExample() string {
-	return `# ember producer configuration (shared by Claude + Codex producers)
-EMBER_SOURCE=set-me-to-this-laptop-id
-EMBER_SERVER_URL=http://192.168.0.36:3627
-EMBER_TOKEN=set-me-to-the-server-bearer-token
-
-# Optional (defaults shown):
-# EMBER_SOURCE_COLOR=#aa66ff
-# EMBER_CONTEXT_PCT_ENABLED=true
-# EMBER_CODEX_POLL_INTERVAL_MS=2000
-# EMBER_CODEX_ACTIVITY_WINDOW_SECONDS=300
-# EMBER_CODEX_SESSIONS_DIR=~/.codex/sessions
-`
+	return producer.EnvExample()
 }

@@ -15,7 +15,7 @@ func runUninstall() {
 		os.Exit(1)
 	}
 	uid := os.Getuid()
-	if err := uninstallSettings(home); err != nil {
+	if err := deconfigureAt(home); err != nil {
 		fmt.Fprintln(os.Stderr, "uninstall: settings.json:", err)
 	}
 	if err := uninstallPlist(home, uid); err != nil {
@@ -24,6 +24,28 @@ func runUninstall() {
 	fmt.Println("Uninstall complete.")
 	fmt.Println("Note: ~/.config/ember/producer.env and")
 	fmt.Println("~/.local/state/ember/ were left in place. rm them yourself if desired.")
+}
+
+func runDeconfigure() {
+	if err := deconfigure(); err != nil {
+		fmt.Fprintln(os.Stderr, "deconfigure failed:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Deconfigure complete.")
+}
+
+// deconfigureAt reverses configureAt's settings.json changes for the given
+// home. It intentionally does NOT touch LaunchAgents.
+func deconfigureAt(home string) error {
+	return uninstallSettings(home)
+}
+
+func deconfigure() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	return deconfigureAt(home)
 }
 
 func uninstallSettings(home string) error {

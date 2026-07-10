@@ -43,6 +43,7 @@ func runTick() {
 // next login. KeepAlive lets launchd restart this process after any exit.
 func runDaemon() {
 	rotateProducerLogs()
+	openDaemonLog("ember-tick")
 	// Validate config once up front; with KeepAlive, exiting here just makes
 	// launchd retry (throttled) until the operator finishes configuring.
 	if cfg, err := loadConfig(); err != nil || cfg.Source == "" || cfg.ServerURL == "" {
@@ -78,6 +79,20 @@ func heartbeatPass(parent context.Context) {
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	dispatchTick(ctx, cfg)
+}
+
+// openDaemonLog routes stdout/stderr (both the OS fds and the Go-level
+// variables) and the slog default logger to ~/Library/Logs/<name>.log so the
+// daemon logs correctly even when launched from a plist with no
+// StandardOutPath (a bundled static plist can't encode a per-user path).
+// Best-effort: on failure it silently leaves stderr as-is.
+func openDaemonLog(name string) {
+	f, err := producer.OpenDaemonLog(name)
+	if err != nil {
+		return
+	}
+	producer.RedirectStandardIO(f)
+	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }
 
 func dispatchTick(ctx context.Context, cfg Config) {
