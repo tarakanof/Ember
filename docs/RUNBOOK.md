@@ -99,6 +99,16 @@ Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The a
 reads `producer.env` for connection config and needs a server on a build that
 includes `GET /v1/preview` (added 2026-05; older servers 401 that route).
 
+The app bundle now builds + signs the two producer helpers (`ember-claude-producer`,
+`ember-codex-producer`) and their LaunchAgent plists into `Contents/MacOS` and
+`Contents/Library/LaunchAgents` via a `postCompileScripts` phase
+(`scripts/build-producers.sh`) that runs before Xcode's own app-level codesign, so
+signing happens inside-out. `CODE_SIGN_IDENTITY` picks Developer ID for release
+builds vs ad-hoc (`-`) for local dev; notarizing the `.app` covers the nested
+helpers, no separate step needed. `scripts/verify-bundle.sh <Ember.app>` is the
+gate for this contract (universal binaries, valid plists, codesign) — run it
+after any build that touches the producers or the bundling phase.
+
 The menu dropdown also runs the Pomodoro (Start/Pause/Resume/Skip/Stop) and has
 per-app clock toggles (`PUT /v1/apps`). Settings → Pomodoro exposes the focus
 duration (to 8h), the auto-stop cap ("Auto-stop after: N h", `0` = off), and
