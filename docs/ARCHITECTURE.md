@@ -393,8 +393,18 @@ regardless of the Pomodoro setting; see "Shared store" below.)
 The server finds the clock on the LAN by mDNS (browse `_http._tcp`, then a
 `/api/stats` fingerprint keyed on a non-empty `uid`) instead of relying on a
 hardcoded address. The effective clock URL resolves as **writable-store override
-> reachable `config.json` baseline > mDNS auto-pick** (the auto-pick is in-memory
-only; the read-only `config.json` is never written). The server also advertises
+> reachable `config.json` baseline > mDNS auto-pick** — while the pinned URL
+(store override or config baseline) answers, that precedence holds as before.
+But the pin is now **reachability-tested, not just trusted**: a 1.5s HTTP probe
+runs at boot and again every ~60s from a background watcher
+(`StartDeviceWatch`), and if the currently-effective URL (store override
+included) stops answering, the server falls through to a fresh mDNS auto-pick
+so the clock keeps working after a DHCP renumbering. Swaps are **in-memory
+only** — `config.json` and the writable store are never rewritten, so a
+config/store edit still takes effect the next time its source URL goes
+unreachable. The whole probe loop is gated by `awtrix.auto_rediscover` (config,
+default on; `/admin/doctor`'s `clock` check reports the source, reachability,
+and last re-discovery time/result). The server also advertises
 itself as `_ember._tcp` so the menu app can discover it (gated by
 `EMBER_MDNS_ADVERTISE`). Both directions require host/macvlan networking.
 

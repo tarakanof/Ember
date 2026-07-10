@@ -274,11 +274,22 @@ tab proxies the clock's own settings through `/v1/device/*`.
   the default Docker bridge. Run the container with `--network host` (or macvlan).
 - Effective clock URL precedence: writable-store override (menu's Device tab) >
   reachable `awtrix.http_base_url` from `config.json` > mDNS auto-pick (in-memory;
-  never written back to the read-only config). `/admin/doctor`'s
-  `awtrix_reachable` detail notes the source.
+  never written back to the read-only config or the store).
+- **Self-healing:** the server reachability-tests the effective URL (store
+  override included) at boot and every ~60s via a background probe
+  (`awtrix.auto_rediscover`, default on); an unreachable URL falls through to a
+  fresh mDNS auto-pick without touching `config.json` or the store, so a
+  clock's IP changing (DHCP renumbering) recovers on its own within ~60s.
+  `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
+  `last_rediscover_at`/`last_rediscover_result`.
 - `EMBER_MDNS_ADVERTISE` (default on; `0`/`false` disables) gates only the
   advertising side; clock discovery and the Device tab still work with a
   configured URL.
+- **Troubleshooting — clock dark after its IP changed:** the server self-heals
+  within ~60s (mDNS); force it now with `GET /v1/device/discover` or
+  `PUT /v1/device/config {"base_url": …}`; `/admin/doctor` shows the clock's
+  reachability + last re-discovery. A DHCP reservation avoids the whole
+  problem.
 
 **Data sources & dependencies:**
 - **Claude (always-on):** the claude producer daemon polls
