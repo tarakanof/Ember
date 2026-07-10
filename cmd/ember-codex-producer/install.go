@@ -20,7 +20,60 @@ func runInstall() {
 	fmt.Println("Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
 }
 
+func runConfigure() {
+	if err := configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "configure failed:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Configure complete. Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
+}
+
 func install() error {
+	if err := configure(); err != nil {
+		return err
+	}
+	binPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("os.Executable: %w", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	_ = exec.Command("xattr", "-d", "com.apple.quarantine", binPath).Run()
+
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+	if err := os.WriteFile(plistPath, generatePlist(binPath, home), 0o644); err != nil {
+		return err
+	}
+	return reloadLaunchAgent(os.Getuid(), plistPath)
+}
+
+// configureAt performs the daemon-independent install work: dirs + producer.env
+// seed. Codex has no settings.json/hooks, so unlike the Claude producer this is
+// the entirety of configure. It intentionally does NOT touch LaunchAgents —
+// daemon activation is launchctl, handled by install().
+func configureAt(home string) error {
+	for _, d := range []string{
+		filepath.Join(home, ".config", "ember"),
+		filepath.Join(home, ".local", "state", "ember", "sessions"),
+		filepath.Join(home, "Library", "Logs"),
+		filepath.Join(home, "Library", "LaunchAgents"),
+	} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			return err
+		}
+	}
+	envPath := filepath.Join(home, ".config", "ember", "producer.env")
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		if err := os.WriteFile(envPath, []byte(envExample()), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func configure() error {
 	binPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
@@ -32,28 +85,7 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	for _, d := range []string{
-		filepath.Join(home, ".config", "ember"),
-		filepath.Join(home, "Library", "Logs"),
-		filepath.Join(home, "Library", "LaunchAgents"),
-	} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
-		}
-	}
-	_ = exec.Command("xattr", "-d", "com.apple.quarantine", binPath).Run()
-
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if err := os.WriteFile(plistPath, generatePlist(binPath, home), 0o644); err != nil {
-		return err
-	}
-	envPath := filepath.Join(home, ".config", "ember", "producer.env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if err := os.WriteFile(envPath, []byte(envExample()), 0o600); err != nil {
-			return err
-		}
-	}
-	return reloadLaunchAgent(os.Getuid(), plistPath)
+	return configureAt(home)
 }
 
 func generatePlist(binPath, home string) []byte {

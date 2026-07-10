@@ -20,6 +20,10 @@ func main() {
 		runInstall()
 	case "uninstall":
 		runUninstall()
+	case "configure":
+		runConfigure()
+	case "deconfigure":
+		runDeconfigure()
 	case "doctor":
 		runDoctor()
 	case "version", "-v", "--version":
@@ -39,6 +43,8 @@ Usage:
   ember-codex-producer [run]      # daemon: tail Codex rollout files, POST status (default)
   ember-codex-producer install    # install + start the LaunchAgent
   ember-codex-producer uninstall  # stop + remove the LaunchAgent
+  ember-codex-producer configure  # file-only setup (no LaunchAgent)
+  ember-codex-producer deconfigure # reverse configure
   ember-codex-producer doctor     # show config + reachability
   ember-codex-producer version    # print version
   ember-codex-producer help       # this help
