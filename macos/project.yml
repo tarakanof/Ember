@@ -13,6 +13,8 @@ targets:
     platform: macOS
     sources:
       - path: Ember
+        excludes:
+          - "LaunchAgents/**"
     dependencies:
       - package: EmberKit
         product: EmberKit
