@@ -17,7 +17,7 @@ func TestHelpSubcommandPrintsUsage(t *testing.T) {
 	if !strings.Contains(stderr.String(), "ember-claude-producer") {
 		t.Errorf("help output missing program name: %q", stderr.String())
 	}
-	for _, sub := range []string{"hook", "tick", "install", "uninstall", "doctor"} {
+	for _, sub := range []string{"hook", "tick", "install", "uninstall", "configure", "deconfigure", "doctor"} {
 		if !strings.Contains(stderr.String(), sub) {
 			t.Errorf("help missing %q subcommand", sub)
 		}

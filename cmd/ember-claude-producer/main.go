@@ -23,6 +23,10 @@ func main() {
 		runInstall()
 	case "uninstall":
 		runUninstall()
+	case "configure":
+		runConfigure()
+	case "deconfigure":
+		runDeconfigure()
 	case "doctor":
 		runDoctor()
 	case "help", "-h", "--help":
@@ -43,6 +47,8 @@ Usage:
   ember-claude-producer statusline             # called by Claude Code statusLine
   ember-claude-producer install               # one-shot setup
   ember-claude-producer uninstall             # reverse install
+  ember-claude-producer configure             # file-only setup (no LaunchAgent)
+  ember-claude-producer deconfigure           # reverse configure
   ember-claude-producer doctor                # show config + state health
   ember-claude-producer help                  # this help
 

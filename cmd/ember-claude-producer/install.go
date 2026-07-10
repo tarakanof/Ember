@@ -29,7 +29,56 @@ func runInstall() {
 	fmt.Println("Install complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
 }
 
+func runConfigure() {
+	if err := configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "configure failed:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Configure complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
+}
+
 func install() error {
+	if err := configure(); err != nil {
+		return err
+	}
+	binPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("os.Executable: %w", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	uid := os.Getuid()
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+	plistData, err := generatePlist(binPath, home, uid)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
+		return err
+	}
+	return reloadLaunchAgent(uid, plistPath)
+}
+
+// configureAt performs the daemon-independent install work: dirs, producer.env,
+// and the ~/.claude/settings.json hook + statusLine merge. It intentionally does
+// NOT touch LaunchAgents — daemon activation is launchctl (CLI) or SMAppService
+// (app). binPath is baked into the hook commands (self-healing, Task 2).
+func configureAt(home, binPath string) error {
+	if err := createInstallDirs(home); err != nil {
+		return err
+	}
+	envPath := filepath.Join(home, ".config", "ember", "producer.env")
+	if _, err := os.Stat(envPath); os.IsNotExist(err) {
+		if err := os.WriteFile(envPath, []byte(producerEnvExampleContent()), 0o600); err != nil {
+			return err
+		}
+	}
+	return mergeSettingsJSON(home, binPath)
+}
+
+func configure() error {
 	binPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
@@ -41,31 +90,7 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	uid := os.Getuid()
-	if err := createInstallDirs(home); err != nil {
-		return err
-	}
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	plistData, err := generatePlist(binPath, home, uid)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
-		return err
-	}
-	if err := reloadLaunchAgent(uid, plistPath); err != nil {
-		return err
-	}
-	envPath := filepath.Join(home, ".config", "ember", "producer.env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if err := os.WriteFile(envPath, []byte(producerEnvExampleContent()), 0o600); err != nil {
-			return err
-		}
-	}
-	if err := mergeSettingsJSON(home, binPath); err != nil {
-		return err
-	}
-	return nil
+	return configureAt(home, binPath)
 }
 
 func createInstallDirs(home string) error {
