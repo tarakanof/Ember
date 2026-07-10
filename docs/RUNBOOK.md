@@ -286,7 +286,7 @@ tab proxies the clock's own settings through `/v1/device/*`.
   advertising side; clock discovery and the Device tab still work with a
   configured URL.
 - **Troubleshooting — clock dark after its IP changed:** the server self-heals
-  within ~60s (mDNS); force it now with `GET /v1/device/discover` or
+  within ~60s (mDNS). To apply the new IP now, restart the container (re-runs boot discovery) or
   `PUT /v1/device/config {"base_url": …}`; `/admin/doctor` shows the clock's
   reachability + last re-discovery. A DHCP reservation avoids the whole
   problem.
