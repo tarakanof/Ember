@@ -321,8 +321,16 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
+// testToken is the bearer token wired into the default test servers. Writes
+// fail closed on an empty token, so the shared HTTP test helpers always
+// configure a token and authenticate with it unless a test overrides it.
+const testToken = "test-token"
+
 func newTestServer(t *testing.T, cfg Config) (*App, *httptest.Server) {
 	t.Helper()
+	if cfg.Auth.StatusToken == "" {
+		cfg.Auth.StatusToken = testToken
+	}
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
 	srv := httptest.NewServer(app.routes())
 	t.Cleanup(srv.Close)
@@ -340,6 +348,13 @@ func postJSON(t *testing.T, srv *httptest.Server, path string, body any, headers
 		t.Fatalf("new request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// nil headers means "don't care about auth" — inject the shared test token
+	// so fail-closed write endpoints are reachable. A test exercising auth
+	// passes an explicit (possibly empty) map to control the Authorization
+	// header itself.
+	if headers == nil {
+		req.Header.Set("Authorization", "Bearer "+testToken)
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -349,6 +364,36 @@ func postJSON(t *testing.T, srv *httptest.Server, path string, body any, headers
 	}
 	t.Cleanup(func() { resp.Body.Close() })
 	return resp
+}
+
+// newRawTestServer builds a test server backed by NewHTTPPublisher (base URL
+// http://x) with the shared test token configured. It suits tests that assert
+// on decode/validation/logging behaviour and drive raw request bodies; logger
+// lets a test capture emitted log lines.
+func newRawTestServer(t *testing.T, logger *slog.Logger) *httptest.Server {
+	t.Helper()
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	cfg.Auth.StatusToken = testToken
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, logger)
+	srv := httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// authedRequest builds a JSON request to a test server carrying the shared
+// bearer token, so it clears the fail-closed write auth.
+func authedRequest(t *testing.T, method, url, body string) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest(method, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	return req
 }
 
 func TestPostStatusRejectsMissingFields(t *testing.T) {
@@ -528,6 +573,7 @@ func TestDeleteStatusRemovesSession(t *testing.T) {
 		t.Fatalf("new request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -549,6 +595,7 @@ func TestDeleteStatusIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -567,6 +614,7 @@ func TestDeleteStatusRejectsEmptyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -616,7 +664,7 @@ func TestAuthRequiredOnWriteEndpoints(t *testing.T) {
 	// No auth header
 	resp := postJSON(t, srv, "/v1/status", map[string]any{
 		"source": "a", "tool": "b", "session": "c", "state": "running",
-	}, nil)
+	}, map[string]string{})
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("no auth: status = %d, want 401", resp.StatusCode)
 	}
@@ -638,13 +686,13 @@ func TestAuthRequiredOnWriteEndpoints(t *testing.T) {
 	}
 }
 
-func TestAuthDisabledWhenTokenEmpty(t *testing.T) {
+func TestAuthClosedWhenTokenEmpty(t *testing.T) {
 	_, srv := newTestServerWithToken(t, "")
 	resp := postJSON(t, srv, "/v1/status", map[string]any{
 		"source": "a", "tool": "b", "session": "c", "state": "running",
 	}, nil)
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("empty token / no auth: status = %d, want 200", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("empty token / write: status = %d, want 401 (fail closed)", resp.StatusCode)
 	}
 }
 
@@ -824,21 +872,9 @@ func TestApp_PublishUpdatesLastPublishFields(t *testing.T) {
 }
 
 func TestHandleStatus_413OnOversizeBody(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, discardLogger())
+	srv := newRawTestServer(t, discardLogger())
 
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-
-	body := bytes.Repeat([]byte("x"), (1<<20)+100)
-	req, err := http.NewRequest("POST", srv.URL+"/v1/status", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	req := authedRequest(t, "POST", srv.URL+"/v1/status", strings.Repeat("x", (1<<20)+100))
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -850,20 +886,9 @@ func TestHandleStatus_413OnOversizeBody(t *testing.T) {
 }
 
 func TestHandleClear_413OnOversizeBody(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, discardLogger())
+	srv := newRawTestServer(t, discardLogger())
 
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-
-	body := bytes.Repeat([]byte("x"), 2048)
-	req, err := http.NewRequest("POST", srv.URL+"/v1/clear", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	req := authedRequest(t, "POST", srv.URL+"/v1/clear", strings.Repeat("x", 2048))
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -875,21 +900,10 @@ func TestHandleClear_413OnOversizeBody(t *testing.T) {
 }
 
 func TestHandleStatus_ForwardCompat_AcceptsUnknownField(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, discardLogger())
-
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
+	srv := newRawTestServer(t, discardLogger())
 
 	body := `{"source":"a","tool":"b","session":"s1","state":"running","rate_window_pct":42}`
-	req, err := http.NewRequest("POST", srv.URL+"/v1/status", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	req := authedRequest(t, "POST", srv.URL+"/v1/status", body)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -902,21 +916,10 @@ func TestHandleStatus_ForwardCompat_AcceptsUnknownField(t *testing.T) {
 }
 
 func TestHandleDeleteStatus_RemainsStrict_OnUnknownField(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, discardLogger())
-
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
+	srv := newRawTestServer(t, discardLogger())
 
 	body := `{"source":"a","tool":"b","session":"s1","weirdfield":true}`
-	req, err := http.NewRequest("DELETE", srv.URL+"/v1/status", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	req := authedRequest(t, "DELETE", srv.URL+"/v1/status", body)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -928,22 +931,11 @@ func TestHandleDeleteStatus_RemainsStrict_OnUnknownField(t *testing.T) {
 }
 
 func TestDecodeJSON_RejectsTrailingValue(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, discardLogger())
-
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
+	srv := newRawTestServer(t, discardLogger())
 
 	// Two top-level JSON values back-to-back.
 	body := `{"source":"a","tool":"t","session":"s","state":"running"}{"x":1}`
-	req, err := http.NewRequest("POST", srv.URL+"/v1/status", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	req := authedRequest(t, "POST", srv.URL+"/v1/status", body)
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -962,16 +954,10 @@ func captureLogger(buf *bytes.Buffer) *slog.Logger {
 
 func TestHandleStatus_LogsInfoOnParseFailure(t *testing.T) {
 	var buf bytes.Buffer
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, captureLogger(&buf))
+	srv := newRawTestServer(t, captureLogger(&buf))
 
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-
-	resp, err := http.Post(srv.URL+"/v1/status", "application/json", strings.NewReader("not json"))
+	req := authedRequest(t, "POST", srv.URL+"/v1/status", "not json")
+	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -987,17 +973,11 @@ func TestHandleStatus_LogsInfoOnParseFailure(t *testing.T) {
 
 func TestHandleStatus_LogsInfoOnValidationFailure(t *testing.T) {
 	var buf bytes.Buffer
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, captureLogger(&buf))
-
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
+	srv := newRawTestServer(t, captureLogger(&buf))
 
 	body := `{"source":"","tool":"t","session":"s","state":"running"}`
-	resp, err := http.Post(srv.URL+"/v1/status", "application/json", strings.NewReader(body))
+	req := authedRequest(t, "POST", srv.URL+"/v1/status", body)
+	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1011,17 +991,11 @@ func TestHandleStatus_LogsInfoOnValidationFailure(t *testing.T) {
 
 func TestHandleNotify_LogsInfoOnEmptyText(t *testing.T) {
 	var buf bytes.Buffer
-	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, captureLogger(&buf))
-
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
+	srv := newRawTestServer(t, captureLogger(&buf))
 
 	body := `{"text":""}`
-	resp, err := http.Post(srv.URL+"/v1/notify", "application/json", strings.NewReader(body))
+	req := authedRequest(t, "POST", srv.URL+"/v1/notify", body)
+	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1073,8 +1047,6 @@ func TestStatusRequestValidate_OptionalFields(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
-
-func intPtr(v int) *int { return &v }
 
 func TestIndicatorsOffOnStartup(t *testing.T) {
 	cfg := defaultConfig()
@@ -1221,6 +1193,21 @@ func TestStatusRequest_ActivityLengthValidated(t *testing.T) {
 	}
 	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: ""}).validate(); err != nil {
 		t.Errorf("empty activity should be valid, got %v", err)
+	}
+}
+
+// Producers truncate activity to 80 runes; the server must count runes, not
+// bytes, or a multibyte activity (≤80 chars but >80 bytes) 400s every status
+// POST for that session. Regression guard for the rune/byte mismatch.
+func TestStatusRequest_ActivityMultibyteWithin80Runes(t *testing.T) {
+	// 80 Cyrillic runes = 160 bytes: valid by rune count, would fail by bytes.
+	activity := strings.Repeat("я", 80)
+	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: activity}).validate(); err != nil {
+		t.Errorf("80-rune multibyte activity should be valid, got %v", err)
+	}
+	// 81 runes must still be rejected.
+	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: strings.Repeat("я", 81)}).validate(); err == nil {
+		t.Errorf("81-rune activity should be rejected")
 	}
 }
 

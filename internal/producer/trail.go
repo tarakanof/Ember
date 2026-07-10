@@ -1,6 +1,9 @@
 package producer
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 const (
 	trailSeparator = " · "
@@ -25,20 +28,22 @@ func PrependTrail(head, prev string) string {
 	return capTrail(head + trailSeparator + prev)
 }
 
-// capTrail trims s to trailMaxLen, preferring to drop whole trailing
+// capTrail trims s to trailMaxLen runes, preferring to drop whole trailing
 // " · "-delimited items; only hard-cuts when the first item alone exceeds the
-// limit.
+// limit. Rune-based (like Truncate) so the hard cut never splits a multibyte
+// character into a mangled trailing byte (U+FFFD), and so its output stays
+// within the server's 80-rune activity limit.
 func capTrail(s string) string {
-	if len(s) <= trailMaxLen {
+	if utf8.RuneCountInString(s) <= trailMaxLen {
 		return s
 	}
 	items := strings.Split(s, trailSeparator)
-	for len(items) > 1 && len(strings.Join(items, trailSeparator)) > trailMaxLen {
+	for len(items) > 1 && utf8.RuneCountInString(strings.Join(items, trailSeparator)) > trailMaxLen {
 		items = items[:len(items)-1]
 	}
 	out := strings.Join(items, trailSeparator)
-	if len(out) > trailMaxLen {
-		out = out[:trailMaxLen]
+	if utf8.RuneCountInString(out) > trailMaxLen {
+		out = string([]rune(out)[:trailMaxLen])
 	}
 	return out
 }

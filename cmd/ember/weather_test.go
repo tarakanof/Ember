@@ -219,22 +219,22 @@ func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	off := WeatherConfig{
 		Enabled: true, Provider: "open-meteo", Units: "metric", Latitude: 52, Longitude: 4,
 		RefreshMinutes: 10, PopupDurationSeconds: 30,
-		RotateInApps: false, PopupOnChange: false, SevereAlert: false, PopupIntervalMinutes: 0,
+		RotateInApps: boolPtr(false), PopupOnChange: boolPtr(false), SevereAlert: boolPtr(false), PopupIntervalMinutes: intPtr(0),
 	}
 	if err := app.applyWeatherSettings(off); err != nil {
 		t.Fatalf("config rejected: %v", err)
 	}
 	got := app.cfg.Load().Weather
-	if got.RotateInApps || got.PopupOnChange || got.SevereAlert || got.PopupIntervalMinutes != 0 {
+	if got.RotateInAppsEnabled() || got.PopupOnChangeEnabled() || got.SevereAlertEnabled() || got.PopupIntervalMins() != 0 {
 		t.Errorf("disables were clobbered: rotate=%v onChange=%v severe=%v interval=%d",
-			got.RotateInApps, got.PopupOnChange, got.SevereAlert, got.PopupIntervalMinutes)
+			got.RotateInAppsEnabled(), got.PopupOnChangeEnabled(), got.SevereAlertEnabled(), got.PopupIntervalMins())
 	}
 }
 
 func TestWeatherAirDefaults(t *testing.T) {
 	var c WeatherConfig
 	c.applyDefaults()
-	if !c.AirTile {
+	if !c.AirTileEnabled() {
 		t.Error("air_tile should default on at file load")
 	}
 	if c.AirPopupThreshold != 80 {
@@ -263,13 +263,13 @@ func TestWeatherAirValidation(t *testing.T) {
 		t.Error("air_popup_threshold -1 should be rejected")
 	}
 	// A menu PUT turning the tile + popup off must survive (no re-defaulting).
-	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: false, AirPopupThreshold: 0}
+	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: boolPtr(false), AirPopupThreshold: 0}
 	if err := app.applyWeatherSettings(off); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 	got := app.cfg.Load().Weather
-	if got.AirTile || got.AirPopupThreshold != 0 {
-		t.Errorf("air disables clobbered: tile=%v threshold=%d", got.AirTile, got.AirPopupThreshold)
+	if got.AirTileEnabled() || got.AirPopupThreshold != 0 {
+		t.Errorf("air disables clobbered: tile=%v threshold=%d", got.AirTileEnabled(), got.AirPopupThreshold)
 	}
 }
 
@@ -320,7 +320,7 @@ func newAirTestApp(t *testing.T, pub *recordingPublisher, aqi *float64, hits *in
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RefreshMinutes = 10
-	cfg.Weather.PopupIntervalMinutes = 0 // keep interval popups out of the way
+	cfg.Weather.PopupIntervalMinutes = intPtr(0) // keep interval popups out of the way
 	cfg.Weather.AirPopupThreshold = 80
 	app := NewApp(cfg, pub, testLogger())
 	app.weatherFetcher = newWeatherFetcher()
@@ -408,7 +408,7 @@ func TestPollAirGatedByConfig(t *testing.T) {
 	var hits int32
 	app := newAirTestApp(t, pub, &aqi, &hits)
 	cur := *app.cfg.Load()
-	cur.Weather.AirTile = false
+	cur.Weather.AirTile = boolPtr(false)
 	cur.Weather.AirPopupThreshold = 0
 	app.cfg.Store(&cur)
 	app.pollWeather(context.Background(), time.Date(2026, 6, 12, 12, 0, 0, 0, time.UTC))
@@ -467,7 +467,7 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RefreshMinutes = 10
-	cfg.Weather.PopupIntervalMinutes = 120
+	cfg.Weather.PopupIntervalMinutes = intPtr(120)
 	app := NewApp(cfg, pub, testLogger())
 	app.weatherFetcher = newWeatherFetcher()
 	app.weatherFetcher.openMeteoBase = srv.URL
@@ -502,5 +502,52 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	pub.mu.Unlock()
 	if popups != 1 {
 		t.Errorf("interval popup didn't fire after a full interval: %d popups, want 1", popups)
+	}
+}
+
+// validWeatherConfig returns a WeatherConfig that passes every validateWeather
+// check except whatever the test mutates, so icon-id cases exercise only the
+// IconIDs branch.
+func validWeatherConfig() WeatherConfig {
+	return WeatherConfig{
+		Provider:             "open-meteo",
+		Units:                "metric",
+		RefreshMinutes:       10,
+		PopupDurationSeconds: 30,
+		AirPopupThreshold:    80,
+	}
+}
+
+func TestValidateWeatherIconIDs(t *testing.T) {
+	cases := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{"numeric ok", "123", false},
+		{"path traversal rejected", "../dev", true},
+		{"alpha suffix rejected", "12a", true},
+		{"empty rejected", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := validWeatherConfig()
+			cfg.IconIDs = map[string]string{"clear": c.id}
+			err := validateWeather(cfg)
+			if (err != nil) != c.wantErr {
+				t.Errorf("validateWeather icon_ids[clear]=%q err=%v, wantErr=%v", c.id, err, c.wantErr)
+			}
+			if c.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "clear") {
+					t.Errorf("error should name the offending key %q, got %v", "clear", err)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateWeatherOKWithoutIconIDs(t *testing.T) {
+	if err := validateWeather(validWeatherConfig()); err != nil {
+		t.Errorf("baseline valid config should pass validateWeather: %v", err)
 	}
 }

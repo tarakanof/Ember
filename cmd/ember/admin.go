@@ -1,14 +1,17 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"runtime"
 	"runtime/debug"
+	"strings"
 )
 
 // versionInfo is the JSON body served by /version. Computed once at startup.
@@ -57,7 +60,7 @@ func adminRequireAuth(app *App, logger *slog.Logger, next http.Handler) http.Han
 			writeError(w, http.StatusUnauthorized, errors.New("admin disabled: EMBER_TOKEN unset"))
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer "+token {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) != 1 {
 			logger.InfoContext(r.Context(), "admin auth rejected",
 				"remote_addr", r.RemoteAddr,
 				"path", r.URL.Path,
@@ -95,74 +98,49 @@ var nonReloadableLeaves = []string{
 }
 
 // diffConfig returns dotted leaf paths whose values differ between oldCfg
-// and newCfg. Hand-rolled (no reflection) across all 21 config leaves so a
-// new field added later forces a compile-time prompt to extend this list.
+// and newCfg. It walks Config's fields via reflection (unbounded recursion
+// into nested config structs, see diffStructFields), deriving each path from
+// the field's json tag — there is no hand-rolled leaf list to go stale, so a
+// newly added Config field is diffed automatically the moment it exists,
+// with no code change required here.
 func diffConfig(oldCfg, newCfg Config) []string {
 	var changed []string
-	if oldCfg.HTTP.Addr != newCfg.HTTP.Addr {
-		changed = append(changed, "http.addr")
-	}
-	if oldCfg.AWTRIX.HTTPBaseURL != newCfg.AWTRIX.HTTPBaseURL {
-		changed = append(changed, "awtrix.http_base_url")
-	}
-	if oldCfg.AWTRIX.AppName != newCfg.AWTRIX.AppName {
-		changed = append(changed, "awtrix.app_name")
-	}
-	if oldCfg.AWTRIX.TimeoutSeconds != newCfg.AWTRIX.TimeoutSeconds {
-		changed = append(changed, "awtrix.timeout_seconds")
-	}
-	if oldCfg.Auth.StatusToken != newCfg.Auth.StatusToken {
-		changed = append(changed, "auth.status_token")
-	}
-	if oldCfg.Auth.StatusTokenEnv != newCfg.Auth.StatusTokenEnv {
-		changed = append(changed, "auth.status_token_env")
-	}
-	if oldCfg.Display.IdleText != newCfg.Display.IdleText {
-		changed = append(changed, "display.idle_text")
-	}
-	if oldCfg.Display.StaleSeconds != newCfg.Display.StaleSeconds {
-		changed = append(changed, "display.stale_seconds")
-	}
-	if oldCfg.Display.DoneTTLSeconds != newCfg.Display.DoneTTLSeconds {
-		changed = append(changed, "display.done_ttl_seconds")
-	}
-	if oldCfg.Display.HeartbeatSeconds != newCfg.Display.HeartbeatSeconds {
-		changed = append(changed, "display.heartbeat_seconds")
-	}
-	if oldCfg.Display.RefreshSeconds != newCfg.Display.RefreshSeconds {
-		changed = append(changed, "display.refresh_seconds")
-	}
-	if oldCfg.Display.NotifyOnWaiting != newCfg.Display.NotifyOnWaiting {
-		changed = append(changed, "display.notify_on_waiting")
-	}
-	if oldCfg.Display.FrameLifetimeSeconds != newCfg.Display.FrameLifetimeSeconds {
-		changed = append(changed, "display.frame_lifetime_seconds")
-	}
-	if oldCfg.Display.IdleRestoreSeconds != newCfg.Display.IdleRestoreSeconds {
-		changed = append(changed, "display.idle_restore_seconds")
-	}
-	if oldCfg.Display.AckTimeoutSeconds != newCfg.Display.AckTimeoutSeconds {
-		changed = append(changed, "display.ack_timeout_seconds")
-	}
-	if oldCfg.Display.RotationDwellSeconds != newCfg.Display.RotationDwellSeconds {
-		changed = append(changed, "display.rotation_dwell_seconds")
-	}
-	if oldCfg.Display.AttentionChime != newCfg.Display.AttentionChime {
-		changed = append(changed, "display.attention_chime")
-	}
-	if oldCfg.RateLimit.Disabled != newCfg.RateLimit.Disabled {
-		changed = append(changed, "rate_limit.disabled")
-	}
-	if oldCfg.RateLimit.Burst != newCfg.RateLimit.Burst {
-		changed = append(changed, "rate_limit.burst")
-	}
-	if oldCfg.RateLimit.RefillPerSec != newCfg.RateLimit.RefillPerSec {
-		changed = append(changed, "rate_limit.refill_per_sec")
-	}
-	if oldCfg.RateLimit.IdleEvictSeconds != newCfg.RateLimit.IdleEvictSeconds {
-		changed = append(changed, "rate_limit.idle_evict_seconds")
-	}
+	diffStructFields(reflect.ValueOf(oldCfg), reflect.ValueOf(newCfg), "", &changed)
 	return changed
+}
+
+// diffStructFields appends prefix-qualified json-tag paths for every field of
+// oldV/newV (both must be the same struct type) whose values differ.
+// Struct-typed fields recurse unconditionally, however deep the nesting goes
+// (today Config nests exactly one struct level, but a deeper future section
+// is handled without changes here); every non-struct field is compared with
+// reflect.DeepEqual, which correctly distinguishes nil vs. non-nil pointers
+// (the pattern used throughout Config for "unset vs. explicit false/zero"
+// optional fields).
+func diffStructFields(oldV, newV reflect.Value, prefix string, changed *[]string) {
+	t := oldV.Type()
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue // unexported
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		ofv, nfv := oldV.Field(i), newV.Field(i)
+		if ofv.Kind() == reflect.Struct {
+			diffStructFields(ofv, nfv, path, changed)
+			continue
+		}
+		if !reflect.DeepEqual(ofv.Interface(), nfv.Interface()) {
+			*changed = append(*changed, path)
+		}
+	}
 }
 
 // nonReloadableChange returns the first changed leaf path that appears in
@@ -259,17 +237,31 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		newCfg.applyDefaults()
+		// Same baseline repair loadConfig applies at startup: drop/replace
+		// values that fail the SSRF-guard validators (e.g. a hand-edited
+		// weather.icon_ids path-traversal entry) instead of loading them
+		// live — a hand-edited config.json shouldn't bypass the guard just
+		// because it arrived via reload instead of startup.
+		sanitizeConfigBaseline(&newCfg, app.logger)
 		// Token isn't in the JSON file (env-only), so carry it over from
 		// the running config to keep the diff honest.
+		//
+		// The load (oldCfg) through the store below is one critical section
+		// under cfgMu: it must observe and replace the same config value a
+		// concurrent settings PUT (via updateConfig) would, or one of the two
+		// changes is silently lost.
+		app.cfgMu.Lock()
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
 		if err := validateConfig(newCfg); err != nil {
+			app.cfgMu.Unlock()
 			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
 			writeError(w, http.StatusUnprocessableEntity, err)
 			return
 		}
 		changed := diffConfig(oldCfg, newCfg)
 		if hit := nonReloadableChange(changed); hit != "" {
+			app.cfgMu.Unlock()
 			oldVal := formatLeafValue(oldCfg, hit)
 			newVal := formatLeafValue(newCfg, hit)
 			logOutcome(http.StatusConflict, len(changed), hit)
@@ -277,6 +269,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		app.cfg.Store(&newCfg)
+		app.cfgMu.Unlock()
 		// Keep the Pomodoro engine in sync with the reloaded config and
 		// re-apply API-persisted settings so a reload doesn't revert them.
 		app.resyncPomodoroAfterReload()

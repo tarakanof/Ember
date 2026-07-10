@@ -128,6 +128,32 @@ func TestHook_SessionEnd_DeletesMarker(t *testing.T) {
 	}
 }
 
+// TestHook_SessionEnd_Clear_DeletesMarker is the Task-9 /clear-ghost
+// regression test: Claude Code fires SessionEnd(reason="clear") and issues a
+// new session id, but before this fix "clear" fell through the switch,
+// leaving the old marker (and its still-alive owner PID) to display as a
+// phantom "running" session.
+func TestHook_SessionEnd_Clear_DeletesMarker(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in := hookInput{HookEventName: "SessionEnd", SessionID: "abc", CWD: "/repo", EndReason: "clear"}
+	body, _ := json.Marshal(in)
+	dispatchHookForTest(t, "session-end", body)
+	if h.deletes.Load() != 1 {
+		t.Errorf("session-end reason=clear should delete; deletes = %d, want 1", h.deletes.Load())
+	}
+	if _, err := os.Stat(markerP); !os.IsNotExist(err) {
+		t.Errorf("marker should be removed after session-end reason=clear")
+	}
+}
+
 func TestHook_PermissionRequest_UpsertsWaiting(t *testing.T) {
 	h := newHookHarness(t)
 	in := hookInput{HookEventName: "PermissionRequest", SessionID: "abc", CWD: "/repo", ToolName: "Bash"}

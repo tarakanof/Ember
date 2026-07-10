@@ -10,6 +10,26 @@ struct DisplayTab: View {
     @State private var status: String?
     @State private var loaded = false
 
+    // One SaveState per writer so a success in one cannot overwrite another's
+    // unacknowledged error. The single toolbar indicator aggregates them with an
+    // error-wins policy (see `save`).
+    @State private var displaySave: SaveState = .idle     // producer.env display writes
+    @State private var usageSave: SaveState = .idle       // PUT /v1/usage/config
+    @State private var displayCfgSave: SaveState = .idle  // PUT /v1/display/config
+
+    /// What the toolbar shows: an unacknowledged error from ANY writer wins over
+    /// another writer's success (so a later success can't mask an earlier error),
+    /// then saving, then saved. Each error clears once its own writer succeeds.
+    private var save: SaveState {
+        let all = [displaySave, usageSave, displayCfgSave]
+        if let err = all.first(where: { if case .error = $0 { return true } else { return false } }) {
+            return err
+        }
+        if all.contains(.saving) { return .saving }
+        if all.contains(.saved) { return .saved }
+        return .idle
+    }
+
     // Server-backed AI-usage-widget toggles (GET/PUT /v1/usage/config), debounced.
     @State private var usage = UsageConfig()
     @State private var lastUsage: UsageConfig?
@@ -142,6 +162,9 @@ struct DisplayTab: View {
             }
         }
         .formStyle(.grouped)
+        .toolbar {
+            ToolbarItem { statusCaption }
+        }
         .task {
             if !loaded {
                 let envFile = env.currentEnv()
@@ -182,28 +205,56 @@ struct DisplayTab: View {
         }
     }
 
+    @ViewBuilder private var statusCaption: some View {
+        switch save {
+        case .idle:   EmptyView()
+        case .saving: Text("Saving…").font(.caption).foregroundStyle(.secondary)
+        case .saved:  Label("Saved", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+        case .error(let m): Label(m, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red)
+        }
+    }
+
     private func scheduleUsageSave() {
         guard usage != lastUsage else { return }   // initial load / no-op
+        usageSave = .saving
         let u = usage
         usageWriter.schedule {
-            try? await env.usage.putConfig(u)
-            await MainActor.run { lastUsage = u }
+            do {
+                try await env.usage.putConfig(u)
+                await MainActor.run { lastUsage = u; usageSave = .saved }
+            } catch let e as APIError where e.isUnauthorized {
+                await MainActor.run { usageSave = .error("Unauthorized — check the token in Connection.") }
+            } catch {
+                await MainActor.run { usageSave = .error("Save failed: \(error.localizedDescription)") }
+            }
         }
     }
 
     private func scheduleDisplayCfgSave() {
         guard displayCfg != lastDisplayCfg else { return }   // initial load / no-op
+        displayCfgSave = .saving
         let d = displayCfg
         displayWriter.schedule {
-            try? await env.displayConfig.putConfig(d)
-            await MainActor.run { lastDisplayCfg = d }
+            do {
+                try await env.displayConfig.putConfig(d)
+                await MainActor.run { lastDisplayCfg = d; displayCfgSave = .saved }
+            } catch let e as APIError where e.isUnauthorized {
+                await MainActor.run { displayCfgSave = .error("Unauthorized — check the token in Connection.") }
+            } catch {
+                await MainActor.run { displayCfgSave = .error("Save failed: \(error.localizedDescription)") }
+            }
         }
     }
 
     private func writeDisplay() {
         var envFile = env.currentEnv()
         display.apply(to: &envFile)
-        try? envFile.write(to: env.producerEnvPath)   // best-effort, mirrors old Save
+        do {
+            try envFile.write(to: env.producerEnvPath)
+            displaySave = .saved
+        } catch {
+            displaySave = .error("Save failed: \(error.localizedDescription)")
+        }
     }
 
     private func refreshPreview() async {

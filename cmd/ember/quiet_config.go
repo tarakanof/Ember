@@ -112,9 +112,9 @@ func (a *App) quietDTO() quietConfigDTO {
 // The quietPublisher reads quietHoursWindow() per publish, so the change
 // takes effect on the next sound.
 func (a *App) applyQuietSettings(dto quietConfigDTO) {
-	cur := *a.cfg.Load()
-	cur.QuietHours = QuietHoursConfig{Enabled: dto.Enabled, Start: dto.Start, End: dto.End}
-	a.cfg.Store(&cur)
+	a.updateConfig(func(cur *Config) {
+		cur.QuietHours = QuietHoursConfig{Enabled: dto.Enabled, Start: dto.Start, End: dto.End}
+	})
 	if a.store != nil {
 		if blob, err := json.Marshal(dto); err == nil {
 			if err := a.store.PutSetting(quietSettingsKey, string(blob)); err != nil {

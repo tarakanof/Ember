@@ -49,11 +49,23 @@ public struct APIClient: Sendable {
     public let token: String?
     let session: URLSession
 
-    public init(baseURL: URL?, token: String?, session: URLSession = .shared) {
+    public init(baseURL: URL?, token: String?, session: URLSession? = nil) {
         self.baseURL = baseURL
         self.token = token
-        self.session = session
+        self.session = session ?? Self.defaultSession
     }
+
+    /// Dedicated session (not `URLSession.shared`) with short timeouts so a
+    /// "Test Connection" against a wrong/vanished host fails fast (~5s) instead of
+    /// hanging on the 60s system defaults — and the tray reflects a dropped server
+    /// promptly. 5s matches `DeviceService.directScreen`'s precedent; the 10s
+    /// resource cap bounds the whole request incl. retries.
+    private static let defaultSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = 10
+        return URLSession(configuration: config)
+    }()
 
     private static func makeDecoder() -> JSONDecoder {
         let d = JSONDecoder()

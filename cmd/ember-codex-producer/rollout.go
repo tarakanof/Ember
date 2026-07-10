@@ -158,12 +158,9 @@ func clampPct(n int) int {
 	return n
 }
 
+// truncate is rune-safe: see producer.Truncate.
 func truncate(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
+	return producer.Truncate(s, n)
 }
 
 // labelForEvent returns a short trail label for a detail-bearing action event,

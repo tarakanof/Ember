@@ -12,7 +12,7 @@ func TestReconcileWeatherTilePushesAndClears(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
-	cfg.Weather.RotateInApps = true
+	cfg.Weather.RotateInApps = boolPtr(true)
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
 	now := time.Now()
@@ -45,7 +45,7 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
-	cfg.Weather.ForecastTile = true
+	cfg.Weather.ForecastTile = boolPtr(true)
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
 	now := time.Now()
@@ -81,7 +81,7 @@ func TestReconcileAirTilePushesAndClears(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
-	cfg.Weather.AirTile = true
+	cfg.Weather.AirTile = boolPtr(true)
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
 	now := time.Now()
@@ -115,7 +115,7 @@ func TestReconcileAirTileDisabled(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
-	cfg.Weather.AirTile = false
+	cfg.Weather.AirTile = boolPtr(false)
 	app := NewApp(cfg, pub, testLogger())
 	app.weather.mu.Lock()
 	app.weather.air = airObservation{AQI: 42, HourlyAQI: []float64{40}, FetchedAt: now}
@@ -178,7 +178,7 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
-	cfg.Weather.ForecastTile = false
+	cfg.Weather.ForecastTile = boolPtr(false)
 	app := NewApp(cfg, pub, testLogger())
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now, Hourly: []float64{1, 2, 3}}
@@ -194,7 +194,7 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 	cfg2 := defaultConfig()
 	cfg2.Weather.applyDefaults()
 	cfg2.Weather.Enabled = true
-	cfg2.Weather.ForecastTile = true
+	cfg2.Weather.ForecastTile = boolPtr(true)
 	app2 := NewApp(cfg2, pub2, testLogger())
 	app2.weather.mu.Lock()
 	app2.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now} // Hourly nil
@@ -209,7 +209,7 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 func TestForecastDefaultsAndWindow(t *testing.T) {
 	var c WeatherConfig
 	c.applyDefaults()
-	if !c.ForecastTile {
+	if !c.ForecastTileEnabled() {
 		t.Error("ForecastTile should default on")
 	}
 	if c.ForecastHours != 24 {
@@ -240,7 +240,7 @@ func TestReconcileWeatherTileDisabledOrNoRotate(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
-	cfg.Weather.RotateInApps = false // tile suppressed even with fresh data
+	cfg.Weather.RotateInApps = boolPtr(false) // tile suppressed even with fresh data
 	app := NewApp(cfg, pub, testLogger())
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: time.Now()}

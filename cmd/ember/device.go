@@ -15,15 +15,38 @@ import (
 // config-persistence pattern).
 const deviceBaseURLKey = "device_base_url"
 
+// defaultDeviceBaseURL is the fallback clock URL used both when config.json
+// omits awtrix.http_base_url (see Config.applyDefaults) and when a
+// hand-edited baseline fails validDeviceURL (see sanitizeConfigBaseline).
+const defaultDeviceBaseURL = "http://192.168.0.14"
+
+// validDeviceURL reports (via a non-nil error) whether raw is unsafe to use as
+// the clock's base URL. The /v1/device/* proxies forward requests to this URL
+// verbatim, so it must be an absolute http/https URL with a non-empty host —
+// otherwise a file:, gopher:, or bare-path value could be used for SSRF or to
+// read local files. Applied to both the PUT /v1/device/config body and the
+// config.json baseline (see sanitizeConfigBaseline).
+func validDeviceURL(raw string) error {
+	u, err := url.ParseRequestURI(raw)
+	if err != nil {
+		return fmt.Errorf("invalid base_url %q: %v", raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("base_url %q: scheme must be http or https, got %q", raw, u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("base_url %q: host is required", raw)
+	}
+	return nil
+}
+
 // applyDeviceBaseURL validates a clock base URL, swaps it into the live config,
 // and persists it to the store. Mirrors applyWeatherSettings.
 func (a *App) applyDeviceBaseURL(raw string) error {
-	if _, err := url.ParseRequestURI(raw); err != nil {
-		return fmt.Errorf("invalid base_url %q", raw)
+	if err := validDeviceURL(raw); err != nil {
+		return err
 	}
-	cur := *a.cfg.Load()
-	cur.AWTRIX.HTTPBaseURL = raw
-	a.cfg.Store(&cur)
+	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = raw })
 	if a.store != nil {
 		if err := a.store.PutSetting(deviceBaseURLKey, raw); err != nil {
 			a.logger.Warn("device base url persist failed", "err", err)
@@ -88,9 +111,8 @@ func (a *App) initDeviceDiscovery(ctx context.Context) {
 		a.logger.Info("clock discovery found no device", "configured", a.cfg.Load().AWTRIX.HTTPBaseURL)
 		return
 	}
-	cur := *a.cfg.Load()
-	cur.AWTRIX.HTTPBaseURL = cands[0].BaseURL
-	a.cfg.Store(&cur) // in-memory only; not persisted
+	base := cands[0].BaseURL
+	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = base }) // in-memory only; not persisted
 	a.deviceAutoPicked = true
 	a.logger.Info("clock auto-discovered", "base_url", cands[0].BaseURL, "uid", cands[0].UID)
 }

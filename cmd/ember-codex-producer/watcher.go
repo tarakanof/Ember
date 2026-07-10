@@ -84,14 +84,31 @@ func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 // DELETE, and usage requests to issue (so the loop is testable without HTTP).
 func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
 	now := w.now()
-	seen := map[string]bool{}
+	// The scan set is the union of the candidate-window files and the paths of
+	// all currently-tracked live sessions, so a session whose file has aged out
+	// of the today+yesterday window keeps being tailed until it actually
+	// disappears or ages out via the activity TTL.
+	candidates := map[string]bool{}
 	for _, path := range w.candidateFiles(now) {
-		seen[path] = true
+		candidates[path] = true
+	}
+	scan := map[string]bool{}
+	for path := range candidates {
+		scan[path] = true
+	}
+	for path := range w.sessions {
+		scan[path] = true
+	}
+	gone := map[string]bool{}
+	for path := range scan {
 		if w.ignored[path] {
 			continue
 		}
 		info, err := os.Stat(path)
 		if err != nil {
+			if os.IsNotExist(err) {
+				gone[path] = true
+			}
 			continue
 		}
 		ss := w.sessions[path]
@@ -106,6 +123,17 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 			}
 			ss = &sessionState{path: path, uuid: meta.id}
 			w.sessions[path] = ss
+		}
+		// Truncation/rotation recovery: a file smaller than the stored offset was
+		// truncated or replaced. Reset the offset and re-derive from scratch so a
+		// full re-read doesn't double-apply state (e.g. the activity trail).
+		// Limitation: a same-size file replacement isn't detected (only
+		// size < offset triggers recovery) — acceptable for append-only
+		// rollout JSONL, which never gets replaced by another file of the
+		// exact same byte length.
+		if info.Size() < ss.offset {
+			ss.offset = 0
+			ss.derived = derived{}
 		}
 		if lines, newOffset, err := readNewLines(path, ss.offset); err == nil {
 			for _, ln := range lines {
@@ -131,9 +159,16 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 	}
 	for path, ss := range w.sessions {
-		if !seen[path] || now.Sub(ss.lastModified) > w.activityWindow {
+		if gone[path] || now.Sub(ss.lastModified) > w.activityWindow {
 			deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: ss.uuid})
 			delete(w.sessions, path)
+		}
+	}
+	// Prune ignored entries that have left the candidate window so the map can't
+	// grow without bound over an indefinite daemon lifetime.
+	for path := range w.ignored {
+		if !candidates[path] {
+			delete(w.ignored, path)
 		}
 	}
 	return posts, deletes, usages

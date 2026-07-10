@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"runtime"
@@ -238,7 +239,7 @@ func checkMeetings(app *App, cfg *Config) CheckResult {
 	if len(app.meetingsURLs) == 0 {
 		return CheckResult{Status: StatusOK, Detail: "not configured (EMBER_MEETINGS_ICS_URLS unset)"}
 	}
-	if !cfg.Meetings.Enabled {
+	if !cfg.Meetings.IsEnabled() {
 		return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("%d feed(s) configured but meetings disabled", len(app.meetingsURLs))}
 	}
 	feedCount := len(app.meetingsURLs)
@@ -282,7 +283,11 @@ func runDoctor(args []string) {
 	asJSON := fs.Bool("json", false, "print result as JSON")
 	_ = fs.Parse(args)
 
-	cfg, err := loadConfig(*configPath)
+	// doctor is a standalone CLI invocation with no app-wide structured
+	// logger; build a bare stderr one so baseline-repair warnings from
+	// loadConfig are still visible instead of silently dropped.
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	cfg, err := loadConfig(*configPath, logger)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "doctor: config:", err)
 		os.Exit(1)

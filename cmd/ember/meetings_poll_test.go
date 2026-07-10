@@ -38,10 +38,10 @@ END:VCALENDAR
 func newMeetingsTestApp(t *testing.T, pub *recordingPublisher) *App {
 	t.Helper()
 	cfg := defaultConfig()
-	cfg.Meetings.Enabled = true
+	cfg.Meetings.Enabled = boolPtr(true)
 	cfg.Meetings.TileLeadMinutes = 60
-	cfg.Meetings.PopupLeadMinutes = 2
-	cfg.Meetings.Chime = true
+	cfg.Meetings.PopupLeadMinutes = intPtr(2)
+	cfg.Meetings.Chime = boolPtr(true)
 	app := NewApp(cfg, pub, testLogger())
 	return app
 }
@@ -206,10 +206,10 @@ func TestPollMeetingsErrorNeverContainsURL(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	cfg := defaultConfig()
-	cfg.Meetings.Enabled = true
+	cfg.Meetings.Enabled = boolPtr(true)
 	cfg.Meetings.TileLeadMinutes = 60
-	cfg.Meetings.PopupLeadMinutes = 2
-	cfg.Meetings.Chime = true
+	cfg.Meetings.PopupLeadMinutes = intPtr(2)
+	cfg.Meetings.Chime = boolPtr(true)
 	app := NewApp(cfg, &recordingPublisher{}, logger)
 	app.meetingsURLs = []string{closedAddr}
 	app.meetingsFetcher = newICSFetcher()
@@ -291,7 +291,7 @@ func TestMeetingPopupNoChimeWhenOff(t *testing.T) {
 
 	// Override chime to false.
 	cur := *app.cfg.Load()
-	cur.Meetings.Chime = false
+	cur.Meetings.Chime = boolPtr(false)
 	app.cfg.Store(&cur)
 
 	meetStart := now.Add(2 * time.Minute)
@@ -328,7 +328,7 @@ func TestMeetingPopupSkippedWhenLeadZero(t *testing.T) {
 	app := newMeetingsTestApp(t, pub)
 
 	cur := *app.cfg.Load()
-	cur.Meetings.PopupLeadMinutes = 0
+	cur.Meetings.PopupLeadMinutes = intPtr(0)
 	app.cfg.Store(&cur)
 
 	meetStart := now.Add(2 * time.Minute)

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,6 +184,80 @@ func TestApplyDefaults_RateLimitPreservesDisabled(t *testing.T) {
 	cfg.applyDefaults()
 	if !cfg.RateLimit.Disabled {
 		t.Error("Disabled flag was overwritten by applyDefaults")
+	}
+}
+
+// TestLoadConfig_InvalidDeviceURLSchemeFallsBackToDefault covers the SSRF
+// guard on the config.json baseline: a hand-edited file:/gopher:/bare-path
+// base_url must not crash the server at startup — it's logged and replaced
+// with the safe default so the rest of the config still loads.
+func TestLoadConfig_InvalidDeviceURLSchemeFallsBackToDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.json")
+	body := `{"awtrix":{"http_base_url":"file:///etc/passwd"}}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	cfg, err := loadConfig(path, logger)
+	if err != nil {
+		t.Fatalf("loadConfig should not fail on an invalid baseline scheme, got: %v", err)
+	}
+	if cfg.AWTRIX.HTTPBaseURL != defaultDeviceBaseURL {
+		t.Errorf("HTTPBaseURL = %q, want fallback to default %q", cfg.AWTRIX.HTTPBaseURL, defaultDeviceBaseURL)
+	}
+	if got := logs.String(); !strings.Contains(got, "level=WARN") || !strings.Contains(got, "awtrix.http_base_url invalid") {
+		t.Errorf("expected a WARN log for the invalid baseline URL through the supplied logger, got: %q", got)
+	}
+}
+
+// TestLoadConfig_InvalidIconIDsDroppedWithWarn covers the icon-id SSRF-ish
+// guard (path traversal into /ICONS) at the config.json baseline: invalid
+// entries are dropped (logged), valid ones kept, load still succeeds.
+func TestLoadConfig_InvalidIconIDsDroppedWithWarn(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.json")
+	body := `{"awtrix":{"http_base_url":"http://x"},"weather":{"icon_ids":{"clear":"123","clouds":"../dev"}}}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	cfg, err := loadConfig(path, logger)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.Weather.IconIDs["clear"] != "123" {
+		t.Errorf("valid icon id was dropped: %+v", cfg.Weather.IconIDs)
+	}
+	if _, ok := cfg.Weather.IconIDs["clouds"]; ok {
+		t.Errorf("invalid icon id was not dropped: %+v", cfg.Weather.IconIDs)
+	}
+	if got := logs.String(); !strings.Contains(got, "level=WARN") || !strings.Contains(got, "weather.icon_ids entry invalid") {
+		t.Errorf("expected a WARN log for the dropped icon id through the supplied logger, got: %q", got)
+	}
+}
+
+// TestSanitizeConfigBaseline_LogsThroughSuppliedLogger is a narrower unit
+// test on sanitizeConfigBaseline itself (independent of file loading),
+// proving both drop paths write to the logger passed in, not slog.Default().
+func TestSanitizeConfigBaseline_LogsThroughSuppliedLogger(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "file:///etc/passwd"
+	cfg.Weather.IconIDs = map[string]string{"clouds": "../dev"}
+
+	sanitizeConfigBaseline(&cfg, logger)
+
+	got := logs.String()
+	if !strings.Contains(got, "awtrix.http_base_url invalid") {
+		t.Errorf("missing device-URL warning in captured logs: %q", got)
+	}
+	if !strings.Contains(got, "weather.icon_ids entry invalid") {
+		t.Errorf("missing icon-id warning in captured logs: %q", got)
 	}
 }
 

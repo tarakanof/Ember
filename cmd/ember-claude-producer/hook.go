@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -107,7 +106,7 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 		handleUpsert(ctx, cfg, client, sessionID, "error", msg, "", markerP, lockP)
 	case "session-end":
 		switch in.EndReason {
-		case "logout", "prompt_input_exit", "bypass_permissions_disabled", "other":
+		case "logout", "prompt_input_exit", "bypass_permissions_disabled", "other", "clear":
 			handleDelete(ctx, cfg, client, sessionID, markerP, lockP)
 		}
 	}
@@ -190,12 +189,9 @@ func handleDelete(ctx context.Context, cfg Config, client *Client, sessionID, ma
 	})
 }
 
+// truncate is rune-safe: see producer.Truncate.
 func truncate(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
+	return producer.Truncate(s, n)
 }
 
 func pickFirstNonEmpty(vals ...string) string {

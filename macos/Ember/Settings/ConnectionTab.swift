@@ -130,9 +130,7 @@ struct ConnectionTab: View {
     /// because `ConnectionSettings.apply` validates every field together. Until
     /// then the colour controls are disabled (rather than throwing a confusing
     /// "source must not be empty" on a colour action).
-    private var connectionConfigured: Bool {
-        !committed.source.isEmpty && !committed.serverURL.isEmpty
-    }
+    private var connectionConfigured: Bool { committed.isComplete }
 
     @ViewBuilder private var statusCaption: some View {
         switch save {
@@ -174,16 +172,19 @@ struct ConnectionTab: View {
         }
     }
 
-    /// Applies a one-field mutation of the committed snapshot, validating ALL
-    /// fields (ConnectionSettings.apply is all-or-nothing) but only ever feeding
-    /// known-valid values for the OTHER fields.
+    /// Applies a one-field mutation of the committed snapshot. Uses the tolerant
+    /// apply so a fresh install can be configured one field at a time in any order:
+    /// a still-empty required sibling (e.g. Source while the user is filling the
+    /// Server URL) is not treated as an error. The one field being changed is still
+    /// validated, so a genuinely bad value (e.g. a malformed URL) shows the red
+    /// error; the OTHER fields come from the known-valid committed snapshot.
     private func commit(_ mutate: (inout ConnectionSettings) -> Void) {
         var next = committed
         mutate(&next)
         guard next != committed else { return }   // no-op (e.g. Return then blur): skip the write
         var envFile = env.currentEnv()
         do {
-            try next.apply(to: &envFile, token: nil)
+            try next.applyTolerant(to: &envFile, token: nil)
             try envFile.write(to: env.producerEnvPath)
             committed = next
             env.reloadConnection()
@@ -199,7 +200,9 @@ struct ConnectionTab: View {
         guard !token.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         var envFile = env.currentEnv()
         do {
-            try committed.apply(to: &envFile, token: token)
+            // Tolerant apply so a token can be saved on a fresh install before the
+            // Source / Server URL fields have been filled in.
+            try committed.applyTolerant(to: &envFile, token: token)
             try envFile.write(to: env.producerEnvPath)
             env.reloadConnection()
             token = ""; tokenIsSet = true

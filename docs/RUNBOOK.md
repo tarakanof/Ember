@@ -45,7 +45,10 @@ docker run -d --name ember --restart unless-stopped -p 3627:3627 \
     in `config.json` — not a stray external publisher. Fix the name and restart;
     don't go hunting MQTT/other hosts. (`config.json` is a single-file bind
     mount — edit then `docker restart ember` to apply.)
-- Token: `openssl rand -hex 32 > ~/.config/ember/token`.
+- Token: `openssl rand -hex 32 > ~/.config/ember/token`. **`EMBER_TOKEN` is
+  mandatory:** auth fails closed, so with it unset every `/v1` write (and every
+  `/admin` call) returns 401 — read endpoints (`/state`, `/healthz`, previews)
+  stay open. If writes suddenly 401 after a deploy, check the env var first.
 - **mDNS discovery needs host networking.** The `-p 3627:3627` form above is fine
   for everything except clock/server discovery (multicast doesn't cross the
   bridge). For the discovery features, run with `--network host` and drop `-p`
@@ -272,7 +275,9 @@ tab proxies the clock's own settings through `/v1/device/*`.
   `api.anthropic.com/api/oauth/usage` every ~5 min using the OAuth token in the
   **macOS login Keychain** (item `Claude Code-credentials`). Requires the user to
   be logged into Claude Code on that Mac; the token is **read-only, never
-  refreshed**. On 401 the poller stops until the user re-auths in Claude Code.
+  refreshed**. On 401 (or any other non-200/transient error) the poller just
+  skips that tick and keeps polling every ~5 min — it never stops the loop —
+  until the user re-auths in Claude Code.
 - **Codex (session-only):** posted from the rollout stream while a Codex session
   is active; usage card faces clear ~10 min after the last session.
 - **Claude 5h fallback:** when the endpoint usage is stale/absent (daemon idle or

@@ -35,6 +35,16 @@ import Foundation
     }
 }
 
+// A client built without an injected session gets a dedicated URLSession with
+// short timeouts (≈5s request / ≈10s resource) so "Test Connection" fails fast
+// instead of hanging on URLSession.shared's 60s defaults.
+@Test func defaultSessionHasShortTimeouts() {
+    let client = APIClient(baseURL: URL(string: "http://example.local"), token: nil)
+    #expect(client.session !== URLSession.shared)
+    #expect(client.session.configuration.timeoutIntervalForRequest == 5)
+    #expect(client.session.configuration.timeoutIntervalForResource == 10)
+}
+
 @Test func notConfiguredWhenNoBaseURL() async throws {
     let client = APIClient(baseURL: nil, token: nil, session: .shared)
     await #expect(throws: APIError.notConfigured) {

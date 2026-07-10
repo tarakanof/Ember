@@ -171,7 +171,17 @@ type coordinator struct {
 	// retry on the next tick.
 	lastPayloadBytes []byte
 	lastPublishedAt  time.Time
+
+	// lastDropWarnNano throttles the "command dropped" warning to at most
+	// ~1/min so a wedged device (onTick blocking on unreachable-device HTTP)
+	// can't turn every dropped producer command into a log line. Holds the
+	// wallclock UnixNano of the last emitted warning; updated with a CAS so
+	// the throttle itself never blocks or allocates on the hot Send path.
+	lastDropWarnNano atomic.Int64
 }
+
+// dropWarnInterval bounds how often Send logs a dropped-command warning.
+const dropWarnInterval = time.Minute
 
 type coordIdleMode int
 
@@ -230,13 +240,36 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 	}
 }
 
-// Send enqueues a command. Stale ticks (cmdTick) are dropped when their
-// 1-slot channel is full — the next tick will pick up wherever the
-// snapshot has landed. State-change commands (upsert/delete/clear) go
-// to a wide buffer (64 slots); if THAT fills, we log at warn rather
-// than drop, because losing an attention transition would defeat the
-// preempt machinery. On a wedged channel, the runtime panic from a
-// full-buffer send is preferable to silent loss.
+// Send enqueues a command. It NEVER blocks: every caller of Send is either
+// the tick ticker/timer or a producer-driven HTTP handler (handleStatus,
+// handleClear, handleDeleteStatus), and the coordinator goroutine can stall
+// for tens of seconds inside onTick when the device is unreachable (up to ~7
+// sequential 10 s-timeout device HTTP calls). A blocking Send would wedge
+// those HTTP handlers behind the coordinator, so producers time out.
+//
+// Stale ticks (cmdTick) drop on their 1-slot channel — the next tick picks up
+// wherever the snapshot has landed. State-change commands (upsert/delete/clear)
+// go to a wide 64-slot buffer; when THAT fills we drop the command rather than
+// block, counting it and warning (throttled).
+//
+// Dropping a state-change command is an accepted tradeoff, in two parts:
+//
+// (a) Display state self-heals. The authoritative state lives in App.sessions
+// (already updated by Upsert/Delete/Clear before Send is called), producers
+// re-POST heartbeats every 10–15 s, and each dwell tick re-reads that
+// snapshot: onTick's release logic (reap/drain/ack-timeout) and pointer
+// advance converge the frame within ~one dwell interval, so a dropped
+// delete/clear/non-attention upsert only delays the display by a tick.
+//
+// (b) A dropped FRESH-attention upsert loses that edge's preempt+chime
+// permanently. Lock acquisition is edge-triggered and lives ONLY in onUpsert
+// (attention && transition && !priorWasAttention); onTick has no acquisition
+// path, and a heartbeat re-POST of a still-waiting session is
+// waiting→waiting (no transition), so it cannot re-acquire. The preempt is
+// gone until the session's next transition edge. Accepted because it only
+// happens during a sustained >64-command burst while the coordinator is
+// wedged on an unreachable device, and the session still appears in the
+// normal rotation — versus back-pressuring every producer.
 func (c *coordinator) Send(cmd coordCmd) {
 	if cmd.kind == cmdTick {
 		select {
@@ -249,9 +282,26 @@ func (c *coordinator) Send(cmd coordCmd) {
 	select {
 	case c.cmds <- cmd:
 	default:
-		c.logger.Warn("coord: cmd channel full — blocking briefly", "kind", cmd.kind, "session_key", cmd.sessionKey)
-		c.cmds <- cmd
+		c.metrics.incCommandDropped()
+		c.warnDropThrottled(cmd)
 	}
+}
+
+// warnDropThrottled logs a dropped-command warning at most once per
+// dropWarnInterval. A single atomic CAS gates the log so a flood of drops
+// (the exact situation that triggers this) doesn't spam the log or contend on
+// a mutex on the Send hot path.
+func (c *coordinator) warnDropThrottled(cmd coordCmd) {
+	now := time.Now().UnixNano()
+	last := c.lastDropWarnNano.Load()
+	if now-last < int64(dropWarnInterval) {
+		return
+	}
+	if !c.lastDropWarnNano.CompareAndSwap(last, now) {
+		return // another goroutine just emitted the warning
+	}
+	c.logger.Warn("coord: cmd channel full — dropping command (state self-heals via heartbeats/next tick)",
+		"kind", cmd.kind, "session_key", cmd.sessionKey)
 }
 
 // Run is the goroutine entry point. Cancels cleanly on ctx.Done.
@@ -376,6 +426,10 @@ func (c *coordinator) onClear() {
 	c.lockedKey = ""
 	c.disarmLockTimerLocked()
 	c.muTest.Unlock()
+
+	if c.snapshot != nil {
+		c.publish(c.filteredSnapshot())
+	}
 }
 
 // attentionRTTTL is the optional lock-acquisition chime (display.attention_chime).
@@ -636,12 +690,12 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 	}
 	cfg := c.loadCfg().Weather
 	obs, have := c.weather.current()
-	want := cfg.Enabled && cfg.RotateInApps && have && now.Sub(obs.FetchedAt) < weatherTileStaleTTL
+	want := cfg.Enabled && cfg.RotateInAppsEnabled() && have && now.Sub(obs.FetchedAt) < weatherTileStaleTTL
 	c.reconcileTile(now, "ember-weather", &c.pushedWeather, want, func() map[string]any {
 		tempText := weatherTempText(obs.TempC, cfg.Units)
 		window := forecastWindow(obs.Hourly, cfg.ForecastHours)
 		switch {
-		case cfg.MoonPhase && obs.Condition == render.WeatherClear &&
+		case cfg.MoonPhaseEnabled() && obs.Condition == render.WeatherClear &&
 			(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
 			// Moon wins over native icons — there is no per-phase gallery set.
 			illum, waxing := moonIllumination(now)
@@ -679,7 +733,7 @@ func (c *coordinator) reconcileForecastApp(now time.Time) {
 	cfg := c.loadCfg().Weather
 	obs, have := c.weather.current()
 	hourly := forecastWindow(obs.Hourly, cfg.ForecastHours)
-	want := cfg.Enabled && cfg.ForecastTile && have && len(hourly) > 0 &&
+	want := cfg.Enabled && cfg.ForecastTileEnabled() && have && len(hourly) > 0 &&
 		now.Sub(obs.FetchedAt) < weatherTileStaleTTL
 	c.reconcileTile(now, "ember-forecast", &c.pushedForecast, want, func() map[string]any {
 		return render.ForecastPayload(hourly, usageAppLifetime)
@@ -696,7 +750,7 @@ func (c *coordinator) reconcileAirApp(now time.Time) {
 	}
 	cfg := c.loadCfg().Weather
 	air, have := c.weather.currentAir()
-	want := cfg.Enabled && cfg.AirTile && have && now.Sub(air.FetchedAt) < weatherTileStaleTTL
+	want := cfg.Enabled && cfg.AirTileEnabled() && have && now.Sub(air.FetchedAt) < weatherTileStaleTTL
 	c.reconcileTile(now, "ember-air", &c.pushedAir, want, func() map[string]any {
 		return render.AirPayload(air.AQI, air.HourlyAQI, usageAppLifetime)
 	})
@@ -724,7 +778,7 @@ func (c *coordinator) reconcileMeetingApp(now time.Time) {
 	}
 	cfg := c.loadCfg().Meetings
 	occ, ok := c.meetings.next(now)
-	want := cfg.Enabled && ok && c.meetings.fresh(now) &&
+	want := cfg.IsEnabled() && ok && c.meetings.fresh(now) &&
 		occ.Start.Sub(now) <= time.Duration(cfg.TileLeadMinutes)*time.Minute
 	c.reconcileTile(now, "ember-meet", &c.pushedMeeting, want, func() map[string]any {
 		return render.MeetingPayload(sanitizeMeetingTitle(occ.Title), meetingMinutes(now, occ.Start), usageAppLifetime)

@@ -153,6 +153,61 @@ func mustMkdir(t *testing.T, p string) {
 	}
 }
 
+// TestMergeSettings_SessionEndMatcherIncludesClear is the Task-9 /clear-ghost
+// regression test: the installed SessionEnd matcher must include "clear" so
+// the hook fires for it (see hook.go's session-end EndReason switch).
+func TestMergeSettings_SessionEndMatcherIncludesClear(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/ember-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `logout|prompt_input_exit|bypass_permissions_disabled|other|clear`) {
+		t.Errorf("SessionEnd matcher missing clear: %s", body)
+	}
+}
+
+// TestMergeSettings_UpgradeReplacesOldSessionEndMatcher confirms that
+// installing over a settings.json written by a pre-clear-fix binary (matcher
+// without "clear") replaces the stale matcher rather than leaving it to
+// double-fire alongside a new entry. mergeSettingsJSON identifies "ours" by
+// command substring (entryMatchesProducer), not by matcher value, so a
+// plain re-install already self-heals this — no separate migration path
+// needed.
+func TestMergeSettings_UpgradeReplacesOldSessionEndMatcher(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	dir := filepath.Join(tmp, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldMatcherSettings := `{"hooks":{"SessionEnd":[{"matcher":"logout|prompt_input_exit|bypass_permissions_disabled|other","hooks":[{"type":"command","command":"/usr/local/bin/ember-claude-producer hook session-end"}]}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(oldMatcherSettings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/ember-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"logout|prompt_input_exit|bypass_permissions_disabled|other"`) {
+		t.Errorf("upgrade left the old matcher without clear (would ship without the /clear fix):\n%s", body)
+	}
+	if !strings.Contains(string(body), `logout|prompt_input_exit|bypass_permissions_disabled|other|clear`) {
+		t.Errorf("upgrade did not install the new matcher with clear:\n%s", body)
+	}
+	// Exactly one SessionEnd entry — the old one was replaced, not duplicated.
+	if strings.Count(string(body), `"SessionEnd"`) != 1 {
+		t.Errorf("expected exactly one SessionEnd key, got: %s", body)
+	}
+}
+
 func TestMergeSettingsJSON_StatusLineCaptureAndSet(t *testing.T) {
 	home := t.TempDir()
 	mustMkdir(t, filepath.Join(home, ".claude"))

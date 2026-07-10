@@ -12,7 +12,7 @@ func TestSunPopupFiresOncePerDay(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
-	cfg.Weather.SunPopups = true
+	cfg.Weather.SunPopups = boolPtr(true)
 	cfg.Weather.Latitude = 10
 	cfg.Weather.Longitude = 10
 	app := NewApp(cfg, pub, testLogger())
@@ -53,7 +53,7 @@ func TestSunPopupSkippedWhenDisabledOrBeforeEvent(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
-	cfg.Weather.SunPopups = false
+	cfg.Weather.SunPopups = boolPtr(false)
 	app := NewApp(cfg, pub, testLogger())
 	app.checkSunPopups(context.Background(), sunrise, app.cfg.Load().Weather)
 	pub.mu.Lock()
@@ -68,7 +68,7 @@ func TestSunPopupSkippedWhenDisabledOrBeforeEvent(t *testing.T) {
 	cfg2 := defaultConfig()
 	cfg2.Weather.applyDefaults()
 	cfg2.Weather.Enabled = true
-	cfg2.Weather.SunPopups = true
+	cfg2.Weather.SunPopups = boolPtr(true)
 	cfg2.Weather.Latitude = 10
 	cfg2.Weather.Longitude = 10
 	app2 := NewApp(cfg2, pub2, testLogger())

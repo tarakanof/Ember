@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -16,6 +17,13 @@ import (
 const usageEndpoint = "https://api.anthropic.com/api/oauth/usage"
 const usagePollInterval = 5 * time.Minute
 const defaultClaudeVersion = "2.1.0"
+
+// usageClientTimeout bounds fetchUsage's TLS+request round trip. Without it,
+// one stalled connection to the endpoint hangs until the daemon restarts —
+// http.DefaultClient has no Timeout.
+const usageClientTimeout = 30 * time.Second
+
+var usageHTTPClient = &http.Client{Timeout: usageClientTimeout}
 
 type usageWindow struct {
 	Utilization float64 `json:"utilization"`
@@ -64,7 +72,7 @@ func fetchUsage(ctx context.Context, token string) (usageResponse, int, error) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", claudeUA())
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := usageHTTPClient.Do(req)
 	if err != nil {
 		return usageResponse{}, 0, err
 	}
@@ -110,7 +118,9 @@ func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 			"sonnet": win(u.SevenDaySonnet, loc, dayLabel),
 		},
 	}
-	_ = client.Usage(ctx, req) // Client is producer.Client (see client.go alias)
+	if err := client.Usage(ctx, req); err != nil { // Client is producer.Client (see client.go alias)
+		tickFailLog.Warn(slog.Default(), "claude_usage", "usage POST failed", "err", err)
+	}
 }
 
 // usagePollLoop polls the usage endpoint every usagePollInterval until ctx is
@@ -121,7 +131,7 @@ func usagePollLoop(ctx context.Context) {
 	defer t.Stop()
 	for {
 		if cfg, err := loadConfig(); err == nil && cfg.ServerURL != "" {
-			usagePollOnce(ctx, cfg, NewClient(cfg))
+			usagePollOnce(ctx, cfg, NewDaemonClient(cfg))
 		}
 		select {
 		case <-ctx.Done():

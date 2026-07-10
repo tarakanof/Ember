@@ -30,6 +30,7 @@ type metrics struct {
 	publishTotalFail atomic.Int64
 	rateLimitDenied  atomic.Int64
 	sessionsEvicted  atomic.Int64
+	commandsDropped  atomic.Int64
 }
 
 func newMetrics() *metrics { return &metrics{} }
@@ -67,6 +68,11 @@ func (m *metrics) incRateLimitDenied() {
 func (m *metrics) incSessionEvicted() {
 	if m != nil {
 		m.sessionsEvicted.Add(1)
+	}
+}
+func (m *metrics) incCommandDropped() {
+	if m != nil {
+		m.commandsDropped.Add(1)
 	}
 }
 
@@ -131,6 +137,10 @@ func (m *metrics) render(w io.Writer, app *App) {
 	fmt.Fprintln(w, "# HELP ember_sessions_evicted_total Sessions reaped due to staleness or done-TTL.")
 	fmt.Fprintln(w, "# TYPE ember_sessions_evicted_total counter")
 	fmt.Fprintf(w, "ember_sessions_evicted_total %d\n", m.sessionsEvicted.Load())
+
+	fmt.Fprintln(w, "# HELP ember_coordinator_commands_dropped_total State-change commands dropped because the coordinator command buffer was full.")
+	fmt.Fprintln(w, "# TYPE ember_coordinator_commands_dropped_total counter")
+	fmt.Fprintf(w, "ember_coordinator_commands_dropped_total %d\n", m.commandsDropped.Load())
 
 	app.mu.Lock()
 	sessionsActive := len(app.sessions)

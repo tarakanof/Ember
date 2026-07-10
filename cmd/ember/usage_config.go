@@ -30,11 +30,7 @@ func (a *App) usageDTO() usageConfigDTO {
 // The coordinator reads usageWidgetEnabled()/usagePerModelEnabled()/limitAlarmEnabled()
 // live, so the change takes effect on the next reconcile tick.
 func (a *App) applyUsageSettings(dto usageConfigDTO) {
-	cur := *a.cfg.Load()
 	uw, upm, la := dto.UsageWidget, dto.UsagePerModel, dto.LimitAlarm
-	cur.UsageWidget = &uw
-	cur.UsagePerModel = &upm
-	cur.LimitAlarm = &la
 	thr := dto.UsageThresholdPct
 	if thr < 0 {
 		thr = 0
@@ -42,8 +38,12 @@ func (a *App) applyUsageSettings(dto usageConfigDTO) {
 	if thr > 100 {
 		thr = 100
 	}
-	cur.UsageThresholdPct = &thr
-	a.cfg.Store(&cur)
+	a.updateConfig(func(cur *Config) {
+		cur.UsageWidget = &uw
+		cur.UsagePerModel = &upm
+		cur.LimitAlarm = &la
+		cur.UsageThresholdPct = &thr
+	})
 	dto.UsageThresholdPct = thr // persist the clamped value, not the raw PUT value
 	if a.store != nil {
 		if blob, err := json.Marshal(dto); err == nil {

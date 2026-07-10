@@ -148,7 +148,7 @@ func (a *App) StartMeetings(ctx context.Context) {
 // The `now` parameter makes the function deterministic under test.
 func (a *App) pollMeetings(ctx context.Context, now time.Time) {
 	cfg := a.cfg.Load().Meetings
-	if !cfg.Enabled || len(a.meetingsURLs) == 0 {
+	if !cfg.IsEnabled() || len(a.meetingsURLs) == 0 {
 		return
 	}
 
@@ -229,7 +229,7 @@ func (a *App) pollMeetings(ctx context.Context, now time.Time) {
 // 10 distinct meetings inside a single lead window (max 60 min) is not a real
 // calendar scenario, and the fired-map dedupe guarantees each fires at most once.
 func (a *App) checkMeetingPopup(ctx context.Context, now time.Time, cfg MeetingsConfig) {
-	if cfg.PopupLeadMinutes <= 0 || !a.meetings.fresh(now) {
+	if cfg.PopupLeadMins() <= 0 || !a.meetings.fresh(now) {
 		return
 	}
 	upcoming := a.meetings.snapshot(now, 10)
@@ -237,7 +237,7 @@ func (a *App) checkMeetingPopup(ctx context.Context, now time.Time, cfg Meetings
 		return
 	}
 
-	lead := time.Duration(cfg.PopupLeadMinutes) * time.Minute
+	lead := time.Duration(cfg.PopupLeadMins()) * time.Minute
 
 	// Single timeout context shared across all popups in this tick.
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -260,11 +260,11 @@ func (a *App) checkMeetingPopup(ctx context.Context, now time.Time, cfg Meetings
 		a.meetings.fired[key] = struct{}{}
 		a.meetings.mu.Unlock()
 
-		payload := render.MeetingPopupPayload(sanitizeMeetingTitle(occ.Title), cfg.PopupLeadMinutes, meetingPopupDurationSeconds)
+		payload := render.MeetingPopupPayload(sanitizeMeetingTitle(occ.Title), cfg.PopupLeadMins(), meetingPopupDurationSeconds)
 		if err := a.publisher.Notify(cctx, payload); err != nil {
 			a.logger.Warn("meeting popup failed", "err", err)
 		}
-		if cfg.Chime {
+		if cfg.ChimeEnabled() {
 			// Chime separately: the firmware drops a notification's own sound when
 			// it has draw/icon; quietPublisher mutes it at night.
 			if err := a.publisher.PlayRTTTL(cctx, defaultMeetingChime); err != nil {

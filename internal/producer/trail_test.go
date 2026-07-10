@@ -3,6 +3,7 @@ package producer
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestPrependTrail(t *testing.T) {
@@ -56,5 +57,22 @@ func TestPrependTrailSingleOverlongItemHardCut(t *testing.T) {
 	got := PrependTrail(head, "")
 	if len(got) != 80 {
 		t.Errorf("overlong single item = %d chars, want hard-cut to 80", len(got))
+	}
+}
+
+// A multibyte overlong item must hard-cut on a rune boundary (never producing
+// U+FFFD) and to 80 runes, so the result also stays within the server's 80-rune
+// activity limit.
+func TestPrependTrailMultibyteHardCutIsRuneSafe(t *testing.T) {
+	head := "Bash: " + strings.Repeat("я", 200)
+	got := PrependTrail(head, "")
+	if n := utf8.RuneCountInString(got); n != 80 {
+		t.Errorf("overlong multibyte item = %d runes, want hard-cut to 80", n)
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("hard-cut produced invalid UTF-8 (mangled rune): %q", got)
+	}
+	if strings.ContainsRune(got, '�') {
+		t.Errorf("hard-cut produced U+FFFD replacement char: %q", got)
 	}
 }

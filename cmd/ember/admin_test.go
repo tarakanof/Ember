@@ -14,6 +14,46 @@ import (
 	"testing"
 )
 
+// TestDiffConfig_ReportsChangeInEveryTopLevelSection guards against the
+// hand-rolled leaf list going stale: diffConfig must surface a changed path
+// for every top-level Config section, including ones with no dedicated leaf
+// entries today (Weather, Meetings, QuietHours, Pomodoro, usage toggles).
+func TestDiffConfig_ReportsChangeInEveryTopLevelSection(t *testing.T) {
+	base := defaultConfig()
+	base.applyDefaults()
+
+	cases := []struct {
+		name       string
+		mutate     func(*Config)
+		wantPrefix string
+	}{
+		{"http", func(c *Config) { c.HTTP.Addr = c.HTTP.Addr + "x" }, "http."},
+		{"awtrix", func(c *Config) { c.AWTRIX.AppName = c.AWTRIX.AppName + "x" }, "awtrix."},
+		{"auth", func(c *Config) { c.Auth.StatusToken = c.Auth.StatusToken + "x" }, "auth."},
+		{"display", func(c *Config) { c.Display.IdleText = c.Display.IdleText + "x" }, "display."},
+		{"rate_limit", func(c *Config) { c.RateLimit.Burst++ }, "rate_limit."},
+		{"pomodoro", func(c *Config) { c.Pomodoro.Enabled = !c.Pomodoro.Enabled }, "pomodoro."},
+		{"weather", func(c *Config) { c.Weather.Enabled = !c.Weather.Enabled }, "weather."},
+		{"meetings", func(c *Config) { c.Meetings.TileLeadMinutes++ }, "meetings."},
+		{"quiet_hours", func(c *Config) { c.QuietHours.Enabled = !c.QuietHours.Enabled }, "quiet_hours."},
+		{"usage_widget", func(c *Config) { b := true; c.UsageWidget = &b }, "usage_widget"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			newCfg := base
+			tc.mutate(&newCfg)
+			changed := diffConfig(base, newCfg)
+			for _, f := range changed {
+				if strings.HasPrefix(f, tc.wantPrefix) {
+					return
+				}
+			}
+			t.Errorf("diffConfig missed section %q: changed=%v", tc.name, changed)
+		})
+	}
+}
+
 func TestVersionHandler_PublicAndJSON(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
@@ -279,6 +319,45 @@ func TestAdminReload_NonReloadable409(t *testing.T) {
 	}
 	if app.cfg.Load().Display.RefreshSeconds == 999 {
 		t.Errorf("cfg unchanged check failed; got %d", app.cfg.Load().Display.RefreshSeconds)
+	}
+}
+
+// TestAdminReload_InvalidIconIDsDroppedWithWarn mirrors
+// TestLoadConfig_InvalidIconIDsDroppedWithWarn (config_test.go) but exercises
+// the /admin/reload path: it must run the same sanitizeConfigBaseline repair
+// as startup, so a hand-edited config.json containing a path-traversal
+// weather.icon_ids value is dropped rather than loaded live.
+func TestAdminReload_InvalidIconIDsDroppedWithWarn(t *testing.T) {
+	body := `{"awtrix":{"http_base_url":"http://x"},"weather":{"icon_ids":{"clear":"123"}}}`
+	app, path := newAppForReload(t, body)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	newBody := `{"awtrix":{"http_base_url":"http://x"},"weather":{"icon_ids":{"clear":"123","clouds":"../dev"}}}`
+	if err := os.WriteFile(path, []byte(newBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, respBody)
+	}
+	got := app.cfg.Load().Weather.IconIDs
+	if got["clear"] != "123" {
+		t.Errorf("valid icon id was dropped: %+v", got)
+	}
+	if _, ok := got["clouds"]; ok {
+		t.Errorf("path-traversal icon id survived reload: %+v", got)
 	}
 }
 

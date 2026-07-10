@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -235,6 +237,145 @@ func TestProcessOneMarker_StripsContextPctWhenDisabled(t *testing.T) {
 	got := (*h.bodies)[0]
 	if strings.Contains(got, `"context_pct"`) {
 		t.Errorf("disabled: tick should strip context_pct from re-post, got: %s", got)
+	}
+}
+
+// TestTick_CodexMarker_SkippedEntirely is the Task-7 regression test: the
+// Claude daemon shares the marker dir with the Codex producer. A codex
+// marker — fresh or stale — must never be POSTed, reaped/DELETEd, or
+// rewritten by the Claude daemon; the Codex daemon owns its own markers'
+// full lifecycle.
+func TestTick_CodexMarker_SkippedEntirely(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "codex-sess.json")
+	body := []byte(`{"source":"test-mbp","tool":"codex","session":"codex-sess","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Make it stale too, so we also exercise the reap path.
+	old := time.Now().Add(-7 * time.Hour)
+	if err := os.Chtimes(markerP, old, old); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if h.posts.Load() != 0 {
+		t.Errorf("codex marker must not be POSTed by the claude daemon; posts=%d", h.posts.Load())
+	}
+	if h.deletes.Load() != 0 {
+		t.Errorf("codex marker must not be DELETEd/reaped by the claude daemon; deletes=%d", h.deletes.Load())
+	}
+	after, err := os.ReadFile(markerP)
+	if err != nil {
+		t.Fatalf("codex marker must not be removed by the claude daemon: %v", err)
+	}
+	if string(after) != string(body) {
+		t.Errorf("codex marker content must be left untouched, got: %s", after)
+	}
+}
+
+// TestTick_LegacyMarkerNoToolField_TreatedAsClaude verifies the documented
+// backward-compat decision: a marker predating the "tool" field (missing or
+// empty) is treated as a claude marker, since both current producers always
+// write an explicit "tool" value — an empty Tool can only mean a pre-upgrade
+// marker written by the (older) Claude producer.
+func TestTick_LegacyMarkerNoToolField_TreatedAsClaude(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "legacy-sess.json")
+	body := []byte(`{"source":"test-mbp","session":"legacy-sess","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if h.posts.Load() != 1 {
+		t.Errorf("legacy no-tool marker should be treated as claude and re-posted; posts=%d", h.posts.Load())
+	}
+}
+
+// TestDispatchTick_WarnsOnPostFailure is the Task-9 error-visibility
+// regression test: a failing status POST must produce a throttled slog Warn
+// instead of being silently discarded (previously `_ = client.Post(...)`).
+func TestDispatchTick_WarnsOnPostFailure(t *testing.T) {
+	tickFailLog.Reset()
+	h := newHookHarness(t)
+	h.srv.Close()
+	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer h.srv.Close()
+	cfgDir := filepath.Join(h.home, ".config", "ember")
+	envContent := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(envContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	body := []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if !strings.Contains(buf.String(), "kind=claude_post") {
+		t.Errorf("expected a throttled claude_post warning, got: %s", buf.String())
+	}
+}
+
+// TestDispatchTick_ThrottlesRepeatedPostFailures confirms a second failing
+// tick within the throttle period does not log a second warning.
+func TestDispatchTick_ThrottlesRepeatedPostFailures(t *testing.T) {
+	tickFailLog.Reset()
+	h := newHookHarness(t)
+	h.srv.Close()
+	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer h.srv.Close()
+	cfgDir := filepath.Join(h.home, ".config", "ember")
+	envContent := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(envContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	body := []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`)
+	if err := os.WriteFile(markerP, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	orig := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(orig) })
+
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	dispatchTick(context.Background(), cfg)
+	if n := strings.Count(buf.String(), "kind=claude_post"); n != 1 {
+		t.Errorf("expected exactly 1 throttled warning across 2 failing ticks, got %d: %s", n, buf.String())
 	}
 }
 

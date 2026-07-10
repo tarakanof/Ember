@@ -12,16 +12,16 @@ import (
 func TestMeetingsConfigDefaults(t *testing.T) {
 	var c MeetingsConfig
 	c.applyDefaults()
-	if !c.Enabled {
+	if !c.IsEnabled() {
 		t.Error("Enabled: got false, want true")
 	}
 	if c.TileLeadMinutes != 60 {
 		t.Errorf("TileLeadMinutes: got %d, want 60", c.TileLeadMinutes)
 	}
-	if c.PopupLeadMinutes != 2 {
-		t.Errorf("PopupLeadMinutes: got %d, want 2", c.PopupLeadMinutes)
+	if c.PopupLeadMins() != 2 {
+		t.Errorf("PopupLeadMinutes: got %d, want 2", c.PopupLeadMins())
 	}
-	if !c.Chime {
+	if !c.ChimeEnabled() {
 		t.Error("Chime: got false, want true")
 	}
 }
@@ -32,13 +32,13 @@ func TestMeetingsConfigValidate(t *testing.T) {
 		cfg     MeetingsConfig
 		wantErr bool
 	}{
-		{"tile 0 → error", MeetingsConfig{TileLeadMinutes: 0, PopupLeadMinutes: 0}, true},
-		{"tile 481 → error", MeetingsConfig{TileLeadMinutes: 481, PopupLeadMinutes: 0}, true},
-		{"popup -1 → error", MeetingsConfig{TileLeadMinutes: 60, PopupLeadMinutes: -1}, true},
-		{"popup 61 → error", MeetingsConfig{TileLeadMinutes: 60, PopupLeadMinutes: 61}, true},
-		{"tile 60, popup 0 → OK", MeetingsConfig{TileLeadMinutes: 60, PopupLeadMinutes: 0}, false},
-		{"tile 1, popup 1 → OK", MeetingsConfig{TileLeadMinutes: 1, PopupLeadMinutes: 1}, false},
-		{"tile 480, popup 60 → OK", MeetingsConfig{TileLeadMinutes: 480, PopupLeadMinutes: 60}, false},
+		{"tile 0 → error", MeetingsConfig{TileLeadMinutes: 0, PopupLeadMinutes: intPtr(0)}, true},
+		{"tile 481 → error", MeetingsConfig{TileLeadMinutes: 481, PopupLeadMinutes: intPtr(0)}, true},
+		{"popup -1 → error", MeetingsConfig{TileLeadMinutes: 60, PopupLeadMinutes: intPtr(-1)}, true},
+		{"popup 61 → error", MeetingsConfig{TileLeadMinutes: 60, PopupLeadMinutes: intPtr(61)}, true},
+		{"tile 60, popup 0 → OK", MeetingsConfig{TileLeadMinutes: 60, PopupLeadMinutes: intPtr(0)}, false},
+		{"tile 1, popup 1 → OK", MeetingsConfig{TileLeadMinutes: 1, PopupLeadMinutes: intPtr(1)}, false},
+		{"tile 480, popup 60 → OK", MeetingsConfig{TileLeadMinutes: 480, PopupLeadMinutes: intPtr(60)}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -194,7 +194,7 @@ func TestMeetingsConfigRoundTrip(t *testing.T) {
 		t.Fatalf("PUT: code=%d body=%s", pw.Code, pw.Body)
 	}
 	cfg := a.cfg.Load().Meetings
-	if cfg.TileLeadMinutes != 30 || cfg.PopupLeadMinutes != 5 || cfg.Chime {
+	if cfg.TileLeadMinutes != 30 || cfg.PopupLeadMins() != 5 || cfg.ChimeEnabled() {
 		t.Fatalf("config not applied: %+v", cfg)
 	}
 

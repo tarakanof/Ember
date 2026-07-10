@@ -8,6 +8,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +22,12 @@ import (
 // store, layered over the file config like Pomodoro). The widget fetches current
 // conditions server-side from a free, keyless provider and renders them as a
 // rotating tile + optional popups.
+// The default-on toggles (and PopupIntervalMinutes, where 0 is the documented
+// "off") are pointers so JSON can distinguish "absent" (nil → default) from an
+// explicit false/0 — the usage_widget convention. fillAbsent resolves nil to
+// the concrete default at every entry point (file load, PUT, store blob), so
+// marshalled config always carries concrete values, never nulls, and readers
+// use the *Enabled()/*Mins() accessors.
 type WeatherConfig struct {
 	Enabled              bool    `json:"enabled"`
 	Provider             string  `json:"provider"` // "open-meteo" | "met-no"
@@ -28,15 +36,15 @@ type WeatherConfig struct {
 	LocationName         string  `json:"location_name"`
 	Units                string  `json:"units"`                  // "metric" | "imperial"
 	RefreshMinutes       int     `json:"refresh_minutes"`        // poll cadence
-	RotateInApps         bool    `json:"rotate_in_apps"`         // show the rotating tile
-	ForecastTile         bool    `json:"forecast_tile"`          // show the separate hourly-forecast bar tile
+	RotateInApps         *bool   `json:"rotate_in_apps"`         // show the rotating tile
+	ForecastTile         *bool   `json:"forecast_tile"`          // show the separate hourly-forecast bar tile
 	ForecastHours        int     `json:"forecast_hours"`         // hours shown in the strip/tile (6..24)
-	SunPopups            bool    `json:"sun_popups"`             // popup at sunrise/sunset
-	MoonPhase            bool    `json:"moon_phase"`             // show the moon phase on clear nights
-	PopupIntervalMinutes int     `json:"popup_interval_minutes"` // 0 = no interval popups
+	SunPopups            *bool   `json:"sun_popups"`             // popup at sunrise/sunset
+	MoonPhase            *bool   `json:"moon_phase"`             // show the moon phase on clear nights
+	PopupIntervalMinutes *int    `json:"popup_interval_minutes"` // 0 = no interval popups
 	PopupDurationSeconds int     `json:"popup_duration_seconds"`
-	PopupOnChange        bool    `json:"popup_on_change"` // popup when the condition changes
-	SevereAlert          bool    `json:"severe_alert"`    // popup + sound on severe weather
+	PopupOnChange        *bool   `json:"popup_on_change"` // popup when the condition changes
+	SevereAlert          *bool   `json:"severe_alert"`    // popup + sound on severe weather
 	SevereSound          string  `json:"severe_sound"`    // RTTTL or device sound name; empty = default
 	UseNativeIcons       bool    `json:"use_native_icons"`
 	// IconIDs optionally overrides the per-condition native AWTRIX/LaMetric icon
@@ -53,10 +61,74 @@ type WeatherConfig struct {
 	// AirTile shows the rotating air-quality tile (European AQI from the
 	// Open-Meteo air-quality API — always Open-Meteo regardless of Provider;
 	// MET Norway has no AQ product). Shares the weather location + refresh.
-	AirTile bool `json:"air_tile"`
+	AirTile *bool `json:"air_tile"`
 	// AirPopupThreshold fires a popup when the European AQI rises across this
 	// value (edge-triggered, re-arms below it). 0 disables the popup.
 	AirPopupThreshold int `json:"air_popup_threshold"`
+}
+
+// boolPtr / intPtr build pointer literals for the optional config fields.
+func boolPtr(b bool) *bool { return &b }
+func intPtr(v int) *int    { return &v }
+
+// defaultWeatherPopupIntervalMinutes is the interval-popup cadence used when
+// popup_interval_minutes is absent; an explicit 0 means "no interval popups".
+const defaultWeatherPopupIntervalMinutes = 120
+
+// Accessors for the optional toggles: nil (absent from JSON) means the
+// friendly default (on); an explicit false is respected.
+func (c WeatherConfig) RotateInAppsEnabled() bool  { return c.RotateInApps == nil || *c.RotateInApps }
+func (c WeatherConfig) ForecastTileEnabled() bool  { return c.ForecastTile == nil || *c.ForecastTile }
+func (c WeatherConfig) SunPopupsEnabled() bool     { return c.SunPopups == nil || *c.SunPopups }
+func (c WeatherConfig) MoonPhaseEnabled() bool     { return c.MoonPhase == nil || *c.MoonPhase }
+func (c WeatherConfig) PopupOnChangeEnabled() bool { return c.PopupOnChange == nil || *c.PopupOnChange }
+func (c WeatherConfig) SevereAlertEnabled() bool   { return c.SevereAlert == nil || *c.SevereAlert }
+func (c WeatherConfig) AirTileEnabled() bool       { return c.AirTile == nil || *c.AirTile }
+
+// PopupIntervalMins resolves the interval-popup cadence: nil → default 120,
+// explicit 0 → off, negatives clamp to 0.
+func (c WeatherConfig) PopupIntervalMins() int {
+	if c.PopupIntervalMinutes == nil {
+		return defaultWeatherPopupIntervalMinutes
+	}
+	if v := *c.PopupIntervalMinutes; v > 0 {
+		return v
+	}
+	return 0
+}
+
+// fillAbsent resolves every nil optional field to its concrete default (via
+// the accessors), WITHOUT touching explicit values — unlike the old bool
+// coercion, an explicit false/0 always sticks. Runs on every entry point
+// (file load via applyDefaults, menu PUT, persisted store blob) so the config
+// snapshot — and therefore every marshalled GET response — always carries
+// concrete booleans/ints, never nulls, keeping the menu app's JSON shape
+// unchanged.
+func (c *WeatherConfig) fillAbsent() {
+	if c.RotateInApps == nil {
+		c.RotateInApps = boolPtr(true)
+	}
+	if c.ForecastTile == nil {
+		c.ForecastTile = boolPtr(true)
+	}
+	if c.SunPopups == nil {
+		c.SunPopups = boolPtr(true)
+	}
+	if c.MoonPhase == nil {
+		c.MoonPhase = boolPtr(true)
+	}
+	if c.PopupOnChange == nil {
+		c.PopupOnChange = boolPtr(true)
+	}
+	if c.SevereAlert == nil {
+		c.SevereAlert = boolPtr(true)
+	}
+	if c.AirTile == nil {
+		c.AirTile = boolPtr(true)
+	}
+	if c.PopupIntervalMinutes == nil {
+		c.PopupIntervalMinutes = intPtr(defaultWeatherPopupIntervalMinutes)
+	}
 }
 
 // weatherIconID resolves the native icon ID for a condition: the per-config
@@ -96,25 +168,15 @@ func (c *WeatherConfig) applyDefaults() {
 	if c.RefreshMinutes <= 0 {
 		c.RefreshMinutes = 10
 	}
-	if c.PopupIntervalMinutes < 0 {
-		c.PopupIntervalMinutes = 0
-	} else if c.PopupIntervalMinutes == 0 {
-		c.PopupIntervalMinutes = 120
-	}
 	if c.PopupDurationSeconds <= 0 {
 		c.PopupDurationSeconds = 30
 	}
-	// Friendly defaults for the opt-in toggles, applied only at config LOAD (this
-	// runs over the file config). The menu's explicit values are layered on top
-	// afterwards by loadPersistedWeatherSettings, whose applyWeatherSettings does
-	// NOT re-run applyDefaults — so a user can still turn these off (and set
-	// popup_interval=0) and have it stick. Matches the Pomodoro convention of
-	// seeding bool defaults without clobbering persisted runtime edits.
-	if !c.RotateInApps {
-		c.RotateInApps = true
-	}
-	if !c.ForecastTile {
-		c.ForecastTile = true
+	// Friendly defaults for the optional toggles: fillAbsent resolves only nil
+	// (absent-from-JSON) fields, so a config.json that explicitly sets false —
+	// or popup_interval_minutes: 0 (documented "off") — keeps those values.
+	c.fillAbsent()
+	if *c.PopupIntervalMinutes < 0 {
+		c.PopupIntervalMinutes = intPtr(0)
 	}
 	if c.ForecastHours <= 0 {
 		c.ForecastHours = 24
@@ -123,27 +185,20 @@ func (c *WeatherConfig) applyDefaults() {
 	} else if c.ForecastHours > 24 {
 		c.ForecastHours = 24
 	}
-	if !c.PopupOnChange {
-		c.PopupOnChange = true
-	}
-	if !c.SevereAlert {
-		c.SevereAlert = true
-	}
-	if !c.SunPopups {
-		c.SunPopups = true
-	}
-	if !c.MoonPhase {
-		c.MoonPhase = true
-	}
-	if !c.AirTile {
-		c.AirTile = true
-	}
 	if c.AirPopupThreshold < 0 {
 		c.AirPopupThreshold = 0
 	} else if c.AirPopupThreshold == 0 {
 		c.AirPopupThreshold = 80 // EAQI "very poor"
 	}
 }
+
+// weatherIconIDPattern matches a LaMetric gallery icon ID: 1-10 ASCII digits.
+// IconIDs values flow unvalidated into a device file path (/ICONS/<id>.<ext>)
+// and the LaMetric gallery fetch URL (fetchLaMetricIcon in icon_provision.go),
+// so a non-numeric value such as "../dev" could escape /ICONS or reach an
+// arbitrary gallery path. Enforced both in validateWeather (PUT path) and at
+// config.json baseline load (sanitizeConfigBaseline in config.go).
+var weatherIconIDPattern = regexp.MustCompile(`^[0-9]{1,10}$`)
 
 func validateWeather(c WeatherConfig) error {
 	switch c.Provider {
@@ -170,6 +225,19 @@ func validateWeather(c WeatherConfig) error {
 	}
 	if c.AirPopupThreshold < 0 || c.AirPopupThreshold > 200 {
 		return errors.New("weather.air_popup_threshold must be 0..200")
+	}
+	// Sort keys so a config with multiple invalid entries always names the
+	// same (lowest) offending key, keeping the 400 message deterministic.
+	keys := make([]string, 0, len(c.IconIDs))
+	for k := range c.IconIDs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		v := c.IconIDs[k]
+		if !weatherIconIDPattern.MatchString(v) {
+			return fmt.Errorf("weather.icon_ids[%s] %q must be a numeric LaMetric icon id (1-10 digits)", k, v)
+		}
 	}
 	return nil
 }
@@ -563,7 +631,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 // or popup), stores it, and fires the edge-triggered threshold popup. Failures
 // log and keep the last observation; the tile clears via the stale TTL.
 func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
-	if !cfg.AirTile && cfg.AirPopupThreshold <= 0 {
+	if !cfg.AirTileEnabled() && cfg.AirPopupThreshold <= 0 {
 		return
 	}
 	obs, err := a.weatherFetcher.fetchAirQuality(ctx, cfg)
@@ -597,7 +665,7 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weatherObservation, prevCond string, prevSevere bool, lastPopup time.Time, cfg WeatherConfig) bool {
 	conditionChanged := prevCond != "" && prevCond != obs.Condition
 
-	if cfg.SevereAlert && obs.Severe && !prevSevere {
+	if cfg.SevereAlertEnabled() && obs.Severe && !prevSevere {
 		sound := cfg.SevereSound
 		if sound == "" {
 			sound = defaultWeatherSevereSound
@@ -605,12 +673,12 @@ func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weath
 		a.sendWeatherPopup(ctx, obs, cfg, cfg.PopupDurationSeconds, sound)
 		return true
 	}
-	if cfg.PopupOnChange && conditionChanged {
+	if cfg.PopupOnChangeEnabled() && conditionChanged {
 		a.sendWeatherPopup(ctx, obs, cfg, cfg.PopupDurationSeconds, "")
 		return true
 	}
-	if cfg.PopupIntervalMinutes > 0 && !lastPopup.IsZero() &&
-		now.Sub(lastPopup) >= time.Duration(cfg.PopupIntervalMinutes)*time.Minute {
+	if cfg.PopupIntervalMins() > 0 && !lastPopup.IsZero() &&
+		now.Sub(lastPopup) >= time.Duration(cfg.PopupIntervalMins())*time.Minute {
 		a.sendWeatherPopup(ctx, obs, cfg, cfg.PopupDurationSeconds, "")
 		return true
 	}
@@ -625,7 +693,7 @@ const sunPopupGrace = 2 * time.Minute
 // checkSunPopups fires a sunrise/sunset popup when `now` has just crossed the
 // event for the configured location, at most once per UTC day per event.
 func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConfig) {
-	if !cfg.SunPopups {
+	if !cfg.SunPopupsEnabled() {
 		return
 	}
 	if cfg.Latitude == 0 && cfg.Longitude == 0 {
@@ -717,17 +785,17 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 const weatherSettingsKey = "weather_json"
 
 func (a *App) applyWeatherSettings(cfg WeatherConfig) error {
-	// NB: do NOT call cfg.applyDefaults() here. This is the runtime write/persist
-	// path (menu PUT + loadPersistedWeatherSettings); re-defaulting would force
-	// the opt-in toggles back on and rewrite popup_interval=0 → 120, making them
-	// impossible to disable. The menu always sends a complete config, so we
-	// validate verbatim (mirrors applyPomodoroSettings).
+	// This is the runtime write/persist path (menu PUT +
+	// loadPersistedWeatherSettings). fillAbsent resolves only fields the payload
+	// omitted (e.g. a store blob written before a field existed) to their
+	// defaults; explicit false / popup_interval=0 always stick, so the toggles
+	// stay disableable (mirrors applyPomodoroSettings). Filling before persist
+	// also keeps the stored blob and the GET response free of JSON nulls.
+	cfg.fillAbsent()
 	if err := validateWeather(cfg); err != nil {
 		return err
 	}
-	cur := *a.cfg.Load()
-	cur.Weather = cfg
-	a.cfg.Store(&cur)
+	a.updateConfig(func(cur *Config) { cur.Weather = cfg })
 	if a.store != nil {
 		if blob, err := json.Marshal(cfg); err == nil {
 			if err := a.store.PutSetting(weatherSettingsKey, string(blob)); err != nil {
