@@ -25,6 +25,14 @@ public enum ToggleState: Sendable, Equatable {
     case error
 }
 
+/// The result of installing or uninstalling a single agent as part of a
+/// batch operation (`installAll`/`uninstallAll`). `error` is `nil` on
+/// success.
+public struct AgentOutcome: Sendable {
+    public let agent: ProducerAgent
+    public let error: Error?
+}
+
 /// Orchestrates detection, install, and uninstall of the unified installer's
 /// producer agents (Claude heartbeat producer, Codex producer). Install
 /// shells out to the producer binary's `configure` subcommand, then
@@ -124,6 +132,44 @@ public final class ProducerInstallService {
             return .partial
         }
         return .off
+    }
+
+    /// Installs every detected agent, catching per-agent failures so one
+    /// agent's error never prevents the others from being attempted. Never
+    /// throws; inspect each `AgentOutcome.error` to see what failed.
+    public func installAll() -> [AgentOutcome] {
+        detectedAgents().map { agent in
+            do {
+                try install(agent)
+                return AgentOutcome(agent: agent, error: nil)
+            } catch {
+                return AgentOutcome(agent: agent, error: error)
+            }
+        }
+    }
+
+    /// Uninstalls every detected agent, catching per-agent failures so one
+    /// agent's error never prevents the others from being attempted. Never
+    /// throws; inspect each `AgentOutcome.error` to see what failed.
+    public func uninstallAll() -> [AgentOutcome] {
+        detectedAgents().map { agent in
+            do {
+                try uninstall(agent)
+                return AgentOutcome(agent: agent, error: nil)
+            } catch {
+                return AgentOutcome(agent: agent, error: error)
+            }
+        }
+    }
+
+    /// Re-registers every already-`.enabled` agent (unregister then
+    /// register) so a newly bundled binary takes over after an app update.
+    /// Agents that aren't currently enabled are left untouched.
+    public func reconcileAfterUpdate() throws {
+        for agent in ProducerAgent.allCases where sm.status(plistName: agent.plistName) == .enabled {
+            try sm.unregister(plistName: agent.plistName)
+            try sm.register(plistName: agent.plistName)
+        }
     }
 
     private func executablePath(for agent: ProducerAgent) -> String {
