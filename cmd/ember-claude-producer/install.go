@@ -121,7 +121,6 @@ func shellSafePath(p string) bool {
 }
 
 func generatePlist(binPath, home string, uid int) ([]byte, error) {
-	stdoutPath := filepath.Join(home, "Library", "Logs", "ember-tick.log")
 	const tmpl = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -143,10 +142,6 @@ func generatePlist(binPath, home string, uid int) ([]byte, error) {
     <integer>10</integer>
     <key>LowPriorityIO</key>
     <true/>
-    <key>StandardOutPath</key>
-    <string>%s</string>
-    <key>StandardErrorPath</key>
-    <string>%s</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -158,8 +153,6 @@ func generatePlist(binPath, home string, uid int) ([]byte, error) {
 	out := fmt.Sprintf(tmpl,
 		xmlEscape(launchAgentLabel),
 		xmlEscape(binPath),
-		xmlEscape(stdoutPath),
-		xmlEscape(stdoutPath),
 	)
 	return []byte(out), nil
 }

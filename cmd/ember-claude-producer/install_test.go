@@ -32,8 +32,8 @@ func TestGeneratePlist_StructureAndPaths(t *testing.T) {
 	if !strings.Contains(s, "<key>KeepAlive</key>") {
 		t.Errorf("daemon plist must set KeepAlive so launchd restarts it after a crash/eviction")
 	}
-	if !strings.Contains(s, "/Users/joe/Library/Logs/ember-tick.log") {
-		t.Errorf("missing log path")
+	if strings.Contains(s, "StandardOutPath") || strings.Contains(s, "StandardErrorPath") {
+		t.Errorf("plist must not set StandardOutPath/StandardErrorPath; the daemon opens its own log via producer.OpenDaemonLog:\n%s", s)
 	}
 	// XML well-formed (skip the DOCTYPE which encoding/xml doesn't parse)
 	idx := strings.Index(s, "<plist")

@@ -25,6 +25,7 @@ var daemonFailLog = producer.NewFailureLogger(time.Minute)
 // default). It polls until SIGINT/SIGTERM.
 func runDaemon() {
 	rotateCodexLogs()
+	openDaemonLogOrStderr("ember-codex-producer")
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
 		fmt.Fprintln(os.Stderr, "codex producer: EMBER_SOURCE/EMBER_SERVER_URL not set; nothing to do")
@@ -49,6 +50,20 @@ func runDaemon() {
 		case <-ticker.C:
 		}
 	}
+}
+
+// openDaemonLogOrStderr routes stdout/stderr and the slog default logger to
+// ~/Library/Logs/<name>.log so the daemon logs correctly even when launched
+// from a plist with no StandardOutPath (a bundled static plist can't encode a
+// per-user path). Best-effort: on failure it silently leaves stderr as-is.
+func openDaemonLogOrStderr(name string) {
+	f, err := producer.OpenDaemonLog(name)
+	if err != nil {
+		return
+	}
+	os.Stdout = f
+	os.Stderr = f
+	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }
 
 // runOnce performs a single reconcile pass, issuing POSTs/DELETEs and keeping

@@ -91,7 +91,6 @@ func configure() error {
 }
 
 func generatePlist(binPath, home string) []byte {
-	logPath := filepath.Join(home, "Library", "Logs", "ember-codex-producer.log")
 	const tmpl = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -113,10 +112,6 @@ func generatePlist(binPath, home string) []byte {
     <integer>10</integer>
     <key>LowPriorityIO</key>
     <true/>
-    <key>StandardOutPath</key>
-    <string>%s</string>
-    <key>StandardErrorPath</key>
-    <string>%s</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
@@ -125,7 +120,7 @@ func generatePlist(binPath, home string) []byte {
 </dict>
 </plist>
 `
-	return []byte(fmt.Sprintf(tmpl, xmlEscape(launchAgentLabel), xmlEscape(binPath), xmlEscape(logPath), xmlEscape(logPath)))
+	return []byte(fmt.Sprintf(tmpl, xmlEscape(launchAgentLabel), xmlEscape(binPath)))
 }
 
 func xmlEscape(s string) string {
