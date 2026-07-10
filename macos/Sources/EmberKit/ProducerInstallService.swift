@@ -1,5 +1,15 @@
 import Foundation
 
+/// Decides whether `ProducerInstallService.reconcileAfterUpdate()` should run
+/// for the given app launch. Reconciliation re-registers every enabled agent's
+/// LaunchAgent, which is needless churn (and can re-surface a "needs approval"
+/// state) if the app bundle hasn't changed since the last reconcile. `nil`
+/// `lastReconciledVersion` (no prior run recorded) reconciles once so a fresh
+/// install picks up the current binary.
+public func shouldReconcileAfterUpdate(currentVersion: String, lastReconciledVersion: String?) -> Bool {
+    currentVersion != lastReconciledVersion
+}
+
 /// Errors thrown by `ProducerInstallService` during install/uninstall.
 public enum ProducerInstallError: Error, Equatable, Sendable {
     /// The producer binary's `configure` subcommand exited non-zero.

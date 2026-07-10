@@ -33,6 +33,7 @@ public final class AppEnvironment {
     }
 
     static let prefsDefaults = UserDefaults.standard
+    static let lastReconciledVersionKey = "producers.lastReconciledVersion"
 
     static func loadPrefs() -> MenuPrefs {
         let d = prefsDefaults
@@ -90,8 +91,19 @@ public final class AppEnvironment {
         serverDiscovery.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
         // Best-effort: re-register any already-enabled producer LaunchAgents so a
-        // newly bundled binary takes over after an app update. Never blocks launch.
-        try? producers.reconcileAfterUpdate()
+        // newly bundled binary takes over after an app update. Gated on the bundle
+        // version actually changing since the last reconcile, so a normal launch
+        // doesn't churn the LaunchAgent DB (and risk re-surfacing "needs approval").
+        // Never blocks launch.
+        let currentVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+            ?? ""
+        let defaults = UserDefaults.standard
+        let lastReconciledVersion = defaults.string(forKey: Self.lastReconciledVersionKey)
+        if shouldReconcileAfterUpdate(currentVersion: currentVersion, lastReconciledVersion: lastReconciledVersion) {
+            try? producers.reconcileAfterUpdate()
+            defaults.set(currentVersion, forKey: Self.lastReconciledVersionKey)
+        }
     }
 
     /// Re-read producer.env, rebuild the client, reconfigure model + service.
