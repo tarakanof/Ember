@@ -56,6 +56,19 @@ public struct ConnectionSettings: Equatable, Sendable {
     /// written; empty required fields are left untouched until the user fills them.
     /// A non-blank `token` is validated + written; blank/nil keeps the existing one.
     public func applyTolerant(to env: inout EnvFile, token: String?) throws {
+        // Clearing a required field that ALREADY has a committed value is a user
+        // error, not first-run tolerance: silently skipping the write would leave
+        // the UI blank while producer.env keeps the old value (which reappears on
+        // relaunch). Reject it so the caller surfaces an error. An empty required
+        // field with NO existing value is still tolerated (first run, any order).
+        if source.trimmingCharacters(in: .whitespaces).isEmpty,
+           !env.get(SettingsKeys.source).isEmpty {
+            throw ValidationError(message: "source must not be empty")
+        }
+        if serverURL.trimmingCharacters(in: .whitespaces).isEmpty,
+           !env.get(SettingsKeys.serverURL).isEmpty {
+            throw ValidationError(message: "server URL must not be empty")
+        }
         let normSource = source.trimmingCharacters(in: .whitespaces).isEmpty
             ? nil : try validateSource(source)
         let normURL = serverURL.trimmingCharacters(in: .whitespaces).isEmpty

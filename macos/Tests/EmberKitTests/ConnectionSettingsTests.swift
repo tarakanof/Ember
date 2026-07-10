@@ -100,6 +100,44 @@ import Testing
     #expect(env.get(SettingsKeys.token) == "secret")
 }
 
+// MARK: clearing an already-set required field (Finding 4)
+
+// First run with a genuinely empty env: an empty required field is tolerated —
+// no error is thrown just because nothing is configured yet.
+@Test func tolerantApplyToleratesEmptyRequiredFieldOnFirstRun() throws {
+    var env = EnvFile(parsing: "")
+    let c = ConnectionSettings(source: "", serverURL: "", sourceColor: "")
+    try c.applyTolerant(to: &env, token: nil)   // must not throw
+    #expect(env.get(SettingsKeys.source) == "")
+    #expect(env.get(SettingsKeys.serverURL) == "")
+}
+
+// Clearing an already-committed Source surfaces an error AND does not drop the
+// stored value (producer.env keeps the old source).
+@Test func tolerantApplyRejectsClearingAlreadySetSource() {
+    var env = EnvFile(parsing: "EMBER_SOURCE=mbp\nEMBER_SERVER_URL=http://h:3627\n")
+    let cleared = ConnectionSettings(source: "  ", serverURL: "http://h:3627", sourceColor: "")
+    #expect(throws: ValidationError.self) { try cleared.applyTolerant(to: &env, token: nil) }
+    #expect(env.get(SettingsKeys.source) == "mbp")   // old value not silently dropped
+}
+
+// Clearing an already-committed Server URL surfaces an error AND keeps the value.
+@Test func tolerantApplyRejectsClearingAlreadySetServerURL() {
+    var env = EnvFile(parsing: "EMBER_SOURCE=mbp\nEMBER_SERVER_URL=http://h:3627\n")
+    let cleared = ConnectionSettings(source: "mbp", serverURL: "", sourceColor: "")
+    #expect(throws: ValidationError.self) { try cleared.applyTolerant(to: &env, token: nil) }
+    #expect(env.get(SettingsKeys.serverURL) == "http://h:3627")
+}
+
+// A valid edit of an already-configured connection still applies normally.
+@Test func tolerantApplyEditsAlreadySetFields() throws {
+    var env = EnvFile(parsing: "EMBER_SOURCE=mbp\nEMBER_SERVER_URL=http://h:3627\n")
+    let edit = ConnectionSettings(source: "laptop", serverURL: "http://h:3627", sourceColor: "")
+    try edit.applyTolerant(to: &env, token: nil)
+    #expect(env.get(SettingsKeys.source) == "laptop")
+    #expect(env.get(SettingsKeys.serverURL) == "http://h:3627")
+}
+
 @Test func tolerantApplyIsCompleteReflectsRequiredFields() {
     #expect(!ConnectionSettings(source: "", serverURL: "http://h", sourceColor: "").isComplete)
     #expect(!ConnectionSettings(source: "mbp", serverURL: "  ", sourceColor: "").isComplete)

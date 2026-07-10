@@ -130,9 +130,7 @@ struct ConnectionTab: View {
     /// because `ConnectionSettings.apply` validates every field together. Until
     /// then the colour controls are disabled (rather than throwing a confusing
     /// "source must not be empty" on a colour action).
-    private var connectionConfigured: Bool {
-        !committed.source.isEmpty && !committed.serverURL.isEmpty
-    }
+    private var connectionConfigured: Bool { committed.isComplete }
 
     @ViewBuilder private var statusCaption: some View {
         switch save {
