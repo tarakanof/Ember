@@ -138,6 +138,24 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	return true
 }
 
+// StartDeviceWatch runs the periodic self-healing probe loop until ctx is
+// done. It ticks every interval and calls rediscoverClock, which is a no-op
+// when the current effective clock URL is already reachable. Callers should
+// gate the goroutine on AWTRIXConfig.AutoRediscoverEnabled(); the loop itself
+// runs unconditionally once started.
+func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.rediscoverClock(ctx)
+		}
+	}
+}
+
 func (a *App) handleDeviceConfigGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"base_url": a.cfg.Load().AWTRIX.HTTPBaseURL,

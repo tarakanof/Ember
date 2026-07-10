@@ -97,3 +97,61 @@ func TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride(t *testing.T) 
 		t.Fatalf("expected fall-through to discovered clock %s, got %s", clock.URL, got)
 	}
 }
+
+func TestAutoRediscoverEnabled_DefaultsToTrue(t *testing.T) {
+	var cfg AWTRIXConfig
+	if !cfg.AutoRediscoverEnabled() {
+		t.Fatalf("expected AutoRediscoverEnabled()=true when field is nil")
+	}
+}
+
+func TestAutoRediscoverEnabled_ExplicitFalse(t *testing.T) {
+	f := false
+	cfg := AWTRIXConfig{AutoRediscover: &f}
+	if cfg.AutoRediscoverEnabled() {
+		t.Fatalf("expected AutoRediscoverEnabled()=false when field is explicitly false")
+	}
+}
+
+// TestStartDeviceWatch_SwapsOnUnreachableCurrent drives the loop with a fast
+// interval, an unreachable current URL, and a reachable browse candidate:
+// it polls (with a timeout) for the swap to happen, then cancels and asserts
+// the goroutine returns promptly (no leak).
+func TestStartDeviceWatch_SwapsOnUnreachableCurrent(t *testing.T) {
+	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"uid":"awtrix_test"}`))
+	}))
+	defer clock.Close()
+
+	a := newTestApp(t)
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" }) // unreachable
+	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // safety net if an assertion below fails before the explicit cancel
+	done := make(chan struct{})
+	go func() {
+		a.StartDeviceWatch(ctx, 10*time.Millisecond)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if a.cfg.Load().AWTRIX.HTTPBaseURL == clock.URL {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := a.cfg.Load().AWTRIX.HTTPBaseURL; got != clock.URL {
+		t.Fatalf("expected swap to %s within timeout, got %s", clock.URL, got)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("StartDeviceWatch did not return promptly after ctx cancel")
+	}
+}
