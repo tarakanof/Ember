@@ -4,7 +4,10 @@
 <dict>
   <key>Label</key>              <string>com.ember.heartbeat</string>
   <key>BundleProgram</key>      <string>Contents/MacOS/ember-claude-producer</string>
-  <key>ProgramArguments</key>   <array><string>run</string></array>
+  <!-- With BundleProgram set, launchd uses ProgramArguments[0] as argv[0], so the
+       program name must lead and the subcommand follow — otherwise the daemon is
+       launched as argv=["run"] with no subcommand, prints usage, and exits 2. -->
+  <key>ProgramArguments</key>   <array><string>ember-claude-producer</string><string>run</string></array>
   <key>KeepAlive</key>          <true/>
   <key>RunAtLoad</key>          <true/>
   <key>ProcessType</key>        <string>Background</string>

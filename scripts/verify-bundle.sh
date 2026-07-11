@@ -70,6 +70,19 @@ check_plist() {
     echo "FAIL BundleProgram resolves: $name -> $program (not found)"
     exit 1
   fi
+
+  # With BundleProgram set, launchd uses ProgramArguments[0] as argv[0]. It MUST be
+  # the program's basename (not the subcommand) or the daemon launches as argv=["run"]
+  # with no subcommand, prints usage, and exits 2. Guard against that regression.
+  local argv0 argv1
+  argv0="$(plutil -extract ProgramArguments.0 raw "$plist" 2>/dev/null)"
+  argv1="$(plutil -extract ProgramArguments.1 raw "$plist" 2>/dev/null)"
+  if [ "$argv0" = "$(basename "$program")" ] && [ "$argv1" = "run" ]; then
+    echo "OK   ProgramArguments argv0/argv1: $name -> [$argv0, $argv1]"
+  else
+    echo "FAIL ProgramArguments must be [$(basename "$program"), run]: $name -> [$argv0, $argv1]"
+    exit 1
+  fi
 }
 
 check_producer ember-claude-producer
