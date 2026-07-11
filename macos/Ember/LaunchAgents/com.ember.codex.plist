@@ -4,7 +4,9 @@
 <dict>
   <key>Label</key>              <string>com.ember.codex</string>
   <key>BundleProgram</key>      <string>Contents/MacOS/ember-codex-producer</string>
-  <key>ProgramArguments</key>   <array><string>run</string></array>
+  <!-- With BundleProgram set, launchd uses ProgramArguments[0] as argv[0], so the
+       program name must lead and the subcommand follow (see com.ember.heartbeat.plist). -->
+  <key>ProgramArguments</key>   <array><string>ember-codex-producer</string><string>run</string></array>
   <key>KeepAlive</key>          <true/>
   <key>RunAtLoad</key>          <true/>
   <key>ProcessType</key>        <string>Background</string>
