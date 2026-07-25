@@ -90,6 +90,56 @@ func TestVersionHandler_PublicAndJSON(t *testing.T) {
 	}
 }
 
+func TestVersionHandler_ReportsInjectedRelease(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Stands in for a release build's -ldflags "-X main.version=v0.22.0".
+	app.versionInfo.Version = "v0.22.0"
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if got := fetchVersion(t, srv).Version; got != "v0.22.0" {
+		t.Errorf("version = %q, want v0.22.0", got)
+	}
+}
+
+func TestVersionHandler_ReportsDevWithoutInjectedRelease(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = "http://x"
+	cfg.applyDefaults()
+	pub, _ := NewHTTPPublisher()
+	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	// The test binary carries no -X main.version, like a local source build.
+	if got := fetchVersion(t, srv).Version; got != "dev" {
+		t.Errorf("version = %q, want dev", got)
+	}
+}
+
+func fetchVersion(t *testing.T, srv *httptest.Server) versionInfo {
+	t.Helper()
+	resp, err := srv.Client().Get(srv.URL + "/version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var v versionInfo
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return v
+}
+
 func TestAdminDoctor_NoTokenFailsClosed(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
