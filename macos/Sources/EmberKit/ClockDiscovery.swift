@@ -32,6 +32,9 @@ public final class ClockDiscovery {
     private var resolving: Set<String> = []
     /// Base URLs already probed, so a re-resolved endpoint isn't re-fetched.
     private var probed: Set<String> = []
+    /// In-flight probes, so `stop()` can cancel them. Finished ones linger until
+    /// the next stop — one handle per probed host, cleared with the scan.
+    private var probes: Set<Task<Void, Never>> = []
 
     public init() {}
 
@@ -83,6 +86,10 @@ public final class ClockDiscovery {
         browser = nil
         for conn in pending.values { conn.cancel() }
         pending.removeAll()
+        // A probe outlives the browse by up to its resource timeout; uncancelled
+        // it would land after `clocks` was cleared and repopulate a dismissed list.
+        for probe in probes { probe.cancel() }
+        probes.removeAll()
         resolving.removeAll()
         probed.removeAll()
         clocks = []
@@ -142,10 +149,11 @@ public final class ClockDiscovery {
         guard !host.isEmpty else { return }
         let base = Self.baseURL(host: host, port: port)
         guard probed.insert(base).inserted else { return }
-        Task { @MainActor [weak self] in
-            guard let c = await Self.probe(host: host, baseURL: base) else { return }
-            self?.clocks = Self.merged(self?.clocks ?? [], adding: c)
-        }
+        probes.insert(Task { @MainActor [weak self] in
+            let found = await Self.probe(host: host, baseURL: base)
+            guard !Task.isCancelled, let self, let found else { return }
+            clocks = Self.merged(clocks, adding: found)
+        })
     }
 
     /// Cancels and forgets a resolution connection once it has resolved or failed.
