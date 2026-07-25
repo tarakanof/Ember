@@ -111,6 +111,37 @@ import Foundation
     #expect(c == nil)
 }
 
+// MARK: Failure classification — who is unreachable, the server or the clock
+
+// The server maps every clock-side proxy failure to 502; that is the only case
+// clock discovery can fix.
+@Test func deviceFailureTreats502AsClockUnreachable() {
+    #expect(DeviceFailure.classify(APIError.http(status: 502, body: "clock returned 500")) == .clockUnreachable)
+}
+
+// No server URL yet: finding a clock would succeed and then fail to save it, so
+// this must send the user to Connection instead of to discovery.
+@Test func deviceFailureTreatsNotConfiguredAsServerUnreachable() {
+    #expect(DeviceFailure.classify(APIError.notConfigured) == .serverUnreachable)
+}
+
+// Server down / VPN off — same reasoning as notConfigured.
+@Test func deviceFailureTreatsTransportAsServerUnreachable() {
+    #expect(DeviceFailure.classify(APIError.transport("could not connect")) == .serverUnreachable)
+}
+
+@Test func deviceFailureTreats401AsUnauthorized() {
+    #expect(DeviceFailure.classify(APIError.http(status: 401, body: "")) == .unauthorized)
+}
+
+// An old server missing the route, or a malformed body, is neither — and must
+// not masquerade as an unreachable clock.
+@Test func deviceFailureTreatsOtherStatusesAsOther() {
+    #expect(DeviceFailure.classify(APIError.http(status: 404, body: "")) == .other)
+    #expect(DeviceFailure.classify(APIError.decoding("bad json")) == .other)
+    #expect(DeviceFailure.classify(URLError(.badURL)) == .other)
+}
+
 // MARK: Config push — pointing the server at a clock the app found
 
 private struct DeviceConfigBody: Decodable { let base_url: String }

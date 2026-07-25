@@ -539,14 +539,23 @@ struct DeviceTab: View {
             lastApplied = settings
             loadError = nil
             clockUnreachable = false
-        } catch let e as APIError where e.isUnauthorized {
-            loadError = "Unauthorized — check the token in Connection."
-            clockUnreachable = false
         } catch {
-            loadError = "Clock unreachable — use “Find clock” to locate it on your network."
-            // Open the Clock section so the one-click fix is already on screen.
-            clockUnreachable = true
-            clockExpanded = true
+            // Only a 502 (server up, its proxy to the clock down) is fixable by
+            // finding the clock. A server we can't reach at all would fail the
+            // config PUT too, so it must not offer discovery as the remedy.
+            let failure = DeviceFailure.classify(error)
+            clockUnreachable = failure == .clockUnreachable
+            switch failure {
+            case .unauthorized:
+                loadError = "Unauthorized — check the token in Connection."
+            case .serverUnreachable:
+                loadError = "Server unreachable — check the server URL in Connection."
+            case .clockUnreachable:
+                loadError = "Clock unreachable — use “Find clock” to locate it on your network."
+                clockExpanded = true   // put the one-click fix on screen
+            case .other:
+                loadError = "Couldn't load from the clock: \(error.localizedDescription)"
+            }
         }
     }
 

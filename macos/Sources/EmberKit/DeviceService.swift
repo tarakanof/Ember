@@ -1,5 +1,32 @@
 import Foundation
 
+/// Why a `/v1/device/*` call failed, split by *who* is unreachable — the server
+/// or the clock behind it.
+///
+/// The distinction decides what the UI can offer as a fix. Only a 502 means the
+/// server answered and its proxy to the clock did not (`handleDeviceSettingsGet`
+/// and friends map every clock-side failure to 502), which is exactly the case
+/// clock discovery repairs. `notConfigured` and `transport` mean the *app* can't
+/// reach the server: scanning for a clock would find one and then fail to save
+/// it, so those must point at the Connection settings instead.
+public enum DeviceFailure: Equatable, Sendable {
+    case unauthorized
+    case serverUnreachable
+    case clockUnreachable
+    case other
+
+    /// Classifies a thrown error; anything that isn't an `APIError` is `.other`.
+    public static func classify(_ error: Error) -> DeviceFailure {
+        guard let api = error as? APIError else { return .other }
+        switch api {
+        case .notConfigured, .transport: return .serverUnreachable
+        case .http(401, _): return .unauthorized
+        case .http(502, _): return .clockUnreachable
+        case .http, .decoding: return .other
+        }
+    }
+}
+
 /// Typed wrapper over the server's /v1/device/* proxy endpoints (clock settings,
 /// stats, actions, and discovery/config).
 public struct DeviceService: Sendable {
