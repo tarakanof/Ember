@@ -249,6 +249,7 @@ struct ConnectionTab: View {
             case .notConfigured:  testResult = "✗ No/invalid server URL"
             case .http(401, _):   testResult = "✗ Unauthorized — check token"
             case .http(let s, _): testResult = "✗ Server error (HTTP \(s))"
+            case .timeout:        testResult = "✗ Timed out"
             case .transport:      testResult = "✗ Unreachable"
             case .decoding:       testResult = "✓ Reached server (unexpected body)"
             }

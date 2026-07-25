@@ -157,6 +157,51 @@ import Foundation
     #expect(DeviceFailure.classify(APIError.http(status: 401, body: "")) == .unauthorized)
 }
 
+// A timeout proves nothing about who was slow, so it must claim neither end.
+@Test func deviceFailureTreatsTimeoutAsTimedOut() {
+    #expect(DeviceFailure.classify(APIError.timeout) == .timedOut)
+}
+
+// The device proxies must out-wait the server's own 8s clock budget
+// (deviceBaseClient, cmd/ember/device_settings.go): under a shorter budget the
+// app aborts first and never sees the 502 that identifies an unreachable clock.
+@Test func deviceProxyClientOutwaitsTheServersClockBudget() {
+    let client = APIClient(baseURL: URL(string: "http://example.local:3627"), token: "t")
+    let proxy = client.forDeviceProxy()
+    #expect(proxy.session.configuration.timeoutIntervalForRequest > 8)
+    #expect(proxy.session.configuration.timeoutIntervalForResource
+            > proxy.session.configuration.timeoutIntervalForRequest)
+    // Every other route keeps the fail-fast budget.
+    #expect(client.session.configuration.timeoutIntervalForRequest == 5)
+    #expect(proxy.baseURL == client.baseURL)
+    #expect(proxy.token == client.token)
+}
+
+// A URLSession timeout must surface as .timeout, not as a .transport failure
+// that classify() would read as "the server is unreachable".
+@Test func apiClientMapsURLTimeoutToTimeoutError() async {
+    let host = "stub-\(UUID().uuidString.lowercased()).local"
+    StubURLProtocol.register(host: host) { _ in throw URLError(.timedOut) }
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubURLProtocol.self]
+    let client = APIClient(baseURL: URL(string: "http://\(host)"), token: "t",
+                           session: URLSession(configuration: config))
+    do {
+        try await client.send("GET", "/v1/device/settings")
+        Issue.record("expected a timeout")
+    } catch {
+        #expect(error as? APIError == .timeout)
+        #expect(DeviceFailure.classify(error) == .timedOut)
+    }
+}
+
+// No server URL: a scan would find the clock and then have nowhere to save it.
+@Test func deviceServiceReportsUnconfiguredClient() {
+    #expect(DeviceService(client: APIClient(baseURL: nil, token: nil)).isConfigured == false)
+    #expect(DeviceService(client: APIClient(baseURL: URL(string: "http://h:3627"), token: nil))
+                .isConfigured == true)
+}
+
 // An old server missing the route, or a malformed body, is neither — and must
 // not masquerade as an unreachable clock.
 @Test func deviceFailureTreatsOtherStatusesAsOther() {

@@ -553,6 +553,12 @@ struct DeviceTab: View {
             case .clockUnreachable:
                 loadError = "Clock unreachable — use “Find clock” to locate it on your network."
                 clockExpanded = true   // put the one-click fix on screen
+            case .timedOut:
+                // Nobody answered inside our budget, and that budget already
+                // out-waits the server's own 8s clock budget. Blame neither end;
+                // open the section so "Find clock" is at hand either way.
+                loadError = "No response in time — the server may be busy, or the clock is hanging."
+                clockExpanded = true
             case .other:
                 loadError = "Couldn't load from the clock: \(error.localizedDescription)"
             }

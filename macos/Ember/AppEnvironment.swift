@@ -73,7 +73,7 @@ public final class AppEnvironment {
         usage = UsageService(client: client)
         quiet = QuietService(client: client)
         displayConfig = DisplayService(client: client)
-        device = DeviceService(client: client)
+        device = DeviceService(client: client.forDeviceProxy())
         meetings = MeetingsService(client: client)
         reminderWatcher = ReminderWatcher(client: client)
         producers = ProducerInstallService(
@@ -115,7 +115,7 @@ public final class AppEnvironment {
         usage = UsageService(client: client)
         quiet = QuietService(client: client)
         displayConfig = DisplayService(client: client)
-        device = DeviceService(client: client)
+        device = DeviceService(client: client.forDeviceProxy())
         meetings = MeetingsService(client: client)
         reminderWatcher.reconfigure(client: client)
         model.configure(client: client)
