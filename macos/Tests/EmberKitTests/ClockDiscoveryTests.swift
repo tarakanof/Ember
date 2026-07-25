@@ -84,6 +84,29 @@ import Foundation
     #expect(list.map(\.host) == ["alpha.local.", "zulu.local."])
 }
 
+// MARK: Resolution de-dup (NWBrowser replays the whole result set)
+
+// Each Bonjour instance is connected to once, no matter how many times the
+// browse replays it — otherwise a busy _http._tcp LAN opens N connections per
+// callback.
+@MainActor
+@Test func clockDiscoveryClaimsEachServiceOnce() {
+    let d = ClockDiscovery()
+    #expect(d.claim("awtrix_116ae8._http._tcp.local.") == true)
+    #expect(d.claim("awtrix_116ae8._http._tcp.local.") == false)
+    #expect(d.claim("printer._http._tcp.local.") == true)
+}
+
+// A fresh scan re-resolves everything: stale claims must not hide a clock that
+// failed to resolve last time.
+@MainActor
+@Test func clockDiscoveryClearsClaimsOnStop() {
+    let d = ClockDiscovery()
+    #expect(d.claim("awtrix._http._tcp.local.") == true)
+    d.stop()
+    #expect(d.claim("awtrix._http._tcp.local.") == true)
+}
+
 // MARK: Probe request shaping (stubbed transport — no LAN traffic)
 
 @Test func clockProbeGetsAPIStatsAndReturnsCandidate() async {

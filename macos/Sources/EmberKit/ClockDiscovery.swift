@@ -28,6 +28,8 @@ public final class ClockDiscovery {
     public private(set) var status: Status = .searching
     private var browser: NWBrowser?
     private var pending: [ObjectIdentifier: NWConnection] = [:]
+    /// Bonjour instances already claimed for resolution this browse.
+    private var resolving: Set<String> = []
     /// Base URLs already probed, so a re-resolved endpoint isn't re-fetched.
     private var probed: Set<String> = []
 
@@ -59,11 +61,11 @@ public final class ClockDiscovery {
             }
         }
         b.browseResultsChangedHandler = { [weak self] results, _ in
-            let endpoints = results.compactMap { result -> NWEndpoint? in
-                if case .service = result.endpoint { return result.endpoint }
-                return nil
+            let services = results.compactMap { result -> (key: String, endpoint: NWEndpoint)? in
+                guard case let .service(name, type, domain, _) = result.endpoint else { return nil }
+                return ("\(name).\(type).\(domain)", result.endpoint)
             }
-            Task { @MainActor [weak self] in self?.resolve(endpoints) }
+            Task { @MainActor [weak self] in self?.resolve(services) }
         }
         b.start(queue: .main)
         browser = b
@@ -81,13 +83,29 @@ public final class ClockDiscovery {
         browser = nil
         for conn in pending.values { conn.cancel() }
         pending.removeAll()
+        resolving.removeAll()
         probed.removeAll()
         clocks = []
     }
 
-    /// Resolves each browsed service to an address, then fingerprints it.
-    private func resolve(_ endpoints: [NWEndpoint]) {
-        for endpoint in endpoints {
+    /// Claims a browsed service for resolution, returning false when it is
+    /// already being (or has already been) resolved by this browse.
+    ///
+    /// `NWBrowser` replays the *whole* result set on every change, and mDNS
+    /// answers trickle in over the first seconds — so without this, a LAN with N
+    /// `_http._tcp` instances opens ~N TCP connections per callback. `_http._tcp`
+    /// is the busiest service type on a home network (printers, NAS, speakers,
+    /// ESPHome, HomeKit bridges), so the fan-out is real. The base-URL guard in
+    /// `fingerprint` can't cover this: that key only exists once the connection
+    /// has already succeeded.
+    ///
+    /// A service that fails to resolve isn't retried within the scan; "Find
+    /// clock" restarts the browse, which clears the claims.
+    func claim(_ key: String) -> Bool { resolving.insert(key).inserted }
+
+    /// Resolves each newly-seen browsed service to an address, then fingerprints it.
+    private func resolve(_ services: [(key: String, endpoint: NWEndpoint)]) {
+        for (_, endpoint) in services.filter({ claim($0.key) }) {
             let params = NWParameters.tcp
             // Mirror the server's baseURLFor, which prefers an IPv4 literal:
             // AWTRIX serves plain HTTP on v4 and an IPv6 link-local address is
