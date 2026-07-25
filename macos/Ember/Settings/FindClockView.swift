@@ -34,6 +34,11 @@ struct FindClockView: View {
         origin == .local ? local.clocks : serverFound
     }
 
+    /// Without a server URL the scan would work and the save would not — the
+    /// trap this section must not walk the user into. Gate the actions instead
+    /// of letting them fail at the last step.
+    private var serverConfigured: Bool { env.device.isConfigured }
+
     var body: some View {
         Group {
             Button {
@@ -42,7 +47,7 @@ struct FindClockView: View {
                 RowLabel(searching ? "Searching…" : "Find clock",
                          symbol: "antenna.radiowaves.left.and.right", tint: .teal)
             }
-            .disabled(searching)
+            .disabled(searching || !serverConfigured)
             // On the button, not the Group: a Group applies the modifier to every
             // child, so a result row being re-ordered mid-scan would stop the browse.
             .onDisappear { local.stop() }
@@ -54,6 +59,7 @@ struct FindClockView: View {
                     row(clock)
                 }
                 .buttonStyle(.plain)
+                .disabled(!serverConfigured)
             }
 
             caption
@@ -74,6 +80,10 @@ struct FindClockView: View {
     }
 
     @ViewBuilder private var caption: some View {
+        if !serverConfigured {
+            Text("Set the server URL in Connection first — a clock found here is saved on the server, so there's nowhere to put it yet.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
         if let error {
             Label(error, systemImage: "exclamationmark.triangle")
                 .font(.caption).foregroundStyle(.red)
@@ -122,6 +132,7 @@ struct FindClockView: View {
     /// Server scan first (it keeps working where it always did); this Mac's
     /// browse only when the server returns nothing or can't be reached.
     private func find() async {
+        guard serverConfigured else { return }
         searching = true
         defer { searching = false }
         error = nil
@@ -141,6 +152,7 @@ struct FindClockView: View {
     /// The candidate list stays up so picking the other of two clocks doesn't
     /// mean re-scanning — the tick simply moves once `currentBaseURL` updates.
     private func pick(_ clock: DiscoveredClock) async {
+        guard serverConfigured else { return }
         do {
             try await env.device.setConfig(baseURL: clock.baseURL)
             error = nil
