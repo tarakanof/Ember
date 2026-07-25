@@ -17,8 +17,9 @@ struct DeviceTab: View {
     @State private var lastApplied: DeviceSettings?
     @State private var confirmReboot = false
     @State private var config: DeviceConfig?
-    @State private var discovered: [DiscoveredClock] = []
-    @State private var discovering = false
+    /// The server answered, but it can't talk to the clock — the case app-side
+    /// discovery exists to fix.
+    @State private var clockUnreachable = false
     @State private var buttons: ButtonStatus?
     @State private var clockExpanded = false
 
@@ -132,30 +133,12 @@ struct DeviceTab: View {
             LabeledContent { Text(stats?.hum.map { String(format: "%.0f %%", $0) } ?? "—") } label: {
                 RowLabel("Humidity", symbol: "humidity.fill", tint: .teal)
             }
-            Button {
-                Task { await discoverClocks() }
-            } label: {
-                RowLabel(discovering ? "Scanning…" : "Discover clocks",
-                         symbol: "antenna.radiowaves.left.and.right", tint: .teal)
+            if clockUnreachable {
+                Label("The server can't reach the clock. Find it from this Mac.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
             }
-            .disabled(discovering)
-            ForEach(discovered) { c in
-                Button {
-                    Task { await pickClock(c) }
-                } label: {
-                    HStack {
-                        Image(systemName: c.baseURL == config?.baseURL ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(c.baseURL == config?.baseURL ? .green : .secondary)
-                        VStack(alignment: .leading) {
-                            Text(c.baseURL)
-                            Text("\(c.host) · fw \(c.version)").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-            Text("Ember auto-discovers the clock via mDNS. Use “Discover clocks” to pick a specific one; your choice is saved on the server and overrides auto-discovery.")
-                .font(.caption).foregroundStyle(.secondary)
+            FindClockView(currentBaseURL: config?.baseURL) { await load() }
         } header: {
             Text("Clock")
         }
@@ -555,28 +538,15 @@ struct DeviceTab: View {
             stats = await st
             lastApplied = settings
             loadError = nil
+            clockUnreachable = false
         } catch let e as APIError where e.isUnauthorized {
             loadError = "Unauthorized — check the token in Connection."
+            clockUnreachable = false
         } catch {
-            loadError = "Clock unreachable — check Connection and discovery."
-        }
-    }
-
-    /// Browses the LAN (server-side) for AWTRIX clocks and lists them to pick from.
-    private func discoverClocks() async {
-        discovering = true
-        defer { discovering = false }
-        discovered = (try? await env.device.discover())?.candidates ?? []
-    }
-
-    /// Persists the chosen clock on the server, then reloads from it.
-    private func pickClock(_ c: DiscoveredClock) async {
-        do {
-            try await env.device.setConfig(baseURL: c.baseURL)
-            discovered = []
-            await load()
-        } catch {
-            save = .error("Couldn't switch clock: \(error.localizedDescription)")
+            loadError = "Clock unreachable — use “Find clock” to locate it on your network."
+            // Open the Clock section so the one-click fix is already on screen.
+            clockUnreachable = true
+            clockExpanded = true
         }
     }
 

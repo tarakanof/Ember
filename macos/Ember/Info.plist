@@ -35,6 +35,9 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_ember._tcp</string>
+        <!-- AWTRIX3 advertises the clock as a plain HTTP service; the /api/stats
+             uid fingerprint is what narrows the browse down to the clock. -->
+        <string>_http._tcp</string>
     </array>
 </dict>
 </plist>
