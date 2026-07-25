@@ -138,12 +138,12 @@ struct FindClockView: View {
     }
 
     /// Persists the chosen clock on the server and lets the host tab reload.
+    /// The candidate list stays up so picking the other of two clocks doesn't
+    /// mean re-scanning — the tick simply moves once `currentBaseURL` updates.
     private func pick(_ clock: DiscoveredClock) async {
         do {
             try await env.device.setConfig(baseURL: clock.baseURL)
-            local.stop()
-            serverFound = []
-            origin = .idle
+            error = nil
             await onPicked()
         } catch {
             self.error = "Couldn't switch clock: \(error.localizedDescription)"
