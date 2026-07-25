@@ -96,14 +96,17 @@ func TestVersionHandler_ReportsInjectedRelease(t *testing.T) {
 	cfg.applyDefaults()
 	pub, _ := NewHTTPPublisher()
 	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	// Stands in for a release build's -ldflags "-X main.version=v0.22.0".
-	app.versionInfo.Version = "v0.22.0"
+	// Stands in for a release build's -ldflags "-X main.version=0.22.0".
+	// Bare semver, no leading "v": docker-publish.yml passes metadata-action's
+	// {{version}}, which strips it, so that is what a released image reports.
+	// Must be set before routes() — handleVersion closes over the struct by value.
+	app.versionInfo.Version = "0.22.0"
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	if got := fetchVersion(t, srv).Version; got != "v0.22.0" {
-		t.Errorf("version = %q, want v0.22.0", got)
+	if got := fetchVersion(t, srv).Version; got != "0.22.0" {
+		t.Errorf("version = %q, want 0.22.0", got)
 	}
 }
 
