@@ -191,7 +191,8 @@ text exposition format:
   `ember_sessions_evicted_total`
 - gauges: `ember_sessions_active`, `ember_uptime_seconds`,
   `ember_last_publish_unix`, `ember_last_publish_ok`,
-  `ember_ratelimit_buckets`, `ember_build_info{revision,go_version}`
+  `ember_ratelimit_buckets`,
+  `ember_build_info{revision,go_version,version}`
 
 Cardinality is bounded — request counts are labelled by Go 1.22's
 matched route pattern, not by URL path, so a 404 spammer can't blow up
