@@ -35,6 +35,9 @@ public final class ClockDiscovery {
     /// In-flight probes, so `stop()` can cancel them. Finished ones linger until
     /// the next stop — one handle per probed host, cleared with the scan.
     private var probes: Set<Task<Void, Never>> = []
+    /// Transport for the `/api/stats` probes. Swapped in tests; there is no
+    /// other reason to change it.
+    var probeSession: URLSession = ClockDiscovery.defaultProbeSession
 
     public init() {}
 
@@ -65,8 +68,8 @@ public final class ClockDiscovery {
         }
         b.browseResultsChangedHandler = { [weak self] results, _ in
             let services = results.compactMap { result -> (key: String, endpoint: NWEndpoint)? in
-                guard case let .service(name, type, domain, _) = result.endpoint else { return nil }
-                return ("\(name).\(type).\(domain)", result.endpoint)
+                guard case .service = result.endpoint else { return nil }
+                return (ClockDiscovery.serviceKey(result.endpoint), result.endpoint)
             }
             Task { @MainActor [weak self] in self?.resolve(services) }
         }
@@ -95,71 +98,101 @@ public final class ClockDiscovery {
         clocks = []
     }
 
-    /// Claims a browsed service for resolution, returning false when it is
-    /// already being (or has already been) resolved by this browse.
+    /// Picks the services this browse hasn't claimed yet, claiming them as it
+    /// goes. **Called before a single `NWConnection` is built** — that ordering
+    /// is the whole point.
     ///
     /// `NWBrowser` replays the *whole* result set on every change, and mDNS
-    /// answers trickle in over the first seconds — so without this, a LAN with N
-    /// `_http._tcp` instances opens ~N TCP connections per callback. `_http._tcp`
-    /// is the busiest service type on a home network (printers, NAS, speakers,
-    /// ESPHome, HomeKit bridges), so the fan-out is real. The base-URL guard in
-    /// `fingerprint` can't cover this: that key only exists once the connection
-    /// has already succeeded.
-    ///
-    /// A service that fails to resolve isn't retried within the scan; "Find
-    /// clock" restarts the browse, which clears the claims.
-    func claim(_ key: String) -> Bool { resolving.insert(key).inserted }
+    /// answers trickle in over the first seconds, so connecting per callback
+    /// means ~N TCP connections each time on a LAN with N `_http._tcp`
+    /// instances. `_http._tcp` is the busiest service type on a home network
+    /// (printers, NAS, speakers, ESPHome, HomeKit bridges), so the fan-out is
+    /// real. The base-URL guard in `probeResolved` can't stand in for this: that
+    /// key only exists once the connection has already succeeded, which is the
+    /// cost being avoided.
+    func claimNew(_ services: [(key: String, endpoint: NWEndpoint)]) -> [NWEndpoint] {
+        services.filter { resolving.insert($0.key).inserted }.map(\.endpoint)
+    }
 
-    /// Resolves each newly-seen browsed service to an address, then fingerprints it.
+    /// Gives up a claim so the next browse callback retries the service. Used
+    /// when a connection never reached `.ready`: a clock that momentarily
+    /// answers EHOSTUNREACH or refuses (ESP32 mid-reboot, no ARP entry yet,
+    /// Wi-Fi power save) must not be written off for the rest of the scan.
+    /// In-flight and successful resolves keep their claim, which is where the
+    /// per-callback fan-out actually lives.
+    func releaseClaim(_ key: String) {
+        resolving.remove(key)
+    }
+
+    /// Resolves each newly-seen browsed service to an address, then probes it.
     private func resolve(_ services: [(key: String, endpoint: NWEndpoint)]) {
-        for (_, endpoint) in services.filter({ claim($0.key) }) {
-            let params = NWParameters.tcp
-            // Mirror the server's baseURLFor, which prefers an IPv4 literal:
-            // AWTRIX serves plain HTTP on v4 and an IPv6 link-local address is
-            // unusable as a bare URL host.
-            if let ip = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
-                ip.version = .v4
-            }
-            let conn = NWConnection(to: endpoint, using: params)
-            let key = ObjectIdentifier(conn)
-            pending[key] = conn
-            conn.stateUpdateHandler = { [weak self] state in
-                switch state {
-                case .ready:
-                    if let path = conn.currentPath, case let .hostPort(host, port) = path.remoteEndpoint {
-                        let hostStr = EndpointFormat.host(host)
-                        let p = Int(port.rawValue)
-                        Task { @MainActor [weak self] in self?.fingerprint(host: hostStr, port: p) }
-                    }
-                    Task { @MainActor [weak self] in self?.finish(key) }
-                // .waiting means the path is unsatisfied (port filtered/refused) and
-                // NWConnection would otherwise retry forever — fail fast and reclaim it.
-                case .failed, .cancelled, .waiting:
-                    Task { @MainActor [weak self] in self?.finish(key) }
-                default:
-                    break
-                }
-            }
-            conn.start(queue: .main)
+        // Claim the whole batch first, connect second — never the other way round.
+        for endpoint in claimNew(services) {
+            connect(to: endpoint)
         }
     }
 
+    /// Opens the short-lived TCP connection that turns a browsed service into an
+    /// address, then hands it to the fingerprint probe.
+    private func connect(to endpoint: NWEndpoint) {
+        let service = Self.serviceKey(endpoint)
+        let params = NWParameters.tcp
+        // Mirror the server's baseURLFor, which prefers an IPv4 literal:
+        // AWTRIX serves plain HTTP on v4 and an IPv6 link-local address is
+        // unusable as a bare URL host.
+        if let ip = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
+            ip.version = .v4
+        }
+        let conn = NWConnection(to: endpoint, using: params)
+        let key = ObjectIdentifier(conn)
+        pending[key] = conn
+        conn.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                if let path = conn.currentPath, case let .hostPort(host, port) = path.remoteEndpoint {
+                    let hostStr = EndpointFormat.host(host)
+                    let p = Int(port.rawValue)
+                    Task { @MainActor [weak self] in self?.probeResolved(host: hostStr, port: p) }
+                }
+                Task { @MainActor [weak self] in self?.finish(key, service: service, resolved: true) }
+            // .waiting means the path is unsatisfied (host down, port filtered or
+            // refused) and NWConnection would otherwise retry forever — fail fast
+            // and reclaim it, but let the service be tried again.
+            case .failed, .cancelled, .waiting:
+                Task { @MainActor [weak self] in self?.finish(key, service: service, resolved: false) }
+            default:
+                break
+            }
+        }
+        conn.start(queue: .main)
+    }
+
     /// Probes one resolved host and keeps it if it fingerprints as a clock.
-    private func fingerprint(host: String, port: Int) {
+    func probeResolved(host: String, port: Int) {
         guard !host.isEmpty else { return }
         let base = Self.baseURL(host: host, port: port)
         guard probed.insert(base).inserted else { return }
+        let session = probeSession
         probes.insert(Task { @MainActor [weak self] in
-            let found = await Self.probe(host: host, baseURL: base)
+            let found = await Self.probe(host: host, baseURL: base, session: session)
             guard !Task.isCancelled, let self, let found else { return }
             clocks = Self.merged(clocks, adding: found)
         })
     }
 
-    /// Cancels and forgets a resolution connection once it has resolved or failed.
-    private func finish(_ key: ObjectIdentifier) {
-        pending[key]?.cancel()
-        pending[key] = nil
+    /// Cancels and forgets a resolution connection once it has resolved or
+    /// failed. Idempotent: cancelling a ready connection re-enters here as
+    /// `.cancelled`, which must not be mistaken for a failed resolve.
+    private func finish(_ key: ObjectIdentifier, service: String, resolved: Bool) {
+        guard let conn = pending.removeValue(forKey: key) else { return }
+        conn.cancel()
+        if !resolved { releaseClaim(service) }
+    }
+
+    /// The stable identity of a browsed service — instance name, type, domain.
+    nonisolated static func serviceKey(_ endpoint: NWEndpoint) -> String {
+        guard case let .service(name, type, domain, _) = endpoint else { return "\(endpoint)" }
+        return "\(name).\(type).\(domain)"
     }
 
     // MARK: Matching rules (pure — mirrors internal/discovery)
@@ -194,7 +227,7 @@ public final class ClockDiscovery {
     /// as a clock. Any transport failure is just "not a clock" — this runs
     /// against every `_http._tcp` host on the LAN, so failures are the norm.
     nonisolated static func probe(host: String, baseURL: String,
-                      session: URLSession = probeSession) async -> DiscoveredClock? {
+                      session: URLSession = defaultProbeSession) async -> DiscoveredClock? {
         guard let url = URL(string: baseURL + "/api/stats") else { return nil }
         var req = URLRequest(url: url)
         req.timeoutInterval = 1.5   // matches the server's probe client timeout
@@ -205,7 +238,7 @@ public final class ClockDiscovery {
 
     /// Short-timeout session for the probe fan-out: every unrelated web server on
     /// the LAN gets one of these, so they must not hold the scan open.
-    nonisolated private static let probeSession: URLSession = {
+    nonisolated private static let defaultProbeSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 1.5
         config.timeoutIntervalForResource = 3

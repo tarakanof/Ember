@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Network
 @testable import EmberKit
 
 // MARK: Fingerprint — mirrors the server's internal/discovery probe rules
@@ -86,25 +87,52 @@ import Foundation
 
 // MARK: Resolution de-dup (NWBrowser replays the whole result set)
 
-// Each Bonjour instance is connected to once, no matter how many times the
-// browse replays it — otherwise a busy _http._tcp LAN opens N connections per
-// callback.
-@MainActor
-@Test func clockDiscoveryClaimsEachServiceOnce() {
-    let d = ClockDiscovery()
-    #expect(d.claim("awtrix_116ae8._http._tcp.local.") == true)
-    #expect(d.claim("awtrix_116ae8._http._tcp.local.") == false)
-    #expect(d.claim("printer._http._tcp.local.") == true)
+private func service(_ name: String) -> (key: String, endpoint: NWEndpoint) {
+    let e = NWEndpoint.service(name: name, type: "_http._tcp", domain: "local.", interface: nil)
+    return (ClockDiscovery.serviceKey(e), e)
 }
 
-// A fresh scan re-resolves everything: stale claims must not hide a clock that
-// failed to resolve last time.
+// NWBrowser replays the whole result set on every change; only the services not
+// already being resolved may be connected to, or a busy _http._tcp LAN opens N
+// connections per callback.
+@MainActor
+@Test func clockDiscoveryConnectsToEachServiceOnlyOnce() {
+    let d = ClockDiscovery()
+    let batch = [service("awtrix_116ae8"), service("printer")]
+    #expect(d.claimNew(batch).count == 2)
+    // Same callback replayed, plus one late arrival.
+    #expect(d.claimNew(batch + [service("nas")]).map(ClockDiscovery.serviceKey)
+            == [ClockDiscovery.serviceKey(service("nas").endpoint)])
+    #expect(d.claimNew(batch).isEmpty)
+}
+
+// A duplicate inside a single callback must not yield two connections either.
+@MainActor
+@Test func clockDiscoveryDeDupesWithinOneBatch() {
+    let d = ClockDiscovery()
+    #expect(d.claimNew([service("awtrix"), service("awtrix")]).count == 1)
+}
+
+// A clock that momentarily refuses the connection (mid-reboot, no ARP entry,
+// Wi-Fi power save) must be retried on the next callback, not written off for
+// the rest of the scan.
+@MainActor
+@Test func clockDiscoveryRetriesAServiceThatFailedToResolve() {
+    let d = ClockDiscovery()
+    let awtrix = service("awtrix")
+    #expect(d.claimNew([awtrix]).count == 1)
+    #expect(d.claimNew([awtrix]).isEmpty)          // in flight — no second connection
+    d.releaseClaim(awtrix.key)                     // connection ended without .ready
+    #expect(d.claimNew([awtrix]).count == 1)       // next callback tries again
+}
+
+// A fresh scan re-resolves everything: stale claims must not hide a clock.
 @MainActor
 @Test func clockDiscoveryClearsClaimsOnStop() {
     let d = ClockDiscovery()
-    #expect(d.claim("awtrix._http._tcp.local.") == true)
+    #expect(d.claimNew([service("awtrix")]).count == 1)
     d.stop()
-    #expect(d.claim("awtrix._http._tcp.local.") == true)
+    #expect(d.claimNew([service("awtrix")]).count == 1)
 }
 
 // MARK: Probe request shaping (stubbed transport — no LAN traffic)
@@ -132,6 +160,44 @@ import Foundation
                                        baseURL: "http://\(host):80",
                                        session: stubSession())
     #expect(c == nil)
+}
+
+// MARK: Probe lifecycle
+
+/// Registers a stub that answers as an AWTRIX clock after `delay` seconds, so a
+/// probe can be caught in flight.
+@discardableResult
+private func slowClockStub(delay: TimeInterval) -> String {
+    let host = "stub-\(UUID().uuidString.lowercased()).local"
+    StubURLProtocol.register(host: host) { req in
+        Thread.sleep(forTimeInterval: delay)
+        return (okResponse(req.url!), Data(#"{"uid":"116ae8","version":"0.98"}"#.utf8))
+    }
+    return host
+}
+
+// The happy path: a resolved host that fingerprints as a clock lands in the list.
+@MainActor
+@Test func clockDiscoveryAddsAProbedClock() async throws {
+    let d = ClockDiscovery()
+    d.probeSession = stubSession()
+    d.probeResolved(host: slowClockStub(delay: 0), port: 80)
+    try await Task.sleep(for: .milliseconds(400))
+    #expect(d.clocks.count == 1)
+    #expect(d.clocks.first?.uid == "116ae8")
+}
+
+// A probe outlives the browse by up to its resource timeout. If stop() doesn't
+// cancel it, the result lands after `clocks` was cleared and repopulates a list
+// the user already dismissed.
+@MainActor
+@Test func clockDiscoveryDropsProbesThatFinishAfterStop() async throws {
+    let d = ClockDiscovery()
+    d.probeSession = stubSession()
+    d.probeResolved(host: slowClockStub(delay: 0.3), port: 80)
+    d.stop()
+    try await Task.sleep(for: .milliseconds(700))   // outlives the stub's delay
+    #expect(d.clocks.isEmpty)
 }
 
 // MARK: Failure classification — who is unreachable, the server or the clock
