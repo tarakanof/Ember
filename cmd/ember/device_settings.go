@@ -106,6 +106,15 @@ var deviceSettingRules = map[string]settingRule{
 	"calendarHeaderColor": {kind: kColor},
 	"calendarBodyColor":   {kind: kColor},
 	"calendarTextColor":   {kind: kColor},
+	// Native Apps — per-builtin-app text color, plus a couple of app-adjacent
+	// toggles (issue #92).
+	"timeColor":        {kind: kColor},
+	"dateColor":        {kind: kColor},
+	"temperatureColor": {kind: kColor},
+	"humidityColor":    {kind: kColor},
+	"batteryColor":     {kind: kColor},
+	"useCelsius":       {kind: kBool},
+	"smoothScroll":     {kind: kBool},
 	// Nested objects — the device speaks these NG shapes directly; the macOS
 	// app adapts to them in #71.
 	"scroll":     {kind: kObject, obj: scrollRules},

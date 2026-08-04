@@ -14,6 +14,23 @@ import Foundation
     #expect(s.timeMode == 2)
 }
 
+@Test func deviceSettingsDecodesNativeAppColorsAndToggles() throws {
+    // Issue #92 — confirmed present in the live device's GET /api/v1/settings
+    // on firmware 1.0.13.
+    let json = #"""
+    {"timeColor":"#FFFFFF","dateColor":"#FFFFFF","temperatureColor":"#FF0000",
+     "humidityColor":"#00FF00","batteryColor":"#0000FF","useCelsius":true,"smoothScroll":false}
+    """#
+    let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
+    #expect(s.timeColor == "#FFFFFF")
+    #expect(s.dateColor == "#FFFFFF")
+    #expect(s.temperatureColor == "#FF0000")
+    #expect(s.humidityColor == "#00FF00")
+    #expect(s.batteryColor == "#0000FF")
+    #expect(s.useCelsius == true)
+    #expect(s.smoothScroll == false)
+}
+
 @Test func deviceSettingsDecodesNestedScrollAndWeekdayBar() throws {
     let json = #"""
     {"scroll":{"mode":"wrap","direction":"left","entry":"inline","whenFits":"static","speed":100,"gap":8,"holdMs":1000},
