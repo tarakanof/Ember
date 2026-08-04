@@ -29,9 +29,15 @@ type recordingPublisher struct {
 	rtttls            []string
 	sounds            []string
 	loopApps          []string // app names returned by ListApps (device rotation)
-	icons             []string // filenames returned by ListIcons (/ICONS folder)
-	iconsErr          error    // when non-nil, ListIcons fails with it
-	putIcons          []string // filenames uploaded via PutIcon
+	// ops is the interleaved call order across the device-mutating methods
+	// ("push <name>", "switch <name>", "settings", "clear <name>"). The
+	// per-method slices above lose the relative ordering, and the display hold
+	// depends on it: a forced switch to an app the device has not been given yet
+	// answers 404.
+	ops      []string
+	icons    []string // filenames returned by ListIcons (/ICONS folder)
+	iconsErr error    // when non-nil, ListIcons fails with it
+	putIcons []string // filenames uploaded via PutIcon
 
 	// failNotify, when non-nil, is called on each Notify call and returns an
 	// error to simulate a device-unreachable condition. Return nil to succeed.
@@ -78,6 +84,7 @@ func (p *recordingPublisher) CustomApp(_ context.Context, name string, payload m
 	defer p.mu.Unlock()
 	p.customApps = append(p.customApps, payload)
 	p.customNames = append(p.customNames, name)
+	p.ops = append(p.ops, "push "+name)
 	return nil
 }
 
@@ -85,6 +92,7 @@ func (p *recordingPublisher) ClearApp(_ context.Context, name string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.clearedApps = append(p.clearedApps, name)
+	p.ops = append(p.ops, "clear "+name)
 	return nil
 }
 
@@ -169,6 +177,7 @@ func (p *recordingPublisher) Settings(_ context.Context, payload map[string]any)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.settings = append(p.settings, payload)
+	p.ops = append(p.ops, "settings")
 	return nil
 }
 
@@ -176,7 +185,17 @@ func (p *recordingPublisher) Switch(_ context.Context, name string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.switches = append(p.switches, name)
+	p.ops = append(p.ops, "switch "+name)
 	return nil
+}
+
+// OpsSnapshot returns a copy of the interleaved device-call order under the lock.
+func (p *recordingPublisher) OpsSnapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.ops))
+	copy(out, p.ops)
+	return out
 }
 
 // SettingsSnapshot returns a copy of recorded settings calls under the lock.

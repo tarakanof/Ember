@@ -114,8 +114,8 @@ func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 	if n := len(pub.SwitchesSnapshot()); n != 2 {
 		t.Fatalf("switches after re-assert = %d, want 2", n)
 	}
-	if !c.pomoTakeover {
-		t.Fatal("takeover flag should be set again after the re-assert")
+	if c.hold != holdPomodoro {
+		t.Fatal("hold should be holdPomodoro again after the re-assert")
 	}
 
 	// Deactivate → single restore, flag cleared.
@@ -161,14 +161,14 @@ func TestCoordinatorRestoresTakeoverOnShutdown(t *testing.T) {
 	}
 
 	// In takeover → restore autoTransition/blockNavigation once and clear the flag.
-	c.pomoTakeover = true
+	c.hold = holdPomodoro
 	c.restorePomoTakeoverOnExit()
 	s := pub.SettingsSnapshot()
 	if len(s) != 1 || s[0]["autoTransition"] != true || s[0]["blockNavigation"] != false {
 		t.Fatalf("shutdown restore settings = %+v, want autoTransition:true blockNavigation:false", s)
 	}
-	if c.pomoTakeover {
-		t.Fatal("takeover flag should be cleared after restore")
+	if c.hold != holdNone {
+		t.Fatal("hold should be cleared after restore")
 	}
 }
 

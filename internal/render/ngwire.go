@@ -52,11 +52,15 @@ func scrollStaticWhenFits() map[string]any {
 // long as its own lifetime — it then occupies its rotation slot for the whole
 // time Ember intends to own the screen.
 //
-// Actually pinning the app past the rotation is a device-level operation, not a
-// payload one: PUT /api/v1/apps/active (which does accept a pushed app's name),
-// or PATCH /api/v1/settings {"autoTransition": false}, or reducing the loop to a
-// single app via PUT /api/v1/apps/order. Issue #69 wires that to the coordinator
-// and verifies the resulting semantics on-device.
+// The jump onto the screen is a device-level operation, not a payload one, and
+// the coordinator owns it (applyDisplayHold): PUT /api/v1/apps/active moves the
+// display to the app, and this long dwell is what then keeps it there. Measured
+// on firmware 1.0.13 against a live 7-app rotation: the dwell is honoured
+// exactly, both when the rotation arrives at the slot on its own (durationMs
+// 90000 → held 90 s, cut short only by the lifetime expiring) and after a forced
+// switch (durationMs 30000 → 31 s; durationMs 6000 → 6.7 s). At lifetimeMs the
+// app is deleted outright (lifetimeExpiry defaults to "remove") and the display
+// returns to the native rotation — which is what Ember's idle model relies on.
 func applyHold(p map[string]any, lifetimeSeconds int) {
 	p["durationMs"] = msOf(lifetimeSeconds)
 }

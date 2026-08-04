@@ -402,11 +402,21 @@ func (a *App) loadPersistedPomodoroSettings() {
 // may be, and expires a held edge whose release was lost.
 const pomoChordWindow = 1500 * time.Millisecond
 
-// handleAwtrixButton ingests device button-callback POSTs (form-encoded:
-// button, state, uid). Unauthenticated by design — the device cannot send a
-// bearer token. Mapping: middle=pause/resume/start (on press); left=stop and
-// right=skip (on release, so a chord can pre-empt them); left+right held
-// together=toggle start/stop (synthesised, since the firmware has no chord).
+// handleAwtrixButton ingests the awtrix-ng button callback: a plain-HTTP,
+// fire-and-forget POST of `button=<left|middle|right>&state=<1|0>&uid=<mac>`,
+// one per edge (press AND release). Unauthenticated by design — the device
+// cannot send a bearer token — and answered immediately, because the firmware
+// times out after 300 ms per edge on the display task and a slow reply shows up
+// as visible stutter.
+//
+// `select` is kept as an accepted alias: NG's HTTP callback says "middle", but
+// its own MQTT topics and Berry `on_button` hook call the same button "select",
+// as did AWTRIX3. uid is deliberately ignored — it exists so several panels can
+// share one endpoint, and Ember drives exactly one clock.
+//
+// Mapping: middle=pause/resume/start (on press); left=stop and right=skip (on
+// release, so a chord can pre-empt them); left+right held together=toggle
+// start/stop (synthesised, since the firmware has no chord).
 func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	// Record receipt before any early-return: a POST landing here at all proves
 	// the clock's button_callback is configured + reaching us (surfaced via
@@ -425,9 +435,19 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	down := r.PostFormValue("state") == "1"
 
 	// While a hold:true reminder alarm is on the clock, any button edge is the
-	// user acknowledging it — not a Pomodoro action. The firmware's own dismissal
-	// doesn't run with a button callback configured, so the server dismisses the
-	// notification itself; a middle/select press disarms the window.
+	// user acknowledging it — not a Pomodoro action; a middle/select press
+	// disarms the window.
+	//
+	// The server's own DELETE is belt-and-braces: contrary to the AWTRIX3-era
+	// assumption, NG documents that a configured buttonCallback does NOT consume
+	// the press ("the buttons keep their normal job"), and that a select press
+	// dismisses the showing notification regardless — even with blockNavigation
+	// set. So the firmware has very likely cleared it already and this DELETE is
+	// a no-op (it answers 200 even when nothing is showing). It is kept because
+	// the failure mode of being wrong the other way is a hold:true alarm stuck on
+	// the clock forever; the cost of being right is that a second notification
+	// queued behind the alarm can be skipped. Only a physical-button test settles
+	// which happens on 1.0.13.
 	if held := a.reminderHeldUntil.Load(); held != 0 && now.UnixNano() < held {
 		if down && (button == "middle" || button == "select") {
 			a.reminderHeldUntil.Store(0)

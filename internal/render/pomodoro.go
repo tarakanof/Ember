@@ -223,12 +223,21 @@ func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 		mm = 99
 	}
 	ss := rem % 60
-	// NOTE: with the built-in `icon` field set, the firmware already reserves the
-	// left 8px and centres `text` in the remaining region — so we must NOT set
-	// `textOffsetX`/`textCenter` here (doing so double-shifts the text right and
-	// clips the last digit, e.g. "23:45" → "23:4"). The MM:SS always fits, so
-	// scroll mode "static" pins it. (This differs from the usage-widget frames,
-	// which draw the icon as a bitmap and DO need textCenter/textOffsetX.)
+	// NOTE: with the built-in `icon` field set, the firmware reserves a 9px
+	// column (8px icon + 1px gap) and centres `text` in cols 9-31 — so we must
+	// NOT set `textOffsetX`/`textCenter` here, because textOffsetX is ADDED to the
+	// centred position rather than replacing it (verified on 1.0.13: "25:00" with
+	// an icon centres at col 12; the same text with textOffsetX:9 and the default
+	// textCenter starts at col 19). The MM:SS always fits, so scroll mode "static"
+	// pins it. (This differs from the usage-widget frames, which draw the icon as
+	// a bitmap — a `draw` bitmap indents nothing, so those DO need
+	// textCenter:false + textOffsetX.)
+	//
+	// Precondition: the icon must actually exist in the device's /ICONS. A
+	// missing icon falls back to the icon-less layout, which centres the
+	// countdown across the whole panel instead. Only the weather icons are
+	// provisioned today (ensureWeatherIcons), so these two are absent on a fresh
+	// clock — tracked separately from #69.
 	p := map[string]any{
 		"icon":               pomoIconID(v.Phase),
 		"text":               fmt.Sprintf("%02d:%02d", mm, ss),

@@ -187,9 +187,12 @@ func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifeti
 // animated AWTRIX/LaMetric icon (resolved by the caller via the popup icon-ID
 // mapping) occupies cols 0-7 while the temperature digits and the hourly strip
 // stay drawn, emitted as a partial bitmap over cols 8-31 — identical layout to
-// the drawn tile, no firmware text layout involved. Verified on device
-// 2026-06-12: db coords are absolute and render alongside icon; gallery icons
-// download on first reference, so a fresh ID can be blank for a few seconds.
+// the drawn tile, no firmware text layout involved. Re-verified on awtrix-ng
+// 1.0.13: bitmap coords are absolute and a native icon coexists with a partial
+// bitmap covering the rest of the panel, both visible in the same frame. The icon
+// paints last of the two, so the bitmap must stay clear of cols 0-7 (it does).
+// Gallery icons download on first reference, so a fresh ID can be blank for a
+// few seconds — ensureWeatherIcons provisions them up front for that reason.
 func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime int) map[string]any {
 	var f Frame
 	drawWeatherBody(&f, tempText, hourly)
