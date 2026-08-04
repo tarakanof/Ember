@@ -42,8 +42,8 @@ func TestLimitResetPopupPayload(t *testing.T) {
 	if _, hasHold := p["hold"]; hasHold {
 		t.Fatal("popup must auto-dismiss (no hold)")
 	}
-	if p["duration"] != 10 {
-		t.Fatalf("duration = %v", p["duration"])
+	if p["durationMs"] != 10_000 {
+		t.Fatalf("durationMs = %v, want 10000", p["durationMs"])
 	}
 	if _, ok := p["draw"]; !ok {
 		t.Fatal("expected drawn tool icon")

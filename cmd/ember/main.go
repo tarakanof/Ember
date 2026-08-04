@@ -1181,12 +1181,12 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 		req.Duration = 5
 	}
 	if err := a.publisher.Notify(r.Context(), map[string]any{
-		"text":     req.Text,
-		"color":    req.Color,
-		"duration": req.Duration,
-		"hold":     req.Hold,
-		"wakeup":   true,
-		"stack":    false,
+		"text":       req.Text,
+		"textColor":  req.Color,
+		"durationMs": req.Duration * 1000, // the request carries seconds; NG takes ms
+		"hold":       req.Hold,
+		"wakeup":     true,
+		"stack":      false,
 	}); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

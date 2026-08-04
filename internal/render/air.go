@@ -94,8 +94,8 @@ func AirTileFrame(aqi float64, hourly []float64) Frame {
 func AirPayload(aqi float64, hourly []float64, lifetime int) map[string]any {
 	f := AirTileFrame(aqi, hourly)
 	return map[string]any{
-		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
-		"lifetime": lifetime, "duration": rotateDwellSeconds,
+		"draw":       []any{bitmapOp(0, 0, 32, 8, framePixels(&f))},
+		"lifetimeMs": msOf(lifetime), "durationMs": msOf(rotateDwellSeconds),
 	}
 }
 
@@ -106,13 +106,13 @@ func AirPopupPayload(aqi float64, durationSec int) map[string]any {
 	col := AQIColor(aqi)
 	iconPx := bitmap8(airIcon, col)
 	return map[string]any{
-		"text":       fmt.Sprintf("AIR %s %d", AQIWord(aqi), int(math.Round(aqi))),
-		"color":      hexOf(col),
-		"duration":   durationSec,
-		"wakeup":     true,
-		"stack":      false,
-		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, iconPx}}},
-		"center":     false,
-		"textOffset": 9,
+		"text":        fmt.Sprintf("AIR %s %d", AQIWord(aqi), int(math.Round(aqi))),
+		"textColor":   hexOf(col),
+		"durationMs":  msOf(durationSec),
+		"wakeup":      true,
+		"stack":       false,
+		"draw":        []any{bitmapOp(0, 0, 8, 8, iconPx)},
+		"textCenter":  false,
+		"textOffsetX": 9,
 	}
 }

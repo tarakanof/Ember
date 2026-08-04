@@ -190,11 +190,11 @@ func (a *App) pomoPhaseEndAlert(res *pomodoro.PhaseResult) {
 	if res.Phase == pomodoro.PhaseFocus {
 		text = "BREAK"
 	}
-	payload := map[string]any{"text": text, "wakeup": true, "duration": 4, "stack": false}
+	payload := map[string]any{"text": text, "wakeup": true, "durationMs": 4000, "stack": false}
 	if p.SoundMelody != "" {
 		payload["sound"] = p.SoundMelody
 	} else {
-		payload["rtttl"] = defaultPomoMelody
+		payload["soundRtttl"] = defaultPomoMelody
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

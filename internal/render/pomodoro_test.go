@@ -102,25 +102,28 @@ func TestPomodoroPayloadUsesBuiltinIcon(t *testing.T) {
 		t.Error("pomodoro payload should be icon+text, no draw")
 	}
 	// With the built-in icon, the firmware centres the text after the icon — we
-	// must NOT set textOffset/center (that double-shifts + clips the last digit).
-	if focus["noScroll"] != true {
-		t.Errorf("noScroll = %v, want true", focus["noScroll"])
+	// must NOT set textOffsetX/center (that double-shifts + clips the last digit).
+	// MM:SS always fits, so the scroll object pins it outright.
+	if got, ok := focus["scroll"].(map[string]any); !ok || got["mode"] != "static" {
+		t.Errorf("scroll = %v, want {\"mode\":\"static\"}", focus["scroll"])
 	}
-	if _, has := focus["textOffset"]; has {
-		t.Errorf("textOffset must be unset (icon field auto-places text); got %v", focus["textOffset"])
+	if _, has := focus["textOffsetX"]; has {
+		t.Errorf("textOffsetX must be unset (icon field auto-places text); got %v", focus["textOffsetX"])
 	}
-	if _, has := focus["center"]; has {
-		t.Errorf("center must be unset (firmware centres after the icon); got %v", focus["center"])
+	if _, has := focus["textCenter"]; has {
+		t.Errorf("center must be unset (firmware centres after the icon); got %v", focus["textCenter"])
 	}
 	if pr, ok := focus["progress"].(int); !ok || pr < 99 || pr > 100 {
 		t.Errorf("progress = %v, want ~100", focus["progress"])
 	}
-	if focus["progressBC"] != "#222222" {
-		t.Errorf("progressBC = %v, want #222222 (dim track)", focus["progressBC"])
+	if focus["progressTrackColor"] != "#222222" {
+		t.Errorf("progressTrackColor = %v, want #222222 (dim track)", focus["progressTrackColor"])
 	}
-	if focus["lifetime"] != 30 {
-		t.Errorf("lifetime = %v, want 30", focus["lifetime"])
+	if focus["lifetimeMs"] != 30_000 {
+		t.Errorf("lifetimeMs = %v, want 30000", focus["lifetimeMs"])
 	}
+	// The Pomodoro tile owns the screen for its whole lifetime.
+	assertHeld(t, focus, 30)
 	brk := PomodoroPayload(PomodoroView{Phase: "short_break", RemainingSec: 300, PlannedSec: 300}, 30)
 	if brk["icon"] != "6396" {
 		t.Errorf("break icon = %v, want 6396 (coffee)", brk["icon"])
@@ -134,10 +137,10 @@ func TestPomodoroPayloadUsesBuiltinIcon(t *testing.T) {
 func TestPomodoroPayloadPausedDimsColour(t *testing.T) {
 	on := PomodoroPayload(PomodoroView{Phase: "focus", RemainingSec: 600, PlannedSec: 1500}, 30)
 	off := PomodoroPayload(PomodoroView{Phase: "focus", Paused: true, RemainingSec: 600, PlannedSec: 1500}, 30)
-	if on["color"] == off["color"] {
-		t.Errorf("paused must dim the colour; both = %v", on["color"])
+	if on["textColor"] == off["textColor"] {
+		t.Errorf("paused must dim the colour; both = %v", on["textColor"])
 	}
-	if on["color"] != off["color"] && off["progressC"] != off["color"] {
-		t.Errorf("progressC should match the (dimmed) colour when paused")
+	if off["progressColor"] != off["textColor"] {
+		t.Errorf("progressColor should match the (dimmed) textColor when paused")
 	}
 }

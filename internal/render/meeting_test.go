@@ -8,35 +8,26 @@ func TestMeetingPayloadShape(t *testing.T) {
 	if p["text"] != "STANDUP 12m" {
 		t.Errorf("text = %q, want %q", p["text"], "STANDUP 12m")
 	}
-	if p["color"] != hexOf(meetingInk) {
-		t.Errorf("color = %v, want %v", p["color"], hexOf(meetingInk))
+	if p["textColor"] != hexOf(meetingInk) {
+		t.Errorf("textColor = %v, want %v", p["textColor"], hexOf(meetingInk))
 	}
-	if p["lifetime"] != 600 {
-		t.Errorf("lifetime = %v, want 600", p["lifetime"])
+	if p["lifetimeMs"] != 600_000 {
+		t.Errorf("lifetimeMs = %v, want 600000", p["lifetimeMs"])
 	}
-	if p["duration"] != rotateDwellSeconds {
-		t.Errorf("duration = %v, want %v", p["duration"], rotateDwellSeconds)
+	if p["durationMs"] != msOf(rotateDwellSeconds) {
+		t.Errorf("durationMs = %v, want %v", p["durationMs"], msOf(rotateDwellSeconds))
 	}
-	if p["center"] != false {
-		t.Errorf("center = %v, want false", p["center"])
+	if p["textCenter"] != false {
+		t.Errorf("textCenter = %v, want false", p["textCenter"])
 	}
-	if p["textOffset"] != 9 {
-		t.Errorf("textOffset = %v, want 9", p["textOffset"])
+	if p["textOffsetX"] != 9 {
+		t.Errorf("textOffsetX = %v, want 9", p["textOffsetX"])
 	}
 
-	draw, ok := p["draw"].([]any)
-	if !ok || len(draw) != 1 {
+	if draw, ok := p["draw"].([]any); !ok || len(draw) != 1 {
 		t.Fatalf("draw must be a 1-element slice, got %v", p["draw"])
 	}
-	db, ok := draw[0].(map[string]any)["db"].([]any)
-	if !ok || len(db) != 5 {
-		t.Fatalf("draw[0].db must be a 5-element slice, got %v", draw[0])
-	}
-	pixels, ok := db[4].([]int)
-	if !ok {
-		t.Fatalf("draw[0].db[4] must be []int, got %T", db[4])
-	}
-	if len(pixels) != 64 {
+	if pixels := bmpPixels(t, p); len(pixels) != 64 {
 		t.Errorf("icon pixel count = %d, want 64", len(pixels))
 	}
 }
@@ -47,8 +38,8 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 	if p["text"] != "STANDUP IN 2M" {
 		t.Errorf("text = %q, want %q", p["text"], "STANDUP IN 2M")
 	}
-	if p["duration"] != 30 {
-		t.Errorf("duration = %v, want 30", p["duration"])
+	if p["durationMs"] != 30_000 {
+		t.Errorf("durationMs = %v, want 30000", p["durationMs"])
 	}
 	if p["wakeup"] != true {
 		t.Errorf("wakeup = %v, want true", p["wakeup"])
@@ -56,11 +47,11 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 	if p["stack"] != true {
 		t.Errorf("stack = %v, want true", p["stack"])
 	}
-	if p["center"] != false {
-		t.Errorf("center = %v, want false", p["center"])
+	if p["textCenter"] != false {
+		t.Errorf("textCenter = %v, want false", p["textCenter"])
 	}
-	if p["textOffset"] != 9 {
-		t.Errorf("textOffset = %v, want 9", p["textOffset"])
+	if p["textOffsetX"] != 9 {
+		t.Errorf("textOffsetX = %v, want 9", p["textOffsetX"])
 	}
 	if _, has := p["draw"]; !has {
 		t.Error("popup must carry the drawn icon")
@@ -68,8 +59,8 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 	if _, has := p["sound"]; has {
 		t.Error("popup must not carry a sound field")
 	}
-	if _, has := p["rtttl"]; has {
-		t.Error("popup must not carry an rtttl field")
+	if _, has := p["soundRtttl"]; has {
+		t.Error("popup must not carry a soundRtttl field")
 	}
 }
 

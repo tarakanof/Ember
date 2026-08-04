@@ -1,7 +1,6 @@
 package render
 
 import (
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -385,23 +384,18 @@ func framePixelsRect(f *Frame, x0, y0, w, h int) []int {
 // merely-running agent rotates alongside them instead of owning the screen.
 const rotateDwellSeconds = 6
 
-// frameToCustomApp encodes a Frame as an AWTRIX CustomApp payload using
-// one db (draw bitmap) operation. Pixels are emitted row-major as
-// 0xRRGGBB ints — undirty pixels emit 0 (black/off). hold=true publishes
-// with prio+force and a full-lifetime duration (display hold); hold=false
-// rotates natively with a short dwell.
+// frameToCustomApp encodes a Frame as an awtrix-ng pushed-app payload using one
+// bitmap draw command. Pixels are emitted row-major as 0xRRGGBB ints — undirty
+// pixels emit 0 (black/off). hold=true takes the display hold (see applyHold);
+// hold=false rotates natively with a short dwell.
 func frameToCustomApp(f *Frame, lifetimeSeconds int, hold bool) map[string]any {
 	p := map[string]any{
-		"draw": []any{
-			map[string]any{"db": []any{0, 0, 32, 8, framePixels(f)}},
-		},
-		"lifetime": lifetimeSeconds,
-		"duration": rotateDwellSeconds,
+		"draw":       []any{bitmapOp(0, 0, 32, 8, framePixels(f))},
+		"lifetimeMs": msOf(lifetimeSeconds),
+		"durationMs": msOf(rotateDwellSeconds),
 	}
 	if hold {
-		p["duration"] = lifetimeSeconds
-		p["prio"] = true
-		p["force"] = true
+		applyHold(p, lifetimeSeconds)
 	}
 	return p
 }
@@ -772,35 +766,31 @@ const numStart = 9
 // on non-usage cards.
 const unitStart = 25
 
-// detailPayload builds an 8×8 icon (db) + AWTRIX-native-text payload. blink=true
-// is the WAIT/ERR attention label (blinking; scrolls when the label overflows the
-// free columns). blink=false is the activity detail (firmware shows it static when
-// it fits, scrolls when it overflows). center is always false so textOffset is the
-// literal start column (cols 9-31), clear of the 8-wide icon. hold follows
-// the frameToCustomApp contract (prio+force+full duration vs short dwell).
+// detailPayload builds an 8×8 icon bitmap + firmware-native-text payload.
+// blink=true is the WAIT/ERR attention label; blink=false is the activity detail.
+// textCenter is always false so textOffsetX is the literal start column (cols
+// 9-31), clear of the 8-wide icon. hold follows the frameToCustomApp contract.
+//
+// Both modes want the same motion: sit still when the label fits the 23 free
+// columns, scroll when it overflows. NG expresses that natively as
+// scroll.whenFits, which replaces the old len(text)<=5 character-count gate.
 func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int, hold bool) map[string]any {
 	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
 	p := map[string]any{
-		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, pixels}}},
-		"text":       text,
-		"color":      hexColor,
-		"textOffset": 9,
-		"center":     false,
-		"duration":   rotateDwellSeconds,
-		"lifetime":   lifetimeSeconds,
+		"draw":        []any{bitmapOp(0, 0, 8, 8, pixels)},
+		"text":        text,
+		"textColor":   hexColor,
+		"textOffsetX": 9,
+		"textCenter":  false,
+		"scroll":      scrollStaticWhenFits(),
+		"durationMs":  msOf(rotateDwellSeconds),
+		"lifetimeMs":  msOf(lifetimeSeconds),
 	}
 	if hold {
-		p["duration"] = lifetimeSeconds
-		p["prio"] = true
-		p["force"] = true
+		applyHold(p, lifetimeSeconds)
 	}
 	if blink {
-		p["blinkText"] = 500
-		// "WAIT"/"ERR" alone fit the 23 free cols (9-31); with a source name appended
-		// the firmware must be allowed to scroll (~4 px/char native font).
-		if len(text) <= 5 {
-			p["noScroll"] = true
-		}
+		p["textBlinkMs"] = 500
 	}
 	return p
 }
@@ -949,17 +939,14 @@ func colorForState(state string) RGB {
 // guards against entry with state ∉ {waiting, error}.
 func attentionLabelAndColor(state string) (string, string) {
 	if state == "error" {
-		return "ERR", fmt.Sprintf("#%02X%02X%02X", colorError.R, colorError.G, colorError.B)
+		return "ERR", hexOf(colorError)
 	}
-	return "WAIT", fmt.Sprintf("#%02X%02X%02X", colorWaiting.R, colorWaiting.G, colorWaiting.B)
+	return "WAIT", hexOf(colorWaiting)
 }
 
 // stateHex returns the "#RRGGBB" string for a state's palette colour, for use
-// as the AWTRIX text colour in detail payloads.
-func stateHex(state string) string {
-	c := colorForState(state)
-	return fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B)
-}
+// as the textColor in detail payloads.
+func stateHex(state string) string { return hexOf(colorForState(state)) }
 
 // idleDimWhite is the robot colour during the idle-restore countdown:
 // roughly 40% brightness (0x66 / 0xff) — a clear "the display is alive
@@ -973,21 +960,18 @@ var idleDimWhite = RGB{0x66, 0x66, 0x66}
 // unambiguous "AI idle" signal that's also visually distinct from the
 // active rotation frames. The eye sockets / cursor overlay are left dark
 // (not painted) so the sprite silhouette is preserved even in the idle dim.
-// Includes prio+force+lifetime so AWTRIX keeps holding the slot until the
+// Takes the display hold (see applyHold) so the slot stays put until the
 // countdown elapses and we stop publishing.
 func RenderIdleFrame(lifetimeSeconds int) map[string]any {
 	// Idle dims the body only; deliberately skips the feature overlay so the
 	// eye sockets / cursor remain dark, preserving the sprite silhouette.
 	pixels := composeToolIconBodyPixels(Session{State: "idle"}, idleDimWhite)
-	return map[string]any{
-		"draw": []any{
-			map[string]any{"db": []any{0, 0, 8, 8, pixels}},
-		},
-		"lifetime": lifetimeSeconds,
-		"duration": lifetimeSeconds,
-		"prio":     true,
-		"force":    true,
+	p := map[string]any{
+		"draw":       []any{bitmapOp(0, 0, 8, 8, pixels)},
+		"lifetimeMs": msOf(lifetimeSeconds),
 	}
+	applyHold(p, lifetimeSeconds)
+	return p
 }
 
 // idleUsageTools is the fixed tool order for idle usage faces.

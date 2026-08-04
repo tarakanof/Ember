@@ -75,13 +75,13 @@ func SunPopupPayload(rising bool, label string, durationSec int) map[string]any 
 	}
 	iconPx := bitmap8(sunHorizonIcon, col)
 	return map[string]any{
-		"text":       label,
-		"duration":   durationSec,
-		"wakeup":     true,
-		"stack":      false,
-		"color":      hexOf(col),
-		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, iconPx}}},
-		"center":     false,
-		"textOffset": 9,
+		"text":        label,
+		"durationMs":  msOf(durationSec),
+		"wakeup":      true,
+		"stack":       false,
+		"textColor":   hexOf(col),
+		"draw":        []any{bitmapOp(0, 0, 8, 8, iconPx)},
+		"textCenter":  false,
+		"textOffsetX": 9,
 	}
 }

@@ -86,14 +86,13 @@ func TestAirTileFrame(t *testing.T) {
 
 func TestAirPayload(t *testing.T) {
 	p := AirPayload(42, []float64{10, 20, 30}, 600)
-	if p["lifetime"] != 600 {
-		t.Fatalf("lifetime = %v, want 600", p["lifetime"])
+	if p["lifetimeMs"] != 600_000 {
+		t.Fatalf("lifetimeMs = %v, want 600000", p["lifetimeMs"])
 	}
-	draw, ok := p["draw"].([]any)
-	if !ok || len(draw) != 1 {
+	if draw, ok := p["draw"].([]any); !ok || len(draw) != 1 {
 		t.Fatalf("draw op missing: %v", p["draw"])
 	}
-	pixels := draw[0].(map[string]any)["db"].([]any)[4].([]int)
+	pixels := bmpPixels(t, p)
 	if len(pixels) != 256 {
 		t.Fatalf("frame pixel count = %d, want 256", len(pixels))
 	}
@@ -104,17 +103,17 @@ func TestAirPopupPayload(t *testing.T) {
 	if p["text"] != "AIR VERY POOR 85" {
 		t.Errorf("text = %q, want AIR VERY POOR 85", p["text"])
 	}
-	if p["color"] != "960032" {
-		t.Errorf("color = %v, want 960032", p["color"])
+	if p["textColor"] != "#960032" {
+		t.Errorf("textColor = %v, want #960032", p["textColor"])
 	}
-	if p["duration"] != 30 {
-		t.Errorf("duration = %v, want 30", p["duration"])
+	if p["durationMs"] != 30_000 {
+		t.Errorf("durationMs = %v, want 30000", p["durationMs"])
 	}
 	if _, has := p["draw"]; !has {
 		t.Error("popup must carry the drawn icon")
 	}
-	if p["center"] != false || p["textOffset"] != 9 {
-		t.Errorf("popup must set center:false textOffset:9, got center=%v offset=%v", p["center"], p["textOffset"])
+	if p["textCenter"] != false || p["textOffsetX"] != 9 {
+		t.Errorf("popup must set textCenter:false textOffsetX:9, got center=%v offset=%v", p["textCenter"], p["textOffsetX"])
 	}
 	if _, has := p["sound"]; has {
 		t.Error("air popup must not carry a sound field")

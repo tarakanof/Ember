@@ -112,8 +112,8 @@ func main() {
 	fmt.Println("\nApps rotate for ~3 min then expire; re-run with -clear to drop them now.")
 }
 
-// frameApp wraps a Frame the same way the coordinator publishes one, minus
-// prio/force so the test apps don't preempt the live rotation.
+// frameApp wraps a Frame the same way the coordinator publishes one, minus the
+// display hold so the test apps don't preempt the live rotation.
 func frameApp(f *render.Frame, lifetime int) map[string]any {
 	pixels := make([]int, 256)
 	for y := 0; y < 8; y++ {
@@ -125,8 +125,8 @@ func frameApp(f *render.Frame, lifetime int) map[string]any {
 		}
 	}
 	return map[string]any{
-		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, pixels}}},
-		"lifetime": lifetime,
-		"duration": 8,
+		"draw":       []any{[]any{"bitmap", 0, 0, 32, 8, pixels}},
+		"lifetimeMs": lifetime * 1000,
+		"durationMs": 8000,
 	}
 }

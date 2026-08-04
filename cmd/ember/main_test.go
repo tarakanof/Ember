@@ -1017,6 +1017,56 @@ func TestHandleNotify_LogsInfoOnEmptyText(t *testing.T) {
 	}
 }
 
+// TestHandleNotify_EmitsNGPayload pins the /v1/notify handler's ad-hoc payload
+// on awtrix-ng's schema: the request's seconds become durationMs, and the
+// request colour lands on textColor. AWTRIX3's `duration`/`color` 422 on NG.
+func TestHandleNotify_EmitsNGPayload(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	req := httptest.NewRequest(http.MethodPost, "/v1/notify",
+		strings.NewReader(`{"text":"PING","color":"#FF00AA","duration":7,"hold":true}`))
+	w := httptest.NewRecorder()
+	app.handleNotify(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	notes := pub.NotifySnapshot()
+	if len(notes) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notes))
+	}
+	p := notes[0]
+	want := map[string]any{
+		"text": "PING", "textColor": "#FF00AA", "durationMs": 7000,
+		"hold": true, "wakeup": true, "stack": false,
+	}
+	for k, v := range want {
+		if p[k] != v {
+			t.Errorf("payload[%s] = %v, want %v", k, p[k], v)
+		}
+	}
+	for _, k := range []string{"duration", "color"} {
+		if _, has := p[k]; has {
+			t.Errorf("legacy AWTRIX3 key %q present — NG rejects the whole payload", k)
+		}
+	}
+}
+
+// The default colour must be the same canonical "#RRGGBB" form every render
+// builder emits.
+func TestHandleNotify_DefaultColorIsCanonicalHex(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	app.handleNotify(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost,
+		"/v1/notify", strings.NewReader(`{"text":"PING"}`)))
+	p := pub.NotifySnapshot()[0]
+	if p["textColor"] != "#FFFFFF" {
+		t.Errorf("default textColor = %v, want #FFFFFF", p["textColor"])
+	}
+	if p["durationMs"] != 5000 {
+		t.Errorf("default durationMs = %v, want 5000 (the 5s default)", p["durationMs"])
+	}
+}
+
 func TestStatusRequestValidate_OptionalFields(t *testing.T) {
 	mk := func(ctxPct *int, srcColor *string) StatusRequest {
 		return StatusRequest{

@@ -59,13 +59,13 @@ func meetingIconPixels() []int {
 // keeps the slot alive before auto-expiring it.
 func MeetingPayload(title string, minutes, lifetime int) map[string]any {
 	return map[string]any{
-		"text":       fmt.Sprintf("%s %dm", title, minutes),
-		"color":      hexOf(meetingInk),
-		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, meetingIconPixels()}}},
-		"center":     false,
-		"textOffset": 9,
-		"lifetime":   lifetime,
-		"duration":   rotateDwellSeconds,
+		"text":        fmt.Sprintf("%s %dm", title, minutes),
+		"textColor":   hexOf(meetingInk),
+		"draw":        []any{bitmapOp(0, 0, 8, 8, meetingIconPixels())},
+		"textCenter":  false,
+		"textOffsetX": 9,
+		"lifetimeMs":  msOf(lifetime),
+		"durationMs":  msOf(rotateDwellSeconds),
 	}
 }
 
@@ -81,14 +81,14 @@ func MeetingPayload(title string, minutes, lifetime int) map[string]any {
 // separately via /api/rtttl.
 func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]any {
 	return map[string]any{
-		"text":       fmt.Sprintf("%s IN %dM", title, leadMinutes),
-		"color":      hexOf(meetingInk),
-		"duration":   durationSec,
-		"wakeup":     true,
-		"stack":      true,
-		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, meetingIconPixels()}}},
-		"center":     false,
-		"textOffset": 9,
+		"text":        fmt.Sprintf("%s IN %dM", title, leadMinutes),
+		"textColor":   hexOf(meetingInk),
+		"durationMs":  msOf(durationSec),
+		"wakeup":      true,
+		"stack":       true,
+		"draw":        []any{bitmapOp(0, 0, 8, 8, meetingIconPixels())},
+		"textCenter":  false,
+		"textOffsetX": 9,
 	}
 }
 

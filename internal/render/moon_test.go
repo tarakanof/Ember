@@ -47,8 +47,8 @@ func TestWeatherPayloadMoonUsesMoonIcon(t *testing.T) {
 	// day (sun) tile, proving the moon was drawn there.
 	day := WeatherPayload(WeatherClear, "12°", nil, 600)
 	night := WeatherPayloadMoon("12°", nil, MoonView{Illum: 0.5, Waxing: true}, 600)
-	dp := day["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
-	np := night["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	dp := bmpPixels(t, day)
+	np := bmpPixels(t, night)
 	same := true
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {
@@ -64,18 +64,21 @@ func TestWeatherPayloadMoonUsesMoonIcon(t *testing.T) {
 
 func TestSunPopupPayload(t *testing.T) {
 	rise := SunPopupPayload(true, "SUNRISE 5:21", 30)
-	if rise["text"] != "SUNRISE 5:21" || rise["center"] != false || rise["textOffset"] != 9 {
+	if rise["text"] != "SUNRISE 5:21" || rise["textCenter"] != false || rise["textOffsetX"] != 9 {
 		t.Errorf("sunrise popup layout wrong: %+v", rise)
+	}
+	if rise["durationMs"] != 30_000 {
+		t.Errorf("durationMs = %v, want 30000", rise["durationMs"])
 	}
 	if _, has := rise["draw"]; !has {
 		t.Error("sun popup must carry a draw op")
 	}
-	if rise["color"] != hexOf(sunriseColor) {
-		t.Errorf("sunrise colour = %v, want %v", rise["color"], hexOf(sunriseColor))
+	if rise["textColor"] != hexOf(sunriseColor) {
+		t.Errorf("sunrise colour = %v, want %v", rise["textColor"], hexOf(sunriseColor))
 	}
 	set := SunPopupPayload(false, "SUNSET 21:08", 30)
-	if set["color"] != hexOf(sunsetColor) {
-		t.Errorf("sunset colour = %v, want %v", set["color"], hexOf(sunsetColor))
+	if set["textColor"] != hexOf(sunsetColor) {
+		t.Errorf("sunset colour = %v, want %v", set["textColor"], hexOf(sunsetColor))
 	}
 	// No sound on the notification (firmware drops it under a draw op).
 	if _, has := rise["sound"]; has {

@@ -768,9 +768,9 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 	}
 	last := apps[len(apps)-1]
 	// Active frame must NOT be the dim-white robot — it should be a state-coloured render.
-	db := last["draw"].([]any)[0].(map[string]any)["db"].([]any)
-	if db[2] != 32 {
-		t.Errorf("active frame width = %v, want 32 (full rotation render)", db[2])
+	op := last["draw"].([]any)[0].([]any) // NG: ["bitmap", x, y, w, h, data]
+	if op[3] != 32 {
+		t.Errorf("active frame width = %v, want 32 (full rotation render)", op[3])
 	}
 }
 

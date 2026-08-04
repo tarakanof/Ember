@@ -151,7 +151,7 @@ func ForecastTileFrame(hourly []float64) Frame {
 func ForecastPayload(hourly []float64, lifetime int) map[string]any {
 	f := ForecastTileFrame(hourly)
 	return map[string]any{
-		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
-		"lifetime": lifetime, "duration": rotateDwellSeconds,
+		"draw":       []any{bitmapOp(0, 0, 32, 8, framePixels(&f))},
+		"lifetimeMs": msOf(lifetime), "durationMs": msOf(rotateDwellSeconds),
 	}
 }

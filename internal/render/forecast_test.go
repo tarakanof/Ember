@@ -114,13 +114,13 @@ func TestForecastBarsFlatWindowMidHeight(t *testing.T) {
 
 func TestForecastPayloadFullWidthBars(t *testing.T) {
 	p := ForecastPayload([]float64{10, 12, 14, 16, 18, 20}, 600)
-	if p["lifetime"] != 600 {
-		t.Fatalf("lifetime = %v, want 600", p["lifetime"])
+	if p["lifetimeMs"] != 600_000 {
+		t.Fatalf("lifetimeMs = %v, want 600000", p["lifetimeMs"])
 	}
 	if _, has := p["icon"]; has {
 		t.Error("forecast tile must not carry a native icon (bars own the matrix)")
 	}
-	pixels := p["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	pixels := bmpPixels(t, p)
 	// Bars stretch across the whole matrix: bottom row lit at both edges.
 	if pixels[7*32+0] == 0 {
 		t.Error("bars must start at col 0 (no icon/temp on the forecast tile)")
@@ -163,7 +163,7 @@ func TestForecastBarsScaledDistributesWidth(t *testing.T) {
 func TestWeatherPayloadIncludesTwoRowStrip(t *testing.T) {
 	hourly := []float64{-5, 25}
 	p := WeatherPayload(WeatherClear, "21°", hourly, 600)
-	pixels := p["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	pixels := bmpPixels(t, p)
 	// The strip is 2px tall (rows 6-7), cols 9+.
 	for _, row := range []int{6, 7} {
 		if pixels[row*32+9] == 0 || pixels[row*32+10] == 0 {
