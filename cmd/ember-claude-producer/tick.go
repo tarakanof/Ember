@@ -95,6 +95,21 @@ func openDaemonLog(name string) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }
 
+// statuslineUsageSnapshot is the statusline-derived rate-limit data found on
+// one live Claude marker during a heartbeat pass. updatedAt is the marker
+// file's mtime, used by dispatchTick to pick the single freshest session's
+// data when more than one Claude session is live (mirrors the server's own
+// effectiveFiveHour "newest session wins" heuristic).
+type statuslineUsageSnapshot struct {
+	fiveHourPct        *int
+	fiveHourResetAt    int64
+	fiveHourResetLabel string
+	sevenDayPct        *int
+	sevenDayResetAt    int64
+	sevenDayResetLabel string
+	updatedAt          time.Time
+}
+
 func dispatchTick(ctx context.Context, cfg Config) {
 	dir, err := stateDir()
 	if err != nil {
@@ -106,6 +121,7 @@ func dispatchTick(ctx context.Context, cfg Config) {
 	}
 	client := NewDaemonClient(cfg)
 	staleThreshold := time.Now().Add(-time.Duration(cfg.HeartbeatTTLHours) * time.Hour)
+	var best *statuslineUsageSnapshot
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
@@ -113,7 +129,19 @@ func dispatchTick(ctx context.Context, cfg Config) {
 		sessionID := strings.TrimSuffix(e.Name(), ".json")
 		markerP := filepath.Join(dir, e.Name())
 		lockP := filepath.Join(dir, sessionID+".lock")
-		processOneMarker(ctx, cfg, client, markerP, lockP, staleThreshold)
+		if snap := processOneMarker(ctx, cfg, client, markerP, lockP, staleThreshold); snap != nil {
+			if best == nil || snap.updatedAt.After(best.updatedAt) {
+				best = snap
+			}
+		}
+	}
+	// Relay the freshest live session's rate-limit data to /v1/usage, making
+	// the statusline the primary weekly (and 5h) source: this runs every
+	// heartbeat (10s) while a session is active, far more often than the
+	// OAuth poller's usagePollInterval (5m) — and unlike that poller, it
+	// never depends on the flaky reverse-engineered OAuth usage endpoint.
+	if best != nil {
+		postStatuslineUsage(ctx, client, *best)
 	}
 }
 
@@ -135,7 +163,11 @@ func markerTool(markerP string) (tool string, ok bool) {
 	return m.Tool, true
 }
 
-func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, lockP string, staleThreshold time.Time) {
+// processOneMarker re-POSTs or reaps one live Claude marker. It returns the
+// marker's statusline-derived rate-limit data (nil when the marker carried
+// none, or wasn't reached via the "fresh" path) for dispatchTick to relay to
+// /v1/usage.
+func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, lockP string, staleThreshold time.Time) *statuslineUsageSnapshot {
 	// Ownership gate: ~/.local/state/ember/sessions is shared with the Codex
 	// producer (cmd/ember-codex-producer), which writes its own markers with
 	// "tool":"codex" and already fully owns their lifecycle (POST/reap/DELETE
@@ -156,11 +188,11 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	// compatibility case; skip any other non-empty, non-"claude" Tool
 	// entirely (no Stat, no lock, no read past this check, no POST/DELETE).
 	if tool, ok := markerTool(markerP); ok && tool != "" && tool != "claude" {
-		return
+		return nil
 	}
 	info, err := os.Stat(markerP)
 	if err != nil {
-		return
+		return nil
 	}
 	// Owner-liveness reap: if the Claude process that owns this session has
 	// exited (window closed / crash, with no SessionEnd), drop it now instead
@@ -186,7 +218,7 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			_ = os.Remove(markerP)
 			return nil
 		})
-		return
+		return nil
 	}
 	if info.ModTime().Before(staleThreshold) {
 		// Stale: re-stat under exclusive lock, delete if still stale
@@ -212,9 +244,10 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			_ = os.Remove(markerP)
 			return nil
 		})
-		return
+		return nil
 	}
 	// Fresh: shared lock + read + POST
+	var snap *statuslineUsageSnapshot
 	_ = withLockSh(lockP, func() error {
 		body, err := os.ReadFile(markerP)
 		if err != nil {
@@ -229,9 +262,27 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 		}
 		sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
 		req.SourceCard, req.SessionBar = &sc, &sb
+		// Capture the statusline-owned rate-limit fields for the /v1/usage
+		// relay before stripping the weekly ones below — they're marker-only
+		// and must never appear on the /v1/status wire payload.
+		if req.RateWindowPct != nil || req.RateWeekPct != nil {
+			snap = &statuslineUsageSnapshot{
+				fiveHourPct:        req.RateWindowPct,
+				fiveHourResetAt:    req.RateResetAt,
+				fiveHourResetLabel: req.RateResetLabel,
+				sevenDayPct:        req.RateWeekPct,
+				sevenDayResetAt:    req.RateWeekResetAt,
+				sevenDayResetLabel: req.RateWeekResetLabel,
+				updatedAt:          info.ModTime(),
+			}
+		}
+		req.RateWeekPct = nil
+		req.RateWeekResetAt = 0
+		req.RateWeekResetLabel = ""
 		if err := client.Post(ctx, req); err != nil {
 			tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
 		}
 		return nil
 	})
+	return snap
 }

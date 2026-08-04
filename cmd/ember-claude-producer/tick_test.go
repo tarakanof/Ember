@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func TestTick_NoMarkers_NoOp(t *testing.T) {
@@ -376,6 +379,203 @@ func TestDispatchTick_ThrottlesRepeatedPostFailures(t *testing.T) {
 	dispatchTick(context.Background(), cfg)
 	if n := strings.Count(buf.String(), "kind=claude_post"); n != 1 {
 		t.Errorf("expected exactly 1 throttled warning across 2 failing ticks, got %d: %s", n, buf.String())
+	}
+}
+
+// usageRelayHarness is like newHookHarness but splits captured request bodies
+// by path, since dispatchTick now also POSTs to /v1/usage alongside /v1/status.
+type usageRelayHarness struct {
+	home         string
+	srv          *httptest.Server
+	statusBodies []string
+	usageBodies  []string
+}
+
+func newUsageRelayHarness(t *testing.T) *usageRelayHarness {
+	t.Helper()
+	h := &usageRelayHarness{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		h.statusBodies = append(h.statusBodies, string(b))
+		w.WriteHeader(204)
+	})
+	mux.HandleFunc("/v1/usage", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		h.usageBodies = append(h.usageBodies, string(b))
+		w.WriteHeader(204)
+	})
+	h.srv = httptest.NewServer(mux)
+	t.Cleanup(h.srv.Close)
+	h.home = t.TempDir()
+	t.Setenv("HOME", h.home)
+	cfgDir := filepath.Join(h.home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func (h *usageRelayHarness) sessionsDir() string {
+	return filepath.Join(h.home, ".local", "state", "ember", "sessions")
+}
+
+func writeMarkerFile(t *testing.T, dir, sessionID, extraJSONFields string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, sessionID+".json")
+	body := `{"source":"test-mbp","tool":"claude","session":"` + sessionID + `","state":"running"` + extraJSONFields + `}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestDispatchTick_NoRateData_NoUsagePost(t *testing.T) {
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	writeMarkerFile(t, h.sessionsDir(), "abc", "")
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if len(h.statusBodies) != 1 {
+		t.Fatalf("status posts = %d, want 1", len(h.statusBodies))
+	}
+	if len(h.usageBodies) != 0 {
+		t.Errorf("usage posts = %d, want 0 (no rate data on marker)", len(h.usageBodies))
+	}
+}
+
+func TestDispatchTick_RelaysWeeklyUsageFromStatusline(t *testing.T) {
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	writeMarkerFile(t, h.sessionsDir(), "abc",
+		`,"rate_week_pct":42,"rate_week_reset_at":1778700000,"rate_week_reset_label":"MON"`)
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if len(h.usageBodies) != 1 {
+		t.Fatalf("usage posts = %d, want 1", len(h.usageBodies))
+	}
+	var req struct {
+		Tool     string          `json:"tool"`
+		Source   string          `json:"source"`
+		FiveHour *producerWindow `json:"five_hour"`
+		SevenDay *producerWindow `json:"seven_day"`
+	}
+	if err := json.Unmarshal([]byte(h.usageBodies[0]), &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.Tool != "claude" || req.Source != "statusline" {
+		t.Errorf("tool/source = %q/%q, want claude/statusline", req.Tool, req.Source)
+	}
+	if req.FiveHour != nil {
+		t.Errorf("five_hour should be absent, got %+v", req.FiveHour)
+	}
+	if req.SevenDay == nil || req.SevenDay.UsedPercent != 42 || req.SevenDay.ResetsAt != 1778700000 || req.SevenDay.ResetLabel != "MON" {
+		t.Errorf("seven_day = %+v, want {42 1778700000 MON}", req.SevenDay)
+	}
+}
+
+func TestDispatchTick_RelaysFiveHourAndWeeklyTogether(t *testing.T) {
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	writeMarkerFile(t, h.sessionsDir(), "abc",
+		`,"rate_window_pct":73,"rate_reset_at":1778614633,"rate_reset_label":"14:25",`+
+			`"rate_week_pct":42,"rate_week_reset_at":1778700000,"rate_week_reset_label":"MON"`)
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if len(h.usageBodies) != 1 {
+		t.Fatalf("usage posts = %d, want 1", len(h.usageBodies))
+	}
+	var req struct {
+		FiveHour *producerWindow `json:"five_hour"`
+		SevenDay *producerWindow `json:"seven_day"`
+	}
+	if err := json.Unmarshal([]byte(h.usageBodies[0]), &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.FiveHour == nil || req.FiveHour.UsedPercent != 73 {
+		t.Errorf("five_hour = %+v, want UsedPercent 73", req.FiveHour)
+	}
+	if req.SevenDay == nil || req.SevenDay.UsedPercent != 42 {
+		t.Errorf("seven_day = %+v, want UsedPercent 42", req.SevenDay)
+	}
+}
+
+// producerWindow mirrors producer.UsageWindow's wire shape for test decoding.
+type producerWindow struct {
+	UsedPercent float64 `json:"used_percent"`
+	ResetsAt    int64   `json:"resets_at"`
+	ResetLabel  string  `json:"reset_label"`
+}
+
+func TestDispatchTick_PicksFreshestMarkerAcrossSessions(t *testing.T) {
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	dir := h.sessionsDir()
+	pOld := writeMarkerFile(t, dir, "old", `,"rate_week_pct":10,"rate_week_reset_at":1000,"rate_week_reset_label":"MON"`)
+	pNew := writeMarkerFile(t, dir, "new", `,"rate_week_pct":90,"rate_week_reset_at":2000,"rate_week_reset_label":"TUE"`)
+	older := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(pOld, older, older); err != nil {
+		t.Fatal(err)
+	}
+	newer := time.Now()
+	if err := os.Chtimes(pNew, newer, newer); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if len(h.usageBodies) != 1 {
+		t.Fatalf("usage posts = %d, want 1", len(h.usageBodies))
+	}
+	var req struct {
+		SevenDay *producerWindow `json:"seven_day"`
+	}
+	if err := json.Unmarshal([]byte(h.usageBodies[0]), &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.SevenDay == nil || req.SevenDay.UsedPercent != 90 {
+		t.Errorf("expected the freshest (newer) marker's seven_day=90, got %+v", req.SevenDay)
+	}
+}
+
+// TestDispatchTick_UsagePost_MergesModelsCache is the key precedence
+// regression test: Claude Code's statusline JSON carries no per-model
+// breakdown, so the statusline-driven /v1/usage POST must carry forward the
+// last per-model snapshot the OAuth poller cached — otherwise the server's
+// last-write-wins UsageStore.Put would blank the per-model breakdown on every
+// heartbeat between OAuth-endpoint polls.
+func TestDispatchTick_UsagePost_MergesModelsCache(t *testing.T) {
+	usageModels.reset()
+	t.Cleanup(usageModels.reset)
+	usageModels.set(map[string]*producer.UsageWindow{
+		"opus":   {UsedPercent: 82},
+		"sonnet": {UsedPercent: 12},
+	})
+	h := newUsageRelayHarness(t)
+	writeMarkerFile(t, h.sessionsDir(), "abc",
+		`,"rate_week_pct":42,"rate_week_reset_at":1778700000,"rate_week_reset_label":"MON"`)
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if len(h.usageBodies) != 1 {
+		t.Fatalf("usage posts = %d, want 1", len(h.usageBodies))
+	}
+	var req struct {
+		Models map[string]*producerWindow `json:"models"`
+	}
+	if err := json.Unmarshal([]byte(h.usageBodies[0]), &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.Models["opus"] == nil || req.Models["opus"].UsedPercent != 82 {
+		t.Errorf("models[opus] = %+v, want UsedPercent 82", req.Models["opus"])
+	}
+	if req.Models["sonnet"] == nil || req.Models["sonnet"].UsedPercent != 12 {
+		t.Errorf("models[sonnet] = %+v, want UsedPercent 12", req.Models["sonnet"])
 	}
 }
 

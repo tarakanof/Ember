@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func ratePtr(i int) *int { return &i }
@@ -74,6 +75,81 @@ func TestExtractContextPct(t *testing.T) {
 	}
 }
 
+func TestExtractWeekPct(t *testing.T) {
+	cases := []struct {
+		name string
+		json string
+		want *int
+	}{
+		{"present", `{"rate_limits":{"seven_day":{"used_percentage":40.4}}}`, ratePtr(40)},
+		{"rounds up", `{"rate_limits":{"seven_day":{"used_percentage":40.6}}}`, ratePtr(41)},
+		{"clamp high", `{"rate_limits":{"seven_day":{"used_percentage":150}}}`, ratePtr(100)},
+		{"zero", `{"rate_limits":{"seven_day":{"used_percentage":0}}}`, ratePtr(0)},
+		{"no seven_day", `{"rate_limits":{"five_hour":{"used_percentage":10}}}`, nil},
+		{"no rate_limits", `{"session_id":"x"}`, nil},
+	}
+	for _, c := range cases {
+		in, ok := parseStatusline([]byte(c.json))
+		if !ok {
+			t.Fatalf("%s: parse failed", c.name)
+		}
+		got, gotOK := extractWeekPct(in)
+		if c.want == nil {
+			if gotOK {
+				t.Errorf("%s: want none, got %d", c.name, *got)
+			}
+			continue
+		}
+		if !gotOK || got == nil || *got != *c.want {
+			t.Errorf("%s: got %v (ok=%v), want %d", c.name, got, gotOK, *c.want)
+		}
+	}
+	if _, ok := extractWeekPct(statuslineInput{}); ok {
+		t.Error("empty input should report ok=false")
+	}
+}
+
+// A malformed rate_limits.seven_day (wrong type) must not parse into a usable
+// value — parseStatusline should either fail outright or leave SevenDay nil,
+// and extractWeekPct must report ok=false either way.
+func TestExtractWeekPct_Malformed(t *testing.T) {
+	if in, ok := parseStatusline([]byte(`{"rate_limits":{"seven_day":"not-an-object"}}`)); ok {
+		if _, gotOK := extractWeekPct(in); gotOK {
+			t.Error("malformed seven_day should not yield a value")
+		}
+	}
+}
+
+func TestExtractWeekResetAt(t *testing.T) {
+	in, _ := parseStatusline([]byte(`{"rate_limits":{"seven_day":{"used_percentage":20,"resets_at":1778700000}}}`))
+	got, ok := extractWeekResetAt(in)
+	if !ok || got != 1778700000 {
+		t.Errorf("extractWeekResetAt = (%d,%v), want (1778700000,true)", got, ok)
+	}
+	none, _ := parseStatusline([]byte(`{"rate_limits":{"seven_day":{"used_percentage":20}}}`))
+	if _, ok := extractWeekResetAt(none); ok {
+		t.Error("absent resets_at should report ok=false")
+	}
+}
+
+func TestExtractWeekResetLabel(t *testing.T) {
+	// 1778700000 unix -> a specific instant; just assert it round-trips through
+	// dayLabel the same way usage.go's poller path would for the same instant.
+	in, _ := parseStatusline([]byte(`{"rate_limits":{"seven_day":{"used_percentage":20,"resets_at":1778700000}}}`))
+	got, ok := extractWeekResetLabel(in)
+	if !ok {
+		t.Fatal("expected ok=true")
+	}
+	want := dayLabel(time.Unix(1778700000, 0), time.Local)
+	if got != want {
+		t.Errorf("extractWeekResetLabel = %q, want %q", got, want)
+	}
+	none, _ := parseStatusline([]byte(`{"rate_limits":{"five_hour":{"used_percentage":20}}}`))
+	if _, ok := extractWeekResetLabel(none); ok {
+		t.Error("absent seven_day should report ok=false")
+	}
+}
+
 func TestExtractRateResetAt(t *testing.T) {
 	in, _ := parseStatusline([]byte(`{"rate_limits":{"five_hour":{"used_percentage":20,"resets_at":1778614633}}}`))
 	got, ok := extractRateResetAt(in)
@@ -94,7 +170,8 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	cfg := Config{Source: "mbp", ServerURL: "http://x"}
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "sess1", "running", "m", "", markerP, lockP)
 	ra := int64(1778614633)
-	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, &ra, "14:25"); err != nil {
+	wra := int64(1778700000)
+	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, &ra, "14:25", ratePtr(30), &wra, "MON"); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := readMarker(markerP)
@@ -105,6 +182,15 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	}
 	if req.RateResetLabel != "14:25" {
 		t.Errorf("RateResetLabel = %q, want 14:25", req.RateResetLabel)
+	}
+	if req.RateWeekPct == nil || *req.RateWeekPct != 30 {
+		t.Errorf("RateWeekPct = %v, want 30", req.RateWeekPct)
+	}
+	if req.RateWeekResetAt != 1778700000 {
+		t.Errorf("RateWeekResetAt = %d, want 1778700000", req.RateWeekResetAt)
+	}
+	if req.RateWeekResetLabel != "MON" {
+		t.Errorf("RateWeekResetLabel = %q, want MON", req.RateWeekResetLabel)
 	}
 	// A subsequent hook upsert must PRESERVE the statusline-owned reset + label.
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "sess1", "running", "m2", "", markerP, lockP)
@@ -133,7 +219,7 @@ func TestEnrichMarker_PreservesOwner(t *testing.T) {
 	if err := os.WriteFile(mp, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(50), nil, nil, "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := readMarker(mp)
@@ -178,7 +264,7 @@ func TestEnrichMarker(t *testing.T) {
 	if err := os.WriteFile(mp, []byte(`{"source":"mbp","tool":"claude","session":"sess1","state":"running","message":"Bash"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "sess1", ratePtr(73), ratePtr(54), nil, ""); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(73), ratePtr(54), nil, "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(mp)
@@ -197,7 +283,7 @@ func TestEnrichMarker(t *testing.T) {
 	}
 
 	// nil ctx leaves context_pct untouched (rate-only enrichment).
-	if err := enrichMarker(dir, "sess1", ratePtr(80), nil, nil, ""); err != nil {
+	if err := enrichMarker(dir, "sess1", ratePtr(80), nil, nil, "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	body, _ = os.ReadFile(mp)
@@ -211,7 +297,7 @@ func TestEnrichMarker(t *testing.T) {
 	}
 
 	// Absent marker → not created.
-	if err := enrichMarker(dir, "ghost", ratePtr(50), ratePtr(50), nil, ""); err != nil {
+	if err := enrichMarker(dir, "ghost", ratePtr(50), ratePtr(50), nil, "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(markerPath(dir, "ghost")); !os.IsNotExist(err) {
@@ -223,11 +309,50 @@ func TestEnrichMarker(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enrichMarker(dir, "bad", ratePtr(50), ratePtr(50), nil, ""); err != nil {
+	if err := enrichMarker(dir, "bad", ratePtr(50), ratePtr(50), nil, "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(bad); string(got) != "not json" {
 		t.Errorf("unparseable marker modified: %q", got)
+	}
+}
+
+// TestEnrichMarker_Week covers the seven_day (weekly) fields: set, then a
+// nil weekPct on a later enrich call must leave the previous value untouched
+// (same "never clears" contract as the five-hour and context fields).
+func TestEnrichMarker_Week(t *testing.T) {
+	dir := t.TempDir()
+	mp := markerPath(dir, "sess1")
+	if err := os.WriteFile(mp, []byte(`{"source":"mbp","tool":"claude","session":"sess1","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wra := int64(1778700000)
+	if err := enrichMarker(dir, "sess1", nil, nil, nil, "", ratePtr(35), &wra, "MON"); err != nil {
+		t.Fatal(err)
+	}
+	var req StatusRequest
+	body, _ := os.ReadFile(mp)
+	_ = json.Unmarshal(body, &req)
+	if req.RateWeekPct == nil || *req.RateWeekPct != 35 {
+		t.Errorf("rate_week_pct = %v, want 35", req.RateWeekPct)
+	}
+	if req.RateWeekResetAt != 1778700000 {
+		t.Errorf("rate_week_reset_at = %d, want 1778700000", req.RateWeekResetAt)
+	}
+	if req.RateWeekResetLabel != "MON" {
+		t.Errorf("rate_week_reset_label = %q, want MON", req.RateWeekResetLabel)
+	}
+
+	// A later enrich call with weekPct=nil (e.g. seven_day absent from a
+	// statusline payload) must NOT clear the previously stored value.
+	if err := enrichMarker(dir, "sess1", ratePtr(10), nil, nil, "", nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	req = StatusRequest{}
+	body, _ = os.ReadFile(mp)
+	_ = json.Unmarshal(body, &req)
+	if req.RateWeekPct == nil || *req.RateWeekPct != 35 {
+		t.Errorf("nil weekPct should leave rate_week_pct=35, got %v", req.RateWeekPct)
 	}
 }
 

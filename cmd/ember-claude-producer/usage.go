@@ -96,8 +96,45 @@ func win(w usageWindow, loc *time.Location, label func(time.Time, *time.Location
 	return out
 }
 
+// usageModelsCache holds the most recent per-model usage breakdown
+// (opus/sonnet) fetched from the OAuth endpoint. Claude Code's statusline JSON
+// carries no per-model figures, so the statusline-driven /v1/usage POST
+// (dispatchTick's postStatuslineUsage) forwards this cached snapshot instead
+// of leaving Models nil — otherwise the server's last-write-wins storage
+// (UsageStore.Put replaces the whole per-tool entry) would blank the
+// per-model breakdown on the very next heartbeat, since that heartbeat runs
+// every 10s while the OAuth endpoint is only polled every usagePollInterval.
+//
+// Process-lifetime singleton: shared state across usagePollLoop (writer) and
+// dispatchTick (reader) is the whole point, same rationale as tickFailLog above.
+type usageModelsCache struct {
+	mu     sync.Mutex
+	models map[string]*producer.UsageWindow
+}
+
+var usageModels = &usageModelsCache{}
+
+func (c *usageModelsCache) set(m map[string]*producer.UsageWindow) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.models = m
+}
+
+func (c *usageModelsCache) get() map[string]*producer.UsageWindow {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.models
+}
+
+// reset clears cached state; test-only (mirrors tickFailLog.Reset()).
+func (c *usageModelsCache) reset() {
+	c.set(nil)
+}
+
 // usagePollOnce reads creds, fetches the endpoint, and posts to the server.
-// On 401 it logs and returns (never refreshes the token).
+// On 401 it logs and returns (never refreshes the token). On success it also
+// caches the per-model breakdown in usageModels, so the more-frequent
+// statusline-driven /v1/usage POST (see tick.go) can carry it forward.
 func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 	creds, err := readClaudeCreds()
 	if err != nil || creds.AccessToken == "" {
@@ -118,8 +155,42 @@ func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 			"sonnet": win(u.SevenDaySonnet, loc, dayLabel),
 		},
 	}
+	usageModels.set(req.Models)
 	if err := client.Usage(ctx, req); err != nil { // Client is producer.Client (see client.go alias)
 		tickFailLog.Warn(slog.Default(), "claude_usage", "usage POST failed", "err", err)
+	}
+}
+
+// postStatuslineUsage relays the freshest statusline-derived 5h and/or weekly
+// windows to /v1/usage with source "statusline", merging in usageModels' last
+// per-model snapshot (see usageModelsCache above) so the per-model breakdown
+// survives a POST that otherwise only carries statusline data. A no-op when
+// snap has neither window (nothing to relay).
+func postStatuslineUsage(ctx context.Context, client *Client, snap statuslineUsageSnapshot) {
+	req := producer.UsageRequest{
+		Tool:   "claude",
+		Source: "statusline",
+		Models: usageModels.get(),
+	}
+	if snap.fiveHourPct != nil {
+		req.FiveHour = &producer.UsageWindow{
+			UsedPercent: float64(*snap.fiveHourPct),
+			ResetsAt:    snap.fiveHourResetAt,
+			ResetLabel:  snap.fiveHourResetLabel,
+		}
+	}
+	if snap.sevenDayPct != nil {
+		req.SevenDay = &producer.UsageWindow{
+			UsedPercent: float64(*snap.sevenDayPct),
+			ResetsAt:    snap.sevenDayResetAt,
+			ResetLabel:  snap.sevenDayResetLabel,
+		}
+	}
+	if req.FiveHour == nil && req.SevenDay == nil {
+		return
+	}
+	if err := client.Usage(ctx, req); err != nil {
+		tickFailLog.Warn(slog.Default(), "claude_usage_statusline", "usage POST failed", "err", err)
 	}
 }
 
