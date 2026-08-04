@@ -76,7 +76,7 @@ reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons`,
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
 `GET /v1/pomodoro/dashboard` (HTML). Operator: `/admin/doctor`, `/admin/reload`,
 `/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`
-(middle=play/pause on press; left=stop, right=skip on release; left+right held=toggle).
+(middle=play/pause, left=stop, right=skip — all on press).
 
 The `/v1/device/*` group discovers the clock (mDNS) and proxies its
 `/api/settings|stats|reboot|notify` to the menu's Device tab; the effective clock
