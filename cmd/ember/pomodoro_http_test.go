@@ -269,6 +269,117 @@ func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
 	}
 }
 
+// buttonPresser posts an awtrix-ng button callback exactly as the firmware does:
+// form-encoded button/state/uid over plain HTTP, one call per edge.
+func buttonPresser(t *testing.T, srv *httptest.Server) func(form url.Values) int {
+	t.Helper()
+	return func(form url.Values) int {
+		req, err := http.NewRequest(http.MethodPost, srv.URL+"/hooks/awtrix/button", strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+}
+
+// NG names the centre button "middle"; MQTT, Berry scripts and AWTRIX3 all call
+// the same button "select", so both spellings must drive the timer.
+func TestAwtrixButtonAcceptsMiddleAndSelectSpellings(t *testing.T) {
+	for _, name := range []string{"middle", "select"} {
+		t.Run(name, func(t *testing.T) {
+			app := newPomodoroApp(t)
+			srv := httptest.NewServer(app.routes())
+			defer srv.Close()
+			press := buttonPresser(t, srv)
+
+			if code := press(url.Values{"button": {name}, "state": {"1"}, "uid": {"e868e705ffb8"}}); code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", code)
+			}
+			if st := pomoState(t, srv); st["phase"] != "focus" || st["running"] != true {
+				t.Fatalf("%s press from idle should start focus, got %+v", name, st)
+			}
+		})
+	}
+}
+
+// The uid the firmware attaches (its MAC, so several panels can share one
+// endpoint) must neither be required nor change the mapping.
+func TestAwtrixButtonIgnoresUID(t *testing.T) {
+	cases := []struct {
+		name string
+		form url.Values
+	}{
+		{"no uid at all", url.Values{"button": {"middle"}, "state": {"1"}}},
+		{"foreign panel uid", url.Values{"button": {"middle"}, "state": {"1"}, "uid": {"aabbccddeeff"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := newPomodoroApp(t)
+			srv := httptest.NewServer(app.routes())
+			defer srv.Close()
+
+			if code := buttonPresser(t, srv)(tc.form); code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", code)
+			}
+			if st := pomoState(t, srv); st["running"] != true {
+				t.Fatalf("press should have started the timer, got %+v", st)
+			}
+		})
+	}
+}
+
+// An unknown button name (a future firmware, or a swapped/rotated panel naming
+// scheme we don't know) is accepted and ignored — the callback is
+// fire-and-forget, so a non-200 would only cost the device stutter.
+func TestAwtrixButtonIgnoresUnknownButton(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if code := buttonPresser(t, srv)(url.Values{"button": {"top"}, "state": {"1"}}); code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", code)
+	}
+	if st := pomoState(t, srv); st["running"] == true {
+		t.Fatalf("unknown button should not start the timer, got %+v", st)
+	}
+}
+
+// The chord is synthesised from press/release edges, and NG sends both. A
+// completed left press+release must clear the held state so the next right press
+// is a plain right, not half a phantom chord.
+func TestAwtrixButtonReleaseClearsChordState(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	press := buttonPresser(t, srv)
+
+	press(url.Values{"button": {"middle"}, "state": {"1"}}) // start focus
+	press(url.Values{"button": {"middle"}, "state": {"0"}})
+	if st := pomoState(t, srv); st["phase"] != "focus" {
+		t.Fatalf("setup: want focus, got %+v", st)
+	}
+
+	// A full left press+release stops the timer (left acts on release).
+	press(url.Values{"button": {"left"}, "state": {"1"}})
+	press(url.Values{"button": {"left"}, "state": {"0"}})
+	if st := pomoState(t, srv); st["phase"] != "idle" {
+		t.Fatalf("left press+release should stop, got %+v", st)
+	}
+
+	// A later right press must not see left as still held: no chord, and the
+	// skip only lands on release.
+	press(url.Values{"button": {"right"}, "state": {"1"}})
+	if st := pomoState(t, srv); st["running"] == true {
+		t.Fatalf("right press alone after a released left must not start anything, got %+v", st)
+	}
+}
+
 func TestPomodoroAuthBoundaries(t *testing.T) {
 	app := newPomodoroApp(t)
 	// Force a token so /v1/ requires auth.

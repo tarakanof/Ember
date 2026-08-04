@@ -768,8 +768,17 @@ const unitStart = 25
 
 // detailPayload builds an 8×8 icon bitmap + firmware-native-text payload.
 // blink=true is the WAIT/ERR attention label; blink=false is the activity detail.
-// textCenter is always false so textOffsetX is the literal start column (cols
-// 9-31), clear of the 8-wide icon. hold follows the frameToCustomApp contract.
+//
+// textCenter must stay false. A `draw` bitmap indents nothing (only the native
+// `icon` field reserves a column), and textOffsetX is ADDED to the centred
+// position rather than replacing it, so leaving textCenter at its default true
+// would both centre the label over the sprite and then push it 9px right off the
+// panel. With textCenter:false, textOffsetX:9 is the literal start column —
+// verified on firmware 1.0.13: an 8px drawn bitmap plus textCenter:false /
+// textOffsetX:9 puts the first glyph at col 9, while the same payload with
+// textCenter left at its default starts it at col 19.
+//
+// hold follows the frameToCustomApp contract.
 //
 // Both modes want the same motion: sit still when the label fits the 23 free
 // columns, scroll when it overflows. NG expresses that natively as
@@ -795,7 +804,40 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 	return p
 }
 
-// RenderForCoord composes the AWTRIX CustomApp payload for the
+// chooseSession resolves the session RenderForCoord will draw: the pointed-at
+// one, or the first sorted active session when the pointer is empty or stale.
+// nil when the snapshot has no session under the chosen key.
+func chooseSession(snap Snapshot, keys []string, pointer string) *Session {
+	chosen := pointer
+	if !slices.Contains(keys, chosen) {
+		chosen = keys[0]
+	}
+	for i := range snap.Sessions {
+		if sessionKey(snap.Sessions[i]) == chosen {
+			return &snap.Sessions[i]
+		}
+	}
+	return nil
+}
+
+// AttentionHeld reports whether RenderForCoord will emit the held attention
+// frame for this snapshot/pointer/lock combination — i.e. whether the frame
+// claims the display hold and the caller must pin the app device-side too. It
+// resolves the session exactly as RenderForCoord does, so the pointer-fallback
+// rule stays in one place.
+func AttentionHeld(snap Snapshot, pointer string, locked bool) bool {
+	if !locked {
+		return false
+	}
+	keys := SortedActiveKeys(snap)
+	if len(keys) == 0 {
+		return false
+	}
+	s := chooseSession(snap, keys, pointer)
+	return s != nil && (s.State == "waiting" || s.State == "error")
+}
+
+// RenderForCoord composes the awtrix-ng pushed-app payload for the
 // coordinator's current display state. Returns nil when there is no
 // active session (caller skips publish entirely).
 //
@@ -805,12 +847,12 @@ func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds
 // invalidation).
 //
 // locked: when true and the chosen session's state is "waiting" or
-// "error", a narrow 10-col db (just the robot sprite) is emitted with
-// text+blinkText positioned to the right via textOffset, so AWTRIX
-// firmware animates the attention indicator natively in the area the
-// bitmap leaves clear. A full-width draw would paint zeros across the
-// right side of the matrix and clobber the text underneath — verified
-// empirically against device 0.98.
+// "error", an 8-col bitmap (just the robot sprite) is emitted with the
+// blinking label positioned to the right via textOffsetX, so the firmware
+// animates the attention indicator natively in the area the bitmap leaves
+// clear. A full-width draw would paint zeros across the right side of the
+// matrix and clobber the text underneath. That frame takes the display hold —
+// AttentionHeld reports the same decision for the caller.
 //
 // usage: per-tool account usage views (keyed by tool name, e.g. "claude").
 // A nil map is valid — cards that need usage data simply won't appear.
@@ -819,17 +861,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	if len(keys) == 0 {
 		return nil
 	}
-	chosen := pointer
-	if !slices.Contains(keys, chosen) {
-		chosen = keys[0]
-	}
-	var session *Session
-	for i := range snap.Sessions {
-		if sessionKey(snap.Sessions[i]) == chosen {
-			session = &snap.Sessions[i]
-			break
-		}
-	}
+	session := chooseSession(snap, keys, pointer)
 	if session == nil {
 		return nil
 	}
