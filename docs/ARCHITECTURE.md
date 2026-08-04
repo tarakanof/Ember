@@ -229,14 +229,19 @@ phase wins** over native icons on clear nights (no per-phase gallery set).
 The forecast tile has no icon slot. Independent of `use_native_icons`
 (popup-only).
 
-**Icon provisioning** (`ensureWeatherIcons`): the device's own on-demand
+**Icon provisioning** (`ensureNativeIcons`): the device's own on-demand
 gallery downloads proved unreliable (observed failing for hours → iconless
-tile), so the **server provisions icons**: on startup and on every weather
-config apply it lists the clock's `/ICONS` folder (`GET /list?dir=/ICONS`),
-downloads any missing configured icon ID from the LaMetric gallery
-(`.gif`→`.jpg` fallback), and uploads it (`multipart POST /edit`,
-`Publisher.ListIcons`/`PutIcon`). List failures abort the run; per-icon
-failures log and retry on the next apply/restart.
+tile), so the **server provisions icons**: on startup and on every weather or
+Pomodoro config apply it lists the clock's `/ICONS` folder (`GET
+/list?dir=/ICONS`), downloads any missing configured icon ID from the
+LaMetric gallery (`.gif`→`.jpg` fallback, then the extensionless URL as a
+last resort — some IDs, e.g. the Pomodoro tomato `29802`, exist only as a
+PNG there, which is decoded and re-encoded as GIF locally since awtrix-ng's
+upload only accepts GIF/JPEG magic bytes), and uploads it (`multipart
+POST /edit`, `Publisher.ListIcons`/`PutIcon`). List failures abort the run;
+per-icon failures log and retry on the next apply/restart. Covers both the
+weather condition icons and the Pomodoro tomato/coffee icons (`29802`/`6396`)
+whenever their owning feature is enabled.
 
 **Weather preview** — `GET /v1/weather/preview` (open, read-only, mirrors
 `/v1/preview`): renders the tiles under draft query params (`rotate_in_apps`,

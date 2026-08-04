@@ -363,6 +363,9 @@ func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
 		}
 	}
 	a.nudgePomo()
+	// Provision any native icons the new config needs onto the device, off
+	// the request path (it does device + gallery HTTP).
+	go a.ensureNativeIcons(context.Background())
 	return nil
 }
 

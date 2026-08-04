@@ -178,13 +178,21 @@ func RenderPomodoro(v PomodoroView) *Frame {
 	return f
 }
 
+// Native AWTRIX icon IDs (in /ICONS) that Pomodoro payloads reference: tomato
+// for focus, coffee for breaks. Exported so the server's icon provisioner
+// (ensureNativeIcons) knows what to upload alongside the weather icons.
+const (
+	PomoFocusIconID = "29802"
+	PomoBreakIconID = "6396"
+)
+
 // pomoIconID maps a phase to an on-device AWTRIX icon (in /ICONS): focus →
-// tomato (29802), breaks → coffee (6396).
+// tomato, breaks → coffee.
 func pomoIconID(phase string) string {
 	if phase == pomoFocus {
-		return "29802"
+		return PomoFocusIconID
 	}
-	return "6396"
+	return PomoBreakIconID
 }
 
 // pomoProgressPct returns the remaining-time fill as a 0..100 percentage for the
@@ -235,9 +243,8 @@ func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 	//
 	// Precondition: the icon must actually exist in the device's /ICONS. A
 	// missing icon falls back to the icon-less layout, which centres the
-	// countdown across the whole panel instead. Only the weather icons are
-	// provisioned today (ensureWeatherIcons), so these two are absent on a fresh
-	// clock — tracked separately from #69.
+	// countdown across the whole panel instead. The server's icon provisioner
+	// (ensureNativeIcons) uploads these alongside the weather icons.
 	p := map[string]any{
 		"icon":               pomoIconID(v.Phase),
 		"text":               fmt.Sprintf("%02d:%02d", mm, ss),

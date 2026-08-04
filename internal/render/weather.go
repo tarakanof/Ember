@@ -192,7 +192,7 @@ func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifeti
 // bitmap covering the rest of the panel, both visible in the same frame. The icon
 // paints last of the two, so the bitmap must stay clear of cols 0-7 (it does).
 // Gallery icons download on first reference, so a fresh ID can be blank for a
-// few seconds — ensureWeatherIcons provisions them up front for that reason.
+// few seconds — ensureNativeIcons provisions them up front for that reason.
 func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime int) map[string]any {
 	var f Frame
 	drawWeatherBody(&f, tempText, hourly)

@@ -564,8 +564,8 @@ type App struct {
 	meetings        *meetingsStore
 	meetingsFetcher *icsFetcher
 
-	// iconFetch downloads a LaMetric gallery icon by ID for the weather icon
-	// provisioner (ensureWeatherIcons); injectable in tests. iconMu serialises
+	// iconFetch downloads a LaMetric gallery icon by ID for the native icon
+	// provisioner (ensureNativeIcons); injectable in tests. iconMu serialises
 	// provisioner runs.
 	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
 	iconMu    sync.Mutex
