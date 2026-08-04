@@ -230,6 +230,81 @@ func TestMergeSettings_UpgradeReplacesOldSessionEndMatcher(t *testing.T) {
 	}
 }
 
+// TestMergeSettings_NotificationMatcherIncludesNewSignals is the #75
+// regression: the installed Notification matcher must include
+// agent_needs_input and agent_completed alongside the existing
+// permission_prompt, following the same "|"-alternation pattern SessionEnd
+// already uses for its multi-matcher entry.
+func TestMergeSettings_NotificationMatcherIncludesNewSignals(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/ember-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `permission_prompt|agent_needs_input|agent_completed`) {
+		t.Errorf("Notification matcher missing new signals: %s", body)
+	}
+}
+
+// TestMergeSettings_UpgradeReplacesOldNotificationMatcher confirms that
+// installing over a settings.json written by a pre-#75 binary (matcher
+// "permission_prompt" only) replaces the stale matcher rather than leaving it
+// to double-fire alongside a new entry. Mirrors
+// TestMergeSettings_UpgradeReplacesOldSessionEndMatcher.
+func TestMergeSettings_UpgradeReplacesOldNotificationMatcher(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	dir := filepath.Join(tmp, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldMatcherSettings := `{"hooks":{"Notification":[{"matcher":"permission_prompt","hooks":[{"type":"command","command":"/usr/local/bin/ember-claude-producer hook notification"}]}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(oldMatcherSettings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/ember-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `permission_prompt|agent_needs_input|agent_completed`) {
+		t.Errorf("upgrade did not install the new Notification matcher:\n%s", body)
+	}
+	// Exactly one Notification entry — the old one was replaced, not duplicated.
+	if strings.Count(string(body), `"Notification"`) != 1 {
+		t.Errorf("expected exactly one Notification key, got: %s", body)
+	}
+}
+
+// TestMergeSettings_RegistersSpikeHooks is the #76 regression: PostToolUse,
+// PostToolUseFailure, and PermissionDenied must be registered pointing at the
+// same hook binary as the rest of the producer's entries.
+func TestMergeSettings_RegistersSpikeHooks(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/ember-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"PostToolUse"`, `"PostToolUseFailure"`, `"PermissionDenied"`,
+		`hook post-tool-use `, `hook post-tool-use-failure `, `hook permission-denied `,
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("settings.json missing %q\nbody: %s", want, body)
+		}
+	}
+}
+
 func TestMergeSettingsJSON_StatusLineCaptureAndSet(t *testing.T) {
 	home := t.TempDir()
 	mustMkdir(t, filepath.Join(home, ".claude"))

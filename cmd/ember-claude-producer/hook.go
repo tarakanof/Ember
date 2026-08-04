@@ -72,6 +72,16 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 	lockP := lockPath(dir, sessionID)
 	client := NewClient(cfg)
 	switch event {
+	// #76 evaluation spike: PostToolUse / PostToolUseFailure / PermissionDenied
+	// are log-only for now — we don't yet know if they carry enough signal to
+	// justify wiring into the state machine (vs. the existing PreToolUse-derived
+	// activity and the waiting/error paths). Write a structured line to the
+	// spike log and return without touching markers or POSTing status. Revisit
+	// after a few days of real use: promote into the switch below, or delete
+	// this case and the hook registrations in install.go. See issue #76.
+	case "post-tool-use", "post-tool-use-failure", "permission-denied":
+		writeSpikeLog(sessionID, event, in)
+		return
 	case "session-start":
 		handleSessionStart(in, markerP, lockP)
 	case "user-prompt-submit":
@@ -89,11 +99,18 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 		}
 		handleUpsert(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, act, markerP, lockP)
 	case "notification":
-		if in.NotificationType != "permission_prompt" {
-			return
-		}
+		// permission_prompt and agent_needs_input are both explicit "waiting for
+		// the user" signals (issue #75); agent_completed is an explicit "finished"
+		// signal that upserts "done" rather than deleting — the process-ancestry
+		// walk (owner.go) and SessionEnd remain the source of truth for clearing
+		// a session, this only adds a faster signal on top.
 		msg := pickFirstNonEmpty(in.Message, in.NotificationMessage)
-		handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
+		switch in.NotificationType {
+		case "permission_prompt", "agent_needs_input":
+			handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
+		case "agent_completed":
+			handleUpsert(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP)
+		}
 	case "stop":
 		// Intentionally a no-op: keep the session present until the window
 		// closes (SessionEnd). Deleting on every Stop dropped the display to the
