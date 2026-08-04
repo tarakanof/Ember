@@ -66,8 +66,10 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/weather/config`,
 `POST /v1/reminders/fire`, `GET/PUT /v1/meetings/config`,
 `GET/PUT /v1/device/config`, `GET /v1/device/discover`,
-`GET/PUT /v1/device/settings`, `GET/PUT /v1/device/sensors` (dev.json temp/hum
-offsets; PUT reboots the clock), `GET/PUT /v1/quiet/config`, `GET /v1/device/stats`,
+`GET/PUT /v1/device/settings`, `GET/PUT /v1/device/display`, `GET/PUT /v1/device/apps`,
+`GET/PUT /v1/device/sensors` (system `tempOffset`/`humOffset`; applies live, no
+reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons`,
+`GET/PUT /v1/quiet/config`, `GET /v1/device/stats`,
 `POST /v1/device/{reboot,notify/dismiss}`. Read (no auth): `GET /state`, `GET /healthz`,
 `GET /v1/preview`, `GET /v1/{weather,pomodoro,reminders}/preview`,
 `GET /v1/meetings/{preview,state}`,

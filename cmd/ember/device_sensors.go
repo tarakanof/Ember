@@ -1,90 +1,64 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"mime/multipart"
 	"net/http"
 )
 
-// The clock's temperature/humidity calibration lives in /dev.json on its
-// LittleFS (keys temp_offset, hum_offset), not in /api/settings, and is only
-// read at boot — so a write here is read-merge-upload followed by a reboot.
-// dev.json also carries unrelated keys (notably button_callback, which the
-// Pomodoro buttons depend on); the merge must preserve them.
+// The clock's temperature/humidity calibration lives in tempOffset/humOffset
+// on /api/v1/system, alongside Wi-Fi credentials and everything else the
+// device needs to boot. Even though the docs describe PUT /api/v1/system as
+// accepting a partial object, a full-replace read-merge-PUT is used here
+// regardless: it is correct under both partial- and full-replace semantics,
+// and a bug in that assumption with a naive partial PUT could silently drop
+// the stored Wi-Fi password and brick the clock's connectivity. NG applies
+// system changes live — no reboot follows a successful write.
 
-// sensorOffsetKeys are the dev.json keys PUT /v1/device/sensors may touch.
-// Offsets are degrees / percentage points, so |50| is already absurdly large.
-var sensorOffsetKeys = map[string]bool{"temp_offset": true, "hum_offset": true}
+// sensorOffsetKeys maps Ember's stable snake_case wire keys to the NG
+// system-object camelCase keys, with the clamp each is bounded to. Offsets
+// are degrees (temp) / percentage points (humidity).
+var sensorOffsetKeys = map[string]struct {
+	sysKey string
+	limit  float64
+}{
+	"temp_offset": {"tempOffset", 20},
+	"hum_offset":  {"humOffset", 50},
+}
 
-const sensorOffsetLimit = 50.0
+// defaultTempOffset/defaultHumOffset are the Ulanzi TC001's firmware-default
+// calibration values (confirmed against reference/system and the live
+// device). An explicit null in a PUT /v1/device/sensors patch resets the
+// corresponding offset to these — the closest equivalent, on a system object
+// that has no "unset" state, to AWTRIX3's dev.json "key absent" default.
+const (
+	defaultTempOffset = -9.0
+	defaultHumOffset  = 0.0
+)
 
-// readDevJSON fetches the clock's current /dev.json. A clock that has never
-// had one returns 404, which counts as an empty config, not an error.
-func (a *App) readDevJSON(ctx context.Context) (map[string]any, error) {
-	body, status, err := a.proxyToDevice(ctx, http.MethodGet, "/dev.json", nil)
+// readSystem fetches the clock's current /api/v1/system object in full.
+func (a *App) readSystem(ctx context.Context) (map[string]any, error) {
+	body, status, err := a.proxyToDevice(ctx, http.MethodGet, "/api/v1/system", nil)
 	if err != nil {
 		return nil, err
 	}
-	switch {
-	case status == http.StatusNotFound:
-		return map[string]any{}, nil
-	case status != http.StatusOK:
-		return nil, fmt.Errorf("clock returned %d for /dev.json", status)
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("clock returned %d for /api/v1/system", status)
 	}
 	m := map[string]any{}
-	if len(bytes.TrimSpace(body)) == 0 {
-		return m, nil
-	}
 	if err := json.Unmarshal(body, &m); err != nil {
-		return nil, fmt.Errorf("clock /dev.json: %w", err)
+		return nil, fmt.Errorf("clock /api/v1/system: %w", err)
 	}
 	return m, nil
 }
 
-// putDeviceFile uploads a file to the clock's LittleFS via its web file
-// manager (multipart POST /edit; the part's filename is the target path).
-// Same mechanism as HTTPPublisher.PutIcon, but for arbitrary paths.
-func (a *App) putDeviceFile(ctx context.Context, path string, data []byte) error {
-	base, cl, err := a.deviceBaseClient()
-	if err != nil {
-		return err
-	}
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	fw, err := mw.CreateFormFile("data", path)
-	if err != nil {
-		return err
-	}
-	if _, err := fw.Write(data); err != nil {
-		return err
-	}
-	if err := mw.Close(); err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/edit", &body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	resp, err := cl.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("device /edit upload %s: status %d", path, resp.StatusCode)
-	}
-	return nil
-}
-
-// handleDeviceSensorsGet reports the calibration offsets currently in the
-// clock's dev.json. null means "not set" — the firmware's compiled-in default
-// applies (-9 temperature / 0 humidity on the Ulanzi build).
+// handleDeviceSensorsGet reports the calibration offsets currently on the
+// clock's /api/v1/system. Unlike the old dev.json contract, the system object
+// always has a value for both keys — there is no "not set" state to report as
+// null; the values reported here are simply whatever the device holds now.
 func (a *App) handleDeviceSensorsGet(w http.ResponseWriter, r *http.Request) {
-	dev, err := a.readDevJSON(r.Context())
+	sys, err := a.readSystem(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -93,19 +67,21 @@ func (a *App) handleDeviceSensorsGet(w http.ResponseWriter, r *http.Request) {
 		TempOffset *float64 `json:"temp_offset"`
 		HumOffset  *float64 `json:"hum_offset"`
 	}{}
-	if f, ok := dev["temp_offset"].(float64); ok {
+	if f, ok := sys["tempOffset"].(float64); ok {
 		out.TempOffset = &f
 	}
-	if f, ok := dev["hum_offset"].(float64); ok {
+	if f, ok := sys["humOffset"].(float64); ok {
 		out.HumOffset = &f
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleDeviceSensorsPut merges offset changes into the clock's dev.json and
-// reboots it (offsets are only read at boot). A number sets the offset, an
-// explicit null removes it (back to the firmware default), an absent key is
-// left untouched.
+// handleDeviceSensorsPut merges offset changes into the clock's full
+// /api/v1/system object and writes it back. A number sets the offset, an
+// explicit null resets it to the firmware default, an absent key is left
+// untouched. Applies live; no reboot. Keeps Ember's own snake_case
+// temp_offset/hum_offset wire contract so callers written against the old
+// dev.json-backed endpoint keep working.
 func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]any
 	if err := decodeJSON(w, r, &patch, false); err != nil {
@@ -117,7 +93,8 @@ func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for k, v := range patch {
-		if !sensorOffsetKeys[k] {
+		key, ok := sensorOffsetKeys[k]
+		if !ok {
 			writeError(w, http.StatusBadRequest, fmt.Errorf("unknown key %q", k))
 			return
 		}
@@ -125,40 +102,43 @@ func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		f, ok := v.(float64)
-		if !ok || f < -sensorOffsetLimit || f > sensorOffsetLimit {
+		if !ok || f < -key.limit || f > key.limit {
 			writeError(w, http.StatusBadRequest,
-				fmt.Errorf("%s must be null or a number in [%.0f,%.0f]", k, -sensorOffsetLimit, sensorOffsetLimit))
+				fmt.Errorf("%s must be null or a number in [%.0f,%.0f]", k, -key.limit, key.limit))
 			return
 		}
 	}
 
-	dev, err := a.readDevJSON(r.Context())
+	sys, err := a.readSystem(r.Context())
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	for k, v := range patch {
+		key := sensorOffsetKeys[k]
 		if v == nil {
-			delete(dev, k)
-		} else {
-			dev[k] = v
+			if key.sysKey == "tempOffset" {
+				sys[key.sysKey] = defaultTempOffset
+			} else {
+				sys[key.sysKey] = defaultHumOffset
+			}
+			continue
 		}
+		sys[key.sysKey] = v
 	}
-	payload, err := json.Marshal(dev)
+	payload, err := json.Marshal(sys)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := a.putDeviceFile(r.Context(), "/dev.json", payload); err != nil {
+	_, status, err := a.proxyToDevice(r.Context(), http.MethodPut, "/api/v1/system", payload)
+	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	if _, status, err := a.proxyToDevice(r.Context(), http.MethodPost, "/api/reboot", []byte("{}")); err != nil || status < 200 || status >= 300 {
-		if err == nil {
-			err = fmt.Errorf("clock returned %d", status)
-		}
-		writeError(w, http.StatusBadGateway, fmt.Errorf("dev.json written but reboot failed (offsets apply on next boot): %w", err))
+	if status < 200 || status >= 300 {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"rebooted": true})
+	a.handleDeviceSensorsGet(w, r)
 }

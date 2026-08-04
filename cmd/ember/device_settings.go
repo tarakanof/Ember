@@ -13,7 +13,7 @@ import (
 )
 
 // settingKind classifies how a device setting value is validated before it is
-// forwarded to the clock's /api/settings.
+// forwarded to the clock's /api/v1/settings.
 type settingKind int
 
 const (
@@ -22,6 +22,9 @@ const (
 	kColor
 	kEnum
 	kString
+	kObject
+	kNumber       // any finite float64, no bound (e.g. overlaySettings.speed)
+	kStringOrNull // string up to maxLen, or JSON null (e.g. overlaySettings.palette)
 )
 
 type settingRule struct {
@@ -29,48 +32,84 @@ type settingRule struct {
 	min, max int
 	enum     map[string]bool
 	maxLen   int
+	obj      map[string]settingRule // subkey rules, kObject only
 }
 
-// overlayValues are the AWTRIX overlay effects we expose.
-var overlayValues = map[string]bool{
-	"clear": true, "snow": true, "rain": true, "drizzle": true,
-	"storm": true, "thunder": true, "frost": true,
+func enumOf(values ...string) map[string]bool {
+	m := make(map[string]bool, len(values))
+	for _, v := range values {
+		m[v] = true
+	}
+	return m
 }
 
-// deviceSettingRules is the whitelist of AWTRIX /api/settings keys the menu may
-// write, with per-key validation. Keys absent here are rejected (never
-// forwarded), so the proxy can't be used to poke arbitrary firmware settings.
+// scrollRules validates the nested "scroll" object. mode/direction/entry/
+// whenFits are device-defined string enums (validated device-side, like
+// transitionEffect below); speed/gap/holdMs are bounded ints.
+var scrollRules = map[string]settingRule{
+	"mode":      {kind: kString, maxLen: 32},
+	"direction": {kind: kString, maxLen: 32},
+	"entry":     {kind: kString, maxLen: 32},
+	"whenFits":  {kind: kString, maxLen: 32},
+	// speed is a percentage of the base scroll rate, not an absolute ms value.
+	"speed":  {kind: kInt, min: 0, max: 1000},
+	"gap":    {kind: kInt, min: 0, max: 64},
+	"holdMs": {kind: kInt, min: 0, max: 60000},
+}
+
+// weekdayBarRules validates the nested "weekdayBar" object. Only the subkeys
+// DeviceTab currently needs are whitelisted; the device also reports
+// weekendDays/weekendActiveColor/weekendInactiveColor, deliberately left out
+// (YAGNI — add them when a caller needs them).
+var weekdayBarRules = map[string]settingRule{
+	"show":          {kind: kBool},
+	"startOnMonday": {kind: kBool},
+	"activeColor":   {kind: kColor},
+	"inactiveColor": {kind: kColor},
+}
+
+// deviceSettingRules is the whitelist of awtrix-ng /api/v1/settings keys the
+// menu may write, with per-key validation. Keys absent here are rejected
+// (never forwarded), so the proxy can't be used to poke arbitrary firmware
+// settings.
 var deviceSettingRules = map[string]settingRule{
 	// General
-	"BRI":       {kind: kInt, min: 0, max: 255},
-	"ABRI":      {kind: kBool},
-	"VOL":       {kind: kInt, min: 0, max: 30},
-	"ATIME":     {kind: kInt, min: 1, max: 3600},
-	"ATRANS":    {kind: kBool},
-	"TEFF":      {kind: kInt, min: 0, max: 10},
-	"TSPEED":    {kind: kInt, min: 0, max: 5000},
-	"SSPEED":    {kind: kInt, min: 1, max: 1000},
-	"TCOL":      {kind: kColor},
-	"UPPERCASE": {kind: kBool},
-	"BLOCKN":    {kind: kBool},
-	"OVERLAY":   {kind: kEnum, enum: overlayValues},
-	// Native apps
-	"TIM":  {kind: kBool},
-	"DAT":  {kind: kBool},
-	"TEMP": {kind: kBool},
-	"HUM":  {kind: kBool},
-	"BAT":  {kind: kBool},
-	// Time & Date
-	"TFORMAT": {kind: kString, maxLen: 16},
-	"DFORMAT": {kind: kString, maxLen: 16},
-	"SOM":     {kind: kBool},
-	"TMODE":   {kind: kInt, min: 0, max: 6},
-	"CHCOL":   {kind: kColor},
-	"CBCOL":   {kind: kColor},
-	"CTCOL":   {kind: kColor},
-	"WD":      {kind: kBool},
-	"WDCA":    {kind: kColor},
-	"WDCI":    {kind: kColor},
+	"brightness":     {kind: kInt, min: 0, max: 255},
+	"autoBrightness": {kind: kBool},
+	"volume":         {kind: kInt, min: 0, max: 30},
+	// appDurationMs is milliseconds on NG (was ATIME, seconds, 1-3600, on
+	// AWTRIX3) — 1s-1h is a sane bound for a rotating app's dwell time.
+	"appDurationMs":        {kind: kInt, min: 1000, max: 3600000},
+	"autoTransition":       {kind: kBool}, // Pomodoro takeover key; coordinator.go writes this directly
+	"transitionDurationMs": {kind: kInt, min: 0, max: 60000},
+	// transitionEffect is a device-reported name (GET /api/v1/capabilities),
+	// not a static enum — capabilities-fetch plumbing to validate the live set
+	// is ticket #70. Here we only bound it to a plausible identifier shape;
+	// an unknown name is rejected by the device itself with a 422.
+	"transitionEffect": {kind: kString, maxLen: 32},
+	"textColor":        {kind: kColor},
+	"uppercase":        {kind: kBool},
+	"blockNavigation":  {kind: kBool}, // Pomodoro takeover key; coordinator.go writes this directly
+	// Time & Date — NG replaced the TFORMAT/DFORMAT strftime strings with
+	// discrete typed fields; there are no format strings to validate anymore.
+	"timeMode":            {kind: kInt, min: 0, max: 6},
+	"time24h":             {kind: kBool},
+	"timeLeadingZero":     {kind: kBool},
+	"timeShowSeconds":     {kind: kBool},
+	"timeShowAmPm":        {kind: kBool},
+	"timeSeparatorMode":   {kind: kEnum, enum: enumOf("steady", "blink", "pulse")},
+	"dateOrder":           {kind: kEnum, enum: enumOf("dayMonthYear", "monthDayYear", "yearMonthDay")},
+	"dateSeparator":       {kind: kEnum, enum: enumOf("dot", "slash", "dash")},
+	"dateYearMode":        {kind: kEnum, enum: enumOf("none", "twoDigit", "fourDigit")},
+	"dateShowWeekday":     {kind: kBool},
+	"dateMonthNames":      {kind: kBool},
+	"calendarHeaderColor": {kind: kColor},
+	"calendarBodyColor":   {kind: kColor},
+	"calendarTextColor":   {kind: kColor},
+	// Nested objects — the device speaks these NG shapes directly; the macOS
+	// app adapts to them in #71.
+	"scroll":     {kind: kObject, obj: scrollRules},
+	"weekdayBar": {kind: kObject, obj: weekdayBarRules},
 }
 
 var hexColor = regexp.MustCompile(`^#?[0-9A-Fa-f]{6}$`)
@@ -79,35 +118,67 @@ var printableASCII = regexp.MustCompile(`^[\x20-\x7E]*$`)
 // validateDeviceSettings rejects unknown keys and out-of-range / wrong-type
 // values. A nil/empty map is valid (no-op write).
 func validateDeviceSettings(m map[string]any) error {
+	return validateAgainstRules(m, deviceSettingRules)
+}
+
+// validateAgainstRules checks m against rules, recursing into kObject values.
+func validateAgainstRules(m map[string]any, rules map[string]settingRule) error {
 	for k, v := range m {
-		rule, ok := deviceSettingRules[k]
+		rule, ok := rules[k]
 		if !ok {
 			return fmt.Errorf("unknown setting %q", k)
 		}
-		switch rule.kind {
-		case kBool:
-			if _, ok := v.(bool); !ok {
-				return fmt.Errorf("%s must be a boolean", k)
-			}
-		case kInt:
-			f, ok := v.(float64)
-			if !ok || f != float64(int(f)) || int(f) < rule.min || int(f) > rule.max {
-				return fmt.Errorf("%s must be an integer in [%d,%d]", k, rule.min, rule.max)
-			}
-		case kColor:
-			if !validColor(v) {
-				return fmt.Errorf("%s must be a hex string or [r,g,b]", k)
-			}
-		case kEnum:
-			s, ok := v.(string)
-			if !ok || !rule.enum[s] {
-				return fmt.Errorf("%s has an unsupported value", k)
-			}
-		case kString:
-			s, ok := v.(string)
-			if !ok || len(s) > rule.maxLen || !printableASCII.MatchString(s) {
-				return fmt.Errorf("%s must be printable ASCII up to %d chars", k, rule.maxLen)
-			}
+		if err := validateSettingValue(k, v, rule); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateSettingValue(k string, v any, rule settingRule) error {
+	switch rule.kind {
+	case kBool:
+		if _, ok := v.(bool); !ok {
+			return fmt.Errorf("%s must be a boolean", k)
+		}
+	case kInt:
+		f, ok := v.(float64)
+		if !ok || f != float64(int(f)) || int(f) < rule.min || int(f) > rule.max {
+			return fmt.Errorf("%s must be an integer in [%d,%d]", k, rule.min, rule.max)
+		}
+	case kColor:
+		if !validColor(v) {
+			return fmt.Errorf("%s must be a hex string or [r,g,b]", k)
+		}
+	case kEnum:
+		s, ok := v.(string)
+		if !ok || !rule.enum[s] {
+			return fmt.Errorf("%s has an unsupported value", k)
+		}
+	case kString:
+		s, ok := v.(string)
+		if !ok || len(s) > rule.maxLen || !printableASCII.MatchString(s) {
+			return fmt.Errorf("%s must be printable ASCII up to %d chars", k, rule.maxLen)
+		}
+	case kObject:
+		obj, ok := v.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%s must be an object", k)
+		}
+		if err := validateAgainstRules(obj, rule.obj); err != nil {
+			return fmt.Errorf("%s.%w", k, err)
+		}
+	case kNumber:
+		if _, ok := v.(float64); !ok {
+			return fmt.Errorf("%s must be a number", k)
+		}
+	case kStringOrNull:
+		if v == nil {
+			return nil
+		}
+		s, ok := v.(string)
+		if !ok || len(s) > rule.maxLen || !printableASCII.MatchString(s) {
+			return fmt.Errorf("%s must be null or printable ASCII up to %d chars", k, rule.maxLen)
 		}
 	}
 	return nil

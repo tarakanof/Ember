@@ -10,27 +10,46 @@ import (
 
 func TestValidateDeviceSettings(t *testing.T) {
 	ok := map[string]any{
-		"BRI": float64(128), "VOL": float64(10), "ABRI": true, "TEFF": float64(3),
-		"TCOL": "#FF8800", "TIM": true, "TMODE": float64(2), "CHCOL": []any{float64(255), float64(0), float64(0)},
-		"TFORMAT": "%H %M", "OVERLAY": "clear",
+		"brightness": float64(128), "volume": float64(10), "autoBrightness": true,
+		"transitionEffect": "Rain", "textColor": "#FF8800", "uppercase": true,
+		"timeMode": float64(2), "calendarHeaderColor": []any{float64(255), float64(0), float64(0)},
+		"appDurationMs": float64(7000), "transitionDurationMs": float64(1000),
+		"time24h": true, "timeLeadingZero": true, "timeShowSeconds": false, "timeShowAmPm": false,
+		"timeSeparatorMode": "pulse",
+		"dateOrder":         "dayMonthYear", "dateSeparator": "dot", "dateYearMode": "twoDigit",
+		"dateShowWeekday": false, "dateMonthNames": false,
+		"autoTransition": true, "blockNavigation": false,
+		"scroll": map[string]any{
+			"mode": "wrap", "direction": "left", "entry": "inline", "whenFits": "static",
+			"speed": float64(100), "gap": float64(8), "holdMs": float64(1000),
+		},
+		"weekdayBar": map[string]any{
+			"show": true, "startOnMonday": true,
+			"activeColor": "#FFFFFF", "inactiveColor": "#666666",
+		},
 	}
 	if err := validateDeviceSettings(ok); err != nil {
 		t.Fatalf("valid settings rejected: %v", err)
 	}
 	bad := []map[string]any{
-		{"BRI": float64(999)},                                  // out of range
-		{"VOL": float64(-1)},                                   // out of range
-		{"NOPE": true},                                         // unknown key
-		{"ABRI": "yes"},                                        // wrong type
-		{"TCOL": "purple"},                                     // bad color
-		{"TMODE": float64(9)},                                  // out of range
-		{"BRI": float64(12.5)},                                 // non-integer
-		{"OVERLAY": "rainbow"},                                 // not in enum
-		{"TFORMAT": strings.Repeat("x", 32)},                   // too long
-		{"CHCOL": []any{float64(255), float64(0)}},             // 2-element array
-		{"CHCOL": []any{float64(300), float64(0), float64(0)}}, // component out of range
-		{"CHCOL": []any{float64(1), float64(2), float64(3), float64(4)}}, // 4-element array
-		{"CHCOL": []any{float64(1.5), float64(0), float64(0)}},           // non-integer component
+		{"brightness": float64(999)},                                         // out of range
+		{"volume": float64(-1)},                                              // out of range
+		{"NOPE": true},                                                       // unknown key
+		{"autoBrightness": "yes"},                                            // wrong type
+		{"textColor": "purple"},                                              // bad color
+		{"timeMode": float64(9)},                                             // out of range
+		{"brightness": float64(12.5)},                                        // non-integer
+		{"timeSeparatorMode": "rainbow"},                                     // not in enum
+		{"dateOrder": "nope"},                                                // not in enum
+		{"transitionEffect": strings.Repeat("x", 33)},                        // too long
+		{"calendarHeaderColor": []any{float64(255), float64(0)}},             // 2-element array
+		{"calendarHeaderColor": []any{float64(300), float64(0), float64(0)}}, // component out of range
+		{"appDurationMs": float64(500)},                                      // below unit-changed min
+		{"scroll": map[string]any{"speed": "fast"}},                          // wrong type in nested obj
+		{"scroll": map[string]any{"nope": true}},                             // unknown nested key
+		{"scroll": "not-an-object"},                                          // wrong shape
+		{"weekdayBar": map[string]any{"activeColor": "purple"}},              // bad nested color
+		{"weekdayBar": map[string]any{"weekendDays": []any{"sunday"}}},       // unlisted nested key
 	}
 	for i, b := range bad {
 		if err := validateDeviceSettings(b); err == nil {
@@ -51,7 +70,7 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"BRI":120,"VOL":8,"TIM":true,"NOPE":"x","MATP":true}`))
+			w.Write([]byte(`{"brightness":120,"volume":8,"soundEnabled":true,"NOPE":"x","MATP":true}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -69,23 +88,23 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 	if gw.Code != 200 {
 		t.Fatalf("get code=%d body=%s", gw.Code, gw.Body.String())
 	}
-	if strings.Contains(gw.Body.String(), "NOPE") || strings.Contains(gw.Body.String(), "MATP") {
+	if strings.Contains(gw.Body.String(), "NOPE") || strings.Contains(gw.Body.String(), "MATP") || strings.Contains(gw.Body.String(), "soundEnabled") {
 		t.Fatalf("get leaked non-whitelisted keys: %s", gw.Body.String())
 	}
-	if !strings.Contains(gw.Body.String(), "BRI") {
+	if !strings.Contains(gw.Body.String(), "brightness") {
 		t.Fatalf("get dropped whitelisted key: %s", gw.Body.String())
 	}
 
 	// PUT validates then forwards.
 	pw := httptest.NewRecorder()
-	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"BRI":128}`)))
+	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"brightness":128}`)))
 	if pw.Code != 200 || !strings.Contains(gotBody, "128") {
 		t.Fatalf("put code=%d forwarded=%q", pw.Code, gotBody)
 	}
 
 	// PUT with a bad value is rejected before reaching the device.
 	bw := httptest.NewRecorder()
-	a.handleDeviceSettingsPut(bw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"BRI":999}`)))
+	a.handleDeviceSettingsPut(bw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"brightness":999}`)))
 	if bw.Code != http.StatusBadRequest {
 		t.Fatalf("bad put code=%d want 400", bw.Code)
 	}
@@ -137,7 +156,7 @@ func TestDeviceProxyMapsDeviceErrorTo502(t *testing.T) {
 	}
 	// PUT (valid body) maps a device 500 to 502.
 	pw := httptest.NewRecorder()
-	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"BRI":120}`)))
+	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"brightness":120}`)))
 	if pw.Code != http.StatusBadGateway {
 		t.Fatalf("put code=%d want 502", pw.Code)
 	}
