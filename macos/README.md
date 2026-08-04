@@ -17,8 +17,12 @@ API are unchanged; this app is a pure client.
   Reminders / App), and a status + preview **dashboard** `Window`. `AppEnvironment`
   owns the live `APIClient`, models, services, prefs, and `ServerDiscovery`
   (Bonjour `_ember._tcp` browse). The **Device** tab drives the AWTRIX clock's own
-  settings via the server's `/v1/device/*` proxy (incl. an mDNS clock picker);
-  Connection lists Bonjour-discovered servers (with a Local Network grant prompt).
+  settings via the server's `/v1/device/*` proxy; Connection lists
+  Bonjour-discovered servers (with a Local Network grant prompt). "Find clock"
+  (Device + Connection) scans server-side first and falls back to `ClockDiscovery`,
+  the app's own `_http._tcp` browse with the same `/api/stats` `uid` fingerprint
+  the server uses — so the clock is findable even when the server's container
+  can't see multicast.
 - **`project.yml`** — XcodeGen source for the app target (committed). The generated
   `Ember.xcodeproj` is **gitignored** — regenerate it (below).
 

@@ -1,0 +1,294 @@
+import Testing
+import Foundation
+import Network
+@testable import EmberKit
+
+// MARK: Fingerprint — mirrors the server's internal/discovery probe rules
+
+// A non-empty uid is what makes an _http._tcp host an AWTRIX clock.
+@Test func clockFingerprintAcceptsNonEmptyUID() {
+    let body = #"{"uid":"116ae8","version":"0.98","bat":100,"ram":118772}"#
+    let c = ClockDiscovery.candidate(host: "awtrix_116ae8.local.",
+                                     baseURL: "http://10.0.0.9:80",
+                                     status: 200, body: Data(body.utf8))
+    #expect(c?.uid == "116ae8")
+    #expect(c?.version == "0.98")
+    #expect(c?.host == "awtrix_116ae8.local.")
+    #expect(c?.baseURL == "http://10.0.0.9:80")
+}
+
+// An ordinary HTTP server that happens to answer /api/stats with JSON is not a
+// clock unless it carries a uid.
+@Test func clockFingerprintRejectsEmptyUID() {
+    let body = #"{"uid":"","version":"0.98"}"#
+    #expect(ClockDiscovery.candidate(host: "h", baseURL: "http://h:80",
+                                     status: 200, body: Data(body.utf8)) == nil)
+}
+
+@Test func clockFingerprintRejectsMissingUID() {
+    let body = #"{"version":"0.98"}"#
+    #expect(ClockDiscovery.candidate(host: "h", baseURL: "http://h:80",
+                                     status: 200, body: Data(body.utf8)) == nil)
+}
+
+@Test func clockFingerprintRejectsNon200() {
+    let body = #"{"uid":"116ae8"}"#
+    #expect(ClockDiscovery.candidate(host: "h", baseURL: "http://h:80",
+                                     status: 404, body: Data(body.utf8)) == nil)
+}
+
+@Test func clockFingerprintRejectsUndecodableBody() {
+    #expect(ClockDiscovery.candidate(host: "h", baseURL: "http://h:80",
+                                     status: 200, body: Data("<html>".utf8)) == nil)
+}
+
+// Older firmware may omit the version; the clock is still usable.
+@Test func clockFingerprintToleratesMissingVersion() {
+    let c = ClockDiscovery.candidate(host: "h", baseURL: "http://h:80",
+                                     status: 200, body: Data(#"{"uid":"u"}"#.utf8))
+    #expect(c?.version == "")
+}
+
+// MARK: Base URL shaping — byte-identical to the server's baseURLFor
+
+// The port is always explicit so a clock found here is the same string the
+// server would report for it (and the two lists de-dupe cleanly).
+@Test func clockBaseURLAlwaysCarriesPort() {
+    #expect(ClockDiscovery.baseURL(host: "10.0.0.9", port: 80) == "http://10.0.0.9:80")
+}
+
+// Bonjour reports port 0 for a service with no port record; AWTRIX serves HTTP.
+@Test func clockBaseURLDefaultsPortEightyWhenAbsent() {
+    #expect(ClockDiscovery.baseURL(host: "10.0.0.9", port: 0) == "http://10.0.0.9:80")
+}
+
+@Test func clockBaseURLBracketsIPv6() {
+    #expect(ClockDiscovery.baseURL(host: "fe80::1%en0", port: 80) == "http://[fe80::1%25en0]:80")
+}
+
+// MARK: De-dup and ordering
+
+// The same clock resolves through several endpoints; uid is the device identity.
+@Test func clockMergeDeDupesByUID() {
+    let a = DiscoveredClock(host: "awtrix.local.", baseURL: "http://10.0.0.9:80", uid: "u", version: "0.98")
+    let b = DiscoveredClock(host: "awtrix.local.", baseURL: "http://10.0.0.9:8080", uid: "u", version: "0.98")
+    let list = ClockDiscovery.merged(ClockDiscovery.merged([], adding: a), adding: b)
+    #expect(list.count == 1)
+    #expect(list[0].baseURL == "http://10.0.0.9:80")
+}
+
+// Probes land in whatever order the LAN answers; the list must not reshuffle.
+@Test func clockMergeOrdersByHost() {
+    let z = DiscoveredClock(host: "zulu.local.", baseURL: "http://10.0.0.9:80", uid: "z", version: "")
+    let a = DiscoveredClock(host: "alpha.local.", baseURL: "http://10.0.0.5:80", uid: "a", version: "")
+    let list = ClockDiscovery.merged(ClockDiscovery.merged([], adding: z), adding: a)
+    #expect(list.map(\.host) == ["alpha.local.", "zulu.local."])
+}
+
+// MARK: Resolution de-dup (NWBrowser replays the whole result set)
+
+private func service(_ name: String) -> (key: String, endpoint: NWEndpoint) {
+    let e = NWEndpoint.service(name: name, type: "_http._tcp", domain: "local.", interface: nil)
+    return (ClockDiscovery.serviceKey(e), e)
+}
+
+// NWBrowser replays the whole result set on every change; only the services not
+// already being resolved may be connected to, or a busy _http._tcp LAN opens N
+// connections per callback.
+@MainActor
+@Test func clockDiscoveryConnectsToEachServiceOnlyOnce() {
+    let d = ClockDiscovery()
+    let batch = [service("awtrix_116ae8"), service("printer")]
+    #expect(d.claimNew(batch).count == 2)
+    // Same callback replayed, plus one late arrival.
+    #expect(d.claimNew(batch + [service("nas")]).map(ClockDiscovery.serviceKey)
+            == [ClockDiscovery.serviceKey(service("nas").endpoint)])
+    #expect(d.claimNew(batch).isEmpty)
+}
+
+// A duplicate inside a single callback must not yield two connections either.
+@MainActor
+@Test func clockDiscoveryDeDupesWithinOneBatch() {
+    let d = ClockDiscovery()
+    #expect(d.claimNew([service("awtrix"), service("awtrix")]).count == 1)
+}
+
+// A clock that momentarily refuses the connection (mid-reboot, no ARP entry,
+// Wi-Fi power save) must be retried on the next callback, not written off for
+// the rest of the scan.
+@MainActor
+@Test func clockDiscoveryRetriesAServiceThatFailedToResolve() {
+    let d = ClockDiscovery()
+    let awtrix = service("awtrix")
+    #expect(d.claimNew([awtrix]).count == 1)
+    #expect(d.claimNew([awtrix]).isEmpty)          // in flight — no second connection
+    d.releaseClaim(awtrix.key)                     // connection ended without .ready
+    #expect(d.claimNew([awtrix]).count == 1)       // next callback tries again
+}
+
+// A fresh scan re-resolves everything: stale claims must not hide a clock.
+@MainActor
+@Test func clockDiscoveryClearsClaimsOnStop() {
+    let d = ClockDiscovery()
+    #expect(d.claimNew([service("awtrix")]).count == 1)
+    d.stop()
+    #expect(d.claimNew([service("awtrix")]).count == 1)
+}
+
+// MARK: Probe request shaping (stubbed transport — no LAN traffic)
+
+@Test func clockProbeGetsAPIStatsAndReturnsCandidate() async {
+    let host = "stub-\(UUID().uuidString.lowercased()).local"
+    StubURLProtocol.register(host: host) { req in
+        #expect(req.httpMethod == "GET")
+        #expect(req.url?.path == "/api/stats")
+        return (okResponse(req.url!), Data(#"{"uid":"116ae8","version":"0.98"}"#.utf8))
+    }
+    let c = await ClockDiscovery.probe(host: "awtrix.local.",
+                                       baseURL: "http://\(host):80",
+                                       session: stubSession())
+    #expect(c?.uid == "116ae8")
+    #expect(c?.baseURL == "http://\(host):80")
+}
+
+@Test func clockProbeReturnsNilForNonClock() async {
+    let host = "stub-\(UUID().uuidString.lowercased()).local"
+    StubURLProtocol.register(host: host) { req in
+        (okResponse(req.url!, status: 404), Data())
+    }
+    let c = await ClockDiscovery.probe(host: "printer.local.",
+                                       baseURL: "http://\(host):80",
+                                       session: stubSession())
+    #expect(c == nil)
+}
+
+// MARK: Probe lifecycle
+
+/// Registers a stub that answers as an AWTRIX clock after `delay` seconds, so a
+/// probe can be caught in flight.
+@discardableResult
+private func slowClockStub(delay: TimeInterval) -> String {
+    let host = "stub-\(UUID().uuidString.lowercased()).local"
+    StubURLProtocol.register(host: host) { req in
+        Thread.sleep(forTimeInterval: delay)
+        return (okResponse(req.url!), Data(#"{"uid":"116ae8","version":"0.98"}"#.utf8))
+    }
+    return host
+}
+
+// The happy path: a resolved host that fingerprints as a clock lands in the list.
+@MainActor
+@Test func clockDiscoveryAddsAProbedClock() async throws {
+    let d = ClockDiscovery()
+    d.probeSession = stubSession()
+    d.probeResolved(host: slowClockStub(delay: 0), port: 80)
+    try await Task.sleep(for: .milliseconds(400))
+    #expect(d.clocks.count == 1)
+    #expect(d.clocks.first?.uid == "116ae8")
+}
+
+// A probe outlives the browse by up to its resource timeout. If stop() doesn't
+// cancel it, the result lands after `clocks` was cleared and repopulates a list
+// the user already dismissed.
+@MainActor
+@Test func clockDiscoveryDropsProbesThatFinishAfterStop() async throws {
+    let d = ClockDiscovery()
+    d.probeSession = stubSession()
+    d.probeResolved(host: slowClockStub(delay: 0.3), port: 80)
+    d.stop()
+    try await Task.sleep(for: .milliseconds(700))   // outlives the stub's delay
+    #expect(d.clocks.isEmpty)
+}
+
+// MARK: Failure classification — who is unreachable, the server or the clock
+
+// The server maps every clock-side proxy failure to 502; that is the only case
+// clock discovery can fix.
+@Test func deviceFailureTreats502AsClockUnreachable() {
+    #expect(DeviceFailure.classify(APIError.http(status: 502, body: "clock returned 500")) == .clockUnreachable)
+}
+
+// No server URL yet: finding a clock would succeed and then fail to save it, so
+// this must send the user to Connection instead of to discovery.
+@Test func deviceFailureTreatsNotConfiguredAsServerUnreachable() {
+    #expect(DeviceFailure.classify(APIError.notConfigured) == .serverUnreachable)
+}
+
+// Server down / VPN off — same reasoning as notConfigured.
+@Test func deviceFailureTreatsTransportAsServerUnreachable() {
+    #expect(DeviceFailure.classify(APIError.transport("could not connect")) == .serverUnreachable)
+}
+
+@Test func deviceFailureTreats401AsUnauthorized() {
+    #expect(DeviceFailure.classify(APIError.http(status: 401, body: "")) == .unauthorized)
+}
+
+// A timeout proves nothing about who was slow, so it must claim neither end.
+@Test func deviceFailureTreatsTimeoutAsTimedOut() {
+    #expect(DeviceFailure.classify(APIError.timeout) == .timedOut)
+}
+
+// The device proxies must out-wait the server's own 8s clock budget
+// (deviceBaseClient, cmd/ember/device_settings.go): under a shorter budget the
+// app aborts first and never sees the 502 that identifies an unreachable clock.
+@Test func deviceProxyClientOutwaitsTheServersClockBudget() {
+    let client = APIClient(baseURL: URL(string: "http://example.local:3627"), token: "t")
+    let proxy = client.forDeviceProxy()
+    #expect(proxy.session.configuration.timeoutIntervalForRequest > 8)
+    #expect(proxy.session.configuration.timeoutIntervalForResource
+            > proxy.session.configuration.timeoutIntervalForRequest)
+    // Every other route keeps the fail-fast budget.
+    #expect(client.session.configuration.timeoutIntervalForRequest == 5)
+    #expect(proxy.baseURL == client.baseURL)
+    #expect(proxy.token == client.token)
+}
+
+// A URLSession timeout must surface as .timeout, not as a .transport failure
+// that classify() would read as "the server is unreachable".
+@Test func apiClientMapsURLTimeoutToTimeoutError() async {
+    let host = "stub-\(UUID().uuidString.lowercased()).local"
+    StubURLProtocol.register(host: host) { _ in throw URLError(.timedOut) }
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubURLProtocol.self]
+    let client = APIClient(baseURL: URL(string: "http://\(host)"), token: "t",
+                           session: URLSession(configuration: config))
+    do {
+        try await client.send("GET", "/v1/device/settings")
+        Issue.record("expected a timeout")
+    } catch {
+        #expect(error as? APIError == .timeout)
+        #expect(DeviceFailure.classify(error) == .timedOut)
+    }
+}
+
+// No server URL: a scan would find the clock and then have nowhere to save it.
+@Test func deviceServiceReportsUnconfiguredClient() {
+    #expect(DeviceService(client: APIClient(baseURL: nil, token: nil)).isConfigured == false)
+    #expect(DeviceService(client: APIClient(baseURL: URL(string: "http://h:3627"), token: nil))
+                .isConfigured == true)
+}
+
+// An old server missing the route, or a malformed body, is neither — and must
+// not masquerade as an unreachable clock.
+@Test func deviceFailureTreatsOtherStatusesAsOther() {
+    #expect(DeviceFailure.classify(APIError.http(status: 404, body: "")) == .other)
+    #expect(DeviceFailure.classify(APIError.decoding("bad json")) == .other)
+    #expect(DeviceFailure.classify(URLError(.badURL)) == .other)
+}
+
+// MARK: Config push — pointing the server at a clock the app found
+
+private struct DeviceConfigBody: Decodable { let base_url: String }
+
+@Test func setConfigPutsBaseURLToDeviceConfig() async throws {
+    let client = stubbedClient(token: "t") { req in
+        #expect(req.httpMethod == "PUT")
+        #expect(req.url?.path == "/v1/device/config")
+        #expect(req.value(forHTTPHeaderField: "Authorization") == "Bearer t")
+        let body = req.httpBodyStreamData() ?? req.httpBody ?? Data()
+        let obj = try JSONDecoder().decode(DeviceConfigBody.self, from: body)
+        #expect(obj.base_url == "http://10.0.0.9:80")
+        return (okResponse(req.url!), Data())
+    }
+    try await DeviceService(client: client).setConfig(baseURL: "http://10.0.0.9:80")
+}

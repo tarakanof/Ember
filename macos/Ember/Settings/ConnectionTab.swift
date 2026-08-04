@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import EmberKit
 
 struct ConnectionTab: View {
@@ -21,6 +20,7 @@ struct ConnectionTab: View {
     @State private var testResult: String?
     @State private var loaded = false
     @State private var serverVersion: String?
+    @State private var clockConfig: DeviceConfig?
 
     private enum Field: Hashable { case source, serverURL, token }
     @FocusState private var focusedField: Field?
@@ -114,6 +114,22 @@ struct ConnectionTab: View {
                 Text("Ember servers found on your network via Bonjour. Tap one to fill the Server URL. Requires the server on host networking and Local Network access for Ember.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+
+            Section {
+                LabeledContent("Address") {
+                    Text(clockConfig?.baseURL.isEmpty == false ? clockConfig!.baseURL : "—")
+                        .foregroundStyle(.secondary)
+                }
+                FindClockView(currentBaseURL: clockConfig?.baseURL) {
+                    clockConfig = try? await env.device.config()
+                }
+            } header: {
+                Text("Clock")
+            } footer: {
+                Text("The AWTRIX clock the server drives. Finding it here doesn't depend on the server's own network — useful right after setup, when the server may not see the clock yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .task(id: committed.serverURL) { clockConfig = try? await env.device.config() }
         }
         .formStyle(.grouped)
         .onChange(of: focusedField) { old, _ in commitOnFocusLeave(old) }
@@ -233,19 +249,12 @@ struct ConnectionTab: View {
             case .notConfigured:  testResult = "✗ No/invalid server URL"
             case .http(401, _):   testResult = "✗ Unauthorized — check token"
             case .http(let s, _): testResult = "✗ Server error (HTTP \(s))"
+            case .timeout:        testResult = "✗ Timed out"
             case .transport:      testResult = "✗ Unreachable"
             case .decoding:       testResult = "✓ Reached server (unexpected body)"
             }
         } catch {
             testResult = "✗ \(error.localizedDescription)"
-        }
-    }
-
-    /// Opens System Settings at the Local Network privacy pane so the user can
-    /// enable Ember (needed for Bonjour server discovery).
-    private func openLocalNetworkSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork") {
-            NSWorkspace.shared.open(url)
         }
     }
 }

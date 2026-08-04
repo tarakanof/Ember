@@ -17,8 +17,9 @@ struct DeviceTab: View {
     @State private var lastApplied: DeviceSettings?
     @State private var confirmReboot = false
     @State private var config: DeviceConfig?
-    @State private var discovered: [DiscoveredClock] = []
-    @State private var discovering = false
+    /// The server answered, but it can't talk to the clock — the case app-side
+    /// discovery exists to fix.
+    @State private var clockUnreachable = false
     @State private var buttons: ButtonStatus?
     @State private var clockExpanded = false
 
@@ -143,30 +144,12 @@ struct DeviceTab: View {
             LabeledContent { Text(stats?.humidity.map { String(format: "%.0f %%", $0) } ?? "—") } label: {
                 RowLabel("Humidity", symbol: "humidity.fill", tint: .teal)
             }
-            Button {
-                Task { await discoverClocks() }
-            } label: {
-                RowLabel(discovering ? "Scanning…" : "Discover clocks",
-                         symbol: "antenna.radiowaves.left.and.right", tint: .teal)
+            if clockUnreachable {
+                Label("The server can't reach the clock. Find it from this Mac.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
             }
-            .disabled(discovering)
-            ForEach(discovered) { c in
-                Button {
-                    Task { await pickClock(c) }
-                } label: {
-                    HStack {
-                        Image(systemName: c.baseURL == config?.baseURL ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(c.baseURL == config?.baseURL ? .green : .secondary)
-                        VStack(alignment: .leading) {
-                            Text(c.baseURL)
-                            Text("\(c.host) · fw \(c.version)").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-            Text("Ember auto-discovers the clock via mDNS. Use “Discover clocks” to pick a specific one; your choice is saved on the server and overrides auto-discovery.")
-                .font(.caption).foregroundStyle(.secondary)
+            FindClockView(currentBaseURL: config?.baseURL) { await load() }
         } header: {
             Text("Clock")
         }
@@ -701,28 +684,30 @@ struct DeviceTab: View {
             lastDeviceDisplay = deviceDisplay
             lastApplied = settings
             loadError = nil
-        } catch let e as APIError where e.isUnauthorized {
-            loadError = "Unauthorized — check the token in Connection."
+            clockUnreachable = false
         } catch {
-            loadError = "Clock unreachable — check Connection and discovery."
-        }
-    }
-
-    /// Browses the LAN (server-side) for AWTRIX clocks and lists them to pick from.
-    private func discoverClocks() async {
-        discovering = true
-        defer { discovering = false }
-        discovered = (try? await env.device.discover())?.candidates ?? []
-    }
-
-    /// Persists the chosen clock on the server, then reloads from it.
-    private func pickClock(_ c: DiscoveredClock) async {
-        do {
-            try await env.device.setConfig(baseURL: c.baseURL)
-            discovered = []
-            await load()
-        } catch {
-            save = .error("Couldn't switch clock: \(error.localizedDescription)")
+            // Only a 502 (server up, its proxy to the clock down) is fixable by
+            // finding the clock. A server we can't reach at all would fail the
+            // config PUT too, so it must not offer discovery as the remedy.
+            let failure = DeviceFailure.classify(error)
+            clockUnreachable = failure == .clockUnreachable
+            switch failure {
+            case .unauthorized:
+                loadError = "Unauthorized — check the token in Connection."
+            case .serverUnreachable:
+                loadError = "Server unreachable — check the server URL in Connection."
+            case .clockUnreachable:
+                loadError = "Clock unreachable — use “Find clock” to locate it on your network."
+                clockExpanded = true   // put the one-click fix on screen
+            case .timedOut:
+                // Nobody answered inside our budget, and that budget already
+                // out-waits the server's own 8s clock budget. Blame neither end;
+                // open the section so "Find clock" is at hand either way.
+                loadError = "No response in time — the server may be busy, or the clock is hanging."
+                clockExpanded = true
+            case .other:
+                loadError = "Couldn't load from the clock: \(error.localizedDescription)"
+            }
         }
     }
 

@@ -3,6 +3,10 @@ import Foundation
 public enum APIError: Error, Equatable, Sendable {
     case notConfigured
     case http(status: Int, body: String)
+    /// The request was still outstanding when our own budget ran out. Kept apart
+    /// from `transport` because it proves nothing about *who* was slow — the
+    /// server may have been waiting on something else (see `DeviceFailure`).
+    case timeout
     case transport(String)
     case decoding(String)
 
@@ -22,6 +26,8 @@ extension APIError: LocalizedError {
         case .http(let status, let body):
             let detail = Self.serverErrorText(body)
             return detail.isEmpty ? "HTTP \(status)" : "HTTP \(status) — \(detail)"
+        case .timeout:
+            return "The request timed out."
         case .transport(let message):
             return message
         case .decoding(let message):
@@ -67,6 +73,28 @@ public struct APIClient: Sendable {
         return URLSession(configuration: config)
     }()
 
+    /// A copy of this client that talks to the `/v1/device/*` proxies, which are
+    /// slower than every other route by design: the server gives its request to
+    /// the clock an 8s budget (`deviceBaseClient`, cmd/ember/device_settings.go)
+    /// before answering 502. Under the default 5s budget the app aborts first and
+    /// never sees that 502 — so a blackholed clock IP (issue #56, the case this
+    /// discovery feature exists for) looks like a dead *server* instead of a dead
+    /// clock, and the UI steers the user away from the fix. Everything else keeps
+    /// the 5s fail-fast so "Test Connection" and the tray stay responsive.
+    public func forDeviceProxy() -> APIClient {
+        APIClient(baseURL: baseURL, token: token, session: Self.deviceProxySession)
+    }
+
+    /// Request budget for the device proxies: comfortably above the server's own
+    /// 8s clock budget, so its 502 wins the race. The resource cap bounds the
+    /// whole exchange.
+    private static let deviceProxySession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 12
+        config.timeoutIntervalForResource = 25
+        return URLSession(configuration: config)
+    }()
+
     private static func makeDecoder() -> JSONDecoder {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -98,6 +126,8 @@ public struct APIClient: Sendable {
         let resp: URLResponse
         do {
             (data, resp) = try await session.data(for: req)
+        } catch let error as URLError where error.code == .timedOut {
+            throw APIError.timeout
         } catch {
             throw APIError.transport(error.localizedDescription)
         }

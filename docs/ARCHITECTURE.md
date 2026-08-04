@@ -413,6 +413,18 @@ and last re-discovery time/result). The server also advertises
 itself as `_ember._tcp` so the menu app can discover it (gated by
 `EMBER_MDNS_ADVERTISE`). Both directions require host/macvlan networking.
 
+**Client-side clock discovery** (`macos/Sources/EmberKit/ClockDiscovery.swift`)
+removes that requirement for finding the clock. The Mac has full-stack mDNS, so
+the app browses `_http._tcp` and applies the *same* fingerprint (`/api/stats`
+with a non-empty `uid`), building byte-identical `http://host:port` base URLs —
+the logic mirrors `internal/discovery`; only the environment it runs in differs.
+The menu's "Find clock" (Device tab and, for first-run, Connection) tries the
+server's `GET /v1/device/discover` first and falls back to the app's browse when
+the server returns nothing, naming which scan answered. Either way the pick is
+pushed with `PUT /v1/device/config`, so the server stays the only writer to the
+device — a bridge-networked server can be pointed at the clock without host
+networking or hand-typed IPs.
+
 The menu's Device tab manages the clock's *own* firmware settings — but **the
 server stays the only writer to the device**: the tab calls `/v1/device/settings`
 (bearer auth), and the server whitelists + range-validates each AWTRIX key before
