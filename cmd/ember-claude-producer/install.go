@@ -296,7 +296,11 @@ func producerHookEntries(binPath string) []producerHookEntry {
 		{event: "UserPromptSubmit", matcher: "", command: cmd("user-prompt-submit")},
 		{event: "PreToolUse", matcher: "", command: cmd("pre-tool-use")},
 		{event: "PermissionRequest", matcher: "", command: cmd("permission-request")},
-		{event: "Notification", matcher: "permission_prompt", command: cmd("notification")},
+		// #76 evaluation spike: log-only, see dispatchHook's comment in hook.go.
+		{event: "PostToolUse", matcher: "", command: cmd("post-tool-use")},
+		{event: "PostToolUseFailure", matcher: "", command: cmd("post-tool-use-failure")},
+		{event: "PermissionDenied", matcher: "", command: cmd("permission-denied")},
+		{event: "Notification", matcher: "permission_prompt|agent_needs_input|agent_completed", command: cmd("notification")},
 		{event: "Stop", matcher: "", command: cmd("stop")},
 		{event: "StopFailure", matcher: "", command: cmd("stop-failure")},
 		{event: "SessionEnd", matcher: "logout|prompt_input_exit|bypass_permissions_disabled|other|clear", command: cmd("session-end")},

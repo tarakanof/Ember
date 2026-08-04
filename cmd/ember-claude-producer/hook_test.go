@@ -181,6 +181,51 @@ func TestHook_Notification_FiltersByType(t *testing.T) {
 	}
 }
 
+// TestHook_Notification_AgentNeedsInput_UpsertsWaiting is the #75 regression:
+// Claude Code's Notification hook can fire with notification_type
+// "agent_needs_input" — an explicit "waiting for the user" signal that should
+// upsert the same "waiting" state as the existing permission_prompt path.
+func TestHook_Notification_AgentNeedsInput_UpsertsWaiting(t *testing.T) {
+	h := newHookHarness(t)
+	in := hookInput{HookEventName: "Notification", SessionID: "abc", CWD: "/repo",
+		NotificationType: "agent_needs_input", Message: "needs your input"}
+	body, _ := json.Marshal(in)
+	dispatchHookForTest(t, "notification", body)
+	if h.posts.Load() != 1 {
+		t.Fatalf("posts = %d, want 1", h.posts.Load())
+	}
+	if !strings.Contains((*h.bodies)[0], `"state":"waiting"`) {
+		t.Errorf("body missing state=waiting: %q", (*h.bodies)[0])
+	}
+	if !strings.Contains((*h.bodies)[0], `"message":"needs your input"`) {
+		t.Errorf("body missing message: %q", (*h.bodies)[0])
+	}
+}
+
+// TestHook_Notification_AgentCompleted_UpsertsDone is the #75 regression:
+// notification_type "agent_completed" is an explicit "finished" signal and
+// should upsert state "done" (not delete the marker — the process-ancestry
+// walk / SessionEnd remain the source of truth for clearing a session).
+func TestHook_Notification_AgentCompleted_UpsertsDone(t *testing.T) {
+	h := newHookHarness(t)
+	in := hookInput{HookEventName: "Notification", SessionID: "abc", CWD: "/repo",
+		NotificationType: "agent_completed", NotificationMessage: "all done"}
+	body, _ := json.Marshal(in)
+	dispatchHookForTest(t, "notification", body)
+	if h.posts.Load() != 1 {
+		t.Fatalf("posts = %d, want 1", h.posts.Load())
+	}
+	if !strings.Contains((*h.bodies)[0], `"state":"done"`) {
+		t.Errorf("body missing state=done: %q", (*h.bodies)[0])
+	}
+	if !strings.Contains((*h.bodies)[0], `"message":"all done"`) {
+		t.Errorf("body missing message: %q", (*h.bodies)[0])
+	}
+	if _, err := os.Stat(filepath.Join(h.sessionsDir(), "abc.json")); err != nil {
+		t.Errorf("marker file missing after agent_completed (should upsert, not delete): %v", err)
+	}
+}
+
 func TestHook_SessionStart_NonStartupClearsMarker(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
