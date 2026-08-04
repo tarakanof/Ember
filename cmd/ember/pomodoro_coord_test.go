@@ -45,8 +45,8 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 		t.Fatalf("expected pomodoro built-in icon payload, got %+v", apps[len(apps)-1])
 	}
 	s := pub.SettingsSnapshot()
-	if len(s) != 1 || s[0]["ATRANS"] != false || s[0]["BLOCKN"] != true {
-		t.Fatalf("takeover settings = %+v, want ATRANS:false BLOCKN:true once", s)
+	if len(s) != 1 || s[0]["autoTransition"] != false || s[0]["blockNavigation"] != true {
+		t.Fatalf("takeover settings = %+v, want autoTransition:false blockNavigation:true once", s)
 	}
 	if sw := pub.SwitchesSnapshot(); len(sw) != 1 || sw[0] != cfg.AWTRIX.AppName {
 		t.Fatalf("switch = %+v, want [%s]", sw, cfg.AWTRIX.AppName)
@@ -62,8 +62,8 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 	active = false
 	c.publish(snap)
 	s = pub.SettingsSnapshot()
-	if len(s) != 2 || s[1]["ATRANS"] != true || s[1]["BLOCKN"] != false {
-		t.Fatalf("restore settings = %+v, want ATRANS:true BLOCKN:false", s)
+	if len(s) != 2 || s[1]["autoTransition"] != true || s[1]["blockNavigation"] != false {
+		t.Fatalf("restore settings = %+v, want autoTransition:true blockNavigation:false", s)
 	}
 }
 
@@ -108,8 +108,8 @@ func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 	// Reboot event → takeover re-asserted (settings + switch) immediately.
 	c.onRepublish()
 	s := pub.SettingsSnapshot()
-	if len(s) != 2 || s[1]["ATRANS"] != false || s[1]["BLOCKN"] != true {
-		t.Fatalf("re-assert settings = %+v, want a 2nd ATRANS:false BLOCKN:true", s)
+	if len(s) != 2 || s[1]["autoTransition"] != false || s[1]["blockNavigation"] != true {
+		t.Fatalf("re-assert settings = %+v, want a 2nd autoTransition:false blockNavigation:true", s)
 	}
 	if n := len(pub.SwitchesSnapshot()); n != 2 {
 		t.Fatalf("switches after re-assert = %d, want 2", n)
@@ -123,8 +123,8 @@ func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 	clk.Advance(time.Second)
 	c.publish(snap)
 	s = pub.SettingsSnapshot()
-	if len(s) != 3 || s[2]["ATRANS"] != true || s[2]["BLOCKN"] != false {
-		t.Fatalf("restore settings = %+v, want ATRANS:true BLOCKN:false", s)
+	if len(s) != 3 || s[2]["autoTransition"] != true || s[2]["blockNavigation"] != false {
+		t.Fatalf("restore settings = %+v, want autoTransition:true blockNavigation:false", s)
 	}
 }
 
@@ -160,12 +160,12 @@ func TestCoordinatorRestoresTakeoverOnShutdown(t *testing.T) {
 		t.Fatalf("restore without active takeover wrote %d settings, want 0", n)
 	}
 
-	// In takeover → restore ATRANS/BLOCKN once and clear the flag.
+	// In takeover → restore autoTransition/blockNavigation once and clear the flag.
 	c.pomoTakeover = true
 	c.restorePomoTakeoverOnExit()
 	s := pub.SettingsSnapshot()
-	if len(s) != 1 || s[0]["ATRANS"] != true || s[0]["BLOCKN"] != false {
-		t.Fatalf("shutdown restore settings = %+v, want ATRANS:true BLOCKN:false", s)
+	if len(s) != 1 || s[0]["autoTransition"] != true || s[0]["blockNavigation"] != false {
+		t.Fatalf("shutdown restore settings = %+v, want autoTransition:true blockNavigation:false", s)
 	}
 	if c.pomoTakeover {
 		t.Fatal("takeover flag should be cleared after restore")

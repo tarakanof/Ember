@@ -102,7 +102,7 @@ type coordinator struct {
 
 	// pomoTakeover tracks whether the device is currently under Pomodoro
 	// takeover (rotation + native button-nav disabled). Edge-triggered: the
-	// ATRANS/BLOCKN settings are written only on the active↔idle transition, plus
+	// autoTransition/blockNavigation settings are written only on the active↔idle transition, plus
 	// on a cmdRepublish (a device reboot clears them behind our back).
 	// Coordinator-goroutine-owned (read/written only from publish/onRepublish).
 	pomoTakeover bool
@@ -907,13 +907,14 @@ func (c *coordinator) clearLegacyUsageApps() {
 }
 
 // applyPomoTakeover writes the device rotation/native-nav settings on the
-// active↔idle Pomodoro edge. While active: disable app rotation (ATRANS) and
-// native button navigation (BLOCKN) and force the device to the app slot so
-// the timer holds the screen and the buttons drive the timer instead of
-// switching apps. On return to idle: restore both. Strictly edge-triggered —
-// recovery from a device reboot (which silently clears ATRANS/BLOCKN and the
-// forced slot) arrives as a cmdRepublish, which fakes the edge by dropping
-// pomoTakeover. Runs on the coordinator goroutine only.
+// active↔idle Pomodoro edge. While active: disable app rotation
+// (autoTransition) and native button navigation (blockNavigation) and force
+// the device to the app slot so the timer holds the screen and the buttons
+// drive the timer instead of switching apps. On return to idle: restore both.
+// Strictly edge-triggered — recovery from a device reboot (which silently
+// clears autoTransition/blockNavigation and the forced slot) arrives as a
+// cmdRepublish, which fakes the edge by dropping pomoTakeover. Runs on the
+// coordinator goroutine only.
 func (c *coordinator) applyPomoTakeover(active bool, appName string) {
 	if active == c.pomoTakeover {
 		return
@@ -925,7 +926,7 @@ func (c *coordinator) applyPomoTakeover(active bool, appName string) {
 	if active {
 		c.assertPomoTakeover(appName)
 	} else {
-		if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": true, "BLOCKN": false}); err != nil {
+		if err := c.publisher.Settings(ctx, map[string]any{"autoTransition": true, "blockNavigation": false}); err != nil {
 			c.logger.Warn("pomo restore settings failed", "err", err)
 		}
 	}
@@ -939,7 +940,7 @@ func (c *coordinator) assertPomoTakeover(appName string) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": false, "BLOCKN": true}); err != nil {
+	if err := c.publisher.Settings(ctx, map[string]any{"autoTransition": false, "blockNavigation": true}); err != nil {
 		c.logger.Warn("pomo takeover settings failed", "err", err)
 	}
 	if err := c.publisher.Switch(ctx, appName); err != nil {
@@ -956,7 +957,7 @@ func (c *coordinator) restorePomoTakeoverOnExit() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := c.publisher.Settings(ctx, map[string]any{"ATRANS": true, "BLOCKN": false}); err != nil {
+	if err := c.publisher.Settings(ctx, map[string]any{"autoTransition": true, "blockNavigation": false}); err != nil {
 		c.logger.Warn("pomo restore on shutdown failed", "err", err)
 	}
 	c.pomoTakeover = false
@@ -968,7 +969,7 @@ func (c *coordinator) restorePomoTakeoverOnExit() {
 // happily suppress a re-push for a whole frame lifetime (and a tile whose
 // content never changes would never come back at all). Dropping pomoTakeover
 // turns the next applyPomoTakeover into an idle→active edge, so an in-flight
-// focus block re-asserts its ATRANS/BLOCKN + forced app switch too.
+// focus block re-asserts its autoTransition/blockNavigation + forced app switch too.
 // Coordinator goroutine only.
 func (c *coordinator) onRepublish() {
 	c.lastPayloadBytes = nil
