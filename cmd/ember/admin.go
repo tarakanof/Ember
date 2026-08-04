@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -285,6 +286,10 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// Likewise re-apply display config overrides so a reload doesn't revert them.
 		app.loadPersistedDisplaySettings()
 		app.loadPersistedQuietSettings()
+		// awtrix.boot_ping is a device-provisioning toggle, so a reload that
+		// flipped it has to reach the clock. Off the request path: it does
+		// device HTTP and the reply must not wait on an unreachable clock.
+		go app.ensureBootPingScript(context.Background())
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,
