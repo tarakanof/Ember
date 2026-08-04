@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/subtle"
 	"crypto/tls"
@@ -11,14 +10,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +27,7 @@ import (
 	// image that ships no zoneinfo files; the meetings ICS parser uses LoadLocation.
 	_ "time/tzdata"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
@@ -888,9 +886,8 @@ func aggregateLabel(waiting, running, errored, done int) string {
 // be temporarily unreachable); the caller logs and continues.
 // Subsequent Publish calls do not touch the indicators.
 func (a *App) ClearIndicators(ctx context.Context) error {
-	payload := map[string]any{"color": "0"}
 	for i := 1; i <= 3; i++ {
-		if err := a.publisher.Indicator(ctx, i, payload); err != nil {
+		if err := a.publisher.ClearIndicator(ctx, i); err != nil {
 			return fmt.Errorf("clear indicator %d: %w", i, err)
 		}
 	}
@@ -1284,46 +1281,57 @@ func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 }
 
 type Publisher interface {
+	// CustomApp creates or replaces a pushed app
+	// (PUT /api/v1/apps/pushed/{name}). Pushed apps are RAM-only on awtrix-ng
+	// and vanish on device reboot.
 	CustomApp(ctx context.Context, name string, payload map[string]any) error
-	// ClearApp removes a custom app from the device (POST empty body to
-	// /api/custom?name=…). Used by the usage-app reconcile to drop stale/hidden
-	// apps.
+	// ClearApp removes a pushed app (DELETE /api/v1/apps/{name}). Used by the
+	// usage-app reconcile to drop stale/hidden apps.
 	ClearApp(ctx context.Context, name string) error
-	// ListApps returns the names of every app currently in the device's
-	// rotation (GET /api/loop), native and custom alike. Used on startup to
-	// adopt ember-managed custom apps left from a previous run so they can be
+	// ListApps returns the names of every app on the device
+	// (GET /api/v1/apps), builtin and pushed alike. Used on startup to adopt
+	// ember-managed pushed apps left from a previous run so they can be
 	// reconciled/cleared even though the in-memory push trackers start empty.
 	ListApps(ctx context.Context) ([]string, error)
 	Notify(ctx context.Context, payload map[string]any) error
-	// DismissNotify clears the currently-shown notification (POST
-	// /api/notify/dismiss). Used to acknowledge a held reminder alarm when the
-	// user presses a clock button (the firmware's own dismissal doesn't run while
-	// a button callback is configured).
+	// DismissNotify clears the currently-shown notification
+	// (DELETE /api/v1/notifications/active). Used to acknowledge a held
+	// reminder alarm when the user presses a clock button.
 	DismissNotify(ctx context.Context) error
-	// PlayRTTTL plays an RTTTL melody via the device's dedicated /api/rtttl
-	// endpoint. Used for reminder/weather chimes because a notification's own sound
-	// is dropped by the firmware when the notification also draws an icon.
+	// PlayRTTTL plays an inline RTTTL melody (POST /api/v1/sounds/play).
+	// Used for reminder/weather chimes out-of-band of notifications; whether
+	// NG still drops a notification's own sound alongside draw/icon is
+	// re-evaluated in the sounds-consolidation ticket.
 	PlayRTTTL(ctx context.Context, rtttl string) error
-	// PlaySound plays a melody file already on the device (MELODIES) by name via
-	// /api/sound — the device-sound-name counterpart to PlayRTTTL.
+	// PlaySound plays a melody file already on the device (/MELODIES) by name
+	// (POST /api/v1/sounds/play) — the device-sound-name counterpart to
+	// PlayRTTTL.
 	PlaySound(ctx context.Context, name string) error
+	// Indicator lights one of the three corner LEDs
+	// (PUT /api/v1/indicators/{1-3}).
 	Indicator(ctx context.Context, index int, payload map[string]any) error
-	// Settings writes device settings (POST /api/settings), e.g. toggling app
-	// rotation (ATRANS) and native button navigation (BLOCKN) for Pomodoro
+	// ClearIndicator turns a corner LED off (DELETE /api/v1/indicators/{1-3}).
+	ClearIndicator(ctx context.Context, index int) error
+	// Settings partially updates device settings (PATCH /api/v1/settings),
+	// e.g. toggling app rotation and native button navigation for Pomodoro
 	// takeover.
 	Settings(ctx context.Context, payload map[string]any) error
-	// Switch forces the device to the named app (POST /api/switch).
+	// Switch forces the device to the named app (PUT /api/v1/apps/active).
 	Switch(ctx context.Context, name string) error
-	// ListIcons returns the filenames in the device's /ICONS LittleFS folder
-	// (GET /list?dir=/ICONS — a filesystem route, not under /api). Used by the
-	// weather icon provisioner to find missing gallery icons.
+	// ListIcons returns the filenames in the device's /ICONS folder
+	// (GET /api/v1/files?dir=/ICONS). Used by the weather icon provisioner to
+	// find missing gallery icons.
 	ListIcons(ctx context.Context) ([]string, error)
-	// PutIcon uploads an icon file into /ICONS (multipart POST /edit). The
-	// device's own on-demand gallery downloads are unreliable, so the server
-	// provisions icons itself.
+	// PutIcon uploads an icon file into /ICONS
+	// (multipart POST /api/v1/files?dir=/ICONS). The AWTRIX3 firmware's own
+	// on-demand gallery downloads were unreliable, so the server provisions
+	// icons itself.
 	PutIcon(ctx context.Context, filename string, data []byte) error
 }
 
+// HTTPPublisher drives the clock over awtrix-ng's API v1, delegating every
+// call to internal/awtrix. A fresh client is built per call from the live
+// config so URL changes from rediscovery take effect immediately.
 type HTTPPublisher struct {
 	app *App // for reading current AWTRIX config
 }
@@ -1334,223 +1342,128 @@ func NewHTTPPublisher() (*HTTPPublisher, error) {
 	return &HTTPPublisher{}, nil
 }
 
-func (p *HTTPPublisher) baseAndClient() (string, *http.Client, error) {
+func (p *HTTPPublisher) client() (*awtrix.Client, error) {
 	cfg := p.app.cfg.Load().AWTRIX
 	base := strings.TrimRight(cfg.HTTPBaseURL, "/")
 	if base == "" {
-		return "", nil, errors.New("awtrix.http_base_url is required")
+		return nil, errors.New("awtrix.http_base_url is required")
 	}
 	if _, err := url.ParseRequestURI(base); err != nil {
-		return "", nil, fmt.Errorf("invalid awtrix.http_base_url: %w", err)
+		return nil, fmt.Errorf("invalid awtrix.http_base_url: %w", err)
 	}
-	return base, &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second}, nil
+	return awtrix.NewClient(base, time.Duration(cfg.TimeoutSeconds)*time.Second), nil
 }
 
 func (p *HTTPPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, client, base+"/api/custom?name="+url.QueryEscape(name), payload)
+	return c.PushApp(ctx, name, payload)
 }
 
-// ClearApp removes a custom app by POSTing an empty body to its /api/custom
-// slot — AWTRIX deletes a custom app when it receives an empty JSON object.
 func (p *HTTPPublisher) ClearApp(ctx context.Context, name string) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, client, base+"/api/custom?name="+url.QueryEscape(name), map[string]any{})
+	return c.DeleteApp(ctx, name)
 }
 
-// ListApps fetches the device's app rotation (GET /api/loop) and returns the
-// app names. The firmware responds with a JSON object mapping each app name to
-// its rotation index; we only need the keys.
 func (p *HTTPPublisher) ListApps(ctx context.Context) ([]string, error) {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/loop", nil)
+	apps, err := c.ListApps(ctx)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("device /api/loop: status %d", resp.StatusCode)
-	}
-	var loop map[string]json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&loop); err != nil {
-		return nil, fmt.Errorf("device /api/loop: %w", err)
-	}
-	names := make([]string, 0, len(loop))
-	for name := range loop {
-		names = append(names, name)
+	names := make([]string, 0, len(apps))
+	for _, a := range apps {
+		names = append(names, a.Name)
 	}
 	return names, nil
 }
 
 func (p *HTTPPublisher) ListIcons(ctx context.Context) ([]string, error) {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/list?dir=/ICONS", nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("device /list ICONS: status %d", resp.StatusCode)
-	}
-	var entries []struct {
-		Name string `json:"name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-		return nil, fmt.Errorf("device /list ICONS: %w", err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		names = append(names, e.Name)
-	}
-	return names, nil
+	return c.ListIcons(ctx)
 }
 
 func (p *HTTPPublisher) PutIcon(ctx context.Context, filename string, data []byte) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	// The device stores the file at the path given as the part's filename.
-	fw, err := mw.CreateFormFile("data", "/ICONS/"+filename)
-	if err != nil {
-		return err
-	}
-	if _, err := fw.Write(data); err != nil {
-		return err
-	}
-	if err := mw.Close(); err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/edit", &body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("device /edit upload %s: status %d", filename, resp.StatusCode)
-	}
-	return nil
+	return c.PutIcon(ctx, filename, data)
 }
 
 func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, client, base+"/api/notify", payload)
+	return c.Notify(ctx, payload)
 }
 
 func (p *HTTPPublisher) DismissNotify(ctx context.Context) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, client, base+"/api/notify/dismiss", map[string]any{})
+	return c.DismissNotify(ctx)
 }
 
 func (p *HTTPPublisher) PlayRTTTL(ctx context.Context, rtttl string) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/rtttl", strings.NewReader(rtttl))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "text/plain")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("awtrix rtttl http %s", resp.Status)
-	}
-	return nil
+	return c.PlayRTTTL(ctx, rtttl)
 }
 
 func (p *HTTPPublisher) PlaySound(ctx context.Context, name string) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, client, base+"/api/sound", map[string]any{"sound": name})
+	return c.PlaySound(ctx, name)
 }
 
 func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
-	if index < 1 || index > 3 {
-		return fmt.Errorf("indicator index must be 1-3, got %d", index)
-	}
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, client, base+"/api/indicator"+strconv.Itoa(index), payload)
+	return c.SetIndicator(ctx, index, payload)
+}
+
+func (p *HTTPPublisher) ClearIndicator(ctx context.Context, index int) error {
+	c, err := p.client()
+	if err != nil {
+		return err
+	}
+	return c.ClearIndicator(ctx, index)
 }
 
 func (p *HTTPPublisher) Settings(ctx context.Context, payload map[string]any) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, client, base+"/api/settings", payload)
+	return c.PatchSettings(ctx, payload)
 }
 
 func (p *HTTPPublisher) Switch(ctx context.Context, name string) error {
-	base, client, err := p.baseAndClient()
+	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return p.postJSON(ctx, client, base+"/api/switch", map[string]any{"name": name})
-}
-
-func (p *HTTPPublisher) postJSON(ctx context.Context, client *http.Client, endpoint string, payload map[string]any) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		limited, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("awtrix http %s: %s", resp.Status, strings.TrimSpace(string(limited)))
-	}
-	return nil
+	return c.SwitchApp(ctx, name)
 }
 
 func main() {

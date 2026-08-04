@@ -17,6 +17,8 @@ import (
 
 var dumpDir = flag.String("dump", "", "write payload JSON files here instead of POSTing (for curl)")
 
+var httpClient = &http.Client{Timeout: 5 * time.Second}
+
 func push(base, name string, payload map[string]any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -30,7 +32,12 @@ func push(base, name string, payload map[string]any) error {
 		fmt.Printf("%-28s -> %s\n", name, path)
 		return nil
 	}
-	resp, err := http.Post(base+"/api/custom?name="+name, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, base+"/api/v1/apps/pushed/"+name, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		fmt.Printf("%-28s -> ERROR: %v\n", name, err)
 		return err
@@ -41,7 +48,12 @@ func push(base, name string, payload map[string]any) error {
 }
 
 func clear(base, name string) {
-	resp, err := http.Post(base+"/api/custom?name="+name, "application/json", nil)
+	req, err := http.NewRequest(http.MethodDelete, base+"/api/v1/apps/"+name, nil)
+	if err != nil {
+		fmt.Println(name, "clear err:", err)
+		return
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		fmt.Println(name, "clear err:", err)
 		return

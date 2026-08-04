@@ -16,21 +16,22 @@ import (
 )
 
 type recordingPublisher struct {
-	mu          sync.Mutex
-	customApps  []map[string]any
-	customNames []string
-	clearedApps []string
-	notify      []map[string]any
-	indicator   []map[string]any
-	settings    []map[string]any
-	switches    []string
-	dismissals  int
-	rtttls      []string
-	sounds      []string
-	loopApps    []string // app names returned by ListApps (device rotation)
-	icons       []string // filenames returned by ListIcons (/ICONS folder)
-	iconsErr    error    // when non-nil, ListIcons fails with it
-	putIcons    []string // filenames uploaded via PutIcon
+	mu                sync.Mutex
+	customApps        []map[string]any
+	customNames       []string
+	clearedApps       []string
+	notify            []map[string]any
+	indicator         []map[string]any
+	clearedIndicators []int
+	settings          []map[string]any
+	switches          []string
+	dismissals        int
+	rtttls            []string
+	sounds            []string
+	loopApps          []string // app names returned by ListApps (device rotation)
+	icons             []string // filenames returned by ListIcons (/ICONS folder)
+	iconsErr          error    // when non-nil, ListIcons fails with it
+	putIcons          []string // filenames uploaded via PutIcon
 
 	// failNotify, when non-nil, is called on each Notify call and returns an
 	// error to simulate a device-unreachable condition. Return nil to succeed.
@@ -154,6 +155,13 @@ func (p *recordingPublisher) Indicator(_ context.Context, _ int, payload map[str
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.indicator = append(p.indicator, payload)
+	return nil
+}
+
+func (p *recordingPublisher) ClearIndicator(_ context.Context, index int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.clearedIndicators = append(p.clearedIndicators, index)
 	return nil
 }
 
@@ -786,6 +794,7 @@ func (noopPublisher) DismissNotify(context.Context) error                     { 
 func (noopPublisher) PlayRTTTL(context.Context, string) error                 { return nil }
 func (noopPublisher) PlaySound(context.Context, string) error                 { return nil }
 func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
+func (noopPublisher) ClearIndicator(context.Context, int) error               { return nil }
 func (noopPublisher) Settings(context.Context, map[string]any) error          { return nil }
 func (noopPublisher) Switch(context.Context, string) error                    { return nil }
 
@@ -1058,12 +1067,12 @@ func TestIndicatorsOffOnStartup(t *testing.T) {
 		t.Fatalf("ClearIndicators: %v", err)
 	}
 
-	if len(publisher.indicator) != 3 {
-		t.Fatalf("indicator publishes = %d, want 3 (all off)", len(publisher.indicator))
+	if len(publisher.clearedIndicators) != 3 {
+		t.Fatalf("cleared indicators = %d, want 3 (all off)", len(publisher.clearedIndicators))
 	}
-	for i, p := range publisher.indicator {
-		if p["color"] != "0" {
-			t.Errorf("indicator %d color = %v, want \"0\"", i+1, p["color"])
+	for i, idx := range publisher.clearedIndicators {
+		if idx != i+1 {
+			t.Errorf("cleared indicator %d = %d, want %d", i, idx, i+1)
 		}
 	}
 }

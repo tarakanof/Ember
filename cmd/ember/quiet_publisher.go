@@ -63,6 +63,9 @@ func (q *quietPublisher) DismissNotify(ctx context.Context) error        { retur
 func (q *quietPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
 	return q.next.Indicator(ctx, index, payload)
 }
+func (q *quietPublisher) ClearIndicator(ctx context.Context, index int) error {
+	return q.next.ClearIndicator(ctx, index)
+}
 func (q *quietPublisher) Settings(ctx context.Context, payload map[string]any) error {
 	return q.next.Settings(ctx, payload)
 }

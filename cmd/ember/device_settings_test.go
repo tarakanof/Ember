@@ -43,8 +43,8 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 	var gotBody string
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/settings":
-			if r.Method == http.MethodPost {
+		case "/api/v1/settings":
+			if r.Method == http.MethodPatch {
 				b, _ := io.ReadAll(r.Body)
 				gotBody = string(b)
 				w.WriteHeader(200)
@@ -114,8 +114,8 @@ func TestDeviceActionsProxy(t *testing.T) {
 		t.Fatalf("reboot=%d dismiss=%d next=%d prev=%d", rw.Code, dw.Code, nw.Code, pw.Code)
 	}
 	joined := strings.Join(hits, ",")
-	if !strings.Contains(joined, "/api/reboot") || !strings.Contains(joined, "/api/notify/dismiss") ||
-		!strings.Contains(joined, "/api/nextapp") || !strings.Contains(joined, "/api/previousapp") {
+	if !strings.Contains(joined, "/api/v1/device/reboot") || !strings.Contains(joined, "/api/v1/notifications/active") ||
+		!strings.Contains(joined, "/api/v1/apps/next") || !strings.Contains(joined, "/api/v1/apps/previous") {
 		t.Fatalf("device endpoints hit: %v", hits)
 	}
 }
@@ -163,7 +163,7 @@ func TestDeviceSettingsNoClockConfigured(t *testing.T) {
 
 func TestDeviceScreenProxy(t *testing.T) {
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/screen" {
+		if r.URL.Path != "/api/v1/display/screen" {
 			w.WriteHeader(404)
 			return
 		}
