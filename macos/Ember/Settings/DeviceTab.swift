@@ -3,8 +3,8 @@ import AppKit
 import EmberKit
 
 /// AWTRIX clock settings, proxied through the Ember server (/v1/device/*). Mirrors
-/// the official AWTRIX3 app's surface: General, Native Apps, Time & Date, Actions.
-/// Auto-applies on change (debounced), matching the other settings tabs.
+/// the awtrix-ng app's surface: General, Overlay, Native Apps, Time & Date, Sensors,
+/// Buttons. Auto-applies on change (debounced), matching the other settings tabs.
 struct DeviceTab: View {
     @Environment(AppEnvironment.self) private var env
 
@@ -28,14 +28,23 @@ struct DeviceTab: View {
 
     @State private var sensorsOnDevice: SensorCalibration?
     @State private var sensorsEdit = SensorCalibration()
-    @State private var confirmSensorApply = false
 
-    /// The Ulanzi build's compiled-in offsets, applied when dev.json has none
-    /// (-9 °C compensates the device's self-heating). Display-only.
+    /// The Ulanzi build's compiled-in offsets, applied when the system object has
+    /// no explicit override (-9 °C compensates the device's self-heating).
+    /// Display-only.
     private let firmwareTempOffset = -9.0
     private let firmwareHumOffset = 0.0
 
-    private let overlays = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"]
+    /// The clock's live effect/transition/overlay catalogue (GET
+    /// /v1/device/capabilities). nil while loading or unreachable — pickers fall
+    /// back to DeviceKnownValues.fallbackTransitions until it loads.
+    @State private var capabilities: DeviceCapabilities?
+
+    @State private var apps: [AppInfo] = []
+
+    @State private var deviceDisplay = DeviceDisplay()
+    @State private var lastDeviceDisplay: DeviceDisplay?
+    @State private var displayWriter = DebouncedWriter(delay: .milliseconds(600))
 
     var body: some View {
         Form {
@@ -51,6 +60,7 @@ struct DeviceTab: View {
             clockSection
 
             generalSection
+            overlaySection
             quietSection
             nativeAppsSection
             sensorsSection
@@ -89,6 +99,7 @@ struct DeviceTab: View {
         }
         .task { await pollStats() }
         .onChange(of: settings) { _, _ in scheduleSave() }
+        .onChange(of: deviceDisplay) { _, _ in scheduleDisplaySave() }
         .confirmationDialog("Reboot the clock?", isPresented: $confirmReboot, titleVisibility: .visible) {
             Button("Reboot", role: .destructive) { Task { await perform { try await env.device.reboot() } } }
             Button("Cancel", role: .cancel) {}
@@ -120,16 +131,16 @@ struct DeviceTab: View {
             LabeledContent { Text(config?.source ?? "—").foregroundStyle(.secondary) } label: {
                 RowLabel("Source", symbol: "point.3.connected.trianglepath.dotted", tint: .indigo)
             }
-            LabeledContent { Text(stats?.bat.map { "\($0)%" } ?? "—") } label: {
+            LabeledContent { Text(stats?.batteryPercent.map { "\(Int($0))%" } ?? "—") } label: {
                 RowLabel("Battery", symbol: "battery.75percent", tint: .green)
             }
             LabeledContent { Text(stats?.version ?? "—") } label: {
                 RowLabel("Firmware", symbol: "cpu", tint: .gray)
             }
-            LabeledContent { Text(stats?.temp.map { String(format: "%.1f °C", $0) } ?? "—") } label: {
+            LabeledContent { Text(stats?.temperature.map { String(format: "%.1f °C", $0) } ?? "—") } label: {
                 RowLabel("Temperature", symbol: "thermometer.medium", tint: .orange)
             }
-            LabeledContent { Text(stats?.hum.map { String(format: "%.0f %%", $0) } ?? "—") } label: {
+            LabeledContent { Text(stats?.humidity.map { String(format: "%.0f %%", $0) } ?? "—") } label: {
                 RowLabel("Humidity", symbol: "humidity.fill", tint: .teal)
             }
             Button {
@@ -166,48 +177,76 @@ struct DeviceTab: View {
             Toggle(isOn: b(\.uppercase)) {
                 RowLabel("Uppercase letters", symbol: "textformat", tint: .blue)
             }
-            Toggle(isOn: b(\.blockn)) {
+            Toggle(isOn: b(\.blockNavigation)) {
                 RowLabel("Block buttons", symbol: "hand.raised.fill", tint: .orange)
             }
-            Toggle(isOn: b(\.abri)) {
+            Toggle(isOn: b(\.autoBrightness)) {
                 RowLabel("Auto brightness", symbol: "sun.max.fill", tint: .yellow)
             }
             sliderRow("Brightness", symbol: "sun.min.fill", tint: .yellow,
-                      value: i(\.bri, 80), range: 0...255) { "\($0)" }
-                .disabled(b(\.abri).wrappedValue)
+                      value: i(\.brightness, 80), range: 0...255) { "\($0)" }
+                .disabled(b(\.autoBrightness).wrappedValue)
             sliderRow("Volume", symbol: "speaker.wave.2.fill", tint: .pink,
-                      value: i(\.vol, 25), range: 0...30) { "\($0)" }
+                      value: i(\.volume, 25), range: 0...30) { "\($0)" }
             sliderRow("App time", symbol: "timer", tint: .orange,
-                      value: i(\.atime, 7), range: 1...60) { "\($0)s" }
-            ColorHexPicker(title: "Text color", symbol: "paintpalette.fill", tint: .teal, hex: s(\.tcol, "#FFFFFF"))
-            Toggle(isOn: b(\.atrans)) {
+                      value: appDurationSecondsBinding, range: 1...60) { "\($0)s" }
+            ColorHexPicker(title: "Text color", symbol: "paintpalette.fill", tint: .teal, hex: s(\.textColor, "#FFFFFF"))
+            Toggle(isOn: b(\.autoTransition)) {
                 RowLabel("Auto transition", symbol: "arrow.left.arrow.right", tint: .green)
             }
-            Picker(selection: i(\.teff, 1)) {
-                ForEach(TransitionEffect.allCases) { e in
-                    Text(e.displayName).tag(e.rawValue)
-                }
-                if TransitionEffect(rawValue: i(\.teff, 1).wrappedValue) == nil {
-                    Text("Effect \(i(\.teff, 1).wrappedValue)").tag(i(\.teff, 1).wrappedValue)
-                }
-            } label: {
-                RowLabel("Transition effect", symbol: "sparkles", tint: .purple)
-            }
+            transitionEffectPicker
             sliderRow("Transition speed", symbol: "gauge.with.needle", tint: .cyan,
-                      value: i(\.tspeed, 400), range: 0...2000, step: 50) { "\($0)ms" }
+                      value: i(\.transitionDurationMs, 400), range: 0...2000, step: 50) { "\($0)ms" }
             sliderRow("Scroll speed", symbol: "forward.fill", tint: .mint,
-                      value: i(\.sspeed, 100), range: 10...500, step: 10) { "\($0)%" }
-            Picker(selection: s(\.overlay, "clear")) {
-                ForEach(overlays, id: \.self) { Text($0.capitalized).tag($0) }
-            } label: {
-                RowLabel("Overlay", symbol: "cloud.snow.fill", tint: .blue)
-            }
+                      value: scroll(\.speed, 100), range: 10...500, step: 10) { "\($0)%" }
         } header: {
             Text("General")
         } footer: {
             Text("“Block buttons” may be briefly overridden while a Pomodoro is running.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    /// The device-reported transition effects (GET /v1/device/capabilities),
+    /// falling back to DeviceKnownValues.fallbackTransitions while capabilities
+    /// hasn't loaded or the endpoint is unreachable.
+    private var transitionOptions: [String] {
+        let live = capabilities?.transitions ?? []
+        return live.isEmpty ? DeviceKnownValues.fallbackTransitions : live
+    }
+
+    @ViewBuilder private var transitionEffectPicker: some View {
+        let current = s(\.transitionEffect, transitionOptions.first ?? "random").wrappedValue
+        let all = transitionOptions.contains(current) ? transitionOptions : transitionOptions + [current]
+        Picker(selection: s(\.transitionEffect, transitionOptions.first ?? "random")) {
+            ForEach(all, id: \.self) { name in
+                Text(DeviceKnownValues.displayName(name)).tag(name)
+            }
+        } label: {
+            RowLabel("Transition effect", symbol: "sparkles", tint: .purple)
+        }
+    }
+
+    @ViewBuilder private var overlaySection: some View {
+        Section {
+            Picker(selection: overlayBinding) {
+                Text("None").tag(Optional<String>.none)
+                ForEach(OverlayEffect.allCases) { o in
+                    Text(o.displayName).tag(Optional(o.rawValue))
+                }
+            } label: {
+                RowLabel("Overlay", symbol: "cloud.snow.fill", tint: .blue)
+            }
+        } header: {
+            Text("Overlay")
+        } footer: {
+            Text("An ambient weather effect drawn over whatever app is currently showing.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var overlayBinding: Binding<String?> {
+        Binding(get: { deviceDisplay.overlay }, set: { deviceDisplay.overlay = $0 })
     }
 
     @ViewBuilder private var quietSection: some View {
@@ -271,33 +310,69 @@ struct DeviceTab: View {
         )
     }
 
+    /// SF Symbol per known native app name; unrecognised (pushed/scripted) apps
+    /// get a generic glyph.
+    private func symbol(forApp name: String) -> String {
+        switch name {
+        case "Time": return "clock.fill"
+        case "Date": return "calendar"
+        case "Temperature": return "thermometer.medium"
+        case "Humidity": return "humidity.fill"
+        case "Battery": return "battery.50percent"
+        default: return "square.grid.2x2"
+        }
+    }
+
     @ViewBuilder private var nativeAppsSection: some View {
         Section {
-            Toggle(isOn: b(\.tim)) { RowLabel("Time", symbol: "clock.fill", tint: .blue) }
-            Toggle(isOn: b(\.dat)) { RowLabel("Date", symbol: "calendar", tint: .red) }
-            Toggle(isOn: b(\.temp)) { RowLabel("Temperature", symbol: "thermometer.medium", tint: .orange) }
-            Toggle(isOn: b(\.hum)) { RowLabel("Humidity", symbol: "humidity.fill", tint: .teal) }
-            Toggle(isOn: b(\.bat)) { RowLabel("Battery", symbol: "battery.50percent", tint: .green) }
+            if apps.isEmpty {
+                Text("No native apps reported yet").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(apps) { app in
+                Toggle(isOn: Binding(get: { app.enabled }, set: { setAppEnabled(app.name, $0) })) {
+                    RowLabel(app.name, symbol: symbol(forApp: app.name), tint: .blue)
+                }
+            }
         } header: {
             Text("Native Apps")
         } footer: {
-            Text("Changes to the built-in apps apply after a clock reboot.")
+            Text("Built-in clock apps shown in the rotation. Changes apply immediately — no reboot.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
 
-    /// Calibration of the clock's internal temp/hum sensor. Unlike the rest of
-    /// the tab this does NOT auto-apply: offsets live in dev.json and need a
-    /// reboot, so changes are staged and applied explicitly.
+    /// Toggles one native app's enabled state and PUTs the full order/disabled
+    /// set — NG has no per-app toggle endpoint, so every change re-sends the
+    /// whole list (see AppsUpdate).
+    private func setAppEnabled(_ name: String, _ enabled: Bool) {
+        guard let idx = apps.firstIndex(where: { $0.name == name }) else { return }
+        apps[idx].enabled = enabled
+        let order = apps.map(\.name)
+        let disabled = apps.filter { !$0.enabled }.map(\.name)
+        save = .saving
+        Task {
+            do {
+                try await env.device.updateApps(AppsUpdate(order: order, disabled: disabled))
+                await MainActor.run { save = .saved }
+            } catch let e as APIError where e.isUnauthorized {
+                await MainActor.run { save = .error("Unauthorized — check the token in Connection.") }
+            } catch {
+                await MainActor.run { save = .error("Save failed: \(error.localizedDescription)") }
+            }
+        }
+    }
+
+    /// Calibration of the clock's internal temp/hum sensor. Applies live via
+    /// PUT /v1/device/sensors — no reboot follows.
     @ViewBuilder private var sensorsSection: some View {
         Section {
             offsetRow("Temperature offset", symbol: "thermometer.and.liquid.waves", tint: .orange,
                       value: offsetBinding(\.tempOffset, firmwareTempOffset), step: 0.5,
-                      measured: stats?.temp, applied: sensorsOnDevice?.tempOffset ?? firmwareTempOffset,
+                      measured: stats?.temperature, applied: sensorsOnDevice?.tempOffset ?? firmwareTempOffset,
                       unit: "°C")
             offsetRow("Humidity offset", symbol: "humidity", tint: .teal,
                       value: offsetBinding(\.humOffset, firmwareHumOffset), step: 1,
-                      measured: stats?.hum, applied: sensorsOnDevice?.humOffset ?? firmwareHumOffset,
+                      measured: stats?.humidity, applied: sensorsOnDevice?.humOffset ?? firmwareHumOffset,
                       unit: "%")
             HStack {
                 Button("Reset to firmware defaults") {
@@ -305,26 +380,19 @@ struct DeviceTab: View {
                 }
                 .disabled(sensorsEdit == SensorCalibration() && sensorsOnDevice == SensorCalibration())
                 Spacer()
-                Button("Apply & Reboot Clock") { confirmSensorApply = true }
+                Button("Apply calibration") { Task { await applySensors() } }
                     .disabled(sensorsOnDevice == nil || sensorsEdit == sensorsOnDevice)
-                    .confirmationDialog("Apply sensor calibration?", isPresented: $confirmSensorApply,
-                                        titleVisibility: .visible) {
-                        Button("Apply & Reboot", role: .destructive) { Task { await applySensors() } }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("Offsets are written to the clock's dev.json and only take effect after a reboot. The display will go dark for a few seconds.")
-                    }
             }
         } header: {
             Text("Sensor Calibration")
         } footer: {
-            Text("The firmware default (\(Int(firmwareTempOffset)) °C) compensates the clock's self-heating. Compare the measured value with a trusted thermometer and adjust the offset by the difference.")
+            Text("The firmware default (\(Int(firmwareTempOffset)) °C) compensates the clock's self-heating. Compare the measured value with a trusted thermometer and adjust the offset by the difference. Applies immediately — no reboot.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
 
     /// Stepper row with the measured reading and, when the offset differs from
-    /// what the clock currently applies, a predicted post-reboot value.
+    /// what the clock currently applies, a predicted post-apply value.
     private func offsetRow(_ title: String, symbol: String, tint: Color,
                            value: Binding<Double>, step: Double,
                            measured: Double?, applied: Double, unit: String) -> some View {
@@ -371,34 +439,94 @@ struct DeviceTab: View {
 
     @ViewBuilder private var timeDateSection: some View {
         Section {
-            formatPicker("Time format", symbol: "clock.badge", tint: .blue,
-                         selection: s(\.tformat, "%H %M"), options: DeviceFormats.timeFormats)
-            formatPicker("Date format", symbol: "calendar.badge.clock", tint: .red,
-                         selection: s(\.dformat, "%d.%m.%y"), options: DeviceFormats.dateFormats)
-            Toggle(isOn: b(\.som)) {
-                RowLabel("Start week on Monday", symbol: "calendar.day.timeline.left", tint: .purple)
+            Toggle(isOn: b(\.time24h)) {
+                RowLabel("24-hour clock", symbol: "clock.badge", tint: .blue)
             }
-            Picker(selection: i(\.tmode, 1)) {
+            Toggle(isOn: b(\.timeLeadingZero)) {
+                RowLabel("Leading zero", symbol: "0.square", tint: .blue)
+            }
+            Toggle(isOn: b(\.timeShowSeconds)) {
+                RowLabel("Show seconds", symbol: "timer", tint: .blue)
+            }
+            Toggle(isOn: b(\.timeShowAmPm)) {
+                RowLabel("Show AM/PM", symbol: "a.square", tint: .blue)
+            }
+            .disabled(b(\.time24h).wrappedValue)
+            Picker(selection: enumBinding(\.timeSeparatorMode, TimeSeparatorMode.steady)) {
+                ForEach(TimeSeparatorMode.allCases) { m in Text(m.displayName).tag(m) }
+            } label: {
+                RowLabel("Separator style", symbol: "circle.grid.2x2", tint: .indigo)
+            }
+            LabeledContent { Text(timePreviewText).monospacedDigit().foregroundStyle(.secondary) } label: {
+                RowLabel("Preview", symbol: "eye", tint: .gray)
+            }
+            Picker(selection: i(\.timeMode, 1)) {
                 ForEach(0...6, id: \.self) { m in
                     Text("Style \(m)").tag(m)
                 }
-                if !(0...6).contains(i(\.tmode, 1).wrappedValue) {
-                    Text("Style \(i(\.tmode, 1).wrappedValue)").tag(i(\.tmode, 1).wrappedValue)
+                if !(0...6).contains(i(\.timeMode, 1).wrappedValue) {
+                    Text("Style \(i(\.timeMode, 1).wrappedValue)").tag(i(\.timeMode, 1).wrappedValue)
                 }
             } label: {
                 RowLabel("Time style", symbol: "squares.below.rectangle", tint: .indigo)
             }
-            ColorHexPicker(title: "Calendar header", symbol: "calendar.circle.fill", tint: .red, hex: s(\.chcol, "#FF0000"))
-            ColorHexPicker(title: "Calendar body", symbol: "square.fill", tint: .gray, hex: s(\.cbcol, "#FFFFFF"))
-            ColorHexPicker(title: "Calendar text", symbol: "textformat.123", tint: .brown, hex: s(\.ctcol, "#000000"))
-            Toggle(isOn: b(\.wd)) {
-                RowLabel("Show weekday", symbol: "w.square.fill", tint: .cyan)
+
+            Picker(selection: enumBinding(\.dateOrder, DateOrder.dayMonthYear)) {
+                ForEach(DateOrder.allCases) { o in Text(o.displayName).tag(o) }
+            } label: {
+                RowLabel("Date order", symbol: "calendar.badge.clock", tint: .red)
             }
-            ColorHexPicker(title: "Active weekday", symbol: "circle.fill", tint: .green, hex: s(\.wdca, "#FFFFFF"))
-            ColorHexPicker(title: "Inactive weekday", symbol: "circle", tint: .gray, hex: s(\.wdci, "#666666"))
+            Picker(selection: enumBinding(\.dateSeparator, DateSeparator.dot)) {
+                ForEach(DateSeparator.allCases) { sep in Text(sep.displayName).tag(sep) }
+            } label: {
+                RowLabel("Date separator", symbol: "textformat", tint: .red)
+            }
+            Picker(selection: enumBinding(\.dateYearMode, DateYearMode.twoDigit)) {
+                ForEach(DateYearMode.allCases) { y in Text(y.displayName).tag(y) }
+            } label: {
+                RowLabel("Year", symbol: "calendar", tint: .red)
+            }
+            Toggle(isOn: b(\.dateShowWeekday)) {
+                RowLabel("Show weekday", symbol: "calendar.day.timeline.left", tint: .purple)
+            }
+            Toggle(isOn: b(\.dateMonthNames)) {
+                RowLabel("Show month names", symbol: "textformat.abc", tint: .purple)
+            }
+            LabeledContent { Text(datePreviewText).monospacedDigit().foregroundStyle(.secondary) } label: {
+                RowLabel("Preview", symbol: "eye", tint: .gray)
+            }
+
+            ColorHexPicker(title: "Calendar header", symbol: "calendar.circle.fill", tint: .red, hex: s(\.calendarHeaderColor, "#FF0000"))
+            ColorHexPicker(title: "Calendar body", symbol: "square.fill", tint: .gray, hex: s(\.calendarBodyColor, "#FFFFFF"))
+            ColorHexPicker(title: "Calendar text", symbol: "textformat.123", tint: .brown, hex: s(\.calendarTextColor, "#000000"))
+            Toggle(isOn: weekdayBar(\.startOnMonday, false)) {
+                RowLabel("Start week on Monday", symbol: "calendar.day.timeline.left", tint: .purple)
+            }
+            Toggle(isOn: weekdayBar(\.show, true)) {
+                RowLabel("Show weekday bar", symbol: "w.square.fill", tint: .cyan)
+            }
+            ColorHexPicker(title: "Active weekday", symbol: "circle.fill", tint: .green, hex: weekdayBar(\.activeColor, "#FFFFFF"))
+            ColorHexPicker(title: "Inactive weekday", symbol: "circle", tint: .gray, hex: weekdayBar(\.inactiveColor, "#666666"))
         } header: {
             Text("Time & Date")
         }
+    }
+
+    private var timePreviewText: String {
+        DeviceKnownValues.timePreview(
+            hour24: b(\.time24h).wrappedValue,
+            leadingZero: b(\.timeLeadingZero).wrappedValue,
+            showSeconds: b(\.timeShowSeconds).wrappedValue,
+            showAmPm: b(\.timeShowAmPm).wrappedValue
+        )
+    }
+
+    private var datePreviewText: String {
+        DeviceKnownValues.datePreview(
+            order: enumBinding(\.dateOrder, DateOrder.dayMonthYear).wrappedValue,
+            separator: enumBinding(\.dateSeparator, DateSeparator.dot).wrappedValue,
+            yearMode: enumBinding(\.dateYearMode, DateYearMode.twoDigit).wrappedValue
+        )
     }
 
     @ViewBuilder private var buttonsSection: some View {
@@ -412,53 +540,36 @@ struct DeviceTab: View {
             } else {
                 Text("No button presses seen yet").font(.caption).foregroundStyle(.secondary)
             }
-            if let cb = expectedCallback {
-                LabeledContent {
-                    Text(cb).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                } label: {
-                    RowLabel("Expected callback", symbol: "link", tint: .blue)
-                }
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(cb, forType: .string)
-                } label: {
-                    RowLabel("Copy callback URL", symbol: "doc.on.doc", tint: .gray)
-                }
+            LabeledContent {
+                Text(buttons?.configured == true ? "Configured" : "Not configured")
+                    .foregroundStyle(buttons?.configured == true ? .green : .secondary)
+            } label: {
+                RowLabel("Clock callback", symbol: "link", tint: .blue)
             }
-            if let url = fileManagerURL {
-                Button {
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    RowLabel("Open clock file manager", symbol: "folder.fill", tint: .blue)
-                }
+            Button {
+                Task { await setButtonsEnabled(!(buttons?.configured ?? false)) }
+            } label: {
+                RowLabel(buttons?.configured == true ? "Disable clock buttons" : "Enable clock buttons",
+                         symbol: "button.programmable", tint: buttons?.configured == true ? .red : .green)
             }
         } header: {
             Text("Buttons")
         } footer: {
-            Text("Drive Pomodoro from the clock's physical buttons. If they don't respond, set button_callback to the Expected callback URL above in the clock's file manager (dev.json), then reboot the clock.")
+            Text("Drives Pomodoro from the clock's physical buttons. Enabling points the clock at this server directly — no manual configuration needed.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
 
-    /// The clock's button_callback should point at the Ember server. Prefer the
-    /// server-reported value (the clock's-eye address); fall back to deriving it
-    /// from the configured server URL so it shows even against an older server
-    /// that lacks /v1/device/buttons.
-    private var expectedCallback: String? {
-        if let s = buttons?.expectedCallback, !s.isEmpty { return s }
-        let su = env.currentEnv().get(SettingsKeys.serverURL).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !su.isEmpty else { return nil }
-        return trimSlash(su) + "/hooks/awtrix/button"
-    }
-
-    /// The AWTRIX file editor lives at <clock>/edit (where dev.json is edited).
-    private var fileManagerURL: URL? {
-        guard let base = config?.baseURL, !base.isEmpty else { return nil }
-        return URL(string: trimSlash(base) + "/edit")
-    }
-
-    private func trimSlash(_ s: String) -> String {
-        s.hasSuffix("/") ? String(s.dropLast()) : s
+    private func setButtonsEnabled(_ enabled: Bool) async {
+        save = .saving
+        do {
+            buttons = try await env.device.updateButtons(enabled: enabled)
+            save = .saved
+        } catch let e as APIError where e.isUnauthorized {
+            save = .error("Unauthorized — check the token in Connection.")
+        } catch {
+            save = .error("Save failed: \(error.localizedDescription)")
+        }
     }
 
     private func agoText(_ s: Int) -> String {
@@ -501,22 +612,6 @@ struct DeviceTab: View {
         }
     }
 
-    /// Picker over the firmware's documented format strings, each shown as a
-    /// live example ("14:05 · %H:%M"). A custom value already on the device is
-    /// kept as an extra option instead of blanking the picker.
-    private func formatPicker(_ title: String, symbol: String, tint: Color,
-                              selection: Binding<String>, options: [String]) -> some View {
-        let current = selection.wrappedValue
-        let all = options.contains(current) ? options : options + [current]
-        return Picker(selection: selection) {
-            ForEach(all, id: \.self) { f in
-                Text("\(DeviceFormats.example(f))  ·  \(f)").monospacedDigit().tag(f)
-            }
-        } label: {
-            RowLabel(title, symbol: symbol, tint: tint)
-        }
-    }
-
     // MARK: Binding helpers (optional settings field <-> non-optional control)
 
     private func b(_ kp: WritableKeyPath<DeviceSettings, Bool?>, _ def: Bool = false) -> Binding<Bool> {
@@ -527,6 +622,52 @@ struct DeviceTab: View {
     }
     private func s(_ kp: WritableKeyPath<DeviceSettings, String?>, _ def: String) -> Binding<String> {
         Binding(get: { settings[keyPath: kp] ?? def }, set: { settings[keyPath: kp] = $0 })
+    }
+
+    /// Binds a raw-String device setting field to a typed enum, defaulting when
+    /// unset or unrecognised.
+    private func enumBinding<E: RawRepresentable & Sendable>(
+        _ kp: WritableKeyPath<DeviceSettings, String?>, _ def: E
+    ) -> Binding<E> where E.RawValue == String {
+        Binding(
+            get: { E(rawValue: settings[keyPath: kp] ?? def.rawValue) ?? def },
+            set: { settings[keyPath: kp] = $0.rawValue }
+        )
+    }
+
+    /// Reads/writes one Int field of the nested `scroll` object, creating it on
+    /// first write.
+    private func scroll(_ kp: WritableKeyPath<ScrollSettings, Int?>, _ def: Int) -> Binding<Int> {
+        Binding(
+            get: { settings.scroll?[keyPath: kp] ?? def },
+            set: { var scr = settings.scroll ?? ScrollSettings(); scr[keyPath: kp] = $0; settings.scroll = scr }
+        )
+    }
+
+    /// Reads/writes one Bool field of the nested `weekdayBar` object, creating
+    /// it on first write.
+    private func weekdayBar(_ kp: WritableKeyPath<WeekdayBar, Bool?>, _ def: Bool) -> Binding<Bool> {
+        Binding(
+            get: { settings.weekdayBar?[keyPath: kp] ?? def },
+            set: { var w = settings.weekdayBar ?? WeekdayBar(); w[keyPath: kp] = $0; settings.weekdayBar = w }
+        )
+    }
+    /// Reads/writes one String field of the nested `weekdayBar` object,
+    /// creating it on first write.
+    private func weekdayBar(_ kp: WritableKeyPath<WeekdayBar, String?>, _ def: String) -> Binding<String> {
+        Binding(
+            get: { settings.weekdayBar?[keyPath: kp] ?? def },
+            set: { var w = settings.weekdayBar ?? WeekdayBar(); w[keyPath: kp] = $0; settings.weekdayBar = w }
+        )
+    }
+
+    /// appDurationMs is milliseconds on the wire; the UI shows seconds, matching
+    /// the AWTRIX3-era control (was ATIME, already in seconds).
+    private var appDurationSecondsBinding: Binding<Int> {
+        Binding(
+            get: { (settings.appDurationMs ?? 7000) / 1000 },
+            set: { settings.appDurationMs = $0 * 1000 }
+        )
     }
 
     // MARK: Load / save
@@ -548,11 +689,16 @@ struct DeviceTab: View {
         buttons = try? await env.device.buttons()
         sensorsOnDevice = try? await env.device.sensors()
         sensorsEdit = sensorsOnDevice ?? SensorCalibration()
+        capabilities = try? await env.device.capabilities()
+        apps = (try? await env.device.apps()) ?? []
         do {
             async let s = env.device.settings()
             async let st = try? env.device.stats()
+            async let d = try? env.device.display()
             settings = try await s
             stats = await st
+            deviceDisplay = await d ?? DeviceDisplay()
+            lastDeviceDisplay = deviceDisplay
             lastApplied = settings
             loadError = nil
         } catch let e as APIError where e.isUnauthorized {
@@ -588,6 +734,22 @@ struct DeviceTab: View {
             do {
                 try await env.device.update(snapshot)
                 await MainActor.run { lastApplied = snapshot; save = .saved }
+            } catch let e as APIError where e.isUnauthorized {
+                await MainActor.run { save = .error("Unauthorized — check the token in Connection.") }
+            } catch {
+                await MainActor.run { save = .error("Save failed: \(error.localizedDescription)") }
+            }
+        }
+    }
+
+    private func scheduleDisplaySave() {
+        guard loaded, loadError == nil, deviceDisplay != lastDeviceDisplay else { return }
+        save = .saving
+        let snapshot = deviceDisplay
+        displayWriter.schedule {
+            do {
+                try await env.device.updateDisplay(snapshot)
+                await MainActor.run { lastDeviceDisplay = snapshot; save = .saved }
             } catch let e as APIError where e.isUnauthorized {
                 await MainActor.run { save = .error("Unauthorized — check the token in Connection.") }
             } catch {
