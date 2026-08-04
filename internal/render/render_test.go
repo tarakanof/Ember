@@ -18,7 +18,7 @@ func TestFrameAndPainters(t *testing.T) {
 		t.Fatalf("paintCell(5,2): Dirty[2][5] = false, want true")
 	}
 	if got := f.Pixels[2][5]; got != (RGB{0x12, 0x34, 0x56}) {
-		t.Fatalf("paintCell(5,2) color = %v, want #123456", got)
+		t.Fatalf("paintCell(5,2) textColor = %v, want #123456", got)
 	}
 
 	// paintRow sets a horizontal run inclusive on both ends.
@@ -217,7 +217,7 @@ func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
 	if payload == nil {
 		t.Fatal("expected non-nil payload for single running session")
 	}
-	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	pixels := bmpPixels(t, payload)
 	// Source "a" → sourceCardText "A"; 'A' glyph row 0 "XXX" at numStart=9, drawY=1.
 	// cols 9,10,11 should be lit (white, no SourceColor set).
 	if pixels[1*32+9] == 0 {
@@ -233,7 +233,7 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s2", State: "running", SourceColor: &green, UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/s2", cardSource, false, 30, nil)
-	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	pixels := bmpPixels(t, payload)
 	// numStart=9: first digit '1' middle col → matrix (10, 1). Should be green.
 	if got, want := pixels[1*32+10], 0x2ee85e; got != want {
 		t.Errorf("digit colour at (10,1) = %#06x, want %#06x (s2 SourceColor)", got, want)
@@ -291,13 +291,13 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30, nil)
-	db := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)
-	if db[2] != 8 || db[3] != 8 {
-		t.Fatalf("locked icon = %vx%v, want 8x8 tool icon", db[2], db[3])
+	op := bmp(t, payload, 0)
+	if op[3] != 8 || op[4] != 8 {
+		t.Fatalf("locked icon = %vx%v, want 8x8 tool icon", op[3], op[4])
 	}
-	pixels, ok := db[4].([]int)
-	if !ok || len(pixels) != 64 {
-		t.Fatalf("locked pixel array = %v, want []int of length 64 (8×8)", db[4])
+	pixels := bmpPixels(t, payload)
+	if len(pixels) != 64 {
+		t.Fatalf("locked pixel array = %v, want []int of length 64 (8×8)", op[5])
 	}
 	at := func(x, y int) int { return pixels[y*8+x] }
 	// usageIconClaude: row0 "..X..X.." lights cols 2 & 5 (ears).
@@ -324,47 +324,63 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if !ok || len(draw) != 1 {
 		t.Fatalf("locked payload draw[] = %v, want exactly 1 entry (firmware rejects multi-frame draws)", payload["draw"])
 	}
-	db, ok := draw[0].(map[string]any)["db"].([]any)
-	if !ok || len(db) != 5 {
-		t.Fatalf("draw[0].db = %v, want [x,y,w,h,pixels]", draw[0])
-	}
-	if db[2] != 8 {
-		t.Errorf("draw[0].db width = %v, want 8 (8×8 tool icon so AWTRIX text isn't clobbered)", db[2])
+	op := bmp(t, payload, 0)
+	if op[3] != 8 {
+		t.Errorf("bitmap width = %v, want 8 (8×8 tool icon so the native text isn't clobbered)", op[3])
 	}
 	if got := payload["text"]; got != wantLabel {
 		t.Errorf("text = %v, want %q", got, wantLabel)
 	}
-	if got := payload["color"]; got != wantColor {
-		t.Errorf("color = %v, want %s", got, wantColor)
+	if got := payload["textColor"]; got != wantColor {
+		t.Errorf("textColor = %v, want %s", got, wantColor)
 	}
-	if got := payload["blinkText"]; got != 500 {
-		t.Errorf("blinkText = %v, want 500", got)
+	if got := payload["textBlinkMs"]; got != 500 {
+		t.Errorf("textBlinkMs = %v, want 500", got)
 	}
-	if got := payload["textOffset"]; got != 9 {
-		t.Errorf("textOffset = %v, want 9 (1-col gap after the 8×8 icon; text sits in cols 9-31 — 23 cols)", got)
+	if got := payload["textOffsetX"]; got != 9 {
+		t.Errorf("textOffsetX = %v, want 9 (1-col gap after the 8×8 icon; text sits in cols 9-31 — 23 cols)", got)
 	}
-	// noScroll is set only when the label fits the 22 free cols (≤5 chars);
-	// longer labels (source appended) must be allowed to scroll.
-	if len(wantLabel) <= 5 {
-		if got := payload["noScroll"]; got != true {
-			t.Errorf("noScroll = %v, want true (short label fits without scroll)", got)
+	// Fit is the firmware's call now: scroll.whenFits leaves a label that fits at
+	// rest and scrolls one that overflows, whatever its length.
+	if got, ok := payload["scroll"].(map[string]any); !ok || got["whenFits"] != "static" {
+		t.Errorf("scroll = %v, want {\"whenFits\":\"static\"}", payload["scroll"])
+	}
+	if got := payload["textCenter"]; got != false {
+		t.Errorf("textCenter = %v, want false (NG defaults textCenter=true, which fights textOffsetX)", got)
+	}
+	if got := payload["lifetimeMs"]; got != 30_000 {
+		t.Errorf("lifetimeMs = %v, want 30000", got)
+	}
+	assertHeld(t, payload, 30)
+}
+
+// assertHeld pins Ember's NG display-hold encoding: a dwell as long as the
+// payload's own lifetime, and none of AWTRIX3's prio/force (which NG 422s).
+// Pinning the app past the rotation is a device-level call — see applyHold and
+// issue #69.
+func assertHeld(t *testing.T, payload map[string]any, lifetimeSeconds int) {
+	t.Helper()
+	for _, k := range []string{"prio", "force"} {
+		if _, has := payload[k]; has {
+			t.Errorf("%q present — not in NG's pushed-app schema, 422s the whole push", k)
 		}
-	} else {
-		if _, has := payload["noScroll"]; has {
-			t.Errorf("noScroll must be absent for long label %q (firmware must scroll)", wantLabel)
+	}
+	if got, want := payload["durationMs"], msOf(lifetimeSeconds); got != want {
+		t.Errorf("durationMs = %v, want %v (held frames dwell for their whole lifetime)", got, want)
+	}
+}
+
+// assertRotates is assertHeld's counterpart: an unheld frame takes the same
+// short dwell as the weather tiles so it cycles with them.
+func assertRotates(t *testing.T, payload map[string]any) {
+	t.Helper()
+	for _, k := range []string{"prio", "force"} {
+		if _, has := payload[k]; has {
+			t.Errorf("%q present — not in NG's pushed-app schema", k)
 		}
 	}
-	if got := payload["center"]; got != false {
-		t.Errorf("center = %v, want false (AWTRIX defaults center=true and adds textOffset, clipping text past col 31)", got)
-	}
-	if got := payload["lifetime"]; got != 30 {
-		t.Errorf("lifetime = %v, want 30", got)
-	}
-	if payload["prio"] != true {
-		t.Errorf("prio = %v, want true (locked attention is also display-hold)", payload["prio"])
-	}
-	if payload["force"] != true {
-		t.Errorf("force = %v, want true", payload["force"])
+	if got, want := payload["durationMs"], msOf(rotateDwellSeconds); got != want {
+		t.Errorf("durationMs = %v, want %v (short rotation dwell)", got, want)
 	}
 }
 
@@ -390,36 +406,19 @@ func TestFramePixelsRect(t *testing.T) {
 	}
 }
 
-func TestFrameToCustomApp_Hold_IncludesPrioForce(t *testing.T) {
+func TestFrameToCustomApp_Hold_DwellsForWholeLifetime(t *testing.T) {
 	var f Frame
 	paintCell(&f, 0, 0, RGB{0xff, 0x00, 0x00})
-	payload := frameToCustomApp(&f, 30, true)
-	if payload["prio"] != true {
-		t.Errorf("prio = %v, want true (display hold above native rotation)", payload["prio"])
-	}
-	if payload["force"] != true {
-		t.Errorf("force = %v, want true (push to front of app stack)", payload["force"])
-	}
-	if payload["duration"] != 30 {
-		t.Errorf("duration = %v, want lifetime (held frames own the screen)", payload["duration"])
-	}
+	assertHeld(t, frameToCustomApp(&f, 30, true), 30)
 }
 
 func TestFrameToCustomApp_NoHold_RotatesNatively(t *testing.T) {
 	var f Frame
 	paintCell(&f, 0, 0, RGB{0xff, 0x00, 0x00})
 	payload := frameToCustomApp(&f, 30, false)
-	if _, has := payload["prio"]; has {
-		t.Errorf("prio must be absent without hold (frame rotates like any app)")
-	}
-	if _, has := payload["force"]; has {
-		t.Errorf("force must be absent without hold (no snap-to-front on update)")
-	}
-	if payload["duration"] != rotateDwellSeconds {
-		t.Errorf("duration = %v, want %d (short dwell, same as the weather tiles)", payload["duration"], rotateDwellSeconds)
-	}
-	if payload["lifetime"] != 30 {
-		t.Errorf("lifetime = %v, want 30 (crash-safe eviction unchanged)", payload["lifetime"])
+	assertRotates(t, payload)
+	if payload["lifetimeMs"] != 30_000 {
+		t.Errorf("lifetimeMs = %v, want 30000 (crash-safe eviction unchanged)", payload["lifetimeMs"])
 	}
 }
 
@@ -428,17 +427,9 @@ func TestRenderForCoord_Running_NoDisplayHold(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/s1", cardSource, false, 30, nil)
-	if _, has := payload["prio"]; has {
-		t.Errorf("running frame must not set prio (hold is reserved for locked attention)")
-	}
-	if _, has := payload["force"]; has {
-		t.Errorf("running frame must not set force (updates must not snap the display back)")
-	}
-	if payload["duration"] != rotateDwellSeconds {
-		t.Errorf("duration = %v, want %d", payload["duration"], rotateDwellSeconds)
-	}
-	if payload["lifetime"] != 30 {
-		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
+	assertRotates(t, payload)
+	if payload["lifetimeMs"] != 30_000 {
+		t.Errorf("lifetimeMs = %v, want 30000", payload["lifetimeMs"])
 	}
 }
 
@@ -447,16 +438,7 @@ func TestRenderForCoord_RunningToolCard_NoDisplayHold(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", Activity: "Bash: npm test", UpdatedAt: time.Now()},
 	}}
 	// AvailableCards = [cardSource, cardTool]; cursor 1 selects the tool card.
-	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30, nil)
-	if _, has := payload["prio"]; has {
-		t.Errorf("tool-card detail must not set prio while running")
-	}
-	if _, has := payload["force"]; has {
-		t.Errorf("tool-card detail must not set force while running")
-	}
-	if payload["duration"] != rotateDwellSeconds {
-		t.Errorf("duration = %v, want %d", payload["duration"], rotateDwellSeconds)
-	}
+	assertRotates(t, RenderForCoord(snap, "a/b/s1", 1, false, 30, nil))
 }
 
 func TestRenderForCoord_LockedButNotAttentionState_SingleFrame(t *testing.T) {
@@ -476,7 +458,7 @@ func TestRenderForCoord_SourceCard_DrawsSourceGlyph(t *testing.T) {
 		{Source: "mbp", Tool: "b", Session: "s1", State: "running", UpdatedAt: now},
 	}}
 	payload := RenderForCoord(snap, "mbp/b/s1", cardSource, false, 30, nil)
-	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	pixels := bmpPixels(t, payload)
 	// source card shows "MBP": 'M' glyph row 0 is "XXX" at numStart=9 → cols 9,10,11 lit in white.
 	want := (0xff << 16) | (0xff << 8) | 0xff // colorWhite when no SourceColor
 	for x := 9; x <= 11; x++ {
@@ -518,7 +500,7 @@ func TestPickWinning(t *testing.T) {
 				t.Errorf("state = %q, want %q", gotState, tc.wantState)
 			}
 			if win != nil && color != tc.wantColor {
-				t.Errorf("color = %v, want %v", color, tc.wantColor)
+				t.Errorf("textColor = %v, want %v", color, tc.wantColor)
 			}
 			if total != tc.wantTotal {
 				t.Errorf("total = %d, want %d", total, tc.wantTotal)
@@ -537,20 +519,13 @@ func TestFrameToCustomApp(t *testing.T) {
 	if !ok || len(draw) != 1 {
 		t.Fatalf("payload[draw] = %v, want one-element slice", payload["draw"])
 	}
-	op, ok := draw[0].(map[string]any)
-	if !ok {
-		t.Fatalf("draw[0] = %v, want map", draw[0])
+	op := bmp(t, payload, 0)
+	if op[1] != 0 || op[2] != 0 || op[3] != 32 || op[4] != 8 {
+		t.Fatalf("bitmap bounds = %v, want [0 0 32 8]", op[1:5])
 	}
-	args, ok := op["db"].([]any)
-	if !ok || len(args) != 5 {
-		t.Fatalf(`draw[0]["db"] = %v, want 5-element slice`, op["db"])
-	}
-	if args[0] != 0 || args[1] != 0 || args[2] != 32 || args[3] != 8 {
-		t.Fatalf("db bounds = %v, want [0 0 32 8]", args[:4])
-	}
-	pixels, ok := args[4].([]int)
-	if !ok || len(pixels) != 256 {
-		t.Fatalf("db pixels length = %d, want 256", len(pixels))
+	pixels := bmpPixels(t, payload)
+	if len(pixels) != 256 {
+		t.Fatalf("bitmap pixel length = %d, want 256", len(pixels))
 	}
 	if pixels[0] != 0xff0000 {
 		t.Errorf("pixel (0,0) = %#x, want 0xff0000", pixels[0])
@@ -561,8 +536,8 @@ func TestFrameToCustomApp(t *testing.T) {
 	if pixels[16*5+10] != 0 {
 		t.Errorf("undirty pixel = %#x, want 0", pixels[16*5+10])
 	}
-	if payload["lifetime"] != 30 {
-		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
+	if payload["lifetimeMs"] != 30_000 {
+		t.Errorf("lifetimeMs = %v, want 30000", payload["lifetimeMs"])
 	}
 }
 
@@ -625,16 +600,12 @@ func TestRenderIdleFrame_Shape(t *testing.T) {
 	if !ok || len(draw) != 1 {
 		t.Fatalf("idle payload draw[] = %v, want exactly 1 entry", payload["draw"])
 	}
-	db, ok := draw[0].(map[string]any)["db"].([]any)
-	if !ok || len(db) != 5 {
-		t.Fatalf("draw[0].db = %v, want [x,y,w,h,pixels]", draw[0])
+	if op := bmp(t, payload, 0); op[3] != 8 {
+		t.Errorf("idle bitmap width = %v, want 8 (8×8 icon)", op[3])
 	}
-	if db[2] != 8 {
-		t.Errorf("idle bitmap width = %v, want 8 (8×8 icon)", db[2])
-	}
-	pixels, ok := db[4].([]int)
-	if !ok || len(pixels) != 64 {
-		t.Fatalf("idle pixels = %v, want 64 ints", db[4])
+	pixels := bmpPixels(t, payload)
+	if len(pixels) != 64 {
+		t.Fatalf("idle pixels = %d ints, want 64", len(pixels))
 	}
 	// At least one pixel must be lit (the robot is drawn) and any lit
 	// pixel must be roughly 40% brightness (dim white).
@@ -660,18 +631,10 @@ func TestRenderIdleFrame_Shape(t *testing.T) {
 	if _, hasText := payload["text"]; hasText {
 		t.Errorf("idle payload should NOT have text (no WAIT/ERR while truly idle)")
 	}
-	if payload["prio"] != true {
-		t.Errorf("prio = %v, want true (idle still holds display)", payload["prio"])
+	if payload["lifetimeMs"] != 30_000 {
+		t.Errorf("lifetimeMs = %v, want 30000", payload["lifetimeMs"])
 	}
-	if payload["force"] != true {
-		t.Errorf("force = %v, want true", payload["force"])
-	}
-	if payload["lifetime"] != 30 {
-		t.Errorf("lifetime = %v, want 30", payload["lifetime"])
-	}
-	if payload["duration"] != 30 {
-		t.Errorf("duration = %v, want 30", payload["duration"])
-	}
+	assertHeld(t, payload, 30) // idle still holds the display
 }
 
 func TestAttentionLabelAndColor(t *testing.T) {
@@ -990,7 +953,7 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 	if payload == nil {
 		t.Fatal("expected non-nil payload")
 	}
-	pixels := payload["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	pixels := bmpPixels(t, payload)
 	// Row 7. Expect col 11 = waiting amber, col 12 = running green.
 	// Derive expected values from the palette constants so the test stays
 	// correct if colors are ever updated.
@@ -1048,21 +1011,21 @@ func TestPercentGlyphDecodable(t *testing.T) {
 func TestDetailPayload_Blink(t *testing.T) {
 	s := Session{Source: "a", Tool: "b", Session: "w", State: "waiting"}
 	p := detailPayload(s, "WAIT", "#FFC14D", true, 30, true)
-	if p["text"] != "WAIT" || p["color"] != "#FFC14D" {
-		t.Errorf("text/color = %v/%v", p["text"], p["color"])
+	if p["text"] != "WAIT" || p["textColor"] != "#FFC14D" {
+		t.Errorf("text/textColor = %v/%v", p["text"], p["textColor"])
 	}
-	if p["blinkText"] != 500 {
-		t.Errorf("blinkText = %v, want 500", p["blinkText"])
+	if p["textBlinkMs"] != 500 {
+		t.Errorf("textBlinkMs = %v, want 500", p["textBlinkMs"])
 	}
-	if p["noScroll"] != true {
-		t.Errorf("noScroll = %v, want true", p["noScroll"])
+	if got, ok := p["scroll"].(map[string]any); !ok || got["whenFits"] != "static" {
+		t.Errorf("scroll = %v, want {\"whenFits\":\"static\"}", p["scroll"])
 	}
-	if p["textOffset"] != 9 || p["center"] != false {
-		t.Errorf("textOffset/center = %v/%v, want 9/false", p["textOffset"], p["center"])
+	if p["textOffsetX"] != 9 || p["textCenter"] != false {
+		t.Errorf("textOffsetX/center = %v/%v, want 9/false", p["textOffsetX"], p["textCenter"])
 	}
-	db := p["draw"].([]any)[0].(map[string]any)["db"].([]any)
-	if db[2] != 8 || len(db[4].([]int)) != 64 {
-		t.Errorf("db width/len = %v/%d, want 8/64", db[2], len(db[4].([]int)))
+	op := bmp(t, p, 0)
+	if op[3] != 8 || len(bmpPixels(t, p)) != 64 {
+		t.Errorf("bitmap width/len = %v/%d, want 8/64", op[3], len(bmpPixels(t, p)))
 	}
 }
 
@@ -1072,14 +1035,15 @@ func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 	if p["text"] != "Bash: npm test" {
 		t.Errorf("text = %v", p["text"])
 	}
-	if _, has := p["blinkText"]; has {
-		t.Errorf("blinkText must be absent in detail mode")
+	if _, has := p["textBlinkMs"]; has {
+		t.Errorf("textBlinkMs must be absent in detail mode")
 	}
-	if _, has := p["noScroll"]; has {
-		t.Errorf("noScroll must be absent so firmware scrolls on overflow")
+	// scroll.whenFits (not a hard static mode) so the firmware scrolls overflow.
+	if got, ok := p["scroll"].(map[string]any); !ok || got["whenFits"] != "static" || got["mode"] != nil {
+		t.Errorf("scroll = %v, want {\"whenFits\":\"static\"} with no hard mode", p["scroll"])
 	}
-	if p["textOffset"] != 9 || p["center"] != false {
-		t.Errorf("textOffset/center = %v/%v, want 9/false", p["textOffset"], p["center"])
+	if p["textOffsetX"] != 9 || p["textCenter"] != false {
+		t.Errorf("textOffsetX/center = %v/%v, want 9/false", p["textOffsetX"], p["textCenter"])
 	}
 }
 
@@ -1128,14 +1092,14 @@ func TestRenderForCoord_ToolCard_EmitsScrollingDetail(t *testing.T) {
 	if payload["text"] != "Bash: npm test" {
 		t.Errorf("text = %v, want the activity string", payload["text"])
 	}
-	if _, has := payload["blinkText"]; has {
+	if _, has := payload["textBlinkMs"]; has {
 		t.Errorf("tool card must not blink")
 	}
-	if _, has := payload["noScroll"]; has {
-		t.Errorf("tool card must allow scroll (no noScroll)")
+	if got, ok := payload["scroll"].(map[string]any); !ok || got["mode"] != nil {
+		t.Errorf("scroll = %v, want no hard mode (the tool card must be free to scroll)", payload["scroll"])
 	}
-	if payload["color"] != "#2EE85E" {
-		t.Errorf("color = %v, want running green #2EE85E", payload["color"])
+	if payload["textColor"] != "#2EE85E" {
+		t.Errorf("textColor = %v, want running green #2EE85E", payload["textColor"])
 	}
 }
 
@@ -1160,11 +1124,11 @@ func TestRenderForCoord_LockedAttention_ActivityDoesNotSubstituteLabel(t *testin
 	if payload["text"] != "WAIT A" {
 		t.Errorf("locked text = %v, want WAIT A (source label, not activity)", payload["text"])
 	}
-	if payload["blinkText"] != 500 {
-		t.Errorf("locked attention must blink; blinkText = %v", payload["blinkText"])
+	if payload["textBlinkMs"] != 500 {
+		t.Errorf("locked attention must blink; textBlinkMs = %v", payload["textBlinkMs"])
 	}
-	if payload["color"] != "#FFC14D" {
-		t.Errorf("color = %v, want waiting amber #FFC14D", payload["color"])
+	if payload["textColor"] != "#FFC14D" {
+		t.Errorf("textColor = %v, want waiting amber #FFC14D", payload["textColor"])
 	}
 }
 
@@ -1175,8 +1139,8 @@ func TestRenderForCoord_LockedAttention_NoActivityStillBlinks(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30, nil)
-	if payload["text"] != "WAIT A" || payload["blinkText"] != 500 {
-		t.Errorf("waiting should blink WAIT A, got text=%v blink=%v", payload["text"], payload["blinkText"])
+	if payload["text"] != "WAIT A" || payload["textBlinkMs"] != 500 {
+		t.Errorf("waiting should blink WAIT A, got text=%v blink=%v", payload["text"], payload["textBlinkMs"])
 	}
 }
 
@@ -1329,22 +1293,18 @@ func TestAvailableCardsUsageGating(t *testing.T) {
 func TestDetailPayloadUses8pxIcon(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "waiting"}
 	p := detailPayload(s, "WAIT", "#FFC14D", true, 30, true)
-	draws := p["draw"].([]any)
-	db := draws[0].(map[string]any)["db"].([]any)
-	if db[2] != 8 || db[3] != 8 {
-		t.Errorf("locked db not 8×8: %v %v", db[2], db[3])
+	if op := bmp(t, p, 0); op[3] != 8 || op[4] != 8 {
+		t.Errorf("locked bitmap not 8×8: %v %v", op[3], op[4])
 	}
-	if p["textOffset"] != 9 {
-		t.Errorf("textOffset = %v, want 9", p["textOffset"])
+	if p["textOffsetX"] != 9 {
+		t.Errorf("textOffsetX = %v, want 9", p["textOffsetX"])
 	}
 }
 
 func TestIdleFrameUses8pxIcon(t *testing.T) {
 	p := RenderIdleFrame(30)
-	draws := p["draw"].([]any)
-	db := draws[0].(map[string]any)["db"].([]any)
-	if db[2] != 8 || db[3] != 8 {
-		t.Errorf("idle db not 8×8: %v %v", db[2], db[3])
+	if op := bmp(t, p, 0); op[3] != 8 || op[4] != 8 {
+		t.Errorf("idle bitmap not 8×8: %v %v", op[3], op[4])
 	}
 	if _, hasText := p["text"]; hasText {
 		t.Error("idle frame must stay text-free")
@@ -1383,7 +1343,7 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 		t.Fatal("5h face: clock not painted")
 	}
 	if f.Pixels[1][10] != colorWhite {
-		t.Fatalf("5h face: clock pixel color = %v, want white %v", f.Pixels[1][10], colorWhite)
+		t.Fatalf("5h face: clock pixel textColor = %v, want white %v", f.Pixels[1][10], colorWhite)
 	}
 	requireUnit(t, &f, "5h clock face")
 
@@ -1466,7 +1426,7 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 
 	// The idle 5h face carries the gray "5h" unit label: '5' top-left lights
 	// (unitStart, 1), i.e. pixel index 1*32+unitStart in the db payload.
-	px := p0["draw"].([]any)[0].(map[string]any)["db"].([]any)[4].([]int)
+	px := bmpPixels(t, p0)
 	wantGray := (int(usageGray.R) << 16) | (int(usageGray.G) << 8) | int(usageGray.B)
 	if got := px[1*32+unitStart]; got != wantGray {
 		t.Errorf("idle 5h face unit pixel = %#06x, want gray %#06x", got, wantGray)

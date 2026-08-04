@@ -26,8 +26,8 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	if p["text"] != "Stand-up" {
 		t.Errorf("text = %v, want Stand-up", p["text"])
 	}
-	if p["duration"] != 10 {
-		t.Errorf("duration = %v, want 10", p["duration"])
+	if p["durationMs"] != 10_000 {
+		t.Errorf("durationMs = %v, want 10000", p["durationMs"])
 	}
 	if _, hasSound := p["sound"]; hasSound {
 		t.Error("sound must NOT ride on the notification (firmware drops it under a draw)")

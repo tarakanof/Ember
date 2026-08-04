@@ -565,6 +565,84 @@ func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
 	}
 }
 
+// TestCoord_RepublishClearsDedupeAndRepushes covers the reboot-recovery path:
+// pushed apps are RAM-only on awtrix-ng, so once the device restarts the
+// coordinator's dedupe cache describes apps that no longer exist. A republish
+// must drop that cache and push again on the spot, without waiting for the
+// dedupe window (or the frame lifetime) to expire.
+func TestCoord_RepublishClearsDedupeAndRepushes(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	publisher := &recordingPublisher{}
+	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
+	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
+	c.ctx = context.Background()
+
+	snap := Snapshot{Sessions: []Session{
+		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},
+	}}
+	c.snapshot = func() Snapshot { return snap }
+
+	c.publish(snap)
+	if got := len(publisher.CustomAppsSnapshot()); got != 1 {
+		t.Fatalf("publishes after first publish = %d, want 1", got)
+	}
+	// Identical payload inside the dedupe window: skipped, as designed.
+	c.publish(snap)
+	if got := len(publisher.CustomAppsSnapshot()); got != 1 {
+		t.Fatalf("publishes after deduped publish = %d, want 1", got)
+	}
+
+	c.onRepublish()
+	if got := len(publisher.CustomAppsSnapshot()); got != 2 {
+		t.Fatalf("publishes after republish = %d, want 2 (dedupe must be cleared)", got)
+	}
+	if c.lastPayloadBytes == nil {
+		t.Fatal("republish should have re-armed the dedupe cache from the fresh push")
+	}
+}
+
+// TestCoord_RepublishRepushesStandaloneTiles guards the other half of the
+// dedupe reset: the weather/forecast/air/meeting trackers must be dropped too,
+// or a tile whose content hasn't changed would never come back after a reboot.
+func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.Weather.applyDefaults()
+	cfg.Weather.Enabled = true
+	cfg.Weather.RotateInApps = boolPtr(true)
+	app := NewApp(cfg, pub, testLogger())
+	c := app.coord
+	c.ctx = context.Background()
+	now := time.Now()
+
+	app.weather.mu.Lock()
+	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 21, FetchedAt: now}
+	app.weather.have = true
+	app.weather.mu.Unlock()
+
+	c.reconcileWeatherApp(now)
+	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-weather" {
+		t.Fatalf("expected one ember-weather push, got %v", names)
+	}
+	// Unchanged content inside the refresh window: no re-push.
+	c.reconcileWeatherApp(now.Add(time.Minute))
+	if got := len(pub.CustomNamesSnapshot()); got != 1 {
+		t.Fatalf("pushes after unchanged reconcile = %d, want 1", got)
+	}
+
+	c.onRepublish()
+	var repushed bool
+	for _, n := range pub.CustomNamesSnapshot()[1:] {
+		if n == "ember-weather" {
+			repushed = true
+		}
+	}
+	if !repushed {
+		t.Fatalf("weather tile not re-pushed after republish: %v", pub.CustomNamesSnapshot())
+	}
+}
+
 // TestCoord_DedupePublishesAgainOnStateChange verifies that a payload
 // change (state transition, lock acquisition, etc.) bypasses the dedup
 // window so attention transitions land immediately.
@@ -690,9 +768,9 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 	}
 	last := apps[len(apps)-1]
 	// Active frame must NOT be the dim-white robot — it should be a state-coloured render.
-	db := last["draw"].([]any)[0].(map[string]any)["db"].([]any)
-	if db[2] != 32 {
-		t.Errorf("active frame width = %v, want 32 (full rotation render)", db[2])
+	op := last["draw"].([]any)[0].([]any) // NG: ["bitmap", x, y, w, h, data]
+	if op[3] != 32 {
+		t.Errorf("active frame width = %v, want 32 (full rotation render)", op[3])
 	}
 }
 

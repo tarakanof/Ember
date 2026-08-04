@@ -35,8 +35,7 @@ func TestIconOverlaysMatchBodySprites(t *testing.T) {
 
 func TestRenderIdleFrameKeepsEyeSocketsDark(t *testing.T) {
 	p := RenderIdleFrame(30)
-	draw := p["draw"].([]any)[0].(map[string]any)["db"].([]any)
-	pixels := draw[4].([]int)
+	pixels := bmpPixels(t, p)
 	// Eye socket (row 2, col 2) of usageIconClaude is a hole — must stay 0.
 	if pixels[2*8+2] != 0 {
 		t.Fatalf("idle eye socket lit: %#x", pixels[2*8+2])

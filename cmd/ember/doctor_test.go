@@ -38,7 +38,7 @@ func newAppForDoctor(t *testing.T, awtrixURL string) *App {
 
 func TestRunDoctorChecks_OnlineAllOK(t *testing.T) {
 	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/stats" {
+		if r.URL.Path == "/api/v1/device" {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -97,9 +97,9 @@ func TestRunDoctorChecks_OfflineMarksRuntimeSkipped(t *testing.T) {
 
 func TestRunDoctorChecks_ClockReachable(t *testing.T) {
 	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/stats" {
+		if r.URL.Path == "/api/v1/device" {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"uid":"aabbcc","version":"0.98"}`))
+			_, _ = w.Write([]byte(`{"uid":"aabbcc","boardType":"awtrixng","version":"1.0.13"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

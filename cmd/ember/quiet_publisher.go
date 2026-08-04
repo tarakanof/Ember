@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"slices"
 	"time"
 )
 
+// soundKeys are awtrix-ng's three notification sound fields (AWTRIX3 spelled the
+// latter two `rtttl` and `loopSound`). quietPublisher strips all of them.
+var soundKeys = []string{"sound", "soundRtttl", "soundLoop"}
+
 // quietPublisher gates all device audio behind the quiet-hours window. During
-// the window, Notify payloads lose their sound/rtttl keys and the melody
+// the window, Notify payloads lose their sound keys and the melody
 // endpoints succeed without calling the device; everything else delegates
 // unchanged. Enforced here — the single path to the device — so every current
 // and future sound source is covered without per-feature checks.
@@ -28,7 +33,7 @@ func (q *quietPublisher) Notify(ctx context.Context, payload map[string]any) err
 	if q.quiet() {
 		stripped := make(map[string]any, len(payload))
 		for k, v := range payload {
-			if k == "sound" || k == "rtttl" {
+			if slices.Contains(soundKeys, k) {
 				continue
 			}
 			stripped[k] = v
@@ -62,6 +67,9 @@ func (q *quietPublisher) ListApps(ctx context.Context) ([]string, error) { retur
 func (q *quietPublisher) DismissNotify(ctx context.Context) error        { return q.next.DismissNotify(ctx) }
 func (q *quietPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
 	return q.next.Indicator(ctx, index, payload)
+}
+func (q *quietPublisher) ClearIndicator(ctx context.Context, index int) error {
+	return q.next.ClearIndicator(ctx, index)
 }
 func (q *quietPublisher) Settings(ctx context.Context, payload map[string]any) error {
 	return q.next.Settings(ctx, payload)

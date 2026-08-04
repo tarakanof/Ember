@@ -174,7 +174,7 @@ func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
-	url := cfg.AWTRIX.HTTPBaseURL + "/api/stats"
+	url := cfg.AWTRIX.HTTPBaseURL + "/api/v1/device"
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

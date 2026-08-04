@@ -13,6 +13,52 @@ import (
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
+// TestPomoPhaseEndAlertUsesNGKeys pins the ad-hoc phase-end notification on
+// awtrix-ng's schema: durationMs in milliseconds and soundRtttl for the inline
+// melody (AWTRIX3's `duration`/`rtttl` are 422s on NG).
+func TestPomoPhaseEndAlertUsesNGKeys(t *testing.T) {
+	cases := []struct {
+		name      string
+		melody    string
+		wantKey   string
+		wantValue string
+	}{
+		{"default inline melody", "", "soundRtttl", defaultPomoMelody},
+		{"configured device melody", "chime", "sound", "chime"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pub := &recordingPublisher{}
+			cfg := defaultConfig()
+			cfg.Pomodoro.Sound = true
+			cfg.Pomodoro.SoundMelody = tc.melody
+			app := NewApp(cfg, pub, testLogger())
+			app.pomoPhaseEndAlert(&pomodoro.PhaseResult{Phase: pomodoro.PhaseFocus})
+
+			notes := pub.NotifySnapshot()
+			if len(notes) != 1 {
+				t.Fatalf("expected 1 notification, got %d", len(notes))
+			}
+			p := notes[0]
+			if p["text"] != "BREAK" {
+				t.Errorf("text = %v, want BREAK", p["text"])
+			}
+			if p["durationMs"] != 4000 {
+				t.Errorf("durationMs = %v, want 4000", p["durationMs"])
+			}
+			if _, has := p["duration"]; has {
+				t.Error(`legacy "duration" present — NG rejects it`)
+			}
+			if _, has := p["rtttl"]; has {
+				t.Error(`legacy "rtttl" present — NG renamed it soundRtttl`)
+			}
+			if p[tc.wantKey] != tc.wantValue {
+				t.Errorf("%s = %v, want %v", tc.wantKey, p[tc.wantKey], tc.wantValue)
+			}
+		})
+	}
+}
+
 func newPomodoroApp(t *testing.T) *App {
 	t.Helper()
 	cfg := defaultConfig()

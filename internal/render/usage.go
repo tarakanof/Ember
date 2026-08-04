@@ -111,13 +111,13 @@ func LimitResetPopupPayload(tool string, durationSec int) map[string]any {
 		icon, color, label = usageIconCodex, usageColorCodex, "CODEX 5H RESET"
 	}
 	return map[string]any{
-		"text":       label,
-		"duration":   durationSec,
-		"wakeup":     true,
-		"stack":      true,
-		"color":      hexOf(color),
-		"draw":       []any{map[string]any{"db": []any{0, 0, 8, 8, bitmap8(icon, color)}}},
-		"center":     false,
-		"textOffset": 9,
+		"text":        label,
+		"durationMs":  msOf(durationSec),
+		"wakeup":      true,
+		"stack":       true,
+		"textColor":   hexOf(color),
+		"draw":        []any{bitmapOp(0, 0, 8, 8, bitmap8(icon, color))},
+		"textCenter":  false,
+		"textOffsetX": 9,
 	}
 }

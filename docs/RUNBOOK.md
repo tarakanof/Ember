@@ -334,6 +334,75 @@ off via `PUT /v1/apps` and confirm its usage faces disappear.
    and the installed producer binary mtime — sometimes flipping `producer.env`
    toggles is the only step.
 
+## awtrix-ng flashing, backup, and first-boot
+
+Covers moving the TC001 from stock AWTRIX3 to [awtrix-ng](https://github.com/Blueforcer/awtrix-ng).
+
+1. **Backup the flash BEFORE any firmware change.** This is the only way back to
+   AWTRIX3 besides re-flashing via its own web flasher
+   (<https://blueforcer.github.io/awtrix3/>) — take it.
+
+   ```sh
+   esptool.py --port /dev/cu.usbserial-* read_flash 0x0 0x400000 tc001-backup-$(date +%Y%m%d).bin
+   ```
+
+   Store the `.bin` off-device (not just on the flashing Mac). Restore with:
+
+   ```sh
+   esptool.py --port /dev/cu.usbserial-* write_flash 0x0 tc001-backup-YYYYMMDD.bin
+   ```
+
+2. **Flash awtrix-ng.** USB web flasher at
+   <https://blueforcer.github.io/awtrix-ng/> (Chrome or Edge — WebSerial only).
+   For the first install, choose **full-erase**: AWTRIX3 settings are **not**
+   preserved across the switch.
+
+3. **First boot / Wi-Fi join.** The device opens an **open** (unsecured) access
+   point named `awtrixng-<mac6>`. Join it, then either let the captive portal
+   pop up or browse to `http://192.168.4.1`. System tab → **Scan**, pick the
+   target SSID, set the password and a **deliberate hostname** (used for
+   `.local` discovery below). Save, then reboot via the blue banner. The
+   assigned IP scrolls across the matrix on boot; once joined the device is
+   reachable at `http://<hostname>.local`.
+
+4. **Baseline config after joining the network.** All via
+   `PUT /api/v1/system`, `Content-Type: application/json`:
+
+   ```sh
+   curl -X PUT http://<hostname>.local/api/v1/system \
+     -H "Content-Type: application/json" \
+     -d '{"tzName": "Europe/Belgrade"}'
+   ```
+
+   Set at minimum:
+   - `tzName` — factory default is already `Europe/Berlin`; only change if the
+     clock lives elsewhere.
+   - `buttonCallback` → `http://<ember-server>:3627/hooks/awtrix/button`.
+
+   > **Warning:** `tempOffset` factory default is already **−9.0** for the
+   > TC001. Do not re-apply a manual offset on top of it — that double-corrects
+   > and the on-device temp reads low.
+
+   System writes via `/api/v1/system` apply **live** — no reboot needed
+   (unlike AWTRIX3's `dev.json`, which only applies at boot).
+
+5. **Later firmware updates.** NG has dual-slot OTA — settings, icons, and
+   scripts survive it. Via Web UI: System → Maintenance. Via curl:
+
+   ```sh
+   curl -F "firmware=@firmware-awtrix-ng.bin" http://<hostname>.local/update
+   ```
+
+   Use the **plain** (non-`s3`) binary for the TC001.
+
+6. **Quick verify:**
+
+   ```sh
+   curl http://<hostname>.local/api/v1/device
+   ```
+
+   Expect `"boardType": "awtrixng"` and your chosen hostname in the response.
+
 ## Docker Hub release
 
 Releases are published on strict-semver `vX.Y.Z` tags (latest: `v0.2.0`),

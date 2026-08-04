@@ -21,16 +21,15 @@ func TestQuietPublisherMutesDuringWindow(t *testing.T) {
 	rec := &recordingPublisher{}
 	q := quietTestPub(rec, true, 23) // 23:00, inside 22:00-08:00
 
-	orig := map[string]any{"text": "PING", "sound": "bell", "rtttl": "x:d=4:c"}
+	orig := map[string]any{"text": "PING", "sound": "bell", "soundRtttl": "x:d=4:c", "soundLoop": true}
 	if err := q.Notify(context.Background(), orig); err != nil {
 		t.Fatal(err)
 	}
 	got := rec.NotifySnapshot()[0]
-	if _, ok := got["sound"]; ok {
-		t.Error("sound key not stripped")
-	}
-	if _, ok := got["rtttl"]; ok {
-		t.Error("rtttl key not stripped")
+	for _, k := range []string{"sound", "soundRtttl", "soundLoop"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s key not stripped", k)
+		}
 	}
 	if got["text"] != "PING" {
 		t.Error("visual keys must pass through")

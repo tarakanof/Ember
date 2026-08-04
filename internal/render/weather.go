@@ -1,7 +1,5 @@
 package render
 
-import "fmt"
-
 // Weather widget render primitives. The weather app renders as its own AWTRIX
 // custom app (a rotating tile) and as ad-hoc notification popups, mirroring the
 // usage-widget language: an 8×8 condition icon at cols 0–7 + a temperature
@@ -180,8 +178,8 @@ func WeatherTileFrame(cond, tempText string, hourly []float64, moon *MoonView) F
 func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifetime int) map[string]any {
 	f := WeatherTileFrame(cond, tempText, hourly, moon)
 	return map[string]any{
-		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, framePixels(&f)}}},
-		"lifetime": lifetime, "duration": rotateDwellSeconds,
+		"draw":       []any{bitmapOp(0, 0, 32, 8, framePixels(&f))},
+		"lifetimeMs": msOf(lifetime), "durationMs": msOf(rotateDwellSeconds),
 	}
 }
 
@@ -196,9 +194,9 @@ func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime in
 	var f Frame
 	drawWeatherBody(&f, tempText, hourly)
 	return map[string]any{
-		"icon":     iconID,
-		"draw":     []any{map[string]any{"db": []any{8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8)}}},
-		"lifetime": lifetime, "duration": rotateDwellSeconds,
+		"icon":       iconID,
+		"draw":       []any{bitmapOp(8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8))},
+		"lifetimeMs": msOf(lifetime), "durationMs": msOf(rotateDwellSeconds),
 	}
 }
 
@@ -213,25 +211,23 @@ func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime in
 // via /api/rtttl (RTTTL) or /api/sound (device melody name).
 func WeatherPopupPayload(cond, label, iconID string, durationSec int) map[string]any {
 	p := map[string]any{
-		"text":     label,
-		"duration": durationSec,
-		"wakeup":   true,
-		"stack":    false,
-		"color":    hexOf(WeatherColor(cond)),
+		"text":       label,
+		"durationMs": msOf(durationSec),
+		"wakeup":     true,
+		"stack":      false,
+		"textColor":  hexOf(WeatherColor(cond)),
 	}
 	if iconID != "" {
-		// Native animated icon: AWTRIX reserves the left 8px and lays text out
-		// in the remainder, so we must NOT set center/textOffset (see Pomodoro).
+		// Native animated icon: the firmware reserves the left 8px and lays text
+		// out in the remainder, so we must NOT set textCenter/textOffsetX (see
+		// Pomodoro).
 		p["icon"] = iconID
 	} else {
-		// Drawn icon as a db op at cols 0–7 + left-aligned native text from col 9.
+		// Drawn icon as a bitmap op at cols 0–7 + left-aligned text from col 9.
 		iconPx := bitmap8(weatherIcon(cond), WeatherColor(cond))
-		p["draw"] = []any{map[string]any{"db": []any{0, 0, 8, 8, iconPx}}}
-		p["center"] = false
-		p["textOffset"] = 9
+		p["draw"] = []any{bitmapOp(0, 0, 8, 8, iconPx)}
+		p["textCenter"] = false
+		p["textOffsetX"] = 9
 	}
 	return p
 }
-
-// hexOf formats an RGB as "RRGGBB" (no leading #) for AWTRIX colour fields.
-func hexOf(c RGB) string { return fmt.Sprintf("%02X%02X%02X", c.R, c.G, c.B) }

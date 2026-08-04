@@ -167,7 +167,7 @@ func (a *App) proxyToDevice(ctx context.Context, method, path string, body []byt
 }
 
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/settings", nil)
+	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/settings", nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -202,7 +202,7 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPost, "/api/settings", payload)
+	_, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/settings", payload)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -215,7 +215,7 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/stats", nil)
+	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/device", nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -230,10 +230,11 @@ func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeviceScreen passes through the clock's live framebuffer
-// (GET /api/screen — 256 ints, 24-bit RGB, row-major 32×8) so the menu app can
-// mirror the display.
+// (GET /api/v1/display/screen) so the menu app can mirror the display.
+// awtrix-ng wraps the pixels: {"width":32,"height":8,"pixels":[256 ints]}
+// (AWTRIX3 returned the bare 256-int array) — consumers must unwrap.
 func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/screen", nil)
+	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/display/screen", nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -248,26 +249,29 @@ func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceReboot(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, "/api/reboot")
+	a.proxyAction(w, r, http.MethodPost, "/api/v1/device/reboot")
 }
 
+// handleDeviceDismiss clears the currently-shown notification
+// (DELETE /api/v1/notifications/active — no body).
 func (a *App) handleDeviceDismiss(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, "/api/notify/dismiss")
+	a.proxyAction(w, r, http.MethodDelete, "/api/v1/notifications/active")
 }
 
 // handleDeviceNextApp / handleDevicePrevApp advance the clock to the next or
-// previous app in its rotation (AWTRIX /api/nextapp, /api/previousapp).
+// previous app in its rotation (POST /api/v1/apps/next, /api/v1/apps/previous).
 func (a *App) handleDeviceNextApp(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, "/api/nextapp")
+	a.proxyAction(w, r, http.MethodPost, "/api/v1/apps/next")
 }
 
 func (a *App) handleDevicePrevApp(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, "/api/previousapp")
+	a.proxyAction(w, r, http.MethodPost, "/api/v1/apps/previous")
 }
 
-// proxyAction POSTs an empty body to a clock action endpoint and maps the result.
-func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, path string) {
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPost, path, []byte("{}"))
+// proxyAction sends a bodiless request to a clock action endpoint and maps
+// the result.
+func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, method, path string) {
+	_, status, err := a.proxyToDevice(r.Context(), method, path, nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

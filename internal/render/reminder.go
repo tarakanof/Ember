@@ -45,19 +45,19 @@ func ReminderPopupFrame(text string) Frame {
 
 func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[string]any {
 	p := map[string]any{
-		"text":     text,
-		"duration": durationSec,
-		"wakeup":   true,
-		"stack":    true,
-		"hold":     hold,
-		"color":    hexOf(reminderGold),
+		"text":       text,
+		"durationMs": msOf(durationSec),
+		"wakeup":     true,
+		"stack":      true,
+		"hold":       hold,
+		"textColor":  hexOf(reminderGold),
 	}
 	if iconID != "" {
 		p["icon"] = iconID
 	} else {
-		p["draw"] = []any{map[string]any{"db": []any{0, 0, 8, 8, bitmap8(reminderBell, reminderGold)}}}
-		p["center"] = false
-		p["textOffset"] = 9
+		p["draw"] = []any{bitmapOp(0, 0, 8, 8, bitmap8(reminderBell, reminderGold))}
+		p["textCenter"] = false
+		p["textOffsetX"] = 9
 	}
 	return p
 }

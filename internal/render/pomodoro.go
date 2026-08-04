@@ -213,7 +213,7 @@ func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 	if v.Paused {
 		c = dimRGB(c)
 	}
-	hex := fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B)
+	hex := hexOf(c)
 	rem := v.RemainingSec
 	if rem < 0 {
 		rem = 0
@@ -223,24 +223,22 @@ func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 		mm = 99
 	}
 	ss := rem % 60
-	// NOTE: with the built-in `icon` field set, AWTRIX already reserves the
+	// NOTE: with the built-in `icon` field set, the firmware already reserves the
 	// left 8px and centres `text` in the remaining region — so we must NOT set
-	// `textOffset`/`center` here (doing so double-shifts the text right and
-	// clips the last digit, e.g. "23:45" → "23:4"). `noScroll` keeps the static
-	// MM:SS from scrolling. (This differs from the usage-widget frames, which
-	// draw the icon as a `db` and DO need center:false + textOffset.)
-	trackHex := fmt.Sprintf("#%02X%02X%02X", pomoTrack.R, pomoTrack.G, pomoTrack.B)
-	return map[string]any{
-		"icon":       pomoIconID(v.Phase),
-		"text":       fmt.Sprintf("%02d:%02d", mm, ss),
-		"color":      hex,
-		"noScroll":   true,
-		"progress":   pomoProgressPct(rem, v.PlannedSec),
-		"progressC":  hex,
-		"progressBC": trackHex, // dim track (else AWTRIX defaults to a white track)
-		"lifetime":   lifetimeSeconds,
-		"duration":   lifetimeSeconds,
-		"prio":       true,
-		"force":      true,
+	// `textOffsetX`/`textCenter` here (doing so double-shifts the text right and
+	// clips the last digit, e.g. "23:45" → "23:4"). The MM:SS always fits, so
+	// scroll mode "static" pins it. (This differs from the usage-widget frames,
+	// which draw the icon as a bitmap and DO need textCenter/textOffsetX.)
+	p := map[string]any{
+		"icon":               pomoIconID(v.Phase),
+		"text":               fmt.Sprintf("%02d:%02d", mm, ss),
+		"textColor":          hex,
+		"scroll":             scrollStatic(),
+		"progress":           pomoProgressPct(rem, v.PlannedSec),
+		"progressColor":      hex,
+		"progressTrackColor": hexOf(pomoTrack), // dim track (else NG defaults to white)
+		"lifetimeMs":         msOf(lifetimeSeconds),
 	}
+	applyHold(p, lifetimeSeconds)
+	return p
 }

@@ -17,6 +17,8 @@ import (
 
 var dumpDir = flag.String("dump", "", "write payload JSON files here instead of POSTing (for curl)")
 
+var httpClient = &http.Client{Timeout: 5 * time.Second}
+
 func push(base, name string, payload map[string]any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -30,7 +32,12 @@ func push(base, name string, payload map[string]any) error {
 		fmt.Printf("%-28s -> %s\n", name, path)
 		return nil
 	}
-	resp, err := http.Post(base+"/api/custom?name="+name, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, base+"/api/v1/apps/pushed/"+name, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		fmt.Printf("%-28s -> ERROR: %v\n", name, err)
 		return err
@@ -41,7 +48,12 @@ func push(base, name string, payload map[string]any) error {
 }
 
 func clear(base, name string) {
-	resp, err := http.Post(base+"/api/custom?name="+name, "application/json", nil)
+	req, err := http.NewRequest(http.MethodDelete, base+"/api/v1/apps/"+name, nil)
+	if err != nil {
+		fmt.Println(name, "clear err:", err)
+		return
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		fmt.Println(name, "clear err:", err)
 		return
@@ -86,8 +98,8 @@ func main() {
 		SourceColor: &blue, UpdatedAt: now}
 	snap := render.Snapshot{Now: now, Sessions: []render.Session{s3}}
 	if p := render.RenderForCoord(snap, s3.Key(), 0, true, lifetime, nil); p != nil {
-		p["lifetime"] = lifetime
-		p["duration"] = lifetime
+		p["lifetimeMs"] = lifetime * 1000
+		p["durationMs"] = lifetime * 1000
 		_ = push(*baseURL, "ember-test-attn", p)
 	}
 
@@ -100,8 +112,8 @@ func main() {
 	fmt.Println("\nApps rotate for ~3 min then expire; re-run with -clear to drop them now.")
 }
 
-// frameApp wraps a Frame the same way the coordinator publishes one, minus
-// prio/force so the test apps don't preempt the live rotation.
+// frameApp wraps a Frame the same way the coordinator publishes one, minus the
+// display hold so the test apps don't preempt the live rotation.
 func frameApp(f *render.Frame, lifetime int) map[string]any {
 	pixels := make([]int, 256)
 	for y := 0; y < 8; y++ {
@@ -113,8 +125,8 @@ func frameApp(f *render.Frame, lifetime int) map[string]any {
 		}
 	}
 	return map[string]any{
-		"draw":     []any{map[string]any{"db": []any{0, 0, 32, 8, pixels}}},
-		"lifetime": lifetime,
-		"duration": 8,
+		"draw":       []any{[]any{"bitmap", 0, 0, 32, 8, pixels}},
+		"lifetimeMs": lifetime * 1000,
+		"durationMs": 8000,
 	}
 }

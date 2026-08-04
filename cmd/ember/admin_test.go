@@ -197,7 +197,7 @@ func TestAdminDoctor_OKReturnsResult(t *testing.T) {
 func TestAdminDoctor_FailReturns503(t *testing.T) {
 	cfg := defaultConfig()
 	dead := deadAddr(t)
-	// Trim trailing /healthz from deadAddr; AWTRIX probe appends /api/stats itself.
+	// Trim trailing /healthz from deadAddr; the clock probe appends /api/v1/device itself.
 	cfg.AWTRIX.HTTPBaseURL = strings.TrimSuffix(dead, "/healthz")
 	cfg.Auth.StatusToken = "tok"
 	cfg.applyDefaults()
