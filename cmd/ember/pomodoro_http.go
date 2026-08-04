@@ -22,37 +22,40 @@ var errPomodoroDisabled = errors.New("pomodoro feature is not enabled")
 const defaultPomoMelody = "pomo:d=4,o=5,b=125:8g6,8c7,8e7"
 
 // pomodoroSettingsDTO is the wire shape for GET/PUT /v1/pomodoro/config and the
-// persisted-settings blob in the store.
+// persisted-settings blob in the store. Every field is a pointer: nil means
+// "omitted, leave the current value unchanged" (applyPomodoroSettings merges
+// rather than replaces); dtoFromConfig always fills every pointer so GET
+// responses and the persisted blob are fully resolved and round-trip byte-for-
+// byte identically to the pre-pointer wire shape.
 type pomodoroSettingsDTO struct {
-	Enabled               *bool  `json:"enabled,omitempty"`
-	FocusMinutes          int    `json:"focus_minutes"`
-	ShortBreakMinutes     int    `json:"short_break_minutes"`
-	LongBreakMinutes      int    `json:"long_break_minutes"`
-	RoundsBeforeLongBreak int    `json:"rounds_before_long_break"`
-	AutoStartNext         bool   `json:"auto_start_next"`
-	Sound                 bool   `json:"sound"`
-	SoundMelody           string `json:"sound_melody"`
-	FocusColor            string `json:"focus_color"`
-	BreakColor            string `json:"break_color"`
-	MaxSessionMinutes     int    `json:"max_session_minutes"`
+	Enabled               *bool   `json:"enabled,omitempty"`
+	FocusMinutes          *int    `json:"focus_minutes,omitempty"`
+	ShortBreakMinutes     *int    `json:"short_break_minutes,omitempty"`
+	LongBreakMinutes      *int    `json:"long_break_minutes,omitempty"`
+	RoundsBeforeLongBreak *int    `json:"rounds_before_long_break,omitempty"`
+	AutoStartNext         *bool   `json:"auto_start_next,omitempty"`
+	Sound                 *bool   `json:"sound,omitempty"`
+	SoundMelody           *string `json:"sound_melody,omitempty"`
+	FocusColor            *string `json:"focus_color,omitempty"`
+	BreakColor            *string `json:"break_color,omitempty"`
+	MaxSessionMinutes     *int    `json:"max_session_minutes,omitempty"`
 }
 
 const pomodoroSettingsKey = "settings_json"
 
 func dtoFromConfig(p PomodoroConfig) pomodoroSettingsDTO {
-	enabled := p.Enabled
 	return pomodoroSettingsDTO{
-		Enabled:               &enabled,
-		FocusMinutes:          p.FocusMinutes,
-		ShortBreakMinutes:     p.ShortBreakMinutes,
-		LongBreakMinutes:      p.LongBreakMinutes,
-		RoundsBeforeLongBreak: p.RoundsBeforeLongBreak,
-		AutoStartNext:         p.AutoStartNext,
-		Sound:                 p.Sound,
-		SoundMelody:           p.SoundMelody,
-		FocusColor:            p.FocusColor,
-		BreakColor:            p.BreakColor,
-		MaxSessionMinutes:     p.MaxSessionMinutes,
+		Enabled:               &p.Enabled,
+		FocusMinutes:          &p.FocusMinutes,
+		ShortBreakMinutes:     &p.ShortBreakMinutes,
+		LongBreakMinutes:      &p.LongBreakMinutes,
+		RoundsBeforeLongBreak: &p.RoundsBeforeLongBreak,
+		AutoStartNext:         &p.AutoStartNext,
+		Sound:                 &p.Sound,
+		SoundMelody:           &p.SoundMelody,
+		FocusColor:            &p.FocusColor,
+		BreakColor:            &p.BreakColor,
+		MaxSessionMinutes:     &p.MaxSessionMinutes,
 	}
 }
 
@@ -317,25 +320,45 @@ func (a *App) handlePomodoroConfigPut(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dtoFromConfig(a.cfg.Load().Pomodoro))
 }
 
-// applyPomodoroSettings validates the DTO, swaps it into the live config,
-// updates the engine, and persists it to the store for restart durability.
+// applyPomodoroSettings merges the DTO onto the live config (nil fields keep
+// their current value, matching how Enabled has always worked — a
+// settings-only PUT or an older persisted blob can't accidentally zero fields
+// it didn't intend to touch), validates the merged result, updates the
+// engine, and persists it to the store for restart durability.
 func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
 	a.cfgMu.Lock()
 	cur := *a.cfg.Load()
 	p := cur.Pomodoro
-	p.FocusMinutes = dto.FocusMinutes
-	p.ShortBreakMinutes = dto.ShortBreakMinutes
-	p.LongBreakMinutes = dto.LongBreakMinutes
-	p.RoundsBeforeLongBreak = dto.RoundsBeforeLongBreak
-	p.AutoStartNext = dto.AutoStartNext
-	p.Sound = dto.Sound
-	p.SoundMelody = dto.SoundMelody
-	p.FocusColor = dto.FocusColor
-	p.BreakColor = dto.BreakColor
-	p.MaxSessionMinutes = dto.MaxSessionMinutes
-	// enabled is a tri-state on the wire: nil means "leave unchanged" so a
-	// settings-only PUT (older clients, the durations form) can't accidentally
-	// disable the feature.
+	if dto.FocusMinutes != nil {
+		p.FocusMinutes = *dto.FocusMinutes
+	}
+	if dto.ShortBreakMinutes != nil {
+		p.ShortBreakMinutes = *dto.ShortBreakMinutes
+	}
+	if dto.LongBreakMinutes != nil {
+		p.LongBreakMinutes = *dto.LongBreakMinutes
+	}
+	if dto.RoundsBeforeLongBreak != nil {
+		p.RoundsBeforeLongBreak = *dto.RoundsBeforeLongBreak
+	}
+	if dto.AutoStartNext != nil {
+		p.AutoStartNext = *dto.AutoStartNext
+	}
+	if dto.Sound != nil {
+		p.Sound = *dto.Sound
+	}
+	if dto.SoundMelody != nil {
+		p.SoundMelody = *dto.SoundMelody
+	}
+	if dto.FocusColor != nil {
+		p.FocusColor = *dto.FocusColor
+	}
+	if dto.BreakColor != nil {
+		p.BreakColor = *dto.BreakColor
+	}
+	if dto.MaxSessionMinutes != nil {
+		p.MaxSessionMinutes = *dto.MaxSessionMinutes
+	}
 	if dto.Enabled != nil {
 		p.Enabled = *dto.Enabled
 	}
