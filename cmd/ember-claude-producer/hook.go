@@ -141,9 +141,9 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
 	req.SourceCard, req.SessionBar = &sc, &sb
 	_ = withLockEx(lockP, func() error {
-		// Preserve statusline-owned fields (rate_window_pct, context_pct) that
-		// the hook path doesn't compute, so a hook event doesn't clobber the
-		// statusline's enrichment of this marker.
+		// Preserve statusline-owned fields (rate_window_pct, context_pct, and
+		// their weekly counterparts) that the hook path doesn't compute, so a
+		// hook event doesn't clobber the statusline's enrichment of this marker.
 		var ownerPID int
 		var ownerStart string
 		if old, err := readMarker(markerP); err == nil {
@@ -152,6 +152,9 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 				req.RateWindowPct = prev.RateWindowPct
 				req.RateResetAt = prev.RateResetAt
 				req.RateResetLabel = prev.RateResetLabel
+				req.RateWeekPct = prev.RateWeekPct
+				req.RateWeekResetAt = prev.RateWeekResetAt
+				req.RateWeekResetLabel = prev.RateWeekResetLabel
 				if cfg.ContextPctEnabled {
 					req.ContextPct = prev.ContextPct
 				}
@@ -172,6 +175,12 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 			return nil
 		}
 		_ = writeMarker(markerP, body)
+		// The weekly fields are marker-only (relayed to POST /v1/usage by the
+		// heartbeat tick, see tick.go's postStatuslineUsage) — strip them
+		// before this POST /v1/status so they never appear on that wire body.
+		req.RateWeekPct = nil
+		req.RateWeekResetAt = 0
+		req.RateWeekResetLabel = ""
 		_ = client.Post(ctx, req)
 		return nil
 	})

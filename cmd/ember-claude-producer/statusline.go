@@ -23,6 +23,12 @@ type statuslineInput struct {
 			UsedPercentage float64 `json:"used_percentage"`
 			ResetsAt       int64   `json:"resets_at"`
 		} `json:"five_hour"`
+		// SevenDay is the weekly rate-limit window Claude Code's statusline
+		// added alongside five_hour. Same shape, same lenient-optional parsing.
+		SevenDay *struct {
+			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       int64   `json:"resets_at"`
+		} `json:"seven_day"`
 	} `json:"rate_limits"`
 	ContextWindow *struct {
 		UsedPercentage float64 `json:"used_percentage"`
@@ -71,6 +77,42 @@ func extractRateResetLabel(in statuslineInput) (string, bool) {
 		return "", false
 	}
 	return time.Unix(at, 0).Local().Format("15:04"), true
+}
+
+// extractWeekPct returns the 7-day rate-limit used-percentage as a clamped
+// int (0..100), or (nil,false) when rate_limits.seven_day is absent.
+func extractWeekPct(in statuslineInput) (*int, bool) {
+	if in.RateLimits == nil || in.RateLimits.SevenDay == nil {
+		return nil, false
+	}
+	pct := int(math.Round(in.RateLimits.SevenDay.UsedPercentage))
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	return &pct, true
+}
+
+// extractWeekResetAt returns the 7-day window's reset time (unix epoch
+// seconds), or (0,false) when seven_day or a positive resets_at is absent.
+func extractWeekResetAt(in statuslineInput) (int64, bool) {
+	if in.RateLimits == nil || in.RateLimits.SevenDay == nil || in.RateLimits.SevenDay.ResetsAt <= 0 {
+		return 0, false
+	}
+	return in.RateLimits.SevenDay.ResetsAt, true
+}
+
+// extractWeekResetLabel returns the 7-day reset time as an uppercase
+// three-letter weekday ("MON"), matching the OAuth-poller's weekly label
+// convention (usage.go's dayLabel) so both sources render identically.
+func extractWeekResetLabel(in statuslineInput) (string, bool) {
+	at, ok := extractWeekResetAt(in)
+	if !ok {
+		return "", false
+	}
+	return dayLabel(time.Unix(at, 0), time.Local), true
 }
 
 // extractContextPct returns context_window.used_percentage as a clamped int
@@ -168,9 +210,9 @@ func statusLineIsOurs(v any) bool {
 func runStatusline() {
 	buf, _ := io.ReadAll(os.Stdin)
 	if in, ok := parseStatusline(buf); ok {
-		var ratePct, ctxPct *int
-		var resetAt *int64
-		var resetLabel string
+		var ratePct, ctxPct, weekPct *int
+		var resetAt, weekResetAt *int64
+		var resetLabel, weekResetLabel string
 		if p, ok := extractRatePct(in); ok {
 			ratePct = p
 		}
@@ -180,14 +222,25 @@ func runStatusline() {
 		if l, ok := extractRateResetLabel(in); ok {
 			resetLabel = l
 		}
+		if p, ok := extractWeekPct(in); ok {
+			weekPct = p
+		}
+		if r, ok := extractWeekResetAt(in); ok {
+			weekResetAt = &r
+		}
+		if l, ok := extractWeekResetLabel(in); ok {
+			weekResetLabel = l
+		}
 		if contextPctEnabled() {
 			if p, ok := extractContextPct(in); ok {
 				ctxPct = p
 			}
 		}
-		if ratePct != nil || ctxPct != nil || resetAt != nil || resetLabel != "" {
+		if ratePct != nil || ctxPct != nil || resetAt != nil || resetLabel != "" ||
+			weekPct != nil || weekResetAt != nil || weekResetLabel != "" {
 			if dir, err := stateDir(); err == nil {
-				_ = enrichMarker(dir, sanitizeSessionID(in.SessionID, in.Cwd), ratePct, ctxPct, resetAt, resetLabel)
+				_ = enrichMarker(dir, sanitizeSessionID(in.SessionID, in.Cwd),
+					ratePct, ctxPct, resetAt, resetLabel, weekPct, weekResetAt, weekResetLabel)
 			}
 		}
 	}
@@ -201,10 +254,12 @@ func runStatusline() {
 	os.Exit(0)
 }
 
-// enrichMarker merges statusline-owned fields (rate_window_pct, context_pct)
-// into an EXISTING session marker, preserving hook-set fields. Each pointer is
-// applied only when non-nil; never clears. Absent/unparseable marker → skip.
-func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string) error {
+// enrichMarker merges statusline-owned fields (rate_window_pct, context_pct,
+// and their weekly counterparts) into an EXISTING session marker, preserving
+// hook-set fields. Each pointer/non-empty string is applied only when present;
+// never clears. Absent/unparseable marker → skip.
+func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
+	weekPct *int, weekResetAt *int64, weekResetLabel string) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
 	return withLockEx(lp, func() error {
@@ -227,6 +282,15 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 		}
 		if resetLabel != "" {
 			m.RateResetLabel = resetLabel
+		}
+		if weekPct != nil {
+			m.RateWeekPct = weekPct
+		}
+		if weekResetAt != nil {
+			m.RateWeekResetAt = *weekResetAt
+		}
+		if weekResetLabel != "" {
+			m.RateWeekResetLabel = weekResetLabel
 		}
 		out, err := json.Marshal(m)
 		if err != nil {

@@ -254,6 +254,50 @@ func TestDispatchHook_PreservesContextPctWhenEnabled(t *testing.T) {
 	}
 }
 
+// TestDispatchHook_PreservesWeekFieldsOnMarkerButStripsFromStatusPost verifies
+// two things at once: a hook event must not clobber the statusline-owned
+// weekly (rate_week_*) fields on the marker file (so the next heartbeat tick
+// can still relay them to /v1/usage), AND those fields must never appear on
+// the POST /v1/status body itself — they're marker-only.
+func TestDispatchHook_PreservesWeekFieldsOnMarkerButStripsFromStatusPost(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sid := sanitizeSessionID("s1", "/r")
+	markerP := filepath.Join(dir, sid+".json")
+	seed := `{"source":"test-mbp","tool":"claude","session":"` + sid + `","state":"running",` +
+		`"rate_week_pct":35,"rate_week_reset_at":1778700000,"rate_week_reset_label":"MON"}`
+	if err := os.WriteFile(markerP, []byte(seed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dispatchHookForTest(t, "pre-tool-use", []byte(`{"session_id":"s1","cwd":"/r","tool_name":"Bash","tool_input":{"command":"go test"}}`))
+
+	posted := (*h.bodies)[0]
+	if strings.Contains(posted, `"rate_week_pct"`) {
+		t.Errorf("rate_week_pct must not appear on the /v1/status POST body: %s", posted)
+	}
+
+	raw, err := os.ReadFile(markerP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req StatusRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.RateWeekPct == nil || *req.RateWeekPct != 35 {
+		t.Errorf("hook clobbered rate_week_pct on marker: got %v", req.RateWeekPct)
+	}
+	if req.RateWeekResetAt != 1778700000 {
+		t.Errorf("hook clobbered rate_week_reset_at on marker: got %d", req.RateWeekResetAt)
+	}
+	if req.RateWeekResetLabel != "MON" {
+		t.Errorf("hook clobbered rate_week_reset_label on marker: got %q", req.RateWeekResetLabel)
+	}
+}
+
 func TestDispatchHook_ClearsContextPctWhenDisabled(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "ember")

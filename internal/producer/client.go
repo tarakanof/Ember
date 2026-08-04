@@ -34,6 +34,15 @@ type StatusRequest struct {
 	RateResetLabel string `json:"rate_reset_label,omitempty"`
 	SourceCard     *bool  `json:"source_card,omitempty"`
 	SessionBar     *bool  `json:"session_bar,omitempty"`
+	// RateWeekPct/RateWeekResetAt/RateWeekResetLabel carry the Claude
+	// statusline's weekly (seven_day) rate-limit window. They exist so the
+	// on-disk session marker (which embeds StatusRequest) can pass this data
+	// from the statusline process to the heartbeat daemon, which relays it to
+	// POST /v1/usage — they are never meant to reach POST /v1/status itself,
+	// and the Claude producer clears them before that POST.
+	RateWeekPct        *int   `json:"rate_week_pct,omitempty"`
+	RateWeekResetAt    int64  `json:"rate_week_reset_at,omitempty"`
+	RateWeekResetLabel string `json:"rate_week_reset_label,omitempty"`
 }
 
 // DeleteRequest is the DELETE /v1/status body.
