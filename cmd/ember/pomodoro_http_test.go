@@ -176,54 +176,36 @@ func TestPomodoroButtonHookMapsPresses(t *testing.T) {
 	if st := pomoState(t, srv); st["paused"] != false {
 		t.Fatalf("second middle press should resume = %+v", st)
 	}
-	// Left stops — on release, so a chord can pre-empt it. The press alone is a no-op.
+	// Left stops immediately on press; release is a no-op.
 	press("left", "1")
-	if st := pomoState(t, srv); st["phase"] == "idle" {
-		t.Fatalf("left press-down alone should not stop yet = %+v", st)
+	if st := pomoState(t, srv); st["phase"] != "idle" {
+		t.Fatalf("left press should stop immediately = %+v", st)
 	}
 	press("left", "0")
 	if st := pomoState(t, srv); st["phase"] != "idle" {
-		t.Fatalf("left release should stop = %+v", st)
+		t.Fatalf("left release should not change state = %+v", st)
 	}
 }
 
-func TestPomodoroButtonChordToggles(t *testing.T) {
+// TestPomodoroButtonRightSkipsOnPress pins right=skip firing on the press
+// edge (state=1), with no chord left to pre-empt it.
+func TestPomodoroButtonRightSkipsOnPress(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
+	press := buttonPresser(t, srv)
 
-	press := func(button, state string) {
-		form := url.Values{"button": {button}, "state": {state}, "uid": {"awtrix_test"}}
-		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/awtrix/button", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp.Body.Close()
-	}
+	doReq(t, srv, http.MethodPost, "/v1/pomodoro/start", "", `{"phase":"focus"}`)
 
-	// From idle: a left+right chord starts a focus block.
-	press("left", "1")
-	press("right", "1") // both held → chord fires
-	if st := pomoState(t, srv); st["phase"] != "focus" || st["running"] != true {
-		t.Fatalf("chord from idle should start focus, got %+v", st)
+	press(url.Values{"button": {"right"}, "state": {"1"}, "uid": {"awtrix_test"}})
+	if st := pomoState(t, srv); st["phase"] != "short_break" {
+		t.Fatalf("right press should skip focus into short_break immediately, got %+v", st)
 	}
-	// Releasing the chord must NOT fire the single left=stop / right=skip actions.
-	press("left", "0")
-	press("right", "0")
-	if st := pomoState(t, srv); st["phase"] != "focus" {
-		t.Fatalf("chord release should be suppressed, got %+v", st)
+	// Release is a no-op.
+	press(url.Values{"button": {"right"}, "state": {"0"}, "uid": {"awtrix_test"}})
+	if st := pomoState(t, srv); st["phase"] != "short_break" {
+		t.Fatalf("right release should not change state, got %+v", st)
 	}
-
-	// While focused: another chord stops (the "disable" toggle).
-	press("right", "1")
-	press("left", "1") // both held again → chord
-	if st := pomoState(t, srv); st["phase"] != "idle" {
-		t.Fatalf("chord while focused should stop, got %+v", st)
-	}
-	press("right", "0")
-	press("left", "0")
 }
 
 func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
@@ -347,36 +329,6 @@ func TestAwtrixButtonIgnoresUnknownButton(t *testing.T) {
 	}
 	if st := pomoState(t, srv); st["running"] == true {
 		t.Fatalf("unknown button should not start the timer, got %+v", st)
-	}
-}
-
-// The chord is synthesised from press/release edges, and NG sends both. A
-// completed left press+release must clear the held state so the next right press
-// is a plain right, not half a phantom chord.
-func TestAwtrixButtonReleaseClearsChordState(t *testing.T) {
-	app := newPomodoroApp(t)
-	srv := httptest.NewServer(app.routes())
-	defer srv.Close()
-	press := buttonPresser(t, srv)
-
-	press(url.Values{"button": {"middle"}, "state": {"1"}}) // start focus
-	press(url.Values{"button": {"middle"}, "state": {"0"}})
-	if st := pomoState(t, srv); st["phase"] != "focus" {
-		t.Fatalf("setup: want focus, got %+v", st)
-	}
-
-	// A full left press+release stops the timer (left acts on release).
-	press(url.Values{"button": {"left"}, "state": {"1"}})
-	press(url.Values{"button": {"left"}, "state": {"0"}})
-	if st := pomoState(t, srv); st["phase"] != "idle" {
-		t.Fatalf("left press+release should stop, got %+v", st)
-	}
-
-	// A later right press must not see left as still held: no chord, and the
-	// skip only lands on release.
-	press(url.Values{"button": {"right"}, "state": {"1"}})
-	if st := pomoState(t, srv); st["running"] == true {
-		t.Fatalf("right press alone after a released left must not start anything, got %+v", st)
 	}
 }
 
