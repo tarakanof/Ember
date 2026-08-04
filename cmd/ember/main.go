@@ -999,6 +999,10 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("PUT /v1/device/config", http.HandlerFunc(a.handleDeviceConfigPut))
 	writeMux.Handle("GET /v1/device/settings", http.HandlerFunc(a.handleDeviceSettingsGet))
 	writeMux.Handle("PUT /v1/device/settings", http.HandlerFunc(a.handleDeviceSettingsPut))
+	writeMux.Handle("GET /v1/device/display", http.HandlerFunc(a.handleDeviceDisplayGet))
+	writeMux.Handle("PUT /v1/device/display", http.HandlerFunc(a.handleDeviceDisplayPut))
+	writeMux.Handle("GET /v1/device/apps", http.HandlerFunc(a.handleDeviceAppsGet))
+	writeMux.Handle("PUT /v1/device/apps", http.HandlerFunc(a.handleDeviceAppsPut))
 	writeMux.Handle("GET /v1/device/stats", http.HandlerFunc(a.handleDeviceStats))
 	writeMux.Handle("GET /v1/device/sensors", http.HandlerFunc(a.handleDeviceSensorsGet))
 	writeMux.Handle("PUT /v1/device/sensors", http.HandlerFunc(a.handleDeviceSensorsPut))
@@ -1008,6 +1012,7 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("POST /v1/device/app/next", http.HandlerFunc(a.handleDeviceNextApp))
 	writeMux.Handle("POST /v1/device/app/previous", http.HandlerFunc(a.handleDevicePrevApp))
 	writeMux.Handle("GET /v1/device/buttons", http.HandlerFunc(a.handleDeviceButtons))
+	writeMux.Handle("PUT /v1/device/buttons", http.HandlerFunc(a.handleDeviceButtonsPut))
 	// Limiter outermost, auth inside: requests rejected by auth (401) still
 	// consume rate-limit budget, so an attacker hammering wrong tokens gets
 	// throttled to 429 instead of probing at full speed.
