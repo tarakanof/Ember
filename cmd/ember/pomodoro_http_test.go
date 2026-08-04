@@ -446,8 +446,8 @@ func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
 
 	// Persist a runtime edit (focus=30) via the API path.
 	if err := app.applyPomodoroSettings(pomodoroSettingsDTO{
-		FocusMinutes: 30, ShortBreakMinutes: 5, LongBreakMinutes: 15, RoundsBeforeLongBreak: 4,
-		FocusColor: "#FF3B30", BreakColor: "#2EE85E",
+		FocusMinutes: intPtr(30), ShortBreakMinutes: intPtr(5), LongBreakMinutes: intPtr(15), RoundsBeforeLongBreak: intPtr(4),
+		FocusColor: strPtr("#FF3B30"), BreakColor: strPtr("#2EE85E"),
 	}); err != nil {
 		t.Fatalf("applyPomodoroSettings: %v", err)
 	}
