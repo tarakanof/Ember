@@ -162,6 +162,11 @@ type AWTRIXConfig struct {
 	// device.go). nil/absent defaults to enabled, matching the *bool toggle
 	// pattern used elsewhere (usage_widget, meetings.enabled, weather.*).
 	AutoRediscover *bool `json:"auto_rediscover,omitempty"`
+	// BootPing installs the ember-boot-ping Berry script on the clock (see
+	// boot_ping.go): on reboot it POSTs /hooks/awtrix/boot so Ember re-pushes
+	// its tiles in seconds instead of waiting for StartDeviceWatch to notice.
+	// Off by default — it puts a script on a device the operator owns.
+	BootPing bool `json:"boot_ping"`
 }
 
 // AutoRediscoverEnabled reports whether the periodic clock re-discovery probe
@@ -590,6 +595,10 @@ type App struct {
 	// POST to /hooks/awtrix/button (0 = never). Proves the clock's button_callback
 	// reaches us; surfaced via GET /v1/device/buttons.
 	lastButtonAt atomic.Int64
+
+	// bootPingMu serialises ensureBootPingScript runs (startup and every
+	// /admin/reload), so two of them can't race a PUT against a DELETE.
+	bootPingMu sync.Mutex
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -969,6 +978,9 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
 	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
 	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
+	// Same trust model as the button hook, and the same reason: a Berry script
+	// on the clock has nowhere to keep a token. See handleAwtrixBoot.
+	mux.HandleFunc("POST "+bootHookPath, a.handleAwtrixBoot)
 
 	writeMux := http.NewServeMux()
 	writeMux.Handle("POST /v1/status", http.HandlerFunc(a.handleStatus))
@@ -1594,6 +1606,9 @@ func main() {
 	go app.StartCoordinator(ctx)
 	go app.StartWeather(ctx)
 	go app.StartMeetings(ctx)
+	// Off the startup path: it does device HTTP, and a clock that isn't up yet
+	// must not delay the listener. Re-run after every /admin/reload.
+	go app.ensureBootPingScript(ctx)
 
 	// Periodic self-healing watch: re-check the effective clock URL and swap to
 	// a reachable mDNS candidate if it's gone dark, and re-push everything when
