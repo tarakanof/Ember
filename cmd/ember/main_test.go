@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,19 +17,24 @@ import (
 )
 
 type recordingPublisher struct {
-	mu                sync.Mutex
-	customApps        []map[string]any
-	customNames       []string
-	clearedApps       []string
-	notify            []map[string]any
-	indicator         []map[string]any
+	mu             sync.Mutex
+	customApps     []map[string]any
+	customNames    []string
+	clearedApps    []string
+	notify         []map[string]any
+	indicator      []map[string]any
+	indicatorCalls []indicatorCall
+	// indicatorErr, when non-nil, fails every Indicator write.
+	indicatorErr      error
 	clearedIndicators []int
 	settings          []map[string]any
 	switches          []string
-	dismissals        int
-	rtttls            []string
-	sounds            []string
-	loopApps          []string // app names returned by ListApps (device rotation)
+	dismissedNames    []string
+	// dismissByNameErr, when non-nil, is returned by every DismissNotifyByName
+	// call (the device answers 404 for a name it no longer holds).
+	dismissByNameErr error
+	rtttls           []string
+	loopApps         []string // app names returned by ListApps (device rotation)
 	// ops is the interleaved call order across the device-mutating methods
 	// ("push <name>", "switch <name>", "settings", "clear <name>"). The
 	// per-method slices above lose the relative ordering, and the display hold
@@ -138,11 +144,20 @@ func (p *recordingPublisher) Notify(_ context.Context, payload map[string]any) e
 	return nil
 }
 
-func (p *recordingPublisher) DismissNotify(_ context.Context) error {
+func (p *recordingPublisher) DismissNotifyByName(_ context.Context, name string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.dismissals++
-	return nil
+	p.dismissedNames = append(p.dismissedNames, name)
+	return p.dismissByNameErr
+}
+
+// DismissedNamesSnapshot returns a copy of dismissed notification names under the lock.
+func (p *recordingPublisher) DismissedNamesSnapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]string, len(p.dismissedNames))
+	copy(out, p.dismissedNames)
+	return out
 }
 
 func (p *recordingPublisher) PlayRTTTL(_ context.Context, rtttl string) error {
@@ -152,18 +167,34 @@ func (p *recordingPublisher) PlayRTTTL(_ context.Context, rtttl string) error {
 	return nil
 }
 
-func (p *recordingPublisher) PlaySound(_ context.Context, name string) error {
+// indicatorCall is one recorded Indicator write, index included — the payload
+// alone can't tell which of the three LEDs was addressed.
+type indicatorCall struct {
+	index   int
+	payload map[string]any
+}
+
+// errFakeDeviceDown stands in for an unreachable clock in fake-publisher tests.
+var errFakeDeviceDown = errors.New("fake device unreachable")
+
+func (p *recordingPublisher) Indicator(_ context.Context, index int, payload map[string]any) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.sounds = append(p.sounds, name)
+	p.indicatorCalls = append(p.indicatorCalls, indicatorCall{index: index, payload: payload})
+	if p.indicatorErr != nil {
+		return p.indicatorErr // the attempt is still recorded, so retries are visible
+	}
+	p.indicator = append(p.indicator, payload)
 	return nil
 }
 
-func (p *recordingPublisher) Indicator(_ context.Context, _ int, payload map[string]any) error {
+// IndicatorCallsSnapshot returns a copy of recorded indicator writes under the lock.
+func (p *recordingPublisher) IndicatorCallsSnapshot() []indicatorCall {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.indicator = append(p.indicator, payload)
-	return nil
+	out := make([]indicatorCall, len(p.indicatorCalls))
+	copy(out, p.indicatorCalls)
+	return out
 }
 
 func (p *recordingPublisher) ClearIndicator(_ context.Context, index int) error {
@@ -809,9 +840,8 @@ func (noopPublisher) ListIcons(context.Context) ([]string, error)             { 
 func (noopPublisher) PutIcon(context.Context, string, []byte) error           { return nil }
 func (noopPublisher) ListApps(context.Context) ([]string, error)              { return nil, nil }
 func (noopPublisher) Notify(context.Context, map[string]any) error            { return nil }
-func (noopPublisher) DismissNotify(context.Context) error                     { return nil }
+func (noopPublisher) DismissNotifyByName(context.Context, string) error       { return nil }
 func (noopPublisher) PlayRTTTL(context.Context, string) error                 { return nil }
-func (noopPublisher) PlaySound(context.Context, string) error                 { return nil }
 func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
 func (noopPublisher) ClearIndicator(context.Context, int) error               { return nil }
 func (noopPublisher) Settings(context.Context, map[string]any) error          { return nil }

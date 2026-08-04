@@ -150,6 +150,13 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		res.Checks["clock"] = checkClock(ctx, app)
 	}
 
+	// 11. capabilities  (skipped offline; the cache lives in the running server)
+	if app == nil {
+		res.Checks["capabilities"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
+	} else {
+		res.Checks["capabilities"] = checkCapabilities(app)
+	}
+
 	// StatusWarn is non-fatal: a stale meetings feed (or the startup window
 	// before the first ICS poll) must not make /admin/doctor return 503 and
 	// must not make `ember doctor` exit 1 on the online path.
@@ -191,6 +198,24 @@ func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
 		return CheckResult{Status: StatusFail, Detail: fmt.Sprintf("GET %s → %d (%v)", url, resp.StatusCode, elapsed)}
 	}
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("GET %s → %d (%v)", url, resp.StatusCode, elapsed)}
+}
+
+// checkCapabilities reports the cached firmware capability counts. A missing
+// cache is a Warn, not a Fail: the clock was simply unreachable at startup, and
+// GET /v1/device/capabilities still answers from a live fetch.
+func checkCapabilities(app *App) CheckResult {
+	caps, ok := app.capabilities()
+	if !ok {
+		return CheckResult{Status: StatusWarn, Detail: "not fetched (clock unreachable at startup?)"}
+	}
+	fw := app.deviceFirmware()
+	if fw == "" {
+		fw = "<unknown>"
+	}
+	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf(
+		"effects=%d palette_effects=%d transitions=%d overlays=%d palettes=%d radio=%t firmware=%s",
+		len(caps.Effects), len(caps.PaletteEffects), len(caps.Transitions),
+		len(caps.Overlays), len(caps.Palettes), caps.Radio, fw)}
 }
 
 func checkSessionsSummary(app *App) CheckResult {

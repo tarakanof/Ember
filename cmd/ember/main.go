@@ -184,6 +184,10 @@ type DisplayConfig struct {
 	FrameLifetimeSeconds int  `json:"frame_lifetime_seconds"`
 	IdleRestoreSeconds   int  `json:"idle_restore_seconds"`
 	AttentionChime       bool `json:"attention_chime"`
+	// Indicators turns on the three corner-LED ambient status lights (see
+	// coordinator_indicators.go). Opt-in: they are shared real estate on the
+	// panel, so a plain Ember install leaves them alone.
+	Indicators bool `json:"indicators"`
 	// PulseStyle is parsed but ignored. Kept so configs from G.1b that
 	// still carry "pulse_style": "breathe" continue to parse under
 	// DisallowUnknownFields. AWTRIX firmware has no multi-frame draw
@@ -574,6 +578,13 @@ type App struct {
 	deviceRediscoverMu   sync.Mutex
 	lastRediscoverAt     atomic.Int64 // unix secs, 0 = never
 	lastRediscoverResult atomic.Value // string: "reachable" | "swapped" | "no-device"
+
+	// caps caches GET /api/v1/capabilities (the firmware's supported effect /
+	// transition / overlay / palette names), refreshed at startup and on
+	// rediscovery; deviceVersion is the clock's firmware version from the same
+	// refresh. See device_capabilities.go.
+	caps          atomic.Pointer[awtrix.Capabilities]
+	deviceVersion atomic.Value // string
 
 	// lastButtonAt is the unix-seconds time of the most recent device button
 	// POST to /hooks/awtrix/button (0 = never). Proves the clock's button_callback
@@ -995,6 +1006,7 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/device/apps", http.HandlerFunc(a.handleDeviceAppsGet))
 	writeMux.Handle("PUT /v1/device/apps", http.HandlerFunc(a.handleDeviceAppsPut))
 	writeMux.Handle("GET /v1/device/stats", http.HandlerFunc(a.handleDeviceStats))
+	writeMux.Handle("GET /v1/device/capabilities", http.HandlerFunc(a.handleDeviceCapabilities))
 	writeMux.Handle("GET /v1/device/sensors", http.HandlerFunc(a.handleDeviceSensorsGet))
 	writeMux.Handle("PUT /v1/device/sensors", http.HandlerFunc(a.handleDeviceSensorsPut))
 	writeMux.Handle("GET /v1/device/screen", http.HandlerFunc(a.handleDeviceScreen))
@@ -1177,6 +1189,7 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 		req.Duration = 5
 	}
 	if err := a.publisher.Notify(r.Context(), map[string]any{
+		"name":       notifyNameNotify,
 		"text":       req.Text,
 		"textColor":  req.Color,
 		"durationMs": req.Duration * 1000, // the request carries seconds; NG takes ms
@@ -1290,19 +1303,17 @@ type Publisher interface {
 	// reconciled/cleared even though the in-memory push trackers start empty.
 	ListApps(ctx context.Context) ([]string, error)
 	Notify(ctx context.Context, payload map[string]any) error
-	// DismissNotify clears the currently-shown notification
-	// (DELETE /api/v1/notifications/active). Used to acknowledge a held
-	// reminder alarm when the user presses a clock button.
-	DismissNotify(ctx context.Context) error
-	// PlayRTTTL plays an inline RTTTL melody (POST /api/v1/sounds/play).
-	// Used for reminder/weather chimes out-of-band of notifications; whether
-	// NG still drops a notification's own sound alongside draw/icon is
-	// re-evaluated in the sounds-consolidation ticket.
+	// DismissNotifyByName clears the notification carrying name
+	// (DELETE /api/v1/notifications/{name}). Used to acknowledge Ember's own
+	// held reminder alarm when the user presses a clock button, so a foreign
+	// notification can never be the one that gets cleared. A name the device
+	// no longer holds answers 404 (*awtrix.APIError).
+	DismissNotifyByName(ctx context.Context, name string) error
+	// PlayRTTTL plays an inline RTTTL melody (POST /api/v1/sounds/play). Only
+	// for chimes with no notification of their own — the attention-lock chime.
+	// Popups carry their melody on the notification's soundRtttl key instead:
+	// awtrix-ng plays it alongside draw/icon, unlike AWTRIX3.
 	PlayRTTTL(ctx context.Context, rtttl string) error
-	// PlaySound plays a melody file already on the device (/MELODIES) by name
-	// (POST /api/v1/sounds/play) — the device-sound-name counterpart to
-	// PlayRTTTL.
-	PlaySound(ctx context.Context, name string) error
 	// Indicator lights one of the three corner LEDs
 	// (PUT /api/v1/indicators/{1-3}).
 	Indicator(ctx context.Context, index int, payload map[string]any) error
@@ -1406,12 +1417,12 @@ func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) erro
 	return c.Notify(ctx, payload)
 }
 
-func (p *HTTPPublisher) DismissNotify(ctx context.Context) error {
+func (p *HTTPPublisher) DismissNotifyByName(ctx context.Context, name string) error {
 	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return c.DismissNotify(ctx)
+	return c.DismissNotifyByName(ctx, name)
 }
 
 func (p *HTTPPublisher) PlayRTTTL(ctx context.Context, rtttl string) error {
@@ -1420,14 +1431,6 @@ func (p *HTTPPublisher) PlayRTTTL(ctx context.Context, rtttl string) error {
 		return err
 	}
 	return c.PlayRTTTL(ctx, rtttl)
-}
-
-func (p *HTTPPublisher) PlaySound(ctx context.Context, name string) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.PlaySound(ctx, name)
 }
 
 func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {

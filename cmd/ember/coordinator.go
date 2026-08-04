@@ -100,6 +100,11 @@ type coordinator struct {
 	// unaffected — only the coordinator's render path filters.
 	hiddenApps func() map[string]bool
 
+	// indicators is what we last successfully wrote to the three corner LEDs, so
+	// publish can write them on edges only (see coordinator_indicators.go).
+	// Coordinator-goroutine-owned.
+	indicators [3]indicatorState
+
 	// hold is who currently owns the screen device-side. Edge-triggered: the
 	// forced app switch (and, for Pomodoro, the autoTransition/blockNavigation
 	// settings) are written only when this value changes, plus on a cmdRepublish
@@ -1012,6 +1017,9 @@ func (c *coordinator) onRepublish() {
 	// Legacy standalone usage apps died with the reboot; nothing left to clear.
 	c.pushedUsageApps = nil
 	c.hold = holdNone
+	// A reboot also drops the corner LEDs, so forget them and let the cycle
+	// below re-assert whatever the snapshot asks for.
+	c.indicators = [3]indicatorState{}
 	c.onTick()
 }
 
@@ -1023,6 +1031,11 @@ func (c *coordinator) publish(snap Snapshot) {
 	}
 	idleRestore := time.Duration(cfg.Display.IdleRestoreSeconds) * time.Second
 	now := c.clk.Now()
+
+	// Ambient corner-LED status, from the same snapshot this frame renders.
+	// Ahead of the frame work because it must run on every publish path,
+	// including the dedupe skip and the nothing-to-show return below.
+	c.applyIndicators(c.desiredIndicators(snap, now))
 
 	// Pomodoro preempt (highest priority). An active timer owns the display:
 	// render its frame and take the device over for the whole phase. When it

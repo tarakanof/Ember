@@ -26,7 +26,8 @@
     "rotation_dwell_seconds": 3,
     "ack_timeout_seconds": 30,
     "frame_lifetime_seconds": 30,
-    "idle_restore_seconds": 120
+    "idle_restore_seconds": 120,
+    "indicators": false
   },
   "pomodoro": {
     "enabled": false,

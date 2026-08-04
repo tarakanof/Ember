@@ -261,15 +261,13 @@ func (a *App) checkMeetingPopup(ctx context.Context, now time.Time, cfg Meetings
 		a.meetings.mu.Unlock()
 
 		payload := render.MeetingPopupPayload(sanitizeMeetingTitle(occ.Title), cfg.PopupLeadMins(), meetingPopupDurationSeconds)
+		payload["name"] = notifyNameMeeting
+		if cfg.ChimeEnabled() {
+			// The chime rides on the notification; quietPublisher strips it at night.
+			payload["soundRtttl"] = defaultMeetingChime
+		}
 		if err := a.publisher.Notify(cctx, payload); err != nil {
 			a.logger.Warn("meeting popup failed", "err", err)
-		}
-		if cfg.ChimeEnabled() {
-			// Chime separately: the firmware drops a notification's own sound when
-			// it has draw/icon; quietPublisher mutes it at night.
-			if err := a.publisher.PlayRTTTL(cctx, defaultMeetingChime); err != nil {
-				a.logger.Warn("meeting chime failed", "err", err)
-			}
 		}
 	}
 }

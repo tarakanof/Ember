@@ -193,7 +193,10 @@ func (a *App) pomoPhaseEndAlert(res *pomodoro.PhaseResult) {
 	if res.Phase == pomodoro.PhaseFocus {
 		text = "BREAK"
 	}
-	payload := map[string]any{"text": text, "wakeup": true, "durationMs": 4000, "stack": false}
+	payload := map[string]any{
+		"text": text, "wakeup": true, "durationMs": 4000, "stack": false,
+		"name": notifyNamePomodoro,
+	}
 	if p.SoundMelody != "" {
 		payload["sound"] = p.SoundMelody
 	} else {
@@ -463,17 +466,17 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	// assumption, NG documents that a configured buttonCallback does NOT consume
 	// the press ("the buttons keep their normal job"), and that a select press
 	// dismisses the showing notification regardless — even with blockNavigation
-	// set. So the firmware has very likely cleared it already and this DELETE is
-	// a no-op (it answers 200 even when nothing is showing). It is kept because
+	// set. So the firmware has very likely cleared it already and the DELETE
+	// 404s, which is why a not-found is not a failure here. It is kept because
 	// the failure mode of being wrong the other way is a hold:true alarm stuck on
-	// the clock forever; the cost of being right is that a second notification
-	// queued behind the alarm can be skipped. Only a physical-button test settles
-	// which happens on 1.0.13.
+	// the clock forever. Dismissing BY NAME (not the active notification) means a
+	// foreign popup that arrived in the meantime is never the one cleared.
 	if held := a.reminderHeldUntil.Load(); held != 0 && now.UnixNano() < held {
 		if down && (button == "middle" || button == "select") {
 			a.reminderHeldUntil.Store(0)
 			if a.publisher != nil {
-				if err := a.publisher.DismissNotify(r.Context()); err != nil {
+				err := a.publisher.DismissNotifyByName(r.Context(), notifyNameReminder)
+				if err != nil && !isAPINotFound(err) {
 					a.logger.Warn("reminder dismiss failed", "err", err)
 				}
 			}

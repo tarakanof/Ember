@@ -237,13 +237,17 @@ func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
 	if app.reminderHeldUntil.Load() != 0 {
 		t.Fatal("middle press should disarm reminderHeldUntil")
 	}
-	if rp, ok := app.publisher.(*recordingPublisher); ok {
-		rp.mu.Lock()
-		d := rp.dismissals
-		rp.mu.Unlock()
-		if d != 1 {
-			t.Fatalf("middle press should dismiss the notification once, got %d", d)
-		}
+	// App.publisher is the quiet-hours gate; the recorder is the one behind it.
+	qp, ok := app.publisher.(*quietPublisher)
+	if !ok {
+		t.Fatalf("App.publisher = %T, want *quietPublisher", app.publisher)
+	}
+	rp, ok := qp.next.(*recordingPublisher)
+	if !ok {
+		t.Fatalf("quiet gate wraps %T, want *recordingPublisher", qp.next)
+	}
+	if got := rp.DismissedNamesSnapshot(); len(got) != 1 || got[0] != notifyNameReminder {
+		t.Fatalf("middle press should dismiss %q once, got %v", notifyNameReminder, got)
 	}
 	press("middle")
 	if st := pomoState(t, srv); st["paused"] != true {

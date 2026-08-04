@@ -309,6 +309,65 @@ func TestBaseURLRequired(t *testing.T) {
 	}
 }
 
+func TestDismissNotifyByName(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.DismissNotifyByName(context.Background(), "ember reminder"); err != nil {
+		t.Fatalf("DismissNotifyByName: %v", err)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/notifications/ember reminder" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+}
+
+func TestDismissNotifyByNameRejectsEmptyName(t *testing.T) {
+	c, _ := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.DismissNotifyByName(context.Background(), ""); err == nil {
+		t.Fatal("empty name must be rejected client-side (it would hit the collection route)")
+	}
+}
+
+func TestCapabilities(t *testing.T) {
+	body := `{"effects":["Fade","Matrix"],"paletteEffects":["Fade"],
+	  "transitions":["Slide","Dim","Zoom"],"overlays":["rain"],
+	  "palettes":["Ocean","Lava"],"radio":false,"gpio":{"soc":"esp32","max":39}}`
+	c, rec := serve(t, http.StatusOK, body)
+	caps, err := c.Capabilities(context.Background())
+	if err != nil {
+		t.Fatalf("Capabilities: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/capabilities" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if len(caps.Effects) != 2 || len(caps.PaletteEffects) != 1 || len(caps.Transitions) != 3 ||
+		len(caps.Overlays) != 1 || len(caps.Palettes) != 2 || caps.Radio {
+		t.Fatalf("decoded = %+v", caps)
+	}
+	// gpio round-trips verbatim so a re-marshal reproduces the NG shape.
+	if !strings.Contains(string(caps.GPIO), `"soc":"esp32"`) {
+		t.Fatalf("gpio = %s", caps.GPIO)
+	}
+	out, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatalf("re-marshal: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("re-marshal not JSON: %v", err)
+	}
+	for _, k := range []string{"effects", "paletteEffects", "transitions", "overlays", "palettes", "radio", "gpio"} {
+		if _, ok := got[k]; !ok {
+			t.Fatalf("re-marshalled shape missing %q: %s", k, out)
+		}
+	}
+}
+
+func TestCapabilitiesPropagatesAPIError(t *testing.T) {
+	c, _ := serve(t, http.StatusNotFound, `{"error":{"code":"notFound","message":"not found"}}`)
+	if _, err := c.Capabilities(context.Background()); err == nil {
+		t.Fatal("want error on 404")
+	}
+}
+
 func TestTrailingSlashTrimmed(t *testing.T) {
 	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
 	c2 := NewClient(c.BaseURL()+"/", 2*time.Second)

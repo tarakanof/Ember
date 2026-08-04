@@ -102,9 +102,9 @@ func drawBarInto(f *Frame, pct int) {
 }
 
 // LimitResetPopupPayload is the "5h limit reset — back to work" notification:
-// drawn 8×8 tool icon + brand-coloured text, auto-dismiss. The chime is NOT in
-// the payload (fw 0.98 drops a notification's sound when it draws) — the
-// caller plays it via PlayRTTTL, same as reminders.
+// drawn 8×8 tool icon + brand-coloured text, auto-dismiss. The caller adds the
+// notification's name and its soundRtttl chime — awtrix-ng plays a
+// notification's melody alongside its draw commands.
 func LimitResetPopupPayload(tool string, durationSec int) map[string]any {
 	icon, color, label := usageIconClaude, usageColorClaude, "CLAUDE 5H RESET"
 	if tool == "codex" {

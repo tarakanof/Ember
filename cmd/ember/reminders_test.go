@@ -29,8 +29,8 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	if p["durationMs"] != 10_000 {
 		t.Errorf("durationMs = %v, want 10000", p["durationMs"])
 	}
-	if _, hasSound := p["sound"]; hasSound {
-		t.Error("sound must NOT ride on the notification (firmware drops it under a draw)")
+	if p["soundRtttl"] != defaultReminderSound {
+		t.Errorf("soundRtttl = %v, want %q", p["soundRtttl"], defaultReminderSound)
 	}
 	if p["hold"] != true {
 		t.Errorf("hold = %v, want true", p["hold"])
@@ -38,9 +38,9 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	if _, hasDraw := p["draw"]; !hasDraw {
 		t.Error("no native_icon_id -> should draw the bell")
 	}
-	// sound=true should play the chime via the dedicated /api/rtttl endpoint.
-	if len(pub.rtttls) != 1 || pub.rtttls[0] != defaultReminderSound {
-		t.Errorf("expected one rtttl chime %q, got %v", defaultReminderSound, pub.rtttls)
+	// The chime rides on the notification; nothing is played out-of-band.
+	if len(pub.rtttls) != 0 {
+		t.Errorf("expected no out-of-band chime, got %v", pub.rtttls)
 	}
 }
 
@@ -56,8 +56,8 @@ func TestHandleReminderFireNativeIconAndSilent(t *testing.T) {
 	if p["icon"] != "1234" {
 		t.Errorf("icon = %v, want 1234", p["icon"])
 	}
-	if _, hasSound := p["sound"]; hasSound {
-		t.Error("sound=false should omit sound")
+	if _, hasSound := p["soundRtttl"]; hasSound {
+		t.Error("sound=false should omit soundRtttl")
 	}
 	if len(pub.rtttls) != 0 {
 		t.Errorf("sound=false should play no chime, got %v", pub.rtttls)
