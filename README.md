@@ -2,30 +2,32 @@
 
 # Ember
 
-Small status aggregator for showing Claude/Codex activity on an AWTRIX3 clock.
+Small status aggregator for showing Claude/Codex activity on an awtrix-ng clock.
 
 The service is intentionally light:
 
 - one Go binary, stdlib only
-- single AWTRIX HTTP transport
+- single AWTRIX HTTP transport (no MQTT — see [`STYLE.md`](docs/STYLE.md) §11)
 - bearer-token auth on write endpoints
 - HTTP input endpoint for laptop-side producers
 
 ## Current Target
 
-A single AWTRIX3 clock on the local network (configure yours in `config.json`):
+A single awtrix-ng clock on the local network (configure yours in `config.json`):
 
-- AWTRIX prefix: `awtrix_xxxxxx` (your device's MQTT topic prefix)
-- AWTRIX HTTP URL: `http://<awtrix-ip>`
-- Firmware: `0.98`
+- AWTRIX HTTP URL: `http://<awtrix-ip>` (or let mDNS/UDP discovery find it — see
+  [`RUNBOOK.md`](docs/RUNBOOK.md) → "Discovery & mDNS")
+- Firmware: [awtrix-ng](https://github.com/Blueforcer/awtrix-ng) (`boardType:
+  "awtrixng"` on `GET /api/v1/device`)
 
 ## Hardware & firmware
 
-Ember drives a clock running [AWTRIX 3](https://github.com/Blueforcer/awtrix3) —
+Ember drives a clock running [awtrix-ng](https://github.com/Blueforcer/awtrix-ng) —
 Blueforcer's open-source firmware for the [Ulanzi](https://www.ulanzi.com) TC001
 "Smart Pixel Clock" (or a self-built 32×8 matrix). Ember talks to it over the
-firmware's HTTP API; see the [AWTRIX 3 docs](https://blueforcer.github.io/awtrix3/)
-for flashing and the API reference.
+firmware's HTTP API; see the [awtrix-ng docs](https://blueforcer.github.io/awtrix-ng/)
+for flashing and the API reference. See [`RUNBOOK.md`](docs/RUNBOOK.md) →
+"awtrix-ng flashing, backup, and first-boot" for moving a TC001 over from AWTRIX3.
 
 Ember is an independent project, not affiliated with or endorsed by Ulanzi or the
 AWTRIX firmware.
@@ -410,13 +412,15 @@ POST /hooks/awtrix/button          # form: button=left|middle|right&state=1|0
 ### Device buttons
 
 To control the timer with the TC001's physical buttons, point the device's
-`button_callback` dev option at this service so it POSTs each press to
-`POST http://<service-host>:3627/hooks/awtrix/button`. Mapping (on press-down):
-**middle = pause/resume**, **right = skip phase**, **left = stop**. While a timer
-runs the service sets `BLOCKN:true` + `ATRANS:false` on the device so the buttons
-drive the timer instead of switching apps, and restores both when it stops.
-(If you run an MQTT broker instead, the same press semantics map to the
-`…/stats/buttonLeft|Select|Right` topics — not wired by default.)
+`buttonCallback` (`PUT /api/v1/system`) at this service so it POSTs each press
+to `POST http://<service-host>:3627/hooks/awtrix/button` — the menu app's
+Device tab can set this with one click (`PUT /v1/device/buttons`), or see
+[`RUNBOOK.md`](docs/RUNBOOK.md) → "Device button → Pomodoro control" to do it
+by hand. Mapping (on press-down): **middle = pause/resume/start**, **right =
+skip phase**, **left = stop** (the old AWTRIX3 left+right chord is gone).
+While a timer runs the service sets `blockNavigation:true` +
+`autoTransition:false` on the device so the buttons drive the timer instead of
+switching apps, and restores both when it stops.
 
 The stock TC001 piezo buzzer plays the phase-end chime as RTTTL; set
 `sound_melody` to a melody filename on the device, or leave it blank for the

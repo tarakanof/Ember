@@ -9,8 +9,8 @@ import (
 // T-minus popup. Both pair a drawn 8×8 calendar icon (cols 0–7) with native
 // firmware text from col 9 (center:false + textOffset:9 — long titles scroll
 // natively; same device-verified layout as the air popup). The chime is NOT
-// carried in the popup payload (AWTRIX 0.98 drops a notification's own sound
-// when it also has draw/icon) — the caller plays it via /api/rtttl.
+// built here — the caller attaches `soundRtttl` to the returned payload
+// (awtrix-ng plays it in-band, draw/icon or not).
 
 // meetingCalPage is the calendar body: solid border, sparse date dots inside.
 var meetingCalPage = []string{
@@ -76,9 +76,8 @@ func MeetingPayload(title string, minutes, lifetime int) map[string]any {
 // (back-to-back meetings in the same tick each get their own notification).
 // Same-occurrence deduplication is handled caller-side by the fired map, so
 // stack:true does not cause duplicates for the same event.
-// The chime is NOT included here — AWTRIX 0.98 silently drops sound/rtttl
-// whenever the notification carries a draw or icon op; the caller sends it
-// separately via /api/rtttl.
+// The chime is NOT built here — the caller attaches `soundRtttl` to the
+// returned payload; awtrix-ng plays it in-band alongside the draw ops.
 func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]any {
 	return map[string]any{
 		"text":        fmt.Sprintf("%s IN %dM", title, leadMinutes),

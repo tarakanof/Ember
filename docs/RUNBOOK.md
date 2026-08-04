@@ -132,14 +132,19 @@ The source-colour toggle/picker stay disabled until Source + Server URL are set
 The **Connection** tab also lists **Discovered servers** (Ember servers found via
 Bonjour/`_ember._tcp`); tapping one fills the Server URL. When the list is empty it
 offers a **Grant Local Network Access…** button (macOS gates Bonjour browsing
-behind the Local Network privacy permission) + **Rescan**. The **Device** tab is
-the AWTRIX clock's own settings (General / Native Apps / Time & Date / Actions),
-proxied through the server (`/v1/device/*`) — brightness, volume, app time,
-transitions, native-app toggles, calendar colours, sensor calibration
-(temp/hum offsets, written to the clock's `dev.json`; **Apply reboots the
-clock**), Reboot / Dismiss — plus a
-**Discover clocks** picker (mDNS) to choose which AWTRIX the server drives. The
-**App** tab's *About* shows the app version + the connected server's `/version`.
+behind the Local Network privacy permission) + **Rescan**. The **Device** tab
+speaks the awtrix-ng schema directly (General / Native Apps / Time & Date /
+Actions), proxied through the server (`/v1/device/*`) — brightness, volume,
+app time, transitions (the picker is fed by `GET /v1/device/capabilities`
+instead of a static list), native-app toggles, calendar colours, sensor
+calibration (temp/hum offsets, written via a read-merge-PUT of
+`/api/v1/system`; **applies live, no reboot** — unlike the old AWTRIX3
+`dev.json` contract), Reboot / Dismiss, buttons (enabled with a one-click
+`PUT /v1/device/buttons`) — plus a **Discover clocks** picker (mDNS) to choose
+which awtrix-ng clock the server drives. Time and date are discrete typed
+fields (no format strings to fill in, unlike AWTRIX3's `TFORMAT`/`DFORMAT`),
+and sensor edits apply immediately. The **App** tab's *About* shows the app
+version + the connected server's `/version`.
 
 The **Weather** tab edits `weather` config (provider Open-Meteo/MET Norway,
 lat/lon, units, the rotating-tile + popup behaviour, severe-alert sound); the
@@ -151,30 +156,49 @@ deploy that wants them persisted needs that writable volume mounted.
 
 ## Device button → Pomodoro control
 
-The clock's three physical buttons drive the timer via the AWTRIX3 **developer**
-`button_callback` (an HTTP POST per press; no MQTT broker). On the clock's web
-file manager (`http://192.168.0.14`), add the key to `dev.json`:
+The clock's three physical buttons drive the timer via NG's `buttonCallback`
+(an HTTP POST per press; no MQTT broker needed). The easiest path is the menu
+app's Device tab (one-click `PUT /v1/device/buttons`, `{"enabled":true}`),
+which computes the server's own reachable URL automatically. To set it by
+hand instead:
 
-```json
-{ "button_callback": "http://<mac-lan-ip>:3627/hooks/awtrix/button" }
+```sh
+curl -X PUT http://<hostname>.local/api/v1/system \
+  -H "Content-Type: application/json" \
+  -d '{"buttonCallback": "http://<mac-lan-ip>:3627/hooks/awtrix/button"}'
 ```
 
 - Use the **Mac's LAN IP** (where the container publishes `:3627`) — *not*
-  `localhost`; it's DHCP, so a reservation keeps it stable.
-- `dev.json` applies **at boot only** — reboot the clock after editing. Other
-  dev keys (`temp_offset`, `hum_offset`) coexist; don't clobber them.
+  `localhost`; it's DHCP, so a reservation keeps it stable. Always
+  read-merge — a naive partial PUT to `/api/v1/system` risks dropping the
+  device's Wi-Fi credentials (this is exactly what `handleDeviceButtonsPut`
+  does under the hood).
+- `/api/v1/system` writes apply **live, no reboot** (unlike AWTRIX3's
+  `dev.json`, which only took effect at boot).
 - Ember's `pomodoro.button_callback` config bool must be `true` (default).
-- The Pomodoro view uses **on-device AWTRIX animated icons** (`/ICONS/29802.gif`
-  tomato = focus, `/ICONS/6396.gif` coffee = break). They ship on the clock; if
-  ever missing, re-upload via the device's icon gallery / file manager.
-- Mapping (press-down only): middle/select = pause / resume / start-from-idle,
-  right = skip, left = stop. Ember sets `BLOCKN:true` while a timer runs so the
-  buttons drive the timer instead of switching apps, restoring native nav on stop.
+- The Pomodoro view uses **on-device NG animated icons** (`/ICONS/29802.gif`
+  tomato = focus, `/ICONS/6396.gif` coffee = break). Ember provisions them
+  itself (`ensureNativeIcons`) if missing — no manual upload needed.
+- Mapping (press-down only): **middle/select** = pause / resume /
+  start-from-idle, **right** = skip, **left** = stop. The AWTRIX3-era
+  left+right chord is removed (#81). While a timer runs Ember sets
+  `blockNavigation:true` + `autoTransition:false` (`PATCH /api/v1/settings`)
+  so the buttons drive the timer instead of switching apps, restoring both on
+  stop. NG documents — and Ember has verified on firmware 1.0.13 — that a
+  configured `buttonCallback` does **not** consume the press (the buttons keep
+  their normal firmware job), and that select/middle self-dismisses a showing
+  notification even under `blockNavigation:true` — the AWTRIX3-era "won't
+  self-dismiss while a callback is configured" gotcha does not hold on NG.
 - **Reboot recovery:** a running timer takes over the display
-  (`ATRANS:false`/`BLOCKN:true` + `/api/switch` to the app slot). A clock reboot
-  silently clears those, but Ember **re-asserts the takeover every 30s** while a
-  timer is active — so after a mid-timer reboot the screen re-pins to the timer
-  within ~30s without any manual step.
+  (`blockNavigation:true`/`autoTransition:false` + a forced
+  `PUT /api/v1/apps/active`). Pushed apps and both settings are RAM-only on
+  NG, so a reboot silently drops them; recovery now rides the shared
+  device-watch loop (30s probe, detects the reboot via falling
+  `uptimeSeconds`, triggers a full republish) rather than a Pomodoro-specific
+  re-assert timer. The Berry boot-ping hook
+  (`POST /hooks/awtrix/boot`, config toggle `awtrix.boot_ping`, default off)
+  makes this near-instant — ~12s from reboot to republish, measured — with
+  the 30s watch as fallback.
 - Smoke-test the server half without the device:
   `curl -X POST -d "button=select&state=1" http://localhost:3627/hooks/awtrix/button`
   (should start a focus).
@@ -265,10 +289,16 @@ unaffected by the default change — only bare/default installs change.
 
 ## Discovery & mDNS
 
-The server finds the AWTRIX clock on the LAN (mDNS browse of `_http._tcp`, then a
-`/api/stats` fingerprint) and advertises itself as `_ember._tcp` so the macOS app
-can auto-fill the server URL (Connection tab → "Discovered servers"). The Device
-tab proxies the clock's own settings through `/v1/device/*`.
+The server finds the awtrix-ng clock on the LAN by mDNS (browse the
+awtrix-ng-specific `_awtrixng._tcp` service, not a generic `_http._tcp` sweep)
+with a `FIND_AWTRIXNG` UDP broadcast fallback (broadcast `:4210`, replies
+collected on a fixed `:4211`) for networks where multicast doesn't make it
+through; a resolved host is fingerprinted via `GET /api/v1/device`, requiring
+both a non-empty `uid` and `boardType == "awtrixng"` (the AWTRIX3 `/api/stats`
+fingerprint doesn't exist on NG). The server advertises itself as
+`_ember._tcp` so the macOS app can auto-fill the server URL (Connection tab →
+"Discovered servers"). The Device tab proxies the clock's own NG API through
+`/v1/device/*`.
 
 - **Host networking is required** for either direction — multicast doesn't cross
   the default Docker bridge. Run the container with `--network host` (or macvlan).
@@ -276,17 +306,23 @@ tab proxies the clock's own settings through `/v1/device/*`.
   reachable `awtrix.http_base_url` from `config.json` > mDNS auto-pick (in-memory;
   never written back to the read-only config or the store).
 - **Self-healing:** the server reachability-tests the effective URL (store
-  override included) at boot and every ~60s via a background probe
+  override included) at boot and every 30s via a background probe
   (`awtrix.auto_rediscover`, default on); an unreachable URL falls through to a
   fresh mDNS auto-pick without touching `config.json` or the store, so a
-  clock's IP changing (DHCP renumbering) recovers on its own within ~60s.
+  clock's IP changing (DHCP renumbering) recovers on its own within ~30s. The
+  same tick reads the clock's `uptimeSeconds` to detect a reboot and triggers a
+  full republish of every pushed app — pushed apps are RAM-only on NG, so a
+  reboot silently drops them all. The Berry boot-ping hook (#73)
+  (`POST /hooks/awtrix/boot`, unauthenticated device-side hook, config toggle
+  `awtrix.boot_ping`) republishes instantly on boot instead of waiting on the
+  next 30s tick — the 30s watch remains the fallback path.
   `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
   `last_rediscover_at`/`last_rediscover_result`.
 - `EMBER_MDNS_ADVERTISE` (default on; `0`/`false` disables) gates only the
   advertising side; clock discovery and the Device tab still work with a
   configured URL.
 - **Troubleshooting — clock dark after its IP changed:** the server self-heals
-  within ~60s (mDNS). To apply the new IP now, restart the container (re-runs boot discovery) or
+  within ~30s (mDNS). To apply the new IP now, restart the container (re-runs boot discovery) or
   `PUT /v1/device/config {"base_url": …}`; `/admin/doctor` shows the clock's
   reachability + last re-discovery. A DHCP reservation avoids the whole
   problem.
@@ -319,9 +355,12 @@ off via `PUT /v1/apps` and confirm its usage faces disappear.
 
 ## On-device verification (no waiting for real data)
 
-1. **Read the live matrix:** `GET http://192.168.0.14/api/screen` returns 256
-   RGB ints (32×8 row-major). Render them as ANSI 24-bit colour blocks in the
-   terminal to confirm pixels paint.
+1. **Read the live matrix:** `GET http://<hostname>.local/api/v1/display/screen`
+   returns `{"width":32,"height":8,"pixels":[256 ints]}` (awtrix-ng wraps the
+   framebuffer; AWTRIX3 returned the bare 256-int array). Ember proxies this
+   raw at `GET /v1/device/screen` and the macOS app unwraps it to mirror the
+   display. Render the pixels as ANSI 24-bit colour blocks in the terminal to
+   confirm pixels paint.
 2. **Drive a widget to a chosen value:** `POST /v1/status` (token from
    `producer.env`) a crafted session (e.g. rate 75% → amber ⅔ bar, ctx 88% →
    near-full glass). Keep it alive with a re-POST loop faster than the
@@ -333,6 +372,16 @@ off via `PUT /v1/apps` and confirm its usage faces disappear.
 4. Before assuming a rebuild is needed, check `GET /version` (server revision)
    and the installed producer binary mtime — sometimes flipping `producer.env`
    toggles is the only step.
+5. **Display hold / re-push behavior (firmware 1.0.13, measured):** a forced
+   `PUT /api/v1/apps/active` plus `durationMs == lifetimeMs` sustains a hold;
+   `apps/active` 404s if the named app hasn't been pushed yet, so the switch
+   must strictly follow a successful push. Re-pushing the same app is
+   idempotent — blink phase and dwell are both unaffected — so the
+   coordinator's dedupe is a network/device-load nicety, not something
+   correctness depends on. At `lifetimeMs` the app is deleted outright
+   (`lifetimeExpiry` default `"remove"`), which is what returns the display to
+   native rotation crash-safely. The device's own app rotation needs at least
+   two enabled apps to actually rotate.
 
 ## awtrix-ng flashing, backup, and first-boot
 

@@ -28,9 +28,9 @@ var reminderGold = RGB{0xff, 0xcc, 0x33}
 // alarm take over the display until the user dismisses it (middle button) instead
 // of auto-dismissing after durationSec — the alarm then ignores the duration.
 //
-// The chime is NOT carried here: on AWTRIX 0.98 a notification's `sound`/`rtttl`
-// is silently dropped whenever the notification also has a `draw` or `icon`, so
-// the caller plays it separately via the device's /api/rtttl endpoint.
+// The chime is NOT built here: the caller owns the melody choice and attaches
+// it to this payload as `soundRtttl` — awtrix-ng plays a notification's own
+// sound even when the payload also draws (unlike AWTRIX3, which dropped it).
 // ReminderPopupFrame composes the drawn alarm-popup frame for settings
 // previews: the gold bell at cols 0-7 + the text from col 9 in the 3×5 font
 // (uppercased — the font has no lowercase; overlong text clips at the right

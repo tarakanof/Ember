@@ -9,7 +9,7 @@ canonical design reference — read it before non-trivial changes. For operation
 
 The project mirrors Anthropic's `claude-desktop-buddy` shape:
 
-- The **AWTRIX clock** (Ulanzi TC001 running AWTRIX3 firmware) is the display
+- The **AWTRIX clock** (Ulanzi TC001 running awtrix-ng firmware) is the display
   device — the "Buddy". Its firmware is **unmodified**; we drive it over HTTP.
 - **Host-side producers** (one per laptop/agent) are the bridge: they watch
   local AI-agent activity and POST compact status to the server.
@@ -57,7 +57,7 @@ The aggregator and the only writer to the device.
   key** (not slice index), attention **preempt** (jump to a waiting/error
   session) with an attention hold (`ack_timeout_seconds`, default 30 s, **read
   live** so a runtime PUT applies to the current lock) and an optional **chime**
-  on fresh lock acquisition (`attention_chime`, via `/api/rtttl`), the
+  on fresh lock acquisition (`attention_chime`, via `POST /api/v1/sounds/play`), the
   **number-slot card cursor** (rotates cards within a session — see Display),
   publish **dedup** (skip identical payloads inside the lifetime window), and
   the **idle tri-state machine**: `ACTIVE` (sessions present → rotation/locked
@@ -72,15 +72,25 @@ The aggregator and the only writer to the device.
   `GET/PUT /v1/display/config` using the standard **baseline + store-override**
   pattern (config.json baseline; SQLite `display_json` override wins, survives
   restarts and `/admin/reload`) — same shape as weather/pomodoro/usage config.
-- **Display hold.** Reserved for attention: only the **locked** waiting/error
-  frame (and the idle hot-usage frame) is published with `prio:true` +
-  `force:true` + `duration=lifetime`, snapping the clock to it and holding it
-  for the attention window. Merely-running frames carry no `prio`/`force` and a
-  short `duration` (6 s, same as the weather/forecast tiles) so an active agent
-  rotates alongside the other apps instead of owning the screen. Every frame
-  still has a per-frame `lifetime`, so the clock **crash-safely** returns to
-  native apps if the server dies (vs the sticky, reboot-requiring
-  `/api/settings` primitive — deliberately not used).
+- **Display hold.** awtrix-ng has no per-payload priority — the AWTRIX3
+  `prio:true`/`force:true`/`duration=lifetime` combination 422s on NG entirely.
+  Reserved for attention: only the **locked** waiting/error frame (and the idle
+  hot-usage frame) triggers a forced `PUT /api/v1/apps/active` on the hold
+  edge, and the app's own `durationMs == lifetimeMs` then sustains it for the
+  attention window (switching happens strictly **after** a successful push —
+  `apps/active` 404s on an app the device doesn't know yet). Merely-running
+  frames ask for no forced switch and a short `durationMs` (6 s, same as the
+  weather/forecast tiles) so an active agent rotates alongside the other apps
+  instead of owning the screen. `autoTransition:false` outranks any per-app
+  dwell entirely and is reserved for the Pomodoro takeover — hold precedence is
+  `holdPomodoro > holdAttention > holdNone` (`cmd/ember/coordinator.go`). Every
+  held app still expires at its `lifetimeMs` (`lifetimeExpiry` default
+  `"remove"`, which **deletes** the pushed app outright) and the display
+  **crash-safely** returns to native rotation if the server dies — re-pushing
+  the same app is idempotent on NG (blink phase and dwell are both unaffected
+  by a re-push, measured on firmware 1.0.13), so the coordinator's publish
+  dedupe survives only as device/network thrift, not as a correctness
+  requirement.
 
 ### Producers
 
@@ -166,14 +176,17 @@ threshold/dimmed bar colours, tight-colon clock) and the three payload builders
 
 A focus timer integrated into the **same service/container** (not a separate
 app). A pure `Engine` state machine (focus/short/long, pause/resume/skip/stop) drives a
-**top-priority preempt inside the coordinator** — an active timer renders
-`render.PomodoroPayload` (a built-in animated icon + native MM:SS + progress)
-and holds the slot, edge-triggering device `ATRANS:false`/`BLOCKN:true` +
-`/api/switch` on start and restoring on stop. Because a **device reboot**
-silently clears those settings and the forced slot while the coordinator's flag
-stays set, the takeover is **re-asserted every 30s** (`pomoReassertInterval`)
-while a timer stays active, so a reboot can't strand the timer in the app
-rotation. The
+**top-priority preempt inside the coordinator** (`holdPomodoro`, which outranks
+`holdAttention`) — an active timer renders `render.PomodoroPayload` (a built-in
+animated icon + native MM:SS + progress) and holds the slot, edge-triggering
+device `autoTransition:false`/`blockNavigation:true` (`PATCH /api/v1/settings`)
+plus a forced `PUT /api/v1/apps/active` on start, and restoring both settings
+on stop. Because a **device reboot** drops pushed apps and both settings while
+the coordinator's `hold` flag stays set, recovery arrives via the shared
+device-watch/boot-ping republish path (see "Device discovery & control" below)
+rather than a Pomodoro-specific re-assert loop: `RepublishAll` resets `hold` to
+force a fresh edge, which re-applies the takeover settings and the forced
+switch. The
 cycle **auto-advances** by default (`auto_start_next: true`) and **auto-stops**
 after a wall-clock budget (`max_session_minutes`, default 480 = 8h, `0` = off) so
 it never runs overnight; focus is configurable up to 8h. Stats persist in pure-Go
@@ -182,9 +195,11 @@ edits persist to the SQLite store (key `settings_json`, re-applied over the
 **read-only** bind-mounted `config.json` baseline at boot) — so the menu can
 change durations/colours/cap without a writable config file. API:
 `POST /v1/pomodoro/{start,pause,resume,stop,skip}` + `GET/PUT /v1/pomodoro/config`
-(bearer); open `GET /v1/pomodoro/{state,stats}`; **unauthenticated**
+(bearer; PUT is **merge semantics** since #84 — omitted fields keep their
+current value); open `GET /v1/pomodoro/{state,stats}`; **unauthenticated**
 `POST /hooks/awtrix/button` (the device can't send a token) mapping
-middle=pause/resume/start, right=skip, left=stop.
+middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
+left+right chord is removed).
 
 ### Weather — `cmd/ember/weather.go`
 
@@ -264,18 +279,20 @@ text (`PomodoroPayload`). `GET /v1/reminders/preview` renders the bell alarm
 popup (`ReminderPopupFrame`, optional `text` param). Both feed the stacked
 "Display" sections on top of the menu app's Pomodoro and Reminders tabs.
 
-A 1-min poll loop (`StartWeather`) fetches when due and fires `/api/notify`
-**popups**: on condition change (`popup_on_change`), on a fixed cadence
-(`popup_interval_minutes`, `0`=off), a **sound alert** on severe-weather onset
-(`severe_alert`), and **sunrise/sunset** popups (`sun_popups`) — sun times computed
-locally from lat/lon (`astro.go` `sunTimes`, polar-safe), fired once per UTC day per
-event within a 2-min window; the label uses the location's real UTC offset (longitude
+A 1-min poll loop (`StartWeather`) fetches when due and fires
+`POST /api/v1/notifications` **popups**: on condition change
+(`popup_on_change`), on a fixed cadence (`popup_interval_minutes`, `0`=off), a
+**sound alert** on severe-weather onset (`severe_alert`), and
+**sunrise/sunset** popups (`sun_popups`) — sun times computed locally from
+lat/lon (`astro.go` `sunTimes`, polar-safe), fired once per UTC day per event
+within a 2-min window; the label uses the location's real UTC offset (longitude
 fallback for MET). Popups use a drawn icon by default; `use_native_icons` swaps in a
 native AWTRIX/LaMetric animated weather icon by ID — per-condition IDs default to
 widely-used gallery icons and are overridable from the menu (`icon_ids`) so the user
-can curate from developer.lametric.com/icons. Firmware quirk: a notification's own
-`sound`/`rtttl` is silently dropped when it also carries a `draw`/`icon`, so chimes
-(severe, sun) are played separately via `POST /api/rtttl`|`/api/sound`. Config is
+can curate from developer.lametric.com/icons. awtrix-ng honors a notification's own
+`sound`/`soundRtttl` even when it also carries a `draw`/`icon` (the AWTRIX3-era
+gotcha that forced chimes out-of-band via `/api/rtttl`/`/api/sound` is gone), so the
+severe-alert chime rides directly on the popup payload. Config is
 fully runtime-editable (`GET/PUT /v1/weather/config`, persisted to store key
 `weather_json`), including `enabled` — so the menu can turn the whole widget on/off.
 
@@ -349,11 +366,14 @@ a dedicated timer — the same mechanism that refreshes the weather tiles.
 
 **Popup and chime.** An edge-triggered T-minus popup fires at
 `start − popup_lead_minutes` (default 2; 0 = off), deduped per occurrence
-(`UID|start` key), with a 2-minute grace window covering a missed tick. The chime
-is played separately via `POST /api/rtttl`: the AWTRIX firmware silently drops a
-notification's own `sound`/`rtttl` when the payload also carries a `draw`/`icon`,
-so the chime must be a standalone request — the same pattern used by
-the severe-weather and 5h-reset alarms. Quiet hours mute the chime (audio only —
+(`UID|start` key), with a 2-minute grace window covering a missed tick. The
+chime rides directly on the notification's `soundRtttl` key — awtrix-ng plays
+it alongside the popup's own `draw`/`icon` (unlike AWTRIX3, which silently
+dropped a notification's `sound`/`rtttl` whenever the payload also carried a
+`draw`/`icon`, forcing the chime out via a standalone `/api/rtttl` call). The
+severe-weather and 5h-reset alarms ride the same in-band pattern now; only the
+attention chime (`PlayRTTTL`, coordinator.go) stays a separate call, because it
+has no notification of its own to ride. Quiet hours mute the chime (audio only —
 the popup visual always shows).
 
 **Config and persistence.** `MeetingsConfig` (`enabled`, `tile_lead_minutes`,
@@ -393,18 +413,65 @@ Pomodoro SQLite store, but `ensureStore` is called unconditionally at boot —
 independent of whether Pomodoro itself is enabled — so persistence is active
 regardless of the Pomodoro setting; see "Shared store" below.)
 
+### NG indicators, capabilities, and app ordering (#70)
+
+**Corner LED indicators** (`coordinator_indicators.go`) are opt-in
+(`display.indicators`, default off) and carry ambient status that survives
+whatever frame is on the matrix: LED1 dim green while any session is
+`running`, LED2 blinks amber (waiting) or red (error) while the coordinator
+holds the attention lock — following the lock, not any individual waiting
+session, since the lock is what's actually holding the screen — and LED3 dim
+blue during quiet hours. `applyIndicators` only writes an LED whose desired
+state changed (`PUT /api/v1/indicators/{1-3}`, or `DELETE` to turn one off —
+NG keeps the stored colour/blinkMs on a bare `PUT`, so only `DELETE` truly
+resets one), so the steady state costs no extra device traffic.
+
+**Firmware capabilities** (`GET /api/v1/capabilities`) are fetched at startup
+and again on every rediscovery, cached in-process, and served at
+`GET /v1/device/capabilities` (falling back to a live proxy fetch when the
+cache is cold) — the firmware's supported effect/transition/overlay/palette
+name lists, which the macOS Device tab uses to populate its transition picker
+instead of guessing at a static enum. `/admin/doctor` reports the cached
+counts as its `capabilities` check.
+
+**App ordering** (`GET/PUT /v1/device/apps`) proxies `GET /api/v1/apps` /
+`PUT /api/v1/apps/order` — ordering plus enable/disable of the device's own
+apps, replacing the AWTRIX3 settings keys `TIM`/`DAT`/`TEMP`/`HUM`/`BAT` that
+NG has no equivalent for (name only what you want to change). The ambient
+weather overlay is a separate concern, `PATCH /api/v1/display` via
+`GET/PUT /v1/device/display` — not part of app ordering. The device's own
+rotation needs at least two apps enabled to actually rotate; with only one
+enabled app it just stays on it.
+
 ### Device discovery & control — `internal/discovery`, `cmd/ember/device*.go`
 
-The server finds the clock on the LAN by mDNS (browse `_http._tcp`, then a
-`/api/stats` fingerprint keyed on a non-empty `uid`) instead of relying on a
-hardcoded address. The effective clock URL resolves as **writable-store override
-> reachable `config.json` baseline > mDNS auto-pick** — while the pinned URL
-(store override or config baseline) answers, that precedence holds as before.
-But the pin is now **reachability-tested, not just trusted**: a 1.5s HTTP probe
-runs at boot and again every ~60s from a background watcher
-(`StartDeviceWatch`), and if the currently-effective URL (store override
-included) stops answering, the server falls through to a fresh mDNS auto-pick
-so the clock keeps working after a DHCP renumbering. Swaps are **in-memory
+The server finds the clock on the LAN by mDNS (browse the awtrix-ng-specific
+`_awtrixng._tcp` service type — NG registers its own, so the browse no longer
+sweeps every web server on the LAN like the old generic `_http._tcp` browse
+did) with a `FIND_AWTRIXNG` UDP broadcast fallback (broadcast to `:4210`, reply
+collected on a fixed `:4211`; directed broadcasts are needed in practice on
+some networks) for when multicast doesn't make it through. A resolved host is
+fingerprinted via `GET /api/v1/device`: it counts as the clock only when it
+reports both a non-empty `uid` **and** `boardType == "awtrixng"` — the AWTRIX3
+`/api/stats` fingerprint doesn't exist on NG. The effective clock URL resolves
+as **writable-store override > reachable `config.json` baseline > mDNS
+auto-pick** — while the pinned URL (store override or config baseline)
+answers, that precedence holds as before. But the pin is
+**reachability-tested, not just trusted**: a 1.5s HTTP probe runs at boot and
+again every 30s from a background watcher (`StartDeviceWatch`), and if the
+currently-effective URL (store override included) stops answering, the server
+falls through to a fresh mDNS auto-pick so the clock keeps working after a
+DHCP renumbering. The same watch tick also reads the device's `uptimeSeconds`
+to detect a reboot (uptime going backwards, or the device answering again
+after a gap) and triggers `RepublishAll` — pushed apps are RAM-only on
+awtrix-ng, so a reboot silently drops every app the coordinator believes is
+still on the device, and this is what pushes them all back. The 30s interval
+was chosen to match the old Pomodoro-only 30s re-assert loop it replaced, so
+worst-case recovery latency didn't regress; the Berry boot-ping hook (#73)
+(`POST /hooks/awtrix/boot`, an unauthenticated device-side hook, config toggle
+`awtrix.boot_ping`) calls `RepublishAll` directly on boot instead of waiting
+for the next tick, making recovery near-instant with the 30s watch as
+fallback. Swaps are **in-memory
 only** — `config.json` and the writable store are never rewritten, so a
 config/store edit still takes effect the next time its source URL goes
 unreachable. The whole probe loop is gated by `awtrix.auto_rediscover` (config,
@@ -415,19 +482,28 @@ itself as `_ember._tcp` so the menu app can discover it (gated by
 
 The menu's Device tab manages the clock's *own* firmware settings — but **the
 server stays the only writer to the device**: the tab calls `/v1/device/settings`
-(bearer auth), and the server whitelists + range-validates each AWTRIX key before
-forwarding to the clock's unauthenticated `/api/settings`. `ATRANS`/`BLOCKN`
-remain transiently owned by the Pomodoro coordinator during a focus block.
+(bearer auth), and the server whitelists + range-validates each NG settings key
+(`device_settings.go`'s `deviceSettingRules`) before forwarding to the clock's
+unauthenticated `PATCH /api/v1/settings`. `autoTransition`/`blockNavigation`
+(NG's replacements for AWTRIX3's `ATRANS`/`BLOCKN`) remain transiently owned by
+the Pomodoro coordinator during a focus block — the menu can still read them,
+but writing them mid-focus-block would race the coordinator. Time/date are
+discrete typed fields on NG (`timeMode`, `dateOrder`, `dateSeparator`, …) with
+no format strings to validate, unlike AWTRIX3's `TFORMAT`/`DFORMAT` strftime
+strings. `buttonCallback` is set separately via `PUT /v1/device/buttons`
+(below) because it lives on `/api/v1/system`, not `/api/v1/settings`.
 
-Sensor calibration (`GET/PUT /v1/device/sensors`) follows the same proxy rule
-but targets `dev.json` on the clock's LittleFS, since the firmware has no
-settings-API key for `temp_offset`/`hum_offset`. The PUT read-merges the
-existing file (preserving unrelated keys — notably `button_callback`, which
-Pomodoro buttons depend on), uploads it through the device's multipart `/edit`
-route (the icon-provisioning mechanism), and reboots the clock because dev.json
-is only read at boot. The Ulanzi firmware default is `temp_offset:-9`
-(self-heating compensation); a dev.json value replaces that default, so the
-menu treats −9/0 — not 0/0 — as the baseline.
+Sensor calibration (`GET/PUT /v1/device/sensors`) targets `tempOffset`/
+`humOffset` on `/api/v1/system` — NG has no dedicated settings-API key for
+them, and the old AWTRIX3 `dev.json`-on-LittleFS contract is gone entirely. The
+PUT read-merges the existing `/api/v1/system` object (preserving unrelated
+keys — notably `buttonCallback`, which Pomodoro buttons depend on, and the
+Wi-Fi credentials the device needs to boot) and writes it back with a plain
+`PUT`; NG applies system changes **live, no reboot**, unlike `dev.json`, which
+only took effect at boot. The Ulanzi firmware default is `tempOffset:-9`
+(self-heating compensation); an explicit `null` in a sensors PUT resets to that
+default (or `0` for humidity), so the menu treats −9/0 — not 0/0 — as the
+baseline.
 
 ## The "spine" — how display widgets are added
 
@@ -535,9 +611,11 @@ tiles).
 `GET/PUT /v1/quiet/config`, store key `quiet_json`). Enforced by a
 `quietPublisher` decorator around the device publisher — during the window
 (server-local wall clock; overnight wrap supported; `start == end` = never)
-Notify payloads lose their `sound`/`rtttl` keys and `PlayRTTTL`/`PlaySound`
-no-op, so every sound source is covered at one choke point. Visual output is
-untouched; sounds resume on the first event after the window.
+Notify payloads lose their `sound`/`soundRtttl`/`soundLoop` keys (NG's three
+notification sound fields; AWTRIX3 spelled the latter two `rtttl`/`loopSound`)
+and `PlayRTTTL` no-ops, so every sound source is covered at one choke point.
+Visual output is untouched — an attention hold still takes the screen at
+night, just silently — and sounds resume on the first event after the window.
 
 ## Display layout (32×8 matrix)
 
@@ -568,38 +646,63 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   bar** over content cols 8–31; else the session-pixel bar (1 px per non-idle
   session, priority-sorted, when `session_bar` on); else off.
 - **Locked attention view** — 8×8 tool icon in cols 0–7, firmware-native
-  blinking text `WAIT <SOURCE>` / `ERR <SOURCE>` at `textOffset:9`; scrolls when
-  the label overflows the 23 free columns. Activity detail no longer substitutes
-  here — the label always names which agent/computer needs attention.
-- **Pomodoro view** — AWTRIX **built-in animated icon** (`icon` field: tomato
-  `3591` focus / coffee `6396` break) + native MM:SS countdown + native progress
-  bar; paused dims the phase colour. (Not a drawn `db`; the drawn
-  `RenderPomodoro` is retained for tests.)
+  blinking text `WAIT <SOURCE>` / `ERR <SOURCE>` at `textOffsetX:9` (with
+  `textCenter:false` — see the gotcha below); scrolls when the label overflows
+  the 23 free columns. Activity detail no longer substitutes here — the label
+  always names which agent/computer needs attention.
+- **Pomodoro view** — NG **built-in animated icon** (`icon` field: tomato
+  `29802` focus / coffee `6396` break) + native MM:SS countdown + native progress
+  bar; paused dims the phase colour. (Not a drawn bitmap; the drawn
+  `RenderPomodoro` is retained for tests and the `GET /v1/pomodoro/preview`
+  endpoint.)
 
 ## Gotchas & constraints (hard-won)
 
-### AWTRIX firmware (0.98)
-- **No multi-frame `draw` arrays.** A 2-frame pulse payload triggers `500
-  ErrorParsingJson` on the device. Use firmware-native `blinkText` instead.
-- **`textOffset` stacks on top of centering.** Custom apps default
-  `center:true`, and the firmware *adds* `textOffset` to the centered position →
-  text clips past col 31. Set `center:false` to make `textOffset` the literal
-  start column.
-- **Native-app suppression:** use `prio:true` + `force:true` + per-frame
-  `lifetime`, never `/api/settings` (sticky, some toggles need a reboot, not
-  crash-safe).
-- **Device button input** comes via the HTTP `button_callback` (no MQTT broker
-  needed); the device can't attach a token, hence the unauthenticated hook.
-- **Verify on-device** by reading `GET /api/screen` (256 RGB ints, 32×8
-  row-major) — see RUNBOOK for the ANSI-render + crafted-session technique.
-- **Hue shifts with brightness — the `GAMMA` setting is ignored.** The
-  firmware's `gammaCorrection()` computes gamma from the current brightness:
-  `logMap(actualBri, 2, 180, 0.535, 2.3, 1.9)`. At the auto-brightness floor
-  (`min_brightness` default **2**, i.e. any dark room) gamma ≈ 0.535, which
-  *boosts* mid-range channels: orange `#FF7F00` (G=50%) displays as ≈`#FFB000`
-  — yellow. At bright daylight (BRI→180) gamma → 2.3 and the same orange goes
-  deep red-orange. No payload colour fixes this; raise `min_brightness` in the
-  device's `dev.json` (~20–40) to keep night-time gamma near neutral.
+### awtrix-ng firmware (verified on 1.0.13)
+- **No multi-frame `draw` arrays.** A 2-frame pulse payload triggers a
+  validation error on the device. Use firmware-native `blinkText` instead.
+- **`textOffsetX` stacks on top of centering** — carried over from AWTRIX3
+  under new key names. Custom apps default `textCenter:true`, and the firmware
+  *adds* `textOffsetX` to the centred position → text clips past col 31. Set
+  `textCenter:false` to make `textOffsetX` the literal start column. A drawn
+  `bitmap` indents nothing on its own; only a **native `icon`** reserves the
+  left 9px — with a native icon present, text auto-centers in the remaining
+  region instead.
+- **No per-payload priority.** AWTRIX3's `prio:true`/`force:true`/
+  `duration=lifetime` combination 422s on NG outright. The only levers are a
+  forced `PUT /api/v1/apps/active` (device-level, not payload) plus the app's
+  own `durationMs`/`lifetimeMs` — see "Display hold" above. `lifetimeExpiry`
+  defaults to `"remove"`: at `lifetimeMs` the app is **deleted**, not merely
+  hidden, which is what keeps Ember's idle model crash-safe. Re-pushing the
+  same app is idempotent (blink phase and dwell survive a re-push unaffected),
+  so the coordinator's dedupe is a network/CPU nicety, not a correctness
+  requirement.
+- **Pushed apps are RAM-only.** A device reboot drops every app Ember pushed
+  and the `autoTransition`/`blockNavigation` settings pair, even though the
+  coordinator's own bookkeeping doesn't know that happened until the next
+  device-watch probe (or boot-ping, #73) triggers a republish.
+- **Device button input** comes via a plain HTTP POST per press
+  (`button=left|middle|right&state=1|0&uid`, `select` accepted as an alias for
+  `middle`, ~300ms budget) to whatever URL `buttonCallback` (`/api/v1/system`)
+  names; the device can't attach a token, hence the unauthenticated hook. NG
+  documents — and Ember has verified — that a configured `buttonCallback` does
+  **not** consume the press: the buttons keep their normal firmware job, and a
+  `select`/`middle` press dismisses the showing notification even under
+  `blockNavigation:true` (the AWTRIX3-era "won't self-dismiss while a callback
+  is configured" gotcha is **false** on NG). Ember still dismisses its own
+  `ember-reminder` popup by name as belt-and-braces (a 404 there is fine — the
+  firmware likely already cleared it). The AWTRIX3 left+right chord is
+  removed (#81): left=stop, right=skip, middle=start/pause/resume, all on
+  press only.
+- **Verify on-device** by reading `GET /api/v1/display/screen`, which wraps
+  the framebuffer as `{"width":32,"height":8,"pixels":[256 ints]}` (AWTRIX3
+  returned the bare 256-int array — consumers must unwrap the new shape) — see
+  RUNBOOK for the ANSI-render + crafted-session technique.
+- **The gamma/brightness hue-shift analysis that used to live here was derived
+  from AWTRIX3 source and has not been re-derived for awtrix-ng** — deleted
+  rather than carried forward unverified. If NG exhibits the same brightness-
+  dependent hue shift, re-derive and re-document it against NG's own gamma
+  code before relying on it.
 
 ### DarwinKit / AppKit (retired Go menu)
 The retired Go menu was replaced by the native SwiftUI app (`macos/`), so its
