@@ -554,7 +554,7 @@ func (a *App) StartWeather(ctx context.Context) {
 	}
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	a.ensureWeatherIcons(ctx)      // device icons before the first tile push
+	a.ensureNativeIcons(ctx)       // device icons before the first tile push
 	a.pollWeather(ctx, time.Now()) // initial attempt so the tile appears promptly
 	for {
 		select {
@@ -806,7 +806,7 @@ func (a *App) applyWeatherSettings(cfg WeatherConfig) error {
 	a.nudgePomo()
 	// Provision any native icons the new config needs onto the device, off
 	// the request path (it does device + gallery HTTP).
-	go a.ensureWeatherIcons(context.Background())
+	go a.ensureNativeIcons(context.Background())
 	return nil
 }
 
