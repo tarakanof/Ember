@@ -151,11 +151,14 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 	if len(pub.notify) != 1 {
 		t.Errorf("severe transition should send one popup: %+v", pub.notify)
 	}
-	if _, has := pub.notify[0]["sound"]; has {
-		t.Error("severe popup must not carry sound on the notification")
+	if pub.notify[0]["soundRtttl"] != defaultWeatherSevereSound {
+		t.Errorf("severe popup soundRtttl = %v, want %q", pub.notify[0]["soundRtttl"], defaultWeatherSevereSound)
 	}
-	if len(pub.rtttls) != 1 || pub.rtttls[0] != defaultWeatherSevereSound {
-		t.Errorf("severe alert should chime via /api/rtttl %q, got %v", defaultWeatherSevereSound, pub.rtttls)
+	if pub.notify[0]["name"] != notifyNameWeatherPopup {
+		t.Errorf("name = %v, want %q", pub.notify[0]["name"], notifyNameWeatherPopup)
+	}
+	if len(pub.rtttls) != 0 {
+		t.Errorf("the severe chime rides on the notification, got %v out-of-band", pub.rtttls)
 	}
 	pub.mu.Unlock()
 
@@ -167,10 +170,10 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 	}
 	pub.mu.Lock()
 	last := pub.notify[len(pub.notify)-1]
-	if last["sound"] != nil {
+	if last["sound"] != nil || last["soundRtttl"] != nil {
 		t.Errorf("change popup should be silent: %+v", last)
 	}
-	if len(pub.rtttls) != 1 {
+	if len(pub.rtttls) != 0 {
 		t.Errorf("a non-severe change popup must not chime: %v", pub.rtttls)
 	}
 	pub.mu.Unlock()

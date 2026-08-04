@@ -121,21 +121,6 @@ func TestPublisherListAppsParsesNGArray(t *testing.T) {
 	}
 }
 
-func TestPublisherDismissNotifyDeletesActive(t *testing.T) {
-	var gotMethod, gotPath string
-	pub := newPublisherAgainst(t, func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		w.WriteHeader(http.StatusOK)
-	})
-	if err := pub.DismissNotify(context.Background()); err != nil {
-		t.Fatalf("DismissNotify: %v", err)
-	}
-	if gotMethod != http.MethodDelete || gotPath != "/api/v1/notifications/active" {
-		t.Fatalf("got %s %s, want DELETE /api/v1/notifications/active", gotMethod, gotPath)
-	}
-}
-
 func TestPublisherPlayRTTTLPostsJSONSoundsPlay(t *testing.T) {
 	var gotPath, gotCT string
 	var gotBody map[string]any

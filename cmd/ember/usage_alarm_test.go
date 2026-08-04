@@ -63,9 +63,14 @@ func TestLimitAlarmArmsFiresOnce(t *testing.T) {
 	if notifies[0]["text"] != "CLAUDE 5H RESET" {
 		t.Fatalf("notify text = %v, want CLAUDE 5H RESET", notifies[0]["text"])
 	}
-	rtttls := pub.RTTTLsSnapshot()
-	if len(rtttls) != 1 {
-		t.Fatalf("at T0+160: expected 1 PlayRTTTL, got %d", len(rtttls))
+	if notifies[0]["soundRtttl"] != limitAlarmRTTTL {
+		t.Fatalf("alarm soundRtttl = %v, want %q", notifies[0]["soundRtttl"], limitAlarmRTTTL)
+	}
+	if notifies[0]["name"] != notifyNameUsageAlarm {
+		t.Fatalf("alarm name = %v, want %q", notifies[0]["name"], notifyNameUsageAlarm)
+	}
+	if rtttls := pub.RTTTLsSnapshot(); len(rtttls) != 0 {
+		t.Fatalf("the alarm chime rides on the notification, got %d out-of-band plays", len(rtttls))
 	}
 
 	// T0+170: fired dedupe — still 1 notify.

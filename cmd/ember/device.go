@@ -102,6 +102,7 @@ func (a *App) deviceSource() string {
 func (a *App) initDeviceDiscovery(ctx context.Context) {
 	a.loadPersistedDeviceBaseURL()
 	_ = a.rediscoverClock(ctx)
+	a.refreshCapabilities(ctx)
 }
 
 // rediscoverClock checks whether the current effective clock URL is
@@ -139,6 +140,9 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	a.deviceAutoPicked = true
 	a.lastRediscoverResult.Store("swapped")
 	a.logger.Info("clock auto-discovered", "base_url", cands[0].BaseURL, "uid", cands[0].UID)
+	// A different clock can be a different firmware build: re-read its
+	// capabilities rather than serving the previous device's lists.
+	a.refreshCapabilities(ctx)
 	return true
 }
 

@@ -70,6 +70,8 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `GET/PUT /v1/device/sensors` (system `tempOffset`/`humOffset`; applies live, no
 reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons`,
 `GET/PUT /v1/quiet/config`, `GET /v1/device/stats`,
+`GET /v1/device/capabilities` (cached `GET /api/v1/capabilities` — the firmware's
+effect/transition/overlay/palette lists; live proxy when the cache is cold),
 `POST /v1/device/{reboot,notify/dismiss}`. Read (no auth): `GET /state`, `GET /healthz`,
 `GET /v1/preview`, `GET /v1/{weather,pomodoro,reminders}/preview`,
 `GET /v1/meetings/{preview,state}`,

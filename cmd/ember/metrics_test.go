@@ -424,9 +424,8 @@ func (p *fakePublisher) ListApps(ctx context.Context) ([]string, error)  { retur
 func (p *fakePublisher) Notify(ctx context.Context, payload map[string]any) error {
 	return p.notifyErr
 }
-func (p *fakePublisher) DismissNotify(ctx context.Context) error       { return nil }
-func (p *fakePublisher) PlayRTTTL(ctx context.Context, _ string) error { return nil }
-func (p *fakePublisher) PlaySound(ctx context.Context, _ string) error { return nil }
+func (p *fakePublisher) DismissNotifyByName(context.Context, string) error { return nil }
+func (p *fakePublisher) PlayRTTTL(ctx context.Context, _ string) error     { return nil }
 func (p *fakePublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
 	return p.indicatorErr
 }

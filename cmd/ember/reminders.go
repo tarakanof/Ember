@@ -11,7 +11,9 @@ import (
 )
 
 // defaultReminderSound is a short gentle RTTTL chime for reminders that opt into
-// sound (the TC001 piezo is RTTTL-only).
+// sound (the TC001 piezo is RTTTL-only). It rides on the notification's own
+// soundRtttl key — NG plays a notification's melody alongside its draw/icon, so
+// the AWTRIX3-era out-of-band /api/rtttl call is gone.
 const defaultReminderSound = "remind:d=4,o=6,b=140:8e,8g,8c7"
 
 // reminderFireRequest is the body of POST /v1/reminders/fire. The macOS app (which
@@ -59,19 +61,16 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 		a.reminderHeldUntil.Store(time.Now().Add(15 * time.Minute).UnixNano())
 	}
 	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, req.Hold)
+	payload["name"] = notifyNameReminder
+	if req.Sound {
+		payload["soundRtttl"] = defaultReminderSound
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	if err := a.publisher.Notify(ctx, payload); err != nil {
 		a.logger.Warn("reminder fire failed", "err", err)
 		writeError(w, http.StatusBadGateway, err)
 		return
-	}
-	// Chime separately: AWTRIX 0.98 drops a notification's own sound when it also
-	// draws a bell icon, so play the RTTTL via the dedicated /api/rtttl endpoint.
-	if req.Sound {
-		if err := a.publisher.PlayRTTTL(ctx, defaultReminderSound); err != nil {
-			a.logger.Warn("reminder chime failed", "err", err)
-		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

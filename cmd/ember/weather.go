@@ -651,6 +651,7 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	t := float64(cfg.AirPopupThreshold)
 	if cfg.AirPopupThreshold > 0 && obs.AQI >= t && (!havePrev || prev < t) {
 		payload := render.AirPopupPayload(obs.AQI, cfg.PopupDurationSeconds)
+		payload["name"] = notifyNameAirPopup
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		if err := a.publisher.Notify(cctx, payload); err != nil {
@@ -745,6 +746,7 @@ func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising boo
 	}
 	label := word + " " + sunClock(event, cfg, tzKnown, tzOff)
 	payload := render.SunPopupPayload(rising, label, cfg.PopupDurationSeconds)
+	payload["name"] = notifyNameSunPopup
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := a.publisher.Notify(cctx, payload); err != nil {
@@ -758,25 +760,20 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 		iconID = cfg.weatherIconID(obs.Condition)
 	}
 	payload := render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec)
+	payload["name"] = notifyNameWeatherPopup
+	// The severe-alert chime rides on the notification: an inline RTTTL melody
+	// (detected by its ':' separators) or the name of a melody file on the device.
+	if sound != "" {
+		if strings.Contains(sound, ":") {
+			payload["soundRtttl"] = sound
+		} else {
+			payload["sound"] = sound
+		}
+	}
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := a.publisher.Notify(cctx, payload); err != nil {
 		a.logger.Warn("weather popup failed", "err", err)
-		return
-	}
-	// Chime separately: the firmware drops a notification's own sound when it also
-	// draws/uses an icon, so play the severe-alert sound via /api/rtttl (an RTTTL
-	// string, detected by its ':' separators) or /api/sound (a device melody name).
-	if sound != "" {
-		var err error
-		if strings.Contains(sound, ":") {
-			err = a.publisher.PlayRTTTL(cctx, sound)
-		} else {
-			err = a.publisher.PlaySound(cctx, sound)
-		}
-		if err != nil {
-			a.logger.Warn("weather chime failed", "err", err)
-		}
 	}
 }
 

@@ -87,12 +87,12 @@ func (c *coordinator) fireLimitAlarm(tool string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := c.publisher.Notify(ctx, render.LimitResetPopupPayload(tool, limitAlarmPopupSec)); err != nil {
+	payload := render.LimitResetPopupPayload(tool, limitAlarmPopupSec)
+	payload["name"] = notifyNameUsageAlarm
+	payload["soundRtttl"] = limitAlarmRTTTL
+	if err := c.publisher.Notify(ctx, payload); err != nil {
 		c.logger.Warn("limit alarm notify failed", "tool", tool, "err", err)
 		return err
-	}
-	if err := c.publisher.PlayRTTTL(ctx, limitAlarmRTTTL); err != nil {
-		c.logger.Warn("limit alarm chime failed", "err", err) // popup shown; don't retry
 	}
 	c.logger.Info("limit alarm fired", "tool", tool)
 	return nil

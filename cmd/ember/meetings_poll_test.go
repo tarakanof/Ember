@@ -259,14 +259,20 @@ func TestMeetingPopupFiresOnceInWindow(t *testing.T) {
 	if notifyCount1 != 1 {
 		t.Fatalf("first checkMeetingPopup: Notify called %d times, want 1", notifyCount1)
 	}
-	if rtttlCount1 != 1 {
-		t.Fatalf("first checkMeetingPopup: PlayRTTTL called %d times, want 1 (chime=true)", rtttlCount1)
+	if rtttlCount1 != 0 {
+		t.Fatalf("first checkMeetingPopup: the chime rides on the notification, got %d out-of-band plays", rtttlCount1)
 	}
 
 	// Check popup text contains "STANDUP IN 2M".
 	pub.mu.Lock()
 	notifyPayload := pub.notify[0]
 	pub.mu.Unlock()
+	if notifyPayload["soundRtttl"] != defaultMeetingChime {
+		t.Errorf("soundRtttl = %v, want %q (chime=true)", notifyPayload["soundRtttl"], defaultMeetingChime)
+	}
+	if notifyPayload["name"] != notifyNameMeeting {
+		t.Errorf("name = %v, want %q", notifyPayload["name"], notifyNameMeeting)
+	}
 	if text, _ := notifyPayload["text"].(string); text != "STANDUP IN 2M" {
 		t.Errorf("popup text = %q, want %q", text, "STANDUP IN 2M")
 	}
@@ -311,6 +317,7 @@ func TestMeetingPopupNoChimeWhenOff(t *testing.T) {
 	pub.mu.Lock()
 	notifyCount := len(pub.notify)
 	rtttlCount := len(pub.rtttls)
+	_, hasSound := pub.notify[0]["soundRtttl"]
 	pub.mu.Unlock()
 
 	if notifyCount != 1 {
@@ -318,6 +325,9 @@ func TestMeetingPopupNoChimeWhenOff(t *testing.T) {
 	}
 	if rtttlCount != 0 {
 		t.Errorf("chime=false: PlayRTTTL count = %d, want 0", rtttlCount)
+	}
+	if hasSound {
+		t.Error("chime=false: popup must carry no soundRtttl")
 	}
 }
 

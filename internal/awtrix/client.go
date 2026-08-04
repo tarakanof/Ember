@@ -115,6 +115,38 @@ func (c *Client) DismissNotify(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodDelete, "/api/v1/notifications/active", nil, nil)
 }
 
+// DismissNotifyByName clears the notification carrying name, wherever it sits
+// in the queue (DELETE /api/v1/notifications/{name}; names are matched exactly).
+// Unlike DismissNotify it can never clear a notification Ember did not push.
+// A name the device does not hold answers 404, surfaced as *APIError.
+func (c *Client) DismissNotifyByName(ctx context.Context, name string) error {
+	if name == "" {
+		return errors.New("notification name is required")
+	}
+	return c.doJSON(ctx, http.MethodDelete, "/api/v1/notifications/"+url.PathEscape(name), nil, nil)
+}
+
+// Capabilities is GET /api/v1/capabilities: the name lists this firmware build
+// supports, to be read rather than hardcoded. GPIO stays raw so a re-marshal
+// reproduces the device's own JSON shape verbatim for pass-through consumers.
+type Capabilities struct {
+	Effects        []string        `json:"effects"`
+	PaletteEffects []string        `json:"paletteEffects"`
+	Transitions    []string        `json:"transitions"`
+	Overlays       []string        `json:"overlays"`
+	Palettes       []string        `json:"palettes"`
+	Radio          bool            `json:"radio"`
+	GPIO           json.RawMessage `json:"gpio,omitempty"`
+}
+
+// Capabilities fetches the firmware's supported name lists
+// (GET /api/v1/capabilities).
+func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
+	var caps Capabilities
+	err := c.doJSON(ctx, http.MethodGet, "/api/v1/capabilities", nil, &caps)
+	return caps, err
+}
+
 // PlayRTTTL plays an inline RTTTL melody (POST /api/v1/sounds/play).
 func (c *Client) PlayRTTTL(ctx context.Context, rtttl string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/sounds/play", map[string]any{"rtttl": rtttl}, nil)

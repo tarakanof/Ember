@@ -41,11 +41,8 @@ func TestQuietPublisherMutesDuringWindow(t *testing.T) {
 	if err := q.PlayRTTTL(context.Background(), "x:d=4:c"); err != nil {
 		t.Fatal(err)
 	}
-	if err := q.PlaySound(context.Background(), "bell"); err != nil {
-		t.Fatal(err)
-	}
-	if len(rec.rtttls) != 0 || len(rec.sounds) != 0 {
-		t.Error("melody endpoints must no-op during quiet hours")
+	if len(rec.rtttls) != 0 {
+		t.Error("PlayRTTTL must no-op during quiet hours")
 	}
 
 	if err := q.CustomApp(context.Background(), "ember", nil); err != nil {
