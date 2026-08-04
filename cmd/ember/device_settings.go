@@ -230,8 +230,9 @@ func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeviceScreen passes through the clock's live framebuffer
-// (GET /api/v1/display/screen — 256 ints, 24-bit RGB, row-major 32×8) so the
-// menu app can mirror the display.
+// (GET /api/v1/display/screen) so the menu app can mirror the display.
+// awtrix-ng wraps the pixels: {"width":32,"height":8,"pixels":[256 ints]}
+// (AWTRIX3 returned the bare 256-int array) — consumers must unwrap.
 func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
 	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/display/screen", nil)
 	if err != nil {
