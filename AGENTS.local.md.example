@@ -6,7 +6,7 @@ live in the public repo.
 
 ## Devices / hosts
 
-- AWTRIX device ID / topic prefix: `awtrix_xxxxxx`
+- AWTRIX (awtrix-ng) device hostname: `<hostname>.local`
 - AWTRIX HTTP URL: `http://<awtrix-ip>`
 - Home Assistant: `http://<home-assistant-host>:8123`
 

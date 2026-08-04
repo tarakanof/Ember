@@ -102,7 +102,7 @@ Two distinct cases:
 **Stdlib by default.** Take a third-party dependency when it clearly does more than the stdlib does (and well), AND when a reasonable in-house reimplementation would be a known-bad component. The rule is "every dep must earn its slot", not "no deps ever".
 
 - Two real examples from this repo:
-  - **MQTT client** — we tried hand-rolling MQTT 3.1.1. The result had no keepalive, no reconnect, no QoS. We deleted it. If MQTT comes back, it'll be `eclipse/paho.mqtt.golang` — taking the dep is the right call there.
+  - **MQTT client** — we tried hand-rolling MQTT 3.1.1. The result had no keepalive, no reconnect, no QoS. We deleted it. If MQTT comes back, it'll be `eclipse/paho.mqtt.golang` — taking the dep is the right call there. Reaffirmed on awtrix-ng: Ember stays on HTTP. NG's MQTT transport silently drops any payload over 8192 bytes rather than erroring, which is worse than AWTRIX3's behavior and would bite Ember's largest frames (32×8 full-frame bitmaps run close to that limit already — see `internal/render/ngwire.go`'s `ngMaxPayloadBytes`); HTTP at least reports a 413.
   - **HTTP routing** — net/http with 1.22+ pattern matching is enough for everything this project needs. No chi/echo/gin justified.
 - Examples of deps that *would* earn their slot: `golang.org/x/sync/errgroup` for fail-together goroutine groups, `paho.mqtt.golang` for MQTT, `prometheus/client_golang` if metrics ever become real. We don't ship them today, but we will if the need is.
 - A new dependency requires a one-line justification in the commit body.

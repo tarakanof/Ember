@@ -3,7 +3,7 @@
 ## Project
 
 `ember` is a small Go service that shows Claude/Codex activity on an
-Ulanzi TC001 running AWTRIX3, plus an integrated Pomodoro timer. Host-side
+Ulanzi TC001 running awtrix-ng, plus an integrated Pomodoro timer. Host-side
 producers report agent status; the server aggregates and drives the clock over
 direct HTTP; a macOS menu-bar app configures it.
 
@@ -63,29 +63,45 @@ The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
 
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}`,
-`GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/weather/config`,
-`POST /v1/reminders/fire`, `GET/PUT /v1/meetings/config`,
-`GET/PUT /v1/device/config`, `GET /v1/device/discover`,
-`GET/PUT /v1/device/settings`, `GET/PUT /v1/device/display`, `GET/PUT /v1/device/apps`,
-`GET/PUT /v1/device/sensors` (system `tempOffset`/`humOffset`; applies live, no
-reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons`,
-`GET/PUT /v1/quiet/config`, `GET /v1/device/stats`,
+`GET/PUT /v1/pomodoro/config` (PUT is merge semantics — omitted fields are
+unchanged), `GET/PUT /v1/apps` (per-tool clock visibility),
+`POST /v1/usage`, `GET/PUT /v1/usage/config`, `GET/PUT /v1/display/config`,
+`GET/PUT /v1/weather/config`, `POST /v1/reminders/fire`,
+`GET/PUT /v1/meetings/config`, `GET/PUT /v1/device/config`,
+`GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
+`PATCH /api/v1/settings` keys — see `device_settings.go`),
+`GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
+`GET/PUT /v1/device/apps` (ordering + enable/disable,
+`PUT /api/v1/apps/order`), `GET/PUT /v1/device/sensors` (system
+`tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,
+no reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons` (read-merge-PUT
+of `/api/v1/system.buttonCallback`), `GET/PUT /v1/quiet/config`,
+`GET /v1/device/stats`, `GET /v1/device/screen` (proxies
+`GET /api/v1/display/screen`, raw `{width,height,pixels}`),
 `GET /v1/device/capabilities` (cached `GET /api/v1/capabilities` — the firmware's
 effect/transition/overlay/palette lists; live proxy when the cache is cold),
-`POST /v1/device/{reboot,notify/dismiss}`. Read (no auth): `GET /state`, `GET /healthz`,
-`GET /v1/preview`, `GET /v1/{weather,pomodoro,reminders}/preview`,
-`GET /v1/meetings/{preview,state}`,
+`POST /v1/device/{reboot,notify/dismiss,app/next,app/previous}`. Read (no auth):
+`GET /state`, `GET /healthz`, `GET /v1/preview`,
+`GET /v1/{weather,pomodoro,reminders}/preview`, `GET /v1/meetings/{preview,state}`,
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
 `GET /v1/pomodoro/dashboard` (HTML). Operator: `/admin/doctor`, `/admin/reload`,
 `/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`
-(middle=play/pause, left=stop, right=skip — all on press).
+(NG posts `button=left|middle|right&state=1|0&uid`; `select` accepted as an
+alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,
+right=skip — all on press; the left+right chord from AWTRIX3 is gone).
 
-The `/v1/device/*` group discovers the clock (mDNS) and proxies its
-`/api/settings|stats|reboot|notify` to the menu's Device tab; the effective clock
-URL resolves as store override > reachable `config.json` baseline > mDNS auto-pick.
-The server also advertises itself as `_ember._tcp` (default on; `EMBER_MDNS_ADVERTISE=0`
-to disable). **mDNS in both directions needs the container on host (or macvlan)
-networking** — multicast doesn't cross the default Docker bridge.
+The `/v1/device/*` group discovers the clock (mDNS `_awtrixng._tcp` browse +
+`FIND_AWTRIXNG` UDP fallback, fingerprinted via `GET /api/v1/device`) and
+proxies its NG API to the menu's Device tab; the effective clock URL resolves
+as store override > reachable `config.json` baseline > mDNS auto-pick. A 30s
+device-watch probe re-discovers on IP change and detects a clock reboot (via
+falling `uptimeSeconds`) to trigger a republish of every pushed app — issue
+#73's Berry boot-ping hook (`POST /hooks/awtrix/boot`, config toggle
+`awtrix.boot_ping`) is the fast path that republishes instantly instead of
+waiting on the 30s watch. The server also advertises itself as `_ember._tcp`
+(default on; `EMBER_MDNS_ADVERTISE=0` to disable). **mDNS in both directions
+needs the container on host (or macvlan) networking** — multicast doesn't
+cross the default Docker bridge.
 
 Full behavior (staleness, render priority, the coordinator, display hold) is in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
