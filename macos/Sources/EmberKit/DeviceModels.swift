@@ -75,6 +75,15 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     public var calendarHeaderColor: String?
     public var calendarBodyColor: String?
     public var calendarTextColor: String?
+    // Native Apps — per-builtin-app text color, plus a couple of app-adjacent
+    // toggles (issue #92).
+    public var timeColor: String?
+    public var dateColor: String?
+    public var temperatureColor: String?
+    public var humidityColor: String?
+    public var batteryColor: String?
+    public var useCelsius: Bool?
+    public var smoothScroll: Bool?
     // Nested objects
     public var scroll: ScrollSettings?
     public var weekdayBar: WeekdayBar?
@@ -85,6 +94,8 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
         case timeMode, time24h, timeLeadingZero, timeShowSeconds, timeShowAmPm, timeSeparatorMode
         case dateOrder, dateSeparator, dateYearMode, dateShowWeekday, dateMonthNames
         case calendarHeaderColor, calendarBodyColor, calendarTextColor
+        case timeColor, dateColor, temperatureColor, humidityColor, batteryColor
+        case useCelsius, smoothScroll
         case scroll, weekdayBar
     }
 
@@ -106,6 +117,9 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
         dateShowWeekday = b(.dateShowWeekday); dateMonthNames = b(.dateMonthNames)
         calendarHeaderColor = s(.calendarHeaderColor); calendarBodyColor = s(.calendarBodyColor)
         calendarTextColor = s(.calendarTextColor)
+        timeColor = s(.timeColor); dateColor = s(.dateColor); temperatureColor = s(.temperatureColor)
+        humidityColor = s(.humidityColor); batteryColor = s(.batteryColor)
+        useCelsius = b(.useCelsius); smoothScroll = b(.smoothScroll)
         scroll = (try? c.decodeIfPresent(ScrollSettings.self, forKey: .scroll)) ?? nil
         weekdayBar = (try? c.decodeIfPresent(WeekdayBar.self, forKey: .weekdayBar)) ?? nil
     }

@@ -19,6 +19,9 @@ func TestValidateDeviceSettings(t *testing.T) {
 		"dateOrder":         "dayMonthYear", "dateSeparator": "dot", "dateYearMode": "twoDigit",
 		"dateShowWeekday": false, "dateMonthNames": false,
 		"autoTransition": true, "blockNavigation": false,
+		"timeColor": "#FFFFFF", "dateColor": "#FFFFFF", "temperatureColor": "#FFFFFF",
+		"humidityColor": "#FFFFFF", "batteryColor": "#FFFFFF",
+		"useCelsius": true, "smoothScroll": true,
 		"scroll": map[string]any{
 			"mode": "wrap", "direction": "left", "entry": "inline", "whenFits": "static",
 			"speed": float64(100), "gap": float64(8), "holdMs": float64(1000),
@@ -50,6 +53,9 @@ func TestValidateDeviceSettings(t *testing.T) {
 		{"scroll": "not-an-object"},                                          // wrong shape
 		{"weekdayBar": map[string]any{"activeColor": "purple"}},              // bad nested color
 		{"weekdayBar": map[string]any{"weekendDays": []any{"sunday"}}},       // unlisted nested key
+		{"timeColor": "purple"},                                              // bad color
+		{"useCelsius": "yes"},                                                // wrong type
+		{"smoothScroll": "yes"},                                              // wrong type
 	}
 	for i, b := range bad {
 		if err := validateDeviceSettings(b); err == nil {

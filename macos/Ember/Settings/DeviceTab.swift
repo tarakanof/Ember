@@ -177,6 +177,9 @@ struct DeviceTab: View {
             Toggle(isOn: b(\.uppercase)) {
                 RowLabel("Uppercase letters", symbol: "textformat", tint: .blue)
             }
+            Toggle(isOn: b(\.smoothScroll)) {
+                RowLabel("Smooth scroll", symbol: "arrow.left.and.right.text.vertical", tint: .mint)
+            }
             Toggle(isOn: b(\.blockNavigation)) {
                 RowLabel("Block buttons", symbol: "hand.raised.fill", tint: .orange)
             }
@@ -323,6 +326,18 @@ struct DeviceTab: View {
         }
     }
 
+    /// The DeviceSettings color field for a builtin app's name, if it has one.
+    private func colorKeyPath(forApp name: String) -> WritableKeyPath<DeviceSettings, String?>? {
+        switch name {
+        case "Time": return \.timeColor
+        case "Date": return \.dateColor
+        case "Temperature": return \.temperatureColor
+        case "Humidity": return \.humidityColor
+        case "Battery": return \.batteryColor
+        default: return nil
+        }
+    }
+
     @ViewBuilder private var nativeAppsSection: some View {
         Section {
             if apps.isEmpty {
@@ -332,6 +347,13 @@ struct DeviceTab: View {
                 Toggle(isOn: Binding(get: { app.enabled }, set: { setAppEnabled(app.name, $0) })) {
                     RowLabel(app.name, symbol: symbol(forApp: app.name), tint: .blue)
                 }
+                if let colorKP = colorKeyPath(forApp: app.name) {
+                    ColorHexPicker(title: "\(app.name) color", symbol: "paintpalette.fill", tint: .teal,
+                                   hex: s(colorKP, "#FFFFFF"))
+                }
+            }
+            Toggle(isOn: b(\.useCelsius)) {
+                RowLabel("Temperature in Celsius", symbol: "thermometer", tint: .orange)
             }
         } header: {
             Text("Native Apps")
