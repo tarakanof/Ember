@@ -20,7 +20,7 @@ func newTestApp(t *testing.T) *App {
 
 func TestRediscoverClock_SwapsWhenCurrentUnreachable(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"uid":"awtrix_test"}`)) // /api/stats fingerprint
+		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`)) // /api/v1/device fingerprint
 	}))
 	defer clock.Close()
 	a := newTestApp(t)
@@ -44,7 +44,9 @@ func TestRediscoverClock_SwapsWhenCurrentUnreachable(t *testing.T) {
 }
 
 func TestRediscoverClock_NoopWhenReachable(t *testing.T) {
-	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"uid":"x"}`)) }))
+	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"uid":"x","boardType":"awtrixng"}`))
+	}))
 	defer clock.Close()
 	a := newTestApp(t)
 	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
@@ -79,7 +81,7 @@ func TestRediscoverClock_NoDeviceFound(t *testing.T) {
 // regardless of source.
 func TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"uid":"awtrix_test"}`))
+		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
 	}))
 	defer clock.Close()
 
@@ -105,7 +107,7 @@ func TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride(t *testing.T) 
 // deviceSource must report "discovered", not "store".
 func TestDeviceSource_StaleStoreOverrideReportsDiscovered(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"uid":"awtrix_test"}`))
+		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
 	}))
 	defer clock.Close()
 
@@ -158,7 +160,7 @@ func TestAutoRediscoverEnabled_ExplicitFalse(t *testing.T) {
 // the goroutine returns promptly (no leak).
 func TestStartDeviceWatch_SwapsOnUnreachableCurrent(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"uid":"awtrix_test"}`))
+		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
 	}))
 	defer clock.Close()
 

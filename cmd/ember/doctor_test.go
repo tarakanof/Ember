@@ -97,11 +97,9 @@ func TestRunDoctorChecks_OfflineMarksRuntimeSkipped(t *testing.T) {
 
 func TestRunDoctorChecks_ClockReachable(t *testing.T) {
 	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// discovery.Reachable (internal/discovery, ticket #66) still probes the
-		// legacy /api/stats fingerprint — untouched by this migration.
-		if r.URL.Path == "/api/stats" {
+		if r.URL.Path == "/api/v1/device" {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"uid":"aabbcc","version":"0.98"}`))
+			_, _ = w.Write([]byte(`{"uid":"aabbcc","boardType":"awtrixng","version":"1.0.13"}`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)

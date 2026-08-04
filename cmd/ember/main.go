@@ -1596,12 +1596,12 @@ func main() {
 	go app.StartWeather(ctx)
 	go app.StartMeetings(ctx)
 
-	// Periodic self-healing re-discovery: re-check the effective clock URL
-	// every minute and swap to a reachable mDNS candidate if it's gone dark.
-	// Off via awtrix.auto_rediscover=false.
+	// Periodic self-healing watch: re-check the effective clock URL and swap to
+	// a reachable mDNS candidate if it's gone dark, and re-push everything when
+	// the clock's uptime shows it rebooted. Off via awtrix.auto_rediscover=false.
 	if cfg.AWTRIX.AutoRediscoverEnabled() {
-		logger.Info("clock auto-rediscover enabled", "interval", "60s")
-		go app.StartDeviceWatch(ctx, 60*time.Second)
+		logger.Info("clock auto-rediscover enabled", "interval", deviceWatchInterval.String())
+		go app.StartDeviceWatch(ctx, deviceWatchInterval)
 	} else {
 		logger.Info("clock auto-rediscover disabled (awtrix.auto_rediscover)")
 	}

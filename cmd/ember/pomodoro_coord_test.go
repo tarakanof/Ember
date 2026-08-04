@@ -67,7 +67,12 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 	}
 }
 
-func TestCoordinatorReassertsTakeoverPeriodically(t *testing.T) {
+// TestCoordinatorReassertsTakeoverOnRepublish replaces the old blind 30s
+// re-assert loop: the takeover stays purely edge-triggered no matter how much
+// time passes, and reboot recovery arrives as a republish command (queued by the
+// device watcher when the clock's uptime resets) which re-issues the settings +
+// forced app switch.
+func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -90,28 +95,27 @@ func TestCoordinatorReassertsTakeoverPeriodically(t *testing.T) {
 		t.Fatalf("switches after activate = %d, want 1", n)
 	}
 
-	// A publish within the re-assert interval does NOT re-issue (edge already
-	// applied; no need to churn the device).
-	clk.Advance(pomoReassertInterval / 2)
+	// No amount of elapsed time re-issues on its own any more.
+	clk.Advance(10 * time.Minute)
 	c.publish(snap)
 	if n := len(pub.SettingsSnapshot()); n != 1 {
-		t.Fatalf("settings within interval = %d, want 1 (no churn)", n)
+		t.Fatalf("settings after 10min of steady state = %d, want 1 (no blind re-assert)", n)
 	}
 	if n := len(pub.SwitchesSnapshot()); n != 1 {
-		t.Fatalf("switches within interval = %d, want 1", n)
+		t.Fatalf("switches after 10min of steady state = %d, want 1", n)
 	}
 
-	// Past the interval, the takeover is re-asserted (Settings + Switch) so a
-	// device reboot — which silently clears ATRANS/BLOCKN and the forced app
-	// slot — recovers without the coordinator observing the reboot.
-	clk.Advance(pomoReassertInterval)
-	c.publish(snap)
+	// Reboot event → takeover re-asserted (settings + switch) immediately.
+	c.onRepublish()
 	s := pub.SettingsSnapshot()
 	if len(s) != 2 || s[1]["ATRANS"] != false || s[1]["BLOCKN"] != true {
 		t.Fatalf("re-assert settings = %+v, want a 2nd ATRANS:false BLOCKN:true", s)
 	}
 	if n := len(pub.SwitchesSnapshot()); n != 2 {
 		t.Fatalf("switches after re-assert = %d, want 2", n)
+	}
+	if !c.pomoTakeover {
+		t.Fatal("takeover flag should be set again after the re-assert")
 	}
 
 	// Deactivate → single restore, flag cleared.
@@ -121,6 +125,26 @@ func TestCoordinatorReassertsTakeoverPeriodically(t *testing.T) {
 	s = pub.SettingsSnapshot()
 	if len(s) != 3 || s[2]["ATRANS"] != true || s[2]["BLOCKN"] != false {
 		t.Fatalf("restore settings = %+v, want ATRANS:true BLOCKN:false", s)
+	}
+}
+
+// TestCoordinatorRepublishSkipsPomoWhenIdle guards the other half: a republish
+// with no timer running must not write takeover settings at all.
+func TestCoordinatorRepublishSkipsPomoWhenIdle(t *testing.T) {
+	pub := &recordingPublisher{}
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	c := newCoordinator(cfg, func() *Config { return &cfg }, pub, realClock{}, testLogger(), nil)
+	c.ctx = context.Background()
+	c.snapshot = func() Snapshot { return Snapshot{Now: time.Now()} }
+	c.pomoView = func() (render.PomodoroView, bool) { return render.PomodoroView{}, false }
+
+	c.onRepublish()
+	if n := len(pub.SettingsSnapshot()); n != 0 {
+		t.Fatalf("settings after idle republish = %d, want 0", n)
+	}
+	if n := len(pub.SwitchesSnapshot()); n != 0 {
+		t.Fatalf("switches after idle republish = %d, want 0", n)
 	}
 }
 

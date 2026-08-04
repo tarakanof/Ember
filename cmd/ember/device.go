@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
@@ -141,22 +142,101 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	return true
 }
 
+// deviceWatchInterval is how often the watcher probes the clock — both for
+// reachability (self-healing re-discovery) and for uptimeSeconds (reboot
+// detection). It is deliberately 30s, not 60s: this loop replaced the blind 30s
+// Pomodoro takeover re-assert, so polling at the old re-assert cadence keeps
+// worst-case recovery latency after a reboot comparable. The Berry boot-ping
+// hook (issue #73) will make recovery instant and let this relax again.
+const deviceWatchInterval = 30 * time.Second
+
+// deviceProbeTimeout bounds one GET /api/v1/device in the watch loop. Same
+// budget as the re-discovery reachability probe — the loop must never outlive
+// its own tick.
+const deviceProbeTimeout = 1500 * time.Millisecond
+
+// deviceProbe is one device-watch observation. seen distinguishes "no probe has
+// completed yet" from "probed and found nothing", which matters because the
+// first observation of the process can never be a reboot.
+type deviceProbe struct {
+	seen      bool
+	reachable bool
+	uptimeSec int64
+}
+
+// rebootDetected reports whether the clock restarted between two consecutive
+// probes: either its uptime went backwards (it rebooted while we were watching)
+// or it answered again after a gap of being unreachable (it may well have
+// rebooted in the dark, and we cannot tell otherwise). The first probe of the
+// process is never a reboot — nothing has been pushed yet that a reboot could
+// have dropped.
+func rebootDetected(prev, cur deviceProbe) bool {
+	if !prev.seen || !cur.reachable {
+		return false
+	}
+	if !prev.reachable {
+		return true
+	}
+	return cur.uptimeSec < prev.uptimeSec
+}
+
+// probeDevice fetches GET /api/v1/device from the currently-effective clock URL.
+// Any failure (no URL, timeout, non-2xx) reports an unreachable probe rather
+// than an error: the caller only needs the reachable/uptime pair.
+func (a *App) probeDevice(ctx context.Context) deviceProbe {
+	base := a.cfg.Load().AWTRIX.HTTPBaseURL
+	if base == "" {
+		return deviceProbe{seen: true}
+	}
+	info, err := awtrix.NewClient(base, deviceProbeTimeout).DeviceInfo(ctx)
+	if err != nil {
+		return deviceProbe{seen: true}
+	}
+	return deviceProbe{seen: true, reachable: true, uptimeSec: info.UptimeSeconds}
+}
+
 // StartDeviceWatch runs the periodic self-healing probe loop until ctx is
-// done. It ticks every interval and calls rediscoverClock, which is a no-op
-// when the current effective clock URL is already reachable. Callers should
-// gate the goroutine on AWTRIXConfig.AutoRediscoverEnabled(); the loop itself
-// runs unconditionally once started.
+// done. Each tick calls rediscoverClock (a no-op when the current effective
+// clock URL is already reachable), then reads the device's uptime to notice a
+// reboot and trigger a republish. Callers should gate the goroutine on
+// AWTRIXConfig.AutoRediscoverEnabled(); the loop itself runs unconditionally
+// once started.
 func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
+	var prev deviceProbe
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			a.rediscoverClock(ctx)
+			cur := a.probeDevice(ctx)
+			if rebootDetected(prev, cur) {
+				a.logger.Info("clock reboot detected",
+					"uptime_seconds", cur.uptimeSec,
+					"prev_uptime_seconds", prev.uptimeSec,
+					"prev_reachable", prev.reachable)
+				a.RepublishAll("clock_reboot")
+			}
+			prev = cur
 		}
 	}
+}
+
+// RepublishAll asks the coordinator to forget what it believes the device is
+// showing and push everything again on its next (immediate) cycle: the active
+// app frame, the standalone tiles, and the Pomodoro takeover if a timer is
+// running. Safe to call from any goroutine — the work happens on the
+// coordinator goroutine. reason is logged. This is the single entry point for
+// "the device lost our state"; issue #73's device boot-ping hook calls it
+// directly instead of waiting for the watch loop to notice.
+func (a *App) RepublishAll(reason string) {
+	if a.coord == nil {
+		return
+	}
+	a.logger.Info("republishing device state", "reason", reason)
+	a.coord.Send(coordCmd{kind: cmdRepublish})
 }
 
 func (a *App) handleDeviceConfigGet(w http.ResponseWriter, r *http.Request) {
