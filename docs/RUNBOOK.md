@@ -116,7 +116,10 @@ colours; Settings → App picks the Dock/app icon + the menu-bar tray glyphs.
 
 Settings is a **sidebar window** (Connection / **Device** / **Agent** /
 Pomodoro / Weather / Reminders / App), opened with ⌘, or the menu's "Settings…"
-item, and it **auto-applies** changes — there are no Save buttons. The **Agent** tab
+item, and it **auto-applies** changes — the Connection tab's **Token** is the one
+field with a Save button, because a write-only field can't be auto-applied
+per keystroke (it also commits on Return, on focus loss, and when the view
+goes away). The **Agent** tab
 (formerly "Code agent"/"Display") groups by scope: per-Mac card/bar toggles write
 `producer.env` immediately (each with a pixel-art pictogram of what it adds to
 the 32×8 matrix, plus a three-way Bottom bar picker), while the behavior group
