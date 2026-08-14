@@ -19,8 +19,9 @@ public struct RateLimitBackoff: Sendable {
     public enum Outcome: Sendable, Equatable {
         case succeeded
         case rateLimited(retryAfter: Duration)
-        /// Any other failure. Not the limiter's business — callers that want a
-        /// slower retry for an unreachable device handle that themselves.
+        /// Any other failure. Paced exactly like a success — an unreachable
+        /// device is not the limiter's business, and callers that want a slower
+        /// retry for it (the matrix mirror) apply that themselves.
         case failed
     }
 
@@ -53,14 +54,12 @@ public struct RateLimitBackoff: Sendable {
             // Doubling from the previous backoff (not from base) is what makes a
             // sustained squeeze converge instead of re-probing every retryAfter.
             let grown = current.map { $0 * 2 } ?? max(retryAfter, base)
-            current = min(max(grown, retryAfter), cap)
+            // The floor is applied AFTER the cap on purpose: waiting less than
+            // the server asked for just earns another denial, so retryAfter wins
+            // over the cap rather than the other way round.
+            current = max(min(grown, cap), retryAfter)
             return current!
         }
-    }
-
-    /// Convenience for the common `if ok { … }` call site.
-    public mutating func nextDelay(afterSuccess ok: Bool) -> Duration {
-        nextDelay(after: ok ? .succeeded : .failed)
     }
 }
 

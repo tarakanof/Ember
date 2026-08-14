@@ -37,15 +37,19 @@ struct LiveMatrixMirror: View {
                 } catch {
                     s = nil
                 }
-                // A throttled proxy call says nothing about whether the proxy
-                // works, so don't fall back to talking to the clock directly.
+                // Being throttled says nothing about whether the proxy WORKS, so
+                // it must not flip preferProxy — that flag is about the server
+                // being old enough to lack the route.
                 if throttled == nil { preferProxy = s != nil }
             }
-            if s == nil, throttled == nil, let base = clockBaseURL, !base.isEmpty {
+            // The direct read goes to the clock's own address, not through the
+            // server, so it costs no rate-limit budget: a throttle is the moment
+            // it's most worth doing, not a reason to skip it and paint black.
+            if s == nil, let base = clockBaseURL, !base.isEmpty {
                 s = try? await DeviceService.directScreen(clockBaseURL: base)
             }
             if Task.isCancelled { return }
-            if throttled == nil { screen = s }
+            screen = s
             tick += 1
             let delay = throttled.map { pacer.nextDelay(after: .rateLimited(retryAfter: $0)) }
                 ?? (s == nil ? .seconds(3) : pacer.nextDelay(after: .succeeded))

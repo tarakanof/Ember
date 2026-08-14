@@ -38,6 +38,11 @@ struct DeviceTab: View {
     /// How many times a rate-limited load is retried before the message stands.
     private let loadAttempts = 3
 
+    /// True while load() is in flight, including its retry waits. The form is
+    /// disabled for the duration: an edit made mid-retry would be dropped by
+    /// scheduleSave and then overwritten by the values the retry brings back.
+    @State private var isLoading = false
+
     /// The clock's live effect/transition/overlay catalogue (GET
     /// /v1/device/capabilities). nil while loading or unreachable — pickers fall
     /// back to DeviceKnownValues.fallbackTransitions until it loads.
@@ -71,7 +76,7 @@ struct DeviceTab: View {
             buttonsSection
         }
         .formStyle(.grouped)
-        .disabled(loadError != nil && !loaded)
+        .disabled(isLoading || (loadError != nil && !loaded))
         .toolbar {
             ToolbarItemGroup(placement: .navigation) {
                 Button { Task { await perform { try await env.device.previousApp() } } } label: {
@@ -97,7 +102,9 @@ struct DeviceTab: View {
         .task {
             if !loaded {
                 await load()
-                loaded = true
+                // A cancelled load left the tab on defaults; marking it loaded
+                // would make the !loaded guard refuse to ever try again.
+                if !Task.isCancelled { loaded = true }
             }
         }
         .task { await pollStats() }
@@ -720,47 +727,57 @@ struct DeviceTab: View {
     /// Loads the tab, retrying a rate-limited load instead of leaving it broken:
     /// opening this tab is a burst of requests, so losing the race against the
     /// server's limiter is a timing accident, not a state worth showing.
+    ///
+    /// Only the settings fetch — the call that decides whether the tab loaded —
+    /// is retried. Replaying the whole sequence would spend five more tokens
+    /// from the very bucket it is waiting on before asking the question that
+    /// matters, making each retry likelier to fail than the one before.
     private func load() async {
         save = .idle
+        isLoading = true
+        defer { isLoading = false }
         var pacer = RateLimitBackoff(base: .seconds(1), cap: .seconds(8))
+        var failure: String?
         for attempt in 1...loadAttempts {
             do {
-                try await loadOnce()
-                loadError = nil
-                return
+                settings = try await env.device.settings()
+                lastApplied = settings
+                failure = nil
+                break
             } catch let e as APIError where e.isUnauthorized {
-                loadError = "Unauthorized — check the token in Connection."
-                return
+                failure = "Unauthorized — check the token in Connection."
+                break
             } catch let e as APIError where e.isRateLimited {
-                loadError = e.errorDescription
-                if attempt == loadAttempts { return }
-                let wait = pacer.nextDelay(after: .rateLimited(
-                    retryAfter: e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter))
-                try? await Task.sleep(for: wait)
+                // Deliberately NOT published yet: loadError gates scheduleSave,
+                // so showing it mid-retry silently drops an edit the user makes
+                // while we wait.
+                failure = e.errorDescription
+                if attempt == loadAttempts { break }
+                try? await Task.sleep(for: pacer.nextDelay(after: .rateLimited(
+                    retryAfter: e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter)))
                 if Task.isCancelled { return }
             } catch {
-                loadError = "Clock unreachable — check Connection and discovery."
-                return
+                failure = "Clock unreachable — check Connection and discovery."
+                break
             }
         }
+        loadError = failure
+        if failure == nil { await loadSecondary() }
     }
 
-    /// One pass over the device endpoints. Sequential on purpose: fanning these
-    /// out fired eight requests in one instant, which on its own could empty the
-    /// server's per-IP token bucket and 429 the rest of the tab.
-    private func loadOnce() async throws {
+    /// The rest of the tab, none of it load-critical. Sequential on purpose:
+    /// fanning these out fired eight requests in one instant, which on its own
+    /// could empty the server's per-IP token bucket and 429 the tab.
+    private func loadSecondary() async {
         config = try? await env.device.config()
         buttons = try? await env.device.buttons()
         sensorsOnDevice = try? await env.device.sensors()
         sensorsEdit = sensorsOnDevice ?? SensorCalibration()
         capabilities = try? await env.device.capabilities()
         apps = (try? await env.device.apps()) ?? []
-        // settings is the one that decides whether the tab loaded at all.
-        settings = try await env.device.settings()
         stats = try? await env.device.stats()
         deviceDisplay = (try? await env.device.display()) ?? DeviceDisplay()
         lastDeviceDisplay = deviceDisplay
-        lastApplied = settings
     }
 
     /// Browses the LAN (server-side) for AWTRIX clocks and lists them to pick from.

@@ -253,8 +253,10 @@ struct ConnectionTab: View {
             case .notConfigured:  testResult = "✗ No/invalid server URL"
             case .http(401, _):   testResult = "✗ Unauthorized — check token"
             case .http(let s, _): testResult = "✗ Server error (HTTP \(s))"
-            // Reached the server and authenticated — the limiter is what said no.
-            case .rateLimited:    testResult = "✓ Reached server (rate-limited — try again in a moment)"
+            // The limiter sits OUTSIDE requireAuth (see ARCHITECTURE), so a 429
+            // arrives before the token is ever checked: this proves the server
+            // is reachable and proves nothing about the token.
+            case .rateLimited:    testResult = "⚠︎ Rate-limited — server reachable, token not tested; retry shortly"
             case .transport:      testResult = "✗ Unreachable"
             case .decoding:       testResult = "✓ Reached server (unexpected body)"
             }
