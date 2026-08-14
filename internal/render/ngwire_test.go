@@ -22,6 +22,37 @@ func bmp(t *testing.T, p map[string]any, i int) []any {
 }
 
 // bmpPixels returns the packed-int pixel data of p's first bitmap draw command.
+// panelPixels composites EVERY bitmap op in a payload back into one 32×8 panel,
+// so pixel assertions keep working for frames whose bitmap is split into blocks
+// around a native-text box (see drawOpsAround). Text the firmware renders is,
+// by definition, not in the bitmap and so not here.
+func panelPixels(t *testing.T, p map[string]any) []int {
+	t.Helper()
+	ops, ok := p["draw"].([]any)
+	if !ok {
+		t.Fatalf("draw is %T, want []any", p["draw"])
+	}
+	panel := make([]int, 256)
+	for i, raw := range ops {
+		op, ok := raw.([]any)
+		if !ok || len(op) != 6 {
+			t.Fatalf("draw op %d is not a bitmap op: %v", i, raw)
+		}
+		x0, y0 := op[1].(int), op[2].(int)
+		w, h := op[3].(int), op[4].(int)
+		data, ok := op[5].([]int)
+		if !ok {
+			t.Fatalf("draw op %d data is %T, want []int", i, op[5])
+		}
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				panel[(y0+y)*32+(x0+x)] = data[y*w+x]
+			}
+		}
+	}
+	return panel
+}
+
 func bmpPixels(t *testing.T, p map[string]any) []int {
 	t.Helper()
 	px, ok := bmp(t, p, 0)[5].([]int)

@@ -601,7 +601,8 @@ tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
 (HH:MM reset clock), **7d** (percent in threshold colour, via
 `drawUnitPctFace`), **model-A** and **model-B** (`OP`/`SO` weekly frames).
 Every usage face replaces the context glass with a gray **window unit label**
-at the right edge (`drawUsageUnit`, cols 25–31): `5h` on the clock/reset/pct
+at the right edge (`drawUsageUnit`, cols 25–31, the same span the glass now
+takes): `5h` on the clock/reset/pct
 faces, `7d` / `OP` / `SO` on the weekly faces — the glass is a session metric
 and only non-usage cards draw it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
 toggles remain server config (`usage_widget`, `usage_per_model`, default on);
@@ -663,12 +664,18 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   **source-name card** (source uppercased, truncated to 4 glyphs, tinted in the
   source colour or white), **usage card** (when 5h ≥ `usage_threshold_pct`:
   5h clock → reset clock → 7d → per-model faces, rotating), context `NN⌷`,
-  and the scrolling tool/trail card. Wire fields `source_card` / `session_bar`
+  and the scrolling tool/trail card. The **source card's name is
+  firmware-rendered**, not drawn (`Frame.Native` → `text`/`textOffsetX`): the
+  in-house 3×5 font has no room for a real M/N/W. `/v1/preview` approximates it
+  back in `font3x5` so the Settings mirror doesn't show an empty slot — the only
+  place device and preview differ by design, and only in letterform. Wire fields `source_card` / `session_bar`
   are `*bool` (absent = on; a producer that predates them never regresses the
   display).
-- **Context glass** — right edge (interior cols ~26–29 × rows 1–4), 16-level
-  per-pixel bottom-up fill, state-coloured. Non-usage cards only — usage faces
-  paint the gray window unit label (`5h`/`7d`/`OP`/`SO`) in this slot instead.
+- **Context glass** — right edge, cols 25–31 (interior 26–30 × rows 1–4), so it
+  owns the panel's last column. 20-level per-pixel bottom-up fill (5 % per
+  pixel), state-coloured; the topmost partial row fills left-to-right. Non-usage
+  cards only — usage faces paint the gray window unit label
+  (`5h`/`7d`/`OP`/`SO`) in this slot instead.
 - **Bottom row (row 7)** — three-way: the 5h rate bar (`drawRateBar`, when
   `rate_bottom_bar` on + rate present), styled as the **dimmed (~55%) threshold
   bar** over content cols 8–31; else the session-pixel bar (1 px per non-idle
@@ -689,6 +696,18 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
 ### awtrix-ng firmware (verified on 1.0.13)
 - **No multi-frame `draw` arrays.** A 2-frame pulse payload triggers a
   validation error on the device. Use firmware-native `blinkText` instead.
+  Several *bitmap ops* in one `draw` array are fine — that is not an animation.
+- **A full-panel `draw` op suppresses the text layer entirely.** Verified on
+  1.0.15: a payload with `["bitmap",0,0,32,8,…]` plus `text` renders the bitmap
+  and simply drops the text — no error, no pixels. Splitting the same pixels
+  into ops that leave the text box clear makes the text appear, with a bar-row
+  op underneath it unaffected (NG's text occupies rows 1–5). This is why the
+  source card emits three ops (`drawOpsAround`) instead of one full-frame
+  bitmap, and why `detailPayload` gets away with a single 8×8 icon op.
+- **NG's font is 3px wide + 1px spacing, variable for wide letters.** "STUD"
+  lands exactly in cols 9–23; "M" is 5 wide. This is what the source card buys
+  by handing its text to the firmware: the in-house `font3x5` cannot form an
+  M/N/W in three columns.
 - **`textOffsetX` stacks on top of centering** — carried over from AWTRIX3
   under new key names. Custom apps default `textCenter:true`, and the firmware
   *adds* `textOffsetX` to the centred position → text clips past col 31. Set

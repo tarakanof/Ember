@@ -68,10 +68,13 @@ func TestComposeFrameSourceCard(t *testing.T) {
 	col := "#3366FF"
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceColor: &col}
 	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
-	// 'M' glyph top-left pixel at numStart, row 1, in the source colour.
+	// The name is handed to the firmware's font, tinted with the source colour.
 	want := RGB{0x33, 0x66, 0xFF}
-	if !f.Dirty[1][numStart] || f.Pixels[1][numStart] != want {
-		t.Fatalf("source-card first pixel = %v dirty=%v, want %v", f.Pixels[1][numStart], f.Dirty[1][numStart], want)
+	if f.Native == nil {
+		t.Fatal("source card: Native is nil, want the source name")
+	}
+	if f.Native.Text != "MBP" || f.Native.X != numStart || f.Native.Color != want {
+		t.Fatalf("source-card native text = %+v, want {MBP %d %v}", *f.Native, numStart, want)
 	}
 }
 

@@ -768,10 +768,19 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 		t.Fatalf("publishes after wake = %d, want %d (one new active-session publish)", len(apps), idleCount+1)
 	}
 	last := apps[len(apps)-1]
-	// Active frame must NOT be the dim-white robot — it should be a state-coloured render.
-	op := last["draw"].([]any)[0].([]any) // NG: ["bitmap", x, y, w, h, data]
-	if op[3] != 32 {
-		t.Errorf("active frame width = %v, want 32 (full rotation render)", op[3])
+	// Active frame must NOT be the dim-white robot — it should be a state-coloured
+	// render spanning the panel. The source card splits its bitmap into blocks
+	// around the firmware-rendered name, so measure the ops' combined reach
+	// rather than the first op's width.
+	reach := 0
+	for _, raw := range last["draw"].([]any) {
+		op := raw.([]any) // NG: ["bitmap", x, y, w, h, data]
+		if r := op[1].(int) + op[3].(int); r > reach {
+			reach = r
+		}
+	}
+	if reach != 32 {
+		t.Errorf("active frame reaches col %d, want the full 32 (full rotation render)", reach)
 	}
 }
 
