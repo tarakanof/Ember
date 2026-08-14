@@ -20,40 +20,29 @@ struct LiveMatrixMirror: View {
     private func poll() async {
         // The clock's address (for the direct fallback) is server-held config.
         clockBaseURL = (try? await env.device.config())?.baseURL
-        var preferProxy = true
-        var tick = 0
         // At 1 Hz this loop is the single heaviest caller of the server, so it is
-        // also the one most likely to be throttled — and to keep everything else
-        // throttled if it just carries on at cadence.
-        var pacer = RateLimitBackoff(base: .seconds(1))
+        // also the one most likely to be throttled — and, if it just carried on at
+        // cadence, to keep everything else throttled too. Which source to ask and
+        // how long to wait live in MirrorPoller, where they're unit-tested.
+        var poller = MirrorPoller()
         while !Task.isCancelled {
             var s: [Int]?
-            var throttled: Duration?
-            if preferProxy || tick % 30 == 0 {
+            if poller.probesProxy {
                 do {
                     s = try await env.device.screen()
+                    poller.record(.pixels)
                 } catch let e as APIError where e.isRateLimited {
-                    throttled = e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter
+                    poller.record(.throttled(e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter))
                 } catch {
-                    s = nil
+                    poller.record(.failed)
                 }
-                // Being throttled says nothing about whether the proxy WORKS, so
-                // it must not flip preferProxy — that flag is about the server
-                // being old enough to lack the route.
-                if throttled == nil { preferProxy = s != nil }
             }
-            // The direct read goes to the clock's own address, not through the
-            // server, so it costs no rate-limit budget: a throttle is the moment
-            // it's most worth doing, not a reason to skip it and paint black.
-            if s == nil, let base = clockBaseURL, !base.isEmpty {
+            if poller.triesDirect(havePixels: s != nil), let base = clockBaseURL, !base.isEmpty {
                 s = try? await DeviceService.directScreen(clockBaseURL: base)
             }
             if Task.isCancelled { return }
             screen = s
-            tick += 1
-            let delay = throttled.map { pacer.nextDelay(after: .rateLimited(retryAfter: $0)) }
-                ?? (s == nil ? .seconds(3) : pacer.nextDelay(after: .succeeded))
-            try? await Task.sleep(for: delay)
+            try? await Task.sleep(for: poller.endTick(havePixels: s != nil))
         }
     }
 }
