@@ -426,3 +426,27 @@ func TestRateLimit_IncrementsDeniedCounter(t *testing.T) {
 		t.Errorf("rateLimitDenied = %d, want 2", got)
 	}
 }
+
+// One Mac runs the menu app (four polled endpoints) plus a producer per
+// session, and they all share one source IP. After a network stall they
+// reconnect together — 15 requests landing in the same millisecond was
+// observed in the wild — so the default burst has to absorb a reconnect
+// without answering 429 to a legitimate client.
+func TestDefaultRateLimitAbsorbsClientReconnectBurst(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	app := &App{}
+	app.cfg.Store(&cfg)
+	app.metrics = newMetrics()
+	lim := NewIPLimiter(app)
+	clock := newFakeClock()
+	lim.clock = clock.Now // no refill between calls: this is a single instant
+
+	const reconnectBurst = 20
+	for i := 0; i < reconnectBurst; i++ {
+		if ok, _ := lim.Allow("192.0.2.9"); !ok {
+			t.Fatalf("request %d of a %d-request reconnect burst denied with default rate_limit config (burst=%d)",
+				i+1, reconnectBurst, cfg.RateLimit.Burst)
+		}
+	}
+}

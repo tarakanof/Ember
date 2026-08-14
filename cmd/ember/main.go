@@ -227,8 +227,8 @@ func defaultConfig() Config {
 		},
 		RateLimit: RateLimitConfig{
 			Disabled:         false,
-			Burst:            10,
-			RefillPerSec:     2.0,
+			Burst:            60,
+			RefillPerSec:     5.0,
 			IdleEvictSeconds: 300,
 		},
 		Pomodoro: PomodoroConfig{
@@ -326,10 +326,10 @@ func (c *Config) applyDefaults() {
 		c.Auth.StatusToken = os.Getenv(c.Auth.StatusTokenEnv)
 	}
 	if c.RateLimit.Burst == 0 {
-		c.RateLimit.Burst = 10
+		c.RateLimit.Burst = 60
 	}
 	if c.RateLimit.RefillPerSec == 0 {
-		c.RateLimit.RefillPerSec = 2.0
+		c.RateLimit.RefillPerSec = 5.0
 	}
 	if c.RateLimit.IdleEvictSeconds == 0 {
 		c.RateLimit.IdleEvictSeconds = 300

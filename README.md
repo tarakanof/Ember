@@ -218,8 +218,11 @@ Scrape config snippet (Prometheus):
 ```
 
 **Rate limiting:** the server enforces a per-source-IP token-bucket
-rate limit on `/v1/*` writes. Defaults: 10-token burst, 2 tokens/sec
-sustained refill per IP, 5-minute idle-bucket eviction. `/admin/*`
+rate limit on `/v1/*` writes. Defaults: 60-token burst, 5 tokens/sec
+sustained refill per IP, 5-minute idle-bucket eviction. The burst is
+sized for one Mac's whole fan-out — menu-app polling plus a producer
+per session, all sharing a source IP — reconnecting at once after a
+network stall. `/admin/*`
 and read endpoints (`/healthz`, `/state`, `/version`) are not
 rate-limited. Tune via the `rate_limit` section of `config.json`
 and reload with `POST /admin/reload`. To disable entirely, set
@@ -342,8 +345,8 @@ them to point at your Unraid IP and the same token you set above.
   "auth": { "status_token_env": "EMBER_TOKEN" },
   "rate_limit": {
     "disabled": false,
-    "burst": 10,
-    "refill_per_sec": 2,
+    "burst": 60,
+    "refill_per_sec": 5,
     "idle_evict_seconds": 300
   },
   "display": {
