@@ -134,11 +134,11 @@ func TestDrawDigits(t *testing.T) {
 
 func intPtr(v int) *int { return &v }
 
-// litInterior counts lit pixels in the glass interior (cols 26-29, rows 1-4).
+// litInterior counts lit pixels in the glass interior (cols 26-30, rows 1-4).
 func litInterior(f *Frame) int {
 	n := 0
 	for y := 1; y <= 4; y++ {
-		for x := 26; x <= 29; x++ {
+		for x := 26; x <= 30; x++ {
 			if f.Dirty[y][x] {
 				n++
 			}
@@ -157,17 +157,18 @@ func TestDrawGlass(t *testing.T) {
 		t.Errorf("absent pct: drew something")
 	}
 
-	// Proportional pixel fill over the 16 interior pixels: round(pct/100*16).
-	// Outline is always present for a non-nil pct.
+	// The glass owns the full right edge: cols 25-31, so the interior is 5×4 =
+	// 20 pixels and each one is worth 5%.
 	counts := []struct{ pct, want int }{
-		{0, 0}, {25, 4}, {50, 8}, {75, 12}, {100, 16},
-		{73, 12}, {99, 16}, // 73 and 99 are now distinguishable (12 vs 16)
-		{6, 1}, // ~6% per pixel → first pixel
+		{0, 0}, {25, 5}, {50, 10}, {75, 15}, {100, 20},
+		{73, 15}, {99, 20}, // still distinguishable
+		{5, 1}, // 5% per pixel → first pixel
+		{2, 0}, // below half a pixel → empty, not a phantom pixel
 	}
 	for _, c := range counts {
 		f := &Frame{}
 		drawGlass(f, intPtr(c.pct), fill)
-		if !f.Dirty[1][25] || !f.Dirty[1][30] || !f.Dirty[5][27] {
+		if !f.Dirty[1][25] || !f.Dirty[1][31] || !f.Dirty[5][28] {
 			t.Errorf("%d%%: outline missing", c.pct)
 		}
 		if got := litInterior(f); got != c.want {
@@ -175,30 +176,39 @@ func TestDrawGlass(t *testing.T) {
 		}
 	}
 
-	// Left-to-right partial row: 54% → 9px → rows 4,3 full + only leftmost col 26 in row 2.
+	// Nothing may spill past the panel's right edge.
 	f = &Frame{}
-	drawGlass(f, intPtr(54), fill)
-	for x := 26; x <= 29; x++ {
+	drawGlass(f, intPtr(100), fill)
+	for y := glassTopRow; y <= glassBottomRow; y++ {
+		if !f.Dirty[y][31] {
+			t.Errorf("row %d: col 31 should be part of the glass", y)
+		}
+	}
+
+	// Left-to-right partial row: 55% → 11px → rows 4,3 full (10) + col 26 in row 2.
+	f = &Frame{}
+	drawGlass(f, intPtr(55), fill)
+	for x := 26; x <= 30; x++ {
 		if !f.Dirty[4][x] || !f.Dirty[3][x] {
-			t.Errorf("54%%: bottom two rows should be full (col %d)", x)
+			t.Errorf("55%%: bottom two rows should be full (col %d)", x)
 		}
 	}
 	if !f.Dirty[2][26] {
-		t.Error("54%: leftmost col 26 of the partial row should be lit")
+		t.Error("55%: leftmost col 26 of the partial row should be lit")
 	}
-	for _, x := range []int{27, 28, 29} {
+	for _, x := range []int{27, 28, 29, 30} {
 		if f.Dirty[2][x] {
-			t.Errorf("54%%: partial row fills left-to-right; col %d should still be dark", x)
+			t.Errorf("55%%: partial row fills left-to-right; col %d should still be dark", x)
 		}
 	}
-	if litInterior(f) != 9 {
-		t.Errorf("54%%: interior lit = %d, want 9", litInterior(f))
+	if litInterior(f) != 11 {
+		t.Errorf("55%%: interior lit = %d, want 11", litInterior(f))
 	}
 
-	// 60% → 10px → partial row has the left PAIR (26,27); right (28,29) dark.
+	// 60% → 12px → partial row has the left pair (26,27); the rest dark.
 	f = &Frame{}
 	drawGlass(f, intPtr(60), fill)
-	if !f.Dirty[2][26] || !f.Dirty[2][27] || f.Dirty[2][28] || f.Dirty[2][29] {
+	if !f.Dirty[2][26] || !f.Dirty[2][27] || f.Dirty[2][28] || f.Dirty[2][29] || f.Dirty[2][30] {
 		t.Error("60%: partial row should be left pair 26,27 only")
 	}
 }
@@ -217,11 +227,9 @@ func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
 	if payload == nil {
 		t.Fatal("expected non-nil payload for single running session")
 	}
-	pixels := bmpPixels(t, payload)
-	// Source "a" → sourceCardText "A"; 'A' glyph row 0 "XXX" at numStart=9, drawY=1.
-	// cols 9,10,11 should be lit (white, no SourceColor set).
-	if pixels[1*32+9] == 0 {
-		t.Errorf("expected source 'A' first column lit at (9,1)")
+	// Source "a" → sourceCardText "A", handed to the firmware's font.
+	if got := payload["text"]; got != "A" {
+		t.Errorf("payload text = %v, want A", got)
 	}
 }
 
@@ -233,10 +241,9 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s2", State: "running", SourceColor: &green, UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/s2", cardSource, false, 30, nil)
-	pixels := bmpPixels(t, payload)
-	// numStart=9: first digit '1' middle col → matrix (10, 1). Should be green.
-	if got, want := pixels[1*32+10], 0x2ee85e; got != want {
-		t.Errorf("digit colour at (10,1) = %#06x, want %#06x (s2 SourceColor)", got, want)
+	// The pointed-at session's SourceColor tints the (native) source name.
+	if got, want := payload["textColor"], "#2EE85E"; got != want {
+		t.Errorf("source-name colour = %v, want %v (s2 SourceColor)", got, want)
 	}
 }
 
@@ -441,30 +448,38 @@ func TestRenderForCoord_RunningToolCard_NoDisplayHold(t *testing.T) {
 	assertRotates(t, RenderForCoord(snap, "a/b/s1", 1, false, 30, nil))
 }
 
-func TestRenderForCoord_LockedButNotAttentionState_SingleFrame(t *testing.T) {
+func TestRenderForCoord_LockedButNotAttentionState_StaticBitmapOps(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/r", cardSource, true, 30, nil)
-	frames := payload["draw"].([]any)
-	if len(frames) != 1 {
-		t.Fatalf("locked running: expected 1 frame, got %d", len(frames))
+	ops := payload["draw"].([]any)
+	// Several bitmap ops are fine (the source card splits its bitmap around the
+	// native text); what NG rejects is a multi-FRAME animation array, so every
+	// entry must be a plain bitmap op.
+	if len(ops) == 0 {
+		t.Fatal("locked running: no draw ops")
+	}
+	for i, raw := range ops {
+		op, ok := raw.([]any)
+		if !ok || op[0] != "bitmap" {
+			t.Fatalf("draw op %d = %v, want a bitmap op (no animation frames)", i, raw)
+		}
 	}
 }
 
-func TestRenderForCoord_SourceCard_DrawsSourceGlyph(t *testing.T) {
+func TestRenderForCoord_SourceCard_UsesTheFirmwareFont(t *testing.T) {
 	now := time.Now()
 	snap := Snapshot{Sessions: []Session{
 		{Source: "mbp", Tool: "b", Session: "s1", State: "running", UpdatedAt: now},
 	}}
 	payload := RenderForCoord(snap, "mbp/b/s1", cardSource, false, 30, nil)
-	pixels := bmpPixels(t, payload)
-	// source card shows "MBP": 'M' glyph row 0 is "XXX" at numStart=9 → cols 9,10,11 lit in white.
-	want := (0xff << 16) | (0xff << 8) | 0xff // colorWhite when no SourceColor
-	for x := 9; x <= 11; x++ {
-		if pixels[1*32+x] != want {
-			t.Errorf("source-card 'M' top row col %d = %#06x, want white %#06x", x, pixels[1*32+x], want)
-		}
+
+	if got := payload["text"]; got != "MBP" {
+		t.Errorf("payload text = %v, want MBP", got)
+	}
+	if got := payload["textColor"]; got != "#FFFFFF" {
+		t.Errorf("payload textColor = %v, want #FFFFFF (no SourceColor set)", got)
 	}
 }
 
@@ -953,7 +968,7 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 	if payload == nil {
 		t.Fatal("expected non-nil payload")
 	}
-	pixels := bmpPixels(t, payload)
+	pixels := panelPixels(t, payload)
 	// Row 7. Expect col 11 = waiting amber, col 12 = running green.
 	// Derive expected values from the palette constants so the test stays
 	// correct if colors are ever updated.
@@ -1108,8 +1123,14 @@ func TestRenderForCoord_CursorOutOfRange_ClampsToFirstCard(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/s1", 2, false, 30, nil)
-	if _, hasText := payload["text"]; hasText {
-		t.Errorf("out-of-range card index must clamp to first card and return a pixel frame, not a text payload")
+	// Clamping lands on the source card: a bitmap frame carrying the source
+	// name as native text — NOT the scrolling activity payload, which has a
+	// draw op of only the 8×8 icon.
+	if _, hasDraw := payload["draw"]; !hasDraw {
+		t.Error("out-of-range card index must clamp to the first card's pixel frame")
+	}
+	if got := payload["text"]; got != "A" {
+		t.Errorf("clamped card text = %v, want the source name A", got)
 	}
 }
 
@@ -1226,14 +1247,9 @@ func TestComposeFrameUsesToolIcon(t *testing.T) {
 	if !f.Dirty[0][2] {
 		t.Errorf("icon not drawn at (2,0)")
 	}
-	lit := false
-	for y := 1; y <= 5; y++ {
-		if f.Dirty[y][9] || f.Dirty[y][10] || f.Dirty[y][11] {
-			lit = true
-		}
-	}
-	if !lit {
-		t.Errorf("source-card digits not drawn at col 9")
+	// The source name itself is native text, not pixels.
+	if f.Native == nil || f.Native.Text == "" {
+		t.Errorf("source-card name missing from the frame's native text")
 	}
 }
 
@@ -1387,9 +1403,9 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	}
 	requireUnit(t, &f, "reset face")
 
-	// The source card keeps the context glass: (30,1) is its right wall.
+	// The source card keeps the context glass: (31,1) is its right wall.
 	f = ComposeFrame(s, cardSource, u, []Session{s}, now)
-	if got := f.Pixels[1][30]; got != glassWall {
+	if got := f.Pixels[1][glassRight]; got != glassWall {
 		t.Fatalf("source card glass wall: pixel = %v, want %v", got, glassWall)
 	}
 }

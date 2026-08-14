@@ -106,8 +106,13 @@ type Preview struct {
 }
 
 // HexPixels exports a frame as the row-major "#rrggbb" strings preview JSON
-// consumers expect (see CardFrame.Pixels).
-func HexPixels(f *Frame) []string { return hexPixels(f) }
+// consumers expect (see CardFrame.Pixels). It renders a frame to "#rrggbb" strings, with any firmware-rendered
+// text approximated in the bitmap font (see withNativeApproximated) — a preview
+// can only show pixels, and an empty slot would misrepresent the card.
+func HexPixels(f *Frame) []string {
+	approx := withNativeApproximated(f)
+	return hexPixels(&approx)
+}
 
 // PreviewFrames renders each card in AvailableCards(s, u) except the
 // scrolling tool card, using the robot colour from state and the single
@@ -121,7 +126,7 @@ func PreviewFrames(s Session, u *UsageView, now time.Time) Preview {
 			continue
 		}
 		frame := ComposeFrame(s, c, u, []Session{s}, now)
-		p.Frames = append(p.Frames, CardFrame{Card: cardName(c), Pixels: hexPixels(&frame)})
+		p.Frames = append(p.Frames, CardFrame{Card: cardName(c), Pixels: HexPixels(&frame)})
 	}
 	return p
 }
@@ -145,6 +150,19 @@ func cardName(c int) string {
 	default:
 		panic(fmt.Sprintf("cardName: unknown card const %d", c))
 	}
+}
+
+// withNativeApproximated returns a copy of f with any firmware-rendered text
+// painted in the 3×5 bitmap font. The preview can only show pixels, so a card
+// whose text is native would otherwise render as an empty slot — a lie about a
+// card that reads fine on the device. The letterforms differ slightly (that is
+// the whole point of handing them to the firmware); the content does not.
+func withNativeApproximated(f *Frame) Frame {
+	out := *f
+	if n := f.Native; n != nil && n.Text != "" {
+		drawDigits(&out, n.Text, n.X, 1, n.Color)
+	}
+	return out
 }
 
 func hexPixels(f *Frame) []string {

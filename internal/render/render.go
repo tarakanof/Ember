@@ -18,6 +18,23 @@ type RGB struct {
 type Frame struct {
 	Pixels [8][32]RGB
 	Dirty  [8][32]bool
+	// Native, when set, is text the FIRMWARE renders in its own font on top of
+	// this bitmap, rather than something painted into Pixels. Reserved for the
+	// source name: it is the one card that is pure letters, and the 3×5 font
+	// cannot form a real M/N/W in three columns. Callers must leave the pixels
+	// under it unpainted — the two are composited by the device, not here.
+	Native *NativeText
+}
+
+// NativeText is firmware-rendered text laid over a Frame's bitmap. X is the
+// literal start column (the payload sets textCenter:false, because NG otherwise
+// ADDS textOffsetX to the centred position and walks the text off the panel).
+// W reserves the box the bitmap must leave alone — see frameToCustomApp.
+type NativeText struct {
+	Text  string
+	X     int
+	W     int
+	Color RGB
 }
 
 // Session holds the current state of a single AI session as received via the
@@ -218,24 +235,25 @@ func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
 }
 
 const (
-	glassLeft        = 25
-	glassRight       = 30
+	glassLeft  = 25
+	glassRight = 31 // the panel's last column: the glass owns the full right edge
+	// The usage faces' unit label (drawUsageUnit) also runs to col 31, and only
+	// one of the two is ever drawn on a given card.
 	glassTopRow      = 1
 	glassBottomRow   = 5
-	glassInteriorW   = 4 // interior cols 26–29
+	glassInteriorW   = 5 // interior cols 26–30
 	glassInteriorH   = 4 // interior rows 1–4
 	glassInteriorPix = glassInteriorW * glassInteriorH
 )
 
 var glassWall = RGB{0xcc, 0xcc, 0xcc}
 
-// drawGlass paints the context-window glass at cols 25–30, rows 1–5.
+// drawGlass paints the context-window glass at cols 25–31, rows 1–5.
 // If pct is nil the glass is not drawn at all (visually empty space —
 // distinguishes from a session reporting 0 %). When non-nil, the outline is
-// drawn in glassWall and the 16 interior pixels (cols 26–29 × rows 1–4) are
-// filled bottom-up in c, proportional to pct (≈6 % per pixel — far finer than
-// the old 4 row-levels, so e.g. 73 % and 99 % look different). The topmost
-// partial row fills left-to-right (cols 26→29).
+// drawn in glassWall and the 20 interior pixels (cols 26–30 × rows 1–4) are
+// filled bottom-up in c, proportional to pct (5 % per pixel, so e.g. 73 % and
+// 99 % look different). The topmost partial row fills left-to-right.
 func drawGlass(f *Frame, pct *int, c RGB) {
 	if pct == nil {
 		return
@@ -253,12 +271,15 @@ func drawGlass(f *Frame, pct *int, c RGB) {
 	if v > 100 {
 		v = 100
 	}
-	n := (v*glassInteriorPix + 50) / 100 // round(v/100 * 16)
+	n := (v*glassInteriorPix + 50) / 100 // round(v/100 * 20)
 	if n > glassInteriorPix {
 		n = glassInteriorPix
 	}
-	// Left-to-right column order within a row: 26, 27, 28, 29.
-	colOrder := [glassInteriorW]int{glassLeft + 1, glassLeft + 2, glassLeft + 3, glassRight - 1}
+	// Left-to-right column order within a row: 26 … 30.
+	var colOrder [glassInteriorW]int
+	for i := range colOrder {
+		colOrder[i] = glassLeft + 1 + i
+	}
 	for row := 0; row < glassInteriorH && n > 0; row++ {
 		y := (glassBottomRow - 1) - row // 4, 3, 2, 1 (bottom-up)
 		k := n
@@ -388,11 +409,41 @@ const rotateDwellSeconds = 6
 // bitmap draw command. Pixels are emitted row-major as 0xRRGGBB ints — undirty
 // pixels emit 0 (black/off). hold=true takes the display hold (see applyHold);
 // hold=false rotates natively with a short dwell.
+// drawOpsAround emits the frame's bitmap as the blocks AROUND a native-text
+// box: everything left of it, everything right of it, and the bottom bar row
+// beneath it.
+//
+// A single draw op covering the whole 32×8 panel suppresses the firmware's text
+// layer completely — verified on firmware 1.0.15: the bitmap's own pixels
+// rendered and the text was simply absent. Split the same pixels into blocks
+// that clear the text box and the text appears, with the bar row underneath it
+// unaffected (the text occupies rows 1–5).
+func drawOpsAround(f *Frame, n *NativeText) []any {
+	right := n.X + n.W
+	ops := []any{}
+	if n.X > 0 {
+		ops = append(ops, bitmapOp(0, 0, n.X, 8, framePixelsRect(f, 0, 0, n.X, 8)))
+	}
+	if right < 32 {
+		ops = append(ops, bitmapOp(right, 0, 32-right, 8, framePixelsRect(f, right, 0, 32-right, 8)))
+	}
+	ops = append(ops, bitmapOp(n.X, barRow, n.W, 1, framePixelsRect(f, n.X, barRow, n.W, 1)))
+	return ops
+}
+
 func frameToCustomApp(f *Frame, lifetimeSeconds int, hold bool) map[string]any {
 	p := map[string]any{
 		"draw":       []any{bitmapOp(0, 0, 32, 8, framePixels(f))},
 		"lifetimeMs": msOf(lifetimeSeconds),
 		"durationMs": msOf(rotateDwellSeconds),
+	}
+	if n := f.Native; n != nil && n.Text != "" {
+		p["draw"] = drawOpsAround(f, n)
+		p["text"] = n.Text
+		p["textColor"] = hexOf(n.Color)
+		p["textOffsetX"] = n.X
+		p["textCenter"] = false
+		p["scroll"] = scrollStaticWhenFits()
 	}
 	if hold {
 		applyHold(p, lifetimeSeconds)
@@ -927,7 +978,12 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 	case card == cardUsageModelB && u != nil && len(u.Models) > 1:
 		drawUnitPctFace(&f, u.Models[1].Marker, u.Models[1].Pct)
 	case card == cardSource && s.Source != "":
-		drawDigits(&f, sourceCardText(s.Source), numStart, 1, sourceColorOr(s, colorWhite))
+		f.Native = &NativeText{
+			Text:  sourceCardText(s.Source),
+			X:     numStart,
+			W:     glassLeft - numStart,
+			Color: sourceColorOr(s, colorWhite),
+		}
 	default:
 		// card == cardNone (no cards available): blank number slot.
 	}
