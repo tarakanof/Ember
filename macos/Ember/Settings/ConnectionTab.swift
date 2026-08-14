@@ -51,10 +51,21 @@ struct ConnectionTab: View {
                         }
                 }
 
-                SecureField("Token", text: $token,
-                            prompt: Text(tokenIsSet ? "set — blank keeps it" : "not set"))
-                    .focused($focusedField, equals: .token)
-                    .onSubmit { commitToken() }
+                // The token is the one field with an explicit Save. Every other
+                // control here auto-applies, but a write-only field can't: it
+                // commits on Return or focus loss, and leaving the tab (or
+                // closing the window) with the field still focused tears the
+                // view down without either ever happening — a pasted token
+                // silently vanished. onDisappear below is the backstop; the
+                // button is the affordance that says the value needs saving.
+                HStack {
+                    SecureField("Token", text: $token,
+                                prompt: Text(tokenIsSet ? "set — blank keeps it" : "not set"))
+                        .focused($focusedField, equals: .token)
+                        .onSubmit { commitToken() }
+                    Button("Save") { commitToken() }
+                        .disabled(tokenIsBlank)
+                }
             } header: {
                 Text("Producer")
             } footer: {
@@ -117,6 +128,9 @@ struct ConnectionTab: View {
         }
         .formStyle(.grouped)
         .onChange(of: focusedField) { old, _ in commitOnFocusLeave(old) }
+        // Switching tabs or closing the window destroys this view without ever
+        // moving focus, so a typed-but-uncommitted token would die with it.
+        .onDisappear { commitToken() }
         .toolbar {
             ToolbarItem {
                 Button("Test Connection") { Task { await test() } }
@@ -131,6 +145,12 @@ struct ConnectionTab: View {
     /// then the colour controls are disabled (rather than throwing a confusing
     /// "source must not be empty" on a colour action).
     private var connectionConfigured: Bool { committed.isComplete }
+
+    /// Whether the token field holds nothing worth saving (blank = "keep the
+    /// stored one", which is why an empty field must not be committable).
+    private var tokenIsBlank: Bool {
+        token.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     @ViewBuilder private var statusCaption: some View {
         switch save {
@@ -197,7 +217,7 @@ struct ConnectionTab: View {
     }
 
     private func commitToken() {
-        guard !token.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        guard !tokenIsBlank else { return }
         var envFile = env.currentEnv()
         do {
             // Tolerant apply so a token can be saved on a fresh install before the
