@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +24,7 @@ type attemptPublisher struct {
 	failures int   // remaining attempts to fail
 	err      error // what a failing attempt returns
 	budgets  []time.Duration
+	payloads []map[string]any // every attempt's payload, failed ones included
 }
 
 func (p *attemptPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
@@ -29,6 +34,7 @@ func (p *attemptPublisher) CustomApp(ctx context.Context, name string, payload m
 		budget = time.Until(dl)
 	}
 	p.budgets = append(p.budgets, budget)
+	p.payloads = append(p.payloads, payload)
 	fail := p.failures > 0
 	if fail {
 		p.failures--
@@ -45,6 +51,14 @@ func (p *attemptPublisher) budgetsSnapshot() []time.Duration {
 	defer p.mu.Unlock()
 	out := make([]time.Duration, len(p.budgets))
 	copy(out, p.budgets)
+	return out
+}
+
+func (p *attemptPublisher) payloadsSnapshot() []map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]map[string]any, len(p.payloads))
+	copy(out, p.payloads)
 	return out
 }
 
@@ -150,6 +164,119 @@ func TestTilePublishRetriesTransientDeviceFailure(t *testing.T) {
 	}
 }
 
+// A 5xx is the clock talking while it can't serve — it watchdog-resets and runs
+// its HTTP server on the task that drives the panel. That is worth another
+// attempt, unlike a 4xx verdict on the payload itself.
+func TestPublishRetriesDeviceServerError(t *testing.T) {
+	for _, status := range []int{500, 503, http.StatusTooManyRequests} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			pub := &attemptPublisher{recordingPublisher: &recordingPublisher{},
+				failures: 1, err: &awtrix.APIError{StatusCode: status}}
+			c, snap := publishFixture(t, pub, nil)
+
+			c.publish(snap)
+
+			if got := len(pub.budgetsSnapshot()); got != 2 {
+				t.Errorf("CustomApp attempts after %d = %d, want 2", status, got)
+			}
+		})
+	}
+}
+
+// A 4xx that isn't 429 is the device's final answer on this payload.
+func TestPublishDoesNotRetryClientErrors(t *testing.T) {
+	for _, status := range []int{400, 404, 413, 422} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			pub := &attemptPublisher{recordingPublisher: &recordingPublisher{},
+				failures: publishAttempts, err: &awtrix.APIError{StatusCode: status}}
+			c, snap := publishFixture(t, pub, nil)
+
+			c.publish(snap)
+
+			if got := len(pub.budgetsSnapshot()); got != 1 {
+				t.Errorf("CustomApp attempts after %d = %d, want 1", status, got)
+			}
+		})
+	}
+}
+
+// On shutdown the retry must not fire: the coordinator's context is cancelled,
+// and a second attempt would just wait out its own deadline against a device
+// nobody is listening to any more.
+func TestPublishDoesNotRetryAfterShutdown(t *testing.T) {
+	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: context.Canceled}
+	c, snap := publishFixture(t, pub, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	c.ctx = ctx
+	cancel()
+
+	c.publish(snap)
+
+	if got := len(pub.budgetsSnapshot()); got != 1 {
+		t.Errorf("CustomApp attempts with a cancelled coordinator context = %d, want 1", got)
+	}
+}
+
+// A configured awtrix.timeout_seconds below the per-attempt default is a
+// deliberate "this device answers fast or not at all" and must still cap the
+// attempt — the clamp is a floor on impatience, not a way to widen it.
+func TestPublishAttemptHonoursSmallerConfiguredTimeout(t *testing.T) {
+	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: context.DeadlineExceeded}
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	cfg.AWTRIX.TimeoutSeconds = 1
+	c := newCoordinator(cfg, func() *Config { return &cfg }, pub, realClock{}, testLogger(), nil)
+	c.ctx = context.Background()
+	snap := Snapshot{Now: time.Now(), Sessions: []render.Session{
+		{Source: "mbp", Tool: "claude", Session: "a", State: "running", UpdatedAt: time.Now()},
+	}}
+	c.snapshot = func() Snapshot { return snap }
+
+	c.publish(snap)
+
+	for i, b := range pub.budgetsSnapshot() {
+		if b > time.Second {
+			t.Errorf("attempt %d budget = %v with awtrix.timeout_seconds=1, want <= 1s", i, b)
+		}
+	}
+}
+
+// The retry re-sends the same frame. A retry that rebuilt the payload could
+// push a frame the coordinator never decided on.
+func TestPublishRetrySendsTheSamePayload(t *testing.T) {
+	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: 1, err: context.DeadlineExceeded}
+	c, snap := publishFixture(t, pub, nil)
+
+	c.publish(snap)
+
+	sent := pub.payloadsSnapshot()
+	if len(sent) != 2 {
+		t.Fatalf("recorded payloads = %d, want 2", len(sent))
+	}
+	first, _ := json.Marshal(sent[0])
+	second, _ := json.Marshal(sent[1])
+	if !bytes.Equal(first, second) {
+		t.Errorf("retry payload differs from the first attempt:\n first: %s\nsecond: %s", first, second)
+	}
+}
+
+// A push that succeeds on its second attempt counts as one ok publish, so the
+// retry counter is the only thing that still sees the link degrading.
+func TestPublishRetryIsCounted(t *testing.T) {
+	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: 1, err: context.DeadlineExceeded}
+	m := newMetrics()
+	c, snap := publishFixture(t, pub, m)
+
+	c.publish(snap)
+
+	if got := m.publishRetries.Load(); got != 1 {
+		t.Errorf("publish retry metric = %d, want 1", got)
+	}
+	if ok := m.publishTotalOK.Load(); ok != 1 {
+		t.Errorf("publish ok metric = %d, want 1", ok)
+	}
+}
+
 // A device rejection of a tile is final, exactly as for the main frame.
 func TestTilePublishDoesNotRetryDeviceRejection(t *testing.T) {
 	rejected := &awtrix.APIError{StatusCode: 422, Code: "validationFailed"}
@@ -197,25 +324,66 @@ func TestUnchangedFrameRenewsSeveralTicksBeforeEviction(t *testing.T) {
 		t.Errorf("publishes one dwell after the first = %d, want 1 (identical frame should dedupe)", got)
 	}
 
-	// By the time the device is three dwell ticks from evicting the app, the
-	// renewal must already have been attempted — leaving room for retries.
-	clk.Advance(lifetime - 3*dwell - dwell)
+	// The first tick once the window has passed renews the frame...
+	window := renewalDedupWindow(cfg.Display.FrameLifetimeSeconds, cfg.Display.RotationDwellSeconds)
+	clk.Advance(window)
 	c.publish(snap)
 	if got := len(pub.CustomAppsSnapshot()); got != 2 {
-		t.Errorf("publishes %v before eviction = %d, want 2 (renewal must start with ticks to spare)", 3*dwell, got)
+		t.Fatalf("publishes after the %v dedup window = %d, want 2", window, got)
+	}
+
+	// ...and it does so with a full retry budget still to spare, which is the
+	// point of the margin: this worst-case tick lands a whole dwell late.
+	spare := lifetime - (dwell + window)
+	if budget := time.Duration(publishAttempts) * publishAttemptTimeout; spare < budget {
+		t.Errorf("renewal landed with %v before eviction, want >= %v (one pushApp budget)", spare, budget)
 	}
 }
 
-// The default lifetime has to be long enough that a handful of consecutive
-// failed pushes cannot expire the app between renewals.
-func TestDefaultFrameLifetimeLeavesRoomForRetries(t *testing.T) {
+// The renewal margin is what a lossy link spends. The last tick before the
+// window opens can land a full dwell early, so the wallclock slack before the
+// device evicts the app is (margin - dwell) — and that has to cover at least
+// one full pushApp budget, or a single dropped push still costs the app its
+// slot. Swept across the validated frame_lifetime_seconds range [10,120] and
+// the dwell values a config can produce.
+func TestRenewalMarginCoversTheRetryBudget(t *testing.T) {
+	retryBudget := time.Duration(publishAttempts) * publishAttemptTimeout
+	for _, lifetime := range []int{10, 11, 20, 30, 45, 60, 90, 120} {
+		for _, dwell := range []int{1, 3, 6, 10, 20, 40} {
+			if dwell >= lifetime {
+				continue // a dwell longer than the lifetime is not a coherent config
+			}
+			window := renewalDedupWindow(lifetime, dwell)
+			if window < time.Second {
+				t.Errorf("lifetime=%ds dwell=%ds: window=%v, want >= 1s", lifetime, dwell, window)
+			}
+			if window == time.Second {
+				continue // already re-pushing on every tick; nothing left to give
+			}
+			margin := time.Duration(lifetime)*time.Second - window
+			if slack := margin - time.Duration(dwell)*time.Second; slack < retryBudget {
+				t.Errorf("lifetime=%ds dwell=%ds: window=%v leaves %v of slack before eviction, want >= %v (one pushApp budget)",
+					lifetime, dwell, window, slack, retryBudget)
+			}
+		}
+	}
+}
+
+// At the defaults the renewal must get more than one shot — that "exactly one
+// attempt" is what let a single dropped push evict the app — while still
+// leaving a real dedup window (the defaults are not a degenerate config).
+func TestDefaultRenewalMarginBuysMoreThanOneAttempt(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
-	lifetime := cfg.Display.FrameLifetimeSeconds
-	dwell := cfg.Display.RotationDwellSeconds
-	if lifetime < 10*dwell {
-		t.Errorf("default frame_lifetime_seconds = %d with dwell %d; want >= %d so a lossy link gets ~10 attempts per renewal",
-			lifetime, dwell, 10*dwell)
+	lifetime, dwell := cfg.Display.FrameLifetimeSeconds, cfg.Display.RotationDwellSeconds
+	window := renewalDedupWindow(lifetime, dwell)
+	if window <= time.Duration(dwell)*time.Second {
+		t.Errorf("default dedup window = %v with dwell %ds; the defaults should still dedupe identical frames", window, dwell)
+	}
+	slack := time.Duration(lifetime)*time.Second - window - time.Duration(dwell)*time.Second
+	if attempts := int(slack/publishAttemptTimeout) + 1; attempts < 3 {
+		t.Errorf("default lifetime=%ds dwell=%ds leaves %v of renewal slack = %d push attempts, want >= 3",
+			lifetime, dwell, slack, attempts)
 	}
 }
 

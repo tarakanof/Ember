@@ -189,8 +189,8 @@ the public mux (no auth, never rate-limited). The body is Prometheus
 text exposition format:
 
 - counters: `ember_requests_total{pattern,status}`,
-  `ember_publish_total{result}`, `ember_rate_limit_denied_total`,
-  `ember_sessions_evicted_total`
+  `ember_publish_total{result}`, `ember_publish_retries_total`,
+  `ember_rate_limit_denied_total`, `ember_sessions_evicted_total`
 - gauges: `ember_sessions_active`, `ember_uptime_seconds`,
   `ember_last_publish_unix`, `ember_last_publish_ok`,
   `ember_ratelimit_buckets`, `ember_build_info{revision,go_version}`
@@ -222,9 +222,12 @@ rate limit on `/v1/*` writes. Defaults: 60-token burst, 5 tokens/sec
 sustained refill per IP, 5-minute idle-bucket eviction. The burst is
 sized for one Mac's whole fan-out — menu-app polling plus a producer
 per session, all sharing a source IP — reconnecting at once after a
-network stall. `/admin/*`
-and read endpoints (`/healthz`, `/state`, `/version`) are not
-rate-limited. Tune via the `rate_limit` section of `config.json`
+network stall. `/admin/*` is rate-limited too, deliberately: it
+authenticates with the same token, so its 401s must consume budget or
+an attacker throttled on `/v1/*` could probe the token at full speed
+there instead. Read endpoints (`/healthz`, `/state`, `/version`,
+`/metrics`, the previews) are not rate-limited.
+Tune via the `rate_limit` section of `config.json`
 and reload with `POST /admin/reload`. To disable entirely, set
 `rate_limit.disabled: true`. Note that `scripts/image-smoke.sh`
 does not exercise `/v1/*` writes, so it does not validate the

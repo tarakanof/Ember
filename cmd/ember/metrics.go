@@ -28,6 +28,7 @@ type metrics struct {
 	requestsTotal    sync.Map // map[requestKey]*atomic.Int64
 	publishTotalOK   atomic.Int64
 	publishTotalFail atomic.Int64
+	publishRetries   atomic.Int64
 	rateLimitDenied  atomic.Int64
 	sessionsEvicted  atomic.Int64
 	commandsDropped  atomic.Int64
@@ -58,6 +59,11 @@ func (m *metrics) incPublishOK() {
 func (m *metrics) incPublishFail() {
 	if m != nil {
 		m.publishTotalFail.Add(1)
+	}
+}
+func (m *metrics) incPublishRetry() {
+	if m != nil {
+		m.publishRetries.Add(1)
 	}
 }
 func (m *metrics) incRateLimitDenied() {
@@ -129,6 +135,13 @@ func (m *metrics) render(w io.Writer, app *App) {
 	fmt.Fprintln(w, "# TYPE ember_publish_total counter")
 	fmt.Fprintf(w, "ember_publish_total{result=\"ok\"} %d\n", m.publishTotalOK.Load())
 	fmt.Fprintf(w, "ember_publish_total{result=\"fail\"} %d\n", m.publishTotalFail.Load())
+
+	// Retries are the early-warning signal for a degrading link: a push that
+	// succeeds on its second attempt still counts as one ok publish, so without
+	// this counter the loss rate is invisible until BOTH attempts fail.
+	fmt.Fprintln(w, "# HELP ember_publish_retries_total Pushed-app writes retried after a lost attempt.")
+	fmt.Fprintln(w, "# TYPE ember_publish_retries_total counter")
+	fmt.Fprintf(w, "ember_publish_retries_total %d\n", m.publishRetries.Load())
 
 	fmt.Fprintln(w, "# HELP ember_rate_limit_denied_total HTTP requests denied by the rate limiter.")
 	fmt.Fprintln(w, "# TYPE ember_rate_limit_denied_total counter")

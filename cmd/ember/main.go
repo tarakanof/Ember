@@ -222,7 +222,7 @@ func defaultConfig() Config {
 			NotifyOnWaiting:      false,
 			RotationDwellSeconds: 3,
 			AckTimeoutSeconds:    30,
-			FrameLifetimeSeconds: 90,
+			FrameLifetimeSeconds: 30,
 			IdleRestoreSeconds:   120,
 		},
 		RateLimit: RateLimitConfig{
@@ -314,7 +314,7 @@ func (c *Config) applyDefaults() {
 		c.Display.AckTimeoutSeconds = 30
 	}
 	if c.Display.FrameLifetimeSeconds <= 0 {
-		c.Display.FrameLifetimeSeconds = 90
+		c.Display.FrameLifetimeSeconds = 30
 	}
 	if c.Display.IdleRestoreSeconds <= 0 {
 		c.Display.IdleRestoreSeconds = 120
