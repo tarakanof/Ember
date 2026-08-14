@@ -153,6 +153,17 @@ struct DeviceTab: View {
             LabeledContent { Text(stats?.humidity.map { String(format: "%.0f %%", $0) } ?? "—") } label: {
                 RowLabel("Humidity", symbol: "humidity.fill", tint: .teal)
             }
+            // The clock serves its own web UI at that address — everything
+            // Ember's Device tab doesn't proxy (files, Berry scripts, OTA) lives
+            // there, so link to it rather than growing a second copy of it here.
+            Button {
+                if let url = config?.webURL {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                RowLabel("Open clock web UI", symbol: "safari", tint: .blue)
+            }
+            .disabled(config?.webURL == nil)
             Button {
                 Task { await discoverClocks() }
             } label: {

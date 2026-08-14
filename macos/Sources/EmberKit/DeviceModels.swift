@@ -337,6 +337,20 @@ public struct DeviceConfig: Codable, Equatable, Sendable {
     public init(baseURL: String = "", source: String = "none") {
         self.baseURL = baseURL; self.source = source
     }
+
+    /// The clock's own web UI, served at the root of the address the server is
+    /// driving. nil when no clock is configured, or when the address isn't a
+    /// plain http(s) URL — baseURL arrives over the network, so a scheme like
+    /// `file:` or `x-apple.systempreferences:` must never reach NSWorkspace.
+    public var webURL: URL? {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty
+        else { return nil }
+        return url
+    }
 }
 
 /// One AWTRIX device found by server-side mDNS discovery.

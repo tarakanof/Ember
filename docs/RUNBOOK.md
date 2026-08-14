@@ -143,7 +143,9 @@ instead of a static list), native-app toggles, calendar colours, sensor
 calibration (temp/hum offsets, written via a read-merge-PUT of
 `/api/v1/system`; **applies live, no reboot** — unlike the old AWTRIX3
 `dev.json` contract), Reboot / Dismiss, buttons (enabled with a one-click
-`PUT /v1/device/buttons`) — plus a **Discover clocks** picker (mDNS) to choose
+`PUT /v1/device/buttons`) — plus **Open clock web UI** (opens the firmware's own
+page at the clock's address, for everything Ember doesn't proxy: files, Berry
+scripts, OTA) and a **Discover clocks** picker (mDNS) to choose
 which awtrix-ng clock the server drives. Time and date are discrete typed
 fields (no format strings to fill in, unlike AWTRIX3's `TFORMAT`/`DFORMAT`),
 and sensor edits apply immediately. The **App** tab's *About* shows the app
