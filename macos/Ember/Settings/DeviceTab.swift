@@ -35,6 +35,9 @@ struct DeviceTab: View {
     private let firmwareTempOffset = -9.0
     private let firmwareHumOffset = 0.0
 
+    /// How many times a rate-limited load is retried before the message stands.
+    private let loadAttempts = 3
+
     /// The clock's live effect/transition/overlay catalogue (GET
     /// /v1/device/capabilities). nil while loading or unreachable — pickers fall
     /// back to DeviceKnownValues.fallbackTransitions until it loads.
@@ -698,36 +701,66 @@ struct DeviceTab: View {
     /// modifier cancels this loop on disappear). The matrix mirror polls itself
     /// inside LiveMatrixMirror.
     private func pollStats() async {
+        var pacer = RateLimitBackoff(base: .seconds(5))
         while !Task.isCancelled {
-            if let st = try? await env.device.stats() { stats = st }
+            var outcome = RateLimitBackoff.Outcome.failed
+            do {
+                stats = try await env.device.stats()
+                outcome = .succeeded
+            } catch let e as APIError where e.isRateLimited {
+                outcome = .rateLimited(retryAfter: e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter)
+            } catch {
+                // Anything else: keep the cadence and the last-known stats.
+            }
             if Task.isCancelled { return }
-            try? await Task.sleep(for: .seconds(5))
+            try? await Task.sleep(for: pacer.nextDelay(after: outcome))
         }
     }
 
+    /// Loads the tab, retrying a rate-limited load instead of leaving it broken:
+    /// opening this tab is a burst of requests, so losing the race against the
+    /// server's limiter is a timing accident, not a state worth showing.
     private func load() async {
         save = .idle
+        var pacer = RateLimitBackoff(base: .seconds(1), cap: .seconds(8))
+        for attempt in 1...loadAttempts {
+            do {
+                try await loadOnce()
+                loadError = nil
+                return
+            } catch let e as APIError where e.isUnauthorized {
+                loadError = "Unauthorized — check the token in Connection."
+                return
+            } catch let e as APIError where e.isRateLimited {
+                loadError = e.errorDescription
+                if attempt == loadAttempts { return }
+                let wait = pacer.nextDelay(after: .rateLimited(
+                    retryAfter: e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter))
+                try? await Task.sleep(for: wait)
+                if Task.isCancelled { return }
+            } catch {
+                loadError = "Clock unreachable — check Connection and discovery."
+                return
+            }
+        }
+    }
+
+    /// One pass over the device endpoints. Sequential on purpose: fanning these
+    /// out fired eight requests in one instant, which on its own could empty the
+    /// server's per-IP token bucket and 429 the rest of the tab.
+    private func loadOnce() async throws {
         config = try? await env.device.config()
         buttons = try? await env.device.buttons()
         sensorsOnDevice = try? await env.device.sensors()
         sensorsEdit = sensorsOnDevice ?? SensorCalibration()
         capabilities = try? await env.device.capabilities()
         apps = (try? await env.device.apps()) ?? []
-        do {
-            async let s = env.device.settings()
-            async let st = try? env.device.stats()
-            async let d = try? env.device.display()
-            settings = try await s
-            stats = await st
-            deviceDisplay = await d ?? DeviceDisplay()
-            lastDeviceDisplay = deviceDisplay
-            lastApplied = settings
-            loadError = nil
-        } catch let e as APIError where e.isUnauthorized {
-            loadError = "Unauthorized — check the token in Connection."
-        } catch {
-            loadError = "Clock unreachable — check Connection and discovery."
-        }
+        // settings is the one that decides whether the tab loaded at all.
+        settings = try await env.device.settings()
+        stats = try? await env.device.stats()
+        deviceDisplay = (try? await env.device.display()) ?? DeviceDisplay()
+        lastDeviceDisplay = deviceDisplay
+        lastApplied = settings
     }
 
     /// Browses the LAN (server-side) for AWTRIX clocks and lists them to pick from.

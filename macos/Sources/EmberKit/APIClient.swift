@@ -3,12 +3,27 @@ import Foundation
 public enum APIError: Error, Equatable, Sendable {
     case notConfigured
     case http(status: Int, body: String)
+    /// 429: the server's per-IP limiter throttled this Mac. Its own case because
+    /// it says nothing about the clock, the token, or the server's health — and
+    /// a caller that lumps it in with the rest reports the wrong cause.
+    case rateLimited(retryAfter: Duration)
     case transport(String)
     case decoding(String)
 
     public var isUnauthorized: Bool {
         if case .http(401, _) = self { return true }
         return false
+    }
+
+    public var isRateLimited: Bool {
+        if case .rateLimited = self { return true }
+        return false
+    }
+
+    /// How long the server asked us to wait; nil for every other error.
+    public var retryAfter: Duration? {
+        if case .rateLimited(let d) = self { return d }
+        return nil
     }
 }
 
@@ -22,6 +37,8 @@ extension APIError: LocalizedError {
         case .http(let status, let body):
             let detail = Self.serverErrorText(body)
             return detail.isEmpty ? "HTTP \(status)" : "HTTP \(status) — \(detail)"
+        case .rateLimited(let retryAfter):
+            return "Server is rate-limiting this Mac — retrying in \(retryAfter.wholeSecondsRoundedUp)s."
         case .transport(let message):
             return message
         case .decoding(let message):
@@ -105,6 +122,10 @@ public struct APIClient: Sendable {
             throw APIError.transport("non-HTTP response")
         }
         guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 429 {
+                throw APIError.rateLimited(retryAfter: RateLimitBackoff.retryAfter(
+                    header: http.value(forHTTPHeaderField: "Retry-After")))
+            }
             let snippet = String(data: data.prefix(512), encoding: .utf8) ?? ""
             throw APIError.http(status: http.statusCode, body: snippet)
         }

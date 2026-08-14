@@ -22,19 +22,34 @@ struct LiveMatrixMirror: View {
         clockBaseURL = (try? await env.device.config())?.baseURL
         var preferProxy = true
         var tick = 0
+        // At 1 Hz this loop is the single heaviest caller of the server, so it is
+        // also the one most likely to be throttled — and to keep everything else
+        // throttled if it just carries on at cadence.
+        var pacer = RateLimitBackoff(base: .seconds(1))
         while !Task.isCancelled {
             var s: [Int]?
+            var throttled: Duration?
             if preferProxy || tick % 30 == 0 {
-                s = try? await env.device.screen()
-                preferProxy = s != nil
+                do {
+                    s = try await env.device.screen()
+                } catch let e as APIError where e.isRateLimited {
+                    throttled = e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter
+                } catch {
+                    s = nil
+                }
+                // A throttled proxy call says nothing about whether the proxy
+                // works, so don't fall back to talking to the clock directly.
+                if throttled == nil { preferProxy = s != nil }
             }
-            if s == nil, let base = clockBaseURL, !base.isEmpty {
+            if s == nil, throttled == nil, let base = clockBaseURL, !base.isEmpty {
                 s = try? await DeviceService.directScreen(clockBaseURL: base)
             }
             if Task.isCancelled { return }
-            screen = s
+            if throttled == nil { screen = s }
             tick += 1
-            try? await Task.sleep(for: .seconds(s == nil ? 3 : 1))
+            let delay = throttled.map { pacer.nextDelay(after: .rateLimited(retryAfter: $0)) }
+                ?? (s == nil ? .seconds(3) : pacer.nextDelay(after: .succeeded))
+            try? await Task.sleep(for: delay)
         }
     }
 }

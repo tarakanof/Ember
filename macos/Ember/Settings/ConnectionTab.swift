@@ -253,6 +253,8 @@ struct ConnectionTab: View {
             case .notConfigured:  testResult = "✗ No/invalid server URL"
             case .http(401, _):   testResult = "✗ Unauthorized — check token"
             case .http(let s, _): testResult = "✗ Server error (HTTP \(s))"
+            // Reached the server and authenticated — the limiter is what said no.
+            case .rateLimited:    testResult = "✓ Reached server (rate-limited — try again in a moment)"
             case .transport:      testResult = "✗ Unreachable"
             case .decoding:       testResult = "✓ Reached server (unexpected body)"
             }
