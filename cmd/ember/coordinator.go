@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/render"
 )
 
@@ -645,6 +648,100 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 	return true
 }
 
+// publishAttemptTimeout bounds ONE pushed-app write, and publishAttempts is how
+// many of them a frame gets before the coordinator gives up until the next tick.
+//
+// awtrix.timeout_seconds (10s by default) is the wrong budget here: it is the
+// ceiling for any device call, while a frame push is a ~2.4 KB PUT to a device
+// on the same LAN that answers in well under a second when the link is healthy
+// (measured: 0.04s empty-ish, 0.55-0.68s at 3 KB). A push that has not answered
+// in 2.5s has almost certainly been dropped, and every second spent waiting is a
+// second the coordinator goroutine — which owns every device write — is not
+// serving ticks, so its missed ticks turn into dropped state-change commands.
+//
+// Retrying inside the tick (rather than waiting a whole dwell for the next one)
+// is what keeps a lossy link from evicting the app: the device drops a pushed
+// app on its own lifetime, and it counts wallclock, not attempts.
+const (
+	publishAttemptTimeout = 2500 * time.Millisecond
+	publishAttempts       = 2
+)
+
+// pushApp writes one pushed app, retrying a lost attempt within its own tick.
+// Each attempt gets publishAttemptTimeout; a device that answers with an error
+// (any *awtrix.APIError — a 422 rejection will not become a 200 on a retry) and
+// a cancelled coordinator context both stop the loop immediately. Returns the
+// last attempt's error. Coordinator goroutine only.
+func (c *coordinator) pushApp(name string, payload map[string]any) error {
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	budget := publishAttemptTimeout
+	if t := time.Duration(c.loadCfg().AWTRIX.TimeoutSeconds) * time.Second; t > 0 && t < budget {
+		budget = t
+	}
+
+	var err error
+	for i := 0; i < publishAttempts; i++ {
+		if i > 0 {
+			c.metrics.incPublishRetry()
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, budget)
+		err = c.publisher.CustomApp(attemptCtx, name, payload)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if !retryablePushErr(err) || ctx.Err() != nil {
+			return err
+		}
+	}
+	return err
+}
+
+// retryablePushErr reports whether a failed push is worth another attempt. A
+// transport failure (timeout, refused, reset) carries no status and is exactly
+// the lost-packet case retries exist for. A device that answered has decided:
+// only 5xx and 429 can change on their own — this clock watchdog-resets and
+// runs its HTTP server on the same task that drives the panel, so a 503 while
+// busy is transient. Any other 4xx (422 on a payload NG rejects, 413 on one too
+// large) will answer identically forever.
+func retryablePushErr(err error) bool {
+	var apiErr *awtrix.APIError
+	if !errors.As(err, &apiErr) {
+		return true
+	}
+	return apiErr.StatusCode >= 500 || apiErr.StatusCode == http.StatusTooManyRequests
+}
+
+// renewalDedupWindow returns how long an unchanged frame may be skipped before
+// publish must re-push it, given the device-side lifetime and the tick cadence
+// (both in seconds).
+//
+// The renewal margin it leaves is what a lossy link spends: the last tick before
+// the window opens can land a full dwell early, so the wallclock slack before
+// the device evicts the app is (margin - dwell). The original margin of one
+// dwell + 1s left 1s of slack — a single attempt, so one dropped push took the
+// app out of the device's rotation until the frame changed.
+//
+// A third of the lifetime is the target. The floor raises that for
+// configurations where a third is too thin to fit one full pushApp budget plus
+// the dwell jitter. On a lifetime so short that even the floor doesn't fit, the
+// window bottoms out at 1s and every tick re-pushes: dedupe is device/network
+// thrift, keeping the app alive is correctness, so the thrift is what gives.
+func renewalDedupWindow(lifetimeSec, dwellSec int) time.Duration {
+	margin := lifetimeSec / 3
+	if floor := dwellSec + int(publishAttempts*publishAttemptTimeout/time.Second) + 1; margin < floor {
+		margin = floor
+	}
+	window := time.Duration(lifetimeSec-margin) * time.Second
+	if window < time.Second {
+		window = time.Second
+	}
+	return window
+}
+
 // weatherTileStaleTTL clears the weather tile if no fresh observation arrived
 // within this window (≈3× the default 10-min poll), so a wedged poller doesn't
 // leave a stale temperature on the device indefinitely.
@@ -680,7 +777,7 @@ func (c *coordinator) reconcileTile(now time.Time, name string, tracker **pushed
 	if *tracker != nil && bytes.Equal((*tracker).body, body) && now.Sub((*tracker).at) < usageRefreshInterval {
 		return
 	}
-	if err := c.publisher.CustomApp(ctx, name, payload); err != nil {
+	if err := c.pushApp(name, payload); err != nil {
 		c.logger.Warn("tile publish failed", "app", name, "err", err)
 		return
 	}
@@ -1107,20 +1204,11 @@ func (c *coordinator) publish(snap Snapshot) {
 	// costs a JSON push (up to ~2.4 KB of bitmap) to the ESP32 on every rotation
 	// tick, parsed on the same task that drives the panel.
 	//
-	// The window must leave >= one dwell interval of margin so the next
-	// tick after a skip always publishes BEFORE the device evicts the
-	// app via lifetime expiry — without this, dedupe aligned with the
-	// dwell-tick boundary (e.g., default lifetime=30, dwell=3) sees a
-	// tick at t=27 skip, the next at t=30 publish exactly when the
-	// device evicts.
 	dwellSec := cfg.Display.RotationDwellSeconds
 	if dwellSec <= 0 {
 		dwellSec = 3
 	}
-	dedupWindow := time.Duration(lifetime-dwellSec-1) * time.Second
-	if dedupWindow < time.Second {
-		dedupWindow = time.Second
-	}
+	dedupWindow := renewalDedupWindow(lifetime, dwellSec)
 	if bytes.Equal(body, c.lastPayloadBytes) && now.Sub(c.lastPublishedAt) < dedupWindow {
 		// Same frame, already on the device: the hold edge may still be new
 		// (e.g. a Pomodoro pause that leaves the payload byte-identical).
@@ -1128,11 +1216,7 @@ func (c *coordinator) publish(snap Snapshot) {
 		return
 	}
 
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	err := c.publisher.CustomApp(ctx, cfg.AWTRIX.AppName, payload)
+	err := c.pushApp(cfg.AWTRIX.AppName, payload)
 	if err != nil {
 		c.logger.Warn("coord publish failed", "err", err)
 		c.metrics.incPublishFail()

@@ -59,7 +59,8 @@ The aggregator and the only writer to the device.
   live** so a runtime PUT applies to the current lock) and an optional **chime**
   on fresh lock acquisition (`attention_chime`, via `POST /api/v1/sounds/play`), the
   **number-slot card cursor** (rotates cards within a session — see Display),
-  publish **dedup** (skip identical payloads inside the lifetime window), and
+  publish **dedup** (skip identical payloads until the renewal margin — see
+  "Publishing over a lossy link" below), and
   the **idle tri-state machine**: `ACTIVE` (sessions present → rotation/locked
   render) → `DIMMED` (no sessions, countdown < `idle_restore_seconds`, default
   120 s → dim-white icon) → `OFF` (countdown elapsed → stop publishing; device
@@ -72,6 +73,33 @@ The aggregator and the only writer to the device.
   `GET/PUT /v1/display/config` using the standard **baseline + store-override**
   pattern (config.json baseline; SQLite `display_json` override wins, survives
   restarts and `/admin/reload`) — same shape as weather/pomodoro/usage config.
+- **Publishing over a lossy link.** The clock is a battery/Wi-Fi ESP32, and a
+  weak link drops frame pushes wholesale rather than slowing them down (observed
+  in the field: ~44 % of pushes timing out for days, `ember_publish_total`
+  fail ≈ ok, while GETs from a healthy host answered in 40 ms). Three
+  properties keep that from clearing the panel:
+  - **Bounded attempts.** A pushed-app write gets `publishAttemptTimeout`
+    (2.5 s) per attempt and `publishAttempts` (2) attempts, rather than the full
+    `awtrix.timeout_seconds`. The coordinator is the single writer, so every
+    second it waits is a tick it doesn't serve — and missed ticks become
+    dropped commands. Only a transport failure or a 5xx/429 is retried: any
+    other 4xx is the device's verdict on the payload and will not change.
+  - **Retry inside the tick.** The device evicts a pushed app on *wallclock*
+    lifetime, not on attempts, so a lost push is retried immediately instead of
+    a dwell later. A retried-then-successful push is still one `ok` in
+    `ember_publish_total`, so `ember_publish_retries_total` is what shows the
+    link degrading before it starts costing frames.
+  - **Renewal margin.** `renewalDedupWindow` holds an unchanged frame for
+    `lifetime − max(lifetime/3, dwell + retry budget + 1)`. The last tick before
+    the window opens can land a full dwell early, so the wallclock slack before
+    eviction is `margin − dwell` — the floor is what guarantees one whole
+    pushApp budget fits in it. The old one-dwell margin bought exactly one
+    attempt, and a single lost push took `ember` out of the rotation until the
+    frame changed.
+  - **Not** a lever here: `frame_lifetime_seconds`. It is also `durationMs` on
+    every held frame (see "Display hold"), so raising it to buy eviction
+    headroom silently triples how long an attention lock or the idle-dim frame
+    monopolises the panel. Widen the margin instead.
 - **Display hold.** awtrix-ng has no per-payload priority — the AWTRIX3
   `prio:true`/`force:true`/`duration=lifetime` combination 422s on NG entirely.
   Reserved for attention: only the **locked** waiting/error frame (and the idle

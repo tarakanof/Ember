@@ -525,10 +525,11 @@ func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
 func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
-	// Use a short explicit lifetime so the dedup window is predictable.
-	// applyDefaults sets FrameLifetimeSeconds=30 and RotationDwellSeconds=3;
-	// override lifetime to 7 so dedupWindow = (7-3-1)s = 3s.
-	cfg.Display.FrameLifetimeSeconds = 7
+	// applyDefaults sets FrameLifetimeSeconds=30 and RotationDwellSeconds=3, so
+	// the dedup window is renewalDedupWindow(30,3) = 20s. (A much shorter
+	// lifetime no longer dedupes at all: the renewal margin needs room for a
+	// full pushApp retry budget, and below that the window bottoms out at 1s.)
+	dedupWindow := renewalDedupWindow(cfg.Display.FrameLifetimeSeconds, cfg.Display.RotationDwellSeconds)
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
@@ -555,8 +556,8 @@ func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
 		t.Errorf("publishes after dedup-window tick = %d, want 1 (identical payload should be skipped)", got)
 	}
 
-	// Tick 3 past dedup window (dedupWindow=3s; advance 7s, well past it).
-	clk.Advance(7 * time.Second)
+	// Tick 3 past the dedup window.
+	clk.Advance(dedupWindow)
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 

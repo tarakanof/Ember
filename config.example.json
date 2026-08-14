@@ -12,8 +12,8 @@
   },
   "rate_limit": {
     "disabled": false,
-    "burst": 10,
-    "refill_per_sec": 2,
+    "burst": 60,
+    "refill_per_sec": 5,
     "idle_evict_seconds": 300
   },
   "display": {

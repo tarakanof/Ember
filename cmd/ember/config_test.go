@@ -166,11 +166,11 @@ func TestApplyDefaults_RateLimitFillsZero(t *testing.T) {
 	cfg := Config{}
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
-	if cfg.RateLimit.Burst != 10 {
-		t.Errorf("RateLimit.Burst = %d, want 10", cfg.RateLimit.Burst)
+	if cfg.RateLimit.Burst != 60 {
+		t.Errorf("RateLimit.Burst = %d, want 60", cfg.RateLimit.Burst)
 	}
-	if cfg.RateLimit.RefillPerSec != 2.0 {
-		t.Errorf("RateLimit.RefillPerSec = %v, want 2.0", cfg.RateLimit.RefillPerSec)
+	if cfg.RateLimit.RefillPerSec != 5.0 {
+		t.Errorf("RateLimit.RefillPerSec = %v, want 5.0", cfg.RateLimit.RefillPerSec)
 	}
 	if cfg.RateLimit.IdleEvictSeconds != 300 {
 		t.Errorf("RateLimit.IdleEvictSeconds = %d, want 300", cfg.RateLimit.IdleEvictSeconds)
