@@ -20,21 +20,29 @@ struct LiveMatrixMirror: View {
     private func poll() async {
         // The clock's address (for the direct fallback) is server-held config.
         clockBaseURL = (try? await env.device.config())?.baseURL
-        var preferProxy = true
-        var tick = 0
+        // At 1 Hz this loop is the single heaviest caller of the server, so it is
+        // also the one most likely to be throttled — and, if it just carried on at
+        // cadence, to keep everything else throttled too. Which source to ask and
+        // how long to wait live in MirrorPoller, where they're unit-tested.
+        var poller = MirrorPoller()
         while !Task.isCancelled {
             var s: [Int]?
-            if preferProxy || tick % 30 == 0 {
-                s = try? await env.device.screen()
-                preferProxy = s != nil
+            if poller.probesProxy {
+                do {
+                    s = try await env.device.screen()
+                    poller.record(.pixels)
+                } catch let e as APIError where e.isRateLimited {
+                    poller.record(.throttled(e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter))
+                } catch {
+                    poller.record(.failed)
+                }
             }
-            if s == nil, let base = clockBaseURL, !base.isEmpty {
+            if poller.triesDirect(havePixels: s != nil), let base = clockBaseURL, !base.isEmpty {
                 s = try? await DeviceService.directScreen(clockBaseURL: base)
             }
             if Task.isCancelled { return }
             screen = s
-            tick += 1
-            try? await Task.sleep(for: .seconds(s == nil ? 3 : 1))
+            try? await Task.sleep(for: poller.endTick(havePixels: s != nil))
         }
     }
 }
