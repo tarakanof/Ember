@@ -1203,8 +1203,8 @@ func TestDefaultConfig_PublishTimeoutTenSeconds(t *testing.T) {
 func TestDefaultConfig_G2Fields(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
-	if cfg.Display.FrameLifetimeSeconds != 30 {
-		t.Errorf("FrameLifetimeSeconds = %d, want 30", cfg.Display.FrameLifetimeSeconds)
+	if cfg.Display.FrameLifetimeSeconds != 90 {
+		t.Errorf("FrameLifetimeSeconds = %d, want 90", cfg.Display.FrameLifetimeSeconds)
 	}
 	if cfg.Display.IdleRestoreSeconds != 120 {
 		t.Errorf("IdleRestoreSeconds = %d, want 120", cfg.Display.IdleRestoreSeconds)
