@@ -131,3 +131,22 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     let holes = (size / 2..<size * 7 / 8).flatMap { x in (size / 2..<size * 7 / 8).map { alpha(x, $0) } }
     #expect(holes.contains(0) && holes.contains(255))
 }
+
+@Test func turningOnReduceMotionStopsWaitingHops() {
+    var b = BotBehavior(seed: 11, now: 0)
+    b.setMood(.waiting, at: 0)
+    _ = run(&b, seconds: 2)
+    b.reduceMotion = true
+    let frames = run(&b, from: 2, seconds: 30)
+    #expect(frames.allSatisfy { $0.pose.offsetY < 0.1 })
+}
+
+@Test func eyesSwapEvenWhenFramesSkipTheShutLids() {
+    for seed in UInt64(0)..<50 {
+        var b = BotBehavior(seed: seed, now: 0)
+        b.setMood(.waiting, at: 0)
+        // 80 ms frames can step right over the ~46 ms closed window.
+        let swapped = stride(from: 0.0, to: 0.8, by: 0.08).contains { b.pose(at: $0).eyes == .round }
+        #expect(swapped, "seed \(seed)")
+    }
+}

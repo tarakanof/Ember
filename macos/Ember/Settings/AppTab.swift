@@ -33,6 +33,10 @@ struct AppTab: View {
                 Picker("Menu-bar icon", selection: $env.prefs.trayStyle) {
                     ForEach(trayStyles, id: \.self) { Text(trayStyleDisplayName($0)).tag($0) }
                 }
+                Picker("Menu-bar colour", selection: $env.prefs.trayTint) {
+                    ForEach(trayTints, id: \.self) { Text(trayTintDisplayName($0)).tag($0) }
+                }
+                .pickerStyle(.segmented)
                 Group {
                     glyphPicker("Claude glyph", $env.prefs.trayClaudeGlyph)
                     glyphPicker("Codex glyph", $env.prefs.trayCodexGlyph)

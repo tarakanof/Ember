@@ -63,7 +63,14 @@ public struct BotBehavior: Sendable {
 
     /// Accessibility "Reduce motion": keep blinks, drop gaze darts, hops and pops.
     public var reduceMotion = false {
-        didSet { if !reduceMotion { nextSaccadeAt = 0 } }
+        didSet {
+            if reduceMotion {
+                nextHopAt = .infinity; hopStart = nil; popStart = nil
+            } else {
+                nextSaccadeAt = 0
+                if mood == .waiting { nextHopAt = 0 }
+            }
+        }
     }
     public private(set) var mood: BotMood = .idle
     /// True while something is mid-motion and frames should be rendered.
@@ -102,9 +109,12 @@ public struct BotBehavior: Sendable {
 
     /// Switches expression. The eye shape swaps at the moment the lids are shut
     /// (a forced blink), the classic trick that hides the change.
-    public mutating func setMood(_ m: BotMood, at t: Double) {
-        if m == mood || (m == .idle && mood == .sleepy) { return }
+    /// Returns false when nothing changed (same mood, or idle while sleepy).
+    @discardableResult
+    public mutating func setMood(_ m: BotMood, at t: Double) -> Bool {
+        if m == mood || (m == .idle && mood == .sleepy) { return false }
         enter(m, at: t)
+        return true
     }
 
     /// Advances the schedules to `t` (monotonic seconds) and returns the frame.
@@ -130,6 +140,9 @@ public struct BotBehavior: Sendable {
                 swapEyesOnClose = false
             }
             if u - blinkLag >= Self.blinkLength(speed: blinkSpeed) {
+                // A stalled frame can skip the shut-lid window; don't leave the
+                // old eyes up until the next natural blink.
+                if swapEyesOnClose { eyes = mood.eyes; swapEyesOnClose = false }
                 blinkStart = nil
                 if doubleBlinkPending {
                     doubleBlinkPending = false
@@ -232,8 +245,8 @@ public struct BotBehavior: Sendable {
             startBlink(at: t)
         }
         // Follow-through: the body leans after the eyes, a beat late.
-        leanX = Tween(from: leanX.value(t), to: target.x * 0.045, start: t + 0.03, dur: 0.3, ease: .inOut)
-        leanY = Tween(from: leanY.value(t), to: target.y * 0.03, start: t + 0.03, dur: 0.3, ease: .inOut)
+        leanX = Tween(from: leanX.value(t), to: target.x * 0.045, start: t + 0.03, dur: 0.2, ease: .inOut)
+        leanY = Tween(from: leanY.value(t), to: target.y * 0.03, start: t + 0.03, dur: 0.2, ease: .inOut)
         nextSaccadeAt = t + gazeDur + fixation()
     }
 
@@ -275,7 +288,7 @@ public struct BotBehavior: Sendable {
     private mutating func fixation() -> Double {
         switch mood {
         case .idle:    return lognormal(median: 2.2, sigma: 0.5, in: 0.6...7)
-        case .working: return lognormal(median: 0.5, sigma: 0.35, in: 0.2...1.5)
+        case .working: return lognormal(median: 0.9, sigma: 0.35, in: 0.35...2)
         case .waiting: return lognormal(median: 2.5, sigma: 0.4, in: 0.8...6)
         case .sleepy:  return lognormal(median: 8, sigma: 0.4, in: 4...20)
         case .error:   return lognormal(median: 0.9, sigma: 0.4, in: 0.3...2.5)

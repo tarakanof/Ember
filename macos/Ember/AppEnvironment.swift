@@ -29,6 +29,7 @@ public final class AppEnvironment {
         didSet {
             AppEnvironment.savePrefs(prefs)
             AppEnvironment.applyAppIcon(prefs.appIcon)
+            BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot")
         }
     }
 
@@ -42,7 +43,8 @@ public final class AppEnvironment {
             trayClaudeGlyph: d.string(forKey: "trayClaudeGlyph") ?? MenuPrefs.default.trayClaudeGlyph,
             trayCodexGlyph: d.string(forKey: "trayCodexGlyph") ?? MenuPrefs.default.trayCodexGlyph,
             trayIdleGlyph: d.string(forKey: "trayIdleGlyph") ?? MenuPrefs.default.trayIdleGlyph,
-            trayStyle: d.string(forKey: "trayStyle") ?? MenuPrefs.default.trayStyle
+            trayStyle: d.string(forKey: "trayStyle") ?? MenuPrefs.default.trayStyle,
+            trayTint: d.string(forKey: "trayTint") ?? MenuPrefs.default.trayTint
         ).validated()
     }
 
@@ -53,6 +55,7 @@ public final class AppEnvironment {
         d.set(p.trayCodexGlyph, forKey: "trayCodexGlyph")
         d.set(p.trayIdleGlyph, forKey: "trayIdleGlyph")
         d.set(p.trayStyle, forKey: "trayStyle")
+        d.set(p.trayTint, forKey: "trayTint")
     }
 
     /// Pushes the winning session's state into the bot, re-arming on each change.
@@ -109,6 +112,7 @@ public final class AppEnvironment {
         reminderWatcher.start()
         serverDiscovery.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
+        BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot")
         feedBot()
         // Best-effort: re-register any already-enabled producer LaunchAgents so a
         // newly bundled binary takes over after an app update. Gated on the bundle

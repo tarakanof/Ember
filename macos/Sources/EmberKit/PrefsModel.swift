@@ -3,6 +3,9 @@ import Foundation
 public let appIconPalettes = ["bot", "spark", "pixel-e"]
 /// Menu-bar icon: the animated bot, or the per-tool glyphs below.
 public let trayStyles = ["bot", "glyphs"]
+/// Menu-bar icon colouring: per-state colour, or a template image that follows
+/// the menu bar's light/dark tint like the system icons.
+public let trayTints = ["color", "mono"]
 public let trayGlyphs = ["ember", "ember-e", "ember-e-pixel", "claude", "codex", "pomodoro", "coffee"]
 
 /// Friendly label for an app-icon id (used by the App-tab picker).
@@ -18,6 +21,11 @@ public func appIconDisplayName(_ id: String) -> String {
 /// Friendly label for a tray-style id (used by the App-tab picker).
 public func trayStyleDisplayName(_ id: String) -> String {
     id == "bot" ? "Animated bot" : "Tool glyphs"
+}
+
+/// Friendly label for a tray-tint id.
+public func trayTintDisplayName(_ id: String) -> String {
+    id == "mono" ? "Monochrome" : "Colored"
 }
 
 /// Friendly label for a tray-glyph id (used by the App-tab glyph pickers).
@@ -45,17 +53,18 @@ public struct MenuPrefs: Equatable, Sendable {
     public var trayCodexGlyph: String
     public var trayIdleGlyph: String
     public var trayStyle: String
+    public var trayTint: String
 
     public init(appIcon: String, trayClaudeGlyph: String, trayCodexGlyph: String, trayIdleGlyph: String,
-                trayStyle: String = "bot") {
+                trayStyle: String = "bot", trayTint: String = "color") {
         self.appIcon = appIcon; self.trayClaudeGlyph = trayClaudeGlyph
         self.trayCodexGlyph = trayCodexGlyph; self.trayIdleGlyph = trayIdleGlyph
-        self.trayStyle = trayStyle
+        self.trayStyle = trayStyle; self.trayTint = trayTint
     }
 
     public static let `default` = MenuPrefs(
         appIcon: "bot", trayClaudeGlyph: "claude",
-        trayCodexGlyph: "codex", trayIdleGlyph: "ember-e-pixel", trayStyle: "bot")
+        trayCodexGlyph: "codex", trayIdleGlyph: "ember-e-pixel", trayStyle: "bot", trayTint: "color")
 
     /// Replaces any unknown value with its default (matches menuprefs.go validate()).
     public func validated() -> MenuPrefs {
@@ -65,7 +74,8 @@ public struct MenuPrefs: Equatable, Sendable {
             trayClaudeGlyph: trayGlyphs.contains(trayClaudeGlyph) ? trayClaudeGlyph : d.trayClaudeGlyph,
             trayCodexGlyph: trayGlyphs.contains(trayCodexGlyph) ? trayCodexGlyph : d.trayCodexGlyph,
             trayIdleGlyph: trayGlyphs.contains(trayIdleGlyph) ? trayIdleGlyph : d.trayIdleGlyph,
-            trayStyle: trayStyles.contains(trayStyle) ? trayStyle : d.trayStyle)
+            trayStyle: trayStyles.contains(trayStyle) ? trayStyle : d.trayStyle,
+            trayTint: trayTints.contains(trayTint) ? trayTint : d.trayTint)
     }
 }
 

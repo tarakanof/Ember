@@ -8,6 +8,15 @@ import Testing
     #expect(p.trayCodexGlyph == "codex")
     #expect(p.trayIdleGlyph == "ember-e-pixel")
     #expect(p.trayStyle == "bot")
+    #expect(p.trayTint == "color")
+}
+
+@Test func validateReplacesUnknownTrayTint() {
+    var p = MenuPrefs.default
+    p.trayTint = "rainbow"
+    #expect(p.validated().trayTint == "color")
+    p.trayTint = "mono"
+    #expect(p.validated().trayTint == "mono")
 }
 
 @Test func validateReplacesUnknownTrayStyle() {

@@ -24,16 +24,17 @@ struct MenuBarLabel: View {
     }
 
     var body: some View {
+        let colored = prefs.trayTint == "color"
         if prefs.trayStyle == "bot" {
-            Image(nsImage: BotAnimator.menuBarImage(bot.pose))
+            Image(nsImage: BotAnimator.menuBarImage(bot.pose, colored: colored))
         } else {
             Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
                                           state: session?.state ?? "idle",
-                                          prefs: prefs))
+                                          prefs: prefs, colored: colored))
         }
     }
 
-    static func trayImage(tool: String, state: String, prefs: MenuPrefs) -> NSImage {
+    static func trayImage(tool: String, state: String, prefs: MenuPrefs, colored: Bool = true) -> NSImage {
         let rgb = stateColorRGB(state)
         let color = NSColor(srgbRed: CGFloat(rgb.r) / 255,
                             green: CGFloat(rgb.g) / 255,
@@ -41,6 +42,11 @@ struct MenuBarLabel: View {
                             alpha: 1)
         guard let base = NSImage(named: "tray-\(glyphForTool(tool, prefs))") else {
             return NSImage()
+        }
+        if !colored {
+            let mono = base.copy() as! NSImage
+            mono.isTemplate = true
+            return mono
         }
         let size = base.size == .zero ? NSSize(width: 18, height: 18) : base.size
         let rect = NSRect(origin: .zero, size: size)

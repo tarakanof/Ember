@@ -15,23 +15,38 @@ public struct BotStyle: Sendable {
     /// Eyes read too thin at 18 pt, so the menu bar draws them larger.
     public var eyeScale: Double
     public var hopScale: Double
+    /// Extra eye width/height in body radii, so small sizes can add whole pixels.
+    public var eyeGrow: CGSize = .zero
+    /// App-icon backing plate (macOS 26+ grid); nil draws the bare ball.
+    public var plate: CGColor?
 
     public init(body: CGColor, eyes: CGColor?, rim: CGColor? = nil, badge: CGColor? = nil,
-                shadow: Bool = false, fill: Double, eyeScale: Double = 1, hopScale: Double = 1) {
+                shadow: Bool = false, fill: Double, eyeScale: Double = 1, hopScale: Double = 1,
+                plate: CGColor? = nil) {
         self.body = body; self.eyes = eyes; self.rim = rim; self.badge = badge
         self.shadow = shadow; self.fill = fill; self.eyeScale = eyeScale; self.hopScale = hopScale
+        self.plate = plate
     }
 
+    /// For a 22 pt image (the HIG's max menu-bar asset height): a 16 pt ball,
+    /// the size at which a circular extra matches the system icons' weight.
     public static func menuBar(tint: CGColor) -> BotStyle {
-        BotStyle(body: tint, eyes: nil, fill: 0.78, eyeScale: 1.3, hopScale: 0.5)
+        var s = BotStyle(body: tint, eyes: nil, fill: 16.0 / 22, eyeScale: 1.25, hopScale: 0.5)
+        s.eyeGrow = CGSize(width: 0.5 / 8, height: 0.5 / 8)   // +1 Retina px on the 8 pt radius
+        return s
     }
 
+    /// App-icon grid: an 824/1024 rounded plate, the ball filling most of it.
     public static func dock(badge: CGColor?) -> BotStyle {
         BotStyle(body: CGColor(srgbRed: 0.04, green: 0.04, blue: 0.045, alpha: 1),
                  eyes: CGColor(gray: 1, alpha: 1),
-                 rim: CGColor(gray: 1, alpha: 0.14),
-                 badge: badge, shadow: true, fill: 0.72)
+                 badge: badge, shadow: true, fill: 0.62, hopScale: 0.6,
+                 plate: CGColor(srgbRed: 0.98, green: 0.98, blue: 0.98, alpha: 1))
     }
+
+    /// Apple's macOS 26 icon template: 824 px plate on a 1024 px canvas.
+    static let plateSize = 824.0 / 1024
+    static let plateCorner = 0.225
 }
 
 /// Draws the bot in code — a 96-point body ring (so shapes morph point by point)
@@ -43,11 +58,29 @@ public enum BotRenderer {
         ctx.saveGState()
         defer { ctx.restoreGState() }
 
-        if style.shadow {
-            ctx.setShadow(offset: CGSize(width: 0, height: -0.05 * r), blur: 0.14 * r,
-                          color: CGColor(gray: 0, alpha: 0.35))
+        if let plate = style.plate {
+            let side = 2 * half * BotStyle.plateSize
+            let box = CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side)
+            let shape = CGPath(roundedRect: box, cornerWidth: side * BotStyle.plateCorner,
+                               cornerHeight: side * BotStyle.plateCorner, transform: nil)
+            ctx.saveGState()
+            ctx.setShadow(offset: CGSize(width: 0, height: -0.012 * side), blur: 0.03 * side,
+                          color: CGColor(gray: 0, alpha: 0.3))
+            ctx.addPath(shape)
+            ctx.setFillColor(plate)
+            ctx.fillPath()
+            ctx.restoreGState()
+            // Keep hops and squash inside the plate, like the reference tile.
+            ctx.addPath(shape)
+            ctx.clip()
         }
-        ctx.translateBy(x: rect.midX, y: rect.midY - 0.12 * r)
+
+        if style.shadow {
+            ctx.setShadow(offset: CGSize(width: 0, height: -0.04 * r), blur: 0.1 * r,
+                          color: CGColor(gray: 0, alpha: 0.22))
+        }
+        // Bare ball: sit low to leave hop headroom. On a plate: dead centre.
+        ctx.translateBy(x: rect.midX, y: rect.midY - (style.plate == nil ? 0.12 * r : 0))
         ctx.scaleBy(x: r, y: r)
         // Squash pivots on the ground, not the centre.
         ctx.translateBy(x: pose.offsetX, y: pose.offsetY * style.hopScale - (1 - pose.scaleY))
@@ -68,7 +101,11 @@ public enum BotRenderer {
         if let c = style.eyes { ctx.setFillColor(c); ctx.setStrokeColor(c) } else {
             ctx.setBlendMode(.clear)
         }
-        drawEyes(pose, in: ctx, scale: style.eyeScale)
+        ctx.saveGState()
+        ctx.addPath(body)
+        ctx.clip()                                 // eyes never spill off the triangle
+        drawEyes(pose, in: ctx, scale: style.eyeScale, grow: style.eyeGrow)
+        ctx.restoreGState()
         ctx.setBlendMode(.normal)
 
         let badgeAt = CGPoint(x: cos(.pi / 4) * 0.98, y: sin(.pi / 4) * 0.98)
@@ -134,7 +171,7 @@ public enum BotRenderer {
 
     // MARK: - Eyes
 
-    static func drawEyes(_ pose: BotPose, in ctx: CGContext, scale: Double) {
+    static func drawEyes(_ pose: BotPose, in ctx: CGContext, scale: Double, grow: CGSize = .zero) {
         // Tighter reach on the triangle, whose inscribed circle is smaller.
         let reach = 0.6 - 0.2 * pose.triangle
         var cx = pose.gazeX * reach
@@ -150,31 +187,32 @@ public enum BotRenderer {
         for (side, lid) in [(-1.0, pose.lidLeft), (1.0, pose.lidRight)] {
             let rise = pose.eyes == .dash ? 0.04 * side : 0
             let c = CGPoint(x: cx + side * sep / 2, y: cy + rise)
-            eye(pose.eyes, side: side, lid: lid, at: c, fx: fx * scale, fy: fy * scale, in: ctx)
+            eye(pose.eyes, side: side, lid: lid, at: c, fx: fx * scale, fy: fy * scale, grow: grow, in: ctx)
         }
     }
 
     static func eye(_ kind: BotEyes, side: Double, lid: Double, at c: CGPoint,
-                    fx: Double, fy: Double, in ctx: CGContext) {
+                    fx: Double, fy: Double, grow: CGSize = .zero, in ctx: CGContext) {
+        let gw = grow.width, gh = grow.height * (1 - lid)   // shut lids stay thin
         func lerp(_ a: Double, _ b: Double) -> Double { a + (b - a) * lid }
         let deg = Double.pi / 180
         switch kind {
         case .dash:
-            capsule(at: c, w: lerp(0.14, 0.24) * fx, h: lerp(0.38, 0.06) * fy,
+            capsule(at: c, w: lerp(0.14, 0.24) * fx + gw, h: lerp(0.38, 0.06) * fy + gh,
                     angle: lerp(27, -6) * deg, in: ctx)
         case .angry:
-            capsule(at: c, w: lerp(0.13, 0.22) * fx, h: lerp(0.3, 0.06) * fy,
+            capsule(at: c, w: lerp(0.13, 0.22) * fx + gw, h: lerp(0.3, 0.06) * fy + gh,
                     angle: lerp(55, 10) * deg * -side, in: ctx)
         case .round:
-            ellipse(at: c, w: lerp(0.3, 0.34) * fx, h: lerp(0.44, 0.05) * fy, angle: 10 * deg, in: ctx)
+            ellipse(at: c, w: lerp(0.3, 0.34) * fx + gw, h: lerp(0.44, 0.05) * fy + gh, angle: 10 * deg, in: ctx)
         case .happy:
-            let w = 0.3 * fx, h = lerp(0.16, 0.03) * fy
+            let w = 0.3 * fx + gw, h = lerp(0.16, 0.03) * fy + gh / 2
             let arc = CGMutablePath()
             arc.move(to: CGPoint(x: c.x - w / 2, y: c.y - h / 2))
             arc.addQuadCurve(to: CGPoint(x: c.x + w / 2, y: c.y - h / 2),
                              control: CGPoint(x: c.x, y: c.y + h * 1.5))
             ctx.addPath(arc)
-            ctx.setLineWidth(0.11 * min(fx, fy))
+            ctx.setLineWidth(0.11 * min(fx, fy) + gw / 2)
             ctx.setLineCap(.round)
             ctx.strokePath()
         }

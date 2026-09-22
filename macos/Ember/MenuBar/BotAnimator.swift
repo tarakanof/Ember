@@ -5,9 +5,10 @@ import Observation
 /// Runs the bot's single frame loop and feeds both the menu-bar label (via the
 /// observed `pose`) and the Dock tile.
 ///
-/// The loop renders at 60 fps only while `BotBehavior` reports motion (a blink,
+/// The loop renders at 30 fps only while `BotBehavior` reports motion (a blink,
 /// a glance, a hop) and otherwise sleeps until the next scheduled event, so an
-/// idle bot costs a wake-up every few seconds, not a timer per frame.
+/// idle bot costs a wake-up every few seconds, not a timer per frame. It stops
+/// entirely while nothing on screen shows the bot.
 @MainActor @Observable
 final class BotAnimator {
     static let shared = BotAnimator()
@@ -18,6 +19,7 @@ final class BotAnimator {
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private let dockView = BotDockView()
     @ObservationIgnored private var dockEnabled = false
+    @ObservationIgnored private var menuBarEnabled = false
 
     private init() {
         behavior = BotBehavior(seed: .random(in: 0 ... .max), now: Self.now)
@@ -39,26 +41,38 @@ final class BotAnimator {
 
     /// Feeds the winning session's state; a no-op when the mood is unchanged.
     func setState(_ state: String) {
-        let mood = BotMood(state: state)
-        guard mood != behavior.mood else { return }
-        behavior.setMood(mood, at: Self.now)
+        if behavior.setMood(BotMood(state: state), at: Self.now) { restart() }
+    }
+
+    /// Whether the menu-bar label shows the bot (vs the tool glyphs).
+    func showInMenuBar(_ on: Bool) {
+        guard on != menuBarEnabled else { return }
+        menuBarEnabled = on
         restart()
     }
 
     /// Swaps the Dock tile between the live bot and the static bundle icon.
     func showInDock(_ on: Bool) {
         dockEnabled = on
-        let tile = NSApp.dockTile
+        let app = NSApplication.shared
+        let tile = app.dockTile
         if on {
+            // Cmd-Tab and Finder read the icon image, not the tile view. Set it
+            // first: assigning it afterwards replaces the live content view.
+            app.applicationIconImage = Self.staticIcon()
             dockView.frame = NSRect(origin: .zero, size: tile.size)
             dockView.pose = pose
             tile.contentView = dockView
-            // Cmd-Tab and Finder read the icon image, not the tile view.
-            NSApp.applicationIconImage = Self.staticIcon()
         } else {
             tile.contentView = nil
         }
         tile.display()
+        restart()
+    }
+
+    /// The Dock tile is only on screen while a window promotes us to .regular.
+    private var dockVisible: Bool {
+        dockEnabled && NSApplication.shared.activationPolicy() == .regular
     }
 
     private func restart() {
@@ -67,23 +81,29 @@ final class BotAnimator {
     }
 
     private func run() async {
-        while !Task.isCancelled {
+        // Demotion to .accessory ends the loop here; the next promotion
+        // re-applies the icon (AppDelegate → applyAppIcon), which restarts it.
+        while !Task.isCancelled && (menuBarEnabled || dockVisible) {
             let t = Self.now
             let p = behavior.pose(at: t)
             if p != pose {
                 pose = p
                 renderDock()
             }
-            let wait = behavior.isAnimating ? 1.0 / 60 : min(max(behavior.nextEventAt - t, 1.0 / 60), 10)
+            // 30 fps: each frame re-rasterises the status item; 60 doubles the CPU
+            // for no visible gain at 16 pt.
+            let wait = behavior.isAnimating ? 1.0 / 30 : min(max(behavior.nextEventAt - t, 1.0 / 30), 10)
             try? await Task.sleep(for: .seconds(wait))
         }
     }
 
     private func renderDock() {
-        // The tile is only on screen while a window promotes us to .regular.
-        guard dockEnabled, NSApp.activationPolicy() == .regular else { return }
+        guard dockVisible else { return }
+        let tile = NSApplication.shared.dockTile
+        if tile.contentView !== dockView { tile.contentView = dockView }
         dockView.pose = pose
-        NSApp.dockTile.display()
+        dockView.needsDisplay = true
+        tile.display()
     }
 
     // MARK: - Images
@@ -99,21 +119,21 @@ final class BotAnimator {
         }
     }
 
-    /// Idle/sleepy render as a template (black or white to match the menu bar,
-    /// like the reference's black ball); active moods keep the per-state colour
-    /// cue the tool glyphs always had.
-    static func menuBarImage(_ pose: BotPose) -> NSImage {
-        let tint = tint(for: pose.mood)
+    /// Idle/sleepy — and every mood when `colored` is off — render as a template
+    /// (black or white to match the menu bar, like the reference's black ball);
+    /// otherwise active moods keep the per-state colour cue.
+    static func menuBarImage(_ pose: BotPose, colored: Bool) -> NSImage {
+        let tint = colored ? tint(for: pose.mood) : nil
         let body = tint?.cgColor ?? NSColor.black.cgColor
         // Rasterised up front: the menu bar treats a lazily drawn NSImage as a
         // template and drops the colour.
-        let px = 36
+        let pt = 22, px = pt * 2
         guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return NSImage() }
         BotRenderer.draw(pose, in: ctx, rect: CGRect(x: 0, y: 0, width: px, height: px), style: .menuBar(tint: body))
         guard let cg = ctx.makeImage() else { return NSImage() }
-        let img = NSImage(cgImage: cg, size: NSSize(width: 18, height: 18))
+        let img = NSImage(cgImage: cg, size: NSSize(width: pt, height: pt))
         img.isTemplate = tint == nil
         return img
     }
