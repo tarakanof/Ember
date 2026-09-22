@@ -729,7 +729,8 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   coordinator's own bookkeeping doesn't know that happened until the next
   device-watch probe (or boot-ping, #73) triggers a republish.
 - **Device button input** comes via a plain HTTP POST per press
-  (`button=left|middle|right&state=1|0&uid`, `select` accepted as an alias for
+  (JSON `{"button":"left|middle|right","state":bool,"uid"}` on NG ≥1.1.1, the
+  form `button=…&state=1|0&uid` before it — both accepted; `select` accepted as an alias for
   `middle`, ~300ms budget) to whatever URL `buttonCallback` (`/api/v1/system`)
   names; the device can't attach a token, hence the unauthenticated hook. NG
   documents — and Ember has verified — that a configured `buttonCallback` does

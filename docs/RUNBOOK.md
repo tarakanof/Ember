@@ -205,7 +205,7 @@ curl -X PUT http://<hostname>.local/api/v1/system \
   makes this near-instant — ~12s from reboot to republish, measured — with
   the 30s watch as fallback.
 - Smoke-test the server half without the device:
-  `curl -X POST -d "button=select&state=1" http://localhost:3627/hooks/awtrix/button`
+  `curl -X POST -H 'Content-Type: application/json' -d '{"button":"middle","state":true}' http://localhost:3627/hooks/awtrix/button`
   (should start a focus).
 
 ## `EMBER_*` toggle reference (the "spine" flags)

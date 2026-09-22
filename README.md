@@ -412,7 +412,7 @@ GET  /v1/pomodoro/state
 GET  /v1/pomodoro/stats
 
 # Device button callback (no auth — the device cannot send a token):
-POST /hooks/awtrix/button          # form: button=left|middle|right&state=1|0
+POST /hooks/awtrix/button          # JSON {button,state:bool} (NG ≥1.1.1) or form button=…&state=1|0
 ```
 
 ### Device buttons
