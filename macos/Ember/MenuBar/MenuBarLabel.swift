@@ -2,7 +2,8 @@ import SwiftUI
 import AppKit
 import EmberKit
 
-/// The menu-bar icon: the per-tool glyph recoloured to the current state colour.
+/// The menu-bar icon: the animated bot, or the per-tool glyph recoloured to the
+/// current state colour.
 ///
 /// A SwiftUI `Image(...).renderingMode(.template).foregroundStyle(color)` is forced
 /// MONOCHROME by the macOS menu bar (the tint is ignored), which dropped the
@@ -15,10 +16,21 @@ struct MenuBarLabel: View {
     let session: Session?
     let prefs: MenuPrefs
 
+    private var bot = BotAnimator.shared
+
+    init(session: Session?, prefs: MenuPrefs) {
+        self.session = session
+        self.prefs = prefs
+    }
+
     var body: some View {
-        Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
-                                      state: session?.state ?? "idle",
-                                      prefs: prefs))
+        if prefs.trayStyle == "bot" {
+            Image(nsImage: BotAnimator.menuBarImage(bot.pose))
+        } else {
+            Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
+                                          state: session?.state ?? "idle",
+                                          prefs: prefs))
+        }
     }
 
     static func trayImage(tool: String, state: String, prefs: MenuPrefs) -> NSImage {

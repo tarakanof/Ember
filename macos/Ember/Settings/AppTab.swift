@@ -21,7 +21,7 @@ struct AppTab: View {
                 Picker("Dock & app icon", selection: $env.prefs.appIcon) {
                     ForEach(appIconPalettes, id: \.self) { p in
                         HStack {
-                            if let img = NSImage(named: "appicon-\(p)") {
+                            if let img = p == "bot" ? BotAnimator.staticIcon(size: 36) : NSImage(named: "appicon-\(p)") {
                                 Image(nsImage: img).resizable()
                                     .frame(width: 18, height: 18)
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -30,9 +30,15 @@ struct AppTab: View {
                         }.tag(p)
                     }
                 }
-                glyphPicker("Claude glyph", $env.prefs.trayClaudeGlyph)
-                glyphPicker("Codex glyph", $env.prefs.trayCodexGlyph)
-                glyphPicker("Idle / other glyph", $env.prefs.trayIdleGlyph)
+                Picker("Menu-bar icon", selection: $env.prefs.trayStyle) {
+                    ForEach(trayStyles, id: \.self) { Text(trayStyleDisplayName($0)).tag($0) }
+                }
+                Group {
+                    glyphPicker("Claude glyph", $env.prefs.trayClaudeGlyph)
+                    glyphPicker("Codex glyph", $env.prefs.trayCodexGlyph)
+                    glyphPicker("Idle / other glyph", $env.prefs.trayIdleGlyph)
+                }
+                .disabled(env.prefs.trayStyle == "bot")
             }
 
             Section("Startup") {
