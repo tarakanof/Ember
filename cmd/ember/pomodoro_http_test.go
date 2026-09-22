@@ -470,3 +470,39 @@ func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
 		t.Fatalf("engine focus after reload+resync = %d, want 30", got)
 	}
 }
+
+// TestPomodoroButtonHookAcceptsJSON pins NG ≥1.1.1's buttonCallback body:
+// JSON with a boolean state instead of the form-encoded button=…&state=1.
+func TestPomodoroButtonHookAcceptsJSON(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	doReq(t, srv, http.MethodPost, "/v1/pomodoro/start", "", `{"phase":"focus"}`)
+
+	press := func(body string) {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/awtrix/button", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("body %s status = %d", body, resp.StatusCode)
+		}
+	}
+
+	press(`{"button":"middle","state":true,"uid":"awtrix_test"}`)
+	if st := pomoState(t, srv); st["paused"] != true {
+		t.Fatalf("after JSON middle press state = %+v", st)
+	}
+	press(`{"button":"middle","state":false,"uid":"awtrix_test"}`)
+	if st := pomoState(t, srv); st["paused"] != true {
+		t.Fatalf("JSON release should not change state = %+v", st)
+	}
+	press(`{"button":"left","state":true,"uid":"awtrix_test"}`)
+	if st := pomoState(t, srv); st["phase"] != "idle" {
+		t.Fatalf("JSON left press should stop = %+v", st)
+	}
+}

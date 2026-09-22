@@ -86,7 +86,8 @@ effect/transition/overlay/palette lists; live proxy when the cache is cold),
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
 `GET /v1/pomodoro/dashboard` (HTML). Operator: `/admin/doctor`, `/admin/reload`,
 `/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`
-(NG posts `button=left|middle|right&state=1|0&uid`; `select` accepted as an
+(NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
+the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an
 alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,
 right=skip — all on press; the left+right chord from AWTRIX3 is gone).
 

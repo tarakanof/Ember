@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -428,7 +429,9 @@ func (a *App) loadPersistedPomodoroSettings() {
 }
 
 // handleAwtrixButton ingests the awtrix-ng button callback: a plain-HTTP,
-// fire-and-forget POST of `button=<left|middle|right>&state=<1|0>&uid=<mac>`,
+// fire-and-forget POST of `{"button":"<left|middle|right>","state":<bool>,
+// "uid":"<mac>"}` (NG ≥1.1.1; older firmware form-encoded the same fields as
+// `button=…&state=<1|0>&uid=…`, still accepted — see parseButtonEvent),
 // one per edge (press AND release). Unauthenticated by design — the device
 // cannot send a bearer token — and answered immediately, because the firmware
 // times out after 300 ms per edge on the display task and a slow reply shows up
@@ -450,13 +453,12 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK) // accept-and-ignore; device keeps posting
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	button, down, err := parseButtonEvent(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	now := time.Now()
-	button := r.PostFormValue("button")
-	down := r.PostFormValue("state") == "1"
 
 	// While a hold:true reminder alarm is on the clock, any button edge is the
 	// user acknowledging it — not a Pomodoro action; a middle/select press
@@ -499,6 +501,27 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 		a.nudgePomo()
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// parseButtonEvent reads the button and press edge from either callback body
+// shape: JSON (NG ≥1.1.1, boolean state) or form-encoded (NG ≤1.1.0,
+// state "1"/"0"). Both stay accepted so the server can ship ahead of — or
+// roll back independently of — a firmware flash.
+func parseButtonEvent(r *http.Request) (button string, down bool, err error) {
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "application/json" {
+		var ev struct {
+			Button string `json:"button"`
+			State  bool   `json:"state"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&ev); err != nil {
+			return "", false, err
+		}
+		return ev.Button, ev.State, nil
+	}
+	if err := r.ParseForm(); err != nil {
+		return "", false, err
+	}
+	return r.PostFormValue("button"), r.PostFormValue("state") == "1", nil
 }
 
 // pomoMiddlePress is the middle/select play-pause: running→pause, idle→start
