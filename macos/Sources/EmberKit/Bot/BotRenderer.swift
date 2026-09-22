@@ -38,10 +38,13 @@ public struct BotStyle: Sendable {
 
     /// App-icon grid: an 824/1024 rounded plate, the ball filling most of it.
     public static func dock(badge: CGColor?) -> BotStyle {
-        BotStyle(body: CGColor(srgbRed: 0.04, green: 0.04, blue: 0.045, alpha: 1),
-                 eyes: CGColor(gray: 1, alpha: 1),
-                 badge: badge, shadow: true, fill: 0.62, hopScale: 0.6,
-                 plate: CGColor(srgbRed: 0.98, green: 0.98, blue: 0.98, alpha: 1))
+        var s = BotStyle(body: CGColor(srgbRed: 0.04, green: 0.04, blue: 0.045, alpha: 1),
+                         eyes: CGColor(gray: 1, alpha: 1),
+                         badge: badge, shadow: true, fill: 0.62, hopScale: 0.6,
+                         plate: CGColor(srgbRed: 0.98, green: 0.98, blue: 0.98, alpha: 1))
+        // ~2–3 Retina px bolder at a 64 pt Dock (ball radius ≈ 20 pt).
+        s.eyeGrow = CGSize(width: 0.05, height: 0.07)
+        return s
     }
 
     /// Apple's macOS 26 icon template: 824 px plate on a 1024 px canvas.
@@ -183,15 +186,18 @@ public enum BotRenderer {
         let fx = (1 - 0.45 * cx * cx).squareRoot()
         let fy = (1 - 0.45 * cy * cy).squareRoot()
 
+        // Eyes follow the sphere's curvature: upright facing the viewer, leaning
+        // "\" when turned right (27° at rest, like the reference), "/" when left.
+        let lean = min(max(cx / (BotBehavior.rest.x * 0.6), -1), 1)
         let sep = (pose.eyes == .round ? 0.5 : 0.44) * fx * (1 + (scale - 1) * 0.5)
         for (side, lid) in [(-1.0, pose.lidLeft), (1.0, pose.lidRight)] {
             let rise = pose.eyes == .dash ? 0.04 * side : 0
             let c = CGPoint(x: cx + side * sep / 2, y: cy + rise)
-            eye(pose.eyes, side: side, lid: lid, at: c, fx: fx * scale, fy: fy * scale, grow: grow, in: ctx)
+            eye(pose.eyes, side: side, lid: lid, lean: lean, at: c, fx: fx * scale, fy: fy * scale, grow: grow, in: ctx)
         }
     }
 
-    static func eye(_ kind: BotEyes, side: Double, lid: Double, at c: CGPoint,
+    static func eye(_ kind: BotEyes, side: Double, lid: Double, lean: Double = 1, at c: CGPoint,
                     fx: Double, fy: Double, grow: CGSize = .zero, in ctx: CGContext) {
         let gw = grow.width, gh = grow.height * (1 - lid)   // shut lids stay thin
         func lerp(_ a: Double, _ b: Double) -> Double { a + (b - a) * lid }
@@ -199,12 +205,12 @@ public enum BotRenderer {
         switch kind {
         case .dash:
             capsule(at: c, w: lerp(0.14, 0.24) * fx + gw, h: lerp(0.38, 0.06) * fy + gh,
-                    angle: lerp(27, -6) * deg, in: ctx)
+                    angle: lerp(27, -6) * lean * deg, in: ctx)
         case .angry:
             capsule(at: c, w: lerp(0.13, 0.22) * fx + gw, h: lerp(0.3, 0.06) * fy + gh,
                     angle: lerp(55, 10) * deg * -side, in: ctx)
         case .round:
-            ellipse(at: c, w: lerp(0.3, 0.34) * fx + gw, h: lerp(0.44, 0.05) * fy + gh, angle: 10 * deg, in: ctx)
+            ellipse(at: c, w: lerp(0.3, 0.34) * fx + gw, h: lerp(0.44, 0.05) * fy + gh, angle: 10 * lean * deg, in: ctx)
         case .happy:
             let w = 0.3 * fx + gw, h = lerp(0.16, 0.03) * fy + gh / 2
             let arc = CGMutablePath()
