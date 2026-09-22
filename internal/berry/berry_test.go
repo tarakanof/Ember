@@ -36,10 +36,11 @@ func TestBootPingSourceHasAppShape(t *testing.T) {
 	}
 }
 
-// The 8 KB script cap is the device's, and the compile — not the source — is
-// the binding constraint; a script this small must stay small.
+// NG ≥1.1.1 dropped the fixed 8 KB scriptMaxBytes cap for available-memory
+// checks, but the compile still draws on the shared ~96 KB Berry heap, so 8 KB
+// stays as Ember's own budget: a script this small must stay small.
 func TestBootPingSourceFitsScriptBudget(t *testing.T) {
 	if n := len(BootPingSource("http://192.168.0.2:3627/hooks/awtrix/boot")); n > 8192 {
-		t.Fatalf("script is %d bytes, over the device's 8192-byte scriptMaxBytes", n)
+		t.Fatalf("script is %d bytes, over Ember's 8192-byte script budget", n)
 	}
 }
