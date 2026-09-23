@@ -3,16 +3,34 @@ import Testing
 
 @Test func defaultsMatchMenu() {
     let p = MenuPrefs.default
-    #expect(p.appIcon == "spark")
+    #expect(p.appIcon == "bot")
     #expect(p.trayClaudeGlyph == "claude")
     #expect(p.trayCodexGlyph == "codex")
     #expect(p.trayIdleGlyph == "ember-e-pixel")
+    #expect(p.trayStyle == "bot")
+    #expect(p.trayTint == "color")
+}
+
+@Test func validateReplacesUnknownTrayTint() {
+    var p = MenuPrefs.default
+    p.trayTint = "rainbow"
+    #expect(p.validated().trayTint == "color")
+    p.trayTint = "mono"
+    #expect(p.validated().trayTint == "mono")
+}
+
+@Test func validateReplacesUnknownTrayStyle() {
+    var p = MenuPrefs.default
+    p.trayStyle = "sparkles"
+    #expect(p.validated().trayStyle == "bot")
+    p.trayStyle = "glyphs"
+    #expect(p.validated().trayStyle == "glyphs")
 }
 
 @Test func validateReplacesUnknownWithDefault() {
     var p = MenuPrefs(appIcon: "bogus", trayClaudeGlyph: "codex", trayCodexGlyph: "nope", trayIdleGlyph: "ember")
     p = p.validated()
-    #expect(p.appIcon == "spark")
+    #expect(p.appIcon == "bot")
     #expect(p.trayClaudeGlyph == "codex")          // valid glyph kept
     #expect(p.trayCodexGlyph == "codex")           // "nope" → default codex
     #expect(p.trayIdleGlyph == "ember")            // valid glyph kept
@@ -35,6 +53,7 @@ import Testing
 }
 
 @Test func listsExposed() {
-    #expect(appIconPalettes == ["spark", "pixel-e"])
+    #expect(appIconPalettes == ["bot", "spark", "pixel-e"])
+    #expect(trayStyles == ["bot", "glyphs"])
     #expect(trayGlyphs == ["ember", "ember-e", "ember-e-pixel", "claude", "codex", "pomodoro", "coffee"])
 }

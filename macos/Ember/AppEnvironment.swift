@@ -29,6 +29,7 @@ public final class AppEnvironment {
         didSet {
             AppEnvironment.savePrefs(prefs)
             AppEnvironment.applyAppIcon(prefs.appIcon)
+            BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot")
         }
     }
 
@@ -41,7 +42,9 @@ public final class AppEnvironment {
             appIcon: d.string(forKey: "appIcon") ?? MenuPrefs.default.appIcon,
             trayClaudeGlyph: d.string(forKey: "trayClaudeGlyph") ?? MenuPrefs.default.trayClaudeGlyph,
             trayCodexGlyph: d.string(forKey: "trayCodexGlyph") ?? MenuPrefs.default.trayCodexGlyph,
-            trayIdleGlyph: d.string(forKey: "trayIdleGlyph") ?? MenuPrefs.default.trayIdleGlyph
+            trayIdleGlyph: d.string(forKey: "trayIdleGlyph") ?? MenuPrefs.default.trayIdleGlyph,
+            trayStyle: d.string(forKey: "trayStyle") ?? MenuPrefs.default.trayStyle,
+            trayTint: d.string(forKey: "trayTint") ?? MenuPrefs.default.trayTint
         ).validated()
     }
 
@@ -51,11 +54,30 @@ public final class AppEnvironment {
         d.set(p.trayClaudeGlyph, forKey: "trayClaudeGlyph")
         d.set(p.trayCodexGlyph, forKey: "trayCodexGlyph")
         d.set(p.trayIdleGlyph, forKey: "trayIdleGlyph")
+        d.set(p.trayStyle, forKey: "trayStyle")
+        d.set(p.trayTint, forKey: "trayTint")
+    }
+
+    /// Pushes the winning session's state into the bot, re-arming on each change.
+    /// Done here rather than in `MenuBarLabel`: a MenuBarExtra label doesn't run
+    /// `onChange`/`onAppear`, and the Dock bot needs the state regardless.
+    private func feedBot() {
+        let state = withObservationTracking {
+            model.winningSession?.state ?? "idle"
+        } onChange: {
+            Task { @MainActor [weak self] in self?.feedBot() }
+        }
+        BotAnimator.shared.setState(state)
     }
 
     /// Applies the chosen Ember icon as the runtime Dock icon (visible only while
     /// a window is open — see AppDelegate). No-op if the asset is missing.
     static func applyAppIcon(_ palette: String) {
+        if palette == "bot" {
+            BotAnimator.shared.showInDock(true)
+            return
+        }
+        BotAnimator.shared.showInDock(false)
         if let img = NSImage(named: "appicon-\(palette)") {
             NSApplication.shared.applicationIconImage = img
         }
@@ -90,6 +112,8 @@ public final class AppEnvironment {
         reminderWatcher.start()
         serverDiscovery.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
+        BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot")
+        feedBot()
         // Best-effort: re-register any already-enabled producer LaunchAgents so a
         // newly bundled binary takes over after an app update. Gated on the bundle
         // version actually changing since the last reconcile, so a normal launch

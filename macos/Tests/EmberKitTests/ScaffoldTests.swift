@@ -4,7 +4,7 @@ import Testing
 // The placeholder marker is gone now that real types exist; this smoke test
 // just confirms the public surface links.
 @Test func publicSurfaceLinks() {
-    #expect(appIconPalettes.count == 2)
+    #expect(appIconPalettes.count == 3)
     #expect(PomodoroAction.allCases.count == 5)
-    #expect(MenuPrefs.default.appIcon == "spark")
+    #expect(MenuPrefs.default.appIcon == "bot")
 }

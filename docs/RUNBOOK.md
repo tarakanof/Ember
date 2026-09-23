@@ -112,7 +112,10 @@ after any build that touches the producers or the bundling phase.
 The menu dropdown also runs the Pomodoro (Start/Pause/Resume/Skip/Stop) and has
 per-app clock toggles (`PUT /v1/apps`). Settings → Pomodoro exposes the focus
 duration (to 8h), the auto-stop cap ("Auto-stop after: N h", `0` = off), and
-colours; Settings → App picks the Dock/app icon + the menu-bar tray glyphs.
+colours; Settings → App picks the Dock/app icon + the menu-bar icon: the
+**animated bot** (default — drawn in code, blinks and glances on human-like
+timing, morphs per session state, tinted by state colour; honours Reduce motion)
+or the per-tool tray glyphs.
 
 Settings is a **sidebar window** (Connection / **Device** / **Agent** /
 Pomodoro / Weather / Reminders / App), opened with ⌘, or the menu's "Settings…"

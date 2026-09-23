@@ -2,7 +2,8 @@ import SwiftUI
 import AppKit
 import EmberKit
 
-/// The menu-bar icon: the per-tool glyph recoloured to the current state colour.
+/// The menu-bar icon: the animated bot, or the per-tool glyph recoloured to the
+/// current state colour.
 ///
 /// A SwiftUI `Image(...).renderingMode(.template).foregroundStyle(color)` is forced
 /// MONOCHROME by the macOS menu bar (the tint is ignored), which dropped the
@@ -15,13 +16,25 @@ struct MenuBarLabel: View {
     let session: Session?
     let prefs: MenuPrefs
 
-    var body: some View {
-        Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
-                                      state: session?.state ?? "idle",
-                                      prefs: prefs))
+    private var bot = BotAnimator.shared
+
+    init(session: Session?, prefs: MenuPrefs) {
+        self.session = session
+        self.prefs = prefs
     }
 
-    static func trayImage(tool: String, state: String, prefs: MenuPrefs) -> NSImage {
+    var body: some View {
+        let colored = prefs.trayTint == "color"
+        if prefs.trayStyle == "bot" {
+            Image(nsImage: bot.menuBarImage(colored: colored))
+        } else {
+            Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
+                                          state: session?.state ?? "idle",
+                                          prefs: prefs, colored: colored))
+        }
+    }
+
+    static func trayImage(tool: String, state: String, prefs: MenuPrefs, colored: Bool = true) -> NSImage {
         let rgb = stateColorRGB(state)
         let color = NSColor(srgbRed: CGFloat(rgb.r) / 255,
                             green: CGFloat(rgb.g) / 255,
@@ -29,6 +42,11 @@ struct MenuBarLabel: View {
                             alpha: 1)
         guard let base = NSImage(named: "tray-\(glyphForTool(tool, prefs))") else {
             return NSImage()
+        }
+        if !colored {
+            let mono = base.copy() as! NSImage
+            mono.isTemplate = true
+            return mono
         }
         let size = base.size == .zero ? NSSize(width: 18, height: 18) : base.size
         let rect = NSRect(origin: .zero, size: size)
