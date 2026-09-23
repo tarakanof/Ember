@@ -162,3 +162,23 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     #expect(steps.max()! < 0.15, "largest per-frame gaze jump \(steps.max()!)")
     #expect(frames.first!.animating && b.isTransitioning)
 }
+
+@Test func sleepyBodyStaysRound() {
+    let size = 64
+    func bounds(_ pose: BotPose) -> (w: Int, h: Int) {
+        let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        var style = BotStyle.menuBar(tint: CGColor(gray: 0, alpha: 1))
+        style.eyes = CGColor(gray: 0, alpha: 1)       // solid, so only the outline counts
+        BotRenderer.draw(pose, in: ctx, rect: CGRect(x: 0, y: 0, width: size, height: size), style: style)
+        let px = ctx.data!.assumingMemoryBound(to: UInt8.self)
+        var xs: [Int] = [], ys: [Int] = []
+        for y in 0..<size { for x in 0..<size where px[(y * size + x) * 4 + 3] > 128 { xs.append(x); ys.append(y) } }
+        return (xs.max()! - xs.min()! + 1, ys.max()! - ys.min()! + 1)
+    }
+    var sleepy = BotPose()
+    sleepy.slump = 1
+    let b = bounds(sleepy)
+    #expect(abs(b.w - b.h) <= 1, "sleepy body \(b.w)x\(b.h)")
+}

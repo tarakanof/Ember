@@ -90,7 +90,7 @@ public enum BotRenderer {
         ctx.scaleBy(x: pose.scaleX, y: pose.scaleY)
 
         ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-        let body = bodyPath(triangle: pose.triangle, slump: pose.slump)
+        let body = bodyPath(triangle: pose.triangle)
         ctx.addPath(body)
         ctx.setFillColor(style.body)
         ctx.fillPath()
@@ -131,13 +131,13 @@ public enum BotRenderer {
 
     static let ringPoints = 96
 
-    /// Sphere ↔ rounded triangle, blended per ring point; `slump` sags it.
-    static func bodyPath(triangle k: Double, slump s: Double) -> CGPath {
+    /// Sphere ↔ rounded triangle, blended per ring point. Sleepiness shows in the
+    /// eyes only: a sagging body read as a squashed, broken icon.
+    static func bodyPath(triangle k: Double) -> CGPath {
         let pts: [CGPoint] = (0..<ringPoints).map { i in
             let a = Double(i) / Double(ringPoints) * 2 * .pi
             let rad = 1 + (triangleRadius(a) - 1) * k
-            return CGPoint(x: rad * cos(a) * (1 + 0.06 * s),
-                           y: rad * sin(a) * (1 - 0.1 * s) - 0.1 * s)
+            return CGPoint(x: rad * cos(a), y: rad * sin(a))
         }
         return smoothClosedPath(pts)
     }
