@@ -148,7 +148,8 @@ public struct BotBehavior: Sendable {
             if u - blinkLag >= Self.blinkLength(speed: blinkSpeed) {
                 // A stalled frame can skip the shut-lid window; don't leave the
                 // old eyes up until the next natural blink.
-                if swapEyesOnClose { eyes = mood.eyes; swapEyesOnClose = false }
+                // (Unless another blink is already queued to do it properly.)
+                if swapEyesOnClose && !doubleBlinkPending { eyes = mood.eyes; swapEyesOnClose = false }
                 blinkStart = nil
                 if doubleBlinkPending {
                     doubleBlinkPending = false

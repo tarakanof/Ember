@@ -182,3 +182,22 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     let b = bounds(sleepy)
     #expect(abs(b.w - b.h) <= 1, "sleepy body \(b.w)x\(b.h)")
 }
+
+@Test func eyeShapeNeverSwapsWithOpenEyes() {
+    for seed in UInt64(0)..<40 {
+        var b = BotBehavior(seed: seed, now: 0)
+        var prev: BotPose?
+        // Mood changes at awkward moments, including mid-blink.
+        for (i, m) in [BotMood.working, .waiting, .done, .error, .idle].enumerated() {
+            let t0 = 2.0 + Double(i) * 1.37
+            for t in stride(from: t0 - 1.37, to: t0, by: 1.0 / 60) {
+                let p = b.pose(at: t)
+                if let q = prev, q.eyes != p.eyes {
+                    #expect(max(p.lidLeft, p.lidRight, q.lidLeft, q.lidRight) >= 0.9, "seed \(seed) t \(t)")
+                }
+                prev = p
+            }
+            b.setMood(m, at: t0)
+        }
+    }
+}
