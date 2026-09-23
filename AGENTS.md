@@ -19,6 +19,8 @@ multiple laptop/session statuses; enforce bearer-token auth on write endpoints
 - **[`docs/RUNBOOK.md`](docs/RUNBOOK.md)** — build/test, deploy, producer & menu
   install, the `EMBER_*` toggle reference, on-device verification.
 - **[`docs/STYLE.md`](docs/STYLE.md)** — coding guide. Read before non-trivial code.
+- **[`docs/MENU-BOT.md`](docs/MENU-BOT.md)** — the animated menu-bar/Dock bot:
+  moods, timing, sizes, macOS gotchas. Read before touching `macos/**/Bot*`.
 
 ## Local Context
 
