@@ -186,12 +186,14 @@ public enum BotRenderer {
         let fx = (1 - 0.45 * cx * cx).squareRoot()
         let fy = (1 - 0.45 * cy * cy).squareRoot()
 
-        // Eyes follow the sphere's curvature: upright facing the viewer, leaning
-        // "\" when turned right (27° at rest, like the reference), "/" when left.
-        let lean = min(max(cx / (BotBehavior.rest.x * 0.6), -1), 1)
+        // Upright and level facing the viewer; the reference's 27° "\" lean and
+        // raised right eye grow back in as the gaze turns either way.
+        // Dead zone: glances "at the viewer" jitter a little and should stay level.
+        let straight = 0.06
+        let lean = min(max(abs(cx) - straight, 0) / (BotBehavior.rest.x * 0.6 - straight), 1)
         let sep = (pose.eyes == .round ? 0.5 : 0.44) * fx * (1 + (scale - 1) * 0.5)
         for (side, lid) in [(-1.0, pose.lidLeft), (1.0, pose.lidRight)] {
-            let rise = pose.eyes == .dash ? 0.04 * side : 0
+            let rise = pose.eyes == .dash ? 0.04 * side * lean : 0
             let c = CGPoint(x: cx + side * sep / 2, y: cy + rise)
             eye(pose.eyes, side: side, lid: lid, lean: lean, at: c, fx: fx * scale, fy: fy * scale, grow: grow, in: ctx)
         }
