@@ -86,7 +86,7 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
 
     let t = BotBehavior.sleepAfter + 4
     b.setMood(.working, at: t)
-    #expect(blinkCount(run(&b, from: t, seconds: 0.6)) >= 2)
+    #expect(blinkCount(run(&b, from: t, seconds: 1.0)) >= 2)
 }
 
 @Test func idleRequestDoesNotWakeASleepyBot() {
@@ -149,4 +149,16 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
         let swapped = stride(from: 0.0, to: 0.8, by: 0.08).contains { b.pose(at: $0).eyes == .round }
         #expect(swapped, "seed \(seed)")
     }
+}
+
+@Test func moodChangeGlidesInsteadOfDarting() {
+    var b = BotBehavior(seed: 12, now: 0)
+    _ = run(&b, seconds: 2)
+    b.setMood(.waiting, at: 2)
+    let frames = run(&b, from: 2, seconds: 0.5)
+    let steps = zip(frames, frames.dropFirst()).map {
+        hypot($1.pose.gazeX - $0.pose.gazeX, $1.pose.gazeY - $0.pose.gazeY)
+    }
+    #expect(steps.max()! < 0.15, "largest per-frame gaze jump \(steps.max()!)")
+    #expect(frames.first!.animating && b.isTransitioning)
 }

@@ -77,6 +77,11 @@ public struct BotBehavior: Sendable {
     public private(set) var isAnimating = true
     /// Earliest time the next scheduled motion starts; nothing moves before it.
     public private(set) var nextEventAt = 0.0
+    /// True for the ~0.7 s after a mood change, while the face morphs; the app
+    /// renders these frames at a higher rate.
+    public private(set) var isTransitioning = false
+
+    static let transitionLength = 0.7
 
     private var rng: SplitMix64
     private var eyes: BotEyes = .dash
@@ -85,6 +90,7 @@ public struct BotBehavior: Sendable {
 
     private var gazeFrom = (x: rest.x, y: rest.y), gazeTo = (x: rest.x, y: rest.y)
     private var gazeStart = -1.0, gazeDur = 0.0
+    private var gazeEase = Ease.outBack
     private var nextSaccadeAt: Double
     private var readX = -0.6
 
@@ -187,6 +193,7 @@ public struct BotBehavior: Sendable {
             }
         }
 
+        isTransitioning = t < moodSince + Self.transitionLength && !reduceMotion
         isAnimating = blinkStart != nil || sacActive || hopping || popping
             || [triangle, slump, badge, leanX, leanY].contains { $0.isActive(at: t) }
         var next = min(nextBlinkAt, nextSaccadeAt, nextHopAt)
@@ -204,7 +211,9 @@ public struct BotBehavior: Sendable {
         swapEyesOnClose = true
         // Already past the closed frame of a running blink? Queue another so the
         // swap still happens behind shut lids.
-        if blinkStart == nil { startBlink(at: t) } else { doubleBlinkPending = true }
+        // A slower, softer blink than the everyday one: it's part of the morph.
+        if blinkStart == nil { startBlink(at: t); blinkSpeed = max(blinkSpeed, 1.6) }
+        else { doubleBlinkPending = true }
         if waking { doubleBlinkPending = true }
 
         let morph = reduceMotion ? 0.0 : 0.45
@@ -216,7 +225,8 @@ public struct BotBehavior: Sendable {
                       dur: reduceMotion ? 0 : 0.35, ease: badged ? .outBack : .inOut)
         popStart = reduceMotion || m == .sleepy ? nil : t
         readX = -0.6
-        if !reduceMotion { nextSaccadeAt = t + 0.12 }
+        // Glide (not dart) to the new mood's gaze, in step with the body morph.
+        if !reduceMotion { startSaccade(at: t, glide: true) }
         nextHopAt = m == .waiting && !reduceMotion ? t + 0.6 : .infinity
     }
 
@@ -229,7 +239,7 @@ public struct BotBehavior: Sendable {
         nextBlinkAt = t + blinkInterval()
     }
 
-    private mutating func startSaccade(at t: Double) {
+    private mutating func startSaccade(at t: Double, glide: Bool = false) {
         guard !reduceMotion else { nextSaccadeAt = .infinity; return }
         let target = nextTarget()
         let from = currentGaze(at: t)
@@ -237,22 +247,24 @@ public struct BotBehavior: Sendable {
         gazeFrom = from
         gazeTo = target
         gazeStart = t
-        gazeDur = 0.025 + 0.045 * amp              // saccade "main sequence"
+        gazeDur = glide ? 0.42 : 0.025 + 0.045 * amp    // saccade "main sequence"
+        gazeEase = glide ? .inOut : .outBack
         // Big gaze shifts often carry a blink, like a head turn does. It replaces
         // the scheduled one rather than adding to it.
-        if amp > 0.8 && blinkStart == nil && t - lastBlinkAt > 1.2
+        if !glide && amp > 0.8 && blinkStart == nil && t - lastBlinkAt > 1.2
             && Double.random(in: 0..<1, using: &rng) < 0.6 {
             startBlink(at: t)
         }
         // Follow-through: the body leans after the eyes, a beat late.
-        leanX = Tween(from: leanX.value(t), to: target.x * 0.045, start: t + 0.03, dur: 0.2, ease: .inOut)
-        leanY = Tween(from: leanY.value(t), to: target.y * 0.03, start: t + 0.03, dur: 0.2, ease: .inOut)
+        let leanDur = glide ? 0.5 : 0.2
+        leanX = Tween(from: leanX.value(t), to: target.x * 0.045, start: t + 0.03, dur: leanDur, ease: .inOut)
+        leanY = Tween(from: leanY.value(t), to: target.y * 0.03, start: t + 0.03, dur: leanDur, ease: .inOut)
         nextSaccadeAt = t + gazeDur + fixation()
     }
 
     private func currentGaze(at t: Double) -> (x: Double, y: Double) {
         guard gazeStart >= 0 && t < gazeStart + gazeDur else { return gazeTo }
-        let k = Ease.outBack.apply((t - gazeStart) / gazeDur)
+        let k = gazeEase.apply((t - gazeStart) / gazeDur)
         return (gazeFrom.x + (gazeTo.x - gazeFrom.x) * k, gazeFrom.y + (gazeTo.y - gazeFrom.y) * k)
     }
 

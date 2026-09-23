@@ -20,6 +20,12 @@ final class BotAnimator {
     @ObservationIgnored private let dockView = BotDockView()
     @ObservationIgnored private var dockEnabled = false
     @ObservationIgnored private var menuBarEnabled = false
+    /// Menu-bar colour crossfade on mood changes; nil = the menu bar's own
+    /// foreground (the template look).
+    @ObservationIgnored private var tintFrom: NSColor?
+    @ObservationIgnored private var tintTo: NSColor?
+    @ObservationIgnored private var tintStart = -Double.infinity
+    private static let tintFade = 0.35
 
     private init() {
         behavior = BotBehavior(seed: .random(in: 0 ... .max), now: Self.now)
@@ -41,7 +47,22 @@ final class BotAnimator {
 
     /// Feeds the winning session's state; a no-op when the mood is unchanged.
     func setState(_ state: String) {
-        if behavior.setMood(BotMood(state: state), at: Self.now) { restart() }
+        let t = Self.now
+        let from = tint(at: t)
+        guard behavior.setMood(BotMood(state: state), at: t) else { return }
+        tintFrom = from
+        tintTo = Self.tint(for: behavior.mood)
+        tintStart = t
+        restart()
+    }
+
+    /// The menu-bar colour at `t`, mid-fade included; nil = template foreground.
+    private func tint(at t: Double) -> NSColor? {
+        let k = (t - tintStart) / Self.tintFade
+        guard k < 1 else { return tintTo }
+        let fg = Self.menuBarForeground()
+        let a = tintFrom ?? fg, b = tintTo ?? fg
+        return a.blended(withFraction: max(k, 0), of: b) ?? b
     }
 
     /// Whether the menu-bar label shows the bot (vs the tool glyphs).
@@ -90,9 +111,11 @@ final class BotAnimator {
                 pose = p
                 renderDock()
             }
-            // 30 fps: each frame re-rasterises the status item; 60 doubles the CPU
-            // for no visible gain at 16 pt.
-            let wait = behavior.isAnimating ? 1.0 / 30 : min(max(behavior.nextEventAt - t, 1.0 / 30), 10)
+            // 30 fps for everyday blinks and glances (each frame re-rasterises the
+            // status item); 60 fps only for the short mood morphs, which glide.
+            let wait = behavior.isTransitioning ? 1.0 / 60
+                : behavior.isAnimating ? 1.0 / 30
+                : min(max(behavior.nextEventAt - t, 1.0 / 30), 10)
             try? await Task.sleep(for: .seconds(wait))
         }
     }
@@ -121,9 +144,20 @@ final class BotAnimator {
 
     /// Idle/sleepy — and every mood when `colored` is off — render as a template
     /// (black or white to match the menu bar, like the reference's black ball);
-    /// otherwise active moods keep the per-state colour cue.
-    static func menuBarImage(_ pose: BotPose, colored: Bool) -> NSImage {
-        let tint = colored ? tint(for: pose.mood) : nil
+    /// otherwise active moods keep the per-state colour cue, crossfading on change.
+    func menuBarImage(colored: Bool) -> NSImage {
+        Self.menuBarImage(pose, tint: colored ? tint(at: Self.now) : nil)
+    }
+
+    /// The colour template menu-bar images end up drawn in, so a crossfade to or
+    /// from the template look starts and ends where the menu bar would put it.
+    private static func menuBarForeground() -> NSColor {
+        let bar = NSApplication.shared.windows.first { $0.className == "NSStatusBarWindow" }
+        let appearance = bar?.contentView?.effectiveAppearance ?? NSApplication.shared.effectiveAppearance
+        return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black
+    }
+
+    private static func menuBarImage(_ pose: BotPose, tint: NSColor?) -> NSImage {
         let body = tint?.cgColor ?? NSColor.black.cgColor
         // Rasterised up front: the menu bar treats a lazily drawn NSImage as a
         // template and drops the colour.

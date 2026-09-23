@@ -26,7 +26,7 @@ struct MenuBarLabel: View {
     var body: some View {
         let colored = prefs.trayTint == "color"
         if prefs.trayStyle == "bot" {
-            Image(nsImage: BotAnimator.menuBarImage(bot.pose, colored: colored))
+            Image(nsImage: bot.menuBarImage(colored: colored))
         } else {
             Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
                                           state: session?.state ?? "idle",
