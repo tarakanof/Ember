@@ -162,3 +162,42 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     #expect(steps.max()! < 0.15, "largest per-frame gaze jump \(steps.max()!)")
     #expect(frames.first!.animating && b.isTransitioning)
 }
+
+@Test func sleepyBodyStaysRound() {
+    let size = 64
+    func bounds(_ pose: BotPose) -> (w: Int, h: Int) {
+        let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        var style = BotStyle.menuBar(tint: CGColor(gray: 0, alpha: 1))
+        style.eyes = CGColor(gray: 0, alpha: 1)       // solid, so only the outline counts
+        BotRenderer.draw(pose, in: ctx, rect: CGRect(x: 0, y: 0, width: size, height: size), style: style)
+        let px = ctx.data!.assumingMemoryBound(to: UInt8.self)
+        var xs: [Int] = [], ys: [Int] = []
+        for y in 0..<size { for x in 0..<size where px[(y * size + x) * 4 + 3] > 128 { xs.append(x); ys.append(y) } }
+        return (xs.max()! - xs.min()! + 1, ys.max()! - ys.min()! + 1)
+    }
+    var sleepy = BotPose()
+    sleepy.slump = 1
+    let b = bounds(sleepy)
+    #expect(abs(b.w - b.h) <= 1, "sleepy body \(b.w)x\(b.h)")
+}
+
+@Test func eyeShapeNeverSwapsWithOpenEyes() {
+    for seed in UInt64(0)..<40 {
+        var b = BotBehavior(seed: seed, now: 0)
+        var prev: BotPose?
+        // Mood changes at awkward moments, including mid-blink.
+        for (i, m) in [BotMood.working, .waiting, .done, .error, .idle].enumerated() {
+            let t0 = 2.0 + Double(i) * 1.37
+            for t in stride(from: t0 - 1.37, to: t0, by: 1.0 / 60) {
+                let p = b.pose(at: t)
+                if let q = prev, q.eyes != p.eyes {
+                    #expect(max(p.lidLeft, p.lidRight, q.lidLeft, q.lidRight) >= 0.9, "seed \(seed) t \(t)")
+                }
+                prev = p
+            }
+            b.setMood(m, at: t0)
+        }
+    }
+}

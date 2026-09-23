@@ -38,7 +38,7 @@ public struct BotPose: Equatable, Sendable {
     public var lidLeft = 0.0, lidRight = 0.0
     /// Body morph: 0 sphere … 1 rounded triangle (error).
     public var triangle = 0.0
-    /// 0 upright … 1 sagging and heavy-lidded (sleepy).
+    /// 0 alert … 1 heavy-lidded, gaze dropped (sleepy).
     public var slump = 0.0
     /// Notification badge scale, 0 hidden … ~1 (overshoots on appear).
     public var badge = 0.0
@@ -148,7 +148,8 @@ public struct BotBehavior: Sendable {
             if u - blinkLag >= Self.blinkLength(speed: blinkSpeed) {
                 // A stalled frame can skip the shut-lid window; don't leave the
                 // old eyes up until the next natural blink.
-                if swapEyesOnClose { eyes = mood.eyes; swapEyesOnClose = false }
+                // (Unless another blink is already queued to do it properly.)
+                if swapEyesOnClose && !doubleBlinkPending { eyes = mood.eyes; swapEyesOnClose = false }
                 blinkStart = nil
                 if doubleBlinkPending {
                     doubleBlinkPending = false
