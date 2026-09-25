@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if NSApp.activationPolicy() != wanted {
                 NSApp.setActivationPolicy(wanted)
                 if wanted == .regular {
-                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.activate()
                     // Promoting to .regular makes the Dock fall back to the
                     // bundle's static AppIcon; the runtime icon set at launch
                     // (while still an accessory) is lost. Re-apply it.

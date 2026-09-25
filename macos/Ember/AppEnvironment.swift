@@ -67,8 +67,8 @@ public final class AppEnvironment {
     private func feedBot() {
         let state = withObservationTracking {
             model.winningSession?.state ?? "idle"
-        } onChange: {
-            Task { @MainActor [weak self] in self?.feedBot() }
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedBot() }
         }
         BotAnimator.shared.setState(state)
     }
