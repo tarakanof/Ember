@@ -213,9 +213,9 @@ func checkCapabilities(app *App) CheckResult {
 		fw = "<unknown>"
 	}
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf(
-		"effects=%d palette_effects=%d transitions=%d overlays=%d palettes=%d radio=%t firmware=%s",
+		"effects=%d palette_effects=%d transitions=%d overlays=%d palettes=%d buzzer=%t firmware=%s",
 		len(caps.Effects), len(caps.PaletteEffects), len(caps.Transitions),
-		len(caps.Overlays), len(caps.Palettes), caps.Radio, fw)}
+		len(caps.Overlays), len(caps.Palettes), caps.Audio.Buzzer, fw)}
 }
 
 func checkSessionsSummary(app *App) CheckResult {

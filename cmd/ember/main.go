@@ -1323,7 +1323,7 @@ type Publisher interface {
 	// notification can never be the one that gets cleared. A name the device
 	// no longer holds answers 404 (*awtrix.APIError).
 	DismissNotifyByName(ctx context.Context, name string) error
-	// PlayRTTTL plays an inline RTTTL melody (POST /api/v1/sounds/play). Only
+	// PlayRTTTL plays an inline RTTTL melody (POST /api/v1/audio/play). Only
 	// for chimes with no notification of their own — the attention-lock chime.
 	// Popups carry their melody on the notification's soundRtttl key instead:
 	// awtrix-ng plays it alongside draw/icon, unlike AWTRIX3.

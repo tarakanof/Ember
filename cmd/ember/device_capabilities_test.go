@@ -11,7 +11,8 @@ import (
 
 const testCapabilitiesJSON = `{"effects":["Fade","Matrix","Snake"],"paletteEffects":["Fade"],
 	"transitions":["Slide","Dim"],"overlays":["rain"],"palettes":["Ocean"],
-	"radio":false,"gpio":{"soc":"esp32","label":"ESP32","max":39}}`
+	"audio":{"buzzer":true,"track":false,"mp3":false,"radio":false},"scriptUpdates":true,
+	"gpio":{"soc":"esp32","label":"ESP32","max":39}}`
 
 // fakeClockDevice serves the two endpoints refreshCapabilities reads, counting hits.
 func fakeClockDevice(t *testing.T, capsStatus int) (*httptest.Server, *int) {
@@ -89,7 +90,7 @@ func TestDeviceCapabilitiesEndpointServesCacheWithoutTouchingDevice(t *testing.T
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("body is not JSON: %v (%s)", err, w.Body.String())
 	}
-	for _, k := range []string{"effects", "paletteEffects", "transitions", "overlays", "palettes", "radio", "gpio"} {
+	for _, k := range []string{"effects", "paletteEffects", "transitions", "overlays", "palettes", "audio", "scriptUpdates", "gpio"} {
 		if _, ok := got[k]; !ok {
 			t.Errorf("response missing %q: %s", k, w.Body.String())
 		}
@@ -144,7 +145,7 @@ func TestDoctorReportsCapabilityCounts(t *testing.T) {
 	if c.Status != StatusOK {
 		t.Fatalf("status = %q detail = %q", c.Status, c.Detail)
 	}
-	for _, want := range []string{"effects=3", "transitions=2", "radio=false", "firmware=1.0.13"} {
+	for _, want := range []string{"effects=3", "transitions=2", "buzzer=true", "firmware=1.0.13"} {
 		if !strings.Contains(c.Detail, want) {
 			t.Errorf("detail %q missing %q", c.Detail, want)
 		}

@@ -127,16 +127,54 @@ func (c *Client) DismissNotifyByName(ctx context.Context, name string) error {
 }
 
 // Capabilities is GET /api/v1/capabilities: the name lists this firmware build
-// supports, to be read rather than hardcoded. GPIO stays raw so a re-marshal
-// reproduces the device's own JSON shape verbatim for pass-through consumers.
+// supports, to be read rather than hardcoded. The typed fields are what Ember
+// itself reads; the whole device document is kept in raw so a re-marshal
+// reproduces it verbatim (audio, scriptUpdates, gpio and any key a later
+// firmware adds), and pass-through consumers never lose a field.
 type Capabilities struct {
-	Effects        []string        `json:"effects"`
-	PaletteEffects []string        `json:"paletteEffects"`
-	Transitions    []string        `json:"transitions"`
-	Overlays       []string        `json:"overlays"`
-	Palettes       []string        `json:"palettes"`
-	Radio          bool            `json:"radio"`
-	GPIO           json.RawMessage `json:"gpio,omitempty"`
+	Effects        []string `json:"effects"`
+	PaletteEffects []string `json:"paletteEffects"`
+	Transitions    []string `json:"transitions"`
+	Overlays       []string `json:"overlays"`
+	Palettes       []string `json:"palettes"`
+	// Audio lists the sound outputs the board has (NG 1.1.0 replaced the
+	// top-level radio flag with this object).
+	Audio         AudioCaps       `json:"audio"`
+	ScriptUpdates bool            `json:"scriptUpdates"`
+	GPIO          json.RawMessage `json:"gpio,omitempty"`
+
+	raw json.RawMessage
+}
+
+// AudioCaps is capabilities.audio: which outputs answer POST /api/v1/audio/play.
+// A key for an absent output answers 503 unavailable.
+type AudioCaps struct {
+	Buzzer bool `json:"buzzer"`
+	Track  bool `json:"track"`
+	MP3    bool `json:"mp3"`
+	Radio  bool `json:"radio"`
+}
+
+// capabilitiesFields breaks the MarshalJSON/UnmarshalJSON recursion.
+type capabilitiesFields Capabilities
+
+func (c *Capabilities) UnmarshalJSON(b []byte) error {
+	var f capabilitiesFields
+	if err := json.Unmarshal(b, &f); err != nil {
+		return err
+	}
+	*c = Capabilities(f)
+	c.raw = append(json.RawMessage(nil), b...)
+	return nil
+}
+
+// MarshalJSON returns the device's own document when the value was decoded
+// from one, and the typed fields otherwise.
+func (c Capabilities) MarshalJSON() ([]byte, error) {
+	if len(c.raw) > 0 {
+		return c.raw, nil
+	}
+	return json.Marshal(capabilitiesFields(c))
 }
 
 // Capabilities fetches the firmware's supported name lists
@@ -147,14 +185,18 @@ func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
 	return caps, err
 }
 
-// PlayRTTTL plays an inline RTTTL melody (POST /api/v1/sounds/play).
+// PlayRTTTL plays an inline RTTTL melody on the buzzer
+// (POST /api/v1/audio/play {"rtttl"}; NG 1.1.0 moved audio off /sounds/play).
+// A board with no buzzer answers 503 unavailable.
 func (c *Client) PlayRTTTL(ctx context.Context, rtttl string) error {
-	return c.doJSON(ctx, http.MethodPost, "/api/v1/sounds/play", map[string]any{"rtttl": rtttl}, nil)
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"rtttl": rtttl}, nil)
 }
 
-// PlaySound plays a melody file already on the device (/MELODIES) by name.
+// PlaySound plays a sound stored on the device by name
+// (POST /api/v1/audio/play {"sound"}). The device picks the output: an MP3 of
+// that name, then a melody, then a numbered DFPlayer track.
 func (c *Client) PlaySound(ctx context.Context, name string) error {
-	return c.doJSON(ctx, http.MethodPost, "/api/v1/sounds/play", map[string]any{"name": name}, nil)
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"sound": name}, nil)
 }
 
 func indicatorPath(index int) (string, error) {
@@ -297,7 +339,15 @@ func checkStatus(resp *http.Response) error {
 		return nil
 	}
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	apiErr := &APIError{StatusCode: resp.StatusCode}
+	return ParseAPIError(resp.StatusCode, raw)
+}
+
+// ParseAPIError builds the *APIError for a non-2xx device reply from its
+// status and body: the NG envelope ({"error":{code,message,field}}) when the
+// body carries one, the trimmed raw body as the message otherwise. Exported so
+// the server's raw device proxy reports errors the same way this client does.
+func ParseAPIError(status int, body []byte) *APIError {
+	apiErr := &APIError{StatusCode: status}
 	var envelope struct {
 		Error struct {
 			Code    string `json:"code"`
@@ -305,12 +355,12 @@ func checkStatus(resp *http.Response) error {
 			Field   string `json:"field"`
 		} `json:"error"`
 	}
-	if json.Unmarshal(raw, &envelope) == nil && envelope.Error.Code != "" {
+	if json.Unmarshal(body, &envelope) == nil && envelope.Error.Code != "" {
 		apiErr.Code = envelope.Error.Code
 		apiErr.Message = envelope.Error.Message
 		apiErr.Field = envelope.Error.Field
 	} else {
-		apiErr.Message = strings.TrimSpace(string(raw))
+		apiErr.Message = strings.TrimSpace(string(body))
 	}
 	return apiErr
 }

@@ -57,7 +57,7 @@ The aggregator and the only writer to the device.
   key** (not slice index), attention **preempt** (jump to a waiting/error
   session) with an attention hold (`ack_timeout_seconds`, default 30 s, **read
   live** so a runtime PUT applies to the current lock) and an optional **chime**
-  on fresh lock acquisition (`attention_chime`, via `POST /api/v1/sounds/play`), the
+  on fresh lock acquisition (`attention_chime`, via `POST /api/v1/audio/play`), the
   **number-slot card cursor** (rotates cards within a session — see Display),
   publish **dedup** (skip identical payloads until the renewal margin — see
   "Publishing over a lossy link" below), and
