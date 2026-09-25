@@ -1295,11 +1295,21 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 	})
 }
 
+// loggingMiddleware writes one access-log line per request. Successful reads
+// log at Debug: the menu polls several GETs every few seconds, which at Info
+// would bury the transitions the log exists for. Writes and any status >= 400
+// stay at Info.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		logger.InfoContext(r.Context(), "http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		level := slog.LevelInfo
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && rec.status < http.StatusBadRequest {
+			level = slog.LevelDebug
+		}
+		logger.Log(r.Context(), level, "http request", "method", r.Method, "path", r.URL.Path,
+			"status", rec.status, "duration", time.Since(start))
 	})
 }
 
