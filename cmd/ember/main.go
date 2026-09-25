@@ -602,6 +602,10 @@ type App struct {
 	// reaches us; surfaced via GET /v1/device/buttons.
 	lastButtonAt atomic.Int64
 
+	// clockProbe caches the clock telemetry behind GET /v1/clock/health so the
+	// unauthenticated endpoint can't turn polling into clock traffic.
+	clockProbe clockProbeCache
+
 	// bootPingMu serialises ensureBootPingScript runs (startup and every
 	// /admin/reload), so two of them can't race a PUT against a DELETE.
 	bootPingMu sync.Mutex
@@ -993,6 +997,12 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
 	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
 	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
+	// Dashboard reads (dashboard_http.go). GET /v1/usage shares its path with
+	// the authed POST, which still falls through to the /v1/ write mux.
+	mux.HandleFunc("GET /v1/usage", a.handleUsageSnapshot)
+	mux.HandleFunc("GET /v1/activity/summary", a.handleActivitySummary)
+	mux.HandleFunc("GET /v1/weather/state", a.handleWeatherState)
+	mux.HandleFunc("GET /v1/clock/health", a.handleClockHealth)
 	// Unauthenticated (the device can't hold a token) but per-IP rate-limited.
 	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
 	// Same trust model as the button hook, and the same reason: a Berry script
