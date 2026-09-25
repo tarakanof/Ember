@@ -72,7 +72,7 @@ func (a *App) handleDeviceCapabilities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	var caps awtrix.Capabilities

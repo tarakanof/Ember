@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // settingKind classifies how a device setting value is validated before it is
@@ -246,6 +248,48 @@ func (a *App) proxyToDevice(ctx context.Context, method, path string, body []byt
 	return out, resp.StatusCode, nil
 }
 
+// deviceProxyStatus picks the status the menu sees for a non-2xx clock reply.
+// Request errors (bad value, unknown key, missing app, wrong media type) and
+// a busy/absent-hardware 503 pass through unchanged, so the caller can tell
+// "the clock refused this" from "the clock is broken or unreachable".
+// Everything else becomes 502; a device 401/403 in particular must not read
+// as the menu's own bearer token being wrong.
+func deviceProxyStatus(status int) int {
+	switch status {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict,
+		http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType,
+		http.StatusUnprocessableEntity, http.StatusServiceUnavailable:
+		return status
+	}
+	return http.StatusBadGateway
+}
+
+// writeDeviceError relays a non-2xx clock reply to the menu. The NG envelope
+// ({"error":{code,message,field}}) is flattened into the server's own error
+// shape — "error" stays a string, which is what the menu displays — with
+// "code" and "field" alongside so a caller can point at the rejected key.
+func writeDeviceError(w http.ResponseWriter, status int, body []byte) {
+	apiErr := awtrix.ParseAPIError(status, body)
+	msg := fmt.Sprintf("clock returned %d", status)
+	if detail := apiErr.Message; detail != "" {
+		if len(detail) > 200 {
+			detail = detail[:200] + "…"
+		}
+		msg += ": " + detail
+	}
+	if apiErr.Field != "" {
+		msg += " (field " + apiErr.Field + ")"
+	}
+	out := map[string]string{"error": msg}
+	if apiErr.Code != "" {
+		out["code"] = apiErr.Code
+	}
+	if apiErr.Field != "" {
+		out["field"] = apiErr.Field
+	}
+	writeJSON(w, deviceProxyStatus(status), out)
+}
+
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/settings", nil)
 	if err != nil {
@@ -253,7 +297,7 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	var all map[string]any
@@ -282,13 +326,13 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/settings", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/settings", payload)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -301,7 +345,7 @@ func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -320,7 +364,7 @@ func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -351,13 +395,13 @@ func (a *App) handleDevicePrevApp(w http.ResponseWriter, r *http.Request) {
 // proxyAction sends a bodiless request to a clock action endpoint and maps
 // the result.
 func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, method, path string) {
-	_, status, err := a.proxyToDevice(r.Context(), method, path, nil)
+	reply, status, err := a.proxyToDevice(r.Context(), method, path, nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

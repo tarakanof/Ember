@@ -54,7 +54,7 @@ func (a *App) handleDeviceDisplayGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -73,13 +73,13 @@ func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/display", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/display", payload)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -101,7 +101,7 @@ func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -116,13 +116,13 @@ func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(body)
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPut, "/api/v1/apps/order", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), http.MethodPut, "/api/v1/apps/order", payload)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

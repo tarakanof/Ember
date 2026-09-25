@@ -21,11 +21,11 @@ func TestValidateDeviceDisplay(t *testing.T) {
 		}
 	}
 	bad := []map[string]any{
-		{"overlay": "rainbow"},          // not in enum
-		{"overlay": 3},                  // wrong type
-		{"overlay": "clear"},            // NG has no "clear"; use null
-		{"power": true},                 // out of scope this ticket
-		{"moodlight": map[string]any{}}, // out of scope this ticket
+		{"overlay": "rainbow"},                            // not in enum
+		{"overlay": 3},                                    // wrong type
+		{"overlay": "clear"},                              // NG has no "clear"; use null
+		{"power": true},                                   // out of scope this ticket
+		{"moodlight": map[string]any{}},                   // out of scope this ticket
 		{"overlaySettings": map[string]any{"speed": "x"}}, // wrong type
 		{"overlaySettings": map[string]any{"nope": true}}, // unknown subkey
 		{"overlaySettings": "not-an-object"},              // wrong shape
