@@ -280,7 +280,7 @@ func (c *Client) PutIcon(ctx context.Context, filename string, data []byte) erro
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer drainClose(resp.Body)
 	return checkStatus(resp)
 }
 
@@ -320,7 +320,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload map[st
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer drainClose(resp.Body)
 	if err := checkStatus(resp); err != nil {
 		return err
 	}
@@ -330,6 +330,16 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload map[st
 		}
 	}
 	return nil
+}
+
+// drainClose reads what is left of a response body before closing it. Go's
+// transport returns a connection to the keep-alive pool only when the body
+// was read to EOF; closing early forces a fresh TCP handshake on the next
+// request, which on the lossy Wi-Fi link to the clock is one more chance to
+// lose a packet. The limit bounds the work on an unexpectedly large reply.
+func drainClose(body io.ReadCloser) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, 64<<10))
+	_ = body.Close()
 }
 
 // checkStatus maps non-2xx responses to *APIError, decoding the NG error

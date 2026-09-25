@@ -6,10 +6,12 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -394,6 +396,43 @@ func TestTrailingSlashTrimmed(t *testing.T) {
 	}
 	if rec.path != "/api/v1/notifications" {
 		t.Fatalf("path = %q (double slash?)", rec.path)
+	}
+}
+
+// TestKeepAliveReusesConnection pins the fix for the undrained-body leak: Go's
+// transport only pools a connection whose response body was read to EOF, so a
+// write that ignores the reply must still drain it. On the lossy clock link
+// every avoided handshake is one less packet to lose.
+func TestKeepAliveReusesConnection(t *testing.T) {
+	var conns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		// Larger than the transport's read-ahead, so it cannot be consumed
+		// by accident: only an explicit drain reaches EOF.
+		_, _ = io.WriteString(w, `{"ok":true,"pad":"`+strings.Repeat("x", 8<<10)+`"}`)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, 2*time.Second)
+	for i := 0; i < 3; i++ {
+		if err := c.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+			t.Fatalf("PushApp %d: %v", i, err)
+		}
+	}
+	if err := c.PutIcon(context.Background(), "a.gif", []byte("GIF89a")); err != nil {
+		t.Fatalf("PutIcon: %v", err)
+	}
+	if err := c.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+		t.Fatalf("PushApp after PutIcon: %v", err)
+	}
+	if got := conns.Load(); got != 1 {
+		t.Fatalf("opened %d connections for 5 sequential writes, want 1 (keep-alive)", got)
 	}
 }
 
