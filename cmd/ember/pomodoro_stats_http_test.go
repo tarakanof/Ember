@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,71 @@ func TestPomodoroStatsRichPayload(t *testing.T) {
 	}
 	if _, ok := body["weekly"]; !ok {
 		t.Errorf("missing weekly buckets")
+	}
+}
+
+// TestPomodoroStatsCachedUntilPhaseWrite asserts repeated stats polls are
+// served from cache (a row the app's store never wrote stays invisible) and
+// that a phase recorded through the app's store shows up on the next poll.
+func TestPomodoroStatsCachedUntilPhaseWrite(t *testing.T) {
+	app := newPomodoroApp(t)
+	path := filepath.Join(t.TempDir(), "shared.db")
+	own, err := pomodoro.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { own.Close() })
+	app.store = own
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	now := time.Now()
+	todayCompleted := func() float64 {
+		t.Helper()
+		_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/stats", "", "")
+		return body["today"].(map[string]any)["completed_focus"].(float64)
+	}
+
+	recFocus(t, app, now.Add(-10*time.Minute), 25, true, "completed")
+	if got := todayCompleted(); got != 1 {
+		t.Fatalf("first poll: completed = %v, want 1", got)
+	}
+
+	// A second handle on the same file writes behind the app's back: the
+	// app's cache has no reason to drop, so the poll must not re-query.
+	other, err := pomodoro.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	res := pomodoro.PhaseResult{Phase: pomodoro.PhaseFocus, PlannedSec: 1500, ActualSec: 1500, Completed: true, Reason: "completed"}
+	if err := other.RecordPhase(res, now.Add(-60*time.Minute), now.Add(-35*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := todayCompleted(); got != 1 {
+		t.Fatalf("cached poll: completed = %v, want 1 (served from cache)", got)
+	}
+
+	// A write through the app's own store invalidates the cache.
+	recFocus(t, app, now.Add(-5*time.Minute), 1, true, "completed")
+	if got := todayCompleted(); got != 3 {
+		t.Fatalf("after app write: completed = %v, want 3", got)
+	}
+}
+
+// TestPomodoroStatsCacheFollowsConfig asserts a goal change is reflected
+// immediately rather than after the cache expires.
+func TestPomodoroStatsCacheFollowsConfig(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/stats", "", "")
+	if got := body["goal"].(map[string]any)["daily_sessions"].(float64); got != 8 {
+		t.Fatalf("daily_sessions = %v, want 8", got)
+	}
+	app.updateConfig(func(c *Config) { c.Pomodoro.DailyGoalSessions = 3 })
+	_, body = doReq(t, srv, http.MethodGet, "/v1/pomodoro/stats", "", "")
+	if got := body["goal"].(map[string]any)["daily_sessions"].(float64); got != 3 {
+		t.Fatalf("daily_sessions after config change = %v, want 3", got)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/tarakanof/ember/internal/pomodoro"
@@ -173,6 +174,45 @@ func (a *App) buildStats(now time.Time) (pomodoroStats, error) {
 	}, nil
 }
 
+// statsCacheTTL bounds how long a cached stats payload is served. A phase
+// write, a Pomodoro config change or a logical-day rollover drops the cache
+// at once; the TTL only covers what drifts with the clock alone, such as the
+// rolling 30-day completion window.
+const statsCacheTTL = time.Minute
+
+// statsCache holds the last /v1/pomodoro/stats payload. The menu polls it
+// every few seconds, and each build scans ~400 days of phase rows over the
+// store's single connection, where it queues behind activity inserts.
+type statsCache struct {
+	mu      sync.Mutex // protects every field below
+	store   *pomodoro.Store
+	gen     uint64
+	cfg     PomodoroConfig
+	day     string
+	expires time.Time
+	val     pomodoroStats
+}
+
+// cachedStats returns buildStats(now), reusing the previous result while the
+// phases table, the Pomodoro config and the logical day are unchanged.
+func (a *App) cachedStats(now time.Time) (pomodoroStats, error) {
+	p := a.cfg.Load().Pomodoro
+	day := logicalDayKey(now, p.DayStartHour, a.statsLoc())
+	gen := a.store.PhaseGen()
+	c := &a.statsCache
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.store == a.store && c.gen == gen && c.cfg == p && c.day == day && now.Before(c.expires) {
+		return c.val, nil
+	}
+	val, err := a.buildStats(now)
+	if err != nil {
+		return pomodoroStats{}, err
+	}
+	c.store, c.gen, c.cfg, c.day, c.expires, c.val = a.store, gen, p, day, now.Add(statsCacheTTL), val
+	return val, nil
+}
+
 // logicalDayKey mirrors pomodoro's internal day bucketing for handler-side use.
 func logicalDayKey(t time.Time, dayStartHour int, loc *time.Location) string {
 	return t.In(loc).Add(-time.Duration(dayStartHour) * time.Hour).Format("2006-01-02")
@@ -184,7 +224,7 @@ func (a *App) handlePomodoroStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
-	stats, err := a.buildStats(time.Now())
+	stats, err := a.cachedStats(time.Now())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

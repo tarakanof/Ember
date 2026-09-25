@@ -539,6 +539,8 @@ type App struct {
 	activityMu   sync.Mutex
 	activityLast map[string]time.Time
 
+	statsCache statsCache // last GET /v1/pomodoro/stats payload
+
 	appsMu     sync.Mutex      // guards hiddenApps
 	hiddenApps map[string]bool // tool names hidden from the device display
 
