@@ -27,8 +27,8 @@ func TestMeetingPayloadShape(t *testing.T) {
 	if draw, ok := p["draw"].([]any); !ok || len(draw) != 1 {
 		t.Fatalf("draw must be a 1-element slice, got %v", p["draw"])
 	}
-	if pixels := bmpPixels(t, p); len(pixels) != 64 {
-		t.Errorf("icon pixel count = %d, want 64", len(pixels))
+	if pixels := bmpPixels(t, p); len(pixels) != iconOpW*8 {
+		t.Errorf("icon pixel count = %d, want %d", len(pixels), iconOpW*8)
 	}
 }
 

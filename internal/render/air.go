@@ -111,7 +111,7 @@ func AirPopupPayload(aqi float64, durationSec int) map[string]any {
 		"durationMs":  msOf(durationSec),
 		"wakeup":      true,
 		"stack":       false,
-		"draw":        []any{bitmapOp(0, 0, 8, 8, iconPx)},
+		"draw":        []any{iconOp(iconPx)},
 		"textCenter":  false,
 		"textOffsetX": 9,
 	}

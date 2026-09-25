@@ -55,7 +55,7 @@ func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[s
 	if iconID != "" {
 		p["icon"] = iconID
 	} else {
-		p["draw"] = []any{bitmapOp(0, 0, 8, 8, bitmap8(reminderBell, reminderGold))}
+		p["draw"] = []any{iconOp(bitmap8(reminderBell, reminderGold))}
 		p["textCenter"] = false
 		p["textOffsetX"] = 9
 	}

@@ -299,14 +299,14 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 	}}
 	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30, nil)
 	op := bmp(t, payload, 0)
-	if op[3] != 8 || op[4] != 8 {
-		t.Fatalf("locked icon = %vx%v, want 8x8 tool icon", op[3], op[4])
+	if op[3] != iconOpW || op[4] != 8 {
+		t.Fatalf("locked icon = %vx%v, want %dx8 (8×8 tool icon + blank gap col)", op[3], op[4], iconOpW)
 	}
 	pixels := bmpPixels(t, payload)
-	if len(pixels) != 64 {
-		t.Fatalf("locked pixel array = %v, want []int of length 64 (8×8)", op[5])
+	if len(pixels) != iconOpW*8 {
+		t.Fatalf("locked pixel array = %v, want []int of length %d", op[5], iconOpW*8)
 	}
-	at := func(x, y int) int { return pixels[y*8+x] }
+	at := func(x, y int) int { return pixels[y*iconOpW+x] }
 	// usageIconClaude: row0 "..X..X.." lights cols 2 & 5 (ears).
 	if at(2, 0) == 0 || at(5, 0) == 0 {
 		t.Errorf("row0 ears (cols 2,5) dark, want lit — not the Claude robot-face icon")
@@ -339,8 +339,8 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 		}
 	}
 	op := bmp(t, payload, 0)
-	if op[3] != 8 {
-		t.Errorf("bitmap width = %v, want 8 (8×8 tool icon so the native text isn't clobbered)", op[3])
+	if op[3] != iconOpW {
+		t.Errorf("bitmap width = %v, want %d (8×8 tool icon + blank gap col, so the native text isn't clobbered)", op[3], iconOpW)
 	}
 	if got := payload["text"]; got != wantLabel {
 		t.Errorf("text = %v, want %q", got, wantLabel)
@@ -1046,8 +1046,8 @@ func TestDetailPayload_Blink(t *testing.T) {
 		t.Errorf("textOffsetX/center = %v/%v, want 9/false", p["textOffsetX"], p["textCenter"])
 	}
 	op := bmp(t, p, 0)
-	if op[3] != 8 || len(bmpPixels(t, p)) != 64 {
-		t.Errorf("bitmap width/len = %v/%d, want 8/64", op[3], len(bmpPixels(t, p)))
+	if op[3] != iconOpW || len(bmpPixels(t, p)) != iconOpW*8 {
+		t.Errorf("bitmap width/len = %v/%d, want %d/%d", op[3], len(bmpPixels(t, p)), iconOpW, iconOpW*8)
 	}
 }
 
@@ -1313,11 +1313,11 @@ func TestAvailableCardsUsageGating(t *testing.T) {
 	}
 }
 
-func TestDetailPayloadUses8pxIcon(t *testing.T) {
+func TestDetailPayloadUsesGapMaskedIcon(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "waiting"}
 	p := detailPayload(s, nil, "WAIT", "#FFC14D", true, 30, true)
-	if op := bmp(t, p, 0); op[3] != 8 || op[4] != 8 {
-		t.Errorf("locked bitmap not 8×8: %v %v", op[3], op[4])
+	if op := bmp(t, p, 0); op[3] != iconOpW || op[4] != 8 {
+		t.Errorf("locked bitmap not %d×8: %v %v", iconOpW, op[3], op[4])
 	}
 	if p["textOffsetX"] != 9 {
 		t.Errorf("textOffsetX = %v, want 9", p["textOffsetX"])

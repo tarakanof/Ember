@@ -90,3 +90,49 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 		}
 	}
 }
+
+// TestTextPayloadsMaskTheIconGap pins the drawn-icon op of every payload that
+// carries native text to cols 0-8 with col 8 blank. Without a native icon NG
+// scrolls text across the whole panel and paints draw ops over it, so an 8-wide
+// op leaves the gap column exposed and glyphs touch the icon mid-scroll.
+func TestTextPayloadsMaskTheIconGap(t *testing.T) {
+	now := time.Unix(1_790_380_000, 0)
+	s := Session{Source: "m4", Tool: "claude", Session: "a", State: "running", Activity: "Bash: go test ./..."}
+	w := s
+	w.State = "waiting"
+	cases := map[string]map[string]any{
+		"agent tool card": RenderForCoord(Snapshot{Now: now, Sessions: []Session{s}}, s.Key(), 1, false, 60, nil),
+		"agent attention": RenderForCoord(Snapshot{Now: now, Sessions: []Session{w}}, w.Key(), 0, true, 60, nil),
+		"weather popup":   WeatherPopupPayload(WeatherRain, "RAIN 12°", "", 5),
+		"air popup":       AirPopupPayload(85, 5),
+		"sun popup":       SunPopupPayload(true, "SUNRISE 6:42", 5),
+		"meeting tile":    MeetingPayload("STANDUP", 12, 60),
+		"meeting popup":   MeetingPopupPayload("STANDUP", 2, 5),
+		"reminder popup":  ReminderPopupPayload("Call mom", "", 5, false),
+		"limit reset":     LimitResetPopupPayload("claude", 5),
+	}
+	for name, p := range cases {
+		if _, ok := p["text"]; !ok {
+			t.Fatalf("%s: no native text; case does not belong here", name)
+		}
+		var icon []any
+		for _, o := range p["draw"].([]any) {
+			if op := o.([]any); op[1] == 0 && op[2] == 0 {
+				icon = op
+			}
+		}
+		if icon == nil {
+			t.Fatalf("%s: no icon op at (0,0)", name)
+		}
+		if icon[3] != iconOpW || icon[4] != 8 {
+			t.Errorf("%s: icon op is %vx%v, want %dx8", name, icon[3], icon[4], iconOpW)
+			continue
+		}
+		data := icon[5].([]int)
+		for y := 0; y < 8; y++ {
+			if v := data[y*iconOpW+iconW]; v != 0 {
+				t.Errorf("%s: gap col %d row %d = %#06x, want 0", name, iconW, y, v)
+			}
+		}
+	}
+}

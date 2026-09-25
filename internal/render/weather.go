@@ -226,9 +226,9 @@ func WeatherPopupPayload(cond, label, iconID string, durationSec int) map[string
 		// Pomodoro).
 		p["icon"] = iconID
 	} else {
-		// Drawn icon as a bitmap op at cols 0–7 + left-aligned text from col 9.
+		// Drawn icon (iconOp masks cols 0-8) + left-aligned text from col 9.
 		iconPx := bitmap8(weatherIcon(cond), WeatherColor(cond))
-		p["draw"] = []any{bitmapOp(0, 0, 8, 8, iconPx)}
+		p["draw"] = []any{iconOp(iconPx)}
 		p["textCenter"] = false
 		p["textOffsetX"] = 9
 	}

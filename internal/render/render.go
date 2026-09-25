@@ -802,7 +802,7 @@ func itoa(n int) string {
 	return strconv.Itoa(n)
 }
 
-// detailPayload builds an 8×8 icon bitmap + firmware-native-text payload.
+// detailPayload builds a drawn-icon (iconOp) + firmware-native-text payload.
 // blink=true is the WAIT/ERR attention label; blink=false is the activity detail.
 //
 // textCenter must stay false. A `draw` bitmap indents nothing (only the native
@@ -826,7 +826,7 @@ func itoa(n int) string {
 // scrolling text at cols 25-31.
 func detailPayload(s Session, sessions []Session, text, hexColor string, blink bool, lifetimeSeconds int, hold bool) map[string]any {
 	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
-	draw := []any{bitmapOp(0, 0, 8, 8, pixels)}
+	draw := []any{iconOp(pixels)}
 	var bar Frame
 	if drawBottomBar(&bar, s, sessions) {
 		draw = append(draw, bitmapOp(barX0, barRow, barW, 1, framePixelsRect(&bar, barX0, barRow, barW, 1)))
@@ -893,7 +893,7 @@ func AttentionHeld(snap Snapshot, pointer string, locked bool) bool {
 // invalidation).
 //
 // locked: when true and the chosen session's state is "waiting" or
-// "error", an 8-col bitmap (just the robot sprite) is emitted with the
+// "error", a 9-col bitmap (the robot sprite + blank gap) is emitted with the
 // blinking label positioned to the right via textOffsetX, so the firmware
 // animates the attention indicator natively in the area the bitmap leaves
 // clear. A full-width draw would paint zeros across the right side of the
