@@ -4,10 +4,11 @@ import Foundation
 
 @Test func deviceSettingsDecodesNGKeys() throws {
     // Real shape from the #67 mapping's live device dump.
-    let json = ##"{"brightness":128,"volume":10,"autoBrightness":true,"transitionEffect":"Rain","textColor":"#FF8800","timeMode":2}"##
+    let json = ##"{"brightness":128,"buzzerVolume":80,"soundEnabled":true,"autoBrightness":true,"transitionEffect":"Rain","textColor":"#FF8800","timeMode":2}"##
     let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
     #expect(s.brightness == 128)
-    #expect(s.volume == 10)
+    #expect(s.buzzerVolume == 80)
+    #expect(s.soundEnabled == true)
     #expect(s.autoBrightness == true)
     #expect(s.transitionEffect == "Rain")
     #expect(s.textColor == "#FF8800")
@@ -19,7 +20,7 @@ import Foundation
     // on firmware 1.0.13.
     let json = #"""
     {"timeColor":"#FFFFFF","dateColor":"#FFFFFF","temperatureColor":"#FF0000",
-     "humidityColor":"#00FF00","batteryColor":"#0000FF","useCelsius":true,"smoothScroll":false}
+     "humidityColor":"#00FF00","batteryColor":"#0000FF","useCelsius":true}
     """#
     let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
     #expect(s.timeColor == "#FFFFFF")
@@ -28,7 +29,6 @@ import Foundation
     #expect(s.humidityColor == "#00FF00")
     #expect(s.batteryColor == "#0000FF")
     #expect(s.useCelsius == true)
-    #expect(s.smoothScroll == false)
 }
 
 @Test func deviceSettingsDecodesNestedScrollAndWeekdayBar() throws {
@@ -70,8 +70,21 @@ import Foundation
     #expect(obj["brightness"] as? Int == 200)
     #expect(obj["uppercase"] as? Bool == false)
     // Unset fields are omitted, so a partial PUT can't clobber other settings.
-    #expect(obj["volume"] == nil)
+    #expect(obj["buzzerVolume"] == nil)
     #expect(obj.count == 2)
+}
+
+@Test func deviceSettingsNeverEncodesKeysNGRejects() throws {
+    // NG 1.1.x answers 422 to `volume` and `smoothScroll`, failing the whole
+    // PATCH; the model must not be able to send them even if the device or an
+    // old server echoes them back.
+    let json = #"{"volume":10,"smoothScroll":true,"buzzerVolume":40,"soundEnabled":false}"#
+    let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
+    let obj = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(s)) as! [String: Any]
+    #expect(obj["volume"] == nil)
+    #expect(obj["smoothScroll"] == nil)
+    #expect(obj["buzzerVolume"] as? Int == 40)
+    #expect(obj["soundEnabled"] as? Bool == false)
 }
 
 @Test func deviceSettingsToleratesUnexpectedColorType() throws {
@@ -199,13 +212,15 @@ import Foundation
     let json = #"""
     {"effects":["fire","matrix"],"paletteEffects":["rainbow"],
      "transitions":["slide","fade","zoom"],"overlays":["rain","snow"],
-     "palettes":["fire","ice"],"radio":true}
+     "palettes":["fire","ice"],"audio":{"buzzer":true,"track":false,"mp3":false,"radio":false},
+     "scriptUpdates":true}
     """#
     let c = try JSONDecoder().decode(DeviceCapabilities.self, from: Data(json.utf8))
     #expect(c.effects == ["fire", "matrix"])
     #expect(c.transitions == ["slide", "fade", "zoom"])
     #expect(c.overlays == ["rain", "snow"])
-    #expect(c.radio == true)
+    #expect(c.audio == DeviceAudioCapabilities(buzzer: true))
+    #expect(c.hasBuzzer)
 }
 
 @Test func deviceCapabilitiesToleratesMissingFields() throws {
@@ -213,7 +228,8 @@ import Foundation
     let c = try JSONDecoder().decode(DeviceCapabilities.self, from: Data(json.utf8))
     #expect(c.transitions == ["slide"])
     #expect(c.effects.isEmpty)
-    #expect(c.radio == false)
+    #expect(c.audio == nil)
+    #expect(c.hasBuzzer, "unknown audio must not hide the sound controls")
 }
 
 @Test func screenFrameDecodesNGEnvelope() throws {
@@ -250,4 +266,11 @@ import Foundation
     let data = try JSONEncoder().encode(ButtonsUpdate(enabled: true))
     let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     #expect(obj["enabled"] as? Bool == true)
+}
+
+@Test func deviceCapabilitiesReportsMissingBuzzer() throws {
+    let json = #"{"audio":{"buzzer":false,"mp3":true}}"#
+    let c = try JSONDecoder().decode(DeviceCapabilities.self, from: Data(json.utf8))
+    #expect(c.hasBuzzer == false)
+    #expect(c.audio?.mp3 == true)
 }

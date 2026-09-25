@@ -27,6 +27,7 @@ const (
 	kObject
 	kNumber       // any finite float64, no bound (e.g. overlaySettings.speed)
 	kStringOrNull // string up to maxLen, or JSON null (e.g. overlaySettings.palette)
+	kColorOrNull  // a kColor, or JSON null to inherit (the per-app colours)
 )
 
 type settingRule struct {
@@ -78,7 +79,11 @@ var deviceSettingRules = map[string]settingRule{
 	// General
 	"brightness":     {kind: kInt, min: 0, max: 255},
 	"autoBrightness": {kind: kBool},
-	"volume":         {kind: kInt, min: 0, max: 30},
+	// Sound (NG 1.1.0): soundEnabled mutes the device; buzzerVolume replaced
+	// the 0-30 "volume", which NG now rejects with 422. The TC001 has only the
+	// piezo, so the DFPlayer/MP3/radio volumes are left out.
+	"soundEnabled": {kind: kBool},
+	"buzzerVolume": {kind: kInt, min: 0, max: 100},
 	// appDurationMs is milliseconds on NG (was ATIME, seconds, 1-3600, on
 	// AWTRIX3) — 1s-1h is a sane bound for a rotating app's dwell time.
 	"appDurationMs":        {kind: kInt, min: 1000, max: 3600000},
@@ -108,15 +113,16 @@ var deviceSettingRules = map[string]settingRule{
 	"calendarHeaderColor": {kind: kColor},
 	"calendarBodyColor":   {kind: kColor},
 	"calendarTextColor":   {kind: kColor},
-	// Native Apps — per-builtin-app text color, plus a couple of app-adjacent
-	// toggles (issue #92).
-	"timeColor":        {kind: kColor},
-	"dateColor":        {kind: kColor},
-	"temperatureColor": {kind: kColor},
-	"humidityColor":    {kind: kColor},
-	"batteryColor":     {kind: kColor},
+	// Native Apps — per-builtin-app text color (null = inherit textColor, which
+	// is how NG reports an unset one), plus an app-adjacent toggle (issue #92).
+	// There is no smoothScroll: that was AWTRIX3's SSCROLL; scroll.mode is the
+	// NG equivalent.
+	"timeColor":        {kind: kColorOrNull},
+	"dateColor":        {kind: kColorOrNull},
+	"temperatureColor": {kind: kColorOrNull},
+	"humidityColor":    {kind: kColorOrNull},
+	"batteryColor":     {kind: kColorOrNull},
 	"useCelsius":       {kind: kBool},
-	"smoothScroll":     {kind: kBool},
 	// Nested objects — the device speaks these NG shapes directly; the macOS
 	// app adapts to them in #71.
 	"scroll":     {kind: kObject, obj: scrollRules},
@@ -160,6 +166,10 @@ func validateSettingValue(k string, v any, rule settingRule) error {
 	case kColor:
 		if !validColor(v) {
 			return fmt.Errorf("%s must be a hex string or [r,g,b]", k)
+		}
+	case kColorOrNull:
+		if v != nil && !validColor(v) {
+			return fmt.Errorf("%s must be null, a hex string or [r,g,b]", k)
 		}
 	case kEnum:
 		s, ok := v.(string)
