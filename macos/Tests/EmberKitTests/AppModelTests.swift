@@ -65,3 +65,67 @@ import Foundation
     #expect(await model.winningSession == nil)
     #expect(await model.sessions.isEmpty)
 }
+
+/// Lock-guarded flag the stub handler (URLProtocol thread) flips for the test.
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func set() { lock.withLock { value = true } }
+    var isSet: Bool { lock.withLock { value } }
+}
+
+private func sessionJSON(_ tool: String) -> Data {
+    Data(#"{"sessions":[{"source":"mbp","tool":"\#(tool)","session":"s","state":"running","message":""}]}"#.utf8)
+}
+
+// A slow response from the server the model was configured for *before* a
+// Connection-tab change must not land after, and overwrite, the new server's.
+@MainActor @Test func staleRefreshFromPreviousServerIsDropped() async throws {
+    let started = Flag()
+    let gate = DispatchSemaphore(value: 0)
+    let oldClient = stubbedClient { req in
+        if req.url!.path == "/state" {
+            started.set()
+            gate.wait()
+            return (okResponse(req.url!), sessionJSON("old"))
+        }
+        return (okResponse(req.url!, status: 404), Data("{}".utf8))
+    }
+    let newClient = stubbedClient { req in
+        if req.url!.path == "/state" { return (okResponse(req.url!), sessionJSON("new")) }
+        return (okResponse(req.url!, status: 404), Data("{}".utf8))
+    }
+    let model = AppModel()
+    model.configure(client: oldClient)
+    let stale = Task { await model.refresh() }
+    while !started.isSet { try await Task.sleep(for: .milliseconds(5)) }
+
+    model.configure(client: newClient)
+    await model.refresh()
+    #expect(model.sessions.first?.tool == "new")
+
+    gate.signal()
+    await stale.value
+    #expect(model.sessions.first?.tool == "new")
+    #expect(model.connected)
+}
+
+@MainActor @Test func setAppFailureIsSurfacedAndClearedOnSuccess() async throws {
+    let putsSucceed = Flag()
+    let client = stubbedClient { req in
+        if req.httpMethod == "PUT", !putsSucceed.isSet {
+            return (okResponse(req.url!, status: 401), Data(#"{"error":"unauthorized"}"#.utf8))
+        }
+        if req.url!.path == "/state" { return (okResponse(req.url!), sessionJSON("claude")) }
+        if req.url!.path == "/v1/apps" { return (okResponse(req.url!), Data(#"{"apps":[]}"#.utf8)) }
+        return (okResponse(req.url!, status: 404), Data("{}".utf8))
+    }
+    let model = AppModel()
+    model.configure(client: client)
+    await model.setApp("claude", enabled: false)
+    #expect(model.appToggleError != nil)
+
+    putsSucceed.set()
+    await model.setApp("claude", enabled: false)
+    #expect(model.appToggleError == nil)
+}

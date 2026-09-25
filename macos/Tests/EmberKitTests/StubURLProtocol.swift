@@ -22,13 +22,19 @@ final class StubURLProtocol: URLProtocol {
         guard let handler = Self.lock.withLock({ Self.handlers[host] }) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return
         }
-        do {
-            let (resp, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
+        // Answer off URLSession's shared loader thread, so a handler that
+        // blocks (to hold a response in flight) stalls only its own request.
+        nonisolated(unsafe) let proto = self
+        let request = self.request
+        DispatchQueue.global().async {
+            do {
+                let (resp, data) = try handler(request)
+                proto.client?.urlProtocol(proto, didReceive: resp, cacheStoragePolicy: .notAllowed)
+                proto.client?.urlProtocol(proto, didLoad: data)
+                proto.client?.urlProtocolDidFinishLoading(proto)
+            } catch {
+                proto.client?.urlProtocol(proto, didFailWithError: error)
+            }
         }
     }
     override func stopLoading() {}
