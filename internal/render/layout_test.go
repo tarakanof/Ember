@@ -57,6 +57,15 @@ func firstBarCol(row [panelW]bool) int {
 	return -1
 }
 
+// hourly returns n rising sample values, usable as both °C and AQI.
+func hourly(n int) []float64 {
+	out := make([]float64, n)
+	for i := range out {
+		out[i] = 10 + float64(i)
+	}
+	return out
+}
+
 // TestEveryBottomBarStartsAtBarX0 pins the shared grid: whatever an app puts
 // on row 7 (session bar, rate bar, usage bar, forecast/AQI strip, Pomodoro
 // progress) starts in the same column, right after the icon, so the bar does
@@ -83,6 +92,11 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 		"agent tool card":           row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: sessions}, running.Key(), 1, false, 60, nil)),
 		"agent attention":           row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: sessions}, waiting.Key(), 0, true, 60, nil)),
 		"agent tool card, rate bar": row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: []Session{rateMode}}, rateMode.Key(), 1, false, 60, nil)),
+		"weather tile 24h":          row7FromPayload(t, WeatherPayload(WeatherClouds, "21°", hourly(24), 60)),
+		"weather tile 6h":           row7FromPayload(t, WeatherPayload(WeatherSnow, "-12°", hourly(6), 60)),
+		"weather tile native icon":  row7FromPayload(t, WeatherPayloadNative("2286", "21°", hourly(24), 60)),
+		"weather tile moon":         row7FromPayload(t, WeatherPayloadMoon("9°", hourly(24), MoonView{Illum: 0.6, Waxing: true}, 60)),
+		"air tile":                  row7FromPayload(t, AirPayload(53, hourly(24), 60)),
 	}
 	for name, row := range cases {
 		if got := firstBarCol(row); got != barX0 {
@@ -133,6 +147,62 @@ func TestTextPayloadsMaskTheIconGap(t *testing.T) {
 			if v := data[y*iconOpW+iconW]; v != 0 {
 				t.Errorf("%s: gap col %d row %d = %#06x, want 0", name, iconW, y, v)
 			}
+		}
+	}
+}
+
+// TestHourlyStripsFillTheBar pins the weather and air strips to the full
+// bottom bar: a 24 h window is one column per hour (none dropped), and a
+// shorter window is stretched so the strip never ends in a ragged dark tail.
+func TestHourlyStripsFillTheBar(t *testing.T) {
+	for _, n := range []int{6, 12, 22, 24} {
+		temps := hourly(n)
+		f := WeatherTileFrame(WeatherClouds, "21°", temps, nil)
+		for x := barX0; x < panelW; x++ {
+			if !f.Dirty[barRow][x] {
+				t.Errorf("weather %dh: col %d of the strip is dark", n, x)
+			}
+		}
+		if got, want := f.Pixels[barRow][panelW-1], TempColor(temps[n-1]); got != want {
+			t.Errorf("weather %dh: last col = %v, want the last hour %v", n, got, want)
+		}
+		if got, want := f.Pixels[barRow][barX0], TempColor(temps[0]); got != want {
+			t.Errorf("weather %dh: first col = %v, want the first hour %v", n, got, want)
+		}
+		a := AirTileFrame(53, temps)
+		if got, want := a.Pixels[barRow][panelW-1], AQIColor(temps[n-1]); got != want {
+			t.Errorf("air %dh: last col = %v, want the last hour %v", n, got, want)
+		}
+		for x := barX0; x < panelW; x++ {
+			if !a.Dirty[barRow][x] {
+				t.Errorf("air %dh: col %d of the strip is dark", n, x)
+			}
+		}
+	}
+}
+
+// TestTileDigitsSitOnTheTextRow pins the weather and air readouts to rows
+// 1-5, the rows every other app (agent digits, NG's native text) uses, so the
+// digits do not jump a row as the rotation moves between apps. Row 6 stays a
+// blank spacer above the bottom bar.
+func TestTileDigitsSitOnTheTextRow(t *testing.T) {
+	frames := map[string]Frame{
+		"weather": WeatherTileFrame(WeatherClouds, "21°", hourly(24), nil),
+		"air":     AirTileFrame(53, hourly(24)),
+	}
+	for name, f := range frames {
+		lit := false
+		for x := contentX; x < panelW; x++ {
+			if f.Dirty[0][x] {
+				t.Errorf("%s: row 0 col %d lit, want digits on rows 1-5", name, x)
+			}
+			if f.Dirty[6][x] {
+				t.Errorf("%s: row 6 col %d lit, want a blank spacer above the bar", name, x)
+			}
+			lit = lit || f.Dirty[textRow][x]
+		}
+		if !lit {
+			t.Errorf("%s: nothing on row %d", name, textRow)
 		}
 	}
 }

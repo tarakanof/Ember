@@ -131,9 +131,9 @@ func WeatherColor(cond string) RGB {
 }
 
 // WeatherPayload returns the rotating-tile frame: the 8×8 condition icon at cols
-// 0–7 + the temperature text (e.g. "21°") drawn from col 9, plus a compact
-// hourly-forecast strip on the bottom row (one colour-coded pixel per hour, cols
-// 9–31 ≈ next 23h) when `hourly` is supplied. Mirrors the usage tiles (no
+// 0–7 + the temperature text (e.g. "21°") centred right of it, plus a compact
+// hourly-forecast strip on the bottom bar (colour-coded hours stretched over
+// cols 8–31) when `hourly` is supplied. Mirrors the usage tiles (no
 // prio/force) so it rotates natively alongside them. lifetime seconds.
 func WeatherPayload(cond, tempText string, hourly []float64, lifetime int) map[string]any {
 	return weatherTile(cond, tempText, hourly, nil, lifetime)
@@ -146,24 +146,18 @@ func WeatherPayloadMoon(tempText string, hourly []float64, moon MoonView, lifeti
 	return weatherTile("", tempText, hourly, &moon, lifetime)
 }
 
-// drawWeatherBody paints the conditions tile's right side (cols 9-31): the
-// temperature digits centred in the free area (rows 0-4) and the 2px-tall
-// hourly strip (rows 6-7). Shared by the drawn tile, the native-icon variant,
-// and the moon variant so the layout can't drift.
+// drawWeatherBody paints the conditions tile's right side: the temperature
+// digits centred in the content area on the text row (rows 1-5) and the hourly
+// strip on the bottom bar (row 7, cols 8-31). Shared by the drawn tile, the
+// native-icon variant, and the moon variant so the layout can't drift.
 func drawWeatherBody(f *Frame, tempText string, hourly []float64) {
-	textW := len([]rune(tempText))*4 - 1
-	x := 9 + (23-textW)/2
-	if x < 9 {
-		x = 9
-	}
-	drawDigits(f, tempText, x, 0, colorWhite)
-	drawForecastStrip(f, hourly, 9, 31, 6)
-	drawForecastStrip(f, hourly, 9, 31, 7)
+	drawDigits(f, tempText, centredX(tempText), textRow, colorWhite)
+	drawForecastStrip(f, hourly)
 }
 
 // WeatherTileFrame composes the drawn rotating-tile frame: condition icon (or
-// moon phase when moon is non-nil), centred temperature digits, 2px-tall
-// hourly strip. Shared by the device payload and /v1/weather/preview.
+// moon phase when moon is non-nil), centred temperature digits, hourly strip
+// on the bottom bar. Shared by the device payload and /v1/weather/preview.
 func WeatherTileFrame(cond, tempText string, hourly []float64, moon *MoonView) Frame {
 	var f Frame
 	if moon != nil {
@@ -198,7 +192,7 @@ func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime in
 	drawWeatherBody(&f, tempText, hourly)
 	return map[string]any{
 		"icon":       iconID,
-		"draw":       []any{bitmapOp(8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8))},
+		"draw":       []any{bitmapOp(iconW, 0, panelW-iconW, 8, framePixelsRect(&f, iconW, 0, panelW-iconW, 8))},
 		"lifetimeMs": msOf(lifetime), "durationMs": msOf(rotateDwellSeconds),
 	}
 }

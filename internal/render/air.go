@@ -8,8 +8,8 @@ import (
 // Air-quality render primitives. The air app is a rotating tile in the weather
 // family: an 8×8 drawn wind icon + the current European AQI (EAQI) value, both
 // painted in the official EEA bucket colour (the colour IS the reading, unlike
-// the weather tile's white digits), plus a 2px hourly-AQI strip on the bottom
-// rows. The popup fires on a configured threshold crossing.
+// the weather tile's white digits), plus an hourly-AQI strip on the bottom
+// bar. The popup fires on a configured threshold crossing.
 
 // aqiStop is one EAQI bucket: readings below `lt` take this word + colour.
 type aqiStop struct {
@@ -56,36 +56,23 @@ var airIcon = []string{
 	".....X..",
 }
 
-// drawAQIStrip paints one pixel per hourly AQI value across row y from x0..x1
-// (inclusive), each in its own bucket colour. Mirrors drawForecastStrip.
-func drawAQIStrip(f *Frame, hourly []float64, x0, x1, y int) {
-	x := x0
-	for _, v := range hourly {
-		if x > x1 {
-			break
-		}
-		paintCell(f, x, y, AQIColor(v))
-		x++
-	}
+// drawAQIStrip paints the hourly AQI values as the bottom-bar strip, each hour
+// in its own bucket colour. Mirrors drawForecastStrip.
+func drawAQIStrip(f *Frame, hourly []float64) {
+	drawHourlyStrip(f, len(hourly), func(i int) RGB { return AQIColor(hourly[i]) })
 }
 
 // AirTileFrame composes the drawn air-quality tile: wind icon at cols 0–7 and
-// the rounded AQI value centred over cols 9–31 (rows 0–4), both in the current
-// bucket colour, plus the 2px hourly-AQI strip (rows 6–7, one pixel per hour).
-// Shared by the device payload and /v1/weather/preview.
+// the rounded AQI value centred in the content area (rows 1–5), both in the
+// current bucket colour, plus the hourly-AQI strip on the bottom bar (row 7,
+// cols 8–31). Shared by the device payload and /v1/weather/preview.
 func AirTileFrame(aqi float64, hourly []float64) Frame {
 	var f Frame
 	col := AQIColor(aqi)
 	paintBitmap(&f, 0, 0, airIcon, col)
 	text := fmt.Sprintf("%d", int(math.Round(aqi)))
-	textW := len([]rune(text))*4 - 1
-	x := 9 + (23-textW)/2
-	if x < 9 {
-		x = 9
-	}
-	drawDigits(&f, text, x, 0, col)
-	drawAQIStrip(&f, hourly, 9, 31, 6)
-	drawAQIStrip(&f, hourly, 9, 31, 7)
+	drawDigits(&f, text, centredX(text), textRow, col)
+	drawAQIStrip(&f, hourly)
 	return f
 }
 

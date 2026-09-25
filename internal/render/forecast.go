@@ -48,18 +48,33 @@ func lerp(a, b uint8, f float64) uint8 {
 	return uint8(float64(a) + (float64(b)-float64(a))*f + 0.5)
 }
 
-// drawForecastStrip paints one pixel per hourly temperature across row y from
-// x0..x1 (inclusive), each coloured by TempColor. Draws min(len(hourly),
-// x1-x0+1) columns; a nil/empty slice is a no-op.
-func drawForecastStrip(f *Frame, hourly []float64, x0, x1, y int) {
-	x := x0
-	for _, t := range hourly {
-		if x > x1 {
-			break
-		}
-		paintCell(f, x, y, TempColor(t))
-		x++
+// drawHourlyStrip paints an hourly strip on the bottom bar (row 7, cols
+// barX0..31), with colour(i) giving hour i's colour. The n hours are stretched
+// across all barW columns, each getting an even share: a 24 h window is one
+// column per hour, and a 6 h window is four columns per hour instead of a
+// 6 px stub. n <= 0 is a no-op.
+func drawHourlyStrip(f *Frame, n int, colour func(i int) RGB) {
+	if n <= 0 {
+		return
 	}
+	for x := 0; x < barW; x++ {
+		paintCell(f, barX0+x, barRow, colour(x*n/barW))
+	}
+}
+
+// drawForecastStrip paints the hourly temperatures as the bottom-bar strip.
+func drawForecastStrip(f *Frame, hourly []float64) {
+	drawHourlyStrip(f, len(hourly), func(i int) RGB { return TempColor(hourly[i]) })
+}
+
+// centredX is the start column that centres a 3×5 string in the content area
+// (cols contentX..31), clamped to contentX when it overflows.
+func centredX(text string) int {
+	x := contentX + (contentW-(len([]rune(text))*4-1))/2
+	if x < contentX {
+		x = contentX
+	}
+	return x
 }
 
 // drawForecastBars paints one vertical bar per hour across cols x0..x1
