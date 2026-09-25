@@ -945,6 +945,7 @@ func (a *App) StartCoordinator(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			retuneDwellTicker(ticker, &dwell, a.cfg.Load())
 			a.coord.Send(coordCmd{kind: cmdTick})
 		case <-pomoC:
 			a.pomoTick()
