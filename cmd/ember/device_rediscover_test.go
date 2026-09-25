@@ -38,7 +38,7 @@ func TestRediscoverClock_SwapsWhenCurrentUnreachable(t *testing.T) {
 	if a.lastRediscoverAt.Load() == 0 {
 		t.Fatalf("lastRediscoverAt not recorded")
 	}
-	if !a.deviceAutoPicked {
+	if !a.deviceAutoPicked.Load() {
 		t.Fatalf("expected deviceAutoPicked=true after swap")
 	}
 }

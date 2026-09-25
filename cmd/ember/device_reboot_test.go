@@ -11,26 +11,30 @@ import (
 )
 
 func TestRebootDetected(t *testing.T) {
+	t0 := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	up := func(uptime int64, sec int) deviceProbe {
+		return deviceProbe{reachable: true, uptimeSec: uptime, at: t0.Add(time.Duration(sec) * time.Second)}
+	}
 	cases := []struct {
 		name string
 		prev deviceProbe
 		cur  deviceProbe
 		want bool
 	}{
-		{"first probe of the process is never a reboot",
-			deviceProbe{}, deviceProbe{seen: true, reachable: true, uptimeSec: 5}, false},
-		{"uptime climbing is steady state",
-			deviceProbe{seen: true, reachable: true, uptimeSec: 100},
-			deviceProbe{seen: true, reachable: true, uptimeSec: 130}, false},
+		{"first answer of the process is never a reboot",
+			deviceProbe{}, up(5, 0), false},
+		{"uptime climbing with wall time is steady state",
+			up(100, 0), up(130, 30), false},
 		{"uptime going backwards is a reboot",
-			deviceProbe{seen: true, reachable: true, uptimeSec: 3874},
-			deviceProbe{seen: true, reachable: true, uptimeSec: 12}, true},
-		{"unreachable to reachable is a reboot",
-			deviceProbe{seen: true, reachable: false},
-			deviceProbe{seen: true, reachable: true, uptimeSec: 900}, true},
-		{"still unreachable is not a reboot",
-			deviceProbe{seen: true, reachable: true, uptimeSec: 100},
-			deviceProbe{seen: true, reachable: false}, false},
+			up(3874, 0), up(12, 30), true},
+		{"answering after lost probes is not a reboot when uptime kept pace",
+			up(900, 0), up(991, 90), false},
+		{"probe latency jitter within the slack is not a reboot",
+			up(900, 0), up(925, 31), false},
+		{"reboot during a gap longer than the old uptime",
+			up(20, 0), up(60, 300), true},
+		{"unreachable now is not a reboot",
+			up(100, 0), deviceProbe{}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -54,13 +58,13 @@ func TestProbeDevice_ReadsUptimeFromNGDeviceInfo(t *testing.T) {
 	a := newTestApp(t)
 	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = srv.URL })
 	got := a.probeDevice(context.Background())
-	if !got.seen || !got.reachable || got.uptimeSec != 3874 {
-		t.Fatalf("probeDevice = %+v, want seen+reachable with uptime 3874", got)
+	if !got.reachable || got.uptimeSec != 3874 || got.at.IsZero() {
+		t.Fatalf("probeDevice = %+v, want reachable with uptime 3874 and a timestamp", got)
 	}
 
 	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
-	if got := a.probeDevice(context.Background()); !got.seen || got.reachable {
-		t.Fatalf("probeDevice(unreachable) = %+v, want seen and !reachable", got)
+	if got := a.probeDevice(context.Background()); got.reachable {
+		t.Fatalf("probeDevice(unreachable) = %+v, want !reachable", got)
 	}
 }
 
