@@ -37,13 +37,13 @@ func dimThreshold(pct int) RGB { // ~55% of the threshold colour
 
 func toInt(c RGB) int { return int(c.R)<<16 | int(c.G)<<8 | int(c.B) }
 
-// usageBarPixels returns 24 colours (content cols 8-31) for a dimmed 1px bar.
+// usageBarPixels returns the barW colours (cols barX0..31) of a dimmed 1px bar.
 func usageBarPixels(pct int) []RGB {
-	fill := (24*pct + 50) / 100
+	fill := (barW*pct + 50) / 100
 	if pct > 0 && fill < 1 {
 		fill = 1
 	}
-	out := make([]RGB, 24)
+	out := make([]RGB, barW)
 	for i := range out {
 		if i < fill {
 			out[i] = dimThreshold(pct)
@@ -94,10 +94,10 @@ func drawClockInto(f *Frame, hhmm string, x int) {
 	}
 }
 
-// drawBarInto paints the 1px dimmed content-area bar at row 7, cols 8-31.
+// drawBarInto paints the 1px dimmed bottom bar (row 7, cols barX0..31).
 func drawBarInto(f *Frame, pct int) {
 	for i, c := range usageBarPixels(pct) {
-		paintCell(f, 8+i, 7, c)
+		paintCell(f, barX0+i, barRow, c)
 	}
 }
 

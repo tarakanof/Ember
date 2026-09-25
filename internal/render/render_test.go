@@ -691,12 +691,12 @@ func TestDrawSessionBar_OneRunning(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	if !f.Dirty[7][11] || f.Pixels[7][11] != colorRunning {
-		t.Errorf("col 11 = %+v dirty=%v, want %v lit", f.Pixels[7][11], f.Dirty[7][11], colorRunning)
+	if !f.Dirty[7][barX0] || f.Pixels[7][barX0] != colorRunning {
+		t.Errorf("col barX0 = %+v dirty=%v, want %v lit", f.Pixels[7][barX0], f.Dirty[7][barX0], colorRunning)
 	}
-	for x := 12; x < 32; x++ {
+	for x := barX0 + 1; x < 32; x++ {
 		if f.Dirty[7][x] {
-			t.Errorf("col %d unexpectedly lit (should only be col 11 for 1 session)", x)
+			t.Errorf("col %d unexpectedly lit (should only be col barX0 for 1 session)", x)
 		}
 	}
 }
@@ -714,14 +714,14 @@ func TestDrawSessionBar_PriorityOrder(t *testing.T) {
 	drawSessionBar(f, sessions)
 	wants := []RGB{colorWaiting, colorError, colorRunning}
 	for i, want := range wants {
-		col := 11 + i
+		col := barX0 + i
 		if !f.Dirty[7][col] || f.Pixels[7][col] != want {
 			t.Errorf("col %d = %+v dirty=%v, want %v", col, f.Pixels[7][col], f.Dirty[7][col], want)
 		}
 	}
 	// No fourth pixel.
-	if f.Dirty[7][14] {
-		t.Errorf("col 14 lit, want dark (only 3 sessions)")
+	if f.Dirty[7][barX0+3] {
+		t.Errorf("col barX0+3 lit, want dark (only 3 sessions)")
 	}
 }
 
@@ -748,12 +748,12 @@ func TestDrawSessionBar_DeterministicAcrossSliceOrder(t *testing.T) {
 				x, f1.Pixels[7][x], f1.Dirty[7][x], f2.Pixels[7][x], f2.Dirty[7][x])
 		}
 	}
-	// And both should have exactly 2 amber pixels at cols 11 and 12.
-	if f1.Pixels[7][11] != colorWaiting || f1.Pixels[7][12] != colorWaiting {
-		t.Errorf("expected two amber pixels, got col11=%v col12=%v", f1.Pixels[7][11], f1.Pixels[7][12])
+	// And both should have exactly 2 amber pixels at cols barX0 and barX0+1.
+	if f1.Pixels[7][barX0] != colorWaiting || f1.Pixels[7][barX0+1] != colorWaiting {
+		t.Errorf("expected two amber pixels, got col barX0=%v col barX0+1=%v", f1.Pixels[7][barX0], f1.Pixels[7][barX0+1])
 	}
-	if f1.Dirty[7][13] {
-		t.Errorf("col 13 lit, want dark (only 2 sessions)")
+	if f1.Dirty[7][barX0+2] {
+		t.Errorf("col barX0+2 lit, want dark (only 2 sessions)")
 	}
 }
 
@@ -765,11 +765,11 @@ func TestDrawSessionBar_IdleExcluded(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	if !f.Dirty[7][11] || f.Pixels[7][11] != colorRunning {
-		t.Errorf("col 11 = %v, want running green", f.Pixels[7][11])
+	if !f.Dirty[7][barX0] || f.Pixels[7][barX0] != colorRunning {
+		t.Errorf("col barX0 = %v, want running green", f.Pixels[7][barX0])
 	}
-	if f.Dirty[7][12] {
-		t.Errorf("col 12 lit; idle session must not produce a pixel")
+	if f.Dirty[7][barX0+1] {
+		t.Errorf("col barX0+1 lit; idle session must not produce a pixel")
 	}
 }
 
@@ -782,11 +782,11 @@ func TestDrawSessionBar_DoneIncluded(t *testing.T) {
 	f := &Frame{}
 	drawSessionBar(f, sessions)
 	// running sorts before done by priority.
-	if f.Pixels[7][11] != colorRunning {
-		t.Errorf("col 11 = %v, want running green", f.Pixels[7][11])
+	if f.Pixels[7][barX0] != colorRunning {
+		t.Errorf("col barX0 = %v, want running green", f.Pixels[7][barX0])
 	}
-	if f.Pixels[7][12] != colorDone {
-		t.Errorf("col 12 = %v, want done blue", f.Pixels[7][12])
+	if f.Pixels[7][barX0+1] != colorDone {
+		t.Errorf("col barX0+1 = %v, want done blue", f.Pixels[7][barX0+1])
 	}
 }
 
@@ -801,10 +801,10 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	// Exactly 21 pixels lit, cols 11..31.
-	for x := 11; x <= 31; x++ {
+	// Exactly barW (24) pixels lit, cols 8..31.
+	for x := barX0; x <= 31; x++ {
 		if !f.Dirty[7][x] {
-			t.Errorf("col %d should be lit (overflow truncation paints first 21)", x)
+			t.Errorf("col %d should be lit (overflow truncation paints first 24)", x)
 		}
 	}
 	// No spillover above row 7.
@@ -851,10 +851,10 @@ func TestDrawSessionBar_WaitingErrorRunningDoneMix(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	// Priority order: waiting (11), error (12), running (13), done (14).
+	// Priority order from barX0: waiting, error, running, done.
 	wants := []RGB{colorWaiting, colorError, colorRunning, colorDone}
 	for i, want := range wants {
-		col := 11 + i
+		col := barX0 + i
 		if !f.Dirty[7][col] || f.Pixels[7][col] != want {
 			t.Errorf("col %d = %v dirty=%v, want %v", col, f.Pixels[7][col], f.Dirty[7][col], want)
 		}
@@ -942,19 +942,19 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 		t.Errorf("rate bar over-filled past col 19")
 	}
 
-	// Toggle OFF → session-count bar (2 sessions → cols 11,12 by priority: waiting, running).
+	// Toggle OFF → session-count bar (2 sessions → cols barX0,barX0+1 by priority: waiting, running).
 	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now}
 	fOff := ComposeFrame(sOff, cardSource, nil, others, time.Now())
-	if fOff.Pixels[7][11] != colorWaiting || fOff.Pixels[7][12] != colorRunning {
-		t.Errorf("session bar: got col11=%v col12=%v, want waiting,running", fOff.Pixels[7][11], fOff.Pixels[7][12])
+	if fOff.Pixels[7][barX0] != colorWaiting || fOff.Pixels[7][barX0+1] != colorRunning {
+		t.Errorf("session bar: got col barX0=%v col barX0+1=%v, want waiting,running", fOff.Pixels[7][barX0], fOff.Pixels[7][barX0+1])
 	}
 
 	// Toggle ON but no rate data → graceful fallback to the session-count bar.
 	sFallback := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, UpdatedAt: now}
 	fFallback := ComposeFrame(sFallback, cardSource, nil, others, time.Now())
-	if fFallback.Pixels[7][11] != colorWaiting || fFallback.Pixels[7][12] != colorRunning {
-		t.Errorf("fallback: got col11=%v col12=%v, want session bar (waiting,running)", fFallback.Pixels[7][11], fFallback.Pixels[7][12])
+	if fFallback.Pixels[7][barX0] != colorWaiting || fFallback.Pixels[7][barX0+1] != colorRunning {
+		t.Errorf("fallback: got col barX0=%v col barX0+1=%v, want session bar (waiting,running)", fFallback.Pixels[7][barX0], fFallback.Pixels[7][barX0+1])
 	}
 }
 
@@ -969,21 +969,21 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 		t.Fatal("expected non-nil payload")
 	}
 	pixels := panelPixels(t, payload)
-	// Row 7. Expect col 11 = waiting amber, col 12 = running green.
+	// Row 7. Expect col barX0 = waiting amber, col barX0+1 = running green.
 	// Derive expected values from the palette constants so the test stays
 	// correct if colors are ever updated.
 	wantWaiting := (int(colorWaiting.R) << 16) | (int(colorWaiting.G) << 8) | int(colorWaiting.B)
 	wantRunning := (int(colorRunning.R) << 16) | (int(colorRunning.G) << 8) | int(colorRunning.B)
-	got11 := pixels[7*32+11]
-	got12 := pixels[7*32+12]
+	got11 := pixels[7*32+barX0]
+	got12 := pixels[7*32+barX0+1]
 	if got11 != wantWaiting {
-		t.Errorf("row 7 col 11 = %#06x, want %#06x (waiting amber, priority first)", got11, wantWaiting)
+		t.Errorf("row 7 col barX0 = %#06x, want %#06x (waiting amber, priority first)", got11, wantWaiting)
 	}
 	if got12 != wantRunning {
-		t.Errorf("row 7 col 12 = %#06x, want %#06x (running green, priority second)", got12, wantRunning)
+		t.Errorf("row 7 col barX0+1 = %#06x, want %#06x (running green, priority second)", got12, wantRunning)
 	}
 	// Col 13+ on row 7 should be dark.
-	for x := 13; x < 32; x++ {
+	for x := barX0 + 2; x < 32; x++ {
 		if pixels[7*32+x] != 0 {
 			t.Errorf("row 7 col %d = %#06x, want 0 (only 2 sessions in snapshot)", x, pixels[7*32+x])
 		}
@@ -1340,7 +1340,7 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	// pixel in the glass columns betrays a drawn glass.
 	requireUnit := func(t *testing.T, f *Frame, face string) {
 		t.Helper()
-		if got := f.Pixels[1][unitStart]; got != usageGray {
+		if got := f.Pixels[1][rightSlotX]; got != usageGray {
 			t.Fatalf("%s: unit pixel = %v, want gray %v", face, got, usageGray)
 		}
 		for y := glassTopRow; y <= glassBottomRow; y++ {
@@ -1352,8 +1352,8 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 		}
 	}
 
-	// 5h face in rate-bar mode: clock at numStart — '1' row 0 is ".X." so its
-	// lit pixel is x=numStart+1 — plus the "5h" unit where the glass was.
+	// 5h face in rate-bar mode: clock at contentX — '1' row 0 is ".X." so its
+	// lit pixel is x=contentX+1 — plus the "5h" unit where the glass was.
 	f := ComposeFrame(s, cardUsage5h, u, []Session{s}, now)
 	if !f.Dirty[1][10] {
 		t.Fatal("5h face: clock not painted")
@@ -1372,7 +1372,7 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	}
 	requireUnit(t, &f, "5h pct face")
 
-	// 7d face: red "95%" at numStart, gray "7d" unit at the right edge.
+	// 7d face: red "95%" at contentX, gray "7d" unit at the right edge.
 	f = ComposeFrame(s, cardUsage7d, u, []Session{s}, now)
 	if got := f.Pixels[1][9]; got != rateColor(95) {
 		t.Fatalf("7d pct: pixel = %v, want red %v", got, rateColor(95))
@@ -1441,10 +1441,10 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 	}
 
 	// The idle 5h face carries the gray "5h" unit label: '5' top-left lights
-	// (unitStart, 1), i.e. pixel index 1*32+unitStart in the db payload.
+	// (rightSlotX, 1), i.e. pixel index 1*32+rightSlotX in the db payload.
 	px := bmpPixels(t, p0)
 	wantGray := (int(usageGray.R) << 16) | (int(usageGray.G) << 8) | int(usageGray.B)
-	if got := px[1*32+unitStart]; got != wantGray {
+	if got := px[1*32+rightSlotX]; got != wantGray {
 		t.Errorf("idle 5h face unit pixel = %#06x, want gray %#06x", got, wantGray)
 	}
 }

@@ -235,8 +235,8 @@ func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
 }
 
 const (
-	glassLeft  = 25
-	glassRight = 31 // the panel's last column: the glass owns the full right edge
+	glassLeft  = rightSlotX
+	glassRight = panelW - 1 // the panel's last column: the glass owns the full right edge
 	// The usage faces' unit label (drawUsageUnit) also runs to col 31, and only
 	// one of the two is ever drawn on a given card.
 	glassTopRow      = 1
@@ -293,20 +293,13 @@ func drawGlass(f *Frame, pct *int, c RGB) {
 	}
 }
 
-const (
-	barRow   = 7
-	barStart = 11
-	barEnd   = 31
-	barWidth = barEnd - barStart + 1
-)
-
-// drawSessionBar paints one pixel per non-idle session at row 7, starting
-// from cols barStart..barEnd. Pixels are coloured by each session's state
+// drawSessionBar paints one pixel per non-idle session on the bottom bar
+// (row 7, cols barX0..31). Pixels are coloured by each session's state
 // using the existing state-colour palette. Order is priority-first
 // (waiting > error > running > done) then (source, tool, session) lex.
-// Sessions in state "idle" are excluded. If more than barWidth (21)
-// non-idle sessions exist, only the first 21 are painted; overflow is
-// simply not indicated.
+// Sessions in state "idle" are excluded. If more than barW (24) non-idle
+// sessions exist, only the first 24 are painted; overflow is simply not
+// indicated.
 func drawSessionBar(f *Frame, sessions []Session) {
 	type entry struct {
 		prio  int
@@ -341,10 +334,10 @@ func drawSessionBar(f *Frame, sessions []Session) {
 		return strings.Compare(a.sess, b.sess)
 	})
 	for i, e := range out {
-		if i >= barWidth {
+		if i >= barW {
 			break
 		}
-		paintCell(f, barStart+i, barRow, e.color)
+		paintCell(f, barX0+i, barRow, e.color)
 	}
 }
 
@@ -361,7 +354,7 @@ func drawRateBar(f *Frame, pct int, _ RGB) {
 		pct = 100
 	}
 	for i, c := range usageBarPixels(pct) {
-		paintCell(f, 8+i, barRow, c)
+		paintCell(f, barX0+i, barRow, c)
 	}
 }
 
@@ -589,11 +582,11 @@ func rateColor(pct int) RGB {
 // statusline data without a label).
 func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 	if u.ResetLabel != "" {
-		drawClockInto(f, u.ResetLabel, numStart)
+		drawClockInto(f, u.ResetLabel, contentX)
 		return
 	}
 	text, col := resetText(u.ResetAt, now)
-	drawDigits(f, text, numStart, 1, col)
+	drawDigits(f, text, contentX, 1, col)
 }
 
 // drawUsageUnit paints the two-glyph gray window label ("5h", "7d", "OP",
@@ -601,14 +594,14 @@ func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 // cards. Context is a session metric, so usage faces show their window
 // instead of the glass.
 func drawUsageUnit(f *Frame, unit string) {
-	drawDigits(f, unit, unitStart, 1, usageGray)
+	drawDigits(f, unit, rightSlotX, 1, usageGray)
 }
 
 // drawUnitPctFace paints a clamped percent ("42%") in the threshold colour at
 // the number slot plus the gray unit label at the right edge — the shared
 // shape of the 7d and per-model faces.
 func drawUnitPctFace(f *Frame, unit string, pct int) {
-	drawDigits(f, rateText(pct), numStart, 1, rateColor(pct))
+	drawDigits(f, rateText(pct), contentX, 1, rateColor(pct))
 	drawUsageUnit(f, unit)
 }
 
@@ -809,14 +802,6 @@ func itoa(n int) string {
 	return strconv.Itoa(n)
 }
 
-// numStart is the left edge of the digit area (1-px gap after the 8×8 icon).
-const numStart = 9
-
-// unitStart is the left edge of the usage-face unit label ("5h"/"7d"/model
-// marker): two 3×5 glyphs at cols 25–31, the slot the context glass occupies
-// on non-usage cards.
-const unitStart = 25
-
 // detailPayload builds an 8×8 icon bitmap + firmware-native-text payload.
 // blink=true is the WAIT/ERR attention label; blink=false is the activity detail.
 //
@@ -965,7 +950,7 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 		if s.RateBottomBar {
 			drawUsageClock(&f, u, now) // pct lives on the bar; slot shows the clock
 		} else {
-			drawDigits(&f, rateText(u.FiveHourPct), numStart, 1, rateColor(u.FiveHourPct))
+			drawDigits(&f, rateText(u.FiveHourPct), contentX, 1, rateColor(u.FiveHourPct))
 		}
 		drawUsageUnit(&f, "5h")
 	case card == cardUsageReset && u != nil:
@@ -980,8 +965,8 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 	case card == cardSource && s.Source != "":
 		f.Native = &NativeText{
 			Text:  sourceCardText(s.Source),
-			X:     numStart,
-			W:     glassLeft - numStart,
+			X:     contentX,
+			W:     glassLeft - contentX,
 			Color: sourceColorOr(s, colorWhite),
 		}
 	default:

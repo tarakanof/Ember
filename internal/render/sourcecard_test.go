@@ -73,8 +73,8 @@ func TestComposeFrameSourceCard(t *testing.T) {
 	if f.Native == nil {
 		t.Fatal("source card: Native is nil, want the source name")
 	}
-	if f.Native.Text != "MBP" || f.Native.X != numStart || f.Native.Color != want {
-		t.Fatalf("source-card native text = %+v, want {MBP %d %v}", *f.Native, numStart, want)
+	if f.Native.Text != "MBP" || f.Native.X != contentX || f.Native.Color != want {
+		t.Fatalf("source-card native text = %+v, want {MBP %d %v}", *f.Native, contentX, want)
 	}
 }
 
@@ -84,7 +84,7 @@ func TestComposeFrameNoCardBlankNumberSlot(t *testing.T) {
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceCard: bptr(false)}
 	f := ComposeFrame(s, cardNone, nil, []Session{s}, time.Now())
 	for y := 1; y <= 5; y++ {
-		for x := numStart; x <= 23; x++ {
+		for x := contentX; x <= 23; x++ {
 			if f.Dirty[y][x] {
 				t.Fatalf("pixel (%d,%d) lit; number slot must be blank", x, y)
 			}
@@ -96,9 +96,9 @@ func TestComposeFrameBottomBarModes(t *testing.T) {
 	pct := 50
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", RateWindowPct: &pct}
 
-	// Default: session bar (one running pixel at barStart).
+	// Default: session bar (one running pixel at barX0).
 	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
-	if !f.Dirty[barRow][barStart] {
+	if !f.Dirty[barRow][barX0] {
 		t.Fatal("expected session bar pixel at default settings")
 	}
 
