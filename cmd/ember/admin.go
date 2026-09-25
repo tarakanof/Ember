@@ -88,14 +88,13 @@ func handleAdminDoctor(app *App) http.HandlerFunc {
 }
 
 // nonReloadableLeaves are config paths that cannot change at runtime: the
-// HTTP listener is bound once at startup, and admin auth tokens / refresh
-// cadence are wired into long-lived structures. Any change to these triggers
+// HTTP listener is bound once at startup, and admin auth tokens are wired
+// into long-lived structures. Any change to these triggers
 // 409 Conflict from /admin/reload — operator must restart the process.
 var nonReloadableLeaves = []string{
 	"http.addr",
 	"auth.status_token",
 	"auth.status_token_env",
-	"display.refresh_seconds",
 }
 
 // diffConfig returns dotted leaf paths whose values differ between oldCfg
@@ -169,8 +168,6 @@ func formatLeafValue(cfg Config, leaf string) string {
 		return "<redacted>"
 	case "auth.status_token_env":
 		return cfg.Auth.StatusTokenEnv
-	case "display.refresh_seconds":
-		return fmt.Sprintf("%d", cfg.Display.RefreshSeconds)
 	}
 	return ""
 }
@@ -244,6 +241,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// live — a hand-edited config.json shouldn't bypass the guard just
 		// because it arrived via reload instead of startup.
 		sanitizeConfigBaseline(&newCfg, app.logger)
+		warnDeprecatedConfig(newCfg, app.logger)
 		// Token isn't in the JSON file (env-only), so carry it over from
 		// the running config to keep the diff honest.
 		//

@@ -180,9 +180,6 @@ type DisplayConfig struct {
 	IdleText             string `json:"idle_text"`
 	StaleSeconds         int    `json:"stale_seconds"`
 	DoneTTLSeconds       int    `json:"done_ttl_seconds"`
-	HeartbeatSeconds     int    `json:"heartbeat_seconds"`
-	RefreshSeconds       int    `json:"refresh_seconds"`
-	NotifyOnWaiting      bool   `json:"notify_on_waiting"`
 	RotationDwellSeconds int    `json:"rotation_dwell_seconds"`
 	AckTimeoutSeconds    int    `json:"ack_timeout_seconds"`
 	// G.2:
@@ -198,6 +195,13 @@ type DisplayConfig struct {
 	// DisallowUnknownFields. AWTRIX firmware has no multi-frame draw
 	// mode; attention is animated via blinkText instead.
 	PulseStyle string `json:"pulse_style,omitempty"`
+	// HeartbeatSeconds, RefreshSeconds and NotifyOnWaiting were parsed and
+	// defaulted but never read by anything. They stay decodable so existing
+	// config files still load under DisallowUnknownFields; nil means absent,
+	// and warnDeprecatedConfig flags any that are set.
+	HeartbeatSeconds *int  `json:"heartbeat_seconds,omitempty"`
+	RefreshSeconds   *int  `json:"refresh_seconds,omitempty"`
+	NotifyOnWaiting  *bool `json:"notify_on_waiting,omitempty"`
 }
 
 func defaultConfig() Config {
@@ -217,9 +221,6 @@ func defaultConfig() Config {
 			IdleText:             "AI idle",
 			StaleSeconds:         300,
 			DoneTTLSeconds:       30,
-			HeartbeatSeconds:     10,
-			RefreshSeconds:       5,
-			NotifyOnWaiting:      false,
 			RotationDwellSeconds: 3,
 			AckTimeoutSeconds:    30,
 			FrameLifetimeSeconds: 30,
@@ -270,6 +271,7 @@ func loadConfig(path string, logger *slog.Logger) (Config, error) {
 	}
 	cfg.applyDefaults()
 	sanitizeConfigBaseline(&cfg, logger)
+	warnDeprecatedConfig(cfg, logger)
 	if err := validateConfig(cfg); err != nil {
 		return Config{}, err
 	}
@@ -300,12 +302,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Display.DoneTTLSeconds <= 0 {
 		c.Display.DoneTTLSeconds = 30
-	}
-	if c.Display.HeartbeatSeconds <= 0 {
-		c.Display.HeartbeatSeconds = 10
-	}
-	if c.Display.RefreshSeconds <= 0 {
-		c.Display.RefreshSeconds = 5
 	}
 	if c.Display.RotationDwellSeconds <= 0 {
 		c.Display.RotationDwellSeconds = 3
@@ -1528,9 +1524,6 @@ func main() {
 	if err != nil {
 		logger.Error("load config failed", "err", err)
 		os.Exit(1)
-	}
-	if cfg.Display.PulseStyle != "" {
-		logger.Warn("display.pulse_style is deprecated and ignored — AWTRIX firmware animates attention via blinkText", "value", cfg.Display.PulseStyle)
 	}
 
 	tlsCfg, err := readTLSEnv()

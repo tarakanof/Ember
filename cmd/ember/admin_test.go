@@ -349,7 +349,7 @@ func TestAdminReload_NonReloadable409(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	if err := os.WriteFile(path, []byte(`{"awtrix":{"http_base_url":"http://x"},"display":{"refresh_seconds":999}}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"http":{"addr":":9999"},"awtrix":{"http_base_url":"http://x"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -367,11 +367,11 @@ func TestAdminReload_NonReloadable409(t *testing.T) {
 		t.Errorf("status = %d, want 409", resp.StatusCode)
 	}
 	respBody, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(respBody), "display.refresh_seconds=") {
+	if !strings.Contains(string(respBody), "http.addr=:3627→:9999") {
 		t.Errorf("body should mention old→new values: %s", respBody)
 	}
-	if app.cfg.Load().Display.RefreshSeconds == 999 {
-		t.Errorf("cfg unchanged check failed; got %d", app.cfg.Load().Display.RefreshSeconds)
+	if got := app.cfg.Load().HTTP.Addr; got != ":3627" {
+		t.Errorf("cfg unchanged check failed; got http.addr %q", got)
 	}
 }
 
