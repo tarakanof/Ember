@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -316,6 +317,42 @@ func TestStatusRecordsActivityThrottled(t *testing.T) {
 	rows, _ = app.store.ActivityBetween(time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 	if len(rows) != 1 {
 		t.Fatalf("overlay disabled should not record; got %d rows", len(rows))
+	}
+}
+
+// A transition into waiting is recorded inside the throttle window (a short
+// prompt is the attention signal the activity summary counts), but never
+// sooner than activityWaitFloor after the previous row, and other state changes
+// stay throttled so a flapping producer can't write a row per POST.
+func TestActivityHeartbeatRecordsWaitingTransitionWithFloor(t *testing.T) {
+	app := newPomodoroApp(t)
+	t0 := time.Now().Add(-time.Hour).Truncate(time.Second)
+	steps := []struct {
+		offset time.Duration
+		state  string
+	}{
+		{0, "running"},
+		{3 * time.Second, "waiting"},  // into waiting, but inside the 10s floor: dropped
+		{15 * time.Second, "waiting"}, // into waiting past the floor: recorded
+		{20 * time.Second, "running"}, // leaving waiting stays throttled
+		{25 * time.Second, "waiting"}, // the mark says waiting already: throttled
+		{3 * time.Minute, "running"},  // throttle window elapsed: recorded
+	}
+	for _, st := range steps {
+		app.recordActivityHeartbeat(Session{Source: "Claude", Tool: "claude", Session: "s1", State: st.state}, t0.Add(st.offset))
+	}
+
+	rows, err := app.store.ActivityBetween(t0.Add(-time.Minute), t0.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range rows {
+		got = append(got, fmt.Sprintf("%s@%s", r.State, r.At.Sub(t0)))
+	}
+	want := "running@0s,waiting@15s,running@3m0s"
+	if strings.Join(got, ",") != want {
+		t.Errorf("recorded rows = %v, want %s", got, want)
 	}
 }
 

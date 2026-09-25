@@ -534,10 +534,11 @@ type App struct {
 
 	// activityLast throttles activity-heartbeat persistence to at most one row
 	// per session per activityThrottle window (producers post every 2-10s, far
-	// finer than the work-hours sessionization needs). activitySweptAt is the
+	// finer than the work-hours sessionization needs); a transition into
+	// waiting bypasses it (see recordActivityHeartbeat). activitySweptAt is the
 	// last time expired entries were dropped. Both guarded by activityMu.
 	activityMu      sync.Mutex
-	activityLast    map[string]time.Time
+	activityLast    map[string]activityMark
 	activitySweptAt time.Time
 
 	statsCache statsCache // last GET /v1/pomodoro/stats payload
@@ -615,7 +616,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		startedAt:      time.Now(),
 		usage:          newUsageStore(),
 		weather:        newWeatherStore(),
-		activityLast:   make(map[string]time.Time),
+		activityLast:   make(map[string]activityMark),
 		deviceBaseline: cfg.AWTRIX.HTTPBaseURL,
 		browseFn:       discovery.BrowseAWTRIX,
 	}
