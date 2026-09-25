@@ -604,6 +604,10 @@ type App struct {
 	// bootPingMu serialises ensureBootPingScript runs (startup and every
 	// /admin/reload), so two of them can't race a PUT against a DELETE.
 	bootPingMu sync.Mutex
+
+	// reloadFileBaseURL is the config.json clock URL the last /admin/reload
+	// applied ("" = still deviceBaseline). Guarded by cfgMu.
+	reloadFileBaseURL string
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {

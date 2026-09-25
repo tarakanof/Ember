@@ -341,7 +341,9 @@ Linux server can't read Apple Reminders).
 > one SQLite store. Opening it is hoisted into `ensureStore` (out of
 > `initPomodoro`) so weather config persists even when Pomodoro is disabled;
 > `/admin/reload` re-applies all persisted settings over the reloaded file
-> config.
+> config. The clock URL is the exception: a reload keeps the running URL
+> (menu override or mDNS-discovered clock) unless the file's
+> `awtrix.http_base_url` itself changed, and even then a store override wins.
 
 ### Meetings — next-meeting countdown (`internal/meetings`, `cmd/ember/meetings*.go`)
 

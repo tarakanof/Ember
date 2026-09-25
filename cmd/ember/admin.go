@@ -254,6 +254,18 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.cfgMu.Lock()
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
+		// The file's clock URL only applies when the file changed it. The
+		// running URL may be a menu override or a clock that discovery swapped
+		// in for a dead baseline; putting the file value back would stop
+		// publishing until the next device-watch tick.
+		prevFileURL := app.reloadFileBaseURL
+		if prevFileURL == "" {
+			prevFileURL = app.deviceBaseline
+		}
+		fileURLChanged := newCfg.AWTRIX.HTTPBaseURL != prevFileURL
+		if !fileURLChanged {
+			newCfg.AWTRIX.HTTPBaseURL = oldCfg.AWTRIX.HTTPBaseURL
+		}
 		if err := validateConfig(newCfg); err != nil {
 			app.cfgMu.Unlock()
 			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
@@ -270,6 +282,9 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		app.cfg.Store(&newCfg)
+		if fileURLChanged {
+			app.reloadFileBaseURL = newCfg.AWTRIX.HTTPBaseURL
+		}
 		app.cfgMu.Unlock()
 		// Keep the Pomodoro engine in sync with the reloaded config and
 		// re-apply API-persisted settings so a reload doesn't revert them.
@@ -279,9 +294,12 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.loadPersistedWeatherSettings()
 		// And meetings settings (same pattern: menu edits must survive a reload).
 		app.loadPersistedMeetingsSettings()
-		// And the menu-chosen clock URL (Device tab), so a reload doesn't drop
-		// the store override back to the file-config baseline.
-		app.loadPersistedDeviceBaseURL()
+		// A new file URL must not beat the menu-chosen clock URL (Device tab).
+		// When the file URL is unchanged the running URL was kept above, and
+		// re-applying the override could revert a discovery swap away from it.
+		if fileURLChanged {
+			app.loadPersistedDeviceBaseURL()
+		}
 		app.loadPersistedUsageSettings()
 		// Likewise re-apply display config overrides so a reload doesn't revert them.
 		app.loadPersistedDisplaySettings()

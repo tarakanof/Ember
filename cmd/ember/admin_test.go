@@ -737,3 +737,83 @@ func TestAdminReload_G2IdleRestoreReloaded(t *testing.T) {
 		t.Errorf("IdleRestoreSeconds = %d, want 600", app.cfg.Load().Display.IdleRestoreSeconds)
 	}
 }
+
+// postReload rewrites the config file to body and calls /admin/reload,
+// failing the test unless it returns 200.
+func postReload(t *testing.T, app *App, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("reload status = %d, want 200: %s", resp.StatusCode, b)
+	}
+}
+
+// TestAdminReload_KeepsDiscoveredClockURL asserts a reload that leaves the
+// file's clock URL alone does not put that (dead) URL back over the clock
+// that discovery swapped in.
+func TestAdminReload_KeepsDiscoveredClockURL(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"old"}}`)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" }) // what rediscoverClock does
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"new"}}`)
+
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+		t.Errorf("clock URL after reload = %q, want the discovered http://5.6.7.8", got)
+	}
+	if got := app.cfg.Load().Display.IdleText; got != "new" {
+		t.Errorf("idle_text = %q, want the reloaded value", got)
+	}
+}
+
+// TestAdminReload_KeepsDiscoveredOverStaleStoreOverride asserts the reload
+// does not re-apply a menu override that discovery already replaced because
+// it stopped answering.
+func TestAdminReload_KeepsDiscoveredOverStaleStoreOverride(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.applyDeviceBaseURL("http://10.0.0.1"); err != nil { // menu override, since gone dead
+		t.Fatal(err)
+	}
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"x"}}`)
+
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+		t.Errorf("clock URL after reload = %q, want the discovered http://5.6.7.8", got)
+	}
+}
+
+// TestAdminReload_FileClockURLChangeApplies asserts an operator edit of the
+// file's clock URL still takes effect, including on a second edit.
+func TestAdminReload_FileClockURLChangeApplies(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"}}`)
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://9.9.9.9" {
+		t.Fatalf("clock URL after file edit = %q, want http://9.9.9.9", got)
+	}
+
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"},"display":{"idle_text":"y"}}`)
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+		t.Errorf("clock URL after unrelated edit = %q, want the discovered http://5.6.7.8", got)
+	}
+}
