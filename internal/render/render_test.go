@@ -328,8 +328,15 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor string) {
 	t.Helper()
 	draw, ok := payload["draw"].([]any)
-	if !ok || len(draw) != 1 {
-		t.Fatalf("locked payload draw[] = %v, want exactly 1 entry (firmware rejects multi-frame draws)", payload["draw"])
+	if !ok || len(draw) == 0 {
+		t.Fatalf("locked payload draw[] = %v, want the icon op first", payload["draw"])
+	}
+	// Anything after the icon is the bottom bar: it must stay on row 7, clear
+	// of the blinking text in rows 1-5.
+	for i := 1; i < len(draw); i++ {
+		if op := bmp(t, payload, i); op[2] != barRow || op[4] != 1 {
+			t.Errorf("draw[%d] at y=%v h=%v, want a 1-row op on row %d", i, op[2], op[4], barRow)
+		}
 	}
 	op := bmp(t, payload, 0)
 	if op[3] != 8 {
@@ -1025,7 +1032,7 @@ func TestPercentGlyphDecodable(t *testing.T) {
 
 func TestDetailPayload_Blink(t *testing.T) {
 	s := Session{Source: "a", Tool: "b", Session: "w", State: "waiting"}
-	p := detailPayload(s, "WAIT", "#FFC14D", true, 30, true)
+	p := detailPayload(s, nil, "WAIT", "#FFC14D", true, 30, true)
 	if p["text"] != "WAIT" || p["textColor"] != "#FFC14D" {
 		t.Errorf("text/textColor = %v/%v", p["text"], p["textColor"])
 	}
@@ -1046,7 +1053,7 @@ func TestDetailPayload_Blink(t *testing.T) {
 
 func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 	s := Session{Source: "a", Tool: "b", Session: "r", State: "running"}
-	p := detailPayload(s, "Bash: npm test", "#2EE85E", false, 30, false)
+	p := detailPayload(s, nil, "Bash: npm test", "#2EE85E", false, 30, false)
 	if p["text"] != "Bash: npm test" {
 		t.Errorf("text = %v", p["text"])
 	}
@@ -1308,7 +1315,7 @@ func TestAvailableCardsUsageGating(t *testing.T) {
 
 func TestDetailPayloadUses8pxIcon(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "waiting"}
-	p := detailPayload(s, "WAIT", "#FFC14D", true, 30, true)
+	p := detailPayload(s, nil, "WAIT", "#FFC14D", true, 30, true)
 	if op := bmp(t, p, 0); op[3] != 8 || op[4] != 8 {
 		t.Errorf("locked bitmap not 8×8: %v %v", op[3], op[4])
 	}

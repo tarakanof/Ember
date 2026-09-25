@@ -75,11 +75,14 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 
 	frame := func(f Frame) [panelW]bool { return row7FromFrame(&f) }
 	cases := map[string][panelW]bool{
-		"agent session bar":   frame(ComposeFrame(running, cardSource, nil, sessions, now)),
-		"agent rate bar":      frame(ComposeFrame(rateMode, cardSource, nil, sessions, now)),
-		"agent usage face":    frame(ComposeFrame(running, cardUsage7d, u, sessions, now)),
-		"agent idle usage 5h": row7FromPayload(t, RenderIdleUsagePayload(map[string]*UsageView{"claude": u}, 0, now, 60)),
-		"agent idle usage 7d": row7FromPayload(t, RenderIdleUsagePayload(map[string]*UsageView{"claude": u}, 1, now, 60)),
+		"agent session bar":         frame(ComposeFrame(running, cardSource, nil, sessions, now)),
+		"agent rate bar":            frame(ComposeFrame(rateMode, cardSource, nil, sessions, now)),
+		"agent usage face":          frame(ComposeFrame(running, cardUsage7d, u, sessions, now)),
+		"agent idle usage 5h":       row7FromPayload(t, RenderIdleUsagePayload(map[string]*UsageView{"claude": u}, 0, now, 60)),
+		"agent idle usage 7d":       row7FromPayload(t, RenderIdleUsagePayload(map[string]*UsageView{"claude": u}, 1, now, 60)),
+		"agent tool card":           row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: sessions}, running.Key(), 1, false, 60, nil)),
+		"agent attention":           row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: sessions}, waiting.Key(), 0, true, 60, nil)),
+		"agent tool card, rate bar": row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: []Session{rateMode}}, rateMode.Key(), 1, false, 60, nil)),
 	}
 	for name, row := range cases {
 		if got := firstBarCol(row); got != barX0 {

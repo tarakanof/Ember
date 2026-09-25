@@ -819,10 +819,20 @@ func itoa(n int) string {
 // Both modes want the same motion: sit still when the label fits the 23 free
 // columns, scroll when it overflows. NG expresses that natively as
 // scroll.whenFits, which replaces the old len(text)<=5 character-count gate.
-func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int, hold bool) map[string]any {
+//
+// The card also carries the app's bottom bar (see drawBottomBar), so row 7
+// does not blink off each time the rotation reaches it. NG text uses rows 1-5,
+// so a row-7 op never covers it. The context glass stays off: it would mask
+// scrolling text at cols 25-31.
+func detailPayload(s Session, sessions []Session, text, hexColor string, blink bool, lifetimeSeconds int, hold bool) map[string]any {
 	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
+	draw := []any{bitmapOp(0, 0, 8, 8, pixels)}
+	var bar Frame
+	if drawBottomBar(&bar, s, sessions) {
+		draw = append(draw, bitmapOp(barX0, barRow, barW, 1, framePixelsRect(&bar, barX0, barRow, barW, 1)))
+	}
 	p := map[string]any{
-		"draw":        []any{bitmapOp(0, 0, 8, 8, pixels)},
+		"draw":        draw,
 		"text":        text,
 		"textColor":   hexColor,
 		"textOffsetX": 9,
@@ -908,7 +918,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		if session.Source != "" {
 			label += " " + strings.ToUpper(session.Source)
 		}
-		return detailPayload(*session, label, hex, true, lifetimeSeconds, true)
+		return detailPayload(*session, snap.Sessions, label, hex, true, lifetimeSeconds, true)
 	}
 
 	// Resolve the per-tool usage view; nil map access is safe in Go.
@@ -924,7 +934,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		selected = cards[ci]
 	}
 	if selected == cardTool {
-		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds, false)
+		return detailPayload(*session, snap.Sessions, session.Activity, stateHex(session.State), false, lifetimeSeconds, false)
 	}
 	frame := ComposeFrame(*session, selected, u, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds, false)
@@ -979,13 +989,29 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 		drawGlass(&f, s.ContextPct, colorForState(s.State))
 	}
 
-	if s.RateBottomBar && s.RateWindowPct != nil {
-		pct := *s.RateWindowPct
-		drawRateBar(&f, pct, rateColor(pct))
-	} else if sessionBarEnabled(s) {
-		drawSessionBar(&f, sessions)
-	}
+	drawBottomBar(&f, s, sessions)
 	return f
+}
+
+// drawBottomBar paints the agent app's row-7 bar: the 5h rate bar when the
+// session asks for it and has the data, else the session bar when enabled.
+// It reports whether it painted anything.
+func drawBottomBar(f *Frame, s Session, sessions []Session) bool {
+	switch {
+	case s.RateBottomBar && s.RateWindowPct != nil:
+		pct := *s.RateWindowPct
+		drawRateBar(f, pct, rateColor(pct))
+	case sessionBarEnabled(s):
+		drawSessionBar(f, sessions)
+	default:
+		return false
+	}
+	for x := barX0; x < panelW; x++ {
+		if f.Dirty[barRow][x] {
+			return true
+		}
+	}
+	return false
 }
 
 // colorForState returns the state palette colour. Unknown states map to

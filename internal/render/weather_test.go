@@ -98,7 +98,7 @@ func TestEveryColorFieldIsCanonicalHex(t *testing.T) {
 		"SunPopupPayload":        SunPopupPayload(false, "SUNSET 21:04", 30),
 		"LimitResetPopupPayload": LimitResetPopupPayload("codex", 10),
 		"PomodoroPayload":        PomodoroPayload(PomodoroView{Phase: pomoFocus, RemainingSec: 90, PlannedSec: 1500}, 30),
-		"detailPayload":          detailPayload(Session{Tool: "claude", State: "running"}, "X", stateHex("running"), false, 30, false),
+		"detailPayload":          detailPayload(Session{Tool: "claude", State: "running"}, nil, "X", stateHex("running"), false, 30, false),
 	}
 	for name, p := range payloads {
 		for _, k := range colorFields {

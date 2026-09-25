@@ -117,8 +117,8 @@ func TestAllBuildersEmitNGSchema(t *testing.T) {
 	}{
 		{"frameToCustomApp/hold", frameToCustomApp(&f, 30, true)},
 		{"frameToCustomApp/rotate", frameToCustomApp(&f, 30, false)},
-		{"detailPayload/blink", detailPayload(sess, "WAIT MBP", "#FFC14D", true, 30, true)},
-		{"detailPayload/detail", detailPayload(sess, "Bash: npm test", "#2EE85E", false, 30, false)},
+		{"detailPayload/blink", detailPayload(sess, nil, "WAIT MBP", "#FFC14D", true, 30, true)},
+		{"detailPayload/detail", detailPayload(sess, nil, "Bash: npm test", "#2EE85E", false, 30, false)},
 		{"RenderForCoord", RenderForCoord(snap, sess.Key(), cardSource, false, 30, nil)},
 		{"RenderForCoord/locked", RenderForCoord(snap, sess.Key(), cardSource, true, 30, nil)},
 		{"RenderIdleFrame", RenderIdleFrame(30)},
