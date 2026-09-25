@@ -1,6 +1,7 @@
 import EventKit
 import Foundation
 import Observation
+import OSLog
 import EmberKit
 
 /// Watches Apple Reminders and fires the clock bell-popup when a reminder with a
@@ -16,7 +17,7 @@ public final class ReminderWatcher {
     // store across those is the standard EventKit pattern.
     nonisolated(unsafe) private let store = EKEventStore()
     private var loop: Task<Void, Never>?
-    private var fired = Set<String>()
+    private var fired = ReminderFiredLedger()
     /// App Nap assertion held while the watcher runs (see applyEnabled).
     private var activity: NSObjectProtocol?
 
@@ -32,6 +33,12 @@ public final class ReminderWatcher {
     public private(set) var client: APIClient
     /// Next few upcoming due-timed reminders, for the tab's sanity-check list.
     public private(set) var upcoming: [UpcomingReminder] = []
+    /// Why the last fire request failed, or nil once one succeeds.
+    public private(set) var lastFireError: String?
+
+    // Reminder titles are personal data: log them `.private` so the unified log
+    // redacts them unless a debug profile is installed.
+    private static let log = Logger(subsystem: "com.ember.Ember", category: "reminders")
 
     public struct UpcomingReminder: Identifiable, Equatable {
         public let id: String
@@ -95,14 +102,14 @@ public final class ReminderWatcher {
                     // Wake ~0.25s past the fire time so the next poll sees now ≥ fireTime
                     // and fires on the first try (rather than a hair early and waiting).
                     if let next { secs = min(cap, max(0.5, next.timeIntervalSinceNow + 0.25)) }
-                    try? await Task.sleep(nanoseconds: UInt64(secs * 1_000_000_000))
+                    try? await Task.sleep(for: .seconds(secs))
                 }
             }
-            NSLog("Ember reminders: watcher started")
+            Self.log.info("watcher started")
         } else if !shouldRun, let l = loop {
             l.cancel(); loop = nil
             if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
-            NSLog("Ember reminders: watcher stopped")
+            Self.log.info("watcher stopped")
         }
     }
 
@@ -122,7 +129,8 @@ public final class ReminderWatcher {
         let now = Date()
         let lead = Double(prefs.leadMinutes) * 60
         let reminders = await fetchIncompleteDueTimed()
-        NSLog("Ember reminders: poll fetched \(reminders.count) due-timed; next=\(reminders.map(\.due).filter { $0 >= now }.min().map(String.init(describing:)) ?? "none")")
+        fired.prune(now: now)
+        Self.log.debug("poll fetched \(reminders.count) due-timed reminders")
         upcoming = reminders
             .map { UpcomingReminder(id: $0.id, title: $0.title, due: $0.due) }
             .filter { $0.due >= now }
@@ -136,9 +144,8 @@ public final class ReminderWatcher {
             if fired.contains(key) { continue }
             let title = r.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if title.isEmpty { continue }
-            fired.insert(key)
-            NSLog("Ember reminders: firing \"\(title)\" (due \(due), sound=\(prefs.sound), hold=\(prefs.hold))")
-            await fire(title: title)
+            Self.log.info("firing \(title, privacy: .private) due=\(due, privacy: .public)")
+            if await fire(title: title) { fired.record(key, due: due) }
         }
 
         // Nearest not-yet-reached fire time, for precise wake-up scheduling.
@@ -148,13 +155,19 @@ public final class ReminderWatcher {
             .min()
     }
 
-    private func fire(title: String) async {
+    /// Sends one reminder to the clock; false when the request failed, so the
+    /// caller leaves it unrecorded and the next poll retries it within grace.
+    private func fire(title: String) async -> Bool {
         let svc = RemindersService(client: client)
         do {
             try await svc.fire(text: title, sound: prefs.sound, duration: prefs.popupDuration,
                                nativeIconId: prefs.useNativeIcon ? prefs.nativeIconId : "", hold: prefs.hold)
+            lastFireError = nil
+            return true
         } catch {
-            NSLog("Ember reminder fire failed: \(error)")
+            lastFireError = error.localizedDescription
+            Self.log.error("fire failed: \(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
 

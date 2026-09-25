@@ -16,6 +16,31 @@ public func reminderDedupeKey(id: String, dueDate: Date) -> String {
     "\(id)|\(Int(dueDate.timeIntervalSince1970))"
 }
 
+/// The reminder occurrences (by `reminderDedupeKey`) already delivered to the
+/// clock, so each rings once. Callers record a key only after the fire request
+/// succeeds, so a failed fire is retried on the next poll while still inside
+/// the grace window. `prune` keeps the set from growing for the app's lifetime.
+public struct ReminderFiredLedger: Sendable {
+    private var dueByKey: [String: Date] = [:]
+
+    public init() {}
+
+    /// Number of remembered occurrences.
+    public var count: Int { dueByKey.count }
+
+    /// True when `key` was recorded and not yet pruned.
+    public func contains(_ key: String) -> Bool { dueByKey[key] != nil }
+
+    /// Remembers that the occurrence `key`, due at `due`, reached the clock.
+    public mutating func record(_ key: String, due: Date) { dueByKey[key] = due }
+
+    /// Forgets occurrences due more than `keep` before `now`. They are long past
+    /// any fire window, so forgetting them can't cause a second ring.
+    public mutating func prune(now: Date, keep: TimeInterval = 86_400) {
+        dueByKey = dueByKey.filter { now.timeIntervalSince($0.value) <= keep }
+    }
+}
+
 /// Apple-Reminders watcher settings, persisted app-side (UserDefaults). The
 /// server holds none of this — it's sent per-fire.
 public struct ReminderPrefs: Codable, Equatable, Sendable {
