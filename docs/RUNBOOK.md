@@ -324,7 +324,10 @@ fingerprint doesn't exist on NG). The server advertises itself as
   reboot silently drops them all. The Berry boot-ping hook (#73)
   (`POST /hooks/awtrix/boot`, unauthenticated device-side hook, config toggle
   `awtrix.boot_ping`) republishes instantly on boot instead of waiting on the
-  next 30s tick — the 30s watch remains the fallback path.
+  next 30s tick — the 30s watch remains the fallback path. A missed probe
+  alone is never a reboot (only falling or lagging `uptimeSeconds` is), and
+  republishes less than 10s apart coalesce, so a `clock reboot detected` log
+  line on a lossy link now means a real reboot.
   `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
   `last_rediscover_at`/`last_rediscover_result`.
 - `EMBER_MDNS_ADVERTISE` (default on; `0`/`false` disables) gates only the

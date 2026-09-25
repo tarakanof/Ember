@@ -490,8 +490,7 @@ again every 30s from a background watcher (`StartDeviceWatch`), and if the
 currently-effective URL (store override included) stops answering, the server
 falls through to a fresh mDNS auto-pick so the clock keeps working after a
 DHCP renumbering. The same watch tick also reads the device's `uptimeSeconds`
-to detect a reboot (uptime going backwards, or the device answering again
-after a gap) and triggers `RepublishAll` — pushed apps are RAM-only on
+to detect a reboot and triggers `RepublishAll` — pushed apps are RAM-only on
 awtrix-ng, so a reboot silently drops every app the coordinator believes is
 still on the device, and this is what pushes them all back. The 30s interval
 was chosen to match the old Pomodoro-only 30s re-assert loop it replaced, so
@@ -499,7 +498,18 @@ worst-case recovery latency didn't regress; the Berry boot-ping hook (#73)
 (`POST /hooks/awtrix/boot`, an unauthenticated device-side hook, config toggle
 `awtrix.boot_ping`) calls `RepublishAll` directly on boot instead of waiting
 for the next tick, making recovery near-instant with the 30s watch as
-fallback. Swaps are **in-memory
+fallback. Only the uptime counter decides a reboot: it went backwards, or it
+fell more than 10s behind wall time since the last answered probe (a reboot
+during a long gap). A missed probe on its own is **not** a reboot — the
+server→clock link drops a large share of requests, and the old "unreachable,
+then answering" rule republished (and re-switched the screen) every few ticks.
+For the same reason the reachability check retries once before it falls back
+to an mDNS browse, and a browse that finds the clock at the URL already in use
+is not a swap. A real swap to a new URL does republish. `RepublishAll`
+coalesces calls less than 10s apart into one immediate plus one deferred
+republish, and both `/hooks/awtrix/*` routes sit behind the per-IP rate
+limiter (the button hook also caps its body at 1 KB), so an unauthenticated
+flood can't turn into a republish storm. Swaps are **in-memory
 only** — `config.json` and the writable store are never rewritten, so a
 config/store edit still takes effect the next time its source URL goes
 unreachable. The whole probe loop is gated by `awtrix.auto_rediscover` (config,
@@ -569,7 +579,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
   an unset `EMBER_TOKEN` rejects every `/v1` write with 401 (same policy as the
   `/admin` surface); the token is compared in constant time, and the per-IP
   rate limiter sits *outside* auth so rejected 401s still consume budget (a
-  wrong-token flood is throttled to 429).
+  wrong-token flood is throttled to 429). The unauthenticated device hooks
+  (`/hooks/awtrix/{button,boot}`) share the same per-IP limiter.
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
   ignores it — never in the `StatusRequest` body.
