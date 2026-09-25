@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OSLog
 import EmberKit
 
 /// App-wide coordinator: owns the producer.env path, the live APIClient, the
@@ -32,6 +33,8 @@ public final class AppEnvironment {
             BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot")
         }
     }
+
+    private static let log = Logger(subsystem: "com.ember.Ember", category: "app")
 
     static let prefsDefaults = UserDefaults.standard
     static let lastReconciledVersionKey = "producers.lastReconciledVersion"
@@ -118,15 +121,23 @@ public final class AppEnvironment {
         // newly bundled binary takes over after an app update. Gated on the bundle
         // version actually changing since the last reconcile, so a normal launch
         // doesn't churn the LaunchAgent DB (and risk re-surfacing "needs approval").
-        // Never blocks launch.
+        // Runs off the main thread so it never blocks launch; a failure is logged
+        // and leaves the version unrecorded so the next launch retries.
         let currentVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
             ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
             ?? ""
         let defaults = UserDefaults.standard
         let lastReconciledVersion = defaults.string(forKey: Self.lastReconciledVersionKey)
         if shouldReconcileAfterUpdate(currentVersion: currentVersion, lastReconciledVersion: lastReconciledVersion) {
-            try? producers.reconcileAfterUpdate()
-            defaults.set(currentVersion, forKey: Self.lastReconciledVersionKey)
+            let producers = self.producers
+            Task {
+                do {
+                    try await producers.reconcileAfterUpdate()
+                    defaults.set(currentVersion, forKey: Self.lastReconciledVersionKey)
+                } catch {
+                    Self.log.error("producer reconcile failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
         }
     }
 

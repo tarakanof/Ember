@@ -50,8 +50,11 @@ public struct AgentOutcome: Sendable {
 /// if registration fails, it best-effort rolls back the shell-side
 /// configuration via `deconfigure`. Uninstall reverses the order:
 /// unregister first, then `deconfigure`.
-@MainActor
-public final class ProducerInstallService {
+///
+/// Every method blocks on process spawns or `SMAppService` IPC, so the type is
+/// nonisolated and `Sendable`; the batch operations and `snapshot()` are
+/// `@concurrent` so a MainActor caller awaits them without stalling the UI.
+public final class ProducerInstallService: Sendable {
     private let sm: SMAppServiceControlling
     private let runner: ProducerCommandRunning
     private let bundleMacOSDir: URL
@@ -144,10 +147,12 @@ public final class ProducerInstallService {
         return .off
     }
 
-    /// Installs every detected agent, catching per-agent failures so one
-    /// agent's error never prevents the others from being attempted. Never
-    /// throws; inspect each `AgentOutcome.error` to see what failed.
-    public func installAll() -> [AgentOutcome] {
+    /// Installs every detected agent off the calling actor, catching
+    /// per-agent failures so one agent's error never prevents the others from
+    /// being attempted. Never throws; inspect each `AgentOutcome.error` to see
+    /// what failed.
+    @concurrent
+    public func installAll() async -> [AgentOutcome] {
         detectedAgents().map { agent in
             do {
                 try install(agent)
@@ -158,10 +163,12 @@ public final class ProducerInstallService {
         }
     }
 
-    /// Uninstalls every detected agent, catching per-agent failures so one
-    /// agent's error never prevents the others from being attempted. Never
-    /// throws; inspect each `AgentOutcome.error` to see what failed.
-    public func uninstallAll() -> [AgentOutcome] {
+    /// Uninstalls every detected agent off the calling actor, catching
+    /// per-agent failures so one agent's error never prevents the others from
+    /// being attempted. Never throws; inspect each `AgentOutcome.error` to see
+    /// what failed.
+    @concurrent
+    public func uninstallAll() async -> [AgentOutcome] {
         detectedAgents().map { agent in
             do {
                 try uninstall(agent)
@@ -173,16 +180,39 @@ public final class ProducerInstallService {
     }
 
     /// Re-registers every already-`.enabled` agent (unregister then
-    /// register) so a newly bundled binary takes over after an app update.
-    /// Agents that aren't currently enabled are left untouched.
-    public func reconcileAfterUpdate() throws {
+    /// register) off the calling actor, so a newly bundled binary takes over
+    /// after an app update. Agents that aren't currently enabled are left
+    /// untouched.
+    @concurrent
+    public func reconcileAfterUpdate() async throws {
         for agent in ProducerAgent.allCases where sm.status(plistName: agent.plistName) == .enabled {
             try sm.unregister(plistName: agent.plistName)
             try sm.register(plistName: agent.plistName)
         }
     }
 
+    /// Reads detection and registration state for every agent off the calling
+    /// actor, for a UI that must not do filesystem and `SMAppService` reads
+    /// while rendering.
+    @concurrent
+    public func snapshot() async -> ProducerSnapshot {
+        let agents = detectedAgents()
+        return ProducerSnapshot(agents: agents.map { ($0, agentState($0)) }, toggle: toggleState())
+    }
+
     private func executablePath(for agent: ProducerAgent) -> String {
         bundleMacOSDir.appendingPathComponent(agent.binaryName).path
     }
+}
+
+/// A point-in-time read of the producer agents, from
+/// `ProducerInstallService.snapshot()`.
+public struct ProducerSnapshot: Sendable {
+    /// Detected agents in `ProducerAgent` declaration order, with their state.
+    public let agents: [(agent: ProducerAgent, state: AgentState)]
+    /// The aggregate toggle state across `agents`.
+    public let toggle: ToggleState
+
+    /// Nothing detected, everything off; the value to show before the first read.
+    public static let empty = ProducerSnapshot(agents: [], toggle: .off)
 }

@@ -2,19 +2,50 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-@MainActor final class FakeSMAppService: @preconcurrency SMAppServiceControlling {
-    var statuses: [String: AgentRegistration] = [:]
-    var registered: [String] = []; var unregistered: [String] = []
-    var registerError: Error?
-    func register(plistName: String) throws { if let e = registerError { throw e }; registered.append(plistName); statuses[plistName] = .enabled }
-    func unregister(plistName: String) throws { unregistered.append(plistName); statuses[plistName] = .notRegistered }
-    func status(plistName: String) -> AgentRegistration { statuses[plistName] ?? .notRegistered }
+/// Fakes are called off the MainActor by the `@concurrent` batch operations,
+/// so their state is lock-guarded rather than actor-isolated.
+final class FakeSMAppService: SMAppServiceControlling, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _statuses: [String: AgentRegistration] = [:]
+    private var _registered: [String] = []
+    private var _unregistered: [String] = []
+    private var _registerError: Error?
+    var statuses: [String: AgentRegistration] {
+        get { lock.withLock { _statuses } } set { lock.withLock { _statuses = newValue } }
+    }
+    var registered: [String] { lock.withLock { _registered } }
+    var unregistered: [String] { lock.withLock { _unregistered } }
+    var registerError: Error? {
+        get { lock.withLock { _registerError } } set { lock.withLock { _registerError = newValue } }
+    }
+    func register(plistName: String) throws {
+        try lock.withLock {
+            if let e = _registerError { throw e }
+            _registered.append(plistName); _statuses[plistName] = .enabled
+        }
+    }
+    func unregister(plistName: String) throws {
+        lock.withLock { _unregistered.append(plistName); _statuses[plistName] = .notRegistered }
+    }
+    func status(plistName: String) -> AgentRegistration { lock.withLock { _statuses[plistName] ?? .notRegistered } }
 }
-@MainActor final class FakeRunner: @preconcurrency ProducerCommandRunning {
-    var calls: [(String, [String])] = []
-    var exitFor: ([String]) -> Int32 = { _ in 0 }
+final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _calls: [(String, [String])] = []
+    private var _ranOnMainThread: [Bool] = []
+    private var _exitFor: @Sendable ([String]) -> Int32 = { _ in 0 }
+    var calls: [(String, [String])] { lock.withLock { _calls } }
+    var ranOnMainThread: [Bool] { lock.withLock { _ranOnMainThread } }
+    var exitFor: @Sendable ([String]) -> Int32 {
+        get { lock.withLock { _exitFor } } set { lock.withLock { _exitFor = newValue } }
+    }
     func run(executable: String, arguments: [String]) throws -> CommandResult {
-        calls.append((executable, arguments)); return CommandResult(exitCode: exitFor(arguments), stdout: "", stderr: "")
+        let exit = lock.withLock {
+            _calls.append((executable, arguments))
+            _ranOnMainThread.append(Thread.isMainThread)
+            return _exitFor(arguments)
+        }
+        return CommandResult(exitCode: exit, stdout: "", stderr: "")
     }
 }
 

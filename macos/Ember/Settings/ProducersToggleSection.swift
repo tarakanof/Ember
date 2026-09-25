@@ -11,22 +11,21 @@ struct ProducersToggleSection: View {
 
     @State private var isWorking = false
     @State private var save: SaveState = .idle
-    // Bumped after every install/uninstall so the derived `toggleState` /
-    // `agentState` reads (which have no Observation of their own) recompute.
-    @State private var refreshToken = 0
+    // Read off the main thread (filesystem + SMAppService IPC) on appear and
+    // after every install/uninstall, instead of on each render.
+    @State private var snapshot: ProducerSnapshot = .empty
 
     var body: some View {
         Section {
             Toggle("Report this Mac's agent activity", isOn: toggleBinding)
                 .disabled(isWorking)
 
-            let agents = env.producers.detectedAgents()
-            if agents.isEmpty {
+            if snapshot.agents.isEmpty {
                 Text("No supported agent CLI detected on this Mac (looked for ~/.claude and ~/.codex).")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                ForEach(agents, id: \.self) { agent in
-                    agentRow(agent)
+                ForEach(snapshot.agents, id: \.agent) { row in
+                    agentRow(row.agent, row.state)
                 }
             }
         } header: {
@@ -34,18 +33,19 @@ struct ProducersToggleSection: View {
         } footer: {
             footer
         }
+        .task { snapshot = await env.producers.snapshot() }
     }
 
     private var toggleBinding: Binding<Bool> {
         Binding(
-            get: { _ = refreshToken; return env.producers.toggleState() == .on },
+            get: { snapshot.toggle == .on },
             set: { newValue in Task { await apply(newValue) } }
         )
     }
 
     @ViewBuilder
-    private func agentRow(_ agent: ProducerAgent) -> some View {
-        switch env.producers.agentState(agent) {
+    private func agentRow(_ agent: ProducerAgent, _ state: AgentState) -> some View {
+        switch state {
         case .off:
             LabeledContent(agent.displayName) {
                 Text("Off").foregroundStyle(.secondary)
@@ -82,7 +82,7 @@ struct ProducersToggleSection: View {
     @ViewBuilder private var statusCaption: some View {
         switch save {
         case .idle:
-            switch env.producers.toggleState() {
+            switch snapshot.toggle {
             case .partial:
                 Label("Partially installed — some agents are on, some off.", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
@@ -106,9 +106,9 @@ struct ProducersToggleSection: View {
     private func apply(_ on: Bool) async {
         isWorking = true
         save = .saving
-        let outcomes = on ? env.producers.installAll() : env.producers.uninstallAll()
+        let outcomes = on ? await env.producers.installAll() : await env.producers.uninstallAll()
+        snapshot = await env.producers.snapshot()
         isWorking = false
-        refreshToken += 1
         if let failed = outcomes.first(where: { $0.error != nil }) {
             save = .error("\(failed.agent.displayName) failed: \(failed.error!.localizedDescription)")
         } else {
