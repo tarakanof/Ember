@@ -40,6 +40,16 @@ func (a *App) statsLoc() *time.Location { return time.Local }
 // needs sub-15-min resolution, so one row per session per window is plenty.
 const activityThrottle = 2 * time.Minute
 
+// activitySweepInterval is how often a heartbeat also drops expired entries
+// from App.activityLast and prunes old activity rows. Claude session IDs are
+// unique per run, so without the sweep the map grows for the process lifetime.
+const activitySweepInterval = time.Hour
+
+// activityRetention is how long activity rows are kept: the 400-day window
+// buildStats reads for phases, well past the 91 days the work-hours view
+// queries. Older rows are never read.
+const activityRetention = 400 * 24 * time.Hour
+
 // activeWorkState reports whether a session state counts as "actively working"
 // for work-hours purposes. idle and done do not.
 func activeWorkState(state string) bool {
@@ -52,7 +62,8 @@ func activeWorkState(state string) bool {
 }
 
 // recordActivityHeartbeat persists an activity row for an actively-working
-// session, throttled to one row per session per activityThrottle window. No-op
+// session, throttled to one row per session per activityThrottle window, and
+// once per activitySweepInterval bounds the throttle map and the table. No-op
 // when the store is absent or the overlay is disabled.
 func (a *App) recordActivityHeartbeat(s Session, now time.Time) {
 	if a.store == nil || !a.cfg.Load().Pomodoro.WorkHoursIncludeActivity || !activeWorkState(s.State) {
@@ -65,10 +76,24 @@ func (a *App) recordActivityHeartbeat(s Session, now time.Time) {
 		return
 	}
 	a.activityLast[key] = now
+	sweep := now.Sub(a.activitySweptAt) >= activitySweepInterval
+	if sweep {
+		a.activitySweptAt = now
+		for k, last := range a.activityLast {
+			if now.Sub(last) >= activityThrottle {
+				delete(a.activityLast, k)
+			}
+		}
+	}
 	a.activityMu.Unlock()
 
 	if err := a.store.RecordActivity(now, s.Source, s.Tool, key, s.State); err != nil {
 		a.logger.Warn("activity record failed", "err", err)
+	}
+	if sweep {
+		if _, err := a.store.PruneActivity(now.Add(-activityRetention)); err != nil {
+			a.logger.Warn("activity prune failed", "err", err)
+		}
 	}
 }
 

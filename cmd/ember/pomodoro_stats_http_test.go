@@ -261,3 +261,35 @@ func TestPomodoroDashboardServesHTML(t *testing.T) {
 		t.Errorf("dashboard HTML looks wrong (len %d)", len(b))
 	}
 }
+
+// TestActivityHeartbeatBoundsGrowth asserts the per-session throttle map drops
+// entries that can no longer throttle anything, and that heartbeats prune
+// activity rows older than the retention window.
+func TestActivityHeartbeatBoundsGrowth(t *testing.T) {
+	app := newPomodoroApp(t)
+	now := time.Now()
+	ancient := now.Add(-activityRetention - time.Hour)
+	if err := app.store.RecordActivity(ancient, "Claude", "claude", "Claude/claude/old", "running"); err != nil {
+		t.Fatal(err)
+	}
+
+	app.recordActivityHeartbeat(Session{Source: "Claude", Tool: "claude", Session: "s1", State: "running"}, now)
+	later := now.Add(activitySweepInterval + time.Minute)
+	app.recordActivityHeartbeat(Session{Source: "Claude", Tool: "claude", Session: "s2", State: "running"}, later)
+
+	app.activityMu.Lock()
+	_, stale := app.activityLast["Claude/claude/s1"]
+	_, fresh := app.activityLast["Claude/claude/s2"]
+	app.activityMu.Unlock()
+	if stale || !fresh {
+		t.Errorf("activityLast: s1 kept=%v (want false), s2 kept=%v (want true)", stale, fresh)
+	}
+
+	rows, err := app.store.ActivityBetween(ancient.Add(-time.Hour), ancient.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("activity rows older than retention: got %d, want 0", len(rows))
+	}
+}
