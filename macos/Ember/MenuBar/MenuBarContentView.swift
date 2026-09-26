@@ -1,9 +1,12 @@
 import SwiftUI
 import EmberKit
 
-/// Native AppKit menu (`.menu` style): status, Pomodoro controls, per-app
-/// visibility toggles, then Dashboard/Settings/About/Quit. Reads `LiveModel`
-/// and runs actions through `ActionRunner`; it never polls.
+/// The menu-bar menu (`.menu` style, so every row becomes an `NSMenuItem`):
+/// glance rows, Pomodoro, the Clock submenu, then Dashboard/Settings/About/
+/// Quit. Row rules live in `MenuRows` (EmberKit, unit-tested); this view only
+/// lays them out. It reads `LiveModel`, runs actions through `ActionRunner`,
+/// and never polls: `.task` and timers don't run in a `.menu` extra, and the
+/// rows update live because the model is `@Observable`.
 struct MenuBarContentView: View {
 	@Environment(AppEnvironment.self) private var env
 	@Environment(\.openWindow) private var openWindow
@@ -22,59 +25,22 @@ struct MenuBarContentView: View {
 	@ViewBuilder
 	private var items: some View {
 		let live = env.live
+		let now = Date()
 
 		if live.connection == .unconfigured {
 			Button("Set Up Ember…") { openSettings(pane: "connection", using: openWindow) }
 			Divider()
 		}
 
-		// Status header (disabled text rows).
-		if let s = live.winningSession {
-			let p = SessionPresentation(s)
-			Text(p.title)
-			if let sub = p.subtitle(maxLength: 48) { Text(verbatim: sub) }
-		} else {
-			Text(statusText(live.connection))
-		}
-
+		glanceRows(live, now: now)
 		Divider()
-
-		// Pomodoro: phase line while active, then the controls that apply.
-		if let p = live.pomodoro.value, p.mode != .idle {
-			Text("\(Text(p.phaseEnum.displayName)) · \(DurationText.remaining(p.remainingSec)) · round \(p.round)")
-		}
-		Group {
-			ForEach(PomodoroControls.items(for: live.pomodoro.value)) { item in
-				Button {
-					Task { await env.actions.run(.pomodoro(item.action)) }
-				} label: {
-					Label { Text(item.title) } icon: { Image(systemName: item.systemImage) }
-				}
-				.modifier(PrimaryShortcut(key: item.shortcutKey))
-			}
-		}
-		.labelStyle(.titleAndIcon)
-		.disabled(!live.connection.isOnline || live.pomodoro.error == .featureOff)
-		if let failure = env.actions.lastError {
-			Text("Couldn't do that: \(Text(failure.error.message))")
-		}
-
+		pomodoroRows(live)
 		Divider()
-
-		// Per-app clock visibility toggles (dynamic; future apps appear here).
-		let apps = live.apps.value ?? []
-		ForEach(apps, id: \.name) { app in
-			Toggle(isOn: Binding(
-				get: { app.enabled },
-				set: { on in Task { await env.actions.run(.setApp(app.name, enabled: on)) } }
-			)) {
-				Text(AppNames.display(app.name))
-			}
-		}
-		if !apps.isEmpty { Divider() }
+		clockMenu(live)
+		Divider()
 
 		Button("Open Dashboard") { presentWindow(id: WindowID.dashboard, using: openWindow) }
-		.keyboardShortcut("0", modifiers: .command)
+			.keyboardShortcut("0", modifiers: .command)
 		Button("Settings…") { openSettings(using: openWindow) }
 			.keyboardShortcut(",", modifiers: .command)
 		Button("About Ember") {
@@ -88,13 +54,106 @@ struct MenuBarContentView: View {
 			.keyboardShortcut("q", modifiers: .command)
 	}
 
-	private func statusText(_ c: ConnectionHealth) -> LocalizedStringKey {
-		switch c {
-		case .unconfigured: "Not set up"
-		case .connecting: "Connecting…"
-		case .offline: "Offline"
-		case .online, .degraded: "Idle"
+	// MARK: Glance
+
+	/// Session header + activity, other sessions, 5h usage, next event.
+	/// Disabled text rows: they're read, not clicked.
+	@ViewBuilder
+	private func glanceRows(_ live: LiveModel, now: Date) -> some View {
+		let header = MenuRows.header(connection: live.connection, hasEverLoaded: live.snapshot.value != nil,
+		                             winning: live.winningSession)
+		Text(header.title)
+		if let detail = header.detail { Text(verbatim: "   \(detail)") }
+
+		let others = MenuRows.otherSessions(live.sessions, winning: live.winningSession)
+		if !others.rows.isEmpty {
+			Menu("Other Sessions") {
+				ForEach(others.rows) { Text($0.text) }
+				if let overflow = others.overflow { Text(overflow) }
+			}
 		}
+
+		ForEach(MenuRows.usage(live.usage, sessions: live.sessions, now: now)) { Text($0.text) }
+
+		if let next = MenuRows.nextEvent(meetings: live.meetings.value, reminders: reminders, now: now) {
+			Text(next)
+		}
+	}
+
+	/// Apple Reminders the app already watches locally (no server call).
+	private var reminders: [MenuRows.Reminder] {
+		let watcher = env.reminderWatcher
+		guard watcher.prefs.enabled else { return [] }
+		return watcher.upcoming.map { MenuRows.Reminder(title: $0.title, due: $0.due) }
+	}
+
+	// MARK: Pomodoro
+
+	/// Status line, the controls that apply (icons on the whole group, per
+	/// the HIG's all-or-none), today vs the goal, and the last failed action.
+	@ViewBuilder
+	private func pomodoroRows(_ live: LiveModel) -> some View {
+		if let group = MenuRows.pomodoroControls(live.pomodoro, connection: live.connection) {
+			if let status = MenuRows.pomodoroStatus(live.pomodoro.value) { Text(status) }
+			Group {
+				ForEach(group.items) { item in
+					Button {
+						Task { await env.actions.run(.pomodoro(item.action)) }
+					} label: {
+						Label { Text(item.title) } icon: { Image(systemName: item.systemImage) }
+					}
+					.modifier(PrimaryShortcut(key: item.shortcutKey))
+					.disabled(env.actions.running.contains(.pomodoro(item.action)))
+				}
+			}
+			.labelStyle(.titleAndIcon)
+			.disabled(!group.isEnabled)
+		}
+		if let today = MenuRows.today(live.stats.value) { Text(today) }
+		if let failure = env.actions.lastError {
+			Text(MenuRows.failure(failure.action, failure.error))
+		}
+	}
+
+	// MARK: Clock
+
+	@ViewBuilder
+	private func clockMenu(_ live: LiveModel) -> some View {
+		// The matrix state is only current while something (the Dashboard)
+		// holds the clock-health feed; the menu doesn't poll it.
+		let matrixPower = live.isTracked(.clockHealth) ? live.clockHealth.value?.device?.matrixPower : nil
+		let power = MenuRows.displayPower(usage: live.usage, clockHealth: live.clockHealth, matrixPower: matrixPower)
+		let apps = MenuRows.showOnClock(live.apps)
+
+		Menu("Clock") {
+			Button("Next App") { run(.clock(.next)) }
+			Button("Previous App") { run(.clock(.previous)) }
+			Button("Dismiss Notification") { run(.clock(.dismiss)) }
+			if !power.isEmpty {
+				Divider()
+				ForEach(power) { item in
+					Button { run(.clock(.power(item.on))) } label: { Text(item.title) }
+				}
+			}
+			if !apps.isEmpty {
+				Divider()
+				Menu("Show on Clock") {
+					ForEach(apps) { app in
+						Toggle(isOn: Binding(
+							get: { app.enabled },
+							set: { on in run(.setApp(app.name, enabled: on)) }
+						)) {
+							Text(app.title)
+						}
+					}
+				}
+			}
+		}
+		.disabled(!live.connection.isOnline)
+	}
+
+	private func run(_ action: EmberAction) {
+		Task { await env.actions.run(action) }
 	}
 }
 
