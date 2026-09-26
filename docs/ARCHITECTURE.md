@@ -106,11 +106,14 @@ The aggregator and the only writer to the device.
     monopolises the panel. Widen the margin instead.
 - **Display hold.** awtrix-ng has no per-payload priority — the AWTRIX3
   `prio:true`/`force:true`/`duration=lifetime` combination 422s on NG entirely.
-  Reserved for attention: only the **locked** waiting/error frame (and the idle
-  hot-usage frame) triggers a forced `PUT /api/v1/apps/active` on the hold
-  edge, and the app's own `durationMs == lifetimeMs` then sustains it for the
-  attention window (switching happens strictly **after** a successful push —
-  `apps/active` 404s on an app the device doesn't know yet). Merely-running
+  Reserved for attention: only the **locked** waiting/error frame triggers a
+  forced `PUT /api/v1/apps/active` on the hold edge, and the app's own
+  `durationMs == lifetimeMs` then sustains it for the attention window
+  (switching happens strictly **after** a successful push — `apps/active`
+  404s on an app the device doesn't know yet). The idle frames (dimmed icon,
+  hot-usage) are `holdNone`: long dwell, no forced switch. The attention
+  switch sends NG's `fast:true` to skip the ~1 s transition; the Pomodoro
+  start's switch keeps the animation. Merely-running
   frames ask for no forced switch and a short `durationMs` (6 s, same as the
   weather/forecast tiles) so an active agent rotates alongside the other apps
   instead of owning the screen. `autoTransition:false` outranks any per-app
@@ -267,7 +270,9 @@ latest observation lives in an in-memory `weatherStore`; the coordinator reconci
 three rotating tiles with the same change-and-staleness dedupe as the usage card:
 
 - **`ember-weather`** — 8×8 condition icon + the current temperature **centred**
-  in the free area (rows 1–5) + a per-hour **forecast strip** on the bottom bar
+  in the free area (rows 1–5), its digits in the strip's `TempColor` gradient
+  colour (degree sign white; coloured by °C in either unit) + a per-hour
+  **forecast strip** on the bottom bar
   (row 7, cols 8–31; each hour takes `24/N` columns from col 8, see
   `hourSlot`),
   coloured by a cold→warm temperature gradient (`render.TempColor`). On a
@@ -278,7 +283,12 @@ three rotating tiles with the same change-and-staleness dedupe as the usage card
   two tiles read differently at a glance); the bars sit on the same hour grid as
   the strips (cols 8–31, `24/N` columns each), so hour *i* lines up across the
   tiles and bar widths never alternate (`forecast_hours`, 6..24; bar height +
-  colour = temperature).
+  colour = temperature). The bars stay a drawn bitmap rather than NG's native
+  `barChart` (#109): `barChart` takes at most 16 values (24 h won't fit),
+  spreads them over the chart area right of the icon column (col 9, or col 0
+  with no icon, never col 8) with a 1-px gap between bars, so hour *i* can't
+  sit in its `hourSlot` under the strips; and a palette colours a bar by its
+  value within the chart's own range, not by absolute °C like `TempColor`.
 - **`ember-air`** (`air_tile`, default on) — **air quality**: 8×8 drawn wind
   icon + the current **European AQI** value (rows 1–5), both in the EEA bucket
   colour (good→extreme; `render.AQIColor`/`AQIWord`, discrete — the scale is
@@ -301,6 +311,19 @@ emitted as a **partial bitmap** (`db` over cols 8–31). Device-verified
 phase wins** over native icons on clear nights (no per-phase gallery set).
 The forecast tile has no icon slot. Independent of `use_native_icons`
 (popup-only).
+
+**Precipitation overlay** (`overlay`, default on): while it is precipitating,
+the conditions tile and weather popups carry NG's per-app `overlay`, which the
+firmware animates over the finished page (drawn last, it never clears the
+text or bitmap). The provider code picks it, finer than the six buckets, by
+one rule for both providers: rain of any kind, freezing rain and sleet →
+`rain`, or `storm` when heavy (WMO 65/67/82, MET `heavy…rain`/`heavy…sleet`);
+snow → `snow`; thunder → `thunder`; drizzle → `drizzle` (WMO 51–57 only —
+MET has no drizzle symbol, and its light rain is WMO's slight rain 61/80);
+rime fog 48 → `frost`.
+Plain fog, clear and cloudy send no key, so the device's global overlay (if
+the user set one) still shows. Costs ~17 bytes per push, only while
+precipitating. The previews can't animate it and don't draw it.
 
 **Icon provisioning** (`ensureNativeIcons`): the device's own on-demand
 gallery downloads proved unreliable (observed failing for hours → iconless
@@ -360,10 +383,23 @@ Reminders are sourced from the user's **Apple Reminders** (macOS), not an
 internal list. The **menu app** (`ReminderWatcher`, EventKit) polls incomplete
 reminders that have a due *time* and, when one comes due (within a short grace
 window, honoring an optional lead time), POSTs **`POST /v1/reminders/fire`**
-`{text, sound, duration, native_icon_id}` to the server, which renders the
-bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. The
-server is **stateless** for reminders — no list, no schedule, no stored config;
-all settings (enable/sound/lead/duration/icon) live app-side in UserDefaults.
+`{text, sound, duration, native_icon_id, hold, repeat_sound}` to the server,
+which renders the
+bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. A
+reminder chimes once. With the opt-in `repeat_sound` (menu: "Repeat sound
+until dismissed", default off) a `hold` alarm with sound loops its chime
+(`soundLoop`, a melody with a trailing rest) until dismissed. The server
+caps that loop, since an alarm nobody is there to dismiss would ring for
+hours: `StartReminderLoopGuard` checks every 15 s and dismisses the alarm by
+name when its 15-min hold window runs out, and at quiet-hours start dismisses
+it and re-pushes it held but silent (`quietPublisher` strips sound only at
+push time). A button acknowledgement just forgets the loop; a failed dismiss
+is retried on the next check. An unheld reminder carries `repeat:1`, so a
+long text scrolls through fully before it leaves (the meeting and weather
+popups do the same). The server keeps only that in-memory loop state for
+reminders — no list, no schedule, no stored config;
+all settings (enable/sound/hold/repeat/lead/duration/icon) live app-side in
+UserDefaults.
 Consequence: reminders fire only while the Mac is awake and Ember is running (the
 Linux server can't read Apple Reminders). Each POST carries an `Idempotency-Key`
 header (the occurrence's `id|due` key); the server remembers keys for 10 min and
@@ -432,6 +468,8 @@ meeting is within `tile_lead_minutes` (default 60) and the feed is fresh; it
 leaves the rotation at meeting start (the tile never shows "0m"). The countdown
 payload changes each minute, so the payload-bytes diff naturally re-pushes without
 a dedicated timer — the same mechanism that refreshes the weather tiles.
+The tile reads `<N>M <TITLE>`: the countdown leads, because a long title
+scrolls and minutes at the end of it were off screen for most of the dwell.
 
 **Popup and chime.** An edge-triggered T-minus popup fires at
 `start − popup_lead_minutes` (default 2; 0 = off), deduped per occurrence
@@ -886,7 +924,29 @@ rather than doubling some hours.
   full-frame bitmap, why `detailPayload` sends only the icon op and a row-7 bar
   op, and why a drawn icon's op is 9 wide (`iconOp`): without a native icon,
   NG scrolls text across all 32 columns, and the blank col 8 keeps it out of
-  the gap. `textInFront:true` would allow a single op again (#109).
+  the gap.
+- **`textInFront` is deliberately not used (#109).** The docs are clear on
+  z-order only: with `true` the text is painted over the decorations. That
+  would let the source card send one full-frame bitmap, but the three ops do
+  two jobs a single op can't. They are a clip mask: NG's font is variable
+  width and `sourceCardText` only estimates it, so a name that overruns
+  col 24 is cut by the right-hand op today, and would paint over the context
+  glass with the text in front. On scrolling cards (tool, attention, popups)
+  text in front would run over the drawn icon, which the 9-wide `iconOp` now
+  masks. And the single op is larger: +200 B on a running source card (951 →
+  1151 B, measured), on a link that already loses pushes. The docs also don't
+  say whether the text layer paints only lit glyph pixels or its whole box
+  (the `textBlinkMs` note says off-phase glyphs are painted black), which
+  only a device test can settle.
+- **Text payloads inherit casing and scroll from the clock's globals.**
+  `textCase` defaults to `inherit` (the global `uppercase`, on by default) and
+  every `scroll` field inherits one by one from the global `scroll`. The
+  previews draw only uppercase, so every payload carrying free text (agent
+  cards pin `scroll` only; reminders, meetings, `/v1/notify` also pin
+  `textCase:"upper"`, via `pinText`) sets both explicitly, and the device
+  matches the preview whatever the user set in the web UI. `/v1/notify` has no
+  preview, so its caller may override the case with `text_case`
+  (`inherit`/`upper`/`asTyped`, validated; anything else is a 400).
 - **NG's font is 3px wide + 1px spacing, variable for wide letters.** "STUD"
   lands exactly in cols 9–23; "M" is 5 wide. This is what the source card buys
   by handing its text to the firmware: the in-house `font3x5` cannot form an

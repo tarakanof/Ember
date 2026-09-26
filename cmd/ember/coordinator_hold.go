@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // holdState is who owns the screen device-side, in precedence order.
@@ -260,8 +262,15 @@ func (c *coordinator) applyDisplayHold(want holdState, appName string) {
 		}
 	}
 	if want != holdNone {
+		// Attention skips the transition (NG fast:true): an agent waiting on
+		// the user should be on screen now, not after a ~1 s animation. A
+		// Pomodoro start was asked for by a button press, so it keeps it.
+		mode := awtrix.SwitchAnimated
+		if want == holdAttention {
+			mode = awtrix.SwitchInstant
+		}
 		err := c.retryDevice(ctx, func(ctx context.Context) error {
-			return c.publisher.Switch(ctx, appName)
+			return c.publisher.Switch(ctx, appName, mode)
 		})
 		if !settled(err) {
 			c.logger.Warn("display hold switch failed; retrying next tick", "err", err, "hold", want)

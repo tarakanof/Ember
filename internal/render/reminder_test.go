@@ -23,6 +23,25 @@ func TestReminderPopupFrame(t *testing.T) {
 	}
 }
 
+// TestReminderPopupPinsText: the reminder text is typed by the user in mixed
+// case; the device must uppercase it like the preview does, whatever the
+// clock's global uppercase setting, in both icon modes.
+func TestReminderPopupPinsText(t *testing.T) {
+	assertPinnedText(t, ReminderPopupPayload("Call mom", "", 8, false))
+	assertPinnedText(t, ReminderPopupPayload("Call mom", "1234", 8, true))
+}
+
+// TestReminderPopupRepeatsUnlessHeld: an auto-dismissing reminder stays until
+// its text has scrolled through once (repeat:1); a held one needs no count.
+func TestReminderPopupRepeatsUnlessHeld(t *testing.T) {
+	if p := ReminderPopupPayload("Call mom about the weekend", "", 8, false); p["repeat"] != 1 {
+		t.Errorf("unheld repeat = %v, want 1", p["repeat"])
+	}
+	if p := ReminderPopupPayload("Call mom about the weekend", "", 8, true); p["repeat"] != nil {
+		t.Errorf("held repeat = %v, want absent", p["repeat"])
+	}
+}
+
 func TestReminderPopupFrame_LongTextClips(t *testing.T) {
 	// Must not panic and must not paint past the right edge (paintCell bounds).
 	f := ReminderPopupFrame("MEETING WITH A VERY LONG TITLE")

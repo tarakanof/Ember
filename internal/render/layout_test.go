@@ -93,10 +93,10 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 		"agent tool card":           row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: sessions}, running.Key(), 1, false, 60, nil)),
 		"agent attention":           row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: sessions}, waiting.Key(), 0, true, 60, nil)),
 		"agent tool card, rate bar": row7FromPayload(t, RenderForCoord(Snapshot{Now: now, Sessions: []Session{rateMode}}, rateMode.Key(), 1, false, 60, nil)),
-		"weather tile 24h":          row7FromPayload(t, WeatherPayload(WeatherClouds, "21°", hourly(24), 60)),
-		"weather tile 6h":           row7FromPayload(t, WeatherPayload(WeatherSnow, "-12°", hourly(6), 60)),
-		"weather tile native icon":  row7FromPayload(t, WeatherPayloadNative("2286", "21°", hourly(24), 60)),
-		"weather tile moon":         row7FromPayload(t, WeatherPayloadMoon("9°", hourly(24), MoonView{Illum: 0.6, Waxing: true}, 60)),
+		"weather tile 24h":          row7FromPayload(t, WeatherPayload(WeatherClouds, "21°", 21, hourly(24), 60)),
+		"weather tile 6h":           row7FromPayload(t, WeatherPayload(WeatherSnow, "-12°", -12, hourly(6), 60)),
+		"weather tile native icon":  row7FromPayload(t, WeatherPayloadNative("2286", "21°", 21, hourly(24), 60)),
+		"weather tile moon":         row7FromPayload(t, WeatherPayloadMoon("9°", 9, hourly(24), MoonView{Illum: 0.6, Waxing: true}, 60)),
 		"air tile":                  row7FromPayload(t, AirPayload(53, hourly(24), 60)),
 		"pomodoro device":           row7FromPayload(t, PomodoroPayload(pomo, 60)),
 		"pomodoro preview":          row7FromFrame(RenderPomodoro(pomo)),
@@ -165,7 +165,7 @@ func TestHourlyStripsUseEvenHourSlots(t *testing.T) {
 	} {
 		temps := hourly(tc.n)
 		frames := map[string]Frame{
-			"weather": WeatherTileFrame(WeatherClouds, "21°", temps, nil),
+			"weather": WeatherTileFrame(WeatherClouds, "21°", 21, temps, nil),
 			"air":     AirTileFrame(53, temps),
 		}
 		colour := map[string]func(float64) RGB{"weather": TempColor, "air": AQIColor}
@@ -192,7 +192,7 @@ func TestHourlyStripsUseEvenHourSlots(t *testing.T) {
 // blank spacer above the bottom bar.
 func TestTileDigitsSitOnTheTextRow(t *testing.T) {
 	frames := map[string]Frame{
-		"weather": WeatherTileFrame(WeatherClouds, "21°", hourly(24), nil),
+		"weather": WeatherTileFrame(WeatherClouds, "21°", 21, hourly(24), nil),
 		"air":     AirTileFrame(53, hourly(24)),
 	}
 	for name, f := range frames {

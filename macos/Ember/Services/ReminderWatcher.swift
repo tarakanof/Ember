@@ -163,7 +163,7 @@ public final class ReminderWatcher {
         do {
             try await svc.fire(text: title, sound: prefs.sound, duration: prefs.popupDuration,
                                nativeIconId: prefs.useNativeIcon ? prefs.nativeIconId : "", hold: prefs.hold,
-                               key: key)
+                               repeatSound: prefs.repeatSound, key: key)
             lastFireError = nil
             return .delivered
         } catch {

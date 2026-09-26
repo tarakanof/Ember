@@ -13,10 +13,28 @@ import Foundation
         #expect(obj?["duration"] as? Int == 8)
         #expect(obj?["native_icon_id"] as? String == "1234")
         #expect(obj?["hold"] as? Bool == true)
+        #expect(obj?["repeat_sound"] as? Bool == false)
         #expect(req.value(forHTTPHeaderField: "Idempotency-Key") == "abc|1000")
         return (okResponse(req.url!, status: 204), Data())
     }
     try await RemindersService(client: client).fire(text: "Walk", sound: true, duration: 8, nativeIconId: "1234", hold: true, key: "abc|1000")
+}
+
+@Test func fireSendsRepeatSoundWhenOptedIn() async throws {
+    let client = stubbedClient(token: "t") { req in
+        let body = req.httpBodyStreamData() ?? req.httpBody ?? Data()
+        let obj = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        #expect(obj?["repeat_sound"] as? Bool == true)
+        return (okResponse(req.url!, status: 204), Data())
+    }
+    try await RemindersService(client: client).fire(text: "Walk", sound: true, duration: 8, nativeIconId: "",
+                                                    hold: true, repeatSound: true, key: "k")
+}
+
+@Test func reminderPrefsRepeatSoundDefaultsOff() throws {
+    #expect(ReminderPrefs().repeatSound == false)
+    let old = try JSONDecoder().decode(ReminderPrefs.self, from: Data(#"{"enabled":true,"hold":true}"#.utf8))
+    #expect(old.repeatSound == false)
 }
 
 @Test func fireReportsRefusedConnectionAsNotSent() async throws {

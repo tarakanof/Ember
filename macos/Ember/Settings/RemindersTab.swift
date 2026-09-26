@@ -40,6 +40,8 @@ struct RemindersTab: View {
                     .disabled(watcher.authStatus != .fullAccess)
                 Toggle("Sound", isOn: $watcher.prefs.sound)
                 Toggle("Keep on screen until dismissed", isOn: $watcher.prefs.hold)
+                Toggle("Repeat sound until dismissed", isOn: $watcher.prefs.repeatSound)
+                    .disabled(!watcher.prefs.hold || !watcher.prefs.sound)
                 Stepper("Lead time: \(watcher.prefs.leadMinutes) min",
                         value: $watcher.prefs.leadMinutes, in: 0...60)
                 Stepper("Popup duration \(watcher.prefs.popupDuration) s",
@@ -48,10 +50,13 @@ struct RemindersTab: View {
             } header: {
                 Text("Behaviour")
             } footer: {
-                Text(watcher.prefs.hold
-                     ? "The alarm takes over the clock until you press its middle button. Popup duration is ignored while this is on."
-                     : "The alarm interrupts for the popup duration, then the clock returns to its normal rotation.")
-                    .font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(watcher.prefs.hold
+                         ? "The alarm takes over the clock until you press its middle button. Popup duration is ignored while this is on."
+                         : "The alarm interrupts for the popup duration, then the clock returns to its normal rotation.")
+                    Text("Repeat sound rings every few seconds until you press the middle button. It stops by itself after 15 minutes, and goes silent when quiet hours start.")
+                }
+                .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Icon") {

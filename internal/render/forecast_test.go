@@ -191,7 +191,7 @@ func TestForecastBarsOnGridDistributesWidth(t *testing.T) {
 
 func TestWeatherPayloadIncludesBottomBarStrip(t *testing.T) {
 	hourly := []float64{-5, 25}
-	p := WeatherPayload(WeatherClear, "21°", hourly, 600)
+	p := WeatherPayload(WeatherClear, "21°", 21, hourly, 600)
 	pixels := bmpPixels(t, p)
 	// The strip is the 1px bottom bar (row 7, cols 8-31); row 6 is a spacer.
 	if pixels[barRow*32+barX0] == 0 || pixels[barRow*32+31] == 0 {
@@ -206,7 +206,7 @@ func TestWeatherPayloadIncludesBottomBarStrip(t *testing.T) {
 
 func TestWeatherTileCentersTemp(t *testing.T) {
 	// "21°" = 3 glyphs = 11px wide; centred in cols 9-31 → starts at col 15.
-	f := WeatherTileFrame(WeatherClear, "21°", nil, nil)
+	f := WeatherTileFrame(WeatherClear, "21°", 21, nil, nil)
 	for y := 0; y < 6; y++ {
 		for x := 9; x < 15; x++ {
 			if f.Dirty[y][x] {

@@ -66,6 +66,10 @@ type WeatherConfig struct {
 	// AirPopupThreshold fires a popup when the European AQI rises across this
 	// value (edge-triggered, re-arms below it). 0 disables the popup.
 	AirPopupThreshold int `json:"air_popup_threshold"`
+	// Overlay lets NG animate the current precipitation (rain, snow, storm...)
+	// over the conditions tile and weather popups, via the payload's per-app
+	// overlay. Default on; it adds a few bytes only while it is precipitating.
+	Overlay *bool `json:"overlay"`
 }
 
 // boolPtr / intPtr build pointer literals for the optional config fields.
@@ -85,6 +89,7 @@ func (c WeatherConfig) MoonPhaseEnabled() bool     { return c.MoonPhase == nil |
 func (c WeatherConfig) PopupOnChangeEnabled() bool { return c.PopupOnChange == nil || *c.PopupOnChange }
 func (c WeatherConfig) SevereAlertEnabled() bool   { return c.SevereAlert == nil || *c.SevereAlert }
 func (c WeatherConfig) AirTileEnabled() bool       { return c.AirTile == nil || *c.AirTile }
+func (c WeatherConfig) OverlayEnabled() bool       { return c.Overlay == nil || *c.Overlay }
 
 // PopupIntervalMins resolves the interval-popup cadence: nil → default 120,
 // explicit 0 → off, negatives clamp to 0.
@@ -126,6 +131,9 @@ func (c *WeatherConfig) fillAbsent() {
 	}
 	if c.AirTile == nil {
 		c.AirTile = boolPtr(true)
+	}
+	if c.Overlay == nil {
+		c.Overlay = boolPtr(true)
 	}
 	if c.PopupIntervalMinutes == nil {
 		c.PopupIntervalMinutes = intPtr(defaultWeatherPopupIntervalMinutes)
@@ -261,6 +269,9 @@ type weatherObservation struct {
 	// current hour. Drives the compact strip and the forecast tile; nil when the
 	// provider returned none (everything else still works).
 	Hourly []float64
+	// Overlay is the NG weather overlay matching the current conditions
+	// (render.Overlay*), "" when nothing is falling.
+	Overlay string
 	// TZOffsetSeconds is the location's UTC offset (from Open-Meteo's timezone=auto);
 	// TZKnown is false when the provider didn't supply one (e.g. MET Norway), in
 	// which case sun labels fall back to the longitude approximation.
@@ -411,6 +422,7 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 	return weatherObservation{
 		Condition: cond, ConditionCode: strconv.Itoa(body.Current.WeatherCode),
 		TempC: body.Current.Temperature, Severe: severe, Hourly: hourly, HourlyStart: start,
+		Overlay:         wmoOverlay(body.Current.WeatherCode),
 		TZOffsetSeconds: body.UTCOffsetSeconds, TZKnown: true,
 	}, nil
 }
@@ -459,6 +471,7 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (we
 		Condition: cond, ConditionCode: first.Data.Next1Hours.Summary.SymbolCode,
 		TempC: first.Data.Instant.Details.AirTemperature, Severe: severe,
 		Hourly: hourly, HourlyStart: first.Time,
+		Overlay: metSymbolOverlay(first.Data.Next1Hours.Summary.SymbolCode),
 	}, nil
 }
 
@@ -540,6 +553,64 @@ func metSymbolCondition(sym string) (string, bool) {
 	default:
 		return render.WeatherClouds, false
 	}
+}
+
+// wmoOverlay maps a WMO weather code to the NG overlay that animates it, or ""
+// for dry conditions. Both providers follow one rule, so the same weather
+// animates the same way whichever is configured:
+//
+//   - rain of any kind, freezing rain and sleet: "rain", or "storm" when heavy
+//     (WMO 65/67/82, MET heavy…rain/sleet);
+//   - snow: "snow"; thunder in any combination: "thunder";
+//   - drizzle (WMO 51-57 only; MET has no drizzle symbol, and its light rain is
+//     WMO's slight rain, 61/80): "drizzle";
+//   - rime fog (WMO 48): "frost"; plain fog has no NG overlay.
+func wmoOverlay(code int) string {
+	switch {
+	case code == 48:
+		return render.OverlayFrost
+	case code >= 51 && code <= 57:
+		return render.OverlayDrizzle
+	case code == 65 || code == 67 || code == 82: // heavy / violent
+		return render.OverlayStorm
+	case (code >= 61 && code <= 67) || (code >= 80 && code <= 82):
+		return render.OverlayRain
+	case (code >= 71 && code <= 77) || code == 85 || code == 86:
+		return render.OverlaySnow
+	case code >= 95:
+		return render.OverlayThunder
+	default:
+		return ""
+	}
+}
+
+// metSymbolOverlay is wmoOverlay's rule for a MET Norway symbol_code. Sleet
+// animates as rain, like WMO's freezing rain, although its icon bucket is
+// snow.
+func metSymbolOverlay(sym string) string {
+	s := strings.ToLower(sym)
+	switch {
+	case strings.Contains(s, "thunder"):
+		return render.OverlayThunder
+	case strings.Contains(s, "snow"):
+		return render.OverlaySnow
+	case strings.Contains(s, "rain") || strings.Contains(s, "sleet"):
+		if strings.Contains(s, "heavy") {
+			return render.OverlayStorm
+		}
+		return render.OverlayRain
+	default:
+		return ""
+	}
+}
+
+// weatherOverlay is the overlay the weather tile and popups carry for obs:
+// the observation's own, or none when the user turned overlays off.
+func weatherOverlay(obs weatherObservation, cfg WeatherConfig) string {
+	if !cfg.OverlayEnabled() {
+		return ""
+	}
+	return obs.Overlay
 }
 
 // ---- display helpers ----
@@ -785,7 +856,8 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	if cfg.UseNativeIcons {
 		iconID = cfg.weatherIconID(obs.Condition)
 	}
-	payload := render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec)
+	payload := render.WithOverlay(render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec),
+		weatherOverlay(obs, cfg))
 	payload["name"] = notifyNameWeatherPopup
 	// The severe-alert chime rides on the notification: an inline RTTTL melody
 	// (detected by its ':' separators) or the name of a melody file on the device.

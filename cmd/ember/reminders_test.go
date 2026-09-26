@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -31,8 +32,12 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	if p["durationMs"] != 10_000 {
 		t.Errorf("durationMs = %v, want 10000", p["durationMs"])
 	}
+	// By default a held alarm chimes once: looping is opt-in (repeat_sound).
 	if p["soundRtttl"] != defaultReminderSound {
 		t.Errorf("soundRtttl = %v, want %q", p["soundRtttl"], defaultReminderSound)
+	}
+	if _, has := p["soundLoop"]; has {
+		t.Errorf("soundLoop = %v, want absent without repeat_sound", p["soundLoop"])
 	}
 	if p["hold"] != true {
 		t.Errorf("hold = %v, want true", p["hold"])
@@ -63,6 +68,152 @@ func TestHandleReminderFireNativeIconAndSilent(t *testing.T) {
 	}
 	if len(pub.rtttls) != 0 {
 		t.Errorf("sound=false should play no chime, got %v", pub.rtttls)
+	}
+}
+
+// TestHandleReminderFireUnheldChimesOnce: a reminder that auto-dismisses plays
+// its chime once; only a held alarm loops.
+func TestHandleReminderFireUnheldChimesOnce(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	app.handleReminderFire(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost,
+		"/v1/reminders/fire", strings.NewReader(`{"text":"Walk","sound":true,"duration":8}`)))
+	p := pub.NotifySnapshot()[0]
+	if p["soundRtttl"] != defaultReminderSound {
+		t.Errorf("soundRtttl = %v, want %q", p["soundRtttl"], defaultReminderSound)
+	}
+	if _, has := p["soundLoop"]; has {
+		t.Errorf("an unheld reminder must not loop its chime, payload = %v", p)
+	}
+}
+
+// fireLoopingReminder fires a held, sounding reminder that opted into
+// repeat_sound and returns the time it was armed at (just before the call).
+func fireLoopingReminder(t *testing.T, app *App) time.Time {
+	t.Helper()
+	at := time.Now()
+	w := httptest.NewRecorder()
+	app.handleReminderFire(w, httptest.NewRequest(http.MethodPost, "/v1/reminders/fire",
+		strings.NewReader(`{"text":"Walk","sound":true,"hold":true,"repeat_sound":true}`)))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", w.Code)
+	}
+	return at
+}
+
+// TestReminderRepeatSoundLoopsTheChime: with repeat_sound the held alarm
+// carries the looped melody and soundLoop.
+func TestReminderRepeatSoundLoopsTheChime(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	fireLoopingReminder(t, app)
+	p := pub.NotifySnapshot()[0]
+	if p["soundRtttl"] != defaultReminderAlarm || p["soundLoop"] != true {
+		t.Errorf("soundRtttl/soundLoop = %v/%v, want %q/true", p["soundRtttl"], p["soundLoop"], defaultReminderAlarm)
+	}
+}
+
+// TestReminderLoopDismissedAtWindowEnd: nobody pressed the button, so the
+// server dismisses the ringing alarm once the hold window has run out, and
+// only then.
+func TestReminderLoopDismissedAtWindowEnd(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	at := fireLoopingReminder(t, app)
+
+	app.checkReminderLoop(context.Background(), at.Add(time.Minute))
+	if got := pub.DismissedNamesSnapshot(); len(got) != 0 {
+		t.Fatalf("dismissed inside the window: %v", got)
+	}
+	app.checkReminderLoop(context.Background(), at.Add(reminderHoldWindow+time.Second))
+	if got := pub.DismissedNamesSnapshot(); len(got) != 1 || got[0] != notifyNameReminder {
+		t.Fatalf("dismissed = %v, want [%s] at the window end", got, notifyNameReminder)
+	}
+	if n := len(pub.NotifySnapshot()); n != 1 {
+		t.Errorf("notifications = %d, want only the original (no re-push at window end)", n)
+	}
+	app.checkReminderLoop(context.Background(), at.Add(reminderHoldWindow+time.Minute))
+	if got := pub.DismissedNamesSnapshot(); len(got) != 1 {
+		t.Errorf("stopped loop dismissed again: %v", got)
+	}
+}
+
+// TestReminderLoopFailedStopRetries: the dismiss is lost on the link, so the
+// loop stays armed and the next check tries again.
+func TestReminderLoopFailedStopRetries(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	at := fireLoopingReminder(t, app)
+	pub.mu.Lock()
+	pub.dismissByNameErr = errFakeDeviceDown
+	pub.mu.Unlock()
+	app.checkReminderLoop(context.Background(), at.Add(reminderHoldWindow+time.Second))
+	pub.mu.Lock()
+	pub.dismissByNameErr = nil
+	pub.mu.Unlock()
+	app.checkReminderLoop(context.Background(), at.Add(reminderHoldWindow+time.Minute))
+	if got := pub.DismissedNamesSnapshot(); len(got) != 2 {
+		t.Errorf("dismiss attempts = %d, want 2 (retried)", len(got))
+	}
+}
+
+// TestReminderLoopStopsAtQuietHours: when quiet hours begin under a ringing
+// alarm, it is dismissed and re-pushed held but silent.
+func TestReminderLoopStopsAtQuietHours(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	at := fireLoopingReminder(t, app)
+
+	// Quiet hours start a minute after the alarm fired, well inside its window.
+	check := at.Add(time.Minute)
+	app.updateConfig(func(c *Config) {
+		c.QuietHours = QuietHoursConfig{Enabled: true,
+			Start: check.Format("15:04"), End: check.Add(2 * time.Minute).Format("15:04")}
+	})
+	app.checkReminderLoop(context.Background(), check)
+	if got := pub.DismissedNamesSnapshot(); len(got) != 1 || got[0] != notifyNameReminder {
+		t.Fatalf("dismissed = %v, want [%s]", got, notifyNameReminder)
+	}
+	notes := pub.NotifySnapshot()
+	if len(notes) != 2 {
+		t.Fatalf("notifications = %d, want the alarm + its silent re-push", len(notes))
+	}
+	re := notes[1]
+	for _, k := range soundKeys {
+		if _, has := re[k]; has {
+			t.Errorf("silent re-push carries %q: %v", k, re)
+		}
+	}
+	if re["hold"] != true || re["name"] != notifyNameReminder || re["text"] != "Walk" {
+		t.Errorf("re-push = %v, want the same held alarm", re)
+	}
+}
+
+// TestReminderLoopForgottenAfterButtonAck: the middle press already cleared
+// the alarm, so the guard sends nothing.
+func TestReminderLoopForgottenAfterButtonAck(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	at := fireLoopingReminder(t, app)
+	app.reminderHeldUntil.Store(0) // what the button hook does on a middle press
+	app.checkReminderLoop(context.Background(), at.Add(reminderHoldWindow+time.Second))
+	if got := pub.DismissedNamesSnapshot(); len(got) != 0 {
+		t.Errorf("dismissed after the user's ack: %v", got)
+	}
+}
+
+// TestHandleReminderFireSilentHoldDoesNotLoop: soundLoop without a melody is
+// pointless; a silent held alarm carries neither.
+func TestHandleReminderFireSilentHoldDoesNotLoop(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	app.handleReminderFire(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost,
+		"/v1/reminders/fire", strings.NewReader(`{"text":"Walk","sound":false,"hold":true}`)))
+	p := pub.NotifySnapshot()[0]
+	for _, k := range []string{"soundRtttl", "soundLoop"} {
+		if _, has := p[k]; has {
+			t.Errorf("silent held alarm carries %q, payload = %v", k, p)
+		}
 	}
 }
 

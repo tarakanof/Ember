@@ -63,6 +63,78 @@ func TestMetSymbolCondition(t *testing.T) {
 	}
 }
 
+func TestWMOOverlay(t *testing.T) {
+	cases := []struct {
+		code int
+		want string
+	}{
+		{0, ""}, {3, ""}, {45, ""}, // no precipitation; NG has no fog overlay
+		{48, render.OverlayFrost}, // depositing rime fog
+		{51, render.OverlayDrizzle}, {57, render.OverlayDrizzle},
+		{61, render.OverlayRain}, {63, render.OverlayRain}, {66, render.OverlayRain}, {80, render.OverlayRain},
+		{65, render.OverlayStorm}, {67, render.OverlayStorm}, {82, render.OverlayStorm},
+		{71, render.OverlaySnow}, {77, render.OverlaySnow}, {86, render.OverlaySnow},
+		{95, render.OverlayThunder}, {99, render.OverlayThunder},
+	}
+	for _, c := range cases {
+		if got := wmoOverlay(c.code); got != c.want {
+			t.Errorf("wmoOverlay(%d) = %q, want %q", c.code, got, c.want)
+		}
+	}
+}
+
+func TestMetSymbolOverlay(t *testing.T) {
+	cases := []struct {
+		sym  string
+		want string
+	}{
+		{"clearsky_day", ""}, {"cloudy", ""}, {"fog", ""},
+		// Same rule as WMO: light rain is slight rain (61/80), not drizzle.
+		{"lightrain", render.OverlayRain},
+		{"lightrainshowers_day", render.OverlayRain},
+		{"rain", render.OverlayRain},
+		{"rainshowers_night", render.OverlayRain},
+		{"heavyrain", render.OverlayStorm},
+		// Sleet animates like WMO freezing rain (66 rain, 67 storm).
+		{"sleet", render.OverlayRain},
+		{"lightsleetshowers_day", render.OverlayRain},
+		{"heavysleet", render.OverlayStorm},
+		{"heavysnowshowers_day", render.OverlaySnow},
+		{"rainandthunder", render.OverlayThunder},
+		{"lightssnowshowersandthunder_day", render.OverlayThunder},
+	}
+	for _, c := range cases {
+		if got := metSymbolOverlay(c.sym); got != c.want {
+			t.Errorf("metSymbolOverlay(%q) = %q, want %q", c.sym, got, c.want)
+		}
+	}
+}
+
+// TestWeatherPopupCarriesOverlay: a popup for precipitating conditions carries
+// the NG overlay, and the overlay toggle turns it off.
+func TestWeatherPopupCarriesOverlay(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	cfg := defaultConfig().Weather
+	cfg.applyDefaults()
+	obs := weatherObservation{Condition: render.WeatherSnow, TempC: -2, Overlay: render.OverlaySnow}
+
+	app.sendWeatherPopup(context.Background(), obs, cfg, 30, "")
+	cfg.Overlay = boolPtr(false)
+	app.sendWeatherPopup(context.Background(), obs, cfg, 30, "")
+
+	got := pub.NotifySnapshot()
+	if len(got) != 2 {
+		t.Fatalf("want 2 popups, got %d", len(got))
+	}
+	if got[0]["overlay"] != render.OverlaySnow {
+		t.Errorf("overlay = %v, want %q", got[0]["overlay"], render.OverlaySnow)
+	}
+	if _, has := got[1]["overlay"]; has {
+		t.Errorf("overlay:false must drop the key, got %v", got[1]["overlay"])
+	}
+}
+
 func TestWeatherTempText(t *testing.T) {
 	if got := weatherTempText(21.4, "metric"); got != "21°" {
 		t.Errorf("metric = %q, want 21°", got)

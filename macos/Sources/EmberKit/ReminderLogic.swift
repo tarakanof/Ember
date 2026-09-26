@@ -109,10 +109,13 @@ public struct ReminderPrefs: Codable, Equatable, Sendable {
     /// When true the alarm takes over the clock until dismissed (middle button);
     /// when false it auto-dismisses after `popupDuration`.
     public var hold: Bool
+    /// Opt-in: a held alarm with sound repeats its chime until dismissed. The
+    /// server stops it after 15 minutes and when quiet hours start.
+    public var repeatSound: Bool
 
     public init(enabled: Bool = false, sound: Bool = true, leadMinutes: Int = 0,
                 popupDuration: Int = 8, useNativeIcon: Bool = false, nativeIconId: String = "",
-                hold: Bool = true) {
+                hold: Bool = true, repeatSound: Bool = false) {
         self.enabled = enabled
         self.sound = sound
         self.leadMinutes = leadMinutes
@@ -120,6 +123,7 @@ public struct ReminderPrefs: Codable, Equatable, Sendable {
         self.useNativeIcon = useNativeIcon
         self.nativeIconId = nativeIconId
         self.hold = hold
+        self.repeatSound = repeatSound
     }
 
     // Custom decoder so prefs persisted before `hold` existed still load (defaulting
@@ -133,5 +137,6 @@ public struct ReminderPrefs: Codable, Equatable, Sendable {
         useNativeIcon = try c.decodeIfPresent(Bool.self, forKey: .useNativeIcon) ?? false
         nativeIconId = try c.decodeIfPresent(String.self, forKey: .nativeIconId) ?? ""
         hold = try c.decodeIfPresent(Bool.self, forKey: .hold) ?? true
+        repeatSound = try c.decodeIfPresent(Bool.self, forKey: .repeatSound) ?? false
     }
 }

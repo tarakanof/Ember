@@ -23,8 +23,8 @@ var tempGradient = []tempStop{
 	{38, RGB{0xE0, 0x33, 0x33}},  // red
 }
 
-// TempColor returns the gradient colour for a temperature in °C. Exported so the
-// caller can keep the strip and tile consistent with any future text colouring.
+// TempColor returns the gradient colour for a temperature in °C: the colour of
+// the hourly strip, the forecast bars and the conditions tile's digits.
 func TempColor(c float64) RGB {
 	last := len(tempGradient) - 1
 	if c <= tempGradient[0].t {

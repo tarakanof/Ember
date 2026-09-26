@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 type recordingPublisher struct {
@@ -38,6 +40,7 @@ type recordingPublisher struct {
 	// device starts accepting them again.
 	settingsFails  int
 	switchFails    int
+	switchModes    []awtrix.SwitchMode
 	dismissedNames []string
 	// dismissByNameErr, when non-nil, is returned by every DismissNotifyByName
 	// call (the device answers 404 for a name it no longer holds).
@@ -234,10 +237,11 @@ func (p *recordingPublisher) ReadSettings(_ context.Context) (map[string]any, er
 	return p.deviceSettings, nil
 }
 
-func (p *recordingPublisher) Switch(_ context.Context, name string) error {
+func (p *recordingPublisher) Switch(_ context.Context, name string, mode awtrix.SwitchMode) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.switches = append(p.switches, name)
+	p.switchModes = append(p.switchModes, mode)
 	p.ops = append(p.ops, "switch "+name)
 	if p.switchFails > 0 {
 		p.switchFails--
@@ -261,6 +265,16 @@ func (p *recordingPublisher) SettingsSnapshot() []map[string]any {
 	defer p.mu.Unlock()
 	out := make([]map[string]any, len(p.settings))
 	copy(out, p.settings)
+	return out
+}
+
+// SwitchModesSnapshot returns a copy of recorded switch modes under the lock,
+// index-aligned with SwitchesSnapshot.
+func (p *recordingPublisher) SwitchModesSnapshot() []awtrix.SwitchMode {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]awtrix.SwitchMode, len(p.switchModes))
+	copy(out, p.switchModes)
 	return out
 }
 
@@ -868,7 +882,7 @@ func (noopPublisher) PlayRTTTL(context.Context, string) error                 { 
 func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
 func (noopPublisher) ClearIndicator(context.Context, int) error               { return nil }
 func (noopPublisher) Settings(context.Context, map[string]any) error          { return nil }
-func (noopPublisher) Switch(context.Context, string) error                    { return nil }
+func (noopPublisher) Switch(context.Context, string, awtrix.SwitchMode) error { return nil }
 func (noopPublisher) ReadSettings(context.Context) (map[string]any, error)    { return nil, nil }
 
 func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {
@@ -1120,6 +1134,49 @@ func TestHandleNotify_EmitsNGPayload(t *testing.T) {
 	for _, k := range []string{"duration", "color"} {
 		if _, has := p[k]; has {
 			t.Errorf("legacy AWTRIX3 key %q present — NG rejects the whole payload", k)
+		}
+	}
+	// Casing and scroll are pinned, not inherited from the clock's globals.
+	if p["textCase"] != "upper" {
+		t.Errorf("textCase = %v, want upper", p["textCase"])
+	}
+	if scroll, _ := p["scroll"].(map[string]any); scroll["whenFits"] != "static" {
+		t.Errorf("scroll = %v, want whenFits:static", p["scroll"])
+	}
+}
+
+// TestHandleNotify_TextCasePassesThrough: a caller that asks for a textCase
+// gets it; only an unset one defaults to upper; an unknown one is a 400 and
+// nothing reaches the clock (NG would 422 it).
+func TestHandleNotify_TextCasePassesThrough(t *testing.T) {
+	cases := []struct {
+		body     string
+		wantCode int
+		wantCase any
+	}{
+		{`{"text":"Hello"}`, http.StatusOK, "upper"},
+		{`{"text":"Hello","text_case":"asTyped"}`, http.StatusOK, "asTyped"},
+		{`{"text":"Hello","text_case":"inherit"}`, http.StatusOK, "inherit"},
+		{`{"text":"Hello","text_case":"lower"}`, http.StatusBadRequest, nil},
+	}
+	for _, c := range cases {
+		pub := &recordingPublisher{}
+		app := NewApp(defaultConfig(), pub, testLogger())
+		w := httptest.NewRecorder()
+		app.handleNotify(w, httptest.NewRequest(http.MethodPost, "/v1/notify", strings.NewReader(c.body)))
+		if w.Code != c.wantCode {
+			t.Errorf("%s: status = %d, want %d", c.body, w.Code, c.wantCode)
+			continue
+		}
+		notes := pub.NotifySnapshot()
+		if c.wantCase == nil {
+			if len(notes) != 0 {
+				t.Errorf("%s: pushed %v despite the 400", c.body, notes)
+			}
+			continue
+		}
+		if len(notes) != 1 || notes[0]["textCase"] != c.wantCase {
+			t.Errorf("%s: textCase = %v, want %v", c.body, notes, c.wantCase)
 		}
 	}
 }

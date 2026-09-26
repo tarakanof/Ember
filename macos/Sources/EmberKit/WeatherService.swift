@@ -53,10 +53,11 @@ public struct RemindersService: Sendable {
     /// Fires one reminder occurrence. `key` (see `reminderDedupeKey`) lets the
     /// server ignore a retry of an occurrence it already pushed to the clock.
     public func fire(text: String, sound: Bool, duration: Int, nativeIconId: String, hold: Bool,
-                     key: String) async throws {
+                     repeatSound: Bool = false, key: String) async throws {
         try await client.postIdempotent("/v1/reminders/fire",
                                         body: ReminderFireBody(text: text, sound: sound, duration: duration,
-                                                               nativeIconId: nativeIconId, hold: hold),
+                                                               nativeIconId: nativeIconId, hold: hold,
+                                                               repeatSound: repeatSound),
                                         key: key)
     }
 }
@@ -67,8 +68,10 @@ struct ReminderFireBody: Encodable {
     var duration: Int
     var nativeIconId: String
     var hold: Bool
+    var repeatSound: Bool
     enum CodingKeys: String, CodingKey {
         case text, sound, duration, hold
         case nativeIconId = "native_icon_id"
+        case repeatSound = "repeat_sound"
     }
 }

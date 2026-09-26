@@ -30,6 +30,7 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/render"
 )
 
 type AuthConfig struct {
@@ -528,6 +529,9 @@ type App struct {
 	// treated as acknowledging the alarm (the firmware dismisses on the middle
 	// button) rather than a Pomodoro action — the middle press disarms it. 0 = none.
 	reminderHeldUntil atomic.Int64
+	// reminderLoop is the held alarm whose chime is looping, if any; see
+	// checkReminderLoop.
+	reminderLoop reminderLoop
 
 	// reminderKeys dedupes POST /v1/reminders/fire retries by Idempotency-Key.
 	reminderKeys reminderDedupe
@@ -1149,6 +1153,9 @@ type NotifyRequest struct {
 	Color    string `json:"color"`
 	Duration int    `json:"duration"`
 	Hold     bool   `json:"hold"`
+	// TextCase is NG's textCase ("inherit", "upper", "asTyped"); empty means
+	// "upper", Ember's default for every text payload.
+	TextCase string `json:"text_case"`
 }
 
 type DeleteRequest struct {
@@ -1235,21 +1242,25 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("text is required"))
 		return
 	}
+	if req.TextCase != "" && !render.ValidTextCase(req.TextCase) {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", "text_case",
+		)
+		writeError(w, http.StatusBadRequest, errors.New("text_case must be inherit, upper or asTyped"))
+		return
+	}
 	if req.Color == "" {
 		req.Color = "#FFFFFF"
 	}
 	if req.Duration <= 0 {
 		req.Duration = 5
 	}
-	if err := a.publisher.Notify(r.Context(), map[string]any{
-		"name":       notifyNameNotify,
-		"text":       req.Text,
-		"textColor":  req.Color,
-		"durationMs": req.Duration * 1000, // the request carries seconds; NG takes ms
-		"hold":       req.Hold,
-		"wakeup":     true,
-		"stack":      false,
-	}); err != nil {
+	payload := render.NotifyPayload(req.Text, req.Color, req.TextCase, req.Duration, req.Hold)
+	payload["name"] = notifyNameNotify
+	if err := a.publisher.Notify(r.Context(), payload); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
@@ -1391,8 +1402,9 @@ type Publisher interface {
 	// Used to snapshot the user's own values before a Pomodoro takeover
 	// overrides them, so the restore puts back what was there.
 	ReadSettings(ctx context.Context) (map[string]any, error)
-	// Switch forces the device to the named app (PUT /api/v1/apps/active).
-	Switch(ctx context.Context, name string) error
+	// Switch forces the device to the named app (PUT /api/v1/apps/active),
+	// with or without the device's transition animation.
+	Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error
 	// ListIcons returns the filenames in the device's /ICONS folder
 	// (GET /api/v1/files?dir=/ICONS). Used by the weather icon provisioner to
 	// find missing gallery icons.
@@ -1533,12 +1545,12 @@ func (p *HTTPPublisher) ReadSettings(ctx context.Context) (map[string]any, error
 	return c.GetSettings(ctx)
 }
 
-func (p *HTTPPublisher) Switch(ctx context.Context, name string) error {
+func (p *HTTPPublisher) Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error {
 	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return c.SwitchApp(ctx, name)
+	return c.SwitchApp(ctx, name, mode)
 }
 
 func main() {
@@ -1676,6 +1688,7 @@ func main() {
 	workers.Go(func() { app.StartCoordinator(ctx) })
 	workers.Go(func() { app.StartWeather(ctx) })
 	workers.Go(func() { app.StartMeetings(ctx) })
+	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
 	// Off the startup path: it does device HTTP, and a clock that isn't up yet
 	// must not delay the listener. Re-run after every /admin/reload.
 	workers.Go(func() { app.ensureBootPingScript(ctx) })
