@@ -445,6 +445,52 @@ func TestPomodoroConfigPutRoundTripsCap(t *testing.T) {
 	}
 }
 
+// TestPomodoroConfigPutRoundTripsGoals pins issue #131: daily_goal_sessions
+// and weekly_goal_days must survive a GET/PUT round trip like every other
+// Pomodoro setting (previously the DTO lacked both fields, so GET never
+// returned them and PUT silently dropped them via the non-strict decoder).
+func TestPomodoroConfigPutRoundTripsGoals(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if resp, _ := doReq(t, srv, http.MethodPut, "/v1/pomodoro/config", "", `{"daily_goal_sessions":6,"weekly_goal_days":3}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put status = %d", resp.StatusCode)
+	}
+	_, got := doReq(t, srv, http.MethodGet, "/v1/pomodoro/config", "", "")
+	if got["daily_goal_sessions"] != float64(6) || got["weekly_goal_days"] != float64(3) {
+		t.Fatalf("goal config round-trip = %+v", got)
+	}
+
+	// A goal turned "off" (0) must round-trip too, not just be omitted.
+	if resp, _ := doReq(t, srv, http.MethodPut, "/v1/pomodoro/config", "", `{"daily_goal_sessions":0}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("put status = %d", resp.StatusCode)
+	}
+	_, got = doReq(t, srv, http.MethodGet, "/v1/pomodoro/config", "", "")
+	if got["daily_goal_sessions"] != float64(0) {
+		t.Fatalf("daily_goal_sessions = %v, want 0", got["daily_goal_sessions"])
+	}
+	if got["weekly_goal_days"] != float64(3) {
+		t.Fatalf("weekly_goal_days = %v, want unchanged 3 (partial put must not zero it)", got["weekly_goal_days"])
+	}
+}
+
+// TestPomodoroConfigPutRejectsOutOfRangeGoals confirms the [0, 50] / [0, 7]
+// ranges from validatePomodoro apply to a PUT, not just applyDefaults/file
+// config.
+func TestPomodoroConfigPutRejectsOutOfRangeGoals(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	if resp, _ := doReq(t, srv, http.MethodPut, "/v1/pomodoro/config", "", `{"daily_goal_sessions":51}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("daily_goal_sessions=51 put status = %d, want 400", resp.StatusCode)
+	}
+	if resp, _ := doReq(t, srv, http.MethodPut, "/v1/pomodoro/config", "", `{"weekly_goal_days":8}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("weekly_goal_days=8 put status = %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
 	app := newPomodoroApp(t)
 

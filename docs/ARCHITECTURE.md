@@ -247,11 +247,14 @@ it never runs overnight; focus is configurable up to 8h. Stats persist in pure-G
 SQLite (`modernc.org/sqlite`, no CGO → distroless build intact). Runtime config
 edits persist to the SQLite store (key `settings_json`, re-applied over the
 **read-only** bind-mounted `config.json` baseline at boot) — so the menu can
-change durations/colours/cap without a writable config file. API:
+change durations/colours/cap/goals without a writable config file. API:
 `POST /v1/pomodoro/{start,pause,resume,stop,skip}` + `GET/PUT /v1/pomodoro/config`
 (bearer; PUT is **merge semantics** since #84 — omitted fields keep their
-current value); open `GET /v1/pomodoro/{state,stats,heatmap,workhours}`
-(`workhours` reports `work_start`/`work_end` as `null` on a day with no work);
+current value; `daily_goal_sessions`/`weekly_goal_days` round-trip here too,
+validated against `[0, 50]`/`[0, 7]`, `0` = goal off); open
+`GET /v1/pomodoro/{state,stats,heatmap,workhours}` (`stats.goal` reports
+progress against those two config fields — `workhours` reports
+`work_start`/`work_end` as `null` on a day with no work);
 **unauthenticated**
 `POST /hooks/awtrix/button` (the device can't send a token) mapping
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era

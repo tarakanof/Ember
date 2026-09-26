@@ -21,7 +21,7 @@ func TestPomodoroConfigPutPartialEnableLeavesOtherFieldsUnchanged(t *testing.T) 
 	full := `{"focus_minutes":42,"short_break_minutes":7,"long_break_minutes":22,` +
 		`"rounds_before_long_break":6,"auto_start_next":true,"sound":true,` +
 		`"sound_melody":"custom:chime","focus_color":"#123456","break_color":"#654321",` +
-		`"max_session_minutes":90}`
+		`"max_session_minutes":90,"daily_goal_sessions":6,"weekly_goal_days":3}`
 	if resp, _ := doReq(t, srv, "PUT", "/v1/pomodoro/config", "", full); resp.StatusCode != 200 {
 		t.Fatalf("seed put status = %d", resp.StatusCode)
 	}
@@ -43,6 +43,8 @@ func TestPomodoroConfigPutPartialEnableLeavesOtherFieldsUnchanged(t *testing.T) 
 		"focus_color":              "#123456",
 		"break_color":              "#654321",
 		"max_session_minutes":      float64(90),
+		"daily_goal_sessions":      float64(6),
+		"weekly_goal_days":         float64(3),
 	}
 	for k, w := range want {
 		if got[k] != w {
@@ -63,7 +65,7 @@ func TestPomodoroConfigPutPartialUpdateTouchesOnlyGivenField(t *testing.T) {
 	full := `{"focus_minutes":42,"short_break_minutes":7,"long_break_minutes":22,` +
 		`"rounds_before_long_break":6,"auto_start_next":true,"sound":true,` +
 		`"sound_melody":"custom:chime","focus_color":"#123456","break_color":"#654321",` +
-		`"max_session_minutes":90,"enabled":true}`
+		`"max_session_minutes":90,"daily_goal_sessions":6,"weekly_goal_days":3,"enabled":true}`
 	if resp, _ := doReq(t, srv, "PUT", "/v1/pomodoro/config", "", full); resp.StatusCode != 200 {
 		t.Fatalf("seed put status = %d", resp.StatusCode)
 	}
@@ -87,6 +89,8 @@ func TestPomodoroConfigPutPartialUpdateTouchesOnlyGivenField(t *testing.T) {
 		"focus_color":              "#123456",
 		"break_color":              "#654321",
 		"max_session_minutes":      float64(90),
+		"daily_goal_sessions":      float64(6),
+		"weekly_goal_days":         float64(3),
 	}
 	for k, w := range unchanged {
 		if got[k] != w {
@@ -115,6 +119,8 @@ func TestLoadPersistedPomodoroSettingsRestoresFullBlob(t *testing.T) {
 		FocusColor:            "#123456",
 		BreakColor:            "#654321",
 		MaxSessionMinutes:     90,
+		DailyGoalSessions:     6,
+		WeeklyGoalDays:        3,
 	}
 	blob, err := json.Marshal(dtoFromConfig(full))
 	if err != nil {

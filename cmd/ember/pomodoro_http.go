@@ -40,6 +40,8 @@ type pomodoroSettingsDTO struct {
 	FocusColor            *string `json:"focus_color,omitempty"`
 	BreakColor            *string `json:"break_color,omitempty"`
 	MaxSessionMinutes     *int    `json:"max_session_minutes,omitempty"`
+	DailyGoalSessions     *int    `json:"daily_goal_sessions,omitempty"`
+	WeeklyGoalDays        *int    `json:"weekly_goal_days,omitempty"`
 }
 
 const pomodoroSettingsKey = "settings_json"
@@ -57,6 +59,8 @@ func dtoFromConfig(p PomodoroConfig) pomodoroSettingsDTO {
 		FocusColor:            &p.FocusColor,
 		BreakColor:            &p.BreakColor,
 		MaxSessionMinutes:     &p.MaxSessionMinutes,
+		DailyGoalSessions:     &p.DailyGoalSessions,
+		WeeklyGoalDays:        &p.WeeklyGoalDays,
 	}
 }
 
@@ -365,6 +369,12 @@ func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
 	}
 	if dto.MaxSessionMinutes != nil {
 		p.MaxSessionMinutes = *dto.MaxSessionMinutes
+	}
+	if dto.DailyGoalSessions != nil {
+		p.DailyGoalSessions = *dto.DailyGoalSessions
+	}
+	if dto.WeeklyGoalDays != nil {
+		p.WeeklyGoalDays = *dto.WeeklyGoalDays
 	}
 	if dto.Enabled != nil {
 		p.Enabled = *dto.Enabled
