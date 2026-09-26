@@ -21,20 +21,26 @@ fi
 MACOS_DIR="$APP/Contents/MacOS"
 mkdir -p "$MACOS_DIR"
 
+# build_universal <cmd package> <output name> <signing identifier>
+#
+# The identifier is pinned: without -i, an ad-hoc signed Mach-O with no
+# Info.plist gets "<name>-<LC_UUID hex>", so every rebuild is a new program to
+# macOS. Local Network privacy keys its allow on that identifier (a rebuilt
+# helper is blocked with EHOSTUNREACH until the user allows it again).
 build_universal() {
-  local pkg="$1" out="$2" tmp
+  local pkg="$1" out="$2" ident="$3" tmp
   tmp="$(mktemp -d)"
   CGO_ENABLED=0 GOOS=darwin GOARCH=arm64  go build -C "$REPO" -o "$tmp/arm64" "./cmd/$pkg"
   CGO_ENABLED=0 GOOS=darwin GOARCH=amd64  go build -C "$REPO" -o "$tmp/amd64" "./cmd/$pkg"
   lipo -create "$tmp/arm64" "$tmp/amd64" -output "$MACOS_DIR/$out"
   rm -rf "$tmp"
   # Inside-out sign: hardened runtime + timestamp, same identity as the app.
-  codesign --force --sign "$IDENTITY" --options runtime --timestamp "$MACOS_DIR/$out"
-  echo "signed $out ($(lipo -info "$MACOS_DIR/$out" | sed 's/.*: //'))"
+  codesign --force --sign "$IDENTITY" --identifier "$ident" --options runtime --timestamp "$MACOS_DIR/$out"
+  echo "signed $out as $ident ($(lipo -info "$MACOS_DIR/$out" | sed 's/.*: //'))"
 }
 
-build_universal ember-claude-producer ember-claude-producer
-build_universal ember-codex-producer  ember-codex-producer
+build_universal ember-claude-producer ember-claude-producer com.ember.claude-producer
+build_universal ember-codex-producer  ember-codex-producer  com.ember.codex-producer
 
 # Bundle the SMAppService LaunchAgent plists alongside the signed binaries.
 LA_DIR="$APP/Contents/Library/LaunchAgents"

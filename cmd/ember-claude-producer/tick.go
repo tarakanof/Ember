@@ -44,6 +44,9 @@ func runTick() {
 func runDaemon() {
 	rotateProducerLogs()
 	openDaemonLog("ember-tick")
+	if path, err := producer.LinkStatusPath("claude-producer"); err == nil {
+		daemonLink = producer.NewLinkStatus(path)
+	}
 	// Validate config once up front; with KeepAlive, exiting here just makes
 	// launchd retry (throttled) until the operator finishes configuring.
 	if cfg, err := loadConfig(); err != nil || cfg.Source == "" || cfg.ServerURL == "" {

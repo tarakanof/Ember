@@ -42,6 +42,16 @@ check_producer() {
   esac
 
   check "codesign --verify --strict: $name" codesign --verify --strict "$bin"
+
+  # Stable signing identifier (build-producers.sh -i), not "<name>-<LC_UUID>".
+  local ident
+  ident="$(codesign -dv "$bin" 2>&1 | sed -n 's/^Identifier=//p')"
+  if [ "$ident" = "com.ember.${name#ember-}" ]; then
+    echo "OK   signing identifier: $name ($ident)"
+  else
+    echo "FAIL signing identifier: $name (got: $ident, want: com.ember.${name#ember-})"
+    exit 1
+  fi
 }
 
 check_plist() {

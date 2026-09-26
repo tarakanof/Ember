@@ -27,13 +27,15 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
 }
 
 @Test func reconcileReasonMatrix() {
-    #expect(reconcileReason(registration: .enabled, loaded: true, bundleChanged: false) == nil)
-    #expect(reconcileReason(registration: .enabled, loaded: false, bundleChanged: false) == .notRunning)
-    #expect(reconcileReason(registration: .enabled, loaded: true, bundleChanged: true) == .bundleChanged)
-    #expect(reconcileReason(registration: .enabled, loaded: false, bundleChanged: true) == .bundleChanged)
+    #expect(reconcileReason(registration: .enabled, liveness: .running, bundleChanged: false) == nil)
+    #expect(reconcileReason(registration: .enabled, liveness: .notLoaded, bundleChanged: false) == .notRunning)
+    #expect(reconcileReason(registration: .enabled, liveness: .stuck, bundleChanged: false) == .stuck)
+    #expect(reconcileReason(registration: .enabled, liveness: .running, bundleChanged: true) == .bundleChanged)
+    #expect(reconcileReason(registration: .enabled, liveness: .notLoaded, bundleChanged: true) == .bundleChanged)
     // The user's choice wins: never register an agent that isn't enabled.
     for reg in [AgentRegistration.notRegistered, .requiresApproval, .notFound] {
-        #expect(reconcileReason(registration: reg, loaded: false, bundleChanged: true) == nil)
+        #expect(reconcileReason(registration: reg, liveness: .notLoaded, bundleChanged: true) == nil)
+        #expect(reconcileReason(registration: reg, liveness: .stuck, bundleChanged: false) == nil)
     }
 }
 

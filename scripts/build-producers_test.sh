@@ -29,6 +29,10 @@ for bin in ember-claude-producer ember-codex-producer; do
 
   sig="$(codesign -dv "$path" 2>&1)"
   echo "$sig" | grep -q "Signature=adhoc" || fail "$bin: codesign -dv missing adhoc signature ($sig)"
+  # A stable identifier (not "<name>-<LC_UUID>") keeps Local Network privacy
+  # and launch constraints across rebuilds.
+  want="com.ember.${bin#ember-}"
+  echo "$sig" | grep -qx "Identifier=$want" || fail "$bin: identifier is not $want ($sig)"
 
   echo "ok: $bin ($info)"
 done

@@ -56,6 +56,7 @@ type Client struct {
 	httpClient *http.Client
 	serverURL  string
 	token      string
+	link       *LinkStatus
 }
 
 // NewClient builds a Client. token may be empty (no Authorization header sent).
@@ -65,6 +66,13 @@ func NewClient(serverURL, token string, timeout time.Duration) *Client {
 		serverURL:  serverURL,
 		token:      token,
 	}
+}
+
+// WithLinkStatus makes c record whether each request reached the server
+// into link (see LinkStatus), and returns c.
+func (c *Client) WithLinkStatus(link *LinkStatus) *Client {
+	c.link = link
+	return c
 }
 
 // Timeout reports the HTTP client's configured Timeout, for asserting client
@@ -128,6 +136,7 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte) err
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	resp, err := c.httpClient.Do(req)
+	c.link.Record(err)
 	if err != nil {
 		return err
 	}
