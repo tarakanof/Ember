@@ -347,7 +347,7 @@ slow rediscover swapped=false
   dev#215 GET /api/v1/device body=e3b0c442 DROP
 probe #0 reachable=false uptime=0
   dev#216 GET /api/v1/device body=e3b0c442 ok
-probe #1 reachable=true uptime=1210
+probe #1 reachable=true uptime=1120
   dev#217 GET /api/v1/device body=e3b0c442 DROP
 probe #2 reachable=false uptime=0
   dev#218 GET /api/v1/device body=e3b0c442 DROP

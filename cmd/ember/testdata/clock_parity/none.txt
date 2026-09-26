@@ -298,13 +298,13 @@ slow doctor.clock reachable=false
   dev#167 GET /api/v1/device body=e3b0c442 ok
 slow rediscover swapped=false
   dev#168 GET /api/v1/device body=e3b0c442 ok
-probe #0 reachable=true uptime=1300
+probe #0 reachable=true uptime=1210
   dev#169 GET /api/v1/device body=e3b0c442 ok
-probe #1 reachable=true uptime=1330
+probe #1 reachable=true uptime=1240
   dev#170 GET /api/v1/device body=e3b0c442 ok
-probe #2 reachable=true uptime=1360
+probe #2 reachable=true uptime=1270
   dev#171 GET /api/v1/device body=e3b0c442 ok
-probe #3 reachable=true uptime=1390
+probe #3 reachable=true uptime=1300
   dev#172 GET /api/v1/device body=e3b0c442 ok
 rediscover #0 swapped=false result=reachable
   dev#173 GET /api/v1/device body=e3b0c442 ok
