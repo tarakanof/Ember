@@ -41,6 +41,62 @@ public struct ReminderFiredLedger: Sendable {
     }
 }
 
+/// What a fire attempt tells us about whether the popup reached the clock.
+public enum ReminderFireOutcome: Equatable, Sendable {
+    case delivered
+    /// The request may have reached the server (timeout, 5xx such as a 502
+    /// after a lost clock ack). Treated as delivered: a second ring is worse
+    /// than a lost one, and the server's idempotency key catches most repeats.
+    case maybeDelivered
+    /// The request provably had no effect; safe to retry.
+    case notDelivered
+
+    /// Classifies a `RemindersService.fire` error. Only failures that prove
+    /// the server never acted are `.notDelivered`: no connection, not
+    /// configured, 429, or another 4xx (rejected before the push).
+    public init(error: Error) {
+        switch error {
+        case is RequestNotSent:
+            self = .notDelivered
+        case APIError.notConfigured, APIError.rateLimited:
+            self = .notDelivered
+        case APIError.http(let status, _) where (400..<500).contains(status):
+            self = .notDelivered
+        default:
+            self = .maybeDelivered
+        }
+    }
+}
+
+/// Decides which due reminder occurrences to fire. `begin` claims a key before
+/// the request is sent, so an overlapping poll (e.g. after a disable/re-enable
+/// cycle) can't fire the same occurrence while the first request is in flight.
+/// `finish` records the key unless the attempt was `.notDelivered`, which is
+/// retried on the next poll while still inside the grace window.
+public struct ReminderFireTracker: Sendable {
+    private var fired = ReminderFiredLedger()
+    private var inFlight = Set<String>()
+
+    public init() {}
+
+    /// Claims `key` for a fire attempt; false if it already fired or is in flight.
+    public mutating func begin(_ key: String) -> Bool {
+        if fired.contains(key) || inFlight.contains(key) { return false }
+        inFlight.insert(key)
+        return true
+    }
+
+    /// Releases the claim from `begin`, recording the occurrence (due at `due`)
+    /// as fired unless `outcome` is `.notDelivered`.
+    public mutating func finish(_ key: String, due: Date, outcome: ReminderFireOutcome) {
+        inFlight.remove(key)
+        if outcome != .notDelivered { fired.record(key, due: due) }
+    }
+
+    /// Forgets fired occurrences due more than a day before `now`.
+    public mutating func prune(now: Date) { fired.prune(now: now) }
+}
+
 /// Apple-Reminders watcher settings, persisted app-side (UserDefaults). The
 /// server holds none of this — it's sent per-fire.
 public struct ReminderPrefs: Codable, Equatable, Sendable {

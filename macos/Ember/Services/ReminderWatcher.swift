@@ -17,7 +17,7 @@ public final class ReminderWatcher {
     // store across those is the standard EventKit pattern.
     nonisolated(unsafe) private let store = EKEventStore()
     private var loop: Task<Void, Never>?
-    private var fired = ReminderFiredLedger()
+    private var tracker = ReminderFireTracker()
     /// App Nap assertion held while the watcher runs (see applyEnabled).
     private var activity: NSObjectProtocol?
 
@@ -129,7 +129,7 @@ public final class ReminderWatcher {
         let now = Date()
         let lead = Double(prefs.leadMinutes) * 60
         let reminders = await fetchIncompleteDueTimed()
-        fired.prune(now: now)
+        tracker.prune(now: now)
         Self.log.debug("poll fetched \(reminders.count) due-timed reminders")
         upcoming = reminders
             .map { UpcomingReminder(id: $0.id, title: $0.title, due: $0.due) }
@@ -141,11 +141,12 @@ public final class ReminderWatcher {
             let due = r.due
             guard reminderShouldFire(now: now, dueDate: due, leadMinutes: prefs.leadMinutes, grace: grace) else { continue }
             let key = reminderDedupeKey(id: r.id, dueDate: due)
-            if fired.contains(key) { continue }
             let title = r.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if title.isEmpty { continue }
+            guard tracker.begin(key) else { continue }
             Self.log.info("firing \(title, privacy: .private) due=\(due, privacy: .public)")
-            if await fire(title: title) { fired.record(key, due: due) }
+            let outcome = await fire(title: title, key: key)
+            tracker.finish(key, due: due, outcome: outcome)
         }
 
         // Nearest not-yet-reached fire time, for precise wake-up scheduling.
@@ -155,19 +156,21 @@ public final class ReminderWatcher {
             .min()
     }
 
-    /// Sends one reminder to the clock; false when the request failed, so the
-    /// caller leaves it unrecorded and the next poll retries it within grace.
-    private func fire(title: String) async -> Bool {
+    /// Sends one reminder to the clock and reports what the result proves about
+    /// delivery; see `ReminderFireOutcome` for which failures are retried.
+    private func fire(title: String, key: String) async -> ReminderFireOutcome {
         let svc = RemindersService(client: client)
         do {
             try await svc.fire(text: title, sound: prefs.sound, duration: prefs.popupDuration,
-                               nativeIconId: prefs.useNativeIcon ? prefs.nativeIconId : "", hold: prefs.hold)
+                               nativeIconId: prefs.useNativeIcon ? prefs.nativeIconId : "", hold: prefs.hold,
+                               key: key)
             lastFireError = nil
-            return true
+            return .delivered
         } catch {
+            let outcome = ReminderFireOutcome(error: error)
             lastFireError = error.localizedDescription
-            Self.log.error("fire failed: \(error.localizedDescription, privacy: .public)")
-            return false
+            Self.log.error("fire failed (\(outcome == .notDelivered ? "will retry" : "not retried", privacy: .public)): \(error.localizedDescription, privacy: .public)")
+            return outcome
         }
     }
 
