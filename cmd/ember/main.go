@@ -570,9 +570,10 @@ type App struct {
 	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
 	iconMu    sync.Mutex
 
-	// deviceBaseline is the clock URL from config.json captured at boot, before
-	// any store override or auto-discovery. deviceSource() uses it to tell
-	// "config" from "discovered". browseFn is the mDNS browse, overridable in tests.
+	// deviceBaseline is the clock URL from config.json (captured at boot and
+	// updated when /admin/reload applies a changed file URL), before any store
+	// override or auto-discovery. deviceSource() uses it to tell "config" from
+	// "discovered". Guarded by cfgMu. browseFn is the mDNS browse, overridable in tests.
 	deviceBaseline   string
 	deviceAutoPicked atomic.Bool // set by rediscoverClock (boot or watch goroutine) when discovery chose the clock URL
 	republish        republishGate
@@ -600,10 +601,6 @@ type App struct {
 	// bootPingMu serialises ensureBootPingScript runs (startup and every
 	// /admin/reload), so two of them can't race a PUT against a DELETE.
 	bootPingMu sync.Mutex
-
-	// reloadFileBaseURL is the config.json clock URL the last /admin/reload
-	// applied ("" = still deviceBaseline). Guarded by cfgMu.
-	reloadFileBaseURL string
 }
 
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
@@ -1300,17 +1297,18 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 	})
 }
 
-// loggingMiddleware writes one access-log line per request. Successful reads
-// log at Debug: the menu polls several GETs every few seconds, which at Info
-// would bury the transitions the log exists for. Writes and any status >= 400
-// stay at Info.
+// loggingMiddleware writes one access-log line per request. Successful
+// requests log at Debug (STYLE §7): the menu polls several GETs every few
+// seconds and producers heartbeat POST /v1/status every 2-10s, which at Info
+// would bury the transitions the log exists for. Handlers log their own
+// decisions (reload outcome, rejections). Any status >= 400 stays at Info.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 		level := slog.LevelInfo
-		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && rec.status < http.StatusBadRequest {
+		if rec.status < http.StatusBadRequest {
 			level = slog.LevelDebug
 		}
 		logger.Log(r.Context(), level, "http request", "method", r.Method, "path", r.URL.Path,
