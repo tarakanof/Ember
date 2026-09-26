@@ -19,7 +19,7 @@ struct AgentsPane: View {
     private func meta(_ card: String) -> (title: LocalizedStringKey, caption: LocalizedStringKey) {
         switch card {
         case "source": ("Source card", "Tool icon and machine name in the source color.")
-        case "usage-5h": ("5-hour usage", "Green under 70 %, amber, red from 90 %.")
+        case "usage-5h": ("5-hour usage", "Green under 70%, amber, red from 90%.")
         case "usage-reset": ("Reset clock", "Time until the 5-hour window resets.")
         case "usage-7d": ("7-day usage", "Weekly window usage.")
         case "usage-model-a": ("First model", "Per-model 5-hour usage, e.g. Opus.")
