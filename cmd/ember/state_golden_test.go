@@ -95,15 +95,15 @@ func TestStateGolden(t *testing.T) {
 	}
 }
 
-// seedState puts each seed into the app's session map aged by seed.age.
+// seedState upserts each seed through the session registry on a fake clock,
+// seed.age before the clock's final "now".
 func seedState(t *testing.T, app *App, seeds []stateSeed) {
 	t.Helper()
-	now := time.Now()
-	app.mu.Lock()
-	defer app.mu.Unlock()
+	clk := withSessionClock(app)
+	now := clk.Now()
 	for _, sd := range seeds {
-		s := sd.s
-		s.UpdatedAt = now.Add(-sd.age)
-		app.sessions[s.Key()] = s
+		setClock(clk, now.Add(-sd.age))
+		app.sessions.Upsert(sd.s)
 	}
+	setClock(clk, now)
 }

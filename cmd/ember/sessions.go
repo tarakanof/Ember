@@ -2,119 +2,86 @@ package main
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tarakanof/ember/internal/render"
+	"github.com/tarakanof/ember/internal/sessions"
 )
 
-// Upsert writes req into the session map and returns the resulting
-// Render plus the state the session held BEFORE this upsert ("" if
-// new). priorState is read and updated under a single App.mu acquisition
-// so concurrent POSTs for the same session never misclassify the
-// transition (a separate priorState+Upsert pair has a TOCTOU window
-// that would let request B's Upsert land between request A's priorState
-// read and its own Upsert).
-func (a *App) Upsert(req StatusRequest) (Render, string) {
-	session := req.normalized()
-	key := session.Key()
-	a.mu.Lock()
-	prior := ""
-	if existing, ok := a.sessions[key]; ok {
-		prior = existing.State
+// newSessionRegistry builds the session registry on clock now, with the
+// staleness policy read from the live config on every access, and every reap
+// logged and counted.
+func (a *App) newSessionRegistry(now func() time.Time) *sessions.Registry {
+	return sessions.New(now, a.sessionPolicy, a.onSessionReaped)
+}
+
+func (a *App) sessionPolicy() sessions.Policy {
+	d := a.cfg.Load().Display
+	return sessions.Policy{
+		StaleAfter: time.Duration(d.StaleSeconds) * time.Second,
+		DoneTTL:    time.Duration(d.DoneTTLSeconds) * time.Second,
 	}
-	a.sessions[key] = session
-	render := a.renderLocked(time.Now())
-	a.mu.Unlock()
-	return render, prior
+}
+
+func (a *App) onSessionReaped(r sessions.Reaped) {
+	a.metrics.incSessionEvicted()
+	a.logger.Warn("session reaped",
+		"source", r.Session.Source,
+		"tool", r.Session.Tool,
+		"session", r.Session.Session,
+		"state", r.Session.State,
+		"age_seconds", int(r.Age.Seconds()),
+	)
+}
+
+// Upsert stores req's session and returns the resulting /state Render plus
+// the state the session held before this upsert ("" if new). The registry
+// reads the prior state and writes under one lock, so concurrent POSTs for
+// the same session never misclassify the transition.
+func (a *App) Upsert(req StatusRequest) (Render, string) {
+	v, prior := a.sessions.Upsert(req.normalized())
+	return a.legacyRender(v), prior
 }
 
 func (a *App) Clear() Render {
-	a.mu.Lock()
-	clear(a.sessions)
-	render := a.renderLocked(time.Now())
-	a.mu.Unlock()
-	return render
+	return a.legacyRender(a.sessions.Clear())
 }
 
 func (a *App) Delete(key string) Render {
-	a.mu.Lock()
-	delete(a.sessions, key)
-	render := a.renderLocked(time.Now())
-	a.mu.Unlock()
-	return render
+	return a.legacyRender(a.sessions.Delete(key))
 }
 
+// Snapshot is the GET /state body and the coordinator's view of the sessions.
 func (a *App) Snapshot() Snapshot {
-	now := time.Now()
-	a.mu.Lock()
-	render := a.renderLocked(now)
-	sessions := make([]Session, 0, len(a.sessions))
-	for _, s := range a.sessions {
-		sessions = append(sessions, s)
-	}
-	a.mu.Unlock()
-
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
-	})
+	v := a.sessions.View()
 	return Snapshot{
-		Now:      now,
-		Sessions: sessions,
-		Render:   render,
+		Now:      v.Now,
+		Sessions: v.Sessions,
+		Render:   a.legacyRender(v),
 	}
 }
 
-func (a *App) renderLocked(now time.Time) Render {
-	cfg := a.cfg.Load()
-	staleAfter := time.Duration(cfg.Display.StaleSeconds) * time.Second
-	doneTTL := time.Duration(cfg.Display.DoneTTLSeconds) * time.Second
-	for key, session := range a.sessions {
-		age := now.Sub(session.UpdatedAt)
-		var reaped bool
-		switch session.State {
-		case "done", "error":
-			reaped = age > doneTTL
-		default:
-			reaped = age > staleAfter
-		}
-		if reaped {
-			a.metrics.incSessionEvicted()
-			a.logger.Warn("session reaped",
-				"source", session.Source,
-				"tool", session.Tool,
-				"session", session.Session,
-				"state", session.State,
-				"age_seconds", int(age.Seconds()),
-			)
-			delete(a.sessions, key)
-		}
-	}
-
-	sessions := make([]Session, 0, len(a.sessions))
-	count := make(map[string]int, 5)
-	for _, session := range a.sessions {
-		sessions = append(sessions, session)
-		count[session.State]++
-	}
-	waiting, running, errored, done := count["waiting"], count["running"], count["error"], count["done"]
+// legacyRender is the /state summary of v: the winner's label (or an
+// aggregate when its state group has two or more sessions), colour and
+// per-state counters.
+func (a *App) legacyRender(v sessions.View) Render {
+	waiting, running, errored, done := v.Count("waiting"), v.Count("running"), v.Count("error"), v.Count("done")
 	// Done sessions linger for display but no longer count as active.
 	activeTotal := waiting + running + errored
 
-	win, _, _ := render.PickWinning(sessions)
+	win := v.Winner()
 	if win == nil {
 		return Render{
-			Text:        cfg.Display.IdleText,
+			Text:        a.cfg.Load().Display.IdleText,
 			Color:       "#707070",
 			ActiveTotal: activeTotal,
 		}
 	}
 
 	text := perSessionLabel(*win)
-	if count[win.State] >= 2 {
+	if v.Count(win.State) >= 2 {
 		text = aggregateLabel(waiting, running, errored, done)
 	}
 

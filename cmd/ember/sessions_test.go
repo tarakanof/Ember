@@ -34,68 +34,69 @@ func TestWaitingStatusWinsOverRunningStatus(t *testing.T) {
 	}
 }
 
-func TestPerStateStalenessReapsActiveSessions(t *testing.T) {
+// withSessionClock swaps app's session registry for one on a fake clock.
+func withSessionClock(app *App) *fakeClock {
+	clk := newFakeClock()
+	app.sessions = app.newSessionRegistry(clk.Now)
+	return clk
+}
+
+func setClock(clk *fakeClock, at time.Time) {
+	clk.mu.Lock()
+	clk.now = at
+	clk.mu.Unlock()
+}
+
+func sessionKeys(snap Snapshot) map[string]bool {
+	out := make(map[string]bool, len(snap.Sessions))
+	for _, s := range snap.Sessions {
+		out[s.Key()] = true
+	}
+	return out
+}
+
+// The registry's policy comes from the live display config: stale_seconds for
+// active states, done_ttl_seconds for done/error. The per-state boundaries
+// are covered in internal/sessions; this pins the wiring.
+func TestSessionPolicyFollowsDisplayConfig(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Display.StaleSeconds = 25
 	cfg.Display.DoneTTLSeconds = 30
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
+	clk := withSessionClock(app)
 
-	// Inject a running session that's 26s old — should be reaped.
-	app.sessions["src/claude/x"] = Session{
-		Source: "src", Tool: "claude", Session: "x",
-		State:     "running",
-		UpdatedAt: time.Now().Add(-26 * time.Second),
-	}
-	// Inject a running session 24s old — should survive.
-	app.sessions["src/claude/y"] = Session{
-		Source: "src", Tool: "claude", Session: "y",
-		State:     "running",
-		UpdatedAt: time.Now().Add(-24 * time.Second),
-	}
-	app.Snapshot() // triggers reaping
+	app.Upsert(StatusRequest{Source: "src", Tool: "claude", Session: "run", State: "running"})
+	app.Upsert(StatusRequest{Source: "src", Tool: "claude", Session: "done", State: "done"})
+	clk.Advance(28 * time.Second)
 
-	if _, ok := app.sessions["src/claude/x"]; ok {
-		t.Errorf("expected src/claude/x to be reaped (26s > stale_seconds=25)")
+	got := sessionKeys(app.Snapshot())
+	if got["src/claude/run"] {
+		t.Errorf("running at 28s should be reaped (stale_seconds=25)")
 	}
-	if _, ok := app.sessions["src/claude/y"]; !ok {
-		t.Errorf("expected src/claude/y to survive (24s <= stale_seconds=25)")
+	if !got["src/claude/done"] {
+		t.Errorf("done at 28s should linger (done_ttl_seconds=30)")
+	}
+
+	// A hot-reloaded config applies on the next access.
+	app.updateConfig(func(c *Config) { c.Display.DoneTTLSeconds = 20 })
+	if sessionKeys(app.Snapshot())["src/claude/done"] {
+		t.Errorf("done at 28s should be reaped once done_ttl_seconds drops to 20")
 	}
 }
 
-func TestPerStateStalenessLingersDoneAndError(t *testing.T) {
+// Reaping is logged and counted whatever triggers it, not only a /state render.
+func TestSessionReapIsCountedWithoutRender(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Display.StaleSeconds = 25
-	cfg.Display.DoneTTLSeconds = 30
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
+	clk := withSessionClock(app)
 
-	// Done session 28s old (over StaleSeconds, under DoneTTL) — should survive.
-	app.sessions["src/claude/d"] = Session{
-		Source: "src", Tool: "claude", Session: "d",
-		State:     "done",
-		UpdatedAt: time.Now().Add(-28 * time.Second),
-	}
-	// Done session 31s old — over DoneTTL — should be reaped.
-	app.sessions["src/claude/e"] = Session{
-		Source: "src", Tool: "claude", Session: "e",
-		State:     "done",
-		UpdatedAt: time.Now().Add(-31 * time.Second),
-	}
-	// Error session 28s old — should survive (uses DoneTTL).
-	app.sessions["src/claude/f"] = Session{
-		Source: "src", Tool: "claude", Session: "f",
-		State:     "error",
-		UpdatedAt: time.Now().Add(-28 * time.Second),
-	}
-	app.Snapshot()
+	app.Upsert(StatusRequest{Source: "src", Tool: "claude", Session: "x", State: "running"})
+	clk.Advance(26 * time.Second)
+	app.Delete("unrelated/claude/key")
 
-	if _, ok := app.sessions["src/claude/d"]; !ok {
-		t.Errorf("done at 28s should linger (DoneTTL=30)")
-	}
-	if _, ok := app.sessions["src/claude/e"]; ok {
-		t.Errorf("done at 31s should be reaped (DoneTTL=30)")
-	}
-	if _, ok := app.sessions["src/claude/f"]; !ok {
-		t.Errorf("error at 28s should linger (DoneTTL=30)")
+	if got := app.metrics.sessionsEvicted.Load(); got != 1 {
+		t.Fatalf("sessionsEvicted = %d, want 1", got)
 	}
 }
 

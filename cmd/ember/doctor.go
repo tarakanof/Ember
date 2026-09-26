@@ -215,13 +215,12 @@ func checkCapabilities(app *App) CheckResult {
 }
 
 func checkSessionsSummary(app *App) CheckResult {
-	app.mu.Lock()
-	defer app.mu.Unlock()
-	total := len(app.sessions)
+	v := app.sessions.View()
+	total := len(v.Sessions)
 	byState := map[string]int{}
 	var oldest time.Time
-	now := time.Now()
-	for _, s := range app.sessions {
+	now := v.Now
+	for _, s := range v.Sessions {
 		byState[string(s.State)]++
 		if oldest.IsZero() || s.UpdatedAt.Before(oldest) {
 			oldest = s.UpdatedAt
