@@ -57,8 +57,7 @@ public final class ServerDiscovery {
                 // any other wait is transient and the browse keeps going. If
                 // results arrive anyway, the list is shown regardless of status.
                 case .waiting(let e), .failed(let e):
-                    if case .dns(let code) = e,
-                       code == DNSServiceErrorType(kDNSServiceErr_PolicyDenied) {
+                    if BonjourClockBrowser.isPolicyDenied(e) {
                         self?.status = .needsAccess
                     } else if case .failed = state {
                         self?.status = .unavailable

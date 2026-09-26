@@ -466,3 +466,10 @@ private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
     #expect(BonjourClockBrowser.browseState(for: .failed(.posix(.ENETDOWN))) == .failed)
     #expect(BonjourClockBrowser.browseState(for: .ready) == .ready)
 }
+
+/// On-device the denied browse failed with NoAuth (-65555), not PolicyDenied.
+@Test func noAuthBrowseFailureMeansLocalNetworkIsOff() {
+    let noAuth = NWError.dns(DNSServiceErrorType(kDNSServiceErr_NoAuth))
+    #expect(BonjourClockBrowser.browseState(for: .failed(noAuth)) == .denied)
+    #expect(BonjourClockBrowser.browseState(for: .waiting(noAuth)) == .denied)
+}
