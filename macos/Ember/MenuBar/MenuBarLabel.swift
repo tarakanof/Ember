@@ -15,7 +15,9 @@ import EmberKit
 ///
 /// The icon's colour and the bot's eyes are the only visual state cue, so
 /// VoiceOver gets it in words: label "Ember", value the menu's header
-/// ("Claude on m4 — Running", "Idle", "Offline").
+/// ("Claude on m4 — Running", "Idle", "Offline"). The value is set on the
+/// status item button itself (`StatusItemAccessibility`): `MenuBarExtra`
+/// forwards the label but not `accessibilityValue`.
 struct MenuBarLabel: View {
     let session: Session?
     let connection: ConnectionHealth
@@ -32,7 +34,17 @@ struct MenuBarLabel: View {
     var body: some View {
         icon
             .accessibilityLabel(Text("Ember"))
-            .accessibilityValue(Text(MenuRows.accessibilityValue(connection: connection, winning: session)))
+            .task(id: accessibilityValue) {
+                // The status bar window may not exist yet on the first pass.
+                for _ in 0..<20 {
+                    if StatusItemAccessibility.setValue(accessibilityValue) || Task.isCancelled { return }
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+    }
+
+    private var accessibilityValue: String {
+        String(localized: MenuRows.accessibilityValue(connection: connection, winning: session))
     }
 
     private var icon: Image {
