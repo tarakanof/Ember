@@ -129,9 +129,44 @@ private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:
     #expect(rows.count == 1)
     #expect(rows[0].fiveHour?.percent == 60)
     #expect(!rows[0].stale)
+    // The slow-moving parts survive the merge.
+    #expect(rows[0].models.map(\.name) == ["sonnet", "opus"])
+    let weekly: UsageSnapshot = decode(#"""
+    {"generated_at":"2026-09-26T10:30:00+02:00","stale_after_sec":600,"tools":[
+     {"tool":"claude","source":"statusline","updated_at":"2026-09-26T09:00:00+02:00","stale":true,
+      "five_hour":{"used_percent":90},"seven_day":{"used_percent":33,"resets_at":null,"reset_label":"FRI"},"models":{}}]}
+    """#)
+    let merged = UsageRow.rows(from: weekly, sessions: live, now: now)
+    #expect(merged.first?.fiveHour?.percent == 60)
+    #expect(merged.first?.sevenDay?.percent == 33)
     let kept = UsageRow.rows(from: stale, sessions: [], now: now)
     #expect(kept.first?.stale == true)
     #expect(kept.first?.fiveHour?.percent == 14)
+}
+
+@Test func usageSnapshotWindowPastItsResetCountsAsNone() {
+    // Fresh entry, but its 5h window reset at 10:00 and it's 10:00 now.
+    let over: UsageSnapshot = decode(#"""
+    {"generated_at":"2026-09-26T10:00:00+02:00","stale_after_sec":600,"tools":[
+     {"tool":"claude","source":"statusline","updated_at":"2026-09-26T09:59:00+02:00","stale":false,
+      "five_hour":{"used_percent":97,"resets_at":"2026-09-26T10:00:00+02:00","reset_label":"10:00"},
+      "seven_day":{"used_percent":33,"resets_at":null,"reset_label":"FRI"},"models":{}}]}
+    """#)
+    let live = [session("claude", pct: 4, resetAt: "2026-09-26T15:00:00+02:00")]
+    // Card: borrows the session's window, keeps the 7-day one.
+    let rows = UsageRow.rows(from: over, sessions: live, now: now)
+    #expect(rows.first?.fiveHour?.percent == 4)
+    #expect(rows.first?.sevenDay?.percent == 33)
+    // Without a session the 5h bar goes, the 7-day one stays.
+    let alone = UsageRow.rows(from: over, sessions: [], now: now)
+    #expect(alone.first?.fiveHour == nil)
+    #expect(alone.first?.sevenDay?.percent == 33)
+    // Menu: the same rule, then the session fallback.
+    let menu = MenuRows.usage(.loaded(over, at: now), sessions: live, now: now)
+    #expect(menu.count == 1)
+    #expect(String(localized: menu[0].text).contains("4"))
+    #expect(!String(localized: menu[0].text).contains("97"))
+    #expect(MenuRows.usage(.loaded(over, at: now), sessions: [], now: now).isEmpty)
 }
 
 @Test func usageFreshSnapshotWithoutFiveHourBorrowsTheSessionWindow() {

@@ -124,11 +124,12 @@ public enum MenuRows {
         var rows: [String: UsageRow] = [:]
         var covered = Set<String>()
         for t in usage.value?.tools ?? [] where !t.stale {
-            guard let w = t.fiveHour else { continue }
+            // A window whose reset has passed is over: no row from it, and
+            // the tool stays open to the session fallback.
+            guard let w = t.fiveHour, w.resetsAt.map({ $0 > now }) ?? true else { continue }
             covered.insert(t.tool)
             let reset: String?
             if let at = w.resetsAt {
-                guard at > now else { continue }
                 reset = resetText(at, now: now, locale: locale, timeZone: timeZone)
             } else {
                 reset = w.resetLabel.flatMap { SessionPresentation.displayText($0, maxLength: 24) }

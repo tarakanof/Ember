@@ -43,25 +43,36 @@ public struct UsageRow: Equatable, Sendable, Identifiable {
     /// The Usage card's rows: the snapshot's fresh tools, and for every
     /// other tool the `/state` session fallback the menu uses
     /// (`MenuRows.sessionFiveHour`: a known reset that hasn't passed yet).
-    /// A fresh entry without a 5-hour window borrows the session's; a stale
-    /// entry yields to the session row when there is one and is otherwise
-    /// kept, flagged stale. `snapshot` is nil on a server without
-    /// `GET /v1/usage`. Pass only live sessions (`MenuRows.liveSessions`).
+    /// A snapshot 5-hour window whose reset has passed is over and counts as
+    /// none (as in the menu). An entry without a 5-hour window, or a stale
+    /// one, takes the session's; with the session live the row is no longer
+    /// flagged stale, but its 7-day window and models are kept as they were
+    /// (they move slowly). A stale entry with no session window stays,
+    /// flagged. `snapshot` is nil on a server without `GET /v1/usage`. Pass
+    /// only live sessions (`MenuRows.liveSessions`).
     public static func rows(from snapshot: UsageSnapshot?, sessions: [Session], now: Date) -> [UsageRow] {
         var byTool: [String: UsageRow] = [:]
-        for row in snapshot.map(rows(from:)) ?? [] { byTool[row.tool] = row }
-        for row in rows(fromSessions: sessions, now: now) {
-            guard let current = byTool[row.tool], !current.stale else {
-                byTool[row.tool] = row
+        for row in snapshot.map(rows(from:)) ?? [] {
+            let over = row.fiveHour?.resetsAt.map { $0 <= now } ?? false
+            byTool[row.tool] = over ? row.with(fiveHour: nil) : row
+        }
+        for session in rows(fromSessions: sessions, now: now) {
+            guard let current = byTool[session.tool] else {
+                byTool[session.tool] = session
                 continue
             }
-            if current.fiveHour == nil {
-                byTool[row.tool] = UsageRow(tool: current.tool, source: current.source, fiveHour: row.fiveHour,
-                                            sevenDay: current.sevenDay, models: current.models,
-                                            updatedAt: current.updatedAt, stale: false)
+            if current.stale || current.fiveHour == nil {
+                byTool[session.tool] = current.with(fiveHour: session.fiveHour, stale: false)
             }
         }
-        return byTool.values.sorted { $0.tool < $1.tool }
+        return byTool.values
+            .filter { $0.fiveHour != nil || $0.sevenDay != nil || !$0.models.isEmpty }
+            .sorted { $0.tool < $1.tool }
+    }
+
+    private func with(fiveHour: Window?, stale: Bool? = nil) -> UsageRow {
+        UsageRow(tool: tool, source: source, fiveHour: fiveHour, sevenDay: sevenDay, models: models,
+                 updatedAt: updatedAt, stale: stale ?? self.stale)
     }
 
     /// Rows from `/state` sessions alone: each tool's 5-hour window per
