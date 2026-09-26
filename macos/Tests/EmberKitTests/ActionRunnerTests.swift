@@ -109,11 +109,42 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     #expect(live.displayPower == nil)
     await runner.run(.clock(.power(false)))
     #expect(live.displayPower == false)
-    #expect(!runner.isSettingDisplayPower)
+    #expect(runner.pendingDisplayPower == nil)
     // A reboot relights the matrix.
     await runner.run(.clock(.reboot))
     #expect(live.displayPower == true)
     #expect(server.requests.contains("POST /v1/device/reboot"))
+}
+
+/// Holds the stub's answer until released, from the handler's own thread.
+private final class Gate: @unchecked Sendable {
+    let sema = DispatchSemaphore(value: 0)
+    func wait() { sema.wait() }
+    func open() { sema.signal() }
+}
+
+@MainActor @Test func aWriteInFlightIsPendingAndALateOneIsDroppedAfterAReconnect() async {
+    let gate = Gate()
+    let client = stubbedClient { req in
+        if req.httpMethod == "PUT" { gate.wait() }
+        return (okResponse(req.url!), Data())
+    }
+    let live = LiveModel(now: { Date(timeIntervalSince1970: 50) }, makeCoordinator: {
+        RefreshCoordinator(fetch: $0, sleep: ManualClock().sleepFn, now: ManualClock().nowFn)
+    })
+    live.configure(client: client)
+    let runner = ActionRunner(live: live, connection: ServerConnection(read: { client }))
+    let write = Task { await runner.run(.clock(.power(false))) }
+    for _ in 0..<500 where runner.pendingDisplayPower == nil { await Task.yield() }
+    #expect(runner.pendingDisplayPower == false)
+    #expect(live.displayPower == nil)
+
+    // The user switches servers while the write is still out.
+    live.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    gate.open()
+    #expect(await write.value)
+    #expect(runner.pendingDisplayPower == nil)
+    #expect(live.displayPower == nil)
 }
 
 @MainActor @Test func aFailedPowerWriteKeepsTheLastValue() async {

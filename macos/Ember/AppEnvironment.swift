@@ -111,8 +111,7 @@ public final class AppEnvironment {
         actions = ActionRunner(live: live, connection: connection)
         envStore = EnvFileStore(path: producerEnvPath)
         settings = SettingsModels(client: client, envStore: envStore)
-        deviceSettings = DeviceSettingsModel(service: DeviceService(client: client))
-        deviceSettings.onDisplayPower = { [live] in live.reportDisplayPower($0) }
+        deviceSettings = DeviceSettingsModel(service: connection.device, live: live)
         reminderWatcher = ReminderWatcher(client: client)
         producers = ProducerInstallService(
             sm: RealSMAppService(),
@@ -176,7 +175,7 @@ public final class AppEnvironment {
         reminderWatcher.reconfigure(client: client)
         live.configure(client: client)
         settings.configure(client: client)
-        deviceSettings.configure(service: DeviceService(client: client))
+        deviceSettings.configure(service: connection.device)
     }
 
     /// Pauses polling while the Mac sleeps; wake refetches everything at once.

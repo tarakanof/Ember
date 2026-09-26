@@ -57,11 +57,16 @@ struct ClockCard: View {
             .labelStyle(.iconOnly)
             .fixedSize()
             if let power = actions.displayPower {
-                Toggle("Display", isOn: Binding(get: { power }, set: { actions.clock(.power($0)) }))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .disabled(actions.running.contains(.clock(.power(true)))
-                              || actions.running.contains(.clock(.power(false))))
+                // Shows the target at once; a failure ends the write and
+                // it falls back to the confirmed value.
+                let pending = actions.pendingDisplayPower
+                HStack(spacing: 6) {
+                    Toggle("Display", isOn: Binding(get: { pending ?? power }, set: { actions.clock(.power($0)) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .disabled(pending != nil)
+                    if pending != nil { ProgressView().controlSize(.mini) }
+                }
             }
         }
     }

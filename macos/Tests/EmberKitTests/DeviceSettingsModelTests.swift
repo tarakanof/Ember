@@ -205,22 +205,17 @@ private func ngServer() -> FakeClock {
     return f
 }
 
-/// What the model reported through `onDisplayPower`.
-@MainActor
-private final class PowerReports {
-    var values: [Bool] = []
-}
-
 @MainActor @Test func loadReadsEverythingSequentially() async {
     let fake = ngServer()
-    let (m, _) = makeModel(fake)
-    let reports = PowerReports()
-    m.onDisplayPower = { reports.values.append($0) }
+    let live = LiveModel()
+    live.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    let m = DeviceSettingsModel(service: DeviceService(client: stubbedClient(token: "t") { fake.handle($0) }),
+                                live: live, debounce: .milliseconds(600), sleep: ManualClock().sleepFn, now: { Date() })
     await m.load()
     #expect(m.isLoaded)
     #expect(m.supportsNG11)
     // #149: the overlay read's power goes to the one display-power value.
-    #expect(reports.values == [true])
+    #expect(live.displayPower == true)
     #expect(m.transitions == ["Fade"])
     #expect(m.overlays == ["rain"])
     #expect(m.config?.baseURL == "http://clock")

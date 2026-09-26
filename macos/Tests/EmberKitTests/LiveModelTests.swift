@@ -365,12 +365,19 @@ private func healthJSON(power: Bool, generated: Int, age: Int) -> Data {
     #expect(m.displayPower == false)
 
     now.value = Date(timeIntervalSince1970: 1_010)
-    m.reportDisplayPower(true)
+    m.reportDisplayPower(true, written: m.displayPowerTicket())
     #expect(m.displayPower == true)
 
     // 5 s later the server still serves a probe taken 20 s ago: ignored.
     now.value = Date(timeIntervalSince1970: 1_015)
     body.value = healthJSON(power: false, generated: 5_015, age: 20)
+    await m.refreshNow(.clockHealth)
+    #expect(m.displayPower == true)
+
+    // Whole-second wire times plus latency blur a probe's date by about a
+    // second: one dated within the margin after the write still loses.
+    now.value = Date(timeIntervalSince1970: 1_016)
+    body.value = healthJSON(power: false, generated: 5_016, age: 4)
     await m.refreshNow(.clockHealth)
     #expect(m.displayPower == true)
 
@@ -382,6 +389,40 @@ private func healthJSON(power: Bool, generated: Int, age: Int) -> Data {
     hold.cancel()
 
     m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    #expect(m.displayPower == nil)
+}
+
+@MainActor
+private func timedModel(_ now: Box<Date>) -> LiveModel {
+    let clock = ManualClock()
+    return LiveModel(now: { now.value }, makeCoordinator: {
+        RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
+    })
+}
+
+@MainActor @Test func aReadAWriteOvertookDoesNotWin() {
+    let now = Box(Date(timeIntervalSince1970: 1_000))
+    let m = timedModel(now)
+    m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    let read = m.displayPowerTicket()          // overlay GET issued
+    now.value = Date(timeIntervalSince1970: 1_001)
+    let write = m.displayPowerTicket()
+    now.value = Date(timeIntervalSince1970: 1_002)
+    m.reportDisplayPower(false, written: write)
+    now.value = Date(timeIntervalSince1970: 1_003)
+    m.reportDisplayPower(true, read: read)    // lands after, saw the old state
+    #expect(m.displayPower == false)
+}
+
+@MainActor @Test func aResultFromThePreviousServerIsDropped() {
+    let now = Box(Date(timeIntervalSince1970: 1_000))
+    let m = timedModel(now)
+    m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    let old = m.displayPowerTicket()
+    m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    now.value = Date(timeIntervalSince1970: 1_005)
+    m.reportDisplayPower(true, written: old)
+    m.reportDisplayPower(true, read: old)
     #expect(m.displayPower == nil)
 }
 

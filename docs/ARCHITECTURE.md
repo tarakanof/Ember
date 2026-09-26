@@ -274,8 +274,10 @@ restarts the clock and switches the display through it too), which keeps the
 last failure for 10 s and refreshes the feeds the action touched (stats follow
 a Pomodoro phase change). Display power is one value, `LiveModel.displayPower`:
 the newest of clock health's `matrixPower` (dated at probe time, so the
-server's 30 s probe cache can't undo a write), a successful power write or
-reboot, and Settings' overlay read. With no window open the app makes about 2,640 requests an hour:
+server's 30 s probe cache can't undo a write; it must be over 2 s newer to
+beat a report), a successful power write or reboot, and Settings' overlay read
+(dated when issued). Results from a previous server are dropped. While a write
+is in flight the switches show its target (`ActionRunner.pendingDisplayPower`). With no window open the app makes about 2,640 requests an hour:
 1,200 each to `/state` and `/v1/pomodoro/state`, 60 each to stats, usage,
 meetings and apps (the old poller made about 4,800, 1,200 of them stats).
 

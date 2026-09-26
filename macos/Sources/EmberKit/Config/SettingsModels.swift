@@ -79,6 +79,7 @@ public final class SettingsModels {
     @discardableResult
     public func configure(client: APIClient) -> Bool {
         let next = ServerIdentity(client)
+        // Defensive: `ServerConnection.reload` already decides when to call.
         guard next != server else { return false }
         server = next
         for m in [pomodoro, weather, meetings, usage, quiet, display] as [any PendingSaveCancelling] {

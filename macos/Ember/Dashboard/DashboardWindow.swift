@@ -66,7 +66,7 @@ struct DashboardWindow: View {
         async let pomodoro: Void = env.settings.pomodoro.load()
         async let meetings: Void = env.settings.meetings.load()
         _ = await (pomodoro, meetings)
-        clockWebURL = try? await DeviceService(client: env.connection.client).config().webURL
+        clockWebURL = try? await env.connection.device.config().webURL
     }
 
     private func refresh() {
@@ -149,7 +149,8 @@ struct LiveDashboardSource: DashboardSource, Equatable {
     var actions: DashboardActions {
         let runner = env.actions
         return DashboardActions(clock: { action in Task { await runner.run(.clock(action)) } },
-                                running: runner.running, displayPower: env.live.displayPower)
+                                running: runner.running, displayPower: env.live.displayPower,
+                                pendingDisplayPower: runner.pendingDisplayPower)
     }
 }
 

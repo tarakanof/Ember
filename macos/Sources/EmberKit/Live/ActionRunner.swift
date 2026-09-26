@@ -50,9 +50,13 @@ public final class ActionRunner {
     public private(set) var lastError: Failure?
     /// Actions currently running, so a view can disable a button meanwhile.
     public private(set) var running: Set<EmberAction> = []
-    /// A display on/off write is in flight.
-    public var isSettingDisplayPower: Bool {
-        running.contains(.clock(.power(true))) || running.contains(.clock(.power(false)))
+    /// The state an in-flight display write is setting, nil when none is.
+    /// Switches show it at once (`pendingDisplayPower ?? live.displayPower`);
+    /// a failure simply ends it, and `displayPower` never moved.
+    public var pendingDisplayPower: Bool? {
+        if running.contains(.clock(.power(true))) { return true }
+        if running.contains(.clock(.power(false))) { return false }
+        return nil
     }
 
     @ObservationIgnored private let live: LiveModel
@@ -81,8 +85,9 @@ public final class ActionRunner {
         self.sleep = sleep
     }
 
-    private static func perform(_ action: EmberAction, on client: APIClient) async throws {
-        let device = DeviceService(client: client)
+    private static func perform(_ action: EmberAction, on connection: ServerConnection) async throws {
+        let client = connection.client
+        let device = connection.device
         switch action {
         case .pomodoro(let a): try await client.send("POST", "/v1/pomodoro/\(a.rawValue)")
         case .setApp(let name, let enabled): try await client.put("/v1/apps", body: SetAppRequest(app: name, enabled: enabled))
@@ -101,14 +106,17 @@ public final class ActionRunner {
         running.insert(action)
         defer { running.remove(action) }
         var ok = false
+        // Taken before the request: a write that returns after a reconnect
+        // says nothing about the new server's clock.
+        let ticket = live.displayPowerTicket()
         do {
-            try await Self.perform(action, on: connection.client)
+            try await Self.perform(action, on: connection)
             ok = true
             if lastError?.action == action { lastError = nil }
             switch action {
-            case .clock(.power(let on)): live.reportDisplayPower(on)
+            case .clock(.power(let on)): live.reportDisplayPower(on, written: ticket)
             // A reboot relights the matrix.
-            case .clock(.reboot): live.reportDisplayPower(true)
+            case .clock(.reboot): live.reportDisplayPower(true, written: ticket)
             default: break
             }
         } catch {

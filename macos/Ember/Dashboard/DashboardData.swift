@@ -101,6 +101,8 @@ struct DashboardActions {
     var running: Set<EmberAction> = []
     /// Whether the matrix is lit (`LiveModel.displayPower`); nil hides the switch.
     var displayPower: Bool?
+    /// The state an in-flight display write is setting (`ActionRunner`).
+    var pendingDisplayPower: Bool?
 }
 
 /// Copy shared by the cards whose routes arrived with the dashboard API.

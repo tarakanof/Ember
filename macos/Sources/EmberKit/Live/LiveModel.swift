@@ -48,16 +48,45 @@ public final class LiveModel {
     /// power write, a reboot or a direct read. nil until one of them says.
     public var displayPower: Bool? {
         switch (healthPower, reportedPower) {
-        case let (h?, r?): r.at >= h.at ? r.on : h.on
+        // The health reading must be clearly newer: its dating is only good
+        // to about a second (the wire times are whole seconds, plus latency).
+        case let (h?, r?): h.at > r.at + Self.healthPowerMargin ? h.on : r.on
         case let (h?, nil): h.on
         case let (nil, r?): r.on
         case (nil, nil): nil
         }
     }
 
-    /// Records the matrix state a write or a direct read just saw.
-    public func reportDisplayPower(_ on: Bool) {
-        reportedPower = PowerObservation(on: on, at: clock())
+    static let healthPowerMargin: TimeInterval = 2
+
+    /// Taken when a power write or a direct read is issued, and handed back
+    /// with its result: a result for a server this model no longer talks to
+    /// is dropped, and a read is dated when it was asked.
+    public struct DisplayPowerTicket: Sendable, Equatable {
+        fileprivate let generation: Int
+        fileprivate let issuedAt: Date
+    }
+
+    public func displayPowerTicket() -> DisplayPowerTicket {
+        DisplayPowerTicket(generation: generation, issuedAt: clock())
+    }
+
+    /// A write (or reboot) left the matrix `on`: true from the moment it
+    /// returned.
+    public func reportDisplayPower(_ on: Bool, written ticket: DisplayPowerTicket) {
+        recordPower(on, at: clock(), ticket)
+    }
+
+    /// A direct read saw `on`. Dated when it was issued, so a write that
+    /// landed while the read was in flight stays newer.
+    public func reportDisplayPower(_ on: Bool, read ticket: DisplayPowerTicket) {
+        recordPower(on, at: ticket.issuedAt, ticket)
+    }
+
+    private func recordPower(_ on: Bool, at: Date, _ ticket: DisplayPowerTicket) {
+        guard ticket.generation == generation else { return }
+        if let current = reportedPower, current.at > at { return }
+        reportedPower = PowerObservation(on: on, at: at)
     }
 
     private struct PowerObservation: Equatable {
@@ -125,6 +154,8 @@ public final class LiveModel {
     /// menu and bot don't blink back to "Connecting…".
     public func configure(client: APIClient) {
         let identity = ServerIdentity(client)
+        // `ServerConnection.reload` is the authoritative identity check; this
+        // one only keeps a direct caller (tests) idempotent.
         guard identity != server else { return }
         server = identity
         generation += 1

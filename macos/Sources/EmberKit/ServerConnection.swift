@@ -12,6 +12,8 @@ public final class ServerConnection {
     public private(set) var client: APIClient
     /// The configured server, nil when producer.env has none.
     public var serverURL: URL? { client.baseURL }
+    /// The clock routes (`/v1/device/*`) on the current server.
+    public var device: DeviceService { DeviceService(client: client) }
 
     @ObservationIgnored private let read: () -> APIClient
 
@@ -29,7 +31,9 @@ public final class ServerConnection {
         client = read()
     }
 
-    /// Re-reads producer.env. Returns true when the URL or token changed; a
+    /// Re-reads producer.env. The authoritative identity check: consumers'
+    /// own `configure` guards are only defensive. Returns true when the URL or
+    /// token changed; a
     /// save that keeps both (the source name or colour) keeps the client, so
     /// nothing downstream resets.
     @discardableResult

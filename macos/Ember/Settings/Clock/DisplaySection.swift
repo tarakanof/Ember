@@ -11,10 +11,18 @@ struct DisplaySection: View {
         Section {
             // The same switch and value as the menu and the Dashboard.
             if device.supportsControlRoutes, let power = env.live.displayPower {
-                Toggle("Display on", isOn: Binding(
-                    get: { power },
-                    set: { on in Task { await env.actions.run(.clock(.power(on))) } }))
-                    .disabled(env.actions.isSettingDisplayPower)
+                // Shows the target at once; a failure ends the write and the
+                // switch falls back to the confirmed value.
+                let pending = env.actions.pendingDisplayPower
+                Toggle(isOn: Binding(
+                    get: { pending ?? power },
+                    set: { on in Task { await env.actions.run(.clock(.power(on))) } })) {
+                    HStack(spacing: 6) {
+                        Text("Display on")
+                        if pending != nil { ProgressView().controlSize(.mini) }
+                    }
+                }
+                .disabled(pending != nil)
             }
             Toggle("Automatic brightness", isOn: s.binding(\.autoBrightness, false))
             PercentSliderRow(title: "Brightness", percent: Binding(
