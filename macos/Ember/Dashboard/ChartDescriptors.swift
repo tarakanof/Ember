@@ -19,7 +19,7 @@ struct WeekBarsDescriptor: AXChartDescriptorRepresentable {
                                             dataPoints: zip(names, bars.bars).map { AXDataPoint(x: $0, y: Double($1.focusMin)) })
         var summary = String(localized: "\(DurationText.minutes(bars.totalMinutes)) of focus over 7 days.")
         if let goal = bars.goalMinutes, let met = bars.daysAtGoal {
-            summary += " " + String(localized: "Goal \(DurationText.minutes(goal)) a day, met on \(met) days.")
+            summary += " " + inflected("Goal \(DurationText.minutes(goal)) a day, met on ^[\(met) day](inflect: true).")
         }
         return AXChartDescriptor(title: String(localized: "Last 7 days"), summary: summary,
                                  xAxis: x, yAxis: y, additionalAxes: [], series: [series])
@@ -54,7 +54,12 @@ struct WorkHoursDescriptor: AXChartDescriptorRepresentable {
     func makeChartDescriptor() -> AXChartDescriptor {
         let names = chart.rows.map(label)
         let x = AXCategoricalDataAxisDescriptor(title: String(localized: "Day"), categoryOrder: names)
-        let hour: (Double) -> String = { String(format: "%02d:%02d", Int($0) % 24, Int(($0 * 60).rounded()) % 60) }
+        let hour: (Double) -> String = { value in
+            let minutes = Int((value * 60).rounded())
+            let d = Calendar.current.date(bySettingHour: (minutes / 60) % 24, minute: minutes % 60, second: 0,
+                                          of: DashboardReference.day) ?? DashboardReference.day
+            return d.formatted(date: .omitted, time: .shortened)
+        }
         let y = AXNumericDataAxisDescriptor(title: String(localized: "Hour of day"),
                                             range: chart.hourDomain, gridlinePositions: [], valueDescriptionProvider: hour)
         let starts = AXDataSeriesDescriptor(name: String(localized: "Start"), isContinuous: false,
@@ -68,9 +73,10 @@ struct WorkHoursDescriptor: AXChartDescriptorRepresentable {
 
 struct HeatmapDescriptor: AXChartDescriptorRepresentable {
     let grid: HeatmapGrid
+    let hourName: (Int) -> String
 
     func makeChartDescriptor() -> AXChartDescriptor {
-        let hours = (0..<24).map { String(format: "%02d:00", $0) }
+        let hours = (0..<24).map(hourName)
         let x = AXCategoricalDataAxisDescriptor(title: String(localized: "Hour"), categoryOrder: hours)
         let y = AXNumericDataAxisDescriptor(title: String(localized: "Focus minutes"),
                                             range: 0...Double(max(grid.maxMinutes, 1)), gridlinePositions: []) {
@@ -110,4 +116,9 @@ struct AgentTimeDescriptor: AXChartDescriptorRepresentable {
                                  summary: String(localized: "\(DurationText.minutes(Int(chart.totalMinutes))) over 7 days."),
                                  xAxis: x, yAxis: y, additionalAxes: [], series: series)
     }
+}
+
+/// A localized string with automatic grammar agreement ("1 day", "2 days").
+func inflected(_ resource: LocalizedStringResource) -> String {
+    String(AttributedString(localized: resource).characters)
 }

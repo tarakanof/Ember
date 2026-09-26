@@ -14,22 +14,22 @@ private struct CardPreview<Content: View>: View {
 }
 
 #Preview("Dashboard — established") {
-    ScrollView { DashboardContent(data: f.established) }.frame(width: 980, height: 1800)
+    ScrollView { DashboardContent(source: f.established) }.frame(width: 980, height: 1800)
 }
 #Preview("Dashboard — new user") {
-    ScrollView { DashboardContent(data: f.newUser) }.frame(width: 760, height: 2200)
+    ScrollView { DashboardContent(source: f.newUser) }.frame(width: 760, height: 2200)
 }
 #Preview("Dashboard — old server") {
-    ScrollView { DashboardContent(data: f.oldServer) }.frame(width: 980, height: 1800)
+    ScrollView { DashboardContent(source: f.oldServer) }.frame(width: 980, height: 1800)
 }
 #Preview("Dashboard — Pomodoro off") {
-    ScrollView { DashboardContent(data: f.pomodoroOff) }.frame(width: 980, height: 1800)
+    ScrollView { DashboardContent(source: f.pomodoroOff) }.frame(width: 980, height: 1800)
 }
 #Preview("Dashboard — offline") {
-    ScrollView { DashboardContent(data: f.offline) }.frame(width: 980, height: 1800)
+    ScrollView { DashboardContent(source: f.offline) }.frame(width: 980, height: 1800)
 }
 #Preview("Dashboard — loading") {
-    ScrollView { DashboardContent(data: f.loading) }.frame(width: 980, height: 1800)
+    ScrollView { DashboardContent(source: f.loading) }.frame(width: 980, height: 1800)
 }
 
 #Preview("Clock") {

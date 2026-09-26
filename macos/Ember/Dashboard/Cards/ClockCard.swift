@@ -10,11 +10,15 @@ struct ClockCard: View {
 
     var body: some View {
         DashboardCard(title: "Clock", systemImage: "clock", height: DashboardCardHeight.mirror) {
-            HStack(alignment: .center, spacing: 20) {
+            // Mirror and controls as one centred group: the matrix is 4:1,
+            // so on a wide card extra width would only be empty space.
+            HStack(alignment: .center, spacing: 24) {
                 mirror
+                    .frame(maxWidth: 600)
                 controls
-                    .frame(width: 170, alignment: .leading)
+                    .fixedSize()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } accessory: {
             if let at = screen.loadedAt, screen.isStale { StaleChip(since: at) }
         }
@@ -33,7 +37,6 @@ struct ClockCard: View {
                         .foregroundStyle(.white.opacity(0.7))
                 }
             }
-            .frame(maxWidth: .infinity)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Clock display")
             .accessibilityValue(Text(appName ?? (screen.value == nil ? "Not available" : "")))

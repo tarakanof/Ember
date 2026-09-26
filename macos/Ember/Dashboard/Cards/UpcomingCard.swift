@@ -10,10 +10,8 @@ struct UpcomingCard: View {
 
     var body: some View {
         DashboardCard(title: "Upcoming", systemImage: "calendar") {
-            FeedStateView(feed: feed, placeholder: Self.placeholder, isEmpty: \.isEmpty,
-                          emptyTitle: "Nothing in the next 36 hours", emptySymbol: "calendar",
-                          offTitle: "Meetings and reminders are off",
-                          offSettingsPane: "calendar") { items in
+            FeedStateView(feed: model(), placeholder: Self.placeholder, isEmpty: \.isEmpty,
+                          emptyTitle: "Nothing in the next 36 hours", emptySymbol: "calendar") { items in
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
                         row(item)
@@ -25,15 +23,14 @@ struct UpcomingCard: View {
     }
 
     /// Reminders are local, so a meetings failure only matters when there's
-    /// nothing else to show.
-    private var feed: Loadable<[UpcomingItem]> {
+    /// nothing else to show. The card is hidden while both sources are off,
+    /// so meetings being off just leaves the reminders.
+    private func model() -> Loadable<[UpcomingItem]> {
         let merge = { (m: MeetingsState?) in
             UpcomingItem.merge(meetings: m?.upcoming ?? [], reminders: reminders, now: now)
         }
         if meetingsEnabled == false || meetings.error == .featureOff {
-            return reminders.isEmpty && meetingsEnabled == false
-                ? .failed(.featureOff, last: nil, lastAt: nil)
-                : .loaded(merge(nil), at: now)
+            return .loaded(merge(nil), at: now)
         }
         if meetings.value == nil, !reminders.isEmpty { return .loaded(merge(nil), at: now) }
         return meetings.map { merge($0) }

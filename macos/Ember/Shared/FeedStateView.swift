@@ -23,6 +23,7 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
     var emptySymbol: String = "tray"
     var offTitle: LocalizedStringKey = "Needs a newer server"
     var offDescription: LocalizedStringKey? = nil
+    var offSymbol: String = "power"
     /// Settings pane ("focus") the off state's button opens; no button if nil.
     var offSettingsPane: String? = nil
     var showsStaleChip = true
@@ -54,7 +55,7 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
             // Even with an old value: the feature was turned off, the old
             // numbers aren't "stale", they're gone (the Dock menu agrees).
             ContentUnavailableView {
-                Label(offTitle, systemImage: "power")
+                Label(offTitle, systemImage: offSymbol)
             } description: {
                 if let offDescription { Text(offDescription) }
             } actions: {

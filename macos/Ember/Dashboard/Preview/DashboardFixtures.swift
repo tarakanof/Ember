@@ -91,6 +91,7 @@ enum DashboardFixtures {
     /// The server went away a few minutes ago: every card keeps its last value.
     static var stale: DashboardData {
         var d = established
+        d.connection = .offline(since: now.addingTimeInterval(-180))
         let since = now.addingTimeInterval(-180)
         d.snapshot = d.snapshot.afterFailure(.offline)
         d.stats = .failed(.offline, last: d.stats.value, lastAt: since)
@@ -102,6 +103,7 @@ enum DashboardFixtures {
     /// Unreachable from launch: nothing ever loaded.
     static var offline: DashboardData {
         var d = DashboardData()
+        d.connection = .offline(since: now.addingTimeInterval(-600))
         d.snapshot = .failed(.offline, last: nil, lastAt: nil)
         d.pomodoro = .failed(.offline, last: nil, lastAt: nil)
         d.stats = .failed(.offline, last: nil, lastAt: nil)

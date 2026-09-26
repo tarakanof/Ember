@@ -7,17 +7,14 @@ struct AgentTimeCard: View {
     let activity: Loadable<ActivitySummary>
     var calendar = Calendar.current
 
-    private var feed: Loadable<AgentTimeChart> {
-        activity.map { AgentTimeChart(summary: $0, calendar: calendar) }
-    }
-
     var body: some View {
+        let feed = activity.map { AgentTimeChart(summary: $0, calendar: calendar) }
         DashboardCard(title: "Agent time", systemImage: "cpu") {
-            FeedStateView(feed: feed, isEmpty: \.isEmpty,
+            FeedStateView(feed: feed, placeholder: AgentTimeChart(summary: DashboardPlaceholders.activity, calendar: calendar),
+                          isEmpty: \.isEmpty,
                           emptyTitle: "No agent activity this week", emptySymbol: "cpu",
-                          offTitle: "Needs server 0.28",
-                          offDescription: "Update the Ember server to see agent time.") { c in
-                chart(c)
+                          offTitle: ServerRequirement.title, offSymbol: ServerRequirement.symbol) { c in
+                FocusTintReader { tint in chart(c, redacted: tint.redacted) }
             }
         } accessory: {
             if let c = feed.value, !c.isEmpty {
@@ -26,7 +23,7 @@ struct AgentTimeCard: View {
         }
     }
 
-    private func chart(_ c: AgentTimeChart) -> some View {
+    private func chart(_ c: AgentTimeChart, redacted: Bool) -> some View {
         let top = WeekBars.axisTop(Int((c.dailyTotals.map(\.minutes).max() ?? 0).rounded(.up)))
         return Chart(c.segments) { s in
             BarMark(x: .value("Day", s.date, unit: .day),
@@ -35,7 +32,10 @@ struct AgentTimeCard: View {
                 .foregroundStyle(by: .value("Source", s.source))
         }
         .chartForegroundStyleScale(domain: c.sources.map(\.name),
-                                   range: c.sources.map { EmberColors.hex($0.colorHex, fallback: .accentColor) })
+                                   range: c.sources.enumerated().map { i, s in
+                                       redacted ? Color.secondary.opacity(i == 0 ? 0.35 : 0.2)
+                                                : EmberColors.hex(s.colorHex, fallback: .accentColor)
+                                   })
         .chartYScale(domain: 0...top)
         .chartXScale(domain: DayRange.domain(c.days, calendar: calendar))
         .chartXAxis {

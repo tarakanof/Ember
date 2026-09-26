@@ -61,6 +61,7 @@ private struct EmberCommands: Commands {
         CommandGroup(after: .toolbar) {
             Button("Refresh") {
                 Task {
+                    NotificationCenter.default.post(name: .emberRefreshRequested, object: nil)
                     await env.live.refreshNow()
                     if env.isSettingsOpen {
                         await env.settings.loadAll()

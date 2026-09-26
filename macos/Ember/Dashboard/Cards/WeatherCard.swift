@@ -9,10 +9,9 @@ struct WeatherCard: View {
 
     var body: some View {
         DashboardCard(title: "Weather", systemImage: "cloud.sun") {
-            FeedStateView(feed: weather, isEmpty: { $0.current == nil },
+            FeedStateView(feed: weather, placeholder: DashboardPlaceholders.weather, isEmpty: { $0.current == nil },
                           emptyTitle: "No observation yet", emptySymbol: "cloud.sun",
-                          offTitle: "Needs server 0.28",
-                          offDescription: "Update the Ember server to see the weather here.") { w in
+                          offTitle: ServerRequirement.title, offSymbol: ServerRequirement.symbol) { w in
                 content(w)
             }
         } accessory: {

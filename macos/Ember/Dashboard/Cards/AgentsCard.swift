@@ -6,18 +6,21 @@ struct AgentsCard: View {
     let snapshot: Loadable<Snapshot>
     var now = Date()
 
-    private var table: Loadable<AgentsTable> { snapshot.map { AgentsTable(sessions: $0.sessions) } }
-
     /// A wide card sits in its own row, so it can hug a short table instead
     /// of showing a mostly empty one; it grows to the standard wide height.
-    private var height: CGFloat {
-        guard let n = table.value?.rows.count, n > 0 else { return DashboardCardHeight.standard }
+    private func height(_ table: Loadable<AgentsTable>) -> CGFloat {
+        guard let n = (table.value ?? (table.isLoading ? Self.placeholder : nil))?.rows.count, n > 0 else {
+            return DashboardCardHeight.standard
+        }
         return min(DashboardCardHeight.wide, 96 + CGFloat(n) * 28)
     }
 
+    private static let placeholder = AgentsTable(sessions: DashboardPlaceholders.snapshot.sessions)
+
     var body: some View {
-        DashboardCard(title: "Agents", systemImage: "sparkles", height: height) {
-            FeedStateView(feed: table, isEmpty: \.isEmpty,
+        let table = snapshot.map { AgentsTable(sessions: $0.sessions) }
+        DashboardCard(title: "Agents", systemImage: "sparkles", height: height(table)) {
+            FeedStateView(feed: table, placeholder: Self.placeholder, isEmpty: \.isEmpty,
                           emptyTitle: "No active sessions", emptySymbol: "sparkles") { t in
                 SessionsTable(rows: t.rows, now: now)
             }

@@ -10,6 +10,7 @@ struct FocusCard: View {
     var now = Date()
 
     var body: some View {
+        let feed = model()
         DashboardCard(title: "Focus", systemImage: "timer") {
             FeedStateView(feed: feed, placeholder: Self.placeholder,
                           isEmpty: \.isEmpty,
@@ -25,7 +26,7 @@ struct FocusCard: View {
 
     /// The timer state wins over stats for the off state: both are 404 when
     /// Pomodoro is off, but the timer loads first.
-    private var feed: Loadable<FocusSummary> {
+    private func model() -> Loadable<FocusSummary> {
         if pomodoro.error == .featureOff || stats.error == .featureOff {
             return .failed(.featureOff, last: nil, lastAt: nil)
         }
@@ -104,9 +105,9 @@ struct FocusCard: View {
                 if let goal {
                     Text(s.dailyGoalMet ? "Daily goal met" : "\(max(0, goal - done)) to go today")
                         .font(.title3.weight(.semibold))
-                    Text("Goal: \(goal) sessions a day").font(.callout).foregroundStyle(.secondary)
+                    Text("Goal: ^[\(goal) session](inflect: true) a day").font(.callout).foregroundStyle(.secondary)
                 } else {
-                    Text("\(done) sessions today").font(.title3.weight(.semibold))
+                    Text("^[\(done) session](inflect: true) today").font(.title3.weight(.semibold))
                     Text("No daily goal set").font(.callout).foregroundStyle(.secondary)
                 }
             }
@@ -125,7 +126,7 @@ struct FocusCard: View {
     }
 
     private func streakText(_ s: FocusSummary) -> String {
-        String(localized: "\(s.streak) days")
+        inflected("^[\(s.streak) day](inflect: true)")
     }
 
     private func ringTint(_ s: FocusSummary) -> Color {

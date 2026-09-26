@@ -6,14 +6,13 @@ struct ClockHealthCard: View {
     let health: Loadable<ClockHealth>
     var webURL: URL?
     var now = Date()
-    var openURL: (URL) -> Void = { _ in }
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         DashboardCard(title: "Clock health", systemImage: "stethoscope") {
-            FeedStateView(feed: health, isEmpty: { $0.device == nil },
+            FeedStateView(feed: health, placeholder: DashboardPlaceholders.clockHealth, isEmpty: { $0.device == nil },
                           emptyTitle: "No clock configured", emptySymbol: "clock.badge.questionmark",
-                          offTitle: "Needs server 0.28",
-                          offDescription: "Update the Ember server to see clock health.") { h in
+                          offTitle: ServerRequirement.title, offSymbol: ServerRequirement.symbol) { h in
                 content(h)
             }
         } accessory: {
