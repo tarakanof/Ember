@@ -58,8 +58,7 @@ import Foundation
 
 // The server holds the fire request while it pushes to the clock (up to 10s);
 // the default 5s/10s session would time out and misreport a delivered popup.
-@Test func slowSessionOutlastsTheServersClockPush() {
-    let client = APIClient(baseURL: URL(string: "http://example.invalid"), token: nil)
-    #expect(client.slowSession.configuration.timeoutIntervalForRequest > 10)
-    #expect(client.slowSession.configuration.timeoutIntervalForResource > 10)
+@Test func fireBudgetOutlastsTheServersClockPush() {
+    #expect(RequestBudget.clockLong.requestTimeout > 10)
+    #expect(RequestBudget.clockLong.resourceTimeout > 10)
 }

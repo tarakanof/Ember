@@ -1,7 +1,9 @@
 import Foundation
 
 /// Typed wrapper over the server's /v1/device/* proxy endpoints (clock settings,
-/// display/apps/capabilities, stats, actions, and discovery/config).
+/// display/apps/capabilities, stats, actions, and discovery/config). Every call
+/// the server passes to the clock gets a clock budget (`RequestBudget`); only
+/// the clock-URL config, which never touches the clock, keeps the server one.
 public struct DeviceService: Sendable, Equatable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
@@ -13,80 +15,80 @@ public struct DeviceService: Sendable, Equatable {
     }
 
     public func settings() async throws -> DeviceSettings {
-        try await client.get("/v1/device/settings")
+        try await client.get("/v1/device/settings", budget: .clock)
     }
     public func update(_ patch: DeviceSettings) async throws {
-        try await client.put("/v1/device/settings", body: patch)
+        try await client.put("/v1/device/settings", body: patch, budget: .clockLong)
     }
     /// Writes only the given keys; `.null` resets a per-app colour to inherit
     /// (see `DeviceSettings.patch(from:)`).
     public func update(patch: [String: JSONValue]) async throws {
-        try await client.put("/v1/device/settings", body: JSONValue.object(patch))
+        try await client.put("/v1/device/settings", body: JSONValue.object(patch), budget: .clockLong)
     }
     /// NG's ambient-weather overlay (GET/PUT /v1/device/display).
     public func display() async throws -> DeviceDisplay {
-        try await client.get("/v1/device/display")
+        try await client.get("/v1/device/display", budget: .clock)
     }
     public func updateDisplay(_ patch: DeviceDisplay) async throws {
-        try await client.put("/v1/device/display", body: patch)
+        try await client.put("/v1/device/display", body: patch, budget: .clock)
     }
     /// Blanks (false) or relights (true) the LED matrix. Runtime-only: a clock
     /// reboot relights it.
     public func setDisplayPower(_ on: Bool) async throws {
-        try await client.put("/v1/device/display/power", body: DisplayPowerUpdate(power: on))
+        try await client.put("/v1/device/display/power", body: DisplayPowerUpdate(power: on), budget: .clock)
     }
     /// Plays the server's built-in test chime, or previews a melody stored on
     /// the clock. 503 when the clock has no buzzer.
     public func playTestChime(melody: String? = nil) async throws {
         if let melody {
-            try await client.post("/v1/device/audio/test", body: AudioTestRequest(melody: melody))
+            try await client.post("/v1/device/audio/test", body: AudioTestRequest(melody: melody), budget: .clock)
         } else {
-            try await client.send("POST", "/v1/device/audio/test")
+            try await client.send("POST", "/v1/device/audio/test", budget: .clock)
         }
     }
     /// Silences every sound output on the clock.
     public func stopAudio() async throws {
-        try await client.send("POST", "/v1/device/audio/stop")
+        try await client.send("POST", "/v1/device/audio/stop", budget: .clock)
     }
     /// Melodies stored on the clock, for melody pickers. 503 when the clock has
     /// no buzzer; 404 on a server that predates the route.
     public func melodies() async throws -> DeviceMelodyList {
-        try await client.get("/v1/device/audio/melodies")
+        try await client.get("/v1/device/audio/melodies", budget: .clock)
     }
     /// The clock's native apps (Time, Date, Temperature, Humidity, Battery, and
     /// any pushed/scripted app) with their enabled/inLoop state.
     public func apps() async throws -> [AppInfo] {
-        try await client.get("/v1/device/apps")
+        try await client.get("/v1/device/apps", budget: .clock)
     }
     /// Replaces AWTRIX3's TIM/DAT/TEMP/HUM/BAT toggles: sets the native-app
     /// display order and which ones are disabled.
     public func updateApps(_ patch: AppsUpdate) async throws {
-        try await client.put("/v1/device/apps", body: patch)
+        try await client.put("/v1/device/apps", body: patch, budget: .clock)
     }
     /// The device's live effect/transition/overlay/palette catalogue, used to
     /// feed pickers instead of a hardcoded table. Pinned server contract; a 404
     /// from an older server (or one still bringing this endpoint up) should be
     /// handled by the caller falling back to DeviceKnownValues.fallbackTransitions.
     public func capabilities() async throws -> DeviceCapabilities {
-        try await client.get("/v1/device/capabilities")
+        try await client.get("/v1/device/capabilities", budget: .clock)
     }
     public func stats() async throws -> DeviceStats {
-        try await client.get("/v1/device/stats")
+        try await client.get("/v1/device/stats", budget: .clock)
     }
     /// The calibration offsets on the clock's system object (nil = firmware
     /// default). Applies live — no reboot.
     public func sensors() async throws -> SensorCalibration {
-        try await client.get("/v1/device/sensors")
+        try await client.get("/v1/device/sensors", budget: .clock)
     }
     /// Writes the offsets into the clock's system object. Applies live — no
     /// reboot follows.
     public func updateSensors(_ cal: SensorCalibration) async throws {
-        try await client.put("/v1/device/sensors", body: cal)
+        try await client.put("/v1/device/sensors", body: cal, budget: .clockLong)
     }
     /// The clock's live framebuffer: 24-bit RGB ints, row-major. NG wraps the
     /// pixel array in {"width","height","pixels"}; this unwraps it.
     public func screen() async throws -> [Int] {
-        let frame: ScreenFrame = try await client.get("/v1/device/screen")
+        let frame: ScreenFrame = try await client.get("/v1/device/screen", budget: .clock)
         return frame.pixels
     }
     /// Fallback for servers that predate /v1/device/screen: read the clock's
@@ -102,18 +104,18 @@ public struct DeviceService: Sendable, Equatable {
         return try JSONDecoder().decode(ScreenFrame.self, from: data).pixels
     }
     public func reboot() async throws {
-        try await client.send("POST", "/v1/device/reboot")
+        try await client.send("POST", "/v1/device/reboot", budget: .clock)
     }
     public func dismiss() async throws {
-        try await client.send("POST", "/v1/device/notify/dismiss")
+        try await client.send("POST", "/v1/device/notify/dismiss", budget: .clock)
     }
     /// Advance the clock to the next app in its rotation (AWTRIX /api/nextapp).
     public func nextApp() async throws {
-        try await client.send("POST", "/v1/device/app/next")
+        try await client.send("POST", "/v1/device/app/next", budget: .clock)
     }
     /// Step the clock back to the previous app (AWTRIX /api/previousapp).
     public func previousApp() async throws {
-        try await client.send("POST", "/v1/device/app/previous")
+        try await client.send("POST", "/v1/device/app/previous", budget: .clock)
     }
 
     public func config() async throws -> DeviceConfig {
@@ -125,17 +127,17 @@ public struct DeviceService: Sendable, Equatable {
     public func discover() async throws -> DiscoverResult {
         // The server browses mDNS for 3s (plus a 3s UDP fallback when that finds
         // nothing), then probes candidates for up to 2s: up to ~8s.
-        try await client.get("/v1/device/discover", slow: true)
+        try await client.get("/v1/device/discover", budget: .clock)
     }
     public func buttons() async throws -> ButtonStatus {
-        try await client.get("/v1/device/buttons")
+        try await client.get("/v1/device/buttons", budget: .clock)
     }
     /// Sets (enabled:true) or clears (enabled:false) the clock's buttonCallback
     /// so it points at this server — one click instead of hand-editing the
     /// clock's system config. Re-fetches the status so the caller sees the
     /// clock's confirmed state.
     public func updateButtons(enabled: Bool) async throws -> ButtonStatus {
-        try await client.put("/v1/device/buttons", body: ButtonsUpdate(enabled: enabled))
+        try await client.put("/v1/device/buttons", body: ButtonsUpdate(enabled: enabled), budget: .clockLong)
         return try await buttons()
     }
 }

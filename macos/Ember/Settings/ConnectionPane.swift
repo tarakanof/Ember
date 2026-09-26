@@ -142,6 +142,10 @@ struct ConnectionPane: View {
                 Label { Text("Unreachable") } icon: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
                 }
+            case .timedOut:
+                Label { Text("Not responding", comment: "Connection status: the server didn't answer in time.") } icon: {
+                    Image(systemName: "clock.badge.exclamationmark").foregroundStyle(.orange)
+                }
             case .localNetworkDenied:
                 HStack(spacing: 8) {
                     Label { Text("Local Network access off") } icon: {

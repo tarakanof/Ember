@@ -376,7 +376,7 @@ public final class LiveModel {
             } catch {
                 guard gen == generation else { return }
                 switch FeedError(error) {
-                case .offline, .localNetworkDenied, .rateLimited: break
+                case .offline, .timedOut, .localNetworkDenied, .rateLimited: break
                 // The server answered without a version (a rollback to one
                 // without the route, say): don't keep showing the old one.
                 default:

@@ -11,6 +11,7 @@ import EmberKit
 /// | 404/405 (feature off, old server) | the off message and its Settings button, even with an old value |
 /// | offline/server error/429 with a value | `content` plus a stale chip (none for 429) |
 /// | offline, no value | "Server unreachable" |
+/// | timed out, no value | "Server not responding" |
 /// | Local Network denied, no value | "Local Network access is off" |
 /// | server error, no value | "Server error" with its message |
 /// | 429, no value | a spinner (a retry is already scheduled) |
@@ -73,6 +74,11 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(.offline, nil, _):
             ContentUnavailableView("Server unreachable", systemImage: "network.slash")
+        case .failed(.timedOut, nil, _):
+            ContentUnavailableView {
+                Label { Text("Server not responding", comment: "Title shown in place of content: the server didn't answer in time.") }
+                    icon: { Image(systemName: "clock.badge.exclamationmark") }
+            }
         case .failed(.localNetworkDenied, nil, _):
             ContentUnavailableView("Local Network access is off", systemImage: "wifi.exclamationmark")
         case .failed(let error, nil, _):

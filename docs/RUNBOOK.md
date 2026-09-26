@@ -247,7 +247,10 @@ reasons says so instead of "Server unreachable": URLSession reports it as
 the path "unsatisfied (Local network prohibited)" (`LocalNetworkDenial`).
 Read those in the unified log with `/usr/bin/log show --predicate 'process ==
 "Ember"' --last 1h | grep -i "local network prohibited"` (plain `log` is a zsh
-builtin).
+builtin). The same places say "not responding" / "The server didn't answer
+in time" when a request timed out (5 s for plain server calls, 12 s or 35 s
+for calls that reach the clock; see `RequestBudget`) rather than failing to
+connect: the server may be up and waiting on the clock.
 
 **Release note for the first release with fixed helper identifiers**
 (`com.ember.claude-producer`, `com.ember.codex-producer`): existing installs

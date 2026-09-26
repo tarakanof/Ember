@@ -124,6 +124,21 @@ The aggregator and the only writer to the device.
   - the `/api/v1/system` read-merge-PUT (`updateSystem`, serialised; a
     waiter whose request is cancelled stops waiting).
 
+  The app's side of these budgets is `RequestBudget` in EmberKit's
+  `APIClient` (request / whole-request timeout): `.server` 5 s / 10 s for
+  server-only work (`/healthz`, `/state`, settings), so a dead server shows
+  fast; `.clock` 12 s / 15 s for one clock call through the server (above
+  `callMenu`'s 8 s, and discovery's ~8 s); `.clockLong` 35 s / 40 s for
+  requests that chain clock calls or wait on one (sensors/buttons
+  read-merge-PUT plus re-read, a settings edit that can re-write over a
+  Pomodoro restore, a reminder fire), above the server's 30 s
+  `WriteTimeout`. `DeviceService` picks one per call (pinned by
+  `RequestBudgetTests`). Change a server budget here, check the app's. A
+  timeout (`URLError.timedOut`) maps to `APIError`/`FeedError.timedOut`,
+  shown as "The server didn't answer in time" / "not responding", not as
+  "unreachable", which stays for requests that never left (refused, no
+  route, DNS); a Local Network refusal is checked first and wins.
+
   Server-initiated writes cross the `Publisher` seam. Its real adapter,
   `clockPublisher` (one field: the `clockAccess`), is built only by
   `NewApp(cfg, nil, …)` and wrapped in `quietPublisher` at once. Tests pass a
@@ -584,8 +599,8 @@ Consequence: reminders fire only while the Mac is awake and Ember is running (th
 Linux server can't read Apple Reminders). Each POST carries an `Idempotency-Key`
 header (the occurrence's `id|due` key); the server remembers keys for 10 min and
 answers a repeat with 200 without pushing again (a failed push releases the key).
-The app waits up to 20s for the answer (the server holds the request while it
-pushes to the clock, up to 10s) and retries on the next poll, inside the grace
+The app waits up to 35s for the answer (`RequestBudget.clockLong`; the server
+holds the request while it pushes to the clock, up to 10s) and retries on the next poll, inside the grace
 window, only when the failure proves nothing was sent: connection refused/no
 route, 429, or another 4xx. A timeout or 5xx (e.g. 502 after a lost clock ack)
 may have rung the clock, so it is not retried. The scheduler logs through
