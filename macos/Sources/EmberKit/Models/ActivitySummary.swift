@@ -2,8 +2,9 @@ import Foundation
 
 /// GET /v1/activity/summary — agent activity per tool and per source.
 public struct ActivitySummary: Decodable, Sendable, Equatable {
-    /// One rollup row. `key` is the tool or source name, nil on a window total;
-    /// `sourceColor` ("#RRGGBB") is set on by-source rows when known.
+    /// One rollup row. `key` is the tool or source name, nil on a window total.
+    /// `sourceColor` ("#RRGGBB") only exists on by-source rows, where the server
+    /// sends null until the source posts a colour; it is always nil elsewhere.
     public struct Totals: Decodable, Sendable, Equatable, Identifiable {
         public var key: String?
         public var sourceColor: String?

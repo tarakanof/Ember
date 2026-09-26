@@ -28,17 +28,17 @@
     "by_source": [
       {
         "key": "m5",
-        "source_color": "#FF8800",
         "active_sec": 600,
         "sessions": 1,
-        "attention": 0
+        "attention": 0,
+        "source_color": "#FF8800"
       },
       {
         "key": "m4",
-        "source_color": "#00C8C8",
         "active_sec": 240,
         "sessions": 1,
-        "attention": 1
+        "attention": 1,
+        "source_color": "#00C8C8"
       }
     ]
   },
@@ -67,17 +67,17 @@
     "by_source": [
       {
         "key": "m5",
-        "source_color": "#FF8800",
         "active_sec": 2400,
         "sessions": 2,
-        "attention": 0
+        "attention": 0,
+        "source_color": "#FF8800"
       },
       {
         "key": "m4",
-        "source_color": "#00C8C8",
         "active_sec": 240,
         "sessions": 1,
-        "attention": 1
+        "attention": 1,
+        "source_color": "#00C8C8"
       }
     ]
   },

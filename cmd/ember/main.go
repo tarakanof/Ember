@@ -1586,7 +1586,11 @@ func main() {
 	}
 
 	app := NewApp(cfg, publisher, logger)
-	app.firmware.url = ngReleasesURL
+	// The dashboard's "update available" badge looks up the latest awtrix-ng
+	// release on GitHub; EMBER_FIRMWARE_CHECK=0 keeps the server offline.
+	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) {
+		app.firmware.url = ngReleasesURL
+	}
 	app.configPath = configPath
 	app.configSource = configSource
 
@@ -1645,7 +1649,7 @@ func main() {
 	// Advertise the server over mDNS so the macOS app can discover it (requires
 	// host/macvlan networking to reach the LAN). Non-fatal; off via
 	// EMBER_MDNS_ADVERTISE=0.
-	if discovery.AdvertiseEnabled(os.Getenv("EMBER_MDNS_ADVERTISE")) {
+	if envEnabled(os.Getenv("EMBER_MDNS_ADVERTISE")) {
 		if port, perr := discovery.PortFromAddr(cfg.HTTP.Addr); perr == nil {
 			ver := app.versionInfo.Revision
 			if ver == "" {

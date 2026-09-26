@@ -635,7 +635,8 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
 - **`GET /v1/activity/summary?days=7`** (1..90, per-IP rate-limited) — agent
   activity from the `activity` table: `today` and `period` windows with
   `total`/`by_tool`/`by_source` rows (`active_sec`, `sessions`, `attention`;
-  source rows carry `source_color`), plus zero-filled `daily` (per tool) and
+  source rows carry `source_color`, explicit `null` when unknown, as in
+  `daily_by_source`), plus zero-filled `daily` (per tool) and
   `daily_by_source` series. Active time counts **running/error rows only**
   (producers re-post an unanswered waiting marker for hours), reuses the
   work-hours span reconstruction (rows ≤ 5 min apart form a span) and unions
@@ -659,7 +660,10 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   traffic on the clock's lossy Wi-Fi and a disconnecting viewer can't cache
   "unreachable". `latest_firmware`/`update_available` come from GitHub's
   awtrix-ng latest-release API: the server's only call to the internet for this.
-  It runs at most every 6 h, 30 min after a failure, and fails soft to `null`.
+  A background goroutine does the lookup (single in-flight), so the endpoint
+  serves the cached answer and never waits. It runs at most every 6 h, 30 min
+  after a failure (logged at Warn), fails soft to `null`, and is off with
+  `EMBER_FIRMWARE_CHECK=0`.
   The clock's IP, SSID host, UID, hostname and button presses are not served.
 
 Wire conventions (for Swift's `JSONDecoder` `.iso8601` and Swift Charts):

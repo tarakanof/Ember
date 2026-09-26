@@ -198,6 +198,8 @@ func TestDashboardGolden(t *testing.T) {
 	clock := ngHealthClock(t, &clockHits)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
 	app.firmware.url = ngReleases(t, "v1.1.2", &releaseHits).URL
+	app.firmware.cached(goldenNow, nil) // prime the background lookup
+	app.firmware.wg.Wait()
 	for range 3 {
 		app.metrics.incPublishOK()
 	}
@@ -287,6 +289,43 @@ func TestActivitySummaryExcludesWaitingFromActiveTime(t *testing.T) {
 	}
 	if c := out.DailyBySource[0].SourceColor; c == nil || *c != "#00C8C8" {
 		t.Errorf("m4 colour = %v, want #00C8C8", c)
+	}
+}
+
+// A source with no remembered colour reads source_color: null in both
+// by_source and daily_by_source, so clients handle one convention.
+func TestActivitySummaryUnknownSourceColorIsExplicitNull(t *testing.T) {
+	app := newPomodoroApp(t)
+	start := logicalDayStart(goldenNow, app.cfg.Load().Pomodoro.DayStartHour, goldenZone).Add(time.Hour)
+	for i := 0; i <= 3; i++ {
+		if err := app.store.RecordActivity(start.Add(time.Duration(2*i)*time.Minute), "ci", "codex", "ci/codex/s1", "running"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := app.buildActivitySummary(goldenNow, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Today struct {
+			BySource []map[string]any `json:"by_source"`
+		} `json:"today"`
+		DailyBySource []map[string]any `json:"daily_by_source"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		t.Fatal(err)
+	}
+	for name, rows := range map[string][]map[string]any{"by_source": wire.Today.BySource, "daily_by_source": wire.DailyBySource} {
+		if len(rows) != 1 {
+			t.Fatalf("%s = %v, want one row", name, rows)
+		}
+		if v, present := rows[0]["source_color"]; !present || v != nil {
+			t.Errorf("%s source_color = %v (present=%v), want explicit null", name, v, present)
+		}
 	}
 }
 
@@ -401,6 +440,7 @@ func TestClockHealthCachesTheDeviceProbe(t *testing.T) {
 	for range 3 {
 		getOpen(t, srv, "/v1/clock/health")
 	}
+	app.firmware.wg.Wait()
 	if n := hits.Load(); n != 1 {
 		t.Errorf("clock probed %d times for 3 requests, want 1 (cached)", n)
 	}
@@ -436,13 +476,52 @@ func TestClockHealthFirmwareLookupFailsSoft(t *testing.T) {
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = dead })
 	app.firmware.url = down.URL
 
-	out := app.buildClockHealth(t.Context(), goldenNow)
+	app.buildClockHealth(t.Context(), goldenNow)
+	app.firmware.wg.Wait()
+	out := app.buildClockHealth(t.Context(), goldenNow.Add(time.Minute))
+	app.firmware.wg.Wait()
 	if out.LatestFirmware != nil || out.UpdateAvailable != nil {
 		t.Errorf("latest/update = %v/%v, want null on a failed lookup", out.LatestFirmware, out.UpdateAvailable)
 	}
-	app.buildClockHealth(t.Context(), goldenNow.Add(time.Minute))
 	if n := hits.Load(); n != 1 {
 		t.Errorf("lookups = %d, want 1 (a failure backs off %v)", n, firmwareCheckRetry)
+	}
+}
+
+// The GitHub lookup runs off the request path: a slow or hung API must not
+// delay /v1/clock/health, which serves the cached answer meanwhile.
+func TestClockHealthNeverWaitsOnTheReleaseLookup(t *testing.T) {
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		_, _ = w.Write([]byte(`{"tag_name":"v1.1.2"}`))
+	}))
+	defer slow.Close()
+	app := newPomodoroApp(t)
+	dead := closedURL(t)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = dead })
+	app.firmware.url = slow.URL
+
+	if out := app.buildClockHealth(t.Context(), goldenNow); out.LatestFirmware != nil {
+		t.Errorf("latest_firmware = %v before the lookup finished, want null", *out.LatestFirmware)
+	}
+	close(release)
+	app.firmware.wg.Wait()
+	out := app.buildClockHealth(t.Context(), goldenNow.Add(time.Minute))
+	if out.LatestFirmware == nil || *out.LatestFirmware != "1.1.2" {
+		t.Errorf("latest_firmware = %v after the lookup, want 1.1.2", out.LatestFirmware)
+	}
+}
+
+func TestClockHealthFirmwareCheckDisabledMakesNoCall(t *testing.T) {
+	app := newPomodoroApp(t)
+	dead := closedURL(t)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = dead })
+	// app.firmware.url stays "", as main leaves it when EMBER_FIRMWARE_CHECK=0.
+	out := app.buildClockHealth(t.Context(), goldenNow)
+	app.firmware.wg.Wait()
+	if out.LatestFirmware != nil || out.UpdateAvailable != nil || app.firmware.inFlight || !app.firmware.at.IsZero() {
+		t.Errorf("disabled check: latest=%v update=%v attempted=%v", out.LatestFirmware, out.UpdateAvailable, !app.firmware.at.IsZero())
 	}
 }
 

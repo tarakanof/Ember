@@ -165,23 +165,30 @@ func (m *sourceColorMemo) lookup(source string) *string {
 	return nil
 }
 
-// activityTotalsOut is one rollup row. Key is the tool or source name and is
-// omitted on the window total; SourceColor is set on by_source rows when known.
+// activityTotalsOut is one rollup row. Key is the tool name and is omitted on
+// the window total.
 type activityTotalsOut struct {
-	Key         string  `json:"key,omitempty"`
-	SourceColor *string `json:"source_color,omitempty"`
-	ActiveSec   int     `json:"active_sec"`
-	Sessions    int     `json:"sessions"`
-	Attention   int     `json:"attention"` // waiting episodes (agent asked for input)
+	Key       string `json:"key,omitempty"`
+	ActiveSec int    `json:"active_sec"`
+	Sessions  int    `json:"sessions"`
+	Attention int    `json:"attention"` // waiting episodes (agent asked for input)
+}
+
+// activitySourceTotalsOut is a by_source row: Key is the source name and
+// SourceColor is "#RRGGBB", or null until the source posts one — the same
+// convention as daily_by_source.
+type activitySourceTotalsOut struct {
+	activityTotalsOut
+	SourceColor *string `json:"source_color"`
 }
 
 // activityWindowOut summarises the heartbeats in [from, to).
 type activityWindowOut struct {
-	From     time.Time           `json:"from"`
-	To       time.Time           `json:"to"`
-	Total    activityTotalsOut   `json:"total"`
-	ByTool   []activityTotalsOut `json:"by_tool"`   // most active first
-	BySource []activityTotalsOut `json:"by_source"` // most active first
+	From     time.Time                 `json:"from"`
+	To       time.Time                 `json:"to"`
+	Total    activityTotalsOut         `json:"total"`
+	ByTool   []activityTotalsOut       `json:"by_tool"`   // most active first
+	BySource []activitySourceTotalsOut `json:"by_source"` // most active first
 }
 
 // activityToolDay is one (day, tool) bar for a stacked daily chart.
@@ -235,18 +242,24 @@ func activityBySource(r pomodoro.ActivityRecord) string { return r.Source }
 func activityAll(pomodoro.ActivityRecord) string        { return "" }
 
 // activityGroups flattens a rollup into rows, most active first.
-func activityGroups(m map[string]pomodoro.ActivityTotals, color func(string) *string) []activityTotalsOut {
+func activityGroups(m map[string]pomodoro.ActivityTotals) []activityTotalsOut {
 	out := make([]activityTotalsOut, 0, len(m))
 	for k, t := range m {
-		row := activityTotalsOut{Key: k, ActiveSec: t.ActiveSec, Sessions: t.Sessions, Attention: t.Attention}
-		if color != nil {
-			row.SourceColor = color(k)
-		}
-		out = append(out, row)
+		out = append(out, activityTotalsOut{Key: k, ActiveSec: t.ActiveSec, Sessions: t.Sessions, Attention: t.Attention})
 	}
 	slices.SortFunc(out, func(x, y activityTotalsOut) int {
 		return cmp.Or(cmp.Compare(y.ActiveSec, x.ActiveSec), cmp.Compare(x.Key, y.Key))
 	})
+	return out
+}
+
+// sourceGroups is activityGroups for sources, adding each source's colour.
+func (a *App) sourceGroups(m map[string]pomodoro.ActivityTotals) []activitySourceTotalsOut {
+	rows := activityGroups(m)
+	out := make([]activitySourceTotalsOut, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, activitySourceTotalsOut{activityTotalsOut: r, SourceColor: a.sourceColors.lookup(r.Key)})
+	}
 	return out
 }
 
@@ -263,8 +276,8 @@ func (a *App) activityWindow(acts []pomodoro.ActivityRecord, from, to time.Time,
 		From:     wireTime(from, loc),
 		To:       wireTime(to, loc),
 		Total:    activityTotalsOut{ActiveSec: total.ActiveSec, Sessions: total.Sessions, Attention: total.Attention},
-		ByTool:   activityGroups(pomodoro.SummarizeActivity(in, activityByTool, activitySpanGap, dayStartHour, loc), nil),
-		BySource: activityGroups(pomodoro.SummarizeActivity(in, activityBySource, activitySpanGap, dayStartHour, loc), a.sourceColors.lookup),
+		ByTool:   activityGroups(pomodoro.SummarizeActivity(in, activityByTool, activitySpanGap, dayStartHour, loc)),
+		BySource: a.sourceGroups(pomodoro.SummarizeActivity(in, activityBySource, activitySpanGap, dayStartHour, loc)),
 	}
 }
 
@@ -281,15 +294,16 @@ func (a *App) buildActivitySummary(now time.Time, days int) (activitySummaryOut,
 	}
 
 	period := a.activityWindow(acts, periodStart, now, p.DayStartHour)
-	keys := func(rows []activityTotalsOut) []string {
-		out := make([]string, 0, len(rows))
-		for _, g := range rows {
-			out = append(out, g.Key)
-		}
-		slices.Sort(out)
-		return out
+	tools := make([]string, 0, len(period.ByTool))
+	for _, g := range period.ByTool {
+		tools = append(tools, g.Key)
 	}
-	tools, sources := keys(period.ByTool), keys(period.BySource)
+	slices.Sort(tools)
+	sources := make([]string, 0, len(period.BySource))
+	for _, g := range period.BySource {
+		sources = append(sources, g.Key)
+	}
+	slices.Sort(sources)
 	byTool := pomodoro.DailyActivity(acts, activityByTool, activitySpanGap, p.DayStartHour, loc)
 	bySource := pomodoro.DailyActivity(acts, activityBySource, activitySpanGap, p.DayStartHour, loc)
 

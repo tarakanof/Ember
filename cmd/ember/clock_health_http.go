@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -85,21 +86,27 @@ func (p *publishWindow) last24h(now time.Time) (ok, fail int64) {
 	return ok, fail
 }
 
-// firmwareCheck caches the latest awtrix-ng release version. The zero value is
-// ready to use and disabled (url empty).
+// firmwareCheck caches the latest awtrix-ng release version. Lookups run in
+// a background goroutine so /v1/clock/health never waits on GitHub. The zero
+// value is ready to use and disabled (url empty).
 type firmwareCheck struct {
-	mu     sync.Mutex // protects all fields; held across a lookup to single-flight it
-	url    string     // "" disables the lookup
-	client *http.Client
-	at     time.Time // last attempt
-	ok     bool      // last attempt succeeded
-	latest string    // "1.1.2", from the release tag
+	mu       sync.Mutex // protects the fields below
+	url      string     // "" disables the lookup (EMBER_FIRMWARE_CHECK=0, tests)
+	client   *http.Client
+	at       time.Time // last attempt started
+	ok       bool      // last attempt succeeded
+	latest   string    // "1.1.2", from the release tag
+	inFlight bool      // a refresh goroutine is running
+
+	wg sync.WaitGroup // tracks the refresh goroutine; tests Wait on it
 }
 
-// latestVersion returns the newest released firmware version, or "" when the
-// check is disabled or hasn't succeeded yet. It fails soft: any error keeps
-// the previous answer and retries after firmwareCheckRetry.
-func (f *firmwareCheck) latestVersion(ctx context.Context, now time.Time) string {
+// cached returns the newest known firmware version ("" when disabled or not
+// yet looked up) and, when the cached answer is due for renewal, starts one
+// background refresh. It never blocks on the network. Failures keep the
+// previous answer, log once per attempt (at most every firmwareCheckRetry),
+// and retry after that window.
+func (f *firmwareCheck) cached(now time.Time, logger *slog.Logger) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.url == "" {
@@ -109,20 +116,34 @@ func (f *firmwareCheck) latestVersion(ctx context.Context, now time.Time) string
 	if f.ok {
 		wait = firmwareCheckTTL
 	}
-	if !f.at.IsZero() && now.Sub(f.at) < wait {
-		return f.latest
-	}
-	f.at = now
-	v, err := f.fetch(ctx)
-	f.ok = err == nil
-	if err == nil {
-		f.latest = v
+	if !f.inFlight && (f.at.IsZero() || now.Sub(f.at) >= wait) {
+		f.inFlight = true
+		f.at = now
+		f.wg.Add(1)
+		go f.refresh(logger)
 	}
 	return f.latest
 }
 
+// refresh performs one lookup and records the result. The goroutine is bounded
+// by firmwareCheckTimeout.
+func (f *firmwareCheck) refresh(logger *slog.Logger) {
+	defer f.wg.Done()
+	v, err := f.fetch(context.Background())
+	f.mu.Lock()
+	f.inFlight = false
+	f.ok = err == nil
+	if err == nil {
+		f.latest = v
+	}
+	f.mu.Unlock()
+	if err != nil && logger != nil {
+		logger.Warn("firmware release lookup failed", "err", err, "retry_in", firmwareCheckRetry.String())
+	}
+}
+
 func (f *firmwareCheck) fetch(ctx context.Context) (string, error) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), firmwareCheckTimeout)
+	ctx, cancel := context.WithTimeout(ctx, firmwareCheckTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.url, nil)
 	if err != nil {
@@ -237,7 +258,8 @@ type clockHealthOut struct {
 	Publish     publishHealthOut `json:"publish"`
 	Device      *clockDeviceOut  `json:"device"` // null when no clock is configured
 	// LatestFirmware is the newest awtrix-ng release ("1.1.2"), looked up on
-	// GitHub at most every 6h; null when unknown (offline, rate-limited).
+	// GitHub in the background at most every 6h; null when unknown (the first
+	// request after start, offline, rate-limited, or EMBER_FIRMWARE_CHECK=0).
 	LatestFirmware *string `json:"latest_firmware"`
 	// UpdateAvailable compares LatestFirmware with device.firmware; null when
 	// either is unknown.
@@ -340,7 +362,7 @@ func (a *App) buildClockHealth(ctx context.Context, now time.Time) clockHealthOu
 		d.CheckedAt = wireTime(d.CheckedAt, loc)
 		out.Device = &d
 	}
-	out.LatestFirmware = optString(a.firmware.latestVersion(ctx, now))
+	out.LatestFirmware = optString(a.firmware.cached(now, a.logger))
 	if out.LatestFirmware != nil && out.Device != nil && out.Device.Firmware != nil {
 		if newer, ok := versionNewer(*out.LatestFirmware, *out.Device.Firmware); ok {
 			out.UpdateAvailable = &newer
