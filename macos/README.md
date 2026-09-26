@@ -44,13 +44,18 @@ xcodebuild -project macos/Ember.xcodeproj -scheme Ember \
 Local Release build for installing on a Mac without a Developer ID:
 
 ```sh
-scripts/local-signing-identity.sh   # once: self-signed "Ember Local Signing" identity
-scripts/build-local.sh              # builds, signs with it, runs verify-bundle.sh
+security find-identity -v -p codesigning                  # find your "Apple Development" SHA-1
+echo <SHA-1> > ~/.config/ember/signing-identity           # once (mkdir -p ~/.config/ember first)
+scripts/build-local.sh                                    # builds, signs with it, runs verify-bundle.sh
 ```
 
-Signing with one stable identity keeps the Local Network permission across
-rebuilds; an ad-hoc build loses it each time. See the RUNBOOK's "Local install
-without a Developer ID".
+Without an Apple Development certificate, run `scripts/local-signing-identity.sh`
+once instead: it creates a self-signed "Ember Local Signing" identity that
+`build-local.sh` uses when no identity is configured.
+
+Signing with one stable identity keeps the Local Network permission (and
+Little Snitch rules) across rebuilds; an ad-hoc build loses it each time. See
+the RUNBOOK's "Local install without a Developer ID".
 
 ## Configuration
 

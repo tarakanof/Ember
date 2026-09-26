@@ -105,33 +105,58 @@ ad-hoc signed app's requirement is its cdhash, so every rebuild is a new
 program to macOS: Bonjour browsing fails with `NoAuth (-65555)` and LAN
 connections fail with "Network is down", even right after you turn Ember on
 in System Settings › Privacy & Security › Local Network. Sign local builds
-with one self-signed certificate instead, and the requirement becomes
-`identifier "com.ember.Ember" and certificate leaf = H"<sha1>"`, the same on
-every rebuild:
+with one stable identity instead, and the requirement stays the same on
+every rebuild.
+
+*Recommended: your Apple Development certificate.* If Xcode has signed you in
+to an Apple account, the login keychain holds an "Apple Development: <name>
+(<id>)" identity. List them with `security find-identity -v -p codesigning`
+and pick yours by SHA-1: several identities can share a name (one per team),
+and a name matching more than one is refused. Save the SHA-1 once:
 
 ```sh
-scripts/local-signing-identity.sh          # once: creates "Ember Local Signing" in the login keychain
-scripts/build-local.sh                     # Release build into /tmp/ember-local-build, signed with it
+mkdir -p ~/.config/ember
+echo <SHA-1> > ~/.config/ember/signing-identity     # once; EMBER_SIGNING_IDENTITY overrides it
+scripts/local-signing-identity.sh --check           # shows which identity local builds sign with
+scripts/build-local.sh                              # Release build into /tmp/ember-local-build, signed with it
 osascript -e 'quit app "Ember"'
 ditto /tmp/ember-local-build/Build/Products/Release/Ember.app /Applications/Ember.app
-open /Applications/Ember.app               # approve Local Network one last time
+open /Applications/Ember.app                        # approve Local Network one last time
 ```
 
-The certificate is self-signed and untrusted on purpose: no admin password and
-no trust-settings change; `codesign` signs with it anyway and a locally built
-app never meets Gatekeeper. `build-local.sh` builds ad-hoc (Xcode only accepts
-trusted identities) and then re-signs the bundle inside-out with the identity,
-keeping hardened runtime and the helpers' `com.ember.*` identifiers.
-`scripts/verify-bundle.sh` prints which identity signed the app and its
-designated requirement (ad-hoc means re-approval after each rebuild). An Xcode
-build whose configured Developer ID is missing signs the producer helpers with
-the local identity when it exists, ad-hoc otherwise. `--check` reports whether
-the identity exists, `--remove` deletes it; `EMBER_SIGNING_KEYCHAIN` points the
-script at another keychain (used to test it in a scratch keychain). The first
-signing after creating it may show a keychain prompt for `codesign`: choose
-**Always Allow**. Switching an existing install from ad-hoc to the local
-identity (or recreating the identity) needs one more Local Network approval
-for the app and each helper.
+The requirement becomes `identifier "com.ember.Ember" and anchor apple generic
+and certificate leaf[subject.CN] = "Apple Development: <name> (<id>)" and
+certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */`: it names the
+certificate's subject, not its hash, so it also holds after the certificate is
+renewed under the same name, and `verify-bundle.sh` shows your team ID.
+
+*Fallback: a self-signed certificate.* Without an Apple account, run
+`scripts/local-signing-identity.sh` once to create "Ember Local Signing" in the
+login keychain, then build the same way. The requirement is
+`identifier "com.ember.Ember" and certificate leaf = H"<sha1>"`, stable until
+you recreate the certificate. It is untrusted on purpose: no admin password
+and no trust-settings change; `codesign` signs with it anyway and a locally
+built app never meets Gatekeeper.
+
+Which identity signs: `EMBER_SIGNING_IDENTITY` (a SHA-1 or an exact identity
+name), else the first line of `~/.config/ember/signing-identity`, else
+"Ember Local Signing", else none and the app stays ad-hoc. An override that
+names no identity, or more than one, fails the build instead of falling back.
+`build-local.sh` builds ad-hoc (Xcode only accepts trusted identities with a
+matching profile) and then re-signs the bundle inside-out with the identity,
+keeping hardened runtime and the helpers' `com.ember.*` identifiers, dropping
+`get-task-allow` and using no secure timestamp, so it works offline.
+`scripts/verify-bundle.sh` prints which identity signed the app, its team and
+its designated requirement (ad-hoc means re-approval after each rebuild). An
+Xcode build whose configured Developer ID is missing signs the producer
+helpers with the same identity when there is one, ad-hoc otherwise.
+`--check` reports the identity, `--remove` deletes "Ember Local Signing";
+`EMBER_SIGNING_KEYCHAIN` points the script at another keychain (used to test
+it in a scratch keychain). The first signing with a new identity may show a
+keychain prompt for `codesign`: choose **Always Allow**. Switching an existing
+install to another identity (ad-hoc to either, self-signed to Apple
+Development, or a recreated self-signed one) needs one more Local Network
+approval for the app and each helper, and Little Snitch sees a new signer.
 
 **Strings**: every user-facing string lives in `macos/Ember/Localizable.xcstrings`.
 After adding or changing UI text, run `scripts/strings.sh sync` (it builds the
