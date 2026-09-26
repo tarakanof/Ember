@@ -23,6 +23,10 @@ public enum FeedError: Error, Equatable, Sendable {
             self.init(e.underlying)
             return
         }
+        if let v = error as? ValidationError {
+            self = .server(v.message)
+            return
+        }
         guard let api = error as? APIError else {
             self = error is URLError ? .offline : .server(error.localizedDescription)
             return
