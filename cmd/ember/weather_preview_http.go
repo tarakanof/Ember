@@ -11,63 +11,51 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// handleWeatherPreview renders the weather/forecast tiles under a draft config
-// into the same 32×8 frame grids as /v1/preview. Open and read-only. Uses the
-// live observation when one exists, else a canned sample so the preview never
-// renders blank (before the first fetch, or with the widget disabled).
+// handleWeatherPreview renders the weather tiles under a draft config into
+// the same 32×8 frame grids as /v1/preview. Open and read-only. The frames
+// come from the same tile views the coordinator pushes (previewTiles), so they
+// match the clock by construction. Uses the live observations when they exist,
+// else canned samples so the preview never renders blank (before the first
+// fetch, or with the widget disabled).
 //
-// Query params:
+// Query params (the draft; everything else comes from the live config):
 //   - rotate_in_apps   bool (default true)  → "weather" frame
 //   - forecast_tile    bool (default true)  → "forecast" frame
 //   - air_tile         bool (default true)  → "air" frame
 //   - forecast_hours   int (default 24; <=0 or >24 means 24, as on the device)
 //   - units            "metric"|"imperial" (default "metric")
 //
-// tile_native_icons is deliberately not a param: the canvas can't animate
-// gallery icons, so the preview always shows the drawn sprite. The moon phase
-// follows the live config (moon_phase, location) exactly as on the device; the
-// NG precipitation overlay is animated by the firmware and is not drawn.
+// The moon phase follows the live config (moon_phase, location) as on the
+// device. Payload-only, because the canvas can't animate them: with
+// tile_native_icons the gallery icon (the preview draws the condition sprite
+// at cols 0-7), and the NG precipitation overlay.
 func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.weatherPreview(r.URL.Query(), time.Now()))
 }
 
 func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
-	obs, have := a.weather.current()
-	if !have {
-		obs = sampleWeatherObservation(now)
-	}
-	units := strings.TrimSpace(q.Get("units"))
-	if units != "imperial" {
-		units = "metric"
-	}
-	// forecastWindow applies the device's rule (<=0 or >24 → 24), so a stored
-	// value the PUT path let through previews exactly as the clock shows it.
-	hours := 24
+	cfg := a.cfg.Load().Weather
+	cfg.RotateInApps = boolPtr(queryBoolDefault(q.Get("rotate_in_apps"), true))
+	cfg.ForecastTile = boolPtr(queryBoolDefault(q.Get("forecast_tile"), true))
+	cfg.AirTile = boolPtr(queryBoolDefault(q.Get("air_tile"), true))
+	cfg.ForecastHours = 24
 	if v, err := strconv.Atoi(q.Get("forecast_hours")); err == nil {
-		hours = v
+		cfg.ForecastHours = v
 	}
-	tempText := weatherTempText(obs.TempC, units)
-	window := forecastWindow(obs.Hourly, hours)
+	cfg.Units = "metric"
+	if strings.TrimSpace(q.Get("units")) == "imperial" {
+		cfg.Units = "imperial"
+	}
 
-	p := render.Preview{Width: 32, Height: 8, Frames: []render.CardFrame{}}
-	if queryBoolDefault(q.Get("rotate_in_apps"), true) {
-		cfg := a.cfg.Load().Weather
-		f := render.WeatherTileFrame(obs.Condition, tempText, obs.TempC, window, weatherTileMoon(cfg, obs, now))
-		p.Frames = append(p.Frames, render.CardFrame{Card: "weather", Pixels: render.HexPixels(&f)})
+	in := tileInputs{now: now, weather: cfg}
+	var have bool
+	if in.obs, have = a.weather.current(); !have {
+		in.obs = sampleWeatherObservation(now)
 	}
-	if queryBoolDefault(q.Get("forecast_tile"), true) && len(window) > 0 {
-		f := render.ForecastTileFrame(window)
-		p.Frames = append(p.Frames, render.CardFrame{Card: "forecast", Pixels: render.HexPixels(&f)})
+	if in.air, have = a.weather.currentAir(); !have {
+		in.air = sampleAirObservation(now)
 	}
-	if queryBoolDefault(q.Get("air_tile"), true) {
-		air, haveAir := a.weather.currentAir()
-		if !haveAir {
-			air = sampleAirObservation(now)
-		}
-		f := render.AirTileFrame(air.AQI, air.HourlyAQI)
-		p.Frames = append(p.Frames, render.CardFrame{Card: "air", Pixels: render.HexPixels(&f)})
-	}
-	return p
+	return previewTiles(in, weatherTile.card, forecastTile.card, airTile.card)
 }
 
 // sampleAirObservation backs the air preview before the first real fetch: a

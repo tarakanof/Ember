@@ -4,28 +4,26 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tarakanof/ember/internal/meetings"
 	"github.com/tarakanof/ember/internal/render"
 )
 
 // handleMeetingsPreview renders the ember-meet tile into the same 32×8 frame
-// grid as /v1/preview. Open and read-only. Uses the live next occurrence when
-// the store is fresh, else a canned sample so the preview never renders blank.
+// grid as /v1/preview, from the same tile view the coordinator pushes
+// (previewTiles). Open and read-only. Uses the live next occurrence when the
+// store is fresh, else a canned sample so the preview never renders blank.
+// The device renders the text natively; the preview draws it in the 3×5 font.
 func (a *App) handleMeetingsPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.meetingsPreview(time.Now()))
 }
 
 func (a *App) meetingsPreview(now time.Time) render.Preview {
-	title, mins := "STANDUP", 12
+	in := tileInputs{now: now, meet: a.cfg.Load().Meetings,
+		nextMeet: meetings.Occurrence{Title: "STANDUP", Start: now.Add(12 * time.Minute)}}
 	if occ, ok := a.meetings.next(now); ok && a.meetings.fresh(now) {
-		title = sanitizeMeetingTitle(occ.Title)
-		mins = meetingMinutes(now, occ.Start)
+		in.nextMeet = occ
 	}
-	f := render.MeetingTileFrame(title, mins)
-	return render.Preview{
-		Width:  32,
-		Height: 8,
-		Frames: []render.CardFrame{{Card: "meeting", Pixels: render.HexPixels(&f)}},
-	}
+	return previewTiles(in, meetTile.card)
 }
 
 // handleMeetingsState lists the next few upcoming occurrences for the menu
