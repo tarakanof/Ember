@@ -29,17 +29,44 @@ import (
 type clockAccess struct {
 	cfg func() *Config
 
-	// systemLock (capacity 1) serialises read-merge-PUTs of /api/v1/system.
-	// The object holds the Wi-Fi credentials, the sensor offsets and the
-	// button callback, and NG only offers a full replace, so two
-	// unserialised writers lose one write. A channel rather than a mutex so
-	// a waiter whose request is cancelled stops queueing behind a stuck
-	// clock (a holder can take two menu-class calls, up to 16s).
-	systemLock chan struct{}
+	// systemLock serialises read-merge-PUTs of /api/v1/system. The object
+	// holds the Wi-Fi credentials, the sensor offsets and the button
+	// callback, and NG only offers a full replace, so two unserialised
+	// writers lose one write. A ctxLock so a waiter whose request is
+	// cancelled or out of budget stops queueing behind a stuck clock (a
+	// holder can take two menu-class calls, up to 16s).
+	systemLock ctxLock
+
+	// writeBudget is clockWriteBudget; tests shorten it.
+	writeBudget time.Duration
 }
 
 func newClockAccess(cfg func() *Config) *clockAccess {
-	return &clockAccess{cfg: cfg, systemLock: make(chan struct{}, 1)}
+	return &clockAccess{cfg: cfg, systemLock: newCtxLock(), writeBudget: clockWriteBudget}
+}
+
+// ctxLock is a mutex whose waiters can give up: a channel of capacity 1 that
+// holds a token while the lock is held. Build it with newCtxLock; a nil
+// ctxLock blocks forever.
+type ctxLock chan struct{}
+
+func newCtxLock() ctxLock { return make(ctxLock, 1) }
+
+// Lock waits for the lock however long it takes.
+func (l ctxLock) Lock() { l <- struct{}{} }
+
+// Unlock releases a held lock.
+func (l ctxLock) Unlock() { <-l }
+
+// LockContext waits for the lock until ctx ends, and then returns ctx.Err()
+// without it.
+func (l ctxLock) LockContext(ctx context.Context) error {
+	select {
+	case l <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // callClass picks a call's timeout. Each is the whole budget for one HTTP
@@ -71,6 +98,25 @@ const (
 	capabilitiesCallTimeout = 2 * time.Second
 	doctorFallbackTimeout   = 2 * time.Second
 )
+
+// clockWriteBudget bounds a whole menu handler that chains clock calls
+// behind a lock, so it answers before http.Server's 30s WriteTimeout
+// (main.go). The WriteTimeout doesn't stop a handler: past it the late answer
+// is lost, the connection drops, and the clock write may still land.
+//
+// Unbounded, the handlers stack past it:
+//   - PUT /v1/device/sensors and /v1/device/buttons, 40s: systemLock wait
+//     (a holder runs two menu calls, 16s), read (8s), PUT (8s), re-read (8s);
+//   - PUT /v1/device/settings, 32s and more when waiters queue: priorMu wait
+//     (a holder runs one menu call, 8s), PATCH (8s), priorMu again (8s), the
+//     reconcile PATCH (8s).
+//
+// 25s leaves 5s of the WriteTimeout, which runs from the end of the request
+// headers, for the small request body and the answer. Every lock wait and
+// call in the handler shares the budget; when it runs out the handler answers
+// 504 (writeBudgetError). The app's .clockLong budget (35s, RequestBudget in
+// EmberKit's APIClient) sits above both.
+const clockWriteBudget = 25 * time.Second
 
 // timeout is the budget for one call of class c under cfg.
 func (c callClass) timeout(cfg *Config) time.Duration {
@@ -188,28 +234,98 @@ func (k *clockAccess) readSystem(ctx context.Context) (map[string]any, error) {
 // updateSystem read-merge-PUTs /api/v1/system: it reads the whole object,
 // lets mutate change it, and writes all of it back, holding systemLock for
 // the round trip so a concurrent writer can't read the object before this
-// write lands. A caller whose ctx ends while waiting for the lock gets
-// ctx.Err() without touching the clock. A full replace, never a partial PUT: a partial one that the firmware
-// treated as a replace would drop the stored Wi-Fi password. NG applies system
-// changes live, no reboot.
-func (k *clockAccess) updateSystem(ctx context.Context, mutate func(sys map[string]any)) error {
-	select {
-	case k.systemLock <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
+// write lands. It returns the object it wrote. A caller whose ctx ends while
+// waiting for the lock, or before the PUT, gets ctx.Err() without writing; a
+// failed PUT comes back as a sentWriteError. A full replace, never a partial
+// PUT: a partial one that the firmware treated as a replace would drop the
+// stored Wi-Fi password. NG applies system changes live, no reboot.
+func (k *clockAccess) updateSystem(ctx context.Context, mutate func(sys map[string]any)) (map[string]any, error) {
+	if err := k.systemLock.LockContext(ctx); err != nil {
+		return nil, err
 	}
-	defer func() { <-k.systemLock }()
+	defer k.systemLock.Unlock()
 	sys, err := k.readSystem(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	mutate(sys)
 	payload, err := json.Marshal(sys)
 	if err != nil {
+		return nil, err
+	}
+	if err := k.sendWrite(ctx, withBody((*awtrix.Client).RawPutSystem, payload)); err != nil {
+		return nil, err
+	}
+	return sys, nil
+}
+
+// sendWrite runs a clock write (menu class). It returns ctx.Err() unsent when
+// ctx has already ended, and marks a failure after sending as a
+// sentWriteError.
+func (k *clockAccess) sendWrite(ctx context.Context, call deviceCall) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err = k.fetch(ctx, withBody((*awtrix.Client).RawPutSystem, payload))
-	return err
+	if _, err := k.fetch(ctx, call); err != nil {
+		return sentWriteError{err}
+	}
+	return nil
+}
+
+// ---- Write budget ----
+
+// writeContext returns ctx bounded by the write budget (clockWriteBudget), for
+// a handler to run all its lock waits and clock calls under.
+func (k *clockAccess) writeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, k.writeBudget)
+}
+
+// sentWriteError marks a failed clock write that went out: without an
+// answer, it may have landed. It reads and unwraps as the error it carries.
+type sentWriteError struct{ err error }
+
+func (e sentWriteError) Error() string { return e.err.Error() }
+func (e sentWriteError) Unwrap() error { return e.err }
+
+// writeOutcome is what a handler knows about its clock write when the write
+// budget runs out, reported as "write" in the 504 body.
+type writeOutcome string
+
+const (
+	// writeNotSent: the budget ran out before the write went out (in a lock
+	// wait or the read before it). The clock is unchanged.
+	writeNotSent writeOutcome = "not_sent"
+	// writeUnknown: a write went out without an answer. It may have landed.
+	writeUnknown writeOutcome = "unknown"
+	// writeApplied: the clock took the write; what ran out was the work after
+	// it (the settings edit's Pomodoro reconcile).
+	writeApplied writeOutcome = "applied"
+)
+
+// writeBudgetError answers a failed budgeted handler. When ctx's budget ran
+// out and the clock didn't refuse, it is a 504 in the clock error shape:
+// "error" (what the menu shows, the write's fate included), "code"
+// ("clock_timeout") and "write" (a writeOutcome). landed says a write of this
+// handler already succeeded. Any other failure goes to writeClockError.
+func (k *clockAccess) writeBudgetError(ctx context.Context, w http.ResponseWriter, err error, landed bool) {
+	var apiErr *awtrix.APIError
+	if errors.As(err, &apiErr) || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		writeClockError(w, err)
+		return
+	}
+	outcome, fate := writeNotSent, "nothing was written"
+	var sent sentWriteError
+	switch {
+	case errors.As(err, &sent):
+		outcome, fate = writeUnknown, "the change may have reached it; re-read to check"
+	case landed:
+		outcome, fate = writeApplied, "the change was written but not finished; re-read to check"
+	}
+	writeJSON(w, http.StatusGatewayTimeout, map[string]string{
+		"error": fmt.Sprintf("clock didn't finish within %s: %s", k.writeBudget, fate),
+		"code":  "clock_timeout",
+		"write": string(outcome),
+	})
 }
 
 // ---- Error map ----

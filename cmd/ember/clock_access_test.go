@@ -124,7 +124,7 @@ func TestClockAccessSystemLockHonoursContext(t *testing.T) {
 	k.systemLock <- struct{}{} // another writer holds it
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if err := k.updateSystem(ctx, func(map[string]any) {}); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := k.updateSystem(ctx, func(map[string]any) {}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 	}
 	if hits != 0 {

@@ -224,7 +224,14 @@ var takeoverKeys = []string{"autoTransition", "blockNavigation"}
 // write landed but whose re-write over a restore was lost answers the error
 // (502 for a lost write) although the clock briefly held the edit. The menu
 // shows the save as failed and re-reads, which reports the clock's state.
-func (c *coordinator) applyMenuSettings(m map[string]any, write func(map[string]any) error) ([]string, error) {
+//
+// Its priorMu waits give up when ctx ends (the handler's clockWriteBudget)
+// and return ctx.Err(). One of them comes after the unlocked write landed: an
+// edit that gives up there skips the reconcile, so if a takeover edge raced
+// its write, the edit may show mid-focus or be undone by the restore. The
+// handler answers that case as a 504 with write "applied" and the menu
+// re-reads.
+func (c *coordinator) applyMenuSettings(ctx context.Context, m map[string]any, write func(map[string]any) error) ([]string, error) {
 	var held []string
 	for _, k := range takeoverKeys {
 		if _, ok := m[k]; ok {
@@ -234,7 +241,9 @@ func (c *coordinator) applyMenuSettings(m map[string]any, write func(map[string]
 	if len(held) == 0 {
 		return nil, write(m)
 	}
-	c.priorMu.Lock()
+	if err := c.priorMu.LockContext(ctx); err != nil {
+		return nil, err
+	}
 	c.editSeq++
 	seq := c.editSeq
 	if c.prior == nil {
@@ -243,7 +252,9 @@ func (c *coordinator) applyMenuSettings(m map[string]any, write func(map[string]
 		if err := write(m); err != nil {
 			return nil, err
 		}
-		c.priorMu.Lock()
+		if err := c.priorMu.LockContext(ctx); err != nil {
+			return nil, err
+		}
 		defer c.priorMu.Unlock()
 		newer := c.claimKeys(m, held, seq)
 		if c.priorGen == gen {

@@ -91,10 +91,12 @@ public enum RequestBudget: Sendable, CaseIterable {
     /// Work that chains clock calls or waits on a lock before one: a system
     /// read-merge-PUT queues behind another (two 8s calls each) and re-reads,
     /// a settings read or edit waits on the Pomodoro takeover snapshot and can
-    /// re-write over a restore, a reminder fire waits up to 10s. Set above the
-    /// server's 30s `WriteTimeout`, which doesn't stop a handler: one that runs
-    /// past it has its connection dropped, which `classify` reports as a
-    /// timeout for this budget.
+    /// re-write over a restore, a reminder fire waits up to 10s. The server
+    /// bounds sensors/buttons/settings PUT at 25s (`clockWriteBudget`) and
+    /// answers 504 when that runs out. Set above that and the server's 30s
+    /// `WriteTimeout`, which doesn't stop a handler: one that still runs past
+    /// it (a settings read) has its connection dropped, which `classify`
+    /// reports as a timeout for this budget.
     case clockLong
 
     /// Longest wait for the response to start (`timeoutIntervalForRequest`).
@@ -229,7 +231,9 @@ public struct APIClient: Sendable {
     /// everything: macOS can surface one as a timeout, and the fix is a
     /// permission, not patience. Under `.clockLong` a dropped connection is a
     /// timeout too: the server took the request and closed it when its
-    /// `WriteTimeout` passed, so the server was there, just slow.
+    /// `WriteTimeout` passed, so the server was there, just slow. The budgeted
+    /// PUTs answer 504 instead, but other `.clockLong` requests can still
+    /// drop.
     static func classify(_ error: Error, budget: RequestBudget, host: String?,
                          pathStatus: NWPath.Status?) -> APIError {
         if LocalNetworkDenial.isDenied(error, host: host, pathStatus: pathStatus) {

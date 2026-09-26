@@ -13,6 +13,8 @@ private let serverDiscoverBudget: TimeInterval = 8
 private let serverReminderFireBudget: TimeInterval = 10
 /// `http.Server.WriteTimeout`: past it the server drops the connection.
 private let serverWriteTimeout: TimeInterval = 30
+/// `clockWriteBudget`: sensors/buttons/settings PUT answer 504 by then.
+private let serverClockWriteBudget: TimeInterval = 25
 
 @Test func serverBudgetStaysShortSoADeadServerShowsFast() {
     #expect(RequestBudget.server.requestTimeout == 5)
@@ -27,6 +29,7 @@ private let serverWriteTimeout: TimeInterval = 30
 
 @Test func clockLongBudgetOutlastsTheServersWriteTimeout() {
     #expect(RequestBudget.clockLong.requestTimeout > serverWriteTimeout)
+    #expect(RequestBudget.clockLong.requestTimeout > serverClockWriteBudget)
     #expect(RequestBudget.clockLong.requestTimeout > serverReminderFireBudget)
     #expect(RequestBudget.clockLong.resourceTimeout >= RequestBudget.clockLong.requestTimeout)
 }

@@ -30,7 +30,7 @@ func TestMenuEditDuringTakeoverIsAppliedOnRestore(t *testing.T) {
 	c.publish(*snap)
 
 	var written []map[string]any
-	deferred, err := c.applyMenuSettings(takeoverKeyEdit, recordWrites(&written))
+	deferred, err := c.applyMenuSettings(context.Background(), takeoverKeyEdit, recordWrites(&written))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestMenuEditDuringTakeoverIsAppliedOnRestore(t *testing.T) {
 func TestMenuEditWithoutTakeoverGoesToDevice(t *testing.T) {
 	c, _, _, _ := holdFixture(t, "running")
 	var written []map[string]any
-	deferred, err := c.applyMenuSettings(takeoverKeyEdit, recordWrites(&written))
+	deferred, err := c.applyMenuSettings(context.Background(), takeoverKeyEdit, recordWrites(&written))
 	if err != nil || len(deferred) != 0 {
 		t.Fatalf("deferred=%v err=%v, want none", deferred, err)
 	}
@@ -80,7 +80,7 @@ func TestMenuEditOfOnlyTakeoverKeysSkipsTheDevice(t *testing.T) {
 	c.publish(*snap)
 
 	var written []map[string]any
-	if _, err := c.applyMenuSettings(map[string]any{"autoTransition": false}, recordWrites(&written)); err != nil {
+	if _, err := c.applyMenuSettings(context.Background(), map[string]any{"autoTransition": false}, recordWrites(&written)); err != nil {
 		t.Fatal(err)
 	}
 	if len(written) != 0 {
@@ -146,7 +146,7 @@ func TestMenuEditRacesTakeoverEdges(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := range edits {
-			if _, err := c.applyMenuSettings(map[string]any{"autoTransition": i%2 == 0, "brightness": 10.0}, write); err != nil {
+			if _, err := c.applyMenuSettings(context.Background(), map[string]any{"autoTransition": i%2 == 0, "brightness": 10.0}, write); err != nil {
 				t.Error(err)
 			}
 			c.takeoverPriorView()
@@ -194,7 +194,7 @@ func TestMenuEditInFlightWhenTakeoverStartsIsRecorded(t *testing.T) {
 	}
 	res := make(chan result, 1)
 	go func() {
-		held, err := c.applyMenuSettings(map[string]any{"autoTransition": true}, write)
+		held, err := c.applyMenuSettings(context.Background(), map[string]any{"autoTransition": true}, write)
 		res <- result{held, err}
 	}()
 	<-entered
@@ -229,7 +229,7 @@ func TestMenuEditDuringTakeoverSurvivesCrash(t *testing.T) {
 	*pomo = true
 	c.publish(*snap)
 	var written []map[string]any
-	if _, err := c.applyMenuSettings(map[string]any{"autoTransition": true}, recordWrites(&written)); err != nil {
+	if _, err := c.applyMenuSettings(context.Background(), map[string]any{"autoTransition": true}, recordWrites(&written)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -288,7 +288,7 @@ type editResult struct {
 func startEdit(c *coordinator, m map[string]any, g *gatedWrite) chan editResult {
 	res := make(chan editResult, 1)
 	go func() {
-		held, err := c.applyMenuSettings(m, g.write)
+		held, err := c.applyMenuSettings(context.Background(), m, g.write)
 		res <- editResult{held, err}
 	}()
 	<-g.entered
@@ -311,7 +311,7 @@ func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
 
 			*pomo = true
 			c.publish(*snap)
-			if _, err := c.applyMenuSettings(map[string]any{"autoTransition": false}, directWrite(clk)); err != nil {
+			if _, err := c.applyMenuSettings(context.Background(), map[string]any{"autoTransition": false}, directWrite(clk)); err != nil {
 				t.Fatal(err)
 			}
 			if endBlockFirst {
