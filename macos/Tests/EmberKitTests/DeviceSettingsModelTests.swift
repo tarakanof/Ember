@@ -151,14 +151,49 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
 private final class FakeClock: @unchecked Sendable {
     private let lock = NSLock()
     var responses: [String: (Int, String)] = [:]
-    /// Requests for this route wait for `gate` (once armed).
-    var gatedRoute: String?
+    /// Requests for this route wait for `gate`. Setting it re-arms
+    /// `gatedRequestArrived()` for that route.
+    var gatedRoute: String? {
+        get { lock.withLock { _gatedRoute } }
+        set { lock.withLock { _gatedRoute = newValue; armedRoute = newValue; gatedArrived = false } }
+    }
     let gate = DispatchSemaphore(value: 0)
+    private var _gatedRoute: String?
+    /// The last route armed, kept after it arrives for the timeout message.
+    private var armedRoute: String?
     private var _log: [(String, String, [String: Any])] = []
+    private var gatedArrived = false
+    private var arrivalWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    /// Every request the server received, logged on arrival: a gated one is
+    /// in here before `gatedRequestArrived()` returns, even if its caller is
+    /// cancelled and never waits for the answer.
     var log: [(method: String, path: String, body: [String: Any])] {
         lock.withLock { _log.map { ($0.0, $0.1, $0.2) } }
     }
     var paths: [String] { log.map { "\($0.method) \($0.path)" } }
+
+    /// Returns once the gated request has arrived and is held at the gate,
+    /// or records an issue naming the route if it hasn't within `timeout`.
+    func gatedRequestArrived(timeout: Duration = .seconds(5),
+                             sourceLocation: SourceLocation = #_sourceLocation) async {
+        let id = UUID()
+        let arrived = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            let now = lock.withLock { () -> Bool in
+                if gatedArrived { return true }
+                arrivalWaiters[id] = c
+                return false
+            }
+            if now { c.resume(returning: true); return }
+            Task { [self] in
+                try? await Task.sleep(for: timeout)
+                lock.withLock { arrivalWaiters.removeValue(forKey: id) }?.resume(returning: false)
+            }
+        }
+        if !arrived {
+            let route = lock.withLock { armedRoute } ?? "(none)"
+            Issue.record("gated request \(route) never arrived within \(timeout)", sourceLocation: sourceLocation)
+        }
+    }
 
     func handle(_ req: URLRequest) -> (HTTPURLResponse, Data) {
         let path = req.url!.path
@@ -166,16 +201,19 @@ private final class FakeClock: @unchecked Sendable {
         let data = req.httpBodyStreamData() ?? req.httpBody ?? Data()
         let body = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
         let key = "\(method) \(path)"
-        let gated = lock.withLock { () -> Bool in
-            guard gatedRoute == key else { return false }
-            gatedRoute = nil
-            return true
-        }
-        if gated { gate.wait() }
-        let (status, text) = lock.withLock {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Bool, Never>]? in
             _log.append((method, path, body))
-            return responses[key] ?? (method == "GET" ? (404, "") : (200, ""))
+            guard _gatedRoute == key else { return nil }
+            _gatedRoute = nil
+            gatedArrived = true
+            defer { arrivalWaiters = [:] }
+            return Array(arrivalWaiters.values)
         }
+        if let waiters {
+            waiters.forEach { $0.resume(returning: true) }
+            gate.wait()
+        }
+        let (status, text) = lock.withLock { responses[key] ?? (method == "GET" ? (404, "") : (200, "")) }
         return (okResponse(req.url!, status: status), Data(text.utf8))
     }
 }
@@ -291,7 +329,7 @@ private func ngServer() -> FakeClock {
     for _ in 0..<400 where !done() { try? await Task.sleep(for: .milliseconds(5)) }
 }
 
-@MainActor @Test func editDuringAnInFlightLoadSendsOnlyTheEdit() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func editDuringAnInFlightLoadSendsOnlyTheEdit() async throws {
     let fake = ngServer()
     let (m, clock) = makeModel(fake)
     await m.load()
@@ -299,7 +337,7 @@ private func ngServer() -> FakeClock {
     fake.responses["GET /v1/device/settings"] = (200, ##"{"brightness":120,"soundEnabled":true,"buzzerVolume":80,"timeColor":"#FF0000","autoTransition":false,"blockNavigation":true}"##)
     fake.gatedRoute = "GET /v1/device/settings"
     let refocus = Task { await m.load() }
-    await eventually { fake.gatedRoute == nil }   // the GET is in flight
+    await fake.gatedRequestArrived()                // the GET is in flight
     m.settings.draft.brightness = 200
     m.settings.scheduleSave()
     fake.gate.signal()
@@ -311,12 +349,12 @@ private func ngServer() -> FakeClock {
     #expect(put.body.keys.sorted() == ["brightness"])
 }
 
-@MainActor @Test func cancelledLoadDoesNotHoldOffTheNext() async {
+@MainActor @Test(.timeLimit(.minutes(1))) func cancelledLoadDoesNotHoldOffTheNext() async {
     let fake = ngServer()
     let (m, _) = makeModel(fake)
     fake.gatedRoute = "GET /v1/device/apps"
     let first = Task { await m.load() }
-    await eventually { fake.gatedRoute == nil }   // secondary reads under way
+    await fake.gatedRequestArrived()                // secondary reads under way
     first.cancel()
     fake.gate.signal()
     await first.value
@@ -325,14 +363,14 @@ private func ngServer() -> FakeClock {
     #expect(fake.paths.filter { $0 == "GET /v1/device/apps" }.count == before + 1)
 }
 
-@MainActor @Test func forcedLoadQueuesBehindARunningOne() async {
+@MainActor @Test(.timeLimit(.minutes(1))) func forcedLoadQueuesBehindARunningOne() async {
     let fake = ngServer()
     let (m, _) = makeModel(fake)
     await m.load()
     let settingsGets = { fake.paths.filter { $0 == "GET /v1/device/settings" }.count }
     fake.gatedRoute = "GET /v1/device/apps"
     let running = Task { await m.load(force: true) }
-    await eventually { fake.gatedRoute == nil }
+    await fake.gatedRequestArrived()
     await m.load(force: true)                       // returns at once, queued
     let during = settingsGets()
     fake.gate.signal()
