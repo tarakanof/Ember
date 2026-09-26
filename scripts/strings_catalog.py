@@ -6,6 +6,7 @@ sync:  adds EmberKit keys the catalog lacks as "manual" entries (with the
        source comment), then rewrites the file in the repo's JSON format.
 check: exits 1 when an extracted key is missing from the catalog, or a
        format string (or an inflected one) has no translator comment.
+       Warns (without failing) about catalog keys no code uses any more.
 """
 
 import glob
@@ -67,6 +68,14 @@ def main():
             continue
         if NEEDS_COMMENT.search(key) and not (entry.get("comment") or app.get(key) or kit.get(key)):
             problems.append(f"format string without a translator comment: {key!r}")
+    # Reverse drift: keys whose code is gone. A warning, not a failure: a
+    # translator may still want the old text, and sync never deletes.
+    extracted = set(app) | set(kit)
+    stale = sorted(k for k, e in strings.items() if k not in extracted and e.get("extractionState") != "stale")
+    marked = sorted(k for k, e in strings.items() if e.get("extractionState") == "stale")
+    for key in stale + marked:
+        print(f"warning: not used in code any more: {key!r}", file=sys.stderr)
+
     if problems:
         print("\n".join(problems), file=sys.stderr)
         print("Run scripts/strings.sh sync, then add comments to the new entries.", file=sys.stderr)

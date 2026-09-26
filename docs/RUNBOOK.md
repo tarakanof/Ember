@@ -101,10 +101,13 @@ The generated `Ember.xcodeproj` is gitignored — regenerate it after pulling.
 
 **Strings**: every user-facing string lives in `macos/Ember/Localizable.xcstrings`.
 After adding or changing UI text, run `scripts/strings.sh sync` (it builds the
-app, or reuses a build's DerivedData passed as the second argument), then give
+app into a fresh temp DerivedData; if you pass one as the second argument, make
+it a clean build, since a reused one keeps `.stringsdata` from deleted files and
+sync would re-add their keys), then give
 any new format string (`%@`, `%lld`, `^[…](inflect: true)`) a translator comment
 in the catalog. EmberKit's strings aren't extracted by Xcode, so the script
-adds them as manual entries. `scripts/strings.sh check` is what CI runs.
+adds them as manual entries. `scripts/strings.sh check` is what CI runs; it also
+warns about keys no code uses any more (delete those by hand).
 
 **CI**: [`ci.yml`](../.github/workflows/ci.yml) runs the Go job on every push/PR,
 plus a `macos` job (path-filtered to `macos/**`, `cmd/ember/testdata/**`, and
