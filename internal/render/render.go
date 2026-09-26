@@ -315,7 +315,7 @@ func drawSessionBar(f *Frame, sessions []Session) {
 			continue
 		}
 		out = append(out, entry{
-			prio:  statePriority(s.State),
+			prio:  StatePriority(s.State),
 			src:   s.Source,
 			tool:  s.Tool,
 			sess:  s.Session,
@@ -634,50 +634,38 @@ func drawUnitPctFace(f *Frame, unit string, pct int) {
 }
 
 // PickWinning returns the priority-winning session, its state colour, and
-// the total active session count (any non-idle session). When no session
-// is active, win is nil. Priority order: waiting > error > running > done.
-// Within a tie, the most recently updated session wins.
+// the number of active sessions (waiting, error, running or done). When no
+// session is active, win is nil. Priority follows StatePriority
+// (waiting > error > running > done; idle and unknown states never win);
+// within a state the most recently updated session wins, and on an exact
+// UpdatedAt tie the earlier one in sessions.
+//
+// This is the one session-priority rule in the server: the legacy /state
+// render (cmd/ember sessions.go) and the preview use it too. The menu app's
+// pickWinning (macos/Sources/EmberKit/StatusService.swift) is a port of it;
+// TestPickWinningTable is written so a Swift test can mirror its cases
+// one for one.
 func PickWinning(sessions []Session) (win *Session, color RGB, total int) {
-	var waiting, errored, running, done []*Session
 	for i := range sessions {
 		s := &sessions[i]
-		switch s.State {
-		case "waiting":
-			waiting = append(waiting, s)
-		case "error":
-			errored = append(errored, s)
-		case "running":
-			running = append(running, s)
-		case "done":
-			done = append(done, s)
+		prio := StatePriority(s.State)
+		if prio == priorityInactive {
+			continue
+		}
+		total++
+		if win == nil {
+			win = s
+			continue
+		}
+		best := StatePriority(win.State)
+		if prio < best || (prio == best && s.UpdatedAt.After(win.UpdatedAt)) {
+			win = s
 		}
 	}
-	total = len(waiting) + len(errored) + len(running) + len(done)
-
-	pickMostRecent := func(group []*Session) *Session {
-		if len(group) == 0 {
-			return nil
-		}
-		best := group[0]
-		for _, s := range group[1:] {
-			if s.UpdatedAt.After(best.UpdatedAt) {
-				best = s
-			}
-		}
-		return best
+	if win == nil {
+		return nil, RGB{}, total
 	}
-
-	switch {
-	case len(waiting) > 0:
-		return pickMostRecent(waiting), colorWaiting, total
-	case len(errored) > 0:
-		return pickMostRecent(errored), colorError, total
-	case len(running) > 0:
-		return pickMostRecent(running), colorRunning, total
-	case len(done) > 0:
-		return pickMostRecent(done), colorDone, total
-	}
-	return nil, RGB{}, total
+	return win, colorForState(win.State), total
 }
 
 // sessionKey is the canonical key for rotation pointer tracking and
@@ -702,10 +690,14 @@ func SessionByKey(snap Snapshot, key string) Session {
 	return Session{}
 }
 
-// statePriority returns lower values for higher-priority states. Idle is
-// never returned by SortedActiveKeys, so the constant for idle is unused
-// here but kept for symmetry with the spec's ordering.
-func statePriority(state string) int {
+// priorityInactive is StatePriority's rank for idle and unknown states: they
+// never win a render slot and are not counted as active.
+const priorityInactive = 4
+
+// StatePriority ranks a session state for display, lower first: waiting 0,
+// error 1, running 2, done 3, idle or unknown priorityInactive. It is the
+// single ordering PickWinning, SortedActiveKeys and the session bar share.
+func StatePriority(state string) int {
 	switch state {
 	case "waiting":
 		return 0
@@ -716,7 +708,7 @@ func statePriority(state string) int {
 	case "done":
 		return 3
 	default:
-		return 4 // idle / unknown
+		return priorityInactive
 	}
 }
 
@@ -738,7 +730,7 @@ func SortedActiveKeys(snap Snapshot) []string {
 		}
 		out = append(out, entry{
 			key:  sessionKey(s),
-			prio: statePriority(s.State),
+			prio: StatePriority(s.State),
 			src:  s.Source,
 			tool: s.Tool,
 			sess: s.Session,

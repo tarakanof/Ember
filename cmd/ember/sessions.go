@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/render"
 )
 
 // Upsert writes req into the session map and returns the resulting
@@ -90,45 +92,18 @@ func (a *App) renderLocked(now time.Time) Render {
 		}
 	}
 
-	var waiting, running, errored, done []Session
+	sessions := make([]Session, 0, len(a.sessions))
+	count := make(map[string]int, 5)
 	for _, session := range a.sessions {
-		switch session.State {
-		case "waiting":
-			waiting = append(waiting, session)
-		case "running":
-			running = append(running, session)
-		case "error":
-			errored = append(errored, session)
-		case "done":
-			done = append(done, session)
-		}
-		// idle sessions are intentionally not bucketed — they never win a render slot
+		sessions = append(sessions, session)
+		count[session.State]++
 	}
+	waiting, running, errored, done := count["waiting"], count["running"], count["error"], count["done"]
+	// Done sessions linger for display but no longer count as active.
+	activeTotal := waiting + running + errored
 
-	sortSessions(waiting)
-	sortSessions(running)
-	sortSessions(errored)
-	sortSessions(done)
-
-	activeTotal := len(waiting) + len(running) + len(errored)
-
-	// Pick winning group by priority.
-	var winningGroup []Session
-	var color string
-	switch {
-	case len(waiting) > 0:
-		winningGroup = waiting
-		color = "#FF3300"
-	case len(errored) > 0:
-		winningGroup = errored
-		color = "#FF3300"
-	case len(running) > 0:
-		winningGroup = running
-		color = "#00A3FF"
-	case len(done) > 0:
-		winningGroup = done
-		color = "#707070"
-	default:
+	win, _, _ := render.PickWinning(sessions)
+	if win == nil {
 		return Render{
 			Text:        cfg.Display.IdleText,
 			Color:       "#707070",
@@ -136,27 +111,35 @@ func (a *App) renderLocked(now time.Time) Render {
 		}
 	}
 
-	text := perSessionLabel(winningGroup[0])
-	if len(winningGroup) >= 2 {
-		text = aggregateLabel(len(waiting), len(running), len(errored), len(done))
+	text := perSessionLabel(*win)
+	if count[win.State] >= 2 {
+		text = aggregateLabel(waiting, running, errored, done)
 	}
 
 	return Render{
 		Text:        compactText(text),
-		Color:       color,
-		Waiting:     len(waiting),
-		Running:     len(running),
-		Errors:      len(errored),
-		Done:        len(done),
+		Color:       legacyStateColor(win.State),
+		Waiting:     waiting,
+		Running:     running,
+		Errors:      errored,
+		Done:        done,
 		ActiveTotal: activeTotal,
-		Message:     winningGroup[0].Message,
+		Message:     win.Message,
 	}
 }
 
-func sortSessions(sessions []Session) {
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
-	})
+// legacyStateColor is the /state Render colour for the winning state. It
+// predates the clock palette (render.colorForState), and /state clients
+// already see these values, so it stays its own table.
+func legacyStateColor(state string) string {
+	switch state {
+	case "waiting", "error":
+		return "#FF3300"
+	case "running":
+		return "#00A3FF"
+	default:
+		return "#707070"
+	}
 }
 
 func firstMessage(session Session, fallback string) string {

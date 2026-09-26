@@ -531,6 +531,49 @@ func TestPickWinning(t *testing.T) {
 	}
 }
 
+// TestPickWinningTable is the session-priority contract. The menu app's Swift
+// pickWinning (macos/Sources/EmberKit/StatusService.swift) ports PickWinning;
+// keep each case plain data (tool, state, seconds after an epoch) so a Swift
+// test can mirror the table verbatim.
+func TestPickWinningTable(t *testing.T) {
+	type sess struct {
+		tool, state string
+		at          int64
+	}
+	cases := []struct {
+		name     string
+		sessions []sess
+		want     string // winning tool, "" for none
+	}{
+		{"empty", nil, ""},
+		{"all idle", []sess{{"a", "idle", 1}, {"b", "idle", 2}}, ""},
+		{"unknown state never wins", []sess{{"a", "bogus", 9}}, ""},
+		{"waiting beats error, running, done", []sess{{"a", "done", 100}, {"b", "running", 90}, {"c", "error", 80}, {"d", "waiting", 10}}, "d"},
+		{"error beats running and done", []sess{{"a", "done", 100}, {"b", "running", 90}, {"c", "error", 10}}, "c"},
+		{"running beats done", []sess{{"a", "done", 100}, {"b", "running", 10}}, "b"},
+		{"done wins alone", []sess{{"a", "idle", 100}, {"b", "done", 10}}, "b"},
+		{"most recent within the top state", []sess{{"a", "running", 10}, {"b", "running", 99}, {"c", "running", 50}}, "b"},
+		{"exact tie keeps the first", []sess{{"a", "waiting", 5}, {"b", "waiting", 5}}, "a"},
+	}
+	epoch := time.Unix(1_000_000, 0)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessions := make([]Session, len(tc.sessions))
+			for i, s := range tc.sessions {
+				sessions[i] = Session{Source: "mbp", Tool: s.tool, Session: "y", State: s.state, UpdatedAt: epoch.Add(time.Duration(s.at) * time.Second)}
+			}
+			win, _, _ := PickWinning(sessions)
+			got := ""
+			if win != nil {
+				got = win.Tool
+			}
+			if got != tc.want {
+				t.Fatalf("winner = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFrameToCustomApp(t *testing.T) {
 	f := &Frame{}
 	paintCell(f, 0, 0, RGB{0xff, 0x00, 0x00})
