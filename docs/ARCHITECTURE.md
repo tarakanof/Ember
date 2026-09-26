@@ -362,9 +362,13 @@ ends; the edit's other keys go to the clock as usual. `GET
 /v1/device/settings` meanwhile reports the snapshot's values for the two keys,
 so the toggles show the user's choice rather than the takeover's; both calls
 name the keys answered that way in an `X-Ember-Deferred-Keys` header.
-`priorMu` serialises those edits with the snapshot read and the restore. A lost restore backs off `restoreBackoffTicks` (5) publishes so an
-offline clock doesn't stall the coordinator every tick. NG persists settings across reboots, so a takeover left behind
-by a dead server would stick: the snapshot is therefore also persisted to the
+`priorMu` (a leaf lock) serialises those edits with the snapshot read and the
+restore, so a start or stop edge can wait out one menu call (8 s) or one
+restore (5 s). Edits outside focus write unlocked; one that overlaps a
+takeover edge is folded into the new snapshot afterwards (`priorGen`). A lost
+restore backs off `restoreBackoffTicks` (5) publishes so an offline clock
+doesn't stall the coordinator every tick. NG persists settings across reboots,
+so a takeover left behind by a dead server would stick: the snapshot is therefore also persisted to the
 store (key `pomo_takeover_prior`) for as long as the takeover is in force, and
 a server that starts with one left over restores it on its first publish. On
 SIGTERM, `main` waits (bounded, `shutdownTimeout` 8 s) for the coordinator's
