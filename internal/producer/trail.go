@@ -28,6 +28,33 @@ func PrependTrail(head, prev string) string {
 	return capTrail(head + trailSeparator + prev)
 }
 
+// AnnotateTrail marks one tool call's trail item with its outcome (#76): the
+// newest item equal to item is replaced in place by annotated, so an outcome
+// that lands after later calls still marks the right entry. When no item
+// matches, prepend decides: true puts annotated at the head (trail mode: the
+// outcome is still news), false leaves trail as is (single-item mode, where a
+// non-matching value is a newer call the outcome must not overwrite). The
+// result is capped like PrependTrail's.
+func AnnotateTrail(trail, item, annotated string, prepend bool) string {
+	item, annotated = strings.TrimSpace(item), strings.TrimSpace(annotated)
+	if item == "" || annotated == "" {
+		return trail
+	}
+	if trail != "" {
+		items := strings.Split(trail, trailSeparator)
+		for i, it := range items {
+			if it == item {
+				items[i] = annotated
+				return capTrail(strings.Join(items, trailSeparator))
+			}
+		}
+	}
+	if !prepend {
+		return trail
+	}
+	return PrependTrail(annotated, trail)
+}
+
 // capTrail trims s to trailMaxLen runes, preferring to drop whole trailing
 // " · "-delimited items; only hard-cuts when the first item alone exceeds the
 // limit. Rune-based (like Truncate) so the hard cut never splits a multibyte
