@@ -31,8 +31,10 @@ public enum EmberAction: Hashable, Sendable {
     }
 }
 
-/// Runs user actions for the menu, the Dashboard and the Dock menu, so none of
-/// them swallows a failure with `try?`. The last failure stays in `lastError`
+/// Runs user actions for the menu, the Dashboard, the Dock menu and Settings
+/// (the one path for clock actions), so none of them swallows a failure with
+/// `try?`. A display-power write or a reboot reports the new matrix state to
+/// `LiveModel.displayPower`. The last failure stays in `lastError`
 /// for 10 s, for a transient "Couldn't start: Unauthorized" row.
 @MainActor
 @Observable
@@ -48,6 +50,10 @@ public final class ActionRunner {
     public private(set) var lastError: Failure?
     /// Actions currently running, so a view can disable a button meanwhile.
     public private(set) var running: Set<EmberAction> = []
+    /// A display on/off write is in flight.
+    public var isSettingDisplayPower: Bool {
+        running.contains(.clock(.power(true))) || running.contains(.clock(.power(false)))
+    }
 
     @ObservationIgnored private let live: LiveModel
     @ObservationIgnored private let connection: ServerConnection
@@ -99,6 +105,12 @@ public final class ActionRunner {
             try await Self.perform(action, on: connection.client)
             ok = true
             if lastError?.action == action { lastError = nil }
+            switch action {
+            case .clock(.power(let on)): live.reportDisplayPower(on)
+            // A reboot relights the matrix.
+            case .clock(.reboot): live.reportDisplayPower(true)
+            default: break
+            }
         } catch {
             let e = FeedError(error)
             Self.log.info("action failed: \(String(describing: action), privacy: .public) \(e.localizedDescription, privacy: .public)")

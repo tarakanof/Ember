@@ -334,6 +334,57 @@ private final class Flag: @unchecked Sendable {
     #expect(configReads.paths.count == 2)
 }
 
+/// A clock-health body whose probe is `age` seconds old at `generated`, both
+/// in server time.
+private func healthJSON(power: Bool, generated: Int, age: Int) -> Data {
+    let fmt = { (s: Int) in Date(timeIntervalSince1970: TimeInterval(s)).ISO8601Format() }
+    return Data("""
+    {"generated_at":"\(fmt(generated))","publish":{"counting_since":"\(fmt(0))","ok_24h":0,"fail_24h":0,\
+    "ok_total":0,"fail_total":0,"retries_total":0,"last_ok":true},\
+    "device":{"reachable":true,"checked_at":"\(fmt(generated - age))","matrix_power":\(power)}}
+    """.utf8)
+}
+
+// #149: one display-power value. A write, a direct read and the health feed
+// all report it, and the newest observation wins, so a health probe the
+// server cached before a write can't flip the switch back.
+@MainActor @Test func displayPowerIsTheNewestObservation() async {
+    let body = Box(healthJSON(power: false, generated: 5_000, age: 0))
+    let client = stubbedClient { req in (okResponse(req.url!), body.value) }
+    let now = Box(Date(timeIntervalSince1970: 1_000))
+    let clock = ManualClock()
+    let m = LiveModel(now: { now.value }, makeCoordinator: {
+        RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
+    })
+    m.configure(client: client)
+    #expect(m.displayPower == nil)
+    let hold = Task { await m.track(.clockHealth) }
+    for _ in 0..<200 where !m.isTracked(.clockHealth) { await Task.yield() }
+
+    await m.refreshNow(.clockHealth)
+    #expect(m.displayPower == false)
+
+    now.value = Date(timeIntervalSince1970: 1_010)
+    m.reportDisplayPower(true)
+    #expect(m.displayPower == true)
+
+    // 5 s later the server still serves a probe taken 20 s ago: ignored.
+    now.value = Date(timeIntervalSince1970: 1_015)
+    body.value = healthJSON(power: false, generated: 5_015, age: 20)
+    await m.refreshNow(.clockHealth)
+    #expect(m.displayPower == true)
+
+    // A fresh probe that says off (the clock's button) wins.
+    now.value = Date(timeIntervalSince1970: 1_045)
+    body.value = healthJSON(power: false, generated: 5_045, age: 0)
+    await m.refreshNow(.clockHealth)
+    #expect(m.displayPower == false)
+    hold.cancel()
+
+    m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    #expect(m.displayPower == nil)
+}
+
 @MainActor @Test func everyFeedAsksForItsRoute() async {
     let seen = LockedBox()
     let client = stubbedClient { req in

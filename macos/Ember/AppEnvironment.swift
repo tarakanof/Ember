@@ -112,6 +112,7 @@ public final class AppEnvironment {
         envStore = EnvFileStore(path: producerEnvPath)
         settings = SettingsModels(client: client, envStore: envStore)
         deviceSettings = DeviceSettingsModel(service: DeviceService(client: client))
+        deviceSettings.onDisplayPower = { [live] in live.reportDisplayPower($0) }
         reminderWatcher = ReminderWatcher(client: client)
         producers = ProducerInstallService(
             sm: RealSMAppService(),

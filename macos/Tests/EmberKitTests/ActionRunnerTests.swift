@@ -102,6 +102,31 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     ])
 }
 
+// #149: the one power value follows every surface's writes.
+@MainActor @Test func powerAndRebootReportTheDisplayState() async {
+    let server = Server()
+    let (runner, live) = setup(server)
+    #expect(live.displayPower == nil)
+    await runner.run(.clock(.power(false)))
+    #expect(live.displayPower == false)
+    #expect(!runner.isSettingDisplayPower)
+    // A reboot relights the matrix.
+    await runner.run(.clock(.reboot))
+    #expect(live.displayPower == true)
+    #expect(server.requests.contains("POST /v1/device/reboot"))
+}
+
+@MainActor @Test func aFailedPowerWriteKeepsTheLastValue() async {
+    let server = Server()
+    let (runner, live) = setup(server)
+    await runner.run(.clock(.power(true)))
+    server.status = 404
+    #expect(await runner.run(.clock(.power(false))) == false)
+    #expect(live.displayPower == true)
+    #expect(runner.lastError?.action == .clock(.power(false)))
+    #expect(runner.lastError?.error == .featureOff)
+}
+
 @MainActor @Test func everyPomodoroActionPostsToItsRoute() async {
     let server = Server()
     let (runner, _) = setup(server)

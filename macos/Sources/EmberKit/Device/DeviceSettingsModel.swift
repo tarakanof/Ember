@@ -54,9 +54,11 @@ public enum AudioAvailability: Equatable, Sendable {
     case unsupported
 }
 
-/// One-off clock actions whose failure is shown next to their button.
+/// One-off Settings writes whose failure is shown next to their button.
+/// Restart and display power are clock actions (`ActionRunner`), shared with
+/// the menu and the Dashboard.
 public enum DeviceAction: Hashable, Sendable {
-    case restart, testChime, stopAudio, displayPower, useClock, discover, buttons, apps
+    case testChime, stopAudio, useClock, discover, buttons, apps
 }
 
 /// Everything the Clock and Sounds panes edit on the clock, proxied through
@@ -81,8 +83,6 @@ public final class DeviceSettingsModel {
     public private(set) var stats: DeviceStats?
     public private(set) var melodies: [DeviceMelody] = []
     public private(set) var audio: AudioAvailability = .unknown
-    /// Whether the LED matrix is lit; nil when the server doesn't report it.
-    public private(set) var displayPower: Bool?
     public private(set) var discovered: [DiscoveredClock]?
     public private(set) var isLoading = false
     /// Why the last one-off action failed, per action; cleared by its next success.
@@ -104,10 +104,6 @@ public final class DeviceSettingsModel {
     public var supportsControlRoutes: Bool { audio == .available || audio == .noOutput }
     /// The server is new enough but the clock's firmware predates NG 1.1.
     public var firmwareTooOld: Bool { isLoaded && supportsControlRoutes && !supportsNG11 }
-    /// Whether to offer the display on/off switch.
-    public var supportsDisplayPower: Bool {
-        displayPower != nil && supportsControlRoutes && actionErrors[.displayPower] != .featureOff
-    }
     public var nativeApps: [AppInfo] { NativeAppsPlan.listed(apps) }
     /// The transition names the clock reports, or a fallback list.
     public var transitions: [String] {
@@ -120,6 +116,14 @@ public final class DeviceSettingsModel {
     }
 
     @ObservationIgnored public private(set) var service: DeviceService
+    /// Receives the matrix state each overlay read sees (NG's display GET
+    /// carries `power`); the app wires it to `LiveModel.reportDisplayPower`,
+    /// the one display-power value.
+    public var onDisplayPower: ((Bool) -> Void)? {
+        get { powerRelay.send }
+        set { powerRelay.send = newValue }
+    }
+    @ObservationIgnored private let powerRelay = PowerRelay()
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let now: @Sendable () -> Date
@@ -143,7 +147,7 @@ public final class DeviceSettingsModel {
         self.debounce = debounce
         self.now = now
         writes = WriteStatus(sleep: sleep)
-        (settings, display, sensors) = Self.models(service, debounce: debounce, sleep: sleep)
+        (settings, display, sensors) = Self.models(service, relay: powerRelay, debounce: debounce, sleep: sleep)
     }
 
     /// Points the model at another server. A no-op for the same server and
@@ -152,9 +156,9 @@ public final class DeviceSettingsModel {
         guard next != service else { return }
         for m in [settings as any PendingSaveCancelling, display, sensors] { m.cancelPendingSave() }
         service = next
-        (settings, display, sensors) = Self.models(next, debounce: debounce, sleep: sleep)
+        (settings, display, sensors) = Self.models(next, relay: powerRelay, debounce: debounce, sleep: sleep)
         capabilities = nil; config = nil; apps = []; buttons = nil; stats = nil
-        melodies = []; audio = .unknown; displayPower = nil; discovered = nil
+        melodies = []; audio = .unknown; discovered = nil
         actionErrors = [:]; lastFullLoad = nil
         writes.clear()
         Task { await load(force: true) }
@@ -187,7 +191,6 @@ public final class DeviceSettingsModel {
         }
         if !force, let last = lastFullLoad, now().timeIntervalSince(last) < Self.secondaryRefresh { return }
         await display.load()
-        displayPower = display.applied?.power
         await sensors.load()
         let svc = service
         config = (try? await svc.config()) ?? config
@@ -271,24 +274,12 @@ public final class DeviceSettingsModel {
         }
     }
 
-    public func restart() async {
-        await perform(.restart) { try await self.service.reboot() }
-    }
-
     public func playTestChime(melody: String? = nil) async {
         await perform(.testChime) { try await self.service.playTestChime(melody: melody) }
     }
 
     public func stopAudio() async {
         await perform(.stopAudio) { try await self.service.stopAudio() }
-    }
-
-    public func setDisplayPower(_ on: Bool) async {
-        let before = displayPower
-        displayPower = on
-        if !(await perform(.displayPower, { try await self.service.setDisplayPower(on) })) {
-            displayPower = before
-        }
     }
 
     public func discover() async {
@@ -307,7 +298,7 @@ public final class DeviceSettingsModel {
         }
     }
 
-    private static func models(_ svc: DeviceService, debounce: Duration,
+    private static func models(_ svc: DeviceService, relay: PowerRelay, debounce: Duration,
                                sleep: @escaping @Sendable (Duration) async throws -> Void) -> (
         ServerConfigModel<DeviceSettings>, ServerConfigModel<DeviceDisplay>, ServerConfigModel<SensorCalibration>
     ) {
@@ -327,7 +318,12 @@ public final class DeviceSettingsModel {
         base.model = settings
         let display = ServerConfigModel<DeviceDisplay>(
             initial: DeviceDisplay(),
-            load: { try await svc.display() },
+            load: {
+                // Reported as it arrives, so only a fresh read counts.
+                let d = try await svc.display()
+                if let on = d.power { await relay.report(on) }
+                return d
+            },
             save: { try await svc.updateDisplay($0) },
             debounce: debounce, savedHold: .seconds(2), sleep: sleep)
         let sensors = ServerConfigModel<SensorCalibration>(
@@ -344,4 +340,12 @@ public final class DeviceSettingsModel {
 private final class AppliedRef {
     weak var model: ServerConfigModel<DeviceSettings>?
     func applied() -> DeviceSettings { model?.applied ?? DeviceSettings() }
+}
+
+/// Carries overlay reads' `power` out of the display model's load closure,
+/// which is built before the owning model exists.
+@MainActor
+private final class PowerRelay {
+    var send: ((Bool) -> Void)?
+    func report(_ on: Bool) { send?(on) }
 }

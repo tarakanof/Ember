@@ -41,6 +41,42 @@ public final class LiveModel {
     /// Sessions from the latest snapshot, live or stale.
     public var sessions: [Session] { snapshot.value?.sessions ?? [] }
 
+    /// Whether the clock's LED matrix is lit: the one value the menu, the
+    /// Dashboard and Settings show. The newest observation wins: the
+    /// clock-health feed's `matrixPower` (dated when the server probed the
+    /// clock, which can be up to 30 s before the fetch), or a report from a
+    /// power write, a reboot or a direct read. nil until one of them says.
+    public var displayPower: Bool? {
+        switch (healthPower, reportedPower) {
+        case let (h?, r?): r.at >= h.at ? r.on : h.on
+        case let (h?, nil): h.on
+        case let (nil, r?): r.on
+        case (nil, nil): nil
+        }
+    }
+
+    /// Records the matrix state a write or a direct read just saw.
+    public func reportDisplayPower(_ on: Bool) {
+        reportedPower = PowerObservation(on: on, at: clock())
+    }
+
+    private struct PowerObservation: Equatable {
+        let on: Bool
+        let at: Date
+    }
+
+    private var reportedPower: PowerObservation?
+
+    /// The health feed's reading, dated on this Mac's clock: when the value
+    /// landed minus the probe's age, which the server reports in its own
+    /// time (`generatedAt − checkedAt`), so the two clocks never mix.
+    private var healthPower: PowerObservation? {
+        guard let health = clockHealth.value, let fetched = clockHealth.loadedAt,
+              let device = health.device, let on = device.matrixPower else { return nil }
+        let age = max(0, health.generatedAt.timeIntervalSince(device.checkedAt))
+        return PowerObservation(on: on, at: fetched.addingTimeInterval(-age))
+    }
+
     @ObservationIgnored private var coordinator: RefreshCoordinator!
     @ObservationIgnored private let clock: @MainActor () -> Date
     /// The configured server's client; nil while unconfigured.
@@ -181,6 +217,7 @@ public final class LiveModel {
         activity = .loading
         workhours = .loading
         heatmap = .loading
+        reportedPower = nil
     }
 
     // MARK: Fetching

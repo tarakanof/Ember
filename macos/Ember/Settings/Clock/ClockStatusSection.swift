@@ -72,15 +72,15 @@ struct ClockStatusSection: View {
                 .disabled(device.config?.webURL == nil)
                 Spacer()
                 Button("Restart Clock…", role: .destructive) { confirmRestart = true }
-                    .disabled(!device.isLoaded || device.running.contains(.restart))
+                    .disabled(!device.isLoaded || env.actions.running.contains(.clock(.reboot)))
             }
         } header: {
             Text("Status")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server.")
-                if let e = device.actionErrors[.restart] {
-                    Label { Text("Couldn't restart the clock: \(Text(e.message))") } icon: {
+                if let failure = env.actions.lastError, failure.action == .clock(.reboot) {
+                    Label { Text("Couldn't restart the clock: \(Text(failure.error.message))") } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                     }
                     .foregroundStyle(.red)
@@ -89,7 +89,7 @@ struct ClockStatusSection: View {
         }
         .task { await env.live.track(.clockHealth) }
         .confirmationDialog("Restart the clock?", isPresented: $confirmRestart, titleVisibility: .visible) {
-            Button("Restart", role: .destructive) { Task { await device.restart() } }
+            Button("Restart", role: .destructive) { Task { await env.actions.run(.clock(.reboot)) } }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("The clock is unavailable for a few seconds while it restarts.")

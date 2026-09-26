@@ -34,7 +34,8 @@ private struct CardPreview<Content: View>: View {
 
 #Preview("Clock") {
     let d = f.established
-    CardPreview(width: 900) { ClockCard(screen: d.screen, health: d.clockHealth) }
+    CardPreview(width: 900) { ClockCard(screen: d.screen,
+                                           actions: DashboardActions(displayPower: d.clockHealth.value?.device?.matrixPower)) }
 }
 #Preview("Focus — running") {
     let d = f.established

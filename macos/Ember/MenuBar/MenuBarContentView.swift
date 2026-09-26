@@ -122,7 +122,7 @@ struct MenuBarContentView: View {
 	private func clockMenu(_ live: LiveModel) -> some View {
 		// The matrix state is only current while something (the Dashboard)
 		// holds the clock-health feed; the menu doesn't poll it.
-		let matrixPower = live.isTracked(.clockHealth) ? live.clockHealth.value?.device?.matrixPower : nil
+		let matrixPower = live.isTracked(.clockHealth) ? live.displayPower : nil
 		let power = MenuRows.displayPower(usage: live.usage, clockHealth: live.clockHealth, matrixPower: matrixPower)
 		let apps = MenuRows.showOnClock(live.apps)
 

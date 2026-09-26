@@ -149,7 +149,7 @@ struct LiveDashboardSource: DashboardSource, Equatable {
     var actions: DashboardActions {
         let runner = env.actions
         return DashboardActions(clock: { action in Task { await runner.run(.clock(action)) } },
-                                running: runner.running)
+                                running: runner.running, displayPower: env.live.displayPower)
     }
 }
 
