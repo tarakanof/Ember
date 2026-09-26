@@ -53,10 +53,12 @@ The aggregator and the only writer to the device.
   Sessions are reaped when stale.
 - **Render priority.** `waiting > error > running > done`; `idle` never wins
   (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
-  an aggregate label is shown. One Go rule: `render.StatePriority` /
-  `render.PickWinning` (the `/state` render, preview and clock all use it). The
-  menu's Swift `pickWinning` is a port; `TestPickWinningTable` is the case
-  table a Swift test should mirror.
+  an aggregate label is shown. One Go ordering, `render.StatePriority`: the
+  `/state` render and the preview pick their winner with `render.PickWinning`
+  (most recent within a state), while the clock's rotation and session bar
+  order by it via `render.SortedActiveKeys` (ties by source/tool/session). The
+  menu's Swift `pickWinning` is a port of `PickWinning`;
+  `TestPickWinningTable` is the case table a Swift test should mirror.
 - **The coordinator** (single-writer goroutine) owns all publish timing and
   device state. Responsibilities: rotation across sessions by **stable session
   key** (not slice index), attention **preempt** (jump to a waiting/error

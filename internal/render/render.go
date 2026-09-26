@@ -640,8 +640,9 @@ func drawUnitPctFace(f *Frame, unit string, pct int) {
 // within a state the most recently updated session wins, and on an exact
 // UpdatedAt tie the earlier one in sessions.
 //
-// This is the one session-priority rule in the server: the legacy /state
-// render (cmd/ember sessions.go) and the preview use it too. The menu app's
+// The legacy /state render (cmd/ember sessions.go) and the preview pick
+// their winner here; the clock's rotation orders by the same StatePriority
+// through SortedActiveKeys. The menu app's
 // pickWinning (macos/Sources/EmberKit/StatusService.swift) is a port of it;
 // TestPickWinningTable is written so a Swift test can mirror its cases
 // one for one.
