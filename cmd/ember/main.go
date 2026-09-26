@@ -79,8 +79,12 @@ func main() {
 	// from the app (cfg.Pomodoro.Enabled — persisted to the store — gates whether
 	// it runs). Non-fatal: if the store can't open, the feature is simply
 	// unavailable until the data dir is writable.
-	if err := app.initPomodoro(cfg.Pomodoro); err != nil {
-		logger.Warn("pomodoro init failed; feature unavailable until the data store is writable", "err", err, "db_path", cfg.Pomodoro.DBPath)
+	// The same store holds every menu-edited setting; without it they apply
+	// in memory only and don't survive a restart.
+	pomoErr := app.initPomodoro(cfg.Pomodoro)
+	app.settings.reapply() // runtime settings overrides over the file baseline
+	if pomoErr != nil {
+		logger.Warn("pomodoro init failed; feature unavailable and settings will not persist until the data store is writable", "err", pomoErr, "db_path", cfg.Pomodoro.DBPath)
 	} else {
 		logger.Info("pomodoro wired", "enabled", app.cfg.Load().Pomodoro.Enabled, "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
 	}
@@ -96,7 +100,6 @@ func main() {
 	if len(app.meetingsURLs) > 0 {
 		logger.Info("meetings ICS feeds configured", "count", len(app.meetingsURLs))
 	}
-	app.settings.reapply() // runtime settings overrides over the file baseline
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}

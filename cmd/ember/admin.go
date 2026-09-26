@@ -283,8 +283,8 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			app.deviceAutoPicked.Store(false)
 		}
 		app.cfgMu.Unlock()
-		// Keep the Pomodoro engine in sync with the reloaded config and
-		// re-apply API-persisted settings so a reload doesn't revert them.
+		// Keep the Pomodoro engine in sync with the reloaded config; the
+		// persisted settings are re-applied below.
 		app.resyncPomodoroAfterReload()
 		// A new file URL must not beat the menu-chosen clock URL (Device tab).
 		// When the file URL is unchanged the running URL was kept above, and

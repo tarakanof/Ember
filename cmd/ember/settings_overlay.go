@@ -61,6 +61,7 @@ type settingsOverlay struct {
 // order below is the reapply order.
 type appSettings struct {
 	*settingsOverlay
+	pomodoro *setting[pomodoroSettingsDTO]
 	weather  *setting[WeatherConfig]
 	meetings *setting[MeetingsConfig]
 	usage    *setting[usageConfigDTO]
@@ -84,6 +85,7 @@ func newAppSettings(a *App) appSettings {
 	}
 	return appSettings{
 		settingsOverlay: o,
+		pomodoro:        register(o, a.pomodoroSettingSpec()),
 		weather:         register(o, a.weatherSettingSpec()),
 		meetings:        register(o, a.meetingsSettingSpec()),
 		usage:           register(o, a.usageSettingSpec()),

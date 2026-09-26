@@ -495,11 +495,9 @@ func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
 	app := newPomodoroApp(t)
 
 	// Persist a runtime edit (focus=30) via the API path.
-	if err := app.applyPomodoroSettings(pomodoroSettingsDTO{
-		FocusMinutes: intPtr(30), ShortBreakMinutes: intPtr(5), LongBreakMinutes: intPtr(15), RoundsBeforeLongBreak: intPtr(4),
-		FocusColor: strPtr("#FF3B30"), BreakColor: strPtr("#2EE85E"),
-	}); err != nil {
-		t.Fatalf("applyPomodoroSettings: %v", err)
+	if _, err := app.settings.pomodoro.put([]byte(`{"focus_minutes":30,"short_break_minutes":5,` +
+		`"long_break_minutes":15,"rounds_before_long_break":4,"focus_color":"#FF3B30","break_color":"#2EE85E"}`)); err != nil {
+		t.Fatalf("put: %v", err)
 	}
 
 	// Simulate a config reload that resets the file's pomodoro block to 25/engine untouched.
@@ -507,7 +505,9 @@ func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
 	cfg.Pomodoro.FocusMinutes = 25
 	app.cfg.Store(&cfg)
 
+	// The /admin/reload sequence.
 	app.resyncPomodoroAfterReload()
+	app.settings.reapply()
 
 	if got := app.cfg.Load().Pomodoro.FocusMinutes; got != 30 {
 		t.Fatalf("cfg focus after reload+resync = %d, want 30 (persisted edit)", got)

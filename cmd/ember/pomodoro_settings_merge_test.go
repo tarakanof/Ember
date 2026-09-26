@@ -102,7 +102,7 @@ func TestPomodoroConfigPutPartialUpdateTouchesOnlyGivenField(t *testing.T) {
 // TestLoadPersistedPomodoroSettingsRestoresFullBlob confirms an
 // old-style persisted blob — dtoFromConfig always emits every field
 // non-nil — restores every field identically through the same merge path
-// applyPomodoroSettings uses for a live PUT, so persisted settings written
+// the settings overlay uses for a live PUT, so persisted settings written
 // before or after this change behave identically.
 func TestLoadPersistedPomodoroSettingsRestoresFullBlob(t *testing.T) {
 	app := newPomodoroApp(t)
@@ -136,7 +136,7 @@ func TestLoadPersistedPomodoroSettingsRestoresFullBlob(t *testing.T) {
 	cfg.Pomodoro = PomodoroConfig{Enabled: false, FocusMinutes: 25, ShortBreakMinutes: 5, LongBreakMinutes: 15, RoundsBeforeLongBreak: 4, DBPath: cfg.Pomodoro.DBPath}
 	app.cfg.Store(&cfg)
 
-	app.loadPersistedPomodoroSettings()
+	app.settings.reapply()
 
 	got := app.cfg.Load().Pomodoro
 	full.DBPath = got.DBPath // DBPath isn't part of the DTO; preserve whatever the live config carries.
@@ -154,7 +154,7 @@ func TestApplyPomodoroSettingsRejectsBadMergedResult(t *testing.T) {
 	app := newPomodoroApp(t)
 	before := app.cfg.Load().Pomodoro
 
-	err := app.applyPomodoroSettings(pomodoroSettingsDTO{FocusMinutes: intPtr(999)})
+	_, err := app.settings.pomodoro.put([]byte(`{"focus_minutes":999}`))
 	if err == nil {
 		t.Fatal("expected validation error for out-of-range focus_minutes, got nil")
 	}
