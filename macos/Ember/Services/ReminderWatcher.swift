@@ -1,59 +1,39 @@
 import EventKit
 import Foundation
 import Observation
-import OSLog
 import EmberKit
 
-/// Watches Apple Reminders and fires the clock bell-popup when a reminder with a
-/// due time comes due. Runs only while enabled + authorized; settings persist in
-/// UserDefaults. Polls every `pollSeconds`; the fire-window grace covers a missed
-/// poll. Never mutates the user's reminders.
+/// Apple Reminders → clock bell-popup. The scheduling lives in EmberKit's
+/// `ReminderScheduler`; this keeps the platform side: the EventKit source and
+/// its authorization, prefs persisted in UserDefaults, and the App Nap
+/// assertion held while the scheduler runs.
 @MainActor
 @Observable
 public final class ReminderWatcher {
-    // nonisolated(unsafe): EKEventStore is used both from the MainActor
-    // (requestAccess) and from the nonisolated background fetch below. EventKit
-    // serialises its own fetch work on its internal queue, so sharing the one
-    // store across those is the standard EventKit pattern.
-    nonisolated(unsafe) private let store = EKEventStore()
-    private var loop: Task<Void, Never>?
-    private var tracker = ReminderFireTracker()
-    /// App Nap assertion held while the watcher runs (see applyEnabled).
-    private var activity: NSObjectProtocol?
-
-    private let pollSeconds: UInt64 = 30
-    private let grace: TimeInterval = 90
+    @ObservationIgnored private let source: EventKitReminderSource
+    @ObservationIgnored private let scheduler: ReminderScheduler
 
     public var prefs: ReminderPrefs {
-        didSet {
-            ReminderWatcher.save(prefs)
-            applyEnabled()
+        get { scheduler.prefs }
+        set {
+            ReminderWatcher.save(newValue)
+            scheduler.prefs = newValue
         }
     }
-    public private(set) var client: APIClient
     /// Next few upcoming due-timed reminders, for the tab's sanity-check list.
-    public private(set) var upcoming: [UpcomingReminder] = []
+    public var upcoming: [DueReminder] { scheduler.upcoming }
     /// Why the last fire request failed, or nil once one succeeds.
-    public private(set) var lastFireError: String?
-
-    // Reminder titles are personal data: log them `.private` so the unified log
-    // redacts them unless a debug profile is installed.
-    private static let log = Logger(subsystem: "com.ember.Ember", category: "reminders")
-
-    public struct UpcomingReminder: Identifiable, Equatable {
-        public let id: String
-        public let title: String
-        public let due: Date
-    }
+    public var lastFireError: String? { scheduler.lastFireError }
 
     public init(client: APIClient) {
-        self.client = client
-        self.prefs = ReminderWatcher.load()
+        let source = EventKitReminderSource()
+        let appNap = AppNapAssertion()
+        self.source = source
+        scheduler = ReminderScheduler(source: source, client: client, prefs: ReminderWatcher.load(),
+                                      onRunningChange: { appNap.hold($0) })
     }
 
-    public var authorization: EKAuthorizationStatus {
-        EKEventStore.authorizationStatus(for: .reminder)
-    }
+    public var authorization: EKAuthorizationStatus { source.authorization }
 
     /// Observable mirror of `authorization` for the UI — the raw EventKit status is
     /// a non-observable global, so without this the Reminders tab wouldn't update
@@ -61,142 +41,22 @@ public final class ReminderWatcher {
     public private(set) var authStatus: EKAuthorizationStatus = EKEventStore.authorizationStatus(for: .reminder)
 
     public func refreshAuthorization() {
-        authStatus = EKEventStore.authorizationStatus(for: .reminder)
+        authStatus = source.authorization
     }
 
     /// Rebuilds against a new client (Connection-tab change), like the other services.
     public func reconfigure(client: APIClient) {
-        self.client = client
+        scheduler.configure(client: client)
     }
 
-    public func start() { applyEnabled() }
+    public func start() { scheduler.sync() }
 
     @discardableResult
     public func requestAccess() async -> EKAuthorizationStatus {
-        do { _ = try await store.requestFullAccessToReminders() } catch { }
+        await source.requestAccess()
         refreshAuthorization()
-        applyEnabled()
+        scheduler.sync()
         return authStatus
-    }
-
-    private func applyEnabled() {
-        let shouldRun = prefs.enabled && authorization == .fullAccess
-        if shouldRun, loop == nil {
-            // Hold a user-initiated activity assertion so macOS App Nap doesn't
-            // throttle/suspend our 30s poll Task while the app sits idle in the menu
-            // bar — without this, an idle LSUIElement app gets napped and reminders
-            // miss their fire window (they ring on phone/Mac but not the clock).
-            // `AllowingIdleSystemSleep` preserves "rings only while the Mac is awake":
-            // we defeat App Nap but never block system sleep.
-            activity = ProcessInfo.processInfo.beginActivity(
-                options: .userInitiatedAllowingIdleSystemSleep,
-                reason: "Watching Apple Reminders")
-            loop = Task { [weak self] in
-                while !Task.isCancelled {
-                    let next = await self?.poll()
-                    // Sleep until the next reminder's fire time (so it rings on time,
-                    // not up to a full poll-interval late), capped at pollSeconds so we
-                    // still re-fetch regularly to discover newly-created reminders.
-                    let cap = Double(self?.pollSeconds ?? 30)
-                    var secs = cap
-                    // Wake ~0.25s past the fire time so the next poll sees now ≥ fireTime
-                    // and fires on the first try (rather than a hair early and waiting).
-                    if let next { secs = min(cap, max(0.5, next.timeIntervalSinceNow + 0.25)) }
-                    try? await Task.sleep(for: .seconds(secs))
-                }
-            }
-            Self.log.info("watcher started")
-        } else if !shouldRun, let l = loop {
-            l.cancel(); loop = nil
-            if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
-            Self.log.info("watcher stopped")
-        }
-    }
-
-    /// A Sendable snapshot of a due-timed reminder, extracted off the EventKit
-    /// callback queue so nothing non-Sendable crosses the actor hop.
-    private struct Snapshot: Sendable {
-        let id: String
-        let title: String
-        let due: Date
-    }
-
-    /// Polls Apple Reminders, fires any that are due, and returns the nearest
-    /// future fire time (due − lead) so the loop can sleep precisely until then.
-    @discardableResult
-    private func poll() async -> Date? {
-        guard prefs.enabled, authorization == .fullAccess else { return nil }
-        let now = Date()
-        let lead = Double(prefs.leadMinutes) * 60
-        let reminders = await fetchIncompleteDueTimed()
-        tracker.prune(now: now)
-        Self.log.debug("poll fetched \(reminders.count) due-timed reminders")
-        upcoming = reminders
-            .map { UpcomingReminder(id: $0.id, title: $0.title, due: $0.due) }
-            .filter { $0.due >= now }
-            .sorted { $0.due < $1.due }
-            .prefix(5).map { $0 }
-
-        for r in reminders {
-            let due = r.due
-            guard reminderShouldFire(now: now, dueDate: due, leadMinutes: prefs.leadMinutes, grace: grace) else { continue }
-            let key = reminderDedupeKey(id: r.id, dueDate: due)
-            let title = r.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            if title.isEmpty { continue }
-            guard tracker.begin(key) else { continue }
-            Self.log.info("firing \(title, privacy: .private) due=\(due, privacy: .public)")
-            let outcome = await fire(title: title, key: key)
-            tracker.finish(key, due: due, outcome: outcome)
-        }
-
-        // Nearest not-yet-reached fire time, for precise wake-up scheduling.
-        return reminders
-            .map { $0.due.addingTimeInterval(-lead) }
-            .filter { $0 > now }
-            .min()
-    }
-
-    /// Sends one reminder to the clock and reports what the result proves about
-    /// delivery; see `ReminderFireOutcome` for which failures are retried.
-    private func fire(title: String, key: String) async -> ReminderFireOutcome {
-        let svc = RemindersService(client: client)
-        do {
-            try await svc.fire(text: title, sound: prefs.sound, duration: prefs.popupDuration,
-                               nativeIconId: prefs.useNativeIcon ? prefs.nativeIconId : "", hold: prefs.hold,
-                               repeatSound: prefs.repeatSound, key: key)
-            lastFireError = nil
-            return .delivered
-        } catch {
-            let outcome = ReminderFireOutcome(error: error)
-            lastFireError = error.localizedDescription
-            Self.log.error("fire failed (\(outcome == .notDelivered ? "will retry" : "not retried", privacy: .public)): \(error.localizedDescription, privacy: .public)")
-            return outcome
-        }
-    }
-
-    nonisolated private static func dueDate(_ r: EKReminder) -> Date? {
-        guard let comps = r.dueDateComponents, comps.hour != nil else { return nil }
-        return Calendar.current.date(from: comps)
-    }
-
-    // `nonisolated` is REQUIRED. EventKit invokes the fetchReminders completion on
-    // its OWN background queue (com.apple.eventkit.reminders.search). If this method
-    // were MainActor-isolated, Swift would infer the completion closure as
-    // @MainActor too and insert an executor-isolation check at its entry — which
-    // traps (SIGTRAP) when EventKit runs it off the main queue. Making the method
-    // nonisolated makes the closures nonisolated; the `await` resumes back on the
-    // MainActor with the Sendable [Snapshot].
-    nonisolated private func fetchIncompleteDueTimed() async -> [Snapshot] {
-        await withCheckedContinuation { cont in
-            let pred = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
-            store.fetchReminders(matching: pred) { rems in
-                let snaps: [Snapshot] = (rems ?? []).compactMap { r in
-                    guard let due = ReminderWatcher.dueDate(r) else { return nil }
-                    return Snapshot(id: r.calendarItemIdentifier, title: r.title ?? "", due: due)
-                }
-                cont.resume(returning: snaps)
-            }
-        }
     }
 
     private static let key = "reminderPrefs"
@@ -207,5 +67,26 @@ public final class ReminderWatcher {
     }
     static func save(_ p: ReminderPrefs) {
         if let data = try? JSONEncoder().encode(p) { UserDefaults.standard.set(data, forKey: key) }
+    }
+}
+
+/// Holds the App Nap assertion while the scheduler runs. An idle LSUIElement
+/// app gets napped, which throttles the scheduler's sleep so reminders miss
+/// their fire window (they ring on phone/Mac but not the clock).
+/// `AllowingIdleSystemSleep` keeps "rings only while the Mac is awake": we
+/// defeat App Nap but never block system sleep.
+@MainActor
+private final class AppNapAssertion {
+    private var activity: NSObjectProtocol?
+
+    func hold(_ running: Bool) {
+        if running, activity == nil {
+            activity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Watching Apple Reminders")
+        } else if !running, let a = activity {
+            ProcessInfo.processInfo.endActivity(a)
+            activity = nil
+        }
     }
 }
