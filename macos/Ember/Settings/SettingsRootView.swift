@@ -9,6 +9,9 @@ struct SettingsRootView: View {
     @Environment(AppEnvironment.self) private var env
     @AppStorage(SettingsPaneID.storageKey) private var paneName = SettingsPaneID.connection.rawValue
 
+    /// The window's fixed width: the sidebar plus a detail column every pane fits.
+    static let windowWidth: CGFloat = 760
+
     private var selection: Binding<SettingsPane?> {
         Binding(
             get: { SettingsPane(stored: paneName) },
