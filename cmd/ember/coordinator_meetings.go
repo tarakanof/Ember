@@ -35,7 +35,7 @@ var meetTile = tile{
 		// in the 3×5 font for the preview.
 		return tileView{
 			payload: render.MeetingPayload(title, mins, usageAppLifetime),
-			frame:   render.MeetingTileFrame(title, mins),
+			frame:   func() render.Frame { return render.MeetingTileFrame(title, mins) },
 		}, true
 	},
 }
