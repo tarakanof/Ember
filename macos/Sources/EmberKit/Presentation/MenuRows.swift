@@ -113,31 +113,48 @@ public enum MenuRows {
     /// The share of a 5-hour window from which a row counts as high.
     public static let highPercent: Double = 80
 
-    /// One row per tool with a live 5-hour window, sorted by tool. `/v1/usage`
-    /// (server 0.28+) is the source; a tool it doesn't list (or a server
-    /// without it) falls back to the percent the producer put on its latest
-    /// `/state` session. A stale tool is left out: the clock hides it too.
+    /// One row per tool with a current 5-hour window, sorted by tool. Picks
+    /// the window the way the server's `effectiveFiveHour` does: a fresh
+    /// `/v1/usage` entry (server 0.28+) with a 5h window, else the newest
+    /// `/state` session carrying `rate_window_pct` and a known reset. Pass
+    /// only live sessions (`liveSessions`). A window whose reset time has
+    /// passed is over, so its row is dropped rather than shown as still full.
     public static func usage(_ usage: Loadable<UsageSnapshot>, sessions: [Session], now: Date,
                              locale: Locale = .current, timeZone: TimeZone = .current) -> [UsageRow] {
         var rows: [String: UsageRow] = [:]
-        let listed = Set(usage.value?.tools.map(\.tool) ?? [])
+        var covered = Set<String>()
         for t in usage.value?.tools ?? [] where !t.stale {
             guard let w = t.fiveHour else { continue }
-            let reset = w.resetsAt.flatMap { resetText($0, now: now, locale: locale, timeZone: timeZone) }
-                ?? w.resetLabel.flatMap { SessionPresentation.displayText($0, maxLength: 24) }
+            covered.insert(t.tool)
+            let reset: String?
+            if let at = w.resetsAt {
+                guard at > now else { continue }
+                reset = resetText(at, now: now, locale: locale, timeZone: timeZone)
+            } else {
+                reset = w.resetLabel.flatMap { SessionPresentation.displayText($0, maxLength: 24) }
+            }
             rows[t.tool] = usageRow(tool: t.tool, percent: w.usedPercent, reset: reset, locale: locale)
         }
-        let latest = Dictionary(grouping: sessions.filter { $0.rateWindowPct != nil && !listed.contains($0.tool) },
-                                by: \.tool)
+        let candidates = sessions.filter { $0.rateWindowPct != nil && $0.rateResetAt > 0 && !covered.contains($0.tool) }
+        let latest = Dictionary(grouping: candidates, by: \.tool)
             .compactMapValues { $0.max { $0.updatedAt < $1.updatedAt } }
         for (tool, s) in latest {
             guard let pct = s.rateWindowPct else { continue }
-            let reset = s.rateResetAt > 0
-                ? resetText(Date(timeIntervalSince1970: TimeInterval(s.rateResetAt)), now: now, locale: locale, timeZone: timeZone)
-                : nil
-            rows[tool] = usageRow(tool: tool, percent: Double(pct), reset: reset, locale: locale)
+            let at = Date(timeIntervalSince1970: TimeInterval(s.rateResetAt))
+            guard at > now else { continue }
+            rows[tool] = usageRow(tool: tool, percent: Double(pct),
+                                  reset: resetText(at, now: now, locale: locale, timeZone: timeZone), locale: locale)
         }
         return rows.values.sorted { $0.tool < $1.tool }
+    }
+
+    /// The sessions the menu may show: none unless the snapshot is live.
+    /// After `/state` has failed (offline) its last sessions are history, and
+    /// listing them would show a "Running" that may have ended long ago; the
+    /// bot follows the same rule through `LiveModel.winningSession`.
+    public static func liveSessions(_ snapshot: Loadable<Snapshot>) -> [Session] {
+        guard case .loaded(let snap, _) = snapshot else { return [] }
+        return snap.sessions
     }
 
     private static func usageRow(tool: String, percent: Double, reset: String?, locale: Locale) -> UsageRow {
@@ -250,7 +267,8 @@ public enum MenuRows {
         let time = DurationText.minutes(stats.today.focusMin, locale: locale)
         let goal = stats.goal.dailySessions
         if goal > 0 { return "Today \(done) of \(goal) · \(time)" }
-        return done == 1 ? "Today 1 session · \(time)" : "Today \(done) sessions · \(time)"
+        // One key with plural variations in the catalog ("1 session").
+        return "Today \(done) sessions · \(time)"
     }
 
     // MARK: Action errors

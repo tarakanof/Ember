@@ -148,18 +148,18 @@ private func tool(_ name: String, pct: Double?, resetsIn: TimeInterval? = nil, l
     #expect(rows.isEmpty)
 }
 
-@Test func usageResetFarAwayShowsTheDayAndPastResetFallsBackToTheLabel() {
+@Test func usageResetFarAwayShowsTheDayAndAPastResetEndsTheWindow() {
     let rows = MenuRows.usage(.loaded(usageSnapshot([
         tool("a", pct: 5, resetsIn: 30 * 3600),
-        tool("b", pct: 5, resetsIn: -60, label: "in  2h\n"),
+        tool("b", pct: 97, resetsIn: -60, label: "in 2h"),
+        tool("c", pct: 5, resetsIn: nil, label: "in  2h\n"),
     ]), at: now), sessions: [], now: now, locale: en, timeZone: utc)
-    #expect(rows[0].text.text.ns == "A 5h 5% · resets Sun 4:00 PM")
-    #expect(rows[1].text.text.ns == "B 5h 5% · resets in 2h")
+    #expect(rows.map(\.text.text.ns) == ["A 5h 5% · resets Sun 4:00 PM", "C 5h 5% · resets in 2h"])
 }
 
 @Test func usageFallsBackToStateOnAnOldServer() throws {
     let reset = Int64(now.addingTimeInterval(1800).timeIntervalSince1970)
-    let older = try session(tool: "claude", source: "m5", state: "done", id: "o", updated: -100, rate: 10)
+    let older = try session(tool: "claude", source: "m5", state: "done", id: "o", updated: -100, rate: 10, rateResetAt: reset)
     let newer = try session(tool: "claude", source: "m4", state: "running", id: "n", updated: -1, rate: 47, rateResetAt: reset)
     let noRate = try session(tool: "codex", state: "running", id: "c")
     let rows = MenuRows.usage(.failed(.featureOff, last: nil, lastAt: nil), sessions: [older, newer, noRate],
@@ -167,12 +167,40 @@ private func tool(_ name: String, pct: Double?, resetsIn: TimeInterval? = nil, l
     #expect(rows.map(\.text.text.ns) == ["Claude 5h 47% · resets 10:30 AM"])
 }
 
-@Test func usageFeedWinsOverStatePerTool() throws {
-    let claude = try session(tool: "claude", state: "running", id: "a", rate: 99)
-    let codex = try session(tool: "codex", state: "running", id: "b", rate: 20)
-    let rows = MenuRows.usage(.loaded(usageSnapshot([tool("claude", pct: 47)]), at: now),
+@Test func stateFallbackNeedsAFutureReset() throws {
+    let future = Int64(now.addingTimeInterval(600).timeIntervalSince1970)
+    let past = Int64(now.addingTimeInterval(-600).timeIntervalSince1970)
+    // The newest session has no reset: the server skips it, so the older one counts.
+    let noReset = try session(tool: "claude", state: "running", id: "a", updated: 0, rate: 5)
+    let full = try session(tool: "claude", state: "done", id: "b", updated: -60, rate: 100, rateResetAt: future)
+    let over = try session(tool: "codex", state: "running", id: "c", rate: 100, rateResetAt: past)
+    let rows = MenuRows.usage(.loading, sessions: [noReset, full, over], now: now, locale: en, timeZone: utc)
+    #expect(rows.map(\.text.text.ns) == ["Claude 5h limit reached · resets 10:10 AM"])
+    #expect(rows.map(\.level) == [.limit])
+}
+
+@Test func usageFeedWinsOverStateUnlessStale() throws {
+    let reset = Int64(now.addingTimeInterval(1800).timeIntervalSince1970)
+    let claude = try session(tool: "claude", state: "running", id: "a", rate: 99, rateResetAt: reset)
+    let codex = try session(tool: "codex", state: "running", id: "b", rate: 20, rateResetAt: reset)
+    let rows = MenuRows.usage(.loaded(usageSnapshot([tool("claude", pct: 47), tool("codex", pct: 90, stale: true)]), at: now),
                               sessions: [claude, codex], now: now, locale: en, timeZone: utc)
-    #expect(rows.map(\.text.text.ns) == ["Claude 5h 47%", "Codex 5h 20%"])
+    #expect(rows.map(\.text.text.ns) == ["Claude 5h 47%", "Codex 5h 20% · resets 10:30 AM"])
+}
+
+@Test func onlyALiveSnapshotHasSessions() throws {
+    let s = try session(tool: "claude", state: "running")
+    let snap = Snapshot(sessions: [s, s])
+    #expect(MenuRows.liveSessions(.loaded(snap, at: now)).count == 2)
+    #expect(MenuRows.liveSessions(.failed(.offline, last: snap, lastAt: now)).isEmpty)
+    #expect(MenuRows.liveSessions(.loading).isEmpty)
+    // Offline: no other sessions and no /state usage from the leftovers.
+    var rated = try session(tool: "codex", state: "running", id: "r", rate: 50,
+                            rateResetAt: Int64(now.addingTimeInterval(600).timeIntervalSince1970))
+    rated.source = "m5"
+    let stale = MenuRows.liveSessions(.failed(.offline, last: Snapshot(sessions: [s, rated]), lastAt: now))
+    #expect(MenuRows.otherSessions(stale, winning: nil).rows.isEmpty)
+    #expect(MenuRows.usage(.loading, sessions: stale, now: now).isEmpty)
 }
 
 // MARK: Next event
@@ -246,7 +274,8 @@ private func stats(done: Int, minutes: Int, goal: Int) -> PomoStats {
     #expect(MenuRows.today(nil) == nil)
     #expect(MenuRows.today(stats(done: 3, minutes: 75, goal: 8), locale: en)?.text == "Today 3 of 8 · 1h 15m")
     #expect(MenuRows.today(stats(done: 3, minutes: 75, goal: 0), locale: en)?.text == "Today 3 sessions · 1h 15m")
-    #expect(MenuRows.today(stats(done: 1, minutes: 25, goal: 0), locale: en)?.text == "Today 1 session · 25m")
+    // "1 session" is the catalog's plural variation (MenuStringCatalogTests).
+    #expect(MenuRows.today(stats(done: 1, minutes: 25, goal: 0), locale: en)?.key == "Today %lld sessions · %@")
     #expect(MenuRows.today(stats(done: 0, minutes: 0, goal: 0), locale: en)?.text == "Today 0 sessions · 0m")
 }
 

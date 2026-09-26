@@ -65,7 +65,9 @@ struct MenuBarContentView: View {
 		Text(header.title)
 		if let detail = header.detail { Text(verbatim: "   \(detail)") }
 
-		let others = MenuRows.otherSessions(live.sessions, winning: live.winningSession)
+		// Offline, the last snapshot's sessions are history: list none.
+		let sessions = MenuRows.liveSessions(live.snapshot)
+		let others = MenuRows.otherSessions(sessions, winning: live.winningSession)
 		if !others.rows.isEmpty {
 			Menu("Other Sessions") {
 				ForEach(others.rows) { Text($0.text) }
@@ -73,7 +75,7 @@ struct MenuBarContentView: View {
 			}
 		}
 
-		ForEach(MenuRows.usage(live.usage, sessions: live.sessions, now: now)) { Text($0.text) }
+		ForEach(MenuRows.usage(live.usage, sessions: sessions, now: now)) { Text($0.text) }
 
 		if let next = MenuRows.nextEvent(meetings: live.meetings.value, reminders: reminders, now: now) {
 			Text(next)
