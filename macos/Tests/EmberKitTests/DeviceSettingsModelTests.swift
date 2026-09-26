@@ -77,13 +77,22 @@ import Foundation
 
 // MARK: Native apps
 
-private let sampleApps = [
-    AppInfo(name: "Time", enabled: true, origin: "builtin", present: true, slot: 0),
-    AppInfo(name: "ember", enabled: true, origin: "pushed", present: true, slot: 1),
-    AppInfo(name: "Date", enabled: true, origin: "builtin", present: true, slot: 2),
-    AppInfo(name: "Battery", enabled: false, origin: "builtin", present: true),
-    AppInfo(name: "gone", enabled: true, origin: nil, present: false, slot: 3),
-]
+/// NG 1.1.2 `GET /api/v1/apps` as the server relays it: arranged apps
+/// first, an Ember tile that's away between pushes (origin null, present
+/// false, slot kept), a script, and a module (no enabled/inLoop/slot).
+private let appsJSON = #"""
+[{"name":"Time","enabled":true,"inLoop":true,"present":true,"slot":0,"origin":"builtin"},
+ {"name":"ember","enabled":true,"inLoop":true,"present":true,"slot":1,"origin":"pushed"},
+ {"name":"Date","enabled":true,"inLoop":true,"present":true,"slot":2,"origin":"builtin"},
+ {"name":"ember-weather","enabled":true,"inLoop":true,"present":false,"slot":3,"origin":null},
+ {"name":"Battery","enabled":false,"inLoop":false,"present":true,"slot":null,"origin":"builtin"},
+ {"name":"clockface","enabled":true,"inLoop":true,"present":true,"slot":null,"origin":"script",
+  "skipped":false,"headless":false,"error":null,"meta":{"name":"","desc":"","author":"","version":"","icons":[]}},
+ {"name":"mathlib","origin":"module","import":"mathlib","error":null,
+  "meta":{"name":"","desc":"","author":"","version":"","icons":[]}}]
+"""#
+
+private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(appsJSON.utf8))
 
 @Test func nativeAppsListsBuiltinsOnly() {
     #expect(NativeAppsPlan.listed(sampleApps).map(\.name) == ["Time", "Date", "Battery"])
@@ -92,21 +101,35 @@ private let sampleApps = [
 @Test func toggleOffNamesOnlyThatAppAsDisabled() {
     let u = NativeAppsPlan.toggle("Date", enabled: false, in: sampleApps)
     #expect(u.disabled == ["Date"])
-    #expect(u.order == ["Time", "ember"])
+    #expect(u.order == ["Time", "ember", "ember-weather", "clockface"])
     #expect(Set(u.order).isDisjoint(with: u.disabled))
 }
 
 @Test func toggleOnOrdersItWithoutDisablingOthersAgain() {
     let u = NativeAppsPlan.toggle("Battery", enabled: true, in: sampleApps)
     #expect(u.disabled.isEmpty)
-    #expect(u.order == ["Time", "ember", "Date", "Battery"])
+    #expect(u.order == ["Time", "ember", "Date", "ember-weather", "Battery", "clockface"])
+}
+
+@Test func orderNeverNamesModules() {
+    #expect(sampleApps.last?.origin == "module")
+    for u in [NativeAppsPlan.toggle("Date", enabled: false, in: sampleApps),
+              NativeAppsPlan.toggle("Battery", enabled: true, in: sampleApps),
+              NativeAppsPlan.move(in: sampleApps, fromOffsets: [1], toOffset: 0).update] {
+        #expect(!u.order.contains("mathlib"))
+    }
+}
+
+@Test func anAwayEmberTileKeepsItsSlot() {
+    let u = NativeAppsPlan.toggle("Time", enabled: false, in: sampleApps)
+    #expect(u.order == ["ember", "Date", "ember-weather", "clockface"])
 }
 
 @Test func moveKeepsPushedAppsInPlace() {
     // Move "Date" (listed index 1) to the top.
     let (apps, u) = NativeAppsPlan.move(in: sampleApps, fromOffsets: IndexSet(integer: 1), toOffset: 0)
-    #expect(apps.map(\.name) == ["Date", "ember", "Time", "Battery", "gone"])
-    #expect(u.order == ["Date", "ember", "Time"])
+    #expect(apps.map(\.name) == ["Date", "ember", "Time", "ember-weather", "Battery", "clockface", "mathlib"])
+    #expect(u.order == ["Date", "ember", "Time", "ember-weather", "clockface"])
     #expect(u.disabled.isEmpty)
 }
 
@@ -128,6 +151,9 @@ private let sampleApps = [
 private final class FakeClock: @unchecked Sendable {
     private let lock = NSLock()
     var responses: [String: (Int, String)] = [:]
+    /// Requests for this route wait for `gate` (once armed).
+    var gatedRoute: String?
+    let gate = DispatchSemaphore(value: 0)
     private var _log: [(String, String, [String: Any])] = []
     var log: [(method: String, path: String, body: [String: Any])] {
         lock.withLock { _log.map { ($0.0, $0.1, $0.2) } }
@@ -139,9 +165,16 @@ private final class FakeClock: @unchecked Sendable {
         let method = req.httpMethod ?? "GET"
         let data = req.httpBodyStreamData() ?? req.httpBody ?? Data()
         let body = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        let key = "\(method) \(path)"
+        let gated = lock.withLock { () -> Bool in
+            guard gatedRoute == key else { return false }
+            gatedRoute = nil
+            return true
+        }
+        if gated { gate.wait() }
         let (status, text) = lock.withLock {
             _log.append((method, path, body))
-            return responses["\(method) \(path)"] ?? (method == "GET" ? (404, "") : (200, ""))
+            return responses[key] ?? (method == "GET" ? (404, "") : (200, ""))
         }
         return (okResponse(req.url!, status: status), Data(text.utf8))
     }
@@ -217,14 +250,17 @@ private func ngServer() -> FakeClock {
     let fake = FakeClock()
     fake.responses = [
         "GET /v1/device/settings": (200, #"{"brightness":120,"uppercase":true}"#),
-        "GET /v1/device/display": (200, #"{"overlay":null}"#),
+        // 0.27.1 relays NG's display body raw, power included.
+        "GET /v1/device/display": (200, #"{"overlay":null,"power":true}"#),
     ]
     let (m, _) = makeModel(fake)
     await m.load()
     #expect(m.isLoaded)
     #expect(!m.supportsNG11)
     #expect(m.audio == .unsupported)
-    #expect(m.displayPower == nil)
+    #expect(m.displayPower == true)
+    #expect(!m.supportsDisplayPower)
+    #expect(!m.firmwareTooOld)
     #expect(m.hasBuzzer)
     #expect(m.transitions == DeviceKnownValues.fallbackTransitions)
 }
@@ -235,6 +271,71 @@ private func ngServer() -> FakeClock {
     let (m, _) = makeModel(fake)
     await m.load()
     #expect(m.audio == .noOutput)
+    #expect(m.supportsDisplayPower)
+}
+
+@MainActor @Test func newServerWithOldFirmwareBlamesTheFirmware() async {
+    let fake = ngServer()
+    fake.responses["GET /v1/device/settings"] = (200, #"{"brightness":120}"#)
+    let (m, _) = makeModel(fake)
+    await m.load()
+    #expect(!m.supportsNG11)
+    #expect(m.firmwareTooOld)
+}
+
+/// Polls until `done` holds (the stub answers on another thread).
+@MainActor private func eventually(_ done: () -> Bool) async {
+    for _ in 0..<400 where !done() { try? await Task.sleep(for: .milliseconds(5)) }
+}
+
+@MainActor @Test func editDuringAnInFlightLoadSendsOnlyTheEdit() async throws {
+    let fake = ngServer()
+    let (m, clock) = makeModel(fake)
+    await m.load()
+    // The Pomodoro takeover flips these on the clock meanwhile.
+    fake.responses["GET /v1/device/settings"] = (200, ##"{"brightness":120,"soundEnabled":true,"buzzerVolume":80,"timeColor":"#FF0000","autoTransition":false,"blockNavigation":true}"##)
+    fake.gatedRoute = "GET /v1/device/settings"
+    let refocus = Task { await m.load() }
+    await eventually { fake.gatedRoute == nil }   // the GET is in flight
+    m.settings.draft.brightness = 200
+    m.settings.scheduleSave()
+    fake.gate.signal()
+    await refocus.value                             // discarded: an edit is pending
+    #expect(m.settings.applied?.autoTransition == true)
+    await clock.advance(by: .milliseconds(600))
+    await eventually { fake.log.contains { $0.method == "PUT" } }
+    let put = try #require(fake.log.last { $0.method == "PUT" })
+    #expect(put.body.keys.sorted() == ["brightness"])
+}
+
+@MainActor @Test func cancelledLoadDoesNotHoldOffTheNext() async {
+    let fake = ngServer()
+    let (m, _) = makeModel(fake)
+    fake.gatedRoute = "GET /v1/device/apps"
+    let first = Task { await m.load() }
+    await eventually { fake.gatedRoute == nil }   // secondary reads under way
+    first.cancel()
+    fake.gate.signal()
+    await first.value
+    let before = fake.paths.filter { $0 == "GET /v1/device/apps" }.count
+    await m.load()                                  // not throttled by the cut-short one
+    #expect(fake.paths.filter { $0 == "GET /v1/device/apps" }.count == before + 1)
+}
+
+@MainActor @Test func forcedLoadQueuesBehindARunningOne() async {
+    let fake = ngServer()
+    let (m, _) = makeModel(fake)
+    await m.load()
+    let settingsGets = { fake.paths.filter { $0 == "GET /v1/device/settings" }.count }
+    fake.gatedRoute = "GET /v1/device/apps"
+    let running = Task { await m.load(force: true) }
+    await eventually { fake.gatedRoute == nil }
+    await m.load(force: true)                       // returns at once, queued
+    let during = settingsGets()
+    fake.gate.signal()
+    await running.value
+    await eventually { settingsGets() == during + 1 && !m.isLoading }
+    #expect(settingsGets() == during + 1)
 }
 
 @MainActor @Test func unreachableSettingsSkipTheRest() async {
@@ -244,7 +345,9 @@ private func ngServer() -> FakeClock {
     await m.load()
     #expect(!m.isLoaded)
     #expect(m.loadError != nil)
-    #expect(fake.paths == ["GET /v1/device/settings"])
+    // Only the clock's address follows, so Status can show where it looked.
+    #expect(fake.paths == ["GET /v1/device/settings", "GET /v1/device/config"])
+    #expect(m.config?.baseURL == nil)
 }
 
 @MainActor @Test func refocusSkipsSecondaryWhileFresh() async {

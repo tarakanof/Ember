@@ -59,7 +59,8 @@ public enum ScrollMode: String, CaseIterable, Identifiable, Sendable {
 /// `disabled` only switches apps off and an app named in neither list keeps
 /// what it had, so turning one on means naming it in `order`. Every body
 /// orders the apps that are on (keeping pushed apps where they are, so
-/// Ember's own tiles don't move) and never names an app in both lists.
+/// Ember's own tiles don't move, even while one is away between pushes),
+/// never names a module, and never names an app in both lists.
 public enum NativeAppsPlan {
     /// The apps Settings lists: the clock's built-ins. Pushed apps (Ember's
     /// own tiles) and placeholders for absent apps are left out.
@@ -90,7 +91,12 @@ public enum NativeAppsPlan {
         return (next, AppsUpdate(order: orderOfEnabled(next), disabled: []))
     }
 
+    /// What runs, in order. Modules aren't apps (a name in `order` would
+    /// hold a phantom slot for them). An app that's away but has a slot (an
+    /// Ember tile between pushes) keeps it.
     private static func orderOfEnabled(_ apps: [AppInfo]) -> [String] {
-        apps.filter { $0.enabled && $0.present != false }.map(\.name)
+        apps.filter { a in
+            a.origin != "module" && a.enabled && (a.present != false || a.slot != nil)
+        }.map(\.name)
     }
 }

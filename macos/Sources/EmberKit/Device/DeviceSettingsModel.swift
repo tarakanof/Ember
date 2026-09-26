@@ -98,6 +98,16 @@ public final class DeviceSettingsModel {
     /// Unknown counts as yes, so a clock that hasn't answered still shows the
     /// sound controls.
     public var hasBuzzer: Bool { capabilities?.hasBuzzer ?? true }
+    /// The server has the NG 1.1 control routes (display power, audio): the
+    /// audio route answered, with or without a buzzer. 0.27.x has neither,
+    /// though its display GET relays NG's `power`.
+    public var supportsControlRoutes: Bool { audio == .available || audio == .noOutput }
+    /// The server is new enough but the clock's firmware predates NG 1.1.
+    public var firmwareTooOld: Bool { isLoaded && supportsControlRoutes && !supportsNG11 }
+    /// Whether to offer the display on/off switch.
+    public var supportsDisplayPower: Bool {
+        displayPower != nil && supportsControlRoutes && actionErrors[.displayPower] != .featureOff
+    }
     public var nativeApps: [AppInfo] { NativeAppsPlan.listed(apps) }
     /// The transition names the clock reports, or a fallback list.
     public var transitions: [String] {
@@ -114,8 +124,10 @@ public final class DeviceSettingsModel {
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var lastFullLoad: Date?
+    /// A forced load asked for while another was running; it runs next.
+    @ObservationIgnored private var forcedLoadQueued = false
     /// Secondary data (apps, buttons, catalogue) is refetched at most this often
-    /// when the window regains focus; ⌘R forces it.
+    /// when the window regains focus; ⌘R (`load(force: true)`) forces it.
     static let secondaryRefresh: TimeInterval = 30
 
     public convenience init(service: DeviceService) {
@@ -149,13 +161,30 @@ public final class DeviceSettingsModel {
     }
 
     /// Loads the settings, then (when they loaded) the rest one request at a
-    /// time. `force` refetches the secondary data even if it's fresh.
+    /// time. `force` refetches the secondary data even if it's fresh; a
+    /// forced load asked for while another runs is queued, never dropped.
     public func load(force: Bool = false) async {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            if force { forcedLoadQueued = true }
+            return
+        }
         isLoading = true
-        defer { isLoading = false }
+        await loadOnce(force: force)
+        isLoading = false
+        if forcedLoadQueued {
+            forcedLoadQueued = false
+            // Its own task: the caller's may be the cancelled one.
+            Task { await self.load(force: true) }
+        }
+    }
+
+    private func loadOnce(force: Bool) async {
         await settings.load()
-        guard settings.isLoaded, settings.loadError == nil else { return }
+        guard settings.isLoaded, settings.loadError == nil else {
+            // The address is what you need when the clock can't be reached.
+            if config == nil { config = try? await service.config() }
+            return
+        }
         if !force, let last = lastFullLoad, now().timeIntervalSince(last) < Self.secondaryRefresh { return }
         await display.load()
         displayPower = display.applied?.power
@@ -167,7 +196,9 @@ public final class DeviceSettingsModel {
         buttons = (try? await svc.buttons()) ?? buttons
         stats = (try? await svc.stats()) ?? stats
         await loadMelodies()
-        lastFullLoad = now()
+        // A load cut short (pane switched) fetched nothing useful; don't let
+        // it hold off the next one.
+        if !Task.isCancelled { lastFullLoad = now() }
     }
 
     private func loadMelodies() async {
@@ -280,20 +311,20 @@ public final class DeviceSettingsModel {
                                sleep: @escaping @Sendable (Duration) async throws -> Void) -> (
         ServerConfigModel<DeviceSettings>, ServerConfigModel<DeviceDisplay>, ServerConfigModel<SensorCalibration>
     ) {
-        let base = PatchBase()
+        // A save diffs against what the model last accepted (`applied`), not
+        // against the last response: a load that arrives while an edit is
+        // pending is discarded, and diffing against it would send its values
+        // (the Pomodoro takeover's) back as stale edits.
+        let base = AppliedRef()
         let settings = ServerConfigModel<DeviceSettings>(
             initial: DeviceSettings(),
-            load: {
-                let s = try await svc.settings()
-                await base.set(s)
-                return s
-            },
+            load: { try await svc.settings() },
             save: { next in
-                let patch = next.patch(from: await base.value)
+                let patch = next.patch(from: await base.applied())
                 if !patch.isEmpty { try await svc.update(patch: patch) }
-                await base.set(next)
             },
             debounce: debounce, savedHold: .seconds(2), sleep: sleep)
+        base.model = settings
         let display = ServerConfigModel<DeviceDisplay>(
             initial: DeviceDisplay(),
             load: { try await svc.display() },
@@ -308,8 +339,9 @@ public final class DeviceSettingsModel {
     }
 }
 
-/// The settings the server last confirmed, so a save sends only the diff.
-private actor PatchBase {
-    private(set) var value = DeviceSettings()
-    func set(_ v: DeviceSettings) { value = v }
+/// The settings model's accepted value, for the patch diff.
+@MainActor
+private final class AppliedRef {
+    weak var model: ServerConfigModel<DeviceSettings>?
+    func applied() -> DeviceSettings { model?.applied ?? DeviceSettings() }
 }
