@@ -117,7 +117,7 @@ func TestDeviceAudioTestPlaysBuiltInChime(t *testing.T) {
 	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
 	w := httptest.NewRecorder()
 	a.handleDeviceAudioTest(w, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
-	if w.Code != http.StatusOK {
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"ok":true}` {
 		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
 	}
 	got := calls()
@@ -155,8 +155,9 @@ func TestDeviceAudioTestRejectsBadMelodyName(t *testing.T) {
 	}
 }
 
-// A clock without a buzzer is refused up front with the same 503 the firmware
-// itself would give, so the menu can hide the button on either signal.
+// A clock without a buzzer is refused up front with 503 unavailable (what
+// NG's audio/play gives for an absent output), so the menu can hide the
+// control on one signal.
 func TestDeviceAudioRoutesGatedOnBuzzer(t *testing.T) {
 	cases := []struct {
 		name string
@@ -218,6 +219,62 @@ func TestDeviceAudioColdCapsDefersToClock(t *testing.T) {
 	}
 	if m := decodeProxyError(t, w); m["code"] != "unavailable" {
 		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestDeviceAudioStopColdCapsDefersToClock(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioStop(w, httptest.NewRequest("POST", "/v1/device/audio/stop", nil))
+	if w.Code != http.StatusOK || len(calls()) != 1 {
+		t.Fatalf("code=%d calls=%d", w.Code, len(calls()))
+	}
+}
+
+func TestDeviceAudioMelodiesColdCapsDefersToClock(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"melodies":[],"usedBytes":1,"totalBytes":2}`)
+	w := httptest.NewRecorder()
+	a.handleDeviceAudioMelodies(w, httptest.NewRequest("GET", "/v1/device/audio/melodies", nil))
+	if w.Code != http.StatusOK || len(calls()) != 1 {
+		t.Fatalf("code=%d calls=%d", w.Code, len(calls()))
+	}
+	if !strings.Contains(w.Body.String(), `"melodies":[]`) {
+		t.Fatalf("body = %s", w.Body.String())
+	}
+}
+
+// Switching clocks from the menu must drop the previous clock's cached
+// capabilities: otherwise a move from a buzzer-less clock to one with a
+// buzzer answers 503 "no buzzer" until the server restarts.
+func TestDeviceConfigPutDropsStaleCapabilities(t *testing.T) {
+	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
+	target := a.cfg.Load().AWTRIX.HTTPBaseURL
+	withAudioCaps(a, awtrix.AudioCaps{})
+
+	w := httptest.NewRecorder()
+	a.handleDeviceConfigPut(w, httptest.NewRequest("PUT", "/v1/device/config",
+		strings.NewReader(`{"base_url":"`+target+`"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("config put code=%d body=%s", w.Code, w.Body.String())
+	}
+	if _, ok := a.capabilities(); ok {
+		t.Fatal("capabilities cache survived a clock switch")
+	}
+	tw := httptest.NewRecorder()
+	a.handleDeviceAudioTest(tw, httptest.NewRequest("POST", "/v1/device/audio/test", nil))
+	if tw.Code != http.StatusOK || len(calls()) != 1 {
+		t.Fatalf("after switch: code=%d calls=%d", tw.Code, len(calls()))
+	}
+}
+
+// A rediscovery swap whose capabilities fetch fails must not keep serving the
+// previous clock's lists.
+func TestRefreshCapabilitiesFailureDropsPreviousCache(t *testing.T) {
+	a, _ := fakeAudioClock(t, http.StatusInternalServerError, `boom`)
+	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
+	a.refreshCapabilities(t.Context())
+	if _, ok := a.capabilities(); ok {
+		t.Fatal("failed refresh kept the previous clock's capabilities")
 	}
 }
 

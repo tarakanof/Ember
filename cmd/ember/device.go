@@ -381,6 +381,10 @@ func (a *App) handleDeviceConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	// The cached capabilities described the previous clock. Emptying the
+	// cache sends the next capabilities read to the new clock and lets the
+	// audio routes ask it rather than refuse on the old one's word.
+	a.caps.Store(nil)
 	a.handleDeviceConfigGet(w, r)
 }
 

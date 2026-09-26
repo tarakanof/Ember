@@ -44,8 +44,8 @@ func writeDeviceCallError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusBadGateway, err)
 }
 
-// callDevice runs one client call against the clock and answers 200 or the
-// mapped error.
+// callDevice runs one client call against the clock and answers
+// 200 {"ok":true} (NG's own success body) or the mapped error.
 func (a *App) callDevice(w http.ResponseWriter, r *http.Request, call func(context.Context, *awtrix.Client) error) {
 	cl, err := a.deviceClient()
 	if err == nil {
@@ -55,12 +55,14 @@ func (a *App) callDevice(w http.ResponseWriter, r *http.Request, call func(conte
 		writeDeviceCallError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// audioUnavailable answers 503 — the status NG itself gives for an absent
-// output — when the cached capabilities say the clock lacks what has needs.
-// With nothing cached the request goes through and the clock decides.
+// audioUnavailable answers 503 unavailable when the cached capabilities say
+// the clock lacks what has needs. The status matches what NG's
+// /api/v1/audio/play gives for an absent output; its melodies and stop routes
+// never 503, so for those the refusal is Ember's own. With nothing cached the
+// request goes through and the clock decides.
 func (a *App) audioUnavailable(w http.ResponseWriter, has func(awtrix.AudioCaps) bool, what string) bool {
 	caps, ok := a.capabilities()
 	if !ok || has(caps.Audio) {

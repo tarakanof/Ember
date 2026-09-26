@@ -596,9 +596,13 @@ with `{"melody":"<name>"}`, a melody stored on the clock;
 /v1/device/audio/melodies` relays NG's melody list (name, RTTTL, parsed
 note count and duration, validity) for the menu's melody pickers. They are
 gated on the cached `capabilities.audio`: test and melodies need the buzzer,
-stop needs any output, and a clock without it gets the same 503
-`unavailable` NG itself answers — without a round trip. A cold cache lets the
-call through so the clock decides. The test chime is an explicit user action,
+stop needs any output, and a clock without it gets 503 `unavailable` without
+a round trip. That matches what NG's `/api/v1/audio/play` answers for an
+absent output; NG's melodies and stop routes never 503, so there the refusal
+is Ember's own. A cold cache lets the call through so the clock decides; the
+cache is emptied when the menu switches clocks (`PUT /v1/device/config`) and
+when a rediscovery swap's capabilities fetch fails, so a stale entry can't
+refuse on the previous clock's word. The test chime is an explicit user action,
 so it plays during quiet hours; the clock's own `soundEnabled` mute still
 applies. These handlers (and display power) go through `internal/awtrix`
 client methods rather than the raw proxy; a client `*APIError` is relayed by
