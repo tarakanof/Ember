@@ -354,12 +354,22 @@ coordinator reads `GET /api/v1/settings` and snapshots the user's own
 `autoTransition`/`blockNavigation`; on stop it writes **those** back, not the
 firmware defaults (a lost read delays the takeover a tick; a 4xx, or a reading
 that equals the takeover itself — a clock left mid-takeover by an older
-server — falls back to the defaults). Device-tab edits to either key made
-**during** a focus block are overwritten by the snapshot on release, and
-turning `autoTransition` back on mid-focus breaks the takeover until the next
-edge. A lost restore backs off `restoreBackoffTicks` (5) publishes so an
-offline clock doesn't stall the coordinator every tick. NG persists settings across reboots, so a takeover left behind
-by a dead server would stick: the snapshot is therefore also persisted to the
+server — falls back to the defaults). While a snapshot exists, a Settings ›
+Clock edit of either key is not written to the device (it would resume
+rotation or free the buttons mid-focus): `applyMenuSettings` stores it in the
+snapshot (and its persisted copy), so the restore applies it when the block
+ends; the edit's other keys go to the clock as usual. `GET
+/v1/device/settings` meanwhile reports the snapshot's values for the two keys,
+so the toggles show the user's choice rather than the takeover's; both calls
+name the keys answered that way in an `X-Ember-Deferred-Keys` header.
+`priorMu` (a leaf lock) serialises those edits with the snapshot read and the
+restore, so a start or stop edge can wait out one menu call (8 s) or one
+restore (5 s). Edits outside focus write unlocked; one that overlaps a
+takeover edge is folded into the new snapshot afterwards (`priorGen`), unless
+a later edit already set the key (per-key edit sequence numbers). A lost
+restore backs off `restoreBackoffTicks` (5) publishes so an offline clock
+doesn't stall the coordinator every tick. NG persists settings across reboots,
+so a takeover left behind by a dead server would stick: the snapshot is therefore also persisted to the
 store (key `pomo_takeover_prior`) for as long as the takeover is in force, and
 a server that starts with one left over restores it on its first publish. On
 SIGTERM, `main` waits (bounded, `shutdownTimeout` 8 s) for the coordinator's
@@ -789,9 +799,9 @@ device**: the app sends only the keys that changed to `/v1/device/settings`
 (bearer auth), and the server whitelists + range-validates each NG settings key
 (`device_settings.go`'s `deviceSettingRules`) before forwarding to the clock's
 unauthenticated `PATCH /api/v1/settings`. `autoTransition`/`blockNavigation`
-(NG's replacements for AWTRIX3's `ATRANS`/`BLOCKN`) remain transiently owned by
-the Pomodoro coordinator during a focus block — the menu can still read them,
-but writing them mid-focus-block would race the coordinator. Time/date are
+(NG's replacements for AWTRIX3's `ATRANS`/`BLOCKN`) are overridden by the
+Pomodoro takeover during a focus block; the menu then reads and writes the
+user's saved values, which the restore applies (see Pomodoro above). Time/date are
 discrete typed fields on NG (`timeMode`, `dateOrder`, `dateSeparator`, …) with
 no format strings to validate, unlike AWTRIX3's `TFORMAT`/`DFORMAT` strftime
 strings. `buttonCallback` is set separately via `PUT /v1/device/buttons`

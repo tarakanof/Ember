@@ -149,7 +149,15 @@ func (f *parityClock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if slow {
-		time.Sleep(delay)
+		// A request the client gave up on is never answered: answering it
+		// late would still change the fake's state (a /device GET bumps
+		// uptime) at a moment set by the scheduler, not the script, and
+		// the next probes would read it or not (the -race flake).
+		select {
+		case <-time.After(delay):
+		case <-r.Context().Done():
+			return
+		}
 	}
 	if fault == "503" {
 		w.Header().Set("Content-Type", "application/json")
@@ -431,6 +439,8 @@ func runClockParity(t *testing.T, pat []bool) string {
 	calls := []call{
 		{"settings.get", app.handleDeviceSettingsGet, ""},
 		{"settings.put", app.handleDeviceSettingsPut, `{"brightness":50}`},
+		// A takeover key with no takeover in force passes straight through.
+		{"settings.put.takeover_key", app.handleDeviceSettingsPut, `{"autoTransition":true}`},
 		{"settings.put.refused", app.handleDeviceSettingsPut, `{"uppercase":true}`},
 		{"stats", app.handleDeviceStats, ""},
 		{"screen", app.handleDeviceScreen, ""},

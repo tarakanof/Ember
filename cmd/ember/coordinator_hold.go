@@ -117,21 +117,30 @@ func (c *coordinator) setSettingsKV(kv settingsKV) {
 		c.logger.Warn("discarding unreadable pomodoro takeover snapshot", "err", err)
 		return
 	}
+	c.priorMu.Lock()
 	c.prior = &p
+	c.priorMu.Unlock()
 	c.logger.Info("pomodoro takeover left over from a previous run; restoring on the next publish",
 		"autoTransition", p.AutoTransition, "blockNavigation", p.BlockNavigation)
 }
 
 // setPrior records (or, with nil, forgets) the takeover snapshot in memory
-// and in the store. A failed store write only costs the crash recovery.
+// and in the store. The caller holds priorMu.
 func (c *coordinator) setPrior(p *takeoverPrior) {
 	c.prior = p
+	c.priorGen++
+	c.persistPrior()
+}
+
+// persistPrior mirrors c.prior into the store. A failed store write only
+// costs the crash recovery. The caller holds priorMu.
+func (c *coordinator) persistPrior() {
 	if c.kv == nil {
 		return
 	}
 	value := ""
-	if p != nil {
-		blob, err := json.Marshal(p)
+	if c.prior != nil {
+		blob, err := json.Marshal(c.prior)
 		if err != nil {
 			c.logger.Warn("encode pomodoro takeover snapshot failed", "err", err)
 			return
@@ -147,6 +156,8 @@ func (c *coordinator) setPrior(p *takeoverPrior) {
 // overwrites them. Returns false when the read was lost, so the takeover
 // waits for the next tick rather than recording values the user may not have.
 func (c *coordinator) snapshotTakeoverPrior(ctx context.Context) bool {
+	c.priorMu.Lock()
+	defer c.priorMu.Unlock()
 	var m map[string]any
 	err := c.retryDevice(ctx, func(ctx context.Context) error {
 		var err error
@@ -171,6 +182,8 @@ func (c *coordinator) snapshotTakeoverPrior(ctx context.Context) bool {
 // none) and forgets it. It returns the device error only when the write was
 // lost and is worth retrying; the snapshot then stays for the retry.
 func (c *coordinator) restoreTakeover(ctx context.Context) error {
+	c.priorMu.Lock()
+	defer c.priorMu.Unlock()
 	p := defaultTakeoverPrior()
 	if c.prior != nil {
 		p = *c.prior
@@ -186,6 +199,152 @@ func (c *coordinator) restoreTakeover(ctx context.Context) error {
 	}
 	c.setPrior(nil)
 	return nil
+}
+
+// takeoverKeys are the device settings a Pomodoro takeover overrides, in the
+// order applyMenuSettings reports them.
+var takeoverKeys = []string{"autoTransition", "blockNavigation"}
+
+// applyMenuSettings writes a menu edit of the device settings (already
+// validated) through write. While a takeover snapshot exists, the takeover
+// keys are not written to the device: that would resume rotation or unblock
+// the buttons mid-focus, and the restore would then overwrite them anyway.
+// They go into the snapshot instead (and its stored copy, for a crash), so
+// the restore applies them when the focus block ends. The other keys are
+// written as usual, first, and the snapshot changes only if that write
+// succeeded, so a failed save changes nothing. Returns the keys it held back.
+//
+// It runs on an HTTP goroutine and takes priorMu only for an edit that
+// touches a takeover key. With no snapshot, the edit is written unlocked;
+// if a takeover edge ran during that write (priorGen moved), it is folded
+// in afterwards (see reconcileRacedEdit). Each such edit takes a sequence
+// number on entry, so a slow older edit can't replace a newer one's value.
+//
+// An error means the edit may be partly applied: a raced edit whose first
+// write landed but whose re-write over a restore was lost answers the error
+// (502 for a lost write) although the clock briefly held the edit. The menu
+// shows the save as failed and re-reads, which reports the clock's state.
+func (c *coordinator) applyMenuSettings(m map[string]any, write func(map[string]any) error) ([]string, error) {
+	var held []string
+	for _, k := range takeoverKeys {
+		if _, ok := m[k]; ok {
+			held = append(held, k)
+		}
+	}
+	if len(held) == 0 {
+		return nil, write(m)
+	}
+	c.priorMu.Lock()
+	c.editSeq++
+	seq := c.editSeq
+	if c.prior == nil {
+		gen := c.priorGen
+		c.priorMu.Unlock()
+		if err := write(m); err != nil {
+			return nil, err
+		}
+		c.priorMu.Lock()
+		defer c.priorMu.Unlock()
+		newer := c.claimKeys(m, held, seq)
+		if c.priorGen == gen {
+			return nil, nil
+		}
+		return c.reconcileRacedEdit(m, held, newer, write)
+	}
+	defer c.priorMu.Unlock()
+	rest := make(map[string]any, len(m))
+	for k, v := range m {
+		rest[k] = v
+	}
+	for _, k := range held {
+		delete(rest, k)
+	}
+	if len(rest) > 0 {
+		if err := write(rest); err != nil {
+			return nil, err
+		}
+	}
+	c.mergeIntoPrior(m, c.claimKeys(m, held, seq))
+	return held, nil
+}
+
+// claimKeys returns the keys of held for which edit seq (with values m) is
+// the newest edit to have landed, and records it and its value as such. The
+// caller holds priorMu.
+func (c *coordinator) claimKeys(m map[string]any, held []string, seq uint64) []string {
+	if c.keySeq == nil {
+		c.keySeq, c.keyVal = map[string]uint64{}, map[string]any{}
+	}
+	var newer []string
+	for _, k := range held {
+		if seq > c.keySeq[k] {
+			c.keySeq[k], c.keyVal[k] = seq, m[k]
+			newer = append(newer, k)
+		}
+	}
+	return newer
+}
+
+// reconcileRacedEdit handles an edit whose unlocked device write overlapped
+// a takeover edge. newer is the part of held no later edit has already set.
+// If a snapshot now exists, its read may predate the edit, so the newer keys
+// go into it, and the takeover's values are written back for all edited keys
+// in case the edit landed after the takeover's own write. If none exists, a
+// whole takeover (snapshot and restore) ran during the write, and whichever
+// of the restore and the edit landed last may be stale, so each edited key
+// is written again with its newest value: this edit's, or a later edit's
+// that the restore applied. The caller holds priorMu.
+func (c *coordinator) reconcileRacedEdit(m map[string]any, held, newer []string, write func(map[string]any) error) ([]string, error) {
+	if c.prior == nil {
+		again := make(map[string]any, len(held))
+		for _, k := range held {
+			again[k] = c.keyVal[k]
+		}
+		return nil, write(again)
+	}
+	c.mergeIntoPrior(m, newer)
+	on := takeoverOnSettings()
+	reassert := make(map[string]any, len(held))
+	for _, k := range held {
+		reassert[k] = on[k]
+	}
+	if err := write(reassert); err != nil {
+		c.logger.Warn("re-asserting pomodoro takeover after a racing menu edit failed; the edit may show mid-focus",
+			"err", err)
+	}
+	return held, nil
+}
+
+// mergeIntoPrior copies the given takeover keys of the edit into the
+// snapshot and persists it. The caller holds priorMu and has checked c.prior
+// is non-nil.
+func (c *coordinator) mergeIntoPrior(m map[string]any, keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	for _, k := range keys {
+		v, _ := m[k].(bool)
+		switch k {
+		case "autoTransition":
+			c.prior.AutoTransition = v
+		case "blockNavigation":
+			c.prior.BlockNavigation = v
+		}
+	}
+	c.persistPrior()
+	c.logger.Info("pomodoro takeover in force; menu edit applies when it ends",
+		"keys", keys, "autoTransition", c.prior.AutoTransition, "blockNavigation", c.prior.BlockNavigation)
+}
+
+// takeoverPriorView returns the user's own takeover-key values while a
+// takeover snapshot exists, for the menu to show instead of the takeover's.
+func (c *coordinator) takeoverPriorView() (takeoverPrior, bool) {
+	c.priorMu.Lock()
+	defer c.priorMu.Unlock()
+	if c.prior == nil {
+		return takeoverPrior{}, false
+	}
+	return *c.prior, true
 }
 
 // applyDisplayHold moves the device to the requested screen owner, writing only

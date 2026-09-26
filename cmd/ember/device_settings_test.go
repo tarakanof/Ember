@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -242,5 +243,105 @@ func TestDeviceScreenProxyMapsErrorTo502(t *testing.T) {
 	a.handleDeviceScreen(rw, httptest.NewRequest("GET", "/v1/device/screen", nil))
 	if rw.Code != http.StatusBadGateway {
 		t.Fatalf("code=%d want 502", rw.Code)
+	}
+}
+
+// During a Pomodoro takeover the menu sees and edits the user's own
+// autoTransition/blockNavigation, not the takeover's (#162): GET reports the
+// saved prior, PUT stores those two keys in it, and everything else is
+// proxied as usual.
+func TestDeviceSettingsDuringTakeoverUsePrior(t *testing.T) {
+	var patches []string
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/settings" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodPatch {
+			b, _ := io.ReadAll(r.Body)
+			patches = append(patches, string(b))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"brightness":120,"autoTransition":false,"blockNavigation":true}`))
+	}))
+	defer dev.Close()
+
+	a := newTestAppWithStore(t)
+	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+		t.Fatal(err)
+	}
+	startTestTakeover(a, takeoverPrior{AutoTransition: true, BlockNavigation: false})
+
+	gw := httptest.NewRecorder()
+	a.handleDeviceSettingsGet(gw, httptest.NewRequest("GET", "/v1/device/settings", nil))
+	var got map[string]any
+	if err := json.Unmarshal(gw.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["autoTransition"] != true || got["blockNavigation"] != false || got["brightness"] != 120.0 {
+		t.Fatalf("get during takeover = %v, want the prior's values", got)
+	}
+	if h := gw.Header().Get(deferredKeysHeader); h != "autoTransition,blockNavigation" {
+		t.Fatalf("get %s = %q", deferredKeysHeader, h)
+	}
+
+	pw := httptest.NewRecorder()
+	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings",
+		strings.NewReader(`{"autoTransition":false,"brightness":64}`)))
+	if pw.Code != http.StatusOK {
+		t.Fatalf("put code=%d body=%s", pw.Code, pw.Body.String())
+	}
+	if len(patches) != 1 || patches[0] != `{"brightness":64}` {
+		t.Fatalf("device patches = %q, want only brightness", patches)
+	}
+	if h := pw.Header().Get(deferredKeysHeader); h != "autoTransition" {
+		t.Fatalf("put %s = %q", deferredKeysHeader, h)
+	}
+	if p, _ := a.coord.takeoverPriorView(); p.AutoTransition || p.BlockNavigation {
+		t.Fatalf("prior = %+v, want autoTransition:false blockNavigation:false", p)
+	}
+	if v, _, _ := a.store.GetSetting(takeoverPriorKey); !strings.Contains(v, `"autoTransition":false`) {
+		t.Fatalf("persisted prior = %q, want the edit", v)
+	}
+}
+
+// startTestTakeover records p as the takeover snapshot, as the coordinator
+// does on a Pomodoro start (under priorMu, persisted to the store).
+func startTestTakeover(a *App, p takeoverPrior) {
+	a.coord.priorMu.Lock()
+	defer a.coord.priorMu.Unlock()
+	a.coord.setPrior(&p)
+}
+
+// A save that fails at the clock changes nothing: the menu gets the mapped
+// error, no deferred-keys header, and the snapshot (and its stored copy)
+// keep the user's old values.
+func TestDeviceSettingsPutDuringTakeoverFailureKeepsPrior(t *testing.T) {
+	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer dev.Close()
+	a := newTestAppWithStore(t)
+	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+		t.Fatal(err)
+	}
+	startTestTakeover(a, takeoverPrior{AutoTransition: true})
+	stored, _, _ := a.store.GetSetting(takeoverPriorKey)
+
+	pw := httptest.NewRecorder()
+	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings",
+		strings.NewReader(`{"autoTransition":false,"brightness":64}`)))
+	if pw.Code != http.StatusBadGateway {
+		t.Fatalf("put code=%d want 502", pw.Code)
+	}
+	if h := pw.Header().Get(deferredKeysHeader); h != "" {
+		t.Fatalf("%s = %q on a failed save", deferredKeysHeader, h)
+	}
+	if p, _ := a.coord.takeoverPriorView(); !p.AutoTransition {
+		t.Fatalf("prior = %+v, want unchanged", p)
+	}
+	if v, _, _ := a.store.GetSetting(takeoverPriorKey); v != stored {
+		t.Fatalf("stored prior = %q, want unchanged %q", v, stored)
 	}
 }
