@@ -166,6 +166,21 @@ install to another identity (ad-hoc to either, self-signed to Apple
 Development, or a recreated self-signed one) needs one more Local Network
 approval for the app and each helper, and Little Snitch sees a new signer.
 
+**Local Network denied although the toggle is on.** macOS resolves
+`com.ember.Ember` through LaunchServices for both checks: nehelper caches the
+allowed executable UUIDs from that bundle, and mDNSResponder checks the browse
+type against its `NSBonjourServices`. Each scratch or DerivedData build
+registers another Ember.app, and a stale copy can shadow the installed one:
+connections log `unsatisfied (Local network prohibited)` and a browse fails
+with `NoAuth(-65555)` (mDNSResponder logs `App Info.plist(NSBonjourServices)
+does not allow …`). `build-local.sh` stamps a unique `CFBundleVersion` per
+build (`2.<timestamp>`, below the next release's number) (`EMBER_BUILD_NUMBER` overrides it) and unregisters its own output;
+`scripts/lsregister-clean.sh` (`--dry-run` to list) unregisters every other
+copy and re-registers /Applications/Ember.app. If a browse is still refused,
+`sudo killall mDNSResponder` drops its cached decision. Read the logs with
+`/usr/bin/log show --predicate 'process == "mDNSResponder" OR process == "nehelper"'`
+(in zsh, bare `log` is a builtin).
+
 **Strings**: every user-facing string lives in `macos/Ember/Localizable.xcstrings`.
 After adding or changing UI text, run `scripts/strings.sh sync` (it builds the
 app into a fresh temp DerivedData; if you pass one as the second argument, make

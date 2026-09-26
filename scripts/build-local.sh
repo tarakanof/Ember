@@ -14,19 +14,26 @@ set -euo pipefail
 # app stays ad-hoc and macOS asks for Local Network access again after every
 # rebuild.
 #
+# Each build gets a unique CFBundleVersion (EMBER_BUILD_NUMBER, default
+# 2.<yyyymmddHHMMSS>, kept below the next release's integer build number): with a fixed build number macOS keeps serving cached
+# bundle info, e.g. an Info.plist whose NSBonjourServices predates a new
+# service type, so its browse fails with NoAuth (-65555).
+#
 # It does not install: copy the printed app into /Applications yourself
 # (quit Ember first, then `ditto <app> /Applications/Ember.app`).
 #
 # Usage: build-local.sh [derived-data-dir]   (default: /tmp/ember-local-build)
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 DD="${1:-/tmp/ember-local-build}"
 
 xcodegen generate --spec "$REPO/macos/project.yml" --project "$REPO/macos" >/dev/null
 xcodebuild -project "$REPO/macos/Ember.xcodeproj" -scheme Ember -configuration Release \
   -derivedDataPath "$DD" -quiet \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
-  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO build
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+  CURRENT_PROJECT_VERSION="${EMBER_BUILD_NUMBER:-2.$(date +%Y%m%d%H%M%S)}" build
 APP="$DD/Build/Products/Release/Ember.app"
 
 rc=0
@@ -40,4 +47,8 @@ case "$rc" in
 esac
 
 "$REPO/scripts/verify-bundle.sh" "$APP"
+# Building registered this copy with LaunchServices. macOS resolves
+# com.ember.Ember through it for Local Network and NSBonjourServices checks, so
+# a stray copy can shadow the installed app: unregister it.
+"$LSREGISTER" -u "$APP" 2>/dev/null || true
 echo "built: $APP"
