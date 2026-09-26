@@ -123,7 +123,8 @@ public struct DeviceService: Sendable, Equatable {
         try await client.put("/v1/device/config", body: ["base_url": baseURL])
     }
     public func discover() async throws -> DiscoverResult {
-        try await client.get("/v1/device/discover")
+        // The server browses for 3s, then probes candidates for up to 2s.
+        try await client.get("/v1/device/discover", slow: true)
     }
     public func buttons() async throws -> ButtonStatus {
         try await client.get("/v1/device/buttons")
