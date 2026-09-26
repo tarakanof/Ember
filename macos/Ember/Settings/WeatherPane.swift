@@ -6,7 +6,7 @@ import EmberKit
 /// Mac. The severe-weather sound is under Sounds & Alerts.
 struct WeatherPane: View {
     @Environment(AppEnvironment.self) private var env
-    @State private var preview: PreviewResponse?
+    @State private var preview = PreviewModel()
     @State private var locating = false
     @State private var locateError: LocalizedStringKey?
     @AppStorage("weatherFold.icons") private var iconsExpanded = false
@@ -65,14 +65,7 @@ struct WeatherPane: View {
         }
         .formStyle(.grouped)
         .autosaves(model)
-        .task(id: model.draft) {
-            guard (try? await Task.sleep(for: .milliseconds(300))) != nil else { return }
-            var draft = model.draft
-            draft.rotateInApps = true
-            draft.forecastTile = true
-            draft.airTile = true
-            if let p = try? await env.preview.fetchWeatherPreview(draft) { preview = p }
-        }
+        .previews(previewDraft, into: preview) { try await env.preview.fetchWeatherPreview($0) }
         .reloads {
             env.location.refreshAuthorization()
             await model.load()
@@ -223,8 +216,16 @@ struct WeatherPane: View {
             })
     }
 
-    private func frame(_ card: String) -> CardFrame? {
-        preview?.frames.first { $0.card == card }
+    private func frame(_ card: String) -> CardFrame? { preview.frame(card) }
+
+    /// Always asks for every tile: the toggles dim the panels here instead of
+    /// removing them, so each option stays visible.
+    private var previewDraft: WeatherConfig {
+        var draft = model.draft
+        draft.rotateInApps = true
+        draft.forecastTile = true
+        draft.airTile = true
+        return draft
     }
 
     private func locate(quietly: Bool = false) async {
