@@ -86,6 +86,7 @@ func TestPayloadBuildersEmitOnlyNGKeys(t *testing.T) {
 		"weather":         WeatherPayload(WeatherRain, "12°", hourly, 600),
 		"weather-moon":    WeatherPayloadMoon("9°", hourly, MoonView{Illum: 0.5, Waxing: true}, 600),
 		"weather-native":  WeatherPayloadNative("2422", "12°", hourly, 600),
+		"weather-overlay": WithOverlay(WeatherPayload(WeatherStorm, "12°", hourly, 600), OverlayThunder),
 		"forecast":        ForecastPayload(hourly, 600),
 		"air":             AirPayload(42, hourly, 600),
 		"meeting":         MeetingPayload("STANDUP", 12, 600),
@@ -102,6 +103,7 @@ func TestPayloadBuildersEmitOnlyNGKeys(t *testing.T) {
 	popups := map[string]map[string]any{
 		"weather-popup":        WeatherPopupPayload(WeatherRain, "RAIN 12°", "", 30),
 		"weather-popup-native": WeatherPopupPayload(WeatherRain, "RAIN 12°", "2422", 30),
+		"weather-popup-frost":  WithOverlay(WeatherPopupPayload(WeatherFog, "FOG 1°", "", 30), OverlayFrost),
 		"air-popup":            AirPopupPayload(120, 30),
 		"sun-popup":            SunPopupPayload(true, "SUNRISE 06:12", 30),
 		"limit-reset":          LimitResetPopupPayload("claude", 30),

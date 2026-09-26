@@ -821,17 +821,19 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 	c.reconcileTile(now, "ember-weather", &c.pushedWeather, want, func() map[string]any {
 		tempText := weatherTempText(obs.TempC, cfg.Units)
 		window := forecastWindow(obs.Hourly, cfg.ForecastHours)
+		var p map[string]any
 		switch {
 		case cfg.MoonPhaseEnabled() && obs.Condition == render.WeatherClear &&
 			(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
 			// Moon wins over native icons — there is no per-phase gallery set.
 			illum, waxing := moonIllumination(now)
-			return render.WeatherPayloadMoon(tempText, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
+			p = render.WeatherPayloadMoon(tempText, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
 		case cfg.TileNativeIcons:
-			return render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, window, usageAppLifetime)
+			p = render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, window, usageAppLifetime)
 		default:
-			return render.WeatherPayload(obs.Condition, tempText, window, usageAppLifetime)
+			p = render.WeatherPayload(obs.Condition, tempText, window, usageAppLifetime)
 		}
+		return render.WithOverlay(p, weatherOverlay(obs, cfg))
 	})
 }
 

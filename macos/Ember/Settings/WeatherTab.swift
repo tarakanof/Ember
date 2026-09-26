@@ -98,6 +98,7 @@ struct WeatherTab: View {
                 Toggle("Show on clock", isOn: $config.rotateInApps)
                 Toggle("Native animated icon", isOn: $config.tileNativeIcons)
                 Toggle("Moon phase on clear nights", isOn: $config.moonPhase)
+                Toggle("Animated rain / snow overlay", isOn: $config.overlay)
             } header: {
                 Text("Current conditions panel")
             }

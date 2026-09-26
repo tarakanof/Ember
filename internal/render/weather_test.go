@@ -213,3 +213,16 @@ func TestDegreeGlyphIsARing(t *testing.T) {
 		}
 	}
 }
+
+// TestWithOverlay: a named overlay lands on the payload's "overlay" key; an
+// empty name adds nothing, so the device's global overlay still applies.
+func TestWithOverlay(t *testing.T) {
+	p := WithOverlay(WeatherPayload(WeatherRain, "12°", nil, 600), OverlayRain)
+	if p["overlay"] != "rain" {
+		t.Errorf("overlay = %v, want rain", p["overlay"])
+	}
+	q := WithOverlay(WeatherPayload(WeatherClear, "21°", nil, 600), "")
+	if _, has := q["overlay"]; has {
+		t.Errorf("empty overlay must not set the key: %v", q["overlay"])
+	}
+}

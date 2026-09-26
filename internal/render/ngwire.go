@@ -42,6 +42,28 @@ func scrollStaticWhenFits() map[string]any {
 	return map[string]any{"whenFits": "static"}
 }
 
+// NG's six weather overlays, drawn over the whole page after text, draw ops and
+// icon (reference/payload "Overlay"). An unknown name is a 422, so these are
+// the only spellings Ember sends. NG has no fog overlay.
+const (
+	OverlayRain    = "rain"
+	OverlayDrizzle = "drizzle"
+	OverlaySnow    = "snow"
+	OverlayStorm   = "storm"   // dense wind-slanted streaks
+	OverlayThunder = "thunder" // storm plus irregular white flashes
+	OverlayFrost   = "frost"   // static icy crust along the top and bottom edges
+)
+
+// WithOverlay sets p's per-app weather overlay and returns p. An empty name
+// leaves p untouched: an absent key and "" both fall back to the device's
+// global overlay, and omitting it keeps the payload shorter.
+func WithOverlay(p map[string]any, name string) map[string]any {
+	if name != "" {
+		p["overlay"] = name
+	}
+	return p
+}
+
 // applyHold marks a pushed-app payload as "this app takes and keeps the screen"
 // — Ember's display hold, formerly AWTRIX3's prio+force pair.
 //

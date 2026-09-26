@@ -302,6 +302,17 @@ phase wins** over native icons on clear nights (no per-phase gallery set).
 The forecast tile has no icon slot. Independent of `use_native_icons`
 (popup-only).
 
+**Precipitation overlay** (`overlay`, default on): while it is precipitating,
+the conditions tile and weather popups carry NG's per-app `overlay`, which the
+firmware animates over the finished page (drawn last, it never clears the
+text or bitmap). The provider code picks it, finer than the six buckets:
+WMO drizzle 51–57 → `drizzle`, rain/showers → `rain`, heavy rain 65/67/82 →
+`storm`, snow 71–77/85/86 → `snow`, thunder 95+ → `thunder`, rime fog 48 →
+`frost`; MET Norway's `light…rain` → `drizzle`, `heavy…rain` → `storm`.
+Plain fog, clear and cloudy send no key, so the device's global overlay (if
+the user set one) still shows. Costs ~17 bytes per push, only while
+precipitating. The previews can't animate it and don't draw it.
+
 **Icon provisioning** (`ensureNativeIcons`): the device's own on-demand
 gallery downloads proved unreliable (observed failing for hours → iconless
 tile), so the **server provisions icons**: on startup and on every weather or

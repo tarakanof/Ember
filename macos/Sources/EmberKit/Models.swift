@@ -177,6 +177,9 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var airTile: Bool
     /// Popup when the European AQI crosses this value; 0 disables it.
     public var airPopupThreshold: Int
+    /// The clock's own animated rain/snow/storm overlay on the conditions tile
+    /// and weather popups while it is precipitating.
+    public var overlay: Bool
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
                 latitude: Double = 0, longitude: Double = 0, locationName: String = "",
@@ -187,7 +190,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
                 popupOnChange: Bool = true, severeAlert: Bool = true,
                 severeSound: String = "", useNativeIcons: Bool = false,
                 iconIds: [String: String] = [:], tileNativeIcons: Bool = false,
-                airTile: Bool = true, airPopupThreshold: Int = 80) {
+                airTile: Bool = true, airPopupThreshold: Int = 80, overlay: Bool = true) {
         self.enabled = enabled
         self.provider = provider
         self.latitude = latitude
@@ -210,6 +213,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         self.tileNativeIcons = tileNativeIcons
         self.airTile = airTile
         self.airPopupThreshold = airPopupThreshold
+        self.overlay = overlay
     }
 
     enum CodingKeys: String, CodingKey {
@@ -232,6 +236,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case tileNativeIcons = "tile_native_icons"
         case airTile = "air_tile"
         case airPopupThreshold = "air_popup_threshold"
+        case overlay
     }
 
     /// Decode every field if-present (the server omits `icon_ids` when empty, and
@@ -262,6 +267,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         // re-save never silently turns the feature off (forecast convention).
         airTile = try c.decodeIfPresent(Bool.self, forKey: .airTile) ?? true
         airPopupThreshold = try c.decodeIfPresent(Int.self, forKey: .airPopupThreshold) ?? 80
+        overlay = try c.decodeIfPresent(Bool.self, forKey: .overlay) ?? true
     }
 }
 
