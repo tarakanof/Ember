@@ -29,3 +29,22 @@ import Foundation
     #expect(m.failure == nil)
     #expect(m.lastRunSucceeded == true)
 }
+
+@MainActor @Test func producerModelRepairReRegistersTheStoppedAgent() async {
+    let sm = FakeSMAppService()
+    sm.statuses = ["com.ember.heartbeat.plist": .enabled]
+    let runner = FakeRunner()
+    // launchd has no job until the agent is registered again.
+    runner.exitFor = { args in args.first == "print" && sm.registered.isEmpty ? 113 : 0 }
+    let svc = ProducerInstallService(sm: sm, runner: runner,
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { $0.hasSuffix(".claude") })
+    let m = ProducerInstallModel(service: svc)
+    await m.refresh()
+    #expect(m.snapshot?.needsRepair == true)
+    #expect(m.isOn)   // reporting stays on while its helper is stopped
+    await m.repair()
+    #expect(sm.registered == ["com.ember.heartbeat.plist"])
+    #expect(m.snapshot?.needsRepair == false)
+    #expect(m.lastRunSucceeded == true)
+}

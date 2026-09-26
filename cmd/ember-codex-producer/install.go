@@ -31,6 +31,15 @@ func runConfigure() {
 }
 
 func install() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+	// Before configure() touches producer.env: Ember.app may own the label (#142).
+	if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, os.Getuid(), launchAgentLabel, plistPath); err != nil {
+		return err
+	}
 	if err := configure(); err != nil {
 		return err
 	}
@@ -38,17 +47,12 @@ func install() error {
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
 	_ = exec.Command("xattr", "-d", "com.apple.quarantine", binPath).Run()
 
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	if err := os.WriteFile(plistPath, generatePlist(binPath, home), 0o644); err != nil {
 		return err
 	}
-	return reloadLaunchAgent(os.Getuid(), plistPath)
+	return reloadLaunchAgent(producer.ExecLaunchctl, os.Getuid(), plistPath)
 }
 
 // configureAt performs the daemon-independent install work: dirs + producer.env
@@ -140,11 +144,13 @@ func shellSafePath(p string) bool {
 	return true
 }
 
-func reloadLaunchAgent(uid int, plistPath string) error {
+func reloadLaunchAgent(lc producer.Launchctl, uid int, plistPath string) error {
 	domain := fmt.Sprintf("gui/%d", uid)
 	target := fmt.Sprintf("%s/%s", domain, launchAgentLabel)
-	_ = exec.Command("launchctl", "bootout", target).Run()
-	out, err := exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
+	// Only a CLI-loaded job is booted out; install() already refused when
+	// Ember.app owns the label (#142).
+	producer.BootoutCLIAgent(lc, target, plistPath)
+	out, err := lc("bootstrap", domain, plistPath)
 	if err != nil {
 		return fmt.Errorf("launchctl bootstrap: %v\nOutput: %s", err, out)
 	}

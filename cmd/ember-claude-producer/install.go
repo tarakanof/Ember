@@ -5,7 +5,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -40,6 +39,16 @@ func runConfigure() {
 }
 
 func install() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	uid := os.Getuid()
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+	// Before configure() touches settings.json: Ember.app may own the label (#142).
+	if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, uid, launchAgentLabel, plistPath); err != nil {
+		return err
+	}
 	if err := configure(); err != nil {
 		return err
 	}
@@ -47,12 +56,6 @@ func install() error {
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	uid := os.Getuid()
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	plistData, err := generatePlist(binPath, home, uid)
 	if err != nil {
 		return err
@@ -60,7 +63,7 @@ func install() error {
 	if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
 		return err
 	}
-	return reloadLaunchAgent(uid, plistPath)
+	return reloadLaunchAgent(producer.ExecLaunchctl, uid, plistPath)
 }
 
 // configureAt performs the daemon-independent install work: dirs, producer.env,
@@ -167,12 +170,13 @@ func producerEnvExampleContent() string {
 	return producer.EnvExample()
 }
 
-func reloadLaunchAgent(uid int, plistPath string) error {
+func reloadLaunchAgent(lc producer.Launchctl, uid int, plistPath string) error {
 	domain := fmt.Sprintf("gui/%d", uid)
 	target := fmt.Sprintf("%s/%s", domain, launchAgentLabel)
-	// Bootout is allowed to fail with "not loaded" — we tolerate any non-zero exit.
-	_ = exec.Command("launchctl", "bootout", target).Run()
-	out, err := exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
+	// Only a CLI-loaded job is booted out; install() already refused when
+	// Ember.app owns the label.
+	producer.BootoutCLIAgent(lc, target, plistPath)
+	out, err := lc("bootstrap", domain, plistPath)
 	if err != nil {
 		return fmt.Errorf("launchctl bootstrap: %v\nOutput: %s", err, out)
 	}

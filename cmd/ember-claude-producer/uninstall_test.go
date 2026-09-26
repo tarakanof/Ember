@@ -69,7 +69,16 @@ func TestUninstall_StripsHooksAndRemovesPlist(t *testing.T) {
 	if err := uninstallSettings(tmp); err != nil {
 		t.Fatal(err)
 	}
-	if err := uninstallPlist(tmp, os.Getuid()); err != nil {
+	// Never the real launchctl: the uid is this user's, and a real bootout
+	// here removed Ember.app's heartbeat job on a dev Mac (#142).
+	lc := func(args ...string) ([]byte, error) {
+		if args[0] == "print" {
+			return []byte("\tmanaged_by = com.apple.xpc.ServiceManagement\n"), nil
+		}
+		t.Errorf("launchctl %v on an app-managed job", args)
+		return nil, nil
+	}
+	if err := uninstallPlist(lc, tmp, os.Getuid()); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))

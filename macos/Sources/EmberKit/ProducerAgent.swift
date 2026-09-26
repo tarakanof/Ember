@@ -17,6 +17,12 @@ public enum ProducerAgent: String, CaseIterable, Sendable {
         self == .claude ? "com.ember.heartbeat.plist" : "com.ember.codex.plist"
     }
 
+    /// The launchd label in that plist (the service name `launchctl print`
+    /// takes as `gui/<uid>/<label>`).
+    public var label: String {
+        self == .claude ? "com.ember.heartbeat" : "com.ember.codex"
+    }
+
     /// The relative path (under `$HOME`) used to detect whether the
     /// corresponding CLI tool is installed.
     public var detectRelPath: String {

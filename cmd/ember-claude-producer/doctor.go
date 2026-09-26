@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func runDoctor() {
@@ -56,8 +58,21 @@ func runDoctor() {
 	uid := os.Getuid()
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
 	out, err := exec.Command("launchctl", "print", target).CombinedOutput()
-	hint := fmt.Sprintf("launchctl bootstrap gui/%d %q", uid, plistPath)
+	hint := heartbeatFixHint(producer.ExecLaunchctl, uid, plistPath)
 	fmt.Printf("  heartbeat agent: %s\n", heartbeatStatusLine(err == nil, string(out), hint))
+}
+
+// appRepairHint is the fix for a heartbeat that Ember.app registered.
+const appRepairHint = "open Ember › Settings › Agents and click Repair"
+
+// heartbeatFixHint is the remediation for a heartbeat that isn't loaded: the
+// app's Repair when Ember.app registered the label (bootstrapping the CLI
+// plist would fight that registration, #142), else a launchctl bootstrap.
+func heartbeatFixHint(lc producer.Launchctl, uid int, plistPath string) string {
+	if producer.AppRegistered(lc, fmt.Sprintf("gui/%d", uid), launchAgentLabel) {
+		return appRepairHint
+	}
+	return fmt.Sprintf("launchctl bootstrap gui/%d %q", uid, plistPath)
 }
 
 // launchctlField extracts the value of a tab-indented `key = value` line from

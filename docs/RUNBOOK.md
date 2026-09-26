@@ -131,6 +131,18 @@ helpers, no separate step needed. `scripts/verify-bundle.sh <Ember.app>` is the
 gate for this contract (universal binaries, valid plists, codesign) — run it
 after any build that touches the producers or the bundling phase.
 
+On launch the app re-registers the enabled producer agents when the bundle
+changed (version, build, or a digest of the bundled helpers and plists, stored
+as `producers.lastReconciledVersion`), and re-registers any enabled agent that
+`launchctl print gui/$UID/<label>` can't find. Settings › Agents shows such an
+agent as **Not running** with a **Repair** button. The CLI `install`/`uninstall`
+subcommands only unload a job loaded from their own
+`~/Library/LaunchAgents/<label>.plist`, and `install` refuses (before touching
+any config) when the label is the app's or unidentifiable, or when launchd
+holds the app's "enabled" override (`launchctl print-disabled gui/$UID`) for a
+job it dropped. Booting out the app's job makes launchd drop it while
+Background Items still says it's enabled; `doctor` then suggests Repair.
+
 The menu dropdown also runs the Pomodoro (Start/Pause/Resume/Skip/Stop) and has
 per-app clock toggles (`PUT /v1/apps`). Settings → Pomodoro exposes the focus
 duration (to 8h), the auto-stop cap ("Auto-stop after: N h", `0` = off), and

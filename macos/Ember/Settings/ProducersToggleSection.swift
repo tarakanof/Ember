@@ -40,6 +40,10 @@ struct ProducersToggleSection: View {
                     Text("Applying…")
                 } else if let failure = model.failure {
                     Label(failure, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                } else if model.snapshot?.needsRepair == true {
+                    Label("Reporting is on, but macOS isn't running its background helper. Repair registers it again.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
                 } else if model.snapshot?.toggle == .partial {
                     Label("Only some agents are reporting.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -59,6 +63,13 @@ struct ProducersToggleSection: View {
         case .needsApproval:
             Button("Approve in Login Items…") {
                 openSystemSettings("x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
+            }
+        case .notRunning:
+            HStack(spacing: 8) {
+                Label("Not running", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Button("Repair") { Task { await model.repair() } }
+                    .disabled(model.isWorking)
+                    .help("Registers the background helper with macOS again so it starts reporting.")
             }
         case .error(let message):
             Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)

@@ -673,6 +673,7 @@
       "extractionState" : "manual"
     },
     "Not recording" : {},
+    "Not running" : {},
     "Not set" : {},
     "Not set up" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -773,6 +774,7 @@
     "Refresh" : {},
     "Refresh (⌘R)" : {},
     "Refresh every" : {},
+    "Registers the background helper with macOS again so it starts reporting." : {},
     "Reminder" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -784,10 +786,12 @@
     },
     "Reminders access off" : {},
     "Reminders access on" : {},
+    "Repair" : {},
     "Repeat until dismissed" : {},
     "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Calendar, and stops after 15 minutes or when quiet hours start." : {},
     "Report this Mac's agent activity" : {},
     "Reporting" : {},
+    "Reporting is on, but macOS isn't running its background helper. Repair registers it again." : {},
     "Reporting keeps running after you quit Ember. Turn it off before deleting Ember to remove it completely." : {},
     "Rescan" : {},
     "Reset clock" : {},

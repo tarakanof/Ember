@@ -62,7 +62,7 @@ final class FailingForCodexRunner: ProducerCommandRunning {
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
-    try await svc.reconcileAfterUpdate()
+    _ = await svc.reconcile(bundleChanged: true)
     #expect(sm.unregistered == ["com.ember.heartbeat.plist"])   // only the enabled one cycled
     #expect(sm.registered == ["com.ember.heartbeat.plist"])
 }
