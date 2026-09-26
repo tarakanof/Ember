@@ -16,6 +16,10 @@ public enum APIError: Error, Equatable, Sendable {
     /// macOS Local Network privacy refused the connection to a LAN server
     /// (`LocalNetworkDenial`): the server may be fine.
     case localNetworkDenied
+    /// 504 with code `clock_timeout`: the server answered, but a clock write
+    /// ran out of the server's budget (`clockWriteBudget`). Carries what the
+    /// server knows about the write.
+    case clockTimedOut(ClockWriteOutcome)
     case decoding(String)
 
     public var isUnauthorized: Bool {
@@ -32,6 +36,26 @@ public enum APIError: Error, Equatable, Sendable {
     public var retryAfter: Duration? {
         if case .rateLimited(let d) = self { return d }
         return nil
+    }
+}
+
+/// What a `clock_timeout` 504 says about the clock write: the server's
+/// `write` field (`writeOutcome` in cmd/ember/clock_access.go).
+public enum ClockWriteOutcome: String, Equatable, Sendable {
+    /// The budget ran out before the write went out: nothing changed.
+    case notSent = "not_sent"
+    /// The write went out unanswered: it may or may not have landed.
+    case unknown
+    /// The write landed; the work after it didn't finish.
+    case applied
+
+    /// The outcome a 504 body reports, or nil when it isn't a
+    /// `clock_timeout`. An unrecognised `write` reads as `.unknown`.
+    static func parse(status: Int, body: Data) -> ClockWriteOutcome? {
+        guard status == 504,
+              let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              obj["code"] as? String == "clock_timeout" else { return nil }
+        return (obj["write"] as? String).flatMap(ClockWriteOutcome.init(rawValue:)) ?? .unknown
     }
 }
 
@@ -60,6 +84,8 @@ extension APIError: LocalizedError {
             return String(localized: FeedError.timedOut.message)
         case .localNetworkDenied:
             return "Local Network access is off for Ember — allow it in System Settings › Privacy & Security › Local Network."
+        case .clockTimedOut(let outcome):
+            return String(localized: FeedError.clockTimedOut(outcome).message)
         case .decoding(let message):
             return "Unexpected server response — \(message)"
         }
@@ -220,6 +246,9 @@ public struct APIClient: Sendable {
             if http.statusCode == 429 {
                 throw APIError.rateLimited(retryAfter: RateLimitBackoff.retryAfter(
                     header: http.value(forHTTPHeaderField: "Retry-After")))
+            }
+            if let outcome = ClockWriteOutcome.parse(status: http.statusCode, body: data) {
+                throw APIError.clockTimedOut(outcome)
             }
             let snippet = String(data: data.prefix(512), encoding: .utf8) ?? ""
             throw APIError.http(status: http.statusCode, body: snippet)
