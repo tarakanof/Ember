@@ -16,8 +16,21 @@ struct ClockStatusSection: View {
     private var probe: ClockHealth.Device? { health?.device }
     private var celsius: Bool { device.settings.draft.useCelsius ?? true }
 
+    private var serverLostClock: Bool {
+        ClockDiscovery.serverLostClock(health: env.live.clockHealth, settingsLoaded: device.isLoaded,
+                                       settingsError: device.loadError)
+    }
+
     var body: some View {
         Section {
+            if serverLostClock {
+                LabeledContent {
+                    Button("Find Clock from This Mac…") { openDiscover() }
+                } label: {
+                    Label("The server can't reach the clock", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            }
             LabeledContent("Address") {
                 Text(verbatim: device.config?.baseURL.nonEmpty ?? "—")
                     .textSelection(.enabled)
@@ -65,7 +78,7 @@ struct ClockStatusSection: View {
                 .help("How many of the server's pushes reached the clock in the last 24 hours.")
             }
             HStack {
-                Button("Discover Clocks…") { showDiscover = true }
+                Button("Discover Clocks…") { openDiscover() }
                 Button("Open Web UI") {
                     if let url = device.config?.webURL { NSWorkspace.shared.open(url) }
                 }
@@ -78,7 +91,7 @@ struct ClockStatusSection: View {
             Text("Status")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server.")
+                Text("Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server; this Mac searches too, for when the server can't.")
                 if let failure = env.actions.lastError, failure.action == .clock(.reboot) {
                     Label { Text("Couldn't restart the clock: \(Text(failure.error.message))") } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -94,7 +107,14 @@ struct ClockStatusSection: View {
         } message: {
             Text("The clock is unavailable for a few seconds while it restarts.")
         }
-        .sheet(isPresented: $showDiscover) { DiscoverClocksSheet() }
+        .sheet(isPresented: $showDiscover, onDismiss: { env.clockDiscovery.stop() }) { DiscoverClocksSheet() }
+    }
+
+    /// Opens the sheet without the last scan's rows: they may be stale, and
+    /// the sheet starts a new scan anyway.
+    private func openDiscover() {
+        env.clockDiscovery.stop()
+        showDiscover = true
     }
 
     private func temperature(_ celsiusValue: Double) -> String {
@@ -112,45 +132,57 @@ struct ClockStatusSection: View {
     }
 }
 
-/// Lists the clocks the server can see; Use pins one on the server.
+/// Lists the clocks the server and this Mac can see; Use pins one on the
+/// server (`PUT /v1/device/config`). Both searches run in the sheet's task,
+/// so dismissing the sheet (or leaving the pane) cancels this Mac's browse.
 struct DiscoverClocksSheet: View {
+    @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
     @Environment(\.dismiss) private var dismiss
+    /// Bumped by Search Again: restarts the task, cancelling the old search.
+    @State private var search = 0
+
+    private var local: ClockDiscovery { env.clockDiscovery }
+    private var searching: Bool { device.running.contains(.discover) || local.isScanning }
+    private var choices: [ClockChoice] {
+        ClockChoice.merge(server: device.discovered ?? [], mac: local.clocks)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Clocks on Your Network").font(.headline)
             Form {
-                if device.running.contains(.discover) {
+                ForEach(choices) { c in
+                    LabeledContent {
+                        if ClockURL.same(c.clock.baseURL, device.config?.baseURL) {
+                            Image(systemName: "checkmark").foregroundStyle(.tint)
+                                .accessibilityLabel("In use")
+                        } else {
+                            Button("Use") {
+                                Task {
+                                    await device.use(c.clock)
+                                    if device.actionErrors[.useClock] == nil { dismiss() }
+                                }
+                            }
+                            .disabled(device.running.contains(.useClock))
+                        }
+                    } label: {
+                        Text(verbatim: c.clock.baseURL)
+                        Text("\(c.clock.host) · firmware \(c.clock.version) · \(Text(sourceLabel(c.source)))",
+                             comment: "Discovered clock subtitle: host name, firmware version, who found it (e.g. found by this Mac).")
+                    }
+                }
+                if searching {
                     LabeledContent {
                         ProgressView().controlSize(.small)
                     } label: {
                         Text("Searching…").foregroundStyle(.secondary)
                     }
-                } else if let found = device.discovered, !found.isEmpty {
-                    ForEach(found) { c in
-                        LabeledContent {
-                            if c.baseURL == device.config?.baseURL {
-                                Image(systemName: "checkmark").foregroundStyle(.tint)
-                                    .accessibilityLabel("In use")
-                            } else {
-                                Button("Use") {
-                                    Task {
-                                        await device.use(c)
-                                        if device.actionErrors[.useClock] == nil { dismiss() }
-                                    }
-                                }
-                                .disabled(device.running.contains(.useClock))
-                            }
-                        } label: {
-                            Text(verbatim: c.baseURL)
-                            Text("\(c.host) · firmware \(c.version)")
-                        }
-                    }
-                } else {
-                    Text("No clocks found. The server looks for them with mDNS, which needs host networking.")
+                } else if choices.isEmpty {
+                    Text("No clocks found. Check that the clock is on and on the same network.")
                         .foregroundStyle(.secondary)
                 }
+                accessRow
                 if let e = device.actionErrors[.discover] ?? device.actionErrors[.useClock] {
                     Label { Text(e.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                         .foregroundStyle(.red)
@@ -158,16 +190,52 @@ struct DiscoverClocksSheet: View {
             }
             .formStyle(.grouped)
             HStack {
-                Button("Search Again") { Task { await device.discover() } }
-                    .disabled(device.running.contains(.discover))
+                Button("Search Again") { search += 1 }
+                    .disabled(searching)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
-        .frame(width: 460, height: 340)
+        .frame(width: 480, height: 360)
         .onExitCommand { dismiss() }
-        .task { await device.discover() }
+        .task(id: search) {
+            async let server: Void = device.discover()
+            async let mac: Void = local.scan()
+            _ = await (server, mac)
+        }
+    }
+
+    /// This Mac's browse can't run: say why and offer the fix, but only when
+    /// it found nothing (results can still arrive while the browse waits).
+    @ViewBuilder private var accessRow: some View {
+        if local.clocks.isEmpty {
+            switch local.access {
+            case .ok:
+                EmptyView()
+            case .needsAccess:
+                LabeledContent {
+                    Button("Grant Local Network Access…") {
+                        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
+                    }
+                } label: {
+                    Label("This Mac can't search: Local Network access is off or there's no network",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            case .unavailable:
+                Label("This Mac can't search the network", systemImage: "wifi.exclamationmark")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func sourceLabel(_ source: ClockChoice.Source) -> LocalizedStringKey {
+        switch source {
+        case .server: "found by the server"
+        case .mac: "found by this Mac"
+        case .both: "found by the server and this Mac"
+        }
     }
 }
 

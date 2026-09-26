@@ -111,13 +111,13 @@
         }
       }
     },
-    "%@ · firmware %@" : {
-      "comment" : "Discover Clocks sheet: the clock's host name or address, then its firmware version.",
+    "%@ · firmware %@ · %@" : {
+      "comment" : "Discovered clock subtitle: host name, firmware version, who found it (e.g. found by this Mac).",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ · firmware %2$@"
+            "value" : "%1$@ · firmware %2$@ · %3$@"
           }
         }
       }
@@ -471,7 +471,7 @@
     "Ember E (pixel)" : {},
     "Ember can open at login only when it runs from the Applications folder." : {},
     "Ember can't reach the server. Check that it's running, or change its address in Connection settings." : {},
-    "Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server." : {},
+    "Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server; this Mac searches too, for when the server can't." : {},
     "Ember flame" : {},
     "Ember isn't connected to a server" : {},
     "Ember needs access to Reminders" : {},
@@ -496,6 +496,7 @@
     "European AQI: up to 20 good, 40 fair, 60 moderate, 80 poor, 100 very poor, above that extreme. The alert pops up once as the AQI crosses the level." : {},
     "Every" : {},
     "Fahrenheit" : {},
+    "Find Clock from This Mac…" : {},
     "Firmware" : {},
     "First model" : {},
     "Focus" : {
@@ -659,7 +660,7 @@
     "No agent activity this week" : {},
     "No calendar feeds. Set EMBER_MEETINGS_ICS_URLS on the server; the URLs are secrets and never leave it." : {},
     "No clock configured" : {},
-    "No clocks found. The server looks for them with mDNS, which needs host networking." : {},
+    "No clocks found. Check that the clock is on and on the same network." : {},
     "No daily goal set" : {},
     "No data yet" : {},
     "No focus sessions yet — click Start Focus to begin" : {},
@@ -948,6 +949,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The server can't reach the clock" : {},
     "The server fetches conditions from a free provider that needs no key." : {},
     "The server is rate-limiting this Mac." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -966,6 +968,8 @@
     },
     "These settings apply only to this Mac, while it's awake and Ember is running." : {},
     "This Mac" : {},
+    "This Mac can't search the network" : {},
+    "This Mac can't search: Local Network access is off or there's no network" : {},
     "This clock has no speaker." : {},
     "This clock style draws no weekday bar; the Date app still does." : {},
     "This clock style has no room for seconds or AM/PM." : {},
@@ -1129,6 +1133,9 @@
     },
     "extremely poor" : {},
     "fair" : {},
+    "found by the server" : {},
+    "found by the server and this Mac" : {},
+    "found by this Mac" : {},
     "good" : {},
     "in %lld min" : {
       "comment" : "Upcoming card: minutes until an event starts."

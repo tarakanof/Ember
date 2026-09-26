@@ -408,7 +408,7 @@ public struct DeviceConfig: Codable, Equatable, Sendable {
     }
 }
 
-/// One AWTRIX device found by server-side mDNS discovery.
+/// One awtrix-ng clock found by discovery (the server's or this Mac's).
 public struct DiscoveredClock: Codable, Equatable, Sendable, Identifiable {
     public var host: String
     public var baseURL: String
@@ -416,6 +416,9 @@ public struct DiscoveredClock: Codable, Equatable, Sendable, Identifiable {
     public var version: String
     public var id: String { baseURL }
     enum CodingKeys: String, CodingKey { case host, baseURL = "base_url", uid, version }
+    public init(host: String, baseURL: String, uid: String, version: String) {
+        self.host = host; self.baseURL = baseURL; self.uid = uid; self.version = version
+    }
 }
 
 /// Result of GET /v1/device/discover.
