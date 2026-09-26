@@ -56,7 +56,7 @@ struct AgentsPane: View {
                                      enabled: true, frame: nil)
                     }
                 }
-                .settingsPreviewBackdrop()
+                .settingsPreviewRow()
             } footer: {
                 Text("The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state.")
             }

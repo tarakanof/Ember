@@ -200,13 +200,17 @@ without relaunch. Hybrid layout:
   with next/previous app, dismiss, display power and Show on Clock; rows a
   server lacks are hidden, e.g. usage falls back to `/state` and display
   power needs 0.28+), the animated bot or tool glyph as its icon, a
-  sidebar `Settings` window (**General / Connection / Clock / Agents / Focus /
+  fixed-width sidebar `Settings` window (height resizable only, like System
+  Settings; **General / Connection / Clock / Agents / Focus /
   Weather / Calendar / Sounds & Alerts**; the title follows the pane, the
   subtitle is the one save status of every config model, controls stay
   disabled until their model has loaded), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
   menu while a window is open. `Ember/Shared/` holds the views all three
   surfaces use (`LiveMatrixMirror`, `FeedStateView`, `StatTile`, `StaleChip`,
-  `PhaseBadge`, `EmberColors`). App-only prefs (icon palette, tray glyphs) live
+  `PhaseBadge`, `EmberColors`). Every 32×8 matrix is drawn by
+  `MatrixScreenView`, which sizes itself via EmberKit's `LEDMatrixLayout`:
+  square cells at a whole-point pitch (3–20 pt), centred, so it never
+  stretches, and its black `ledBezel()` hugs the panel. App-only prefs (icon palette, tray glyphs) live
   in `UserDefaults`; launch-at-login is `SMAppService`.
 
 **Live data and polling.** Every server read the UI shows is a `Feed` in

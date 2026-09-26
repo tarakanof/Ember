@@ -29,7 +29,7 @@ struct WeatherPane: View {
                                  caption: "European AQI in its scale color, with the next 24 hours below.",
                                  enabled: c.enabled && c.airTile, frame: frame("air"))
                 }
-                .settingsPreviewBackdrop()
+                .settingsPreviewRow()
             } footer: {
                 Text("Animated icons and rain or snow overlays appear on the clock only.")
             }

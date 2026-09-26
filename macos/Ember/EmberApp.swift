@@ -31,16 +31,19 @@ struct EmberApp: App {
         .restorationBehavior(.disabled)
 
         Window("Settings", id: WindowID.settings) {
+            // Fixed width, as System Settings: every pane is laid out for it
+            // and only the height follows the user.
             SettingsRootView()
-                .frame(minWidth: 720, minHeight: 520)
+                .frame(width: SettingsRootView.windowWidth)
+                .frame(minHeight: 520)
                 .windowMinimizeBehavior(.disabled)
                 .environment(env)
                 .capturesOpenWindow(into: env)
                 .onAppear { env.isSettingsOpen = true }
                 .onDisappear { env.isSettingsOpen = false }
         }
-        .defaultSize(width: 800, height: 640)
-        .windowResizability(.contentMinSize)
+        .defaultSize(width: SettingsRootView.windowWidth, height: 640)
+        .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
     }

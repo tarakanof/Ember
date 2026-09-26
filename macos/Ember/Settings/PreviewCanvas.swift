@@ -9,6 +9,7 @@ struct PreviewCanvas: View {
     let frames: [CardFrame]
     var width: Int = 32
     var height: Int = 8
+    var maxPitch: CGFloat = LEDMatrixLayout.maxPitch
 
     @State private var index = 0
 
@@ -21,7 +22,7 @@ struct PreviewCanvas: View {
     }
 
     var body: some View {
-        MatrixScreenView(pixels: pixels, width: width, height: height)
+        MatrixScreenView(pixels: pixels, width: width, height: height, maxPitch: maxPitch)
             .overlay(alignment: .bottomTrailing) {
                 if frames.count > 1 {
                     Text("\(min(index, frames.count - 1) + 1) of \(frames.count)")

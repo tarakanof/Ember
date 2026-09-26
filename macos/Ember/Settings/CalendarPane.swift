@@ -24,7 +24,7 @@ struct CalendarPane: View {
                                  enabled: watcher.prefs.enabled,
                                  frame: reminderPreview?.frames.first { $0.card == "reminder" })
                 }
-                .settingsPreviewBackdrop()
+                .settingsPreviewRow()
             }
 
             LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,

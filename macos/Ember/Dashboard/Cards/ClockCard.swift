@@ -10,11 +10,11 @@ struct ClockCard: View {
 
     var body: some View {
         DashboardCard(title: "Clock", systemImage: "clock", height: DashboardCardHeight.mirror) {
-            // Mirror and controls as one centred group: the matrix is 4:1,
-            // so on a wide card extra width would only be empty space.
+            // Mirror and controls as one centred group: the mirror hugs its
+            // snapped 4:1 panel, so on a wide card the spare width goes to
+            // the margins rather than between the two.
             HStack(alignment: .center, spacing: 24) {
                 mirror
-                    .frame(maxWidth: 600)
                 controls
                     .fixedSize()
             }
@@ -28,8 +28,7 @@ struct ClockCard: View {
 
     private var mirror: some View {
         MatrixScreenView(pixels: pixels)
-            .padding(10)
-            .background(.black, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .ledBezel(padding: 10, cornerRadius: 10)
             .overlay {
                 if screen.value == nil, !screen.isLoading {
                     Label("Clock unreachable", systemImage: "wifi.slash")
