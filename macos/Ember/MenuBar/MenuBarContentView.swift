@@ -1,71 +1,112 @@
 import SwiftUI
 import EmberKit
 
-/// Native AppKit menu (`.menu` style): dim status + Pomodoro phase line + actions,
-/// per-app visibility toggles, then Dashboard/Settings/Quit.
+/// Native AppKit menu (`.menu` style): status, Pomodoro controls, per-app
+/// visibility toggles, then Dashboard/Settings/About/Quit. Reads `LiveModel`
+/// and runs actions through `ActionRunner`; it never polls.
 struct MenuBarContentView: View {
 	@Environment(AppEnvironment.self) private var env
 	@Environment(\.openWindow) private var openWindow
 
-	private func mmss(_ sec: Int) -> String {
-		let s = max(0, sec); return String(format: "%d:%02d", s / 60, s % 60)
-	}
-	private func act(_ a: PomodoroAction) {
-		Task { try? await env.pomodoro.action(a); await env.model.refresh() }
-	}
-
 	var body: some View {
-		let model = env.model
+		Group { items }
+			// Fires when the menu opens. Catches up glance feeds whose poll is
+			// overdue (after a backoff); 60 s so opening the menu often can't
+			// push stats past one request a minute (each fetch also pushes the
+			// next poll back).
+			.onAppear {
+				Task { await env.live.refreshNow([.stats, .meetings, .usage], ifOlderThan: .seconds(60)) }
+			}
+	}
 
-		// Status header (dim).
-		if let s = model.winningSession {
-			Text("\(s.source) · \(s.tool) · \(s.state)")
+	@ViewBuilder
+	private var items: some View {
+		let live = env.live
+
+		if live.connection == .unconfigured {
+			Button("Set Up Ember…") { openSettings(pane: "connection", using: openWindow) }
+			Divider()
+		}
+
+		// Status header (disabled text rows).
+		if let s = live.winningSession {
+			let p = SessionPresentation(s)
+			Text(p.title)
+			if let sub = p.subtitle(maxLength: 48) { Text(verbatim: sub) }
 		} else {
-			Text(model.connected ? "Idle" : "Offline")
+			Text(statusText(live.connection))
 		}
 
 		Divider()
 
-		// Pomodoro: dim phase line (when active) + phase-appropriate actions.
-		if let p = model.pomoState, p.phase != "idle" {
-			Text("\(p.phase.capitalized) · \(mmss(p.remainingSec)) · round \(p.round)")
-			if p.running && !p.paused {
-				Button("Pause") { act(.pause) }
-				Button("Skip") { act(.skip) }
-				Button("Stop") { act(.stop) }
-			} else {
-				// Paused or parked (auto-advance makes parked rare): resume or stop.
-				Button("Resume") { act(.resume) }
-				Button("Stop") { act(.stop) }
+		// Pomodoro: phase line while active, then the controls that apply.
+		if let p = live.pomodoro.value, p.mode != .idle {
+			Text("\(Text(p.phaseEnum.displayName)) · \(DurationText.remaining(p.remainingSec)) · round \(p.round)")
+		}
+		Group {
+			ForEach(PomodoroControls.items(for: live.pomodoro.value)) { item in
+				Button {
+					Task { await env.actions.run(.pomodoro(item.action)) }
+				} label: {
+					Label { Text(item.title) } icon: { Image(systemName: item.systemImage) }
+				}
+				.modifier(PrimaryShortcut(key: item.shortcutKey))
 			}
-		} else {
-			Button("Start Focus") { act(.start) }
+		}
+		.labelStyle(.titleAndIcon)
+		.disabled(!live.connection.isOnline || live.pomodoro.error == .featureOff)
+		if let failure = env.actions.lastError {
+			Text("Couldn't do that: \(Text(failure.error.message))")
 		}
 
 		Divider()
 
 		// Per-app clock visibility toggles (dynamic; future apps appear here).
-		ForEach(model.apps, id: \.name) { app in
-			Toggle(app.name.capitalized, isOn: Binding(
+		let apps = live.apps.value ?? []
+		ForEach(apps, id: \.name) { app in
+			Toggle(isOn: Binding(
 				get: { app.enabled },
-				set: { newValue in Task { await env.model.setApp(app.name, enabled: newValue) } }
-			))
+				set: { on in Task { await env.actions.run(.setApp(app.name, enabled: on)) } }
+			)) {
+				Text(AppNames.display(app.name))
+			}
 		}
-		if !model.apps.isEmpty { Divider() }
+		if !apps.isEmpty { Divider() }
 
-		Button("Dashboard…") {
-			NSApplication.shared.activate(ignoringOtherApps: true)
-			openWindow(id: "dashboard")
+		Button("Open Dashboard") { presentWindow(id: WindowID.dashboard, using: openWindow) }
+		.keyboardShortcut("0", modifiers: .command)
+		Button("Settings…") { openSettings(using: openWindow) }
+			.keyboardShortcut(",", modifiers: .command)
+		Button("About Ember") {
+			NSApp.activate()
+			NSApp.orderFrontStandardAboutPanel(nil)
 		}
-		Button("Settings…") {
-			NSApplication.shared.activate(ignoringOtherApps: true)
-			openWindow(id: "settings")
-		}
-		.keyboardShortcut(",", modifiers: .command)
 
 		Divider()
 
 		Button("Quit Ember") { NSApplication.shared.terminate(nil) }
 			.keyboardShortcut("q", modifiers: .command)
+	}
+
+	private func statusText(_ c: ConnectionHealth) -> LocalizedStringKey {
+		switch c {
+		case .unconfigured: "Not set up"
+		case .connecting: "Connecting…"
+		case .offline: "Offline"
+		case .online, .degraded: "Idle"
+		}
+	}
+}
+
+/// ⇧⌘P on the context-sensitive primary Pomodoro item.
+private struct PrimaryShortcut: ViewModifier {
+	let key: Character?
+
+	func body(content: Content) -> some View {
+		if let key {
+			content.keyboardShortcut(KeyEquivalent(key), modifiers: [.command, .shift])
+		} else {
+			content
+		}
 	}
 }

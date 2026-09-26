@@ -1,19 +1,26 @@
 import SwiftUI
 
 /// Sidebar settings shell. The sidebar floats with Liquid Glass automatically on
-/// the macOS 26 SDK — no explicit glass modifier. Detail frame hints pre-empt the
-/// common undersized-window issue.
+/// the macOS 26 SDK — no explicit glass modifier. The selected pane is kept in
+/// the `settings.pane` default, so it's restored on reopen and other windows
+/// can open Settings on a pane.
 struct SettingsRootView: View {
-    @State private var selection: SettingsPane? = .connection
+    @AppStorage("settings.pane") private var paneName = SettingsPane.connection.rawValue
+
+    private var selection: Binding<SettingsPane?> {
+        Binding(
+            get: { SettingsPane(rawValue: paneName) ?? .connection },
+            set: { paneName = ($0 ?? .connection).rawValue })
+    }
 
     var body: some View {
         NavigationSplitView {
-            List(SettingsPane.allCases, id: \.self, selection: $selection) { pane in
+            List(SettingsPane.allCases, id: \.self, selection: selection) { pane in
                 Label(pane.title, systemImage: pane.systemImage)
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 220)
         } detail: {
-            detail(for: selection ?? .connection)
+            detail(for: selection.wrappedValue ?? .connection)
                 .frame(minWidth: 460, idealWidth: 500, minHeight: 360)
         }
         .toolbar(removing: .title)

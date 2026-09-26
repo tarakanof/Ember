@@ -8,23 +8,43 @@ import Foundation
     #expect(SaveState.idle != SaveState.saving)
 }
 
-private actor Counter {
+@MainActor
+private final class Counter {
     private(set) var value = 0
     func bump() { value += 1 }
 }
 
-@Test func debouncedWriterCoalescesRapidSchedules() async {
-    let writer = await DebouncedWriter(delay: .milliseconds(40))
+// On a manual clock: real sleeps made these flaky under CI load.
+@MainActor @Test func debouncedWriterCoalescesRapidSchedules() async {
+    let clock = ManualClock()
+    let writer = DebouncedWriter(delay: .milliseconds(40), sleep: clock.sleepFn)
     let counter = Counter()
-    for _ in 0..<5 { await writer.schedule { await counter.bump() } }
-    try? await Task.sleep(for: .milliseconds(200))
-    #expect(await counter.value == 1)   // only the last schedule survives
+    for _ in 0..<5 {
+        writer.schedule { await counter.bump() }
+        await clock.advance(by: .milliseconds(10))
+    }
+    #expect(counter.value == 0)
+    await clock.advance(by: .milliseconds(40))
+    #expect(counter.value == 1)   // only the last schedule survives
 }
 
-@Test func debouncedWriterRunsAfterQuietPeriod() async {
-    let writer = await DebouncedWriter(delay: .milliseconds(20))
+@MainActor @Test func debouncedWriterRunsAfterQuietPeriod() async {
+    let clock = ManualClock()
+    let writer = DebouncedWriter(delay: .milliseconds(20), sleep: clock.sleepFn)
     let counter = Counter()
-    await writer.schedule { await counter.bump() }
-    try? await Task.sleep(for: .milliseconds(120))
-    #expect(await counter.value == 1)
+    writer.schedule { await counter.bump() }
+    await clock.advance(by: .milliseconds(19))
+    #expect(counter.value == 0)
+    await clock.advance(by: .milliseconds(1))
+    #expect(counter.value == 1)
+}
+
+@MainActor @Test func debouncedWriterCancelDropsThePendingRun() async {
+    let clock = ManualClock()
+    let writer = DebouncedWriter(delay: .milliseconds(20), sleep: clock.sleepFn)
+    let counter = Counter()
+    writer.schedule { await counter.bump() }
+    writer.cancel()
+    await clock.advance(by: .seconds(1))
+    #expect(counter.value == 0)
 }

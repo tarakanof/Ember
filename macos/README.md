@@ -10,12 +10,15 @@ API are unchanged; this app is a pure client.
   scene code: Codable models (mirror the server wire shapes), `APIClient`,
   Pomodoro/Status/Preview services, `pickWinning`, `EnvFile` + validation
   (`producer.env`), `ConnectionSettings`/`DisplaySettings`, `MenuPrefs`, and the
-  `@Observable AppModel` + poller. Tested headlessly with `swift test`.
+  foundations the UI reads: `LiveModel` + `RefreshCoordinator` (every polled
+  feed), `ActionRunner`, `ConfigModel` (auto-saving settings) and the
+  presentation helpers. Tested headlessly with `swift test`.
 - **`Ember/`** — the thin SwiftUI app target (`LSUIElement` agent app):
   `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a `Settings`
   sidebar window (Connection / Device / Agent / Pomodoro / Weather /
-  Reminders / App), and a status + preview **dashboard** `Window`. `AppEnvironment`
-  owns the live `APIClient`, models, services, prefs, and `ServerDiscovery`
+  Reminders / App), a **Dashboard** `Window` (⌘0), a Dock menu, and shared views
+  in `Ember/Shared/`. `AppEnvironment` owns the live `APIClient`, `live`,
+  `actions`, `settings`, services, prefs, and `ServerDiscovery`
   (Bonjour `_ember._tcp` browse). The **Device** tab drives the AWTRIX clock's own
   settings via the server's `/v1/device/*` proxy (incl. an mDNS clock picker);
   Connection lists Bonjour-discovered servers (with a Local Network grant prompt).

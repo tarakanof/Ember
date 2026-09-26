@@ -140,8 +140,10 @@ These cost real debugging time.
 
 - **`MenuBarExtra` labels don't run `onChange` or `onAppear`.** State never
   reached the bot that way. `AppEnvironment.feedBot()` observes
-  `model.winningSession` with `withObservationTracking` and re-arms itself on
-  every change.
+  `live.winningSession` with `withObservationTracking` and re-arms itself on
+  every change. `winningSession` is nil once `/state` has failed 3 polls in a
+  row, so an outage sends the bot to idle rather than freezing it mid-mood,
+  while a single dropped poll changes nothing.
 - **A lazily drawn `NSImage` loses its colour in the menu bar.** An
   `NSImage(size:flipped:drawingHandler:)` came out monochrome even with
   `isTemplate = false`. The bot renders into a `CGContext` bitmap first, and
