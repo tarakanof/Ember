@@ -18,9 +18,9 @@ func TestRenderPomodoroFocusUsesFocusColorForTime(t *testing.T) {
 	f := RenderPomodoro(PomodoroView{
 		Phase: "focus", RemainingSec: 25 * 60, PlannedSec: 25 * 60, FocusColor: fc,
 	})
-	// "25:00": first digit '2' top-left pixel sits at the time origin (9,1).
-	if !f.Dirty[1][9] || f.Pixels[1][9] != fc {
-		t.Fatalf("time digit at (9,1) not painted in focus color; dirty=%v px=%+v", f.Dirty[1][9], f.Pixels[1][9])
+	// "25:00": first digit '2' top-left pixel sits at the time origin.
+	if !f.Dirty[1][pomoTimeX] || f.Pixels[1][pomoTimeX] != fc {
+		t.Fatalf("time digit at (%d,1) not painted in focus color; dirty=%v px=%+v", pomoTimeX, f.Dirty[1][pomoTimeX], f.Pixels[1][pomoTimeX])
 	}
 	// A pictogram occupies the left columns (0..7).
 	lit := 0
@@ -39,12 +39,12 @@ func TestRenderPomodoroFocusUsesFocusColorForTime(t *testing.T) {
 func TestRenderPomodoroProgressBarShrinksWithRemaining(t *testing.T) {
 	fc := RGB{0xff, 0x3b, 0x30}
 	full := RenderPomodoro(PomodoroView{Phase: "focus", RemainingSec: 1500, PlannedSec: 1500, FocusColor: fc})
-	if w := countRowColor(full, 7, fc); w != 32 {
-		t.Fatalf("full progress width = %d, want 32", w)
+	if w := countRowColor(full, 7, fc); w != barW {
+		t.Fatalf("full progress width = %d, want %d", w, barW)
 	}
 	half := RenderPomodoro(PomodoroView{Phase: "focus", RemainingSec: 750, PlannedSec: 1500, FocusColor: fc})
-	if w := countRowColor(half, 7, fc); w != 16 {
-		t.Fatalf("half progress width = %d, want 16", w)
+	if w := countRowColor(half, 7, fc); w != barW/2 {
+		t.Fatalf("half progress width = %d, want %d", w, barW/2)
 	}
 	none := RenderPomodoro(PomodoroView{Phase: "focus", RemainingSec: 0, PlannedSec: 1500, FocusColor: fc})
 	if w := countRowColor(none, 7, fc); w != 0 {
@@ -55,29 +55,59 @@ func TestRenderPomodoroProgressBarShrinksWithRemaining(t *testing.T) {
 func TestRenderPomodoroBreakUsesBreakColor(t *testing.T) {
 	bc := RGB{0x2e, 0xe8, 0x5e}
 	f := RenderPomodoro(PomodoroView{Phase: "short_break", RemainingSec: 300, PlannedSec: 300, BreakColor: bc})
-	if !f.Dirty[1][9] || f.Pixels[1][9] != bc {
-		t.Fatalf("break time digit not painted in break color; px=%+v", f.Pixels[1][9])
+	if !f.Dirty[1][pomoTimeX] || f.Pixels[1][pomoTimeX] != bc {
+		t.Fatalf("break time digit not painted in break color; px=%+v", f.Pixels[1][pomoTimeX])
 	}
 }
 
 func TestRenderPomodoroBreakCupIsGrayNotBreakColor(t *testing.T) {
 	bc := RGB{0x2e, 0xe8, 0x5e} // green
-	f := RenderPomodoro(PomodoroView{Phase: "short_break", RemainingSec: 300, PlannedSec: 300, BreakColor: bc})
+	for _, phase := range []string{"short_break", "long_break"} {
+		f := RenderPomodoro(PomodoroView{Phase: phase, RemainingSec: 300, PlannedSec: 300, BreakColor: bc})
+		assertGrayMugRim(t, phase, f, bc)
+	}
+}
+
+// assertGrayMugRim checks the break pictogram is the coffee mug: the device
+// shows the coffee icon for both breaks, so the preview must too.
+func assertGrayMugRim(t *testing.T, phase string, f *Frame, bc RGB) {
+	t.Helper()
 	// The mug rim (row 2, cols 1..5) must be the neutral gray, never the break colour.
 	cupPixels := 0
 	for x := 1; x <= 5; x++ {
 		if !f.Dirty[2][x] {
-			t.Fatalf("mug rim pixel (%d,2) not painted", x)
+			t.Fatalf("%s: mug rim pixel (%d,2) not painted", phase, x)
 		}
 		if f.Pixels[2][x] == bc {
-			t.Fatalf("mug rim pixel (%d,2) painted in break colour; want gray", x)
+			t.Fatalf("%s: mug rim pixel (%d,2) painted in break colour; want gray", phase, x)
 		}
 		if f.Pixels[2][x] == pomoCupGray {
 			cupPixels++
 		}
 	}
 	if cupPixels != 5 {
-		t.Fatalf("gray mug rim pixels = %d, want 5", cupPixels)
+		t.Fatalf("%s: gray mug rim pixels = %d, want 5", phase, cupPixels)
+	}
+}
+
+// TestRenderPomodoroMatchesTheDeviceLayout pins the drawn preview to what the
+// device shows for PomodoroPayload: NG centres the MM:SS in cols 9-31 after
+// the native icon, and draws the native progress along row 7 from col 8, not
+// under the icon.
+func TestRenderPomodoroMatchesTheDeviceLayout(t *testing.T) {
+	f := RenderPomodoro(PomodoroView{Phase: "focus", RemainingSec: 1500, PlannedSec: 1500})
+	for x := 0; x < barX0; x++ {
+		if f.Dirty[barRow][x] {
+			t.Errorf("progress painted col %d under the icon", x)
+		}
+	}
+	// "25:00" is 17 px wide (tight colon): centred in 23 cols leaves 3 each side.
+	if want := contentX + (contentW-17)/2; pomoTimeX != want {
+		t.Errorf("pomoTimeX = %d, want %d (centred)", pomoTimeX, want)
+	}
+	last := pomoTimeX + 16
+	if !f.Dirty[1][last] || f.Dirty[1][last+1] {
+		t.Errorf("time does not end at col %d", last)
 	}
 }
 
@@ -85,8 +115,8 @@ func TestRenderPomodoroPausedDimsColor(t *testing.T) {
 	fc := RGB{0xff, 0x40, 0x20}
 	f := RenderPomodoro(PomodoroView{Phase: "focus", Paused: true, RemainingSec: 1500, PlannedSec: 1500, FocusColor: fc})
 	want := RGB{fc.R / 2, fc.G / 2, fc.B / 2}
-	if !f.Dirty[1][9] || f.Pixels[1][9] != want {
-		t.Fatalf("paused time color = %+v, want dimmed %+v", f.Pixels[1][9], want)
+	if !f.Dirty[1][pomoTimeX] || f.Pixels[1][pomoTimeX] != want {
+		t.Fatalf("paused time color = %+v, want dimmed %+v", f.Pixels[1][pomoTimeX], want)
 	}
 }
 
@@ -142,5 +172,13 @@ func TestPomodoroPayloadPausedDimsColour(t *testing.T) {
 	}
 	if off["progressColor"] != off["textColor"] {
 		t.Errorf("progressColor should match the (dimmed) textColor when paused")
+	}
+	// The native icon keeps animating at full brightness, so dimming alone is a
+	// weak cue: a paused countdown also fades in and out.
+	if got, ok := off["textFadeMs"].(int); !ok || got <= 0 {
+		t.Errorf("paused textFadeMs = %v, want a positive period", off["textFadeMs"])
+	}
+	if _, has := on["textFadeMs"]; has {
+		t.Errorf("running countdown must not fade; textFadeMs = %v", on["textFadeMs"])
 	}
 }

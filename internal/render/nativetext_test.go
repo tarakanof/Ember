@@ -25,11 +25,11 @@ func TestSourceCardLeavesTheTextSlotToTheFirmware(t *testing.T) {
 	if f.Native.Text != "M4" {
 		t.Errorf("Native.Text = %q, want %q", f.Native.Text, "M4")
 	}
-	if f.Native.X != numStart {
-		t.Errorf("Native.X = %d, want numStart %d", f.Native.X, numStart)
+	if f.Native.X != contentX {
+		t.Errorf("Native.X = %d, want contentX %d", f.Native.X, contentX)
 	}
 	for y := 0; y < 8; y++ {
-		for x := numStart; x < glassLeft; x++ {
+		for x := contentX; x < glassLeft; x++ {
 			if f.Dirty[y][x] && y != barRow {
 				t.Errorf("text slot pixel (%d,%d) painted; the firmware owns this area now", x, y)
 			}
@@ -49,7 +49,7 @@ func TestSourceCardStillDrawsIconGlassAndBar(t *testing.T) {
 	if f.Pixels[1][glassRight] != glassWall {
 		t.Error("context glass missing from the source card")
 	}
-	if !f.Dirty[barRow][barStart] {
+	if !f.Dirty[barRow][barX0] {
 		t.Error("session bar missing from the source card")
 	}
 }
@@ -71,8 +71,8 @@ func TestSourceCardPayloadCarriesNativeText(t *testing.T) {
 	if got := p["textCenter"]; got != false {
 		t.Errorf("payload textCenter = %v, want false", got)
 	}
-	if got := p["textOffsetX"]; got != numStart {
-		t.Errorf("payload textOffsetX = %v, want %d", got, numStart)
+	if got := p["textOffsetX"]; got != contentX {
+		t.Errorf("payload textOffsetX = %v, want %d", got, contentX)
 	}
 	if _, ok := p["textColor"]; !ok {
 		t.Error("payload missing textColor")
@@ -121,7 +121,7 @@ func TestPreviewFillsInNativeTextWithTheBitmapFont(t *testing.T) {
 	}
 	lit := 0
 	for y := 0; y < 8; y++ {
-		for x := numStart; x < glassLeft; x++ {
+		for x := contentX; x < glassLeft; x++ {
 			if source.Pixels[y*32+x] != "#000000" {
 				lit++
 			}
@@ -161,9 +161,9 @@ func TestNativeTextPayloadLeavesTheTextBoxUndrawn(t *testing.T) {
 			continue
 		}
 		// Every other op must clear the text columns entirely.
-		if x < glassLeft && x+w > numStart && y < barRow {
+		if x < glassLeft && x+w > contentX && y < barRow {
 			t.Errorf("draw op x=%d w=%d y=%d h=%d overlaps the native text box (cols %d-%d)",
-				x, w, y, h, numStart, glassLeft-1)
+				x, w, y, h, contentX, glassLeft-1)
 		}
 	}
 	if !sawBarRow {

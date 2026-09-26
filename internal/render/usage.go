@@ -19,14 +19,25 @@ var (
 	usageTrack       = RGB{0x2c, 0x2c, 0x2c}
 )
 
-func usageThreshold(pct int) RGB { // green/amber/red
+// The usage threshold palette: the one set of colours for a usage percentage
+// (digits, bars, reset urgency), deliberately apart from the agent-state
+// colours so an amber 87 % never reads as a waiting agent.
+var (
+	usageOK   = RGB{0x39, 0xd3, 0x53}
+	usageWarn = RGB{0xe3, 0xa0, 0x08}
+	usageHot  = RGB{0xf0, 0x4e, 0x4e}
+)
+
+// usageThreshold colours a usage percentage, matching Claude Code's
+// statusline convention: <70 green, 70–89 amber, >=90 red.
+func usageThreshold(pct int) RGB {
 	switch {
 	case pct < 70:
-		return RGB{0x39, 0xd3, 0x53}
+		return usageOK
 	case pct < 90:
-		return RGB{0xe3, 0xa0, 0x08}
+		return usageWarn
 	default:
-		return RGB{0xf0, 0x4e, 0x4e}
+		return usageHot
 	}
 }
 
@@ -37,13 +48,13 @@ func dimThreshold(pct int) RGB { // ~55% of the threshold colour
 
 func toInt(c RGB) int { return int(c.R)<<16 | int(c.G)<<8 | int(c.B) }
 
-// usageBarPixels returns 24 colours (content cols 8-31) for a dimmed 1px bar.
+// usageBarPixels returns the barW colours (cols barX0..31) of a dimmed 1px bar.
 func usageBarPixels(pct int) []RGB {
-	fill := (24*pct + 50) / 100
+	fill := (barW*pct + 50) / 100
 	if pct > 0 && fill < 1 {
 		fill = 1
 	}
-	out := make([]RGB, 24)
+	out := make([]RGB, barW)
 	for i := range out {
 		if i < fill {
 			out[i] = dimThreshold(pct)
@@ -94,10 +105,10 @@ func drawClockInto(f *Frame, hhmm string, x int) {
 	}
 }
 
-// drawBarInto paints the 1px dimmed content-area bar at row 7, cols 8-31.
+// drawBarInto paints the 1px dimmed bottom bar (row 7, cols barX0..31).
 func drawBarInto(f *Frame, pct int) {
 	for i, c := range usageBarPixels(pct) {
-		paintCell(f, 8+i, 7, c)
+		paintCell(f, barX0+i, barRow, c)
 	}
 }
 
@@ -116,7 +127,7 @@ func LimitResetPopupPayload(tool string, durationSec int) map[string]any {
 		"wakeup":      true,
 		"stack":       true,
 		"textColor":   hexOf(color),
-		"draw":        []any{bitmapOp(0, 0, 8, 8, bitmap8(icon, color))},
+		"draw":        []any{iconOp(bitmap8(icon, color))},
 		"textCenter":  false,
 		"textOffsetX": 9,
 	}

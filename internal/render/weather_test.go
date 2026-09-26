@@ -98,7 +98,7 @@ func TestEveryColorFieldIsCanonicalHex(t *testing.T) {
 		"SunPopupPayload":        SunPopupPayload(false, "SUNSET 21:04", 30),
 		"LimitResetPopupPayload": LimitResetPopupPayload("codex", 10),
 		"PomodoroPayload":        PomodoroPayload(PomodoroView{Phase: pomoFocus, RemainingSec: 90, PlannedSec: 1500}, 30),
-		"detailPayload":          detailPayload(Session{Tool: "claude", State: "running"}, "X", stateHex("running"), false, 30, false),
+		"detailPayload":          detailPayload(Session{Tool: "claude", State: "running"}, nil, "X", stateHex("running"), false, 30, false),
 	}
 	for name, p := range payloads {
 		for _, k := range colorFields {
@@ -197,4 +197,19 @@ func slicesEqualInt(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+// TestDegreeGlyphIsARing pins the degree sign to a 3×3 ring in the top rows:
+// a solid 2×2 block read as a blob, and its 2-px ink made centring off by one.
+func TestDegreeGlyphIsARing(t *testing.T) {
+	want := []string{"XXX", "X.X", "XXX", "...", "..."}
+	got := glyph('°')
+	if len(got) != len(want) {
+		t.Fatalf("degree glyph = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("degree glyph = %v, want %v", got, want)
+		}
+	}
 }

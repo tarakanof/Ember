@@ -45,7 +45,7 @@ var meetingInk = RGB{0xE6, 0xE6, 0xE6}
 var meetingRed = RGB{0xCC, 0x33, 0x33}
 
 // meetingIconPixels composes the 8×8 calendar icon (body + rings) into 64
-// row-major 0xRRGGBB ints for use in a db [0,0,8,8] draw op.
+// row-major 0xRRGGBB ints, for iconOp.
 func meetingIconPixels() []int {
 	var f Frame
 	paintBitmap(&f, 0, 0, meetingCalPage, meetingInk)
@@ -61,7 +61,7 @@ func MeetingPayload(title string, minutes, lifetime int) map[string]any {
 	return map[string]any{
 		"text":        fmt.Sprintf("%s %dm", title, minutes),
 		"textColor":   hexOf(meetingInk),
-		"draw":        []any{bitmapOp(0, 0, 8, 8, meetingIconPixels())},
+		"draw":        []any{iconOp(meetingIconPixels())},
 		"textCenter":  false,
 		"textOffsetX": 9,
 		"lifetimeMs":  msOf(lifetime),
@@ -85,7 +85,7 @@ func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]
 		"durationMs":  msOf(durationSec),
 		"wakeup":      true,
 		"stack":       true,
-		"draw":        []any{bitmapOp(0, 0, 8, 8, meetingIconPixels())},
+		"draw":        []any{iconOp(meetingIconPixels())},
 		"textCenter":  false,
 		"textOffsetX": 9,
 	}

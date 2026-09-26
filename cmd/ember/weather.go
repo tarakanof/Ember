@@ -266,8 +266,9 @@ type weatherObservation struct {
 // a config change doesn't require a refetch.
 const forecastFetchHours = 24
 
-// airFetchHours is the hourly-AQI window we request: the tile strip has 23
-// columns, so 24 values cover it with the current hour included.
+// airFetchHours is the hourly-AQI window we request: the tile strip spans the
+// 24-column bottom bar, so 24 values fill it one column per hour, the current
+// hour included.
 const airFetchHours = 24
 
 // airObservation is one air-quality reading: the current European AQI (EAQI),
