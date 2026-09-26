@@ -79,18 +79,72 @@ private let usageJSON = #"""
     #expect(rows[0].models.map(\.name) == ["sonnet", "opus"])
 }
 
-@Test func usageRowsFallBackToSessions() {
-    let sessions: [Session] = [
-        decode(#"{"source":"m4","tool":"claude","state":"running","rate_window_pct":40,"rate_reset_at":1790000000,"updated_at":"2026-09-26T10:00:00Z"}"#),
-        decode(#"{"source":"m5","tool":"claude","state":"idle","rate_window_pct":42,"updated_at":"2026-09-26T10:05:00Z"}"#),
-        decode(#"{"source":"m4","tool":"codex","state":"running","updated_at":"2026-09-26T10:05:00Z"}"#),
+private func session(_ tool: String, source: String = "m4", pct: Int? = nil, resetAt: String? = nil,
+                     updated: String = "2026-09-26T10:00:00+02:00") -> Session {
+    var json = #"{"source":"\#(source)","tool":"\#(tool)","state":"running","updated_at":"\#(updated)""#
+    if let pct { json += #","rate_window_pct":\#(pct)"# }
+    if let resetAt { json += #","rate_reset_at":\#(Int64(iso(resetAt).timeIntervalSince1970))"# }
+    return decode(json + "}")
+}
+
+private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:00:00+02:00","stale_after_sec":600,"tools":[]}"#)
+
+@Test func usageRowsFallBackToSessionsWhenTheSnapshotIsEmpty() {
+    // 0.28 with no producer posting /v1/usage: the sessions' 5h window still shows.
+    let sessions = [
+        session("claude", source: "m4", pct: 16, resetAt: "2026-09-26T12:40:00+02:00", updated: "2026-09-26T09:59:00+02:00"),
+        session("claude", source: "m5", pct: 18, resetAt: "2026-09-26T12:40:00+02:00", updated: "2026-09-26T09:59:30+02:00"),
+        session("codex", pct: 5),  // no known reset: left out, as in the menu
     ]
-    let rows = UsageRow.rows(fromSessions: sessions)
+    let rows = UsageRow.rows(from: emptyUsage, sessions: sessions, now: now)
     #expect(rows.map(\.tool) == ["claude"])
-    #expect(rows[0].fiveHour?.percent == 42)
+    #expect(rows[0].fiveHour == UsageRow.Window(percent: 18, resetsAt: iso("2026-09-26T12:40:00+02:00"), resetLabel: nil))
     #expect(rows[0].source == "m5")
-    #expect(rows[0].fiveHour?.resetsAt == nil)
-    #expect(UsageRow.rows(fromSessions: [sessions[0]])[0].fiveHour?.resetsAt == Date(timeIntervalSince1970: 1_790_000_000))
+    #expect(!rows[0].stale)
+    // Old server (no /v1/usage): same rows.
+    #expect(UsageRow.rows(from: nil, sessions: sessions, now: now) == rows)
+}
+
+@Test func usageSessionRowsDropOnceTheWindowHasReset() {
+    let sessions = [session("claude", pct: 97, resetAt: "2026-09-26T09:30:00+02:00")]
+    #expect(UsageRow.rows(from: emptyUsage, sessions: sessions, now: now).isEmpty)
+    #expect(MenuRows.usage(.loaded(emptyUsage, at: now), sessions: sessions, now: now).isEmpty)
+}
+
+@Test func usageFreshSnapshotWinsOverSessions() {
+    let snap: UsageSnapshot = decode(usageJSON)
+    let sessions = [session("claude", source: "m5", pct: 60, resetAt: "2026-09-26T12:40:00+02:00"),
+                    session("codex", source: "m5", pct: 30, resetAt: "2026-09-26T11:00:00+02:00")]
+    let rows = UsageRow.rows(from: snap, sessions: sessions, now: now)
+    #expect(rows.map(\.tool) == ["claude", "codex"])
+    #expect(rows[0].fiveHour?.percent == 14)
+    #expect(rows[0].models.count == 2)
+    #expect(rows[1].fiveHour?.percent == 30)
+}
+
+@Test func usageStaleSnapshotYieldsToSessionsElseStaysFlagged() {
+    let stale: UsageSnapshot = decode(usageJSON.replacingOccurrences(of: #""stale":false"#, with: #""stale":true"#))
+    let live = [session("claude", source: "m5", pct: 60, resetAt: "2026-09-26T12:40:00+02:00")]
+    let rows = UsageRow.rows(from: stale, sessions: live, now: now)
+    #expect(rows.count == 1)
+    #expect(rows[0].fiveHour?.percent == 60)
+    #expect(!rows[0].stale)
+    let kept = UsageRow.rows(from: stale, sessions: [], now: now)
+    #expect(kept.first?.stale == true)
+    #expect(kept.first?.fiveHour?.percent == 14)
+}
+
+@Test func usageFreshSnapshotWithoutFiveHourBorrowsTheSessionWindow() {
+    let weekly: UsageSnapshot = decode(#"""
+    {"generated_at":"2026-09-26T10:00:00+02:00","stale_after_sec":600,"tools":[
+     {"tool":"claude","source":"statusline","updated_at":"2026-09-26T09:59:00+02:00","stale":false,
+      "five_hour":null,"seven_day":{"used_percent":33,"resets_at":null,"reset_label":"FRI"},"models":{}}]}
+    """#)
+    let rows = UsageRow.rows(from: weekly, sessions: [session("claude", pct: 22, resetAt: "2026-09-26T12:40:00+02:00")], now: now)
+    #expect(rows.count == 1)
+    #expect(rows[0].fiveHour?.percent == 22)
+    #expect(rows[0].sevenDay?.percent == 33)
+    #expect(rows[0].source == "statusline")
 }
 
 // MARK: Upcoming

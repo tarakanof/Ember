@@ -135,17 +135,39 @@ public enum MenuRows {
             }
             rows[t.tool] = usageRow(tool: t.tool, percent: w.usedPercent, reset: reset, locale: locale)
         }
-        let candidates = sessions.filter { $0.rateWindowPct != nil && $0.rateResetAt > 0 && !covered.contains($0.tool) }
-        let latest = Dictionary(grouping: candidates, by: \.tool)
-            .compactMapValues { $0.max { $0.updatedAt < $1.updatedAt } }
-        for (tool, s) in latest {
-            guard let pct = s.rateWindowPct else { continue }
-            let at = Date(timeIntervalSince1970: TimeInterval(s.rateResetAt))
-            guard at > now else { continue }
-            rows[tool] = usageRow(tool: tool, percent: Double(pct),
-                                  reset: resetText(at, now: now, locale: locale, timeZone: timeZone), locale: locale)
+        for w in sessionFiveHour(sessions, excluding: covered, now: now) {
+            rows[w.tool] = usageRow(tool: w.tool, percent: Double(w.percent),
+                                    reset: resetText(w.resetsAt, now: now, locale: locale, timeZone: timeZone), locale: locale)
         }
         return rows.values.sorted { $0.tool < $1.tool }
+    }
+
+    /// A 5-hour window read off a `/state` session.
+    struct SessionWindow: Equatable {
+        let tool: String
+        let percent: Int
+        let resetsAt: Date
+        let session: Session
+    }
+
+    /// The session fallback for 5-hour usage, shared by the menu and the
+    /// Dashboard's Usage card: per tool not in `excluding`, the freshest
+    /// session carrying `rate_window_pct` and a known reset
+    /// (`rate_reset_at > 0`), dropped once that reset has passed. Sorted by
+    /// tool.
+    static func sessionFiveHour(_ sessions: [Session], excluding: Set<String> = [], now: Date) -> [SessionWindow] {
+        let candidates = sessions.filter {
+            $0.rateWindowPct != nil && $0.rateResetAt > 0 && !$0.tool.isEmpty && !excluding.contains($0.tool)
+        }
+        let latest = Dictionary(grouping: candidates, by: \.tool)
+            .compactMapValues { $0.max { $0.updatedAt < $1.updatedAt } }
+        return latest.compactMap { tool, s -> SessionWindow? in
+            guard let pct = s.rateWindowPct else { return nil }
+            let at = Date(timeIntervalSince1970: TimeInterval(s.rateResetAt))
+            guard at > now else { return nil }
+            return SessionWindow(tool: tool, percent: pct, resetsAt: at, session: s)
+        }
+        .sorted { $0.tool < $1.tool }
     }
 
     /// The sessions the menu may show: none unless the snapshot is live.

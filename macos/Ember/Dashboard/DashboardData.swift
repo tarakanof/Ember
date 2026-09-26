@@ -45,11 +45,12 @@ extension DashboardSource {
     /// Card 3 is hidden until some tool has reported usage.
     var showsUsage: Bool { usage.isLoading || !usageRows.isEmpty }
 
-    /// Usage from `GET /v1/usage`, or from `/state` sessions on a server
-    /// without it.
+    /// Usage from `GET /v1/usage`, falling back per tool to the 5-hour
+    /// window `/state` sessions carry (the menu's rule) when the snapshot has
+    /// nothing fresh for it, or when the server has no `GET /v1/usage`.
     var usageRows: [UsageRow] {
-        if let snap = usage.value, usage.error != .featureOff { return UsageRow.rows(from: snap) }
-        return UsageRow.rows(fromSessions: snapshot.value?.sessions ?? [])
+        let snap = usage.error == .featureOff ? nil : usage.value
+        return UsageRow.rows(from: snap, sessions: MenuRows.liveSessions(snapshot), now: fixedNow ?? Date())
     }
 
     /// Focus length for the goal line; the stats payload doesn't carry it.

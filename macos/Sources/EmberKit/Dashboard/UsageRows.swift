@@ -40,20 +40,37 @@ public struct UsageRow: Equatable, Sendable, Identifiable {
         }
     }
 
-    /// Rows from `/state` sessions, for servers without `GET /v1/usage`: the
-    /// 5-hour percentage each session carries, the freshest per tool. Tools
-    /// whose sessions carry none are left out.
-    public static func rows(fromSessions sessions: [Session]) -> [UsageRow] {
-        var best: [String: Session] = [:]
-        for s in sessions where s.rateWindowPct != nil && !s.tool.isEmpty {
-            if let cur = best[s.tool], cur.updatedAt >= s.updatedAt { continue }
-            best[s.tool] = s
+    /// The Usage card's rows: the snapshot's fresh tools, and for every
+    /// other tool the `/state` session fallback the menu uses
+    /// (`MenuRows.sessionFiveHour`: a known reset that hasn't passed yet).
+    /// A fresh entry without a 5-hour window borrows the session's; a stale
+    /// entry yields to the session row when there is one and is otherwise
+    /// kept, flagged stale. `snapshot` is nil on a server without
+    /// `GET /v1/usage`. Pass only live sessions (`MenuRows.liveSessions`).
+    public static func rows(from snapshot: UsageSnapshot?, sessions: [Session], now: Date) -> [UsageRow] {
+        var byTool: [String: UsageRow] = [:]
+        for row in snapshot.map(rows(from:)) ?? [] { byTool[row.tool] = row }
+        for row in rows(fromSessions: sessions, now: now) {
+            guard let current = byTool[row.tool], !current.stale else {
+                byTool[row.tool] = row
+                continue
+            }
+            if current.fiveHour == nil {
+                byTool[row.tool] = UsageRow(tool: current.tool, source: current.source, fiveHour: row.fiveHour,
+                                            sevenDay: current.sevenDay, models: current.models,
+                                            updatedAt: current.updatedAt, stale: false)
+            }
         }
-        return best.values.sorted { $0.tool < $1.tool }.map { s in
-            let reset = s.rateResetAt > 0 ? Date(timeIntervalSince1970: TimeInterval(s.rateResetAt)) : nil
-            return UsageRow(tool: s.tool, source: s.source.isEmpty ? nil : s.source,
-                            fiveHour: Window(percent: Double(s.rateWindowPct ?? 0), resetsAt: reset, resetLabel: nil),
-                            sevenDay: nil, models: [], updatedAt: s.updatedAt, stale: false)
+        return byTool.values.sorted { $0.tool < $1.tool }
+    }
+
+    /// Rows from `/state` sessions alone: each tool's 5-hour window per
+    /// `MenuRows.sessionFiveHour`.
+    public static func rows(fromSessions sessions: [Session], now: Date) -> [UsageRow] {
+        MenuRows.sessionFiveHour(sessions, now: now).map { w in
+            UsageRow(tool: w.tool, source: w.session.source.isEmpty ? nil : w.session.source,
+                     fiveHour: Window(percent: Double(w.percent), resetsAt: w.resetsAt, resetLabel: nil),
+                     sevenDay: nil, models: [], updatedAt: w.session.updatedAt, stale: false)
         }
     }
 }
