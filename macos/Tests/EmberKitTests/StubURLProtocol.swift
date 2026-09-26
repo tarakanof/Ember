@@ -22,22 +22,37 @@ final class StubURLProtocol: URLProtocol {
         guard let handler = Self.lock.withLock({ Self.handlers[host] }) else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return
         }
-        // Answer off URLSession's shared loader thread, so a handler that
+        // Run the handler off URLSession's shared loader thread, so one that
         // blocks (to hold a response in flight) stalls only its own request.
+        // The client is still called back on this thread, per the URLProtocol
+        // contract, via its run loop.
         nonisolated(unsafe) let proto = self
+        nonisolated(unsafe) let loaderThread = Thread.current
         let request = self.request
         DispatchQueue.global().async {
-            do {
-                let (resp, data) = try handler(request)
-                proto.client?.urlProtocol(proto, didReceive: resp, cacheStoragePolicy: .notAllowed)
-                proto.client?.urlProtocol(proto, didLoad: data)
-                proto.client?.urlProtocolDidFinishLoading(proto)
-            } catch {
-                proto.client?.urlProtocol(proto, didFailWithError: error)
-            }
+            proto.result = Result { try handler(request) }
+            proto.perform(#selector(StubURLProtocol.deliver), on: loaderThread, with: nil,
+                          waitUntilDone: false, modes: [RunLoop.Mode.common.rawValue])
         }
     }
     override func stopLoading() {}
+
+    /// Written on the handler queue, read in `deliver` on the loader thread;
+    /// `perform(_:on:)` orders the two.
+    nonisolated(unsafe) private var result: Result<(HTTPURLResponse, Data), Error>?
+
+    @objc private func deliver() {
+        switch result {
+        case .success(let (resp, data)):
+            client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        case .failure(let error):
+            client?.urlProtocol(self, didFailWithError: error)
+        case nil:
+            break
+        }
+    }
 }
 
 /// Builds an APIClient routed through StubURLProtocol with a UNIQUE host, so the
