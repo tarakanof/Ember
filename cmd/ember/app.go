@@ -188,11 +188,22 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 // settings appliers race — the loser's stale copy would silently revert the
 // winner's change. Readers stay lock-free via cfg.Load() (unchanged).
 func (a *App) updateConfig(mutate func(*Config)) {
+	_ = a.tryUpdateConfig(func(c *Config) error { mutate(c); return nil })
+}
+
+// tryUpdateConfig is updateConfig for a mutation that can fail: when mutate
+// returns an error the copy is discarded and the live config is untouched.
+// Validation therefore sees the same snapshot it merges onto (settings
+// overlay), with no window for another writer in between.
+func (a *App) tryUpdateConfig(mutate func(*Config) error) error {
 	a.cfgMu.Lock()
+	defer a.cfgMu.Unlock()
 	cur := *a.cfg.Load()
-	mutate(&cur)
+	if err := mutate(&cur); err != nil {
+		return err
+	}
 	a.cfg.Store(&cur)
-	a.cfgMu.Unlock()
+	return nil
 }
 
 // recordPublish updates the last-publish telemetry + lastPublished
