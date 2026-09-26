@@ -49,6 +49,9 @@ echo <SHA-1> > ~/.config/ember/signing-identity           # once (mkdir -p ~/.co
 scripts/build-local.sh                                    # builds, signs with it, runs verify-bundle.sh
 ```
 
+The file's first non-blank, non-`#` line is used (`$XDG_CONFIG_HOME/ember/`
+when `XDG_CONFIG_HOME` is set); `EMBER_SIGNING_IDENTITY` overrides it, and
+`EMBER_SIGNING_IDENTITY=-` builds ad-hoc once.
 Without an Apple Development certificate, run `scripts/local-signing-identity.sh`
 once instead: it creates a self-signed "Ember Local Signing" identity that
 `build-local.sh` uses when no identity is configured.

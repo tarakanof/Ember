@@ -139,9 +139,17 @@ and no trust-settings change; `codesign` signs with it anyway and a locally
 built app never meets Gatekeeper.
 
 Which identity signs: `EMBER_SIGNING_IDENTITY` (a SHA-1 or an exact identity
-name), else the first line of `~/.config/ember/signing-identity`, else
-"Ember Local Signing", else none and the app stays ad-hoc. An override that
-names no identity, or more than one, fails the build instead of falling back.
+name), else the first non-blank, non-`#` line of
+`~/.config/ember/signing-identity` (`$XDG_CONFIG_HOME/ember/signing-identity`
+when `XDG_CONFIG_HOME` is set; an Xcode GUI build doesn't inherit your shell's
+XDG, so keep the file under `~/.config` or leave XDG unset), else
+"Ember Local Signing", else none and the app stays ad-hoc.
+`EMBER_SIGNING_IDENTITY=-` forces ad-hoc for one build even with the file set.
+The override must name exactly one valid identity (as listed by
+`security find-identity -v`): one that doesn't exist, is expired, revoked or
+untrusted, matches more than one, or a config file that can't be read, fails
+the build instead of falling back. The self-signed identity is untrusted, so
+it's used by leaving the override unset, not by naming it.
 `build-local.sh` builds ad-hoc (Xcode only accepts trusted identities with a
 matching profile) and then re-signs the bundle inside-out with the identity,
 keeping hardened runtime and the helpers' `com.ember.*` identifiers, dropping
