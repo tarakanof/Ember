@@ -16,21 +16,26 @@ func meetingMinutes(now, start time.Time) int {
 	return m
 }
 
-// reconcileMeetingApp pushes/refreshes the standalone "ember-meet" countdown
-// tile when meetings are enabled, the next meeting is inside the lead window,
-// and the feed data is fresh; clears it otherwise (including at meeting start —
-// the countdown never shows 0m). The minute-by-minute countdown needs no timer:
-// the payload text changes each minute, so the bytes-diff naturally re-pushes.
-// Coordinator goroutine only.
-func (c *coordinator) reconcileMeetingApp(now time.Time) {
-	if c.meetings == nil {
-		return
-	}
-	cfg := c.loadCfg().Meetings
-	occ, ok := c.meetings.next(now)
-	want := cfg.IsEnabled() && ok && c.meetings.fresh(now) &&
-		occ.Start.Sub(now) <= time.Duration(cfg.TileLeadMinutes)*time.Minute
-	c.reconcileTile(now, "ember-meet", &c.pushedMeeting, want, func() map[string]any {
-		return render.MeetingPayload(sanitizeMeetingTitle(occ.Title), meetingMinutes(now, occ.Start), usageAppLifetime)
-	})
+// meetTile is "ember-meet": the countdown to the next meeting, in the rotation
+// while it is inside tile_lead_minutes and the feed is fresh. It leaves at
+// meeting start (the countdown never shows 0m). The countdown needs no timer:
+// the text changes each minute, so the ledger's bytes diff re-pushes it.
+var meetTile = tile{
+	app:    "ember-meet",
+	card:   "meeting",
+	toggle: func(*tileInputs) bool { return true },
+	live: func(in *tileInputs) bool {
+		return in.meet.IsEnabled() && in.haveMeet && in.meetFresh &&
+			in.nextMeet.Start.Sub(in.now) <= time.Duration(in.meet.TileLeadMinutes)*time.Minute
+	},
+	view: func(in *tileInputs) (tileView, bool) {
+		title := sanitizeMeetingTitle(in.nextMeet.Title)
+		mins := meetingMinutes(in.now, in.nextMeet.Start)
+		// The device renders the text natively; the frame draws the same text
+		// in the 3×5 font for the preview.
+		return tileView{
+			payload: render.MeetingPayload(title, mins, usageAppLifetime),
+			frame:   render.MeetingTileFrame(title, mins),
+		}, true
+	},
 }

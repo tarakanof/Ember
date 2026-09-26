@@ -61,7 +61,7 @@ func TestServerFinishedPayloadsPassNGSchema(t *testing.T) {
 	app.weather.mu.Lock()
 	app.weather.obs, app.weather.have = obs, true
 	app.weather.mu.Unlock()
-	app.coord.reconcileWeatherApp(time.Now())
+	app.coord.reconcileTiles(time.Now())
 	pub.mu.Lock()
 	apps := append([]map[string]any(nil), pub.customApps...)
 	pub.mu.Unlock()

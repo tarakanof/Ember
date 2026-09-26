@@ -22,19 +22,19 @@ func TestReconcileWeatherTilePushesAndClears(t *testing.T) {
 	app.weather.obs = weatherObservation{Condition: render.WeatherRain, TempC: 12, FetchedAt: now}
 	app.weather.have = true
 	app.weather.mu.Unlock()
-	c.reconcileWeatherApp(now)
+	c.reconcileTiles(now)
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-weather" {
 		t.Fatalf("expected one ember-weather push, got %v", names)
 	}
 
 	// Unchanged within the refresh interval → no re-push.
-	c.reconcileWeatherApp(now.Add(time.Minute))
+	c.reconcileTiles(now.Add(time.Minute))
 	if got := len(pub.CustomNamesSnapshot()); got != 1 {
 		t.Errorf("unchanged tile re-pushed: %d, want 1", got)
 	}
 
 	// Stale observation → the tile is cleared.
-	c.reconcileWeatherApp(now.Add(weatherTileStaleTTL + time.Minute))
+	c.reconcileTiles(now.Add(weatherTileStaleTTL + time.Minute))
 	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-weather" {
 		t.Errorf("stale tile should be cleared, got %v", cleared)
 	}
@@ -71,7 +71,7 @@ func TestWeatherTileCarriesOverlay(t *testing.T) {
 			app.weather.have = true
 			app.weather.mu.Unlock()
 
-			app.coord.reconcileWeatherApp(now)
+			app.coord.reconcileTiles(now)
 
 			pub.mu.Lock()
 			defer pub.mu.Unlock()
@@ -91,6 +91,7 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.ForecastTile = boolPtr(true)
+	cfg.Weather.RotateInApps = boolPtr(false) // isolate the forecast tile
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
 	now := time.Now()
@@ -103,19 +104,19 @@ func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 	}
 	app.weather.have = true
 	app.weather.mu.Unlock()
-	c.reconcileForecastApp(now)
+	c.reconcileTiles(now)
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-forecast" {
 		t.Fatalf("expected one ember-forecast push, got %v", names)
 	}
 
 	// Unchanged within the refresh interval → no re-push.
-	c.reconcileForecastApp(now.Add(time.Minute))
+	c.reconcileTiles(now.Add(time.Minute))
 	if got := len(pub.CustomNamesSnapshot()); got != 1 {
 		t.Errorf("unchanged forecast tile re-pushed: %d, want 1", got)
 	}
 
 	// Stale observation → cleared.
-	c.reconcileForecastApp(now.Add(weatherTileStaleTTL + time.Minute))
+	c.reconcileTiles(now.Add(weatherTileStaleTTL + time.Minute))
 	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-forecast" {
 		t.Errorf("stale forecast tile should be cleared, got %v", cleared)
 	}
@@ -136,19 +137,19 @@ func TestReconcileAirTilePushesAndClears(t *testing.T) {
 	app.weather.air = airObservation{AQI: 42, HourlyAQI: []float64{40, 45, 50}, FetchedAt: now}
 	app.weather.haveAir = true
 	app.weather.mu.Unlock()
-	c.reconcileAirApp(now)
+	c.reconcileTiles(now)
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-air" {
 		t.Fatalf("expected one ember-air push, got %v", names)
 	}
 
 	// Unchanged within the refresh interval → no re-push.
-	c.reconcileAirApp(now.Add(time.Minute))
+	c.reconcileTiles(now.Add(time.Minute))
 	if got := len(pub.CustomNamesSnapshot()); got != 1 {
 		t.Errorf("unchanged air tile re-pushed: %d, want 1", got)
 	}
 
 	// Stale observation → cleared.
-	c.reconcileAirApp(now.Add(weatherTileStaleTTL + time.Minute))
+	c.reconcileTiles(now.Add(weatherTileStaleTTL + time.Minute))
 	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-air" {
 		t.Errorf("stale air tile should be cleared, got %v", cleared)
 	}
@@ -166,7 +167,7 @@ func TestReconcileAirTileDisabled(t *testing.T) {
 	app.weather.air = airObservation{AQI: 42, HourlyAQI: []float64{40}, FetchedAt: now}
 	app.weather.haveAir = true
 	app.weather.mu.Unlock()
-	app.coord.reconcileAirApp(now)
+	app.coord.reconcileTiles(now)
 	if got := len(pub.CustomNamesSnapshot()); got != 0 {
 		t.Errorf("air-off should push nothing, got %d", got)
 	}
@@ -190,10 +191,7 @@ func TestAdoptClearsStaleManagedAppsAfterRestart(t *testing.T) {
 	if !c.adoptDeviceManagedApps() {
 		t.Fatal("adopt should succeed when the device loop is readable")
 	}
-	c.reconcileWeatherApp(now)
-	c.reconcileForecastApp(now)
-	c.reconcileAirApp(now)
-	c.clearLegacyUsageApps()
+	c.reconcileTiles(now)
 
 	cleared := pub.ClearedAppsSnapshot()
 	for _, want := range []string{"ember-weather", "ember-forecast", "ember-air", "ember-usage-claude-5h"} {
@@ -224,12 +222,13 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.ForecastTile = boolPtr(false)
+	cfg.Weather.RotateInApps = boolPtr(false) // isolate the forecast tile
 	app := NewApp(cfg, pub, testLogger())
 	app.weather.mu.Lock()
 	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now, Hourly: []float64{1, 2, 3}}
 	app.weather.have = true
 	app.weather.mu.Unlock()
-	app.coord.reconcileForecastApp(now)
+	app.coord.reconcileTiles(now)
 	if got := len(pub.CustomNamesSnapshot()); got != 0 {
 		t.Errorf("forecast-off should push nothing, got %d", got)
 	}
@@ -240,12 +239,13 @@ func TestReconcileForecastTileDisabledOrNoHourly(t *testing.T) {
 	cfg2.Weather.applyDefaults()
 	cfg2.Weather.Enabled = true
 	cfg2.Weather.ForecastTile = boolPtr(true)
+	cfg2.Weather.RotateInApps = boolPtr(false) // isolate the forecast tile
 	app2 := NewApp(cfg2, pub2, testLogger())
 	app2.weather.mu.Lock()
 	app2.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: now} // Hourly nil
 	app2.weather.have = true
 	app2.weather.mu.Unlock()
-	app2.coord.reconcileForecastApp(now)
+	app2.coord.reconcileTiles(now)
 	if got := len(pub2.CustomNamesSnapshot()); got != 0 {
 		t.Errorf("no-hourly should push nothing, got %d", got)
 	}
@@ -291,7 +291,7 @@ func TestReconcileWeatherTileDisabledOrNoRotate(t *testing.T) {
 	app.weather.obs = weatherObservation{Condition: render.WeatherClear, TempC: 20, FetchedAt: time.Now()}
 	app.weather.have = true
 	app.weather.mu.Unlock()
-	app.coord.reconcileWeatherApp(time.Now())
+	app.coord.reconcileTiles(time.Now())
 	if got := len(pub.CustomNamesSnapshot()); got != 0 {
 		t.Errorf("rotate-off should push nothing, got %d", got)
 	}
@@ -311,8 +311,8 @@ func TestReconcileTilesNativeIcons(t *testing.T) {
 	app.weather.have = true
 	app.weather.mu.Unlock()
 
-	app.coord.reconcileWeatherApp(now)
-	app.coord.reconcileForecastApp(now)
+	app.coord.reconcileTiles(now)
+	app.coord.reconcileTiles(now)
 	apps := pub.CustomAppsSnapshot()
 	if len(apps) != 2 {
 		t.Fatalf("expected weather+forecast pushes, got %d", len(apps))

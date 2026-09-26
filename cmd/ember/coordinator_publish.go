@@ -128,9 +128,8 @@ func renewalDedupWindow(lifetimeSec, dwellSec int) time.Duration {
 func (c *coordinator) onRepublish() {
 	c.lastPayloadBytes = nil
 	c.lastPublishedAt = time.Time{}
-	c.pushedWeather, c.pushedForecast, c.pushedAir, c.pushedMeeting = nil, nil, nil, nil
-	// Legacy standalone usage apps died with the reboot; nothing left to clear.
-	c.pushedUsageApps = nil
+	// Tiles (and any legacy usage apps) died with the reboot.
+	c.tiles.forget()
 	c.hold = holdNone
 	// A reboot also drops the corner LEDs, so forget them and let the cycle
 	// below re-assert whatever the snapshot asks for.

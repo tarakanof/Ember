@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
@@ -99,23 +98,4 @@ func (c *coordinator) usageViews(now time.Time, snap Snapshot) map[string]*rende
 		views[tool] = v
 	}
 	return views
-}
-
-// clearLegacyUsageApps removes any standalone ember-usage-* apps from the
-// device. Usage now renders inside the main app (usage card / idle usage
-// frame); the only standalone apps left to handle are leftovers from an
-// older server version, seeded into pushedUsageApps by
-// adoptDeviceManagedApps. Failed clears stay tracked and retry next tick.
-func (c *coordinator) clearLegacyUsageApps() {
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	for name := range c.pushedUsageApps {
-		if err := c.publisher.ClearApp(ctx, name); err != nil {
-			c.logger.Warn("legacy usage app clear failed", "name", name, "err", err)
-			continue
-		}
-		delete(c.pushedUsageApps, name)
-	}
 }

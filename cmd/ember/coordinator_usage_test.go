@@ -7,19 +7,16 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-func TestClearLegacyUsageApps(t *testing.T) {
+func TestReconcileTilesClearsLegacyUsageApps(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
 	c := app.coord
 
-	// Simulate adoptDeviceManagedApps having found leftovers from an old run.
-	c.pushedUsageApps = map[string]pushedUsageApp{
-		"ember-usage-claude-5h": {},
-		"ember-usage-claude-7d": {},
-	}
-	c.clearLegacyUsageApps()
-	if n := len(c.pushedUsageApps); n != 0 {
-		t.Fatalf("tracker not emptied: %d entries left", n)
+	// adoptDeviceManagedApps found leftovers from an old run.
+	c.tiles.adopt([]string{"ember-usage-claude-5h", "ember-usage-claude-7d"}, "ember")
+	c.reconcileTiles(time.Now())
+	if n := len(c.tiles.pushed); n != 0 {
+		t.Fatalf("ledger not emptied: %d entries left", n)
 	}
 	cleared := pub.ClearedAppsSnapshot()
 	if len(cleared) != 2 {

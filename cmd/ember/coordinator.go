@@ -150,12 +150,8 @@ type coordinator struct {
 	publishCount atomic.Int64
 
 	// usage holds the latest per-tool usage snapshots; nil disables the usage
-	// widget. pushedUsageApps tracks any standalone ember-usage-* apps adopted
-	// from the device at startup (seeded by adoptDeviceManagedApps); they are
-	// legacy leftovers from an older server and are cleared by
-	// clearLegacyUsageApps on every tick. Coordinator-goroutine-owned.
-	usage           *UsageStore
-	pushedUsageApps map[string]pushedUsageApp
+	// widget.
+	usage *UsageStore
 
 	// alarmArmed/alarmFired track the 5h limit-reset alarm per tool (key:
 	// tool, value: ResetsAt epoch). In-memory by design; see checkLimitAlarms.
@@ -163,21 +159,17 @@ type coordinator struct {
 	alarmArmed map[string]int64
 	alarmFired map[string]int64
 
-	// weather, when non-nil, holds the latest observation. reconcileWeatherApp
-	// pushes/refreshes/clears the single "ember-weather" rotating tile from it,
-	// tracked by pushedWeather (same change-and-staleness logic as usage apps).
-	weather        *weatherStore
-	pushedWeather  *pushedUsageApp
-	pushedForecast *pushedUsageApp
-	pushedAir      *pushedUsageApp
+	// weather and meetings, when non-nil, hold the latest observations and
+	// upcoming occurrences the rotating tiles read (see tileInputs).
+	weather  *weatherStore
+	meetings *meetingsStore
 
-	// meetings, when non-nil, holds the upcoming occurrences. reconcileMeetingApp
-	// pushes/refreshes/clears the "ember-meet" countdown tile from it, tracked by
-	// pushedMeeting (same change-and-staleness logic as the weather tiles).
-	meetings      *meetingsStore
-	pushedMeeting *pushedUsageApp
+	// tiles owns the standalone rotating tiles' pushed-app ledger (and any
+	// legacy ember-usage-* leftovers); reconcileTiles converges the device on
+	// it every tick. Coordinator-goroutine-owned. See coordinator_tiles.go.
+	tiles tileSet
 
-	// adoptedApps records whether we've seeded the push trackers from the
+	// adoptedApps records whether we've seeded the tile ledger from the
 	// device's actual app loop yet (once per process, on the first reachable
 	// tick). Until then ember-managed apps left on the device by a previous run
 	// are invisible to the reconcilers and never get cleared. See
@@ -259,6 +251,7 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 		// no information (the next tick catches up).
 		cmds:  make(chan coordCmd, 64),
 		ticks: make(chan struct{}, 1),
+		tiles: tileSet{logger: logger},
 	}
 }
 
@@ -567,7 +560,6 @@ func (c *coordinator) onTick() {
 	c.stateMu.Unlock()
 
 	c.publish(snap)
-	c.clearLegacyUsageApps()
 	c.reconcileTiles(c.clk.Now())
 	c.checkLimitAlarms(c.clk.Now(), snap)
 }
