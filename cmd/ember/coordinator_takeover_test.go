@@ -167,6 +167,46 @@ func TestCoordinatorRetriesFailedTakeoverSettings(t *testing.T) {
 	}
 }
 
+// The clock drops off WiFi (no reboot, so no republish) as a focus block
+// starts: every call fails for several ticks. Once it answers again the
+// ordinary ticks must land the takeover on their own.
+func TestCoordinatorTakeoverLandsAfterClockOutageWithoutRepublish(t *testing.T) {
+	c, pub, snap, pomo := holdFixture(t, "running")
+	fail := &failingCustomAppPublisher{recordingPublisher: pub, fail: true}
+	c.publisher = fail
+	pub.readSettingsErr = errUnreachableDevice
+	pub.settingsFails = 100
+	pub.switchFails = 100
+	pub.deviceSettings = map[string]any{"autoTransition": false, "blockNavigation": false}
+
+	*pomo = true
+	for range 3 {
+		c.publish(*snap)
+	}
+	// Back online, but the first push lands while the settings calls still
+	// fail: the frame is on the device, the takeover is not.
+	fail.fail = false
+	c.publish(*snap)
+	if c.hold != holdNone {
+		t.Fatalf("hold with the clock unreachable = %v, want holdNone", c.hold)
+	}
+
+	pub.mu.Lock()
+	pub.readSettingsErr, pub.settingsFails, pub.switchFails = nil, 0, 0
+	pub.mu.Unlock()
+	c.publish(*snap) // same frame: the dedupe path must still replay the edge
+	if c.hold != holdPomodoro {
+		t.Fatalf("hold once the clock answers = %v, want holdPomodoro", c.hold)
+	}
+	s := pub.SettingsSnapshot()
+	wantTakeoverSettings(t, s[len(s)-1], false, true)
+
+	*pomo = false
+	c.publish(*snap)
+	s = pub.SettingsSnapshot()
+	wantTakeoverSettings(t, s[len(s)-1], false, false)
+}
+
 // A lost restore PATCH leaves rotation off with no timer running; it must be
 // retried until it lands.
 func TestCoordinatorRetriesFailedTakeoverRestore(t *testing.T) {
