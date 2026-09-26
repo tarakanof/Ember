@@ -21,14 +21,19 @@ public enum MenuRows {
 
     /// "Claude on m4 — Running" + activity; "Idle" when connected with no
     /// session to show; "Offline — server unreachable since 10:42" (or just
-    /// "Offline" when this server never answered).
+    /// "Offline" when this server never answered). `offlineReason` is the
+    /// snapshot's error: when macOS blocks the LAN it says so instead, since
+    /// the server is probably fine.
     public static func header(connection: ConnectionHealth, hasEverLoaded: Bool, winning: Session?,
+                              offlineReason: FeedError? = nil,
                               locale: Locale = .current, timeZone: TimeZone = .current) -> Header {
         switch connection {
         case .unconfigured:
             return Header(title: "Not set up", detail: nil)
         case .connecting:
             return Header(title: "Connecting…", detail: nil)
+        case .offline where offlineReason == .localNetworkDenied:
+            return Header(title: "Offline — Local Network access is off for Ember", detail: nil)
         case .offline(let since):
             guard hasEverLoaded else { return Header(title: "Offline", detail: nil) }
             return Header(title: "Offline — server unreachable since \(time(since, locale: locale, timeZone: timeZone))",
@@ -320,6 +325,7 @@ public enum MenuRows {
     private static func shortReason(_ error: FeedError) -> LocalizedStringResource {
         switch error {
         case .offline: "server unreachable"
+        case .localNetworkDenied: "Local Network access is off"
         case .unauthorized: "unauthorized"
         case .rateLimited: "rate-limited"
         case .featureOff: "not supported by this server"

@@ -142,6 +142,10 @@ struct ConnectionPane: View {
                 Label { Text("Unreachable") } icon: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
                 }
+            case .localNetworkDenied:
+                Label { Text("Blocked: Local Network access is off for Ember") } icon: {
+                    Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
+                }
             case .serverError(let status):
                 Label { Text("Server error (HTTP \(status))") } icon: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)

@@ -65,7 +65,7 @@ extension DashboardSource {
             (snapshot.error, snapshot.value != nil), (pomodoro.error, pomodoro.value != nil),
             (stats.error, stats.value != nil), (clockHealth.error, clockHealth.value != nil),
         ]
-        return feeds.allSatisfy { !$0.hasValue && ($0.error == .offline || $0.error == nil) }
+        return feeds.allSatisfy { !$0.hasValue && ($0.error?.isUnreachable ?? true) }
     }
 }
 

@@ -8,6 +8,9 @@ public enum APIError: Error, Equatable, Sendable {
     /// a caller that lumps it in with the rest reports the wrong cause.
     case rateLimited(retryAfter: Duration)
     case transport(String)
+    /// macOS Local Network privacy refused the connection to a LAN server
+    /// (`LocalNetworkDenial`): the server may be fine.
+    case localNetworkDenied
     case decoding(String)
 
     public var isUnauthorized: Bool {
@@ -48,6 +51,8 @@ extension APIError: LocalizedError {
             return "Server is rate-limiting this Mac — retrying in \(retryAfter.wholeSecondsRoundedUp)s."
         case .transport(let message):
             return message
+        case .localNetworkDenied:
+            return "Local Network access is off for Ember — allow it in System Settings › Privacy & Security › Local Network."
         case .decoding(let message):
             return "Unexpected server response — \(message)"
         }
@@ -142,8 +147,9 @@ public struct APIClient: Sendable {
         do {
             (data, resp) = try await (slow ? slowSession : session).data(for: req)
         } catch {
-            let apiError = APIError.transport(error.localizedDescription)
-            if reportNotSent, let code = (error as? URLError)?.code, Self.notSentCodes.contains(code) {
+            let denied = LocalNetworkDenial.isDenied(error, host: url.host)
+            let apiError = denied ? APIError.localNetworkDenied : APIError.transport(error.localizedDescription)
+            if reportNotSent, denied || (error as? URLError).map({ Self.notSentCodes.contains($0.code) }) == true {
                 throw RequestNotSent(underlying: apiError)
             }
             throw apiError

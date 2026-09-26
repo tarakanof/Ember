@@ -4,8 +4,9 @@ extension ConnectionHealth {
     /// The Dashboard's window subtitle: "Connected to 192.168.0.2 · v0.29.0",
     /// "Offline since 10:42", "Not set up". `serverVersion` (a release like
     /// "0.29.0", see `VersionInfo.release`) is shown only while connected.
-    public func subtitle(serverHost: String?, serverVersion: String? = nil, locale: Locale = .current,
-                         timeZone: TimeZone = .current) -> LocalizedStringResource {
+    /// `offlineReason` (the snapshot's error) names a Local Network refusal.
+    public func subtitle(serverHost: String?, serverVersion: String? = nil, offlineReason: FeedError? = nil,
+                         locale: Locale = .current, timeZone: TimeZone = .current) -> LocalizedStringResource {
         let host = serverHost.flatMap { $0.isEmpty ? nil : $0 }
         let version = serverVersion.flatMap { $0.isEmpty ? nil : $0 }
         switch self {
@@ -29,6 +30,8 @@ extension ConnectionHealth {
             case (nil, nil):
                 return "Connected"
             }
+        case .offline where offlineReason == .localNetworkDenied:
+            return "Offline: Local Network access is off"
         case .offline(let since):
             var style = Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)
             style.timeZone = timeZone

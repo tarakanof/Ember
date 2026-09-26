@@ -13,7 +13,7 @@ enum DockMenu {
         menu.autoenablesItems = false
 
         let header = MenuRows.header(connection: live.connection, hasEverLoaded: live.snapshot.value != nil,
-                                     winning: live.winningSession)
+                                     winning: live.winningSession, offlineReason: live.snapshot.error)
         menu.addItem(textItem(String(localized: header.title)))
         menu.addItem(.separator())
 

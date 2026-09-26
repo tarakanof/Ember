@@ -4,6 +4,9 @@ import Foundation
 public enum FeedError: Error, Equatable, Sendable {
     /// Transport failure: the server (or this Mac's network) is unreachable.
     case offline
+    /// macOS Local Network privacy blocks this app from the LAN server: looks
+    /// like `offline`, but the fix is a permission, not the server.
+    case localNetworkDenied
     /// 401: the token is missing or wrong.
     case unauthorized
     /// 429: the server's per-IP limiter is throttling this Mac.
@@ -33,6 +36,7 @@ public enum FeedError: Error, Equatable, Sendable {
         }
         switch api {
         case .notConfigured, .transport: self = .offline
+        case .localNetworkDenied: self = .localNetworkDenied
         case .rateLimited: self = .rateLimited
         case .http(401, _): self = .unauthorized
         // 405: a server that has only the POST of a route this app reads
@@ -48,6 +52,7 @@ extension FeedError: LocalizedError {
     public var message: LocalizedStringResource {
         switch self {
         case .offline: "Server unreachable"
+        case .localNetworkDenied: "Local Network access is off for Ember"
         case .unauthorized: "Unauthorized — check the token in Connection settings."
         case .rateLimited: "The server is rate-limiting this Mac."
         case .featureOff: "Not available — the feature is off or the server is too old."
@@ -56,4 +61,7 @@ extension FeedError: LocalizedError {
     }
 
     public var errorDescription: String? { String(localized: message) }
+
+    /// Whether the server couldn't be reached at all, for whatever reason.
+    public var isUnreachable: Bool { self == .offline || self == .localNetworkDenied }
 }

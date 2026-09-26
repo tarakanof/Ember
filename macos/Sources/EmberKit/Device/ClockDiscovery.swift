@@ -436,14 +436,12 @@ final class BonjourClockBrowser: ClockBrowsing {
         }
     }
 
+    /// DNS-SD `PolicyDenied` or `NoAuth`: what macOS returns to a browse or
+    /// resolve when the app isn't allowed on the local network. The codes
+    /// live in `LocalNetworkDenial`.
     nonisolated static func isPolicyDenied(_ e: NWError) -> Bool {
-        // PolicyDenied, or NoAuth — what macOS returns to a Bonjour browse when
-        // the app isn't allowed on the local network (seen on-device, -65555).
-        if case .dns(let code) = e {
-            return code == DNSServiceErrorType(kDNSServiceErr_PolicyDenied)
-                || code == DNSServiceErrorType(kDNSServiceErr_NoAuth)
-        }
-        return false
+        guard case .dns = e else { return false }
+        return LocalNetworkDenial.isDenied(e)
     }
 
     nonisolated static let log = Logger(subsystem: "com.ember.Ember", category: "discovery")
