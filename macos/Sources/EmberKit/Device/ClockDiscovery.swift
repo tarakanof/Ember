@@ -325,11 +325,11 @@ final class BonjourClockBrowser: ClockBrowsing {
         params.includePeerToPeer = false
         let b = NWBrowser(for: .bonjour(type: Self.serviceType, domain: nil), using: params)
         b.stateUpdateHandler = { state in
-            let mapped: ClockBrowseState? = switch state {
-            case .ready: .ready
-            case .waiting: .waiting
-            case .failed: .failed
-            default: nil
+            let mapped = Self.browseState(for: state)
+            switch state {
+            case .waiting(let e), .failed(let e):
+                Self.log.info("browse \(String(describing: state), privacy: .public) error=\(String(describing: e), privacy: .public)")
+            default: break
             }
             guard let mapped else { return }
             MainActor.assumeIsolated { onState(mapped) }
@@ -421,6 +421,19 @@ final class BonjourClockBrowser: ClockBrowsing {
         case .waiting(let e): return isPolicyDenied(e) ? .denied : .keepWaiting
         case .failed(let e): return isPolicyDenied(e) ? .denied : .failed
         default: return .ignore
+        }
+    }
+
+    /// Maps the browser's state. Only a PolicyDenied wait means Local Network
+    /// access is off; any other wait (e.g. the path briefly unsatisfied at
+    /// start) is transient — NWBrowser keeps going and may still report
+    /// results — so the scan keeps searching instead of giving up.
+    nonisolated static func browseState(for state: NWBrowser.State) -> ClockBrowseState? {
+        switch state {
+        case .ready: return .ready
+        case .waiting(let e): return isPolicyDenied(e) ? .waiting : nil
+        case .failed(let e): return isPolicyDenied(e) ? .waiting : .failed
+        default: return nil
         }
     }
 

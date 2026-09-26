@@ -455,3 +455,14 @@ private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
     await clock.advance(by: ClockDiscovery.browseWindow)
     await second.value
 }
+
+/// Only a PolicyDenied browse means Local Network access is off; any other
+/// wait is transient and the scan keeps searching.
+@Test func browseWaitIsNeedsAccessOnlyWhenPolicyDenied() {
+    let denied = NWError.dns(DNSServiceErrorType(kDNSServiceErr_PolicyDenied))
+    #expect(BonjourClockBrowser.browseState(for: .waiting(denied)) == .waiting)
+    #expect(BonjourClockBrowser.browseState(for: .failed(denied)) == .waiting)
+    #expect(BonjourClockBrowser.browseState(for: .waiting(.posix(.ENETDOWN))) == nil)
+    #expect(BonjourClockBrowser.browseState(for: .failed(.posix(.ENETDOWN))) == .failed)
+    #expect(BonjourClockBrowser.browseState(for: .ready) == .ready)
+}
