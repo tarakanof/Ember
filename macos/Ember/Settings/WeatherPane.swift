@@ -100,13 +100,13 @@ struct WeatherPane: View {
                         .labelsHidden()
                         .multilineTextAlignment(.trailing)
                         .frame(maxWidth: 90)
-                    Text(verbatim: "°")
+                    Text(verbatim: "°").accessibilityHidden(true)
                     TextField("Longitude", value: $model.draft.longitude,
                               format: .number.precision(.fractionLength(0...4)), prompt: Text(verbatim: "4.90"))
                         .labelsHidden()
                         .multilineTextAlignment(.trailing)
                         .frame(maxWidth: 90)
-                    Text(verbatim: "°")
+                    Text(verbatim: "°").accessibilityHidden(true)
                 }
             }
             LabeledContent {

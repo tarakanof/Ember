@@ -166,6 +166,7 @@ struct DiscoverClocksSheet: View {
         }
         .padding(20)
         .frame(width: 460, height: 340)
+        .onExitCommand { dismiss() }
         .task { await device.discover() }
     }
 }

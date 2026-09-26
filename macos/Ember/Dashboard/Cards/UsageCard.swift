@@ -57,8 +57,8 @@ private struct ToolUsageView: View {
                         .lineLimit(1)
                 }
             }
-            if let w = row.fiveHour { window("5h", w) }
-            if let w = row.sevenDay { window("7d", w) }
+            if let w = row.fiveHour { window("5h", spoken: "5-hour window", w) }
+            if let w = row.sevenDay { window("7d", spoken: "7-day window", w) }
         }
     }
 
@@ -67,12 +67,13 @@ private struct ToolUsageView: View {
             .joined(separator: " · ")
     }
 
-    private func window(_ label: LocalizedStringKey, _ w: UsageRow.Window) -> some View {
+    private func window(_ label: LocalizedStringKey, spoken: LocalizedStringKey, _ w: UsageRow.Window) -> some View {
         HStack(spacing: 8) {
             Text(label)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 20, alignment: .leading)
+                .frame(minWidth: 20, alignment: .leading)
+                .fixedSize()
             Gauge(value: min(max(w.percent, 0), 100), in: 0...100) { Text(label) }
                 .gaugeStyle(.accessoryLinearCapacity)
                 .tint(tint(w.percent))
@@ -87,8 +88,8 @@ private struct ToolUsageView: View {
                 .frame(minWidth: 52, alignment: .trailing)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("\(Text(AppNames.display(row.tool))) \(Text(label))"))
-        .accessibilityValue(Text(Percent.text(w.percent)))
+        .accessibilityLabel(Text("\(Text(AppNames.display(row.tool))), \(Text(spoken))"))
+        .accessibilityValue(accessibilityValue(w))
     }
 
     @ViewBuilder
@@ -101,6 +102,16 @@ private struct ToolUsageView: View {
         } else {
             Text(verbatim: "")
         }
+    }
+
+    /// "47%, resets at 16:20": the percent plus what the reset column shows.
+    private func accessibilityValue(_ w: UsageRow.Window) -> Text {
+        let percent = Percent.text(w.percent)
+        if let at = w.resetsAt, at > now {
+            return Text("\(percent), resets at \(at, format: .dateTime.hour().minute())")
+        }
+        if let label = w.resetLabel { return Text("\(percent), resets \(label)") }
+        return Text(verbatim: percent)
     }
 
     private func tint(_ p: Double) -> Color {

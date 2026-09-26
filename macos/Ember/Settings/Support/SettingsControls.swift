@@ -79,13 +79,19 @@ struct PercentSliderRow: View {
                 }
                 .labelsHidden()
                 .frame(maxWidth: 220)
-                Text(Double(percent) / 100, format: .percent.precision(.fractionLength(0)))
+                .accessibilityValue(percentText)
+                percentText
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
         } label: {
             Text(title)
         }
+    }
+
+    private var percentText: Text {
+        Text(Double(percent) / 100, format: .percent.precision(.fractionLength(0)))
     }
 }
 
