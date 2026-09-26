@@ -276,7 +276,7 @@ without relaunch. Hybrid layout:
   subtitle is the one save status of every config model, controls stay
   disabled until their model has loaded), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
   menu while a window is open. `Ember/Shared/` holds the views all three
-  surfaces use (`LiveMatrixMirror`, `FeedStateView`, `StatTile`, `StaleChip`,
+  surfaces use (`FeedStateView`, `StatTile`, `StaleChip`,
   `PhaseBadge`, `EmberColors`). Every 32×8 matrix is drawn by
   `MatrixScreenView`, which sizes itself via EmberKit's `LEDMatrixLayout`:
   square cells at a whole-point pitch (3–20 pt), centred, so it never
