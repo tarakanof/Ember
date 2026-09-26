@@ -38,6 +38,7 @@ func runDeconfigure() {
 // deconfigureAt reverses configureAt's settings.json changes for the given
 // home. It intentionally does NOT touch LaunchAgents.
 func deconfigureAt(home string) error {
+	removeSpikeLog(home)
 	return uninstallSettings(home)
 }
 

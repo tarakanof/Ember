@@ -80,7 +80,23 @@ func configureAt(home, binPath string) error {
 			return err
 		}
 	}
-	return mergeSettingsJSON(home, binPath)
+	if err := mergeSettingsJSON(home, binPath); err != nil {
+		return err
+	}
+	removeSpikeLog(home)
+	return nil
+}
+
+// spikeLogPath is where the #76 log-only spike (v0.25.1–v0.29.0) appended
+// PostToolUse/PostToolUseFailure/PermissionDenied lines. Its "error" values
+// hold full failed-command output, so configure and deconfigure delete it.
+func spikeLogPath(home string) string {
+	return filepath.Join(home, ".local", "state", "ember", "spike-hooks.jsonl")
+}
+
+// removeSpikeLog deletes the spike log; best-effort (absent is fine).
+func removeSpikeLog(home string) {
+	_ = os.Remove(spikeLogPath(home))
 }
 
 func configure() error {

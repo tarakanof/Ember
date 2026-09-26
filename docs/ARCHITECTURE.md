@@ -215,14 +215,20 @@ markers still get reaped.
   PostToolUse / PostToolUseFailure / PermissionDenied end a `waiting` only
   when they belong to the call its PermissionRequest recorded (a hashed
   tool name + `tool_input` fingerprint kept in the marker as
-  `pending_permission`, so a parallel call can't end the wait) with one POST
-  back to `running`; otherwise a failure or auto-mode denial just marks that
+  `pending_permission`, plus the preceding PreToolUse's `tool_use_id` when
+  its fingerprint matches, so neither a parallel call nor an identical
+  earlier call can end the wait) with one POST back to `running`. That
+  dialog's `permission_prompt` Notification arriving within 15 s after the
+  wait ended is dropped rather than re-sticking `waiting`. Otherwise a failure or auto-mode denial just marks that
   call's trail item (`Bash: npm test (exit 1)`, `(failed)`, `(aborted)`,
   `(denied)`) in the marker, and the next POST (next hook or the ≤10 s
   heartbeat) carries it, so they add no requests. A failed tool keeps the
   session `running` (red ERR stays for StopFailure) and a denial doesn't
-  blink. `tool_response` is never decoded, and the failure's `error` text is
-  read only for its `Exit code N` first line. Per-session flock + atomic
+  blink. Hook stdin is stream-decoded (up to 64 MiB) and `tool_response` is
+  skipped token by token, never stored; the failure's `error` text is read
+  only for its `Exit code N` first line. configure/deconfigure delete the
+  old spike log (`~/.local/state/ember/spike-hooks.jsonl`, which held full
+  error output). Per-session flock + atomic
   temp+rename marker writes. A long-lived **`run` daemon** (LaunchAgent
   `com.ember.heartbeat`, `KeepAlive=true`) ticks every 10 s to
   re-POST/reap; it reloads `producer.env` each pass so settings-window edits

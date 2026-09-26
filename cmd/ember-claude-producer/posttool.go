@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -70,6 +71,41 @@ func permissionFingerprint(toolName string, toolInput json.RawMessage) string {
 	return hex.EncodeToString(h.Sum(nil))[:32]
 }
 
+// hookNow is the clock for ResumedAt; tests replace it.
+var hookNow = time.Now
+
+// resumeGrace is how long after a wait ended that a permission_prompt
+// Notification naming the same tool is taken as that dialog's late one.
+// Claude Code sends it once a prompt has waited about six seconds.
+const resumeGrace = 15 * time.Second
+
+// endsPendingWait reports whether outcome hook in belongs to the call the
+// session is waiting on: the fingerprint must match, and when both sides
+// know the tool_use_id, so must it. The id tells apart an identical call
+// retried after an earlier one's outcome was still in flight.
+func endsPendingWait(t ToolTrack, state string, in hookInput) bool {
+	if state != "waiting" || t.PendingPermission == "" ||
+		t.PendingPermission != permissionFingerprint(in.ToolName, in.ToolInput) {
+		return false
+	}
+	return t.PendingToolUseID == "" || in.ToolUseID == "" || t.PendingToolUseID == in.ToolUseID
+}
+
+// lateResumedPrompt reports whether a permission_prompt Notification (msg)
+// is the late one for a dialog whose call already ran: the session isn't
+// waiting, a wait ended within resumeGrace, and msg names that tool (or is
+// empty). A new permission dialog always sends PermissionRequest first,
+// which clears ResumedAt, so a real new prompt is never dropped by this.
+func lateResumedPrompt(prev marker, msg string, now time.Time) bool {
+	if prev.State == "waiting" || prev.ResumedAt == 0 {
+		return false
+	}
+	if now.Sub(time.Unix(prev.ResumedAt, 0)) > resumeGrace {
+		return false
+	}
+	return msg == "" || strings.Contains(msg, prev.ResumedTool)
+}
+
 // handleToolOutcome applies one outcome hook to an existing marker. outcome
 // is "" for a successful call (PostToolUse). No marker, nothing to do: these
 // events never create a session.
@@ -83,13 +119,13 @@ func handleToolOutcome(ctx context.Context, cfg Config, client *Client, in hookI
 		if json.Unmarshal(old, &m) != nil {
 			return nil
 		}
-		resume := m.State == "waiting" && m.PendingPermission != "" &&
-			m.PendingPermission == permissionFingerprint(in.ToolName, in.ToolInput)
+		resume := endsPendingWait(m.ToolTrack, m.State, in)
 		changed := false
 		if resume {
 			m.State = "running"
 			m.Message = truncate(in.ToolName, 80)
-			m.PendingPermission = ""
+			m.PendingPermission, m.PendingToolUseID = "", ""
+			m.ResumedTool, m.ResumedAt = in.ToolName, hookNow().Unix()
 			changed = true
 		}
 		if outcome != "" && cfg.ActivityDetailEnabled {
@@ -115,20 +151,4 @@ func handleToolOutcome(ctx context.Context, cfg Config, client *Client, in hookI
 		_ = client.Post(ctx, wireRequest(cfg, m.StatusRequest))
 		return nil
 	})
-}
-
-// wireRequest turns a marker's stored request into a POST /v1/status body
-// under the current config, as the heartbeat does: the card/bar toggles come
-// from config, context_pct only when enabled, and the marker-only weekly
-// fields are stripped.
-func wireRequest(cfg Config, req StatusRequest) StatusRequest {
-	if !cfg.ContextPctEnabled {
-		req.ContextPct = nil
-	}
-	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
-	req.SourceCard, req.SessionBar = &sc, &sb
-	req.RateWeekPct = nil
-	req.RateWeekResetAt = 0
-	req.RateWeekResetLabel = ""
-	return req
 }
