@@ -52,5 +52,9 @@ struct MatrixScreenView: View {
             }
         }
         .aspectRatio(CGFloat(width) / CGFloat(height), contentMode: .fit)
+        // One element, not 256 unlabeled shapes; callers set label and value.
+        .accessibilityElement()
+        .accessibilityLabel("LED matrix")
+        .accessibilityAddTraits(.isImage)
     }
 }

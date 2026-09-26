@@ -1,17 +1,30 @@
 import AppKit
 import Foundation
 import OSLog
+import SwiftUI
 import EmberKit
 
-/// App-wide coordinator: owns the producer.env path, the live APIClient, the
-/// AppModel (polled status/pomodoro), and a PomodoroService for menu actions.
-/// `reloadConnection()` re-reads producer.env, rebuilds the client, and
-/// reconfigures the model — so Connection-tab saves take effect without relaunch.
+/// App-wide coordinator: owns the producer.env path, the live APIClient and
+/// everything built on it: `live` (every polled feed), `actions` (user
+/// actions), `settings` (config models) and the per-endpoint services the
+/// settings panes call. `reloadConnection()` re-reads producer.env and points
+/// all of it at the new server, so Connection saves apply without relaunch.
 @MainActor
 @Observable
 public final class AppEnvironment {
-    public let model = AppModel()
+    /// Every live feed; the menu, the Dashboard, the Dock menu and the bot
+    /// read it. Views hold tier C feeds with `.task { await live.track(…) }`.
+    public let live = LiveModel()
+    /// Runs Pomodoro, clock and app-visibility actions and keeps the last error.
+    public let actions: ActionRunner
+    /// One auto-saving config model per settings area.
+    public let settings: SettingsModels
+    /// The configured server, nil when producer.env has none.
+    public private(set) var serverURL: URL?
     public private(set) var pomodoro: PomodoroService
+    public private(set) var stats: StatsService
+    public private(set) var health: HealthService
+    public private(set) var activity: ActivityService
     public private(set) var preview: PreviewService
     public private(set) var weather: WeatherService
     public private(set) var usage: UsageService
@@ -66,7 +79,7 @@ public final class AppEnvironment {
     /// `onChange`/`onAppear`, and the Dock bot needs the state regardless.
     private func feedBot() {
         let state = withObservationTracking {
-            model.winningSession?.state ?? "idle"
+            live.winningSession?.state ?? "idle"
         } onChange: { [weak self] in
             Task { @MainActor in self?.feedBot() }
         }
@@ -88,11 +101,22 @@ public final class AppEnvironment {
 
     let producerEnvPath: URL
 
+    /// The scene's `openWindow`, captured by the first window or menu that
+    /// appears, for AppKit callers (the Dock menu) that have no environment.
+    @ObservationIgnored var openWindowAction: OpenWindowAction?
+    @ObservationIgnored private var sleepObservers: [NSObjectProtocol] = []
+
     public init(producerEnvPath: URL = AppEnvironment.defaultEnvPath) {
         self.producerEnvPath = producerEnvPath
         prefs = AppEnvironment.loadPrefs()
         let client = AppEnvironment.makeClient(path: producerEnvPath)
+        actions = ActionRunner(live: live)
+        settings = SettingsModels(client: client, envPath: producerEnvPath)
+        serverURL = client.baseURL
         pomodoro = PomodoroService(client: client)
+        stats = StatsService(client: client)
+        health = HealthService(client: client)
+        activity = ActivityService(client: client)
         preview = PreviewService(client: client)
         weather = WeatherService(client: client)
         usage = UsageService(client: client)
@@ -108,10 +132,13 @@ public final class AppEnvironment {
             home: FileManager.default.homeDirectoryForCurrentUser,
             fileExists: { FileManager.default.fileExists(atPath: $0) }
         )
-        model.configure(client: client)
-        model.startPolling()   // begin polling at launch (idempotent); self-started
-                               // here so the menu-bar label updates without opening
-                               // the popover first.
+        live.configure(client: client)
+        actions.configure(client: client)
+        settings.connectionEnv.onSaved = { [weak self] _ in self?.reloadConnection() }
+        // Polls tiers A and B from launch so the menu-bar label is live
+        // without opening the menu first.
+        live.start()
+        observeSleep()
         reminderWatcher.start()
         serverDiscovery.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
@@ -141,10 +168,14 @@ public final class AppEnvironment {
         }
     }
 
-    /// Re-read producer.env, rebuild the client, reconfigure model + service.
+    /// Re-read producer.env, rebuild the client, reconfigure everything on it.
     public func reloadConnection() {
         let client = AppEnvironment.makeClient(path: producerEnvPath)
+        serverURL = client.baseURL
         pomodoro = PomodoroService(client: client)
+        stats = StatsService(client: client)
+        health = HealthService(client: client)
+        activity = ActivityService(client: client)
         preview = PreviewService(client: client)
         weather = WeatherService(client: client)
         usage = UsageService(client: client)
@@ -153,8 +184,29 @@ public final class AppEnvironment {
         device = DeviceService(client: client)
         meetings = MeetingsService(client: client)
         reminderWatcher.reconfigure(client: client)
-        model.configure(client: client)
-        Task { await model.refresh() }
+        live.configure(client: client)
+        actions.configure(client: client)
+        settings.configure(client: client)
+    }
+
+    /// Pauses polling while the Mac sleeps; wake refetches everything at once.
+    private func observeSleep() {
+        let nc = NSWorkspace.shared.notificationCenter
+        sleepObservers = [
+            nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.live.pause() }
+            },
+            nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.live.resume() }
+            },
+        ]
+    }
+
+    /// Opens a window by scene id and brings the app forward. No-op until a
+    /// scene has captured `openWindowAction`.
+    func openWindow(id: String) {
+        NSApp.activate()
+        openWindowAction?(id: id)
     }
 
     /// Reads producer.env from disk (missing file -> empty env -> Offline client).
