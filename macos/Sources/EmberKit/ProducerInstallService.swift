@@ -6,19 +6,55 @@ public enum LaunchdProbe: Sendable, Equatable {
     case loaded
     /// Exit 113 / "Could not find service": launchd has no such job.
     case notLoaded
+    /// launchd has the job but keeps failing to spawn it
+    /// (`launchdJobIsStuck`), and won't recover on its own.
+    case stuck
     /// Any other failure: launchctl itself broke, so we can't tell.
     case unknown
 }
 
 /// Classifies a `launchctl print` result. Only "no such service" is
-/// `.notLoaded`; anything else that fails is `.unknown`, never a reason to
-/// re-register.
+/// `.notLoaded`, and only a job `launchdJobIsStuck` recognises is `.stuck`;
+/// anything else that fails is `.unknown`, never a reason to re-register.
 public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
-    if result.exitCode == 0 { return .loaded }
+    if result.exitCode == 0 { return launchdJobIsStuck(result.stdout) ? .stuck : .loaded }
     if result.exitCode == 113 || (result.stderr + result.stdout).contains("Could not find service") {
         return .notLoaded
     }
     return .unknown
+}
+
+/// Whether `launchctl print` output describes a job launchd keeps failing to
+/// spawn: not running, and `job state = spawn failed` or `needs LWCR update`
+/// in its properties.
+///
+/// That's where an ad-hoc signed helper ends up after its code changes.
+/// Background Items pins the job's launch constraint (LWCR) to the helper's
+/// cdhash, and re-registering keeps the existing item, so the new helper's
+/// first spawn is a Launch Constraint Violation. launchd's own repair then
+/// makes Background Items replace the item (new UUID, fresh constraint) but
+/// reports failure, and the loaded job keeps the old item's UUID: every later
+/// spawn exits 78 (EX_CONFIG) until the job is booted out and registered again.
+public func launchdJobIsStuck(_ output: String) -> Bool {
+    let fields = launchctlPrintFields(output)
+    if fields["state"] == "running" { return false }
+    if fields["job state"] == "spawn failed" { return true }
+    return fields["properties"]?.contains("needs LWCR update") ?? false
+}
+
+/// The job's own `key = value` lines from `launchctl print` output (one tab
+/// deep). Nested blocks, such as a coalition's `state = active`, are skipped.
+func launchctlPrintFields(_ output: String) -> [String: String] {
+    var fields: [String: String] = [:]
+    for line in output.split(separator: "\n") {
+        guard line.hasPrefix("\t"), !line.hasPrefix("\t\t"),
+              let eq = line.range(of: " = ") else { continue }
+        let key = String(line[line.index(after: line.startIndex)..<eq.lowerBound])
+        if fields[key] == nil {
+            fields[key] = line[eq.upperBound...].trimmingCharacters(in: .whitespaces)
+        }
+    }
+    return fields
 }
 
 /// Whether launch should record the new bundle fingerprint after
@@ -27,6 +63,19 @@ public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
 public func shouldRecordFingerprint(bundleChanged: Bool, outcomes: [ReconcileOutcome]) -> Bool {
     bundleChanged && outcomes.allSatisfy { $0.error == nil }
 }
+
+/// Whether launch should look at the agents again a little after an update
+/// reconcile re-registered some. A changed ad-hoc helper only fails once
+/// launchd has tried to spawn it (see `launchdJobIsStuck`), so the job looks
+/// fine right after registering and gets stuck seconds later.
+public func shouldRecheckAfterReconcile(bundleChanged: Bool, outcomes: [ReconcileOutcome]) -> Bool {
+    bundleChanged && outcomes.contains { $0.error == nil }
+}
+
+/// How long after an update reconcile the recheck runs: past the new
+/// helper's first spawn, launchd's 10 s respawn throttle and its failed
+/// constraint repair (about 11 s in all, on macOS 27).
+public let producerRecheckDelay: Duration = .seconds(30)
 
 /// Decides whether launch should treat the bundle as updated: re-register
 /// every enabled agent's LaunchAgent so the new helpers take over. Re-registering
@@ -46,14 +95,30 @@ public enum ReconcileReason: Sendable, Equatable {
     /// (e.g. by the CLI `uninstall`), or dropped after it couldn't be spawned.
     /// launchd won't bring it back before the next login on its own.
     case notRunning
+    /// launchd has the job but keeps failing to spawn it (`launchdJobIsStuck`).
+    /// Registering again on top of it keeps the stuck job, so it's booted out
+    /// first.
+    case stuck
+}
+
+/// What the launchd probe says about an enabled agent's job.
+public enum AgentLiveness: Sendable, Equatable {
+    case running
+    case notLoaded
+    case stuck
 }
 
 /// Whether an agent needs re-registering, and why. Only an agent the user
 /// turned on (`.enabled`) is ever touched.
-public func reconcileReason(registration: AgentRegistration, loaded: Bool, bundleChanged: Bool) -> ReconcileReason? {
+public func reconcileReason(registration: AgentRegistration, liveness: AgentLiveness,
+                            bundleChanged: Bool) -> ReconcileReason? {
     guard registration == .enabled else { return nil }
     if bundleChanged { return .bundleChanged }
-    return loaded ? nil : .notRunning
+    switch liveness {
+    case .running: return nil
+    case .notLoaded: return .notRunning
+    case .stuck: return .stuck
+    }
 }
 
 /// Errors thrown by `ProducerInstallService` during install/uninstall.
@@ -68,8 +133,8 @@ public enum AgentState: Sendable, Equatable {
     case off
     case needsApproval
     case on
-    /// Registered and enabled, but launchd has no job for it, so nothing is
-    /// reporting. `ProducerInstallService.repairAll()` fixes it.
+    /// Registered and enabled, but launchd has no job for it or can't start
+    /// it, so nothing is reporting. `ProducerInstallService.repairAll()` fixes it.
     case notRunning
     case error(String)
 }
@@ -173,27 +238,33 @@ public final class ProducerInstallService: Sendable {
         _ = try runner.run(executable: executablePath(for: agent), arguments: ["deconfigure"])
     }
 
-    /// Whether launchd has a job for `agent` in this user's GUI domain.
-    /// `SMAppService.status` can't tell: it reads the Background Items
-    /// database, which stays `.enabled` after launchd drops the job. A probe
-    /// that can't run, or fails any other way than "no such service", counts
-    /// as loaded (logged once), so a broken probe never churns registrations.
-    public func isLoaded(_ agent: ProducerAgent) -> Bool {
+    /// Whether launchd has a job for `agent` in this user's GUI domain, and
+    /// can start it. `SMAppService.status` can't tell: it reads the Background
+    /// Items database, which stays `.enabled` after launchd drops the job or
+    /// stops being able to spawn it. A probe that can't run, or fails any
+    /// other way than "no such service", counts as running (logged once), so
+    /// a broken probe never churns registrations.
+    public func liveness(_ agent: ProducerAgent) -> AgentLiveness {
         let result: CommandResult
         do {
             result = try runner.run(executable: "/bin/launchctl",
-                                    arguments: ["print", "gui/\(uid)/\(agent.label)"])
+                                    arguments: ["print", launchdTarget(agent)])
         } catch {
             warnProbeOnce("launchctl print didn't run: \(error.localizedDescription)")
-            return true
+            return .running
         }
         switch launchdProbe(result) {
-        case .loaded: return true
-        case .notLoaded: return false
+        case .loaded: return .running
+        case .notLoaded: return .notLoaded
+        case .stuck: return .stuck
         case .unknown:
             warnProbeOnce("launchctl print exited \(result.exitCode): \(result.stderr)\(result.stdout)")
-            return true
+            return .running
         }
+    }
+
+    private func launchdTarget(_ agent: ProducerAgent) -> String {
+        "gui/\(uid)/\(agent.label)"
     }
 
     private func warnProbeOnce(_ message: String) {
@@ -211,7 +282,7 @@ public final class ProducerInstallService: Sendable {
     public func agentState(_ agent: ProducerAgent) -> AgentState {
         switch sm.status(plistName: agent.plistName) {
         case .enabled:
-            return isLoaded(agent) ? .on : .notRunning
+            return liveness(agent) == .running ? .on : .notRunning
         case .requiresApproval:
             return .needsApproval
         case .notRegistered:
@@ -284,16 +355,23 @@ public final class ProducerInstallService: Sendable {
 
     /// Re-registers (unregister then register) each enabled agent that
     /// `reconcileReason` picks: all of them after an app update, so the newly
-    /// bundled helpers take over, otherwise only those launchd has no job for.
-    /// Runs off the calling actor. Agents that aren't enabled are never
-    /// touched. Never throws; one agent's failure doesn't stop the others.
+    /// bundled helpers take over, otherwise only those launchd has no job for
+    /// or can't start. A stuck job is booted out first: registering on top of
+    /// it leaves launchd holding the stale job. Runs off the calling actor.
+    /// Agents that aren't enabled are never touched. Never throws; one agent's
+    /// failure doesn't stop the others.
     @concurrent
     public func reconcile(bundleChanged: Bool) async -> [ReconcileOutcome] {
         ProducerAgent.allCases.compactMap { agent in
             let registration = sm.status(plistName: agent.plistName)
-            let loaded = registration == .enabled && !bundleChanged ? isLoaded(agent) : true
-            guard let reason = reconcileReason(registration: registration, loaded: loaded,
+            let live = registration == .enabled && !bundleChanged ? liveness(agent) : .running
+            guard let reason = reconcileReason(registration: registration, liveness: live,
                                                bundleChanged: bundleChanged) else { return nil }
+            if reason == .stuck {
+                // Best effort: register's outcome below is what gets reported.
+                _ = try? runner.run(executable: "/bin/launchctl",
+                                    arguments: ["bootout", launchdTarget(agent)])
+            }
             do {
                 // A stale registration (launchd dropped the job) may refuse
                 // to unregister; register is what matters, so go on anyway.
@@ -307,7 +385,7 @@ public final class ProducerInstallService: Sendable {
     }
 
     /// Settings' Repair action: re-registers every enabled agent that isn't
-    /// running, off the calling actor.
+    /// running (booting out a stuck job first), off the calling actor.
     @concurrent
     public func repairAll() async -> [AgentOutcome] {
         await reconcile(bundleChanged: false).map { AgentOutcome(agent: $0.agent, error: $0.error) }

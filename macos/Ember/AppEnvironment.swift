@@ -138,8 +138,11 @@ public final class AppEnvironment {
     /// main thread. After an app update (a new bundle fingerprint: version,
     /// build and a digest of the bundled helpers) every enabled agent is
     /// re-registered so the new helpers take over; otherwise only an enabled
-    /// agent launchd has no job for is. The fingerprint is recorded only when
-    /// every re-registration succeeded, so a failure retries next launch.
+    /// agent launchd has no job for, or can't start (a stuck job is booted out
+    /// first), is. The fingerprint is recorded only when every re-registration
+    /// succeeded, so a failure retries next launch. After an update it checks
+    /// again `producerRecheckDelay` later, since a changed ad-hoc helper only
+    /// gets stuck once launchd has tried to spawn it.
     private func reconcileProducers() {
         let bundle = Bundle.main
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -154,15 +157,25 @@ public final class AppEnvironment {
             let changed = shouldReconcileAfterUpdate(currentVersion: fingerprint,
                                                      lastReconciledVersion: defaults.string(forKey: key))
             let outcomes = await producers.reconcile(bundleChanged: changed)
-            for outcome in outcomes {
-                if let error = outcome.error {
-                    log.error("producer re-register failed: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-                } else {
-                    log.info("producer re-registered: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public)")
-                }
-            }
+            Self.logReconcile(outcomes, log: log)
             if shouldRecordFingerprint(bundleChanged: changed, outcomes: outcomes) {
                 defaults.set(fingerprint, forKey: key)
+            }
+            // A changed ad-hoc helper gets stuck only after its first spawn,
+            // so look again once that has happened and heal a stuck job.
+            if shouldRecheckAfterReconcile(bundleChanged: changed, outcomes: outcomes) {
+                try? await Task.sleep(for: producerRecheckDelay)
+                Self.logReconcile(await producers.reconcile(bundleChanged: false), log: log)
+            }
+        }
+    }
+
+    private nonisolated static func logReconcile(_ outcomes: [ReconcileOutcome], log: Logger) {
+        for outcome in outcomes {
+            if let error = outcome.error {
+                log.error("producer re-register failed: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            } else {
+                log.notice("producer re-registered: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public)")
             }
         }
     }

@@ -41,18 +41,22 @@ final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
     private var _calls: [(String, [String])] = []
     private var _ranOnMainThread: [Bool] = []
     private var _exitFor: @Sendable ([String]) -> Int32 = { _ in 0 }
+    private var _stdoutFor: @Sendable ([String]) -> String = { _ in "" }
     var calls: [(String, [String])] { lock.withLock { _calls } }
     var ranOnMainThread: [Bool] { lock.withLock { _ranOnMainThread } }
     var exitFor: @Sendable ([String]) -> Int32 {
         get { lock.withLock { _exitFor } } set { lock.withLock { _exitFor = newValue } }
     }
+    var stdoutFor: @Sendable ([String]) -> String {
+        get { lock.withLock { _stdoutFor } } set { lock.withLock { _stdoutFor = newValue } }
+    }
     func run(executable: String, arguments: [String]) throws -> CommandResult {
-        let exit = lock.withLock {
+        let (exit, stdout) = lock.withLock {
             _calls.append((executable, arguments))
             _ranOnMainThread.append(Thread.isMainThread)
-            return _exitFor(arguments)
+            return (_exitFor(arguments), _stdoutFor(arguments))
         }
-        return CommandResult(exitCode: exit, stdout: "", stderr: "")
+        return CommandResult(exitCode: exit, stdout: stdout, stderr: "")
     }
 }
 
