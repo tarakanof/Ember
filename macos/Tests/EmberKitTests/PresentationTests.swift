@@ -96,3 +96,21 @@ private func pomo(_ phase: String, running: Bool = false, paused: Bool = false) 
     #expect(ConnectionHealth.offline(since: since).subtitle(serverHost: "h", locale: en, timeZone: utc).text
         .hasPrefix("Offline since 10:42"))
 }
+
+@Test func connectionSubtitlesShowTheServerVersionOnlyWhileConnected() {
+    let utc = TimeZone(identifier: "UTC")!
+    let since = Date(timeIntervalSince1970: 10 * 3600 + 42 * 60)
+    func subtitle(_ health: ConnectionHealth, _ host: String?, _ version: String?) -> String {
+        health.subtitle(serverHost: host, serverVersion: version, locale: en, timeZone: utc).text
+    }
+    #expect(subtitle(.online(since: since), "192.168.0.2", "0.29.0") == "Connected to 192.168.0.2 · v0.29.0")
+    #expect(subtitle(.degraded(failures: 2), "192.168.0.2", "0.29.0") == "Connected to 192.168.0.2 · v0.29.0")
+    #expect(subtitle(.online(since: since), nil, "0.29.0") == "Connected · v0.29.0")
+    #expect(subtitle(.online(since: since), "192.168.0.2", nil) == "Connected to 192.168.0.2")
+    #expect(subtitle(.online(since: since), "192.168.0.2", "") == "Connected to 192.168.0.2")
+    #expect(subtitle(.online(since: since), nil, nil) == "Connected")
+    // Not while connecting, offline or unconfigured.
+    #expect(subtitle(.connecting, "192.168.0.2", "0.29.0") == "Connecting to 192.168.0.2…")
+    #expect(subtitle(.offline(since: since), "192.168.0.2", "0.29.0").hasPrefix("Offline since 10:42"))
+    #expect(subtitle(.unconfigured, nil, "0.29.0") == "Not set up")
+}

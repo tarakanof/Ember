@@ -27,7 +27,9 @@ private func emberKitStrings() -> [LocalizedStringResource] {
             SessionPresentation(session).contextText()!]
     let health: [ConnectionHealth] = [.unconfigured, .connecting, .online(since: .now),
                                       .degraded(failures: 1), .offline(since: .now)]
-    out += health.flatMap { [$0.subtitle(serverHost: nil), $0.subtitle(serverHost: "h")] }
+    out += health.flatMap { h in
+        [nil, "1.0"].flatMap { v in [h.subtitle(serverHost: nil, serverVersion: v), h.subtitle(serverHost: "h", serverVersion: v)] }
+    }
     let errors: [FeedError] = [.offline, .unauthorized, .rateLimited, .featureOff, .server("x")]
     out += errors.flatMap { [$0.message, $0.saveMessage] }
     out += [AggregateSaveStatus.saving, .saved, .failed].compactMap(\.subtitle)

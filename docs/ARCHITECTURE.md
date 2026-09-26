@@ -301,7 +301,12 @@ without the route) is `.featureOff`, which views show as "off", never as stale
 data. An unchanged poll doesn't republish its value. System sleep pauses every
 loop and wake refetches at once. A `/state` failure keeps the snapshot live for
 3 polls (`degraded`), then marks it stale and the connection offline; the bot
-only follows a live snapshot. The menu adds no polling: opening it catches up
+only follows a live snapshot. The one read that isn't a feed is
+`LiveModel.serverVersion` (the Dashboard subtitle's "· v0.29.0"): `/version`
+only changes when the server restarts, so it's read once each time the
+connection comes up (first answer, a new server, back from offline, where an
+upgrade shows), off the `/state` loop; a lost read retries on the next good
+`/state`. The menu adds no polling: opening it catches up
 `stats`/`meetings`/`usage` only if they're over 60 s old, and every fetch pushes
 the next poll back, so stats stay at one request a minute. Actions (Pomodoro,
 clock, app visibility) go through `ActionRunner`, from every surface (Settings
