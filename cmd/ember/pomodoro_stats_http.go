@@ -45,9 +45,9 @@ const activityThrottle = 2 * time.Minute
 // unique per run, so without the sweep the map grows for the process lifetime.
 const activitySweepInterval = time.Hour
 
-// activityRetention is how long activity rows are kept: the 400-day window
-// buildStats reads for phases, well past the 91 days the work-hours view
-// queries. Older rows are never read.
+// activityRetention is how long activity rows are kept. The only reader is
+// the work-hours view, which queries at most 91 days back; 400 days leaves a
+// wide margin and older rows are never read.
 const activityRetention = 400 * 24 * time.Hour
 
 // activeWorkState reports whether a session state counts as "actively working"
@@ -200,9 +200,11 @@ func (a *App) buildStats(now time.Time) (pomodoroStats, error) {
 }
 
 // statsCacheTTL bounds how long a cached stats payload is served. A phase
-// write, a Pomodoro config change or a logical-day rollover drops the cache
-// at once; the TTL only covers what drifts with the clock alone, such as the
-// rolling 30-day completion window.
+// written through App.store, a Pomodoro config change or a logical-day
+// rollover drops the cache at once. The TTL covers everything else: what
+// drifts with the clock alone (the rolling 30-day completion window) and
+// writes that bypass App.store (another process, the sqlite CLI, a restored
+// DB file), which become visible only once it expires.
 const statsCacheTTL = time.Minute
 
 // statsCache holds the last /v1/pomodoro/stats payload. The menu polls it

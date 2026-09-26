@@ -115,6 +115,85 @@ func TestPomodoroStatsCachedUntilPhaseWrite(t *testing.T) {
 	}
 }
 
+// statsBehindTheBack returns an app whose store shares a file with a second
+// handle; phases written through that handle do not invalidate the cache, so
+// they only show up when the cache is rebuilt for another reason.
+func statsBehindTheBack(t *testing.T) (*App, *pomodoro.Store) {
+	t.Helper()
+	app := newPomodoroApp(t)
+	path := filepath.Join(t.TempDir(), "shared.db")
+	own, err := pomodoro.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { own.Close() })
+	app.store = own
+	other, err := pomodoro.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	return app, other
+}
+
+func completedIn30d(t *testing.T, app *App, now time.Time) int {
+	t.Helper()
+	s, err := app.cachedStats(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Completion.CompletedFocus
+}
+
+func writeFocusVia(t *testing.T, st *pomodoro.Store, ended time.Time) {
+	t.Helper()
+	res := pomodoro.PhaseResult{Phase: pomodoro.PhaseFocus, PlannedSec: 1500, ActualSec: 1500, Completed: true, Reason: "completed"}
+	if err := st.RecordPhase(res, ended.Add(-25*time.Minute), ended); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPomodoroStatsCacheRebuildsOnLogicalDayRollover asserts crossing
+// day_start_hour rebuilds the cache even with no phase write in between.
+func TestPomodoroStatsCacheRebuildsOnLogicalDayRollover(t *testing.T) {
+	app, other := statsBehindTheBack(t)
+	startHour := app.cfg.Load().Pomodoro.DayStartHour
+	y, m, d := time.Now().AddDate(0, 0, -1).Date()
+	boundary := time.Date(y, m, d, startHour, 0, 0, 0, time.Local)
+	before, after := boundary.Add(-10*time.Second), boundary.Add(10*time.Second)
+
+	if got := completedIn30d(t, app, before); got != 0 {
+		t.Fatalf("before rollover: %d, want 0", got)
+	}
+	writeFocusVia(t, other, before.Add(-time.Hour))
+	if got := completedIn30d(t, app, before.Add(5*time.Second)); got != 0 {
+		t.Fatalf("same logical day: %d, want 0 (cached)", got)
+	}
+	if got := completedIn30d(t, app, after); got != 1 {
+		t.Errorf("after rollover: %d, want 1 (rebuilt)", got)
+	}
+}
+
+// TestPomodoroStatsCacheExpiresAfterTTL asserts the cache is rebuilt once
+// statsCacheTTL has passed, which is how writes by another store handle or
+// process become visible.
+func TestPomodoroStatsCacheExpiresAfterTTL(t *testing.T) {
+	app, other := statsBehindTheBack(t)
+	y, m, d := time.Now().AddDate(0, 0, -1).Date()
+	t0 := time.Date(y, m, d, 12, 0, 0, 0, time.Local) // clear of any day boundary
+
+	if got := completedIn30d(t, app, t0); got != 0 {
+		t.Fatalf("first build: %d, want 0", got)
+	}
+	writeFocusVia(t, other, t0.Add(-time.Hour))
+	if got := completedIn30d(t, app, t0.Add(statsCacheTTL-time.Second)); got != 0 {
+		t.Fatalf("within TTL: %d, want 0 (cached)", got)
+	}
+	if got := completedIn30d(t, app, t0.Add(statsCacheTTL+time.Second)); got != 1 {
+		t.Errorf("after TTL: %d, want 1 (rebuilt)", got)
+	}
+}
+
 // TestPomodoroStatsCacheFollowsConfig asserts a goal change is reflected
 // immediately rather than after the cache expires.
 func TestPomodoroStatsCacheFollowsConfig(t *testing.T) {
