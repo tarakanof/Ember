@@ -1,4 +1,32 @@
 import Foundation
+import os
+
+/// What a `launchctl print gui/<uid>/<label>` result says about the job.
+public enum LaunchdProbe: Sendable, Equatable {
+    case loaded
+    /// Exit 113 / "Could not find service": launchd has no such job.
+    case notLoaded
+    /// Any other failure: launchctl itself broke, so we can't tell.
+    case unknown
+}
+
+/// Classifies a `launchctl print` result. Only "no such service" is
+/// `.notLoaded`; anything else that fails is `.unknown`, never a reason to
+/// re-register.
+public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
+    if result.exitCode == 0 { return .loaded }
+    if result.exitCode == 113 || (result.stderr + result.stdout).contains("Could not find service") {
+        return .notLoaded
+    }
+    return .unknown
+}
+
+/// Whether launch should record the new bundle fingerprint after
+/// `reconcile(bundleChanged:)`: only when the bundle changed and every
+/// re-registration succeeded, so a failure retries on the next launch.
+public func shouldRecordFingerprint(bundleChanged: Bool, outcomes: [ReconcileOutcome]) -> Bool {
+    bundleChanged && outcomes.allSatisfy { $0.error == nil }
+}
 
 /// Decides whether launch should treat the bundle as updated: re-register
 /// every enabled agent's LaunchAgent so the new helpers take over. Re-registering
@@ -92,6 +120,8 @@ public final class ProducerInstallService: Sendable {
     private let home: URL
     private let fileExists: @Sendable (String) -> Bool
     private let uid: uid_t
+    private let probeWarned = OSAllocatedUnfairLock(initialState: false)
+    private static let log = Logger(subsystem: "com.ember.Ember", category: "producers")
 
     public init(
         sm: SMAppServiceControlling,
@@ -146,14 +176,34 @@ public final class ProducerInstallService: Sendable {
     /// Whether launchd has a job for `agent` in this user's GUI domain.
     /// `SMAppService.status` can't tell: it reads the Background Items
     /// database, which stays `.enabled` after launchd drops the job. A probe
-    /// that can't run counts as loaded, so a broken probe never churns
-    /// registrations.
+    /// that can't run, or fails any other way than "no such service", counts
+    /// as loaded (logged once), so a broken probe never churns registrations.
     public func isLoaded(_ agent: ProducerAgent) -> Bool {
-        guard let result = try? runner.run(executable: "/bin/launchctl",
-                                           arguments: ["print", "gui/\(uid)/\(agent.label)"]) else {
+        let result: CommandResult
+        do {
+            result = try runner.run(executable: "/bin/launchctl",
+                                    arguments: ["print", "gui/\(uid)/\(agent.label)"])
+        } catch {
+            warnProbeOnce("launchctl print didn't run: \(error.localizedDescription)")
             return true
         }
-        return result.exitCode == 0
+        switch launchdProbe(result) {
+        case .loaded: return true
+        case .notLoaded: return false
+        case .unknown:
+            warnProbeOnce("launchctl print exited \(result.exitCode): \(result.stderr)\(result.stdout)")
+            return true
+        }
+    }
+
+    private func warnProbeOnce(_ message: String) {
+        let first = probeWarned.withLock { warned in
+            defer { warned = true }
+            return !warned
+        }
+        if first {
+            Self.log.warning("producer liveness probe failed; treating agents as running: \(message, privacy: .public)")
+        }
     }
 
     /// Derives the LaunchAgent state for `agent` from `sm.status(plistName:)`,
@@ -245,7 +295,9 @@ public final class ProducerInstallService: Sendable {
             guard let reason = reconcileReason(registration: registration, loaded: loaded,
                                                bundleChanged: bundleChanged) else { return nil }
             do {
-                try sm.unregister(plistName: agent.plistName)
+                // A stale registration (launchd dropped the job) may refuse
+                // to unregister; register is what matters, so go on anyway.
+                try? sm.unregister(plistName: agent.plistName)
                 try sm.register(plistName: agent.plistName)
                 return ReconcileOutcome(agent: agent, reason: reason, error: nil)
             } catch {

@@ -180,7 +180,7 @@ public final class AppEnvironment {
                     log.info("producer re-registered: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public)")
                 }
             }
-            if changed, outcomes.allSatisfy({ $0.error == nil }) {
+            if shouldRecordFingerprint(bundleChanged: changed, outcomes: outcomes) {
                 defaults.set(fingerprint, forKey: key)
             }
         }

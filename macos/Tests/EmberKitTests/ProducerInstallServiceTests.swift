@@ -24,8 +24,15 @@ final class FakeSMAppService: SMAppServiceControlling, @unchecked Sendable {
             _registered.append(plistName); _statuses[plistName] = .enabled
         }
     }
+    private var _unregisterError: Error?
+    var unregisterError: Error? {
+        get { lock.withLock { _unregisterError } } set { lock.withLock { _unregisterError = newValue } }
+    }
     func unregister(plistName: String) throws {
-        lock.withLock { _unregistered.append(plistName); _statuses[plistName] = .notRegistered }
+        try lock.withLock {
+            if let e = _unregisterError { throw e }
+            _unregistered.append(plistName); _statuses[plistName] = .notRegistered
+        }
     }
     func status(plistName: String) -> AgentRegistration { lock.withLock { _statuses[plistName] ?? .notRegistered } }
 }

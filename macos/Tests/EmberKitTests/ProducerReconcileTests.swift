@@ -120,6 +120,45 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     #expect(outcomes.allSatisfy { $0.error != nil })
 }
 
+@MainActor @Test func repairStillRegistersWhenUnregisterThrows() async {
+    // The #142 state: Background Items says enabled, launchd dropped the job,
+    // and unregistering the stale registration may fail.
+    let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codex: .enabled]
+    sm.unregisterError = NSError(domain: "x", code: 1)
+    let outcomes = await service(sm, runner(notLoaded: ["com.ember.heartbeat"])).repairAll()
+    #expect(sm.registered == [heartbeat])
+    #expect(outcomes.map(\.agent) == [.claude])
+    #expect(outcomes.allSatisfy { $0.error == nil })
+}
+
+@Test func launchdProbeOnlyTreatsNoSuchServiceAsNotLoaded() {
+    #expect(launchdProbe(CommandResult(exitCode: 0, stdout: "gui/501/x = {", stderr: "")) == .loaded)
+    #expect(launchdProbe(CommandResult(exitCode: 113, stdout: "", stderr: "")) == .notLoaded)
+    #expect(launchdProbe(CommandResult(exitCode: 1, stdout: "",
+        stderr: "Bad request.\nCould not find service \"com.ember.heartbeat\" in domain for user gui: 501")) == .notLoaded)
+    #expect(launchdProbe(CommandResult(exitCode: 1, stdout: "", stderr: "Operation not permitted")) == .unknown)
+    #expect(launchdProbe(CommandResult(exitCode: 64, stdout: "Usage: launchctl …", stderr: "")) == .unknown)
+}
+
+@MainActor @Test func anUnknownProbeFailureNeverReRegisters() async {
+    let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codex: .enabled]
+    let r = FakeRunner()
+    r.exitFor = { args in args.first == "print" ? 1 : 0 }   // launchctl broken, not "not found"
+    let svc = service(sm, r)
+    #expect(svc.agentState(.claude) == .on)
+    #expect(await svc.reconcile(bundleChanged: false).isEmpty)
+    #expect(sm.registered.isEmpty)
+}
+
+@Test func fingerprintIsRecordedOnlyAfterAFullySuccessfulUpdateReconcile() {
+    let ok = ReconcileOutcome(agent: .claude, reason: .bundleChanged, error: nil)
+    let failed = ReconcileOutcome(agent: .codex, reason: .bundleChanged, error: NSError(domain: "x", code: 1))
+    #expect(shouldRecordFingerprint(bundleChanged: true, outcomes: [ok]))
+    #expect(shouldRecordFingerprint(bundleChanged: true, outcomes: []))   // nothing enabled
+    #expect(!shouldRecordFingerprint(bundleChanged: true, outcomes: [ok, failed]))
+    #expect(!shouldRecordFingerprint(bundleChanged: false, outcomes: [ok]))
+}
+
 @MainActor @Test func repairAllReRegistersNotRunningAgents() async {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codex: .enabled]
     let outcomes = await service(sm, runner(notLoaded: ["com.ember.codex"])).repairAll()
