@@ -6,6 +6,22 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@ 5h %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "%@ 5h %@ · resets %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "%@ 5h limit reached" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "%@ 5h limit reached · resets %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "%@ context" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -14,8 +30,28 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "%@ · %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "%@ · %@ left · round %lld" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "%@ · paused · %@ left" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "%@ · ready to start" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "%@ — %@" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "%lld more" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
     "Air Quality" : {
@@ -52,8 +88,56 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Couldn't dismiss the notification: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't hide %@: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't pause: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't restart the clock: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't resume: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Couldn't save — see below" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't show %@: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't skip: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't start: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't stop: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't switch apps: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't turn the display off: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't turn the display on: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
     "Done" : {
@@ -84,6 +168,26 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Next: %@ %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Next: %@ at %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Next: %@ in %lld min" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Next: %@ now" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Next: %@ tomorrow at %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Not available — the feature is off or the server is too old." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -96,8 +200,16 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Offline" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Offline since %@" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Offline — server unreachable since %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
     "Pause" : {
@@ -110,6 +222,10 @@
     },
     "Reminder" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Reminder: %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
     "Resume" : {
@@ -168,6 +284,26 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Today %lld of %lld · %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Today %lld sessions · %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Today 1 session · %@" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Turn Display Off" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Turn Display On" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Unauthorized — check the token in Connection settings." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -198,6 +334,26 @@
     },
     "Weather Alert" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "not supported by this server" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "rate-limited" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "server error" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "server unreachable" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "unauthorized" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     }
   },
