@@ -155,8 +155,8 @@ func (m *metrics) render(w io.Writer, app *App) {
 	fmt.Fprintln(w, "# TYPE ember_coordinator_commands_dropped_total counter")
 	fmt.Fprintf(w, "ember_coordinator_commands_dropped_total %d\n", m.commandsDropped.Load())
 
+	sessionsActive := len(app.sessions.View().Sessions)
 	app.mu.Lock()
-	sessionsActive := len(app.sessions)
 	var lastPublishUnix int64
 	if !app.lastPublishAt.IsZero() {
 		lastPublishUnix = app.lastPublishAt.Unix()

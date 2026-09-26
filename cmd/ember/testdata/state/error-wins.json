@@ -1,0 +1,1 @@
+{"now":"<T>","sessions":[{"source":"m4","tool":"claude","session":"r","state":"running","message":"","updated_at":"<T>"},{"source":"m4","tool":"gemini","session":"e","state":"error","message":"","updated_at":"<T>"}],"render":{"text":"ERR Gemini error","color":"#FF3300","waiting":0,"running":1,"errors":1,"done":0,"active_total":2}}

@@ -12,6 +12,7 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/sessions"
 )
 
 type App struct {
@@ -26,8 +27,9 @@ type App struct {
 	startedAt    time.Time    // set in NewApp; used by doctor uptime check
 	limiter      *IPLimiter   // populated in NewApp; sweeper started by main()
 
-	mu            sync.Mutex // protects sessions, lastPublished, lastPublish*
-	sessions      map[string]Session
+	sessions *sessions.Registry // live producer sessions; reaps on every access
+
+	mu            sync.Mutex // protects lastPublished, lastPublish*
 	lastPublished Render
 
 	// Last-publish telemetry, all guarded by App.mu.
@@ -145,7 +147,6 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
 		publisher:      publisher,
 		logger:         logger,
-		sessions:       make(map[string]Session),
 		versionInfo:    computeVersionInfo(),
 		startedAt:      time.Now(),
 		usage:          newUsageStore(),
@@ -159,6 +160,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.meetingsFetcher = newICSFetcher()
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
+	a.sessions = a.newSessionRegistry(realClock{}.Now)
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	if hp, ok := publisher.(*HTTPPublisher); ok {
@@ -197,7 +199,7 @@ func (a *App) updateConfig(mutate func(*Config)) {
 // metadata exposed to the admin endpoints. Called by the coordinator
 // after every publish attempt; guarded by App.mu.
 //
-// The snap argument carries the legacy Render struct (renderLocked's
+// The snap argument carries the legacy Render struct (legacyRender's
 // text/color/counter output) so admin tooling can show what was last
 // pushed even though the actual pixels are now produced by
 // RenderForCoord and not stored anywhere.

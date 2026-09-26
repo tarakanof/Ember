@@ -32,6 +32,8 @@ type StatusRequest struct {
 	SessionBar     *bool   `json:"session_bar,omitempty"`
 }
 
+// normalized is the Session a request describes. UpdatedAt is left zero: the
+// session registry stamps it with its own clock on Upsert.
 func (r StatusRequest) normalized() Session {
 	source := strings.TrimSpace(r.Source)
 	if source == "" {
@@ -72,7 +74,6 @@ func (r StatusRequest) normalized() Session {
 		RateResetLabel: r.RateResetLabel,
 		SourceCard:     r.SourceCard,
 		SessionBar:     r.SessionBar,
-		UpdatedAt:      time.Now(),
 	}
 }
 

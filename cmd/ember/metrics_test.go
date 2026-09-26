@@ -197,9 +197,9 @@ func TestRender_StructureAndHelpLines(t *testing.T) {
 func TestRender_GaugesReadFromApp(t *testing.T) {
 	app := newAppForMetrics(t)
 
+	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s1", State: "running"})
+	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s2", State: "waiting"})
 	app.mu.Lock()
-	app.sessions["a/claude/s1"] = Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: time.Now()}
-	app.sessions["a/claude/s2"] = Session{Source: "a", Tool: "claude", Session: "s2", State: "waiting", UpdatedAt: time.Now()}
 	publishTime := time.Unix(1_700_000_000, 0)
 	app.lastPublishAt = publishTime
 	app.lastPublishOK = true
@@ -484,22 +484,20 @@ func TestCoord_IncrementsFailCounter_OnCustomAppErr(t *testing.T) {
 	}
 }
 
-func TestRenderLocked_IncrementsSessionsEvicted(t *testing.T) {
+func TestMetrics_SessionsActiveExcludesStale(t *testing.T) {
 	app := newAppForMetrics(t)
-	cfg := *app.cfg.Load()
-	cfg.Display.StaleSeconds = 1
-	cfg.Display.DoneTTLSeconds = 1
-	app.cfg.Store(&cfg)
+	app.updateConfig(func(c *Config) { c.Display.StaleSeconds = 1 })
+	clk := withSessionClock(app)
+	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s1", State: "running"})
+	clk.Advance(time.Hour)
 
-	// Seed a session that's older than StaleSeconds.
-	app.mu.Lock()
-	app.sessions["a/claude/s1"] = Session{
-		Source: "a", Tool: "claude", Session: "s1", State: "running",
-		UpdatedAt: time.Now().Add(-1 * time.Hour),
+	// Nothing renders /state in between: the gauge read itself reaps.
+	var buf bytes.Buffer
+	app.metrics.render(&buf, app)
+	body := buf.String()
+	if !strings.Contains(body, "ember_sessions_active 0") {
+		t.Errorf("stale session still counted as active:\n%s", body)
 	}
-	app.renderLocked(time.Now()) // triggers the reap loop
-	app.mu.Unlock()
-
 	if got := app.metrics.sessionsEvicted.Load(); got != 1 {
 		t.Errorf("sessionsEvicted = %d, want 1", got)
 	}

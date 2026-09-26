@@ -82,7 +82,7 @@ func TestDeleteStatusRemovesSession(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", resp.StatusCode)
 	}
-	if _, ok := app.sessions["dt-mbp/claude/x"]; ok {
+	if sessionKeys(app.Snapshot())["dt-mbp/claude/x"] {
 		t.Errorf("session not deleted")
 	}
 }
