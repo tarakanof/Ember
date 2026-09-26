@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/tarakanof/ember/internal/render"
 )
@@ -159,16 +161,21 @@ func labelFor(session Session) string {
 		if session.Tool == "" {
 			return "AI"
 		}
-		return strings.ToUpper(session.Tool[:1]) + session.Tool[1:]
+		first, size := utf8.DecodeRuneInString(session.Tool)
+		return string(unicode.ToUpper(first)) + session.Tool[size:]
 	}
 }
 
+// compactText collapses whitespace and caps the label at 80 characters,
+// counted in runes so a Cyrillic or emoji message is never cut mid-sequence
+// (which would surface as U+FFFD in /state).
 func compactText(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
-	if len(text) <= 80 {
+	r := []rune(text)
+	if len(r) <= 80 {
 		return text
 	}
-	return text[:77] + "..."
+	return string(r[:77]) + "..."
 }
 
 func perSessionLabel(s Session) string {

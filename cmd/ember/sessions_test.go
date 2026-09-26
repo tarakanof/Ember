@@ -1,8 +1,10 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestWaitingStatusWinsOverRunningStatus(t *testing.T) {
@@ -147,5 +149,49 @@ func TestRenderAggregateMixedGroups(t *testing.T) {
 	render, _ := app.Upsert(StatusRequest{Source: "e", Tool: "claude", Session: "5", State: "running"})
 	if !contains(render.Text, "W2") || !contains(render.Text, "R3") {
 		t.Errorf("Text = %q, want aggregate AI W2 R3", render.Text)
+	}
+}
+
+func TestCompactTextTruncatesByRune(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"short ascii", "  a   b  ", "a b"},
+		{"ascii at 80", strings.Repeat("a", 80), strings.Repeat("a", 80)},
+		{"ascii over 80", strings.Repeat("a", 81), strings.Repeat("a", 77) + "..."},
+		// 60 Cyrillic runes are 120 bytes: under the 80-character cap, kept whole.
+		{"cyrillic within 80 runes", strings.Repeat("ж", 60), strings.Repeat("ж", 60)},
+		{"cyrillic over 80 runes", strings.Repeat("ж", 90), strings.Repeat("ж", 77) + "..."},
+		{"emoji over 80 runes", strings.Repeat("🔥", 81), strings.Repeat("🔥", 77) + "..."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := compactText(tc.in)
+			if got != tc.want {
+				t.Fatalf("compactText = %q, want %q", got, tc.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Fatalf("compactText produced invalid UTF-8: %q", got)
+			}
+		})
+	}
+}
+
+func TestWaitingRenderKeepsMultibyteMessageValid(t *testing.T) {
+	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
+	msg := strings.Repeat("проверка ", 12) // 108 runes, 204 bytes
+	render, _ := app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "1", State: "waiting", Message: msg})
+	if !utf8.ValidString(render.Text) {
+		t.Fatalf("Text is not valid UTF-8: %q", render.Text)
+	}
+	if n := utf8.RuneCountInString(render.Text); n != 80 {
+		t.Fatalf("Text is %d runes, want 80 (77 + ...): %q", n, render.Text)
+	}
+}
+
+func TestLabelForCapitalisesMultibyteTool(t *testing.T) {
+	if got := labelFor(Session{Tool: "ёж"}); got != "Ёж" {
+		t.Fatalf("labelFor = %q, want %q", got, "Ёж")
+	}
+	if got := labelFor(Session{Tool: "gemini"}); got != "Gemini" {
+		t.Fatalf("labelFor = %q, want Gemini", got)
 	}
 }
