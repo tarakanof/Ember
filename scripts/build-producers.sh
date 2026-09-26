@@ -7,6 +7,17 @@ APP="${1:-${CODESIGNING_FOLDER_PATH:-}}"
 [ -n "$APP" ] || { echo "usage: build-producers.sh <Ember.app> (or run from Xcode)"; exit 2; }
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 IDENTITY="${CODE_SIGN_IDENTITY:--}"    # Developer ID in release; ad-hoc for dev
+
+# CODE_SIGNING_ALLOWED=NO (unsigned CI builds), or a configured identity that
+# isn't actually in the local keychain (no Developer ID cert installed): fall
+# back to ad-hoc signing so go build/lipo/plist copy/plutil lint still run —
+# only the signing step changes.
+if [ "$IDENTITY" != "-" ]; then
+  if [ "${CODE_SIGNING_ALLOWED:-YES}" = "NO" ] || ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
+    echo "build-producers.sh: no usable '$IDENTITY' identity — falling back to ad-hoc"
+    IDENTITY="-"
+  fi
+fi
 MACOS_DIR="$APP/Contents/MacOS"
 mkdir -p "$MACOS_DIR"
 

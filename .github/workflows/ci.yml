@@ -16,6 +16,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    # pull-requests: read lets paths-filter list changed files via the API
+    # (needed if the repo ever goes private).
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      macos: ${{ steps.filter.outputs.macos }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            macos:
+              - 'macos/**'
+              - 'scripts/**'
+              - 'cmd/ember/testdata/**'
+              - '.github/workflows/ci.yml'
+
   go:
     name: Go (fmt, vet, test -race)
     runs-on: ubuntu-latest
@@ -43,3 +68,39 @@ jobs:
 
       - name: go test -race
         run: go test ./... -race
+
+  macos:
+    name: macOS (swift test, unsigned app build)
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
+    # The Ember app target's deployment target is macOS 26 (macos/project.yml);
+    # EmberKit itself (the SPM package swift test exercises) only needs macOS
+    # 14 (macos/Package.swift). macos-latest tracks macOS 26/Xcode 26 as of
+    # 2026-06, so it's the newest runner able to build the app target.
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: swift test (EmberKit)
+        run: swift test --package-path macos
+
+      - name: xcodegen generate
+        run: xcodegen generate --spec macos/project.yml --project macos
+
+      - name: xcodebuild (unsigned Debug)
+        # No Developer ID in CI: CODE_SIGNING_ALLOWED=NO builds unsigned, and
+        # build-producers.sh (the postCompileScripts sign phase) falls back to
+        # ad-hoc signing when it finds no usable identity — see that script.
+        run: |
+          xcodebuild -project macos/Ember.xcodeproj -scheme Ember \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build
