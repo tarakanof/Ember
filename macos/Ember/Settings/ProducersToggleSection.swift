@@ -58,16 +58,15 @@ struct ProducersToggleSection: View {
 
     /// The helper runs but macOS denies it the LAN ("no route to host"), so
     /// nothing reaches the server while the row still says On. A rebuilt or
-    /// re-signed helper needs Local Network access again.
+    /// re-signed helper needs Local Network access again. The fix (and why)
+    /// lives in Settings › Permissions.
     private func localNetworkHint(_ agents: [ProducerAgent]) -> some View {
         let helpers = ListFormatter.localizedString(byJoining: agents.map(\.binaryName))
         return VStack(alignment: .leading, spacing: 6) {
             Label("macOS is blocking \(helpers) from the local network, so its reports don't reach the server. Allow it under Local Network.",
                   systemImage: "wifi.exclamationmark")
                 .foregroundStyle(.orange)
-            Button("Open Local Network Settings…") {
-                openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
-            }
+            Button("Review Permissions…") { showSettingsPane(.permissions) }
         }
     }
 

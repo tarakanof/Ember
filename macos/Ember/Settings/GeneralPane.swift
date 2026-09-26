@@ -12,6 +12,10 @@ struct GeneralPane: View {
     var body: some View {
         @Bindable var env = env
         Form {
+            if !env.permissions.attention.isEmpty {
+                Section { PermissionsWarning(rows: env.permissions.attention) }
+            }
+
             Section("Menu Bar") {
                 Picker("Menu bar icon", selection: $env.prefs.trayStyle) {
                     Text("Animated bot").tag("bot")
@@ -82,6 +86,18 @@ struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .reloads { login = LoginItemService.status }
+        .task { await refreshPermissionsIfStale() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await refreshPermissionsIfStale() }
+        }
+    }
+
+    /// The Local Network probe takes a few seconds and a request to the
+    /// server, so the warning re-checks at most every half minute.
+    private func refreshPermissionsIfStale() async {
+        let model = env.permissions
+        guard !model.isChecking, model.checkedAt.map({ Date().timeIntervalSince($0) > 30 }) ?? true else { return }
+        await model.refresh()
     }
 
     private func glyphPicker(_ label: LocalizedStringKey, _ binding: Binding<String>) -> some View {

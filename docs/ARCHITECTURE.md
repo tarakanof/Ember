@@ -292,7 +292,7 @@ without relaunch. Hybrid layout:
   power needs 0.28+), the animated bot or tool glyph as its icon, a
   fixed-width sidebar `Settings` window (height resizable only, like System
   Settings; **General / Connection / Clock / Agents / Focus /
-  Weather / Calendar / Sounds & Alerts**; the title follows the pane, the
+  Weather / Calendar / Sounds & Alerts / Permissions**; the title follows the pane, the
   subtitle is the one save status of every config model, controls stay
   disabled until their model has loaded), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
   menu while a window is open. `Ember/Shared/` holds the views all three
@@ -1330,6 +1330,15 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   `com.ember.codex-producer`): the ad-hoc default `<name>-<LC_UUID>` changes
   every build, and Local Network privacy keys on it, so a rebuilt helper got
   `connect: no route to host` until the user allowed it again.
+- **A Local Network refusal looks like an outage.** An ad-hoc app's grant is
+  keyed to its cdhash, so every local rebuild loses it (even right after the
+  user toggled it on): `NWBrowser` fails with DNS-SD `NoAuth` (-65555) and
+  URLSession fails with -1009 over `ENETDOWN` ("Network is down"), path
+  "unsatisfied (Local network prohibited)". EmberKit maps that to
+  `APIError`/`FeedError.localNetworkDenied` (`LocalNetworkDenial`) so the UI
+  says "Local Network access is off" rather than "Server unreachable", and
+  Settings › Permissions probes it. Sign local builds with
+  `scripts/local-signing-identity.sh` to keep the grant across rebuilds.
 - **Syntactically-valid-but-wrong config defeats validation.** A
   `EMBER_SERVER_URL` typo (`:800` for `:3627`) passed the URL validator but
   dropped every POST. When "nothing shows," check the producer→server path first:

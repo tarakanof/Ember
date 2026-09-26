@@ -51,6 +51,7 @@ struct SettingsRootView: View {
         case .weather:    WeatherPane()
         case .calendar:   CalendarPane()
         case .sounds:     SoundsPane()
+        case .permissions: PermissionsPane()
         }
     }
 

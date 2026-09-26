@@ -16,6 +16,7 @@ extension SettingsPaneID {
         case .weather:    "Weather"
         case .calendar:   "Calendar"
         case .sounds:     "Sounds & Alerts"
+        case .permissions: "Permissions"
         }
     }
 
@@ -29,6 +30,14 @@ extension SettingsPaneID {
         case .weather:    "cloud.sun"
         case .calendar:   "calendar"
         case .sounds:     "bell.badge"
+        case .permissions: "hand.raised"
         }
     }
+}
+
+/// Switches the open Settings window to a pane (the selection lives in the
+/// `settings.pane` default the sidebar reads).
+@MainActor
+func showSettingsPane(_ pane: SettingsPaneID) {
+    UserDefaults.standard.set(pane.rawValue, forKey: SettingsPaneID.storageKey)
 }

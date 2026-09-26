@@ -215,8 +215,9 @@ struct DiscoverClocksSheet: View {
                 EmptyView()
             case .needsAccess:
                 LabeledContent {
-                    Button("Grant Local Network Access…") {
-                        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
+                    Button("Review Permissions…") {
+                        dismiss()
+                        showSettingsPane(.permissions)
                     }
                 } label: {
                     Label("This Mac can't search: Local Network access is off",

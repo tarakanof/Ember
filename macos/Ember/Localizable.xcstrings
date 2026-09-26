@@ -200,6 +200,9 @@
         }
       }
     },
+    "%lld permissions Ember needs are off." : {
+      "comment" : "Settings › General warning: the number of required OS permissions that are off (2 or more)."
+    },
     "%lld running · %lld waiting" : {
       "comment" : "Agents card header: number of running sessions, then of sessions waiting for input.",
       "localizations" : {
@@ -233,6 +236,7 @@
       "comment" : "Abbreviation for the 7-day usage window (Usage card row). Keep it very short."
     },
     "A meeting chimes with its popup, so it needs a popup time in Calendar. The severe weather sound plays with its alert, set in Weather." : {},
+    "A permission Ember needs is off." : {},
     "AQI %lld" : {
       "comment" : "Settings › Weather: an air quality index threshold (European AQI)."
     },
@@ -291,6 +295,7 @@
     },
     "Average of the finished weeks; this week is still filling up." : {},
     "Background" : {},
+    "Background Items" : {},
     "Bars whose height and color follow the temperature." : {},
     "Battery" : {},
     "Behavior" : {},
@@ -319,7 +324,13 @@
     "Cards" : {},
     "Celsius" : {},
     "Centered" : {},
+    "Check Again" : {},
+    "Checked %@" : {
+      "comment" : "Settings › Permissions: when the permissions were last checked, a time like \"10:42\"."
+    },
     "Checking agents…" : {},
+    "Checking permissions" : {},
+    "Checking…" : {},
     "Chimes" : {},
     "Claude" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -385,6 +396,7 @@
     "Context glass fills with the session's context use; turning it off also stops reporting it. The trail shows other sessions along the bottom." : {},
     "Continuous" : {},
     "Coordinates" : {},
+    "Couldn't check" : {},
     "Couldn't dismiss the notification: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
@@ -539,7 +551,6 @@
     },
     "Goals" : {},
     "Good" : {},
-    "Grant Local Network Access…" : {},
     "Green under 70%, amber, red from 90%." : {},
     "Header" : {},
     "Hidden" : {},
@@ -573,7 +584,12 @@
     "Leading zero" : {},
     "Loading" : {},
     "Loading…" : {},
+    "Local Network" : {},
+    "Local Network access is off" : {},
     "Local Network access is off for Ember" : {},
+    "Local Network access is off, so Ember can't reach the server." : {},
+    "Local Network access off" : {},
+    "Local Network for Agent Reporting" : {},
     "Location" : {},
     "Location access not set" : {},
     "Location access off" : {},
@@ -625,6 +641,7 @@
     "Native icon" : {},
     "Native icons in popups" : {},
     "Needs a newer server" : {},
+    "Needs approval" : {},
     "Needs attention" : {},
     "Needs server %@" : {
       "comment" : "A card needs a newer Ember server; the argument is the minimum version (\"0.28\")."
@@ -672,11 +689,13 @@
     "No work" : {},
     "None" : {},
     "None yet" : {},
+    "Not asked yet" : {},
     "Not available" : {},
     "Not available — the feature is off or the server is too old." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Not in use" : {},
     "Not installed: the app is missing its launch agent." : {
       "comment" : "A producer helper's state in Settings › Agents when its LaunchAgent plist isn't in the app bundle.",
       "extractionState" : "manual"
@@ -710,25 +729,38 @@
       "comment" : "Dashboard window subtitle: the time the server stopped answering.",
       "extractionState" : "manual"
     },
+    "Offline — Local Network access is off for Ember" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Offline — server unreachable since %@" : {
       "comment" : "Menu header: the time the server stopped answering.",
+      "extractionState" : "manual"
+    },
+    "Offline: Local Network access is off" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
     "On" : {},
     "On Every Card" : {},
     "Only some agents are reporting." : {},
+    "Only used when you click Detect in Weather to fill in your coordinates." : {},
     "Open Connection Settings" : {},
     "Open Dashboard" : {},
     "Open Dashboard at launch" : {},
     "Open Local Network Settings…" : {},
     "Open Location Settings…" : {},
     "Open Login Items Settings…" : {},
+    "Open Login Items…" : {},
     "Open Privacy Settings…" : {},
+    "Open Reminders Settings…" : {},
     "Open Settings" : {},
     "Open Web UI" : {},
     "Open in Browser" : {},
     "Open the server's statistics page" : {},
+    "Opens System Settings, where you can turn it on for Ember." : {},
     "Opens the clock's web page, which installs firmware updates." : {},
+    "Opens the pane that uses it." : {},
     "Order" : {},
     "Other Sessions" : {},
     "Other days" : {},
@@ -758,6 +790,7 @@
     "Per-model 5-hour usage, e.g. Opus." : {},
     "Per-model 5-hour usage, e.g. Sonnet." : {},
     "Per-model usage" : {},
+    "Permissions" : {},
     "Pixel E" : {},
     "Play" : {},
     "Play Test Chime" : {},
@@ -781,6 +814,8 @@
     "Rain and snow overlay" : {},
     "Rate bar" : {},
     "Rate-limited — reachable, token not checked" : {},
+    "Reaches the server and the clock on your network, and finds them with Bonjour." : {},
+    "Reads reminders with a due time to ring the clock. Needed while reminder alarms are on." : {},
     "Refresh" : {},
     "Refresh (⌘R)" : {},
     "Refresh every" : {},
@@ -794,6 +829,7 @@
       "comment" : "Prefix for an Apple Reminder title in the menu's next-event row.",
       "extractionState" : "manual"
     },
+    "Reminders" : {},
     "Reminders access off" : {},
     "Reminders access on" : {},
     "Repair" : {},
@@ -816,6 +852,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Review Permissions" : {},
+    "Review Permissions…" : {},
     "Ring" : {},
     "Ring the clock for due reminders" : {},
     "Round %lld" : {
@@ -874,6 +912,8 @@
     },
     "Short break" : {},
     "Show AM/PM" : {},
+    "Show Agents" : {},
+    "Show Weather" : {},
     "Show for" : {},
     "Show next meeting" : {},
     "Show on Clock" : {},
@@ -883,6 +923,7 @@
     "Show weekday" : {},
     "Show weekday bar" : {},
     "Shown in popups" : {},
+    "Shows the macOS prompt." : {},
     "Skip Phase" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -908,6 +949,9 @@
     "Startup" : {},
     "State" : {},
     "Status" : {},
+    "Status: %@" : {
+      "comment" : "VoiceOver label of a permission status badge, e.g. \"Status: On\"."
+    },
     "Steady" : {},
     "Stop" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -930,6 +974,7 @@
     "Test" : {},
     "Test Connection" : {},
     "Text color" : {},
+    "The Claude and Codex helpers send session status to the server. macOS asks for each helper separately." : {},
     "The Dashboard tracks these." : {},
     "The activity card scrolls the current tool call next to the icon. These apply to this Mac's sessions." : {},
     "The clock adds these offsets to its sensor's readings; the temperature one makes up for the clock warming itself. Compare Measured now with a thermometer you trust and change the offset by the difference." : {},
@@ -941,6 +986,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The helpers run as background items, so reporting keeps going after you quit Ember." : {},
     "The menu bar shows the glyph of the tool that's most active." : {},
     "The overlay draws rain, snow or storms over whatever is showing." : {},
     "The reminder shows for the time above, then the clock carries on." : {},
@@ -1142,9 +1188,14 @@
     },
     "just now" : {},
     "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
+    "macOS gives Local Network access to one build of an app. A copy you build yourself without a Developer ID needs approval again after every rebuild, unless it's signed with the stable local identity (scripts/local-signing-identity.sh). If Ember is already on in Local Network settings but still blocked, turn it off and on again." : {},
+    "macOS is blocking %@ from the local network, so its reports don't reach the server." : {
+      "comment" : "Settings › Permissions: the producer helper names macOS blocks, e.g. \"ember-codex-producer\" or \"ember-claude-producer and ember-codex-producer\"."
+    },
     "macOS is blocking %@ from the local network, so its reports don't reach the server. Allow it under Local Network." : {
       "comment" : "Settings › Agents hint; the placeholder is a list of helper program names as shown in System Settings (\"ember-claude-producer and ember-codex-producer\")."
     },
+    "macOS is blocking Ember from the server on your local network. Allow Ember under Local Network in System Settings." : {},
     "macOS wouldn't stop the stuck background helper (launchctl exit %d: %@)." : {
       "comment" : "Settings › Agents failure after Repair when launchctl bootout fails; exit code, then launchctl's message.",
       "extractionState" : "manual"

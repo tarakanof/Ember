@@ -180,7 +180,25 @@ records whether it last reached the server in
 `~/.config/ember/{claude,codex}-producer.link.json`; when that says
 `"no_route": true` (macOS denied it Local Network access, `connect: no route
 to host` in `~/Library/Logs/ember-tick.log`), Settings › Agents shows a hint
-with **Open Local Network Settings…**.
+with **Review Permissions…**.
+
+**Settings › Permissions** lists every OS permission Ember uses with its live
+status (text + symbol) and a fix button, re-checked when the pane appears and
+whenever Ember becomes active: Local Network (probed: a 3 s `_ember._tcp`
+browse, where DNS-SD `NoAuth`/`PolicyDenied` means off, plus `GET /healthz`
+on the server when it's a LAN host), the helpers' Local Network (the
+`no_route` files above), Background Items (the producer agents, with Repair),
+Reminders (required while reminder alarms are on) and Location (Weather's
+Detect only, never required). Settings › General shows a one-line warning
+when a required one is off. Wherever the app reports server reachability
+(Connection's status row, the menu header, the Dashboard subtitle and empty
+state, Discover Clocks' errors), a request macOS refused for Local Network
+reasons says so instead of "Server unreachable": URLSession reports it as
+`NSURLErrorNotConnectedToInternet` over `ENETDOWN` ("Network is down") with
+the path "unsatisfied (Local network prohibited)" (`LocalNetworkDenial`).
+Read those in the unified log with `/usr/bin/log show --predicate 'process ==
+"Ember"' --last 1h | grep -i "local network prohibited"` (plain `log` is a zsh
+builtin).
 
 **Release note for the first release with fixed helper identifiers**
 (`com.ember.claude-producer`, `com.ember.codex-producer`): existing installs
@@ -224,8 +242,9 @@ The source-colour toggle/picker stay disabled until Source + Server URL are set
 
 The **Connection** tab also lists **Discovered servers** (Ember servers found via
 Bonjour/`_ember._tcp`); tapping one fills the Server URL. When the list is empty it
-offers a **Grant Local Network Access…** button (macOS gates Bonjour browsing
-behind the Local Network privacy permission) + **Rescan**. The **Device** tab
+offers a **Review Permissions…** button (macOS gates Bonjour browsing
+behind the Local Network privacy permission; Settings › Permissions has the
+fix) + **Rescan**. The **Device** tab
 speaks the awtrix-ng schema directly (General / Native Apps / Time & Date /
 Actions), proxied through the server (`/v1/device/*`) — brightness, sound (mute + buzzer volume),
 app time, transitions (the picker is fed by `GET /v1/device/capabilities`
