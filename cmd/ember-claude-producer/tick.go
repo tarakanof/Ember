@@ -260,11 +260,6 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 		if err := json.Unmarshal(body, &req); err != nil {
 			return nil
 		}
-		if !cfg.ContextPctEnabled {
-			req.ContextPct = nil
-		}
-		sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
-		req.SourceCard, req.SessionBar = &sc, &sb
 		// Capture the statusline-owned rate-limit fields for the /v1/usage
 		// relay before stripping the weekly ones below — they're marker-only
 		// and must never appear on the /v1/status wire payload.
@@ -279,10 +274,7 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 				updatedAt:          info.ModTime(),
 			}
 		}
-		req.RateWeekPct = nil
-		req.RateWeekResetAt = 0
-		req.RateWeekResetLabel = ""
-		if err := client.Post(ctx, req); err != nil {
+		if err := client.Post(ctx, wireRequest(cfg, req)); err != nil {
 			tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
 		}
 		return nil

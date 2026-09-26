@@ -209,7 +209,26 @@ markers still get reaped.
 - **Claude Code producer — `cmd/ember-claude-producer`.** Hook-based: Claude
   fires hooks per invocation; the producer maps 8 events to states
   (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, Notification,
-  Stop→DELETE, StopFailure→error, SessionEnd). Per-session flock + atomic
+  Stop (no-op: the session stays until SessionEnd), StopFailure→error,
+  SessionEnd→DELETE). Three **tool-outcome hooks** (#76, `posttool.go`,
+  registered `async: true` so Claude never waits on them) add no states:
+  PostToolUse / PostToolUseFailure / PermissionDenied end a `waiting` only
+  when they belong to the call its PermissionRequest recorded (a hashed
+  tool name + `tool_input` fingerprint kept in the marker as
+  `pending_permission`, plus the preceding PreToolUse's `tool_use_id` when
+  its fingerprint matches, so neither a parallel call nor an identical
+  earlier call can end the wait) with one POST back to `running`. That
+  dialog's `permission_prompt` Notification arriving within 15 s after the
+  wait ended is dropped rather than re-sticking `waiting`. Otherwise a failure or auto-mode denial just marks that
+  call's trail item (`Bash: npm test (exit 1)`, `(failed)`, `(aborted)`,
+  `(denied)`) in the marker, and the next POST (next hook or the ≤10 s
+  heartbeat) carries it, so they add no requests. A failed tool keeps the
+  session `running` (red ERR stays for StopFailure) and a denial doesn't
+  blink. Hook stdin is stream-decoded (up to 64 MiB) and `tool_response` is
+  skipped token by token, never stored; the failure's `error` text is read
+  only for its `Exit code N` first line. configure/deconfigure delete the
+  old spike log (`~/.local/state/ember/spike-hooks.jsonl`, which held full
+  error output). Per-session flock + atomic
   temp+rename marker writes. A long-lived **`run` daemon** (LaunchAgent
   `com.ember.heartbeat`, `KeepAlive=true`) ticks every 10 s to
   re-POST/reap; it reloads `producer.env` each pass so settings-window edits
@@ -993,7 +1012,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
 | `context_pct` | statusline `context_window.used_percentage` | rollout token_count | transcript heuristic was removed (over-read) |
 | `rate_window_pct` (5h) | statusline `five_hour.used_percentage` | rollout `rate_limits.primary.used_percent` | |
 | `rate_reset_at` | statusline `…five_hour.resets_at` | rollout `…primary.resets_at` | epoch secs; countdown computed at render time (TZ-independent) |
-| `activity` / trail | hooks (`Tool: detail`) | rollout (`exec:`/`edit:`/`web:`/`mcp:`) | shared `PrependTrail` ring buffer |
+| `activity` / trail | hooks (`Tool: detail`, outcome suffix from PostToolUseFailure / PermissionDenied) | rollout (`exec:`/`edit:`/`web:`/`mcp:`) | shared `PrependTrail` ring buffer; `AnnotateTrail` marks an item's outcome |
 | `source_card` | producer.env `EMBER_SOURCE_CARD` | producer.env `EMBER_SOURCE_CARD` | `*bool`; absent = on; hides source-name card when false |
 | `session_bar` | producer.env `EMBER_SESSION_BAR` | producer.env `EMBER_SESSION_BAR` | `*bool`; absent = on; hides session-pixel bar when false |
 | `tokens_today`, cost, model, PR | — | — | wire field exists for tokens_today; **no producer fills it yet** |

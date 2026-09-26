@@ -282,10 +282,10 @@ func TestMergeSettings_UpgradeReplacesOldNotificationMatcher(t *testing.T) {
 	}
 }
 
-// TestMergeSettings_RegistersSpikeHooks is the #76 regression: PostToolUse,
+// TestMergeSettings_RegistersOutcomeHooks is the #76 regression: PostToolUse,
 // PostToolUseFailure, and PermissionDenied must be registered pointing at the
 // same hook binary as the rest of the producer's entries.
-func TestMergeSettings_RegistersSpikeHooks(t *testing.T) {
+func TestMergeSettings_RegistersOutcomeHooks(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
 	if err := mergeSettingsJSON(tmp, "/usr/local/bin/ember-claude-producer"); err != nil {

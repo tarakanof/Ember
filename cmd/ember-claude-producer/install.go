@@ -80,7 +80,23 @@ func configureAt(home, binPath string) error {
 			return err
 		}
 	}
-	return mergeSettingsJSON(home, binPath)
+	if err := mergeSettingsJSON(home, binPath); err != nil {
+		return err
+	}
+	removeSpikeLog(home)
+	return nil
+}
+
+// spikeLogPath is where the #76 log-only spike (v0.25.1–v0.29.0) appended
+// PostToolUse/PostToolUseFailure/PermissionDenied lines. Its "error" values
+// hold full failed-command output, so configure and deconfigure delete it.
+func spikeLogPath(home string) string {
+	return filepath.Join(home, ".local", "state", "ember", "spike-hooks.jsonl")
+}
+
+// removeSpikeLog deletes the spike log; best-effort (absent is fine).
+func removeSpikeLog(home string) {
+	_ = os.Remove(spikeLogPath(home))
 }
 
 func configure() error {
@@ -191,6 +207,7 @@ type hookEvent struct {
 type hookCommand struct {
 	Type    string `json:"type"`
 	Command string `json:"command"`
+	Async   bool   `json:"async,omitempty"`
 }
 
 func mergeSettingsJSON(home, binPath string) error {
@@ -231,6 +248,7 @@ func mergeSettingsJSON(home, binPath string) error {
 			Hooks: []hookCommand{{
 				Type:    "command",
 				Command: ev.command,
+				Async:   ev.async,
 			}},
 		})
 		var asAny any
@@ -283,6 +301,10 @@ type producerHookEntry struct {
 	event   string
 	matcher string
 	command string
+	// async runs the hook in the background (Claude Code's `"async": true`):
+	// Claude doesn't wait for it. Only for hooks that never answer Claude
+	// and whose ordering against the next hook doesn't matter.
+	async bool
 }
 
 func producerHookEntries(binPath string) []producerHookEntry {
@@ -300,10 +322,13 @@ func producerHookEntries(binPath string) []producerHookEntry {
 		{event: "UserPromptSubmit", matcher: "", command: cmd("user-prompt-submit")},
 		{event: "PreToolUse", matcher: "", command: cmd("pre-tool-use")},
 		{event: "PermissionRequest", matcher: "", command: cmd("permission-request")},
-		// #76 evaluation spike: log-only, see dispatchHook's comment in hook.go.
-		{event: "PostToolUse", matcher: "", command: cmd("post-tool-use")},
-		{event: "PostToolUseFailure", matcher: "", command: cmd("post-tool-use-failure")},
-		{event: "PermissionDenied", matcher: "", command: cmd("permission-denied")},
+		// Tool outcomes (#76, posttool.go). PostToolUse fires on every tool
+		// call, so these run async: no added latency per call. Order doesn't
+		// matter to them: a trail item is found by value, and a wait ends only
+		// for the call it was recorded for.
+		{event: "PostToolUse", matcher: "", command: cmd("post-tool-use"), async: true},
+		{event: "PostToolUseFailure", matcher: "", command: cmd("post-tool-use-failure"), async: true},
+		{event: "PermissionDenied", matcher: "", command: cmd("permission-denied"), async: true},
 		{event: "Notification", matcher: "permission_prompt|agent_needs_input|agent_completed", command: cmd("notification")},
 		{event: "Stop", matcher: "", command: cmd("stop")},
 		{event: "StopFailure", matcher: "", command: cmd("stop-failure")},

@@ -21,6 +21,27 @@ type marker struct {
 	producer.StatusRequest
 	OwnerPID   int    `json:"owner_pid,omitempty"`
 	OwnerStart string `json:"owner_start,omitempty"`
+	ToolTrack
+}
+
+// ToolTrack is marker-only bookkeeping for the tool-outcome hooks (#76,
+// posttool.go); none of it goes on the wire.
+type ToolTrack struct {
+	// PendingPermission fingerprints the call a PermissionRequest put the
+	// session in "waiting" for (permissionFingerprint), and PendingToolUseID
+	// is its tool_use_id when known. Only that call's outcome ends the wait.
+	PendingPermission string `json:"pending_permission,omitempty"`
+	PendingToolUseID  string `json:"pending_tool_use_id,omitempty"`
+	// LastToolUseID / LastToolFP are the latest PreToolUse's tool_use_id and
+	// fingerprint. PermissionRequest has no tool_use_id; when its fingerprint
+	// matches LastToolFP, the id is taken from here.
+	LastToolUseID string `json:"last_tool_use_id,omitempty"`
+	LastToolFP    string `json:"last_tool_fp,omitempty"`
+	// ResumedTool / ResumedAt (unix seconds) record the last wait an outcome
+	// ended, so that dialog's late permission_prompt Notification can't put
+	// the session back in "waiting".
+	ResumedTool string `json:"resumed_tool,omitempty"`
+	ResumedAt   int64  `json:"resumed_at,omitempty"`
 }
 
 var shellComms = map[string]bool{

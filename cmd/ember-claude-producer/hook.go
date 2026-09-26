@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -28,6 +29,8 @@ type hookInput struct {
 	ErrorType           string          `json:"error_type,omitempty"`
 	ErrorMessage        string          `json:"error_message,omitempty"`
 	Error               string          `json:"error,omitempty"`
+	IsInterrupt         bool            `json:"is_interrupt,omitempty"`
+	ToolUseID           string          `json:"tool_use_id,omitempty"`
 	EndReason           string          `json:"end_reason,omitempty"`
 }
 
@@ -43,21 +46,84 @@ func runHook(args []string) {
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
 		os.Exit(0)
 	}
-	stdin, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
-	if err != nil {
-		os.Exit(0)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.HookTimeoutMs)*time.Millisecond)
 	defer cancel()
-	dispatchHook(ctx, event, stdin, cfg)
+	dispatchHookFrom(ctx, event, io.LimitReader(os.Stdin, hookStdinMax), cfg)
 	os.Exit(0)
+}
+
+// hookStdinMax bounds what a hook reads from stdin. PostToolUse carries the
+// tool's whole result in tool_response (a Read can be megabytes) and
+// tool_use_id comes after it, so the old 1 MiB cap cut those payloads off and
+// the hook did nothing. decodeHookInput streams past tool_response instead of
+// holding the payload in memory.
+const hookStdinMax = 64 << 20
+
+// decodeHookInput stream-decodes a hook's stdin object. tool_response is
+// skipped token by token and never stored: the producer must never forward a
+// tool's output. Every other top-level field is small and decoded as usual.
+func decodeHookInput(r io.Reader) (hookInput, error) {
+	var in hookInput
+	dec := json.NewDecoder(r)
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return in, fmt.Errorf("hook stdin is not a JSON object")
+	}
+	fields := map[string]json.RawMessage{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return in, err
+		}
+		key, _ := t.(string)
+		if key == "tool_response" {
+			if err := skipJSONValue(dec); err != nil {
+				return in, err
+			}
+			continue
+		}
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return in, err
+		}
+		fields[key] = raw
+	}
+	body, err := json.Marshal(fields)
+	if err != nil {
+		return in, err
+	}
+	err = json.Unmarshal(body, &in)
+	return in, err
+}
+
+// skipJSONValue consumes one JSON value from dec without keeping it.
+func skipJSONValue(dec *json.Decoder) error {
+	depth := 0
+	for {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch t {
+		case json.Delim('{'), json.Delim('['):
+			depth++
+		case json.Delim('}'), json.Delim(']'):
+			depth--
+		}
+		if depth == 0 {
+			return nil
+		}
+	}
 }
 
 // dispatchHook is the testable seam: parses stdin JSON, performs marker mutation
 // + HTTP, swallows all errors.
 func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
-	var in hookInput
-	if err := json.NewDecoder(bytes.NewReader(stdin)).Decode(&in); err != nil {
+	dispatchHookFrom(ctx, event, bytes.NewReader(stdin), cfg)
+}
+
+func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config) {
+	in, err := decodeHookInput(r)
+	if err != nil {
 		return
 	}
 	sessionID := sanitizeSessionID(in.SessionID, in.CWD)
@@ -72,16 +138,13 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 	lockP := lockPath(dir, sessionID)
 	client := NewClient(cfg)
 	switch event {
-	// #76 evaluation spike: PostToolUse / PostToolUseFailure / PermissionDenied
-	// are log-only for now — we don't yet know if they carry enough signal to
-	// justify wiring into the state machine (vs. the existing PreToolUse-derived
-	// activity and the waiting/error paths). Write a structured line to the
-	// spike log and return without touching markers or POSTing status. Revisit
-	// after a few days of real use: promote into the switch below, or delete
-	// this case and the hook registrations in install.go. See issue #76.
-	case "post-tool-use", "post-tool-use-failure", "permission-denied":
-		writeSpikeLog(sessionID, event, in)
-		return
+	// Tool-outcome hooks (#76): see posttool.go. No new states.
+	case "post-tool-use":
+		handleToolOutcome(ctx, cfg, client, in, "", markerP, lockP)
+	case "post-tool-use-failure":
+		handleToolOutcome(ctx, cfg, client, in, failureOutcome(in), markerP, lockP)
+	case "permission-denied":
+		handleToolOutcome(ctx, cfg, client, in, "denied", markerP, lockP)
 	case "session-start":
 		handleSessionStart(in, markerP, lockP)
 	case "user-prompt-submit":
@@ -91,13 +154,17 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 		if cfg.ActivityDetailEnabled {
 			act = activityString(in.ToolName, in.ToolInput)
 		}
-		handleUpsert(ctx, cfg, client, sessionID, "running", in.ToolName, act, markerP, lockP)
+		handleUpsertWith(ctx, cfg, client, sessionID, "running", in.ToolName, act, markerP, lockP, upsertExtra{
+			preToolUseID: in.ToolUseID, preFP: permissionFingerprint(in.ToolName, in.ToolInput),
+		})
 	case "permission-request":
 		act := ""
 		if cfg.ActivityDetailEnabled {
 			act = activityString(in.ToolName, in.ToolInput)
 		}
-		handleUpsert(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, act, markerP, lockP)
+		handleUpsertWith(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, act, markerP, lockP, upsertExtra{
+			pending: permissionFingerprint(in.ToolName, in.ToolInput),
+		})
 	case "notification":
 		// permission_prompt and agent_needs_input are both explicit "waiting for
 		// the user" signals (issue #75); agent_completed is an explicit "finished"
@@ -106,7 +173,13 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 		// a session, this only adds a faster signal on top.
 		msg := pickFirstNonEmpty(in.Message, in.NotificationMessage)
 		switch in.NotificationType {
-		case "permission_prompt", "agent_needs_input":
+		case "permission_prompt":
+			// The dialog's ~6 s notification can land after its call already
+			// ran (approved); lateResumedPrompt drops it then.
+			handleUpsertWith(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP, upsertExtra{
+				skip: func(prev marker) bool { return lateResumedPrompt(prev, msg, hookNow()) },
+			})
+		case "agent_needs_input":
 			handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
 		case "agent_completed":
 			handleUpsert(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP)
@@ -140,6 +213,27 @@ func handleSessionStart(in hookInput, markerP, lockP string) {
 }
 
 func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string) {
+	handleUpsertWith(ctx, cfg, client, sessionID, state, message, activity, markerP, lockP, upsertExtra{})
+}
+
+// upsertExtra carries the tool-outcome bookkeeping (#76) into an upsert.
+type upsertExtra struct {
+	// pending is a PermissionRequest's call fingerprint: the "waiting" this
+	// upsert starts is for that call.
+	pending string
+	// preToolUseID / preFP identify a PreToolUse's call.
+	preToolUseID, preFP string
+	// skip, when it returns true for the existing marker, drops the upsert
+	// (no write, no POST).
+	skip func(prev marker) bool
+}
+
+// handleUpsertWith is handleUpsert plus the ToolTrack rules: a PermissionRequest
+// records its pending call (and the PreToolUse id when the fingerprints
+// match) and clears the last resume; a later "waiting" without one (the same
+// dialog's Notification) keeps the pending call; any other state clears it.
+// The last PreToolUse and the last resume survive other upserts.
+func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string, x upsertExtra) {
 	req := StatusRequest{
 		Source:        cfg.Source,
 		Tool:          "claude",
@@ -163,9 +257,14 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 		// hook event doesn't clobber the statusline's enrichment of this marker.
 		var ownerPID int
 		var ownerStart string
+		var track ToolTrack
 		if old, err := readMarker(markerP); err == nil {
 			var prev marker
 			if json.Unmarshal(old, &prev) == nil {
+				if x.skip != nil && x.skip(prev) {
+					return nil
+				}
+				track = prev.ToolTrack
 				req.RateWindowPct = prev.RateWindowPct
 				req.RateResetAt = prev.RateResetAt
 				req.RateResetLabel = prev.RateResetLabel
@@ -181,24 +280,34 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
 			}
 		}
+		if x.preFP != "" {
+			track.LastToolUseID, track.LastToolFP = x.preToolUseID, x.preFP
+		}
+		if x.pending != "" {
+			track.PendingPermission, track.PendingToolUseID = x.pending, ""
+			if track.LastToolFP == x.pending {
+				track.PendingToolUseID = track.LastToolUseID
+			}
+			track.ResumedTool, track.ResumedAt = "", 0
+		}
+		if state != "waiting" {
+			track.PendingPermission, track.PendingToolUseID = "", ""
+		}
 		// Capture the owning Claude process once per session (preserved across
 		// later upserts), so the heartbeat can detect an ungraceful close.
 		if ownerPID == 0 {
 			ownerPID, ownerStart = detectOwner()
 		}
-		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart}
+		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart, ToolTrack: track}
 		body, err := json.Marshal(m)
 		if err != nil {
 			return nil
 		}
 		_ = writeMarker(markerP, body)
 		// The weekly fields are marker-only (relayed to POST /v1/usage by the
-		// heartbeat tick, see tick.go's postStatuslineUsage) — strip them
-		// before this POST /v1/status so they never appear on that wire body.
-		req.RateWeekPct = nil
-		req.RateWeekResetAt = 0
-		req.RateWeekResetLabel = ""
-		_ = client.Post(ctx, req)
+		// heartbeat tick, see tick.go's postStatuslineUsage); wireRequest
+		// strips them so they never appear on this wire body.
+		_ = client.Post(ctx, wireRequest(cfg, req))
 		return nil
 	})
 }

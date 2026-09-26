@@ -37,3 +37,20 @@ func NewDaemonClient(cfg Config) *Client {
 // app's Local Network hint. Set only by runDaemon: the one-shot `tick` runs
 // in a terminal, whose network permission says nothing about the agent's.
 var daemonLink *producer.LinkStatus
+
+// wireRequest is the one POST /v1/status body builder for the hook and
+// heartbeat paths. It turns a marker's stored request into a POST /v1/status body
+// under the current config: the card/bar toggles come
+// from config, context_pct only when enabled, and the marker-only weekly
+// fields are stripped.
+func wireRequest(cfg Config, req StatusRequest) StatusRequest {
+	if !cfg.ContextPctEnabled {
+		req.ContextPct = nil
+	}
+	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
+	req.SourceCard, req.SessionBar = &sc, &sb
+	req.RateWeekPct = nil
+	req.RateWeekResetAt = 0
+	req.RateWeekResetLabel = ""
+	return req
+}
