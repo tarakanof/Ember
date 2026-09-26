@@ -24,7 +24,7 @@ struct AgentsPane: View {
         case "usage-7d": ("7-day usage", "Weekly window usage.")
         case "usage-model-a": ("First model", "Per-model 5-hour usage, e.g. Opus.")
         case "usage-model-b": ("Second model", "Per-model 5-hour usage, e.g. Sonnet.")
-        default: (LocalizedStringKey(card), "")
+        default: (LocalizedStringKey(card), LocalizedStringKey(String()))  // no caption; not a catalog key
         }
     }
 

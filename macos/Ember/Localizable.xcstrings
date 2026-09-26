@@ -1,7 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "" : {},
     "%@" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
@@ -135,9 +134,6 @@
       "comment" : "An agent session with no Mac name: tool name, then its state (\"Claude — Running\").",
       "extractionState" : "manual"
     },
-    "%@%%" : {
-      "comment" : "Settings › Clock: humidity offset with its sign (\"+5%\")."
-    },
     "%@, %@" : {
       "comment" : "VoiceOver, Usage card row: tool name, then which window (\"Claude, 5-hour window\").",
       "localizations" : {
@@ -228,10 +224,14 @@
     "5-hour limit resets" : {},
     "5-hour usage" : {},
     "5-hour window" : {},
-    "5h" : {},
+    "5h" : {
+      "comment" : "Abbreviation for the 5-hour usage window (Usage card row, Agents table column). Keep it very short."
+    },
     "7-day usage" : {},
     "7-day window" : {},
-    "7d" : {},
+    "7d" : {
+      "comment" : "Abbreviation for the 7-day usage window (Usage card row). Keep it very short."
+    },
     "A meeting chimes with its popup, so it needs a popup time in Calendar. The severe weather sound plays with its alert, set in Weather." : {},
     "AQI %lld" : {
       "comment" : "Settings › Weather: an air quality index threshold (European AQI)."
@@ -1154,8 +1154,7 @@
     "very poor" : {},
     "· ^[%lld session](inflect: true)" : {
       "comment" : "Work hours chart label after the active time: the number of focus sessions."
-    },
-    "—" : {}
+    }
   },
   "version" : "1.0"
 }

@@ -122,7 +122,7 @@ struct FocusCard: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue(value)
-        .help(help ?? "")
+        .help(help.map { Text($0) } ?? Text(verbatim: ""))
     }
 
     private func streakText(_ s: FocusSummary) -> String {
