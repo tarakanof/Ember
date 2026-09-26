@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"regexp"
 	"time"
@@ -25,7 +24,7 @@ var melodyName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,24}$`)
 
 // deviceClient returns an awtrix client for the currently-resolved clock.
 func (a *App) deviceClient() (*awtrix.Client, error) {
-	base, _, err := a.deviceBaseClient()
+	base, err := a.deviceBaseURL()
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +86,7 @@ func (a *App) handleDevicePowerPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Power *bool `json:"power"`
 	}
-	if err := decodeJSON(w, r, &body, true); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &body, true) {
 		return
 	}
 	if body.Power == nil {
@@ -108,8 +106,7 @@ func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Melody *string `json:"melody"`
 	}
-	if err := decodeJSON(w, r, &body, true); err != nil && !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOptionalOrReject(w, r, &body, true) {
 		return
 	}
 	if body.Melody != nil && !melodyName.MatchString(*body.Melody) {

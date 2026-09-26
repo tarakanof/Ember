@@ -23,8 +23,7 @@ func (a *App) handleWeatherConfigGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleWeatherConfigPut(w http.ResponseWriter, r *http.Request) {
 	var cfg WeatherConfig
-	if err := decodeJSON(w, r, &cfg, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &cfg, false) {
 		return
 	}
 	if err := a.applyWeatherSettings(cfg); err != nil {

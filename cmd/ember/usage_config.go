@@ -83,8 +83,7 @@ func (a *App) handleUsageConfigPut(w http.ResponseWriter, r *http.Request) {
 	// it names (same schema-evolution guard as loadPersistedUsageSettings) —
 	// otherwise a future client omitting a newer field would silently zero it.
 	dto := a.usageDTO()
-	if err := decodeJSON(w, r, &dto, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &dto, false) {
 		return
 	}
 	a.applyUsageSettings(dto)

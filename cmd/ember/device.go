@@ -373,8 +373,7 @@ func (a *App) handleDeviceConfigPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		BaseURL string `json:"base_url"`
 	}
-	if err := decodeJSON(w, r, &body, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &body, false) {
 		return
 	}
 	if err := a.applyDeviceBaseURL(body.BaseURL); err != nil {

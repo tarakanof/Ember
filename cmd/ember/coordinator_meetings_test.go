@@ -154,9 +154,9 @@ func TestMeetingTileClearsAtStart(t *testing.T) {
 	if len(cleared) != 1 || cleared[0] != "ember-meet" {
 		t.Errorf("past start: want ClearApp(ember-meet), got %v", cleared)
 	}
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	pm := c.pushedMeeting
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if pm != nil {
 		t.Error("pushedMeeting should be nil after clear")
 	}
@@ -255,9 +255,9 @@ func TestMeetingTileAdopted(t *testing.T) {
 	if !c.adoptDeviceManagedApps() {
 		t.Fatal("adopt should succeed when device loop is readable")
 	}
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	pm := c.pushedMeeting
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if pm == nil {
 		t.Fatal("pushedMeeting should be seeded non-nil after adopt")
 	}

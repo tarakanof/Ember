@@ -53,7 +53,12 @@ The aggregator and the only writer to the device.
   Sessions are reaped when stale.
 - **Render priority.** `waiting > error > running > done`; `idle` never wins
   (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
-  an aggregate label is shown.
+  an aggregate label is shown. One Go ordering, `render.StatePriority`: the
+  `/state` render and the preview pick their winner with `render.PickWinning`
+  (most recent within a state), while the clock's rotation and session bar
+  order by it via `render.SortedActiveKeys` (ties by source/tool/session). The
+  menu's Swift `pickWinning` is a port of `PickWinning`;
+  `TestPickWinningTable` is the case table a Swift test should mirror.
 - **The coordinator** (single-writer goroutine) owns all publish timing and
   device state. Responsibilities: rotation across sessions by **stable session
   key** (not slice index), attention **preempt** (jump to a waiting/error
@@ -781,7 +786,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
 - **Strict vs forward-compat decode:** `handleStatus` (`POST /v1/status`) decodes
   **non-strict** (unknown fields ignored) so newer producers can post fields an
   older server doesn't know. `handleDeleteStatus` + `handleNotify` stay **strict**
-  (reject unknown fields / trailing tokens, 413 via `http.MaxBytesReader`).
+  (reject unknown fields / trailing tokens). Every JSON handler decodes through
+  `decodeOrReject` (`server.go`): a body past the 1 MB cap answers **413**, any
+  other decode failure 400, both with a `request rejected` log line.
 - **Auth:** bearer token on write endpoints, via `EMBER_TOKEN` env only —
   never argv/URL/logs. `slog.LogValuer` redaction throughout. **Fails closed:**
   an unset `EMBER_TOKEN` rejects every `/v1` write with 401 (same policy as the

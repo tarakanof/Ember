@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // The clock's temperature/humidity calibration lives in tempOffset/humOffset
@@ -39,7 +41,7 @@ const (
 
 // readSystem fetches the clock's current /api/v1/system object in full.
 func (a *App) readSystem(ctx context.Context) (map[string]any, error) {
-	body, status, err := a.proxyToDevice(ctx, http.MethodGet, "/api/v1/system", nil)
+	body, status, err := a.proxyToDevice(ctx, (*awtrix.Client).RawSystem)
 	if err != nil {
 		return nil, err
 	}
@@ -84,8 +86,7 @@ func (a *App) handleDeviceSensorsGet(w http.ResponseWriter, r *http.Request) {
 // dev.json-backed endpoint keep working.
 func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]any
-	if err := decodeJSON(w, r, &patch, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &patch, false) {
 		return
 	}
 	if len(patch) == 0 {
@@ -131,7 +132,7 @@ func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPut, "/api/v1/system", payload)
+	_, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPutSystem, payload))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

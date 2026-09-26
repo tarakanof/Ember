@@ -49,9 +49,9 @@ func TestAttentionChimeOncePerLock(t *testing.T) {
 		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "error", newState: "running"})
 		time.Sleep(50 * time.Millisecond)
 
-		c.muTest.RLock()
+		c.stateMu.RLock()
 		stillLocked := c.locked
-		c.muTest.RUnlock()
+		c.stateMu.RUnlock()
 		if stillLocked {
 			t.Fatal("expected lock released after drain to running")
 		}
@@ -123,12 +123,12 @@ func TestAckTimeoutReadLive(t *testing.T) {
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/w", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	if !c.locked {
-		c.muTest.RUnlock()
+		c.stateMu.RUnlock()
 		t.Fatal("expected lock acquired")
 	}
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 
 	// Shorten the timeout to 5s at runtime (still within the current lock).
 	newCfg := *cfgPtr.Load()
@@ -140,9 +140,9 @@ func TestAckTimeoutReadLive(t *testing.T) {
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotLocked := c.locked
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 
 	if gotLocked {
 		t.Errorf("locked = true after 6s with live AckTimeoutSeconds=5; expected live config read to have released the lock")

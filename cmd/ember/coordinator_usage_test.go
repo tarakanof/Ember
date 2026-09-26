@@ -175,14 +175,14 @@ func TestIdleCardCursorAdvancesOnEmptyKeys(t *testing.T) {
 
 	// First tick starts the idle countdown; cardCursor goes 0→1.
 	c.onTick()
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	cursorAfterFirst := c.cardCursor
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 
 	c.onTick()
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	cursorAfterSecond := c.cardCursor
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 
 	if cursorAfterSecond != cursorAfterFirst+1 {
 		t.Fatalf("cardCursor after two empty-keys ticks: %d → %d, want +1 increment",

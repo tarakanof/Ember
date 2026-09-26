@@ -69,7 +69,7 @@ func (a *App) handleDeviceCapabilities(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, caps)
 		return
 	}
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/capabilities", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawCapabilities)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

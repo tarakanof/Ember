@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // overlayValues are the ambient-weather overlay effects awtrix-ng exposes via
@@ -49,7 +51,7 @@ func validateDeviceDisplay(m map[string]any) error {
 }
 
 func (a *App) handleDeviceDisplayGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/display", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawDisplay)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -65,8 +67,7 @@ func (a *App) handleDeviceDisplayGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
 	var m map[string]any
-	if err := decodeJSON(w, r, &m, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &m, false) {
 		return
 	}
 	if err := validateDeviceDisplay(m); err != nil {
@@ -74,7 +75,7 @@ func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	reply, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/display", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPatchDisplay, payload))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -96,7 +97,7 @@ type deviceAppsPutBody struct {
 }
 
 func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/apps", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawApps)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -112,12 +113,11 @@ func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 	var body deviceAppsPutBody
-	if err := decodeJSON(w, r, &body, true); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &body, true) {
 		return
 	}
 	payload, _ := json.Marshal(body)
-	reply, status, err := a.proxyToDevice(r.Context(), http.MethodPut, "/api/v1/apps/order", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPutAppOrder, payload))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

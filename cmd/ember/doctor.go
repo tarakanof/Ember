@@ -15,6 +15,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
@@ -181,23 +182,18 @@ func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
 	if timeout <= 0 {
 		timeout = 2 * time.Second
 	}
-	url := cfg.AWTRIX.HTTPBaseURL + "/api/v1/device"
-	client := &http.Client{Timeout: timeout}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return CheckResult{Status: StatusFail, Detail: fmt.Sprintf("GET %s: %v", url, err)}
-	}
+	cl := awtrix.NewClient(cfg.AWTRIX.HTTPBaseURL, timeout)
+	url := cl.BaseURL() + awtrix.DevicePath
 	start := time.Now()
-	resp, err := client.Do(req)
+	reply, err := cl.RawDevice(ctx)
 	if err != nil {
 		return CheckResult{Status: StatusFail, Detail: fmt.Sprintf("GET %s: %v", url, err)}
 	}
-	defer resp.Body.Close()
 	elapsed := time.Since(start).Round(time.Millisecond)
-	if resp.StatusCode >= 500 {
-		return CheckResult{Status: StatusFail, Detail: fmt.Sprintf("GET %s → %d (%v)", url, resp.StatusCode, elapsed)}
+	if reply.Status >= 500 {
+		return CheckResult{Status: StatusFail, Detail: fmt.Sprintf("GET %s → %d (%v)", url, reply.Status, elapsed)}
 	}
-	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("GET %s → %d (%v)", url, resp.StatusCode, elapsed)}
+	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("GET %s → %d (%v)", url, reply.Status, elapsed)}
 }
 
 // checkCapabilities reports the cached firmware capability counts. A missing
