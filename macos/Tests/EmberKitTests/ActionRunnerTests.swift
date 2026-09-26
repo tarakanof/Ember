@@ -16,7 +16,7 @@ private final class Server: @unchecked Sendable {
 }
 
 @MainActor
-private func setup(_ server: Server, clearAfter: Duration = .seconds(10)) -> (ActionRunner, LiveModel) {
+private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (ActionRunner, LiveModel) {
     let client = stubbedClient { req in
         server.log("\(req.httpMethod ?? "") \(req.url!.path)")
         if req.httpMethod != "GET" { return (okResponse(req.url!, status: server.status), Data()) }
@@ -29,12 +29,12 @@ private func setup(_ server: Server, clearAfter: Duration = .seconds(10)) -> (Ac
             return (okResponse(req.url!, status: 404), Data())
         }
     }
-    let clock = ManualClock()
     let live = LiveModel(now: { Date(timeIntervalSince1970: 50) }, makeCoordinator: {
         RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
     })
     live.configure(client: client)
-    let runner = ActionRunner(live: live, clearAfter: clearAfter, now: { Date(timeIntervalSince1970: 50) })
+    let runner = ActionRunner(live: live, clearAfter: .seconds(10), now: { Date(timeIntervalSince1970: 50) },
+                              sleep: clock.sleepFn)
     runner.configure(client: client)
     return (runner, live)
 }
@@ -68,13 +68,16 @@ private func setup(_ server: Server, clearAfter: Duration = .seconds(10)) -> (Ac
     #expect(runner.lastError == nil)
 }
 
-@MainActor @Test func failureClearsItselfAfterTheTimeout() async throws {
+@MainActor @Test func failureClearsItselfAfterTheTimeout() async {
     let server = Server()
     server.status = 404
-    let (runner, _) = setup(server, clearAfter: .milliseconds(50))
+    let clock = ManualClock()
+    let (runner, _) = setup(server, clock: clock)
     await runner.run(.clock(.power(false)))
     #expect(runner.lastError?.error == .featureOff)
-    for _ in 0..<100 where runner.lastError != nil { try await Task.sleep(for: .milliseconds(10)) }
+    await clock.advance(by: .milliseconds(9_900))
+    #expect(runner.lastError != nil)
+    await clock.advance(by: .milliseconds(100))
     #expect(runner.lastError == nil)
 }
 

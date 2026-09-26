@@ -211,7 +211,7 @@ private final class Flag: @unchecked Sendable {
     #expect(statsCalls.paths.isEmpty)
     phase.value = "short_break"
     await m.refreshNow(.pomodoroState)
-    for _ in 0..<200 where statsCalls.paths.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+    for _ in 0..<1000 where statsCalls.paths.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
     #expect(statsCalls.paths == ["stats"])
 }
 

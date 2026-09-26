@@ -50,16 +50,25 @@ public final class ActionRunner {
     @ObservationIgnored private let live: LiveModel
     @ObservationIgnored private let clearAfter: Duration
     @ObservationIgnored private let now: @MainActor () -> Date
+    @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var perform: (@Sendable (EmberAction) async throws -> Void)?
     @ObservationIgnored private var clearTask: Task<Void, Never>?
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "actions")
 
-    public init(live: LiveModel, clearAfter: Duration = .seconds(10),
-                now: @escaping @MainActor () -> Date = { Date() }) {
+    public convenience init(live: LiveModel) {
+        self.init(live: live, clearAfter: .seconds(10), now: { Date() },
+                  sleep: { try await Task.sleep(for: $0) })
+    }
+
+    /// Tests inject the clocks.
+    init(live: LiveModel, clearAfter: Duration,
+         now: @escaping @MainActor () -> Date,
+         sleep: @escaping @Sendable (Duration) async throws -> Void) {
         self.live = live
         self.clearAfter = clearAfter
         self.now = now
+        self.sleep = sleep
     }
 
     /// Points actions at a new server (alongside `LiveModel.configure`).
@@ -106,9 +115,10 @@ public final class ActionRunner {
         lastError = failure
         clearTask?.cancel()
         let wait = clearAfter
+        let sleep = self.sleep
         clearTask = Task { [weak self] in
-            try? await Task.sleep(for: wait)
-            guard !Task.isCancelled, let self, self.lastError == failure else { return }
+            do { try await sleep(wait) } catch { return }
+            guard let self, self.lastError == failure else { return }
             self.lastError = nil
         }
     }

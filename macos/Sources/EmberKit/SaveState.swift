@@ -15,14 +15,24 @@ public enum SaveState: Equatable, Sendable {
 public final class DebouncedWriter {
     private var task: Task<Void, Never>?
     private let delay: Duration
+    private let sleep: @Sendable (Duration) async throws -> Void
 
-    public init(delay: Duration = .milliseconds(600)) { self.delay = delay }
+    public convenience init(delay: Duration = .milliseconds(600)) {
+        self.init(delay: delay, sleep: { try await Task.sleep(for: $0) })
+    }
+
+    /// Tests inject the sleep to run the debounce on a manual clock.
+    init(delay: Duration, sleep: @escaping @Sendable (Duration) async throws -> Void) {
+        self.delay = delay
+        self.sleep = sleep
+    }
 
     public func schedule(_ action: @escaping @Sendable () async -> Void) {
         task?.cancel()
         let delay = self.delay
+        let sleep = self.sleep
         task = Task {
-            try? await Task.sleep(for: delay)
+            try? await sleep(delay)
             if Task.isCancelled { return }
             await action()
         }
