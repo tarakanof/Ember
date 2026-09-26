@@ -3,7 +3,9 @@ set -euo pipefail
 
 # Local Release build of Ember.app on a Mac without a Developer ID.
 #
-# Builds ad-hoc (the only signing Xcode accepts without a trusted identity),
+# Builds ad-hoc (the only signing Xcode accepts without a trusted identity)
+# without the get-task-allow entitlement Xcode injects into such builds (a
+# debugger-attachable Release app is no install candidate),
 # then, when the "Ember Local Signing" identity exists (see
 # local-signing-identity.sh), re-signs the bundle inside-out with it so its
 # designated requirement, and with it the Local Network grant, survives
@@ -21,7 +23,8 @@ DD="${1:-/tmp/ember-local-build}"
 xcodegen generate --spec "$REPO/macos/project.yml" --project "$REPO/macos" >/dev/null
 xcodebuild -project "$REPO/macos/Ember.xcodeproj" -scheme Ember -configuration Release \
   -derivedDataPath "$DD" -quiet \
-  CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= build
+  CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO build
 APP="$DD/Build/Products/Release/Ember.app"
 
 if "$REPO/scripts/local-signing-identity.sh" --hash >/dev/null; then

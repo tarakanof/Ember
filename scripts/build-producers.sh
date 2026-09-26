@@ -8,6 +8,7 @@ APP="${1:-${CODESIGNING_FOLDER_PATH:-}}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 IDENTITY="${CODE_SIGN_IDENTITY:--}"    # Developer ID in release; ad-hoc for dev
 TIMESTAMP=--timestamp
+KEYCHAIN_ARGS=()                      # only for the local identity (EMBER_SIGNING_KEYCHAIN)
 
 # CODE_SIGNING_ALLOWED=NO (unsigned CI builds): ad-hoc, so go build/lipo/plist
 # copy/plutil lint still run and only the signing step changes. A configured
@@ -24,15 +25,14 @@ if [ "$IDENTITY" != "-" ]; then
       echo "build-producers.sh: no usable '$IDENTITY' identity — using Ember Local Signing ($LOCAL)"
       IDENTITY="$LOCAL"
       TIMESTAMP=--timestamp=none
+      if [ -n "${EMBER_SIGNING_KEYCHAIN:-}" ]; then
+        KEYCHAIN_ARGS=(--keychain "$EMBER_SIGNING_KEYCHAIN")
+      fi
     else
       echo "build-producers.sh: no usable '$IDENTITY' identity — falling back to ad-hoc"
       IDENTITY="-"
     fi
   fi
-fi
-KEYCHAIN_ARGS=()
-if [ "${EMBER_SIGNING_KEYCHAIN:-}" != "" ] && [ "$IDENTITY" != "-" ]; then
-  KEYCHAIN_ARGS=(--keychain "$EMBER_SIGNING_KEYCHAIN")
 fi
 MACOS_DIR="$APP/Contents/MacOS"
 mkdir -p "$MACOS_DIR"

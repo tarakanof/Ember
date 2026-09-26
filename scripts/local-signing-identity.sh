@@ -103,11 +103,12 @@ remove() {
 }
 
 # sign_app re-signs a built Ember.app with the identity, inside-out: nested
-# frameworks, then the helper executables under Contents/MacOS (with the
-# fixed com.ember.<name> identifiers build-producers.sh gives them), then the
-# app. Hardened runtime and any entitlements are kept.
+# frameworks, then the helper executables under Contents/MacOS (keeping the
+# com.ember.* identifiers build-producers.sh gave them), then the app.
+# Hardened runtime and the entitlements are kept, except get-task-allow,
+# which Xcode injects into ad-hoc builds and a Release install must not have.
 sign_app() {
-  local app="$1" hash main f name
+  local app="$1" hash main f name ents
   [ -d "$app" ] || { echo "error: no such app bundle: $app" >&2; exit 2; }
   hash="$(identity_hash)"
   [ -n "$hash" ] || { echo "error: no '$NAME' identity; run scripts/local-signing-identity.sh first" >&2; exit 1; }
@@ -123,9 +124,19 @@ sign_app() {
   for f in "$app"/Contents/MacOS/*; do
     name="$(basename "$f")"
     [ "$name" != "$main" ] || continue
-    "${cs[@]}" --identifier "com.ember.${name#ember-}" "$f"
+    "${cs[@]}" --preserve-metadata=identifier "$f"
   done
-  "${cs[@]}" --preserve-metadata=entitlements "$app"
+  ents="$(mktemp)"
+  codesign -d --entitlements - --xml "$app" >"$ents" 2>/dev/null || true
+  if [ -s "$ents" ]; then
+    /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.get-task-allow' "$ents" >/dev/null 2>&1 || true
+  fi
+  if [ -s "$ents" ] && [ "$(plutil -convert json -o - "$ents" 2>/dev/null)" != "{}" ]; then
+    "${cs[@]}" --entitlements "$ents" "$app"
+  else
+    "${cs[@]}" "$app"
+  fi
+  rm -f "$ents"
   echo "signed $(basename "$app") with $NAME ($hash)"
   codesign -dr - "$app" 2>&1 | sed -n 's/^designated => /designated requirement: /p'
 }
