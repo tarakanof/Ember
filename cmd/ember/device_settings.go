@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // settingKind classifies how a device setting value is validated before it is
@@ -25,6 +27,7 @@ const (
 	kObject
 	kNumber       // any finite float64, no bound (e.g. overlaySettings.speed)
 	kStringOrNull // string up to maxLen, or JSON null (e.g. overlaySettings.palette)
+	kColorOrNull  // a kColor, or JSON null to inherit (the per-app colours)
 )
 
 type settingRule struct {
@@ -76,7 +79,11 @@ var deviceSettingRules = map[string]settingRule{
 	// General
 	"brightness":     {kind: kInt, min: 0, max: 255},
 	"autoBrightness": {kind: kBool},
-	"volume":         {kind: kInt, min: 0, max: 30},
+	// Sound (NG 1.1.0): soundEnabled mutes the device; buzzerVolume replaced
+	// the 0-30 "volume", which NG now rejects with 422. The TC001 has only the
+	// piezo, so the DFPlayer/MP3/radio volumes are left out.
+	"soundEnabled": {kind: kBool},
+	"buzzerVolume": {kind: kInt, min: 0, max: 100},
 	// appDurationMs is milliseconds on NG (was ATIME, seconds, 1-3600, on
 	// AWTRIX3) — 1s-1h is a sane bound for a rotating app's dwell time.
 	"appDurationMs":        {kind: kInt, min: 1000, max: 3600000},
@@ -106,15 +113,16 @@ var deviceSettingRules = map[string]settingRule{
 	"calendarHeaderColor": {kind: kColor},
 	"calendarBodyColor":   {kind: kColor},
 	"calendarTextColor":   {kind: kColor},
-	// Native Apps — per-builtin-app text color, plus a couple of app-adjacent
-	// toggles (issue #92).
-	"timeColor":        {kind: kColor},
-	"dateColor":        {kind: kColor},
-	"temperatureColor": {kind: kColor},
-	"humidityColor":    {kind: kColor},
-	"batteryColor":     {kind: kColor},
+	// Native Apps — per-builtin-app text color (null = inherit textColor, which
+	// is how NG reports an unset one), plus an app-adjacent toggle (issue #92).
+	// There is no smoothScroll: that was AWTRIX3's SSCROLL; scroll.mode is the
+	// NG equivalent.
+	"timeColor":        {kind: kColorOrNull},
+	"dateColor":        {kind: kColorOrNull},
+	"temperatureColor": {kind: kColorOrNull},
+	"humidityColor":    {kind: kColorOrNull},
+	"batteryColor":     {kind: kColorOrNull},
 	"useCelsius":       {kind: kBool},
-	"smoothScroll":     {kind: kBool},
 	// Nested objects — the device speaks these NG shapes directly; the macOS
 	// app adapts to them in #71.
 	"scroll":     {kind: kObject, obj: scrollRules},
@@ -158,6 +166,10 @@ func validateSettingValue(k string, v any, rule settingRule) error {
 	case kColor:
 		if !validColor(v) {
 			return fmt.Errorf("%s must be a hex string or [r,g,b]", k)
+		}
+	case kColorOrNull:
+		if v != nil && !validColor(v) {
+			return fmt.Errorf("%s must be null, a hex string or [r,g,b]", k)
 		}
 	case kEnum:
 		s, ok := v.(string)
@@ -246,6 +258,49 @@ func (a *App) proxyToDevice(ctx context.Context, method, path string, body []byt
 	return out, resp.StatusCode, nil
 }
 
+// deviceProxyStatus picks the status the menu sees for a non-2xx clock reply.
+// Request errors (bad value, unknown key, missing app, wrong media type) and
+// a busy/absent-hardware 503 pass through unchanged, so the caller can tell
+// "the clock refused this" from "the clock is broken or unreachable".
+// Everything else becomes 502; a device 401/403 in particular must not read
+// as the menu's own bearer token being wrong.
+func deviceProxyStatus(status int) int {
+	switch status {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict,
+		http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType,
+		http.StatusUnprocessableEntity, http.StatusServiceUnavailable:
+		return status
+	}
+	return http.StatusBadGateway
+}
+
+// writeDeviceError relays a non-2xx clock reply to the menu. The NG envelope
+// ({"error":{code,message,field}}) is flattened into the server's own error
+// shape — "error" stays a string, which is what the menu displays — with
+// "code" and "field" alongside so a caller can point at the rejected key.
+func writeDeviceError(w http.ResponseWriter, status int, body []byte) {
+	apiErr := awtrix.ParseAPIError(status, body)
+	msg := fmt.Sprintf("clock returned %d", status)
+	if detail := apiErr.Message; detail != "" {
+		// Cap a raw (non-envelope) body at 200 runes, never mid-sequence.
+		if r := []rune(detail); len(r) > 200 {
+			detail = string(r[:200]) + "…"
+		}
+		msg += ": " + detail
+	}
+	if apiErr.Field != "" {
+		msg += " (field " + apiErr.Field + ")"
+	}
+	out := map[string]string{"error": msg}
+	if apiErr.Code != "" {
+		out["code"] = apiErr.Code
+	}
+	if apiErr.Field != "" {
+		out["field"] = apiErr.Field
+	}
+	writeJSON(w, deviceProxyStatus(status), out)
+}
+
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/settings", nil)
 	if err != nil {
@@ -253,7 +308,7 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	var all map[string]any
@@ -282,13 +337,13 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/settings", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/settings", payload)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -301,7 +356,7 @@ func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -320,7 +375,7 @@ func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -351,13 +406,13 @@ func (a *App) handleDevicePrevApp(w http.ResponseWriter, r *http.Request) {
 // proxyAction sends a bodiless request to a clock action endpoint and maps
 // the result.
 func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, method, path string) {
-	_, status, err := a.proxyToDevice(r.Context(), method, path, nil)
+	reply, status, err := a.proxyToDevice(r.Context(), method, path, nil)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

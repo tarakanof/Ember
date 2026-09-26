@@ -198,9 +198,6 @@ struct DeviceTab: View {
             Toggle(isOn: b(\.uppercase)) {
                 RowLabel("Uppercase letters", symbol: "textformat", tint: .blue)
             }
-            Toggle(isOn: b(\.smoothScroll)) {
-                RowLabel("Smooth scroll", symbol: "arrow.left.and.right.text.vertical", tint: .mint)
-            }
             Toggle(isOn: b(\.blockNavigation)) {
                 RowLabel("Block buttons", symbol: "hand.raised.fill", tint: .orange)
             }
@@ -210,8 +207,14 @@ struct DeviceTab: View {
             sliderRow("Brightness", symbol: "sun.min.fill", tint: .yellow,
                       value: i(\.brightness, 80), range: 0...255) { "\($0)" }
                 .disabled(b(\.autoBrightness).wrappedValue)
-            sliderRow("Volume", symbol: "speaker.wave.2.fill", tint: .pink,
-                      value: i(\.volume, 25), range: 0...30) { "\($0)" }
+            if capabilities?.hasBuzzer ?? true {
+                Toggle(isOn: b(\.soundEnabled, true)) {
+                    RowLabel("Sound", symbol: "speaker.wave.2.fill", tint: .pink)
+                }
+                sliderRow("Buzzer volume", symbol: "speaker.wave.1.fill", tint: .pink,
+                          value: i(\.buzzerVolume, 80), range: 0...100, step: 5) { "\($0)%" }
+                    .disabled(!b(\.soundEnabled, true).wrappedValue)
+            }
             sliderRow("App time", symbol: "timer", tint: .orange,
                       value: appDurationSecondsBinding, range: 1...60) { "\($0)s" }
             ColorHexPicker(title: "Text color", symbol: "paintpalette.fill", tint: .teal, hex: s(\.textColor, "#FFFFFF"))

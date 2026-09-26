@@ -15,7 +15,7 @@ import (
 const capabilitiesTimeout = 2 * time.Second
 
 // refreshCapabilities caches the clock's supported name lists (effects,
-// transitions, overlays, palettes, radio, gpio) plus its firmware version.
+// transitions, overlays, palettes, audio, gpio) plus its firmware version.
 // Called at startup and whenever rediscovery swaps to a different clock — the
 // lists are per firmware build, so they only change when the device does.
 // Failures leave the previous cache in place and log a warning; the endpoint
@@ -38,7 +38,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	a.logger.Info("device capabilities cached",
 		"effects", len(caps.Effects), "palette_effects", len(caps.PaletteEffects),
 		"transitions", len(caps.Transitions), "overlays", len(caps.Overlays),
-		"palettes", len(caps.Palettes), "radio", caps.Radio,
+		"palettes", len(caps.Palettes), "buzzer", caps.Audio.Buzzer,
 		"firmware", a.deviceFirmware())
 }
 
@@ -72,7 +72,7 @@ func (a *App) handleDeviceCapabilities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	var caps awtrix.Capabilities

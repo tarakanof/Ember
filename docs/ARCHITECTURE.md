@@ -57,7 +57,7 @@ The aggregator and the only writer to the device.
   key** (not slice index), attention **preempt** (jump to a waiting/error
   session) with an attention hold (`ack_timeout_seconds`, default 30 s, **read
   live** so a runtime PUT applies to the current lock) and an optional **chime**
-  on fresh lock acquisition (`attention_chime`, via `POST /api/v1/sounds/play`), the
+  on fresh lock acquisition (`attention_chime`, via `POST /api/v1/audio/play`), the
   **number-slot card cursor** (rotates cards within a session — see Display),
   publish **dedup** (skip identical payloads until the renewal margin — see
   "Publishing over a lossy link" below), and
@@ -458,9 +458,12 @@ resets one), so the steady state costs no extra device traffic.
 and again on every rediscovery, cached in-process, and served at
 `GET /v1/device/capabilities` (falling back to a live proxy fetch when the
 cache is cold) — the firmware's supported effect/transition/overlay/palette
-name lists, which the macOS Device tab uses to populate its transition picker
-instead of guessing at a static enum. `/admin/doctor` reports the cached
-counts as its `capabilities` check.
+name lists plus its `audio{buzzer,track,mp3,radio}` outputs (NG 1.1.0 replaced
+the old top-level `radio` flag), relayed as the device's own document so no
+key is dropped. The macOS Device tab uses them to populate its transition
+picker and to gate the buzzer-volume row, instead of guessing at a static
+enum. `/admin/doctor` reports the cached counts (and whether a buzzer is
+present) as its `capabilities` check.
 
 **App ordering** (`GET/PUT /v1/device/apps`) proxies `GET /api/v1/apps` /
 `PUT /api/v1/apps/order` — ordering plus enable/disable of the device's own
@@ -530,6 +533,20 @@ discrete typed fields on NG (`timeMode`, `dateOrder`, `dateSeparator`, …) with
 no format strings to validate, unlike AWTRIX3's `TFORMAT`/`DFORMAT` strftime
 strings. `buttonCallback` is set separately via `PUT /v1/device/buttons`
 (below) because it lives on `/api/v1/system`, not `/api/v1/settings`.
+The whitelist tracks NG 1.1.x: `soundEnabled` (device mute) and
+`buzzerVolume` (0–100) replaced the pre-1.1.0 `volume` (0–30), and
+`smoothScroll` (an AWTRIX3 key NG never had; `scroll.mode` replaces it) is
+gone — NG rejects unknown keys with 422, so one stale key fails the whole
+PATCH. The per-app colours (`timeColor`, `dateColor`, `temperatureColor`,
+`humidityColor`, `batteryColor`) accept `null`, which returns the app to
+inheriting `textColor`.
+
+When the clock refuses a proxied request, the `/v1/device/*` handlers relay
+its NG error envelope instead of a bare 502: the menu gets
+`{"error":"clock returned 422: <message> (field <key>)","code","field"}` with
+the device's status for request errors (400/404/409/413/415/422) and 503
+(busy / no such hardware), and 502 for everything else — a device 401/403
+included, so it can't be mistaken for a bad Ember token.
 
 Sensor calibration (`GET/PUT /v1/device/sensors`) targets `tempOffset`/
 `humOffset` on `/api/v1/system` — NG has no dedicated settings-API key for

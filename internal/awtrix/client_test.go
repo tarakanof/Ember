@@ -6,9 +6,12 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -123,11 +126,12 @@ func TestPlayRTTTL(t *testing.T) {
 	if err := c.PlayRTTTL(context.Background(), "beep:d=16,o=6,b=140:c"); err != nil {
 		t.Fatalf("PlayRTTTL: %v", err)
 	}
-	if rec.method != http.MethodPost || rec.path != "/api/v1/sounds/play" {
+	// NG 1.1.0 moved audio to /api/v1/audio/*; the old /sounds/play is a 404.
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
 		t.Fatalf("got %s %s", rec.method, rec.path)
 	}
-	if m := decodeBody(t, rec); m["rtttl"] != "beep:d=16,o=6,b=140:c" {
-		t.Fatalf("body = %v", m)
+	if m := decodeBody(t, rec); m["rtttl"] != "beep:d=16,o=6,b=140:c" || len(m) != 1 {
+		t.Fatalf("body = %v (audio/play takes exactly one key)", m)
 	}
 }
 
@@ -136,10 +140,12 @@ func TestPlaySound(t *testing.T) {
 	if err := c.PlaySound(context.Background(), "alarm"); err != nil {
 		t.Fatalf("PlaySound: %v", err)
 	}
-	if rec.method != http.MethodPost || rec.path != "/api/v1/sounds/play" {
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
 		t.Fatalf("got %s %s", rec.method, rec.path)
 	}
-	if m := decodeBody(t, rec); m["name"] != "alarm" {
+	// "sound" lets the device resolve the name across its outputs (MP3,
+	// melody, DFPlayer track) — the same resolution a notification's sound uses.
+	if m := decodeBody(t, rec); m["sound"] != "alarm" || len(m) != 1 {
 		t.Fatalf("body = %v", m)
 	}
 }
@@ -327,9 +333,12 @@ func TestDismissNotifyByNameRejectsEmptyName(t *testing.T) {
 }
 
 func TestCapabilities(t *testing.T) {
+	// Shape of a live NG 1.1.2 clock: radio moved into audio{} in 1.1.0.
 	body := `{"effects":["Fade","Matrix"],"paletteEffects":["Fade"],
 	  "transitions":["Slide","Dim","Zoom"],"overlays":["rain"],
-	  "palettes":["Ocean","Lava"],"radio":false,"gpio":{"soc":"esp32","max":39}}`
+	  "palettes":["Ocean","Lava"],
+	  "audio":{"buzzer":true,"track":false,"mp3":false,"radio":false},
+	  "scriptUpdates":true,"futureKey":{"x":1},"gpio":{"soc":"esp32","max":39}}`
 	c, rec := serve(t, http.StatusOK, body)
 	caps, err := c.Capabilities(context.Background())
 	if err != nil {
@@ -339,25 +348,36 @@ func TestCapabilities(t *testing.T) {
 		t.Fatalf("got %s %s", rec.method, rec.path)
 	}
 	if len(caps.Effects) != 2 || len(caps.PaletteEffects) != 1 || len(caps.Transitions) != 3 ||
-		len(caps.Overlays) != 1 || len(caps.Palettes) != 2 || caps.Radio {
+		len(caps.Overlays) != 1 || len(caps.Palettes) != 2 {
 		t.Fatalf("decoded = %+v", caps)
 	}
-	// gpio round-trips verbatim so a re-marshal reproduces the NG shape.
-	if !strings.Contains(string(caps.GPIO), `"soc":"esp32"`) {
-		t.Fatalf("gpio = %s", caps.GPIO)
+	if !caps.Audio.Buzzer || caps.Audio.Track || caps.Audio.MP3 || caps.Audio.Radio || !caps.ScriptUpdates {
+		t.Fatalf("audio/scriptUpdates = %+v / %v", caps.Audio, caps.ScriptUpdates)
 	}
+	// A re-marshal reproduces the device document verbatim, keys Ember does
+	// not model included, so /v1/device/capabilities never drops a field.
 	out, err := json.Marshal(caps)
 	if err != nil {
 		t.Fatalf("re-marshal: %v", err)
 	}
-	var got map[string]any
+	var got, want map[string]any
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("re-marshal not JSON: %v", err)
 	}
-	for _, k := range []string{"effects", "paletteEffects", "transitions", "overlays", "palettes", "radio", "gpio"} {
-		if _, ok := got[k]; !ok {
-			t.Fatalf("re-marshalled shape missing %q: %s", k, out)
-		}
+	_ = json.Unmarshal([]byte(body), &want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("re-marshal changed the document:\n got %s\nwant %s", out, body)
+	}
+}
+
+func TestCapabilitiesMarshalWithoutRawUsesTypedFields(t *testing.T) {
+	caps := Capabilities{Transitions: []string{"Slide"}, Audio: AudioCaps{Buzzer: true}}
+	out, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"transitions":["Slide"]`) || !strings.Contains(string(out), `"buzzer":true`) {
+		t.Fatalf("marshal = %s", out)
 	}
 }
 
@@ -376,5 +396,53 @@ func TestTrailingSlashTrimmed(t *testing.T) {
 	}
 	if rec.path != "/api/v1/notifications" {
 		t.Fatalf("path = %q (double slash?)", rec.path)
+	}
+}
+
+// TestKeepAliveReusesConnection pins the fix for the undrained-body leak: Go's
+// transport only pools a connection whose response body was read to EOF, so a
+// write that ignores the reply must still drain it. On the lossy clock link
+// every avoided handshake is one less packet to lose.
+func TestKeepAliveReusesConnection(t *testing.T) {
+	var conns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		// Larger than the transport's read-ahead, so it cannot be consumed
+		// by accident: only an explicit drain reaches EOF.
+		_, _ = io.WriteString(w, `{"ok":true,"pad":"`+strings.Repeat("x", 8<<10)+`"}`)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		if st == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, 2*time.Second)
+	for i := 0; i < 3; i++ {
+		if err := c.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+			t.Fatalf("PushApp %d: %v", i, err)
+		}
+	}
+	if err := c.PutIcon(context.Background(), "a.gif", []byte("GIF89a")); err != nil {
+		t.Fatalf("PutIcon: %v", err)
+	}
+	if err := c.PushApp(context.Background(), "ember", map[string]any{"text": "x"}); err != nil {
+		t.Fatalf("PushApp after PutIcon: %v", err)
+	}
+	if got := conns.Load(); got != 1 {
+		t.Fatalf("opened %d connections for 5 sequential writes, want 1 (keep-alive)", got)
+	}
+}
+
+func TestParseAPIError(t *testing.T) {
+	e := ParseAPIError(422, []byte(`{"error":{"code":"validationFailed","message":"unknown field","field":"volume"}}`))
+	if e.StatusCode != 422 || e.Code != "validationFailed" || e.Field != "volume" || e.Message != "unknown field" {
+		t.Fatalf("parsed = %+v", e)
+	}
+	raw := ParseAPIError(500, []byte("  boom \n"))
+	if raw.Code != "" || raw.Message != "boom" {
+		t.Fatalf("raw = %+v", raw)
 	}
 }
