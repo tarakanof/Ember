@@ -19,7 +19,7 @@ public enum AggregateSaveStatus: Equatable, Sendable {
     }
 
     /// The window subtitle; nil when there's nothing to say.
-    public var subtitle: String? {
+    public var subtitle: LocalizedStringResource? {
         switch self {
         case .idle: nil
         case .saving: "Saving…"
@@ -57,35 +57,54 @@ public final class SettingsModels {
         AggregateSaveStatus.combine(all.map(\.status))
     }
 
-    public init(client: APIClient, envPath: URL) {
+    @ObservationIgnored private var server: ServerIdentity
+
+    public init(client: APIClient, envStore: EnvFileStore) {
+        server = ServerIdentity(client)
         (pomodoro, weather, meetings, usage, quiet, display) = Self.serverModels(client)
         agentsEnv = EnvConfigModel(
-            envAt: envPath, initial: DisplaySettings(reading: EnvFile(parsing: "")),
+            env: envStore, initial: DisplaySettings(reading: EnvFile(parsing: "")),
             read: { DisplaySettings(reading: $0) },
             apply: { value, env in value.apply(to: &env) })
         connectionEnv = EnvConfigModel(
-            envAt: envPath, initial: ConnectionSettings(reading: EnvFile(parsing: "")),
+            env: envStore, initial: ConnectionSettings(reading: EnvFile(parsing: "")),
             read: { ConnectionSettings(reading: $0) },
             apply: { value, env in try value.applyTolerant(to: &env, token: nil) })
     }
 
-    /// Points the server-backed models at a new client. Unsaved server edits
-    /// are dropped: they were meant for the previous server.
-    public func configure(client: APIClient) {
+    /// Points the server-backed models at a new client. A no-op when the URL
+    /// and token are unchanged (a source name or colour save). Otherwise
+    /// pending server edits are dropped (they were meant for the previous
+    /// server) and the fresh models load at once. Returns whether it swapped.
+    @discardableResult
+    public func configure(client: APIClient) -> Bool {
+        let next = ServerIdentity(client)
+        guard next != server else { return false }
+        server = next
+        for m in [pomodoro, weather, meetings, usage, quiet, display] as [any PendingSaveCancelling] {
+            m.cancelPendingSave()
+        }
         (pomodoro, weather, meetings, usage, quiet, display) = Self.serverModels(client)
+        Task { await self.loadServerModels() }
+        return true
     }
 
-    /// Loads every model (Settings opening, ⌘R).
-    public func loadAll() async {
+    private func loadServerModels() async {
         async let a: Void = pomodoro.load()
         async let b: Void = weather.load()
         async let c: Void = meetings.load()
         async let d: Void = usage.load()
         async let e: Void = quiet.load()
         async let f: Void = display.load()
+        _ = await (a, b, c, d, e, f)
+    }
+
+    /// Loads every model (Settings opening, ⌘R while Settings is open).
+    public func loadAll() async {
+        async let server: Void = loadServerModels()
         async let g: Void = agentsEnv.load()
         async let h: Void = connectionEnv.load()
-        _ = await (a, b, c, d, e, f, g, h)
+        _ = await (server, g, h)
     }
 
     /// The Focus pane's defaults until the server answers.
@@ -122,3 +141,20 @@ public final class SettingsModels {
         )
     }
 }
+
+/// Which server a client talks to, as far as settings and feeds care.
+struct ServerIdentity: Equatable, Sendable {
+    let baseURL: URL?
+    let token: String?
+    init(_ client: APIClient) {
+        baseURL = client.baseURL
+        token = client.token
+    }
+}
+
+@MainActor
+protocol PendingSaveCancelling {
+    func cancelPendingSave()
+}
+
+extension ConfigModel: PendingSaveCancelling {}

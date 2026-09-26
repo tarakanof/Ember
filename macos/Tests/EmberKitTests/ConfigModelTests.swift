@@ -239,7 +239,7 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
         .write(to: path, atomically: true, encoding: .utf8)
 
     let m = EnvConfigModel<ConnectionSettings>(
-        envAt: path, initial: ConnectionSettings(source: "", serverURL: "", sourceColor: ""),
+        env: EnvFileStore(path: path), initial: ConnectionSettings(source: "", serverURL: "", sourceColor: ""),
         read: { ConnectionSettings(reading: $0) },
         apply: { v, env in try v.applyTolerant(to: &env, token: nil) })
     await m.load()
@@ -255,10 +255,106 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
 
 @MainActor @Test func settingsModelsAggregateTheirStatus() async {
     let client = stubbedClient { req in (okResponse(req.url!, status: 404), Data()) }
-    let s = SettingsModels(client: client, envPath: URL(fileURLWithPath: "/nonexistent/producer.env"))
+    let s = SettingsModels(client: client, envStore: EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env")))
     #expect(s.all.count == 8)
     #expect(s.aggregateStatus == .idle)
     await s.pomodoro.load()
     #expect(s.pomodoro.loadError == .featureOff)
     #expect(s.pomodoro.draft == SettingsModels.defaultPomoConfig)
+}
+
+@MainActor @Test func loadRetriesAFailedSave() async {
+    let store = Store(1)
+    let (m, _) = makeModel(store)
+    await m.load()
+    store.failSaves([APIError.transport("down")])
+    m.draft = 2
+    await m.saveNow()
+    #expect(m.saveError == .offline)
+    // The server is back: the next reload (pane appear, ⌘R) saves the edit
+    // instead of skipping because of it.
+    await m.load()
+    #expect(store.saved == [2])
+    #expect(m.saveError == nil)
+    #expect(m.status == .saved)
+}
+
+@MainActor @Test func loadRevertsAFeatureOffSave() async {
+    let store = Store(1)
+    let (m, _) = makeModel(store)
+    await m.load()
+    store.failSaves([APIError.http(status: 404, body: "")])
+    m.draft = 2
+    await m.saveNow()
+    #expect(m.saveError == .featureOff)
+    await m.load()
+    #expect(store.saved.isEmpty)
+    #expect(m.draft == 1)
+    #expect(m.saveError == nil)
+    #expect(m.status == .idle)
+    #expect(store.loads == 2)
+}
+
+@MainActor @Test func revertAndRetry() async {
+    let store = Store(1)
+    let (m, _) = makeModel(store)
+    await m.load()
+    store.failSaves([APIError.transport("down")])
+    m.draft = 3
+    await m.saveNow()
+    await m.retry()
+    #expect(store.saved == [3])
+    m.draft = 4
+    m.revert()
+    #expect(m.draft == 3)
+    #expect(!m.hasUnsavedChanges)
+}
+
+@MainActor @Test func cancelPendingSaveDropsTheDebouncedWrite() async {
+    let store = Store(1)
+    let (m, clock) = makeModel(store)
+    await m.load()
+    m.draft = 2
+    m.scheduleSave()
+    m.cancelPendingSave()
+    await clock.advance(by: .seconds(1))
+    #expect(store.saved.isEmpty)
+}
+
+@MainActor @Test func settingsModelsKeepTheirModelsForTheSameServer() async {
+    let client = stubbedClient { req in (okResponse(req.url!, status: 404), Data()) }
+    let env = EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env"))
+    let s = SettingsModels(client: client, envStore: env)
+    let before = s.pomodoro
+    let same = APIClient(baseURL: client.baseURL, token: client.token)
+    #expect(!s.configure(client: same))
+    #expect(s.pomodoro === before)
+}
+
+@MainActor @Test func settingsModelsLoadFreshModelsAfterAServerChange() async throws {
+    let pomo = ##"{"enabled":true,"focus_minutes":50,"short_break_minutes":5,"long_break_minutes":15,"rounds_before_long_break":4,"auto_start_next":false,"sound":true,"sound_melody":"","focus_color":"#FF0000","break_color":"#00FF00","max_session_minutes":480}"##
+    let old = stubbedClient { req in (okResponse(req.url!, status: 404), Data()) }
+    let new = stubbedClient { req in
+        req.url!.path == "/v1/pomodoro/config"
+            ? (okResponse(req.url!), Data(pomo.utf8)) : (okResponse(req.url!, status: 404), Data())
+    }
+    let s = SettingsModels(client: old, envStore: EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env")))
+    #expect(s.configure(client: new))
+    for _ in 0..<500 where !s.pomodoro.isLoaded { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(s.pomodoro.draft.focusMinutes == 50)
+}
+
+@Test func envStoreSerializesConcurrentUpdates() async throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true,
+                                            attributes: [.posixPermissions: 0o700])
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let store = EnvFileStore(path: dir.appendingPathComponent("producer.env"))
+    await withTaskGroup(of: Void.self) { group in
+        for i in 0..<20 {
+            group.addTask { try? await store.update { $0.set("KEY_\(i)", "v\(i)") } }
+        }
+    }
+    let env = await store.read()
+    for i in 0..<20 { #expect(env.get("KEY_\(i)") == "v\(i)") }
 }

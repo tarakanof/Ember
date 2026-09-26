@@ -11,7 +11,13 @@ public protocol SaveStatusReporting: AnyObject {
 /// `draft` and call `scheduleSave()` from `onChange(of: draft)`; the model
 /// writes 600 ms after the last edit, retries 429s, and keeps the outcome in
 /// `status` ("Saved" for 2 s, then idle). It never writes before a load has
-/// succeeded, so a control can't overwrite the server with the placeholder.
+/// succeeded, so a control can't overwrite the server with the placeholder:
+/// **views must disable their controls until `isLoaded`**, or an edit made
+/// before the first load is silently discarded.
+///
+/// A failed save is retried by the next `load()` (pane appear, window focus,
+/// ⌘R); a `.featureOff` save is not retried but reverted to the server's
+/// value, since the server doesn't have the setting.
 ///
 /// Server configs use it as `ServerConfigModel<T>`, producer.env settings as
 /// `EnvConfigModel<T>` (see `init(envAt:…)`); the interface is the same.
@@ -74,8 +80,12 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
 
     /// Reads the stored value into `draft` and `applied`. Skipped while an
     /// edit is waiting to be saved, so a reload (window focus, ⌘R) can't
-    /// throw away what the user just typed.
+    /// throw away what the user just typed. After a failed save it retries
+    /// that save instead (or reverts, for `.featureOff`).
     public func load() async {
+        if let e = saveError, hasUnsavedChanges, pending == nil, !saving {
+            if e == .featureOff { revert() } else { await saveNow(); return }
+        }
         guard pending == nil, !saving, !hasUnsavedChanges else { return }
         for attempt in 1...Self.rateLimitAttempts {
             do {
@@ -138,7 +148,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                     continue
                 }
                 saveError = e
-                status = .error(e.saveMessage)
+                status = .error(String(localized: e.saveMessage))
                 return
             }
         }
@@ -149,10 +159,27 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     /// Replaces the draft and applied value without saving (e.g. after a
     /// write made elsewhere).
     public func reset(to value: T) {
-        pending?.cancel()
-        pending = nil
+        cancelPendingSave()
         applied = value
         draft = value
+    }
+
+    /// Retries the last failed save now.
+    public func retry() async { await saveNow() }
+
+    /// Drops unsaved edits and a save error: the draft goes back to the last
+    /// stored value. Call `load()` afterwards to refetch.
+    public func revert() {
+        cancelPendingSave()
+        if let applied { draft = applied }
+        saveError = nil
+        if case .error = status { status = .idle }
+    }
+
+    /// Drops a debounced save that hasn't started (the server is changing).
+    public func cancelPendingSave() {
+        pending?.cancel()
+        pending = nil
     }
 
     private func holdSaved() {
@@ -174,35 +201,29 @@ public typealias EnvConfigModel<T: Equatable & Sendable> = ConfigModel<T>
 extension ConfigModel {
     /// A model over producer.env: `read` parses the settings out of the file;
     /// `apply` writes them into it (validating first, so a throw writes
-    /// nothing). The rest of the file is kept.
-    public convenience init(envAt path: URL,
+    /// nothing). The rest of the file is kept. Writes go through `store`, so
+    /// they can't interleave with other writers of the same file.
+    public convenience init(env store: EnvFileStore,
                             initial: T,
                             read: @escaping @Sendable (EnvFile) -> T,
                             apply: @escaping @Sendable (T, inout EnvFile) throws -> Void,
                             debounce: Duration = .milliseconds(600)) {
-        @Sendable func current() -> EnvFile {
-            EnvFile(parsing: (try? String(contentsOf: path, encoding: .utf8)) ?? "")
-        }
         self.init(initial: initial,
-                  load: { read(current()) },
-                  save: { value in
-                      var env = current()
-                      try apply(value, &env)
-                      try env.write(to: path)
-                  },
+                  load: { read(await store.read()) },
+                  save: { value in try await store.update { try apply(value, &$0) } },
                   debounce: debounce)
     }
 }
 
 extension FeedError {
     /// The inline error under a settings section.
-    public var saveMessage: String {
+    public var saveMessage: LocalizedStringResource {
         switch self {
         case .offline: "Server unreachable"
         case .unauthorized: "Unauthorized — check the token in Connection."
         case .rateLimited: "The server is rate-limiting this Mac. Try again in a moment."
         case .featureOff: "This server doesn't support this setting. Update the server."
-        case .server(let message): message
+        case .server(let message): "Server error: \(message)"
         }
     }
 }
