@@ -3,8 +3,9 @@ import EmberKit
 
 /// One named preview of a clock panel for the Agents, Focus, Weather and
 /// Calendar panes: title (with "Off" when that panel is disabled), the 32×8
-/// frame (dimmed when off) and a caption that says what the pixels mean.
-/// Sits on the black preview backdrop, so its text colours are fixed.
+/// frame on its own black bezel (dimmed when off) and a caption that says what
+/// the pixels mean. The bezel hugs the matrix and sits centred in the row, so
+/// the preview keeps the panel's shape whatever the row's width.
 struct PanelPreview: View {
     let title: LocalizedStringKey
     let caption: LocalizedStringKey
@@ -12,32 +13,30 @@ struct PanelPreview: View {
     /// The frame to render; nil shows a blank matrix (not loaded yet).
     let frame: CardFrame?
 
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    /// White at `opacity`, or near-solid white with Increase Contrast on.
-    private func ink(_ opacity: Double) -> Color {
-        .white.opacity(contrast == .increased ? 0.95 : opacity)
-    }
+    /// Previews stay modest next to the controls they illustrate.
+    static let maxPitch: CGFloat = 12
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Text(title).font(.caption.weight(.semibold)).foregroundStyle(ink(0.85))
+                Text(title).font(.callout.weight(.semibold))
                 if !enabled {
-                    Text("Off").font(.caption).foregroundStyle(ink(0.6))
+                    Text("Off").font(.callout).foregroundStyle(.secondary)
                 }
             }
             Group {
                 if let frame {
-                    PreviewCanvas(frames: [frame])
+                    PreviewCanvas(frames: [frame], maxPitch: Self.maxPitch)
                 } else {
-                    MatrixScreenView(pixels: Array(repeating: 0, count: 256))
+                    MatrixScreenView(pixels: Array(repeating: 0, count: 256), maxPitch: Self.maxPitch)
                 }
             }
-            .opacity(enabled ? 1 : 0.35)
-            .frame(maxWidth: 420, alignment: .leading)
+            .opacity(enabled ? 1 : 0.35) // dims the LEDs, not the black bezel
+            .ledBezel()
+            .frame(maxWidth: .infinity)
             .accessibilityHidden(true)
-            Text(caption).font(.caption).foregroundStyle(ink(0.65))
+            Text(caption).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
@@ -47,13 +46,16 @@ struct PanelPreview: View {
 }
 
 extension View {
-    /// The black LED backdrop a preview row sits on, edge to edge in its section.
-    func settingsPreviewBackdrop() -> some View {
-        padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.black)
+    /// The black panel an LED matrix sits on: a thin margin, hugging the
+    /// matrix so it never letterboxes across a wide row or card.
+    func ledBezel(padding: CGFloat = 8, cornerRadius: CGFloat = 8) -> some View {
+        self.padding(padding)
+            .background(.black, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .environment(\.colorScheme, .dark)
-            .listRowInsets(EdgeInsets())
+    }
+
+    /// Spacing for the stack of previews at the top of a settings pane.
+    func settingsPreviewRow() -> some View {
+        padding(.vertical, 4)
     }
 }

@@ -24,7 +24,7 @@ struct FocusPane: View {
                     PanelPreview(title: "Long break", caption: "Crescent moon, after ^[\(c.roundsBeforeLongBreak) round](inflect: true).",
                                  enabled: c.enabled, frame: frame("long_break"))
                 }
-                .settingsPreviewBackdrop()
+                .settingsPreviewRow()
             } footer: {
                 Text("The clock shows animated icons; the preview shows the drawn ones.")
             }
