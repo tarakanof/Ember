@@ -219,7 +219,7 @@ struct DiscoverClocksSheet: View {
                         openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
                     }
                 } label: {
-                    Label("This Mac can't search: Local Network access is off or there's no network",
+                    Label("This Mac can't search: Local Network access is off",
                           systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                 }

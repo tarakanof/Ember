@@ -401,7 +401,7 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     let (d, browser, _, clock) = makeDiscovery()
     let scan = Task { await d.scan() }
     await clock.settle()
-    browser.onState?(.waiting)
+    browser.onState?(.denied)
     #expect(d.access == .needsAccess)
     browser.onState?(.ready)
     #expect(d.access == .ok)
@@ -454,4 +454,22 @@ private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
     d.stop()
     await clock.advance(by: ClockDiscovery.browseWindow)
     await second.value
+}
+
+/// Only a PolicyDenied browse means Local Network access is off; any other
+/// wait is transient and the scan keeps searching.
+@Test func browseWaitIsNeedsAccessOnlyWhenPolicyDenied() {
+    let denied = NWError.dns(DNSServiceErrorType(kDNSServiceErr_PolicyDenied))
+    #expect(BonjourClockBrowser.browseState(for: .waiting(denied)) == .denied)
+    #expect(BonjourClockBrowser.browseState(for: .failed(denied)) == .denied)
+    #expect(BonjourClockBrowser.browseState(for: .waiting(.posix(.ENETDOWN))) == nil)
+    #expect(BonjourClockBrowser.browseState(for: .failed(.posix(.ENETDOWN))) == .failed)
+    #expect(BonjourClockBrowser.browseState(for: .ready) == .ready)
+}
+
+/// On-device the denied browse failed with NoAuth (-65555), not PolicyDenied.
+@Test func noAuthBrowseFailureMeansLocalNetworkIsOff() {
+    let noAuth = NWError.dns(DNSServiceErrorType(kDNSServiceErr_NoAuth))
+    #expect(BonjourClockBrowser.browseState(for: .failed(noAuth)) == .denied)
+    #expect(BonjourClockBrowser.browseState(for: .waiting(noAuth)) == .denied)
 }

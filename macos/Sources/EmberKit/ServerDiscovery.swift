@@ -53,14 +53,15 @@ public final class ServerDiscovery {
                 switch state {
                 case .ready:
                     self?.status = .searching
-                // A browse that can't proceed parks in .waiting — on a fresh build
-                // that's almost always missing Local Network access. Surface it so
-                // the UI can prompt instead of spinning forever. If results arrive
-                // anyway, the list is shown regardless of status.
-                case .waiting:
-                    self?.status = .needsAccess
-                case .failed:
-                    self?.status = .unavailable
+                // Only a PolicyDenied browse means Local Network access is off;
+                // any other wait is transient and the browse keeps going. If
+                // results arrive anyway, the list is shown regardless of status.
+                case .waiting(let e), .failed(let e):
+                    if BonjourClockBrowser.isPolicyDenied(e) {
+                        self?.status = .needsAccess
+                    } else if case .failed = state {
+                        self?.status = .unavailable
+                    }
                 default:
                     break
                 }
