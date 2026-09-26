@@ -161,6 +161,11 @@ func TestCompactTextTruncatesByRune(t *testing.T) {
 		{"cyrillic within 80 runes", strings.Repeat("ж", 60), strings.Repeat("ж", 60)},
 		{"cyrillic over 80 runes", strings.Repeat("ж", 90), strings.Repeat("ж", 77) + "..."},
 		{"emoji over 80 runes", strings.Repeat("🔥", 81), strings.Repeat("🔥", 77) + "..."},
+		// Rune 77 is a combining acute: the cut backs off to keep "é" whole.
+		{"combining mark at the cut", strings.Repeat("a", 76) + "é" + strings.Repeat("b", 10), strings.Repeat("a", 76) + "..."},
+		// A ZWJ family (man ZWJ woman) straddling the cut is dropped whole.
+		{"zwj sequence at the cut", strings.Repeat("a", 76) + "👨‍👩" + strings.Repeat("b", 10), strings.Repeat("a", 76) + "..."},
+		{"skin tone at the cut", strings.Repeat("a", 76) + "👍🏽" + strings.Repeat("b", 10), strings.Repeat("a", 76) + "..."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

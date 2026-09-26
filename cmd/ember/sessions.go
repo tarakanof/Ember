@@ -168,14 +168,34 @@ func labelFor(session Session) string {
 
 // compactText collapses whitespace and caps the label at 80 characters,
 // counted in runes so a Cyrillic or emoji message is never cut mid-sequence
-// (which would surface as U+FFFD in /state).
+// (which would surface as U+FFFD in /state). The cut also backs off so it
+// never strands a combining mark, variation selector, skin-tone modifier or
+// ZWJ-joined emoji part: an approximation of a grapheme boundary, since the
+// standard library has no segmenter.
 func compactText(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
 	r := []rune(text)
 	if len(r) <= 80 {
 		return text
 	}
-	return string(r[:77]) + "..."
+	cut := 77
+	for cut > 0 && (extendsCluster(r[cut]) || r[cut-1] == zeroWidthJoiner) {
+		cut--
+	}
+	return string(r[:cut]) + "..."
+}
+
+const zeroWidthJoiner = '‍'
+
+// extendsCluster reports whether r attaches to the rune before it.
+func extendsCluster(r rune) bool {
+	switch {
+	case r == zeroWidthJoiner, r == '︎', r == '️':
+		return true
+	case r >= 0x1f3fb && r <= 0x1f3ff: // emoji skin-tone modifiers
+		return true
+	}
+	return unicode.In(r, unicode.Mn, unicode.Me)
 }
 
 func perSessionLabel(s Session) string {
