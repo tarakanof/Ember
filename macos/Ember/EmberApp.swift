@@ -27,7 +27,7 @@ struct EmberApp: App {
         }
         .defaultSize(width: 980, height: 720)
         .windowResizability(.contentMinSize)
-        .defaultLaunchBehavior(.suppressed)
+        .defaultLaunchBehavior(UserDefaults.standard.bool(forKey: "dashboard.openAtLaunch") ? .presented : .suppressed)
         .restorationBehavior(.disabled)
 
         Window("Settings", id: WindowID.settings) {
@@ -62,7 +62,10 @@ private struct EmberCommands: Commands {
             Button("Refresh") {
                 Task {
                     await env.live.refreshNow()
-                    if env.isSettingsOpen { await env.settings.loadAll() }
+                    if env.isSettingsOpen {
+                        await env.settings.loadAll()
+                        await env.deviceSettings.load(force: true)
+                    }
                 }
             }
             .keyboardShortcut("r", modifiers: .command)
