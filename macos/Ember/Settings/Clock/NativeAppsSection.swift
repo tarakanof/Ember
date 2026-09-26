@@ -66,7 +66,9 @@ struct NativeAppsSection: View {
         } header: {
             Text("App Colors")
         } footer: {
-            if !device.supportsNG11 {
+            if device.firmwareTooOld {
+                Text("Update the clock's firmware to NG 1.1 or later to let an app follow the text color again.")
+            } else if !device.supportsNG11 {
                 Text("Update the Ember server to let an app follow the text color again.")
             }
         }

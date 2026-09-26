@@ -129,6 +129,8 @@ struct SoundsPane: View {
                     } else {
                         Text("Loading…")
                     }
+                } else if device.firmwareTooOld {
+                    Text("Update the clock's firmware to NG 1.1 or later to mute it or set its volume here.")
                 } else if !device.supportsNG11 {
                     Text("Update the Ember server to mute the clock or set its volume here.")
                 } else if device.audio == .noOutput {
@@ -155,7 +157,7 @@ private struct MelodyRow: View {
     let names: [String]
     let allowsCustom: Bool
     let canPreview: Bool
-    let preview: (String?) async -> Void
+    let preview: (String) async -> Void
     @State private var customPicked = false
 
     var body: some View {
@@ -182,16 +184,14 @@ private struct MelodyRow: View {
                 .fixedSize()
                 if canPreview {
                     Button {
-                        Task {
-                            if case .stored(let name) = choice { await preview(name) } else { await preview(nil) }
-                        }
+                        Task { if case .stored(let name) = choice { await preview(name) } }
                     } label: {
                         Label("Play", systemImage: "play.circle")
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .disabled(choice == .custom)
-                    .help("Play on the clock")
+                    .disabled(!choice.isStored)
+                    .help("Play this melody on the clock")
                 }
             }
         } label: {
@@ -201,4 +201,8 @@ private struct MelodyRow: View {
             TextField("Melody", text: $value, prompt: Text("Melody name or RTTTL"))
         }
     }
+}
+
+private extension MelodyChoice {
+    var isStored: Bool { if case .stored = self { true } else { false } }
 }

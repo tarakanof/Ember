@@ -88,11 +88,11 @@ struct ConnectionPane: View {
         .autosaves(model)
         .onChange(of: focused) { old, _ in commitOnFocusLeave(old) }
         // Leaving the pane or closing the window tears the view down without
-        // a focus change; don't lose a typed value.
+        // a focus change; don't lose a typed source or URL. The token is only
+        // ever saved by Save Token or Return.
         .onDisappear {
             commitOnFocusLeave(.source)
             commitOnFocusLeave(.serverURL)
-            if !tokenIsBlank { Task { await saveToken() } }
         }
         .onChange(of: model.applied) { _, applied in
             guard let applied else { return }

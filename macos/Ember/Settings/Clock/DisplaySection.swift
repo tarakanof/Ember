@@ -8,7 +8,7 @@ struct DisplaySection: View {
     var body: some View {
         let s = device.settings
         Section {
-            if let power = device.displayPower {
+            if device.supportsDisplayPower, let power = device.displayPower {
                 Toggle("Display on", isOn: Binding(
                     get: { power },
                     set: { on in Task { await device.setDisplayPower(on) } }))
@@ -26,7 +26,7 @@ struct DisplaySection: View {
             }
             PercentSliderRow(title: "Scroll speed",
                              percent: s.binding(\.scroll, \.speed, 100, empty: ScrollSettings()),
-                             range: 10...200, step: 10)
+                             range: (10...500).including(s.draft.scroll?.speed ?? 100), step: 10)
                 .disabled(s.draft.scroll?.mode == ScrollMode.static.rawValue)
             Toggle("Block button navigation", isOn: s.binding(\.blockNavigation, false))
         } header: {

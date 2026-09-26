@@ -34,7 +34,8 @@ struct SensorsSection: View {
             }
             LabeledContent {
                 Button("Reset to Firmware Defaults") { m.draft = SensorCalibration() }
-                    .disabled(m.draft == SensorCalibration())
+                    .disabled((m.draft.tempOffset ?? DeviceUnits.firmwareTemperatureOffset) == DeviceUnits.firmwareTemperatureOffset
+                              && (m.draft.humOffset ?? DeviceUnits.firmwareHumidityOffset) == DeviceUnits.firmwareHumidityOffset)
             } label: {
                 EmptyView()
             }

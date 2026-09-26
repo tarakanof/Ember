@@ -7,6 +7,7 @@ struct GeneralPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var login = LoginItemService.status
     @State private var loginError: String?
+    @AppStorage("dashboard.openAtLaunch") private var openDashboardAtLaunch = false
 
     var body: some View {
         @Bindable var env = env
@@ -51,6 +52,7 @@ struct GeneralPane: View {
             }
 
             Section {
+                Toggle("Open Dashboard at launch", isOn: $openDashboardAtLaunch)
                 Toggle("Launch at login", isOn: Binding(
                     get: { login == .enabled || login == .requiresApproval },
                     set: { on in

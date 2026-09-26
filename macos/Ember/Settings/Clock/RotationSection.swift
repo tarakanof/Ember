@@ -12,7 +12,7 @@ struct RotationSection: View {
             StepperRow(title: "Time per app", value: Binding(
                 get: { (s.draft.appDurationMs ?? 7000) / 1000 },
                 set: { s.draft.appDurationMs = $0 * 1000 }),
-                range: 2...60) { Text("\($0) s") }
+                range: (1...60).including((s.draft.appDurationMs ?? 7000) / 1000)) { Text("\($0) s") }
             Toggle("Switch apps automatically", isOn: s.binding(\.autoTransition, true))
             Picker("Transition", selection: s.binding(\.transitionEffect, device.transitions.first ?? "Fade")) {
                 let current = s.draft.transitionEffect
@@ -22,7 +22,7 @@ struct RotationSection: View {
                 }
             }
             StepperRow(title: "Transition length", value: s.binding(\.transitionDurationMs, 400),
-                       range: 100...2000, step: 100) { Text("\($0) ms") }
+                       range: (0...2000).including(s.draft.transitionDurationMs ?? 400), step: 50) { Text("\($0) ms") }
             Picker("Overlay", selection: $display.draft.overlay) {
                 Text("None").tag(String?.none)
                 ForEach(device.overlays, id: \.self) { o in
