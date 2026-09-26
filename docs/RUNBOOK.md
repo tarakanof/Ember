@@ -53,6 +53,9 @@ docker run -d --name ember --restart unless-stopped -p 3627:3627 \
   for everything except clock/server discovery (multicast doesn't cross the
   bridge). For the discovery features, run with `--network host` and drop `-p`
   (the production/Unraid path; see "Discovery & mDNS" and "Docker Hub release").
+  Also in `-p` bridge mode every client arrives from the Docker gateway IP, so
+  the clock's `/hooks/awtrix/*` calls share one rate-limit bucket with the Macs'
+  `/v1` traffic (60 burst, 5/s).
 - **When recreating the container, `docker inspect` it first** to replicate
   exact mount destinations / env names rather than reconstructing from memory.
 - **After any render-side change, rebuild + redeploy from current `main`** —

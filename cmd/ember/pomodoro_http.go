@@ -435,9 +435,8 @@ func (a *App) loadPersistedPomodoroSettings() {
 // one per edge (press AND release). Unauthenticated by design — the device
 // cannot send a bearer token — but behind the per-IP rate limiter (its burst is
 // far above what a finger can press) and a buttonHookMaxBody cap. Answered
-// immediately, because the firmware
-// times out after 300 ms per edge on the display task and a slow reply shows up
-// as visible stutter.
+// immediately, because the firmware times out after 300 ms per edge on the
+// display task and a slow reply shows up as visible stutter.
 //
 // `select` is kept as an accepted alias: NG's HTTP callback says "middle", but
 // its own MQTT topics and Berry `on_button` hook call the same button "select",
@@ -455,8 +454,7 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK) // accept-and-ignore; device keeps posting
 		return
 	}
-	// An edge is a few dozen bytes; without the cap the form branch's
-	// ParseForm would read up to 10 MB from an unauthenticated caller.
+	// Without the cap, ParseForm reads up to 10 MB from an unauthenticated caller.
 	r.Body = http.MaxBytesReader(w, r.Body, buttonHookMaxBody)
 	button, down, err := parseButtonEvent(r)
 	if err != nil {

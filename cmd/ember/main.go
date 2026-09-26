@@ -978,8 +978,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
 	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
 	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
-	// Unauthenticated (the device can't hold a token) but per-IP rate-limited
-	// like everything else that reaches the clock or the coordinator.
+	// Unauthenticated (the device can't hold a token) but per-IP rate-limited.
 	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
 	// Same trust model as the button hook, and the same reason: a Berry script
 	// on the clock has nowhere to keep a token. See handleAwtrixBoot.
