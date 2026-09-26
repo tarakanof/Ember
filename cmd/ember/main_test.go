@@ -1122,6 +1122,13 @@ func TestHandleNotify_EmitsNGPayload(t *testing.T) {
 			t.Errorf("legacy AWTRIX3 key %q present — NG rejects the whole payload", k)
 		}
 	}
+	// Casing and scroll are pinned, not inherited from the clock's globals.
+	if p["textCase"] != "upper" {
+		t.Errorf("textCase = %v, want upper", p["textCase"])
+	}
+	if scroll, _ := p["scroll"].(map[string]any); scroll["whenFits"] != "static" {
+		t.Errorf("scroll = %v, want whenFits:static", p["scroll"])
+	}
 }
 
 // The default colour must be the same canonical "#RRGGBB" form every render

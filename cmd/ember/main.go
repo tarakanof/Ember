@@ -30,6 +30,7 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 	"github.com/tarakanof/ember/internal/pomodoro"
+	"github.com/tarakanof/ember/internal/render"
 )
 
 type AuthConfig struct {
@@ -1241,15 +1242,9 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	if req.Duration <= 0 {
 		req.Duration = 5
 	}
-	if err := a.publisher.Notify(r.Context(), map[string]any{
-		"name":       notifyNameNotify,
-		"text":       req.Text,
-		"textColor":  req.Color,
-		"durationMs": req.Duration * 1000, // the request carries seconds; NG takes ms
-		"hold":       req.Hold,
-		"wakeup":     true,
-		"stack":      false,
-	}); err != nil {
+	payload := render.NotifyPayload(req.Text, req.Color, req.Duration, req.Hold)
+	payload["name"] = notifyNameNotify
+	if err := a.publisher.Notify(r.Context(), payload); err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}

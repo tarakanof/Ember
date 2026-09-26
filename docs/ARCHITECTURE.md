@@ -443,6 +443,8 @@ meeting is within `tile_lead_minutes` (default 60) and the feed is fresh; it
 leaves the rotation at meeting start (the tile never shows "0m"). The countdown
 payload changes each minute, so the payload-bytes diff naturally re-pushes without
 a dedicated timer — the same mechanism that refreshes the weather tiles.
+The tile reads `<N>M <TITLE>`: the countdown leads, because a long title
+scrolls and minutes at the end of it were off screen for most of the dwell.
 
 **Popup and chime.** An edge-triggered T-minus popup fires at
 `start − popup_lead_minutes` (default 2; 0 = off), deduped per occurrence
@@ -898,6 +900,13 @@ rather than doubling some hours.
   op, and why a drawn icon's op is 9 wide (`iconOp`): without a native icon,
   NG scrolls text across all 32 columns, and the blank col 8 keeps it out of
   the gap. `textInFront:true` would allow a single op again (#109).
+- **Text payloads inherit casing and scroll from the clock's globals.**
+  `textCase` defaults to `inherit` (the global `uppercase`, on by default) and
+  every `scroll` field inherits one by one from the global `scroll`. The
+  previews draw only uppercase, so every payload carrying free text (agent
+  cards pin `scroll` only; reminders, meetings, `/v1/notify` also pin
+  `textCase:"upper"`, via `pinText`) sets both explicitly, and the device
+  matches the preview whatever the user set in the web UI.
 - **NG's font is 3px wide + 1px spacing, variable for wide letters.** "STUD"
   lands exactly in cols 9–23; "M" is 5 wide. This is what the source card buys
   by handing its text to the firmware: the in-house `font3x5` cannot form an

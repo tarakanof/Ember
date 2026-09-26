@@ -99,7 +99,7 @@ func TestMeetingsPreviewLive(t *testing.T) {
 
 	// The pixel arrays must differ (different title renders differently).
 	if slicesEqual(live.Frames[0].Pixels, fallback.Frames[0].Pixels) {
-		t.Error("live and fallback frames must differ — live path should render TEAM SYNC, not STANDUP 12m")
+		t.Error("live and fallback frames must differ — live path should render TEAM SYNC, not 12M STANDUP")
 	}
 }
 

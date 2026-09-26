@@ -54,19 +54,26 @@ func meetingIconPixels() []int {
 }
 
 // MeetingPayload returns the rotating countdown tile payload for the
-// "ember-meet" app slot: drawn calendar icon at cols 0–7 + native scrolling
-// "<TITLE> <N>m" text from col 9. lifetime seconds controls how long AWTRIX
-// keeps the slot alive before auto-expiring it.
+// "ember-meet" app slot: drawn calendar icon at cols 0–7 + native
+// "<N>M <TITLE>" text from col 9. The countdown leads because a long title
+// scrolls: at the end of the string the minutes spent most of the dwell off
+// screen. lifetime seconds controls how long AWTRIX keeps the slot alive
+// before auto-expiring it.
 func MeetingPayload(title string, minutes, lifetime int) map[string]any {
-	return map[string]any{
-		"text":        fmt.Sprintf("%s %dm", title, minutes),
+	return pinText(map[string]any{
+		"text":        meetingTileText(title, minutes),
 		"textColor":   hexOf(meetingInk),
 		"draw":        []any{iconOp(meetingIconPixels())},
 		"textCenter":  false,
 		"textOffsetX": 9,
 		"lifetimeMs":  msOf(lifetime),
 		"durationMs":  msOf(rotateDwellSeconds),
-	}
+	})
+}
+
+// meetingTileText is the tile's text, shared by the payload and the preview.
+func meetingTileText(title string, minutes int) string {
+	return fmt.Sprintf("%dM %s", minutes, title)
 }
 
 // MeetingPopupPayload returns the T-minus notification payload: drawn calendar
@@ -79,7 +86,7 @@ func MeetingPayload(title string, minutes, lifetime int) map[string]any {
 // The chime is NOT built here — the caller attaches `soundRtttl` to the
 // returned payload; awtrix-ng plays it in-band alongside the draw ops.
 func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]any {
-	return map[string]any{
+	return pinText(map[string]any{
 		"text":        fmt.Sprintf("%s IN %dM", title, leadMinutes),
 		"textColor":   hexOf(meetingInk),
 		"durationMs":  msOf(durationSec),
@@ -88,7 +95,7 @@ func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]
 		"draw":        []any{iconOp(meetingIconPixels())},
 		"textCenter":  false,
 		"textOffsetX": 9,
-	}
+	})
 }
 
 // MeetingTileFrame is the preview-only drawn frame (the canvas can't render
@@ -98,6 +105,6 @@ func MeetingTileFrame(title string, minutes int) Frame {
 	var f Frame
 	paintBitmap(&f, 0, 0, meetingCalPage, meetingInk)
 	paintBitmap(&f, 0, 0, meetingCalRings, meetingRed)
-	drawDigits(&f, strings.ToUpper(fmt.Sprintf("%s %dM", title, minutes)), 9, 1, meetingInk)
+	drawDigits(&f, strings.ToUpper(meetingTileText(title, minutes)), contentX, textRow, meetingInk)
 	return f
 }

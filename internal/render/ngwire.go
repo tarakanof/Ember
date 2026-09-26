@@ -64,6 +64,17 @@ func WithOverlay(p map[string]any, name string) map[string]any {
 	return p
 }
 
+// pinText fixes the text behaviour of a payload that carries free text (a
+// reminder, a meeting title, a /v1/notify message), which NG would otherwise
+// inherit from the clock's global settings: textCase "upper", because the
+// previews draw only uppercase and the global uppercase setting can be off;
+// and scrollStaticWhenFits, the motion the agent cards already pin. Returns p.
+func pinText(p map[string]any) map[string]any {
+	p["textCase"] = "upper"
+	p["scroll"] = scrollStaticWhenFits()
+	return p
+}
+
 // applyHold marks a pushed-app payload as "this app takes and keeps the screen"
 // — Ember's display hold, formerly AWTRIX3's prio+force pair.
 //

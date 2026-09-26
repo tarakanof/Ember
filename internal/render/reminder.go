@@ -44,14 +44,14 @@ func ReminderPopupFrame(text string) Frame {
 }
 
 func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[string]any {
-	p := map[string]any{
+	p := pinText(map[string]any{
 		"text":       text,
 		"durationMs": msOf(durationSec),
 		"wakeup":     true,
 		"stack":      true,
 		"hold":       hold,
 		"textColor":  hexOf(reminderGold),
-	}
+	})
 	if iconID != "" {
 		p["icon"] = iconID
 	} else {

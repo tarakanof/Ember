@@ -23,6 +23,14 @@ func TestReminderPopupFrame(t *testing.T) {
 	}
 }
 
+// TestReminderPopupPinsText: the reminder text is typed by the user in mixed
+// case; the device must uppercase it like the preview does, whatever the
+// clock's global uppercase setting, in both icon modes.
+func TestReminderPopupPinsText(t *testing.T) {
+	assertPinnedText(t, ReminderPopupPayload("Call mom", "", 8, false))
+	assertPinnedText(t, ReminderPopupPayload("Call mom", "1234", 8, true))
+}
+
 func TestReminderPopupFrame_LongTextClips(t *testing.T) {
 	// Must not panic and must not paint past the right edge (paintCell bounds).
 	f := ReminderPopupFrame("MEETING WITH A VERY LONG TITLE")

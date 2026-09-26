@@ -5,9 +5,12 @@ import "testing"
 func TestMeetingPayloadShape(t *testing.T) {
 	p := MeetingPayload("STANDUP", 12, 600)
 
-	if p["text"] != "STANDUP 12m" {
-		t.Errorf("text = %q, want %q", p["text"], "STANDUP 12m")
+	// The countdown leads: a long title scrolls, and the minutes are what
+	// the tile is for.
+	if p["text"] != "12M STANDUP" {
+		t.Errorf("text = %q, want %q", p["text"], "12M STANDUP")
 	}
+	assertPinnedText(t, p)
 	if p["textColor"] != hexOf(meetingInk) {
 		t.Errorf("textColor = %v, want %v", p["textColor"], hexOf(meetingInk))
 	}
@@ -38,6 +41,7 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 	if p["text"] != "STANDUP IN 2M" {
 		t.Errorf("text = %q, want %q", p["text"], "STANDUP IN 2M")
 	}
+	assertPinnedText(t, p)
 	if p["durationMs"] != 30_000 {
 		t.Errorf("durationMs = %v, want 30000", p["durationMs"])
 	}
@@ -61,6 +65,35 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 	}
 	if _, has := p["soundRtttl"]; has {
 		t.Error("popup must not carry a soundRtttl field")
+	}
+}
+
+// assertPinnedText checks that a text payload pins the two text behaviours NG
+// otherwise inherits from the device's global settings: uppercase (the
+// previews always draw uppercase) and "still when it fits, scroll when not".
+func assertPinnedText(t *testing.T, p map[string]any) {
+	t.Helper()
+	if p["textCase"] != "upper" {
+		t.Errorf("textCase = %v, want upper", p["textCase"])
+	}
+	scroll, _ := p["scroll"].(map[string]any)
+	if scroll["whenFits"] != "static" {
+		t.Errorf("scroll = %v, want whenFits:static", p["scroll"])
+	}
+}
+
+// TestMeetingTileFrameLeadsWithMinutes: the preview shows what the device
+// shows at rest, the countdown first ("12M" from col 9).
+func TestMeetingTileFrameLeadsWithMinutes(t *testing.T) {
+	f := MeetingTileFrame("STANDUP", 12)
+	var want Frame
+	drawDigits(&want, "12M", contentX, textRow, meetingInk)
+	for y := textRow; y < textRow+5; y++ {
+		for x := contentX; x < contentX+11; x++ {
+			if f.Dirty[y][x] != want.Dirty[y][x] {
+				t.Fatalf("pixel (%d,%d) lit=%v, want %v: tile must start with \"12M\"", x, y, f.Dirty[y][x], want.Dirty[y][x])
+			}
+		}
 	}
 }
 

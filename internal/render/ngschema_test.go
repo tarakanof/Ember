@@ -111,6 +111,7 @@ func TestPayloadBuildersEmitOnlyNGKeys(t *testing.T) {
 		"reminder":             ReminderPopupPayload("Call mom", "", 8, false),
 		"reminder-hold":        ReminderPopupPayload("Call mom", "", 8, true),
 		"reminder-native":      ReminderPopupPayload("Call mom", "1234", 8, false),
+		"notify":               NotifyPayload("Deploy done", "#FFFFFF", 5, false),
 	}
 	for name, p := range popups {
 		checkNGKeys(t, name, p, true)
