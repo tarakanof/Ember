@@ -81,6 +81,7 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 	rateMode.RateBottomBar = true
 	seven := 42
 	u := &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &seven}
+	pomo := PomodoroView{Phase: "focus", RemainingSec: 1050, PlannedSec: 1500}
 
 	frame := func(f Frame) [panelW]bool { return row7FromFrame(&f) }
 	cases := map[string][panelW]bool{
@@ -97,6 +98,8 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 		"weather tile native icon":  row7FromPayload(t, WeatherPayloadNative("2286", "21°", hourly(24), 60)),
 		"weather tile moon":         row7FromPayload(t, WeatherPayloadMoon("9°", hourly(24), MoonView{Illum: 0.6, Waxing: true}, 60)),
 		"air tile":                  row7FromPayload(t, AirPayload(53, hourly(24), 60)),
+		"pomodoro device":           row7FromPayload(t, PomodoroPayload(pomo, 60)),
+		"pomodoro preview":          row7FromFrame(RenderPomodoro(pomo)),
 	}
 	for name, row := range cases {
 		if got := firstBarCol(row); got != barX0 {
