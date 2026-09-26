@@ -26,7 +26,7 @@ enum DockMenu {
                     Task { await env.actions.run(.pomodoro(item.action)) }
                 }
                 menuItem.image = NSImage(systemSymbolName: item.systemImage, accessibilityDescription: nil)
-                menuItem.isEnabled = group.isEnabled
+                menuItem.isEnabled = group.isEnabled && !env.actions.running.contains(.pomodoro(item.action))
                 menu.addItem(menuItem)
             }
         }
