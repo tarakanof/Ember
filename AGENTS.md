@@ -66,12 +66,15 @@ The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
 
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}`,
-`GET/PUT /v1/pomodoro/config` (PUT is merge semantics — omitted fields are
-unchanged), `GET/PUT /v1/apps` (per-tool clock visibility),
+`GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage`, `GET/PUT /v1/usage/config`, `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),
-`GET/PUT /v1/meetings/config`, `GET/PUT /v1/device/config`,
+`GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config` (every `…/config`
+settings PUT above is merge semantics: the body is a JSON object whose omitted
+keys keep their current value; an invalid merged result is a 400 and changes
+nothing — see `settings_overlay.go`), `GET/PUT /v1/device/config`
+(`{"base_url"}`, required),
 `GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
 `PATCH /api/v1/settings` keys — see `device_settings.go`),
 `GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
@@ -84,7 +87,7 @@ matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
 `PUT /api/v1/apps/order`), `GET/PUT /v1/device/sensors` (system
 `tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,
 no reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons` (read-merge-PUT
-of `/api/v1/system.buttonCallback`), `GET/PUT /v1/quiet/config`,
+of `/api/v1/system.buttonCallback`),
 `GET /v1/device/stats`, `GET /v1/device/screen` (proxies
 `GET /api/v1/display/screen`, raw `{width,height,pixels}`),
 `GET /v1/device/capabilities` (cached `GET /api/v1/capabilities` — the firmware's
