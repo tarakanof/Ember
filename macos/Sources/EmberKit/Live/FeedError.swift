@@ -4,6 +4,9 @@ import Foundation
 public enum FeedError: Error, Equatable, Sendable {
     /// Transport failure: the server (or this Mac's network) is unreachable.
     case offline
+    /// No answer came in time: the server may be up and waiting on the
+    /// clock, so this isn't `offline`.
+    case timedOut
     /// macOS Local Network privacy blocks this app from the LAN server: looks
     /// like `offline`, but the fix is a permission, not the server.
     case localNetworkDenied
@@ -31,11 +34,16 @@ public enum FeedError: Error, Equatable, Sendable {
             return
         }
         guard let api = error as? APIError else {
-            self = error is URLError ? .offline : .server(error.localizedDescription)
+            switch (error as? URLError)?.code {
+            case .timedOut?: self = .timedOut
+            case _?: self = .offline
+            case nil: self = .server(error.localizedDescription)
+            }
             return
         }
         switch api {
         case .notConfigured, .transport: self = .offline
+        case .timedOut: self = .timedOut
         case .localNetworkDenied: self = .localNetworkDenied
         case .rateLimited: self = .rateLimited
         case .http(401, _): self = .unauthorized
@@ -52,6 +60,9 @@ extension FeedError: LocalizedError {
     public var message: LocalizedStringResource {
         switch self {
         case .offline: "Server unreachable"
+        case .timedOut:
+            LocalizedStringResource("The server didn't answer in time",
+                                    comment: "Error: a request reached the server but no reply came before the app stopped waiting.")
         case .localNetworkDenied: "Local Network access is off for Ember"
         case .unauthorized: "Unauthorized — check the token in Connection settings."
         case .rateLimited: "The server is rate-limiting this Mac."
@@ -62,6 +73,6 @@ extension FeedError: LocalizedError {
 
     public var errorDescription: String? { String(localized: message) }
 
-    /// Whether the server couldn't be reached at all, for whatever reason.
-    public var isUnreachable: Bool { self == .offline || self == .localNetworkDenied }
+    /// Whether no answer came from the server at all, for whatever reason.
+    public var isUnreachable: Bool { self == .offline || self == .timedOut || self == .localNetworkDenied }
 }

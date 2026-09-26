@@ -32,6 +32,12 @@ extension ConnectionHealth {
             }
         case .offline where offlineReason == .localNetworkDenied:
             return "Offline: Local Network access is off"
+        case .offline(let since) where offlineReason == .timedOut:
+            var style = Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)
+            style.timeZone = timeZone
+            return LocalizedStringResource(
+                "Offline: not responding since \(since.formatted(style))",
+                comment: "Dashboard window subtitle: the server stopped answering in time; the time it began (matches \"Offline since %@\").")
         case .offline(let since):
             var style = Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)
             style.timeZone = timeZone

@@ -70,7 +70,7 @@ public enum LocalNetworkProbe {
         case .localNetworkDenied?: return .denied
         case .http?, .rateLimited?, .decoding?: return .reachable
         case .notConfigured?: return .notApplicable
-        case .transport?, nil: return .unreachable
+        case .transport?, .timedOut?, nil: return .unreachable
         }
     }
 

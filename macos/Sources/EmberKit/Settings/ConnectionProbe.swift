@@ -12,6 +12,8 @@ public enum ConnectionProbe {
         /// Reached, but the limiter answered before the token was checked.
         case rateLimited
         case unreachable
+        /// No answer came in time (the server may be up but busy).
+        case timedOut
         /// macOS Local Network privacy blocked the request to a LAN server.
         case localNetworkDenied
         case serverError(status: Int)
@@ -38,6 +40,7 @@ public enum ConnectionProbe {
         // The limiter sits in front of auth: reachable, token untested.
         case .rateLimited: return .rateLimited
         case .transport: return .unreachable
+        case .timedOut: return .timedOut
         case .localNetworkDenied: return .localNetworkDenied
         case .decoding: return .connected(version: nil)
         }

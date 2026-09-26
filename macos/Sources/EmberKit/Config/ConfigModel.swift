@@ -220,6 +220,7 @@ extension FeedError {
     public var saveMessage: LocalizedStringResource {
         switch self {
         case .offline: "Server unreachable"
+        case .timedOut: message
         case .localNetworkDenied: "Local Network access is off for Ember"
         case .unauthorized: "Unauthorized — check the token in Connection."
         case .rateLimited: "The server is rate-limiting this Mac. Try again in a moment."

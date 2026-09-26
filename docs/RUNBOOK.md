@@ -247,7 +247,14 @@ reasons says so instead of "Server unreachable": URLSession reports it as
 the path "unsatisfied (Local network prohibited)" (`LocalNetworkDenial`).
 Read those in the unified log with `/usr/bin/log show --predicate 'process ==
 "Ember"' --last 1h | grep -i "local network prohibited"` (plain `log` is a zsh
-builtin).
+builtin). The same places say "not responding" / "The server didn't answer
+in time" when a request timed out instead of failing to connect (5 s for
+plain server calls such as `/state`, 12 s or 35 s for calls that reach the
+clock; see `RequestBudget`). For the header, the Dashboard and Test
+Connection that means the host is down, the route black-holed or the
+process hung: a powered-off or off-subnet server usually times out rather
+than refusing, so a dead box now reads "not responding", not "unreachable".
+Only a clock-settings call that times out points at a slow clock.
 
 **Release note for the first release with fixed helper identifiers**
 (`com.ember.claude-producer`, `com.ember.codex-producer`): existing installs

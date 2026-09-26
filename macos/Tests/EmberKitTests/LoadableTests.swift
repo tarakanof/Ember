@@ -52,6 +52,7 @@ private let t0 = Date(timeIntervalSince1970: 100)
     (APIError.rateLimited(retryAfter: .seconds(1)), FeedError.rateLimited),
     (APIError.transport("down"), FeedError.offline),
     (APIError.notConfigured, FeedError.offline),
+    (APIError.timedOut, FeedError.timedOut),
     (APIError.http(status: 500, body: #"{"error":"boom"}"#), FeedError.server("HTTP 500 — boom")),
     (APIError.decoding("bad"), FeedError.server("Unexpected server response — bad")),
 ])
@@ -60,7 +61,7 @@ func feedErrorMapsAPIErrors(api: APIError, want: FeedError) {
 }
 
 @Test func feedErrorMapsOtherErrors() {
-    #expect(FeedError(URLError(.timedOut)) == .offline)
+    #expect(FeedError(URLError(.cannotConnectToHost)) == .offline)
     #expect(FeedError(RequestNotSent(underlying: .transport("x"))) == .offline)
     #expect(FeedError(FeedError.featureOff) == .featureOff)
     #expect(FeedError.unauthorized.localizedDescription.contains("token"))

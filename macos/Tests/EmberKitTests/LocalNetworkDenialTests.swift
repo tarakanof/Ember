@@ -108,7 +108,7 @@ func lanHosts(host: String, lan: Bool) {
 }
 
 @Test func apiClientKeepsOtherFailuresAsTransport() async {
-    let client = stubbedClient { _ in throw URLError(.timedOut) }
+    let client = stubbedClient { _ in throw URLError(.networkConnectionLost) }
     do {
         try await client.send("GET", "/state")
         Issue.record("expected a throw")

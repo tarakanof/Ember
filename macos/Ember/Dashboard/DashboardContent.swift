@@ -49,6 +49,18 @@ struct DashboardContent<Source: DashboardSource>: View {
                 Button("Review Permissions…") { openSettings(pane: SettingsPaneID.permissions.rawValue, using: openWindow) }
             }
             .frame(maxWidth: .infinity, minHeight: 480)
+        } else if source.isOfflineWithNothingLoaded, source.snapshot.error == .timedOut {
+            ContentUnavailableView {
+                Label { Text("Server not responding", comment: "Title shown in place of content: the server didn't answer in time.") }
+                    icon: { Image(systemName: "clock.badge.exclamationmark") }
+            } description: {
+                Text("The server didn't answer in time. It may be down or overloaded.",
+                     comment: "Explains a server that didn't answer in time.")
+            } actions: {
+                Button("Try Again", action: onRetry)
+                Button("Open Connection Settings") { openSettings(pane: "connection", using: openWindow) }
+            }
+            .frame(maxWidth: .infinity, minHeight: 480)
         } else if source.isOfflineWithNothingLoaded {
             ContentUnavailableView {
                 Label("Server unreachable", systemImage: "network.slash")

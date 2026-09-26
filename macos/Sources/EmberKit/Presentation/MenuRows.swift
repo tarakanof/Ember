@@ -34,6 +34,11 @@ public enum MenuRows {
             return Header(title: "Connecting…", detail: nil)
         case .offline where offlineReason == .localNetworkDenied:
             return Header(title: "Offline — Local Network access is off for Ember", detail: nil)
+        case .offline(let since) where offlineReason == .timedOut && hasEverLoaded:
+            return Header(title: LocalizedStringResource(
+                "Offline — server not responding since \(time(since, locale: locale, timeZone: timeZone))",
+                comment: "Menu header: the server stopped answering in time; the time it began (matches \"Offline — server unreachable since %@\")."),
+                          detail: nil)
         case .offline(let since):
             guard hasEverLoaded else { return Header(title: "Offline", detail: nil) }
             return Header(title: "Offline — server unreachable since \(time(since, locale: locale, timeZone: timeZone))",
@@ -325,6 +330,8 @@ public enum MenuRows {
     private static func shortReason(_ error: FeedError) -> LocalizedStringResource {
         switch error {
         case .offline: "server unreachable"
+        case .timedOut: LocalizedStringResource("server not responding",
+                                                comment: "Short reason after a failed menu action: the server didn't answer in time.")
         case .localNetworkDenied: "Local Network access is off"
         case .unauthorized: "unauthorized"
         case .rateLimited: "rate-limited"
