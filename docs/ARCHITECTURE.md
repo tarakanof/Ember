@@ -507,7 +507,11 @@ present) as its `capabilities` check.
 apps, replacing the AWTRIX3 settings keys `TIM`/`DAT`/`TEMP`/`HUM`/`BAT` that
 NG has no equivalent for (name only what you want to change). The ambient
 weather overlay is a separate concern, `PATCH /api/v1/display` via
-`GET/PUT /v1/device/display` — not part of app ordering. The device's own
+`GET/PUT /v1/device/display` — not part of app ordering. Display power is
+its own route, `PUT /v1/device/display/power {"power":bool}`, which sends
+`power` alone so an overlay edit can never blank the panel and a power toggle
+can never clear the overlay; the blank is runtime-only (a reboot relights the
+matrix) and a `wakeup` notification still punches through it. The device's own
 rotation needs at least two apps enabled to actually rotate; with only one
 enabled app it just stays on it.
 
@@ -584,6 +588,21 @@ its NG error envelope instead of a bare 502: the menu gets
 the device's status for request errors (400/404/409/413/415/422) and 503
 (busy / no such hardware), and 502 for everything else — a device 401/403
 included, so it can't be mistaken for a bad Ember token.
+
+**Audio** (`device_audio.go`, NG 1.1.x `/api/v1/audio/*`):
+`POST /v1/device/audio/test` plays a built-in test chime (inline RTTTL) or,
+with `{"melody":"<name>"}`, a melody stored on the clock;
+`POST /v1/device/audio/stop` silences every output; `GET
+/v1/device/audio/melodies` relays NG's melody list (name, RTTTL, parsed
+note count and duration, validity) for the menu's melody pickers. They are
+gated on the cached `capabilities.audio`: test and melodies need the buzzer,
+stop needs any output, and a clock without it gets the same 503
+`unavailable` NG itself answers — without a round trip. A cold cache lets the
+call through so the clock decides. The test chime is an explicit user action,
+so it plays during quiet hours; the clock's own `soundEnabled` mute still
+applies. These handlers (and display power) go through `internal/awtrix`
+client methods rather than the raw proxy; a client `*APIError` is relayed by
+the same envelope mapping.
 
 Sensor calibration (`GET/PUT /v1/device/sensors`) targets `tempOffset`/
 `humOffset` on `/api/v1/system` — NG has no dedicated settings-API key for

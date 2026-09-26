@@ -74,6 +74,11 @@ unchanged), `GET/PUT /v1/apps` (per-tool clock visibility),
 `GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
 `PATCH /api/v1/settings` keys — see `device_settings.go`),
 `GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
+`PUT /v1/device/display/power` (`{"power":bool}` — blanks/relights the
+matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
+`{"melody":"<name>"}` to preview a stored one), `POST /v1/device/audio/stop`,
+`GET /v1/device/audio/melodies` (NG's melody list; the audio routes answer
+503 `unavailable` when cached capabilities show no buzzer / no output),
 `GET/PUT /v1/device/apps` (ordering + enable/disable,
 `PUT /api/v1/apps/order`), `GET/PUT /v1/device/sensors` (system
 `tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,

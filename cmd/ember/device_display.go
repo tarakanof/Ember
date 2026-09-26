@@ -19,8 +19,9 @@ var overlaySettingsRules = map[string]settingRule{
 }
 
 // validateDeviceDisplay rejects unknown keys and out-of-range / wrong-type
-// values for PUT /v1/device/display. Only overlay and overlaySettings are in
-// scope for this ticket — moodlight and power are deliberately not exposed.
+// values for PUT /v1/device/display. Only overlay and overlaySettings are
+// accepted: power has its own route (PUT /v1/device/display/power) so an
+// overlay edit can never blank the panel, and moodlight is not exposed.
 func validateDeviceDisplay(m map[string]any) error {
 	for k, v := range m {
 		switch k {
