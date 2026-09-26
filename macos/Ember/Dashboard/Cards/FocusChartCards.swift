@@ -83,7 +83,7 @@ struct LastSevenDaysCard: View {
     var focusMinutes: Int?
     var calendar = Calendar.current
 
-    @State private var selected: Date?
+    @State var selected: Date?
 
     var body: some View {
         let feed = stats.map { WeekBars(stats: $0, focusMinutes: focusMinutes, calendar: calendar) }
@@ -120,7 +120,7 @@ struct LastSevenDaysCard: View {
             if let sel = selected, let bar = w.bars.first(where: { calendar.isDate($0.date, inSameDayAs: sel) }) {
                 RuleMark(x: .value("Day", bar.date, unit: .day))
                     .foregroundStyle(.clear)
-                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                         ChartCallout {
                             Text(bar.date, format: .dateTime.weekday(.wide).day())
                             Text("\(DurationText.minutes(bar.focusMin)) · ^[\(bar.sessions) session](inflect: true)")
@@ -158,7 +158,7 @@ struct TwelveWeeksCard: View {
     var now = Date()
     var calendar = Calendar.current
 
-    @State private var selected: Date?
+    @State var selected: Date?
 
     private func model() -> Loadable<WeeklyTrend> {
         if let s = stats.value, WeeklyTrend.serverLacksWeekly(s) {
@@ -224,7 +224,7 @@ struct TwelveWeeksCard: View {
                    let p = t.points.min(by: { abs($0.weekStart.timeIntervalSince(sel)) < abs($1.weekStart.timeIntervalSince(sel)) }) {
                     RuleMark(x: .value("Week", p.weekStart, unit: .weekOfYear))
                         .foregroundStyle(.secondary.opacity(0.4))
-                        .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                        .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
                             ChartCallout {
                                 Text("Week of \(p.weekStart, format: .dateTime.month(.abbreviated).day())")
                                 Text("\(DurationText.minutes(p.focusMin)) · ^[\(p.sessions) session](inflect: true)")
