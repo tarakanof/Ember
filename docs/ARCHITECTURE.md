@@ -108,6 +108,39 @@ The aggregator and the only writer to the device.
   existing inputs is one `tile` value; one with a new data source also adds
   its fields to `tileInputs` and fills them in `coordinator.tileInputs` (and
   in its preview handler).
+- **Clock access — one module** (`cmd/ember/clock_access.go`, #146). Every
+  server→clock call goes through `clockAccess`. It resolves the clock from the
+  live config on every call, so a rediscovery swap or `PUT /v1/device/config`
+  applies to the next request. It holds the URL to the same `validDeviceURL`
+  rule used wherever a URL is stored, and gives each call class one timeout:
+  `callPublish` = `awtrix.timeout_seconds`, `callMenu` 8 s, `callProbe`
+  1.5 s, `callCapabilities` 2 s, `callDoctor` = the config's or 2 s. It is
+  the only `awtrix.NewClient` site in `cmd/ember`. It also owns:
+  - the retry rule (`retryClockCall`, `retryableClockErr`: transport, 5xx and
+    429 retry, any other 4xx is final);
+  - the menu error map (`writeClockError`: a refusal is relayed with its NG
+    envelope, anything else is 502);
+  - the `/api/v1/system` read-merge-PUT (`updateSystem`, serialised; a
+    waiter whose request is cancelled stops waiting).
+
+  Server-initiated writes cross the `Publisher` seam. Its real adapter,
+  `clockPublisher` (one field: the `clockAccess`), is built only by
+  `NewApp(cfg, nil, …)` and wrapped in `quietPublisher` at once. Tests pass a
+  fake instead. Sound policy and the coordinator's retries sit above that
+  seam, so a fake sees exactly what the clock would. `a.clock` has no
+  `Notify`/`PlayRTTTL`, so nothing can sound the clock past the quiet gate.
+  `clock_access_guard_test.go` checks these rules on the type-checked
+  package.
+
+  `clock_parity_test.go` replays a scripted run against a fake clock. The
+  fake drops 0/44/60 % of requests and answers one request per call class
+  past the short budgets. It also scripts coordinator-push faults: 1.8 s
+  (inside `publishAttemptTimeout`), 3.5 s (times out, retried) and a 503
+  (retried). Notifications run with quiet hours off, then on at 23:00. The
+  harness compares the whole device call log with goldens generated on the
+  pre-refactor code. Changing `publishAttemptTimeout`, the 5xx retry, a call
+  class's timeout or the quiet gate fails it. Keep-alive reuse is checked
+  as a bound, not per request.
 - **Publishing over a lossy link.** The clock is a battery/Wi-Fi ESP32, and a
   weak link drops frame pushes wholesale rather than slowing them down (observed
   in the field: ~44 % of pushes timing out for days, `ember_publish_total`
@@ -774,8 +807,9 @@ GET to its older whitelist, so the app treats missing `soundEnabled`/
 `buzzerVolume` as "no NG 1.1 support" and hides mute, volume and "Same as
 text" there; a 404 on the audio routes hides the test chime and melody list.
 
-When the clock refuses a proxied request, the `/v1/device/*` handlers relay
-its NG error envelope instead of a bare 502: the menu gets
+When the clock refuses a proxied request, the `/v1/device/*` handlers
+(sensors and buttons included, since #146) relay its NG error envelope
+through `writeClockError` instead of a bare 502: the menu gets
 `{"error":"clock returned 422: <message> (field <key>)","code","field"}` with
 the device's status for request errors (400/404/409/413/415/422) and 503
 (busy / no such hardware), and 502 for everything else — a device 401/403
@@ -807,7 +841,9 @@ PUT read-merges the existing `/api/v1/system` object (preserving unrelated
 keys — notably `buttonCallback`, which Pomodoro buttons depend on, and the
 Wi-Fi credentials the device needs to boot) and writes it back with a plain
 `PUT`; NG applies system changes **live, no reboot**, unlike `dev.json`, which
-only took effect at boot. The Ulanzi firmware default is `tempOffset:-9`
+only took effect at boot. The read-merge-PUT is `clockAccess.updateSystem`,
+which serialises it with the buttons PUT so neither loses the other's write.
+The Ulanzi firmware default is `tempOffset:-9`
 (self-heating compensation); an explicit `null` in a sensors PUT resets to that
 default (or `0` for humidity), so the menu treats −9/0 — not 0/0 — as the
 baseline.
