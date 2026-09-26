@@ -18,16 +18,18 @@ import (
 // else canned samples so the preview never renders blank (before the first
 // fetch, or with the widget disabled).
 //
-// Query params (the draft; everything else comes from the live config):
-//   - rotate_in_apps   bool (default true)  → "weather" frame
-//   - forecast_tile    bool (default true)  → "forecast" frame
-//   - air_tile         bool (default true)  → "air" frame
-//   - forecast_hours   int (default 24; <=0 or >24 means 24, as on the device)
-//   - units            "metric"|"imperial" (default "metric")
-//   - moon_phase       bool (default: the saved config's)
-//   - lat, lon         float pair (default: the saved location). Used only
-//     when both parse and are in range; otherwise both come from the saved
-//     config, so a half-typed coordinate can't move the moon.
+// Query params (the draft; each absent param keeps the saved config's value,
+// so a caller sending none sees what the clock is sent; so does a
+// non-integer forecast_hours or a units other than metric/imperial):
+//   - rotate_in_apps   bool → "weather" frame
+//   - forecast_tile    bool → "forecast" frame
+//   - air_tile         bool → "air" frame
+//   - forecast_hours   int (<=0 or >24 means 24, as on the device)
+//   - units            "metric"|"imperial"
+//   - moon_phase       bool
+//   - lat, lon         float pair. Used only when both parse and are in
+//     range; otherwise both come from the saved config, so a half-typed
+//     coordinate can't move the moon.
 //
 // The moon phase and location are draft params because the Settings pane
 // previews a change before its autosave lands; reading only the saved config
@@ -40,16 +42,14 @@ func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
 	cfg := a.cfg.Load().Weather
-	cfg.RotateInApps = boolPtr(queryBoolDefault(q.Get("rotate_in_apps"), true))
-	cfg.ForecastTile = boolPtr(queryBoolDefault(q.Get("forecast_tile"), true))
-	cfg.AirTile = boolPtr(queryBoolDefault(q.Get("air_tile"), true))
-	cfg.ForecastHours = 24
-	if v, err := strconv.Atoi(q.Get("forecast_hours")); err == nil {
+	cfg.RotateInApps = boolPtr(queryBoolDefault(q.Get("rotate_in_apps"), cfg.RotateInAppsEnabled()))
+	cfg.ForecastTile = boolPtr(queryBoolDefault(q.Get("forecast_tile"), cfg.ForecastTileEnabled()))
+	cfg.AirTile = boolPtr(queryBoolDefault(q.Get("air_tile"), cfg.AirTileEnabled()))
+	if v, err := strconv.Atoi(strings.TrimSpace(q.Get("forecast_hours"))); err == nil {
 		cfg.ForecastHours = v
 	}
-	cfg.Units = "metric"
-	if strings.TrimSpace(q.Get("units")) == "imperial" {
-		cfg.Units = "imperial"
+	if u := strings.TrimSpace(q.Get("units")); u == "metric" || u == "imperial" {
+		cfg.Units = u
 	}
 	cfg.MoonPhase = boolPtr(queryBoolDefault(q.Get("moon_phase"), cfg.MoonPhaseEnabled()))
 	if lat, lon, ok := queryLatLon(q); ok {
