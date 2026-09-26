@@ -30,5 +30,10 @@ const daemonHTTPTimeout = 5 * time.Second
 // NewDaemonClient adapts the Claude Config to the shared constructor for
 // background daemon traffic (heartbeat/usage), independent of HookTimeoutMs.
 func NewDaemonClient(cfg Config) *Client {
-	return producer.NewClient(cfg.ServerURL, cfg.Token, daemonHTTPTimeout)
+	return producer.NewClient(cfg.ServerURL, cfg.Token, daemonHTTPTimeout).WithLinkStatus(daemonLink)
 }
+
+// daemonLink records whether the LaunchAgent reaches the server, for the
+// app's Local Network hint. Set only by runDaemon: the one-shot `tick` runs
+// in a terminal, whose network permission says nothing about the agent's.
+var daemonLink *producer.LinkStatus

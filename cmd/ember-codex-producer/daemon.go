@@ -33,6 +33,9 @@ func runDaemon() {
 	}
 	w := newWatcher(cfg)
 	client := producer.NewClient(cfg.ServerURL, cfg.Token, httpTimeout)
+	if path, err := producer.LinkStatusPath("codex-producer"); err == nil {
+		client.WithLinkStatus(producer.NewLinkStatus(path)) // for the app's Local Network hint
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
