@@ -23,13 +23,45 @@ struct AgentTimeCard: View {
         }
     }
 
+    /// The hovered day's key ("2026-09-26").
+    @State var selected: String?
+
+    /// Dates in the card's calendar: the day keys are that calendar's days.
+    private var dayStyle: Date.FormatStyle {
+        var style = Date.FormatStyle(date: .omitted, time: .omitted).locale(calendar.locale ?? .current)
+        style.timeZone = calendar.timeZone
+        return style
+    }
+
+    /// Days are categories (their "2026-09-26" keys), not dates: a band
+    /// scale centres every label under its bar by construction. A date
+    /// axis centred its labels between ticks, and the last day, whose
+    /// closing tick sits on the plot edge, drew its label off-centre.
     private func chart(_ c: AgentTimeChart, redacted: Bool) -> some View {
         let top = WeekBars.axisTop(Int((c.dailyTotals.map(\.minutes).max() ?? 0).rounded(.up)))
-        return Chart(c.segments) { s in
-            BarMark(x: .value("Day", s.date, unit: .day),
-                    y: .value("Active minutes", s.minutes),
-                    width: .ratio(0.62))
-                .foregroundStyle(by: .value("Source", s.source))
+        let dates = Dictionary(c.segments.map { ($0.key, $0.date) }, uniquingKeysWith: { a, _ in a })
+        return Chart {
+            ForEach(c.segments) { s in
+                BarMark(x: .value("Day", s.key),
+                        y: .value("Active minutes", s.minutes),
+                        width: .ratio(0.62))
+                    .foregroundStyle(by: .value("Source", s.source))
+                    .opacity(selected == nil || selected == s.key ? 1 : 0.5)
+            }
+            if let key = selected, let day = c.detail(forKey: key) {
+                RuleMark(x: .value("Day", key))
+                    .foregroundStyle(.clear)
+                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                        ChartCallout {
+                            Text(day.date, format: dayStyle.weekday(.wide).day())
+                            Text(verbatim: DurationText.minutes(Int(day.totalMinutes.rounded())))
+                            ForEach(day.parts.prefix(4), id: \.source) { part in
+                                Text(verbatim: "\(part.source) \(DurationText.minutes(Int(part.minutes.rounded())))")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+            }
         }
         .chartForegroundStyleScale(domain: c.sources.map(\.name),
                                    range: c.sources.enumerated().map { i, s in
@@ -37,16 +69,17 @@ struct AgentTimeCard: View {
                                                 : EmberColors.hex(s.colorHex, fallback: .accentColor)
                                    })
         .chartYScale(domain: 0...top)
-        .chartXScale(domain: DayRange.domain(c.days, calendar: calendar))
+        .chartXScale(domain: c.dayKeys)
         .chartXAxis {
-            // The day after the last is listed too: a centred label needs
-            // the next tick to span to, or the last day's is dropped.
-            AxisMarks(values: DayRange.ticks(c.days, calendar: calendar)) { value in
-                if let d = value.as(Date.self), d < DayRange.domain(c.days, calendar: calendar).upperBound {
-                    AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
+            AxisMarks(values: c.dayKeys) { value in
+                AxisValueLabel {
+                    if let key = value.as(String.self), let d = dates[key] {
+                        Text(d, format: dayStyle.weekday(.narrow))
+                    }
                 }
             }
         }
+        .chartXSelection(value: $selected)
         .chartYAxis {
             AxisMarks(position: .leading, values: .stride(by: Double(minutesStride(top)))) { value in
                 AxisGridLine()

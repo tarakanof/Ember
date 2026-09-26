@@ -303,6 +303,23 @@ private func activityGolden() throws -> ActivitySummary {
     #expect(chart.isRecording)
 }
 
+@Test func agentTimeDayDetailForTheHoverCallout() throws {
+    let chart = AgentTimeChart(summary: try activityGolden(), calendar: calendar())
+    #expect(chart.dayKeys.count == 7)
+    #expect(chart.dayKeys.first == "2026-09-20")
+    #expect(chart.dayKeys.last == "2026-09-26")
+    let today = try #require(chart.detail(forKey: "2026-09-26"))
+    #expect(today.date == iso("2026-09-26T00:00:00+02:00"))
+    #expect(today.totalMinutes == 14)
+    #expect(today.parts.map(\.source) == ["m5", "m4"])
+    #expect(today.parts.map(\.minutes) == [10, 4])
+    // m4 idled on the 25th: only m5 is listed.
+    #expect(chart.detail(forKey: "2026-09-25")?.parts.map(\.source) == ["m5"])
+    let empty = try #require(chart.detail(forKey: "2026-09-20"))
+    #expect(empty.totalMinutes == 0 && empty.parts.isEmpty)
+    #expect(chart.detail(forKey: "2026-09-27") == nil)
+}
+
 @Test func agentTimeFallsBackToStableColours() throws {
     var summary = try activityGolden()
     summary.dailyBySource = summary.dailyBySource.map { var r = $0; r.sourceColor = nil; return r }
