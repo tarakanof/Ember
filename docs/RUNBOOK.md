@@ -99,6 +99,40 @@ swift test --package-path macos                          # headless EmberKit tes
 
 The generated `Ember.xcodeproj` is gitignored — regenerate it after pulling.
 
+**Local install without a Developer ID.** macOS Local Network privacy (and
+Little Snitch) key their grants to the app's designated requirement. An
+ad-hoc signed app's requirement is its cdhash, so every rebuild is a new
+program to macOS: Bonjour browsing fails with `NoAuth (-65555)` and LAN
+connections fail with "Network is down", even right after you turn Ember on
+in System Settings › Privacy & Security › Local Network. Sign local builds
+with one self-signed certificate instead, and the requirement becomes
+`identifier "com.ember.Ember" and certificate leaf = H"<sha1>"`, the same on
+every rebuild:
+
+```sh
+scripts/local-signing-identity.sh          # once: creates "Ember Local Signing" in the login keychain
+scripts/build-local.sh                     # Release build into /tmp/ember-local-build, signed with it
+osascript -e 'quit app "Ember"'
+ditto /tmp/ember-local-build/Build/Products/Release/Ember.app /Applications/Ember.app
+open /Applications/Ember.app               # approve Local Network one last time
+```
+
+The certificate is self-signed and untrusted on purpose: no admin password and
+no trust-settings change; `codesign` signs with it anyway and a locally built
+app never meets Gatekeeper. `build-local.sh` builds ad-hoc (Xcode only accepts
+trusted identities) and then re-signs the bundle inside-out with the identity,
+keeping hardened runtime and the helpers' `com.ember.*` identifiers.
+`scripts/verify-bundle.sh` prints which identity signed the app and its
+designated requirement (ad-hoc means re-approval after each rebuild). An Xcode
+build whose configured Developer ID is missing signs the producer helpers with
+the local identity when it exists, ad-hoc otherwise. `--check` reports whether
+the identity exists, `--remove` deletes it; `EMBER_SIGNING_KEYCHAIN` points the
+script at another keychain (used to test it in a scratch keychain). The first
+signing after creating it may show a keychain prompt for `codesign`: choose
+**Always Allow**. Switching an existing install from ad-hoc to the local
+identity (or recreating the identity) needs one more Local Network approval
+for the app and each helper.
+
 **Strings**: every user-facing string lives in `macos/Ember/Localizable.xcstrings`.
 After adding or changing UI text, run `scripts/strings.sh sync` (it builds the
 app into a fresh temp DerivedData; if you pass one as the second argument, make

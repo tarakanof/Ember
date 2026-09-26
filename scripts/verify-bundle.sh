@@ -103,4 +103,14 @@ check_plist "$LA_DIR/com.ember.codex.plist"
 
 check "codesign --verify --deep --strict: $(basename "$APP")" codesign --verify --deep --strict "$APP"
 
+# Which identity signed the app, and the designated requirement macOS keys
+# Local Network grants on: ad-hoc means a cdhash, i.e. re-approval after
+# every rebuild; a certificate leaf/anchor requirement survives rebuilds.
+signer="$(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
+if codesign -dv "$APP" 2>&1 | grep -q '^Signature=adhoc'; then
+  signer="ad-hoc (Local Network access must be re-approved after every rebuild)"
+fi
+echo "INFO signed by: ${signer:-unknown}"
+echo "INFO $(codesign -dr - "$APP" 2>&1 | grep '^designated' || echo 'designated => (none)')"
+
 echo "ALL CHECKS PASSED: $APP"
