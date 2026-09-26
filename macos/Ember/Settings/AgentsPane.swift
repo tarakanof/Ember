@@ -6,8 +6,7 @@ import EmberKit
 /// server-wide.
 struct AgentsPane: View {
     @Environment(AppEnvironment.self) private var env
-    @State private var preview: PreviewResponse?
-    @State private var previewFailed = false
+    @State private var preview = PreviewModel()
     @State private var producers: ProducerInstallModel?
 
     private var cards: EnvConfigModel<DisplaySettings> { env.settings.agentsEnv }
@@ -43,14 +42,14 @@ struct AgentsPane: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let preview {
-                        ForEach(preview.frames, id: \.card) { frame in
+                    if let response = preview.response {
+                        ForEach(response.frames, id: \.card) { frame in
                             let m = meta(frame.card)
                             PanelPreview(title: m.title, caption: m.caption,
                                          enabled: cardEnabled(frame.card), frame: frame)
                         }
                     } else {
-                        PanelPreview(title: "Preview", caption: previewFailed
+                        PanelPreview(title: "Preview", caption: preview.isUnavailable
                                      ? "Preview unavailable: the server didn't answer."
                                      : "Loading…",
                                      enabled: true, frame: nil)
@@ -127,28 +126,22 @@ struct AgentsPane: View {
         .autosaves(usage)
         .autosaves(behavior)
         .onAppear { if producers == nil { producers = ProducerInstallModel(service: env.producers) } }
-        .onChange(of: cards.draft) { _, _ in Task { await refreshPreview() } }
+        .previews(previewDraft, into: preview) { try await env.preview.fetchPreview($0) }
         .reloads {
             let s = env.settings
             async let a: Void = s.agentsEnv.load()
             async let b: Void = s.usage.load()
             async let c: Void = s.display.load()
             _ = await (a, b, c)
-            await refreshPreview()
         }
     }
 
-    private func refreshPreview() async {
-        // Always ask for the source and usage cards: the toggles dim the
-        // panels here instead of removing them, so each option stays visible.
+    /// Always asks for the source and usage cards: the toggles dim the
+    /// panels here instead of removing them, so each option stays visible.
+    private var previewDraft: DraftDisplay {
         var draft = cards.draft.draftDisplay(sourceColor: env.settings.connectionEnv.draft.sourceColor)
         draft.sourceCard = true
         draft.usageCard = true
-        do {
-            preview = try await env.preview.fetchPreview(draft)
-            previewFailed = false
-        } catch {
-            previewFailed = preview == nil
-        }
+        return draft
     }
 }
