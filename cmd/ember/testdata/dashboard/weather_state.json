@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-09-26T10:30:00+02:00",
+  "enabled": true,
+  "provider": "open-meteo",
+  "units": "metric",
+  "location_name": "Amsterdam",
+  "current": {
+    "fetched_at": "2026-09-26T10:26:00+02:00",
+    "stale": false,
+    "condition": "rain",
+    "condition_code": "61",
+    "severe": false,
+    "temp_c": 11.5,
+    "hourly": [
+      {
+        "time": "2026-09-26T10:00:00+02:00",
+        "temp_c": 11.5
+      },
+      {
+        "time": "2026-09-26T11:00:00+02:00",
+        "temp_c": 12
+      },
+      {
+        "time": "2026-09-26T12:00:00+02:00",
+        "temp_c": 12.5
+      }
+    ]
+  },
+  "air": {
+    "fetched_at": "2026-09-26T10:26:00+02:00",
+    "stale": false,
+    "european_aqi": 42,
+    "pm2_5_ugm3": 8,
+    "pm10_ugm3": 15,
+    "hourly": [
+      {
+        "time": "2026-09-26T10:00:00+02:00",
+        "european_aqi": 42
+      },
+      {
+        "time": "2026-09-26T11:00:00+02:00",
+        "european_aqi": 40
+      }
+    ]
+  },
+  "sun": {
+    "sunrise": "2026-09-26T07:30:00+02:00",
+    "sunset": "2026-09-26T19:30:00+02:00"
+  }
+}

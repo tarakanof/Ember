@@ -79,6 +79,7 @@ type activityMark struct {
 // so a short prompt still reaches the activity summary's attention count.
 // No-op when the store is absent or the overlay is disabled.
 func (a *App) recordActivityHeartbeat(s Session, now time.Time) {
+	a.sourceColors.remember(s.Source, s.SourceColor) // for the activity summary's per-source colours
 	if a.store == nil || !a.cfg.Load().Pomodoro.WorkHoursIncludeActivity || !activeWorkState(s.State) {
 		return
 	}

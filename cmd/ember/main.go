@@ -602,9 +602,15 @@ type App struct {
 	// reaches us; surfaced via GET /v1/device/buttons.
 	lastButtonAt atomic.Int64
 
-	// clockProbe caches the clock telemetry behind GET /v1/clock/health so the
-	// unauthenticated endpoint can't turn polling into clock traffic.
-	clockProbe clockProbeCache
+	// Dashboard read state (dashboard_http.go, clock_health_http.go), all
+	// zero-value ready: clockProbe caches the clock telemetry so the open
+	// health endpoint can't turn polling into clock traffic; publishWindow keeps
+	// 24h publish counts; firmware caches the latest awtrix-ng release (url set
+	// by main); sourceColors remembers each producer source's colour.
+	clockProbe    clockProbeCache
+	publishWindow publishWindow
+	firmware      firmwareCheck
+	sourceColors  sourceColorMemo
 
 	// bootPingMu serialises ensureBootPingScript runs (startup and every
 	// /admin/reload), so two of them can't race a PUT against a DELETE.
@@ -672,8 +678,10 @@ func (a *App) updateConfig(mutate func(*Config)) {
 // pushed even though the actual pixels are now produced by
 // RenderForCoord and not stored anywhere.
 func (a *App) recordPublish(snap Snapshot, err error) {
+	now := time.Now()
+	a.publishWindow.add(now, err == nil)
 	a.mu.Lock()
-	a.lastPublishAt = time.Now().UTC()
+	a.lastPublishAt = now.UTC()
 	a.lastPublishOK = err == nil
 	if err != nil {
 		a.lastPublishErr = err.Error()
@@ -1000,9 +1008,11 @@ func (a *App) routes() http.Handler {
 	// Dashboard reads (dashboard_http.go). GET /v1/usage shares its path with
 	// the authed POST, which still falls through to the /v1/ write mux.
 	mux.HandleFunc("GET /v1/usage", a.handleUsageSnapshot)
-	mux.HandleFunc("GET /v1/activity/summary", a.handleActivitySummary)
+	// The two that do I/O (a DB scan; a clock probe and release lookup) are
+	// per-IP rate-limited like the device hooks.
+	mux.Handle("GET /v1/activity/summary", rateLimit(a, http.HandlerFunc(a.handleActivitySummary)))
 	mux.HandleFunc("GET /v1/weather/state", a.handleWeatherState)
-	mux.HandleFunc("GET /v1/clock/health", a.handleClockHealth)
+	mux.Handle("GET /v1/clock/health", rateLimit(a, http.HandlerFunc(a.handleClockHealth)))
 	// Unauthenticated (the device can't hold a token) but per-IP rate-limited.
 	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
 	// Same trust model as the button hook, and the same reason: a Berry script
@@ -1576,6 +1586,7 @@ func main() {
 	}
 
 	app := NewApp(cfg, publisher, logger)
+	app.firmware.url = ngReleasesURL
 	app.configPath = configPath
 	app.configSource = configSource
 

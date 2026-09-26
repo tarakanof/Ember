@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -247,9 +248,15 @@ func validateWeather(c WeatherConfig) error {
 // condition counts as severe (drives the alert popup).
 type weatherObservation struct {
 	Condition string
-	TempC     float64
-	Severe    bool
-	FetchedAt time.Time
+	// ConditionCode is the provider's raw code: the WMO weather code for
+	// Open-Meteo ("61"), the symbol_code for MET Norway ("rain_showers_day").
+	ConditionCode string
+	TempC         float64
+	Severe        bool
+	FetchedAt     time.Time
+	// HourlyStart is the time of Hourly[0] as the provider stamped it; zero
+	// when the provider didn't say.
+	HourlyStart time.Time
 	// Hourly holds the next ~24 hourly temperatures (°C), ordered from the
 	// current hour. Drives the compact strip and the forecast tile; nil when the
 	// provider returned none (everything else still works).
@@ -279,7 +286,9 @@ type airObservation struct {
 	PM25      float64
 	PM10      float64
 	HourlyAQI []float64
-	FetchedAt time.Time
+	// HourlyStart is the time of HourlyAQI[0]; zero when unknown.
+	HourlyStart time.Time
+	FetchedAt   time.Time
 }
 
 // weatherStore holds the latest observation plus popup bookkeeping. All access
@@ -374,7 +383,7 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url string, out any) erro
 }
 
 func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig) (weatherObservation, error) {
-	url := fmt.Sprintf("%s/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code&hourly=temperature_2m&forecast_hours=%d&timezone=auto",
+	url := fmt.Sprintf("%s/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code&hourly=temperature_2m&forecast_hours=%d&timezone=auto&timeformat=unixtime",
 		strings.TrimRight(wf.openMeteoBase, "/"), cfg.Latitude, cfg.Longitude, forecastFetchHours)
 	var body struct {
 		UTCOffsetSeconds int `json:"utc_offset_seconds"`
@@ -383,11 +392,16 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 			WeatherCode int     `json:"weather_code"`
 		} `json:"current"`
 		Hourly struct {
+			Time        []int64   `json:"time"`
 			Temperature []float64 `json:"temperature_2m"`
 		} `json:"hourly"`
 	}
 	if err := wf.getJSON(ctx, url, &body); err != nil {
 		return weatherObservation{}, err
+	}
+	var start time.Time
+	if len(body.Hourly.Time) > 0 {
+		start = time.Unix(body.Hourly.Time[0], 0)
 	}
 	cond, severe := wmoCondition(body.Current.WeatherCode)
 	hourly := body.Hourly.Temperature
@@ -395,7 +409,8 @@ func (wf *weatherFetcher) fetchOpenMeteo(ctx context.Context, cfg WeatherConfig)
 		hourly = hourly[:forecastFetchHours]
 	}
 	return weatherObservation{
-		Condition: cond, TempC: body.Current.Temperature, Severe: severe, Hourly: hourly,
+		Condition: cond, ConditionCode: strconv.Itoa(body.Current.WeatherCode),
+		TempC: body.Current.Temperature, Severe: severe, Hourly: hourly, HourlyStart: start,
 		TZOffsetSeconds: body.UTCOffsetSeconds, TZKnown: true,
 	}, nil
 }
@@ -406,6 +421,7 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (we
 	var body struct {
 		Properties struct {
 			Timeseries []struct {
+				Time time.Time `json:"time"`
 				Data struct {
 					Instant struct {
 						Details struct {
@@ -439,14 +455,18 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (we
 	for i := 0; i < n; i++ {
 		hourly[i] = body.Properties.Timeseries[i].Data.Instant.Details.AirTemperature
 	}
-	return weatherObservation{Condition: cond, TempC: first.Data.Instant.Details.AirTemperature, Severe: severe, Hourly: hourly}, nil
+	return weatherObservation{
+		Condition: cond, ConditionCode: first.Data.Next1Hours.Summary.SymbolCode,
+		TempC: first.Data.Instant.Details.AirTemperature, Severe: severe,
+		Hourly: hourly, HourlyStart: first.Time,
+	}, nil
 }
 
 // fetchAirQuality reads the current + hourly European AQI from the Open-Meteo
 // air-quality API. Always Open-Meteo regardless of cfg.Provider — MET Norway
 // has no air-quality product. Free and keyless, same terms as the forecast API.
 func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig) (airObservation, error) {
-	url := fmt.Sprintf("%s/v1/air-quality?latitude=%.4f&longitude=%.4f&current=european_aqi,pm2_5,pm10&hourly=european_aqi&forecast_hours=%d&timezone=auto",
+	url := fmt.Sprintf("%s/v1/air-quality?latitude=%.4f&longitude=%.4f&current=european_aqi,pm2_5,pm10&hourly=european_aqi&forecast_hours=%d&timezone=auto&timeformat=unixtime",
 		strings.TrimRight(wf.airQualityBase, "/"), cfg.Latitude, cfg.Longitude, airFetchHours)
 	var body struct {
 		Current struct {
@@ -455,7 +475,8 @@ func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig
 			PM10 float64 `json:"pm10"`
 		} `json:"current"`
 		Hourly struct {
-			AQI []float64 `json:"european_aqi"`
+			Time []int64   `json:"time"`
+			AQI  []float64 `json:"european_aqi"`
 		} `json:"hourly"`
 	}
 	if err := wf.getJSON(ctx, url, &body); err != nil {
@@ -465,7 +486,11 @@ func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig
 	if len(hourly) > airFetchHours {
 		hourly = hourly[:airFetchHours]
 	}
-	return airObservation{AQI: body.Current.AQI, PM25: body.Current.PM25, PM10: body.Current.PM10, HourlyAQI: hourly}, nil
+	var start time.Time
+	if len(body.Hourly.Time) > 0 {
+		start = time.Unix(body.Hourly.Time[0], 0)
+	}
+	return airObservation{AQI: body.Current.AQI, PM25: body.Current.PM25, PM10: body.Current.PM10, HourlyAQI: hourly, HourlyStart: start}, nil
 }
 
 // wmoCondition maps an Open-Meteo WMO weather code to a render condition bucket
