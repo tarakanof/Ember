@@ -215,8 +215,13 @@ device `autoTransition:false`/`blockNavigation:true` (`PATCH /api/v1/settings`)
 plus a forced `PUT /api/v1/apps/active` on start. Before the takeover the
 coordinator reads `GET /api/v1/settings` and snapshots the user's own
 `autoTransition`/`blockNavigation`; on stop it writes **those** back, not the
-firmware defaults (a lost read delays the takeover a tick; a 4xx falls back to
-the defaults). NG persists settings across reboots, so a takeover left behind
+firmware defaults (a lost read delays the takeover a tick; a 4xx, or a reading
+that equals the takeover itself — a clock left mid-takeover by an older
+server — falls back to the defaults). Device-tab edits to either key made
+**during** a focus block are overwritten by the snapshot on release, and
+turning `autoTransition` back on mid-focus breaks the takeover until the next
+edge. A lost restore backs off `restoreBackoffTicks` (5) publishes so an
+offline clock doesn't stall the coordinator every tick. NG persists settings across reboots, so a takeover left behind
 by a dead server would stick: the snapshot is therefore also persisted to the
 store (key `pomo_takeover_prior`) for as long as the takeover is in force, and
 a server that starts with one left over restores it on its first publish. On
