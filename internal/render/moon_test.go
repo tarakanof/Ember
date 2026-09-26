@@ -45,8 +45,8 @@ func TestMoonSpriteWaxingVsWaning(t *testing.T) {
 func TestWeatherPayloadMoonUsesMoonIcon(t *testing.T) {
 	// The clear-night tile should differ in the icon region (cols 0–7) from the
 	// day (sun) tile, proving the moon was drawn there.
-	day := WeatherPayload(WeatherClear, "12°", nil, 600)
-	night := WeatherPayloadMoon("12°", nil, MoonView{Illum: 0.5, Waxing: true}, 600)
+	day := WeatherPayload(WeatherClear, "12°", 12, nil, 600)
+	night := WeatherPayloadMoon("12°", 12, nil, MoonView{Illum: 0.5, Waxing: true}, 600)
 	dp := bmpPixels(t, day)
 	np := bmpPixels(t, night)
 	same := true

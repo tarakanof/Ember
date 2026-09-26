@@ -83,10 +83,10 @@ func TestPayloadBuildersEmitOnlyNGKeys(t *testing.T) {
 	running := Snapshot{Now: time.Now(), Sessions: []Session{{Source: "mbp", Tool: "claude",
 		Session: "s1", State: "running", Activity: "Bash: go test", UpdatedAt: time.Now()}}}
 	apps := map[string]map[string]any{
-		"weather":         WeatherPayload(WeatherRain, "12°", hourly, 600),
-		"weather-moon":    WeatherPayloadMoon("9°", hourly, MoonView{Illum: 0.5, Waxing: true}, 600),
-		"weather-native":  WeatherPayloadNative("2422", "12°", hourly, 600),
-		"weather-overlay": WithOverlay(WeatherPayload(WeatherStorm, "12°", hourly, 600), OverlayThunder),
+		"weather":         WeatherPayload(WeatherRain, "12°", 12, hourly, 600),
+		"weather-moon":    WeatherPayloadMoon("9°", 9, hourly, MoonView{Illum: 0.5, Waxing: true}, 600),
+		"weather-native":  WeatherPayloadNative("2422", "12°", 12, hourly, 600),
+		"weather-overlay": WithOverlay(WeatherPayload(WeatherStorm, "12°", 12, hourly, 600), OverlayThunder),
 		"forecast":        ForecastPayload(hourly, 600),
 		"air":             AirPayload(42, hourly, 600),
 		"meeting":         MeetingPayload("STANDUP", 12, 600),

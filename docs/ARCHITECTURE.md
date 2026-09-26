@@ -268,7 +268,9 @@ latest observation lives in an in-memory `weatherStore`; the coordinator reconci
 three rotating tiles with the same change-and-staleness dedupe as the usage card:
 
 - **`ember-weather`** — 8×8 condition icon + the current temperature **centred**
-  in the free area (rows 1–5) + a per-hour **forecast strip** on the bottom bar
+  in the free area (rows 1–5), its digits in the strip's `TempColor` gradient
+  colour (degree sign white; coloured by °C in either unit) + a per-hour
+  **forecast strip** on the bottom bar
   (row 7, cols 8–31; each hour takes `24/N` columns from col 8, see
   `hourSlot`),
   coloured by a cold→warm temperature gradient (`render.TempColor`). On a

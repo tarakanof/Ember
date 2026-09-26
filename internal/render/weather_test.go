@@ -3,7 +3,7 @@ package render
 import "testing"
 
 func TestWeatherPayloadHasDrawAndTemp(t *testing.T) {
-	p := WeatherPayload(WeatherRain, "21°", nil, 600)
+	p := WeatherPayload(WeatherRain, "21°", 21, nil, 600)
 	if p["lifetimeMs"] != 600_000 {
 		t.Fatalf("lifetimeMs = %v, want 600000", p["lifetimeMs"])
 	}
@@ -151,7 +151,7 @@ func TestWeatherColorDistinct(t *testing.T) {
 }
 
 func TestWeatherPayloadNative(t *testing.T) {
-	p := WeatherPayloadNative("2286", "21°", []float64{18, 19, 20}, 90)
+	p := WeatherPayloadNative("2286", "21°", 21, []float64{18, 19, 20}, 90)
 	if p["icon"] != "2286" {
 		t.Errorf("icon = %v, want 2286", p["icon"])
 	}
@@ -180,8 +180,8 @@ func TestWeatherPayloadNative(t *testing.T) {
 
 func TestWeatherTileFrame_MatchesPayloadPixels(t *testing.T) {
 	hourly := []float64{18, 19, 20}
-	f := WeatherTileFrame(WeatherRain, "21°", hourly, nil)
-	p := WeatherPayload(WeatherRain, "21°", hourly, 90)
+	f := WeatherTileFrame(WeatherRain, "21°", 21, hourly, nil)
+	p := WeatherPayload(WeatherRain, "21°", 21, hourly, 90)
 	want := bmpPixels(t, p)
 	if got := framePixels(&f); !slicesEqualInt(got, want) {
 		t.Errorf("exported weather frame diverges from the payload bitmap")
@@ -224,14 +224,62 @@ func TestDegreeGlyphIsARing(t *testing.T) {
 	}
 }
 
+// TestWeatherTempDigitsTakeTempColor: the conditions tile colours its digits
+// by the same gradient as the strip (warm amber at 21 °C, blue below zero);
+// the degree sign stays white. Imperial text is coloured by the Celsius value.
+func TestWeatherTempDigitsTakeTempColor(t *testing.T) {
+	cases := []struct {
+		text  string
+		tempC float64
+	}{
+		{"21°", 21}, {"-5°", -5}, {"70°", 21.1},
+	}
+	for _, c := range cases {
+		f := WeatherTileFrame(WeatherClouds, c.text, c.tempC, nil, nil)
+		x := centredX(c.text)
+		want := TempColor(c.tempC)
+		n := len([]rune(c.text)) - 1 // glyphs before the degree sign
+		for i := 0; i < n; i++ {
+			if got := litColour(t, &f, x+4*i, x+4*i+2); got != want {
+				t.Errorf("%s glyph %d colour = %v, want TempColor(%v) = %v", c.text, i, got, c.tempC, want)
+			}
+		}
+		if got := litColour(t, &f, x+4*n, x+4*n+2); got != colorWhite {
+			t.Errorf("%s degree colour = %v, want white", c.text, got)
+		}
+	}
+}
+
+// litColour returns the one colour lit on the text rows in cols x0..x1.
+func litColour(t *testing.T, f *Frame, x0, x1 int) RGB {
+	t.Helper()
+	var c RGB
+	found := false
+	for y := textRow; y < textRow+5; y++ {
+		for x := x0; x <= x1; x++ {
+			if !f.Dirty[y][x] {
+				continue
+			}
+			if found && f.Pixels[y][x] != c {
+				t.Fatalf("cols %d-%d mix colours %v and %v", x0, x1, c, f.Pixels[y][x])
+			}
+			c, found = f.Pixels[y][x], true
+		}
+	}
+	if !found {
+		t.Fatalf("nothing lit in cols %d-%d", x0, x1)
+	}
+	return c
+}
+
 // TestWithOverlay: a named overlay lands on the payload's "overlay" key; an
 // empty name adds nothing, so the device's global overlay still applies.
 func TestWithOverlay(t *testing.T) {
-	p := WithOverlay(WeatherPayload(WeatherRain, "12°", nil, 600), OverlayRain)
+	p := WithOverlay(WeatherPayload(WeatherRain, "12°", 12, nil, 600), OverlayRain)
 	if p["overlay"] != "rain" {
 		t.Errorf("overlay = %v, want rain", p["overlay"])
 	}
-	q := WithOverlay(WeatherPayload(WeatherClear, "21°", nil, 600), "")
+	q := WithOverlay(WeatherPayload(WeatherClear, "21°", 21, nil, 600), "")
 	if _, has := q["overlay"]; has {
 		t.Errorf("empty overlay must not set the key: %v", q["overlay"])
 	}

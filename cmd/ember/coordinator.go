@@ -827,11 +827,11 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 			(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
 			// Moon wins over native icons — there is no per-phase gallery set.
 			illum, waxing := moonIllumination(now)
-			p = render.WeatherPayloadMoon(tempText, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
+			p = render.WeatherPayloadMoon(tempText, obs.TempC, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
 		case cfg.TileNativeIcons:
-			p = render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, window, usageAppLifetime)
+			p = render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, obs.TempC, window, usageAppLifetime)
 		default:
-			p = render.WeatherPayload(obs.Condition, tempText, window, usageAppLifetime)
+			p = render.WeatherPayload(obs.Condition, tempText, obs.TempC, window, usageAppLifetime)
 		}
 		return render.WithOverlay(p, weatherOverlay(obs, cfg))
 	})
