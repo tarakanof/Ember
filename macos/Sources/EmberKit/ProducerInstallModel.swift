@@ -38,10 +38,19 @@ public final class ProducerInstallModel {
 
     /// Installs (on) or uninstalls (off) every detected agent.
     public func setEnabled(_ on: Bool) async {
+        await run { on ? await $0.installAll() : await $0.uninstallAll() }
+    }
+
+    /// Re-registers every agent that's on but not running.
+    public func repair() async {
+        await run { await $0.repairAll() }
+    }
+
+    private func run(_ operation: (ProducerInstallService) async -> [AgentOutcome]) async {
         guard !isWorking else { return }
         isWorking = true
         failure = nil
-        let outcomes = on ? await service.installAll() : await service.uninstallAll()
+        let outcomes = await operation(service)
         await refresh()
         isWorking = false
         if let failed = outcomes.first(where: { $0.error != nil }), let error = failed.error {
