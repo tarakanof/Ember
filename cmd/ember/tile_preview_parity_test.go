@@ -235,6 +235,59 @@ func TestWeatherPreviewMoonFollowsDraft(t *testing.T) {
 	}
 }
 
+// A caller that sends no draft params (curl, a CLI) must see exactly what the
+// clock is sent for the saved config: every absent param defaults from the
+// saved weather config, not from fixed values (#167).
+func TestWeatherPreviewNoParamsMatchesSavedConfig(t *testing.T) {
+	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
+	noon := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		now  time.Time
+		mut  func(*WeatherConfig)
+	}{
+		{"defaults", noon, func(c *WeatherConfig) {}},
+		{"imperial, 3h forecast", noon, func(c *WeatherConfig) {
+			c.Units, c.ForecastHours = "imperial", 3
+		}},
+		{"air tile off", noon, func(c *WeatherConfig) { c.AirTile = boolPtr(false) }},
+		{"forecast and weather off", noon, func(c *WeatherConfig) {
+			c.RotateInApps, c.ForecastTile = boolPtr(false), boolPtr(false)
+		}},
+		{"moon off at night", night, func(c *WeatherConfig) {
+			c.Latitude, c.Longitude, c.MoonPhase = 51.5, -0.1, boolPtr(false)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			obs := weatherObservation{Condition: render.WeatherClear, TempC: 7, Hourly: arc(24), FetchedAt: tc.now}
+			app, pub := weatherParityApp(t, tc.mut, obs)
+			pushed := pushedTiles(t, app, pub, tc.now)
+			preview := app.weatherPreview(url.Values{}, tc.now)
+
+			cards := map[string]string{"ember-weather": "weather", "ember-forecast": "forecast", "ember-air": "air"}
+			var wantCards []string
+			for _, a := range []string{"ember-weather", "ember-forecast", "ember-air"} {
+				if _, ok := pushed[a]; ok {
+					wantCards = append(wantCards, cards[a])
+				}
+			}
+			var gotCards []string
+			for _, f := range preview.Frames {
+				gotCards = append(gotCards, f.Card)
+			}
+			if !slicesEqualStr(gotCards, wantCards) {
+				t.Fatalf("preview frames %v, pushed tiles %v", gotCards, wantCards)
+			}
+			for a, card := range cards {
+				if p, ok := pushed[a]; ok {
+					assertFrameMatchesPayload(t, card, previewCard(t, preview, card), p)
+				}
+			}
+		})
+	}
+}
+
 func TestMeetingsPreviewMatchesDevicePayload(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	cfg := defaultConfig()

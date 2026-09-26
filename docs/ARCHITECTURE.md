@@ -499,9 +499,12 @@ never renders blank. The frames come from the pushed tiles' own `view`
 (`previewTiles`, see "Rotating tiles" above), with the draft params laid over
 the live config: `forecast_hours` follows the device's rule (<=0 or >24 means
 24, 1..5 kept), and a clear night shows the moon phase exactly as the clock
-does. `moon_phase` and `lat`/`lon` are draft params because the Settings pane
-previews an edit before its autosave lands; absent (or an unparsable /
-out-of-range pair) they fall back to the saved config. Native-icon mode previews with the drawn sprite (the canvas can't
+does. Every absent param defaults from the saved weather config (as do a
+non-integer `forecast_hours`, a `units` other than `metric`/`imperial`, and an
+unparsable / out-of-range `lat`/`lon` pair), so a caller sending no params
+(curl, a CLI) sees exactly the tiles the clock is sent. The macOS app sends
+every param because the Settings pane previews an edit before its autosave
+lands. Native-icon mode previews with the drawn sprite (the canvas can't
 animate gallery icons), and the overlay is not drawn. Feeds the menu's
 Weather tab "Display" section, which also folds Location/Tile/Forecast/Popups
 into collapsible sections and overlays a "1 of N" cycle indicator
