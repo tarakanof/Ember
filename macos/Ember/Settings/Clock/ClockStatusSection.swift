@@ -17,7 +17,7 @@ struct ClockStatusSection: View {
     private var celsius: Bool { device.settings.draft.useCelsius ?? true }
 
     private var serverLostClock: Bool {
-        ClockDiscovery.serverLostClock(health: health, settingsLoaded: device.isLoaded,
+        ClockDiscovery.serverLostClock(health: env.live.clockHealth, settingsLoaded: device.isLoaded,
                                        settingsError: device.loadError)
     }
 
@@ -25,7 +25,7 @@ struct ClockStatusSection: View {
         Section {
             if serverLostClock {
                 LabeledContent {
-                    Button("Find Clock from This Mac…") { showDiscover = true }
+                    Button("Find Clock from This Mac…") { openDiscover() }
                 } label: {
                     Label("The server can't reach the clock", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -78,7 +78,7 @@ struct ClockStatusSection: View {
                 .help("How many of the server's pushes reached the clock in the last 24 hours.")
             }
             HStack {
-                Button("Discover Clocks…") { showDiscover = true }
+                Button("Discover Clocks…") { openDiscover() }
                 Button("Open Web UI") {
                     if let url = device.config?.webURL { NSWorkspace.shared.open(url) }
                 }
@@ -107,7 +107,14 @@ struct ClockStatusSection: View {
         } message: {
             Text("The clock is unavailable for a few seconds while it restarts.")
         }
-        .sheet(isPresented: $showDiscover) { DiscoverClocksSheet() }
+        .sheet(isPresented: $showDiscover, onDismiss: { env.clockDiscovery.stop() }) { DiscoverClocksSheet() }
+    }
+
+    /// Opens the sheet without the last scan's rows: they may be stale, and
+    /// the sheet starts a new scan anyway.
+    private func openDiscover() {
+        env.clockDiscovery.stop()
+        showDiscover = true
     }
 
     private func temperature(_ celsiusValue: Double) -> String {
