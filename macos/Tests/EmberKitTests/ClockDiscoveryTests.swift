@@ -401,7 +401,7 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     let (d, browser, _, clock) = makeDiscovery()
     let scan = Task { await d.scan() }
     await clock.settle()
-    browser.onState?(.waiting)
+    browser.onState?(.denied)
     #expect(d.access == .needsAccess)
     browser.onState?(.ready)
     #expect(d.access == .ok)
@@ -460,8 +460,8 @@ private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
 /// wait is transient and the scan keeps searching.
 @Test func browseWaitIsNeedsAccessOnlyWhenPolicyDenied() {
     let denied = NWError.dns(DNSServiceErrorType(kDNSServiceErr_PolicyDenied))
-    #expect(BonjourClockBrowser.browseState(for: .waiting(denied)) == .waiting)
-    #expect(BonjourClockBrowser.browseState(for: .failed(denied)) == .waiting)
+    #expect(BonjourClockBrowser.browseState(for: .waiting(denied)) == .denied)
+    #expect(BonjourClockBrowser.browseState(for: .failed(denied)) == .denied)
     #expect(BonjourClockBrowser.browseState(for: .waiting(.posix(.ENETDOWN))) == nil)
     #expect(BonjourClockBrowser.browseState(for: .failed(.posix(.ENETDOWN))) == .failed)
     #expect(BonjourClockBrowser.browseState(for: .ready) == .ready)

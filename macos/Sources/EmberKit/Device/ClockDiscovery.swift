@@ -15,7 +15,7 @@ public struct ClockService: Equatable, Sendable {
 
 /// What the browse under a scan is doing.
 public enum ClockBrowseState: Sendable {
-    case ready, waiting, failed
+    case ready, denied, failed
 }
 
 /// The mDNS browse under `ClockDiscovery`: finds `_awtrixng._tcp` instances and
@@ -49,8 +49,7 @@ public final class ClockDiscovery {
     /// Whether this Mac can browse at all.
     public enum Access: Equatable, Sendable {
         case ok
-        /// The browse is waiting: usually Local Network access is off (or
-        /// there's no network).
+        /// macOS refused the browse: Local Network access is off for this app.
         case needsAccess
         case unavailable
     }
@@ -158,7 +157,7 @@ public final class ClockDiscovery {
         guard gen == generation else { return }
         switch state {
         case .ready: access = .ok
-        case .waiting: access = .needsAccess
+        case .denied: access = .needsAccess
         case .failed: access = .unavailable
         }
     }
@@ -215,13 +214,13 @@ public final class ClockDiscovery {
             (data, resp) = try await session.data(for: req)
         } catch {
             let reason = error.localizedDescription
-            BonjourClockBrowser.log.info("clock probe failed base_url=\(baseURL, privacy: .public) error=\(reason, privacy: .public)")
+            BonjourClockBrowser.log.notice("clock probe failed base_url=\(baseURL, privacy: .public) error=\(reason, privacy: .public)")
             return nil
         }
         let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
         let found = candidate(name: name, baseURL: baseURL, status: status, body: data)
         if found == nil {
-            BonjourClockBrowser.log.info("clock probe rejected base_url=\(baseURL, privacy: .public) status=\(status, privacy: .public) reason=not_awtrixng")
+            BonjourClockBrowser.log.notice("clock probe rejected base_url=\(baseURL, privacy: .public) status=\(status, privacy: .public) reason=not_awtrixng")
         }
         return found
     }
@@ -328,7 +327,7 @@ final class BonjourClockBrowser: ClockBrowsing {
             let mapped = Self.browseState(for: state)
             switch state {
             case .waiting(let e), .failed(let e):
-                Self.log.info("browse \(String(describing: state), privacy: .public) error=\(String(describing: e), privacy: .public)")
+                Self.log.notice("browse \(String(describing: state), privacy: .public) error=\(String(describing: e), privacy: .public)")
             default: break
             }
             guard let mapped else { return }
@@ -380,17 +379,17 @@ final class BonjourClockBrowser: ClockBrowsing {
                             onResolved(ClockService(name: name, host: host, port: Int(port.rawValue)))
                         } else {
                             let remote = String(describing: conn.currentPath?.remoteEndpoint)
-                            Self.log.info("clock resolve dropped name=\(name, privacy: .public) reason=not_ipv4 endpoint=\(remote, privacy: .public)")
+                            Self.log.notice("clock resolve dropped name=\(name, privacy: .public) reason=not_ipv4 endpoint=\(remote, privacy: .public)")
                         }
                         self?.finish(key)
                     case .keepWaiting:
-                        Self.log.info("clock resolve waiting name=\(name, privacy: .public) state=\(what, privacy: .public)")
+                        Self.log.notice("clock resolve waiting name=\(name, privacy: .public) state=\(what, privacy: .public)")
                     case .denied:
-                        Self.log.info("clock resolve denied name=\(name, privacy: .public) state=\(what, privacy: .public)")
-                        onState(.waiting)
+                        Self.log.notice("clock resolve denied name=\(name, privacy: .public) state=\(what, privacy: .public)")
+                        onState(.denied)
                         self?.finish(key)
                     case .failed:
-                        Self.log.info("clock resolve failed name=\(name, privacy: .public) state=\(what, privacy: .public)")
+                        Self.log.notice("clock resolve failed name=\(name, privacy: .public) state=\(what, privacy: .public)")
                         // Unclaimed, so the browse's next result set retries it.
                         self?.claimed.remove(claim)
                         self?.finish(key)
@@ -431,8 +430,8 @@ final class BonjourClockBrowser: ClockBrowsing {
     nonisolated static func browseState(for state: NWBrowser.State) -> ClockBrowseState? {
         switch state {
         case .ready: return .ready
-        case .waiting(let e): return isPolicyDenied(e) ? .waiting : nil
-        case .failed(let e): return isPolicyDenied(e) ? .waiting : .failed
+        case .waiting(let e): return isPolicyDenied(e) ? .denied : nil
+        case .failed(let e): return isPolicyDenied(e) ? .denied : .failed
         default: return nil
         }
     }

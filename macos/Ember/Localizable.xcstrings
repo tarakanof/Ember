@@ -969,7 +969,7 @@
     "These settings apply only to this Mac, while it's awake and Ember is running." : {},
     "This Mac" : {},
     "This Mac can't search the network" : {},
-    "This Mac can't search: Local Network access is off or there's no network" : {},
+    "This Mac can't search: Local Network access is off" : {},
     "This clock has no speaker." : {},
     "This clock style draws no weekday bar; the Date app still does." : {},
     "This clock style has no room for seconds or AM/PM." : {},
