@@ -800,6 +800,45 @@ func TestAdminReload_KeepsDiscoveredOverStaleStoreOverride(t *testing.T) {
 	}
 }
 
+// TestAdminReload_FileClockURLChangeReportsConfigSource asserts that once a
+// reload applies a new file URL, deviceSource calls it "config" again, even
+// if discovery had picked the clock at boot.
+func TestAdminReload_FileClockURLChangeReportsConfigSource(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+	app.deviceAutoPicked.Store(true) // what rediscoverClock does
+	if got := app.deviceSource(); got != "discovered" {
+		t.Fatalf("before reload: source = %q, want discovered", got)
+	}
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"}}`)
+
+	if got := app.deviceSource(); got != "config" {
+		t.Errorf("after file URL change: source = %q, want config", got)
+	}
+}
+
+// TestAdminReload_StoreOverrideBeatsChangedFileURL asserts a menu-chosen
+// clock URL still wins when the reloaded file changes its own URL.
+func TestAdminReload_StoreOverrideBeatsChangedFileURL(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.applyDeviceBaseURL("http://10.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"}}`)
+
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://10.0.0.1" {
+		t.Errorf("clock URL = %q, want the store override http://10.0.0.1", got)
+	}
+	if got := app.deviceSource(); got != "store" {
+		t.Errorf("source = %q, want store", got)
+	}
+}
+
 // TestAdminReload_FileClockURLChangeApplies asserts an operator edit of the
 // file's clock URL still takes effect, including on a second edit.
 func TestAdminReload_FileClockURLChangeApplies(t *testing.T) {

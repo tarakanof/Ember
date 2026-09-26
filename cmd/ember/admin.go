@@ -256,11 +256,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// running URL may be a menu override or a clock that discovery swapped
 		// in for a dead baseline; putting the file value back would stop
 		// publishing until the next device-watch tick.
-		prevFileURL := app.reloadFileBaseURL
-		if prevFileURL == "" {
-			prevFileURL = app.deviceBaseline
-		}
-		fileURLChanged := newCfg.AWTRIX.HTTPBaseURL != prevFileURL
+		fileURLChanged := newCfg.AWTRIX.HTTPBaseURL != app.deviceBaseline
 		if !fileURLChanged {
 			newCfg.AWTRIX.HTTPBaseURL = oldCfg.AWTRIX.HTTPBaseURL
 		}
@@ -281,7 +277,10 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		}
 		app.cfg.Store(&newCfg)
 		if fileURLChanged {
-			app.reloadFileBaseURL = newCfg.AWTRIX.HTTPBaseURL
+			// The operator picked this URL, so it is the config baseline now,
+			// not a discovery result.
+			app.deviceBaseline = newCfg.AWTRIX.HTTPBaseURL
+			app.deviceAutoPicked.Store(false)
 		}
 		app.cfgMu.Unlock()
 		// Keep the Pomodoro engine in sync with the reloaded config and
