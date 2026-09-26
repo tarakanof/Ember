@@ -67,33 +67,25 @@ private let pomoConfigJSON = #"""
     #expect(try decode(PomoConfig.self, json).soundMelody == "")
 }
 
-@Test func heatmapDecodesAndSendsDays() async throws {
-    let q = LockedBox()
+@Test func heatmapDecodes() async throws {
     let grid = Array(repeating: Array(repeating: 0, count: 24), count: 7)
     var g = grid
     g[2][16] = 25
     let body = try JSONSerialization.data(withJSONObject: [
         "grid": g, "calendar": [["key": "2026-08-04", "focus_min": 50, "sessions": 2]], "days": 84,
     ] as [String: Any])
-    let client = stubbedClient { req in
-        guard req.url?.path == "/v1/pomodoro/heatmap" else { return (okResponse(req.url!, status: 404), Data()) }
-        if let s = req.url?.query { q.add(s) }
-        return (okResponse(req.url!), body)
-    }
-    let h = try await StatsService(client: client).heatmap(days: 84)
-    #expect(q.paths == ["days=84"])
+    let client = stubbedClient { req in (okResponse(req.url!), body) }
+    let h: Heatmap = try await client.get("/v1/pomodoro/heatmap")
     #expect(h.minutes(weekday: 2, hour: 16) == 25)
     #expect(h.minutes(weekday: 9, hour: 0) == 0)
     #expect(h.calendar.first?.sessions == 2)
     #expect(h.days == 84)
 }
 
-@Test func statsServiceReadsStats() async throws {
-    let client = stubbedClient { req in
-        guard req.url?.path == "/v1/pomodoro/stats" else { return (okResponse(req.url!, status: 404), Data()) }
-        return (okResponse(req.url!), Data(fullStats.utf8))
-    }
-    #expect(try await StatsService(client: client).stats().longestStreak == 9)
+@Test func statsDecodeTheLongestStreak() async throws {
+    let client = stubbedClient { req in (okResponse(req.url!), Data(fullStats.utf8)) }
+    let stats: PomoStats = try await client.get("/v1/pomodoro/stats")
+    #expect(stats.longestStreak == 9)
 }
 
 @Test(arguments: [

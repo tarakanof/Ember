@@ -13,9 +13,3 @@ public func pickWinning(_ sessions: [Session]) -> Session? {
     }
     return nil
 }
-
-public struct StatusService: Sendable {
-    let client: APIClient
-    public init(client: APIClient) { self.client = client }
-    public func fetchSnapshot() async throws -> Snapshot { try await client.get("/state") }
-}

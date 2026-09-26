@@ -209,8 +209,12 @@ macOS menu-bar companion, a **pure HTTP client** of the server (it reads
 without relaunch. Hybrid layout:
 
 - **`EmberKit` (`macos/Sources/`, SwiftPM)** — all testable logic, no scene
-  code: Codable models mirroring the wire shapes (`Models/`), `APIClient`, one
-  service per endpoint group (`Services/`, `*Service.swift`), `pickWinning`,
+  code: Codable models mirroring the wire shapes (`Models/`), `APIClient`,
+  `ServerConnection` (producer.env's URL and token as the one client every
+  request derives from; `reload()` says whether the server or token changed),
+  typed wrappers only where a route group has real logic (`DeviceService`,
+  `PreviewService`, `RemindersService`; every other path string lives in its
+  one caller: `LiveModel`'s feed switch, `SettingsModels`, `ActionRunner`), `pickWinning`,
   `EnvFile` + validation, the settings types, and the app foundations (#119):
   `Live/` (`LiveModel`, `RefreshCoordinator`, `ActionRunner`), `Config/`
   (`ConfigModel` as `ServerConfigModel`/`EnvConfigModel`, `SettingsModels`,
@@ -265,9 +269,15 @@ loop and wake refetches at once. A `/state` failure keeps the snapshot live for
 only follows a live snapshot. The menu adds no polling: opening it catches up
 `stats`/`meetings`/`usage` only if they're over 60 s old, and every fetch pushes
 the next poll back, so stats stay at one request a minute. Actions (Pomodoro,
-clock, app visibility) go through `ActionRunner`, which keeps the last failure
-for 10 s and refreshes the feeds the action touched (stats follow a Pomodoro
-phase change). With no window open the app makes about 2,640 requests an hour:
+clock, app visibility) go through `ActionRunner`, from every surface (Settings
+restarts the clock and switches the display through it too), which keeps the
+last failure for 10 s and refreshes the feeds the action touched (stats follow
+a Pomodoro phase change). Display power is one value, `LiveModel.displayPower`:
+the newest of clock health's `matrixPower` (dated at probe time, so the
+server's 30 s probe cache can't undo a write; it must be over 2 s newer to
+beat a report), a successful power write or reboot, and Settings' overlay read
+(dated when issued). Results from a previous server are dropped. While a write
+is in flight the switches show its target (`ActionRunner.pendingDisplayPower`). With no window open the app makes about 2,640 requests an hour:
 1,200 each to `/state` and `/v1/pomodoro/state`, 60 each to stats, usage,
 meetings and apps (the old poller made about 4,800, 1,200 of them stats).
 
@@ -854,8 +864,8 @@ and the unit in every key (`_sec`, `_percent`, `_c`, `_dbm`, `_bytes`,
 methods that take `now`; `TestDashboardGolden` renders them at a fixed instant
 into `cmd/ember/testdata/dashboard/*.json` (`go test ./cmd/ember -run
 TestDashboardGolden -update` to regenerate), and EmberKit's decode tests read
-those same files. EmberKit's models are in `Sources/EmberKit/Models/`, with one
-service per feed in `Sources/EmberKit/Services/`.
+those same files. EmberKit's models are in `Sources/EmberKit/Models/`; each
+feed's route is in `LiveModel`'s fetch switch.
 
 **The Dashboard window (#111)** is a card grid (`macos/Ember/Dashboard/`):
 Clock (live mirror + next/previous/dismiss/power), Focus, Usage, Upcoming,

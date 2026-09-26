@@ -10,7 +10,6 @@ import EmberKit
 /// much for the clock's lossy link, so the mirror speaks for itself.
 struct ClockCard: View {
     let screen: Loadable<[Int]>
-    let health: Loadable<ClockHealth>
     var actions = DashboardActions()
 
     var body: some View {
@@ -57,11 +56,17 @@ struct ClockCard: View {
             .controlGroupStyle(.navigation)
             .labelStyle(.iconOnly)
             .fixedSize()
-            if let power = health.value?.device?.matrixPower {
-                Toggle("Display", isOn: Binding(get: { power }, set: { actions.clock(.power($0)) }))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .disabled(actions.running.contains(.clock(.power(!power))))
+            if let power = actions.displayPower {
+                // Shows the target at once; a failure ends the write and
+                // it falls back to the confirmed value.
+                let pending = actions.pendingDisplayPower
+                HStack(spacing: 6) {
+                    Toggle("Display", isOn: Binding(get: { pending ?? power }, set: { actions.clock(.power($0)) }))
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .disabled(pending != nil)
+                    if pending != nil { ProgressView().controlSize(.mini) }
+                }
             }
         }
     }

@@ -333,3 +333,116 @@ private final class Flag: @unchecked Sendable {
     }
     #expect(configReads.paths.count == 2)
 }
+
+/// A clock-health body whose probe is `age` seconds old at `generated`, both
+/// in server time.
+private func healthJSON(power: Bool, generated: Int, age: Int) -> Data {
+    let fmt = { (s: Int) in Date(timeIntervalSince1970: TimeInterval(s)).ISO8601Format() }
+    return Data("""
+    {"generated_at":"\(fmt(generated))","publish":{"counting_since":"\(fmt(0))","ok_24h":0,"fail_24h":0,\
+    "ok_total":0,"fail_total":0,"retries_total":0,"last_ok":true},\
+    "device":{"reachable":true,"checked_at":"\(fmt(generated - age))","matrix_power":\(power)}}
+    """.utf8)
+}
+
+// #149: one display-power value. A write, a direct read and the health feed
+// all report it, and the newest observation wins, so a health probe the
+// server cached before a write can't flip the switch back.
+@MainActor @Test func displayPowerIsTheNewestObservation() async {
+    let body = Box(healthJSON(power: false, generated: 5_000, age: 0))
+    let client = stubbedClient { req in (okResponse(req.url!), body.value) }
+    let now = Box(Date(timeIntervalSince1970: 1_000))
+    let clock = ManualClock()
+    let m = LiveModel(now: { now.value }, makeCoordinator: {
+        RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
+    })
+    m.configure(client: client)
+    #expect(m.displayPower == nil)
+    let hold = Task { await m.track(.clockHealth) }
+    for _ in 0..<200 where !m.isTracked(.clockHealth) { await Task.yield() }
+
+    await m.refreshNow(.clockHealth)
+    #expect(m.displayPower == false)
+
+    now.value = Date(timeIntervalSince1970: 1_010)
+    m.reportDisplayPower(true, written: m.displayPowerTicket())
+    #expect(m.displayPower == true)
+
+    // 5 s later the server still serves a probe taken 20 s ago: ignored.
+    now.value = Date(timeIntervalSince1970: 1_015)
+    body.value = healthJSON(power: false, generated: 5_015, age: 20)
+    await m.refreshNow(.clockHealth)
+    #expect(m.displayPower == true)
+
+    // Whole-second wire times plus latency blur a probe's date by about a
+    // second: one dated within the margin after the write still loses.
+    now.value = Date(timeIntervalSince1970: 1_016)
+    body.value = healthJSON(power: false, generated: 5_016, age: 4)
+    await m.refreshNow(.clockHealth)
+    #expect(m.displayPower == true)
+
+    // A fresh probe that says off (the clock's button) wins.
+    now.value = Date(timeIntervalSince1970: 1_045)
+    body.value = healthJSON(power: false, generated: 5_045, age: 0)
+    await m.refreshNow(.clockHealth)
+    #expect(m.displayPower == false)
+    hold.cancel()
+
+    m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    #expect(m.displayPower == nil)
+}
+
+@MainActor
+private func timedModel(_ now: Box<Date>) -> LiveModel {
+    let clock = ManualClock()
+    return LiveModel(now: { now.value }, makeCoordinator: {
+        RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
+    })
+}
+
+@MainActor @Test func aReadAWriteOvertookDoesNotWin() {
+    let now = Box(Date(timeIntervalSince1970: 1_000))
+    let m = timedModel(now)
+    m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    let read = m.displayPowerTicket()          // overlay GET issued
+    now.value = Date(timeIntervalSince1970: 1_001)
+    let write = m.displayPowerTicket()
+    now.value = Date(timeIntervalSince1970: 1_002)
+    m.reportDisplayPower(false, written: write)
+    now.value = Date(timeIntervalSince1970: 1_003)
+    m.reportDisplayPower(true, read: read)    // lands after, saw the old state
+    #expect(m.displayPower == false)
+}
+
+@MainActor @Test func aResultFromThePreviousServerIsDropped() {
+    let now = Box(Date(timeIntervalSince1970: 1_000))
+    let m = timedModel(now)
+    m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    let old = m.displayPowerTicket()
+    m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    now.value = Date(timeIntervalSince1970: 1_005)
+    m.reportDisplayPower(true, written: old)
+    m.reportDisplayPower(true, read: old)
+    #expect(m.displayPower == nil)
+}
+
+@MainActor @Test func everyFeedAsksForItsRoute() async {
+    let seen = LockedBox()
+    let client = stubbedClient { req in
+        let q = req.url!.query.map { "?\($0)" } ?? ""
+        seen.add(req.url!.path + q)
+        return (okResponse(req.url!, status: 404), Data())
+    }
+    let m = makeModel()
+    m.configure(client: client)
+    let tierC = Feed.allCases.filter { $0.tier == .c }
+    let hold = Task { await m.track(tierC) }
+    for _ in 0..<200 where !m.isTracked(.heatmap) { await Task.yield() }
+    await m.refreshNow(Feed.allCases, ifOlderThan: .zero)
+    hold.cancel()
+    #expect(Set(seen.paths) == [
+        "/state", "/v1/pomodoro/state", "/v1/pomodoro/stats", "/v1/usage", "/v1/meetings/state",
+        "/v1/apps", "/v1/device/config", "/v1/device/screen", "/v1/clock/health", "/v1/weather/state",
+        "/v1/activity/summary?days=7", "/v1/pomodoro/workhours?days=14", "/v1/pomodoro/heatmap?days=84",
+    ])
+}

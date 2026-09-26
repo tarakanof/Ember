@@ -207,11 +207,15 @@ private func ngServer() -> FakeClock {
 
 @MainActor @Test func loadReadsEverythingSequentially() async {
     let fake = ngServer()
-    let (m, _) = makeModel(fake)
+    let live = LiveModel()
+    live.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
+    let m = DeviceSettingsModel(service: DeviceService(client: stubbedClient(token: "t") { fake.handle($0) }),
+                                live: live, debounce: .milliseconds(600), sleep: ManualClock().sleepFn, now: { Date() })
     await m.load()
     #expect(m.isLoaded)
     #expect(m.supportsNG11)
-    #expect(m.displayPower == true)
+    // #149: the overlay read's power goes to the one display-power value.
+    #expect(live.displayPower == true)
     #expect(m.transitions == ["Fade"])
     #expect(m.overlays == ["rain"])
     #expect(m.config?.baseURL == "http://clock")
@@ -258,8 +262,7 @@ private func ngServer() -> FakeClock {
     #expect(m.isLoaded)
     #expect(!m.supportsNG11)
     #expect(m.audio == .unsupported)
-    #expect(m.displayPower == true)
-    #expect(!m.supportsDisplayPower)
+    #expect(!m.supportsControlRoutes)
     #expect(!m.firmwareTooOld)
     #expect(m.hasBuzzer)
     #expect(m.transitions == DeviceKnownValues.fallbackTransitions)
@@ -271,7 +274,7 @@ private func ngServer() -> FakeClock {
     let (m, _) = makeModel(fake)
     await m.load()
     #expect(m.audio == .noOutput)
-    #expect(m.supportsDisplayPower)
+    #expect(m.supportsControlRoutes)
 }
 
 @MainActor @Test func newServerWithOldFirmwareBlamesTheFirmware() async {
@@ -377,16 +380,6 @@ private func ngServer() -> FakeClock {
     #expect(m.nativeApps.first?.enabled == false)
     #expect(m.actionErrors[.apps] != nil)
     if case .error = m.writes.status {} else { Issue.record("expected an error status") }
-}
-
-@MainActor @Test func displayPowerRollsBackOnFailure() async {
-    let fake = ngServer()
-    fake.responses["PUT /v1/device/display/power"] = (404, "")
-    let (m, _) = makeModel(fake)
-    await m.load()
-    await m.setDisplayPower(false)
-    #expect(m.displayPower == true)
-    #expect(m.actionErrors[.displayPower] == .featureOff)
 }
 
 @MainActor @Test func configureSameServerIsANoOp() async {

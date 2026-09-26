@@ -3,16 +3,26 @@ import EmberKit
 
 /// Panel power, brightness, text and scrolling.
 struct DisplaySection: View {
+    @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
 
     var body: some View {
         let s = device.settings
         Section {
-            if device.supportsDisplayPower, let power = device.displayPower {
-                Toggle("Display on", isOn: Binding(
-                    get: { power },
-                    set: { on in Task { await device.setDisplayPower(on) } }))
-                    .disabled(device.running.contains(.displayPower))
+            // The same switch and value as the menu and the Dashboard.
+            if device.supportsControlRoutes, let power = env.live.displayPower {
+                // Shows the target at once; a failure ends the write and the
+                // switch falls back to the confirmed value.
+                let pending = env.actions.pendingDisplayPower
+                Toggle(isOn: Binding(
+                    get: { pending ?? power },
+                    set: { on in Task { await env.actions.run(.clock(.power(on))) } })) {
+                    HStack(spacing: 6) {
+                        Text("Display on")
+                        if pending != nil { ProgressView().controlSize(.mini) }
+                    }
+                }
+                .disabled(pending != nil)
             }
             Toggle("Automatic brightness", isOn: s.binding(\.autoBrightness, false))
             PercentSliderRow(title: "Brightness", percent: Binding(
@@ -35,8 +45,8 @@ struct DisplaySection: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Scrolling applies to text that doesn't fit the panel. A running Pomodoro may briefly override button navigation.")
                 SaveErrorFooter(error: s.saveError)
-                if let e = device.actionErrors[.displayPower] {
-                    Label { Text(e.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                if let failure = env.actions.lastError, case .clock(.power) = failure.action {
+                    Label { Text(failure.error.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                         .foregroundStyle(.red)
                 }
             }

@@ -24,13 +24,3 @@ private func sess(_ tool: String, _ state: String, _ ago: TimeInterval) -> Sessi
     #expect(pickWinning([]) == nil)
     #expect(pickWinning([sess("a", "idle", 1)]) == nil)
 }
-
-@Test func fetchSnapshotDecodes() async throws {
-    let client = stubbedClient { req in
-        #expect(req.url?.path == "/state")
-        return (okResponse(req.url!), Data(#"{"sessions":[{"source":"mbp","tool":"claude","session":"s","state":"running","message":""}]}"#.utf8))
-    }
-    let svc = StatusService(client: client)
-    let snap = try await svc.fetchSnapshot()
-    #expect(snap.sessions.count == 1)
-}

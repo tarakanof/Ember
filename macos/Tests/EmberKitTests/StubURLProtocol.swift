@@ -70,3 +70,27 @@ func stubbedClient(token: String? = nil,
 func okResponse(_ url: URL, status: Int = 200) -> HTTPURLResponse {
     HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
 }
+
+/// Records request paths (or query strings) from the stub's handler thread.
+final class LockedBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _paths: [String] = []
+    func add(_ p: String) { lock.lock(); _paths.append(p); lock.unlock() }
+    var paths: [String] { lock.lock(); defer { lock.unlock() }; return _paths }
+}
+
+extension URLRequest {
+    /// URLProtocol receives httpBody for non-stream bodies; this helper keeps the
+    /// test resilient if a body is delivered as a stream.
+    func httpBodyStreamData() -> Data? {
+        guard let stream = httpBodyStream else { return nil }
+        stream.open(); defer { stream.close() }
+        var data = Data(); var buf = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let n = stream.read(&buf, maxLength: buf.count)
+            if n <= 0 { break }
+            data.append(buf, count: n)
+        }
+        return data.isEmpty ? nil : data
+    }
+}

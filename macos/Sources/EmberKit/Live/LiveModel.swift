@@ -41,9 +41,75 @@ public final class LiveModel {
     /// Sessions from the latest snapshot, live or stale.
     public var sessions: [Session] { snapshot.value?.sessions ?? [] }
 
+    /// Whether the clock's LED matrix is lit: the one value the menu, the
+    /// Dashboard and Settings show. The newest observation wins: the
+    /// clock-health feed's `matrixPower` (dated when the server probed the
+    /// clock, which can be up to 30 s before the fetch), or a report from a
+    /// power write, a reboot or a direct read. nil until one of them says.
+    public var displayPower: Bool? {
+        switch (healthPower, reportedPower) {
+        // The health reading must be clearly newer: its dating is only good
+        // to about a second (the wire times are whole seconds, plus latency).
+        case let (h?, r?): h.at > r.at + Self.healthPowerMargin ? h.on : r.on
+        case let (h?, nil): h.on
+        case let (nil, r?): r.on
+        case (nil, nil): nil
+        }
+    }
+
+    static let healthPowerMargin: TimeInterval = 2
+
+    /// Taken when a power write or a direct read is issued, and handed back
+    /// with its result: a result for a server this model no longer talks to
+    /// is dropped, and a read is dated when it was asked.
+    public struct DisplayPowerTicket: Sendable, Equatable {
+        fileprivate let generation: Int
+        fileprivate let issuedAt: Date
+    }
+
+    public func displayPowerTicket() -> DisplayPowerTicket {
+        DisplayPowerTicket(generation: generation, issuedAt: clock())
+    }
+
+    /// A write (or reboot) left the matrix `on`: true from the moment it
+    /// returned.
+    public func reportDisplayPower(_ on: Bool, written ticket: DisplayPowerTicket) {
+        recordPower(on, at: clock(), ticket)
+    }
+
+    /// A direct read saw `on`. Dated when it was issued, so a write that
+    /// landed while the read was in flight stays newer.
+    public func reportDisplayPower(_ on: Bool, read ticket: DisplayPowerTicket) {
+        recordPower(on, at: ticket.issuedAt, ticket)
+    }
+
+    private func recordPower(_ on: Bool, at: Date, _ ticket: DisplayPowerTicket) {
+        guard ticket.generation == generation else { return }
+        if let current = reportedPower, current.at > at { return }
+        reportedPower = PowerObservation(on: on, at: at)
+    }
+
+    private struct PowerObservation: Equatable {
+        let on: Bool
+        let at: Date
+    }
+
+    private var reportedPower: PowerObservation?
+
+    /// The health feed's reading, dated on this Mac's clock: when the value
+    /// landed minus the probe's age, which the server reports in its own
+    /// time (`generatedAt − checkedAt`), so the two clocks never mix.
+    private var healthPower: PowerObservation? {
+        guard let health = clockHealth.value, let fetched = clockHealth.loadedAt,
+              let device = health.device, let on = device.matrixPower else { return nil }
+        let age = max(0, health.generatedAt.timeIntervalSince(device.checkedAt))
+        return PowerObservation(on: on, at: fetched.addingTimeInterval(-age))
+    }
+
     @ObservationIgnored private var coordinator: RefreshCoordinator!
     @ObservationIgnored private let clock: @MainActor () -> Date
-    @ObservationIgnored private var services: Services?
+    /// The configured server's client; nil while unconfigured.
+    @ObservationIgnored private var client: APIClient?
     /// Bumped by `configure`: a response from the previous server is dropped.
     @ObservationIgnored private var generation = 0
     /// Per-feed request counter: only the newest request's answer is applied,
@@ -63,32 +129,6 @@ public final class LiveModel {
     @ObservationIgnored private var fetchedAt: [Feed: Date] = [:]
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "live")
-
-    private struct Services {
-        let status: StatusService
-        let pomodoro: PomodoroService
-        let stats: StatsService
-        let usage: UsageService
-        let meetings: MeetingsService
-        let apps: AppsService
-        let device: DeviceService
-        let health: HealthService
-        let weather: WeatherService
-        let activity: ActivityService
-
-        init(client: APIClient) {
-            status = StatusService(client: client)
-            pomodoro = PomodoroService(client: client)
-            stats = StatsService(client: client)
-            usage = UsageService(client: client)
-            meetings = MeetingsService(client: client)
-            apps = AppsService(client: client)
-            device = DeviceService(client: client)
-            health = HealthService(client: client)
-            weather = WeatherService(client: client)
-            activity = ActivityService(client: client)
-        }
-    }
 
     /// A model on the real clock.
     public convenience init() {
@@ -114,6 +154,8 @@ public final class LiveModel {
     /// menu and bot don't blink back to "Connecting…".
     public func configure(client: APIClient) {
         let identity = ServerIdentity(client)
+        // `ServerConnection.reload` is the authoritative identity check; this
+        // one only keeps a direct caller (tests) idempotent.
         guard identity != server else { return }
         server = identity
         generation += 1
@@ -126,12 +168,12 @@ public final class LiveModel {
         clockBaseURL = nil
         resetValues()
         guard client.baseURL != nil else {
-            services = nil
+            self.client = nil
             connection = .unconfigured
             coordinator.stop()
             return
         }
-        services = Services(client: client)
+        self.client = client
         connection = .connecting
         guard wantsStart else { return }
         if coordinator.isStarted { coordinator.restart() } else { coordinator.start() }
@@ -141,7 +183,7 @@ public final class LiveModel {
     /// (the next `configure` with a URL starts it).
     public func start() {
         wantsStart = true
-        guard services != nil else { return }
+        guard client != nil else { return }
         coordinator.start()
     }
 
@@ -206,26 +248,33 @@ public final class LiveModel {
         activity = .loading
         workhours = .loading
         heatmap = .loading
+        reportedPower = nil
     }
 
     // MARK: Fetching
 
     private func fetch(_ feed: Feed) async -> FeedTick {
-        guard let s = services else { return .failed(.offline) }
+        guard let c = client else { return .failed(.offline) }
+        // Every read the app polls, one route each. `days` is clamped
+        // server-side (activity/workhours 1...90, heatmap 7...366).
         switch feed {
-        case .state: return await fetchState(s)
-        case .pomodoroState: return await fetchPomodoro(s)
-        case .stats: return await load(feed, \.stats) { try await s.stats.stats() }
-        case .usage: return await load(feed, \.usage) { try await s.usage.snapshot() }
-        case .meetings: return await load(feed, \.meetings) { try await s.meetings.state() }
-        case .apps: return await load(feed, \.apps) { try await s.apps.list() }
-        case .screen: return await fetchScreen(s)
-        case .clockHealth: return await load(feed, \.clockHealth) { try await s.health.clockHealth() }
-        case .weather: return await load(feed, \.weather) { try await s.weather.state() }
-        case .activity: return await load(feed, \.activity) { try await s.activity.summary(days: 7) }
-        case .workhours: return await load(feed, \.workhours) { try await s.stats.workHours(days: 14) }
-        case .heatmap: return await load(feed, \.heatmap) { try await s.stats.heatmap(days: 84) }
+        case .state: return await fetchState(c)
+        case .pomodoroState: return await fetchPomodoro(c)
+        case .stats: return await load(feed, \.stats) { try await c.get("/v1/pomodoro/stats") }
+        case .usage: return await load(feed, \.usage) { try await c.get("/v1/usage") }
+        case .meetings: return await load(feed, \.meetings) { try await c.get("/v1/meetings/state") }
+        case .apps: return await load(feed, \.apps) { try await (c.get("/v1/apps") as AppsList).apps }
+        case .screen: return await fetchScreen(DeviceService(client: c))
+        case .clockHealth: return await load(feed, \.clockHealth) { try await c.get("/v1/clock/health") }
+        case .weather: return await load(feed, \.weather) { try await c.get("/v1/weather/state") }
+        case .activity: return await load(feed, \.activity) { try await c.get("/v1/activity/summary", query: Self.days(7)) }
+        case .workhours: return await load(feed, \.workhours) { try await c.get("/v1/pomodoro/workhours", query: Self.days(14)) }
+        case .heatmap: return await load(feed, \.heatmap) { try await c.get("/v1/pomodoro/heatmap", query: Self.days(84)) }
         }
+    }
+
+    private static func days(_ n: Int) -> [URLQueryItem] {
+        [URLQueryItem(name: "days", value: String(n))]
     }
 
     /// Issues a request number; `isCurrent` says whether its answer may land.
@@ -277,10 +326,10 @@ public final class LiveModel {
         if next != current { self[keyPath: keyPath] = next }
     }
 
-    private func fetchState(_ s: Services) async -> FeedTick {
+    private func fetchState(_ c: APIClient) async -> FeedTick {
         let ticket = issue(.state)
         do {
-            let snap = try await s.status.fetchSnapshot()
+            let snap: Snapshot = try await c.get("/state")
             guard isCurrent(.state, ticket) else { return .ok }
             let now = clock()
             applySuccess(.state, \.snapshot, snap)
@@ -313,9 +362,9 @@ public final class LiveModel {
         }
     }
 
-    private func fetchPomodoro(_ s: Services) async -> FeedTick {
+    private func fetchPomodoro(_ c: APIClient) async -> FeedTick {
         let before = pomodoro.value?.phaseEnum
-        let tick = await load(.pomodoroState, \.pomodoro) { try await s.pomodoro.state() }
+        let tick = await load(.pomodoroState, \.pomodoro) { try await c.get("/v1/pomodoro/state") }
         // A phase change means a session was just completed or abandoned.
         if let before, let after = pomodoro.value?.phaseEnum, before != after {
             Task { await self.refreshNow(.stats) }
@@ -325,17 +374,17 @@ public final class LiveModel {
 
     /// The mirror's source selection (proxy, else the clock directly) and its
     /// pacing live in `MirrorPoller`; this runs one of its ticks.
-    private func fetchScreen(_ s: Services) async -> FeedTick {
+    private func fetchScreen(_ device: DeviceService) async -> FeedTick {
         let ticket = issue(.screen)
         if clockBaseURL == nil {
-            clockBaseURL = (try? await s.device.config())?.baseURL ?? ""
+            clockBaseURL = (try? await device.config())?.baseURL ?? ""
         }
         var pixels: [Int]?
         var failure: FeedError?
         var retryAfter: Duration?
         if mirror.probesProxy {
             do {
-                pixels = try await s.device.screen()
+                pixels = try await device.screen()
                 mirror.record(.pixels)
             } catch let e as APIError where e.isRateLimited {
                 let wait = e.retryAfter ?? RateLimitBackoff.fallbackRetryAfter
