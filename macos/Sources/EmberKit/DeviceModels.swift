@@ -215,21 +215,28 @@ public struct SensorCalibration: Codable, Equatable, Sendable {
 /// no "clear" value in NG; clearing an overlay is an explicit `overlay: null`,
 /// so encode(to:) always writes the key (never omits it), mirroring
 /// SensorCalibration's explicit-null precedent.
+///
+/// `power` is read-only here: GET reports whether the matrix is lit, but the
+/// PUT rejects it. Toggle it with `DeviceService.setDisplayPower(_:)`, which
+/// has its own route so an overlay edit can never blank the panel.
 public struct DeviceDisplay: Codable, Equatable, Sendable {
     public var overlay: String?
     public var overlaySettings: OverlaySettings?
+    public var power: Bool?
 
-    enum CodingKeys: String, CodingKey { case overlay, overlaySettings }
+    enum CodingKeys: String, CodingKey { case overlay, overlaySettings, power }
 
-    public init(overlay: String? = nil, overlaySettings: OverlaySettings? = nil) {
+    public init(overlay: String? = nil, overlaySettings: OverlaySettings? = nil, power: Bool? = nil) {
         self.overlay = overlay
         self.overlaySettings = overlaySettings
+        self.power = power
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         overlay = (try? c.decodeIfPresent(String.self, forKey: .overlay)) ?? nil
         overlaySettings = (try? c.decodeIfPresent(OverlaySettings.self, forKey: .overlaySettings)) ?? nil
+        power = (try? c.decodeIfPresent(Bool.self, forKey: .power)) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -432,4 +439,51 @@ public struct ButtonStatus: Codable, Equatable, Sendable {
 public struct ButtonsUpdate: Codable, Equatable, Sendable {
     public var enabled: Bool
     public init(enabled: Bool) { self.enabled = enabled }
+}
+
+/// PUT /v1/device/display/power body.
+public struct DisplayPowerUpdate: Codable, Equatable, Sendable {
+    public var power: Bool
+    public init(power: Bool) { self.power = power }
+}
+
+/// POST /v1/device/audio/test body naming a stored melody to preview.
+public struct AudioTestRequest: Codable, Equatable, Sendable {
+    public var melody: String
+    public init(melody: String) { self.melody = melody }
+}
+
+/// One melody stored on the clock (GET /v1/device/audio/melodies, NG's own
+/// shape). `notes`/`durationMs` come from parsing `rtttl` and are 0 when it
+/// does not parse; an unparseable file is still listed with `valid == false`
+/// and the reason in `error` at byte offset `index`.
+public struct DeviceMelody: Codable, Equatable, Sendable, Identifiable {
+    public var name: String
+    public var rtttl: String
+    public var bytes: Int
+    public var notes: Int
+    public var durationMs: Int
+    public var valid: Bool
+    public var error: String?
+    public var index: Int?
+
+    public var id: String { name }
+
+    public init(name: String, rtttl: String = "", bytes: Int = 0, notes: Int = 0,
+                durationMs: Int = 0, valid: Bool = true, error: String? = nil, index: Int? = nil) {
+        self.name = name; self.rtttl = rtttl; self.bytes = bytes; self.notes = notes
+        self.durationMs = durationMs; self.valid = valid; self.error = error; self.index = index
+    }
+}
+
+/// GET /v1/device/audio/melodies. `usedBytes`/`totalBytes` cover the clock's
+/// whole filesystem (icons and scripts share it), not just melodies.
+public struct DeviceMelodyList: Codable, Equatable, Sendable {
+    public var melodies: [DeviceMelody]
+    public var usedBytes: Int
+    public var totalBytes: Int
+
+    public init(melodies: [DeviceMelody] = [], usedBytes: Int = 0, totalBytes: Int = 0) {
+        self.melodies = melodies; self.usedBytes = usedBytes; self.totalBytes = totalBytes
+    }
 }

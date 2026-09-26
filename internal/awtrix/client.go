@@ -199,6 +199,63 @@ func (c *Client) PlaySound(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"sound": name}, nil)
 }
 
+// PlayMelody plays a melody stored on the device by name
+// (POST /api/v1/audio/play {"melody"}). Unlike PlaySound it never falls back
+// to an MP3 of the same name: an unknown name answers 404 notFound, a board
+// with no buzzer 503 unavailable.
+func (c *Client) PlayMelody(ctx context.Context, name string) error {
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"melody": name}, nil)
+}
+
+// StopAudio silences every output, radio included (POST /api/v1/audio/stop
+// with no body, which is scope "all"). It works even while soundEnabled is off.
+func (c *Client) StopAudio(ctx context.Context) error {
+	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/stop", nil, nil)
+}
+
+// Melody is one entry of GET /api/v1/audio/melodies. Notes and DurationMs come
+// from parsing RTTTL and are 0 when it does not parse; a file that does not
+// parse is still listed, with Valid false and the reason in Error at byte
+// offset Index.
+type Melody struct {
+	Name       string `json:"name"`
+	RTTTL      string `json:"rtttl"`
+	Bytes      int    `json:"bytes"`
+	Notes      int    `json:"notes"`
+	DurationMs int    `json:"durationMs"`
+	Valid      bool   `json:"valid"`
+	Error      string `json:"error,omitempty"`
+	Index      *int   `json:"index,omitempty"`
+}
+
+// MelodyList is GET /api/v1/audio/melodies. UsedBytes/TotalBytes cover the
+// whole filesystem (icons, scripts and palettes share it), not just melodies.
+type MelodyList struct {
+	Melodies   []Melody `json:"melodies"`
+	UsedBytes  int64    `json:"usedBytes"`
+	TotalBytes int64    `json:"totalBytes"`
+}
+
+// Melodies lists the melody files stored on the device
+// (GET /api/v1/audio/melodies). Melodies is never nil on success.
+func (c *Client) Melodies(ctx context.Context) (MelodyList, error) {
+	var out MelodyList
+	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/audio/melodies", nil, &out); err != nil {
+		return MelodyList{}, err
+	}
+	if out.Melodies == nil {
+		out.Melodies = []Melody{}
+	}
+	return out, nil
+}
+
+// SetDisplayPower blanks (false) or relights (true) the LED matrix
+// (PATCH /api/v1/display {"power"}). The board, Wi-Fi and apps keep running;
+// the state is runtime-only and a reboot relights the panel.
+func (c *Client) SetDisplayPower(ctx context.Context, on bool) error {
+	return c.doJSON(ctx, http.MethodPatch, "/api/v1/display", map[string]any{"power": on}, nil)
+}
+
 func indicatorPath(index int) (string, error) {
 	if index < 1 || index > 3 {
 		return "", fmt.Errorf("indicator index must be 1-3, got %d", index)

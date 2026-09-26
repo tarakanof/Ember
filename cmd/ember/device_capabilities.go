@@ -18,8 +18,10 @@ const capabilitiesTimeout = 2 * time.Second
 // transitions, overlays, palettes, audio, gpio) plus its firmware version.
 // Called at startup and whenever rediscovery swaps to a different clock — the
 // lists are per firmware build, so they only change when the device does.
-// Failures leave the previous cache in place and log a warning; the endpoint
-// below falls back to a live fetch, so a dark clock at boot is not fatal.
+// A failure empties the cache and logs a warning: whatever was cached
+// described the previous clock, and the audio gate would refuse on its word.
+// The endpoint below falls back to a live fetch, so a dark clock at boot is
+// not fatal.
 func (a *App) refreshCapabilities(ctx context.Context) {
 	base := a.cfg.Load().AWTRIX.HTTPBaseURL
 	if base == "" {
@@ -31,6 +33,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	}
 	caps, err := cl.Capabilities(ctx)
 	if err != nil {
+		a.caps.Store(nil)
 		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
 		return
 	}

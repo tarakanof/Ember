@@ -279,7 +279,13 @@ func deviceProxyStatus(status int) int {
 // shape — "error" stays a string, which is what the menu displays — with
 // "code" and "field" alongside so a caller can point at the rejected key.
 func writeDeviceError(w http.ResponseWriter, status int, body []byte) {
-	apiErr := awtrix.ParseAPIError(status, body)
+	writeDeviceAPIError(w, awtrix.ParseAPIError(status, body))
+}
+
+// writeDeviceAPIError is writeDeviceError for a reply the awtrix client has
+// already parsed.
+func writeDeviceAPIError(w http.ResponseWriter, apiErr *awtrix.APIError) {
+	status := apiErr.StatusCode
 	msg := fmt.Sprintf("clock returned %d", status)
 	if detail := apiErr.Message; detail != "" {
 		// Cap a raw (non-envelope) body at 200 runes, never mid-sequence.
