@@ -69,6 +69,9 @@ func (q *quietPublisher) ClearIndicator(ctx context.Context, index int) error {
 func (q *quietPublisher) Settings(ctx context.Context, payload map[string]any) error {
 	return q.next.Settings(ctx, payload)
 }
+func (q *quietPublisher) ReadSettings(ctx context.Context) (map[string]any, error) {
+	return q.next.ReadSettings(ctx)
+}
 func (q *quietPublisher) Switch(ctx context.Context, name string) error {
 	return q.next.Switch(ctx, name)
 }

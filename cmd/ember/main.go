@@ -1340,6 +1340,10 @@ type Publisher interface {
 	// e.g. toggling app rotation and native button navigation for Pomodoro
 	// takeover.
 	Settings(ctx context.Context, payload map[string]any) error
+	// ReadSettings returns the device settings resource (GET /api/v1/settings).
+	// Used to snapshot the user's own values before a Pomodoro takeover
+	// overrides them, so the restore puts back what was there.
+	ReadSettings(ctx context.Context) (map[string]any, error)
 	// Switch forces the device to the named app (PUT /api/v1/apps/active).
 	Switch(ctx context.Context, name string) error
 	// ListIcons returns the filenames in the device's /ICONS folder
@@ -1472,6 +1476,14 @@ func (p *HTTPPublisher) Settings(ctx context.Context, payload map[string]any) er
 		return err
 	}
 	return c.PatchSettings(ctx, payload)
+}
+
+func (p *HTTPPublisher) ReadSettings(ctx context.Context) (map[string]any, error) {
+	c, err := p.client()
+	if err != nil {
+		return nil, err
+	}
+	return c.GetSettings(ctx)
 }
 
 func (p *HTTPPublisher) Switch(ctx context.Context, name string) error {

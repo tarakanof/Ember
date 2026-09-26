@@ -111,9 +111,19 @@ type coordinator struct {
 	// hold is who currently owns the screen device-side. Edge-triggered: the
 	// forced app switch (and, for Pomodoro, the autoTransition/blockNavigation
 	// settings) are written only when this value changes, plus on a cmdRepublish
-	// (a device reboot clears both behind our back). Coordinator-goroutine-owned
-	// (read/written only from publish/onRepublish).
+	// (a device reboot clears the pushed app behind our back). It moves only
+	// once the device has accepted the edge's writes, so a lost write is
+	// replayed on the next tick. Coordinator-goroutine-owned (read/written only
+	// from publish/onRepublish).
 	hold holdState
+
+	// prior is the user's own autoTransition/blockNavigation, snapshotted
+	// before a Pomodoro takeover and written back on release. Non-nil means a
+	// takeover may be in force device-side and a restore is owed. Mirrored in
+	// kv (when set) so a process that dies mid-takeover restores on its next
+	// start. Coordinator-goroutine-owned once Run starts.
+	prior *takeoverPrior
+	kv    settingsKV
 
 	// onPublishResult, if non-nil, is called after every publish attempt
 	// with the snapshot we tried to render and the error (nil on success).
@@ -673,31 +683,42 @@ const (
 // a cancelled coordinator context both stop the loop immediately. Returns the
 // last attempt's error. Coordinator goroutine only.
 func (c *coordinator) pushApp(name string, payload map[string]any) error {
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	return c.retryDevice(c.runCtx(), func(ctx context.Context) error {
+		return c.publisher.CustomApp(ctx, name, payload)
+	})
+}
+
+// retryDevice runs one device call with pushApp's retry policy: up to
+// publishAttempts attempts of publishAttemptTimeout each, stopping early on
+// success, on an answer a retry can't change (see retryablePushErr), or when
+// ctx is done. Returns the last attempt's error.
+func (c *coordinator) retryDevice(ctx context.Context, op func(context.Context) error) error {
 	budget := publishAttemptTimeout
 	if t := time.Duration(c.loadCfg().AWTRIX.TimeoutSeconds) * time.Second; t > 0 && t < budget {
 		budget = t
 	}
-
 	var err error
 	for i := 0; i < publishAttempts; i++ {
 		if i > 0 {
 			c.metrics.incPublishRetry()
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, budget)
-		err = c.publisher.CustomApp(attemptCtx, name, payload)
+		err = op(attemptCtx)
 		cancel()
-		if err == nil {
-			return nil
-		}
-		if !retryablePushErr(err) || ctx.Err() != nil {
+		if err == nil || !retryablePushErr(err) || ctx.Err() != nil {
 			return err
 		}
 	}
 	return err
+}
+
+// runCtx is the Run context, or Background before Run has started (tests that
+// drive publish directly).
+func (c *coordinator) runCtx() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
 }
 
 // retryablePushErr reports whether a failed push is worth another attempt. A
@@ -1006,97 +1027,6 @@ func (c *coordinator) clearLegacyUsageApps() {
 		}
 		delete(c.pushedUsageApps, name)
 	}
-}
-
-// holdState is who owns the screen device-side, in precedence order.
-type holdState int
-
-const (
-	// holdNone: the ember app takes its turn in the device's app loop like any
-	// other tile, and no device setting is overridden. This covers the idle
-	// frames too: their payload asks for a long dwell so they linger once the
-	// rotation reaches them, but nothing about them is urgent enough to justify
-	// pushing the clock's own apps off the screen.
-	holdNone holdState = iota
-	// holdAttention: a locked waiting/error frame needs the screen now, so the
-	// app is force-switched to and its own long durationMs keeps it there for
-	// the attention window.
-	holdAttention
-	// holdPomodoro: a running timer owns the screen for its whole phase, which
-	// outlasts any dwell, so the device's rotation and native button navigation
-	// are disabled for the duration.
-	holdPomodoro
-)
-
-// takeoverSettings is the pair of device settings a Pomodoro takeover flips.
-func takeoverSettings(on bool) map[string]any {
-	return map[string]any{"autoTransition": !on, "blockNavigation": on}
-}
-
-// applyDisplayHold moves the device to the requested screen owner, writing only
-// on the edge — a per-tick re-assert would spam apps/active and re-trigger the
-// transition animation every dwell.
-//
-// awtrix-ng has no per-payload priority (AWTRIX3's prio+force 422 on NG), and a
-// pushed app's own durationMs only takes effect once the rotation reaches its
-// slot. So "this frame must own the screen NOW" is a forced PUT
-// /api/v1/apps/active, which the app's long durationMs then sustains. Measured
-// on firmware 1.0.13 against a live 7-app rotation: switch + durationMs=30000
-// held 31 s; switch + durationMs=6000 held 6.7 s; so the switch supplies the
-// jump and durationMs supplies the length.
-//
-// That is enough for a 30 s attention window but not for a 25-minute focus
-// block, which is why holdPomodoro additionally sets autoTransition:false
-// (verified to outrank the per-app dwell entirely) plus blockNavigation:true so
-// the buttons drive the timer instead of the app loop. holdAttention
-// deliberately leaves both settings alone: it stays crash-safe, since a server
-// that dies mid-hold leaves the clock to expire the dwell and resume rotation
-// on its own.
-//
-// Recovery from a device reboot (which drops the pushed apps and both settings)
-// arrives as a cmdRepublish, which fakes the edge by resetting c.hold. Runs on
-// the coordinator goroutine only.
-func (c *coordinator) applyDisplayHold(want holdState, appName string) {
-	if want == c.hold {
-		return
-	}
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	prev := c.hold
-	c.hold = want
-	if prev == holdPomodoro {
-		if err := c.publisher.Settings(ctx, takeoverSettings(false)); err != nil {
-			c.logger.Warn("display hold restore settings failed", "err", err)
-		}
-	}
-	if want == holdPomodoro {
-		if err := c.publisher.Settings(ctx, takeoverSettings(true)); err != nil {
-			c.logger.Warn("display hold takeover settings failed", "err", err)
-		}
-	}
-	if want != holdNone {
-		if err := c.publisher.Switch(ctx, appName); err != nil {
-			c.logger.Warn("display hold switch failed", "err", err, "hold", want)
-		}
-	}
-}
-
-// restorePomoTakeoverOnExit re-enables app rotation + native button navigation
-// if a Pomodoro takeover was in force when the coordinator stops. Uses a fresh
-// context because the Run context is already cancelled on exit. A holdAttention
-// needs no undo — nothing sticky was written for it.
-func (c *coordinator) restorePomoTakeoverOnExit() {
-	if c.hold != holdPomodoro {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := c.publisher.Settings(ctx, takeoverSettings(false)); err != nil {
-		c.logger.Warn("pomo restore on shutdown failed", "err", err)
-	}
-	c.hold = holdNone
 }
 
 // onRepublish forgets everything we believe the device is currently showing and

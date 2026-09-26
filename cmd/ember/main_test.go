@@ -29,7 +29,16 @@ type recordingPublisher struct {
 	clearedIndicators []int
 	settings          []map[string]any
 	switches          []string
-	dismissedNames    []string
+	// deviceSettings is what ReadSettings answers (the clock's current
+	// settings); readSettingsErr, when non-nil, fails every read instead.
+	deviceSettings  map[string]any
+	readSettingsErr error
+	// settingsFails / switchFails fail that many upcoming Settings / Switch
+	// calls with a transport error (a write lost on the lossy link) before the
+	// device starts accepting them again.
+	settingsFails  int
+	switchFails    int
+	dismissedNames []string
 	// dismissByNameErr, when non-nil, is returned by every DismissNotifyByName
 	// call (the device answers 404 for a name it no longer holds).
 	dismissByNameErr error
@@ -209,7 +218,20 @@ func (p *recordingPublisher) Settings(_ context.Context, payload map[string]any)
 	defer p.mu.Unlock()
 	p.settings = append(p.settings, payload)
 	p.ops = append(p.ops, "settings")
+	if p.settingsFails > 0 {
+		p.settingsFails--
+		return errUnreachableDevice
+	}
 	return nil
+}
+
+func (p *recordingPublisher) ReadSettings(_ context.Context) (map[string]any, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.readSettingsErr != nil {
+		return nil, p.readSettingsErr
+	}
+	return p.deviceSettings, nil
 }
 
 func (p *recordingPublisher) Switch(_ context.Context, name string) error {
@@ -217,6 +239,10 @@ func (p *recordingPublisher) Switch(_ context.Context, name string) error {
 	defer p.mu.Unlock()
 	p.switches = append(p.switches, name)
 	p.ops = append(p.ops, "switch "+name)
+	if p.switchFails > 0 {
+		p.switchFails--
+		return errUnreachableDevice
+	}
 	return nil
 }
 
@@ -846,6 +872,7 @@ func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { 
 func (noopPublisher) ClearIndicator(context.Context, int) error               { return nil }
 func (noopPublisher) Settings(context.Context, map[string]any) error          { return nil }
 func (noopPublisher) Switch(context.Context, string) error                    { return nil }
+func (noopPublisher) ReadSettings(context.Context) (map[string]any, error)    { return nil, nil }
 
 func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {
 	hits1, hits2 := 0, 0
