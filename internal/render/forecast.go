@@ -111,10 +111,12 @@ func drawForecastBars(f *Frame, hourly []float64, x0, x1 int) {
 	}
 }
 
-// drawForecastBarsScaled paints the hourly bars stretched across cols x0..x1:
-// each hour gets an even share of the width (some bars 1px wider than others
-// when it doesn't divide evenly), bottom-anchored, same height/colour rules as
-// drawForecastBars. Used by the full-matrix forecast tile.
+// drawForecastBarsScaled paints the hourly bars across cols x0..x1: every bar
+// is the same whole number of columns, (x1-x0+1)/n, and the leftover columns
+// become equal margins, so 24 h over 32 cols is 24 even 1-px bars centred in
+// cols 4-27 rather than a jagged mix of 1- and 2-px bars. Bottom-anchored,
+// same height/colour rules as drawForecastBars. Used by the full-matrix
+// forecast tile.
 func drawForecastBarsScaled(f *Frame, hourly []float64, x0, x1 int) {
 	if x0 > x1 || len(hourly) == 0 {
 		return
@@ -134,6 +136,8 @@ func drawForecastBarsScaled(f *Frame, hourly []float64, x0, x1 int) {
 		}
 	}
 	span := max - min
+	bw := w / n
+	start := x0 + (w-bw*n)/2
 	for i := 0; i < n; i++ {
 		t := hourly[i]
 		h := 4 // flat window → mid-height
@@ -141,7 +145,7 @@ func drawForecastBarsScaled(f *Frame, hourly []float64, x0, x1 int) {
 			h = 1 + int((t-min)/span*7.0+0.5) // 1..8
 		}
 		col := TempColor(t)
-		xs, xe := x0+i*w/n, x0+(i+1)*w/n-1
+		xs, xe := start+i*bw, start+(i+1)*bw-1
 		for x := xs; x <= xe; x++ {
 			for y := 8 - h; y < 8; y++ {
 				paintCell(f, x, y, col)

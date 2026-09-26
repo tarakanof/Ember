@@ -19,14 +19,17 @@ type aqiStop struct {
 }
 
 // aqiBuckets is the official EEA European-AQI scale (eea.europa.eu). Discrete
-// buckets, no interpolation — the scale itself is bucketed.
+// buckets, no interpolation — the scale itself is bucketed. The top two keep
+// the EEA hues but not their print values (#960032, #7D2181): on the LED those
+// went dim exactly when the reading matters most, so they are raised to full
+// brightness.
 var aqiBuckets = []aqiStop{
 	{20, "GOOD", RGB{0x50, 0xF0, 0xE6}},
 	{40, "FAIR", RGB{0x50, 0xCC, 0xAA}},
 	{60, "MODERATE", RGB{0xF0, 0xE6, 0x41}},
 	{80, "POOR", RGB{0xFF, 0x50, 0x50}},
-	{100, "VERY POOR", RGB{0x96, 0x00, 0x32}},
-	{math.Inf(1), "EXTREME", RGB{0x7D, 0x21, 0x81}},
+	{100, "VERY POOR", RGB{0xFF, 0x10, 0x60}},
+	{math.Inf(1), "EXTREME", RGB{0xC0, 0x40, 0xFF}},
 }
 
 func aqiBucket(aqi float64) aqiStop {

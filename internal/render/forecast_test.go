@@ -121,18 +121,46 @@ func TestForecastPayloadFullWidthBars(t *testing.T) {
 		t.Error("forecast tile must not carry a native icon (bars own the matrix)")
 	}
 	pixels := bmpPixels(t, p)
-	// Bars stretch across the whole matrix: bottom row lit at both edges.
-	if pixels[7*32+0] == 0 {
-		t.Error("bars must start at col 0 (no icon/temp on the forecast tile)")
+	// Six 5-px bars span 30 cols, centred: cols 1-30.
+	if pixels[7*32+1] == 0 || pixels[7*32+30] == 0 {
+		t.Error("bars must span cols 1-30 (six 5-px bars, centred)")
 	}
-	if pixels[7*32+31] == 0 {
-		t.Error("bars must reach col 31 (stretched to full width)")
+	if pixels[7*32+0] != 0 || pixels[7*32+31] != 0 {
+		t.Error("the 2 spare cols must be split as margins")
 	}
 	// No white temp digits anywhere (the temp lives on the conditions tile).
 	white := (0xff << 16) | (0xff << 8) | 0xff
 	for i, v := range pixels {
 		if v == white {
 			t.Fatalf("white temp pixel at %d — forecast tile must be bars only", i)
+		}
+	}
+}
+
+// TestForecastBarsHaveEvenWidths pins every bar of a window to the same
+// width. Spreading 24 hours over 32 columns made every third bar 2 px and the
+// rest 1 px, so the chart looked jagged; the remainder now goes to margins.
+func TestForecastBarsHaveEvenWidths(t *testing.T) {
+	for _, n := range []int{6, 12, 16, 20, 22, 24} {
+		temps := make([]float64, n)
+		for i := range temps {
+			temps[i] = float64(i * 30 / n)
+		}
+		f := ForecastTileFrame(temps)
+		w := panelW / n
+		x0 := (panelW - w*n) / 2
+		for x := 0; x < panelW; x++ {
+			inside := x >= x0 && x < x0+w*n
+			if f.Dirty[barRow][x] != inside {
+				t.Errorf("%dh: col %d lit=%v, want %v (bars cols %d-%d)", n, x, f.Dirty[barRow][x], inside, x0, x0+w*n-1)
+			}
+			if !inside {
+				continue
+			}
+			i := (x - x0) / w
+			if got := f.Pixels[barRow][x]; got != TempColor(temps[i]) {
+				t.Errorf("%dh: col %d = %v, want bar %d %v", n, x, got, i, TempColor(temps[i]))
+			}
 		}
 	}
 }
