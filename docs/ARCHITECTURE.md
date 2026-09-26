@@ -1090,6 +1090,16 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   nothing — the lenient decoder drops the unknown field with no error. After any
   render-side change, redeploy the server from current `main`; diagnose with
   `GET /version` vs merge history.
+- **An SMAppService agent can be "enabled" and not running.**
+  `SMAppService.status` reads the Background Items database; after
+  `launchctl bootout` of an app-registered job, launchd drops it for good but
+  the status stays `.enabled` until the next login. The CLI producers share
+  the app's labels, so they must never boot out a job whose `launchctl print`
+  shows `managed_by = com.apple.xpc.ServiceManagement` (a test calling the
+  real `uninstall` did, #142). The app probes `launchctl print` at launch and
+  in Settings › Agents and re-registers a missing job. `CFBundleVersion` was
+  "1" for every release, so update detection keys on a digest of the bundled
+  helpers too.
 - **Syntactically-valid-but-wrong config defeats validation.** A
   `EMBER_SERVER_URL` typo (`:800` for `:3627`) passed the URL validator but
   dropped every POST. When "nothing shows," check the producer→server path first:
