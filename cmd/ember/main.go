@@ -529,6 +529,9 @@ type App struct {
 	// treated as acknowledging the alarm (the firmware dismisses on the middle
 	// button) rather than a Pomodoro action — the middle press disarms it. 0 = none.
 	reminderHeldUntil atomic.Int64
+	// reminderLoop is the held alarm whose chime is looping, if any; see
+	// checkReminderLoop.
+	reminderLoop reminderLoop
 
 	// reminderKeys dedupes POST /v1/reminders/fire retries by Idempotency-Key.
 	reminderKeys reminderDedupe
@@ -1672,6 +1675,7 @@ func main() {
 	workers.Go(func() { app.StartCoordinator(ctx) })
 	workers.Go(func() { app.StartWeather(ctx) })
 	workers.Go(func() { app.StartMeetings(ctx) })
+	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
 	// Off the startup path: it does device HTTP, and a clock that isn't up yet
 	// must not delay the listener. Re-run after every /admin/reload.
 	workers.Go(func() { app.ensureBootPingScript(ctx) })

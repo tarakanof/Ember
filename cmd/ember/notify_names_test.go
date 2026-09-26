@@ -34,8 +34,8 @@ func TestReminderPopupIsNamedAndCarriesItsOwnChime(t *testing.T) {
 		t.Errorf("name = %q, want %q", got, notifyNameReminder)
 	}
 	p := pub.NotifySnapshot()[0]
-	if p["soundRtttl"] != defaultReminderAlarm {
-		t.Errorf("soundRtttl = %v, want %q (held alarm)", p["soundRtttl"], defaultReminderAlarm)
+	if p["soundRtttl"] != defaultReminderSound {
+		t.Errorf("soundRtttl = %v, want %q", p["soundRtttl"], defaultReminderSound)
 	}
 	if got := pub.RTTTLsSnapshot(); len(got) != 0 {
 		t.Errorf("chime must ride on the notification, not out-of-band; got %v", got)

@@ -379,14 +379,23 @@ Reminders are sourced from the user's **Apple Reminders** (macOS), not an
 internal list. The **menu app** (`ReminderWatcher`, EventKit) polls incomplete
 reminders that have a due *time* and, when one comes due (within a short grace
 window, honoring an optional lead time), POSTs **`POST /v1/reminders/fire`**
-`{text, sound, duration, native_icon_id}` to the server, which renders the
+`{text, sound, duration, native_icon_id, hold, repeat_sound}` to the server,
+which renders the
 bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. A
-`hold` alarm with sound loops its chime (`soundLoop`, a melody with a
-trailing rest) until dismissed; an unheld one chimes once and carries
-`repeat:1`, so a long text scrolls through fully before it leaves (the
-meeting and weather popups do the same). The
-server is **stateless** for reminders — no list, no schedule, no stored config;
-all settings (enable/sound/lead/duration/icon) live app-side in UserDefaults.
+reminder chimes once. With the opt-in `repeat_sound` (menu: "Repeat sound
+until dismissed", default off) a `hold` alarm with sound loops its chime
+(`soundLoop`, a melody with a trailing rest) until dismissed. The server
+caps that loop, since an alarm nobody is there to dismiss would ring for
+hours: `StartReminderLoopGuard` checks every 15 s and dismisses the alarm by
+name when its 15-min hold window runs out, and at quiet-hours start dismisses
+it and re-pushes it held but silent (`quietPublisher` strips sound only at
+push time). A button acknowledgement just forgets the loop; a failed dismiss
+is retried on the next check. An unheld reminder carries `repeat:1`, so a
+long text scrolls through fully before it leaves (the meeting and weather
+popups do the same). The server keeps only that in-memory loop state for
+reminders — no list, no schedule, no stored config;
+all settings (enable/sound/hold/repeat/lead/duration/icon) live app-side in
+UserDefaults.
 Consequence: reminders fire only while the Mac is awake and Ember is running (the
 Linux server can't read Apple Reminders). Each POST carries an `Idempotency-Key`
 header (the occurrence's `id|due` key); the server remembers keys for 10 min and
