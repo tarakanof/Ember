@@ -20,7 +20,7 @@ struct WeatherPane: View {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
                     PanelPreview(title: "Current conditions",
-                                 caption: "Condition icon, temperature and a strip for the next \(c.forecastHours) hours, blue for cold to red for warm.",
+                                 caption: "Condition icon, temperature and a strip for the next ^[\(c.forecastHours) hour](inflect: true), blue for cold to red for warm.",
                                  enabled: c.enabled && c.rotateInApps, frame: frame("weather"))
                     PanelPreview(title: "Hourly forecast",
                                  caption: "Bars whose height and color follow the temperature.",
@@ -100,13 +100,13 @@ struct WeatherPane: View {
                         .labelsHidden()
                         .multilineTextAlignment(.trailing)
                         .frame(maxWidth: 90)
-                    Text(verbatim: "°")
+                    Text(verbatim: "°").accessibilityHidden(true)
                     TextField("Longitude", value: $model.draft.longitude,
                               format: .number.precision(.fractionLength(0...4)), prompt: Text(verbatim: "4.90"))
                         .labelsHidden()
                         .multilineTextAlignment(.trailing)
                         .frame(maxWidth: 90)
-                    Text(verbatim: "°")
+                    Text(verbatim: "°").accessibilityHidden(true)
                 }
             }
             LabeledContent {

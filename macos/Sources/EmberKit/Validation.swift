@@ -1,10 +1,18 @@
 import Foundation
 
-public struct ValidationError: Error, Equatable { public let message: String }
+/// A value the user typed that can't be saved. `message` is shown as is
+/// (the Connection pane's token footer, a save error), so it's a sentence.
+public struct ValidationError: Error, Equatable, LocalizedError {
+    public let message: LocalizedStringResource
+
+    public init(message: LocalizedStringResource) { self.message = message }
+
+    public var errorDescription: String? { String(localized: message) }
+}
 
 private func rejectControlChars(_ v: String) throws {
     if v.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }) {
-        throw ValidationError(message: "value may not contain control characters")
+        throw ValidationError(message: "The value can't contain control characters.")
     }
 }
 
@@ -12,12 +20,14 @@ private func rejectControlChars(_ v: String) throws {
 public func validateServerURL(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)
-    guard !v.isEmpty else { throw ValidationError(message: "server URL must not be empty") }
+    guard !v.isEmpty else { throw ValidationError(message: "Enter the server's URL.") }
     guard let u = URLComponents(string: v),
           let scheme = u.scheme, (scheme == "http" || scheme == "https"),
           let host = u.host, !host.isEmpty,
           u.user == nil, u.password == nil else {
-        throw ValidationError(message: "must be an http(s) URL with a host and no embedded credentials")
+        throw ValidationError(message: """
+            The server URL must start with http:// or https://, include a host, and have no user name or password.
+            """)
     }
     return v
 }
@@ -31,7 +41,7 @@ public func validateSourceColor(_ value: String) throws -> String {
     if v.isEmpty { return "" }
     let range = NSRange(v.startIndex..., in: v)
     guard hexColor.firstMatch(in: v, range: range) != nil else {
-        throw ValidationError(message: "color must be #RRGGBB hex")
+        throw ValidationError(message: "The color must be a hex value like #FF8800.")
     }
     return v
 }
@@ -40,7 +50,7 @@ public func validateSourceColor(_ value: String) throws -> String {
 public func validateSource(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)
-    guard !v.isEmpty else { throw ValidationError(message: "source must not be empty") }
+    guard !v.isEmpty else { throw ValidationError(message: "Enter a source name.") }
     return v
 }
 

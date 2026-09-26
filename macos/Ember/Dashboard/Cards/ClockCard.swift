@@ -39,7 +39,7 @@ struct ClockCard: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Clock display")
-            .accessibilityValue(Text(appName ?? (screen.value == nil ? "Not available" : "")))
+            .accessibilityValue(appName.map { Text($0) } ?? (screen.value == nil ? Text("Not available") : Text(verbatim: "")))
     }
 
     private var appName: LocalizedStringResource? {
@@ -54,7 +54,7 @@ struct ClockCard: View {
                 Text("Showing")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(appName ?? "—")
+                (appName.map { Text($0) } ?? Text(verbatim: "—"))
                     .font(.title3.weight(.semibold))
                     .lineLimit(1)
             }

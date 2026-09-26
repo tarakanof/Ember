@@ -24,7 +24,7 @@ struct SensorsSection: View {
                 get: { m.draft.humOffset ?? DeviceUnits.firmwareHumidityOffset },
                 set: { m.draft.humOffset = $0 }),
                 range: DeviceUnits.humidityOffsetRange, step: 1) { v in
-                Text("\(v, format: .number.precision(.fractionLength(0)).sign(strategy: .always())) %")
+                Text(v / 100, format: .percent.precision(.fractionLength(0)).sign(strategy: .always()))
             }
             if measuredT != nil || measuredH != nil {
                 LabeledContent("Measured now") {

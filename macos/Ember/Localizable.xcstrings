@@ -6,6 +6,17 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@ %@" : {
+      "comment" : "An SF Symbol, then a value: the usage reset icon and a time (\"↻ 16:20\"), or a duration and a session count.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@"
+          }
+        }
+      }
+    },
     "%@ 5h %@" : {
       "comment" : "Menu usage row: tool name, then percent of its 5-hour window used (\"Claude 5h 47%\").",
       "extractionState" : "manual"
@@ -22,13 +33,53 @@
       "comment" : "Menu usage row: tool name, then when the used-up 5-hour window resets.",
       "extractionState" : "manual"
     },
+    "%@ active, ^[%lld session](inflect: true)" : {
+      "comment" : "VoiceOver, Work hours chart: active time (\"5h 10m\"), then the number of focus sessions.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ active, ^[%2$lld session](inflect: true)"
+          }
+        }
+      }
+    },
+    "%@ available" : {
+      "comment" : "Clock health: a newer clock firmware version is available. The argument is the version (\"1.2.0\")."
+    },
     "%@ context" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "comment" : "Share of an agent session's context window in use (\"41% context\"). The argument is a percent.",
       "extractionState" : "manual"
     },
+    "%@ in 24 h" : {
+      "comment" : "Settings › Clock: share of the server's pushes that reached the clock over the last 24 hours (\"98% in 24 h\")."
+    },
+    "%@ left" : {
+      "comment" : "VoiceOver, Focus ring: time left in the current phase (\"18:42\")."
+    },
+    "%@ now, %@ high" : {
+      "comment" : "VoiceOver, weather forecast strip: the current temperature, then the highest over the next hours.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ now, %2$@ high"
+          }
+        }
+      }
+    },
+    "%@ of focus over 7 days." : {
+      "comment" : "VoiceOver chart summary: total focus time over the last 7 days (\"6h 15m\")."
+    },
     "%@ on %@ — %@" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "comment" : "An agent session: tool name, the Mac it runs on, then its state (\"Claude on m4 — Running\").",
       "extractionState" : "manual"
+    },
+    "%@ over 7 days." : {
+      "comment" : "VoiceOver chart summary: total agent time over the last 7 days (\"12h 40m\")."
+    },
+    "%@ so far" : {
+      "comment" : "12-week chart: focus time this week, which is still in progress (\"2h 30m\")."
     },
     "%@ · %@" : {
       "comment" : "Menu Other Sessions row: session title (\"Codex on m5 — Waiting\"), then context use (\"41% context\").",
@@ -37,6 +88,39 @@
     "%@ · %@ left · round %lld" : {
       "comment" : "Menu Pomodoro status: phase name, remaining time (\"18:42\"), round number.",
       "extractionState" : "manual"
+    },
+    "%@ · %lld dBm" : {
+      "comment" : "Settings › Clock: Wi-Fi quality in words (\"Good\"), then the signal strength in dBm.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$lld dBm"
+          }
+        }
+      }
+    },
+    "%@ · ^[%lld session](inflect: true)" : {
+      "comment" : "Chart callout: focus time (\"1h 15m\"), then the number of focus sessions.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · ^[%2$lld session](inflect: true)"
+          }
+        }
+      }
+    },
+    "%@ · firmware %@" : {
+      "comment" : "Discover Clocks sheet: the clock's host name or address, then its firmware version.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · firmware %2$@"
+          }
+        }
+      }
     },
     "%@ · paused · %@ left" : {
       "comment" : "Menu Pomodoro status while paused: phase name, remaining time.",
@@ -47,13 +131,137 @@
       "extractionState" : "manual"
     },
     "%@ — %@" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "comment" : "An agent session with no Mac name: tool name, then its state (\"Claude — Running\").",
       "extractionState" : "manual"
+    },
+    "%@, %@" : {
+      "comment" : "VoiceOver, Usage card row: tool name, then which window (\"Claude, 5-hour window\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "%@, resets %@" : {
+      "comment" : "VoiceOver, Usage card row: percent used, then the reset time as the agent reported it.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, resets %2$@"
+          }
+        }
+      }
+    },
+    "%@, resets at %@" : {
+      "comment" : "VoiceOver, Usage card row: percent used, then the time the window resets (\"47%, resets at 16:20\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, resets at %2$@"
+          }
+        }
+      }
+    },
+    "%lld" : {
+      "comment" : "A bare count next to a stepper (rounds before a long break)."
+    },
+    "%lld h" : {
+      "comment" : "A number of hours, abbreviated (\"12 h\")."
+    },
+    "%lld min" : {
+      "comment" : "A number of minutes, abbreviated (\"25 min\")."
+    },
+    "%lld min before" : {
+      "comment" : "Settings › Calendar: how many minutes before a meeting its tile appears."
+    },
+    "%lld min early" : {
+      "comment" : "Settings › Calendar: how many minutes before it's due a reminder is sent to the clock."
     },
     "%lld more" : {
       "comment" : "Last row of the Other Sessions submenu: number of sessions not listed.",
       "extractionState" : "manual"
     },
+    "%lld ms" : {
+      "comment" : "A number of milliseconds, abbreviated (\"400 ms\")."
+    },
+    "%lld of %lld" : {
+      "comment" : "Focus sessions done of the daily goal (\"3 of 8\"); also the preview page counter (\"2 of 5\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "%lld running · %lld waiting" : {
+      "comment" : "Agents card header: number of running sessions, then of sessions waiting for input.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld running · %2$lld waiting"
+          }
+        }
+      }
+    },
+    "%lld s" : {
+      "comment" : "A number of seconds, abbreviated (\"30 s\")."
+    },
+    "%lld to go today" : {
+      "comment" : "Focus card: focus sessions still needed to meet today's goal."
+    },
+    "12 weeks" : {},
+    "2 digits" : {},
+    "24-hour time" : {},
+    "4 digits" : {},
+    "5-hour limit resets" : {},
+    "5-hour usage" : {},
+    "5-hour window" : {},
+    "5h" : {
+      "comment" : "Abbreviation for the 5-hour usage window (Usage card row, Agents table column). Keep it very short."
+    },
+    "7-day usage" : {},
+    "7-day window" : {},
+    "7d" : {
+      "comment" : "Abbreviation for the 7-day usage window (Usage card row). Keep it very short."
+    },
+    "A meeting chimes with its popup, so it needs a popup time in Calendar. The severe weather sound plays with its alert, set in Weather." : {},
+    "AQI %lld" : {
+      "comment" : "Settings › Weather: an air quality index threshold (European AQI)."
+    },
+    "AQI %lld %@" : {
+      "comment" : "Weather card: the European air quality index, then its level in words (\"AQI 42 fair\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "AQI %1$lld %2$@"
+          }
+        }
+      }
+    },
+    "About Ember" : {},
+    "Active minutes" : {},
+    "Activity" : {},
+    "Activity card" : {},
+    "Activity trail" : {},
+    "Add the server's token in Connection settings." : {},
+    "Address" : {},
+    "After %lld min" : {
+      "comment" : "Settings › Agents: minutes before an idle session is hidden."
+    },
+    "Agent active time per day by Mac" : {},
+    "Agent needs attention" : {},
+    "Agent sessions" : {},
+    "Agent time" : {},
+    "Agents" : {},
     "Air Quality" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -62,36 +270,118 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Air quality" : {},
+    "Air quality alert from" : {},
+    "Allow Access…" : {},
+    "Always" : {},
+    "An idle session dims, then leaves the rotation until it's active again. A session that needs you holds the clock this long. Server-wide." : {},
+    "Animated bot" : {},
+    "Animated icons and rain or snow overlays appear on the clock only." : {},
+    "App Colors" : {},
+    "App Rotation" : {},
+    "Apple Reminders" : {},
+    "Applying…" : {},
+    "Approve in Login Items…" : {},
+    "At once" : {},
+    "Attention hold" : {},
+    "Automatic brightness" : {},
+    "Average" : {},
+    "Average %@ a week." : {
+      "comment" : "VoiceOver chart summary: average focus time per finished week (\"6h 15m\")."
+    },
+    "Average of the finished weeks; this week is still filling up." : {},
+    "Background" : {},
+    "Bars whose height and color follow the temperature." : {},
+    "Battery" : {},
+    "Behavior" : {},
+    "Bell and the reminder's title when it comes due." : {},
+    "Best streak" : {},
+    "Big digits" : {},
+    "Binary" : {},
+    "Blinking" : {},
+    "Block button navigation" : {},
+    "Bot (animated)" : {},
+    "Bottom bar" : {},
+    "Bounce" : {},
+    "Break" : {},
+    "Brightness" : {},
+    "Built-in" : {},
+    "Built-in Apps" : {},
+    "Buttons" : {},
+    "Buzzer volume" : {},
+    "By hour, last 12 weeks" : {},
+    "Calendar" : {},
+    "Calendar Box" : {},
+    "Calendar icon, title and minutes to go." : {},
+    "Calendar, bar above" : {},
+    "Calendar, bar below" : {},
+    "Cancel" : {},
+    "Cards" : {},
+    "Celsius" : {},
+    "Centered" : {},
+    "Checking agents…" : {},
+    "Chimes" : {},
     "Claude" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Claude Code" : {},
+    "Clear" : {},
+    "Clock" : {},
+    "Clock Web UI" : {},
+    "Clock buttons control Pomodoro" : {},
+    "Clock display" : {},
+    "Clock health" : {},
+    "Clock style" : {},
+    "Clock unreachable" : {},
+    "Clocks on Your Network" : {},
+    "Clouds" : {},
+    "Cloudy" : {},
     "Codex" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
       "shouldTranslate" : false
+    },
+    "Coffee" : {},
+    "Coffee mug and time left in the break color." : {},
+    "Colon" : {},
+    "Colored" : {},
+    "Colors" : {},
+    "Completed" : {},
+    "Condition icon, temperature and a strip for the next ^[%lld hour](inflect: true), blue for cold to red for warm." : {
+      "comment" : "Settings › Weather preview caption; the argument is the forecast length in hours."
     },
     "Connected" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
     "Connected to %@" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "comment" : "Dashboard window subtitle: the server's host name or address.",
       "extractionState" : "manual"
     },
+    "Connected · %@" : {
+      "comment" : "Settings › Connection status: the server's version (\"0.28.0\")."
+    },
     "Connecting to %@…" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "comment" : "Dashboard window subtitle while the first request is in flight: the server's host name or address.",
       "extractionState" : "manual"
     },
     "Connecting…" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Connection" : {},
+    "Context" : {},
+    "Context glass" : {},
+    "Context glass fills with the session's context use; turning it off also stops reporting it. The trail shows other sessions along the bottom." : {},
+    "Continuous" : {},
+    "Coordinates" : {},
     "Couldn't dismiss the notification: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
     },
+    "Couldn't find your location. Enter the coordinates instead." : {},
     "Couldn't hide %@: %@" : {
       "comment" : "Menu error row: app name, then a short reason (\"unauthorized\").",
       "extractionState" : "manual"
@@ -140,34 +430,202 @@
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
     },
+    "Crescent moon, after ^[%lld round](inflect: true)." : {
+      "comment" : "Settings › Focus preview caption for the long break; the argument is the number of rounds before it."
+    },
+    "Current conditions" : {},
+    "Custom" : {},
+    "Custom focus" : {},
+    "Daily goal" : {},
+    "Daily goal met" : {},
+    "Date" : {},
+    "Day" : {},
+    "Day number" : {},
+    "Day, month, year" : {},
+    "Delivered (24 h)" : {},
+    "Discover Clocks…" : {},
+    "Discovered Servers" : {},
+    "Dismiss Notification" : {},
+    "Display" : {},
+    "Display on" : {},
+    "Dock" : {},
+    "Dock icon" : {},
+    "Don't scroll" : {},
     "Done" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Drag to reorder, or Control-click an app. Changes apply at once." : {},
+    "Drawn by the calendar clock styles; the header only in the styles that have one." : {},
+    "Durations" : {},
+    "Ember" : {},
+    "Ember E" : {},
+    "Ember E (pixel)" : {},
+    "Ember can open at login only when it runs from the Applications folder." : {},
+    "Ember can't reach the server. Check that it's running, or change its address in Connection settings." : {},
+    "Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server." : {},
+    "Ember flame" : {},
+    "Ember isn't connected to a server" : {},
+    "Ember needs access to Reminders" : {},
+    "Ember needs your approval in System Settings › General › Login Items." : {},
+    "Enable Pomodoro" : {},
+    "Enable weather" : {},
+    "End" : {},
+    "Enter a source name." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Enter the server's URL." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Enter the server's address in Connection settings, or pick one Ember found on your network." : {},
     "Error" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "European AQI in its scale color, with the next 24 hours below." : {},
+    "European AQI: up to 20 good, 40 fair, 60 moderate, 80 poor, 100 very poor, above that extreme. The alert pops up once as the AQI crosses the level." : {},
+    "Every" : {},
+    "Fahrenheit" : {},
+    "Firmware" : {},
+    "First model" : {},
     "Focus" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Focus melody" : {},
+    "Focus minutes" : {},
+    "Focus minutes by weekday and hour" : {},
+    "Focus minutes per week" : {},
+    "Focus minutes, last 7 days" : {},
+    "Focus per day, last 12 weeks" : {},
+    "Focus per week" : {},
+    "Focus phase ends" : {},
+    "Focus sessions finished rather than stopped or skipped, last 30 days" : {},
+    "Focus sessions today" : {},
+    "Focus today" : {},
+    "Fog" : {},
     "Forecast" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Found via Bonjour. Click Use to fill in the server URL. The server must run on host networking, and Ember needs Local Network access." : {},
+    "From" : {},
+    "General" : {},
+    "Goal" : {},
+    "Goal %@ a day, met on ^[%lld day](inflect: true)." : {
+      "comment" : "VoiceOver chart summary: the daily focus goal as a time (\"2h 30m\"), then on how many of the 7 days it was met.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Goal %1$@ a day, met on ^[%2$lld day](inflect: true)."
+          }
+        }
+      }
+    },
+    "Goal: ^[%lld session](inflect: true) a day" : {
+      "comment" : "Focus card: the daily goal in focus sessions."
+    },
+    "Goals" : {},
+    "Good" : {},
+    "Grant Local Network Access…" : {},
+    "Green under 70%, amber, red from 90%." : {},
+    "Header" : {},
+    "Hidden" : {},
+    "Hide when idle" : {},
+    "Hour" : {},
+    "Hour of day" : {},
+    "Hourly forecast" : {},
+    "Hours ahead" : {},
+    "How many of the server's pushes reached the clock in the last 24 hours." : {},
+    "Humidity" : {},
+    "Humidity offset" : {},
+    "Icon ID" : {},
     "Idle" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Idle or other" : {},
+    "Imperial (°F)" : {},
+    "In use" : {},
+    "Keep on screen until dismissed" : {},
+    "LED matrix" : {},
+    "Last 7 days" : {},
+    "Last press" : {},
+    "Last publish" : {},
+    "Last reminder didn't reach the clock: %@" : {
+      "comment" : "Settings › Calendar: why the last reminder failed (a short error message)."
+    },
+    "Latitude" : {},
+    "Latitude runs from −90 to 90 and longitude from −180 to 180." : {},
+    "Launch at login" : {},
+    "Leading zero" : {},
+    "Loading" : {},
+    "Loading…" : {},
+    "Local Network access is off for Ember" : {},
+    "Location" : {},
+    "Location access not set" : {},
+    "Location access off" : {},
+    "Location access on" : {},
+    "Location is off for Ember. Turn it on in System Settings › Privacy & Security › Location Services." : {},
     "Long Break" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Long break" : {},
+    "Longitude" : {},
+    "Low" : {},
+    "Measured now" : {},
     "Meeting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Meeting popup" : {},
+    "Meetings" : {},
+    "Melody" : {},
+    "Melody name or RTTTL" : {},
+    "Menu Bar" : {},
+    "Menu bar color" : {},
+    "Menu bar icon" : {},
+    "Metric (°C)" : {},
+    "Middle starts, pauses or resumes; left stops; right skips. Turning this on points the clock at this server." : {},
+    "Monochrome" : {},
+    "Month names" : {},
+    "Month, day, year" : {},
+    "Moon phase at night" : {},
+    "Most focus on %@ at %@." : {
+      "comment" : "VoiceOver chart summary: the weekday (\"Tue\"), then the hour (\"10 AM\") with the most focus.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Most focus on %1$@ at %2$@."
+          }
+        }
+      }
+    },
+    "Move Down" : {},
+    "Move Up" : {},
+    "Mute sounds at night" : {},
+    "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show." : {},
+    "Name" : {},
+    "Native Icon IDs" : {},
+    "Native animated icon" : {},
+    "Native icon" : {},
+    "Native icons in popups" : {},
+    "Needs a newer server" : {},
+    "Needs attention" : {},
+    "Needs server %@" : {
+      "comment" : "A card needs a newer Ember server; the argument is the minimum version (\"0.28\")."
+    },
+    "Needs token" : {},
+    "Network discovery is unavailable" : {},
+    "Never" : {},
+    "Next App" : {},
+    "Next Due" : {},
+    "Next meeting" : {},
     "Next: %@ %@" : {
       "comment" : "Menu next-event row: event title, then weekday and time (\"Next: Retro Mon 09:00\").",
       "extractionState" : "manual"
@@ -188,90 +646,297 @@
       "comment" : "Menu next-event row: event title, then a time tomorrow.",
       "extractionState" : "manual"
     },
+    "No Claude Code or Codex found on this Mac." : {},
+    "No active sessions" : {},
+    "No agent activity this week" : {},
+    "No calendar feeds. Set EMBER_MEETINGS_ICS_URLS on the server; the URLs are secrets and never leave it." : {},
+    "No clock configured" : {},
+    "No clocks found. The server looks for them with mDNS, which needs host networking." : {},
+    "No daily goal set" : {},
+    "No data yet" : {},
+    "No focus sessions yet — click Start Focus to begin" : {},
+    "No meetings in the next 36 hours." : {},
+    "No observation yet" : {},
+    "No server URL" : {},
+    "No server found?" : {},
+    "No usage reported yet — agents report it as they run" : {},
+    "No work" : {},
+    "None" : {},
+    "None yet" : {},
+    "Not available" : {},
     "Not available — the feature is off or the server is too old." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Not installed: the app is missing its launch agent." : {
+      "comment" : "A producer helper's state in Settings › Agents when its LaunchAgent plist isn't in the app bundle.",
+      "extractionState" : "manual"
+    },
+    "Not recording" : {},
+    "Not set" : {},
     "Not set up" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Not updated recently" : {},
+    "Notched calendar, bar above" : {},
+    "Notched calendar, bar below" : {},
+    "Nothing in the next 36 hours" : {},
+    "Nothing yet" : {},
     "Notification" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "Now" : {},
+    "Off" : {},
+    "Off. %@" : {
+      "comment" : "VoiceOver, a Settings preview of a clock panel that is turned off; the argument is the panel's description."
     },
     "Offline" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
     "Offline since %@" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "comment" : "Dashboard window subtitle: the time the server stopped answering.",
       "extractionState" : "manual"
     },
     "Offline — server unreachable since %@" : {
       "comment" : "Menu header: the time the server stopped answering.",
       "extractionState" : "manual"
     },
+    "On" : {},
+    "On Every Card" : {},
+    "Only some agents are reporting." : {},
+    "Open Connection Settings" : {},
+    "Open Dashboard" : {},
+    "Open Dashboard at launch" : {},
+    "Open Location Settings…" : {},
+    "Open Login Items Settings…" : {},
+    "Open Privacy Settings…" : {},
+    "Open Settings" : {},
+    "Open Web UI" : {},
+    "Open in Browser" : {},
+    "Open the server's statistics page" : {},
+    "Opens the clock's web page, which installs firmware updates." : {},
+    "Order" : {},
+    "Other Sessions" : {},
+    "Other days" : {},
+    "Other users can read %@. Run chmod 700 on that folder and try again." : {
+      "comment" : "Saving settings failed: the folder holding the token is readable by other users. The argument is its path.",
+      "extractionState" : "manual"
+    },
+    "Overlay" : {},
     "Pause" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Paused · round %lld" : {
+      "comment" : "Focus card: the timer is paused; the argument is the Pomodoro round number."
+    },
+    "Peak %@ %@" : {
+      "comment" : "\"When you focus\" card header: the weekday (\"Tue\"), then the time (\"10:00\") with the most focus.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Peak %1$@ %2$@"
+          }
+        }
+      }
+    },
+    "Per-model 5-hour usage, e.g. Opus." : {},
+    "Per-model 5-hour usage, e.g. Sonnet." : {},
+    "Per-model usage" : {},
+    "Pixel E" : {},
+    "Play" : {},
+    "Play Test Chime" : {},
+    "Play this melody on the clock" : {},
     "Pomodoro" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Pomodoro is off" : {},
+    "Pomodoro is off on the server, or the server is too old. Turn it on in the server's config." : {},
+    "Popup" : {},
+    "Popups" : {},
+    "Preview" : {},
+    "Preview unavailable: the server didn't answer." : {},
+    "Previous App" : {},
+    "Provider" : {},
+    "Pulsing" : {},
+    "Quiet Hours" : {},
+    "Quit Ember" : {},
+    "Rain" : {},
+    "Rain and snow overlay" : {},
+    "Rate bar" : {},
+    "Rate-limited — reachable, token not checked" : {},
+    "Refresh" : {},
+    "Refresh (⌘R)" : {},
+    "Refresh every" : {},
     "Reminder" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Reminder due" : {},
     "Reminder: %@" : {
       "comment" : "Prefix for an Apple Reminder title in the menu's next-event row.",
       "extractionState" : "manual"
     },
+    "Reminders access off" : {},
+    "Reminders access on" : {},
+    "Repeat until dismissed" : {},
+    "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Calendar, and stops after 15 minutes or when quiet hours start." : {},
+    "Report this Mac's agent activity" : {},
+    "Reporting" : {},
+    "Reporting keeps running after you quit Ember. Turn it off before deleting Ember to remove it completely." : {},
+    "Rescan" : {},
+    "Reset clock" : {},
+    "Reset to Firmware Defaults" : {},
+    "Resets %@" : {
+      "comment" : "Usage card tooltip: when the usage window resets, relative (\"in 2 hours\")."
+    },
+    "Restart" : {},
+    "Restart Clock…" : {},
+    "Restart the clock?" : {},
     "Resume" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Ring" : {},
+    "Ring the clock for due reminders" : {},
+    "Round %lld" : {
+      "comment" : "Focus card: the current Pomodoro round number."
+    },
+    "Rounds before long break" : {},
+    "Row" : {},
     "Running" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Runs the timer on the clock and lets the clock's buttons control it." : {},
+    "Same as text" : {},
+    "Save Token" : {},
     "Saved" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Saved — leave blank to keep" : {},
     "Saving…" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Scroll speed" : {},
+    "Scrolling" : {},
+    "Scrolling applies to text that doesn't fit the panel. A running Pomodoro may briefly override button navigation." : {},
+    "Search Again" : {},
+    "Searching the local network…" : {},
+    "Searching…" : {},
+    "Second model" : {},
+    "Sensor Calibration" : {},
+    "Separator" : {},
+    "Server" : {},
+    "Server URL" : {},
+    "Server error" : {},
+    "Server error (HTTP %lld)" : {
+      "comment" : "Settings › Connection status: the HTTP status code the server answered with."
+    },
     "Server error: %@" : {
-      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "comment" : "A failed request: the server's own error message follows (often English).",
       "extractionState" : "manual"
     },
     "Server unreachable" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Session pixels" : {},
+    "Set Up Ember…" : {},
+    "Settings" : {},
+    "Settings…" : {},
+    "Severe weather" : {},
+    "Severe weather alert" : {},
     "Short Break" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Short break" : {},
+    "Show AM/PM" : {},
+    "Show for" : {},
+    "Show next meeting" : {},
+    "Show on Clock" : {},
+    "Show seconds" : {},
+    "Show tile from" : {},
+    "Show usage from" : {},
+    "Show weekday" : {},
+    "Show weekday bar" : {},
+    "Showing" : {},
+    "Shown in popups" : {},
     "Skip Phase" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Snow" : {},
+    "Sound" : {},
+    "Sounds & Alerts" : {},
+    "Source" : {},
+    "Source card" : {},
+    "Source color" : {},
+    "Spark" : {},
+    "Stale" : {},
+    "Stale · %@" : {
+      "comment" : "A card chip: the data couldn't be refreshed; the argument is how long ago it was loaded (\"2 min\")."
+    },
+    "Start" : {},
     "Start Focus" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Start on Monday" : {},
+    "Start the next phase automatically" : {},
+    "Startup" : {},
+    "State" : {},
+    "Status" : {},
+    "Steady" : {},
     "Stop" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Stop after" : {},
+    "Storm" : {},
+    "Streak" : {},
+    "Strong" : {},
     "Sunrise & Sunset" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Sunrise and sunset" : {},
+    "Switch apps automatically" : {},
+    "Temperature" : {},
+    "Temperature offset" : {},
+    "Temperature unit" : {},
+    "Temperature, next hours" : {},
+    "Test" : {},
+    "Test Connection" : {},
+    "Text color" : {},
+    "The Dashboard tracks these." : {},
+    "The activity card scrolls the current tool call next to the icon. These apply to this Mac's sessions." : {},
+    "The clock hasn't reported its apps yet." : {},
+    "The clock is unavailable for a few seconds while it restarts." : {},
+    "The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state." : {},
+    "The clock shows animated icons; the preview shows the drawn ones." : {},
+    "The color must be a hex value like #FF8800." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The firmware subtracts 9 °C to make up for the clock warming itself. Compare the reading with a thermometer you trust and adjust by the difference." : {},
+    "The menu bar shows the glyph of the tool that's most active." : {},
+    "The overlay draws rain, snow or storms over whatever is showing." : {},
+    "The reminder shows for the time above, then the clock carries on." : {},
+    "The reminder stays on the clock until you press its middle button." : {},
+    "The server URL must start with http:// or https://, include a host, and have no user name or password." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The server fetches conditions from a free provider that needs no key." : {},
     "The server is rate-limiting this Mac." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -280,9 +945,33 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The server's activity overlay is off, so new agent time isn't stored." : {},
+    "The severe weather alert plays a sound; choose it in Sounds & Alerts." : {},
+    "The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN." : {},
+    "The value can't contain control characters." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "These settings apply only to this Mac, while it's awake and Ember is running." : {},
+    "This Mac" : {},
+    "This clock has no speaker." : {},
+    "This clock style draws no weekday bar; the Date app still does." : {},
+    "This clock style has no room for seconds or AM/PM." : {},
+    "This server can't reach a clock. Check the clock's address below or discover one." : {},
+    "This server doesn't support meetings. Update the Ember server." : {},
+    "This server doesn't support these settings. Update the Ember server." : {},
     "This server doesn't support this setting. Update the server." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "Thunderstorm" : {},
+    "Tiles" : {},
+    "Time" : {},
+    "Time per app" : {},
+    "Time until the 5-hour window resets." : {},
+    "Today" : {},
+    "Today %@" : {
+      "comment" : "Agent time card header: agent time today (\"1h 15m\")."
     },
     "Today %lld of %lld · %@" : {
       "comment" : "Menu row: focus sessions completed today, the daily goal, total focus time (\"1h 15m\").",
@@ -312,6 +1001,17 @@
         }
       }
     },
+    "Token" : {},
+    "Token rejected" : {},
+    "Token saved" : {},
+    "Tomato and time left in the focus color; the bottom bar shows the phase's progress." : {},
+    "Tool" : {},
+    "Tool Glyphs" : {},
+    "Tool glyphs" : {},
+    "Tool icon and machine name in the source color." : {},
+    "Transition" : {},
+    "Transition length" : {},
+    "Try Again" : {},
     "Turn Display Off" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
@@ -320,6 +1020,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Turn it on in Settings › Focus." : {},
+    "Turning Sound off silences the clock completely, chimes included." : {},
     "Unauthorized — check the token in Connection settings." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -328,10 +1030,29 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Units" : {},
     "Unknown" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Unreachable" : {},
+    "Until" : {},
+    "Untitled" : {},
+    "Upcoming" : {},
+    "Update Available: %@" : {
+      "comment" : "Settings › Clock: button to a newer firmware version; the argument is the version (\"1.2.0\")."
+    },
+    "Update the Ember server to let an app follow the text color again." : {},
+    "Update the Ember server to mute the clock or set its volume here." : {},
+    "Update the clock's firmware to NG 1.1 or later to let an app follow the text color again." : {},
+    "Update the clock's firmware to NG 1.1 or later to mute it or set its volume here." : {},
+    "Updated" : {},
+    "Updated %@." : {
+      "comment" : "Settings › Calendar: when the server last fetched the calendar, relative (\"5 minutes ago\")."
+    },
+    "Updates delivered" : {},
+    "Uppercase text" : {},
+    "Uptime" : {},
     "Usage" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -340,10 +1061,17 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Usage cards" : {},
+    "Usage cards join the rotation once the 5-hour window reaches this level. Server-wide." : {},
+    "Use" : {},
+    "Use Current Location" : {},
+    "Use source color" : {},
+    "Very weak" : {},
     "Waiting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Weak" : {},
     "Weather" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -352,10 +1080,58 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Weather is off on the server, or the server is too old." : {},
+    "Week" : {},
+    "Week of %@" : {
+      "comment" : "VoiceOver chart axis: a week, named by its first day (\"Sep 21\")."
+    },
+    "Weekday Bar" : {},
+    "Weekly goal" : {},
+    "Weekly window usage." : {},
+    "When conditions change" : {},
+    "When due" : {},
+    "When you focus" : {},
+    "Wi-Fi" : {},
+    "Work hours" : {},
+    "Work hours per day" : {},
+    "Wrap around" : {},
+    "Year" : {},
+    "Year, month, day" : {},
+    "^[%lld active day](inflect: true)" : {
+      "comment" : "Focus settings goal and \"When you focus\" card: a number of days with any focus."
+    },
+    "^[%lld calendar feed](inflect: true) on the server." : {
+      "comment" : "Settings › Calendar: how many calendar feeds the server is configured with."
+    },
+    "^[%lld day](inflect: true)" : {
+      "comment" : "A number of days (a streak, or rows on the Work hours card)."
+    },
+    "^[%lld session](inflect: true)" : {
+      "comment" : "Settings › Focus: the daily goal in focus sessions."
+    },
+    "^[%lld session](inflect: true) today" : {
+      "comment" : "Focus card with no daily goal: focus sessions completed today."
+    },
+    "avg %@ / week" : {
+      "comment" : "12-week card header: average focus time per finished week (\"6h 15m\")."
+    },
+    "extremely poor" : {},
+    "fair" : {},
+    "good" : {},
+    "in %lld min" : {
+      "comment" : "Upcoming card: minutes until an event starts."
+    },
+    "just now" : {},
+    "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
+    "moderate" : {},
     "not supported by this server" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
+    "of %lld" : {
+      "comment" : "Inside the Focus ring, under the sessions done: the daily goal (\"of 8\")."
+    },
+    "poor" : {},
     "rate-limited" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
@@ -371,6 +1147,13 @@
     "unauthorized" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "updated %@" : {
+      "comment" : "Weather card header: how long ago the weather was fetched (\"5 min\", or \"just now\")."
+    },
+    "very poor" : {},
+    "· ^[%lld session](inflect: true)" : {
+      "comment" : "Work hours chart label after the active time: the number of focus sessions."
     }
   },
   "version" : "1.0"

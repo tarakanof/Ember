@@ -24,7 +24,7 @@ public enum FeedError: Error, Equatable, Sendable {
             return
         }
         if let v = error as? ValidationError {
-            self = .server(v.message)
+            self = .server(String(localized: v.message))
             return
         }
         guard let api = error as? APIError else {

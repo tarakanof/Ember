@@ -57,6 +57,6 @@ import Foundation
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
-    #expect(svc.agentState(.claude) == .error("plist not found"))
+    #expect(svc.agentState(.claude) == .error("Not installed: the app is missing its launch agent."))
     #expect(svc.toggleState() == .error)
 }

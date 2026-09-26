@@ -7,6 +7,7 @@ struct ClockHealthCard: View {
     var webURL: URL?
     var now = Date()
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     var body: some View {
         DashboardCard(title: "Clock health", systemImage: "stethoscope") {
@@ -84,7 +85,9 @@ struct ClockHealthCard: View {
     private func cell(_ title: LocalizedStringKey, symbol: String, variable: Double? = nil, value: String?,
                       note: String? = nil, warn: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: symbol, variableValue: variable)
+            // Orange alone doesn't say "warning" to everyone.
+            Image(systemName: warn && differentiateWithoutColor ? "exclamationmark.triangle.fill" : symbol,
+                  variableValue: variable)
                 .foregroundStyle(warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .frame(width: 18)
                 .accessibilityHidden(true)
@@ -104,6 +107,7 @@ struct ClockHealthCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue([value ?? String(localized: "Not available"), note].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue([value ?? String(localized: "Not available"), note,
+                             warn ? String(localized: "Needs attention") : nil].compactMap { $0 }.joined(separator: ", "))
     }
 }

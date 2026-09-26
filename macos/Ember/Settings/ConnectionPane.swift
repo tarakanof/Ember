@@ -251,7 +251,7 @@ struct ConnectionPane: View {
             env.reloadConnection()
             await runProbe()
         } catch let e as ValidationError {
-            tokenError = e.message
+            tokenError = String(localized: e.message)
         } catch {
             tokenError = error.localizedDescription
         }

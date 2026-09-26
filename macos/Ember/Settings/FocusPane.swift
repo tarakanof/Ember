@@ -21,7 +21,7 @@ struct FocusPane: View {
                                  enabled: c.enabled, frame: frame("focus"))
                     PanelPreview(title: "Short break", caption: "Coffee mug and time left in the break color.",
                                  enabled: c.enabled, frame: frame("short_break"))
-                    PanelPreview(title: "Long break", caption: "Crescent moon, after \(c.roundsBeforeLongBreak) rounds.",
+                    PanelPreview(title: "Long break", caption: "Crescent moon, after ^[\(c.roundsBeforeLongBreak) round](inflect: true).",
                                  enabled: c.enabled, frame: frame("long_break"))
                 }
                 .settingsPreviewBackdrop()
@@ -67,10 +67,10 @@ struct FocusPane: View {
                 Section {
                     StepperRow(title: "Daily goal", value: $model.draft.dailyGoalSessions,
                                range: (0...16).including(c.dailyGoalSessions)) { n in
-                        n == 0 ? Text("Off") : Text("\(n) sessions")
+                        n == 0 ? Text("Off") : Text("^[\(n) session](inflect: true)")
                     }
                     StepperRow(title: "Weekly goal", value: $model.draft.weeklyGoalDays, range: 0...7) { n in
-                        n == 0 ? Text("Off") : Text("\(n) active days")
+                        n == 0 ? Text("Off") : Text("^[\(n) active day](inflect: true)")
                     }
                 } header: {
                     Text("Goals")

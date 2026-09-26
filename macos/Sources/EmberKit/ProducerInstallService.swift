@@ -122,7 +122,8 @@ public final class ProducerInstallService: Sendable {
         case .notRegistered:
             return .off
         case .notFound:
-            return .error("plist not found")
+            return .error(String(localized: "Not installed: the app is missing its launch agent.",
+                                  comment: "A producer helper's state in Settings › Agents when its LaunchAgent plist isn't in the app bundle."))
         }
     }
 
