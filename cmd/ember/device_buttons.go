@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // buttonStatusResponse is GET /v1/device/buttons. seconds_since is null until a
@@ -118,7 +120,7 @@ func (a *App) handleDeviceButtonsPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPut, "/api/v1/system", payload)
+	_, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPutSystem, payload))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

@@ -25,7 +25,7 @@ var melodyName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,24}$`)
 
 // deviceClient returns an awtrix client for the currently-resolved clock.
 func (a *App) deviceClient() (*awtrix.Client, error) {
-	base, _, err := a.deviceBaseClient()
+	base, err := a.deviceBaseURL()
 	if err != nil {
 		return nil, err
 	}

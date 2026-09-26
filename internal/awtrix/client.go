@@ -367,7 +367,7 @@ func (c *Client) PutIcon(ctx context.Context, filename string, data []byte) erro
 // DeviceInfo fetches device identity/telemetry (GET /api/v1/device).
 func (c *Client) DeviceInfo(ctx context.Context) (DeviceInfo, error) {
 	var info DeviceInfo
-	err := c.doJSON(ctx, http.MethodGet, "/api/v1/device", nil, &info)
+	err := c.doJSON(ctx, http.MethodGet, DevicePath, nil, &info)
 	return info, err
 }
 

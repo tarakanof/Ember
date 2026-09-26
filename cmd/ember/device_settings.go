@@ -1,15 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
@@ -221,41 +218,39 @@ func validColor(v any) bool {
 	return false
 }
 
-// deviceBaseClient mirrors HTTPPublisher.baseAndClient but reads the live config
-// directly, so device-settings proxying follows the same resolved clock URL.
-func (a *App) deviceBaseClient() (string, *http.Client, error) {
+// deviceBaseURL returns the live clock base URL, so every menu-initiated call
+// follows the same resolved clock as the publisher.
+func (a *App) deviceBaseURL() (string, error) {
 	base := strings.TrimRight(a.cfg.Load().AWTRIX.HTTPBaseURL, "/")
 	if base == "" {
-		return "", nil, fmt.Errorf("clock not configured")
+		return "", fmt.Errorf("clock not configured")
 	}
-	return base, &http.Client{Timeout: 8 * time.Second}, nil
+	return base, nil
 }
 
-// proxyToDevice performs a request against the clock and returns the response
-// body. method is GET or POST; body is nil for GET.
-func (a *App) proxyToDevice(ctx context.Context, method, path string, body []byte) ([]byte, int, error) {
-	base, cl, err := a.deviceBaseClient()
+// deviceCall is one pass-through awtrix client call, usually a method
+// expression such as (*awtrix.Client).RawSettings.
+type deviceCall func(*awtrix.Client, context.Context) (awtrix.Reply, error)
+
+// withBody binds a request body to a body-taking raw client call.
+func withBody(call func(*awtrix.Client, context.Context, []byte) (awtrix.Reply, error), body []byte) deviceCall {
+	return func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
+		return call(cl, ctx, body)
+	}
+}
+
+// proxyToDevice runs call against the currently-resolved clock and returns
+// the reply body and status verbatim; a non-2xx status is not an error.
+func (a *App) proxyToDevice(ctx context.Context, call deviceCall) ([]byte, int, error) {
+	base, err := a.deviceBaseURL()
 	if err != nil {
 		return nil, 0, err
 	}
-	var rdr io.Reader
-	if body != nil {
-		rdr = bytes.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
+	reply, err := call(awtrix.NewClient(base, deviceClientTimeout), ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := cl.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return out, resp.StatusCode, nil
+	return reply.Body, reply.Status, nil
 }
 
 // deviceProxyStatus picks the status the menu sees for a non-2xx clock reply.
@@ -308,7 +303,7 @@ func writeDeviceAPIError(w http.ResponseWriter, apiErr *awtrix.APIError) {
 }
 
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/settings", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawSettings)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -343,7 +338,7 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	reply, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/settings", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPatchSettings, payload))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -356,7 +351,7 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/device", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawDevice)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -375,7 +370,7 @@ func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 // awtrix-ng wraps the pixels: {"width":32,"height":8,"pixels":[256 ints]}
 // (AWTRIX3 returned the bare 256-int array) — consumers must unwrap.
 func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/display/screen", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawScreen)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -390,29 +385,29 @@ func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceReboot(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, http.MethodPost, "/api/v1/device/reboot")
+	a.proxyAction(w, r, (*awtrix.Client).RawReboot)
 }
 
 // handleDeviceDismiss clears the currently-shown notification
 // (DELETE /api/v1/notifications/active — no body).
 func (a *App) handleDeviceDismiss(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, http.MethodDelete, "/api/v1/notifications/active")
+	a.proxyAction(w, r, (*awtrix.Client).RawDismissNotify)
 }
 
 // handleDeviceNextApp / handleDevicePrevApp advance the clock to the next or
 // previous app in its rotation (POST /api/v1/apps/next, /api/v1/apps/previous).
 func (a *App) handleDeviceNextApp(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, http.MethodPost, "/api/v1/apps/next")
+	a.proxyAction(w, r, (*awtrix.Client).RawNextApp)
 }
 
 func (a *App) handleDevicePrevApp(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, http.MethodPost, "/api/v1/apps/previous")
+	a.proxyAction(w, r, (*awtrix.Client).RawPreviousApp)
 }
 
 // proxyAction sends a bodiless request to a clock action endpoint and maps
 // the result.
-func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, method, path string) {
-	reply, status, err := a.proxyToDevice(r.Context(), method, path, nil)
+func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, call deviceCall) {
+	reply, status, err := a.proxyToDevice(r.Context(), call)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // GET /v1/clock/health: publish success, the clock's own telemetry, and
@@ -308,7 +310,7 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 	pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), clockProbeTimeout)
 	defer cancel()
 	dev := clockDeviceOut{CheckedAt: now}
-	body, status, err := a.proxyToDevice(pctx, http.MethodGet, "/api/v1/device", nil)
+	body, status, err := a.proxyToDevice(pctx, (*awtrix.Client).RawDevice)
 	if err == nil && status == http.StatusOK {
 		dev.Reachable = true
 		var raw clockDeviceWire
