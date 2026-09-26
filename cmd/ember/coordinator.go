@@ -64,7 +64,7 @@ type coordinator struct {
 	// Ticks: 1-slot drop-on-full channel. Stale ticks carry no info.
 	ticks chan struct{}
 
-	// State owned by the goroutine. Tests read it via muTest below.
+	// State owned by the goroutine, written under stateMu (see below).
 	pointer       string
 	cardCursor    int
 	locked        bool
@@ -140,9 +140,12 @@ type coordinator struct {
 	// that call publish before Run).
 	ctx context.Context
 
-	// muTest exists so tests can safely read coordinator-owned state
-	// without data-race detector warnings. Production code never touches it.
-	muTest sync.RWMutex
+	// stateMu guards pointer, cardCursor, the lock fields (locked, lockedKey,
+	// lockEnteredAt, lockReleaseTimer) and idleSince. Only the coordinator
+	// goroutine writes them, and it holds stateMu for every write; readers on
+	// any other goroutine (tests today) must RLock. The coordinator's own
+	// reads may skip the lock, since nothing else writes.
+	stateMu sync.RWMutex
 
 	publishCount atomic.Int64
 
@@ -211,7 +214,7 @@ const (
 )
 
 // idleStateLocked decides which rendering branch publish should take.
-// Caller MUST hold muTest. Returns the mode; mutates c.idleSince as a
+// Caller MUST hold stateMu. Returns the mode; mutates c.idleSince as a
 // side effect (zero when active, set to now on first all-idle call).
 func (c *coordinator) idleStateLocked(activeCount int, now time.Time, idleRestore time.Duration) coordIdleMode {
 	if activeCount > 0 {
@@ -379,7 +382,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 	transition := prior != next
 
 	freshLock := false
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	switch {
 	case attention && transition && !priorWasAttention && !c.keyHidden(key):
 		// Fresh attention transition from a non-attention state.
@@ -405,7 +408,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 		c.lockedKey = ""
 		c.disarmLockTimerLocked()
 	}
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 
 	if freshLock && c.loadCfg().Display.AttentionChime {
 		ctx := c.ctx
@@ -423,7 +426,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 }
 
 func (c *coordinator) onDelete(key string) {
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	if c.locked && c.lockedKey == key {
 		c.locked = false
 		c.lockedKey = ""
@@ -433,20 +436,20 @@ func (c *coordinator) onDelete(key string) {
 		c.pointer = ""
 		c.cardCursor = 0
 	}
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 	if c.snapshot != nil {
 		c.publish(c.filteredSnapshot())
 	}
 }
 
 func (c *coordinator) onClear() {
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	c.pointer = ""
 	c.cardCursor = 0
 	c.locked = false
 	c.lockedKey = ""
 	c.disarmLockTimerLocked()
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 
 	if c.snapshot != nil {
 		c.publish(c.filteredSnapshot())
@@ -505,7 +508,7 @@ func (c *coordinator) onTick() {
 	// Evaluate all lock-release conditions against the current snapshot:
 	// ack timeout, drain (locked session moved out of attention state),
 	// reap (locked key no longer in active set).
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	if c.locked {
 		releaseReason := ""
 		if !slices.Contains(keys, c.lockedKey) {
@@ -531,9 +534,9 @@ func (c *coordinator) onTick() {
 			c.disarmLockTimerLocked()
 		}
 	}
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	switch {
 	case len(keys) == 0:
 		c.pointer = ""
@@ -561,7 +564,7 @@ func (c *coordinator) onTick() {
 			c.cardCursor = 0
 		}
 	}
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 
 	c.publish(snap)
 	c.clearLegacyUsageApps()

@@ -16,7 +16,7 @@ func (c *coordinator) ackTimeoutDur() time.Duration {
 }
 
 // armLockTimerLocked installs (or replaces) the wallclock safety-net
-// timer that fires a cmdTick after the current ackTimeoutDur. Caller must hold muTest.
+// timer that fires a cmdTick after the current ackTimeoutDur. Caller must hold stateMu.
 // The timer is armed with the value at arm time; if the hold is shortened
 // mid-lock via a config PUT, the tick-driven release check in onTick still
 // releases promptly (it re-reads live on every tick), but this safety-net
@@ -30,7 +30,7 @@ func (c *coordinator) armLockTimerLocked() {
 	})
 }
 
-// disarmLockTimerLocked stops the safety-net timer. Caller must hold muTest.
+// disarmLockTimerLocked stops the safety-net timer. Caller must hold stateMu.
 func (c *coordinator) disarmLockTimerLocked() {
 	if c.lockReleaseTimer != nil {
 		c.lockReleaseTimer.Stop()

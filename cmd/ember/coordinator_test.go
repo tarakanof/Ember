@@ -190,9 +190,9 @@ func TestCoord_Tick_TwoSessions_AdvancesPointer(t *testing.T) {
 	if got := len(publisher.CustomAppsSnapshot()); got != 2 {
 		t.Fatalf("custom app publishes = %d, want 2", got)
 	}
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotPtr := c.pointer
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if gotPtr != "studio/b/s2" {
 		t.Errorf("pointer after 2 ticks = %q, want studio/b/s2 (wrap-from-s1)", gotPtr)
 	}
@@ -230,9 +230,9 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	beforePtr := c.pointer
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if beforePtr != "a/b/s1" {
 		t.Fatalf("setup: pointer before preempt = %q, want a/b/s1 (so a real jump can happen)", beforePtr)
 	}
@@ -249,10 +249,10 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 	})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotPtr := c.pointer
 	gotLocked := c.locked
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if gotPtr != "a/b/s2" {
 		t.Errorf("pointer after waiting transition = %q, want a/b/s2 (jump from s1)", gotPtr)
 	}
@@ -287,9 +287,9 @@ func TestCoord_Preempt_NotOnReheartbeat(t *testing.T) {
 	})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotLocked := c.locked
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if gotLocked {
 		t.Errorf("locked = true, want false (no state transition)")
 	}
@@ -320,12 +320,12 @@ func TestCoord_DrainReleasesLock(t *testing.T) {
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	if !c.locked {
-		c.muTest.RUnlock()
+		c.stateMu.RUnlock()
 		t.Fatal("expected locked")
 	}
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 
 	// Session drains naturally to running.
 	stateMu.Lock()
@@ -334,9 +334,9 @@ func TestCoord_DrainReleasesLock(t *testing.T) {
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotLocked := c.locked
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if gotLocked {
 		t.Errorf("locked = true after drain, want false")
 	}
@@ -374,10 +374,10 @@ func TestCoord_DeleteWhileLocked_ReleasesLock(t *testing.T) {
 	c.Send(coordCmd{kind: cmdDelete, sessionKey: "a/b/s"})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotLocked := c.locked
 	gotPtr := c.pointer
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if gotLocked {
 		t.Errorf("locked = true after delete, want false")
 	}
@@ -437,9 +437,9 @@ func TestCoord_ReapReleasesLock(t *testing.T) {
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotLocked := c.locked
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if gotLocked {
 		t.Errorf("locked = true after reap, want false")
 	}
@@ -471,9 +471,9 @@ func TestCoord_PointerPinned_WhenLocked(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotPtr := c.pointer
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if gotPtr != "a/b/s1" {
 		t.Errorf("pointer drifted while locked: got %q, want a|b|s1", gotPtr)
 	}
@@ -498,21 +498,21 @@ func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/w", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	if !c.locked {
-		c.muTest.RUnlock()
+		c.stateMu.RUnlock()
 		t.Fatal("expected locked after waiting transition")
 	}
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 
 	// Advance fake clock past the ack timeout, then tick.
 	clk.Advance(31 * time.Second)
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotLocked := c.locked
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if gotLocked {
 		t.Errorf("locked = true after 31s, want false (ack timeout %v)", c.ackTimeoutDur())
 	}
@@ -640,8 +640,8 @@ func TestCoord_Interleave_SourceAndToolCards(t *testing.T) {
 	go c.Run(ctx)
 
 	readCursor := func() int {
-		c.muTest.RLock()
-		defer c.muTest.RUnlock()
+		c.stateMu.RLock()
+		defer c.stateMu.RUnlock()
 		return c.cardCursor
 	}
 	tick := func() { c.Send(coordCmd{kind: cmdTick}); time.Sleep(50 * time.Millisecond) }
@@ -677,8 +677,8 @@ func TestCoord_Interleave_TwoSessionsOrder(t *testing.T) {
 	go c.Run(ctx)
 
 	read := func() (string, int) {
-		c.muTest.RLock()
-		defer c.muTest.RUnlock()
+		c.stateMu.RLock()
+		defer c.stateMu.RUnlock()
 		return c.pointer, c.cardCursor
 	}
 	tick := func() { c.Send(coordCmd{kind: cmdTick}); time.Sleep(50 * time.Millisecond) }
@@ -737,9 +737,9 @@ func TestCoord_NewSessionMidCountdown_CancelsIdleTimer(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// idleSince must be reset (zero) after the active publish.
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	gotIdleSince := c.idleSince
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if !gotIdleSince.IsZero() {
 		t.Errorf("idleSince = %v, want zero (cancelled by active session)", gotIdleSince)
 	}

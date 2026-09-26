@@ -171,15 +171,14 @@ func (c *coordinator) publish(snap Snapshot) {
 
 	if !pomoActive {
 		keys := render.SortedActiveKeys(snap)
-		c.muTest.Lock()
+		c.stateMu.Lock()
 		mode := c.idleStateLocked(len(keys), now, idleRestore)
-		c.muTest.Unlock()
+		c.stateMu.Unlock()
 
 		switch mode {
 		case idleModeActive:
-			// pointer/cardCursor/locked are read without muTest: publish runs only
-			// on the coordinator goroutine that also writes them; the lock exists
-			// solely so tests can read this state race-free.
+			// pointer/cardCursor/locked are read without stateMu: publish runs only
+			// on the coordinator goroutine, the only writer of this state.
 			payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime, c.usageViews(now, snap))
 			if render.AttentionHeld(snap, c.pointer, c.locked) {
 				want = holdAttention
