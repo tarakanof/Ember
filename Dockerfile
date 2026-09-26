@@ -9,6 +9,8 @@ COPY . .
 ARG TARGETOS TARGETARCH
 # VERSION is the semver release, passed by docker-publish.yml from the git tag;
 # local/source builds default to "dev". Injected into main.version for /version.
+# The -X symbol path is pinned by cmd/ember/version_ldflags_test.go, which
+# builds with these exact ldflags; change both together.
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -buildvcs=true -ldflags="-s -w -X main.version=$VERSION" \
