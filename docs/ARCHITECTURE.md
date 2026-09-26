@@ -771,6 +771,21 @@ TestDashboardGolden -update` to regenerate), and EmberKit's decode tests read
 those same files. EmberKit's models are in `Sources/EmberKit/Models/`, with one
 service per feed in `Sources/EmberKit/Services/`.
 
+**The Dashboard window (#111)** is a card grid (`macos/Ember/Dashboard/`):
+Clock (live mirror + next/previous/dismiss/power), Focus, Usage, Upcoming,
+Agents, Last 7 days, 12 weeks, Work hours, When you focus (weekday × hour
+heatmap + 12-week strip), Agent time, Clock health, Weather. 3/2/1 columns
+at ≥1040/≥700 pt; a wide card waits for a half-filled row to fill. Every
+card reads plain values (`DashboardData`, built from `LiveModel` by
+`DashboardWindow`) and renders through `FeedStateView`, so previews and
+snapshot renders use fixtures (`Dashboard/Preview/`, the goldens above plus
+synthetic history). The window holds its tier-C feeds with one `.task` for as
+long as it's open. Chart transforms (bucketing, zero-fill, goal line, DST-safe
+day keys, wall-clock work spans, locale week order) live in
+`Sources/EmberKit/Dashboard/` with unit tests. A pre-0.28 server shows
+"Needs server 0.28" on the cards whose routes 404; Usage falls back to the
+sessions' 5-hour percentages.
+
 ## The "spine" — how display widgets are added
 
 Every configurable display signal follows one pattern:
