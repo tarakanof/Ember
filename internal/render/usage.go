@@ -19,14 +19,25 @@ var (
 	usageTrack       = RGB{0x2c, 0x2c, 0x2c}
 )
 
-func usageThreshold(pct int) RGB { // green/amber/red
+// The usage threshold palette: the one set of colours for a usage percentage
+// (digits, bars, reset urgency), deliberately apart from the agent-state
+// colours so an amber 87 % never reads as a waiting agent.
+var (
+	usageOK   = RGB{0x39, 0xd3, 0x53}
+	usageWarn = RGB{0xe3, 0xa0, 0x08}
+	usageHot  = RGB{0xf0, 0x4e, 0x4e}
+)
+
+// usageThreshold colours a usage percentage, matching Claude Code's
+// statusline convention: <70 green, 70–89 amber, >=90 red.
+func usageThreshold(pct int) RGB {
 	switch {
 	case pct < 70:
-		return RGB{0x39, 0xd3, 0x53}
+		return usageOK
 	case pct < 90:
-		return RGB{0xe3, 0xa0, 0x08}
+		return usageWarn
 	default:
-		return RGB{0xf0, 0x4e, 0x4e}
+		return usageHot
 	}
 }
 

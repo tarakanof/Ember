@@ -904,7 +904,7 @@ func TestDrawRateBar(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &Frame{}
-			drawRateBar(f, tc.pct, colorRunning)
+			drawRateBar(f, tc.pct)
 			if got := fillCount(f, tc.pct); got != tc.want {
 				t.Errorf("pct=%d fill = %d, want %d", tc.pct, got, tc.want)
 			}
@@ -912,7 +912,7 @@ func TestDrawRateBar(t *testing.T) {
 	}
 	// Colour is the dimmed threshold, derived from pct (the arg is ignored).
 	f := &Frame{}
-	drawRateBar(f, 50, colorError)
+	drawRateBar(f, 50)
 	if f.Pixels[7][8] != dimThreshold(50) {
 		t.Errorf("fill colour = %v, want dimThreshold(50) %v", f.Pixels[7][8], dimThreshold(50))
 	}
@@ -1006,11 +1006,20 @@ func TestRateText(t *testing.T) {
 	}
 }
 
-func TestRateColor(t *testing.T) {
-	cases := map[int]RGB{0: colorRunning, 69: colorRunning, 70: colorWaiting, 89: colorWaiting, 90: colorError, 100: colorError}
+func TestUsageThresholdPalette(t *testing.T) {
+	cases := map[int]RGB{0: usageOK, 69: usageOK, 70: usageWarn, 89: usageWarn, 90: usageHot, 100: usageHot}
 	for in, want := range cases {
-		if got := rateColor(in); got != want {
-			t.Errorf("rateColor(%d) = %+v, want %+v", in, got, want)
+		if got := usageThreshold(in); got != want {
+			t.Errorf("usageThreshold(%d) = %+v, want %+v", in, got, want)
+		}
+	}
+	// One palette for usage, distinct from the agent-state colours, so an
+	// amber 87 % never reads as a waiting agent.
+	for _, c := range []RGB{usageOK, usageWarn, usageHot} {
+		for _, s := range []RGB{colorRunning, colorWaiting, colorError} {
+			if c == s {
+				t.Errorf("usage colour %v equals a state colour", c)
+			}
 		}
 	}
 }
@@ -1192,10 +1201,10 @@ func TestResetText(t *testing.T) {
 		wantText  string
 		wantColor RGB
 	}{
-		{"4h10m left → 5h green", 1_000_000 + 4*3600 + 600, "5" + string(resetGlyph), colorRunning},
-		{"exactly 2h → 2h green", 1_000_000 + 2*3600, "2" + string(resetGlyph), colorRunning},
-		{"40m left → 1h amber", 1_000_000 + 40*60, "1" + string(resetGlyph), colorWaiting},
-		{"already past → 0 amber", 1_000_000 - 10, "0" + string(resetGlyph), colorWaiting},
+		{"4h10m left → 5h green", 1_000_000 + 4*3600 + 600, "5" + string(resetGlyph), usageOK},
+		{"exactly 2h → 2h green", 1_000_000 + 2*3600, "2" + string(resetGlyph), usageOK},
+		{"40m left → 1h amber", 1_000_000 + 40*60, "1" + string(resetGlyph), usageWarn},
+		{"already past → 0 amber", 1_000_000 - 10, "0" + string(resetGlyph), usageWarn},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1211,6 +1220,9 @@ func TestResetGlyphInFont(t *testing.T) {
 	g := glyph(resetGlyph)
 	if g == nil || len(g) != 5 {
 		t.Fatalf("resetGlyph not a 5-row sprite: %v", g)
+	}
+	if slices.Equal(g, glyph('I')) {
+		t.Errorf("resetGlyph is the same bitmap as 'I': %v", g)
 	}
 }
 
@@ -1262,7 +1274,7 @@ func TestComposeFrameUsesToolIcon(t *testing.T) {
 
 func TestRateBarDimmedThreshold(t *testing.T) {
 	var f Frame
-	drawRateBar(&f, 50, rateColor(50)) // colour arg ignored; uses dimThreshold
+	drawRateBar(&f, 50)
 	filled := 0
 	for x := 8; x < 32; x++ {
 		if f.Pixels[7][x] == dimThreshold(50) {
@@ -1359,8 +1371,21 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 		}
 	}
 
+	// requireNoRightSlot asserts an HH:MM clock face leaves cols 25-31 dark:
+	// the 15 px clock ends at col 23, and a "5h" at col 25 read as "17:305h".
+	requireNoRightSlot := func(t *testing.T, f *Frame, face string) {
+		t.Helper()
+		for y := 0; y < barRow; y++ {
+			for x := rightSlotX; x < panelW; x++ {
+				if f.Dirty[y][x] {
+					t.Fatalf("%s: right slot lit at (%d,%d), want it dark beside the clock", face, x, y)
+				}
+			}
+		}
+	}
+
 	// 5h face in rate-bar mode: clock at contentX — '1' row 0 is ".X." so its
-	// lit pixel is x=contentX+1 — plus the "5h" unit where the glass was.
+	// lit pixel is x=contentX+1 — and no unit label beside it.
 	f := ComposeFrame(s, cardUsage5h, u, []Session{s}, now)
 	if !f.Dirty[1][10] {
 		t.Fatal("5h face: clock not painted")
@@ -1368,45 +1393,49 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	if f.Pixels[1][10] != colorWhite {
 		t.Fatalf("5h face: clock pixel textColor = %v, want white %v", f.Pixels[1][10], colorWhite)
 	}
-	requireUnit(t, &f, "5h clock face")
+	requireNoRightSlot(t, &f, "5h clock face")
 
-	// 5h face in sessions-bar mode: "87%" digits in rateColor(87)=amber + unit.
+	// 5h face in sessions-bar mode: "87%" digits in the usage threshold amber + unit.
 	s2 := s
 	s2.RateBottomBar = false
 	f = ComposeFrame(s2, cardUsage5h, u, []Session{s2}, now)
-	if got := f.Pixels[1][9]; got != rateColor(87) {
-		t.Fatalf("5h pct face: pixel = %v, want amber %v", got, rateColor(87))
+	if got := f.Pixels[1][9]; got != usageWarn {
+		t.Fatalf("5h pct face: pixel = %v, want amber %v", got, usageWarn)
 	}
 	requireUnit(t, &f, "5h pct face")
 
+	// The reset clock face (sessions-bar mode) carries no unit either.
+	f = ComposeFrame(s2, cardUsageReset, u, []Session{s2}, now)
+	requireNoRightSlot(t, &f, "reset clock face")
+
 	// 7d face: red "95%" at contentX, gray "7d" unit at the right edge.
 	f = ComposeFrame(s, cardUsage7d, u, []Session{s}, now)
-	if got := f.Pixels[1][9]; got != rateColor(95) {
-		t.Fatalf("7d pct: pixel = %v, want red %v", got, rateColor(95))
+	if got := f.Pixels[1][9]; got != usageHot {
+		t.Fatalf("7d pct: pixel = %v, want red %v", got, usageHot)
 	}
 	requireUnit(t, &f, "7d face")
 
 	// Model face: green "51%" + gray "OP" unit.
 	f = ComposeFrame(s, cardUsageModelA, u, []Session{s}, now)
-	if got := f.Pixels[1][9]; got != rateColor(51) {
-		t.Fatalf("model pct: pixel = %v, want green %v", got, rateColor(51))
+	if got := f.Pixels[1][9]; got != usageOK {
+		t.Fatalf("model pct: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "model A face")
 
 	// Model B face: green "12%" + gray "SO" unit. '1' row 0 is ".X." so the
 	// first lit pct pixel is x=10, not 9.
 	f = ComposeFrame(s, cardUsageModelB, u, []Session{s}, now)
-	if got := f.Pixels[1][10]; got != rateColor(12) {
-		t.Fatalf("model B pct: pixel = %v, want green %v", got, rateColor(12))
+	if got := f.Pixels[1][10]; got != usageOK {
+		t.Fatalf("model B pct: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "model B face")
 
 	// Reset face without a label: hourglass fallback (resetText colour) + "5h"
-	// unit (the countdown belongs to the 5h window).
+	// unit (the countdown belongs to the 5h window; it is short, so it fits).
 	u2 := &UsageView{FiveHourPct: 61, ResetAt: now.Add(3 * time.Hour).Unix()}
 	f = ComposeFrame(s2, cardUsageReset, u2, []Session{s2}, now)
-	if got := f.Pixels[1][9]; got != colorRunning { // 3 hours left -> green
-		t.Fatalf("reset fallback: pixel = %v, want green %v", got, colorRunning)
+	if got := f.Pixels[1][9]; got != usageOK { // 3 hours left -> green
+		t.Fatalf("reset fallback: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "reset face")
 
@@ -1447,12 +1476,15 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 		t.Fatal("cursor should wrap (face 2 == face 0)")
 	}
 
-	// The idle 5h face carries the gray "5h" unit label: '5' top-left lights
-	// (rightSlotX, 1), i.e. pixel index 1*32+rightSlotX in the db payload.
+	// The idle 5h face is the reset clock with no unit beside it (the bar
+	// below carries the 5h percentage); the 7d face keeps its "7d" label.
 	px := bmpPixels(t, p0)
-	wantGray := (int(usageGray.R) << 16) | (int(usageGray.G) << 8) | int(usageGray.B)
-	if got := px[1*32+rightSlotX]; got != wantGray {
-		t.Errorf("idle 5h face unit pixel = %#06x, want gray %#06x", got, wantGray)
+	if got := px[1*32+rightSlotX]; got != 0 {
+		t.Errorf("idle 5h face right slot = %#06x, want dark beside the clock", got)
+	}
+	px = bmpPixels(t, p1)
+	if got, want := px[1*32+rightSlotX+2], toInt(usageGray); got != want {
+		t.Errorf("idle 7d face unit pixel = %#06x, want gray %#06x", got, want)
 	}
 }
 

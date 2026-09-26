@@ -146,9 +146,9 @@ func paintBitmap(f *Frame, ox, oy int, sprite []string, c RGB) {
 const glassGlyph = '⌷'
 
 // resetGlyph is the internal font key for the rate-reset hourglass pictogram
-// (a symmetric I-beam: wide top/bottom plates, thin sand stream) — the trailing
-// glyph on the reset-countdown card. Distinct from the digits and the context
-// tumbler glassGlyph.
+// (wide top/bottom plates pinched to a one-pixel waist) — the trailing glyph
+// on the reset-countdown card. Distinct from the digits, the letter I and the
+// context tumbler glassGlyph.
 const resetGlyph = '⧗'
 
 // font3x5 maps a rune to its 3-col × 5-row pixel sprite. Each entry is
@@ -183,7 +183,7 @@ var font3x5 = map[rune][]string{
 	'P':        {"XXX", "X.X", "XXX", "X..", "X.."},
 	'S':        {"XXX", "X..", "XXX", "..X", "XXX"},
 	glassGlyph: {"X.X", "X.X", "X.X", "XXX", "XXX"},
-	resetGlyph: {"XXX", ".X.", ".X.", ".X.", "XXX"},
+	resetGlyph: {"XXX", "X.X", ".X.", "X.X", "XXX"},
 	// Source-name card letters (A-Z minus the pre-existing O/P/S above).
 	'A': {"XXX", "X.X", "XXX", "X.X", "X.X"},
 	'B': {"XX.", "X.X", "XX.", "X.X", "XX."},
@@ -342,11 +342,10 @@ func drawSessionBar(f *Frame, sessions []Session) {
 }
 
 // drawRateBar paints the 5h rate-limit window as the usage-widget-style dimmed
-// threshold bar: content cols 8–31, row 7, fill = round(24*pct/100) in
+// threshold bar: bottom bar cols 8–31, row 7, fill = round(24*pct/100) in
 // dimThreshold(pct) over a usageTrack background — visually identical to the
-// usage apps' bars. The colour arg is retained for signature stability but
-// ignored (threshold colour is derived from pct).
-func drawRateBar(f *Frame, pct int, _ RGB) {
+// usage apps' bars.
+func drawRateBar(f *Frame, pct int) {
 	if pct < 0 {
 		pct = 0
 	}
@@ -544,8 +543,8 @@ func rateText(pct int) string {
 }
 
 // resetText renders the time until the 5h rate-limit window resets as ceil-hours
-// (0..9) + the hourglass glyph, with an urgency colour: amber in the final hour
-// (remaining < 1h), green otherwise. remaining is clamped to >=0, so a stale
+// (0..9) + the hourglass glyph, with an urgency colour from the usage threshold
+// palette: amber in the final hour (remaining < 1h), green otherwise. remaining is clamped to >=0, so a stale
 // past timestamp renders "0" until the next post carries the next window.
 // Used by the usage-card faces.
 func resetText(resetAt int64, now time.Time) (string, RGB) {
@@ -557,36 +556,29 @@ func resetText(resetAt int64, now time.Time) (string, RGB) {
 	if hours > 9 {
 		hours = 9
 	}
-	color := colorRunning
+	color := usageOK
 	if remaining < 3600 {
-		color = colorWaiting
+		color = usageWarn
 	}
 	return itoa(hours) + string(resetGlyph), color
 }
 
-// rateColor threshold-colours the rate readout, matching Claude Code's
-// statusline convention: <70 green, 70–89 amber, >=90 red.
-func rateColor(pct int) RGB {
-	switch {
-	case pct >= 90:
-		return colorError
-	case pct >= 70:
-		return colorWaiting
-	default:
-		return colorRunning
-	}
-}
-
 // drawUsageClock paints the 5h reset readout: the host-local HH:MM tight
-// clock when the label is known, else the ceil-hours hourglass (codex, or
-// statusline data without a label).
+// clock when the label is known, else the ceil-hours hourglass plus the "5h"
+// unit (codex, or statusline data without a label).
+//
+// The HH:MM clock gets no unit: it runs to col 23, and a "5h" at col 25 was
+// one blank column away, the same as the spacing between glyphs, so the pair
+// read as "17:305h". A reset time next to the tool icon needs no label; the
+// 5h percentage is on the preceding face or on the bar below.
 func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 	if u.ResetLabel != "" {
 		drawClockInto(f, u.ResetLabel, contentX)
 		return
 	}
 	text, col := resetText(u.ResetAt, now)
-	drawDigits(f, text, contentX, 1, col)
+	drawDigits(f, text, contentX, textRow, col)
+	drawUsageUnit(f, "5h")
 }
 
 // drawUsageUnit paints the two-glyph gray window label ("5h", "7d", "OP",
@@ -601,7 +593,7 @@ func drawUsageUnit(f *Frame, unit string) {
 // the number slot plus the gray unit label at the right edge — the shared
 // shape of the 7d and per-model faces.
 func drawUnitPctFace(f *Frame, unit string, pct int) {
-	drawDigits(f, rateText(pct), contentX, 1, rateColor(pct))
+	drawDigits(f, rateText(pct), contentX, textRow, usageThreshold(pct))
 	drawUsageUnit(f, unit)
 }
 
@@ -960,12 +952,10 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 		if s.RateBottomBar {
 			drawUsageClock(&f, u, now) // pct lives on the bar; slot shows the clock
 		} else {
-			drawDigits(&f, rateText(u.FiveHourPct), contentX, 1, rateColor(u.FiveHourPct))
+			drawUnitPctFace(&f, "5h", u.FiveHourPct)
 		}
-		drawUsageUnit(&f, "5h")
 	case card == cardUsageReset && u != nil:
 		drawUsageClock(&f, u, now)
-		drawUsageUnit(&f, "5h") // the countdown belongs to the 5h window
 	case card == cardUsage7d && u != nil && u.SevenDayPct != nil:
 		drawUnitPctFace(&f, "7d", *u.SevenDayPct)
 	case card == cardUsageModelA && u != nil && len(u.Models) > 0:
@@ -1000,7 +990,7 @@ func drawBottomBar(f *Frame, s Session, sessions []Session) bool {
 	switch {
 	case s.RateBottomBar && s.RateWindowPct != nil:
 		pct := *s.RateWindowPct
-		drawRateBar(f, pct, rateColor(pct))
+		drawRateBar(f, pct)
 	case sessionBarEnabled(s):
 		drawSessionBar(f, sessions)
 	default:
@@ -1111,7 +1101,6 @@ func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Ti
 		drawBarInto(&f, *u.SevenDayPct)
 	} else {
 		drawUsageClock(&f, u, now)
-		drawUsageUnit(&f, "5h")
 		drawBarInto(&f, u.FiveHourPct)
 	}
 	return frameToCustomApp(&f, lifetimeSeconds, true)
