@@ -242,19 +242,22 @@ latest observation lives in an in-memory `weatherStore`; the coordinator reconci
 three rotating tiles with the same change-and-staleness dedupe as the usage card:
 
 - **`ember-weather`** — 8×8 condition icon + the current temperature **centred**
-  in the free area + a 2-px-tall per-hour **forecast strip** (rows 6–7),
+  in the free area (rows 1–5) + a per-hour **forecast strip** on the bottom bar
+  (row 7, cols 8–31, the window stretched evenly over all 24 columns),
   coloured by a cold→warm temperature gradient (`render.TempColor`). On a
   **clear night** the icon becomes the current **moon phase** (`moon_phase`;
   phase computed locally in `cmd/ember/astro.go`, no API).
 - **`ember-forecast`** (`forecast_tile`, default on) — **full-width hourly
   temperature bars** (no icon/temp — those live on the conditions tile, so the
-  two tiles read differently at a glance); bars are stretched evenly across
-  all 32 columns (`forecast_hours`, 6..24; bar height + colour = temperature).
+  two tiles read differently at a glance); every bar is `32/N` columns wide,
+  with the remainder as equal side margins so bar widths never alternate
+  (`forecast_hours`, 6..24; bar height + colour = temperature).
 - **`ember-air`** (`air_tile`, default on) — **air quality**: 8×8 drawn wind
-  icon + the current **European AQI** value, both in the official EEA bucket
+  icon + the current **European AQI** value (rows 1–5), both in the EEA bucket
   colour (good→extreme; `render.AQIColor`/`AQIWord`, discrete — the scale is
-  bucketed), + a 2-px per-hour **AQI trend strip** (rows 6–7, next 24 h, each
-  pixel its own bucket colour). Data comes from the **Open-Meteo air-quality
+  bucketed; the top two buckets keep the EEA hue at full LED brightness), + a
+  per-hour **AQI trend strip** on the bottom bar (row 7, cols 8–31, next 24 h,
+  one column per hour, each in its own bucket colour). Data comes from the **Open-Meteo air-quality
   API** (`fetchAirQuality`, always Open-Meteo regardless of `provider` — MET
   Norway has no AQ product), riding `pollWeather`'s due-gate but fetched
   independently so one provider failing never starves the other.
@@ -637,11 +640,12 @@ usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
 tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
 (HH:MM reset clock), **7d** (percent in threshold colour, via
 `drawUnitPctFace`), **model-A** and **model-B** (`OP`/`SO` weekly frames).
-Every usage face replaces the context glass with a gray **window unit label**
-at the right edge (`drawUsageUnit`, cols 25–31, the same span the glass now
-takes): `5h` on the clock/reset/pct
-faces, `7d` / `OP` / `SO` on the weekly faces — the glass is a session metric
-and only non-usage cards draw it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
+Every usage face drops the context glass, which is a session metric that only
+non-usage cards draw. Percentage faces show a gray **window unit label** in its
+place (`drawUsageUnit`, cols 25–31): `5h` on the 5h pct face and the hourglass
+fallback, `7d` / `OP` / `SO` on the weekly faces. HH:MM reset-clock faces leave
+the slot dark, because the clock runs to col 23 and a unit one column away read
+as part of it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
 toggles remain server config (`usage_widget`, `usage_per_model`, default on);
 `usage_threshold_pct` is also server config (`GET/PUT /v1/usage/config`, store
 key `usage_json`, default 60, 0 = always). **Claude 5h fallback:** when the
@@ -689,6 +693,22 @@ Each metric owns a screen region as a **graphic**; numeric readouts are opt-in
 and disambiguated by a pictogram (graphics-first). Icon-left language throughout
 (redesign 2026-06-06).
 
+**Column grid.** Every app uses one grid, defined once in
+`internal/render/layout.go` and copied from awtrix-ng's own layout for an app
+with an 8px icon, so nothing jumps sideways as the device rotates between apps:
+
+| Cols | Rows | Element | Const |
+|---|---|---|---|
+| 0–7 | 0–7 | icon (drawn 8×8 sprite or native `icon`) | `iconW` |
+| 8 | 0–6 | icon gap: blank. Drawn icons on text payloads are sent as a 9-wide op (`iconOp`) whose col 8 is zeros, so scrolling native text disappears at col 9 instead of touching the icon | `iconOpW` |
+| 9–24 | 1–5 | content: 3×5 digits and native text (centred in 9–31 for weather/air/Pomodoro, left-aligned at 9 for agent cards) | `contentX`, `textRow` |
+| 25–31 | 1–5 | right slot: context glass or usage unit label | `rightSlotX` |
+| — | 6 | blank spacer | |
+| 8–31 | 7 | bottom bar: session bar, rate bar, usage bar, weather/AQI strip, Pomodoro progress (NG's native progress also starts at x=8 under an icon) | `barX0`, `barW`, `barRow` |
+
+`TestEveryBottomBarStartsAtBarX0` pins every app's row-7 bar to `barX0`. The
+forecast tile is the one full-panel chart (no icon) and uses all 32 columns.
+
 - **8×8 tool icon** — cols 0–7. Body painted in the session's **source colour**
   (`EMBER_SOURCE_COLOR` / `source_color` wire field; neutral `#CCCCCC` fallback
   when absent or invalid), so each machine has a persistent identity colour.
@@ -697,8 +717,9 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   blue=done). Idle dim frame: body drops to ~40% gray; eye sockets / cursor stay
   dark, preserving the silhouette. Shares the usage card sprites
   (Claude robot-face / Codex chevron) via `drawToolIcon8`.
-- **Number slot** — cols 9–24 (`numStart=9`), a **rotating set of cards**:
-  **source-name card** (source uppercased, truncated to 4 glyphs, tinted in the
+- **Number slot** — cols 9–24 (`contentX=9`), a **rotating set of cards**:
+  **source-name card** (source uppercased, cut to 15 px of NG glyph width — M/N/W
+  count 5 px — so it never runs under the glass; tinted in the
   source colour or white), **usage card** (when 5h ≥ `usage_threshold_pct`:
   5h clock → reset clock → 7d → per-model faces, rotating), context `NN⌷`,
   and the scrolling tool/trail card. The **source card's name is
@@ -713,10 +734,17 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   pixel), state-coloured; the topmost partial row fills left-to-right. Non-usage
   cards only — usage faces paint the gray window unit label
   (`5h`/`7d`/`OP`/`SO`) in this slot instead.
-- **Bottom row (row 7)** — three-way: the 5h rate bar (`drawRateBar`, when
-  `rate_bottom_bar` on + rate present), styled as the **dimmed (~55%) threshold
-  bar** over content cols 8–31; else the session-pixel bar (1 px per non-idle
-  session, priority-sorted, when `session_bar` on); else off.
+- **Bottom row (row 7, cols 8–31)** — three-way (`drawBottomBar`): the 5h
+  rate bar (`drawRateBar`, when `rate_bottom_bar` on + rate present), styled as
+  the **dimmed (~55%) threshold bar**; else the session-pixel bar (1 px per
+  non-idle session from col 8, priority-sorted, when `session_bar` on); else
+  off. Every card of the app carries it, including the scrolling tool card and
+  the locked attention card (as a 24×1 row-7 op), so row 7 does not blink as
+  the cards rotate.
+- **Usage colours** — usage percentages (digits, bars, reset urgency) use one
+  threshold palette (`usageThreshold`: green <70, amber 70–89, red ≥90), kept
+  apart from the agent-state colours. HH:MM reset-clock faces carry no unit
+  label: the clock ends at col 23, and a `5h` at col 25 read as `17:305h`.
 - **Locked attention view** — 8×8 tool icon in cols 0–7, firmware-native
   blinking text `WAIT <SOURCE>` / `ERR <SOURCE>` at `textOffsetX:9` (with
   `textCenter:false` — see the gotcha below); scrolls when the label overflows
@@ -724,23 +752,29 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   always names which agent/computer needs attention.
 - **Pomodoro view** — NG **built-in animated icon** (`icon` field: tomato
   `29802` focus / coffee `6396` break) + native MM:SS countdown + native progress
-  bar; paused dims the phase colour. (Not a drawn bitmap; the drawn
-  `RenderPomodoro` is retained for tests and the `GET /v1/pomodoro/preview`
-  endpoint.)
+  bar; paused dims the phase colour and fades the countdown (`textFadeMs`),
+  since the animated icon stays at full brightness. (Not a drawn bitmap; the
+  drawn `RenderPomodoro` backs `GET /v1/pomodoro/preview` and copies the device
+  layout: mug for both breaks, time centred in cols 9–31, progress from col 8.)
 
 ## Gotchas & constraints (hard-won)
 
 ### awtrix-ng firmware (verified on 1.0.13)
 - **No multi-frame `draw` arrays.** A 2-frame pulse payload triggers a
-  validation error on the device. Use firmware-native `blinkText` instead.
+  validation error on the device. Use firmware-native `textBlinkMs` instead.
   Several *bitmap ops* in one `draw` array are fine — that is not an animation.
-- **A full-panel `draw` op suppresses the text layer entirely.** Verified on
-  1.0.15: a payload with `["bitmap",0,0,32,8,…]` plus `text` renders the bitmap
-  and simply drops the text — no error, no pixels. Splitting the same pixels
-  into ops that leave the text box clear makes the text appear, with a bar-row
-  op underneath it unaffected (NG's text occupies rows 1–5). This is why the
-  source card emits three ops (`drawOpsAround`) instead of one full-frame
-  bitmap, and why `detailPayload` gets away with a single 8×8 icon op.
+- **`draw` ops paint over the text, zeros included.** NG's `textInFront`
+  defaults to `false`: text is drawn first and decorations (`draw` ops, then
+  progress, then charts) on top. Bitmap zeros are opaque black, so a
+  `["bitmap",0,0,32,8,…]` op plus `text` shows only the bitmap: the text is
+  drawn and then painted over (seen on 1.0.15, and the reason the old notes
+  said a full-panel op "suppresses" text). Ops that leave the text box (rows
+  1–5) clear let the text show, with a row-7 op under it unaffected. This is
+  why the source card emits three ops (`drawOpsAround`) instead of one
+  full-frame bitmap, why `detailPayload` sends only the icon op and a row-7 bar
+  op, and why a drawn icon's op is 9 wide (`iconOp`): without a native icon,
+  NG scrolls text across all 32 columns, and the blank col 8 keeps it out of
+  the gap. `textInFront:true` would allow a single op again (#109).
 - **NG's font is 3px wide + 1px spacing, variable for wide letters.** "STUD"
   lands exactly in cols 9–23; "M" is 5 wide. This is what the source card buys
   by handing its text to the firmware: the in-house `font3x5` cannot form an
