@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -326,5 +327,100 @@ func TestValidatePomodoroFocusMaxAndCapRanges(t *testing.T) {
 	badCap.MaxSessionMinutes = 1441
 	if err := validatePomodoro(badCap); err == nil {
 		t.Fatal("max_session_minutes=1441 should be rejected")
+	}
+}
+
+func TestDefaultConfigTimingValues(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Display.StaleSeconds != 300 {
+		t.Errorf("StaleSeconds = %d, want 300", cfg.Display.StaleSeconds)
+	}
+	if cfg.Display.DoneTTLSeconds != 30 {
+		t.Errorf("DoneTTLSeconds = %d, want 30", cfg.Display.DoneTTLSeconds)
+	}
+}
+
+func TestDefaultConfig_NewDisplayFields(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	if cfg.Display.RotationDwellSeconds != 3 {
+		t.Errorf("RotationDwellSeconds = %d, want 3", cfg.Display.RotationDwellSeconds)
+	}
+	if cfg.Display.AckTimeoutSeconds != 30 {
+		t.Errorf("AckTimeoutSeconds = %d, want 30", cfg.Display.AckTimeoutSeconds)
+	}
+}
+
+func TestDefaultConfig_PublishTimeoutTenSeconds(t *testing.T) {
+	// Bumped 5→10 to tolerate slow-but-reachable ESP32 responses on flaky
+	// WiFi; the coordinator still retries on the next tick.
+	if got := defaultConfig().AWTRIX.TimeoutSeconds; got != 10 {
+		t.Errorf("defaultConfig timeout_seconds = %d, want 10", got)
+	}
+	c := Config{}
+	c.applyDefaults()
+	if c.AWTRIX.TimeoutSeconds != 10 {
+		t.Errorf("applyDefaults timeout_seconds = %d, want 10", c.AWTRIX.TimeoutSeconds)
+	}
+}
+
+func TestDefaultConfig_G2Fields(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	if cfg.Display.FrameLifetimeSeconds != 30 {
+		t.Errorf("FrameLifetimeSeconds = %d, want 30", cfg.Display.FrameLifetimeSeconds)
+	}
+	if cfg.Display.IdleRestoreSeconds != 120 {
+		t.Errorf("IdleRestoreSeconds = %d, want 120", cfg.Display.IdleRestoreSeconds)
+	}
+}
+
+func TestValidateConfig_G2_FrameLifetimeBounds(t *testing.T) {
+	for _, badVal := range []int{0, -1, 9, 121, 999} {
+		t.Run(fmt.Sprintf("lifetime=%d", badVal), func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.applyDefaults()
+			cfg.Display.FrameLifetimeSeconds = badVal
+			if err := validateConfig(cfg); err == nil {
+				t.Errorf("validateConfig(frame_lifetime_seconds=%d) returned nil, want error", badVal)
+			}
+		})
+	}
+}
+
+func TestValidateConfig_G2_IdleRestoreBounds(t *testing.T) {
+	for _, badVal := range []int{0, -1, 59, 3601, 99999} {
+		t.Run(fmt.Sprintf("idle=%d", badVal), func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.applyDefaults()
+			cfg.Display.IdleRestoreSeconds = badVal
+			if err := validateConfig(cfg); err == nil {
+				t.Errorf("validateConfig(idle_restore_seconds=%d) returned nil, want error", badVal)
+			}
+		})
+	}
+}
+
+func TestValidateConfig_G2_BoundaryAccepted(t *testing.T) {
+	cases := []struct {
+		name     string
+		lifetime int
+		idle     int
+	}{
+		{"lifetime min, idle min", 10, 60},
+		{"lifetime max, idle max", 120, 3600},
+		{"lifetime min, idle max", 10, 3600},
+		{"lifetime max, idle min", 120, 60},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := defaultConfig()
+			cfg.applyDefaults()
+			cfg.Display.FrameLifetimeSeconds = tc.lifetime
+			cfg.Display.IdleRestoreSeconds = tc.idle
+			if err := validateConfig(cfg); err != nil {
+				t.Errorf("validateConfig(lifetime=%d, idle=%d) returned %v, want nil — inclusive boundary must be accepted", tc.lifetime, tc.idle, err)
+			}
+		})
 	}
 }
