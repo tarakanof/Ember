@@ -282,8 +282,9 @@ func writeDeviceError(w http.ResponseWriter, status int, body []byte) {
 	apiErr := awtrix.ParseAPIError(status, body)
 	msg := fmt.Sprintf("clock returned %d", status)
 	if detail := apiErr.Message; detail != "" {
-		if len(detail) > 200 {
-			detail = detail[:200] + "…"
+		// Cap a raw (non-envelope) body at 200 runes, never mid-sequence.
+		if r := []rune(detail); len(r) > 200 {
+			detail = string(r[:200]) + "…"
 		}
 		msg += ": " + detail
 	}

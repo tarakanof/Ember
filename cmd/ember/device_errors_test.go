@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // ngRejecting is a fake clock that answers every request with status and the
@@ -61,7 +62,12 @@ func TestDeviceProxyErrorStatusMapping(t *testing.T) {
 		{http.StatusNotFound, http.StatusNotFound},
 		{http.StatusUnsupportedMediaType, http.StatusUnsupportedMediaType},
 		{http.StatusUnprocessableEntity, http.StatusUnprocessableEntity},
+		{http.StatusConflict, http.StatusConflict},
+		{http.StatusRequestEntityTooLarge, http.StatusRequestEntityTooLarge},
 		{http.StatusServiceUnavailable, http.StatusServiceUnavailable},
+		// A device 429 must not reach the menu as 429: the app reads that as
+		// Ember's own rate limiter and backs off every request.
+		{http.StatusTooManyRequests, http.StatusBadGateway},
 		// Device auth failures must not look like the menu's own bad token.
 		{http.StatusUnauthorized, http.StatusBadGateway},
 		{http.StatusForbidden, http.StatusBadGateway},
@@ -72,6 +78,20 @@ func TestDeviceProxyErrorStatusMapping(t *testing.T) {
 		if got := deviceProxyStatus(c.device); got != c.want {
 			t.Errorf("device %d → %d, want %d", c.device, got, c.want)
 		}
+	}
+}
+
+// A long non-envelope body is cut to 200 runes without splitting a UTF-8
+// sequence, so the relayed message stays valid text.
+func TestWriteDeviceErrorTruncatesOnRuneBoundary(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeDeviceError(w, http.StatusInternalServerError, []byte(strings.Repeat("é", 300)))
+	msg, _ := decodeProxyError(t, w)["error"].(string)
+	if !utf8.ValidString(msg) {
+		t.Fatalf("truncated message is not valid UTF-8: %q", msg)
+	}
+	if want := "clock returned 500: " + strings.Repeat("é", 200) + "…"; msg != want {
+		t.Fatalf("msg = %q, want 200 runes plus ellipsis", msg)
 	}
 }
 
