@@ -48,17 +48,32 @@ func lerp(a, b uint8, f float64) uint8 {
 	return uint8(float64(a) + (float64(b)-float64(a))*f + 0.5)
 }
 
-// drawHourlyStrip paints an hourly strip on the bottom bar (row 7, cols
-// barX0..31), with colour(i) giving hour i's colour. The n hours are stretched
-// across all barW columns, each getting an even share: a 24 h window is one
-// column per hour, and a 6 h window is four columns per hour instead of a
-// 6 px stub. n <= 0 is a no-op.
-func drawHourlyStrip(f *Frame, n int, colour func(i int) RGB) {
-	if n <= 0 {
-		return
+// hourSlot returns the columns hour i of an n-hour window owns on the
+// bottom-bar grid (cols barX0..31). Every hour gets the same whole number of
+// columns, barW/n, laid out left to right from barX0, so hour 0 is always at
+// col 8 and hour i sits in the same columns on the weather strip, the air
+// strip and the forecast tile. Windows that divide 24 (6, 8, 12, 24 h) fill
+// the bar; any other window leaves its remainder as a dark tail at the right
+// (22 h: cols 30-31) rather than doubling some hours and not others.
+func hourSlot(i, n int) (x0, x1 int) {
+	w := barW / n
+	if w < 1 {
+		w = 1
 	}
-	for x := 0; x < barW; x++ {
-		paintCell(f, barX0+x, barRow, colour(x*n/barW))
+	x0 = barX0 + i*w
+	return x0, x0 + w - 1
+}
+
+// drawHourlyStrip paints an hourly strip on the bottom bar (row 7), hour i in
+// its hourSlot coloured colour(i). n <= 0 is a no-op; hours past col 31 are
+// cut.
+func drawHourlyStrip(f *Frame, n int, colour func(i int) RGB) {
+	for i := 0; i < n; i++ {
+		x0, x1 := hourSlot(i, n)
+		if x0 >= panelW {
+			break
+		}
+		paintRow(f, x0, min(x1, panelW-1), barRow, colour(i))
 	}
 }
 
@@ -111,20 +126,17 @@ func drawForecastBars(f *Frame, hourly []float64, x0, x1 int) {
 	}
 }
 
-// drawForecastBarsScaled paints the hourly bars across cols x0..x1: every bar
-// is the same whole number of columns, (x1-x0+1)/n, and the leftover columns
-// become equal margins, so 24 h over 32 cols is 24 even 1-px bars centred in
-// cols 4-27 rather than a jagged mix of 1- and 2-px bars. Bottom-anchored,
-// same height/colour rules as drawForecastBars. Used by the full-matrix
-// forecast tile.
-func drawForecastBarsScaled(f *Frame, hourly []float64, x0, x1 int) {
-	if x0 > x1 || len(hourly) == 0 {
+// drawForecastBarsOnGrid paints one bottom-anchored bar per hour, hour i
+// filling its hourSlot, so every bar is the same width and each hour lines up
+// with its column in the weather strip (24 h: one 1-px bar per col, 8-31).
+// Same height/colour rules as drawForecastBars. Used by the forecast tile.
+func drawForecastBarsOnGrid(f *Frame, hourly []float64) {
+	n := len(hourly)
+	if n == 0 {
 		return
 	}
-	n := len(hourly)
-	w := x1 - x0 + 1
-	if n > w {
-		n = w // more hours than columns: 1px each, the tail is cut
+	if n > barW {
+		n = barW // more hours than columns: the tail is cut
 	}
 	min, max := hourly[0], hourly[0]
 	for _, t := range hourly[:n] {
@@ -136,8 +148,6 @@ func drawForecastBarsScaled(f *Frame, hourly []float64, x0, x1 int) {
 		}
 	}
 	span := max - min
-	bw := w / n
-	start := x0 + (w-bw*n)/2
 	for i := 0; i < n; i++ {
 		t := hourly[i]
 		h := 4 // flat window → mid-height
@@ -145,7 +155,7 @@ func drawForecastBarsScaled(f *Frame, hourly []float64, x0, x1 int) {
 			h = 1 + int((t-min)/span*7.0+0.5) // 1..8
 		}
 		col := TempColor(t)
-		xs, xe := start+i*bw, start+(i+1)*bw-1
+		xs, xe := hourSlot(i, n)
 		for x := xs; x <= xe; x++ {
 			for y := 8 - h; y < 8; y++ {
 				paintCell(f, x, y, col)
@@ -155,18 +165,18 @@ func drawForecastBarsScaled(f *Frame, hourly []float64, x0, x1 int) {
 }
 
 // ForecastTileFrame composes the drawn forecast-tile frame: the hourly
-// temperature bars stretched across the full 32-col matrix — no icon, no temp
-// digits (those live on the conditions tile), so the two tiles read
+// temperature bars on the bottom-bar grid (cols 8-31, full height) — no icon,
+// no temp digits (those live on the conditions tile), so the two tiles read
 // differently at a glance. Shared by the device payload and
 // /v1/weather/preview.
 func ForecastTileFrame(hourly []float64) Frame {
 	var f Frame
-	drawForecastBarsScaled(&f, hourly, 0, 31)
+	drawForecastBarsOnGrid(&f, hourly)
 	return f
 }
 
-// ForecastPayload renders the standalone forecast tile: full-width hourly
-// temperature bars (height + colour = temperature). lifetime seconds.
+// ForecastPayload renders the standalone forecast tile: hourly temperature
+// bars (height + colour = temperature). lifetime seconds.
 func ForecastPayload(hourly []float64, lifetime int) map[string]any {
 	f := ForecastTileFrame(hourly)
 	return map[string]any{

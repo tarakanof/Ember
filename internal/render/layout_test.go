@@ -154,31 +154,33 @@ func TestTextPayloadsMaskTheIconGap(t *testing.T) {
 	}
 }
 
-// TestHourlyStripsFillTheBar pins the weather and air strips to the full
-// bottom bar: a 24 h window is one column per hour (none dropped), and a
-// shorter window is stretched so the strip never ends in a ragged dark tail.
-func TestHourlyStripsFillTheBar(t *testing.T) {
-	for _, n := range []int{6, 12, 22, 24} {
-		temps := hourly(n)
-		f := WeatherTileFrame(WeatherClouds, "21°", temps, nil)
-		for x := barX0; x < panelW; x++ {
-			if !f.Dirty[barRow][x] {
-				t.Errorf("weather %dh: col %d of the strip is dark", n, x)
-			}
+// TestHourlyStripsUseEvenHourSlots pins the weather and air strips to the
+// bottom-bar grid: every hour gets the same barW/n columns from col 8, so a
+// 24 h window is one column per hour (none dropped), windows that divide 24
+// fill the bar, and any other window (22 h) leaves an even dark tail instead
+// of doubling some hours.
+func TestHourlyStripsUseEvenHourSlots(t *testing.T) {
+	for _, tc := range []struct{ n, w, lastX int }{
+		{6, 4, 31}, {12, 2, 31}, {24, 1, 31}, {22, 1, 29}, {16, 1, 23},
+	} {
+		temps := hourly(tc.n)
+		frames := map[string]Frame{
+			"weather": WeatherTileFrame(WeatherClouds, "21°", temps, nil),
+			"air":     AirTileFrame(53, temps),
 		}
-		if got, want := f.Pixels[barRow][panelW-1], TempColor(temps[n-1]); got != want {
-			t.Errorf("weather %dh: last col = %v, want the last hour %v", n, got, want)
-		}
-		if got, want := f.Pixels[barRow][barX0], TempColor(temps[0]); got != want {
-			t.Errorf("weather %dh: first col = %v, want the first hour %v", n, got, want)
-		}
-		a := AirTileFrame(53, temps)
-		if got, want := a.Pixels[barRow][panelW-1], AQIColor(temps[n-1]); got != want {
-			t.Errorf("air %dh: last col = %v, want the last hour %v", n, got, want)
-		}
-		for x := barX0; x < panelW; x++ {
-			if !a.Dirty[barRow][x] {
-				t.Errorf("air %dh: col %d of the strip is dark", n, x)
+		colour := map[string]func(float64) RGB{"weather": TempColor, "air": AQIColor}
+		for name, f := range frames {
+			for x := barX0; x < panelW; x++ {
+				if x > tc.lastX {
+					if f.Dirty[barRow][x] {
+						t.Errorf("%s %dh: col %d lit, want the tail past col %d dark", name, tc.n, x, tc.lastX)
+					}
+					continue
+				}
+				i := (x - barX0) / tc.w
+				if got, want := f.Pixels[barRow][x], colour[name](temps[i]); !f.Dirty[barRow][x] || got != want {
+					t.Errorf("%s %dh: col %d = %v, want hour %d %v", name, tc.n, x, got, i, want)
+				}
 			}
 		}
 	}

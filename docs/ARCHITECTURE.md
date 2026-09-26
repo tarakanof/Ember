@@ -243,15 +243,17 @@ three rotating tiles with the same change-and-staleness dedupe as the usage card
 
 - **`ember-weather`** — 8×8 condition icon + the current temperature **centred**
   in the free area (rows 1–5) + a per-hour **forecast strip** on the bottom bar
-  (row 7, cols 8–31, the window stretched evenly over all 24 columns),
+  (row 7, cols 8–31; each hour takes `24/N` columns from col 8, see
+  `hourSlot`),
   coloured by a cold→warm temperature gradient (`render.TempColor`). On a
   **clear night** the icon becomes the current **moon phase** (`moon_phase`;
   phase computed locally in `cmd/ember/astro.go`, no API).
 - **`ember-forecast`** (`forecast_tile`, default on) — **full-width hourly
   temperature bars** (no icon/temp — those live on the conditions tile, so the
-  two tiles read differently at a glance); every bar is `32/N` columns wide,
-  with the remainder as equal side margins so bar widths never alternate
-  (`forecast_hours`, 6..24; bar height + colour = temperature).
+  two tiles read differently at a glance); the bars sit on the same hour grid as
+  the strips (cols 8–31, `24/N` columns each), so hour *i* lines up across the
+  tiles and bar widths never alternate (`forecast_hours`, 6..24; bar height +
+  colour = temperature).
 - **`ember-air`** (`air_tile`, default on) — **air quality**: 8×8 drawn wind
   icon + the current **European AQI** value (rows 1–5), both in the EEA bucket
   colour (good→extreme; `render.AQIColor`/`AQIWord`, discrete — the scale is
@@ -707,8 +709,11 @@ with an 8px icon, so nothing jumps sideways as the device rotates between apps:
 | — | 6 | blank spacer | |
 | 8–31 | 7 | bottom bar: session bar, rate bar, usage bar, weather/AQI strip, Pomodoro progress (NG's native progress also starts at x=8 under an icon) | `barX0`, `barW`, `barRow` |
 
-`TestEveryBottomBarStartsAtBarX0` pins every app's row-7 bar to `barX0`. The
-forecast tile is the one full-panel chart (no icon) and uses all 32 columns.
+`TestEveryBottomBarStartsAtBarX0` pins every app's row-7 bar to `barX0`.
+Hourly data (weather and AQI strips, forecast bars) share one rule, `hourSlot`:
+hour *i* of an N-hour window owns `24/N` whole columns from col 8. Windows that
+divide 24 fill the bar; others (22 h) leave an even dark tail on the right
+rather than doubling some hours.
 
 - **8×8 tool icon** — cols 0–7. Body painted in the session's **source colour**
   (`EMBER_SOURCE_COLOR` / `source_color` wire field; neutral `#CCCCCC` fallback
