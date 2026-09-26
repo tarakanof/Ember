@@ -40,7 +40,9 @@ The aggregator and the only writer to the device.
   session, idempotent 204), `POST /v1/clear` (admin wipe), `POST /v1/notify`
   (ad-hoc notification), `POST /v1/usage` (per-tool subscription usage → the
   always-on usage widget; see below). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
-  `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below).
+  `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below), and
+  the dashboard reads `GET /v1/usage`, `/v1/activity/summary`,
+  `/v1/weather/state`, `/v1/clock/health` (see "Dashboard read API").
   Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
   `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro, Weather
   (`GET/PUT /v1/weather/config`), and Reminders (`POST /v1/reminders/fire`)
@@ -245,7 +247,9 @@ edits persist to the SQLite store (key `settings_json`, re-applied over the
 change durations/colours/cap without a writable config file. API:
 `POST /v1/pomodoro/{start,pause,resume,stop,skip}` + `GET/PUT /v1/pomodoro/config`
 (bearer; PUT is **merge semantics** since #84 — omitted fields keep their
-current value); open `GET /v1/pomodoro/{state,stats}`; **unauthenticated**
+current value); open `GET /v1/pomodoro/{state,stats,heatmap,workhours}`
+(`workhours` reports `work_start`/`work_end` as `null` on a day with no work);
+**unauthenticated**
 `POST /hooks/awtrix/button` (the device can't send a token) mapping
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
 left+right chord is removed).
@@ -619,6 +623,41 @@ only took effect at boot. The Ulanzi firmware default is `tempOffset:-9`
 (self-heating compensation); an explicit `null` in a sensors PUT resets to that
 default (or `0` for humidity), so the menu treats −9/0 — not 0/0 — as the
 baseline.
+
+### Dashboard read API — `cmd/ember/dashboard_http.go` (#110)
+
+Open (no token) reads for the native macOS dashboard, alongside the existing
+`GET /v1/pomodoro/{stats,heatmap,workhours}`:
+
+- **`GET /v1/usage`** — the latest `UsageStore` snapshot per tool (5h/7d windows,
+  per-model windows sorted by name, `stale` past `usageStaleTTL`). Before this
+  the snapshot was write-only; `/state` leaked just the 5h percent.
+- **`GET /v1/activity/summary?days=7`** (1..90) — agent activity from the
+  `activity` table: `today` and `period` windows with `total`/`by_tool`/
+  `by_source` rows (`active_sec`, `sessions`, `attention`), plus a zero-filled
+  `daily` per-tool series. Active time reuses the work-hours span
+  reconstruction (heartbeats ≤ 5 min apart form a span) and unions spans within
+  a group, so concurrent sessions of one tool count wall-clock time once.
+  `attention` counts waiting episodes. `recording` mirrors
+  `work_hours_include_activity`: heartbeats are only stored while it is on.
+  Heartbeats are throttled to one row per session per 2 min, **except a state
+  change always writes a row** so a short waiting prompt isn't lost.
+- **`GET /v1/weather/state`** — the poller's cached observation (condition,
+  `temp_c`, hourly points), air quality and today's sunrise/sunset. No provider
+  call, and the location is never echoed.
+- **`GET /v1/clock/health`** — publish counters (`ok_total`/`fail_total`/
+  `retries_total`, `success_ratio`, last publish) from memory, plus the clock's
+  `wifiRssi`/heap/uptime/`wifi.connects` from `GET /api/v1/device`, **cached 30 s**
+  so polling an open endpoint can't add traffic on the clock's lossy Wi-Fi.
+  Only telemetry leaves; the clock's IP, SSID host and UID are dropped.
+
+Wire conventions (for Swift's `JSONDecoder` `.iso8601` and Swift Charts):
+RFC 3339 timestamps with **whole seconds** (`.iso8601` rejects fractions),
+`null` instead of zero sentinels (work hours' empty days emit
+`work_start`/`work_end: null`, not `0001-01-01`), series as arrays of points,
+and the unit in every key (`_sec`, `_percent`, `_c`, `_dbm`, `_bytes`,
+`_ugm3`). EmberKit mirrors them in `DashboardModels.swift` /
+`DashboardService.swift`.
 
 ## The "spine" — how display widgets are added
 

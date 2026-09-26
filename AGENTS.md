@@ -92,7 +92,13 @@ effect/transition/overlay/palette lists; live proxy when the cache is cold),
 `GET /state`, `GET /healthz`, `GET /v1/preview`,
 `GET /v1/{weather,pomodoro,reminders}/preview`, `GET /v1/meetings/{preview,state}`,
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
-`GET /v1/pomodoro/dashboard` (HTML). Operator: `/admin/doctor`, `/admin/reload`,
+`GET /v1/pomodoro/dashboard` (HTML), and the native-dashboard reads
+(`dashboard_http.go`): `GET /v1/usage` (latest usage snapshot per tool — the
+POST stays authed), `GET /v1/activity/summary?days=` (agent time per
+tool/source), `GET /v1/weather/state` (cached observation, no location),
+`GET /v1/clock/health` (publish counters + clock RSSI/heap/uptime, device probe
+cached 30s). Dashboard JSON: RFC 3339 whole-second times, `null` not zero
+sentinels, arrays of points, units in keys. Operator: `/admin/doctor`, `/admin/reload`,
 `/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
 the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an

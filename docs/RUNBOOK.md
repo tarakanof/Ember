@@ -360,8 +360,9 @@ fingerprint doesn't exist on NG). The server advertises itself as
 - Entries are in-memory; stale tools (no post within ~10 min) are cleared from
   the usage card automatically.
 
-**Verify it's flowing:** `GET /state` does not include usage (it's a separate
-store), but posting a crafted usage payload:
+**Verify it's flowing:** `GET /v1/usage` (no token) returns every tool's latest
+snapshot with `updated_at` and `stale`; `GET /state` carries only the 5h
+percent. Posting a crafted usage payload:
 `curl -s -XPOST localhost:3627/v1/usage -H "Authorization: Bearer $EMBER_TOKEN" \
   -d '{"tool":"claude","source":"endpoint","five_hour":{"used_percent":75,"reset_label":"14:25"}}'`
 then watching the clock's `ember` app show the usage card face in rotation confirms
