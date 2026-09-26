@@ -1,0 +1,1 @@
+{"now":"<T>","sessions":[{"source":"a","tool":"claude","session":"1","state":"done","message":"build green","updated_at":"<T>"}],"render":{"text":"Claude done build green","color":"#707070","waiting":0,"running":0,"errors":0,"done":1,"active_total":0,"message":"build green"}}
