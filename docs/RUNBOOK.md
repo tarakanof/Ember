@@ -135,14 +135,25 @@ On launch the app re-registers the enabled producer agents when the bundle
 changed (version, build, or a digest of the bundled helpers and plists, stored
 as `producers.lastReconciledVersion`), and re-registers any enabled agent that
 `launchctl print gui/$UID/<label>` can't find, or shows stuck (`job state =
-spawn failed` or `needs LWCR update`: a rebuilt ad-hoc helper, see
-ARCHITECTURE's gotchas); a stuck job is booted out first. After an update it
-checks again 30 s later. Settings › Agents shows such an agent as **Not
-running** with a **Repair** button. By hand: `launchctl bootout
-gui/$UID/com.ember.heartbeat` (and `com.ember.codex`), then quit and reopen
-Ember. A rebuilt helper may also need **Local Network** access again (System
-Settings › Privacy & Security › Local Network); until then its POSTs fail with
-`connect: no route to host` in `~/Library/Logs/ember-tick.log`. The CLI `install`/`uninstall`
+spawn failed` plus `needs LWCR update` or `last exit code = 78`: a rebuilt
+ad-hoc helper, see ARCHITECTURE's gotchas); a stuck job is booted out first
+(a failed bootout is logged and reported as a Repair failure). After an
+update it checks again 30 s later; that recheck, Repair and the toggle run
+one at a time. Settings › Agents shows such an agent as **Not running** with
+a **Repair** button. By hand: `launchctl bootout gui/$UID/com.ember.heartbeat`
+(and `com.ember.codex`), then quit and reopen Ember. Each helper's LaunchAgent
+records whether it last reached the server in
+`~/.config/ember/{claude,codex}-producer.link.json`; when that says
+`"no_route": true` (macOS denied it Local Network access, `connect: no route
+to host` in `~/Library/Logs/ember-tick.log`), Settings › Agents shows a hint
+with **Open Local Network Settings…**.
+
+**Release note for the first release with fixed helper identifiers**
+(`com.ember.claude-producer`, `com.ember.codex-producer`): existing installs
+get one Local Network prompt per helper after updating (allow it, or the
+helper can't reach the server), and possibly one launch-constraint failure
+per agent on the first launch, which the app heals by itself within ~30 s.
+The CLI `install`/`uninstall`
 subcommands only unload a job loaded from their own
 `~/Library/LaunchAgents/<label>.plist`, and `install` refuses (before touching
 any config) when the label is the app's or unidentifiable, or when launchd
