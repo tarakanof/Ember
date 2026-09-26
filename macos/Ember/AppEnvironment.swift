@@ -30,6 +30,9 @@ public final class AppEnvironment {
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
+    /// Finds clocks from this Mac for Settings › Clock's Discover sheet; the
+    /// sheet's task scopes each scan, and sleep stops one.
+    public let clockDiscovery = ClockDiscovery()
     public let producers: ProducerInstallService
 
     /// Menu-only prefs (icon palette + tray glyphs), persisted to UserDefaults.
@@ -191,12 +194,16 @@ public final class AppEnvironment {
         deviceSettings.configure(service: connection.device)
     }
 
-    /// Pauses polling while the Mac sleeps; wake refetches everything at once.
+    /// Pauses polling (and stops a clock scan) while the Mac sleeps; wake
+    /// refetches everything at once.
     private func observeSleep() {
         let nc = NSWorkspace.shared.notificationCenter
         sleepObservers = [
             nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.live.pause() }
+                MainActor.assumeIsolated {
+                    self?.live.pause()
+                    self?.clockDiscovery.stop()
+                }
             },
             nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.live.resume() }

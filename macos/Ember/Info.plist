@@ -35,6 +35,7 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_ember._tcp</string>
+        <string>_awtrixng._tcp</string>
     </array>
 </dict>
 </plist>
