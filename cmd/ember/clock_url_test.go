@@ -342,26 +342,62 @@ func TestDeviceConfigPut_ConcurrentWithDiscoverySwap(t *testing.T) {
 	}
 }
 
-// clockURLBaselineFiles may read AWTRIXConfig.HTTPBaseURL: it means the file
-// baseline, and everything else must ask Config.clockURL for the URL to use.
-var clockURLBaselineFiles = []string{"config.go", "printconfig.go", "admin.go", "clock_url.go"}
+// clockURLBaselineFuncs are the functions that may read
+// AWTRIXConfig.HTTPBaseURL: it is the file baseline, and everything else must
+// ask Config.clockURL for the URL to use.
+var clockURLBaselineFuncs = map[string][]string{
+	"config.go":      {"sanitizeConfigBaseline", "validateConfig", "applyDefaults"},
+	"printconfig.go": {"redactConfig"},
+	"admin.go":       {"handleAdminReload"},
+	"clock_url.go":   {"clockURL", "carryClockURL"},
+}
 
 func TestHTTPBaseURLOnlyReadAsBaseline(t *testing.T) {
 	fset, files, info := typeCheckPackage(t)
 	for _, f := range files {
 		name := filepath.Base(fset.Position(f.Pos()).Filename)
-		if slices.Contains(clockURLBaselineFiles, name) {
-			continue
-		}
-		ast.Inspect(f, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "HTTPBaseURL" {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && slices.Contains(clockURLBaselineFuncs[name], fn.Name.Name) {
+				continue
+			}
+			ast.Inspect(decl, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "HTTPBaseURL" {
+					return true
+				}
+				if v, ok := info.Uses[sel.Sel].(*types.Var); ok && v.IsField() {
+					t.Errorf("%s: AWTRIX.HTTPBaseURL is the file baseline; use Config.clockURL()/effectiveClockURL()", fset.Position(sel.Pos()))
+				}
 				return true
-			}
-			if v, ok := info.Uses[sel.Sel].(*types.Var); ok && v.IsField() {
-				t.Errorf("%s: AWTRIX.HTTPBaseURL is the file baseline; use Config.clockURL()/effectiveClockURL()", fset.Position(sel.Pos()))
-			}
-			return true
-		})
+			})
+		}
+	}
+}
+
+// Pin A dies, discovery swaps to B, B dies, discovery finds A again: A is the
+// pin, live again, so the source is the store's.
+func TestRediscoverClock_BackOnThePinReportsStore(t *testing.T) {
+	a := newTestAppWithStore(t)
+	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
+		t.Fatal(err)
+	}
+	a.swapDiscoveredClock("http://10.0.0.5", "http://10.0.0.9")
+	if !a.swapDiscoveredClock("http://10.0.0.9", "http://10.0.0.5") {
+		t.Fatal("swap back refused")
+	}
+	if url, src := getDeviceConfig(t, a); url != "http://10.0.0.5" || src != "store" {
+		t.Fatalf("got %q (%s), want the pin as store", url, src)
+	}
+}
+
+// PUT {} with no override stores nothing.
+func TestDeviceConfigPut_EmptyObjectWritesNoRow(t *testing.T) {
+	a := newTestAppWithStore(t)
+	if w := putDeviceConfig(a, `{}`); w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if v, ok, err := a.store.GetSetting(deviceBaseURLKey); err != nil || ok {
+		t.Fatalf("row written: %q ok=%v err=%v", v, ok, err)
 	}
 }

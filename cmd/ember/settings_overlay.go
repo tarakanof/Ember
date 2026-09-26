@@ -166,7 +166,11 @@ func (s *setting[D]) persist(c Config) {
 	}
 	var blob string
 	if s.spec.encode != nil {
-		blob = s.spec.encode(s.spec.view(c))
+		// An empty encoded form means nothing to store (the clock URL with
+		// no override): don't write an empty row.
+		if blob = s.spec.encode(s.spec.view(c)); blob == "" {
+			return
+		}
 	} else {
 		b, err := json.Marshal(s.spec.view(c))
 		if err != nil {

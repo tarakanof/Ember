@@ -30,12 +30,11 @@ const (
 
 // clockURL resolves the effective clock URL and where it came from.
 //
-// The documented order is store override > reachable config.json baseline >
-// mDNS auto-pick. Reachability is what rediscoverClock tests: it sets the
-// discovered tier only after the effective URL failed its probes, so a
-// discovered URL sits above the tiers it replaced. The tier is cleared when
-// the menu pins a URL (a PUT naming base_url) or a reload changes the file
-// URL, which hands precedence back to override > baseline.
+// Effective = menu override, else config.json baseline. If that fails its
+// probes, an in-memory mDNS swap replaces it (the pin included) until a PUT
+// naming base_url or a reload that changes the file URL, which hand
+// precedence back to override > baseline. rediscoverClock sets the swap only
+// after the effective URL failed its probes; the store row is never touched.
 func (c *Config) clockURL() (string, clockSource) {
 	a := c.AWTRIX
 	switch {
@@ -77,7 +76,13 @@ func (a *App) swapDiscoveredClock(from, to string) bool {
 		if c.effectiveClockURL() != from {
 			return
 		}
-		c.AWTRIX.clockDiscovered = to
+		if to == c.AWTRIX.clockOverride {
+			// Discovery found the pinned clock again: the pin is live, so
+			// report it as the store's, not as a swap.
+			c.AWTRIX.clockDiscovered = ""
+		} else {
+			c.AWTRIX.clockDiscovered = to
+		}
 		swapped = true
 	})
 	return swapped
