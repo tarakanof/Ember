@@ -16,6 +16,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      macos: ${{ steps.filter.outputs.macos }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Filter
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            macos:
+              - 'macos/**'
+              - 'cmd/ember/testdata/**'
+              - '.github/workflows/ci.yml'
+
   go:
     name: Go (fmt, vet, test -race)
     runs-on: ubuntu-latest
@@ -43,3 +62,40 @@ jobs:
 
       - name: go test -race
         run: go test ./... -race
+
+  macos:
+    name: macOS (swift test, unsigned app build)
+    needs: changes
+    if: needs.changes.outputs.macos == 'true'
+    # EmberKit's deployment target is macOS 26 (see macos/project.yml); the
+    # macos-latest label tracks that SDK/Xcode as of 2026-06, so it's the
+    # newest runner that can build this project.
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache SPM build artifacts
+        uses: actions/cache@v4
+        with:
+          path: macos/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('macos/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: swift test (EmberKit)
+        run: swift test --package-path macos
+
+      - name: xcodegen generate
+        run: xcodegen generate --spec macos/project.yml --project macos
+
+      - name: xcodebuild (unsigned Debug)
+        # No Developer ID in CI: CODE_SIGNING_ALLOWED=NO builds unsigned, and
+        # build-producers.sh (the postCompileScripts sign phase) skips itself
+        # under GITHUB_ACTIONS — see that script for the check.
+        run: |
+          xcodebuild -project macos/Ember.xcodeproj -scheme Ember \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build

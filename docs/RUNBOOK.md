@@ -98,6 +98,14 @@ swift test --package-path macos                          # headless EmberKit tes
 ```
 
 The generated `Ember.xcodeproj` is gitignored — regenerate it after pulling.
+
+**CI**: [`ci.yml`](../.github/workflows/ci.yml) runs the Go job on every push/PR,
+plus a `macos` job (path-filtered to `macos/**`, `cmd/ember/testdata/**`, and
+the workflow file itself) that installs `xcodegen`, runs `swift test
+--package-path macos`, regenerates the Xcode project, and does an unsigned
+`xcodebuild ... CODE_SIGNING_ALLOWED=NO build` — there's no Developer ID on the
+runner, so `build-producers.sh`'s sign phase skips itself under
+`GITHUB_ACTIONS` (see that script).
 Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The app
 reads `producer.env` for connection config and needs a server on a build that
 includes `GET /v1/preview` (added 2026-05; older servers 401 that route).

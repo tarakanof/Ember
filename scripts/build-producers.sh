@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# CI only needs the app target to compile; there's no Developer ID to sign
+# with there, and `go` isn't guaranteed to be on the runner either. Skip the
+# whole phase under GitHub Actions rather than let codesign fail — local
+# dev/release builds are unaffected since GITHUB_ACTIONS is unset there.
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  echo "build-producers.sh: skipping under GITHUB_ACTIONS (no Developer ID in CI)"
+  exit 0
+fi
+
 # Resolve the app bundle: Xcode sets CODESIGNING_FOLDER_PATH to the .app during
 # a build; a --dest arg overrides for manual runs.
 APP="${1:-${CODESIGNING_FOLDER_PATH:-}}"
