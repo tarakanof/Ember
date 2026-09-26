@@ -176,15 +176,11 @@ type coordinator struct {
 	// adoptDeviceManagedApps.
 	adoptedApps bool
 
-	// lastPayloadBytes + lastPublishedAt dedupe identical re-publishes
-	// within a window shorter than the AWTRIX app lifetime. Every
-	// re-POST to /api/custom resets the firmware app's render state,
-	// which restarts the blinkText phase mid-cycle as a visible
-	// stutter; skipping no-op refreshes keeps the animation steady.
-	// Only success updates these fields so failed publishes still
-	// retry on the next tick.
-	lastPayloadBytes []byte
-	lastPublishedAt  time.Time
+	// mainPushed is the main app's last successful push, so publish can skip
+	// identical re-publishes within renewalDedupWindow (see publish for why the
+	// dedupe stays). Only success updates it, so a failed publish retries on
+	// the next tick. Same ledger shape as the tiles' (pushedApp).
+	mainPushed pushedApp
 
 	// lastDropWarnNano throttles the "command dropped" warning to at most
 	// ~1/min so a wedged device (onTick blocking on unreachable-device HTTP)

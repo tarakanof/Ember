@@ -483,13 +483,13 @@ func TestCoord_RepublishClearsDedupeAndRepushes(t *testing.T) {
 	if got := len(publisher.CustomAppsSnapshot()); got != 2 {
 		t.Fatalf("publishes after republish = %d, want 2 (dedupe must be cleared)", got)
 	}
-	if c.lastPayloadBytes == nil {
+	if c.mainPushed.body == nil {
 		t.Fatal("republish should have re-armed the dedupe cache from the fresh push")
 	}
 }
 
 // TestCoord_RepublishRepushesStandaloneTiles guards the other half of the
-// dedupe reset: the weather/forecast/air/meeting trackers must be dropped too,
+// dedupe reset: the tile ledger must be dropped too,
 // or a tile whose content hasn't changed would never come back after a reboot.
 func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	pub := &recordingPublisher{}

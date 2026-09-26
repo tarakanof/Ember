@@ -402,7 +402,7 @@ func TestCoordinatorRepublishKeepsOriginalTakeoverSnapshot(t *testing.T) {
 	pub.deviceSettings = map[string]any{"autoTransition": false, "blockNavigation": true}
 	pub.mu.Unlock()
 	c.hold = holdNone // what onRepublish does
-	c.lastPayloadBytes = nil
+	c.mainPushed = pushedApp{}
 	c.publish(*snap)
 
 	*pomo = false

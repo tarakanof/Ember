@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -126,8 +125,7 @@ func renewalDedupWindow(lifetimeSec, dwellSec int) time.Duration {
 // attention hold re-asserts its forced app switch (and, for Pomodoro, its
 // autoTransition/blockNavigation) too. Coordinator goroutine only.
 func (c *coordinator) onRepublish() {
-	c.lastPayloadBytes = nil
-	c.lastPublishedAt = time.Time{}
+	c.mainPushed = pushedApp{}
 	// Tiles (and any legacy usage apps) died with the reboot.
 	c.tiles.forget()
 	c.hold = holdNone
@@ -225,7 +223,7 @@ func (c *coordinator) publish(snap Snapshot) {
 		dwellSec = 3
 	}
 	dedupWindow := renewalDedupWindow(lifetime, dwellSec)
-	if bytes.Equal(body, c.lastPayloadBytes) && now.Sub(c.lastPublishedAt) < dedupWindow {
+	if c.mainPushed.current(body, now, dedupWindow) {
 		// Same frame, already on the device: the hold edge may still be new
 		// (e.g. a Pomodoro pause that leaves the payload byte-identical).
 		c.applyDisplayHold(want, cfg.AWTRIX.AppName)
@@ -239,8 +237,7 @@ func (c *coordinator) publish(snap Snapshot) {
 	} else {
 		c.publishCount.Add(1)
 		c.metrics.incPublishOK()
-		c.lastPayloadBytes = body
-		c.lastPublishedAt = now
+		c.mainPushed = pushedApp{body: body, at: now}
 		// Only now is the app known to be in the device's loop — apps/active
 		// 404s on an app the device does not have.
 		c.applyDisplayHold(want, cfg.AWTRIX.AppName)
