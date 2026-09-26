@@ -197,8 +197,10 @@ without relaunch. Hybrid layout:
   and `Presentation/` (display names, formatters, and `MenuRows`, the menu's
   row rules), plus `Device/` (`DeviceSettingsModel`: the clock's settings
   saved as a patch of the keys that changed, overlay, sensors, apps, buttons,
-  audio) and `Settings/` (pane ids with the pre-restructure names mapped,
-  melody choices, the Connection probe). Headless `swift test`.
+  audio), `Settings/` (pane ids with the pre-restructure names mapped,
+  melody choices, the Connection probe) and `Reminders/`
+  (`ReminderScheduler` behind a `ReminderSource` seam, plus the pure fire
+  rules). Headless `swift test`.
 - **`Ember` (`macos/Ember/`, thin Xcode app)** — an `LSUIElement` agent
   app: a `MenuBarExtra` (`.menu` style: session header and activity, other
   sessions, 5h usage per tool, next meeting or reminder, Pomodoro status and
@@ -441,9 +443,9 @@ fully runtime-editable (`GET/PUT /v1/weather/config`, persisted to store key
 ### Reminders — Apple Reminders + `POST /v1/reminders/fire`
 
 Reminders are sourced from the user's **Apple Reminders** (macOS), not an
-internal list. The **menu app** (`ReminderWatcher`, EventKit) polls incomplete
-reminders that have a due *time* and, when one comes due (within a short grace
-window, honoring an optional lead time), POSTs **`POST /v1/reminders/fire`**
+internal list. The **menu app** polls incomplete reminders that have a due
+*time* and, when one comes due (within a 90 s grace window, honoring an
+optional lead time), POSTs **`POST /v1/reminders/fire`**
 `{text, sound, duration, native_icon_id, hold, repeat_sound}` to the server,
 which renders the
 bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. A
@@ -469,9 +471,20 @@ The app waits up to 20s for the answer (the server holds the request while it
 pushes to the clock, up to 10s) and retries on the next poll, inside the grace
 window, only when the failure proves nothing was sent: connection refused/no
 route, 429, or another 4xx. A timeout or 5xx (e.g. 502 after a lost clock ack)
-may have rung the clock, so it is not retried. The watcher logs through
+may have rung the clock, so it is not retried. The scheduler logs through
 `os.Logger` (subsystem `com.ember.Ember`, category `reminders`) with reminder
 titles marked `.private`.
+
+Code split: EmberKit's `ReminderScheduler` (`Reminders/`) owns the poll loop
+(every 30 s, or sooner to wake 0.25 s past the next fire time), fire
+selection, the send and its retry outcome, `lastFireError` and the `upcoming`
+list (next five not yet due) that the menu, Dashboard and Calendar pane show.
+It reads a `ReminderSource` (`hasAccess`, `dueTimedReminders()`) and takes
+injected clocks, so `ReminderSchedulerTests` drive it with a fake source and
+`ManualClock`. The app keeps only the platform side in `ReminderWatcher`: the
+EventKit adapter (`EventKitReminderSource`, deliberately not MainActor so the
+EventKit callback queue doesn't trap), authorization, prefs in UserDefaults,
+and the App Nap assertion held while the scheduler runs.
 
 > **Shared store.** Weather config + hidden-apps + Pomodoro stats all live in the
 > one SQLite store. Opening it is hoisted into `ensureStore` (out of
