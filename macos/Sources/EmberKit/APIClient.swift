@@ -179,8 +179,12 @@ public struct APIClient: Sendable {
         return data
     }
 
-    public func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
-        let data = try await perform("GET", path, query: query, body: nil)
+    /// `slow` uses the 20s session, for endpoints that do work before they
+    /// answer (e.g. `/v1/device/discover` browses mDNS and probes candidates
+    /// for up to ~8s server-side, which the 5s default session cuts off).
+    public func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [],
+                                  slow: Bool = false) async throws -> T {
+        let data = try await perform("GET", path, query: query, body: nil, slow: slow)
         do { return try Self.makeDecoder().decode(T.self, from: data) }
         catch { throw APIError.decoding(String(describing: error)) }
     }
