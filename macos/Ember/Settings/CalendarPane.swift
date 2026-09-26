@@ -6,8 +6,8 @@ import EmberKit
 /// Apple Reminders due on this Mac. Their chimes are under Sounds & Alerts.
 struct CalendarPane: View {
     @Environment(AppEnvironment.self) private var env
-    @State private var meetingPreview: PreviewResponse?
-    @State private var reminderPreview: PreviewResponse?
+    @State private var meetingPreview = PreviewModel()
+    @State private var reminderPreview = PreviewModel()
 
     private var model: ServerConfigModel<MeetingsConfig> { env.settings.meetings }
 
@@ -19,10 +19,10 @@ struct CalendarPane: View {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
                     PanelPreview(title: "Next meeting", caption: "Calendar icon, title and minutes to go.",
-                                 enabled: c.enabled, frame: meetingPreview?.frames.first { $0.card == "meeting" })
+                                 enabled: c.enabled, frame: meetingPreview.frame("meeting"))
                     PanelPreview(title: "Reminder", caption: "Bell and the reminder's title when it comes due.",
                                  enabled: watcher.prefs.enabled,
-                                 frame: reminderPreview?.frames.first { $0.card == "reminder" })
+                                 frame: reminderPreview.frame("reminder"))
                 }
                 .settingsPreviewRow()
             }
@@ -127,11 +127,11 @@ struct CalendarPane: View {
         }
         .formStyle(.grouped)
         .autosaves(model)
+        .previews(into: meetingPreview) { try await env.preview.fetchMeetingsPreview() }
+        .previews(into: reminderPreview) { try await env.preview.fetchReminderPreview() }
         .reloads {
             env.reminderWatcher.refreshAuthorization()
             await model.load()
-            meetingPreview = (try? await env.preview.fetchMeetingsPreview()) ?? meetingPreview
-            reminderPreview = (try? await env.preview.fetchReminderPreview()) ?? reminderPreview
         }
     }
 
