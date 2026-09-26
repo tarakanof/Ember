@@ -80,6 +80,25 @@ The aggregator and the only writer to the device.
   `GET/PUT /v1/display/config` using the standard **baseline + store-override**
   pattern (config.json baseline; SQLite `display_json` override wins, survives
   restarts and `/admin/reload`) — same shape as weather/pomodoro/usage config.
+- **Rotating tiles — one module** (`cmd/ember/coordinator_tiles.go`, #145).
+  The standalone apps Ember owns (`ember-weather`, `ember-forecast`,
+  `ember-air`, `ember-meet`) are one `tile` value each in `tiles`: app name,
+  preview card, `toggle` (the tile's own switch), `live` (device-only gate:
+  feature on, data fresh, meeting inside the lead window) and `view`, which
+  resolves the content once into both the device payload and the preview
+  frame. `tileSet` owns the pushed-app ledger (`pushedApp{body, at}`, the same
+  type as the main app's dedupe): `adopt` seeds it from the device loop on the
+  first reachable tick (tiles plus legacy `ember-usage-*` leftovers, never the
+  base app), `reconcile` runs every tick — clear anything tracked that isn't
+  wanted, push a wanted tile when its bytes changed or `usageRefreshInterval`
+  passed, move the ledger only on success — and `forget` drops it on
+  `cmdRepublish`. Writes go through the coordinator's `tileWriter` adapter
+  (`pushApp` retry, `ClearApp`), so the coordinator stays the single writer.
+  The previews call `previewTiles` with draft inputs, which renders the same
+  `view` minus the `live` gate: **preview = pushed frame by construction**
+  (pinned by `tile_preview_parity_test.go`). Payload-only, since the canvas
+  can't animate them: the NG overlay and a native gallery icon. Adding a tile
+  is one `tile` value.
 - **Publishing over a lossy link.** The clock is a battery/Wi-Fi ESP32, and a
   weak link drops frame pushes wholesale rather than slowing them down (observed
   in the field: ~44 % of pushes timing out for days, `ember_publish_total`
@@ -399,8 +418,12 @@ whenever their owning feature is enabled.
 `forecast_tile`, `air_tile`, `forecast_hours`, `units`) into the same
 `{frames}` grids, using the live observations when present, else canned
 samples (21 °C clouds, sinusoidal 24 h arc; AQI 42 easing off overnight) so it
-never renders blank. Native-icon mode previews with
-the drawn sprite (the canvas can't animate gallery icons). Feeds the menu's
+never renders blank. The frames come from the pushed tiles' own `view`
+(`previewTiles`, see "Rotating tiles" above), with the draft params laid over
+the live config: `forecast_hours` follows the device's rule (<=0 or >24 means
+24, 1..5 kept), and a clear night shows the moon phase exactly as the clock
+does. Native-icon mode previews with the drawn sprite (the canvas can't
+animate gallery icons), and the overlay is not drawn. Feeds the menu's
 Weather tab "Display" section, which also folds Location/Tile/Forecast/Popups
 into collapsible sections and overlays a "1 of N" cycle indicator
 (`PreviewCanvas`, shared with the Display tab).
@@ -516,9 +539,9 @@ the SQLite store, logs, or any API response. `GET /v1/meetings/config` returns a
   still contribute to the upcoming list; `lastFetchOK` advances only when at
   least one feed succeeds.
 
-**Coordinator (`reconcileMeetingApp`).** Uses the shared `reconcileTile` helper
-(also used by `ember-weather`, `ember-forecast`, and `ember-air`) for the
-clear/dedupe/re-push state machine. `ember-meet` joins the rotation when the next
+**Coordinator (`meetTile`).** One entry in the tile module (see "Rotating
+tiles" under the server), which owns the clear/dedupe/re-push state machine
+for every rotating tile. `ember-meet` joins the rotation when the next
 meeting is within `tile_lead_minutes` (default 60) and the feed is fresh; it
 leaves the rotation at meeting start (the tile never shows "0m"). The countdown
 payload changes each minute, so the payload-bytes diff naturally re-pushes without
@@ -544,7 +567,7 @@ via the same baseline + store-override pattern as weather/pomodoro/usage config.
 API: `GET/PUT /v1/meetings/config` (bearer auth).
 
 **Read endpoints (no auth).** `GET /v1/meetings/preview` renders the `ember-meet`
-tile into a 32×8 frame grid, using the live next occurrence when present and a
+tile (`previewTiles`, the pushed tile's own view) into a 32×8 frame grid, using the live next occurrence when present and a
 STANDUP/12 min sample otherwise (never blank). `GET /v1/meetings/state` returns
 up to 5 upcoming occurrences (`{title, start}` RFC3339 whole-seconds) plus
 `fetched_at` for the menu's Upcoming list.
