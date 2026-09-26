@@ -135,9 +135,9 @@ public final class NetworkPathSnapshot: Sendable {
         monitor.start(queue: DispatchQueue(label: "com.ember.network-path"))
     }
 
-    /// The last status the monitor reported, or its current path before the
-    /// first update arrives.
-    public var status: NWPath.Status {
-        latest.withLock { $0 } ?? monitor.currentPath.status
+    /// The last status the monitor reported; nil before its first update,
+    /// which `LocalNetworkDenial` treats as "not a refusal".
+    public var status: NWPath.Status? {
+        latest.withLock { $0 }
     }
 }
