@@ -50,6 +50,27 @@ func parseConfigFile(path string) (Config, error) {
 	return cfg, nil
 }
 
+// warnDeprecatedConfig logs one Warn per config.json key that still parses but
+// no longer does anything, so the operator can drop it.
+func warnDeprecatedConfig(cfg Config, logger *slog.Logger) {
+	d := cfg.Display
+	if d.PulseStyle != "" {
+		logger.Warn("display.pulse_style is deprecated and ignored — AWTRIX firmware animates attention via blinkText", "value", d.PulseStyle)
+	}
+	for _, k := range []struct {
+		key string
+		set bool
+	}{
+		{"display.heartbeat_seconds", d.HeartbeatSeconds != nil},
+		{"display.refresh_seconds", d.RefreshSeconds != nil},
+		{"display.notify_on_waiting", d.NotifyOnWaiting != nil},
+	} {
+		if k.set {
+			logger.Warn("config key is ignored and can be removed", "key", k.key)
+		}
+	}
+}
+
 // sanitizeConfigBaseline repairs config.json values that fail the SSRF-guard
 // validators (validDeviceURL, weatherIconIDPattern) but that we don't want to
 // treat as fatal load errors — a hand-edited config.json shouldn't crash the

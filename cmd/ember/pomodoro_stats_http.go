@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/tarakanof/ember/internal/pomodoro"
@@ -39,6 +40,16 @@ func (a *App) statsLoc() *time.Location { return time.Local }
 // needs sub-15-min resolution, so one row per session per window is plenty.
 const activityThrottle = 2 * time.Minute
 
+// activitySweepInterval is how often a heartbeat also drops expired entries
+// from App.activityLast and prunes old activity rows. Claude session IDs are
+// unique per run, so without the sweep the map grows for the process lifetime.
+const activitySweepInterval = time.Hour
+
+// activityRetention is how long activity rows are kept. The only reader is
+// the work-hours view, which queries at most 91 days back; 400 days leaves a
+// wide margin and older rows are never read.
+const activityRetention = 400 * 24 * time.Hour
+
 // activeWorkState reports whether a session state counts as "actively working"
 // for work-hours purposes. idle and done do not.
 func activeWorkState(state string) bool {
@@ -51,7 +62,8 @@ func activeWorkState(state string) bool {
 }
 
 // recordActivityHeartbeat persists an activity row for an actively-working
-// session, throttled to one row per session per activityThrottle window. No-op
+// session, throttled to one row per session per activityThrottle window, and
+// once per activitySweepInterval bounds the throttle map and the table. No-op
 // when the store is absent or the overlay is disabled.
 func (a *App) recordActivityHeartbeat(s Session, now time.Time) {
 	if a.store == nil || !a.cfg.Load().Pomodoro.WorkHoursIncludeActivity || !activeWorkState(s.State) {
@@ -64,10 +76,24 @@ func (a *App) recordActivityHeartbeat(s Session, now time.Time) {
 		return
 	}
 	a.activityLast[key] = now
+	sweep := now.Sub(a.activitySweptAt) >= activitySweepInterval
+	if sweep {
+		a.activitySweptAt = now
+		for k, last := range a.activityLast {
+			if now.Sub(last) >= activityThrottle {
+				delete(a.activityLast, k)
+			}
+		}
+	}
 	a.activityMu.Unlock()
 
 	if err := a.store.RecordActivity(now, s.Source, s.Tool, key, s.State); err != nil {
 		a.logger.Warn("activity record failed", "err", err)
+	}
+	if sweep {
+		if _, err := a.store.PruneActivity(now.Add(-activityRetention)); err != nil {
+			a.logger.Warn("activity prune failed", "err", err)
+		}
 	}
 }
 
@@ -173,6 +199,47 @@ func (a *App) buildStats(now time.Time) (pomodoroStats, error) {
 	}, nil
 }
 
+// statsCacheTTL bounds how long a cached stats payload is served. A phase
+// written through App.store, a Pomodoro config change or a logical-day
+// rollover drops the cache at once. The TTL covers everything else: what
+// drifts with the clock alone (the rolling 30-day completion window) and
+// writes that bypass App.store (another process, the sqlite CLI, a restored
+// DB file), which become visible only once it expires.
+const statsCacheTTL = time.Minute
+
+// statsCache holds the last /v1/pomodoro/stats payload. The menu polls it
+// every few seconds, and each build scans ~400 days of phase rows over the
+// store's single connection, where it queues behind activity inserts.
+type statsCache struct {
+	mu      sync.Mutex // protects every field below
+	store   *pomodoro.Store
+	gen     uint64
+	cfg     PomodoroConfig
+	day     string
+	expires time.Time
+	val     pomodoroStats
+}
+
+// cachedStats returns buildStats(now), reusing the previous result while the
+// phases table, the Pomodoro config and the logical day are unchanged.
+func (a *App) cachedStats(now time.Time) (pomodoroStats, error) {
+	p := a.cfg.Load().Pomodoro
+	day := logicalDayKey(now, p.DayStartHour, a.statsLoc())
+	gen := a.store.PhaseGen()
+	c := &a.statsCache
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.store == a.store && c.gen == gen && c.cfg == p && c.day == day && now.Before(c.expires) {
+		return c.val, nil
+	}
+	val, err := a.buildStats(now)
+	if err != nil {
+		return pomodoroStats{}, err
+	}
+	c.store, c.gen, c.cfg, c.day, c.expires, c.val = a.store, gen, p, day, now.Add(statsCacheTTL), val
+	return val, nil
+}
+
 // logicalDayKey mirrors pomodoro's internal day bucketing for handler-side use.
 func logicalDayKey(t time.Time, dayStartHour int, loc *time.Location) string {
 	return t.In(loc).Add(-time.Duration(dayStartHour) * time.Hour).Format("2006-01-02")
@@ -184,7 +251,7 @@ func (a *App) handlePomodoroStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errPomodoroDisabled)
 		return
 	}
-	stats, err := a.buildStats(time.Now())
+	stats, err := a.cachedStats(time.Now())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

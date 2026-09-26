@@ -219,7 +219,7 @@ func (c *coordinator) idleStateLocked(activeCount int, now time.Time, idleRestor
 // for starting its goroutine via Run.
 //
 // loadCfg returns the current *Config — pass `a.cfg.Load` from the App
-// (atomic.Pointer[Config]) so reloadable fields (refresh_seconds) take
+// (atomic.Pointer[Config]) so reloadable fields (rotation_dwell_seconds) take
 // effect at the next tick. Tests pass nil to capture cfg by value.
 //
 // m may be nil (tests that don't need metric counters).

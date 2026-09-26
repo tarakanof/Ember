@@ -73,7 +73,9 @@ func (a *App) loadPersistedDeviceBaseURL() {
 // "store" (menu override) > "config" (config.json baseline) > "discovered"
 // (mDNS auto-pick) > "none".
 func (a *App) deviceSource() string {
-	cur := a.cfg.Load().AWTRIX.HTTPBaseURL
+	a.cfgMu.Lock()
+	cur, baseline := a.cfg.Load().AWTRIX.HTTPBaseURL, a.deviceBaseline
+	a.cfgMu.Unlock()
 	if a.store != nil {
 		// A stored override only reflects the current effective URL if it
 		// still matches it — rediscoverClock can swap away from a stale
@@ -89,7 +91,7 @@ func (a *App) deviceSource() string {
 		// Discovery set this URL at boot — even if it happens to equal the
 		// (unreachable) config.json baseline, it was reached via discovery.
 		return "discovered"
-	case cur == a.deviceBaseline:
+	case cur == baseline:
 		return "config"
 	default:
 		return "discovered"

@@ -180,9 +180,6 @@ type DisplayConfig struct {
 	IdleText             string `json:"idle_text"`
 	StaleSeconds         int    `json:"stale_seconds"`
 	DoneTTLSeconds       int    `json:"done_ttl_seconds"`
-	HeartbeatSeconds     int    `json:"heartbeat_seconds"`
-	RefreshSeconds       int    `json:"refresh_seconds"`
-	NotifyOnWaiting      bool   `json:"notify_on_waiting"`
 	RotationDwellSeconds int    `json:"rotation_dwell_seconds"`
 	AckTimeoutSeconds    int    `json:"ack_timeout_seconds"`
 	// G.2:
@@ -198,6 +195,13 @@ type DisplayConfig struct {
 	// DisallowUnknownFields. AWTRIX firmware has no multi-frame draw
 	// mode; attention is animated via blinkText instead.
 	PulseStyle string `json:"pulse_style,omitempty"`
+	// HeartbeatSeconds, RefreshSeconds and NotifyOnWaiting were parsed and
+	// defaulted but never read by anything. They stay decodable so existing
+	// config files still load under DisallowUnknownFields; nil means absent,
+	// and warnDeprecatedConfig flags any that are set.
+	HeartbeatSeconds *int  `json:"heartbeat_seconds,omitempty"`
+	RefreshSeconds   *int  `json:"refresh_seconds,omitempty"`
+	NotifyOnWaiting  *bool `json:"notify_on_waiting,omitempty"`
 }
 
 func defaultConfig() Config {
@@ -217,9 +221,6 @@ func defaultConfig() Config {
 			IdleText:             "AI idle",
 			StaleSeconds:         300,
 			DoneTTLSeconds:       30,
-			HeartbeatSeconds:     10,
-			RefreshSeconds:       5,
-			NotifyOnWaiting:      false,
 			RotationDwellSeconds: 3,
 			AckTimeoutSeconds:    30,
 			FrameLifetimeSeconds: 30,
@@ -270,6 +271,7 @@ func loadConfig(path string, logger *slog.Logger) (Config, error) {
 	}
 	cfg.applyDefaults()
 	sanitizeConfigBaseline(&cfg, logger)
+	warnDeprecatedConfig(cfg, logger)
 	if err := validateConfig(cfg); err != nil {
 		return Config{}, err
 	}
@@ -300,12 +302,6 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Display.DoneTTLSeconds <= 0 {
 		c.Display.DoneTTLSeconds = 30
-	}
-	if c.Display.HeartbeatSeconds <= 0 {
-		c.Display.HeartbeatSeconds = 10
-	}
-	if c.Display.RefreshSeconds <= 0 {
-		c.Display.RefreshSeconds = 5
 	}
 	if c.Display.RotationDwellSeconds <= 0 {
 		c.Display.RotationDwellSeconds = 3
@@ -538,9 +534,13 @@ type App struct {
 
 	// activityLast throttles activity-heartbeat persistence to at most one row
 	// per session per activityThrottle window (producers post every 2-10s, far
-	// finer than the work-hours sessionization needs). Guarded by activityMu.
-	activityMu   sync.Mutex
-	activityLast map[string]time.Time
+	// finer than the work-hours sessionization needs). activitySweptAt is the
+	// last time expired entries were dropped. Both guarded by activityMu.
+	activityMu      sync.Mutex
+	activityLast    map[string]time.Time
+	activitySweptAt time.Time
+
+	statsCache statsCache // last GET /v1/pomodoro/stats payload
 
 	appsMu     sync.Mutex      // guards hiddenApps
 	hiddenApps map[string]bool // tool names hidden from the device display
@@ -573,9 +573,10 @@ type App struct {
 	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
 	iconMu    sync.Mutex
 
-	// deviceBaseline is the clock URL from config.json captured at boot, before
-	// any store override or auto-discovery. deviceSource() uses it to tell
-	// "config" from "discovered". browseFn is the mDNS browse, overridable in tests.
+	// deviceBaseline is the clock URL from config.json (captured at boot and
+	// updated when /admin/reload applies a changed file URL), before any store
+	// override or auto-discovery. deviceSource() uses it to tell "config" from
+	// "discovered". Guarded by cfgMu. browseFn is the mDNS browse, overridable in tests.
 	deviceBaseline   string
 	deviceAutoPicked atomic.Bool // set by rediscoverClock (boot or watch goroutine) when discovery chose the clock URL
 	republish        republishGate
@@ -940,6 +941,7 @@ func (a *App) StartCoordinator(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			retuneDwellTicker(ticker, &dwell, a.cfg.Load())
 			a.coord.Send(coordCmd{kind: cmdTick})
 		case <-pomoC:
 			a.pomoTick()
@@ -1298,11 +1300,22 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 	})
 }
 
+// loggingMiddleware writes one access-log line per request. Successful
+// requests log at Debug (STYLE §7): the menu polls several GETs every few
+// seconds and producers heartbeat POST /v1/status every 2-10s, which at Info
+// would bury the transitions the log exists for. Handlers log their own
+// decisions (reload outcome, rejections). Any status >= 400 stays at Info.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		logger.InfoContext(r.Context(), "http request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start))
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		level := slog.LevelInfo
+		if rec.status < http.StatusBadRequest {
+			level = slog.LevelDebug
+		}
+		logger.Log(r.Context(), level, "http request", "method", r.Method, "path", r.URL.Path,
+			"status", rec.status, "duration", time.Since(start))
 	})
 }
 
@@ -1512,9 +1525,6 @@ func main() {
 	if err != nil {
 		logger.Error("load config failed", "err", err)
 		os.Exit(1)
-	}
-	if cfg.Display.PulseStyle != "" {
-		logger.Warn("display.pulse_style is deprecated and ignored — AWTRIX firmware animates attention via blinkText", "value", cfg.Display.PulseStyle)
 	}
 
 	tlsCfg, err := readTLSEnv()

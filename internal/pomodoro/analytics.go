@@ -87,6 +87,20 @@ func (s *Store) RecordActivity(at time.Time, source, tool, sessionKey, state str
 	return nil
 }
 
+// PruneActivity deletes activity heartbeats recorded before cutoff and
+// returns how many rows it removed.
+func (s *Store) PruneActivity(cutoff time.Time) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM activity WHERE recorded_at < ?`, cutoff.Unix())
+	if err != nil {
+		return 0, fmt.Errorf("prune activity: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("prune activity: %w", err)
+	}
+	return n, nil
+}
+
 // ActivityBetween returns activity heartbeats in [lo, hi), oldest first.
 func (s *Store) ActivityBetween(lo, hi time.Time) ([]ActivityRecord, error) {
 	rows, err := s.db.Query(

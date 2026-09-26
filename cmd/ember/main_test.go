@@ -499,9 +499,6 @@ func TestDefaultConfigTimingValues(t *testing.T) {
 	if cfg.Display.DoneTTLSeconds != 30 {
 		t.Errorf("DoneTTLSeconds = %d, want 30", cfg.Display.DoneTTLSeconds)
 	}
-	if cfg.Display.HeartbeatSeconds != 10 {
-		t.Errorf("HeartbeatSeconds = %d, want 10", cfg.Display.HeartbeatSeconds)
-	}
 }
 
 func TestPerStateStalenessReapsActiveSessions(t *testing.T) {

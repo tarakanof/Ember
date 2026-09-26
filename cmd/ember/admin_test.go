@@ -349,7 +349,7 @@ func TestAdminReload_NonReloadable409(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	if err := os.WriteFile(path, []byte(`{"awtrix":{"http_base_url":"http://x"},"display":{"refresh_seconds":999}}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"http":{"addr":":9999"},"awtrix":{"http_base_url":"http://x"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -367,11 +367,11 @@ func TestAdminReload_NonReloadable409(t *testing.T) {
 		t.Errorf("status = %d, want 409", resp.StatusCode)
 	}
 	respBody, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(respBody), "display.refresh_seconds=") {
+	if !strings.Contains(string(respBody), "http.addr=:3627→:9999") {
 		t.Errorf("body should mention old→new values: %s", respBody)
 	}
-	if app.cfg.Load().Display.RefreshSeconds == 999 {
-		t.Errorf("cfg unchanged check failed; got %d", app.cfg.Load().Display.RefreshSeconds)
+	if got := app.cfg.Load().HTTP.Addr; got != ":3627" {
+		t.Errorf("cfg unchanged check failed; got http.addr %q", got)
 	}
 }
 
@@ -735,5 +735,124 @@ func TestAdminReload_G2IdleRestoreReloaded(t *testing.T) {
 	}
 	if app.cfg.Load().Display.IdleRestoreSeconds != 600 {
 		t.Errorf("IdleRestoreSeconds = %d, want 600", app.cfg.Load().Display.IdleRestoreSeconds)
+	}
+}
+
+// postReload rewrites the config file to body and calls /admin/reload,
+// failing the test unless it returns 200.
+func postReload(t *testing.T, app *App, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	req, err := http.NewRequest("POST", srv.URL+"/admin/reload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("reload status = %d, want 200: %s", resp.StatusCode, b)
+	}
+}
+
+// TestAdminReload_KeepsDiscoveredClockURL asserts a reload that leaves the
+// file's clock URL alone does not put that (dead) URL back over the clock
+// that discovery swapped in.
+func TestAdminReload_KeepsDiscoveredClockURL(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"old"}}`)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" }) // what rediscoverClock does
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"new"}}`)
+
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+		t.Errorf("clock URL after reload = %q, want the discovered http://5.6.7.8", got)
+	}
+	if got := app.cfg.Load().Display.IdleText; got != "new" {
+		t.Errorf("idle_text = %q, want the reloaded value", got)
+	}
+}
+
+// TestAdminReload_KeepsDiscoveredOverStaleStoreOverride asserts the reload
+// does not re-apply a menu override that discovery already replaced because
+// it stopped answering.
+func TestAdminReload_KeepsDiscoveredOverStaleStoreOverride(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.applyDeviceBaseURL("http://10.0.0.1"); err != nil { // menu override, since gone dead
+		t.Fatal(err)
+	}
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"x"}}`)
+
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+		t.Errorf("clock URL after reload = %q, want the discovered http://5.6.7.8", got)
+	}
+}
+
+// TestAdminReload_FileClockURLChangeReportsConfigSource asserts that once a
+// reload applies a new file URL, deviceSource calls it "config" again, even
+// if discovery had picked the clock at boot.
+func TestAdminReload_FileClockURLChangeReportsConfigSource(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+	app.deviceAutoPicked.Store(true) // what rediscoverClock does
+	if got := app.deviceSource(); got != "discovered" {
+		t.Fatalf("before reload: source = %q, want discovered", got)
+	}
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"}}`)
+
+	if got := app.deviceSource(); got != "config" {
+		t.Errorf("after file URL change: source = %q, want config", got)
+	}
+}
+
+// TestAdminReload_StoreOverrideBeatsChangedFileURL asserts a menu-chosen
+// clock URL still wins when the reloaded file changes its own URL.
+func TestAdminReload_StoreOverrideBeatsChangedFileURL(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.applyDeviceBaseURL("http://10.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"}}`)
+
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://10.0.0.1" {
+		t.Errorf("clock URL = %q, want the store override http://10.0.0.1", got)
+	}
+	if got := app.deviceSource(); got != "store" {
+		t.Errorf("source = %q, want store", got)
+	}
+}
+
+// TestAdminReload_FileClockURLChangeApplies asserts an operator edit of the
+// file's clock URL still takes effect, including on a second edit.
+func TestAdminReload_FileClockURLChangeApplies(t *testing.T) {
+	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"}}`)
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://9.9.9.9" {
+		t.Fatalf("clock URL after file edit = %q, want http://9.9.9.9", got)
+	}
+
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"},"display":{"idle_text":"y"}}`)
+	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+		t.Errorf("clock URL after unrelated edit = %q, want the discovered http://5.6.7.8", got)
 	}
 }

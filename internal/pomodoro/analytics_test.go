@@ -321,6 +321,35 @@ func TestActivityBetweenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPruneActivityDropsOnlyOlderRows(t *testing.T) {
+	st, err := Open(t.TempDir() + "/a.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cut := utc(2026, 6, 10, 9, 0)
+	for _, at := range []time.Time{cut.Add(-48 * time.Hour), cut.Add(-time.Second), cut, cut.Add(time.Hour)} {
+		if err := st.RecordActivity(at, "Claude", "claude", "Claude/claude/s1", "running"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := st.PruneActivity(cut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("pruned %d rows, want 2", n)
+	}
+	got, err := st.ActivityBetween(cut.Add(-100*time.Hour), cut.Add(100*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[0].At.Equal(cut) {
+		t.Errorf("remaining rows = %+v, want the two at or after the cut", got)
+	}
+}
+
 func TestPhasesBetweenRoundTrip(t *testing.T) {
 	st, err := Open(t.TempDir() + "/a.db")
 	if err != nil {

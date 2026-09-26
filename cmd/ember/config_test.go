@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -96,6 +97,42 @@ func TestParseConfigFile_LegacyPulseStyleStillParses(t *testing.T) {
 	}
 	if _, err := parseConfigFile(path); err != nil {
 		t.Fatalf("parseConfigFile rejected legacy pulse_style: %v", err)
+	}
+}
+
+// TestLoadConfig_DeadDisplayKeysLoadWithWarning asserts configs that still
+// carry the never-read display keys keep loading, and that each one is
+// flagged so the operator can drop it.
+func TestLoadConfig_DeadDisplayKeysLoadWithWarning(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.json")
+	body := `{"awtrix":{"http_base_url":"http://x"},"display":{"heartbeat_seconds":10,"refresh_seconds":5,"notify_on_waiting":false}}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if _, err := loadConfig(path, slog.New(slog.NewTextHandler(&buf, nil))); err != nil {
+		t.Fatalf("loadConfig rejected legacy display keys: %v", err)
+	}
+	for _, key := range []string{"display.heartbeat_seconds", "display.refresh_seconds", "display.notify_on_waiting"} {
+		if !strings.Contains(buf.String(), key) {
+			t.Errorf("no deprecation warning for %s; log:\n%s", key, buf.String())
+		}
+	}
+}
+
+// TestDefaultConfigOmitsDeadDisplayKeys asserts the never-read keys no longer
+// appear in the effective config (e.g. --print-config output).
+func TestDefaultConfigOmitsDeadDisplayKeys(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.applyDefaults()
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"heartbeat_seconds", "refresh_seconds", "notify_on_waiting", "pulse_style"} {
+		if strings.Contains(string(out), key) {
+			t.Errorf("default config still emits %q", key)
+		}
 	}
 }
 
