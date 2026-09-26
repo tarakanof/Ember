@@ -365,7 +365,8 @@ name the keys answered that way in an `X-Ember-Deferred-Keys` header.
 `priorMu` (a leaf lock) serialises those edits with the snapshot read and the
 restore, so a start or stop edge can wait out one menu call (8 s) or one
 restore (5 s). Edits outside focus write unlocked; one that overlaps a
-takeover edge is folded into the new snapshot afterwards (`priorGen`). A lost
+takeover edge is folded into the new snapshot afterwards (`priorGen`), unless
+a later edit already set the key (per-key edit sequence numbers). A lost
 restore backs off `restoreBackoffTicks` (5) publishes so an offline clock
 doesn't stall the coordinator every tick. NG persists settings across reboots,
 so a takeover left behind by a dead server would stick: the snapshot is therefore also persisted to the

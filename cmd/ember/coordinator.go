@@ -135,12 +135,25 @@ type coordinator struct {
 	// for one retryDevice (publishAttempts x publishAttemptTimeout, 5s). A
 	// Pomodoro start/stop edge (or the exit restore, whose own budget is 5s)
 	// can therefore wait that long; mid-block ticks never take it. Edits
-	// made with no snapshot write unlocked (applyMenuSettings).
+	// made with no snapshot write unlocked (applyMenuSettings), then relock
+	// to reconcile, which may do one more device write under it. GET
+	// /v1/device/settings takes it on both sides of its clock read, so behind
+	// a locked edit or restore it can wait about twice menuCallTimeout plus
+	// its own read.
 	priorMu sync.Mutex
 	// priorGen counts snapshot records and clears (setPrior), so an unlocked
 	// menu edit can tell a takeover edge ran during its device write. Guarded
 	// by priorMu.
 	priorGen uint64
+	// editSeq numbers menu edits of the takeover keys on entry, and keySeq
+	// and keyVal are, per key, the newest edit that has landed (on the
+	// device or in the snapshot) and its value. A raced edit only merges the
+	// keys it is still newest for and re-writes the newest values, so an
+	// older edit whose write sat in flight can't replace a newer one. All
+	// guarded by priorMu.
+	editSeq uint64
+	keySeq  map[string]uint64
+	keyVal  map[string]any
 	// restoreBackoff counts ticks left to skip before retrying a restore that
 	// was lost (see restoreBackoffTicks). Coordinator-goroutine-owned.
 	restoreBackoff int

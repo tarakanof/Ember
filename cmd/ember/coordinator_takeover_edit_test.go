@@ -242,3 +242,146 @@ func TestMenuEditDuringTakeoverSurvivesCrash(t *testing.T) {
 	}
 	wantTakeoverSettings(t, s[0], true, false)
 }
+
+// gatedWrite is a menu write func against clk whose first call blocks until
+// release is closed (after closing entered), and whose call number failAt
+// (1-based, 0 for never) fails as a lost write.
+type gatedWrite struct {
+	clk              *modelClock
+	entered, release chan struct{}
+	failAt, calls    int
+	mu               sync.Mutex
+}
+
+func newGatedWrite(clk *modelClock) *gatedWrite {
+	return &gatedWrite{clk: clk, entered: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (g *gatedWrite) write(m map[string]any) error {
+	g.mu.Lock()
+	g.calls++
+	n := g.calls
+	g.mu.Unlock()
+	if n == 1 {
+		close(g.entered)
+		<-g.release
+	}
+	if n == g.failAt {
+		return errUnreachableDevice
+	}
+	return g.clk.Settings(context.Background(), m)
+}
+
+func (g *gatedWrite) callCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls
+}
+
+type editResult struct {
+	held []string
+	err  error
+}
+
+// startEdit runs applyMenuSettings on its own goroutine, as an HTTP handler
+// would, and returns once its first device write is in flight.
+func startEdit(c *coordinator, m map[string]any, g *gatedWrite) chan editResult {
+	res := make(chan editResult, 1)
+	go func() {
+		held, err := c.applyMenuSettings(m, g.write)
+		res <- editResult{held, err}
+	}()
+	<-g.entered
+	return res
+}
+
+func directWrite(clk *modelClock) func(map[string]any) error {
+	return func(m map[string]any) error { return clk.Settings(context.Background(), m) }
+}
+
+// Two clients: E1's write is slow; a focus block starts, and E2, made later,
+// is saved into the snapshot. E1 landing afterwards must not replace E2,
+// whether the block is still running or has ended by then.
+func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
+	for _, endBlockFirst := range []bool{false, true} {
+		t.Run(map[bool]string{false: "during focus", true: "after focus"}[endBlockFirst], func(t *testing.T) {
+			c, clk, snap, pomo := modelFixture(t)
+			g := newGatedWrite(clk)
+			e1 := startEdit(c, map[string]any{"autoTransition": true}, g)
+
+			*pomo = true
+			c.publish(*snap)
+			if _, err := c.applyMenuSettings(map[string]any{"autoTransition": false}, directWrite(clk)); err != nil {
+				t.Fatal(err)
+			}
+			if endBlockFirst {
+				*pomo = false
+				c.publish(*snap) // the restore writes E2's false
+			}
+			close(g.release)
+			if r := <-e1; r.err != nil {
+				t.Fatal(r.err)
+			}
+			if !endBlockFirst {
+				if p, _ := c.takeoverPriorView(); p.AutoTransition {
+					t.Fatalf("snapshot = %+v, want E2's autoTransition:false", p)
+				}
+				if got := clk.get("autoTransition"); got != false {
+					t.Fatalf("clock mid-focus autoTransition = %v, want the takeover's false", got)
+				}
+				*pomo = false
+				c.publish(*snap)
+			}
+			if got := clk.get("autoTransition"); got != false {
+				t.Fatalf("clock autoTransition = %v, want E2's false", got)
+			}
+		})
+	}
+}
+
+// A whole focus block starts and ends while the edit's write is in flight:
+// the restore may have put the older value over the edit, so the edit is
+// written again.
+func TestMenuEditInFlightAcrossWholeTakeoverIsRewritten(t *testing.T) {
+	c, clk, snap, pomo := modelFixture(t)
+	g := newGatedWrite(clk)
+	e := startEdit(c, map[string]any{"autoTransition": true}, g)
+
+	*pomo = true
+	c.publish(*snap) // snapshot records false
+	*pomo = false
+	c.publish(*snap) // the restore writes false
+	close(g.release)
+	r := <-e
+	if r.err != nil || len(r.held) != 0 {
+		t.Fatalf("held=%v err=%v, want none and no error", r.held, r.err)
+	}
+	if got := clk.get("autoTransition"); got != true {
+		t.Fatalf("clock autoTransition = %v, want the edit", got)
+	}
+	if n := g.callCount(); n != 2 {
+		t.Fatalf("menu writes = %d, want the edit and its re-write", n)
+	}
+}
+
+// The re-write over a restore is lost: the save answers the error although
+// its first write landed (here after the restore, so the clock holds the
+// edit); the menu shows a failed save and re-reads the clock's state.
+func TestMenuEditRewriteLostAnswersError(t *testing.T) {
+	c, clk, snap, pomo := modelFixture(t)
+	g := newGatedWrite(clk)
+	g.failAt = 2
+	e := startEdit(c, map[string]any{"autoTransition": true}, g)
+
+	*pomo = true
+	c.publish(*snap)
+	*pomo = false
+	c.publish(*snap)
+	close(g.release)
+	if r := <-e; r.err == nil {
+		t.Fatal("lost re-write answered success")
+	}
+	if got := clk.get("autoTransition"); got != true {
+		t.Fatalf("clock autoTransition = %v, want the first write's true", got)
+	}
+}
