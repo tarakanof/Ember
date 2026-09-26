@@ -139,7 +139,7 @@ func (m *metrics) render(w io.Writer, app *App) {
 	// Retries are the early-warning signal for a degrading link: a push that
 	// succeeds on its second attempt still counts as one ok publish, so without
 	// this counter the loss rate is invisible until BOTH attempts fail.
-	fmt.Fprintln(w, "# HELP ember_publish_retries_total Pushed-app writes retried after a lost attempt.")
+	fmt.Fprintln(w, "# HELP ember_publish_retries_total Device calls (pushed apps, display-hold settings and switches) retried after a lost attempt.")
 	fmt.Fprintln(w, "# TYPE ember_publish_retries_total counter")
 	fmt.Fprintf(w, "ember_publish_retries_total %d\n", m.publishRetries.Load())
 

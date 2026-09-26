@@ -87,7 +87,7 @@ var deviceSettingRules = map[string]settingRule{
 	// appDurationMs is milliseconds on NG (was ATIME, seconds, 1-3600, on
 	// AWTRIX3) — 1s-1h is a sane bound for a rotating app's dwell time.
 	"appDurationMs":        {kind: kInt, min: 1000, max: 3600000},
-	"autoTransition":       {kind: kBool}, // Pomodoro takeover key; coordinator.go writes this directly
+	"autoTransition":       {kind: kBool}, // Pomodoro takeover key; coordinator_hold.go writes this directly
 	"transitionDurationMs": {kind: kInt, min: 0, max: 60000},
 	// transitionEffect is a device-reported name (GET /api/v1/capabilities),
 	// not a static enum — capabilities-fetch plumbing to validate the live set
@@ -96,7 +96,7 @@ var deviceSettingRules = map[string]settingRule{
 	"transitionEffect": {kind: kString, maxLen: 32},
 	"textColor":        {kind: kColor},
 	"uppercase":        {kind: kBool},
-	"blockNavigation":  {kind: kBool}, // Pomodoro takeover key; coordinator.go writes this directly
+	"blockNavigation":  {kind: kBool}, // Pomodoro takeover key; coordinator_hold.go writes this directly
 	// Time & Date — NG replaced the TFORMAT/DFORMAT strftime strings with
 	// discrete typed fields; there are no format strings to validate anymore.
 	"timeMode":            {kind: kInt, min: 0, max: 6},

@@ -88,7 +88,9 @@ The aggregator and the only writer to the device.
     lifetime, not on attempts, so a lost push is retried immediately instead of
     a dwell later. A retried-then-successful push is still one `ok` in
     `ember_publish_total`, so `ember_publish_retries_total` is what shows the
-    link degrading before it starts costing frames.
+    link degrading before it starts costing frames. The display-hold writes
+    (settings read/PATCH, forced switch) share this policy via `retryDevice`
+    and count in the same metric.
   - **Renewal margin.** `renewalDedupWindow` holds an unchanged frame for
     `lifetime − max(lifetime/3, dwell + retry budget + 1)`. The last tick before
     the window opens can land a full dwell early, so the wallclock slack before
@@ -111,7 +113,9 @@ The aggregator and the only writer to the device.
   weather/forecast tiles) so an active agent rotates alongside the other apps
   instead of owning the screen. `autoTransition:false` outranks any per-app
   dwell entirely and is reserved for the Pomodoro takeover — hold precedence is
-  `holdPomodoro > holdAttention > holdNone` (`cmd/ember/coordinator.go`). Every
+  `holdPomodoro > holdAttention > holdNone` (`cmd/ember/coordinator_hold.go`).
+  The hold state is committed only after the device accepts the edge's writes;
+  a lost switch or settings PATCH is retried on the next tick. Every
   held app still expires at its `lifetimeMs` (`lifetimeExpiry` default
   `"remove"`, which **deletes** the pushed app outright) and the display
   **crash-safely** returns to native rotation if the server dies — re-pushing
@@ -208,13 +212,30 @@ app). A pure `Engine` state machine (focus/short/long, pause/resume/skip/stop) d
 `holdAttention`) — an active timer renders `render.PomodoroPayload` (a built-in
 animated icon + native MM:SS + progress) and holds the slot, edge-triggering
 device `autoTransition:false`/`blockNavigation:true` (`PATCH /api/v1/settings`)
-plus a forced `PUT /api/v1/apps/active` on start, and restoring both settings
-on stop. Because a **device reboot** drops pushed apps and both settings while
-the coordinator's `hold` flag stays set, recovery arrives via the shared
+plus a forced `PUT /api/v1/apps/active` on start. Before the takeover the
+coordinator reads `GET /api/v1/settings` and snapshots the user's own
+`autoTransition`/`blockNavigation`; on stop it writes **those** back, not the
+firmware defaults (a lost read delays the takeover a tick; a 4xx, or a reading
+that equals the takeover itself — a clock left mid-takeover by an older
+server — falls back to the defaults). Device-tab edits to either key made
+**during** a focus block are overwritten by the snapshot on release, and
+turning `autoTransition` back on mid-focus breaks the takeover until the next
+edge. A lost restore backs off `restoreBackoffTicks` (5) publishes so an
+offline clock doesn't stall the coordinator every tick. NG persists settings across reboots, so a takeover left behind
+by a dead server would stick: the snapshot is therefore also persisted to the
+store (key `pomo_takeover_prior`) for as long as the takeover is in force, and
+a server that starts with one left over restores it on its first publish. On
+SIGTERM, `main` waits (bounded, `shutdownTimeout` 8 s) for the coordinator's
+exit restore before closing the store; if the clock is unreachable the
+snapshot stays for the next start. Every hold write (read, takeover, restore,
+switch) uses `pushApp`'s retry policy, and `hold` only moves once the edge's
+writes have landed, so a write lost on the lossy link is replayed next tick.
+Because a **device reboot** drops pushed apps while the coordinator's `hold`
+flag stays set, recovery arrives via the shared
 device-watch/boot-ping republish path (see "Device discovery & control" below)
 rather than a Pomodoro-specific re-assert loop: `RepublishAll` resets `hold` to
 force a fresh edge, which re-applies the takeover settings and the forced
-switch. The
+switch (keeping the original snapshot). The
 cycle **auto-advances** by default (`auto_start_next: true`) and **auto-stops**
 after a wall-clock budget (`max_session_minutes`, default 480 = 8h, `0` = off) so
 it never runs overnight; focus is configurable up to 8h. Stats persist in pure-Go
@@ -859,7 +880,9 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   context window) and force the explicit blank instead.
 - **Pure-Go SQLite keeps the distroless static build** (`CGO_ENABLED=0`). Use a
   Docker **named volume** for the writable DB as nonroot; open WAL +
-  `SetMaxOpenConns(1)`; `Close()` on shutdown to checkpoint the WAL.
+  `SetMaxOpenConns(1)`; `Close()` on shutdown to checkpoint the WAL — only
+  after the background workers have stopped (`App.shutdown`), or a last
+  `pomoTick` writes to a closed DB.
 - **`/admin/reload` reverts runtime-persisted settings** unless the feature
   re-applies them after the config `Store` (Pomodoro durations live in SQLite,
   not the file).

@@ -193,6 +193,20 @@ func TestPatchSettings(t *testing.T) {
 	}
 }
 
+func TestGetSettings(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"autoTransition":false,"blockNavigation":true,"brightness":120}`)
+	got, err := c.GetSettings(context.Background())
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/settings" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if got["autoTransition"] != false || got["blockNavigation"] != true {
+		t.Fatalf("settings = %v", got)
+	}
+}
+
 func TestSwitchApp(t *testing.T) {
 	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
 	if err := c.SwitchApp(context.Background(), "ember"); err != nil {

@@ -230,6 +230,15 @@ func (c *Client) PatchSettings(ctx context.Context, payload map[string]any) erro
 	return c.doJSON(ctx, http.MethodPatch, "/api/v1/settings", payload, nil)
 }
 
+// GetSettings reads the full settings resource (GET /api/v1/settings).
+func (c *Client) GetSettings(ctx context.Context) (map[string]any, error) {
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/settings", nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SwitchApp forces the display to the named app (PUT /api/v1/apps/active).
 func (c *Client) SwitchApp(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodPut, "/api/v1/apps/active", map[string]any{"name": name}, nil)

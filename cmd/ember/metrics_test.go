@@ -432,6 +432,7 @@ func (p *fakePublisher) Indicator(ctx context.Context, index int, payload map[st
 func (p *fakePublisher) ClearIndicator(ctx context.Context, index int) error        { return p.indicatorErr }
 func (p *fakePublisher) Settings(ctx context.Context, payload map[string]any) error { return nil }
 func (p *fakePublisher) Switch(ctx context.Context, name string) error              { return nil }
+func (p *fakePublisher) ReadSettings(context.Context) (map[string]any, error)       { return nil, nil }
 func (p *fakePublisher) ListIcons(ctx context.Context) ([]string, error)            { return nil, nil }
 func (p *fakePublisher) PutIcon(ctx context.Context, _ string, _ []byte) error      { return nil }
 

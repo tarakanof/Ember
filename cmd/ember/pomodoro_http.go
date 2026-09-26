@@ -89,6 +89,9 @@ func (a *App) ensureStore(path string) error {
 		return err
 	}
 	a.store = store
+	// Before the coordinator starts: it may owe a takeover restore from a
+	// previous process that died mid-focus.
+	a.coord.setSettingsKV(store)
 	return nil
 }
 
