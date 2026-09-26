@@ -106,12 +106,14 @@ The aggregator and the only writer to the device.
     monopolises the panel. Widen the margin instead.
 - **Display hold.** awtrix-ng has no per-payload priority — the AWTRIX3
   `prio:true`/`force:true`/`duration=lifetime` combination 422s on NG entirely.
-  Reserved for attention: only the **locked** waiting/error frame (and the idle
-  hot-usage frame) triggers a forced `PUT /api/v1/apps/active` on the hold
-  edge (with NG's `fast:true`, skipping the ~1 s transition; the Pomodoro
-  start keeps the animation), and the app's own `durationMs == lifetimeMs`
-  then sustains it for the attention window (switching happens strictly
-  **after** a successful push — `apps/active` 404s on an app the device doesn't know yet). Merely-running
+  Reserved for attention: only the **locked** waiting/error frame triggers a
+  forced `PUT /api/v1/apps/active` on the hold edge, and the app's own
+  `durationMs == lifetimeMs` then sustains it for the attention window
+  (switching happens strictly **after** a successful push — `apps/active`
+  404s on an app the device doesn't know yet). The idle frames (dimmed icon,
+  hot-usage) are `holdNone`: long dwell, no forced switch. The attention
+  switch sends NG's `fast:true` to skip the ~1 s transition; the Pomodoro
+  start's switch keeps the animation. Merely-running
   frames ask for no forced switch and a short `durationMs` (6 s, same as the
   weather/forecast tiles) so an active agent rotates alongside the other apps
   instead of owning the screen. `autoTransition:false` outranks any per-app
