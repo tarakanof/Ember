@@ -275,13 +275,31 @@ public struct AppInfo: Codable, Equatable, Sendable, Identifiable {
     public var enabled: Bool
     public var inLoop: Bool
     public var origin: String?
+    /// Whether the app is on the clock right now; false for a name NG keeps a
+    /// place for while the app is away. nil on firmware that doesn't say.
+    public var present: Bool?
+    /// 0-based place in the arranged order; nil when it has none.
+    public var slot: Int?
 
     public var id: String { name }
 
-    enum CodingKeys: String, CodingKey { case name, enabled, inLoop, origin }
+    enum CodingKeys: String, CodingKey { case name, enabled, inLoop, origin, present, slot }
 
-    public init(name: String, enabled: Bool = true, inLoop: Bool = true, origin: String? = nil) {
+    public init(name: String, enabled: Bool = true, inLoop: Bool = true, origin: String? = nil,
+                present: Bool? = nil, slot: Int? = nil) {
         self.name = name; self.enabled = enabled; self.inLoop = inLoop; self.origin = origin
+        self.present = present; self.slot = slot
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        // A module entry carries no enabled/inLoop.
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+        inLoop = (try? c.decodeIfPresent(Bool.self, forKey: .inLoop)) ?? true
+        origin = (try? c.decodeIfPresent(String.self, forKey: .origin)) ?? nil
+        present = (try? c.decodeIfPresent(Bool.self, forKey: .present)) ?? nil
+        slot = (try? c.decodeIfPresent(Int.self, forKey: .slot)) ?? nil
     }
 }
 
