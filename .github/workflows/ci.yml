@@ -103,4 +103,11 @@ jobs:
         # ad-hoc signing when it finds no usable identity — see that script.
         run: |
           xcodebuild -project macos/Ember.xcodeproj -scheme Ember \
-            -configuration Debug CODE_SIGNING_ALLOWED=NO build
+            -configuration Debug -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: String catalog is complete
+        # Every string the build extracted (and every EmberKit string) must
+        # be in Localizable.xcstrings, with a comment on format strings.
+        # Fix a failure with scripts/strings.sh sync.
+        run: scripts/strings.sh check build/DerivedData
