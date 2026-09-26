@@ -50,7 +50,13 @@ The aggregator and the only writer to the device.
 - **Session model & staleness.** Each session is keyed by `(source, tool,
   session)`. Per-state staleness: `stale_seconds` (default 300) for
   running/waiting/idle, a 30 s `done_ttl_seconds` linger for done/error.
-  Sessions are reaped when stale.
+  Sessions are reaped when stale. The session registry (`internal/sessions`)
+  owns the map, this policy (read from the live config on every call), the
+  `UpdatedAt` stamp and the winner/count view, on an injected clock. Every
+  registry access (upsert, delete, `/state`, the coordinator tick, `/metrics`,
+  `/admin/doctor`) reaps first, so no reader ever sees a stale session and
+  reaping doesn't depend on anything rendering. Each reap logs `session reaped`
+  and bumps `ember_sessions_evicted_total`.
 - **Render priority.** `waiting > error > running > done`; `idle` never wins
   (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
   an aggregate label is shown. One Go ordering, `render.StatePriority`: the
