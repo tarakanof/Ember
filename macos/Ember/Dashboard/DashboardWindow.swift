@@ -66,7 +66,7 @@ struct DashboardWindow: View {
         async let pomodoro: Void = env.settings.pomodoro.load()
         async let meetings: Void = env.settings.meetings.load()
         _ = await (pomodoro, meetings)
-        clockWebURL = try? await env.device.config().webURL
+        clockWebURL = try? await DeviceService(client: env.connection.client).config().webURL
     }
 
     private func refresh() {

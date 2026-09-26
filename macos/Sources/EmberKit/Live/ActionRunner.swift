@@ -50,44 +50,41 @@ public final class ActionRunner {
     public private(set) var running: Set<EmberAction> = []
 
     @ObservationIgnored private let live: LiveModel
+    @ObservationIgnored private let connection: ServerConnection
     @ObservationIgnored private let clearAfter: Duration
     @ObservationIgnored private let now: @MainActor () -> Date
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
-    @ObservationIgnored private var perform: (@Sendable (EmberAction) async throws -> Void)?
     @ObservationIgnored private var clearTask: Task<Void, Never>?
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "actions")
 
-    public convenience init(live: LiveModel) {
-        self.init(live: live, clearAfter: .seconds(10), now: { Date() },
+    /// Actions go to whichever server `connection` holds when they run.
+    public convenience init(live: LiveModel, connection: ServerConnection) {
+        self.init(live: live, connection: connection, clearAfter: .seconds(10), now: { Date() },
                   sleep: { try await Task.sleep(for: $0) })
     }
 
     /// Tests inject the clocks.
-    init(live: LiveModel, clearAfter: Duration,
+    init(live: LiveModel, connection: ServerConnection, clearAfter: Duration,
          now: @escaping @MainActor () -> Date,
          sleep: @escaping @Sendable (Duration) async throws -> Void) {
         self.live = live
+        self.connection = connection
         self.clearAfter = clearAfter
         self.now = now
         self.sleep = sleep
     }
 
-    /// Points actions at a new server (alongside `LiveModel.configure`).
-    public func configure(client: APIClient) {
-        let pomodoro = PomodoroService(client: client)
-        let apps = AppsService(client: client)
+    private static func perform(_ action: EmberAction, on client: APIClient) async throws {
         let device = DeviceService(client: client)
-        perform = { action in
-            switch action {
-            case .pomodoro(let a): try await pomodoro.action(a)
-            case .setApp(let name, let enabled): try await apps.set(name, enabled: enabled)
-            case .clock(.next): try await device.nextApp()
-            case .clock(.previous): try await device.previousApp()
-            case .clock(.dismiss): try await device.dismiss()
-            case .clock(.power(let on)): try await device.setDisplayPower(on)
-            case .clock(.reboot): try await device.reboot()
-            }
+        switch action {
+        case .pomodoro(let a): try await client.send("POST", "/v1/pomodoro/\(a.rawValue)")
+        case .setApp(let name, let enabled): try await client.put("/v1/apps", body: SetAppRequest(app: name, enabled: enabled))
+        case .clock(.next): try await device.nextApp()
+        case .clock(.previous): try await device.previousApp()
+        case .clock(.dismiss): try await device.dismiss()
+        case .clock(.power(let on)): try await device.setDisplayPower(on)
+        case .clock(.reboot): try await device.reboot()
         }
     }
 
@@ -99,8 +96,7 @@ public final class ActionRunner {
         defer { running.remove(action) }
         var ok = false
         do {
-            guard let perform else { throw FeedError.offline }
-            try await perform(action)
+            try await Self.perform(action, on: connection.client)
             ok = true
             if lastError?.action == action { lastError = nil }
         } catch {
@@ -125,3 +121,5 @@ public final class ActionRunner {
         }
     }
 }
+
+private struct SetAppRequest: Encodable { let app: String; let enabled: Bool }

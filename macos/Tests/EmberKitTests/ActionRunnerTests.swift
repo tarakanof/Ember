@@ -7,18 +7,25 @@ private final class Server: @unchecked Sendable {
     private let lock = NSLock()
     private var _status = 200
     private var _requests: [String] = []
+    private var _bodies: [Data] = []
     var status: Int {
         get { lock.withLock { _status } }
         set { lock.withLock { _status = newValue } }
     }
     var requests: [String] { lock.withLock { _requests } }
-    func log(_ r: String) { lock.withLock { _requests.append(r) } }
+    var bodies: [Data] { lock.withLock { _bodies } }
+    func log(_ r: URLRequest) {
+        lock.withLock {
+            _requests.append("\(r.httpMethod ?? "") \(r.url!.path)")
+            if let b = r.httpBodyStreamData() ?? r.httpBody { _bodies.append(b) }
+        }
+    }
 }
 
 @MainActor
 private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (ActionRunner, LiveModel) {
     let client = stubbedClient { req in
-        server.log("\(req.httpMethod ?? "") \(req.url!.path)")
+        server.log(req)
         if req.httpMethod != "GET" { return (okResponse(req.url!, status: server.status), Data()) }
         switch req.url!.path {
         case "/v1/pomodoro/state":
@@ -33,9 +40,8 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
         RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
     })
     live.configure(client: client)
-    let runner = ActionRunner(live: live, clearAfter: .seconds(10), now: { Date(timeIntervalSince1970: 50) },
-                              sleep: clock.sleepFn)
-    runner.configure(client: client)
+    let runner = ActionRunner(live: live, connection: ServerConnection(read: { client }), clearAfter: .seconds(10),
+                              now: { Date(timeIntervalSince1970: 50) }, sleep: clock.sleepFn)
     return (runner, live)
 }
 
@@ -96,12 +102,48 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     ])
 }
 
+@MainActor @Test func everyPomodoroActionPostsToItsRoute() async {
+    let server = Server()
+    let (runner, _) = setup(server)
+    for a in PomodoroAction.allCases { await runner.run(.pomodoro(a)) }
+    #expect(server.requests.filter { $0.hasPrefix("POST") } == [
+        "POST /v1/pomodoro/start", "POST /v1/pomodoro/pause", "POST /v1/pomodoro/resume",
+        "POST /v1/pomodoro/stop", "POST /v1/pomodoro/skip",
+    ])
+}
+
+private struct SetAppBody: Decodable, Equatable { let app: String; let enabled: Bool }
+
+@MainActor @Test func setAppPutsTheAppAndItsState() async throws {
+    let server = Server()
+    let (runner, _) = setup(server)
+    await runner.run(.setApp("codex", enabled: false))
+    #expect(server.requests.contains("PUT /v1/apps"))
+    let body = try JSONDecoder().decode(SetAppBody.self, from: try #require(server.bodies.first))
+    #expect(body == SetAppBody(app: "codex", enabled: false))
+}
+
+@MainActor @Test func actionsFollowTheConnection() async {
+    let a = Server(), b = Server()
+    let clientA = stubbedClient { req in a.log(req); return (okResponse(req.url!), Data()) }
+    let clientB = stubbedClient { req in b.log(req); return (okResponse(req.url!), Data()) }
+    var current = clientA
+    let connection = ServerConnection(read: { current })
+    let runner = ActionRunner(live: LiveModel(), connection: connection)
+    await runner.run(.clock(.next))
+    current = clientB
+    connection.reload()
+    await runner.run(.clock(.next))
+    #expect(a.requests == ["POST /v1/device/app/next"])
+    #expect(b.requests == ["POST /v1/device/app/next"])
+}
+
 @MainActor @Test func unconfiguredRunnerFailsOffline() async {
     let clock = ManualClock()
     let live = LiveModel(now: { Date() }, makeCoordinator: {
         RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
     })
-    let runner = ActionRunner(live: live)
+    let runner = ActionRunner(live: live, connection: ServerConnection(read: { APIClient(baseURL: nil, token: nil) }))
     #expect(await runner.run(.pomodoro(.stop)) == false)
     #expect(runner.lastError?.error == .offline)
 }

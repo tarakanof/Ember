@@ -358,3 +358,29 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
     let env = await store.read()
     for i in 0..<20 { #expect(env.get("KEY_\(i)") == "v\(i)") }
 }
+
+@MainActor @Test func settingsModelsLoadAndSaveTheirRoutes() async throws {
+    let pomo = ##"{"enabled":true,"focus_minutes":50,"short_break_minutes":5,"long_break_minutes":15,"rounds_before_long_break":4,"auto_start_next":false,"sound":true,"sound_melody":"","focus_color":"#FF0000","break_color":"#00FF00","max_session_minutes":480}"##
+    let seen = LockedBox()
+    let bodies = LockedBox()
+    let client = stubbedClient { req in
+        seen.add("\(req.httpMethod ?? "") \(req.url!.path)")
+        if req.httpMethod == "PUT" {
+            bodies.add(String(decoding: req.httpBodyStreamData() ?? req.httpBody ?? Data(), as: UTF8.self))
+            return (okResponse(req.url!), Data())
+        }
+        return req.url!.path == "/v1/pomodoro/config"
+            ? (okResponse(req.url!), Data(pomo.utf8)) : (okResponse(req.url!, status: 404), Data())
+    }
+    let s = SettingsModels(client: client, envStore: EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env")))
+    await s.loadAll()
+    #expect(Set(seen.paths) == [
+        "GET /v1/pomodoro/config", "GET /v1/weather/config", "GET /v1/meetings/config",
+        "GET /v1/usage/config", "GET /v1/quiet/config", "GET /v1/display/config",
+    ])
+    s.pomodoro.draft.focusMinutes = 30
+    await s.pomodoro.saveNow()
+    #expect(seen.paths.last == "PUT /v1/pomodoro/config")
+    let sent = try JSONDecoder().decode(PomoConfig.self, from: Data(try #require(bodies.paths.first).utf8))
+    #expect(sent.focusMinutes == 30)
+}

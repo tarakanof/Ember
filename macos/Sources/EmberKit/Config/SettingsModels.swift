@@ -119,26 +119,23 @@ public final class SettingsModels {
         ServerConfigModel<MeetingsConfig>, ServerConfigModel<UsageConfig>,
         ServerConfigModel<QuietConfig>, ServerConfigModel<DisplayConfig>
     ) {
-        let pomo = PomodoroService(client: client)
-        let weather = WeatherService(client: client)
-        let meetings = MeetingsService(client: client)
-        let usage = UsageService(client: client)
-        let quiet = QuietService(client: client)
-        let display = DisplayService(client: client)
-        return (
-            ServerConfigModel(initial: defaultPomoConfig,
-                              load: { try await pomo.getConfig() }, save: { try await pomo.putConfig($0) }),
-            ServerConfigModel(initial: WeatherConfig(),
-                              load: { try await weather.getConfig() }, save: { try await weather.putConfig($0) }),
-            ServerConfigModel(initial: MeetingsConfig(),
-                              load: { try await meetings.getConfig() }, save: { try await meetings.putConfig($0) }),
-            ServerConfigModel(initial: UsageConfig(),
-                              load: { try await usage.getConfig() }, save: { try await usage.putConfig($0) }),
-            ServerConfigModel(initial: QuietConfig(),
-                              load: { try await quiet.getConfig() }, save: { try await quiet.putConfig($0) }),
-            ServerConfigModel(initial: DisplayConfig(),
-                              load: { try await display.getConfig() }, save: { try await display.putConfig($0) })
+        (
+            remote(client, "/v1/pomodoro/config", initial: defaultPomoConfig),
+            remote(client, "/v1/weather/config", initial: WeatherConfig()),
+            remote(client, "/v1/meetings/config", initial: MeetingsConfig()),
+            remote(client, "/v1/usage/config", initial: UsageConfig()),
+            remote(client, "/v1/quiet/config", initial: QuietConfig()),
+            remote(client, "/v1/display/config", initial: DisplayConfig())
         )
+    }
+
+    /// A config the server serves as `GET` and replaces as `PUT` on one path.
+    private static func remote<T: Codable & Equatable & Sendable>(
+        _ client: APIClient, _ path: String, initial: T
+    ) -> ServerConfigModel<T> {
+        ServerConfigModel(initial: initial,
+                          load: { try await client.get(path) },
+                          save: { try await client.put(path, body: $0) })
     }
 }
 

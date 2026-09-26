@@ -4,11 +4,11 @@ import OSLog
 import SwiftUI
 import EmberKit
 
-/// App-wide coordinator: owns the producer.env path, the live APIClient and
-/// everything built on it: `live` (every polled feed), `actions` (user
-/// actions), `settings` (config models) and the per-endpoint services the
-/// settings panes call. `reloadConnection()` re-reads producer.env and points
-/// all of it at the new server, so Connection saves apply without relaunch.
+/// App-wide coordinator: owns the server connection and everything built on
+/// it: `live` (every polled feed), `actions` (user actions), `settings`
+/// (config models) and the clock's settings. `reloadConnection()` re-reads
+/// producer.env and, when the server or token changed, points all of it at
+/// the new server, so Connection saves apply without relaunch.
 @MainActor
 @Observable
 public final class AppEnvironment {
@@ -19,21 +19,14 @@ public final class AppEnvironment {
     public let actions: ActionRunner
     /// One auto-saving config model per settings area.
     public let settings: SettingsModels
+    /// producer.env's server and token as one client.
+    public let connection: ServerConnection
     /// The configured server, nil when producer.env has none.
-    public private(set) var serverURL: URL?
-    public private(set) var pomodoro: PomodoroService
-    public private(set) var stats: StatsService
-    public private(set) var health: HealthService
-    public private(set) var activity: ActivityService
-    public private(set) var preview: PreviewService
-    public private(set) var weather: WeatherService
-    public private(set) var usage: UsageService
-    public private(set) var quiet: QuietService
-    public private(set) var displayConfig: DisplayService
-    public private(set) var device: DeviceService
+    public var serverURL: URL? { connection.serverURL }
+    /// The settings panes' preview renders, on the current server.
+    public var preview: PreviewService { PreviewService(client: connection.client) }
     /// The clock's settings for Settings › Clock and Sounds (⌘R reloads it).
     public let deviceSettings: DeviceSettingsModel
-    public private(set) var meetings: MeetingsService
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
@@ -113,23 +106,12 @@ public final class AppEnvironment {
     public init(producerEnvPath: URL = AppEnvironment.defaultEnvPath) {
         self.producerEnvPath = producerEnvPath
         prefs = AppEnvironment.loadPrefs()
-        let client = AppEnvironment.makeClient(path: producerEnvPath)
-        actions = ActionRunner(live: live)
+        connection = ServerConnection(envPath: producerEnvPath)
+        let client = connection.client
+        actions = ActionRunner(live: live, connection: connection)
         envStore = EnvFileStore(path: producerEnvPath)
         settings = SettingsModels(client: client, envStore: envStore)
-        serverURL = client.baseURL
-        pomodoro = PomodoroService(client: client)
-        stats = StatsService(client: client)
-        health = HealthService(client: client)
-        activity = ActivityService(client: client)
-        preview = PreviewService(client: client)
-        weather = WeatherService(client: client)
-        usage = UsageService(client: client)
-        quiet = QuietService(client: client)
-        displayConfig = DisplayService(client: client)
-        device = DeviceService(client: client)
         deviceSettings = DeviceSettingsModel(service: DeviceService(client: client))
-        meetings = MeetingsService(client: client)
         reminderWatcher = ReminderWatcher(client: client)
         producers = ProducerInstallService(
             sm: RealSMAppService(),
@@ -139,7 +121,6 @@ public final class AppEnvironment {
             fileExists: { FileManager.default.fileExists(atPath: $0) }
         )
         live.configure(client: client)
-        actions.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _ in self?.reloadConnection() }
         // Polls tiers A and B from launch so the menu-bar label is live
         // without opening the menu first.
@@ -186,26 +167,15 @@ public final class AppEnvironment {
         }
     }
 
-    /// Re-read producer.env, rebuild the client, reconfigure everything on it.
+    /// Re-reads producer.env; on a new server or token, re-points everything
+    /// that keeps per-server state.
     public func reloadConnection() {
-        let client = AppEnvironment.makeClient(path: producerEnvPath)
-        serverURL = client.baseURL
-        pomodoro = PomodoroService(client: client)
-        stats = StatsService(client: client)
-        health = HealthService(client: client)
-        activity = ActivityService(client: client)
-        preview = PreviewService(client: client)
-        weather = WeatherService(client: client)
-        usage = UsageService(client: client)
-        quiet = QuietService(client: client)
-        displayConfig = DisplayService(client: client)
-        device = DeviceService(client: client)
-        deviceSettings.configure(service: device)
-        meetings = MeetingsService(client: client)
+        guard connection.reload() else { return }
+        let client = connection.client
         reminderWatcher.reconfigure(client: client)
         live.configure(client: client)
-        actions.configure(client: client)
         settings.configure(client: client)
+        deviceSettings.configure(service: DeviceService(client: client))
     }
 
     /// Pauses polling while the Mac sleeps; wake refetches everything at once.
@@ -230,25 +200,6 @@ public final class AppEnvironment {
 
     /// Whether the Settings window is on screen (⌘R reloads settings only then).
     @ObservationIgnored var isSettingsOpen = false
-
-    /// Reads producer.env from disk (missing file -> empty env -> Offline client).
-    public func currentEnv() -> EnvFile {
-        let text = (try? String(contentsOf: producerEnvPath, encoding: .utf8)) ?? ""
-        return EnvFile(parsing: text)
-    }
-
-    /// Best-effort fetch of the connected server's build (`GET /version`, no auth).
-    /// Returns nil when the server is unreachable/unconfigured.
-    public func serverVersion() async -> String? {
-        let client = AppEnvironment.makeClient(path: producerEnvPath)
-        let info: VersionInfo? = try? await client.get("/version")
-        return info?.short
-    }
-
-    static func makeClient(path: URL) -> APIClient {
-        let text = (try? String(contentsOf: path, encoding: .utf8)) ?? ""
-        return APIClient(producerEnv: EnvFile(parsing: text))
-    }
 
     public static var defaultEnvPath: URL {
         FileManager.default.homeDirectoryForCurrentUser

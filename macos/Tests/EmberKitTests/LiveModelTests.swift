@@ -333,3 +333,24 @@ private final class Flag: @unchecked Sendable {
     }
     #expect(configReads.paths.count == 2)
 }
+
+@MainActor @Test func everyFeedAsksForItsRoute() async {
+    let seen = LockedBox()
+    let client = stubbedClient { req in
+        let q = req.url!.query.map { "?\($0)" } ?? ""
+        seen.add(req.url!.path + q)
+        return (okResponse(req.url!, status: 404), Data())
+    }
+    let m = makeModel()
+    m.configure(client: client)
+    let tierC = Feed.allCases.filter { $0.tier == .c }
+    let hold = Task { await m.track(tierC) }
+    for _ in 0..<200 where !m.isTracked(.heatmap) { await Task.yield() }
+    await m.refreshNow(Feed.allCases, ifOlderThan: .zero)
+    hold.cancel()
+    #expect(Set(seen.paths) == [
+        "/state", "/v1/pomodoro/state", "/v1/pomodoro/stats", "/v1/usage", "/v1/meetings/state",
+        "/v1/apps", "/v1/device/config", "/v1/device/screen", "/v1/clock/health", "/v1/weather/state",
+        "/v1/activity/summary?days=7", "/v1/pomodoro/workhours?days=14", "/v1/pomodoro/heatmap?days=84",
+    ])
+}
