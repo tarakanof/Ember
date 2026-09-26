@@ -944,7 +944,9 @@ rather than doubling some hours.
   previews draw only uppercase, so every payload carrying free text (agent
   cards pin `scroll` only; reminders, meetings, `/v1/notify` also pin
   `textCase:"upper"`, via `pinText`) sets both explicitly, and the device
-  matches the preview whatever the user set in the web UI.
+  matches the preview whatever the user set in the web UI. `/v1/notify` has no
+  preview, so its caller may override the case with `text_case`
+  (`inherit`/`upper`/`asTyped`, validated; anything else is a 400).
 - **NG's font is 3px wide + 1px spacing, variable for wide letters.** "STUD"
   lands exactly in cols 9–23; "M" is 5 wide. This is what the source card buys
   by handing its text to the firmware: the in-house `font3x5` cannot form an

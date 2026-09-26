@@ -1153,6 +1153,9 @@ type NotifyRequest struct {
 	Color    string `json:"color"`
 	Duration int    `json:"duration"`
 	Hold     bool   `json:"hold"`
+	// TextCase is NG's textCase ("inherit", "upper", "asTyped"); empty means
+	// "upper", Ember's default for every text payload.
+	TextCase string `json:"text_case"`
 }
 
 type DeleteRequest struct {
@@ -1239,13 +1242,23 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("text is required"))
 		return
 	}
+	if req.TextCase != "" && !render.ValidTextCase(req.TextCase) {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr,
+			"path", r.URL.Path,
+			"reason", "validation",
+			"field", "text_case",
+		)
+		writeError(w, http.StatusBadRequest, errors.New("text_case must be inherit, upper or asTyped"))
+		return
+	}
 	if req.Color == "" {
 		req.Color = "#FFFFFF"
 	}
 	if req.Duration <= 0 {
 		req.Duration = 5
 	}
-	payload := render.NotifyPayload(req.Text, req.Color, req.Duration, req.Hold)
+	payload := render.NotifyPayload(req.Text, req.Color, req.TextCase, req.Duration, req.Hold)
 	payload["name"] = notifyNameNotify
 	if err := a.publisher.Notify(r.Context(), payload); err != nil {
 		writeError(w, http.StatusBadGateway, err)

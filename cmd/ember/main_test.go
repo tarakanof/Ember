@@ -1145,6 +1145,42 @@ func TestHandleNotify_EmitsNGPayload(t *testing.T) {
 	}
 }
 
+// TestHandleNotify_TextCasePassesThrough: a caller that asks for a textCase
+// gets it; only an unset one defaults to upper; an unknown one is a 400 and
+// nothing reaches the clock (NG would 422 it).
+func TestHandleNotify_TextCasePassesThrough(t *testing.T) {
+	cases := []struct {
+		body     string
+		wantCode int
+		wantCase any
+	}{
+		{`{"text":"Hello"}`, http.StatusOK, "upper"},
+		{`{"text":"Hello","text_case":"asTyped"}`, http.StatusOK, "asTyped"},
+		{`{"text":"Hello","text_case":"inherit"}`, http.StatusOK, "inherit"},
+		{`{"text":"Hello","text_case":"lower"}`, http.StatusBadRequest, nil},
+	}
+	for _, c := range cases {
+		pub := &recordingPublisher{}
+		app := NewApp(defaultConfig(), pub, testLogger())
+		w := httptest.NewRecorder()
+		app.handleNotify(w, httptest.NewRequest(http.MethodPost, "/v1/notify", strings.NewReader(c.body)))
+		if w.Code != c.wantCode {
+			t.Errorf("%s: status = %d, want %d", c.body, w.Code, c.wantCode)
+			continue
+		}
+		notes := pub.NotifySnapshot()
+		if c.wantCase == nil {
+			if len(notes) != 0 {
+				t.Errorf("%s: pushed %v despite the 400", c.body, notes)
+			}
+			continue
+		}
+		if len(notes) != 1 || notes[0]["textCase"] != c.wantCase {
+			t.Errorf("%s: textCase = %v, want %v", c.body, notes, c.wantCase)
+		}
+	}
+}
+
 // The default colour must be the same canonical "#RRGGBB" form every render
 // builder emits.
 func TestHandleNotify_DefaultColorIsCanonicalHex(t *testing.T) {
