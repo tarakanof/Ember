@@ -221,7 +221,10 @@ final class RefreshCoordinator {
         // re-join the finished task without suspending and spin forever.
         let task = Task { () -> FeedTick in
             let result = await self.fetch(feed)
-            if self.inFlight[feed]?.id == id { self.inFlight[feed] = nil }
+            // A fetch dropped by forgetInFlight()/restart() (a server switch)
+            // must not stamp the new server's timing or backoff.
+            guard self.inFlight[feed]?.id == id else { return result }
+            self.inFlight[feed] = nil
             self.lastTick[feed] = self.now()
             self.floors[feed] = self.pacing[feed, default: FeedPacing()].record(result, tier: feed.tier)
             return result

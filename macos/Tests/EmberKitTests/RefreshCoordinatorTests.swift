@@ -292,3 +292,23 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     _ = await third.value
     #expect(calls == 2)
 }
+
+/// A fetch dropped by a server switch must not record its failure against the
+/// new server: no backoff, no timestamp that would delay the first new fetch.
+@MainActor @Test func aForgottenFetchDoesNotRecordAgainstTheNewServer() async {
+    let clock = ManualClock()
+    var gate: CheckedContinuation<Void, Never>?
+    let c = RefreshCoordinator(
+        fetch: { _ in
+            await withCheckedContinuation { gate = $0 }
+            return .failed(.offline)
+        },
+        sleep: clock.sleepFn, now: clock.nowFn)
+    let old = Task { await c.tick(.stats) }
+    while gate == nil { await Task.yield() }
+    c.forgetInFlight()
+    gate?.resume()
+    _ = await old.value
+    #expect(c.lastTickAt(.stats) == nil)
+    #expect(c.consecutiveFailures(.stats) == 0)
+}
