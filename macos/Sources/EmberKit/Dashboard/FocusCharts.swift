@@ -79,8 +79,8 @@ public struct WeeklyTrend: Equatable, Sendable {
     public static let minimumWeeks = 4
 
     public let points: [Point]
-    /// Mean of the non-empty weeks, drawn as a reference line; nil with fewer
-    /// than two of them.
+    /// Mean of the non-empty finished weeks (the current one is left out),
+    /// drawn as a reference line; nil with fewer than two of them.
     public let averageMinutes: Int?
 
     public var isEmpty: Bool { points.allSatisfy { $0.focusMin == 0 } }
@@ -88,7 +88,8 @@ public struct WeeklyTrend: Equatable, Sendable {
     /// A server before 0.28 sends no `weekly` at all, which decodes as empty;
     /// a current one always has this week's focus in it. So focus in the
     /// 7-day history with no weeks means the server is too old, not that
-    /// there's no data.
+    /// there's no data. (A 0.27 server with no focus in the last 7 days
+    /// can't be told apart and reads as "No data yet".)
     public static func serverLacksWeekly(_ stats: PomoStats) -> Bool {
         stats.weekly.isEmpty && stats.history.contains { $0.focusMin > 0 }
     }
@@ -114,7 +115,8 @@ public struct WeeklyTrend: Equatable, Sendable {
         let firstData = all.firstIndex { $0.focusMin > 0 } ?? all.count
         let keep = max(Self.minimumWeeks, all.count - firstData)
         points = Array(all.suffix(keep))
-        let active = points.filter { $0.focusMin > 0 }
+        // The current week is still filling up; it would drag the average down.
+        let active = points.dropLast().filter { $0.focusMin > 0 }
         averageMinutes = active.count >= 2
             ? Int((Double(active.reduce(0) { $0 + $1.focusMin }) / Double(active.count)).rounded())
             : nil

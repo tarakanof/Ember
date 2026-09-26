@@ -25,8 +25,7 @@ public struct WorkHoursChart: Equatable, Sendable {
 
     /// Oldest first, so today is the bottom row.
     public let rows: [Row]
-    /// Hour-of-day axis: 6...24, widened to whole hours around any span
-    /// outside it (never beyond 0...30).
+    /// Hour-of-day axis fitted to the worked range (see `domain`).
     public let hourDomain: ClosedRange<Double>
     /// Now on today's row, when it's inside the axis.
     public let nowHour: Double?
@@ -54,17 +53,35 @@ public struct WorkHoursChart: Equatable, Sendable {
             all = Array(all.suffix(Self.minimumRows))
         }
         rows = all
-        let starts = all.compactMap(\.start), ends = all.compactMap(\.end)
-        let lo = min(6, (starts.min() ?? 6).rounded(.down))
-        let hi = max(24, (ends.max() ?? 24).rounded(.up))
-        hourDomain = max(0, lo)...min(30, hi)
+        var nowOnToday: Double?
         if let today = all.last, today.isToday {
-            let h = Self.wallHours(now, since: today.date, calendar: calendar)
-            nowHour = hourDomain.contains(h) ? h : nil
-        } else {
-            nowHour = nil
+            nowOnToday = Self.wallHours(now, since: today.date, calendar: calendar)
         }
+        let starts = all.compactMap(\.start), ends = all.compactMap(\.end)
+        let domain = Self.domain(low: starts.min(), high: ends.max(), now: nowOnToday)
+        hourDomain = domain
+        nowHour = nowOnToday.flatMap { domain.contains($0) ? $0 : nil }
     }
+
+    /// The hour axis: the worked range padded by an hour each side, stretched
+    /// to show now on today's row, at least `minimumSpan` hours and within
+    /// 0...30. Without work it's 08...18.
+    public static func domain(low: Double?, high: Double?, now: Double?) -> ClosedRange<Double> {
+        guard var lo = low, var hi = high else { return 8...18 }
+        if let now, now >= lo - 1, now <= 30 { hi = max(hi, now) }
+        lo = max(0, (lo - 1).rounded(.down))
+        hi = min(30, (hi + 1).rounded(.up))
+        if hi - lo < minimumSpan {
+            let grow = minimumSpan - (hi - lo)
+            hi = min(30, hi + (grow / 2).rounded(.up))
+            lo = max(0, hi - minimumSpan)
+            hi = max(hi, lo + minimumSpan)
+        }
+        return lo...hi
+    }
+
+    /// The narrowest the hour axis gets.
+    public static let minimumSpan: Double = 8
 
     /// Wall-clock hours of `date` counted from `midnight`'s calendar day:
     /// 09:00 is 9 even on a 23- or 25-hour DST day, and the next day's 01:00

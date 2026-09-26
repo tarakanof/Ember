@@ -78,7 +78,7 @@ private let week: [PomoDayStat] = [   // newest first, as the server sends it
     #expect(t.points.count == 10)
     #expect(t.points.map(\.focusMin).reduce(0, +) == 450)
     #expect(t.points.last?.weekStart == iso("2026-09-21T00:00:00+02:00"))
-    #expect(t.averageMinutes == 150)
+    #expect(t.averageMinutes == 200)   // W39 is this week and still filling up
 }
 
 @Test func weeklyTrendKeepsFourWeeksForANewUser() {
@@ -158,6 +158,15 @@ private func grid(_ fill: (Int, Int) -> Int) -> Heatmap {
     #expect(HeatmapGrid(heatmap: grid { _, _ in 0 }, calendar: calendar()).peak == nil)
 }
 
+@Test func heatmapPeakTiesGoToTheEarliestInTheLocaleWeek() {
+    // Sunday 09:00, Monday 10:00 and Monday 14:00 tie.
+    let map = grid { wd, h in (wd == 0 && h == 9) || (wd == 1 && (h == 14 || h == 10)) ? 50 : 0 }
+    let monday = HeatmapGrid(heatmap: map, calendar: calendar(firstWeekday: 2)).peak
+    #expect(monday?.weekday == 1 && monday?.hour == 10)
+    let sunday = HeatmapGrid(heatmap: map, calendar: calendar(firstWeekday: 1)).peak
+    #expect(sunday?.weekday == 0 && sunday?.hour == 9)
+}
+
 @Test func calendarStripEndsTodayInWeekColumns() {
     let buckets = [FocusBucket(key: "2026-09-26", focusMin: 75, sessions: 3),
                    FocusBucket(key: "2026-07-06", focusMin: 25, sessions: 1),
@@ -218,7 +227,8 @@ private func workHours(_ days: [String]) -> WorkHours {
     #expect(chart.rows[2].isToday)
     #expect(chart.rows[1].end == 25.25)
     #expect(!chart.rows[0].hasWork)
-    #expect(chart.hourDomain == 6...26)
+    // 08:00 to 01:15 the next day, an hour either side.
+    #expect(chart.hourDomain == 7...27)
     #expect(chart.nowHour == 11)
 }
 
@@ -229,7 +239,7 @@ private func workHours(_ days: [String]) -> WorkHours {
     #expect(chart.rows.last?.start == 9)
     #expect(chart.rows.last?.end == 17.5)
     #expect(chart.nowHour == 20)
-    #expect(chart.hourDomain == 6...24)
+    #expect(chart.hourDomain == 8...21)
 }
 
 @Test func workHoursTrimOldEmptyDaysButKeepAWeek() {
@@ -238,12 +248,22 @@ private func workHours(_ days: [String]) -> WorkHours {
     let chart = WorkHoursChart(days: workHours(days).days, now: iso("2026-09-26T08:00:00+02:00"), calendar: calendar())
     #expect(chart.rows.count == WorkHoursChart.minimumRows)
     #expect(chart.rows.last?.key == "2026-09-26")
-    #expect(chart.hourDomain == 5...24)
+    #expect(chart.hourDomain == 3...11)   // 05:10 to 08:00 (now), padded, grown to 8 h
     #expect(!chart.isEmpty)
     let empty = WorkHoursChart(days: workHours(Array(days.dropFirst())).days, now: .now, calendar: calendar())
     #expect(empty.isEmpty)
     #expect(empty.rows.count == 7)
     #expect(empty.nowHour == nil)
+}
+
+@Test func workHoursDomainFitsTheData() {
+    #expect(WorkHoursChart.domain(low: 9, high: 17.5, now: nil) == 8...19)
+    #expect(WorkHoursChart.domain(low: 9.5, high: 11, now: nil) == 6...14)
+    #expect(WorkHoursChart.domain(low: 22, high: 29.9, now: nil) == 21...30)
+    #expect(WorkHoursChart.domain(low: 0.2, high: 3, now: nil) == 0...8)
+    #expect(WorkHoursChart.domain(low: nil, high: nil, now: 10) == 8...18)
+    // Now stretches the axis so today's tick shows.
+    #expect(WorkHoursChart.domain(low: 9, high: 12, now: 20.5) == 8...22)
 }
 
 @Test func workHoursDropHalfOpenSpans() {

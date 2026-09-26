@@ -22,10 +22,12 @@ public struct HeatmapGrid: Equatable, Sendable {
     public var isEmpty: Bool { maxMinutes == 0 }
 
     /// The (weekday, hour) with the most focus; nil when empty. Ties go to
-    /// the earliest in the week order.
+    /// the earliest in the locale's week order, then the earliest hour.
     public var peak: Cell? {
-        cells.max { a, b in a.minutes < b.minutes || (a.minutes == b.minutes && a.id > b.id) }
-            .flatMap { $0.minutes > 0 ? $0 : nil }
+        // `cells` is in display order, so the first maximum is the earliest.
+        var best: Cell?
+        for c in cells where c.minutes > (best?.minutes ?? 0) { best = c }
+        return best
     }
 
     public init(heatmap: Heatmap, calendar: Calendar) {
