@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -211,8 +212,26 @@ func TestViewWinnerAndCount(t *testing.T) {
 	}
 }
 
+// Deleting a session that has already gone stale is a delete, not a reap.
+func TestDeleteOfStaleSessionIsNotAReap(t *testing.T) {
+	h := newHarness()
+	h.Upsert(sess("a", "running"))
+	h.clk.Advance(26 * time.Second)
+	if v := h.Delete(sess("a", "").Key()); len(v.Sessions) != 0 {
+		t.Fatalf("after Delete = %v, want none", keys(v))
+	}
+	if len(h.reaped) != 0 {
+		t.Fatalf("deleting a stale session reported reaps: %+v", h.reaped)
+	}
+}
+
+// Concurrent upserts, views and deletes while sessions are being reaped
+// (1ns TTL: every access finds the others' sessions stale).
 func TestConcurrentAccess(t *testing.T) {
-	r := New(time.Now, func() Policy { return Policy{StaleAfter: time.Minute, DoneTTL: time.Minute} }, nil)
+	var reaps atomic.Int64
+	r := New(time.Now,
+		func() Policy { return Policy{StaleAfter: time.Nanosecond, DoneTTL: time.Nanosecond} },
+		func(Reaped) { reaps.Add(1) })
 	done := make(chan struct{})
 	for i := range 8 {
 		go func() {
@@ -229,6 +248,9 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 	for range 8 {
 		<-done
+	}
+	if reaps.Load() == 0 {
+		t.Fatal("no session was reaped under a 1ns TTL")
 	}
 }
 

@@ -199,7 +199,7 @@ func (a *App) updateConfig(mutate func(*Config)) {
 // metadata exposed to the admin endpoints. Called by the coordinator
 // after every publish attempt; guarded by App.mu.
 //
-// The snap argument carries the legacy Render struct (renderLocked's
+// The snap argument carries the legacy Render struct (legacyRender's
 // text/color/counter output) so admin tooling can show what was last
 // pushed even though the actual pixels are now produced by
 // RenderForCoord and not stored anywhere.

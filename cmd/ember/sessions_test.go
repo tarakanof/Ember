@@ -84,8 +84,9 @@ func TestSessionPolicyFollowsDisplayConfig(t *testing.T) {
 	}
 }
 
-// Reaping is logged and counted whatever triggers it, not only a /state render.
-func TestSessionReapIsCountedWithoutRender(t *testing.T) {
+// A reap triggered by a DELETE of another session (no /state read) is still
+// logged and counted.
+func TestReapTriggeredByDeleteIsLoggedAndCounted(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Display.StaleSeconds = 25
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())

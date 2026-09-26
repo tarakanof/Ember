@@ -102,13 +102,13 @@ func (r *Registry) Upsert(s render.Session) (View, string) {
 }
 
 // Delete drops the session with key, if present. Deleting a missing key is
-// not an error.
+// not an error. The delete happens before the reap, so deleting a session
+// that has already gone stale is a delete, not a reap.
 func (r *Registry) Delete(key string) View {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	now := r.reapLocked()
 	delete(r.sessions, key)
-	return r.viewLocked(now)
+	return r.viewLocked(r.reapLocked())
 }
 
 // Clear drops every session. Nothing cleared this way counts as reaped.
