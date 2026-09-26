@@ -134,8 +134,15 @@ after any build that touches the producers or the bundling phase.
 On launch the app re-registers the enabled producer agents when the bundle
 changed (version, build, or a digest of the bundled helpers and plists, stored
 as `producers.lastReconciledVersion`), and re-registers any enabled agent that
-`launchctl print gui/$UID/<label>` can't find. Settings › Agents shows such an
-agent as **Not running** with a **Repair** button. The CLI `install`/`uninstall`
+`launchctl print gui/$UID/<label>` can't find, or shows stuck (`job state =
+spawn failed` or `needs LWCR update`: a rebuilt ad-hoc helper, see
+ARCHITECTURE's gotchas); a stuck job is booted out first. After an update it
+checks again 30 s later. Settings › Agents shows such an agent as **Not
+running** with a **Repair** button. By hand: `launchctl bootout
+gui/$UID/com.ember.heartbeat` (and `com.ember.codex`), then quit and reopen
+Ember. A rebuilt helper may also need **Local Network** access again (System
+Settings › Privacy & Security › Local Network); until then its POSTs fail with
+`connect: no route to host` in `~/Library/Logs/ember-tick.log`. The CLI `install`/`uninstall`
 subcommands only unload a job loaded from their own
 `~/Library/LaunchAgents/<label>.plist`, and `install` refuses (before touching
 any config) when the label is the app's or unidentifiable, or when launchd

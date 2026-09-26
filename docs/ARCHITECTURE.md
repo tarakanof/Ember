@@ -1197,6 +1197,23 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   in Settings › Agents and re-registers a missing job. `CFBundleVersion` was
   "1" for every release, so update detection keys on a digest of the bundled
   helpers too.
+- **A rebuilt ad-hoc helper leaves its job loaded but unspawnable.**
+  Background Items pins an agent's launch constraint (LWCR) to the helper's
+  cdhash when there's no Team ID, and re-registering keeps the existing item,
+  so after a helper change the first spawn is a *Launch Constraint Violation*.
+  launchd's repair then makes Background Items replace the item (new UUID,
+  fresh constraint) but reports failure (`Unable to invalidate item`, error
+  -67068 on macOS 27.0), and the loaded job keeps the dead UUID: `launchctl
+  print` shows `job state = spawn failed`, `last exit code = 78: EX_CONFIG`,
+  `needs LWCR update`, and every respawn logs `Could not find and/or execute
+  program … 3: No such process`. Unregister + register on top of it doesn't
+  help; `launchctl bootout` of the job, then register, does (verified on
+  26A428). The app treats that state as **Not running** (Repair boots out,
+  then registers) and checks again 30 s after an update reconcile. The
+  helpers are signed with a fixed identifier (`com.ember.claude-producer`,
+  `com.ember.codex-producer`): the ad-hoc default `<name>-<LC_UUID>` changes
+  every build, and Local Network privacy keys on it, so a rebuilt helper got
+  `connect: no route to host` until the user allowed it again.
 - **Syntactically-valid-but-wrong config defeats validation.** A
   `EMBER_SERVER_URL` typo (`:800` for `:3627`) passed the URL validator but
   dropped every POST. When "nothing shows," check the producer→server path first:
