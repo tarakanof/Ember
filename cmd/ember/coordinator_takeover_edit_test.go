@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"sync"
 	"testing"
 )
 
@@ -89,17 +91,64 @@ func TestMenuEditOfOnlyTakeoverKeysSkipsTheDevice(t *testing.T) {
 	}
 }
 
-// Menu edits arrive on HTTP goroutines while the coordinator takes and
-// restores the snapshot on its own; -race keeps the two honest.
-func TestMenuEditRacesTakeoverEdges(t *testing.T) {
+// modelClock is a recordingPublisher whose settings behave like the clock's:
+// a write merges into the state a later read returns. The tests route the
+// menu's writes through it too, so coordinator and menu writes share one
+// ordered device state.
+type modelClock struct {
+	*recordingPublisher
+	mu    sync.Mutex
+	state map[string]any
+}
+
+func (m *modelClock) Settings(ctx context.Context, payload map[string]any) error {
+	m.mu.Lock()
+	for k, v := range payload {
+		m.state[k] = v
+	}
+	m.mu.Unlock()
+	return m.recordingPublisher.Settings(ctx, payload)
+}
+
+func (m *modelClock) ReadSettings(context.Context) (map[string]any, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]any, len(m.state))
+	for k, v := range m.state {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *modelClock) get(k string) any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.state[k]
+}
+
+func modelFixture(t *testing.T) (*coordinator, *modelClock, *Snapshot, *bool) {
+	t.Helper()
 	c, pub, snap, pomo := holdFixture(t, "running")
-	pub.deviceSettings = map[string]any{"autoTransition": true, "blockNavigation": false}
+	clk := &modelClock{recordingPublisher: pub, state: map[string]any{"autoTransition": false, "blockNavigation": false}}
+	c.publisher = clk
+	return c, clk, snap, pomo
+}
+
+// Menu edits arrive on HTTP goroutines while the coordinator takes and
+// restores the snapshot on its own. Whatever the interleaving, once the
+// last block has ended the clock holds the user's last choice and no
+// snapshot is left (and -race sees every access).
+func TestMenuEditRacesTakeoverEdges(t *testing.T) {
+	c, clk, snap, pomo := modelFixture(t)
+	write := func(m map[string]any) error { return clk.Settings(context.Background(), m) }
 	done := make(chan struct{})
+	const edits = 50
 	go func() {
 		defer close(done)
-		for i := range 50 {
-			_, _ = c.applyMenuSettings(map[string]any{"autoTransition": i%2 == 0, "brightness": 10.0},
-				func(map[string]any) error { return nil })
+		for i := range edits {
+			if _, err := c.applyMenuSettings(map[string]any{"autoTransition": i%2 == 0, "brightness": 10.0}, write); err != nil {
+				t.Error(err)
+			}
 			c.takeoverPriorView()
 		}
 	}()
@@ -108,6 +157,66 @@ func TestMenuEditRacesTakeoverEdges(t *testing.T) {
 		c.publish(*snap)
 	}
 	<-done
+	*pomo = false
+	c.publish(*snap)
+
+	if p, ok := c.takeoverPriorView(); ok {
+		t.Fatalf("snapshot %+v left after the last block", p)
+	}
+	last := (edits-1)%2 == 0
+	if got := clk.get("autoTransition"); got != last {
+		t.Fatalf("clock autoTransition = %v, want the last edit %v", got, last)
+	}
+	if got := clk.get("blockNavigation"); got != false {
+		t.Fatalf("clock blockNavigation = %v, want the user's false", got)
+	}
+}
+
+// An edit whose device write is in flight when a Pomodoro starts: the
+// snapshot read may miss it, so the edit is folded into the snapshot, the
+// takeover's value is put back for the focus block, and the restore applies
+// the edit.
+func TestMenuEditInFlightWhenTakeoverStartsIsRecorded(t *testing.T) {
+	c, clk, snap, pomo := modelFixture(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	first := true
+	write := func(m map[string]any) error {
+		if first {
+			first = false
+			close(entered)
+			<-release
+		}
+		return clk.Settings(context.Background(), m)
+	}
+	type result struct {
+		held []string
+		err  error
+	}
+	res := make(chan result, 1)
+	go func() {
+		held, err := c.applyMenuSettings(map[string]any{"autoTransition": true}, write)
+		res <- result{held, err}
+	}()
+	<-entered
+	*pomo = true
+	c.publish(*snap) // snapshot reads autoTransition:false; takeover lands
+	close(release)
+	r := <-res
+	if r.err != nil || len(r.held) != 1 || r.held[0] != "autoTransition" {
+		t.Fatalf("held=%v err=%v, want [autoTransition]", r.held, r.err)
+	}
+	if p, ok := c.takeoverPriorView(); !ok || !p.AutoTransition {
+		t.Fatalf("snapshot = %+v/%v, want the in-flight edit recorded", p, ok)
+	}
+	if got := clk.get("autoTransition"); got != false {
+		t.Fatalf("clock autoTransition mid-focus = %v, want the takeover's false", got)
+	}
+
+	*pomo = false
+	c.publish(*snap)
+	if got := clk.get("autoTransition"); got != true {
+		t.Fatalf("clock autoTransition after the block = %v, want the edit", got)
+	}
 }
 
 // The edit is persisted with the snapshot, so a server that dies mid-focus

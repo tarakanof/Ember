@@ -226,6 +226,7 @@ func validColor(v any) bool {
 const deferredKeysHeader = "X-Ember-Deferred-Keys"
 
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
+	before, hadBefore := a.coord.takeoverPriorView()
 	body, err := a.clock.fetch(r.Context(), (*awtrix.Client).RawSettings)
 	if err != nil {
 		writeClockError(w, err)
@@ -246,8 +247,15 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 	// Mid-focus the device holds the takeover's values; the menu shows the
 	// user's own, so its toggles don't flip for the length of a focus block
 	// and a save of an unrelated key can't write the takeover values back
-	// as the user's choice.
-	if p, ok := a.coord.takeoverPriorView(); ok {
+	// as the user's choice. The snapshot is read both sides of the clock
+	// read: a restore that completes during it leaves the device answer
+	// with the takeover values and no snapshot after, so the one from
+	// before (what the restore wrote) is used.
+	p, ok := a.coord.takeoverPriorView()
+	if !ok {
+		p, ok = before, hadBefore
+	}
+	if ok {
 		for k, v := range p.settings() {
 			out[k] = v
 		}

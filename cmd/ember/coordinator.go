@@ -125,10 +125,22 @@ type coordinator struct {
 	// change the pointed-to values under priorMu, so every read of the
 	// values off the coordinator goroutine, and the restore, takes it too.
 	prior *takeoverPrior
-	// priorMu serialises the takeover snapshot, the restore and menu writes
-	// of the takeover keys, so a menu edit can't land between the snapshot
-	// read and its record, or between the restore write and forgetting it.
+	// priorMu serialises the takeover snapshot, the restore and menu edits
+	// made while a snapshot exists, so such an edit can't land between the
+	// restore write and forgetting the snapshot. It is a leaf lock: nothing
+	// but the store write (persistPrior) and one device exchange is done
+	// under it. It is held across a device call, so waiters are bounded by
+	// that call: a menu edit during a takeover holds it for one menu-class
+	// PATCH (menuCallTimeout, 8s); the snapshot read and the restore hold it
+	// for one retryDevice (publishAttempts x publishAttemptTimeout, 5s). A
+	// Pomodoro start/stop edge (or the exit restore, whose own budget is 5s)
+	// can therefore wait that long; mid-block ticks never take it. Edits
+	// made with no snapshot write unlocked (applyMenuSettings).
 	priorMu sync.Mutex
+	// priorGen counts snapshot records and clears (setPrior), so an unlocked
+	// menu edit can tell a takeover edge ran during its device write. Guarded
+	// by priorMu.
+	priorGen uint64
 	// restoreBackoff counts ticks left to skip before retrying a restore that
 	// was lost (see restoreBackoffTicks). Coordinator-goroutine-owned.
 	restoreBackoff int
