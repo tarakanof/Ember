@@ -31,6 +31,8 @@ public final class AppEnvironment {
     public private(set) var quiet: QuietService
     public private(set) var displayConfig: DisplayService
     public private(set) var device: DeviceService
+    /// The clock's settings for Settings › Clock and Sounds (⌘R reloads it).
+    public let deviceSettings: DeviceSettingsModel
     public private(set) var meetings: MeetingsService
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
@@ -126,6 +128,7 @@ public final class AppEnvironment {
         quiet = QuietService(client: client)
         displayConfig = DisplayService(client: client)
         device = DeviceService(client: client)
+        deviceSettings = DeviceSettingsModel(service: DeviceService(client: client))
         meetings = MeetingsService(client: client)
         reminderWatcher = ReminderWatcher(client: client)
         producers = ProducerInstallService(
@@ -185,6 +188,7 @@ public final class AppEnvironment {
         quiet = QuietService(client: client)
         displayConfig = DisplayService(client: client)
         device = DeviceService(client: client)
+        deviceSettings.configure(service: device)
         meetings = MeetingsService(client: client)
         reminderWatcher.reconfigure(client: client)
         live.configure(client: client)

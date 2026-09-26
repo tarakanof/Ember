@@ -2,143 +2,66 @@ import SwiftUI
 import AppKit
 import EmberKit
 
-/// "Report this Mac's agent activity" section: a single toggle that installs
-/// (or uninstalls) the Claude/Codex producer LaunchAgents via
-/// `ProducerInstallService`, plus a live per-agent status row for whichever
-/// agent CLIs are detected on this Mac. Lives in the Agent settings tab.
+/// "Report this Mac's agent activity": installs or removes the Claude/Codex
+/// producer LaunchAgents, with a status row per agent CLI found on this Mac.
 struct ProducersToggleSection: View {
-    @Environment(AppEnvironment.self) private var env
-
-    @State private var isWorking = false
-    @State private var save: SaveState = .idle
-    // Read off the main thread (filesystem + SMAppService IPC) on appear and
-    // after every install/uninstall, instead of on each render.
-    // nil until the first read lands, so the section shows "Checking…" rather
-    // than a false "No agent detected" with an enabled toggle.
-    @State private var snapshot: ProducerSnapshot?
-    // Bumped per read; a read applies only if no newer one started, so a slow
-    // initial read can't overwrite the one taken after install/uninstall.
-    @State private var snapshotSeq = 0
+    let model: ProducerInstallModel
 
     var body: some View {
         Section {
-            Toggle("Report this Mac's agent activity", isOn: toggleBinding)
-                .disabled(isWorking || snapshot == nil)
+            Toggle("Report this Mac's agent activity", isOn: Binding(
+                get: { model.isOn },
+                set: { on in Task { await model.setEnabled(on) } }))
+                .disabled(model.isWorking || model.snapshot == nil)
 
-            if snapshot == nil {
-                LabeledContent("Checking agents…") { ProgressView().controlSize(.small) }
-            } else if let snapshot, snapshot.agents.isEmpty {
-                Text("No supported agent CLI detected on this Mac (looked for ~/.claude and ~/.codex).")
-                    .font(.caption).foregroundStyle(.secondary)
+            if let snapshot = model.snapshot {
+                if snapshot.agents.isEmpty {
+                    Text("No Claude Code or Codex found on this Mac.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(snapshot.agents, id: \.agent) { row in
+                        LabeledContent(row.agent == .claude ? "Claude Code" : "Codex") {
+                            stateView(row.state)
+                        }
+                    }
+                }
             } else {
-                ForEach(snapshot?.agents ?? [], id: \.agent) { row in
-                    agentRow(row.agent, row.state)
+                LabeledContent {
+                    ProgressView().controlSize(.small)
+                } label: {
+                    Text("Checking agents…").foregroundStyle(.secondary)
                 }
             }
         } header: {
-            Text("Agent reporting")
+            Text("Reporting")
         } footer: {
-            footer
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Reporting keeps running after you quit Ember. Turn it off before deleting Ember to remove it completely.")
+                if model.isWorking {
+                    Text("Applying…")
+                } else if let failure = model.failure {
+                    Label(failure, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                } else if model.snapshot?.toggle == .partial {
+                    Label("Only some agents are reporting.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            }
         }
-        .task { await reloadSnapshot() }
-    }
-
-    private var toggleBinding: Binding<Bool> {
-        Binding(
-            get: { snapshot?.toggle == .on },
-            set: { newValue in Task { await apply(newValue) } }
-        )
+        .task { await model.refresh() }
     }
 
     @ViewBuilder
-    private func agentRow(_ agent: ProducerAgent, _ state: AgentState) -> some View {
+    private func stateView(_ state: AgentState) -> some View {
         switch state {
         case .off:
-            LabeledContent(agent.displayName) {
-                Text("Off").foregroundStyle(.secondary)
-            }
+            Text("Off").foregroundStyle(.secondary)
         case .on:
-            LabeledContent(agent.displayName) {
-                Text("On").foregroundStyle(.secondary)
-            }
+            Label("On", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
         case .needsApproval:
-            Button {
-                openLoginItemsSettings()
-            } label: {
-                LabeledContent(agent.displayName) {
-                    Text("Needs approval in System Settings ›").foregroundStyle(.orange)
-                }
+            Button("Approve in Login Items…") {
+                openSystemSettings("x-apple.systempreferences:com.apple.LoginItems-Settings.extension")
             }
-            .buttonStyle(.plain)
         case .error(let message):
-            LabeledContent(agent.displayName) {
-                Text(message).foregroundStyle(.red)
-            }
+            Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
         }
     }
-
-    @ViewBuilder private var footer: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Installs the Claude/Codex producers so this Mac's agent status shows on the clock.")
-            statusCaption
-            Text("Quitting Ember leaves reporting running in the background — turn this off before deleting Ember for a full clean removal.")
-        }
-        .font(.caption).foregroundStyle(.secondary)
-    }
-
-    @ViewBuilder private var statusCaption: some View {
-        switch save {
-        case .idle:
-            switch snapshot?.toggle {
-            case .partial:
-                Label("Partially installed — some agents are on, some off.", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-            case .error:
-                Label("One or more agents reported an error — see the rows above.", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red)
-            default:
-                EmptyView()
-            }
-        case .saving:
-            Text("Applying…")
-        case .saved:
-            Label("Saved", systemImage: "checkmark.circle")
-        case .error(let m):
-            Label(m, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-        }
-    }
-
-    /// Runs `installAll`/`uninstallAll` (never throws; per-agent failures are
-    /// reported via `AgentOutcome.error`) and surfaces the first failure, if any.
-    private func apply(_ on: Bool) async {
-        isWorking = true
-        save = .saving
-        let outcomes = on ? await env.producers.installAll() : await env.producers.uninstallAll()
-        await reloadSnapshot()
-        isWorking = false
-        if let failed = outcomes.first(where: { $0.error != nil }) {
-            save = .error("\(failed.agent.displayName) failed: \(failed.error!.localizedDescription)")
-        } else {
-            save = .saved
-        }
-    }
-
-    private func reloadSnapshot() async {
-        snapshotSeq += 1
-        let mine = snapshotSeq
-        let fresh = await env.producers.snapshot()
-        if mine == snapshotSeq { snapshot = fresh }
-    }
-
-    /// Opens System Settings > General > Login Items & Extensions, where a
-    /// `.needsApproval` LaunchAgent must be approved by the user.
-    private func openLoginItemsSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-}
-
-private extension ProducerAgent {
-    var displayName: String { rawValue.capitalized }
 }

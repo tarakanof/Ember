@@ -6,17 +6,9 @@ import ServiceManagement
 /// "Open at Login"). Requires the app to be signed + in /Applications to fully
 /// register; first registration may report .requiresApproval.
 enum LoginItemService {
-    static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
+    static var status: SMAppService.Status { SMAppService.mainApp.status }
 
-    static var statusText: String {
-        switch SMAppService.mainApp.status {
-        case .enabled: return "On"
-        case .requiresApproval: return "Needs approval in System Settings → Login Items"
-        case .notRegistered: return "Off"
-        case .notFound: return "Unavailable (run the app from /Applications)"
-        @unknown default: return "Unknown"
-        }
-    }
+    static var isEnabled: Bool { status == .enabled }
 
     /// Returns an error message on failure, nil on success.
     static func setEnabled(_ on: Bool) -> String? {

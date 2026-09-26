@@ -189,7 +189,10 @@ without relaunch. Hybrid layout:
   `Live/` (`LiveModel`, `RefreshCoordinator`, `ActionRunner`), `Config/`
   (`ConfigModel` as `ServerConfigModel`/`EnvConfigModel`, `SettingsModels`)
   and `Presentation/` (display names, formatters, and `MenuRows`, the menu's
-  row rules). Headless `swift test`.
+  row rules), plus `Device/` (`DeviceSettingsModel`: the clock's settings
+  saved as a patch of the keys that changed, overlay, sensors, apps, buttons,
+  audio) and `Settings/` (pane ids with the pre-restructure names mapped,
+  melody choices, the Connection probe). Headless `swift test`.
 - **`Ember` (`macos/Ember/`, thin Xcode app)** — an `LSUIElement` agent
   app: a `MenuBarExtra` (`.menu` style: session header and activity, other
   sessions, 5h usage per tool, next meeting or reminder, Pomodoro status and
@@ -197,8 +200,10 @@ without relaunch. Hybrid layout:
   with next/previous app, dismiss, display power and Show on Clock; rows a
   server lacks are hidden, e.g. usage falls back to `/state` and display
   power needs 0.28+), the animated bot or tool glyph as its icon, a
-  sidebar `Settings` window (**Connection / Device / Agent / Pomodoro / Weather /
-  Reminders / App**), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
+  sidebar `Settings` window (**General / Connection / Clock / Agents / Focus /
+  Weather / Calendar / Sounds & Alerts**; the title follows the pane, the
+  subtitle is the one save status of every config model, controls stay
+  disabled until their model has loaded), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
   menu while a window is open. `Ember/Shared/` holds the views all three
   surfaces use (`LiveMatrixMirror`, `FeedStateView`, `StatTile`, `StaleChip`,
   `PhaseBadge`, `EmberColors`). App-only prefs (icon palette, tray glyphs) live
@@ -231,7 +236,7 @@ phase change). With no window open the app makes about 2,640 requests an hour:
 1,200 each to `/state` and `/v1/pomodoro/state`, 60 each to stats, usage,
 meetings and apps (the old poller made about 4,800, 1,200 of them stats).
 
-This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agent tab's
+This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agents pane's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
 — produced by the same `internal/render` core the device uses (see below).
 
@@ -585,7 +590,7 @@ and again on every rediscovery, cached in-process, and served at
 cache is cold) — the firmware's supported effect/transition/overlay/palette
 name lists plus its `audio{buzzer,track,mp3,radio}` outputs (NG 1.1.0 replaced
 the old top-level `radio` flag), relayed as the device's own document so no
-key is dropped. The macOS Device tab uses them to populate its transition
+key is dropped. Settings › Clock and Sounds use them to populate its transition
 picker and to gate the buzzer-volume row, instead of guessing at a static
 enum. `/admin/doctor` reports the cached counts (and whether a buzzer is
 present) as its `capabilities` check.
@@ -650,8 +655,9 @@ and last re-discovery time/result). The server also advertises
 itself as `_ember._tcp` so the menu app can discover it (gated by
 `EMBER_MDNS_ADVERTISE`). Both directions require host/macvlan networking.
 
-The menu's Device tab manages the clock's *own* firmware settings — but **the
-server stays the only writer to the device**: the tab calls `/v1/device/settings`
+Settings › Clock (and the clock half of Sounds & Alerts) manages the clock's
+*own* firmware settings — but **the server stays the only writer to the
+device**: the app sends only the keys that changed to `/v1/device/settings`
 (bearer auth), and the server whitelists + range-validates each NG settings key
 (`device_settings.go`'s `deviceSettingRules`) before forwarding to the clock's
 unauthenticated `PATCH /api/v1/settings`. `autoTransition`/`blockNavigation`
@@ -668,7 +674,10 @@ The whitelist tracks NG 1.1.x: `soundEnabled` (device mute) and
 gone — NG rejects unknown keys with 422, so one stale key fails the whole
 PATCH. The per-app colours (`timeColor`, `dateColor`, `temperatureColor`,
 `humidityColor`, `batteryColor`) accept `null`, which returns the app to
-inheriting `textColor`.
+inheriting `textColor` (Settings' "Same as text"). A 0.27.x server filters its
+GET to its older whitelist, so the app treats missing `soundEnabled`/
+`buzzerVolume` as "no NG 1.1 support" and hides mute, volume and "Same as
+text" there; a 404 on the audio routes hides the test chime and melody list.
 
 When the clock refuses a proxied request, the `/v1/device/*` handlers relay
 its NG error envelope instead of a bare 502: the menu gets

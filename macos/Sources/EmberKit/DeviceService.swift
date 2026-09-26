@@ -2,15 +2,26 @@ import Foundation
 
 /// Typed wrapper over the server's /v1/device/* proxy endpoints (clock settings,
 /// display/apps/capabilities, stats, actions, and discovery/config).
-public struct DeviceService: Sendable {
+public struct DeviceService: Sendable, Equatable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
+
+    /// Two services are the same when they talk to the same server with the
+    /// same token (Settings rebuilds its clock model only on a real change).
+    public static func == (a: DeviceService, b: DeviceService) -> Bool {
+        a.client.baseURL == b.client.baseURL && a.client.token == b.client.token
+    }
 
     public func settings() async throws -> DeviceSettings {
         try await client.get("/v1/device/settings")
     }
     public func update(_ patch: DeviceSettings) async throws {
         try await client.put("/v1/device/settings", body: patch)
+    }
+    /// Writes only the given keys; `.null` resets a per-app colour to inherit
+    /// (see `DeviceSettings.patch(from:)`).
+    public func update(patch: [String: JSONValue]) async throws {
+        try await client.put("/v1/device/settings", body: JSONValue.object(patch))
     }
     /// NG's ambient-weather overlay (GET/PUT /v1/device/display).
     public func display() async throws -> DeviceDisplay {
