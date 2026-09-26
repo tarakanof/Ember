@@ -28,6 +28,7 @@ type hookInput struct {
 	ErrorType           string          `json:"error_type,omitempty"`
 	ErrorMessage        string          `json:"error_message,omitempty"`
 	Error               string          `json:"error,omitempty"`
+	IsInterrupt         bool            `json:"is_interrupt,omitempty"`
 	EndReason           string          `json:"end_reason,omitempty"`
 }
 
@@ -72,16 +73,13 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 	lockP := lockPath(dir, sessionID)
 	client := NewClient(cfg)
 	switch event {
-	// #76 evaluation spike: PostToolUse / PostToolUseFailure / PermissionDenied
-	// are log-only for now — we don't yet know if they carry enough signal to
-	// justify wiring into the state machine (vs. the existing PreToolUse-derived
-	// activity and the waiting/error paths). Write a structured line to the
-	// spike log and return without touching markers or POSTing status. Revisit
-	// after a few days of real use: promote into the switch below, or delete
-	// this case and the hook registrations in install.go. See issue #76.
-	case "post-tool-use", "post-tool-use-failure", "permission-denied":
-		writeSpikeLog(sessionID, event, in)
-		return
+	// Tool-outcome hooks (#76): see posttool.go. No new states.
+	case "post-tool-use":
+		handleToolOutcome(ctx, cfg, client, in, "", markerP, lockP)
+	case "post-tool-use-failure":
+		handleToolOutcome(ctx, cfg, client, in, failureOutcome(in), markerP, lockP)
+	case "permission-denied":
+		handleToolOutcome(ctx, cfg, client, in, "denied", markerP, lockP)
 	case "session-start":
 		handleSessionStart(in, markerP, lockP)
 	case "user-prompt-submit":
@@ -97,7 +95,8 @@ func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 		if cfg.ActivityDetailEnabled {
 			act = activityString(in.ToolName, in.ToolInput)
 		}
-		handleUpsert(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, act, markerP, lockP)
+		handleUpsertPending(ctx, cfg, client, sessionID, "waiting", "approve "+in.ToolName, act,
+			permissionFingerprint(in.ToolName, in.ToolInput), markerP, lockP)
 	case "notification":
 		// permission_prompt and agent_needs_input are both explicit "waiting for
 		// the user" signals (issue #75); agent_completed is an explicit "finished"
@@ -140,6 +139,14 @@ func handleSessionStart(in hookInput, markerP, lockP string) {
 }
 
 func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string) {
+	handleUpsertPending(ctx, cfg, client, sessionID, state, message, activity, "", markerP, lockP)
+}
+
+// handleUpsertPending is handleUpsert that also records which tool call a
+// "waiting" is for (pending, from PermissionRequest). A later "waiting" with
+// no pending (the permission_prompt Notification for the same dialog) keeps
+// the recorded one; any other state clears it.
+func handleUpsertPending(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, pending, markerP, lockP string) {
 	req := StatusRequest{
 		Source:        cfg.Source,
 		Tool:          "claude",
@@ -179,14 +186,20 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 					req.Activity = producer.PrependTrail(activity, prev.Activity)
 				}
 				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
+				if state == "waiting" && pending == "" {
+					pending = prev.PendingPermission
+				}
 			}
+		}
+		if state != "waiting" {
+			pending = ""
 		}
 		// Capture the owning Claude process once per session (preserved across
 		// later upserts), so the heartbeat can detect an ungraceful close.
 		if ownerPID == 0 {
 			ownerPID, ownerStart = detectOwner()
 		}
-		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart}
+		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart, PendingPermission: pending}
 		body, err := json.Marshal(m)
 		if err != nil {
 			return nil

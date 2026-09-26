@@ -21,6 +21,11 @@ type marker struct {
 	producer.StatusRequest
 	OwnerPID   int    `json:"owner_pid,omitempty"`
 	OwnerStart string `json:"owner_start,omitempty"`
+	// PendingPermission fingerprints the tool call a PermissionRequest put
+	// the session in "waiting" for (see permissionFingerprint). Marker-only:
+	// never on the wire. Lets that call's PostToolUse / PostToolUseFailure /
+	// PermissionDenied end the wait without a parallel call's outcome doing so.
+	PendingPermission string `json:"pending_permission,omitempty"`
 }
 
 var shellComms = map[string]bool{
