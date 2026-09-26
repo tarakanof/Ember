@@ -126,7 +126,7 @@ type coordinator struct {
 	// restoreBackoff counts ticks left to skip before retrying a restore that
 	// was lost (see restoreBackoffTicks). Coordinator-goroutine-owned.
 	restoreBackoff int
-	kv    settingsKV
+	kv             settingsKV
 
 	// onPublishResult, if non-nil, is called after every publish attempt
 	// with the snapshot we tried to render and the error (nil on success).
