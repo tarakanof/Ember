@@ -1,4 +1,5 @@
 import CoreLocation
+import MapKit
 import Observation
 
 /// One-shot current-location lookup for the Weather tab: requests when-in-use
@@ -57,7 +58,7 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
     private func startWatchdog() {
         watchdog?.cancel()
         watchdog = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            try? await Task.sleep(for: .seconds(20))
             guard let self, let cont = self.continuation else { return }
             let wasAwaitingAuth = self.awaitingAuth
             self.continuation = nil
@@ -90,8 +91,11 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     private func reverseGeocode(_ loc: CLLocation) async throws -> String? {
-        let marks = try await CLGeocoder().reverseGeocodeLocation(loc)
-        return marks.first?.locality ?? marks.first?.administrativeArea
+        guard let request = MKReverseGeocodingRequest(location: loc) else { return nil }
+        let address = try await request.mapItems.first?.addressRepresentations
+        // Not regionName: that is the country, where the old CLPlacemark
+        // fallback (administrativeArea) was the state.
+        return address?.cityName ?? address?.cityWithContext
     }
 
     nonisolated public func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {

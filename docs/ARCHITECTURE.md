@@ -335,7 +335,16 @@ bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. The
 server is **stateless** for reminders — no list, no schedule, no stored config;
 all settings (enable/sound/lead/duration/icon) live app-side in UserDefaults.
 Consequence: reminders fire only while the Mac is awake and Ember is running (the
-Linux server can't read Apple Reminders).
+Linux server can't read Apple Reminders). Each POST carries an `Idempotency-Key`
+header (the occurrence's `id|due` key); the server remembers keys for 10 min and
+answers a repeat with 200 without pushing again (a failed push releases the key).
+The app waits up to 20s for the answer (the server holds the request while it
+pushes to the clock, up to 10s) and retries on the next poll, inside the grace
+window, only when the failure proves nothing was sent: connection refused/no
+route, 429, or another 4xx. A timeout or 5xx (e.g. 502 after a lost clock ack)
+may have rung the clock, so it is not retried. The watcher logs through
+`os.Logger` (subsystem `com.ember.Ember`, category `reminders`) with reminder
+titles marked `.private`.
 
 > **Shared store.** Weather config + hidden-apps + Pomodoro stats all live in the
 > one SQLite store. Opening it is hoisted into `ensureStore` (out of

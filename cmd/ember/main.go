@@ -533,6 +533,9 @@ type App struct {
 	// button) rather than a Pomodoro action — the middle press disarms it. 0 = none.
 	reminderHeldUntil atomic.Int64
 
+	// reminderKeys dedupes POST /v1/reminders/fire retries by Idempotency-Key.
+	reminderKeys reminderDedupe
+
 	// activityLast throttles activity-heartbeat persistence to at most one row
 	// per session per activityThrottle window (producers post every 2-10s, far
 	// finer than the work-hours sessionization needs). Guarded by activityMu.

@@ -12,15 +12,24 @@ public final class AppModel {
     public private(set) var pomoState: PomoState?
     public private(set) var stats: PomoStats?
     public private(set) var apps: [AppToggle] = []
+    /// Why the last `setApp` failed, or nil once one succeeds.
+    public private(set) var appToggleError: String?
 
     private var status: StatusService?
     private var pomodoro: PomodoroService?
     private var appsService: AppsService?
     private var pollTask: Task<Void, Never>?
+    /// Bumped by `configure` and by each `refresh`. A refresh applies its
+    /// results only while it is still the latest, so the poll loop, menu
+    /// actions and a Connection-tab reload interleaving across `await`s can't
+    /// let a slow, older response (possibly from the previous server)
+    /// overwrite a newer one.
+    private var generation = 0
 
     public init() {}
 
     public func configure(client: APIClient) {
+        generation += 1
         status = StatusService(client: client)
         pomodoro = PomodoroService(client: client)
         appsService = AppsService(client: client)
@@ -30,32 +39,48 @@ public final class AppModel {
     /// failure marks disconnected and clears the live fields rather than
     /// throwing. The pomodoro endpoints 404 while that feature is disabled on
     /// the server — that only blanks the timer/stats, never connectedness.
+    /// Results are dropped if a newer refresh or `configure` started meanwhile.
     public func refresh() async {
         guard let status, let pomodoro else { return }
+        generation += 1
+        let mine = generation
+        let appsService = self.appsService
         async let snap = status.fetchSnapshot()
         async let ps = pomodoro.state()
         async let st = pomodoro.stats()
-        pomoState = try? await ps
-        stats = try? await st
-        do {
-            let snapshot = try await snap
-            sessions = snapshot.sessions
-            winningSession = pickWinning(snapshot.sessions)
-            if let appsService { apps = (try? await appsService.list()) ?? apps }
-            connected = true
-        } catch {
+        let newPomo = try? await ps
+        let newStats = try? await st
+        let snapshot = try? await snap
+        var newApps: [AppToggle]?
+        if snapshot != nil, let appsService { newApps = try? await appsService.list() }
+        guard mine == generation else { return }
+
+        guard let snapshot else {
             connected = false
             sessions = []
             winningSession = nil
             pomoState = nil
             stats = nil
+            return
         }
+        pomoState = newPomo
+        stats = newStats
+        sessions = snapshot.sessions
+        winningSession = pickWinning(snapshot.sessions)
+        if let newApps { apps = newApps }
+        connected = true
     }
 
     /// Toggle an app's clock visibility, then refresh so the list reflects it.
+    /// A failure is kept in `appToggleError` (the toggle snaps back on refresh).
     public func setApp(_ name: String, enabled: Bool) async {
         guard let appsService else { return }
-        try? await appsService.set(name, enabled: enabled)
+        do {
+            try await appsService.set(name, enabled: enabled)
+            appToggleError = nil
+        } catch {
+            appToggleError = error.localizedDescription
+        }
         await refresh()
     }
 
@@ -64,7 +89,8 @@ public final class AppModel {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.refresh()
+                guard let self else { return }
+                await self.refresh()
                 try? await Task.sleep(for: interval)
             }
         }

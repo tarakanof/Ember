@@ -68,7 +68,8 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `GET/PUT /v1/pomodoro/config` (PUT is merge semantics — omitted fields are
 unchanged), `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage`, `GET/PUT /v1/usage/config`, `GET/PUT /v1/display/config`,
-`GET/PUT /v1/weather/config`, `POST /v1/reminders/fire`,
+`GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
+`Idempotency-Key` header dedupes retries for 10 min),
 `GET/PUT /v1/meetings/config`, `GET/PUT /v1/device/config`,
 `GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
 `PATCH /api/v1/settings` keys — see `device_settings.go`),
