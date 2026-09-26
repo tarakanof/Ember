@@ -27,7 +27,8 @@ final class EventKitReminderSource: ReminderSource, @unchecked Sendable {
         do { _ = try await store.requestFullAccessToReminders() } catch { }
     }
 
-    func dueTimedReminders() async -> [DueReminder] {
+    // nonisolated so the EventKit completion below never gets a MainActor check (SIGTRAP).
+    nonisolated func dueTimedReminders() async -> [DueReminder] {
         await withCheckedContinuation { cont in
             let pred = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
             store.fetchReminders(matching: pred) { rems in

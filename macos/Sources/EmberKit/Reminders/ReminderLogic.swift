@@ -95,6 +95,9 @@ public struct ReminderFireTracker: Sendable {
 
     /// Forgets fired occurrences due more than a day before `now`.
     public mutating func prune(now: Date) { fired.prune(now: now) }
+
+    /// Number of remembered fired occurrences.
+    public var firedCount: Int { fired.count }
 }
 
 /// Apple-Reminders watcher settings, persisted app-side (UserDefaults). The

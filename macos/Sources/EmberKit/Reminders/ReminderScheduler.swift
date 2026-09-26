@@ -47,6 +47,8 @@ public final class ReminderScheduler {
     @ObservationIgnored private let onRunningChange: @MainActor (Bool) -> Void
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var tracker = ReminderFireTracker()
+    /// Fired occurrences still remembered; tests check that polls prune them.
+    var rememberedFires: Int { tracker.firedCount }
 
     /// Longest sleep between polls, so newly created reminders are seen.
     static let pollInterval: TimeInterval = 30

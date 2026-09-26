@@ -301,7 +301,9 @@ private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPr
 
 @MainActor @Test func firesThroughTheServerWithTheIdempotencyKey() async throws {
     let due = Date(timeIntervalSince1970: Double(Int(Date().timeIntervalSince1970)))
+    let calls = Counter()
     let client = stubbedClient { req in
+        calls.increment()
         #expect(req.url?.path == "/v1/reminders/fire")
         #expect(req.value(forHTTPHeaderField: "Idempotency-Key") == "a|\(Int(due.timeIntervalSince1970))")
         let body = req.httpBodyStreamData() ?? req.httpBody ?? Data()
@@ -315,5 +317,27 @@ private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPr
     let s = ReminderScheduler(source: FakeSource([DueReminder(id: "a", title: "Walk", due: due)]),
                               client: client, prefs: prefs)
     await s.poll()
+    #expect(calls.value == 1)
     #expect(s.lastFireError == nil)
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    var value: Int { lock.withLock { n } }
+    func increment() { lock.withLock { n += 1 } }
+}
+
+@MainActor @Test func aPollForgetsOccurrencesADayPastDue() async {
+    var now = base
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base)])
+    let s = makeScheduler(source, Sent()) { now }
+    await s.poll()
+    #expect(s.rememberedFires == 1)
+    now = base.addingTimeInterval(86_400)
+    await s.poll()
+    #expect(s.rememberedFires == 1)      // kept up to a day past due
+    now = base.addingTimeInterval(86_401)
+    await s.poll()
+    #expect(s.rememberedFires == 0)
 }
