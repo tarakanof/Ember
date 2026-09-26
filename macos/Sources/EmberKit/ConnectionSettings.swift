@@ -63,11 +63,11 @@ public struct ConnectionSettings: Equatable, Sendable {
         // field with NO existing value is still tolerated (first run, any order).
         if source.trimmingCharacters(in: .whitespaces).isEmpty,
            !env.get(SettingsKeys.source).isEmpty {
-            throw ValidationError(message: "source must not be empty")
+            throw ValidationError(message: "Enter a source name.")
         }
         if serverURL.trimmingCharacters(in: .whitespaces).isEmpty,
            !env.get(SettingsKeys.serverURL).isEmpty {
-            throw ValidationError(message: "server URL must not be empty")
+            throw ValidationError(message: "Enter the server's URL.")
         }
         let normSource = source.trimmingCharacters(in: .whitespaces).isEmpty
             ? nil : try validateSource(source)
