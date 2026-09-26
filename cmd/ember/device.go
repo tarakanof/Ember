@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,7 +86,7 @@ func (a *App) deviceSource() string {
 	case cur == "":
 		return "none"
 	case a.deviceAutoPicked.Load():
-		// Discovery set this URL (at boot or from the watch) — even if it happens to equal the
+		// Discovery set this URL at boot — even if it happens to equal the
 		// (unreachable) config.json baseline, it was reached via discovery.
 		return "discovered"
 	case cur == a.deviceBaseline:
@@ -144,9 +146,8 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		return false
 	}
 	base := cands[0].BaseURL
-	if base == cur {
-		// The browse answered from the address we already use: the probes were
-		// lost, the clock didn't move. Not a swap, so no republish either.
+	if sameDeviceURL(base, cur) {
+		// Probes were lost but the clock didn't move: not a swap, no republish.
 		a.lastRediscoverResult.Store("reachable")
 		return false
 	}
@@ -158,6 +159,28 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	// capabilities rather than serving the previous device's lists.
 	a.refreshCapabilities(ctx)
 	return true
+}
+
+// sameDeviceURL reports whether two clock base URLs address the same endpoint.
+// Discovery always builds "http://<ip>:<port>", while config.json usually omits
+// the default port, so a plain string compare would call the same clock a swap.
+func sameDeviceURL(x, y string) bool {
+	norm := func(raw string) (string, bool) {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			return "", false
+		}
+		scheme := strings.ToLower(u.Scheme)
+		port := u.Port()
+		if port == "" {
+			port = map[string]string{"http": "80", "https": "443"}[scheme]
+		}
+		path := strings.TrimRight(u.EscapedPath(), "/")
+		return scheme + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port) + path, true
+	}
+	nx, okx := norm(x)
+	ny, oky := norm(y)
+	return okx && oky && nx == ny
 }
 
 // rediscoverProbeAttempts is how many reachability GETs rediscoverClock spends

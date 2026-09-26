@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,12 +89,16 @@ func TestButtonHook_RejectsOversizedBody(t *testing.T) {
 	a := newPomodoroApp(t)
 	a.updateConfig(func(c *Config) { c.Pomodoro.ButtonCallback = true })
 	form := url.Values{"button": {"middle"}, "state": {"1"}, "pad": {strings.Repeat("x", 4096)}}
-	r := httptest.NewRequest(http.MethodPost, "/hooks/awtrix/button", strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	w := httptest.NewRecorder()
-	a.handleAwtrixButton(w, r)
-	if w.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("status = %d, want 413", w.Code)
+	srv := httptest.NewServer(a.routes())
+	defer srv.Close()
+	resp, err := srv.Client().Post(srv.URL+"/hooks/awtrix/button",
+		"application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", resp.StatusCode)
 	}
 }
 
@@ -163,16 +166,28 @@ func TestRediscoverClock_RetriesProbeBeforeBrowsing(t *testing.T) {
 // When the browse finds the clock at the URL we already use (the probe was just
 // lost twice), nothing changed: no swap, no republish, source untouched.
 func TestRediscoverClock_SameURLIsNotASwap(t *testing.T) {
-	a := newTestApp(t)
-	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
-	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
-		return []discovery.Candidate{{BaseURL: "http://127.0.0.1:9", UID: "x"}}, nil
+	cases := []struct{ name, cur, found string }{
+		{"identical", "http://127.0.0.1:9", "http://127.0.0.1:9"},
+		// config.json omits the port; discovery always spells it out.
+		{"port-less config URL", "http://127.0.0.1", "http://127.0.0.1:80"},
 	}
-	if a.rediscoverClock(context.Background()) {
-		t.Fatal("rediscovering the current URL reported a swap")
-	}
-	if a.deviceAutoPicked.Load() {
-		t.Fatal("deviceAutoPicked set without a swap")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := newTestApp(t)
+			a.updateConfig(func(cfg *Config) { cfg.AWTRIX.HTTPBaseURL = c.cur })
+			a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+				return []discovery.Candidate{{BaseURL: c.found, UID: "x"}}, nil
+			}
+			if a.rediscoverClock(context.Background()) {
+				t.Fatal("rediscovering the current URL reported a swap")
+			}
+			if a.deviceAutoPicked.Load() {
+				t.Fatal("deviceAutoPicked set without a swap")
+			}
+			if got := a.cfg.Load().AWTRIX.HTTPBaseURL; got != c.cur {
+				t.Fatalf("base URL = %q, want unchanged %q", got, c.cur)
+			}
+		})
 	}
 }
 
@@ -180,20 +195,17 @@ func TestRediscoverClock_SameURLIsNotASwap(t *testing.T) {
 // that drops ~44% of requests that meant a republish (and a screen switch)
 // every few ticks. Only an uptime that fell behind wall time is a reboot.
 func TestStartDeviceWatch_LostProbeIsNotAReboot(t *testing.T) {
-	var calls atomic.Int64
-	start := time.Now()
+	var down atomic.Bool
+	var ok, failed atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := calls.Add(1)
-		// Drop every third request after the first tick; uptime keeps climbing
-		// in step with wall time.
-		if n > 2 && n%3 == 0 {
-			hj, _ := w.(http.Hijacker)
-			conn, _, _ := hj.Hijack()
-			_ = conn.Close()
+		// Quiet without rebooting: rediscover probes and probeDevice all miss.
+		if down.Load() {
+			failed.Add(1)
+			http.Error(w, "lost", http.StatusServiceUnavailable)
 			return
 		}
-		up := 5000 + int64(time.Since(start)/time.Second)
-		_, _ = w.Write([]byte(`{"uid":"u","boardType":"awtrixng","uptimeSeconds":` + strconv.FormatInt(up, 10) + `}`))
+		ok.Add(1)
+		_, _ = w.Write([]byte(`{"uid":"u","boardType":"awtrixng","uptimeSeconds":5000}`))
 	}))
 	defer srv.Close()
 
@@ -201,16 +213,52 @@ func TestStartDeviceWatch_LostProbeIsNotAReboot(t *testing.T) {
 	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = srv.URL })
 	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) { return nil, nil }
 
+	waitFor := func(what string, cond func() bool) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for !cond() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { a.StartDeviceWatch(ctx, 10*time.Millisecond); close(done) }()
-	got := drainRepublishes(a, 400*time.Millisecond)
-	cancel()
-	<-done
-	if calls.Load() < 10 {
-		t.Fatalf("only %d probes ran; test did not exercise the loop", calls.Load())
-	}
-	if got != 0 {
+	defer func() { cancel(); <-done }()
+
+	waitFor("a baseline probe", func() bool { return ok.Load() >= 4 })
+	down.Store(true)
+	// A tick sends 2 rediscover probes then probeDevice: 6 misses cover a probeDevice.
+	waitFor("probes to fail", func() bool { return failed.Load() >= 6 })
+	answered := ok.Load()
+	down.Store(false)
+	waitFor("the clock to answer again", func() bool { return ok.Load() >= answered+4 })
+
+	if got := drainRepublishes(a, 50*time.Millisecond); got != 0 {
 		t.Fatalf("republishes = %d, want 0 (no reboot happened)", got)
+	}
+}
+
+func TestSameDeviceURL(t *testing.T) {
+	cases := []struct {
+		x, y string
+		want bool
+	}{
+		{"http://192.168.0.14", "http://192.168.0.14:80", true},
+		{"http://192.168.0.14/", "http://192.168.0.14:80", true},
+		{"HTTP://Clock.local", "http://clock.local:80", true},
+		{"https://10.0.0.5", "https://10.0.0.5:443", true},
+		{"http://192.168.0.14", "http://192.168.0.15:80", false},
+		{"http://192.168.0.14:8080", "http://192.168.0.14", false},
+		{"http://10.0.0.5", "https://10.0.0.5", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		if got := sameDeviceURL(c.x, c.y); got != c.want {
+			t.Errorf("sameDeviceURL(%q, %q) = %v, want %v", c.x, c.y, got, c.want)
+		}
 	}
 }
