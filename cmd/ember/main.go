@@ -910,7 +910,9 @@ func (a *App) ClearIndicators(ctx context.Context) error {
 }
 
 // StartCoordinator runs the display coordinator goroutine + a dwell
-// ticker that sends cmdTick on each interval. Blocks until ctx is done.
+// ticker that sends cmdTick on each interval. Blocks until ctx is done and
+// the coordinator has finished its exit cleanup; the Pomodoro ticker runs on
+// this goroutine, so no pomoTick store write happens after it returns.
 func (a *App) StartCoordinator(ctx context.Context) {
 	cfg := a.cfg.Load()
 	dwell := time.Duration(cfg.Display.RotationDwellSeconds) * time.Second
@@ -918,7 +920,14 @@ func (a *App) StartCoordinator(ctx context.Context) {
 		dwell = 3 * time.Second
 	}
 
-	go a.coord.Run(ctx)
+	// Run's deferred takeover restore talks to the clock after ctx is
+	// cancelled; returning only once it's done lets main wait for it.
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		a.coord.Run(ctx)
+	}()
+	defer func() { <-runDone }()
 
 	ticker := time.NewTicker(dwell)
 	defer ticker.Stop()
@@ -1593,6 +1602,10 @@ func main() {
 	// stall startup for long; a no-op when a reachable URL is already configured.
 	app.initDeviceDiscovery(ctx)
 
+	// Every background worker joins workers so shutdown can wait for their
+	// cleanup (the coordinator's takeover restore) before closing the store.
+	var workers sync.WaitGroup
+
 	// Advertise the server over mDNS so the macOS app can discover it (requires
 	// host/macvlan networking to reach the LAN). Non-fatal; off via
 	// EMBER_MDNS_ADVERTISE=0.
@@ -1603,11 +1616,11 @@ func main() {
 				ver = "dev"
 			}
 			logger.Info("mDNS advertising enabled", "service", "_ember._tcp", "port", port)
-			go func() {
+			workers.Go(func() {
 				if err := discovery.Advertise(ctx, "Ember", port, ver); err != nil && ctx.Err() == nil {
 					logger.Warn("mDNS advertise stopped", "err", err)
 				}
-			}()
+			})
 		} else {
 			logger.Warn("mDNS advertise skipped: cannot parse port", "addr", cfg.HTTP.Addr, "err", perr)
 		}
@@ -1619,20 +1632,20 @@ func main() {
 		logger.Warn("clear indicators on startup failed", "err", err)
 	}
 
-	go app.limiter.runSweeper(ctx)
-	go app.StartCoordinator(ctx)
-	go app.StartWeather(ctx)
-	go app.StartMeetings(ctx)
+	workers.Go(func() { app.limiter.runSweeper(ctx) })
+	workers.Go(func() { app.StartCoordinator(ctx) })
+	workers.Go(func() { app.StartWeather(ctx) })
+	workers.Go(func() { app.StartMeetings(ctx) })
 	// Off the startup path: it does device HTTP, and a clock that isn't up yet
 	// must not delay the listener. Re-run after every /admin/reload.
-	go app.ensureBootPingScript(ctx)
+	workers.Go(func() { app.ensureBootPingScript(ctx) })
 
 	// Periodic self-healing watch: re-check the effective clock URL and swap to
 	// a reachable mDNS candidate if it's gone dark, and re-push everything when
 	// the clock's uptime shows it rebooted. Off via awtrix.auto_rediscover=false.
 	if cfg.AWTRIX.AutoRediscoverEnabled() {
 		logger.Info("clock auto-rediscover enabled", "interval", deviceWatchInterval.String())
-		go app.StartDeviceWatch(ctx, deviceWatchInterval)
+		workers.Go(func() { app.StartDeviceWatch(ctx, deviceWatchInterval) })
 	} else {
 		logger.Info("clock auto-rediscover disabled (awtrix.auto_rediscover)")
 	}
@@ -1677,16 +1690,41 @@ func main() {
 	}()
 
 	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Warn("server shutdown failed", "err", err)
+	app.shutdown(shutdownCtx, server, &workers)
+}
+
+// shutdownTimeout bounds the whole exit: HTTP drain plus the background
+// workers' own cleanup, chiefly the coordinator's Pomodoro takeover restore
+// (exitRestoreBudget). It stays under Docker's default 10 s stop grace period
+// so the container is never SIGKILLed mid-restore.
+const shutdownTimeout = 8 * time.Second
+
+// shutdown stops the HTTP server, waits (until ctx is done) for the background
+// workers, whose context the caller has already cancelled, and only then
+// closes the store. Returning from main kills every goroutine on the spot, so
+// without the wait the coordinator's exit restore PATCH never reaches the
+// clock, and a last pomoTick can write to a closed DB.
+func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.WaitGroup) {
+	if err := server.Shutdown(ctx); err != nil {
+		a.logger.Warn("server shutdown failed", "err", err)
 	}
-	// Close the Pomodoro stats DB so WAL is checkpointed and in-flight writes
-	// are flushed before exit.
-	if app.store != nil {
-		if err := app.store.Close(); err != nil {
-			logger.Warn("pomodoro store close failed", "err", err)
+	done := make(chan struct{})
+	go func() {
+		workers.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		a.logger.Warn("background workers still running at the shutdown deadline; closing the store anyway")
+	}
+	// Close the store so WAL is checkpointed and in-flight writes are flushed
+	// before exit.
+	if a.store != nil {
+		if err := a.store.Close(); err != nil {
+			a.logger.Warn("pomodoro store close failed", "err", err)
 		}
 	}
 }
