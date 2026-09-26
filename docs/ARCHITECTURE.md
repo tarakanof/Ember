@@ -110,8 +110,8 @@ The aggregator and the only writer to the device.
   hot-usage frame) triggers a forced `PUT /api/v1/apps/active` on the hold
   edge (with NG's `fast:true`, skipping the ~1 s transition; the Pomodoro
   start keeps the animation), and the app's own `durationMs == lifetimeMs`
-  then sustains it for the attention window (switching happens strictly **after** a successful push —
-  `apps/active` 404s on an app the device doesn't know yet). Merely-running
+  then sustains it for the attention window (switching happens strictly
+  **after** a successful push — `apps/active` 404s on an app the device doesn't know yet). Merely-running
   frames ask for no forced switch and a short `durationMs` (6 s, same as the
   weather/forecast tiles) so an active agent rotates alongside the other apps
   instead of owning the screen. `autoTransition:false` outranks any per-app
@@ -281,7 +281,12 @@ three rotating tiles with the same change-and-staleness dedupe as the usage card
   two tiles read differently at a glance); the bars sit on the same hour grid as
   the strips (cols 8–31, `24/N` columns each), so hour *i* lines up across the
   tiles and bar widths never alternate (`forecast_hours`, 6..24; bar height +
-  colour = temperature).
+  colour = temperature). The bars stay a drawn bitmap rather than NG's native
+  `barChart` (#109): `barChart` takes at most 16 values (24 h won't fit),
+  spreads them over the chart area right of the icon column (col 9, or col 0
+  with no icon, never col 8) with a 1-px gap between bars, so hour *i* can't
+  sit in its `hourSlot` under the strips; and a palette colours a bar by its
+  value within the chart's own range, not by absolute °C like `TempColor`.
 - **`ember-air`** (`air_tile`, default on) — **air quality**: 8×8 drawn wind
   icon + the current **European AQI** value (rows 1–5), both in the EEA bucket
   colour (good→extreme; `render.AQIColor`/`AQIWord`, discrete — the scale is
@@ -906,7 +911,20 @@ rather than doubling some hours.
   full-frame bitmap, why `detailPayload` sends only the icon op and a row-7 bar
   op, and why a drawn icon's op is 9 wide (`iconOp`): without a native icon,
   NG scrolls text across all 32 columns, and the blank col 8 keeps it out of
-  the gap. `textInFront:true` would allow a single op again (#109).
+  the gap.
+- **`textInFront` is deliberately not used (#109).** The docs are clear on
+  z-order only: with `true` the text is painted over the decorations. That
+  would let the source card send one full-frame bitmap, but the three ops do
+  two jobs a single op can't. They are a clip mask: NG's font is variable
+  width and `sourceCardText` only estimates it, so a name that overruns
+  col 24 is cut by the right-hand op today, and would paint over the context
+  glass with the text in front. On scrolling cards (tool, attention, popups)
+  text in front would run over the drawn icon, which the 9-wide `iconOp` now
+  masks. And the single op is larger: +200 B on a running source card (951 →
+  1151 B, measured), on a link that already loses pushes. The docs also don't
+  say whether the text layer paints only lit glyph pixels or its whole box
+  (the `textBlinkMs` note says off-phase glyphs are painted black), which
+  only a device test can settle.
 - **Text payloads inherit casing and scroll from the clock's globals.**
   `textCase` defaults to `inherit` (the global `uppercase`, on by default) and
   every `scroll` field inherits one by one from the global `scroll`. The
