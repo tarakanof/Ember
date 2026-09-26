@@ -52,7 +52,7 @@ private func menuStrings() throws -> [LocalizedStringResource] {
         PomoState(phase: "focus", running: $0.0, paused: $0.1, remainingSec: 1, plannedSec: 1, round: 1)
     }
     out += timers.compactMap { MenuRows.pomodoroStatus($0) }
-    for (done, goal) in [(1, 0), (2, 0), (2, 8)] {
+    for (done, goal) in [(2, 0), (2, 8)] {
         let stats = PomoStats(today: PomoDayStat(date: "", completedFocus: done, focusMin: 0), history: [], streak: 0,
                               goal: GoalStatus(dailySessions: goal))
         out += [MenuRows.today(stats)].compactMap { $0 }
@@ -80,4 +80,17 @@ private func menuStrings() throws -> [LocalizedStringResource] {
     #expect(strings.count > 40)
     let missing = Set(strings.map(\.key)).subtracting(keys).sorted()
     #expect(missing.isEmpty, "add to Localizable.xcstrings: \(missing)")
+}
+
+@Test func todaySessionsHasPluralVariations() throws {
+    let url = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Ember/Localizable.xcstrings")
+    let catalog = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    let entry = (catalog["strings"] as? [String: Any])?["Today %lld sessions · %@"] as? [String: Any]
+    let en = (entry?["localizations"] as? [String: Any])?["en"] as? [String: Any]
+    let plural = (en?["variations"] as? [String: Any])?["plural"] as? [String: Any]
+    let one = ((plural?["one"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
+    #expect(one == "Today %lld session · %@")
+    #expect(plural?["other"] != nil)
 }
