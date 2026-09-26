@@ -315,10 +315,12 @@ The forecast tile has no icon slot. Independent of `use_native_icons`
 **Precipitation overlay** (`overlay`, default on): while it is precipitating,
 the conditions tile and weather popups carry NG's per-app `overlay`, which the
 firmware animates over the finished page (drawn last, it never clears the
-text or bitmap). The provider code picks it, finer than the six buckets:
-WMO drizzle 51–57 → `drizzle`, rain/showers → `rain`, heavy rain 65/67/82 →
-`storm`, snow 71–77/85/86 → `snow`, thunder 95+ → `thunder`, rime fog 48 →
-`frost`; MET Norway's `light…rain` → `drizzle`, `heavy…rain` → `storm`.
+text or bitmap). The provider code picks it, finer than the six buckets, by
+one rule for both providers: rain of any kind, freezing rain and sleet →
+`rain`, or `storm` when heavy (WMO 65/67/82, MET `heavy…rain`/`heavy…sleet`);
+snow → `snow`; thunder → `thunder`; drizzle → `drizzle` (WMO 51–57 only —
+MET has no drizzle symbol, and its light rain is WMO's slight rain 61/80);
+rime fog 48 → `frost`.
 Plain fog, clear and cloudy send no key, so the device's global overlay (if
 the user set one) still shows. Costs ~17 bytes per push, only while
 precipitating. The previews can't animate it and don't draw it.

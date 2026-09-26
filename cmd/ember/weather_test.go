@@ -89,12 +89,16 @@ func TestMetSymbolOverlay(t *testing.T) {
 		want string
 	}{
 		{"clearsky_day", ""}, {"cloudy", ""}, {"fog", ""},
-		{"lightrain", render.OverlayDrizzle},
-		{"lightrainshowers_day", render.OverlayDrizzle},
+		// Same rule as WMO: light rain is slight rain (61/80), not drizzle.
+		{"lightrain", render.OverlayRain},
+		{"lightrainshowers_day", render.OverlayRain},
 		{"rain", render.OverlayRain},
 		{"rainshowers_night", render.OverlayRain},
 		{"heavyrain", render.OverlayStorm},
-		{"sleet", render.OverlaySnow},
+		// Sleet animates like WMO freezing rain (66 rain, 67 storm).
+		{"sleet", render.OverlayRain},
+		{"lightsleetshowers_day", render.OverlayRain},
+		{"heavysleet", render.OverlayStorm},
 		{"heavysnowshowers_day", render.OverlaySnow},
 		{"rainandthunder", render.OverlayThunder},
 		{"lightssnowshowersandthunder_day", render.OverlayThunder},

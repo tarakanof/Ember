@@ -556,9 +556,15 @@ func metSymbolCondition(sym string) (string, bool) {
 }
 
 // wmoOverlay maps a WMO weather code to the NG overlay that animates it, or ""
-// for dry conditions. It is finer than the condition bucket: drizzle and heavy
-// rain share the rain icon but get their own overlay. Plain fog has no NG
-// overlay; rime fog (48) gets frost.
+// for dry conditions. Both providers follow one rule, so the same weather
+// animates the same way whichever is configured:
+//
+//   - rain of any kind, freezing rain and sleet: "rain", or "storm" when heavy
+//     (WMO 65/67/82, MET heavy…rain/sleet);
+//   - snow: "snow"; thunder in any combination: "thunder";
+//   - drizzle (WMO 51-57 only; MET has no drizzle symbol, and its light rain is
+//     WMO's slight rain, 61/80): "drizzle";
+//   - rime fog (WMO 48): "frost"; plain fog has no NG overlay.
 func wmoOverlay(code int) string {
 	switch {
 	case code == 48:
@@ -578,21 +584,19 @@ func wmoOverlay(code int) string {
 	}
 }
 
-// metSymbolOverlay is wmoOverlay for a MET Norway symbol_code. MET has no
-// drizzle symbol, so light rain stands in for it.
+// metSymbolOverlay is wmoOverlay's rule for a MET Norway symbol_code. Sleet
+// animates as rain, like WMO's freezing rain, although its icon bucket is
+// snow.
 func metSymbolOverlay(sym string) string {
 	s := strings.ToLower(sym)
 	switch {
 	case strings.Contains(s, "thunder"):
 		return render.OverlayThunder
-	case strings.Contains(s, "snow") || strings.Contains(s, "sleet"):
+	case strings.Contains(s, "snow"):
 		return render.OverlaySnow
-	case strings.Contains(s, "rain") || strings.Contains(s, "showers"):
-		switch {
-		case strings.Contains(s, "heavy"):
+	case strings.Contains(s, "rain") || strings.Contains(s, "sleet"):
+		if strings.Contains(s, "heavy") {
 			return render.OverlayStorm
-		case strings.Contains(s, "light"):
-			return render.OverlayDrizzle
 		}
 		return render.OverlayRain
 	default:
