@@ -12,26 +12,37 @@ import EmberKit
 /// where the glyph is opaque), preserving its shape/anti-aliasing. `isTemplate =
 /// false` stops the menu bar from re-tinting it. Equivalent to the old Go
 /// icon.go `tintAlpha`.
+///
+/// The icon's colour and the bot's eyes are the only visual state cue, so
+/// VoiceOver gets it in words: label "Ember", value the menu's header
+/// ("Claude on m4 — Running", "Idle", "Offline").
 struct MenuBarLabel: View {
     let session: Session?
+    let connection: ConnectionHealth
     let prefs: MenuPrefs
 
     private var bot = BotAnimator.shared
 
-    init(session: Session?, prefs: MenuPrefs) {
+    init(session: Session?, connection: ConnectionHealth, prefs: MenuPrefs) {
         self.session = session
+        self.connection = connection
         self.prefs = prefs
     }
 
     var body: some View {
+        icon
+            .accessibilityLabel(Text("Ember"))
+            .accessibilityValue(Text(MenuRows.accessibilityValue(connection: connection, winning: session)))
+    }
+
+    private var icon: Image {
         let colored = prefs.trayTint == "color"
         if prefs.trayStyle == "bot" {
-            Image(nsImage: bot.menuBarImage(colored: colored))
-        } else {
-            Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
-                                          state: session?.state ?? "idle",
-                                          prefs: prefs, colored: colored))
+            return Image(nsImage: bot.menuBarImage(colored: colored))
         }
+        return Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
+                                             state: session?.state ?? "idle",
+                                             prefs: prefs, colored: colored))
     }
 
     static func trayImage(tool: String, state: String, prefs: MenuPrefs, colored: Bool = true) -> NSImage {
