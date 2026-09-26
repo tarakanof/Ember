@@ -193,7 +193,10 @@ without relaunch. Hybrid layout:
   service per endpoint group (`Services/`, `*Service.swift`), `pickWinning`,
   `EnvFile` + validation, the settings types, and the app foundations (#119):
   `Live/` (`LiveModel`, `RefreshCoordinator`, `ActionRunner`), `Config/`
-  (`ConfigModel` as `ServerConfigModel`/`EnvConfigModel`, `SettingsModels`)
+  (`ConfigModel` as `ServerConfigModel`/`EnvConfigModel`, `SettingsModels`,
+  `PreviewModel`: a Settings pane's pixel preview, debounced 300 ms, and only
+  the latest request's outcome is applied, so a slow older response can't
+  replace a newer preview)
   and `Presentation/` (display names, formatters, and `MenuRows`, the menu's
   row rules), plus `Device/` (`DeviceSettingsModel`: the clock's settings
   saved as a patch of the keys that changed, overlay, sensors, apps, buttons,
@@ -251,6 +254,10 @@ meetings and apps (the old poller made about 4,800, 1,200 of them stats).
 This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agents pane's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
 — produced by the same `internal/render` core the device uses (see below).
+The Agents, Focus, Weather and Calendar panes all fetch their previews the same
+way: a `PreviewModel` per preview, driven by the `previews(_:into:fetch:)`
+modifier (`PanelPreview.swift`), which requests on appear, on a draft change and
+on window reactivation, and cancels on disappear.
 
 ### Render core — `internal/render`
 

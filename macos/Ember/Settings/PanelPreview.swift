@@ -58,4 +58,43 @@ extension View {
     func settingsPreviewRow() -> some View {
         padding(.vertical, 4)
     }
+
+    /// Keeps `model` on the server's preview of `draft`: fetched when the pane
+    /// appears, when `draft` changes and when the window becomes active again,
+    /// always through the model's debounce, and cancelled when the pane goes
+    /// away. `fetch` reads `env.preview` at call time, so a Connection change
+    /// is picked up.
+    func previews<D: Equatable>(_ draft: D, into model: PreviewModel,
+                                fetch: @escaping @MainActor (D) async throws -> PreviewResponse) -> some View {
+        modifier(PreviewFollower(draft: draft, model: model, fetch: fetch))
+    }
+
+    /// A preview that doesn't depend on a draft (Calendar's meeting and
+    /// reminder tiles).
+    func previews(into model: PreviewModel,
+                  fetch: @escaping @MainActor () async throws -> PreviewResponse) -> some View {
+        previews(true, into: model) { _ in try await fetch() }
+    }
+}
+
+private struct PreviewFollower<D: Equatable>: ViewModifier {
+    let draft: D
+    let model: PreviewModel
+    let fetch: @MainActor (D) async throws -> PreviewResponse
+    @Environment(\.appearsActive) private var appearsActive
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { request(draft) }
+            .onChange(of: draft) { _, new in request(new) }
+            .onChange(of: appearsActive) { _, active in
+                if active { request(draft) }
+            }
+            .onDisappear { model.cancel() }
+    }
+
+    private func request(_ draft: D) {
+        let fetch = fetch
+        model.request { try await fetch(draft) }
+    }
 }

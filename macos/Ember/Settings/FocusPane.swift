@@ -5,7 +5,7 @@ import EmberKit
 /// The phase-end chime is under Sounds & Alerts.
 struct FocusPane: View {
     @Environment(AppEnvironment.self) private var env
-    @State private var preview: PreviewResponse?
+    @State private var preview = PreviewModel()
     /// "Custom" picked while the length is still one of the presets.
     @State private var customFocus = false
 
@@ -99,17 +99,11 @@ struct FocusPane: View {
         }
         .formStyle(.grouped)
         .autosaves(model)
-        .task(id: model.draft) {
-            // Follow edits, lightly debounced; the preview route is open.
-            guard (try? await Task.sleep(for: .milliseconds(300))) != nil else { return }
-            if let p = try? await env.preview.fetchPomodoroPreview(model.draft) { preview = p }
-        }
+        .previews(model.draft, into: preview) { try await env.preview.fetchPomodoroPreview($0) }
         .reloads { await model.load() }
     }
 
-    private func frame(_ card: String) -> CardFrame? {
-        preview?.frames.first { $0.card == card }
-    }
+    private func frame(_ card: String) -> CardFrame? { preview.frame(card) }
 }
 
 extension ClosedRange where Bound == Int {
