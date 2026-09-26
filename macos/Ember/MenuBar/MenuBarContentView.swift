@@ -60,7 +60,7 @@ struct MenuBarContentView: View {
 	@ViewBuilder
 	private func glanceRows(_ live: LiveModel, now: Date) -> some View {
 		let header = MenuRows.header(connection: live.connection, hasEverLoaded: live.snapshot.value != nil,
-		                             winning: live.winningSession)
+		                             winning: live.winningSession, offlineReason: live.snapshot.error)
 		Text(header.title)
 		if let detail = header.detail { Text(verbatim: "   \(detail)") }
 

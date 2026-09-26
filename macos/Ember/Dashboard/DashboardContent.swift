@@ -39,7 +39,17 @@ struct DashboardContent<Source: DashboardSource>: View {
     }
 
     var body: some View {
-        if source.isOfflineWithNothingLoaded {
+        if source.isOfflineWithNothingLoaded, source.snapshot.error == .localNetworkDenied {
+            ContentUnavailableView {
+                Label("Local Network access is off", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text("macOS is blocking Ember from the server on your local network. Allow Ember under Local Network in System Settings.")
+            } actions: {
+                Button("Try Again", action: onRetry)
+                Button("Review Permissions…") { openSettings(pane: SettingsPaneID.permissions.rawValue, using: openWindow) }
+            }
+            .frame(maxWidth: .infinity, minHeight: 480)
+        } else if source.isOfflineWithNothingLoaded {
             ContentUnavailableView {
                 Label("Server unreachable", systemImage: "network.slash")
             } description: {

@@ -4,7 +4,7 @@ import Foundation
 /// other windows open Settings on a pane by writing one to the
 /// `settings.pane` default (`openSettings(pane:using:)`).
 public enum SettingsPaneID: String, CaseIterable, Identifiable, Sendable {
-    case general, connection, clock, agents, focus, weather, calendar, sounds
+    case general, connection, clock, agents, focus, weather, calendar, sounds, permissions
 
     public var id: String { rawValue }
 

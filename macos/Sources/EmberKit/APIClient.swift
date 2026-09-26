@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 public enum APIError: Error, Equatable, Sendable {
     case notConfigured
@@ -8,6 +9,9 @@ public enum APIError: Error, Equatable, Sendable {
     /// a caller that lumps it in with the rest reports the wrong cause.
     case rateLimited(retryAfter: Duration)
     case transport(String)
+    /// macOS Local Network privacy refused the connection to a LAN server
+    /// (`LocalNetworkDenial`): the server may be fine.
+    case localNetworkDenied
     case decoding(String)
 
     public var isUnauthorized: Bool {
@@ -48,6 +52,8 @@ extension APIError: LocalizedError {
             return "Server is rate-limiting this Mac — retrying in \(retryAfter.wholeSecondsRoundedUp)s."
         case .transport(let message):
             return message
+        case .localNetworkDenied:
+            return "Local Network access is off for Ember — allow it in System Settings › Privacy & Security › Local Network."
         case .decoding(let message):
             return "Unexpected server response — \(message)"
         }
@@ -75,12 +81,22 @@ public struct APIClient: Sendable {
     /// For requests the server may legitimately hold open longer than the
     /// default 5s, like a reminder fire that waits on the clock (up to 10s).
     let slowSession: URLSession
+    /// This Mac's network path status, read when a request fails to tell a
+    /// Local Network refusal from no network at all (`LocalNetworkDenial`).
+    let pathStatus: @Sendable () -> NWPath.Status?
 
-    public init(baseURL: URL?, token: String?, session: URLSession? = nil) {
+    public init(baseURL: URL?, token: String?, session: URLSession? = nil,
+                pathStatus: (@Sendable () -> NWPath.Status?)? = nil) {
         self.baseURL = baseURL
         self.token = token
         self.session = session ?? Self.defaultSession
         self.slowSession = session ?? Self.defaultSlowSession
+        if let pathStatus {
+            self.pathStatus = pathStatus
+        } else {
+            let snapshot = NetworkPathSnapshot.shared
+            self.pathStatus = { snapshot.status }
+        }
     }
 
     /// Dedicated session (not `URLSession.shared`) with short timeouts so a
@@ -142,8 +158,9 @@ public struct APIClient: Sendable {
         do {
             (data, resp) = try await (slow ? slowSession : session).data(for: req)
         } catch {
-            let apiError = APIError.transport(error.localizedDescription)
-            if reportNotSent, let code = (error as? URLError)?.code, Self.notSentCodes.contains(code) {
+            let denied = LocalNetworkDenial.isDenied(error, host: url.host, pathStatus: pathStatus())
+            let apiError = denied ? APIError.localNetworkDenied : APIError.transport(error.localizedDescription)
+            if reportNotSent, denied || (error as? URLError).map({ Self.notSentCodes.contains($0.code) }) == true {
                 throw RequestNotSent(underlying: apiError)
             }
             throw apiError

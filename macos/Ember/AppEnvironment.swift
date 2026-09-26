@@ -34,6 +34,9 @@ public final class AppEnvironment {
     /// sheet's task scopes each scan, and sleep stops one.
     public let clockDiscovery = ClockDiscovery()
     public let producers: ProducerInstallService
+    /// Every OS permission Ember uses, for Settings › Permissions and the
+    /// General pane's warning. Re-read when those appear and on activation.
+    public let permissions: PermissionsModel
 
     /// Menu-only prefs (icon palette + tray glyphs), persisted to UserDefaults.
     /// Observed so the menu-bar label updates live when the App tab edits them.
@@ -115,7 +118,8 @@ public final class AppEnvironment {
         envStore = EnvFileStore(path: producerEnvPath)
         settings = SettingsModels(client: client, envStore: envStore)
         deviceSettings = DeviceSettingsModel(service: connection.device, live: live)
-        reminderWatcher = ReminderWatcher(client: client)
+        let watcher = ReminderWatcher(client: client)
+        reminderWatcher = watcher
         producers = ProducerInstallService(
             sm: RealSMAppService(),
             runner: ProcessCommandRunner(),
@@ -123,6 +127,8 @@ public final class AppEnvironment {
             home: FileManager.default.homeDirectoryForCurrentUser,
             fileExists: { FileManager.default.fileExists(atPath: $0) }
         )
+        permissions = PermissionsModel(sources: AppPermissionSources(
+            connection: connection, producers: producers, reminders: watcher, location: location))
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _ in self?.reloadConnection() }
         // Polls tiers A and B from launch so the menu-bar label is live

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 @testable import EmberKit
 
 /// A URLProtocol that answers requests from a per-host handler registry, so tests
@@ -65,14 +66,15 @@ func stubSession() -> URLSession {
 
 /// Builds an APIClient routed through StubURLProtocol with a UNIQUE host, so the
 /// handler can't collide with concurrently-running tests.
-func stubbedClient(token: String? = nil,
+func stubbedClient(token: String? = nil, pathStatus: NWPath.Status = .satisfied,
                    handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)) -> APIClient {
     let host = "stub-\(UUID().uuidString.lowercased()).local"
     StubURLProtocol.register(host: host, handler: handler)
     let config = URLSessionConfiguration.ephemeral
     config.protocolClasses = [StubURLProtocol.self]
     let session = URLSession(configuration: config)
-    return APIClient(baseURL: URL(string: "http://\(host)"), token: token, session: session)
+    return APIClient(baseURL: URL(string: "http://\(host)"), token: token, session: session,
+                     pathStatus: { pathStatus })
 }
 
 func okResponse(_ url: URL, status: Int = 200) -> HTTPURLResponse {

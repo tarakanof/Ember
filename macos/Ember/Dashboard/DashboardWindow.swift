@@ -23,7 +23,8 @@ struct DashboardWindow: View {
             content
                 .navigationTitle("Ember")
                 .navigationSubtitle(Text(env.live.connection.subtitle(
-                    serverHost: env.serverURL?.host(), serverVersion: env.live.serverVersion)))
+                    serverHost: env.serverURL?.host(), serverVersion: env.live.serverVersion,
+                    offlineReason: env.live.snapshot.error)))
                 .toolbar { toolbar }
         }
         .frame(minWidth: 720, minHeight: 560)

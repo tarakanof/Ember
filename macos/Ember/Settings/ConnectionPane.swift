@@ -142,6 +142,13 @@ struct ConnectionPane: View {
                 Label { Text("Unreachable") } icon: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
                 }
+            case .localNetworkDenied:
+                HStack(spacing: 8) {
+                    Label { Text("Local Network access off") } icon: {
+                        Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
+                    }
+                    Button("Review Permissions…") { showSettingsPane(.permissions) }
+                }
             case .serverError(let status):
                 Label { Text("Server error (HTTP \(status))") } icon: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
@@ -179,9 +186,7 @@ struct ConnectionPane: View {
                     }
                 }
                 LabeledContent {
-                    Button("Grant Local Network Access…") {
-                        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
-                    }
+                    Button("Review Permissions…") { showSettingsPane(.permissions) }
                 } label: {
                     Text("No server found?")
                 }
