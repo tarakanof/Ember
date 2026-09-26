@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CI only needs the app target to compile; there's no Developer ID to sign
-# with there, and `go` isn't guaranteed to be on the runner either. Skip the
-# whole phase under GitHub Actions rather than let codesign fail — local
-# dev/release builds are unaffected since GITHUB_ACTIONS is unset there.
-if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
-  echo "build-producers.sh: skipping under GITHUB_ACTIONS (no Developer ID in CI)"
-  exit 0
-fi
-
 # Resolve the app bundle: Xcode sets CODESIGNING_FOLDER_PATH to the .app during
 # a build; a --dest arg overrides for manual runs.
 APP="${1:-${CODESIGNING_FOLDER_PATH:-}}"
 [ -n "$APP" ] || { echo "usage: build-producers.sh <Ember.app> (or run from Xcode)"; exit 2; }
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 IDENTITY="${CODE_SIGN_IDENTITY:--}"    # Developer ID in release; ad-hoc for dev
+
+# CODE_SIGNING_ALLOWED=NO (unsigned CI builds), or a configured identity that
+# isn't actually in the local keychain (no Developer ID cert installed): fall
+# back to ad-hoc signing so go build/lipo/plist copy/plutil lint still run —
+# only the signing step changes.
+if [ "$IDENTITY" != "-" ]; then
+  if [ "${CODE_SIGNING_ALLOWED:-YES}" = "NO" ] || ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
+    echo "build-producers.sh: no usable '$IDENTITY' identity — falling back to ad-hoc"
+    IDENTITY="-"
+  fi
+fi
 MACOS_DIR="$APP/Contents/MacOS"
 mkdir -p "$MACOS_DIR"
 
