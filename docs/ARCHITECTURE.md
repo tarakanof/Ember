@@ -93,7 +93,7 @@ The aggregator and the only writer to the device.
   preview card, `toggle` (the tile's own switch), `live` (device-only gate:
   feature on, data fresh, meeting inside the lead window) and `view`, which
   resolves the content once into both the device payload and the preview
-  frame. `tileSet` owns the pushed-app ledger (`pushedApp{body, at}`, the same
+  frame (built lazily, so device ticks don't render it). `tileSet` owns the pushed-app ledger (`pushedApp{body, at}`, the same
   type as the main app's dedupe): `adopt` seeds it from the device loop on the
   first reachable tick (tiles plus legacy `ember-usage-*` leftovers, never the
   base app), `reconcile` runs every tick — clear anything tracked that isn't
@@ -104,8 +104,10 @@ The aggregator and the only writer to the device.
   The previews call `previewTiles` with draft inputs, which renders the same
   `view` minus the `live` gate: **preview = pushed frame by construction**
   (pinned by `tile_preview_parity_test.go`). Payload-only, since the canvas
-  can't animate them: the NG overlay and a native gallery icon. Adding a tile
-  is one `tile` value.
+  can't animate them: the NG overlay and a native gallery icon. A tile over
+  existing inputs is one `tile` value; one with a new data source also adds
+  its fields to `tileInputs` and fills them in `coordinator.tileInputs` (and
+  in its preview handler).
 - **Publishing over a lossy link.** The clock is a battery/Wi-Fi ESP32, and a
   weak link drops frame pushes wholesale rather than slowing them down (observed
   in the field: ~44 % of pushes timing out for days, `ember_publish_total`
@@ -441,14 +443,17 @@ whenever their owning feature is enabled.
 
 **Weather preview** — `GET /v1/weather/preview` (open, read-only, mirrors
 `/v1/preview`): renders the tiles under draft query params (`rotate_in_apps`,
-`forecast_tile`, `air_tile`, `forecast_hours`, `units`) into the same
+`forecast_tile`, `air_tile`, `forecast_hours`, `units`, `moon_phase`,
+`lat`/`lon`) into the same
 `{frames}` grids, using the live observations when present, else canned
 samples (21 °C clouds, sinusoidal 24 h arc; AQI 42 easing off overnight) so it
 never renders blank. The frames come from the pushed tiles' own `view`
 (`previewTiles`, see "Rotating tiles" above), with the draft params laid over
 the live config: `forecast_hours` follows the device's rule (<=0 or >24 means
 24, 1..5 kept), and a clear night shows the moon phase exactly as the clock
-does. Native-icon mode previews with the drawn sprite (the canvas can't
+does. `moon_phase` and `lat`/`lon` are draft params because the Settings pane
+previews an edit before its autosave lands; absent (or an unparsable /
+out-of-range pair) they fall back to the saved config. Native-icon mode previews with the drawn sprite (the canvas can't
 animate gallery icons), and the overlay is not drawn. Feeds the menu's
 Weather tab "Display" section, which also folds Location/Tile/Forecast/Popups
 into collapsible sections and overlays a "1 of N" cycle indicator

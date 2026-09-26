@@ -312,7 +312,6 @@ func TestReconcileTilesNativeIcons(t *testing.T) {
 	app.weather.mu.Unlock()
 
 	app.coord.reconcileTiles(now)
-	app.coord.reconcileTiles(now)
 	apps := pub.CustomAppsSnapshot()
 	if len(apps) != 2 {
 		t.Fatalf("expected weather+forecast pushes, got %d", len(apps))

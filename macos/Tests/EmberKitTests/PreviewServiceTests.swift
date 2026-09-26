@@ -31,19 +31,51 @@ import Foundation
     #expect(p.frames.first?.pixels.count == 256)
 }
 
-@Test func weatherPreviewSendsAirTileFlag() async throws {
-    var cfg = WeatherConfig(enabled: true, latitude: 1, longitude: 2)
+@Test func weatherPreviewSendsDraftConfig() async throws {
+    var cfg = WeatherConfig(enabled: true, latitude: 51.5, longitude: -0.1, units: "imperial",
+                            forecastHours: 12, moonPhase: false)
     cfg.airTile = false
     let client = stubbedClient { req in
         #expect(req.url?.path == "/v1/weather/preview")
         let items = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let q = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(q["rotate_in_apps"] == "true")
+        #expect(q["forecast_tile"] == "true")
         #expect(q["air_tile"] == "false")
+        #expect(q["forecast_hours"] == "12")
+        #expect(q["units"] == "imperial")
+        // The moon inputs ride along: the preview runs before the autosave lands.
+        #expect(q["moon_phase"] == "false")
+        #expect(q["lat"] == "51.5")
+        #expect(q["lon"] == "-0.1")
         let px = "[" + Array(repeating: "\"#000000\"", count: 256).joined(separator: ",") + "]"
         return (okResponse(req.url!), Data(#"{"width":32,"height":8,"activity":"","frames":[{"card":"weather","pixels":\#(px)}]}"#.utf8))
     }
-    let p = try await PreviewService(client: client).fetchWeatherPreview(cfg)
+    let p = try await PreviewService(client: client).fetchWeatherPreview(WeatherPreviewDraft(cfg))
     #expect(p.frames.first?.card == "weather")
+}
+
+/// The pane refetches when its draft changes, so a moon or location edit must
+/// change the draft; edits that don't change the frames must not.
+@Test func weatherPreviewDraftTracksMoonAndLocation() {
+    let cfg = WeatherConfig(enabled: true, latitude: 51.5, longitude: -0.1)
+    let base = WeatherPreviewDraft(cfg)
+
+    var moonOff = cfg
+    moonOff.moonPhase = false
+    #expect(WeatherPreviewDraft(moonOff) != base)
+    var lat = cfg
+    lat.latitude = 40
+    #expect(WeatherPreviewDraft(lat) != base)
+    var lon = cfg
+    lon.longitude = 2
+    #expect(WeatherPreviewDraft(lon) != base)
+
+    var unrelated = cfg
+    unrelated.locationName = "London"
+    unrelated.sunPopups = false
+    unrelated.popupIntervalMinutes = 30
+    #expect(WeatherPreviewDraft(unrelated) == base)
 }
 
 @Test func pomodoroPreviewSendsDraftConfig() async throws {

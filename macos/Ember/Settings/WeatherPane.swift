@@ -161,7 +161,7 @@ struct WeatherPane: View {
             .disabled(!c.rotateInApps)
             Toggle("Hourly forecast", isOn: $model.draft.forecastTile)
             StepperRow(title: "Hours ahead", value: $model.draft.forecastHours,
-                       range: (6...24).including(c.forecastHours), step: 6) { Text("\($0) h") }
+                       range: 1...24) { Text("\($0) h") }
                 .disabled(!c.rotateInApps && !c.forecastTile)
             Toggle("Air quality", isOn: $model.draft.airTile)
             StepperRow(title: "Air quality alert from", value: $model.draft.airPopupThreshold,
@@ -220,8 +220,8 @@ struct WeatherPane: View {
 
     /// Always asks for every tile: the toggles dim the panels here instead of
     /// removing them, so each option stays visible.
-    private var previewDraft: WeatherConfig {
-        var draft = model.draft
+    private var previewDraft: WeatherPreviewDraft {
+        var draft = WeatherPreviewDraft(model.draft)
         draft.rotateInApps = true
         draft.forecastTile = true
         draft.airTile = true

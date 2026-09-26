@@ -224,7 +224,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var refreshMinutes: Int
     public var rotateInApps: Bool
     public var forecastTile: Bool         // separate hourly-forecast bar tile
-    public var forecastHours: Int         // hours shown in the strip/tile (6..24)
+    public var forecastHours: Int         // hours shown in the strip/tile (1..24; the server reads 0 as 24)
     public var sunPopups: Bool            // popup at sunrise/sunset
     public var moonPhase: Bool            // moon phase on clear nights
     public var popupIntervalMinutes: Int  // 0 = no interval popups

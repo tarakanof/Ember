@@ -24,9 +24,14 @@ import (
 //   - air_tile         bool (default true)  → "air" frame
 //   - forecast_hours   int (default 24; <=0 or >24 means 24, as on the device)
 //   - units            "metric"|"imperial" (default "metric")
+//   - moon_phase       bool (default: the saved config's)
+//   - lat, lon         float pair (default: the saved location). Used only
+//     when both parse and are in range; otherwise both come from the saved
+//     config, so a half-typed coordinate can't move the moon.
 //
-// The moon phase follows the live config (moon_phase, location) as on the
-// device. Payload-only, because the canvas can't animate them: with
+// The moon phase and location are draft params because the Settings pane
+// previews a change before its autosave lands; reading only the saved config
+// would render the old moon and never refresh. Payload-only, because the canvas can't animate them: with
 // tile_native_icons the gallery icon (the preview draws the condition sprite
 // at cols 0-7), and the NG precipitation overlay.
 func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +51,10 @@ func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
 	if strings.TrimSpace(q.Get("units")) == "imperial" {
 		cfg.Units = "imperial"
 	}
+	cfg.MoonPhase = boolPtr(queryBoolDefault(q.Get("moon_phase"), cfg.MoonPhaseEnabled()))
+	if lat, lon, ok := queryLatLon(q); ok {
+		cfg.Latitude, cfg.Longitude = lat, lon
+	}
 
 	in := tileInputs{now: now, weather: cfg}
 	var have bool
@@ -56,6 +65,18 @@ func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
 		in.air = sampleAirObservation(now)
 	}
 	return previewTiles(in, weatherTile.card, forecastTile.card, airTile.card)
+}
+
+// queryLatLon reads the lat/lon draft pair: ok only when both are finite
+// numbers within the ranges WeatherConfig.validate accepts.
+func queryLatLon(q url.Values) (lat, lon float64, ok bool) {
+	lat, errLat := strconv.ParseFloat(strings.TrimSpace(q.Get("lat")), 64)
+	lon, errLon := strconv.ParseFloat(strings.TrimSpace(q.Get("lon")), 64)
+	if errLat != nil || errLon != nil || math.IsNaN(lat) || math.IsNaN(lon) ||
+		lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		return 0, 0, false
+	}
+	return lat, lon, true
 }
 
 // sampleAirObservation backs the air preview before the first real fetch: a

@@ -20,8 +20,10 @@ import (
 // pushed frame by construction (the NG overlay and native gallery icon are
 // payload-only: the canvas can't animate them).
 //
-// Adding a tile means adding one tile value to tiles; the ledger, adopt,
-// republish reset, tick and preview plumbing need no edit.
+// A tile over existing inputs is one tile value in tiles; the ledger, adopt,
+// republish reset, tick and preview plumbing need no edit. A tile with a new
+// data source also adds its fields to tileInputs and fills them in
+// coordinator.tileInputs (and in the preview handler that renders it).
 
 // tileInputs is everything a tile reads: settings, store readings and the
 // instant. The coordinator fills it from the live config and stores
@@ -43,10 +45,11 @@ type tileInputs struct {
 }
 
 // tileView is one tile's content, resolved once: the payload the device gets
-// and the frame a preview draws.
+// and the frame a preview draws. The frame is built on demand from the same
+// resolved values, so device ticks (payload only) skip the 32×8 render.
 type tileView struct {
 	payload map[string]any
-	frame   render.Frame
+	frame   func() render.Frame
 }
 
 // tile is one standalone rotating app.
@@ -215,7 +218,8 @@ func previewTiles(in tileInputs, cards ...string) render.Preview {
 		if !ok {
 			continue
 		}
-		p.Frames = append(p.Frames, render.CardFrame{Card: t.card, Pixels: render.HexPixels(&v.frame)})
+		frame := v.frame()
+		p.Frames = append(p.Frames, render.CardFrame{Card: t.card, Pixels: render.HexPixels(&frame)})
 	}
 	return p
 }

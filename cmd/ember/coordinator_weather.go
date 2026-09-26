@@ -44,7 +44,7 @@ var weatherTile = tile{
 		}
 		return tileView{
 			payload: render.WithOverlay(p, weatherOverlay(obs, cfg)),
-			frame:   render.WeatherTileFrame(obs.Condition, tempText, obs.TempC, window, moon),
+			frame:   func() render.Frame { return render.WeatherTileFrame(obs.Condition, tempText, obs.TempC, window, moon) },
 		}, true
 	},
 }
@@ -63,7 +63,7 @@ var forecastTile = tile{
 		}
 		return tileView{
 			payload: render.ForecastPayload(hourly, usageAppLifetime),
-			frame:   render.ForecastTileFrame(hourly),
+			frame:   func() render.Frame { return render.ForecastTileFrame(hourly) },
 		}, true
 	},
 }
@@ -75,9 +75,10 @@ var airTile = tile{
 	toggle: func(in *tileInputs) bool { return in.weather.AirTileEnabled() },
 	live:   func(in *tileInputs) bool { return weatherLive(in, in.haveAir, in.air.FetchedAt) },
 	view: func(in *tileInputs) (tileView, bool) {
+		aqi, hourly := in.air.AQI, in.air.HourlyAQI
 		return tileView{
-			payload: render.AirPayload(in.air.AQI, in.air.HourlyAQI, usageAppLifetime),
-			frame:   render.AirTileFrame(in.air.AQI, in.air.HourlyAQI),
+			payload: render.AirPayload(aqi, hourly, usageAppLifetime),
+			frame:   func() render.Frame { return render.AirTileFrame(aqi, hourly) },
 		}, true
 	},
 }
