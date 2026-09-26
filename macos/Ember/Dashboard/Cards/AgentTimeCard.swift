@@ -24,7 +24,7 @@ struct AgentTimeCard: View {
     }
 
     /// The hovered day's key ("2026-09-26").
-    @State var selected: String?
+    @State private var selected: String?
 
     /// Dates in the card's calendar: the day keys are that calendar's days.
     private var dayStyle: Date.FormatStyle {
@@ -47,11 +47,13 @@ struct AgentTimeCard: View {
                         width: .ratio(0.62))
                     .foregroundStyle(by: .value("Source", s.source))
                     .opacity(selected == nil || selected == s.key ? 1 : 0.5)
+                    // The x value is the ISO day key; speak the date.
+                    .accessibilityLabel(Text(s.date, format: dayStyle.weekday(.wide).day()))
             }
             if let key = selected, let day = c.detail(forKey: key) {
                 RuleMark(x: .value("Day", key))
                     .foregroundStyle(.clear)
-                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .fit(to: .chart))) {
+                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .plot), y: .fit(to: .chart))) {
                         ChartCallout {
                             Text(day.date, format: dayStyle.weekday(.wide).day())
                             Text(verbatim: DurationText.minutes(Int(day.totalMinutes.rounded())))
