@@ -33,7 +33,7 @@ func fakeAudioClock(t *testing.T, status int, reply string) (*App, func() []fake
 	}))
 	t.Cleanup(dev.Close)
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	return a, func() []fakeClockCall {
@@ -102,7 +102,7 @@ func TestDevicePowerPutRelaysClockError(t *testing.T) {
 
 func TestDevicePowerPutUnreachableClockIs502(t *testing.T) {
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL("http://127.0.0.1:1"); err != nil {
+	if err := putClockOverride(a, "http://127.0.0.1:1"); err != nil {
 		t.Fatal(err)
 	}
 	w := httptest.NewRecorder()
@@ -248,7 +248,7 @@ func TestDeviceAudioMelodiesColdCapsDefersToClock(t *testing.T) {
 // buzzer answers 503 "no buzzer" until the server restarts.
 func TestDeviceConfigPutDropsStaleCapabilities(t *testing.T) {
 	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
-	target := a.cfg.Load().AWTRIX.HTTPBaseURL
+	target := a.cfg.Load().effectiveClockURL()
 	withAudioCaps(a, awtrix.AudioCaps{})
 
 	w := httptest.NewRecorder()

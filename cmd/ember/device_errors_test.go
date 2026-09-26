@@ -21,7 +21,7 @@ func ngRejecting(t *testing.T, status int, code, field string) *App {
 	}))
 	t.Cleanup(dev.Close)
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	return a

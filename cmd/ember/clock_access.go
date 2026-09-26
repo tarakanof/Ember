@@ -97,7 +97,7 @@ var errClockNotConfigured = errors.New("clock not configured")
 // (validDeviceURL) every entry point applies when a URL is stored, so nothing
 // but an absolute http(s) URL is ever dialled.
 func clockBaseURL(cfg *Config) (string, error) {
-	base := strings.TrimRight(cfg.AWTRIX.HTTPBaseURL, "/")
+	base := strings.TrimRight(cfg.effectiveClockURL(), "/")
 	if base == "" {
 		return "", errClockNotConfigured
 	}

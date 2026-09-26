@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,11 +13,6 @@ import (
 
 	"github.com/tarakanof/ember/internal/discovery"
 )
-
-// deviceBaseURLKey is the writable-store key holding a menu-chosen clock URL.
-// It overrides the read-only config.json baseline (mirrors the weather/Pomodoro
-// config-persistence pattern).
-const deviceBaseURLKey = "device_base_url"
 
 // defaultDeviceBaseURL is the fallback clock URL used both when config.json
 // omits awtrix.http_base_url (see Config.applyDefaults) and when a
@@ -43,70 +39,15 @@ func validDeviceURL(raw string) error {
 	return nil
 }
 
-// applyDeviceBaseURL validates a clock base URL, swaps it into the live config,
-// and persists it to the store. Not a settings-overlay setting: it is a raw
-// string, discovery swaps it in memory, and /admin/reload re-applies it only
-// when the file URL changed (see admin.go).
-func (a *App) applyDeviceBaseURL(raw string) error {
-	if err := validDeviceURL(raw); err != nil {
-		return err
-	}
-	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = raw })
-	if a.store != nil {
-		if err := a.store.PutSetting(deviceBaseURLKey, raw); err != nil {
-			a.logger.Warn("device base url persist failed", "err", err)
-		}
-	}
-	return nil
-}
-
-// loadPersistedDeviceBaseURL applies a previously menu-chosen clock URL.
-func (a *App) loadPersistedDeviceBaseURL() {
-	if a.store == nil {
-		return
-	}
-	if v, ok, err := a.store.GetSetting(deviceBaseURLKey); err == nil && ok && v != "" {
-		_ = a.applyDeviceBaseURL(v)
-	}
-}
-
-// deviceSource reports where the effective clock URL came from:
-// "store" (menu override) > "config" (config.json baseline) > "discovered"
-// (mDNS auto-pick) > "none".
-func (a *App) deviceSource() string {
-	a.cfgMu.Lock()
-	cur, baseline := a.cfg.Load().AWTRIX.HTTPBaseURL, a.deviceBaseline
-	a.cfgMu.Unlock()
-	if a.store != nil {
-		// A stored override only reflects the current effective URL if it
-		// still matches it — rediscoverClock can swap away from a stale
-		// store override in-memory without touching the store entry.
-		if v, ok, _ := a.store.GetSetting(deviceBaseURLKey); ok && v == cur {
-			return "store"
-		}
-	}
-	switch {
-	case cur == "":
-		return "none"
-	case a.deviceAutoPicked.Load():
-		// Discovery set this URL at boot — even if it happens to equal the
-		// (unreachable) config.json baseline, it was reached via discovery.
-		return "discovered"
-	case cur == baseline:
-		return "config"
-	default:
-		return "discovered"
-	}
-}
-
 // initDeviceDiscovery runs once at boot (and can be re-run by the periodic
 // probe): it delegates to rediscoverClock, which checks the current effective
 // clock URL — regardless of whether it came from a store override,
 // config.json, or a prior discovery — and falls back to mDNS auto-discovery
 // if it's unreachable. A stale store override no longer permanently blocks
 // re-discovery: it's just another URL that gets checked for reachability.
+// The stored override is already live by then: settings.reapply lays it over
+// the baseline as soon as the store opens.
 func (a *App) initDeviceDiscovery(ctx context.Context) {
-	a.loadPersistedDeviceBaseURL()
 	_ = a.rediscoverClock(ctx)
 	a.refreshCapabilities(ctx)
 }
@@ -127,7 +68,7 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 
 	defer a.lastRediscoverAt.Store(time.Now().Unix())
 
-	cur := a.cfg.Load().AWTRIX.HTTPBaseURL
+	cur := a.cfg.Load().effectiveClockURL()
 	if cur != "" {
 		for i := 0; i < rediscoverProbeAttempts && ctx.Err() == nil; i++ {
 			if a.clock.reachable(ctx, cur) {
@@ -144,7 +85,7 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	cands, err := browse(ctx, 3*time.Second)
 	if err != nil || len(cands) == 0 {
 		a.lastRediscoverResult.Store("no-device")
-		a.logger.Info("clock discovery found no device", "configured", a.cfg.Load().AWTRIX.HTTPBaseURL)
+		a.logger.Info("clock discovery found no device", "configured", cur)
 		return false
 	}
 	base := cands[0].BaseURL
@@ -153,8 +94,11 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		a.lastRediscoverResult.Store("reachable")
 		return false
 	}
-	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = base }) // in-memory only; not persisted
-	a.deviceAutoPicked.Store(true)
+	if !a.swapDiscoveredClock(cur, base) {
+		// A menu PUT or a reload re-pinned the clock while we probed; that
+		// choice wins, and the next tick tests it.
+		return false
+	}
 	a.lastRediscoverResult.Store("swapped")
 	a.logger.Info("clock auto-discovered", "base_url", cands[0].BaseURL, "uid", cands[0].UID)
 	// A different clock can be a different firmware build: re-read its
@@ -357,22 +301,29 @@ func (a *App) sendRepublish(reason string, deferred bool) {
 	a.coord.Send(coordCmd{kind: cmdRepublish})
 }
 
+// handleDeviceConfigGet answers the effective clock URL and its tier. The body
+// is the resolved URL, not the stored override, so it is not the overlay view.
 func (a *App) handleDeviceConfigGet(w http.ResponseWriter, r *http.Request) {
+	url, src := a.cfg.Load().clockURL()
 	writeJSON(w, http.StatusOK, map[string]string{
-		"base_url": a.cfg.Load().AWTRIX.HTTPBaseURL,
-		"source":   a.deviceSource(),
+		"base_url": url,
+		"source":   src,
 	})
 }
 
+// handleDeviceConfigPut merges {"base_url"} into the stored override through
+// the settings overlay; an omitted base_url changes nothing. Naming base_url
+// also re-pins it: a discovery swap is cleared in the same critical section,
+// even when the URL equals the override discovery had swapped away from.
 func (a *App) handleDeviceConfigPut(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		BaseURL string `json:"base_url"`
+	pin := func(patch []byte) func(*Config) {
+		var named clockConfigDTO
+		if json.Unmarshal(patch, &named) != nil || named.BaseURL == nil {
+			return nil
+		}
+		return func(c *Config) { c.AWTRIX.clockDiscovered = "" }
 	}
-	if !a.decodeOrReject(w, r, &body, false) {
-		return
-	}
-	if err := a.applyDeviceBaseURL(body.BaseURL); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if _, ok := serveSettingPutWith(a, w, r, a.settings.clock, pin); !ok {
 		return
 	}
 	// The cached capabilities described the previous clock. Emptying the
@@ -397,7 +348,7 @@ func (a *App) handleDeviceDiscover(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"candidates": cands,
-		"effective":  a.cfg.Load().AWTRIX.HTTPBaseURL,
+		"effective":  a.cfg.Load().effectiveClockURL(),
 		"source":     a.deviceSource(),
 	})
 }

@@ -101,7 +101,7 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 	defer dev.Close()
 
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +141,7 @@ func TestDeviceActionsProxy(t *testing.T) {
 	}))
 	defer dev.Close()
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	rw := httptest.NewRecorder()
@@ -168,7 +168,7 @@ func TestDeviceProxyMapsDeviceErrorTo502(t *testing.T) {
 	}))
 	defer dev.Close()
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	// GET maps a device 500 to 502.
@@ -214,7 +214,7 @@ func TestDeviceScreenProxy(t *testing.T) {
 	}))
 	defer dev.Close()
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	rw := httptest.NewRecorder()
@@ -236,7 +236,7 @@ func TestDeviceScreenProxyMapsErrorTo502(t *testing.T) {
 	}))
 	defer dev.Close()
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	rw := httptest.NewRecorder()
@@ -268,7 +268,7 @@ func TestDeviceSettingsDuringTakeoverUsePrior(t *testing.T) {
 	defer dev.Close()
 
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	startTestTakeover(a, takeoverPrior{AutoTransition: true, BlockNavigation: false})
@@ -323,7 +323,7 @@ func TestDeviceSettingsPutDuringTakeoverFailureKeepsPrior(t *testing.T) {
 	}))
 	defer dev.Close()
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	startTestTakeover(a, takeoverPrior{AutoTransition: true})

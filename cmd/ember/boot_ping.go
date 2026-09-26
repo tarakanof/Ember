@@ -39,7 +39,7 @@ func buildBootCallbackURL(ip, addr string) string {
 // use to reach the clock, plus this server's listen port.
 func (a *App) expectedBootCallback() string {
 	cfg := a.cfg.Load()
-	return buildBootCallbackURL(outboundIP(clockHost(cfg.AWTRIX.HTTPBaseURL)), cfg.HTTP.Addr)
+	return buildBootCallbackURL(outboundIP(clockHost(cfg.effectiveClockURL())), cfg.HTTP.Addr)
 }
 
 // handleAwtrixBoot ingests the boot ping from the clock's ember-boot-ping

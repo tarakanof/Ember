@@ -22,7 +22,6 @@ func newTestAppWithStore(t *testing.T) *App {
 
 func TestDeviceConfigSourcePrecedence(t *testing.T) {
 	a := newTestAppWithStore(t)
-	a.deviceBaseline = "http://192.168.0.14"
 	cur := *a.cfg.Load()
 	cur.AWTRIX.HTTPBaseURL = "http://192.168.0.14"
 	a.cfg.Store(&cur)
@@ -30,27 +29,27 @@ func TestDeviceConfigSourcePrecedence(t *testing.T) {
 	if got := a.deviceSource(); got != "config" {
 		t.Fatalf("source=%q want config", got)
 	}
-	if err := a.applyDeviceBaseURL("http://10.0.0.5"); err != nil {
+	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
 		t.Fatal(err)
 	}
 	if got := a.deviceSource(); got != "store" {
 		t.Fatalf("source=%q want store", got)
 	}
-	if got := a.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://10.0.0.5" {
+	if got := a.cfg.Load().effectiveClockURL(); got != "http://10.0.0.5" {
 		t.Fatalf("effective url=%q", got)
 	}
 }
 
 func TestDeviceSourceDiscoveredAndNone(t *testing.T) {
 	a := newTestAppWithStore(t)
-	a.deviceBaseline = "" // config.json had nothing
 	cur := *a.cfg.Load()
-	cur.AWTRIX.HTTPBaseURL = "http://10.0.0.9" // came from discovery
+	cur.AWTRIX.HTTPBaseURL = ""                    // config.json had nothing
+	cur.AWTRIX.clockDiscovered = "http://10.0.0.9" // came from discovery
 	a.cfg.Store(&cur)
 	if got := a.deviceSource(); got != "discovered" {
 		t.Fatalf("source=%q want discovered", got)
 	}
-	cur.AWTRIX.HTTPBaseURL = ""
+	cur.AWTRIX.clockDiscovered = ""
 	a.cfg.Store(&cur)
 	if got := a.deviceSource(); got != "none" {
 		t.Fatalf("source=%q want none", got)

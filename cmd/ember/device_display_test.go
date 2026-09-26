@@ -57,7 +57,7 @@ func TestDeviceDisplayProxy(t *testing.T) {
 	}))
 	defer dev.Close()
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,7 +101,7 @@ func TestDeviceAppsProxy(t *testing.T) {
 	}))
 	defer dev.Close()
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,7 +144,7 @@ func TestDeviceDisplayAppsMapDeviceErrorTo502(t *testing.T) {
 	}))
 	defer dev.Close()
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL(dev.URL); err != nil {
+	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
 	gw := httptest.NewRecorder()

@@ -105,14 +105,10 @@ type App struct {
 	iconFetch func(ctx context.Context, id string) (data []byte, ext string, err error)
 	iconMu    sync.Mutex
 
-	// deviceBaseline is the clock URL from config.json (captured at boot and
-	// updated when /admin/reload applies a changed file URL), before any store
-	// override or auto-discovery. deviceSource() uses it to tell "config" from
-	// "discovered". Guarded by cfgMu. browseFn is the mDNS browse, overridable in tests.
-	deviceBaseline   string
-	deviceAutoPicked atomic.Bool // set by rediscoverClock (boot or watch goroutine) when discovery chose the clock URL
-	republish        republishGate
-	browseFn         func(context.Context, time.Duration) ([]discovery.Candidate, error)
+	// browseFn is the mDNS browse, overridable in tests. The clock URL's
+	// tiers live in Config (see clock_url.go).
+	republish republishGate
+	browseFn  func(context.Context, time.Duration) ([]discovery.Candidate, error)
 
 	// deviceRediscoverMu single-flights rediscoverClock so the boot check and
 	// the periodic probe can't browse mDNS concurrently. lastRediscoverAt /
@@ -152,15 +148,14 @@ type App struct {
 // clockAccess); tests pass a fake Publisher instead.
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
-		publisher:      publisher,
-		logger:         logger,
-		versionInfo:    computeVersionInfo(),
-		startedAt:      time.Now(),
-		usage:          newUsageStore(),
-		weather:        newWeatherStore(),
-		activityLast:   make(map[string]activityMark),
-		deviceBaseline: cfg.AWTRIX.HTTPBaseURL,
-		browseFn:       discovery.BrowseAWTRIX,
+		publisher:    publisher,
+		logger:       logger,
+		versionInfo:  computeVersionInfo(),
+		startedAt:    time.Now(),
+		usage:        newUsageStore(),
+		weather:      newWeatherStore(),
+		activityLast: make(map[string]activityMark),
+		browseFn:     discovery.BrowseAWTRIX,
 	}
 	a.weatherFetcher = newWeatherFetcher()
 	a.meetings = newMeetingsStore()

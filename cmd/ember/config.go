@@ -296,7 +296,15 @@ type HTTPConfig struct {
 }
 
 type AWTRIXConfig struct {
-	HTTPBaseURL    string `json:"http_base_url"`
+	// HTTPBaseURL is the config.json baseline only. The URL to dial is
+	// Config.clockURL(), which also weighs the runtime tiers below.
+	HTTPBaseURL string `json:"http_base_url"`
+	// clockOverride (menu pick, via the settings overlay) and clockDiscovered
+	// (in-memory discovery swap) are the clock URL's runtime tiers; see
+	// clock_url.go. Unexported, so config.json and diffConfig never see them.
+	clockOverride   string
+	clockDiscovered string
+
 	AppName        string `json:"app_name"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	// AutoRediscover gates the periodic StartDeviceWatch probe loop (see

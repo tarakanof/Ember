@@ -102,8 +102,8 @@ func TestButtonHook_RejectsOversizedBody(t *testing.T) {
 	}
 }
 
-// deviceAutoPicked is written by the watch goroutine (rediscoverClock) and read
-// by HTTP handlers (deviceSource). Run both at once under -race.
+// The discovered tier is written by the watch goroutine (rediscoverClock) and
+// read by HTTP handlers (deviceSource). Run both at once under -race.
 func TestDeviceAutoPicked_ConcurrentAccess(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
@@ -130,8 +130,8 @@ func TestDeviceAutoPicked_ConcurrentAccess(t *testing.T) {
 		}
 	}()
 	wg.Wait()
-	if !a.deviceAutoPicked.Load() {
-		t.Fatal("deviceAutoPicked not set after swap")
+	if a.deviceSource() != clockSourceDiscovered {
+		t.Fatal("source not discovered after swap")
 	}
 }
 
@@ -181,10 +181,10 @@ func TestRediscoverClock_SameURLIsNotASwap(t *testing.T) {
 			if a.rediscoverClock(context.Background()) {
 				t.Fatal("rediscovering the current URL reported a swap")
 			}
-			if a.deviceAutoPicked.Load() {
-				t.Fatal("deviceAutoPicked set without a swap")
+			if a.deviceSource() == clockSourceDiscovered {
+				t.Fatal("source discovered without a swap")
 			}
-			if got := a.cfg.Load().AWTRIX.HTTPBaseURL; got != c.cur {
+			if got := a.cfg.Load().effectiveClockURL(); got != c.cur {
 				t.Fatalf("base URL = %q, want unchanged %q", got, c.cur)
 			}
 		})

@@ -758,11 +758,11 @@ func postReload(t *testing.T, app *App, path, body string) {
 // that discovery swapped in.
 func TestAdminReload_KeepsDiscoveredClockURL(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"old"}}`)
-	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" }) // what rediscoverClock does
+	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" }) // what rediscoverClock does
 
 	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"new"}}`)
 
-	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+	if got := app.cfg.Load().effectiveClockURL(); got != "http://5.6.7.8" {
 		t.Errorf("clock URL after reload = %q, want the discovered http://5.6.7.8", got)
 	}
 	if got := app.cfg.Load().Display.IdleText; got != "new" {
@@ -778,14 +778,14 @@ func TestAdminReload_KeepsDiscoveredOverStaleStoreOverride(t *testing.T) {
 	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.applyDeviceBaseURL("http://10.0.0.1"); err != nil { // menu override, since gone dead
+	if err := putClockOverride(app, "http://10.0.0.1"); err != nil { // menu override, since gone dead
 		t.Fatal(err)
 	}
-	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" })
 
 	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"x"}}`)
 
-	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+	if got := app.cfg.Load().effectiveClockURL(); got != "http://5.6.7.8" {
 		t.Errorf("clock URL after reload = %q, want the discovered http://5.6.7.8", got)
 	}
 }
@@ -795,8 +795,7 @@ func TestAdminReload_KeepsDiscoveredOverStaleStoreOverride(t *testing.T) {
 // if discovery had picked the clock at boot.
 func TestAdminReload_FileClockURLChangeReportsConfigSource(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
-	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
-	app.deviceAutoPicked.Store(true) // what rediscoverClock does
+	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" })
 	if got := app.deviceSource(); got != "discovered" {
 		t.Fatalf("before reload: source = %q, want discovered", got)
 	}
@@ -815,13 +814,13 @@ func TestAdminReload_StoreOverrideBeatsChangedFileURL(t *testing.T) {
 	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.applyDeviceBaseURL("http://10.0.0.1"); err != nil {
+	if err := putClockOverride(app, "http://10.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 
 	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"}}`)
 
-	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://10.0.0.1" {
+	if got := app.cfg.Load().effectiveClockURL(); got != "http://10.0.0.1" {
 		t.Errorf("clock URL = %q, want the store override http://10.0.0.1", got)
 	}
 	if got := app.deviceSource(); got != "store" {
@@ -833,16 +832,16 @@ func TestAdminReload_StoreOverrideBeatsChangedFileURL(t *testing.T) {
 // file's clock URL still takes effect, including on a second edit.
 func TestAdminReload_FileClockURLChangeApplies(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
-	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" })
 
 	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"}}`)
-	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://9.9.9.9" {
+	if got := app.cfg.Load().effectiveClockURL(); got != "http://9.9.9.9" {
 		t.Fatalf("clock URL after file edit = %q, want http://9.9.9.9", got)
 	}
 
-	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://5.6.7.8" })
+	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" })
 	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://9.9.9.9"},"display":{"idle_text":"y"}}`)
-	if got := app.cfg.Load().AWTRIX.HTTPBaseURL; got != "http://5.6.7.8" {
+	if got := app.cfg.Load().effectiveClockURL(); got != "http://5.6.7.8" {
 		t.Errorf("clock URL after unrelated edit = %q, want the discovered http://5.6.7.8", got)
 	}
 }
