@@ -17,14 +17,14 @@ public enum PomoPhase: Hashable, Sendable {
     }
 
     /// "Focus", "Short Break", "Long Break".
-    public var displayName: String {
+    public var displayName: LocalizedStringResource {
         switch self {
         case .idle: "Idle"
         case .focus: "Focus"
         case .shortBreak: "Short Break"
         case .longBreak: "Long Break"
         case .unknown(let s):
-            s.split(separator: "_").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+            "\(s.split(separator: "_").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " "))"
         }
     }
 

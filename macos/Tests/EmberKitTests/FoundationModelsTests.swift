@@ -101,12 +101,12 @@ private let pomoConfigJSON = #"""
     ("idle", "Idle"), ("", "Idle"), ("deep_work", "Deep Work"),
 ])
 func phaseDisplayNames(wire: String, name: String) {
-    #expect(PomoPhase(wire: wire).displayName == name)
+    #expect(PomoPhase(wire: wire).displayName.text == name)
 }
 
 @Test func shortBreakNeverRendersWithAnUnderscore() {
     // Regression for audit #10: `"short_break".capitalized` is "Short_Break".
-    #expect(!PomoPhase(wire: "short_break").displayName.contains("_"))
+    #expect(!PomoPhase(wire: "short_break").displayName.text.contains("_"))
     #expect(PomoPhase(wire: "short_break").isBreak)
     #expect(!PomoPhase.focus.isBreak)
 }
@@ -127,8 +127,8 @@ private func pomo(_ phase: String, running: Bool, paused: Bool) -> PomoState {
     #expect(Session.State(wire: "running") == .running)
     #expect(Session.State(wire: "") == .idle)
     #expect(Session.State(wire: "thinking") == .unknown("thinking"))
-    #expect(Session.State(wire: "thinking").displayName == "Thinking")
-    #expect(Session.State.waiting.displayName == "Waiting")
+    #expect(Session.State(wire: "thinking").displayName.text == "Thinking")
+    #expect(Session.State.waiting.displayName.text == "Waiting")
     #expect(Session.State.running.wire == "running")
     #expect(Session.State.error.color == stateColorRGB("error"))
 }

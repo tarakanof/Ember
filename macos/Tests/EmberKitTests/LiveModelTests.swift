@@ -263,3 +263,73 @@ private final class Flag: @unchecked Sendable {
     #expect(m.screen.value?.first == 0xFF0000)
     hold.cancel()
 }
+
+@MainActor @Test func reconfiguringTheSameServerKeepsEveryValue() async {
+    let client = stubbedClient { req in (okResponse(req.url!), sessionJSON("claude")) }
+    let m = makeModel()
+    m.configure(client: client)
+    await m.refreshNow(.state)
+    // A Connection save of the source name rebuilds an identical client.
+    m.configure(client: APIClient(baseURL: client.baseURL, token: client.token))
+    #expect(m.connection.isOnline)
+    #expect(m.winningSession?.tool == "claude")
+}
+
+@MainActor @Test func anUnchangedPollDoesNotNotifyObservers() async {
+    let client = stubbedClient { req in (okResponse(req.url!), sessionJSON("claude")) }
+    var now = Date(timeIntervalSince1970: 1)
+    let clock = ManualClock()
+    let m = LiveModel(now: { now }, makeCoordinator: {
+        RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
+    })
+    m.configure(client: client)
+    await m.refreshNow(.state)
+    now = Date(timeIntervalSince1970: 2)
+    let changed = Flag()
+    withObservationTracking { _ = m.snapshot } onChange: { changed.set() }
+    await m.refreshNow(.state)
+    #expect(!changed.isSet)
+    #expect(m.snapshot.loadedAt == Date(timeIntervalSince1970: 1))
+    #expect(m.lastFetched(.state) == Date(timeIntervalSince1970: 2))
+}
+
+@MainActor @Test func aFailureCountsStalenessFromTheLastFetch() async {
+    let fail = Box(false)
+    let client = stubbedClient { req in
+        fail.value ? (okResponse(req.url!, status: 500), Data()) : (okResponse(req.url!), Data(statsJSON.utf8))
+    }
+    var now = Date(timeIntervalSince1970: 10)
+    let clock = ManualClock()
+    let m = LiveModel(now: { now }, makeCoordinator: {
+        RefreshCoordinator(fetch: $0, sleep: clock.sleepFn, now: clock.nowFn)
+    })
+    m.configure(client: client)
+    await m.refreshNow(.stats)
+    now = Date(timeIntervalSince1970: 70)
+    await m.refreshNow(.stats)                 // same value, fetched at 70
+    fail.value = true
+    await m.refreshNow(.stats)
+    #expect(m.stats.loadedAt == Date(timeIntervalSince1970: 70))
+    #expect(m.stats.isStale)
+}
+
+@MainActor @Test func aMirrorAppearingRereadsTheClockAddress() async {
+    let configReads = LockedBox()
+    let client = stubbedClient { req in
+        if req.url!.path == "/v1/device/config" {
+            configReads.add("config")
+            return (okResponse(req.url!, status: 401), Data())
+        }
+        return (okResponse(req.url!, status: 404), Data())
+    }
+    let m = makeModel()
+    m.configure(client: client)
+    for _ in 0..<2 {
+        let hold = Task { await m.track(.screen) }
+        for _ in 0..<200 where !m.isTracked(.screen) { await Task.yield() }
+        await m.refreshNow(.screen)
+        hold.cancel()
+        await hold.value
+    }
+    #expect(configReads.paths.count == 2)
+}

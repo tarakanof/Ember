@@ -3,7 +3,7 @@ import Foundation
 /// Display names for app and tool wire names, so the UI never shows
 /// "ember-weather" or "claude".
 public enum AppNames {
-    private static let known: [String: String] = [
+    private static let known: [String: LocalizedStringResource] = [
         "claude": "Claude",
         "codex": "Codex",
         "weather": "Weather",
@@ -22,7 +22,7 @@ public enum AppNames {
 
     /// "claude" → "Claude", "ember-weather" → "Weather", "ember-usage-claude"
     /// → "Usage"; anything unknown is title-cased ("my_app" → "My App").
-    public static func display(_ wireName: String) -> String {
+    public static func display(_ wireName: String) -> LocalizedStringResource {
         let lower = wireName.lowercased()
         let name = lower.hasPrefix("ember-") ? String(lower.dropFirst("ember-".count)) : lower
         if let hit = known[name] { return hit }
@@ -31,7 +31,8 @@ public enum AppNames {
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
             .split(separator: " ")
-        guard !words.isEmpty else { return wireName }
-        return words.map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+        // Unknown names aren't translatable; "%@" passes them through.
+        let titled = words.map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+        return "\(words.isEmpty ? wireName : titled)"
     }
 }

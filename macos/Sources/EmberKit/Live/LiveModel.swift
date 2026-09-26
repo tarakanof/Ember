@@ -57,6 +57,10 @@ public final class LiveModel {
     @ObservationIgnored private var clockBaseURL: String?
     /// `start()` was called; a later `configure` with a URL starts polling.
     @ObservationIgnored private var wantsStart = false
+    @ObservationIgnored private var server: ServerIdentity?
+    /// When each feed last fetched successfully. Not observed: a poll that
+    /// returns the same value doesn't re-render anything.
+    @ObservationIgnored private var fetchedAt: [Feed: Date] = [:]
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "live")
 
@@ -105,9 +109,16 @@ public final class LiveModel {
 
     /// Points every feed at a new server. Values from the old one are dropped
     /// (they describe another setup); a client without a URL leaves the model
-    /// `.unconfigured` and idle.
+    /// `.unconfigured` and idle. A client for the same URL and token (a
+    /// Connection save of the source name or colour) changes nothing, so the
+    /// menu and bot don't blink back to "Connecting…".
     public func configure(client: APIClient) {
+        let identity = ServerIdentity(client)
+        guard identity != server else { return }
+        server = identity
         generation += 1
+        coordinator.forgetInFlight()
+        fetchedAt.removeAll()
         issued.removeAll()
         stateFailures = 0
         firstFailureAt = nil
@@ -153,6 +164,9 @@ public final class LiveModel {
     }
 
     public func track(_ feeds: [Feed]) async {
+        // A mirror appearing re-reads the clock's address, as it did before
+        // the feed existed: the first lookup may have failed (no token yet).
+        if feeds.contains(.screen), !isTracked(.screen) { clockBaseURL = nil }
         coordinator.hold(feeds)
         defer { coordinator.release(feeds) }
         while !Task.isCancelled {
@@ -173,6 +187,11 @@ public final class LiveModel {
 
     /// Whether a view currently holds the feed.
     public func isTracked(_ feed: Feed) -> Bool { coordinator.holdCount(feed) > 0 }
+
+    /// When the feed last fetched successfully, even if the value didn't
+    /// change (`Loadable.loadedAt` is when the value last changed). Not
+    /// observable; read it when rendering for another reason.
+    public func lastFetched(_ feed: Feed) -> Date? { fetchedAt[feed] }
 
     private func resetValues() {
         snapshot = .loading
@@ -228,13 +247,34 @@ public final class LiveModel {
         let ticket = issue(feed)
         do {
             let value = try await op()
-            if isCurrent(feed, ticket) { self[keyPath: keyPath] = .loaded(value, at: clock()) }
+            if isCurrent(feed, ticket) { applySuccess(feed, keyPath, value) }
             return .ok
         } catch {
             let e = FeedError(error)
-            if isCurrent(feed, ticket) { self[keyPath: keyPath] = self[keyPath: keyPath].afterFailure(e) }
+            if isCurrent(feed, ticket) { applyFailure(feed, keyPath, e) }
             return .failed(e, retryAfter: (error as? APIError)?.retryAfter)
         }
+    }
+
+    /// Publishes a fetched value only when it differs from what's shown, so
+    /// an unchanged 3 s poll doesn't invalidate every observer.
+    private func applySuccess<T: Sendable & Equatable>(
+        _ feed: Feed, _ keyPath: ReferenceWritableKeyPath<LiveModel, Loadable<T>>, _ value: T
+    ) {
+        let now = clock()
+        fetchedAt[feed] = now
+        if case .loaded(let current, _) = self[keyPath: keyPath], current == value { return }
+        self[keyPath: keyPath] = .loaded(value, at: now)
+    }
+
+    /// Keeps the last value, stamped with the last successful fetch so a
+    /// stale chip counts from then, not from when the value last changed.
+    private func applyFailure<T: Sendable & Equatable>(
+        _ feed: Feed, _ keyPath: ReferenceWritableKeyPath<LiveModel, Loadable<T>>, _ e: FeedError
+    ) {
+        let current = self[keyPath: keyPath]
+        let next = Loadable<T>.failed(e, last: current.value, lastAt: fetchedAt[feed] ?? current.loadedAt)
+        if next != current { self[keyPath: keyPath] = next }
     }
 
     private func fetchState(_ s: Services) async -> FeedTick {
@@ -243,7 +283,7 @@ public final class LiveModel {
             let snap = try await s.status.fetchSnapshot()
             guard isCurrent(.state, ticket) else { return .ok }
             let now = clock()
-            snapshot = .loaded(snap, at: now)
+            applySuccess(.state, \.snapshot, snap)
             stateFailures = 0
             firstFailureAt = nil
             if case .online = connection {} else { connection = .online(since: now) }
@@ -267,7 +307,7 @@ public final class LiveModel {
                 connection = .offline(since: firstFailureAt ?? now)
                 Self.log.info("server offline after \(self.stateFailures, privacy: .public) failed polls")
             }
-            snapshot = snapshot.afterFailure(e)
+            applyFailure(.state, \.snapshot, e)
         } else if connection.isOnline {
             connection = .degraded(failures: stateFailures)
         }
@@ -313,9 +353,9 @@ public final class LiveModel {
         let next = mirror.endTick(havePixels: pixels != nil)
         if isCurrent(.screen, ticket) {
             if let pixels {
-                screen = .loaded(pixels, at: clock())
+                applySuccess(.screen, \.screen, pixels)
             } else {
-                screen = screen.afterFailure(failure ?? .offline)
+                applyFailure(.screen, \.screen, failure ?? .offline)
             }
         }
         // The pacer already folded any 429 into `next`.

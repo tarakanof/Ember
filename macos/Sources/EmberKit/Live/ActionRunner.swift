@@ -20,7 +20,9 @@ public enum EmberAction: Hashable, Sendable {
     /// The feeds whose values the action changes.
     var affectedFeeds: [Feed] {
         switch self {
-        case .pomodoro: [.pomodoroState, .stats]
+        // Stats follow from the timer: LiveModel refreshes them when the
+        // phase changes, so they aren't fetched twice per action.
+        case .pomodoro: [.pomodoroState]
         case .setApp: [.apps]
         case .clock(.power): [.clockHealth]
         case .clock(.reboot): []

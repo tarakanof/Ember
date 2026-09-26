@@ -5,7 +5,7 @@ import Foundation
 public struct PomodoroItem: Hashable, Sendable, Identifiable {
     public let action: PomodoroAction
     /// Title-case menu title ("Start Focus").
-    public let title: String
+    public let title: LocalizedStringResource
     /// SF Symbol.
     public let systemImage: String
     /// The key for ⇧⌘-key, on the one context-sensitive primary item
@@ -13,6 +13,10 @@ public struct PomodoroItem: Hashable, Sendable, Identifiable {
     public let shortcutKey: Character?
 
     public var id: PomodoroAction { action }
+
+    // One item per action: the rest is derived from it.
+    public static func == (a: PomodoroItem, b: PomodoroItem) -> Bool { a.action == b.action }
+    public func hash(into h: inout Hasher) { h.combine(action) }
 }
 
 /// The single source of which Pomodoro controls apply to a timer state.

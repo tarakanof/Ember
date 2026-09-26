@@ -83,6 +83,8 @@ final class RefreshCoordinator {
     private var pacing: [Feed: FeedPacing] = [:]
     private var floors: [Feed: Duration] = [:]
     private var lastTick: [Feed: Duration] = [:]
+    /// The fetch running for each feed; a second request joins it.
+    private var inFlight: [Feed: Task<FeedTick, Never>] = [:]
 
     init(fetch: @escaping Fetch, sleep: @escaping Sleep, now: @escaping Now) {
         self.fetch = fetch
@@ -159,11 +161,16 @@ final class RefreshCoordinator {
     /// server).
     func restart() {
         cancelAll()
+        inFlight.removeAll()
         lastTick.removeAll()
         pacing.removeAll()
         floors.removeAll()
         reconcileAll()
     }
+
+    /// Stops joining fetches already running: after a server change their
+    /// answers are dropped, so a new request must not wait on them.
+    func forgetInFlight() { inFlight.removeAll() }
 
     // MARK: Holds
 
@@ -200,11 +207,15 @@ final class RefreshCoordinator {
         for task in running { _ = await task.value }
     }
 
+    /// Fetches the feed, or joins the fetch already running for it, so a
+    /// menu open, a phase change and a poll landing together cost one request.
     @discardableResult
     func tick(_ feed: Feed) async -> FeedTick {
-        let result = await fetch(feed)
-        // A cancelled fetch (hold released, sleep) says nothing about the server.
-        guard !Task.isCancelled else { return result }
+        if let running = inFlight[feed] { return await running.value }
+        let task = Task { await self.fetch(feed) }
+        inFlight[feed] = task
+        let result = await task.value
+        if inFlight[feed] == task { inFlight[feed] = nil }
         lastTick[feed] = now()
         floors[feed] = pacing[feed, default: FeedPacing()].record(result, tier: feed.tier)
         return result

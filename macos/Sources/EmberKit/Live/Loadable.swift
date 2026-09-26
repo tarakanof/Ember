@@ -5,6 +5,8 @@ import Foundation
 public enum Loadable<T: Sendable & Equatable>: Equatable, Sendable {
     /// Never loaded (or reset by a server change).
     case loading
+    /// `at` is when this value was first fetched: a poll returning the same
+    /// value doesn't change it (see `LiveModel.lastFetched`).
     case loaded(T, at: Date)
     /// The latest attempt failed. `last`/`lastAt` are the previous good value,
     /// nil when there never was one.

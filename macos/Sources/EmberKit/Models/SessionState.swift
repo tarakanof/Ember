@@ -32,14 +32,15 @@ extension Session {
         }
 
         /// Title-case name for the UI ("Running").
-        public var displayName: String {
+        public var displayName: LocalizedStringResource {
             switch self {
             case .running: "Running"
             case .waiting: "Waiting"
             case .done: "Done"
             case .error: "Error"
             case .idle: "Idle"
-            case .unknown(let s): s.isEmpty ? "Unknown" : s.prefix(1).uppercased() + s.dropFirst()
+            case .unknown(let s):
+                s.isEmpty ? "Unknown" : "\(s.prefix(1).uppercased() + s.dropFirst())"
             }
         }
 

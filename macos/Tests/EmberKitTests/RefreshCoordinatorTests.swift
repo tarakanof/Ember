@@ -242,3 +242,20 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     }
     #expect(Feed.alwaysOn == [.state, .pomodoroState, .stats, .usage, .meetings, .apps])
 }
+
+@MainActor @Test func concurrentRequestsForAFeedShareOneFetch() async {
+    let clock = ManualClock()
+    let feeds = FakeFeeds()
+    let c = RefreshCoordinator(fetch: { feed in
+        let r = await feeds.fetch(feed)
+        try? await clock.sleep(.seconds(1))
+        return r
+    }, sleep: clock.sleepFn, now: clock.nowFn)
+    let a = Task { await c.refreshNow([.stats]) }
+    let b = Task { await c.refreshNow([.stats]) }
+    await clock.settle()
+    await clock.advance(by: .seconds(1))
+    await a.value
+    await b.value
+    #expect(feeds.count(.stats) == 1)
+}

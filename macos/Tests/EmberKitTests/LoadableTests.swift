@@ -48,6 +48,7 @@ private let t0 = Date(timeIntervalSince1970: 100)
 @Test(arguments: [
     (APIError.http(status: 401, body: ""), FeedError.unauthorized),
     (APIError.http(status: 404, body: ""), FeedError.featureOff),
+    (APIError.http(status: 405, body: ""), FeedError.featureOff),
     (APIError.rateLimited(retryAfter: .seconds(1)), FeedError.rateLimited),
     (APIError.transport("down"), FeedError.offline),
     (APIError.notConfigured, FeedError.offline),

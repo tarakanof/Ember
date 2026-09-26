@@ -11,17 +11,17 @@ private func session(_ json: String) throws -> Session {
 @Test func sessionTitleReadsLikeASentence() throws {
     let s = try session(#"{"source":"m4","tool":"claude","state":"running","activity":"Bash: sed -n 1,237p","message":"Bash","context_pct":8}"#)
     let p = SessionPresentation(s)
-    #expect(p.title == "Claude on m4 — Running")
-    #expect(p.toolDisplayName == "Claude")
-    #expect(p.stateName == "Running")
+    #expect(p.title.text == "Claude on m4 — Running")
+    #expect(p.toolDisplayName.text == "Claude")
+    #expect(p.stateName.text == "Running")
     #expect(p.subtitle == "Bash: sed -n 1,237p")
-    #expect(p.contextText(locale: en) == "8% context")
+    #expect(p.contextText(locale: en)?.text == "8% context")
 }
 
 @Test func sessionPresentationFallsBack() throws {
     let s = try session(#"{"tool":"codex","state":"waiting","message":"needs input"}"#)
     let p = SessionPresentation(s)
-    #expect(p.title == "Codex — Waiting")
+    #expect(p.title.text == "Codex — Waiting")
     #expect(p.subtitle == "needs input")
     #expect(p.contextText(locale: en) == nil)
     #expect(SessionPresentation(try session(#"{"tool":"codex","state":"done"}"#)).subtitle == nil)
@@ -33,7 +33,7 @@ private func session(_ json: String) throws -> Session {
     ("ember-usage-claude", "Usage"), ("my_app", "My App"), ("Time", "Time"), ("", ""),
 ])
 func appDisplayNames(wire: String, name: String) {
-    #expect(AppNames.display(wire) == name)
+    #expect(AppNames.display(wire).text == name)
 }
 
 @Test func remainingIsMinutesAndSeconds() {
@@ -81,18 +81,18 @@ private func pomo(_ phase: String, running: Bool = false, paused: Bool = false) 
 @Test func onlyThePrimaryControlCarriesTheShortcut() {
     let running = PomodoroControls.items(for: pomo("focus", running: true))
     #expect(running.map(\.shortcutKey) == ["p", nil, nil])
-    #expect(running.map(\.title) == ["Pause", "Skip Phase", "Stop"])
+    #expect(running.map(\.title.text) == ["Pause", "Skip Phase", "Stop"])
     #expect(running.map(\.systemImage) == ["pause.fill", "forward.end.fill", "stop.fill"])
-    #expect(PomodoroControls.items(for: nil).first?.title == "Start Focus")
+    #expect(PomodoroControls.items(for: nil).first?.title.text == "Start Focus")
 }
 
 @Test func connectionSubtitles() {
     let utc = TimeZone(identifier: "UTC")!
     let since = Date(timeIntervalSince1970: 10 * 3600 + 42 * 60)
-    #expect(ConnectionHealth.unconfigured.subtitle(serverHost: nil) == "Not set up")
-    #expect(ConnectionHealth.connecting.subtitle(serverHost: "192.168.0.2") == "Connecting to 192.168.0.2…")
-    #expect(ConnectionHealth.online(since: since).subtitle(serverHost: "192.168.0.2") == "Connected to 192.168.0.2")
-    #expect(ConnectionHealth.degraded(failures: 1).subtitle(serverHost: "") == "Connected")
-    #expect(ConnectionHealth.offline(since: since).subtitle(serverHost: "h", locale: en, timeZone: utc)
+    #expect(ConnectionHealth.unconfigured.subtitle(serverHost: nil).text == "Not set up")
+    #expect(ConnectionHealth.connecting.subtitle(serverHost: "192.168.0.2").text == "Connecting to 192.168.0.2…")
+    #expect(ConnectionHealth.online(since: since).subtitle(serverHost: "192.168.0.2").text == "Connected to 192.168.0.2")
+    #expect(ConnectionHealth.degraded(failures: 1).subtitle(serverHost: "").text == "Connected")
+    #expect(ConnectionHealth.offline(since: since).subtitle(serverHost: "h", locale: en, timeZone: utc).text
         .hasPrefix("Offline since 10:42"))
 }

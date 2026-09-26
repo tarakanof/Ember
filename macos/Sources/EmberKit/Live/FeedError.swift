@@ -8,7 +8,7 @@ public enum FeedError: Error, Equatable, Sendable {
     case unauthorized
     /// 429: the server's per-IP limiter is throttling this Mac.
     case rateLimited
-    /// 404: the feature is off, or the server predates the route.
+    /// 404/405: the feature is off, or the server predates the route.
     case featureOff
     /// Anything else, with the server's message.
     case server(String)
@@ -35,20 +35,25 @@ public enum FeedError: Error, Equatable, Sendable {
         case .notConfigured, .transport: self = .offline
         case .rateLimited: self = .rateLimited
         case .http(401, _): self = .unauthorized
-        case .http(404, _): self = .featureOff
+        // 405: a server that has only the POST of a route this app reads
+        // (/v1/usage before 0.28) — the read is just as missing as a 404.
+        case .http(404, _), .http(405, _): self = .featureOff
         case .http, .decoding: self = .server(api.localizedDescription)
         }
     }
 }
 
 extension FeedError: LocalizedError {
-    public var errorDescription: String? {
+    /// What went wrong, for a status row or an alert.
+    public var message: LocalizedStringResource {
         switch self {
         case .offline: "Server unreachable"
         case .unauthorized: "Unauthorized — check the token in Connection settings."
         case .rateLimited: "The server is rate-limiting this Mac."
         case .featureOff: "Not available — the feature is off or the server is too old."
-        case .server(let message): message
+        case .server(let message): "Server error: \(message)"
         }
     }
+
+    public var errorDescription: String? { String(localized: message) }
 }

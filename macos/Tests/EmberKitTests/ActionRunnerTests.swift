@@ -39,7 +39,7 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     return (runner, live)
 }
 
-@MainActor @Test func pomodoroActionPostsAndRefreshesTimerAndStats() async {
+@MainActor @Test func pomodoroActionPostsAndRefreshesTheTimer() async {
     let server = Server()
     let (runner, live) = setup(server)
     let ok = await runner.run(.pomodoro(.start))
@@ -47,7 +47,8 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     #expect(runner.lastError == nil)
     #expect(server.requests.contains("POST /v1/pomodoro/start"))
     #expect(server.requests.contains("GET /v1/pomodoro/state"))
-    #expect(server.requests.contains("GET /v1/pomodoro/stats"))
+    // Stats follow a phase change (LiveModelTests), not every action.
+    #expect(!server.requests.contains("GET /v1/pomodoro/stats"))
     #expect(live.pomodoro.value?.phaseEnum == .focus)
     #expect(runner.running.isEmpty)
 }
