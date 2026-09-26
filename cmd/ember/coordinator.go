@@ -139,8 +139,10 @@ type coordinator struct {
 	// to reconcile, which may do one more device write under it. GET
 	// /v1/device/settings takes it on both sides of its clock read, so behind
 	// a locked edit or restore it can wait about twice menuCallTimeout plus
-	// its own read.
-	priorMu sync.Mutex
+	// its own read. A menu edit's waits give up at its clockWriteBudget
+	// (applyMenuSettings); every other taker waits (Lock), so it is a
+	// ctxLock, built in newCoordinator.
+	priorMu ctxLock
 	// priorGen counts snapshot records and clears (setPrior), so an unlocked
 	// menu edit can tell a takeover edge ran during its device write. Guarded
 	// by priorMu.
@@ -268,6 +270,7 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 	}
 	return &coordinator{
 		loadCfg:   loadCfg,
+		priorMu:   newCtxLock(),
 		publisher: publisher,
 		clk:       clk,
 		logger:    logger,

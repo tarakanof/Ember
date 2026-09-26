@@ -68,7 +68,7 @@ public enum LocalNetworkProbe {
     static func serverOutcome(for error: Error) -> ServerOutcome {
         switch error as? APIError {
         case .localNetworkDenied?: return .denied
-        case .http?, .rateLimited?, .decoding?: return .reachable
+        case .http?, .rateLimited?, .clockTimedOut?, .decoding?: return .reachable
         case .notConfigured?: return .notApplicable
         case .transport?, .timedOut?, nil: return .unreachable
         }

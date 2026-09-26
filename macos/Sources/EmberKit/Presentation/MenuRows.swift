@@ -336,6 +336,8 @@ public enum MenuRows {
         case .unauthorized: "unauthorized"
         case .rateLimited: "rate-limited"
         case .featureOff: "not supported by this server"
+        case .clockTimedOut: LocalizedStringResource("clock didn't finish in time",
+                                                     comment: "Short reason after a failed menu action: the clock was too slow to finish it.")
         case .server: "server error"
         }
     }

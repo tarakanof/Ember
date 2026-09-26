@@ -37,6 +37,7 @@ public enum ConnectionProbe {
         case .notConfigured: return .notConfigured
         case .http(401, _): return .unauthorized
         case .http(let status, _): return .serverError(status: status)
+        case .clockTimedOut: return .serverError(status: 504)
         // The limiter sits in front of auth: reachable, token untested.
         case .rateLimited: return .rateLimited
         case .transport: return .unreachable

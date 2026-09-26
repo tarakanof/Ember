@@ -273,13 +273,21 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	held, err := a.coord.applyMenuSettings(m, func(m map[string]any) error {
+	// The priorMu waits and both PATCHes share clockWriteBudget; out of it,
+	// the answer is a 504 saying whether a PATCH landed.
+	ctx, cancel := a.clock.writeContext(r.Context())
+	defer cancel()
+	landed := false
+	held, err := a.coord.applyMenuSettings(ctx, m, func(m map[string]any) error {
 		payload, _ := json.Marshal(m)
-		_, err := a.clock.fetch(r.Context(), withBody((*awtrix.Client).RawPatchSettings, payload))
-		return err
+		if err := a.clock.sendWrite(ctx, withBody((*awtrix.Client).RawPatchSettings, payload)); err != nil {
+			return err
+		}
+		landed = true
+		return nil
 	})
 	if err != nil {
-		writeClockError(w, err)
+		a.clock.writeBudgetError(ctx, w, err, landed)
 		return
 	}
 	if len(held) > 0 {

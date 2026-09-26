@@ -45,17 +45,24 @@ func (a *App) handleDeviceSensorsGet(w http.ResponseWriter, r *http.Request) {
 		writeClockError(w, err)
 		return
 	}
-	out := struct {
-		TempOffset *float64 `json:"temp_offset"`
-		HumOffset  *float64 `json:"hum_offset"`
-	}{}
+	writeJSON(w, http.StatusOK, sensorOffsets(sys))
+}
+
+// sensorOffsetsResponse is the GET/PUT /v1/device/sensors answer.
+type sensorOffsetsResponse struct {
+	TempOffset *float64 `json:"temp_offset"`
+	HumOffset  *float64 `json:"hum_offset"`
+}
+
+func sensorOffsets(sys map[string]any) sensorOffsetsResponse {
+	var out sensorOffsetsResponse
 	if f, ok := sys["tempOffset"].(float64); ok {
 		out.TempOffset = &f
 	}
 	if f, ok := sys["humOffset"].(float64); ok {
 		out.HumOffset = &f
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
 }
 
 // handleDeviceSensorsPut merges offset changes into the clock's full
@@ -64,6 +71,10 @@ func (a *App) handleDeviceSensorsGet(w http.ResponseWriter, r *http.Request) {
 // untouched. Applies live; no reboot. Keeps Ember's own snake_case
 // temp_offset/hum_offset wire contract so callers written against the old
 // dev.json-backed endpoint keep working.
+//
+// The lock wait, read, PUT and re-read share clockWriteBudget. Out of budget
+// before the PUT answered, it is a 504 (writeBudgetError); after it, the
+// answer is the object just written instead of a re-read.
 func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]any
 	if !a.decodeOrReject(w, r, &patch, false) {
@@ -90,7 +101,9 @@ func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err := a.clock.updateSystem(r.Context(), func(sys map[string]any) {
+	ctx, cancel := a.clock.writeContext(r.Context())
+	defer cancel()
+	written, err := a.clock.updateSystem(ctx, func(sys map[string]any) {
 		for k, v := range patch {
 			key := sensorOffsetKeys[k]
 			switch {
@@ -104,8 +117,16 @@ func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if err != nil {
-		writeClockError(w, err)
+		a.clock.writeBudgetError(ctx, w, err, false)
 		return
 	}
-	a.handleDeviceSensorsGet(w, r)
+	sys, err := a.clock.readSystem(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			writeClockError(w, err)
+			return
+		}
+		sys = written
+	}
+	writeJSON(w, http.StatusOK, sensorOffsets(sys))
 }

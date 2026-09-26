@@ -65,15 +65,22 @@ func (a *App) expectedButtonCallback() string {
 }
 
 func (a *App) handleDeviceButtons(w http.ResponseWriter, r *http.Request) {
+	// Best-effort: an unreachable clock still reports press tracking, just
+	// without configured/configured_callback (readSystem's nil object).
+	sys, _ := a.clock.readSystem(r.Context())
+	writeJSON(w, http.StatusOK, a.buttonStatus(sys))
+}
+
+// buttonStatus reports press tracking and, when sys (the clock's system
+// object) is non-nil, whether its buttonCallback points at this server.
+func (a *App) buttonStatus(sys map[string]any) buttonStatusResponse {
 	expected := a.expectedButtonCallback()
 	last := a.lastButtonAt.Load()
 	resp := buttonStatusResponse{
 		ExpectedCallback: expected,
 		LastPressUnix:    last,
 	}
-	// Best-effort: an unreachable clock still reports press tracking, just
-	// without configured/configured_callback.
-	if sys, err := a.clock.readSystem(r.Context()); err == nil {
+	if sys != nil {
 		if cb, ok := sys["buttonCallback"].(string); ok {
 			resp.ConfiguredCallback = cb
 			resp.Configured = cb != "" && cb == expected
@@ -86,14 +93,16 @@ func (a *App) handleDeviceButtons(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.SecondsSince = &s
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return resp
 }
 
 // handleDeviceButtonsPut sets or clears the clock's buttonCallback via a
 // read-merge-PUT of /api/v1/system (same safety rationale as
 // handleDeviceSensorsPut — a naive partial PUT risks dropping Wi-Fi
 // credentials). enabled:true points buttonCallback at this server's own
-// callback URL; enabled:false clears it back to "".
+// callback URL; enabled:false clears it back to "". Budgeted like
+// handleDeviceSensorsPut: 504 when the budget runs out before the PUT
+// answered, the written object instead of a re-read after it.
 func (a *App) handleDeviceButtonsPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Enabled bool `json:"enabled"`
@@ -105,9 +114,16 @@ func (a *App) handleDeviceButtonsPut(w http.ResponseWriter, r *http.Request) {
 	if body.Enabled {
 		cb = a.expectedButtonCallback()
 	}
-	if err := a.clock.updateSystem(r.Context(), func(sys map[string]any) { sys["buttonCallback"] = cb }); err != nil {
-		writeClockError(w, err)
+	ctx, cancel := a.clock.writeContext(r.Context())
+	defer cancel()
+	written, err := a.clock.updateSystem(ctx, func(sys map[string]any) { sys["buttonCallback"] = cb })
+	if err != nil {
+		a.clock.writeBudgetError(ctx, w, err, false)
 		return
 	}
-	a.handleDeviceButtons(w, r)
+	sys, err := a.clock.readSystem(ctx)
+	if err != nil && ctx.Err() != nil {
+		sys = written
+	}
+	writeJSON(w, http.StatusOK, a.buttonStatus(sys))
 }
