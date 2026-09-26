@@ -178,7 +178,7 @@ deploy that wants them persisted needs that writable volume mounted.
 
 The clock's three physical buttons drive the timer via NG's `buttonCallback`
 (an HTTP POST per press; no MQTT broker needed). The easiest path is the menu
-app's Device tab (one-click `PUT /v1/device/buttons`, `{"enabled":true}`),
+app's Settings › Clock pane (one-click `PUT /v1/device/buttons`, `{"enabled":true}`),
 which computes the server's own reachable URL automatically. To set it by
 hand instead:
 
@@ -317,12 +317,12 @@ through; a resolved host is fingerprinted via `GET /api/v1/device`, requiring
 both a non-empty `uid` and `boardType == "awtrixng"` (the AWTRIX3 `/api/stats`
 fingerprint doesn't exist on NG). The server advertises itself as
 `_ember._tcp` so the macOS app can auto-fill the server URL (Connection tab →
-"Discovered servers"). The Device tab proxies the clock's own NG API through
+"Discovered servers"). Settings › Clock proxies the clock's own NG API through
 `/v1/device/*`.
 
 - **Host networking is required** for either direction — multicast doesn't cross
   the default Docker bridge. Run the container with `--network host` (or macvlan).
-- Effective clock URL precedence: writable-store override (menu's Device tab) >
+- Effective clock URL precedence: writable-store override (Settings › Clock › Discover Clocks) >
   reachable `awtrix.http_base_url` from `config.json` > mDNS auto-pick (in-memory;
   never written back to the read-only config or the store).
 - **Self-healing:** the server reachability-tests the effective URL (store
@@ -342,7 +342,7 @@ fingerprint doesn't exist on NG). The server advertises itself as
   `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
   `last_rediscover_at`/`last_rediscover_result`.
 - `EMBER_MDNS_ADVERTISE` (default on; `0`/`false`/`no`/`off` disables) gates only the
-  advertising side; clock discovery and the Device tab still work with a
+  advertising side; clock discovery and Settings › Clock still work with a
   configured URL.
 - `EMBER_FIRMWARE_CHECK` (default on; `0`/`false`/`no`/`off` disables) gates the
   server's only call to the internet for the dashboard: a background lookup of the latest
