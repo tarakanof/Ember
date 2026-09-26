@@ -534,10 +534,11 @@ type App struct {
 
 	// activityLast throttles activity-heartbeat persistence to at most one row
 	// per session per activityThrottle window (producers post every 2-10s, far
-	// finer than the work-hours sessionization needs). activitySweptAt is the
+	// finer than the work-hours sessionization needs); a transition into
+	// waiting bypasses it (see recordActivityHeartbeat). activitySweptAt is the
 	// last time expired entries were dropped. Both guarded by activityMu.
 	activityMu      sync.Mutex
-	activityLast    map[string]time.Time
+	activityLast    map[string]activityMark
 	activitySweptAt time.Time
 
 	statsCache statsCache // last GET /v1/pomodoro/stats payload
@@ -601,6 +602,16 @@ type App struct {
 	// reaches us; surfaced via GET /v1/device/buttons.
 	lastButtonAt atomic.Int64
 
+	// Dashboard read state (dashboard_http.go, clock_health_http.go), all
+	// zero-value ready: clockProbe caches the clock telemetry so the open
+	// health endpoint can't turn polling into clock traffic; publishWindow keeps
+	// 24h publish counts; firmware caches the latest awtrix-ng release (url set
+	// by main); sourceColors remembers each producer source's colour.
+	clockProbe    clockProbeCache
+	publishWindow publishWindow
+	firmware      firmwareCheck
+	sourceColors  sourceColorMemo
+
 	// bootPingMu serialises ensureBootPingScript runs (startup and every
 	// /admin/reload), so two of them can't race a PUT against a DELETE.
 	bootPingMu sync.Mutex
@@ -615,7 +626,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		startedAt:      time.Now(),
 		usage:          newUsageStore(),
 		weather:        newWeatherStore(),
-		activityLast:   make(map[string]time.Time),
+		activityLast:   make(map[string]activityMark),
 		deviceBaseline: cfg.AWTRIX.HTTPBaseURL,
 		browseFn:       discovery.BrowseAWTRIX,
 	}
@@ -667,8 +678,10 @@ func (a *App) updateConfig(mutate func(*Config)) {
 // pushed even though the actual pixels are now produced by
 // RenderForCoord and not stored anywhere.
 func (a *App) recordPublish(snap Snapshot, err error) {
+	now := time.Now()
+	a.publishWindow.add(now, err == nil)
 	a.mu.Lock()
-	a.lastPublishAt = time.Now().UTC()
+	a.lastPublishAt = now.UTC()
 	a.lastPublishOK = err == nil
 	if err != nil {
 		a.lastPublishErr = err.Error()
@@ -992,6 +1005,14 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
 	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
 	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
+	// Dashboard reads (dashboard_http.go). GET /v1/usage shares its path with
+	// the authed POST, which still falls through to the /v1/ write mux.
+	mux.HandleFunc("GET /v1/usage", a.handleUsageSnapshot)
+	// The two that do I/O (a DB scan; a clock probe and release lookup) are
+	// per-IP rate-limited like the device hooks.
+	mux.Handle("GET /v1/activity/summary", rateLimit(a, http.HandlerFunc(a.handleActivitySummary)))
+	mux.HandleFunc("GET /v1/weather/state", a.handleWeatherState)
+	mux.Handle("GET /v1/clock/health", rateLimit(a, http.HandlerFunc(a.handleClockHealth)))
 	// Unauthenticated (the device can't hold a token) but per-IP rate-limited.
 	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
 	// Same trust model as the button hook, and the same reason: a Berry script
@@ -1565,6 +1586,11 @@ func main() {
 	}
 
 	app := NewApp(cfg, publisher, logger)
+	// The dashboard's "update available" badge looks up the latest awtrix-ng
+	// release on GitHub; EMBER_FIRMWARE_CHECK=0 keeps the server offline.
+	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) {
+		app.firmware.url = ngReleasesURL
+	}
 	app.configPath = configPath
 	app.configSource = configSource
 
@@ -1623,7 +1649,7 @@ func main() {
 	// Advertise the server over mDNS so the macOS app can discover it (requires
 	// host/macvlan networking to reach the LAN). Non-fatal; off via
 	// EMBER_MDNS_ADVERTISE=0.
-	if discovery.AdvertiseEnabled(os.Getenv("EMBER_MDNS_ADVERTISE")) {
+	if envEnabled(os.Getenv("EMBER_MDNS_ADVERTISE")) {
 		if port, perr := discovery.PortFromAddr(cfg.HTTP.Addr); perr == nil {
 			ver := app.versionInfo.Revision
 			if ver == "" {

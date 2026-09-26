@@ -61,26 +61,44 @@ func activeWorkState(state string) bool {
 	}
 }
 
+// activityWaitFloor is the minimum gap between two rows of one session even
+// when a transition into waiting bypasses the throttle, so a flapping producer
+// (or two producers sharing a session key) can't write a row per POST.
+const activityWaitFloor = 10 * time.Second
+
+// activityMark is the last activity row persisted for one session.
+type activityMark struct {
+	at    time.Time
+	state string
+}
+
 // recordActivityHeartbeat persists an activity row for an actively-working
 // session, throttled to one row per session per activityThrottle window, and
-// once per activitySweepInterval bounds the throttle map and the table. No-op
-// when the store is absent or the overlay is disabled.
+// once per activitySweepInterval bounds the throttle map and the table. A
+// transition into waiting bypasses the throttle (subject to activityWaitFloor)
+// so a short prompt still reaches the activity summary's attention count.
+// No-op when the store is absent or the overlay is disabled.
 func (a *App) recordActivityHeartbeat(s Session, now time.Time) {
+	a.sourceColors.remember(s.Source, s.SourceColor) // for the activity summary's per-source colours
 	if a.store == nil || !a.cfg.Load().Pomodoro.WorkHoursIncludeActivity || !activeWorkState(s.State) {
 		return
 	}
 	key := s.Key()
 	a.activityMu.Lock()
-	if last, ok := a.activityLast[key]; ok && now.Sub(last) < activityThrottle {
-		a.activityMu.Unlock()
-		return
+	if last, ok := a.activityLast[key]; ok {
+		elapsed := now.Sub(last.at)
+		intoWaiting := s.State == "waiting" && last.state != "waiting"
+		if elapsed < activityThrottle && !(intoWaiting && elapsed >= activityWaitFloor) {
+			a.activityMu.Unlock()
+			return
+		}
 	}
-	a.activityLast[key] = now
+	a.activityLast[key] = activityMark{at: now, state: s.State}
 	sweep := now.Sub(a.activitySweptAt) >= activitySweepInterval
 	if sweep {
 		a.activitySweptAt = now
 		for k, last := range a.activityLast {
-			if now.Sub(last) >= activityThrottle {
+			if now.Sub(last.at) >= activityThrottle {
 				delete(a.activityLast, k)
 			}
 		}

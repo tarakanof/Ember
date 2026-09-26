@@ -333,9 +333,14 @@ fingerprint doesn't exist on NG). The server advertises itself as
   line on a lossy link now means a real reboot.
   `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
   `last_rediscover_at`/`last_rediscover_result`.
-- `EMBER_MDNS_ADVERTISE` (default on; `0`/`false` disables) gates only the
+- `EMBER_MDNS_ADVERTISE` (default on; `0`/`false`/`no`/`off` disables) gates only the
   advertising side; clock discovery and the Device tab still work with a
   configured URL.
+- `EMBER_FIRMWARE_CHECK` (default on; `0`/`false`/`no`/`off` disables) gates the
+  server's only call to the internet for the dashboard: a background lookup of the latest
+  awtrix-ng release on GitHub (at most every 6h, 30 min after a failure, logged
+  at Warn) behind `latest_firmware`/`update_available` in `GET /v1/clock/health`.
+  Disabled, those fields are `null` and no request leaves the server.
 - **Troubleshooting — clock dark after its IP changed:** the server self-heals
   within ~30s (mDNS). To apply the new IP now, restart the container (re-runs boot discovery) or
   `PUT /v1/device/config {"base_url": …}`; `/admin/doctor` shows the clock's
@@ -360,8 +365,9 @@ fingerprint doesn't exist on NG). The server advertises itself as
 - Entries are in-memory; stale tools (no post within ~10 min) are cleared from
   the usage card automatically.
 
-**Verify it's flowing:** `GET /state` does not include usage (it's a separate
-store), but posting a crafted usage payload:
+**Verify it's flowing:** `GET /v1/usage` (no token) returns every tool's latest
+snapshot with `updated_at` and `stale`; `GET /state` carries only the 5h
+percent. Posting a crafted usage payload:
 `curl -s -XPOST localhost:3627/v1/usage -H "Authorization: Bearer $EMBER_TOKEN" \
   -d '{"tool":"claude","source":"endpoint","five_hour":{"used_percent":75,"reset_label":"14:25"}}'`
 then watching the clock's `ember` app show the usage card face in rotation confirms

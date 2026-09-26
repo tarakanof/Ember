@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"strconv"
-	"strings"
 
 	"github.com/brutella/dnssd"
 )
@@ -12,17 +11,6 @@ import (
 // emberServiceType is the DNS-SD type the Ember server advertises so the macOS
 // app can find it on the LAN.
 const emberServiceType = "_ember._tcp"
-
-// AdvertiseEnabled reports whether EMBER_MDNS_ADVERTISE enables advertising.
-// Empty (unset) defaults to true; "0"/"false"/"no"/"off" disable it.
-func AdvertiseEnabled(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return true
-	}
-}
 
 // PortFromAddr extracts the numeric port from a listen address like ":3627" or
 // "0.0.0.0:9000".

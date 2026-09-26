@@ -40,7 +40,9 @@ The aggregator and the only writer to the device.
   session, idempotent 204), `POST /v1/clear` (admin wipe), `POST /v1/notify`
   (ad-hoc notification), `POST /v1/usage` (per-tool subscription usage → the
   always-on usage widget; see below). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
-  `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below).
+  `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below), and
+  the dashboard reads `GET /v1/usage`, `/v1/activity/summary`,
+  `/v1/weather/state`, `/v1/clock/health` (see "Dashboard read API").
   Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
   `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro, Weather
   (`GET/PUT /v1/weather/config`), and Reminders (`POST /v1/reminders/fire`)
@@ -245,7 +247,9 @@ edits persist to the SQLite store (key `settings_json`, re-applied over the
 change durations/colours/cap without a writable config file. API:
 `POST /v1/pomodoro/{start,pause,resume,stop,skip}` + `GET/PUT /v1/pomodoro/config`
 (bearer; PUT is **merge semantics** since #84 — omitted fields keep their
-current value); open `GET /v1/pomodoro/{state,stats}`; **unauthenticated**
+current value); open `GET /v1/pomodoro/{state,stats,heatmap,workhours}`
+(`workhours` reports `work_start`/`work_end` as `null` on a day with no work);
+**unauthenticated**
 `POST /hooks/awtrix/button` (the device can't send a token) mapping
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
 left+right chord is removed).
@@ -619,6 +623,60 @@ only took effect at boot. The Ulanzi firmware default is `tempOffset:-9`
 (self-heating compensation); an explicit `null` in a sensors PUT resets to that
 default (or `0` for humidity), so the menu treats −9/0 — not 0/0 — as the
 baseline.
+
+### Dashboard read API — `cmd/ember/dashboard_http.go`, `clock_health_http.go` (#110)
+
+Open (no token) reads for the native macOS dashboard, alongside the existing
+`GET /v1/pomodoro/{stats,heatmap,workhours}`:
+
+- **`GET /v1/usage`** — the latest `UsageStore` snapshot per tool (5h/7d windows,
+  `models` keyed by model name, `stale` past `usageStaleTTL`). Before this the
+  snapshot was write-only; `/state` leaked just the 5h percent.
+- **`GET /v1/activity/summary?days=7`** (1..90, per-IP rate-limited) — agent
+  activity from the `activity` table: `today` and `period` windows with
+  `total`/`by_tool`/`by_source` rows (`active_sec`, `sessions`, `attention`;
+  source rows carry `source_color`, explicit `null` when unknown, as in
+  `daily_by_source`), plus zero-filled `daily` (per tool) and
+  `daily_by_source` series. Active time counts **running/error rows only**
+  (producers re-post an unanswered waiting marker for hours), reuses the
+  work-hours span reconstruction (rows ≤ 5 min apart form a span) and unions
+  spans within a group, so concurrent sessions of one tool count once.
+  `attention` counts waiting episodes. `source_color` is remembered in memory
+  from status posts, so it is null for a source that hasn't posted since
+  restart. `recording` mirrors `work_hours_include_activity`: rows are only
+  stored while it is on. Rows are throttled to one per session per 2 min,
+  **except a transition into waiting**, which is written once at least 10 s
+  have passed since the session's last row, so a short prompt isn't lost.
+- **`GET /v1/weather/state`** — the poller's cached observation (condition,
+  the provider's raw `condition_code`, `temp_c`, hourly points stamped with the
+  provider's own series start), air quality, the user's `location_name` label
+  and today's sunrise/sunset **rounded to 5 min** (to the second they'd pin the
+  coordinates). No provider call; the coordinates are never echoed.
+- **`GET /v1/clock/health`** (per-IP rate-limited) — publish counts for the last
+  24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,
+  plus the clock's `currentApp`, `wifiRssi`, heap, uptime, `wifi.connects`,
+  `matrixPower`, battery and sensors from `GET /api/v1/device`, **cached 30 s**
+  and probed detached from the caller's cancellation, so polling can't add
+  traffic on the clock's lossy Wi-Fi and a disconnecting viewer can't cache
+  "unreachable". `latest_firmware`/`update_available` come from GitHub's
+  awtrix-ng latest-release API: the server's only call to the internet for this.
+  A background goroutine does the lookup (single in-flight), so the endpoint
+  serves the cached answer and never waits. It runs at most every 6 h, 30 min
+  after a failure (logged at Warn), fails soft to `null`, and is off with
+  `EMBER_FIRMWARE_CHECK=0`.
+  The clock's IP, SSID host, UID, hostname and button presses are not served.
+
+Wire conventions (for Swift's `JSONDecoder` `.iso8601` and Swift Charts):
+RFC 3339 timestamps with **whole seconds** (`.iso8601` rejects fractions),
+`null` instead of zero sentinels (work hours' empty days emit
+`work_start`/`work_end: null`, not `0001-01-01`), series as arrays of points,
+and the unit in every key (`_sec`, `_percent`, `_c`, `_dbm`, `_bytes`,
+`_ugm3`). Storage errors are logged, not returned. Handlers wrap `build*`
+methods that take `now`; `TestDashboardGolden` renders them at a fixed instant
+into `cmd/ember/testdata/dashboard/*.json` (`go test ./cmd/ember -run
+TestDashboardGolden -update` to regenerate), and EmberKit's decode tests read
+those same files. EmberKit's models are in `Sources/EmberKit/Models/`, with one
+service per feed in `Sources/EmberKit/Services/`.
 
 ## The "spine" — how display widgets are added
 

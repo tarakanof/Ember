@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"sync"
 	"time"
 )
@@ -42,6 +43,13 @@ func (s *UsageStore) Get(tool string) (ToolUsage, bool) {
 	defer s.mu.RUnlock()
 	u, ok := s.byTool[tool]
 	return u, ok
+}
+
+// All returns a copy of every stored snapshot, keyed by tool.
+func (s *UsageStore) All() map[string]ToolUsage {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return maps.Clone(s.byTool)
 }
 
 // Fresh reports whether tool's entry was updated within ttl before now.
