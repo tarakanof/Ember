@@ -3,16 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
-
-// capabilitiesTimeout bounds the startup/rediscovery capabilities fetch. Same
-// budget as the reachability probe: a dark clock must not delay boot.
-const capabilitiesTimeout = 2 * time.Second
 
 // refreshCapabilities caches the clock's supported name lists (effects,
 // transitions, overlays, palettes, audio, gpio) plus its firmware version.
@@ -24,10 +20,15 @@ const capabilitiesTimeout = 2 * time.Second
 // not fatal.
 func (a *App) refreshCapabilities(ctx context.Context) {
 	base := a.cfg.Load().AWTRIX.HTTPBaseURL
-	if base == "" {
+	cl, err := a.clock.client(callCapabilities)
+	if errors.Is(err, errClockNotConfigured) {
 		return
 	}
-	cl := awtrix.NewClient(base, capabilitiesTimeout)
+	if err != nil {
+		a.caps.Store(nil)
+		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
+		return
+	}
 	if info, err := cl.DeviceInfo(ctx); err == nil {
 		a.deviceVersion.Store(info.Version)
 	}
@@ -69,13 +70,9 @@ func (a *App) handleDeviceCapabilities(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, caps)
 		return
 	}
-	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawCapabilities)
+	body, err := a.clock.fetch(r.Context(), (*awtrix.Client).RawCapabilities)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status != http.StatusOK {
-		writeDeviceError(w, status, body)
+		writeClockError(w, err)
 		return
 	}
 	var caps awtrix.Capabilities

@@ -119,19 +119,19 @@ func (a *App) ensureBootPingScript(ctx context.Context) {
 // getScript returns the Berry source the clock currently holds under name.
 // present is false (with a nil error) when the device has no such script.
 func (a *App) getScript(ctx context.Context, name string) (source string, present bool, err error) {
-	body, status, err := a.proxyToDevice(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
+	reply, err := a.clock.raw(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
 		return cl.RawScript(ctx, name)
 	})
 	if err != nil {
 		return "", false, err
 	}
 	switch {
-	case status == http.StatusNotFound:
+	case reply.Status == http.StatusNotFound:
 		return "", false, nil
-	case status != http.StatusOK:
-		return "", false, fmt.Errorf("clock returned %d", status)
+	case reply.Status != http.StatusOK:
+		return "", false, fmt.Errorf("clock returned %d", reply.Status)
 	}
-	return string(body), true, nil
+	return string(reply.Body), true, nil
 }
 
 // putScript uploads Berry source under name as text/plain.
@@ -141,19 +141,19 @@ func (a *App) getScript(ctx context.Context, name string) (source string, presen
 // panel until a good source replaces it. So the reply body — not the status —
 // is what says the install worked, and a non-null "error" is returned as one.
 func (a *App) putScript(ctx context.Context, name, source string) error {
-	body, status, err := a.proxyToDevice(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
+	raw, err := a.clock.raw(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
 		return cl.RawPutScript(ctx, name, source)
 	})
 	if err != nil {
 		return err
 	}
-	if status < 200 || status >= 300 {
-		return fmt.Errorf("clock returned %d: %s", status, strings.TrimSpace(string(body)))
+	if raw.Status < 200 || raw.Status >= 300 {
+		return fmt.Errorf("clock returned %d: %s", raw.Status, strings.TrimSpace(string(raw.Body)))
 	}
 	var reply struct {
 		Error json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal(body, &reply); err == nil && len(reply.Error) > 0 && string(reply.Error) != "null" {
+	if err := json.Unmarshal(raw.Body, &reply); err == nil && len(reply.Error) > 0 && string(reply.Error) != "null" {
 		return fmt.Errorf("script did not compile: %s", reply.Error)
 	}
 	return nil
@@ -162,17 +162,17 @@ func (a *App) putScript(ctx context.Context, name, source string) error {
 // deleteScript removes the app (script included) from the clock. A device that
 // no longer holds it is success, not a failure.
 func (a *App) deleteScript(ctx context.Context, name string) error {
-	_, status, err := a.proxyToDevice(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
+	reply, err := a.clock.raw(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
 		return cl.RawDeleteApp(ctx, name)
 	})
 	if err != nil {
 		return err
 	}
-	if status == http.StatusNotFound {
+	if reply.Status == http.StatusNotFound {
 		return nil
 	}
-	if status < 200 || status >= 300 {
-		return fmt.Errorf("clock returned %d", status)
+	if reply.Status < 200 || reply.Status >= 300 {
+		return fmt.Errorf("clock returned %d", reply.Status)
 	}
 	return nil
 }

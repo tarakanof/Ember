@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
-	"strings"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
@@ -218,98 +216,10 @@ func validColor(v any) bool {
 	return false
 }
 
-// deviceBaseURL returns the live clock base URL, so every menu-initiated call
-// follows the same resolved clock as the publisher.
-func (a *App) deviceBaseURL() (string, error) {
-	base := strings.TrimRight(a.cfg.Load().AWTRIX.HTTPBaseURL, "/")
-	if base == "" {
-		return "", fmt.Errorf("clock not configured")
-	}
-	return base, nil
-}
-
-// deviceCall is one pass-through awtrix client call, usually a method
-// expression such as (*awtrix.Client).RawSettings.
-type deviceCall func(*awtrix.Client, context.Context) (awtrix.Reply, error)
-
-// withBody binds a request body to a body-taking raw client call.
-func withBody(call func(*awtrix.Client, context.Context, []byte) (awtrix.Reply, error), body []byte) deviceCall {
-	return func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
-		return call(cl, ctx, body)
-	}
-}
-
-// proxyToDevice runs call against the currently-resolved clock and returns
-// the reply body and status verbatim; a non-2xx status is not an error.
-func (a *App) proxyToDevice(ctx context.Context, call deviceCall) ([]byte, int, error) {
-	base, err := a.deviceBaseURL()
-	if err != nil {
-		return nil, 0, err
-	}
-	reply, err := call(awtrix.NewClient(base, deviceClientTimeout), ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	return reply.Body, reply.Status, nil
-}
-
-// deviceProxyStatus picks the status the menu sees for a non-2xx clock reply.
-// Request errors (bad value, unknown key, missing app, wrong media type) and
-// a busy/absent-hardware 503 pass through unchanged, so the caller can tell
-// "the clock refused this" from "the clock is broken or unreachable".
-// Everything else becomes 502; a device 401/403 in particular must not read
-// as the menu's own bearer token being wrong.
-func deviceProxyStatus(status int) int {
-	switch status {
-	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict,
-		http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType,
-		http.StatusUnprocessableEntity, http.StatusServiceUnavailable:
-		return status
-	}
-	return http.StatusBadGateway
-}
-
-// writeDeviceError relays a non-2xx clock reply to the menu. The NG envelope
-// ({"error":{code,message,field}}) is flattened into the server's own error
-// shape — "error" stays a string, which is what the menu displays — with
-// "code" and "field" alongside so a caller can point at the rejected key.
-func writeDeviceError(w http.ResponseWriter, status int, body []byte) {
-	writeDeviceAPIError(w, awtrix.ParseAPIError(status, body))
-}
-
-// writeDeviceAPIError is writeDeviceError for a reply the awtrix client has
-// already parsed.
-func writeDeviceAPIError(w http.ResponseWriter, apiErr *awtrix.APIError) {
-	status := apiErr.StatusCode
-	msg := fmt.Sprintf("clock returned %d", status)
-	if detail := apiErr.Message; detail != "" {
-		// Cap a raw (non-envelope) body at 200 runes, never mid-sequence.
-		if r := []rune(detail); len(r) > 200 {
-			detail = string(r[:200]) + "…"
-		}
-		msg += ": " + detail
-	}
-	if apiErr.Field != "" {
-		msg += " (field " + apiErr.Field + ")"
-	}
-	out := map[string]string{"error": msg}
-	if apiErr.Code != "" {
-		out["code"] = apiErr.Code
-	}
-	if apiErr.Field != "" {
-		out["field"] = apiErr.Field
-	}
-	writeJSON(w, deviceProxyStatus(status), out)
-}
-
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawSettings)
+	body, err := a.clock.fetch(r.Context(), (*awtrix.Client).RawSettings)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status != http.StatusOK {
-		writeDeviceError(w, status, body)
+		writeClockError(w, err)
 		return
 	}
 	var all map[string]any
@@ -337,31 +247,11 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPatchSettings, payload))
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status < 200 || status >= 300 {
-		writeDeviceError(w, status, reply)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
+	a.proxyAction(w, r, withBody((*awtrix.Client).RawPatchSettings, payload))
 }
 
 func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawDevice)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status != http.StatusOK {
-		writeDeviceError(w, status, body)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(body)
+	a.proxyRead(w, r, (*awtrix.Client).RawDevice)
 }
 
 // handleDeviceScreen passes through the clock's live framebuffer
@@ -369,18 +259,7 @@ func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 // awtrix-ng wraps the pixels: {"width":32,"height":8,"pixels":[256 ints]}
 // (AWTRIX3 returned the bare 256-int array) — consumers must unwrap.
 func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawScreen)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status != http.StatusOK {
-		writeDeviceError(w, status, body)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(body)
+	a.proxyRead(w, r, (*awtrix.Client).RawScreen)
 }
 
 func (a *App) handleDeviceReboot(w http.ResponseWriter, r *http.Request) {
@@ -403,16 +282,24 @@ func (a *App) handleDevicePrevApp(w http.ResponseWriter, r *http.Request) {
 	a.proxyAction(w, r, (*awtrix.Client).RawPreviousApp)
 }
 
-// proxyAction sends a bodiless request to a clock action endpoint and maps
-// the result.
-func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, call deviceCall) {
-	reply, status, err := a.proxyToDevice(r.Context(), call)
+// proxyRead relays a clock read: its JSON body verbatim on success, the
+// mapped error otherwise.
+func (a *App) proxyRead(w http.ResponseWriter, r *http.Request, call deviceCall) {
+	body, err := a.clock.fetch(r.Context(), call)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
+		writeClockError(w, err)
 		return
 	}
-	if status < 200 || status >= 300 {
-		writeDeviceError(w, status, reply)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
+// proxyAction runs a clock write or action and answers an empty 200, or the
+// mapped error.
+func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, call deviceCall) {
+	if _, err := a.clock.fetch(r.Context(), call); err != nil {
+		writeClockError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

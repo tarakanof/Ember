@@ -2,11 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"net/url"
-	"strings"
-	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
@@ -77,15 +72,7 @@ func NewHTTPPublisher() (*HTTPPublisher, error) {
 }
 
 func (p *HTTPPublisher) client() (*awtrix.Client, error) {
-	cfg := p.app.cfg.Load().AWTRIX
-	base := strings.TrimRight(cfg.HTTPBaseURL, "/")
-	if base == "" {
-		return nil, errors.New("awtrix.http_base_url is required")
-	}
-	if _, err := url.ParseRequestURI(base); err != nil {
-		return nil, fmt.Errorf("invalid awtrix.http_base_url: %w", err)
-	}
-	return awtrix.NewClient(base, time.Duration(cfg.TimeoutSeconds)*time.Second), nil
+	return p.app.clock.client(callPublish)
 }
 
 func (p *HTTPPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {

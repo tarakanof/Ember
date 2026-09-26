@@ -252,7 +252,7 @@ menu sensors.get r1 → 200 {"temp_offset":-9,"hum_offset":0}
 menu sensors.put r1 → 502 {"error":"Get \"CLOCK/api/v1/system\": net/http: HTTP/1.x transport connection broken: malformed HTTP status code \"\""}
   dev#157 GET /api/v1/system body=e3b0c442 ok
   dev#158 PUT /api/v1/system body=7a703937 ok
-menu sensors.put.refused r1 → 502 {"error":"clock returned 422"}
+menu sensors.put.refused r1 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
   dev#159 GET /api/v1/system body=e3b0c442 DROP
 menu buttons.get r1 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
   dev#160 GET /api/v1/system body=e3b0c442 ok
@@ -358,7 +358,7 @@ doctor.clock #1 warn reachable=false
 doctor.awtrix #2 ok GET CLOCK/api/v1/device → 200 (T)
   dev#215 GET /api/v1/device body=e3b0c442 DROP
 doctor.clock #2 warn reachable=false
-unconfigured notify err=awtrix.http_base_url is required
+unconfigured notify err=clock not configured
 unconfigured stats → 502 {"error":"clock not configured"}
 unconfigured sensors.put → 502 {"error":"clock not configured"}
 requests=216

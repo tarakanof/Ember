@@ -96,7 +96,7 @@ func takeoverOnSettings() map[string]any {
 // succeeded, or the device answered with an error a retry cannot change. A
 // transport failure or a 5xx is left for the next tick.
 func settled(err error) bool {
-	return err == nil || !retryablePushErr(err)
+	return err == nil || !retryableClockErr(err)
 }
 
 // setSettingsKV wires the store and picks up a takeover snapshot a previous

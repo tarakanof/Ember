@@ -373,7 +373,7 @@ doctor.clock #1 warn reachable=false
 doctor.awtrix #2 ok GET CLOCK/api/v1/device → 200 (T)
   dev#230 GET /api/v1/device body=e3b0c442 DROP
 doctor.clock #2 warn reachable=false
-unconfigured notify err=awtrix.http_base_url is required
+unconfigured notify err=clock not configured
 unconfigured stats → 502 {"error":"clock not configured"}
 unconfigured sensors.put → 502 {"error":"clock not configured"}
 requests=231

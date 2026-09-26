@@ -1,14 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"time"
-
-	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // buttonStatusResponse is GET /v1/device/buttons. seconds_since is null until a
@@ -76,7 +73,7 @@ func (a *App) handleDeviceButtons(w http.ResponseWriter, r *http.Request) {
 	}
 	// Best-effort: an unreachable clock still reports press tracking, just
 	// without configured/configured_callback.
-	if sys, err := a.readSystem(r.Context()); err == nil {
+	if sys, err := a.clock.readSystem(r.Context()); err == nil {
 		if cb, ok := sys["buttonCallback"].(string); ok {
 			resp.ConfiguredCallback = cb
 			resp.Configured = cb != "" && cb == expected
@@ -104,28 +101,12 @@ func (a *App) handleDeviceButtonsPut(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &body, true) {
 		return
 	}
-	sys, err := a.readSystem(r.Context())
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
+	cb := ""
 	if body.Enabled {
-		sys["buttonCallback"] = a.expectedButtonCallback()
-	} else {
-		sys["buttonCallback"] = ""
+		cb = a.expectedButtonCallback()
 	}
-	payload, err := json.Marshal(sys)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	_, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPutSystem, payload))
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+	if err := a.clock.updateSystem(r.Context(), func(sys map[string]any) { sys["buttonCallback"] = cb }); err != nil {
+		writeClockError(w, err)
 		return
 	}
 	a.handleDeviceButtons(w, r)

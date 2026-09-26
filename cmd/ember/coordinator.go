@@ -50,7 +50,7 @@ type coordCmd struct {
 // tiles, indicators, the display hold) passes through it. One-shot
 // notifications (/v1/notify, reminders, weather and meeting popups, the
 // Pomodoro phase-end alert) call the Publisher directly, and the menu's
-// /v1/device proxy uses the awtrix client (device_settings.go proxyToDevice).
+// /v1/device proxy uses the awtrix client (clock_access.go).
 type coordinator struct {
 	loadCfg   func() *Config // shape matches App.cfg.Load directly
 	publisher Publisher

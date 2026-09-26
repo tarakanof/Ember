@@ -166,7 +166,7 @@ menu sensors.get r0 → 200 {"temp_offset":-9,"hum_offset":0}
 menu sensors.put r0 → 200 {"temp_offset":-4,"hum_offset":0}
   dev#094 GET /api/v1/system body=e3b0c442 ok
   dev#095 PUT /api/v1/system body=7a703937 ok
-menu sensors.put.refused r0 → 502 {"error":"clock returned 422"}
+menu sensors.put.refused r0 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
   dev#096 GET /api/v1/system body=e3b0c442 ok
 menu buttons.get r0 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"","configured":false,"last_press_unix":N,"seconds_since":null}
   dev#097 GET /api/v1/system body=e3b0c442 ok
@@ -217,7 +217,7 @@ menu sensors.get r1 → 200 {"temp_offset":-4,"hum_offset":0}
 menu sensors.put r1 → 200 {"temp_offset":-4,"hum_offset":0}
   dev#122 GET /api/v1/system body=e3b0c442 ok
   dev#123 PUT /api/v1/system body=ef9ba6c2 ok
-menu sensors.put.refused r1 → 502 {"error":"clock returned 422"}
+menu sensors.put.refused r1 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
   dev#124 GET /api/v1/system body=e3b0c442 ok
 menu buttons.get r1 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":N,"seconds_since":null}
   dev#125 GET /api/v1/system body=e3b0c442 ok
@@ -268,7 +268,7 @@ menu sensors.get r2 → 200 {"temp_offset":-4,"hum_offset":0}
 menu sensors.put r2 → 200 {"temp_offset":-4,"hum_offset":0}
   dev#150 GET /api/v1/system body=e3b0c442 ok
   dev#151 PUT /api/v1/system body=ef9ba6c2 ok
-menu sensors.put.refused r2 → 502 {"error":"clock returned 422"}
+menu sensors.put.refused r2 → 422 {"code":"validationFailed","error":"clock returned 422: out of range (field tempOffset)","field":"tempOffset"}
   dev#152 GET /api/v1/system body=e3b0c442 ok
 menu buttons.get r2 → 200 {"expected_callback":"http://HOST/hooks/awtrix/button","configured_callback":"http://HOST/hooks/awtrix/button","configured":true,"last_press_unix":N,"seconds_since":null}
   dev#153 GET /api/v1/system body=e3b0c442 ok
@@ -326,7 +326,7 @@ doctor.clock #1 ok reachable=true
 doctor.awtrix #2 ok GET CLOCK/api/v1/device → 200 (T)
   dev#183 GET /api/v1/device body=e3b0c442 ok
 doctor.clock #2 ok reachable=true
-unconfigured notify err=awtrix.http_base_url is required
+unconfigured notify err=clock not configured
 unconfigured stats → 502 {"error":"clock not configured"}
 unconfigured sensors.put → 502 {"error":"clock not configured"}
 requests=184

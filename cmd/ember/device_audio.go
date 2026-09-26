@@ -5,14 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
-	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
-
-// deviceClientTimeout is the budget for one menu-initiated clock call, the
-// same as the raw /v1/device proxy's.
-const deviceClientTimeout = 8 * time.Second
 
 // testChimeRTTTL is what "Play Test Chime" plays when no melody is named: a
 // short rising arpeggio, distinct from the feature chimes so it can't be
@@ -22,36 +17,11 @@ const testChimeRTTTL = "test:d=16,o=6,b=180:c,e,g,8c7"
 // melodyName is NG's rule for a stored melody's name (1–24 of [A-Za-z0-9_-]).
 var melodyName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,24}$`)
 
-// deviceClient returns an awtrix client for the currently-resolved clock.
-func (a *App) deviceClient() (*awtrix.Client, error) {
-	base, err := a.deviceBaseURL()
-	if err != nil {
-		return nil, err
-	}
-	return awtrix.NewClient(base, deviceClientTimeout), nil
-}
-
-// writeDeviceCallError maps an awtrix client error: a clock refusal goes
-// through the same envelope relay as the raw proxy, anything else (no clock,
-// network failure, undecodable reply) is 502.
-func writeDeviceCallError(w http.ResponseWriter, err error) {
-	var apiErr *awtrix.APIError
-	if errors.As(err, &apiErr) {
-		writeDeviceAPIError(w, apiErr)
-		return
-	}
-	writeError(w, http.StatusBadGateway, err)
-}
-
 // callDevice runs one client call against the clock and answers
 // 200 {"ok":true} (NG's own success body) or the mapped error.
 func (a *App) callDevice(w http.ResponseWriter, r *http.Request, call func(context.Context, *awtrix.Client) error) {
-	cl, err := a.deviceClient()
-	if err == nil {
-		err = call(r.Context(), cl)
-	}
-	if err != nil {
-		writeDeviceCallError(w, err)
+	if err := a.clock.do(r.Context(), callMenu, call); err != nil {
+		writeClockError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -143,14 +113,14 @@ func (a *App) handleDeviceAudioMelodies(w http.ResponseWriter, r *http.Request) 
 	if a.audioUnavailable(w, hasBuzzer, "buzzer") {
 		return
 	}
-	cl, err := a.deviceClient()
+	var list awtrix.MelodyList
+	err := a.clock.do(r.Context(), callMenu, func(ctx context.Context, cl *awtrix.Client) error {
+		var err error
+		list, err = cl.Melodies(ctx)
+		return err
+	})
 	if err != nil {
-		writeDeviceCallError(w, err)
-		return
-	}
-	list, err := cl.Melodies(r.Context())
-	if err != nil {
-		writeDeviceCallError(w, err)
+		writeClockError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, list)

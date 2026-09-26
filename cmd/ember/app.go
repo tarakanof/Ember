@@ -20,7 +20,8 @@ type App struct {
 	cfgMu        sync.Mutex             // serializes cfg's read-copy-write; see updateConfig
 	configPath   string                 // resolved at startup; "" when running on defaults
 	configSource string                 // "flag" | "env" | "cwd" | "defaults"
-	publisher    Publisher
+	publisher    Publisher              // server-initiated writes, quiet-gated; the coordinator holds the same one
+	clock        *clockAccess           // every other clock call (menu proxy, probes, doctor); see clock_access.go
 	logger       *slog.Logger
 	listener     net.Listener // bound HTTP listener; captured at startup for doctor introspection
 	versionInfo  versionInfo  // computed once at startup; served by /version
@@ -164,6 +165,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.meetingsFetcher = newICSFetcher()
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
+	a.clock = newClockAccess(a.cfg.Load)
 	a.sessions = a.newSessionRegistry(realClock{}.Now)
 	a.settings = newAppSettings(a)
 	a.metrics = newMetrics()
