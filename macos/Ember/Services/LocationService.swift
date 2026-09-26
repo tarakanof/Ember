@@ -93,7 +93,9 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
     private func reverseGeocode(_ loc: CLLocation) async throws -> String? {
         guard let request = MKReverseGeocodingRequest(location: loc) else { return nil }
         let address = try await request.mapItems.first?.addressRepresentations
-        return address?.cityName ?? address?.regionName
+        // Not regionName: that is the country, where the old CLPlacemark
+        // fallback (administrativeArea) was the state.
+        return address?.cityName ?? address?.cityWithContext
     }
 
     nonisolated public func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
