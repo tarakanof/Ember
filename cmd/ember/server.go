@@ -181,7 +181,13 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any, strict bool) er
 	// dec.More() (the prior implementation) only reports true for nested
 	// continuations (mid-array/mid-object), not for trailing top-level
 	// values like {...}{...}.
+	// Padding past the size cap surfaces here too; keep it a MaxBytesError so
+	// the caller still answers 413.
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		var maxBytes *http.MaxBytesError
+		if errors.As(err, &maxBytes) {
+			return err
+		}
 		return errors.New("unexpected trailing tokens after JSON body")
 	}
 	return nil

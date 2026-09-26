@@ -191,4 +191,18 @@ func TestOversizedJSONBodyIs413(t *testing.T) {
 			}
 		})
 	}
+
+	// A small valid value followed by padding past the cap trips the cap in
+	// the trailing-token read, which must still be a 413, not a 400.
+	t.Run("valid JSON then 2 MB whitespace", func(t *testing.T) {
+		padded := `{"text":"hi"}` + strings.Repeat(" ", 2<<20)
+		resp, err := srv.Client().Do(authedRequest(t, "POST", srv.URL+"/v1/notify", padded))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Fatalf("code = %d, want 413", resp.StatusCode)
+		}
+	})
 }
