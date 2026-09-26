@@ -50,8 +50,8 @@ struct ClockHealthCard: View {
             GridRow {
                 cell("Last publish", symbol: "paperplane", value: h.publish.lastAt.map { RelativeText.short($0, now: now) },
                      warn: h.publish.lastAt != nil && !h.publish.lastOk)
-                cell("Showing", symbol: "rectangle.on.rectangle",
-                     value: d?.currentApp.flatMap { $0.isEmpty ? nil : String(localized: AppNames.display($0)) })
+                // No "Showing" cell: current_app lags the clock's rotation
+                // by up to 45 s (see ClockCard).
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

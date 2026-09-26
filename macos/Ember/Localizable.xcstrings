@@ -868,7 +868,6 @@
     "Show usage from" : {},
     "Show weekday" : {},
     "Show weekday bar" : {},
-    "Showing" : {},
     "Shown in popups" : {},
     "Skip Phase" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -919,6 +918,7 @@
     "Text color" : {},
     "The Dashboard tracks these." : {},
     "The activity card scrolls the current tool call next to the icon. These apply to this Mac's sessions." : {},
+    "The clock adds these offsets to its sensor's readings; the temperature one makes up for the clock warming itself. Compare Measured now with a thermometer you trust and change the offset by the difference." : {},
     "The clock hasn't reported its apps yet." : {},
     "The clock is unavailable for a few seconds while it restarts." : {},
     "The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state." : {},
@@ -927,7 +927,6 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "The firmware subtracts 9 °C to make up for the clock warming itself. Compare the reading with a thermometer you trust and adjust by the difference." : {},
     "The menu bar shows the glyph of the tool that's most active." : {},
     "The overlay draws rain, snow or storms over whatever is showing." : {},
     "The reminder shows for the time above, then the clock carries on." : {},
