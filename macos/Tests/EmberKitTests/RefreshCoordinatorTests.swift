@@ -259,3 +259,36 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     await b.value
     #expect(feeds.count(.stats) == 1)
 }
+
+/// A caller that joins a running fetch must see that fetch's bookkeeping done
+/// when it resumes. Before, only the caller that started the fetch recorded it;
+/// a joiner (a feed's loop) that resumed first found the finished task still in
+/// flight, re-joined it without suspending and spun the main actor forever.
+@MainActor @Test func aJoinedFetchIsRecordedBeforeAnyCallerResumes() async {
+    let clock = ManualClock()
+    var gate: CheckedContinuation<Void, Never>?
+    var calls = 0
+    let c = RefreshCoordinator(
+        fetch: { _ in
+            calls += 1
+            await withCheckedContinuation { gate = $0 }
+            return .ok
+        },
+        sleep: clock.sleepFn, now: clock.nowFn)
+    var seen: [Duration?] = []
+    let first = Task { await c.tick(.stats); seen.append(c.lastTickAt(.stats)) }
+    let second = Task { await c.tick(.stats); seen.append(c.lastTickAt(.stats)) }
+    while gate == nil { await Task.yield() }
+    for _ in 0..<5 { await Task.yield() }
+    gate?.resume()
+    _ = await (first.value, second.value)
+    #expect(calls == 1)
+    #expect(seen.count == 2)
+    #expect(seen.allSatisfy { $0 != nil })
+    // A third tick after completion starts a fresh fetch, not a stale join.
+    let third = Task { await c.tick(.stats) }
+    while calls < 2 { await Task.yield() }
+    gate?.resume()
+    _ = await third.value
+    #expect(calls == 2)
+}
