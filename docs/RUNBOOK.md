@@ -369,9 +369,11 @@ fingerprint doesn't exist on NG). The server advertises itself as
   (or **Find Clock from This Mac…**, shown when the server reports the clock
   unreachable) also browses from the Mac and pins the pick on the server. The
   app needs Local Network access for that.
-- Effective clock URL precedence: writable-store override (Settings › Clock › Discover Clocks) >
-  reachable `awtrix.http_base_url` from `config.json` > mDNS auto-pick (in-memory;
-  never written back to the read-only config or the store).
+- Effective clock URL: the writable-store override (Settings › Clock › Discover Clocks),
+  else `awtrix.http_base_url` from `config.json`. If that fails its probes, an
+  in-memory mDNS swap replaces it (the override included) until a PUT naming
+  `base_url` or a reload that changes the file URL; the swap is never written
+  back to the config or the store.
 - **Self-healing:** the server reachability-tests the effective URL (store
   override included) at boot and every 30s via a background probe
   (`awtrix.auto_rediscover`, default on); an unreachable URL falls through to a

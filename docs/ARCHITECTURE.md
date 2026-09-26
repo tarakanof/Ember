@@ -642,8 +642,9 @@ lives in three tiers, all in the one `Config` value:
 
 `Config.clockURL()` is the only place that turns the tiers into the
 effective URL and its `source`, in the order discovered > store > config >
-none. A swap is set only after the effective URL failed its probes, so this
-is the documented "store override > reachable baseline > mDNS auto-pick".
+none. In words: effective = menu override, else `config.json` baseline; if that fails its probes, an in-memory mDNS swap replaces it (the pin included) until a PUT naming `base_url` or a reload that changes the file URL (the
+store row is never touched). A swap only follows failed probes, so the pin
+is not unbeatable: it wins only while it answers.
 Everything that dials or reports the clock asks it: clock access, doctor, the
 `/v1/device/config` and `/discover` bodies, clock health, and the boot-ping and
 button callback hosts. `TestHTTPBaseURLOnlyReadAsBaseline` stops anything else
@@ -804,10 +805,9 @@ collected on a fixed `:4211`; directed broadcasts are needed in practice on
 some networks) for when multicast doesn't make it through. A resolved host is
 fingerprinted via `GET /api/v1/device`: it counts as the clock only when it
 reports both a non-empty `uid` **and** `boardType == "awtrixng"` — the AWTRIX3
-`/api/stats` fingerprint doesn't exist on NG. The effective clock URL resolves
-as **writable-store override > reachable `config.json` baseline > mDNS
-auto-pick** — while the pinned URL (store override or config baseline)
-answers, that precedence holds as before. But the pin is
+`/api/stats` fingerprint doesn't exist on NG. The effective clock URL is the
+**menu override, else `config.json` baseline; if that fails its probes, an in-memory mDNS swap replaces it (the pin included) until a PUT naming `base_url` or a reload that changes the file URL** (never written
+to the store or `config.json`). The pin is
 **reachability-tested, not just trusted**: a 1.5s HTTP probe runs at boot and
 again every 30s from a background watcher (`StartDeviceWatch`), and if the
 currently-effective URL (store override included) stops answering, the server

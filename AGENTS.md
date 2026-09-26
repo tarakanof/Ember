@@ -119,8 +119,8 @@ right=skip — all on press; the left+right chord from AWTRIX3 is gone).
 
 The `/v1/device/*` group discovers the clock (mDNS `_awtrixng._tcp` browse +
 `FIND_AWTRIXNG` UDP fallback, fingerprinted via `GET /api/v1/device`) and
-proxies its NG API to the menu's Settings › Clock pane; the effective clock URL resolves
-as store override > reachable `config.json` baseline > mDNS auto-pick. A 30s
+proxies its NG API to the menu's Settings › Clock pane; the effective clock URL is the
+menu override, else `config.json` baseline; if that fails its probes, an in-memory mDNS swap replaces it (the pin included) until a PUT naming `base_url` or a reload that changes the file URL (see `clock_url.go`). A 30s
 device-watch probe re-discovers on IP change and detects a clock reboot (via
 falling `uptimeSeconds`) to trigger a republish of every pushed app — issue
 #73's Berry boot-ping hook (`POST /hooks/awtrix/boot`, config toggle
