@@ -20,6 +20,6 @@ struct LiveMatrixMirror: View {
         guard let app = env.live.clockHealth.value?.device?.currentApp, !app.isEmpty else {
             return env.live.screen.value == nil ? String(localized: "Not available") : ""
         }
-        return AppNames.display(app)
+        return String(localized: AppNames.display(app))
     }
 }

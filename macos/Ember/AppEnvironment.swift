@@ -104,6 +104,8 @@ public final class AppEnvironment {
     /// The scene's `openWindow`, captured by the first window or menu that
     /// appears, for AppKit callers (the Dock menu) that have no environment.
     @ObservationIgnored var openWindowAction: OpenWindowAction?
+    /// The one writer queue for producer.env.
+    public let envStore: EnvFileStore
     @ObservationIgnored private var sleepObservers: [NSObjectProtocol] = []
 
     public init(producerEnvPath: URL = AppEnvironment.defaultEnvPath) {
@@ -111,7 +113,8 @@ public final class AppEnvironment {
         prefs = AppEnvironment.loadPrefs()
         let client = AppEnvironment.makeClient(path: producerEnvPath)
         actions = ActionRunner(live: live)
-        settings = SettingsModels(client: client, envPath: producerEnvPath)
+        envStore = EnvFileStore(path: producerEnvPath)
+        settings = SettingsModels(client: client, envStore: envStore)
         serverURL = client.baseURL
         pomodoro = PomodoroService(client: client)
         stats = StatsService(client: client)
@@ -202,12 +205,15 @@ public final class AppEnvironment {
         ]
     }
 
-    /// Opens a window by scene id and brings the app forward. No-op until a
+    /// Opens a window by scene id in front of other apps. No-op until a
     /// scene has captured `openWindowAction`.
     func openWindow(id: String) {
-        NSApp.activate()
-        openWindowAction?(id: id)
+        guard let openWindowAction else { return }
+        presentWindow(id: id, using: openWindowAction)
     }
+
+    /// Whether the Settings window is on screen (⌘R reloads settings only then).
+    @ObservationIgnored var isSettingsOpen = false
 
     /// Reads producer.env from disk (missing file -> empty env -> Offline client).
     public func currentEnv() -> EnvFile {

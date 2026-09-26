@@ -8,9 +8,10 @@ import EmberKit
 /// |---|---|
 /// | never loaded | `placeholder` redacted, else a spinner |
 /// | loaded | `content`, or the empty message when `isEmpty` |
-/// | 404, no value | the off message and its Settings button |
-/// | offline/server error/429 with a value | `content` plus a stale chip |
-/// | offline/server error, no value | "Server unreachable" |
+/// | 404/405 (feature off, old server) | the off message and its Settings button, even with an old value |
+/// | offline/server error/429 with a value | `content` plus a stale chip (none for 429) |
+/// | offline, no value | "Server unreachable" |
+/// | server error, no value | "Server error" with its message |
 /// | 429, no value | a spinner (a retry is already scheduled) |
 /// | 401 | "Needs token" with a button to Connection |
 struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
@@ -49,12 +50,9 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
             } actions: {
                 Button("Open Connection Settings") { openSettings(pane: "connection", using: openWindow) }
             }
-        case .failed(let error, let last?, let lastAt):
-            loaded(last)
-                .overlay(alignment: .topTrailing) {
-                    if showsStaleChip, error != .rateLimited, let lastAt { StaleChip(since: lastAt) }
-                }
-        case .failed(.featureOff, nil, _):
+        case .failed(.featureOff, _, _):
+            // Even with an old value: the feature was turned off, the old
+            // numbers aren't "stale", they're gone (the Dock menu agrees).
             ContentUnavailableView {
                 Label(offTitle, systemImage: "power")
             } description: {
@@ -64,10 +62,21 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
                     Button("Open Settings") { openSettings(pane: pane, using: openWindow) }
                 }
             }
+        case .failed(let error, let last?, let lastAt):
+            loaded(last)
+                .overlay(alignment: .topTrailing) {
+                    if showsStaleChip, error != .rateLimited, let lastAt { StaleChip(since: lastAt) }
+                }
         case .failed(.rateLimited, nil, _):
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .failed(_, nil, _):
+        case .failed(.offline, nil, _):
             ContentUnavailableView("Server unreachable", systemImage: "network.slash")
+        case .failed(let error, nil, _):
+            ContentUnavailableView {
+                Label("Server error", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error.message)
+            }
         }
     }
 

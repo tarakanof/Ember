@@ -14,7 +14,7 @@ struct DashboardWindow: View {
         NavigationStack {
             content
                 .navigationTitle("Ember")
-                .navigationSubtitle(env.live.connection.subtitle(serverHost: env.serverURL?.host()))
+                .navigationSubtitle(Text(env.live.connection.subtitle(serverHost: env.serverURL?.host())))
                 .toolbar { toolbar }
         }
         .frame(minWidth: 720, minHeight: 560)
@@ -72,7 +72,7 @@ struct DashboardWindow: View {
                         PhaseBadge(state: s.stateEnum)
                             .frame(width: 90, alignment: .leading)
                         VStack(alignment: .leading) {
-                            Text(verbatim: "\(p.toolDisplayName) · \(s.source)")
+                            Text("\(Text(p.toolDisplayName)) · \(s.source)")
                             if let sub = p.subtitle {
                                 Text(verbatim: sub)
                                     .font(.caption)
@@ -82,7 +82,7 @@ struct DashboardWindow: View {
                         }
                         Spacer()
                         if let ctx = p.contextText() {
-                            Text(verbatim: ctx).font(.caption).foregroundStyle(.secondary)
+                            Text(ctx).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -98,7 +98,7 @@ struct DashboardWindow: View {
             VStack(alignment: .leading, spacing: 8) {
                 if p.mode != .idle {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(verbatim: p.phaseEnum.displayName).bold()
+                        Text(p.phaseEnum.displayName).bold()
                         Text(verbatim: DurationText.remaining(p.remainingSec))
                             .font(.title3.monospacedDigit())
                         Text("round \(p.round)").foregroundStyle(.secondary)
@@ -110,7 +110,7 @@ struct DashboardWindow: View {
                         .foregroundStyle(.secondary)
                 }
                 if let failure = env.actions.lastError {
-                    Label(failure.error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+                    Label { Text(failure.error.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
@@ -122,8 +122,10 @@ struct DashboardWindow: View {
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup {
             ForEach(PomodoroControls.items(for: env.live.pomodoro.value)) { item in
-                Button(item.title, systemImage: item.systemImage) {
+                Button {
                     Task { await env.actions.run(.pomodoro(item.action)) }
+                } label: {
+                    Label { Text(item.title) } icon: { Image(systemName: item.systemImage) }
                 }
                 .disabled(!env.live.connection.isOnline || env.live.pomodoro.error == .featureOff)
             }

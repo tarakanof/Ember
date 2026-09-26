@@ -30,7 +30,7 @@ struct PhaseBadge: View {
                 .frame(width: 8, height: 8)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(state.displayName)
+        .accessibilityLabel(Text(state.displayName))
     }
 }
 

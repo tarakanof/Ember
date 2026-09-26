@@ -36,6 +36,8 @@ struct EmberApp: App {
                 .windowMinimizeBehavior(.disabled)
                 .environment(env)
                 .capturesOpenWindow(into: env)
+                .onAppear { env.isSettingsOpen = true }
+                .onDisappear { env.isSettingsOpen = false }
         }
         .defaultSize(width: 800, height: 640)
         .windowResizability(.contentMinSize)
@@ -60,7 +62,7 @@ private struct EmberCommands: Commands {
             Button("Refresh") {
                 Task {
                     await env.live.refreshNow()
-                    await env.settings.loadAll()
+                    if env.isSettingsOpen { await env.settings.loadAll() }
                 }
             }
             .keyboardShortcut("r", modifiers: .command)
@@ -75,10 +77,7 @@ private struct OpenWindowCommand: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button(title) {
-            NSApp.activate()
-            openWindow(id: id)
-        }
+        Button(title) { presentWindow(id: id, using: openWindow) }
         .keyboardShortcut(key, modifiers: .command)
     }
 }

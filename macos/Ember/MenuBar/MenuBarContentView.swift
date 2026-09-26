@@ -10,9 +10,12 @@ struct MenuBarContentView: View {
 
 	var body: some View {
 		Group { items }
-			// Fires when the menu opens: glance rows shouldn't be a minute old.
+			// Fires when the menu opens. Catches up glance feeds whose poll is
+			// overdue (after a backoff); 60 s so opening the menu often can't
+			// push stats past one request a minute (each fetch also pushes the
+			// next poll back).
 			.onAppear {
-				Task { await env.live.refreshNow([.stats, .meetings, .usage], ifOlderThan: .seconds(15)) }
+				Task { await env.live.refreshNow([.stats, .meetings, .usage], ifOlderThan: .seconds(60)) }
 			}
 	}
 
@@ -28,8 +31,8 @@ struct MenuBarContentView: View {
 		// Status header (disabled text rows).
 		if let s = live.winningSession {
 			let p = SessionPresentation(s)
-			Text(verbatim: p.title)
-			if let sub = p.subtitle { Text(verbatim: String(sub.prefix(48))) }
+			Text(p.title)
+			if let sub = p.subtitle(maxLength: 48) { Text(verbatim: sub) }
 		} else {
 			Text(statusText(live.connection))
 		}
@@ -38,12 +41,14 @@ struct MenuBarContentView: View {
 
 		// Pomodoro: phase line while active, then the controls that apply.
 		if let p = live.pomodoro.value, p.mode != .idle {
-			Text(verbatim: "\(p.phaseEnum.displayName) · \(DurationText.remaining(p.remainingSec)) · round \(p.round)")
+			Text("\(Text(p.phaseEnum.displayName)) · \(DurationText.remaining(p.remainingSec)) · round \(p.round)")
 		}
 		Group {
 			ForEach(PomodoroControls.items(for: live.pomodoro.value)) { item in
-				Button(item.title, systemImage: item.systemImage) {
+				Button {
 					Task { await env.actions.run(.pomodoro(item.action)) }
+				} label: {
+					Label { Text(item.title) } icon: { Image(systemName: item.systemImage) }
 				}
 				.modifier(PrimaryShortcut(key: item.shortcutKey))
 			}
@@ -51,7 +56,7 @@ struct MenuBarContentView: View {
 		.labelStyle(.titleAndIcon)
 		.disabled(!live.connection.isOnline || live.pomodoro.error == .featureOff)
 		if let failure = env.actions.lastError {
-			Text("Couldn't do that: \(failure.error.localizedDescription)")
+			Text("Couldn't do that: \(Text(failure.error.message))")
 		}
 
 		Divider()
@@ -59,17 +64,16 @@ struct MenuBarContentView: View {
 		// Per-app clock visibility toggles (dynamic; future apps appear here).
 		let apps = live.apps.value ?? []
 		ForEach(apps, id: \.name) { app in
-			Toggle(AppNames.display(app.name), isOn: Binding(
+			Toggle(isOn: Binding(
 				get: { app.enabled },
 				set: { on in Task { await env.actions.run(.setApp(app.name, enabled: on)) } }
-			))
+			)) {
+				Text(AppNames.display(app.name))
+			}
 		}
 		if !apps.isEmpty { Divider() }
 
-		Button("Open Dashboard") {
-			NSApp.activate()
-			openWindow(id: WindowID.dashboard)
-		}
+		Button("Open Dashboard") { presentWindow(id: WindowID.dashboard, using: openWindow) }
 		.keyboardShortcut("0", modifiers: .command)
 		Button("Settings…") { openSettings(using: openWindow) }
 			.keyboardShortcut(",", modifiers: .command)

@@ -12,7 +12,7 @@ enum DockMenu {
         let pomodoroOn = env.live.pomodoro.error != .featureOff
         if pomodoroOn {
             for item in PomodoroControls.items(for: env.live.pomodoro.value) {
-                let menuItem = ActionMenuItem(title: item.title) {
+                let menuItem = ActionMenuItem(title: String(localized: item.title)) {
                     Task { await env.actions.run(.pomodoro(item.action)) }
                 }
                 menuItem.image = NSImage(systemSymbolName: item.systemImage, accessibilityDescription: nil)
