@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func runUninstall() {
@@ -18,7 +19,12 @@ func runUninstall() {
 	}
 	uid := os.Getuid()
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
-	_ = exec.Command("launchctl", "bootout", target).Run()
+	// A job Ember.app registered under the same label is left running (#142).
+	if err := producer.CheckNotAppManaged(producer.ExecLaunchctl, target); err != nil {
+		fmt.Fprintln(os.Stderr, "uninstall: not unloading:", err)
+	} else {
+		producer.BootoutLegacyAgent(producer.ExecLaunchctl, target)
+	}
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintln(os.Stderr, "uninstall: remove plist:", err)

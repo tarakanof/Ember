@@ -5,7 +5,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -52,6 +51,10 @@ func install() error {
 		return err
 	}
 	uid := os.Getuid()
+	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
+	if err := producer.CheckNotAppManaged(producer.ExecLaunchctl, target); err != nil {
+		return err
+	}
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	plistData, err := generatePlist(binPath, home, uid)
 	if err != nil {
@@ -60,7 +63,7 @@ func install() error {
 	if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
 		return err
 	}
-	return reloadLaunchAgent(uid, plistPath)
+	return reloadLaunchAgent(producer.ExecLaunchctl, uid, plistPath)
 }
 
 // configureAt performs the daemon-independent install work: dirs, producer.env,
@@ -167,12 +170,13 @@ func producerEnvExampleContent() string {
 	return producer.EnvExample()
 }
 
-func reloadLaunchAgent(uid int, plistPath string) error {
+func reloadLaunchAgent(lc producer.Launchctl, uid int, plistPath string) error {
 	domain := fmt.Sprintf("gui/%d", uid)
 	target := fmt.Sprintf("%s/%s", domain, launchAgentLabel)
-	// Bootout is allowed to fail with "not loaded" — we tolerate any non-zero exit.
-	_ = exec.Command("launchctl", "bootout", target).Run()
-	out, err := exec.Command("launchctl", "bootstrap", domain, plistPath).CombinedOutput()
+	// Only a CLI-loaded job is booted out; install() already refused when
+	// Ember.app owns the label.
+	producer.BootoutLegacyAgent(lc, target)
+	out, err := lc("bootstrap", domain, plistPath)
 	if err != nil {
 		return fmt.Errorf("launchctl bootstrap: %v\nOutput: %s", err, out)
 	}

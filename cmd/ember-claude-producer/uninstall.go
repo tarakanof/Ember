@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func runUninstall() {
@@ -18,7 +19,7 @@ func runUninstall() {
 	if err := deconfigureAt(home); err != nil {
 		fmt.Fprintln(os.Stderr, "uninstall: settings.json:", err)
 	}
-	if err := uninstallPlist(home, uid); err != nil {
+	if err := uninstallPlist(producer.ExecLaunchctl, home, uid); err != nil {
 		fmt.Fprintln(os.Stderr, "uninstall: plist:", err)
 	}
 	fmt.Println("Uninstall complete.")
@@ -130,10 +131,16 @@ func uninstallSettings(home string) error {
 	return os.Rename(tmp.Name(), settingsPath)
 }
 
-func uninstallPlist(home string, uid int) error {
+// uninstallPlist unloads and removes the CLI-installed LaunchAgent. A job
+// Ember.app registered under the same label is left running (#142).
+func uninstallPlist(lc producer.Launchctl, home string, uid int) error {
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
-	_ = exec.Command("launchctl", "bootout", target).Run()
+	if err := producer.CheckNotAppManaged(lc, target); err != nil {
+		fmt.Fprintln(os.Stderr, "uninstall: not unloading:", err)
+	} else {
+		producer.BootoutLegacyAgent(lc, target)
+	}
 	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
