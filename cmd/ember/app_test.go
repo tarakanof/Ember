@@ -20,12 +20,7 @@ func TestApp_PublishUpdatesLastPublishFields(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = srv.URL
 	cfg.applyDefaults()
 
-	pub, err := NewHTTPPublisher()
-	if err != nil {
-		t.Fatal(err)
-	}
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	// pub.app is wired by NewApp; no manual setting needed.
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	// Seed a running session so RenderForCoord produces a non-nil payload.
 	app.Upsert(StatusRequest{Source: "dt", Tool: "claude", Session: "s1", State: "running"})
 

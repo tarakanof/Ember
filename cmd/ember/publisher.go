@@ -6,6 +6,11 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
+// Publisher is the seam for every server-initiated write to the clock: the
+// coordinator's frames, tiles, indicators and display hold, and the one-shot
+// notifications. clockPublisher is the real adapter (below); tests pass a fake
+// to NewApp. Sound policy (quietPublisher) and retries (coordinator.
+// retryDevice) sit above the seam, so a fake sees what the clock would.
 type Publisher interface {
 	// CustomApp creates or replaces a pushed app
 	// (PUT /api/v1/apps/pushed/{name}). Pushed apps are RAM-only on awtrix-ng
@@ -58,131 +63,93 @@ type Publisher interface {
 	PutIcon(ctx context.Context, filename string, data []byte) error
 }
 
-// HTTPPublisher drives the clock over awtrix-ng's API v1, delegating every
-// call to internal/awtrix. A fresh client is built per call from the live
-// config so URL changes from rediscovery take effect immediately.
-type HTTPPublisher struct {
-	app *App // for reading current AWTRIX config
+// clockPublisher is the real Publisher: every method is one callPublish
+// client call through clockAccess against the currently-resolved clock (a
+// fresh client per call reads the live URL, so a rediscovery swap applies to
+// the next write). It is ungated: NewApp builds the only one and wraps it in
+// quietPublisher at once, so nothing else can reach Notify or PlayRTTTL
+// without the quiet-hours check (clock_access_guard_test.go keeps it that
+// way). Tests substitute a fake at the same seam.
+type clockPublisher struct{ k *clockAccess }
+
+var _ Publisher = clockPublisher{}
+
+func (p clockPublisher) publish(ctx context.Context, fn func(context.Context, *awtrix.Client) error) error {
+	return p.k.do(ctx, callPublish, fn)
 }
 
-// NewHTTPPublisher returns a publisher with no app reference yet. Callers
-// must set p.app before calling any publish method (NewApp does this).
-func NewHTTPPublisher() (*HTTPPublisher, error) {
-	return &HTTPPublisher{}, nil
+func (p clockPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.PushApp(ctx, name, payload) })
 }
 
-func (p *HTTPPublisher) client() (*awtrix.Client, error) {
-	return p.app.clock.client(callPublish)
+func (p clockPublisher) ClearApp(ctx context.Context, name string) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.DeleteApp(ctx, name) })
 }
 
-func (p *HTTPPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
-	c, err := p.client()
-	if err != nil {
+func (p clockPublisher) ListApps(ctx context.Context) ([]string, error) {
+	var names []string
+	err := p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error {
+		apps, err := c.ListApps(ctx)
+		if err != nil {
+			return err
+		}
+		names = make([]string, 0, len(apps))
+		for _, a := range apps {
+			names = append(names, a.Name)
+		}
+		return nil
+	})
+	return names, err
+}
+
+func (p clockPublisher) ListIcons(ctx context.Context) ([]string, error) {
+	var names []string
+	err := p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error {
+		var err error
+		names, err = c.ListIcons(ctx)
 		return err
-	}
-	return c.PushApp(ctx, name, payload)
+	})
+	return names, err
 }
 
-func (p *HTTPPublisher) ClearApp(ctx context.Context, name string) error {
-	c, err := p.client()
-	if err != nil {
+func (p clockPublisher) PutIcon(ctx context.Context, filename string, data []byte) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.PutIcon(ctx, filename, data) })
+}
+
+func (p clockPublisher) Notify(ctx context.Context, payload map[string]any) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.Notify(ctx, payload) })
+}
+
+func (p clockPublisher) DismissNotifyByName(ctx context.Context, name string) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.DismissNotifyByName(ctx, name) })
+}
+
+func (p clockPublisher) PlayRTTTL(ctx context.Context, rtttl string) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.PlayRTTTL(ctx, rtttl) })
+}
+
+func (p clockPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.SetIndicator(ctx, index, payload) })
+}
+
+func (p clockPublisher) ClearIndicator(ctx context.Context, index int) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.ClearIndicator(ctx, index) })
+}
+
+func (p clockPublisher) Settings(ctx context.Context, payload map[string]any) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.PatchSettings(ctx, payload) })
+}
+
+func (p clockPublisher) ReadSettings(ctx context.Context) (map[string]any, error) {
+	var m map[string]any
+	err := p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error {
+		var err error
+		m, err = c.GetSettings(ctx)
 		return err
-	}
-	return c.DeleteApp(ctx, name)
+	})
+	return m, err
 }
 
-func (p *HTTPPublisher) ListApps(ctx context.Context) ([]string, error) {
-	c, err := p.client()
-	if err != nil {
-		return nil, err
-	}
-	apps, err := c.ListApps(ctx)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(apps))
-	for _, a := range apps {
-		names = append(names, a.Name)
-	}
-	return names, nil
-}
-
-func (p *HTTPPublisher) ListIcons(ctx context.Context) ([]string, error) {
-	c, err := p.client()
-	if err != nil {
-		return nil, err
-	}
-	return c.ListIcons(ctx)
-}
-
-func (p *HTTPPublisher) PutIcon(ctx context.Context, filename string, data []byte) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.PutIcon(ctx, filename, data)
-}
-
-func (p *HTTPPublisher) Notify(ctx context.Context, payload map[string]any) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.Notify(ctx, payload)
-}
-
-func (p *HTTPPublisher) DismissNotifyByName(ctx context.Context, name string) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.DismissNotifyByName(ctx, name)
-}
-
-func (p *HTTPPublisher) PlayRTTTL(ctx context.Context, rtttl string) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.PlayRTTTL(ctx, rtttl)
-}
-
-func (p *HTTPPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.SetIndicator(ctx, index, payload)
-}
-
-func (p *HTTPPublisher) ClearIndicator(ctx context.Context, index int) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.ClearIndicator(ctx, index)
-}
-
-func (p *HTTPPublisher) Settings(ctx context.Context, payload map[string]any) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.PatchSettings(ctx, payload)
-}
-
-func (p *HTTPPublisher) ReadSettings(ctx context.Context) (map[string]any, error) {
-	c, err := p.client()
-	if err != nil {
-		return nil, err
-	}
-	return c.GetSettings(ctx)
-}
-
-func (p *HTTPPublisher) Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error {
-	c, err := p.client()
-	if err != nil {
-		return err
-	}
-	return c.SwitchApp(ctx, name, mode)
+func (p clockPublisher) Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error {
+	return p.publish(ctx, func(ctx context.Context, c *awtrix.Client) error { return c.SwitchApp(ctx, name, mode) })
 }

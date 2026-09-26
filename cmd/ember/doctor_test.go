@@ -23,8 +23,7 @@ func newAppForDoctor(t *testing.T, awtrixURL string) *App {
 	cfg.AWTRIX.HTTPBaseURL = awtrixURL
 	cfg.Auth.StatusToken = "tok"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	app.configPath = "/tmp/cfg.json"
 	app.configSource = "flag"
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

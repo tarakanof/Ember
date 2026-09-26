@@ -135,8 +135,7 @@ func newAppForMetrics(t *testing.T) *App {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	return app
 }
 

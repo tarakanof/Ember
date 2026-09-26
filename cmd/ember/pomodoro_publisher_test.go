@@ -13,20 +13,16 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-func newPublisherAgainst(t *testing.T, h http.HandlerFunc) *HTTPPublisher {
+// newPublisherAgainst returns the real, ungated Publisher adapter pointed at
+// a fake clock serving h.
+func newPublisherAgainst(t *testing.T, h http.HandlerFunc) Publisher {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = srv.URL
 	cfg.applyDefaults()
-	pub, err := NewHTTPPublisher()
-	if err != nil {
-		t.Fatal(err)
-	}
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	pub.app = app
-	return pub
+	return clockPublisher{NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil))).clock}
 }
 
 func TestPublisherSettingsPatchesSettingsEndpoint(t *testing.T) {

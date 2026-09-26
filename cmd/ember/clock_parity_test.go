@@ -335,7 +335,7 @@ func runClockParity(t *testing.T, pat []bool) string {
 	cfg.Display.AttentionChime = true
 	cfg.HTTP.Addr = ":3627"
 	cfg.applyDefaults()
-	app := parityApp(t, cfg)
+	app := NewApp(cfg, nil, testLogger()) // the real clock adapter
 	app.deviceBaseline = srv.URL
 	app.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: srv.URL, UID: "abc"}}, nil

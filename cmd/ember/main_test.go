@@ -419,7 +419,7 @@ func postJSON(t *testing.T, srv *httptest.Server, path string, body any, headers
 	return resp
 }
 
-// newRawTestServer builds a test server backed by NewHTTPPublisher (base URL
+// newRawTestServer builds a test server backed by the real clock adapter (base URL
 // http://x) with the shared test token configured. It suits tests that assert
 // on decode/validation/logging behaviour and drive raw request bodies; logger
 // lets a test capture emitted log lines.
@@ -429,8 +429,7 @@ func newRawTestServer(t *testing.T, logger *slog.Logger) *httptest.Server {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
 	cfg.Auth.StatusToken = testToken
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, logger)
+	app := NewApp(cfg, nil, logger)
 	srv := httptest.NewServer(app.routes())
 	t.Cleanup(srv.Close)
 	return srv

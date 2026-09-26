@@ -21,10 +21,11 @@ import (
 // error map (writeClockError) and the retry rule (retryClockCall) sit here
 // too, so every question of "how do we talk to the clock" has one answer.
 //
-// Two faces: it implements Publisher (publisher.go) for server-initiated
-// writes, which reach it through quietPublisher and the coordinator; the
-// menu's /v1/device/* handlers, the watch loop and doctor call its methods
-// directly.
+// Server-initiated writes reach it through the Publisher seam
+// (clockPublisher in publisher.go, wrapped by quietPublisher); the menu's
+// /v1/device/* handlers, the watch loop and doctor call its methods directly.
+// It deliberately has no Notify/PlayRTTTL of its own, so a.clock can't be
+// used to sound the clock past the quiet-hours gate.
 type clockAccess struct {
 	cfg func() *Config
 
