@@ -74,7 +74,9 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 settings PUT above is merge semantics: the body is a JSON object whose omitted
 keys keep their current value; an invalid merged result is a 400 and changes
 nothing — see `settings_overlay.go`), `GET/PUT /v1/device/config`
-(`{"base_url"}`, required),
+(`{"base_url"}`, the same merge: `{}` changes nothing, an empty or non-http(s)
+URL is a 400; GET answers the effective URL and its `source` — see
+`clock_url.go`),
 `GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
 `PATCH /api/v1/settings` keys — see `device_settings.go`; during a Pomodoro
 takeover `autoTransition`/`blockNavigation` read and write the saved prior,

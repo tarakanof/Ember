@@ -110,7 +110,8 @@ The aggregator and the only writer to the device.
   in its preview handler).
 - **Clock access — one module** (`cmd/ember/clock_access.go`, #146). Every
   server→clock call goes through `clockAccess`. It resolves the clock from the
-  live config on every call, so a rediscovery swap or `PUT /v1/device/config`
+  live config on every call (`Config.clockURL()`, see "Runtime settings
+  overlay"), so a rediscovery swap or `PUT /v1/device/config`
   applies to the next request. It holds the URL to the same `validDeviceURL`
   rule used wherever a URL is stored, and gives each call class one timeout:
   `callPublish` = `awtrix.timeout_seconds`, `callMenu` 8 s, `callProbe`
@@ -604,10 +605,7 @@ and the App Nap assertion held while the scheduler runs.
 
 > **Shared store.** Runtime settings + hidden-apps + Pomodoro stats all live in
 > the one SQLite store, opened once at boot by `initPomodoro` (`ensureStore`,
-> path `pomodoro.db_path`) whether or not Pomodoro is enabled. The clock URL is
-> the exception to the settings overlay below: a reload keeps the running URL
-> (menu override or mDNS-discovered clock) unless the file's
-> `awtrix.http_base_url` itself changed, and even then a store override wins.
+> path `pomodoro.db_path`) whether or not Pomodoro is enabled.
 
 ### Runtime settings overlay (`settings_overlay.go`)
 
@@ -631,10 +629,33 @@ The overlay owns the rest, identically for all of them:
   override is laid over the baseline through the same merge — so a blob written
   before a field existed keeps that field's current value.
 
-The clock URL (`device_base_url`) is not a registration: it's stored as a raw
-string, discovery swaps it in memory, and a reload re-applies it only when the
-file URL changed. Hidden apps (`display_hidden_apps`) are a set toggle, not a
-config overlay.
+**The clock URL** (`clock_url.go`, #175) is a registration too
+(`device_base_url`, DTO `{"base_url"}`). Its `encode`/`decode` pair keeps the
+raw-URL string it was stored as before the overlay, so old stores need no
+migration. It is the one setting with a tier the overlay doesn't own. The URL
+lives in three tiers, all in the one `Config` value:
+
+- `awtrix.http_base_url`: the file baseline, never overwritten at runtime.
+- The menu override: this registration.
+- The discovery swap (`clockDiscovered`): written only by `rediscoverClock`,
+  in memory, and only if the effective URL hasn't changed since it probed.
+
+`Config.clockURL()` is the only place that turns the tiers into the
+effective URL and its `source`, in the order discovered > store > config >
+none. A swap is set only after the effective URL failed its probes, so this
+is the documented "store override > reachable baseline > mDNS auto-pick".
+Everything that dials or reports the clock asks it: clock access, doctor, the
+`/v1/device/config` and `/discover` bodies, clock health, and the boot-ping and
+button callback hosts. `TestHTTPBaseURLOnlyReadAsBaseline` stops anything else
+from reading the baseline field.
+
+A PUT naming `base_url` clears the swap in the same critical section
+(`putWith`), so the menu's pick always re-pins. Reapply never does this. On
+`/admin/reload`, `carryClockURL` keeps the override, and keeps a swap only
+while the file URL is unchanged. A changed file URL is the operator pinning a
+clock, but a store override still beats it.
+
+Hidden apps (`display_hidden_apps`) are a set toggle, not a config overlay.
 
 ### Meetings — next-meeting countdown (`internal/meetings`, `cmd/ember/meetings*.go`)
 
