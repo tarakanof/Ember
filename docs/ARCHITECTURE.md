@@ -137,7 +137,10 @@ The aggregator and the only writer to the device.
     `unknown` (a write went out unanswered: it may have landed) or `applied`
     (the settings PATCH landed but its Pomodoro reconcile didn't run). A
     sensors/buttons PUT whose write landed but whose re-read ran out answers
-    200 from the object it wrote.
+    200 from the object it wrote. The app maps the 504 to
+    `APIError.clockTimedOut` and shows "The clock didn't finish in time."
+    with the fate ("Nothing was changed." / "The change may not have been
+    saved." / "Saved, but not fully applied yet.").
 
   The app's side of these budgets is `RequestBudget` in EmberKit's
   `APIClient` (request / whole-request timeout): `.server` 5 s / 10 s for
@@ -150,8 +153,8 @@ The aggregator and the only writer to the device.
   the server's 25 s write budget, so sensors/buttons/settings PUT answer
   (504 at worst) before the app gives up, and its 30 s `WriteTimeout`. A
   handler outside the budget can still run past the `WriteTimeout` (`GET
-  /v1/device/settings` waits on `priorMu` twice around its read); the server
-  then drops the connection, which the app reports
+  /v1/device/settings` waits on `priorMu` twice around its read, #190); the
+  server then drops the connection, which the app reports
   (`networkConnectionLost` under `.clockLong`) as a timeout, not
   "unreachable". `DeviceService` picks a budget per call
   (pinned by `RequestBudgetTests`); change a server budget here, check the
@@ -427,11 +430,12 @@ so the toggles show the user's choice rather than the takeover's; both calls
 name the keys answered that way in an `X-Ember-Deferred-Keys` header.
 `priorMu` (a leaf lock) serialises those edits with the snapshot read and the
 restore, so a start or stop edge can wait out one menu call (8 s) or one
-restore (5 s); an edit's own waits give up at its 25 s write budget. Edits outside focus write unlocked; one that overlaps a
-takeover edge is folded into the new snapshot afterwards (`priorGen`), unless
-a later edit already set the key (per-key edit sequence numbers). A lost
-restore backs off `restoreBackoffTicks` (5) publishes so an offline clock
-doesn't stall the coordinator every tick. NG persists settings across reboots,
+restore (5 s); an edit's own waits give up at its 25 s write budget. Edits
+outside focus write unlocked; one that overlaps a takeover edge is folded
+into the new snapshot afterwards (`priorGen`), unless a later edit already
+set the key (per-key edit sequence numbers). A lost restore backs off
+`restoreBackoffTicks` (5) publishes so an offline clock doesn't stall the
+coordinator every tick. NG persists settings across reboots,
 so a takeover left behind by a dead server would stick: the snapshot is therefore also persisted to the
 store (key `pomo_takeover_prior`) for as long as the takeover is in force, and
 a server that starts with one left over restores it on its first publish. On

@@ -228,9 +228,12 @@ var takeoverKeys = []string{"autoTransition", "blockNavigation"}
 // Its priorMu waits give up when ctx ends (the handler's clockWriteBudget)
 // and return ctx.Err(). One of them comes after the unlocked write landed: an
 // edit that gives up there skips the reconcile, so if a takeover edge raced
-// its write, the edit may show mid-focus or be undone by the restore. The
-// handler answers that case as a 504 with write "applied" and the menu
-// re-reads.
+// its write, the edit may show mid-focus or be undone by the restore. It
+// also skips claimKeys, so an older edit still in flight can later claim the
+// keys and have reconcileRacedEdit write its value over this one. The handler
+// answers that case as a 504 with write "applied"; the app shows the save as
+// failed and saves it again on its next load (ServerConfigModel), which
+// heals both.
 func (c *coordinator) applyMenuSettings(ctx context.Context, m map[string]any, write func(map[string]any) error) ([]string, error) {
 	var held []string
 	for _, k := range takeoverKeys {

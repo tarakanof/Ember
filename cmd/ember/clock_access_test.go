@@ -121,7 +121,7 @@ func TestClockAccessSystemLockHonoursContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
 	defer srv.Close()
 	k := clockAccessFor(srv.URL, 10)
-	k.systemLock <- struct{}{} // another writer holds it
+	k.systemLock.Lock() // another writer holds it
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if _, err := k.updateSystem(ctx, func(map[string]any) {}); !errors.Is(err, context.DeadlineExceeded) {
@@ -130,4 +130,18 @@ func TestClockAccessSystemLockHonoursContext(t *testing.T) {
 	if hits != 0 {
 		t.Fatalf("clock saw %d requests while the lock was held", hits)
 	}
+}
+
+// Unlocking a ctxLock that isn't held panics, as sync.Mutex does, instead of
+// blocking forever.
+func TestCtxLockUnlockOfUnlockedPanics(t *testing.T) {
+	l := newCtxLock()
+	l.Lock()
+	l.Unlock()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("Unlock of an unlocked ctxLock returned; want a panic")
+		}
+	}()
+	l.Unlock()
 }

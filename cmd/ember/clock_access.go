@@ -55,8 +55,15 @@ func newCtxLock() ctxLock { return make(ctxLock, 1) }
 // Lock waits for the lock however long it takes.
 func (l ctxLock) Lock() { l <- struct{}{} }
 
-// Unlock releases a held lock.
-func (l ctxLock) Unlock() { <-l }
+// Unlock releases a held lock. Like sync.Mutex, it panics on a lock that
+// isn't held rather than block forever.
+func (l ctxLock) Unlock() {
+	select {
+	case <-l:
+	default:
+		panic("ctxLock: unlock of unlocked lock")
+	}
+}
 
 // LockContext waits for the lock until ctx ends, and then returns ctx.Err()
 // without it.
@@ -313,13 +320,16 @@ func (k *clockAccess) writeBudgetError(ctx context.Context, w http.ResponseWrite
 		writeClockError(w, err)
 		return
 	}
-	outcome, fate := writeNotSent, "nothing was written"
+	outcome, fate := writeNotSent, "nothing was changed"
 	var sent sentWriteError
+	// An unanswered write wins over an earlier landed one: a settings edit
+	// whose first PATCH landed and whose reconcile re-write then went
+	// unanswered doesn't know which value the clock holds now.
 	switch {
 	case errors.As(err, &sent):
-		outcome, fate = writeUnknown, "the change may have reached it; re-read to check"
+		outcome, fate = writeUnknown, "the change may not have been saved"
 	case landed:
-		outcome, fate = writeApplied, "the change was written but not finished; re-read to check"
+		outcome, fate = writeApplied, "the change was saved but not fully applied"
 	}
 	writeJSON(w, http.StatusGatewayTimeout, map[string]string{
 		"error": fmt.Sprintf("clock didn't finish within %s: %s", k.writeBudget, fate),
