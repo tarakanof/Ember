@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Observation
+import os
 
 /// One `_awtrixng._tcp` instance resolved to an address.
 public struct ClockService: Equatable, Sendable {
@@ -38,8 +39,10 @@ protocol ClockBrowsing: AnyObject {
 /// `browseWindow`, gives probes still out `probeGrace`, then stops on its
 /// own, keeping what it found. Cancelling the task running it, or `stop()`,
 /// tears everything down and clears the list. There is no FIND_AWTRIXNG
-/// broadcast fallback: the Mac sits on the clock's LAN with working mDNS,
-/// which is the case the server's fallback exists for.
+/// broadcast fallback: the server's exists for hosts where multicast doesn't
+/// get through (a Docker bridge), while the Mac shares the clock's LAN with
+/// working mDNS, and the fallback's fixed reply port (4211) would clash with
+/// a server running on the same Mac.
 @MainActor
 @Observable
 public final class ClockDiscovery {
@@ -207,9 +210,20 @@ public final class ClockDiscovery {
         guard let url = URL(string: baseURL + "/api/v1/device") else { return nil }
         var req = URLRequest(url: url)
         req.timeoutInterval = probeTimeout
-        guard let (data, resp) = try? await session.data(for: req) else { return nil }
-        return candidate(name: name, baseURL: baseURL,
-                         status: (resp as? HTTPURLResponse)?.statusCode ?? 0, body: data)
+        let data: Data, resp: URLResponse
+        do {
+            (data, resp) = try await session.data(for: req)
+        } catch {
+            let reason = error.localizedDescription
+            BonjourClockBrowser.log.info("clock probe failed base_url=\(baseURL, privacy: .public) error=\(reason, privacy: .public)")
+            return nil
+        }
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let found = candidate(name: name, baseURL: baseURL, status: status, body: data)
+        if found == nil {
+            BonjourClockBrowser.log.info("clock probe rejected base_url=\(baseURL, privacy: .public) status=\(status, privacy: .public) reason=not_awtrixng")
+        }
+        return found
     }
 
     nonisolated private static let probeSession: URLSession = {
@@ -228,12 +242,18 @@ public final class ClockDiscovery {
     }
 
     /// Whether to offer finding the clock from this Mac: the server's health
-    /// says it can't reach the clock (or has none), or the proxied settings
-    /// read failed on the server's side. An unreachable server or a rejected
-    /// token isn't something discovery can fix.
-    public nonisolated static func serverLostClock(health: ClockHealth?, settingsLoaded: Bool,
+    /// (fresh, not a stale value kept after the feed failed) says it has no
+    /// clock, or that its last probe AND its last push both failed; or the
+    /// proxied settings read failed on the server's side. One probe alone
+    /// isn't enough: the clock's Wi-Fi drops requests, and the probe result is
+    /// cached for 30 s. An unreachable server or a rejected token isn't
+    /// something discovery can fix.
+    public nonisolated static func serverLostClock(health: Loadable<ClockHealth>, settingsLoaded: Bool,
                                                    settingsError: FeedError?) -> Bool {
-        if let health, health.device?.reachable != true { return true }
+        if case .loaded(let h, _) = health {
+            guard let device = h.device else { return true }
+            if !device.reachable && !h.publish.lastOk { return true }
+        }
         if !settingsLoaded, case .server = settingsError { return true }
         return false
     }
@@ -316,7 +336,7 @@ final class BonjourClockBrowser: ClockBrowsing {
         }
         b.browseResultsChangedHandler = { [weak self] results, _ in
             let endpoints = results.map(\.endpoint)
-            MainActor.assumeIsolated { self?.resolve(endpoints, onResolved) }
+            MainActor.assumeIsolated { self?.resolve(endpoints, onState, onResolved) }
         }
         b.start(queue: .main)
         browser = b
@@ -333,7 +353,8 @@ final class BonjourClockBrowser: ClockBrowsing {
         claimed = []
     }
 
-    private func resolve(_ endpoints: [NWEndpoint], _ onResolved: @escaping @MainActor (ClockService) -> Void) {
+    private func resolve(_ endpoints: [NWEndpoint], _ onState: @escaping @MainActor (ClockBrowseState) -> Void,
+                         _ onResolved: @escaping @MainActor (ClockService) -> Void) {
         guard browser != nil else { return }
         for endpoint in endpoints {
             guard case let .service(name, type, domain, _) = endpoint,
@@ -348,19 +369,32 @@ final class BonjourClockBrowser: ClockBrowsing {
             let conn = NWConnection(to: endpoint, using: params)
             let key = ObjectIdentifier(conn)
             connections[key] = conn
+            let claim = "\(name).\(type).\(domain)"
             conn.stateUpdateHandler = { [weak self] state in
                 MainActor.assumeIsolated {
-                    switch state {
-                    case .ready:
+                    let what = String(describing: state)
+                    switch Self.step(for: state) {
+                    case .resolved:
                         if case let .hostPort(.ipv4(addr), port)? = conn.currentPath?.remoteEndpoint {
                             let host = String("\(addr)".split(separator: "%").first ?? "")
                             onResolved(ClockService(name: name, host: host, port: Int(port.rawValue)))
+                        } else {
+                            let remote = String(describing: conn.currentPath?.remoteEndpoint)
+                            Self.log.info("clock resolve dropped name=\(name, privacy: .public) reason=not_ipv4 endpoint=\(remote, privacy: .public)")
                         }
                         self?.finish(key)
-                    // .waiting would retry forever; the next scan tries again.
-                    case .failed, .waiting, .cancelled:
+                    case .keepWaiting:
+                        Self.log.info("clock resolve waiting name=\(name, privacy: .public) state=\(what, privacy: .public)")
+                    case .denied:
+                        Self.log.info("clock resolve denied name=\(name, privacy: .public) state=\(what, privacy: .public)")
+                        onState(.waiting)
                         self?.finish(key)
-                    default:
+                    case .failed:
+                        Self.log.info("clock resolve failed name=\(name, privacy: .public) state=\(what, privacy: .public)")
+                        // Unclaimed, so the browse's next result set retries it.
+                        self?.claimed.remove(claim)
+                        self?.finish(key)
+                    case .ignore:
                         break
                     }
                 }
@@ -368,6 +402,34 @@ final class BonjourClockBrowser: ClockBrowsing {
             conn.start(queue: .main)
         }
     }
+
+    /// What a resolve connection's state means for the scan.
+    enum ResolveStep: Equatable {
+        case resolved
+        /// Unsatisfied path or a lost mDNS answer: NWConnection keeps
+        /// retrying on its own, and the scan window bounds it.
+        case keepWaiting
+        /// Local Network privacy refused it.
+        case denied
+        case failed
+        case ignore
+    }
+
+    nonisolated static func step(for state: NWConnection.State) -> ResolveStep {
+        switch state {
+        case .ready: return .resolved
+        case .waiting(let e): return isPolicyDenied(e) ? .denied : .keepWaiting
+        case .failed(let e): return isPolicyDenied(e) ? .denied : .failed
+        default: return .ignore
+        }
+    }
+
+    nonisolated private static func isPolicyDenied(_ e: NWError) -> Bool {
+        if case .dns(let code) = e { return code == DNSServiceErrorType(kDNSServiceErr_PolicyDenied) }
+        return false
+    }
+
+    nonisolated static let log = Logger(subsystem: "com.ember.Ember", category: "discovery")
 
     private func finish(_ key: ObjectIdentifier) {
         guard let conn = connections.removeValue(forKey: key) else { return }

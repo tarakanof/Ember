@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Network
 @testable import EmberKit
 
 // A real awtrix-ng 1.1.2 `GET /api/v1/device` reply, captured read-only from
@@ -149,34 +150,73 @@ private func clock(_ host: String, _ base: String, uid: String) -> DiscoveredClo
 
 // MARK: When to offer "Find clock from this Mac"
 
-@Test func serverLostClockWhenHealthSaysUnreachableOrNoClock() throws {
-    let unreachable = try healthJSON(#""device":{"reachable":false,"checked_at":"2026-09-26T10:00:00Z"}"#)
-    let noClock = try healthJSON(#""device":null"#)
-    let fine = try healthJSON(#""device":{"reachable":true,"checked_at":"2026-09-26T10:00:00Z"}"#)
-    #expect(ClockDiscovery.serverLostClock(health: unreachable, settingsLoaded: true, settingsError: nil))
-    #expect(ClockDiscovery.serverLostClock(health: noClock, settingsLoaded: true, settingsError: nil))
-    #expect(!ClockDiscovery.serverLostClock(health: fine, settingsLoaded: true, settingsError: nil))
+private let reachableFalse = #""device":{"reachable":false,"checked_at":"2026-09-26T10:00:00Z"}"#
+private let reachableTrue = #""device":{"reachable":true,"checked_at":"2026-09-26T10:00:00Z"}"#
+
+private func lost(_ health: Loadable<ClockHealth>, settingsLoaded: Bool = true,
+                  settingsError: FeedError? = nil) -> Bool {
+    ClockDiscovery.serverLostClock(health: health, settingsLoaded: settingsLoaded, settingsError: settingsError)
+}
+
+private func loaded(_ h: ClockHealth) -> Loadable<ClockHealth> { .loaded(h, at: Date()) }
+
+@Test func serverLostClockWhenTheServerHasNoClock() throws {
+    #expect(lost(loaded(try healthJSON(#""device":null"#))))
+}
+
+// The clock's Wi-Fi drops requests and the server caches one probe for 30 s:
+// a failed probe alone must not raise the prompt, only with a failed push too.
+@Test func serverLostClockNeedsAFailedProbeAndAFailedPush() throws {
+    #expect(!lost(loaded(try healthJSON(reachableFalse, lastOk: true))))
+    #expect(lost(loaded(try healthJSON(reachableFalse, lastOk: false))))
+    #expect(!lost(loaded(try healthJSON(reachableTrue, lastOk: false))))
+}
+
+// A stale value kept after the health feed failed says nothing about now
+// (the server itself may be what's down).
+@Test func serverLostClockIgnoresStaleHealth() throws {
+    let bad = try healthJSON(reachableFalse, lastOk: false)
+    #expect(!lost(.failed(.offline, last: bad, lastAt: Date())))
+    #expect(!lost(.loading))
 }
 
 // A proxied settings read that failed on the server's side (502) means the
 // clock; an unreachable server or a bad token is not something discovery fixes.
 @Test func serverLostClockWhenTheSettingsProxyFails() {
-    #expect(ClockDiscovery.serverLostClock(health: nil, settingsLoaded: false, settingsError: .server("HTTP 502")))
-    #expect(!ClockDiscovery.serverLostClock(health: nil, settingsLoaded: false, settingsError: .offline))
-    #expect(!ClockDiscovery.serverLostClock(health: nil, settingsLoaded: false, settingsError: .unauthorized))
-    #expect(!ClockDiscovery.serverLostClock(health: nil, settingsLoaded: false, settingsError: nil))
+    #expect(lost(.loading, settingsLoaded: false, settingsError: .server("HTTP 502")))
+    #expect(!lost(.loading, settingsLoaded: false, settingsError: .offline))
+    #expect(!lost(.loading, settingsLoaded: false, settingsError: .unauthorized))
+    #expect(!lost(.loading, settingsLoaded: false, settingsError: nil))
 }
 
-private func healthJSON(_ device: String) throws -> ClockHealth {
+private func healthJSON(_ device: String, lastOk: Bool = true) throws -> ClockHealth {
     let json = """
     {"generated_at":"2026-09-26T10:00:00Z",
      "publish":{"counting_since":"2026-09-26T09:00:00Z","ok_24h":1,"fail_24h":0,"success_ratio_24h":1,
-                "ok_total":1,"fail_total":0,"retries_total":0,"last_at":null,"last_ok":true},
+                "ok_total":1,"fail_total":0,"retries_total":0,"last_at":null,"last_ok":\(lastOk)},
      \(device)}
     """
     let d = JSONDecoder()
     d.dateDecodingStrategy = .iso8601
     return try d.decode(ClockHealth.self, from: Data(json.utf8))
+}
+
+// MARK: Resolve states — keep waiting, give up only on failure or denial
+
+// A lost mDNS answer parks the connection in .waiting; NWConnection retries
+// on its own and the scan window bounds it, so it must not be dropped.
+@Test func resolveKeepsWaitingOnATransientError() {
+    #expect(BonjourClockBrowser.step(for: .waiting(.posix(.ENETUNREACH))) == .keepWaiting)
+    #expect(BonjourClockBrowser.step(for: .waiting(.dns(DNSServiceErrorType(kDNSServiceErr_Timeout)))) == .keepWaiting)
+    #expect(BonjourClockBrowser.step(for: .preparing) == .ignore)
+    #expect(BonjourClockBrowser.step(for: .ready) == .resolved)
+}
+
+@Test func resolveReportsLocalNetworkDenial() {
+    let denied = NWError.dns(DNSServiceErrorType(kDNSServiceErr_PolicyDenied))
+    #expect(BonjourClockBrowser.step(for: .waiting(denied)) == .denied)
+    #expect(BonjourClockBrowser.step(for: .failed(denied)) == .denied)
+    #expect(BonjourClockBrowser.step(for: .failed(.posix(.ECONNREFUSED))) == .failed)
 }
 
 // MARK: Lifecycle (#61) — a fake browser, a hand-driven clock, no mDNS
@@ -396,4 +436,22 @@ private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
     await m.use(clock("Awtrix", "http://192.168.0.66:80", uid: "e868e705ffb8"))
     #expect(m.actionErrors[.useClock] == nil)
     #expect(box.paths.first == "PUT /v1/device/config")
+}
+
+// Rows from a finished scan must not show when the next one starts.
+@MainActor @Test func aNewScanStartsWithAnEmptyList() async {
+    let (d, browser, probes, clock) = makeDiscovery()
+    probes.release("http://192.168.0.66:80")
+    let first = Task { await d.scan() }
+    await clock.settle()
+    browser.resolve("192.168.0.66")
+    await clock.advance(by: ClockDiscovery.browseWindow)
+    await first.value
+    #expect(d.clocks.count == 1)
+    let second = Task { await d.scan() }
+    await clock.settle()
+    #expect(d.clocks.isEmpty)
+    d.stop()
+    await clock.advance(by: ClockDiscovery.browseWindow)
+    await second.value
 }
