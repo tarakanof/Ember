@@ -1,32 +1,34 @@
-import Foundation
+import SwiftUI
+import EmberKit
 
-enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
-    case connection, device, display, pomodoro, weather, reminders, meetings, app
-    var id: String { rawValue }
+/// The sidebar's panes. The raw values (`SettingsPaneID`) are the
+/// cross-window contract: `openSettings(pane: "connection", …)`.
+typealias SettingsPane = SettingsPaneID
 
-    var title: String {
+extension SettingsPaneID {
+    var title: LocalizedStringResource {
         switch self {
+        case .general:    "General"
         case .connection: "Connection"
-        case .device:     "Device"
-        case .display:    "Agent"
-        case .pomodoro:   "Pomodoro"
+        case .clock:      "Clock"
+        case .agents:     "Agents"
+        case .focus:      "Focus"
         case .weather:    "Weather"
-        case .reminders:  "Reminders"
-        case .meetings:   "Meetings"
-        case .app:        "App"
+        case .calendar:   "Calendar"
+        case .sounds:     "Sounds & Alerts"
         }
     }
 
     var systemImage: String {
         switch self {
+        case .general:    "gearshape"
         case .connection: "network"
-        case .device:     "display"
-        case .display:    "chevron.left.forwardslash.chevron.right"
-        case .pomodoro:   "timer"
+        case .clock:      "clock"
+        case .agents:     "sparkles"
+        case .focus:      "timer"
         case .weather:    "cloud.sun"
-        case .reminders:  "bell"
-        case .meetings:   "calendar"
-        case .app:        "app.badge"
+        case .calendar:   "calendar"
+        case .sounds:     "bell.badge"
         }
     }
 }

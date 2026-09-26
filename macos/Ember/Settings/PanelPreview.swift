@@ -1,24 +1,23 @@
 import SwiftUI
 import EmberKit
 
-/// One named, static panel preview row for the stacked Display sections
-/// (Weather tab panels, Display tab agent cards): title row (with an "— off"
-/// suffix when the panel is disabled), the 32×8 frame dimmed when off, and a
-/// caption decoding what the pixels mean. Lives on the section's black
-/// backdrop, so text colours are explicit (not theme-dependent).
+/// One named preview of a clock panel for the Agents, Focus, Weather and
+/// Calendar panes: title (with "Off" when that panel is disabled), the 32×8
+/// frame (dimmed when off) and a caption that says what the pixels mean.
+/// Sits on the black preview backdrop, so its text colours are fixed.
 struct PanelPreview: View {
-    let title: String
-    let caption: String
+    let title: LocalizedStringKey
+    let caption: LocalizedStringKey
     let enabled: Bool
-    /// The frame to render; nil shows a blank matrix (preview not loaded yet).
+    /// The frame to render; nil shows a blank matrix (not loaded yet).
     let frame: CardFrame?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(title).font(.caption2.weight(.semibold)).foregroundStyle(Color.white.opacity(0.75))
+                Text(title).font(.caption.weight(.semibold)).foregroundStyle(Color.white.opacity(0.85))
                 if !enabled {
-                    Text("— off").font(.caption2).foregroundStyle(Color.white.opacity(0.4))
+                    Text("Off").font(.caption).foregroundStyle(Color.white.opacity(0.6))
                 }
             }
             Group {
@@ -29,7 +28,25 @@ struct PanelPreview: View {
                 }
             }
             .opacity(enabled ? 1 : 0.35)
-            Text(caption).font(.caption2).foregroundStyle(Color.white.opacity(0.45))
+            .frame(maxWidth: 420, alignment: .leading)
+            .accessibilityHidden(true)
+            Text(caption).font(.caption).foregroundStyle(Color.white.opacity(0.65))
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(enabled ? Text(caption) : Text("Off. \(Text(caption))"))
+        .accessibilityAddTraits(.isImage)
+    }
+}
+
+extension View {
+    /// The black LED backdrop a preview row sits on, edge to edge in its section.
+    func settingsPreviewBackdrop() -> some View {
+        padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.black)
+            .environment(\.colorScheme, .dark)
+            .listRowInsets(EdgeInsets())
     }
 }
