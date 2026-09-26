@@ -406,11 +406,11 @@ const rotateDwellSeconds = 6
 // box: everything left of it, everything right of it, and the bottom bar row
 // beneath it.
 //
-// A single draw op covering the whole 32×8 panel suppresses the firmware's text
-// layer completely — verified on firmware 1.0.15: the bitmap's own pixels
-// rendered and the text was simply absent. Split the same pixels into blocks
-// that clear the text box and the text appears, with the bar row underneath it
-// unaffected (the text occupies rows 1–5).
+// NG paints the text first and the draw ops over it (textInFront defaults to
+// false), and bitmap zeros are opaque black. A single op covering the whole
+// 32×8 panel therefore paints over the text, so on firmware 1.0.15 only the
+// bitmap showed. Split into blocks that leave the text box clear, the text
+// shows, with the bar row beneath it unaffected (the text occupies rows 1–5).
 func drawOpsAround(f *Frame, n *NativeText) []any {
 	right := n.X + n.W
 	ops := []any{}
