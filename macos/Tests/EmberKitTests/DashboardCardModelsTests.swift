@@ -156,3 +156,33 @@ private let usageJSON = #"""
     q.successRatio24h = 0.7
     #expect(ClockHealthReadout.publishRatio(q) == 0.7)
 }
+
+// MARK: Weather
+
+@Test func airLevelsFollowTheEuropeanBands() {
+    #expect(WeatherReadout.AirLevel(europeanAQI: 0) == .good)
+    #expect(WeatherReadout.AirLevel(europeanAQI: 32) == .fair)
+    #expect(WeatherReadout.AirLevel(europeanAQI: 42) == .moderate)
+    #expect(WeatherReadout.AirLevel(europeanAQI: 79.9) == .poor)
+    #expect(WeatherReadout.AirLevel(europeanAQI: 99) == .veryPoor)
+    #expect(WeatherReadout.AirLevel(europeanAQI: 140) == .extremelyPoor)
+}
+
+@Test func temperatureFollowsTheServersUnits() {
+    #expect(WeatherReadout.temperature(celsius: 20, units: "metric").value == 20)
+    #expect(WeatherReadout.temperature(celsius: 20, units: "metric").unit == .celsius)
+    let f = WeatherReadout.temperature(celsius: 20, units: "imperial")
+    #expect(f.unit == .fahrenheit)
+    #expect(abs(f.value - 68) < 0.001)
+}
+
+@Test func upcomingHoursStartAtTheCurrentHour() {
+    let fmt = ISO8601DateFormatter()
+    let points: [WeatherState.TempPoint] = (0..<30).map {
+        decode(#"{"time":"\#(fmt.string(from: now.addingTimeInterval(Double($0 - 3) * 3600)))","temp_c":\#($0)}"#)
+    }
+    let next = WeatherReadout.upcomingHours(points, from: now.addingTimeInterval(600))
+    #expect(next.count == 12)
+    #expect(next.first?.time == now)
+    #expect(WeatherReadout.upcomingHours(Array(points.prefix(4)), from: now).isEmpty)
+}

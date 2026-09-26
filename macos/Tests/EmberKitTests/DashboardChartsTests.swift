@@ -101,6 +101,13 @@ private let week: [PomoDayStat] = [   // newest first, as the server sends it
     #expect(t.points.map(\.focusMin).reduce(0, +) == 60)
 }
 
+@Test func weeklyTrendSpotsAServerWithoutWeeks() {
+    #expect(WeeklyTrend.serverLacksWeekly(stats(history: week, weekly: [])))
+    #expect(!WeeklyTrend.serverLacksWeekly(stats(history: week, weekly: [FocusBucket(key: "2026-W39", focusMin: 75, sessions: 3)])))
+    let none = (0..<7).map { day("2026-09-\(26 - $0)", 0, 0) }
+    #expect(!WeeklyTrend.serverLacksWeekly(stats(history: none)))
+}
+
 // MARK: Day keys and DST
 
 @Test func dayKeysSurviveDSTChanges() {

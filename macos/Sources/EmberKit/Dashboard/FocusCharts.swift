@@ -84,6 +84,15 @@ public struct WeeklyTrend: Equatable, Sendable {
     public let averageMinutes: Int?
 
     public var isEmpty: Bool { points.allSatisfy { $0.focusMin == 0 } }
+
+    /// A server before 0.28 sends no `weekly` at all, which decodes as empty;
+    /// a current one always has this week's focus in it. So focus in the
+    /// 7-day history with no weeks means the server is too old, not that
+    /// there's no data.
+    public static func serverLacksWeekly(_ stats: PomoStats) -> Bool {
+        stats.weekly.isEmpty && stats.history.contains { $0.focusMin > 0 }
+    }
+
     public var last: Point? { points.last }
     public var yMax: Int { WeekBars.axisTop(points.map(\.focusMin).max() ?? 0) }
 
