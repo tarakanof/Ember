@@ -377,7 +377,11 @@ public final class LiveModel {
                 guard gen == generation else { return }
                 switch FeedError(error) {
                 case .offline, .rateLimited: break
-                default: versionDue = false
+                // The server answered without a version (a rollback to one
+                // without the route, say): don't keep showing the old one.
+                default:
+                    serverVersion = nil
+                    versionDue = false
                 }
             }
         }

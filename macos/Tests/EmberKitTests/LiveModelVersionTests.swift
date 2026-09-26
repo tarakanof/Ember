@@ -125,6 +125,32 @@ private func poll(_ m: LiveModel) async {
     #expect(reads.value == 1)
 }
 
+@MainActor @Test func versionIsClearedWhenTheReReadAnswersWithoutOne() async {
+    let broken = Shared(false)
+    let down = Shared(false)
+    let client = stubbedClient { req in
+        if req.url!.path == "/version" {
+            if broken.value { return (okResponse(req.url!, status: 404), Data()) }
+            return (okResponse(req.url!), Data(#"{"version":"0.29.0"}"#.utf8))
+        }
+        if down.value { return (okResponse(req.url!, status: 500), Data()) }
+        return (okResponse(req.url!), Data(#"{"sessions":[]}"#.utf8))
+    }
+    let m = makeModel()
+    m.configure(client: client)
+    await poll(m)
+    #expect(m.serverVersion == "0.29.0")
+
+    // Rolled back to a server without the route: the old version goes.
+    down.value = true
+    for _ in 0..<LiveModel.offlineAfterFailures { await poll(m) }
+    broken.value = true
+    down.value = false
+    await poll(m)
+    #expect(m.connection.isOnline)
+    #expect(m.serverVersion == nil)
+}
+
 @MainActor @Test func newServerDropsTheOldVersion() async {
     let first = VersionedServer()
     let m = makeModel()
