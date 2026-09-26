@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -19,14 +20,18 @@ import (
 //   - rotate_in_apps   bool (default true)  → "weather" frame
 //   - forecast_tile    bool (default true)  → "forecast" frame
 //   - air_tile         bool (default true)  → "air" frame
-//   - forecast_hours   int 6..24 (default 24)
+//   - forecast_hours   int (default 24; <=0 or >24 means 24, as on the device)
 //   - units            "metric"|"imperial" (default "metric")
 //
 // tile_native_icons is deliberately not a param: the canvas can't animate
-// gallery icons, so the preview always shows the drawn sprite.
+// gallery icons, so the preview always shows the drawn sprite. The moon phase
+// follows the live config (moon_phase, location) exactly as on the device; the
+// NG precipitation overlay is animated by the firmware and is not drawn.
 func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	now := time.Now()
+	writeJSON(w, http.StatusOK, a.weatherPreview(r.URL.Query(), time.Now()))
+}
+
+func (a *App) weatherPreview(q url.Values, now time.Time) render.Preview {
 	obs, have := a.weather.current()
 	if !have {
 		obs = sampleWeatherObservation(now)
@@ -35,21 +40,19 @@ func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
 	if units != "imperial" {
 		units = "metric"
 	}
+	// forecastWindow applies the device's rule (<=0 or >24 → 24), so a stored
+	// value the PUT path let through previews exactly as the clock shows it.
 	hours := 24
 	if v, err := strconv.Atoi(q.Get("forecast_hours")); err == nil {
 		hours = v
-	}
-	if hours < 6 {
-		hours = 6
-	} else if hours > 24 {
-		hours = 24
 	}
 	tempText := weatherTempText(obs.TempC, units)
 	window := forecastWindow(obs.Hourly, hours)
 
 	p := render.Preview{Width: 32, Height: 8, Frames: []render.CardFrame{}}
 	if queryBoolDefault(q.Get("rotate_in_apps"), true) {
-		f := render.WeatherTileFrame(obs.Condition, tempText, obs.TempC, window, nil)
+		cfg := a.cfg.Load().Weather
+		f := render.WeatherTileFrame(obs.Condition, tempText, obs.TempC, window, weatherTileMoon(cfg, obs, now))
 		p.Frames = append(p.Frames, render.CardFrame{Card: "weather", Pixels: render.HexPixels(&f)})
 	}
 	if queryBoolDefault(q.Get("forecast_tile"), true) && len(window) > 0 {
@@ -64,7 +67,7 @@ func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
 		f := render.AirTileFrame(air.AQI, air.HourlyAQI)
 		p.Frames = append(p.Frames, render.CardFrame{Card: "air", Pixels: render.HexPixels(&f)})
 	}
-	writeJSON(w, http.StatusOK, p)
+	return p
 }
 
 // sampleAirObservation backs the air preview before the first real fetch: a

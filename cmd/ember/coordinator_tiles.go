@@ -60,6 +60,15 @@ func (c *coordinator) adoptDeviceManagedApps() bool {
 	return true
 }
 
+// reconcileTiles pushes, refreshes or clears every standalone rotating tile.
+// Coordinator goroutine only.
+func (c *coordinator) reconcileTiles(now time.Time) {
+	c.reconcileWeatherApp(now)
+	c.reconcileForecastApp(now)
+	c.reconcileAirApp(now)
+	c.reconcileMeetingApp(now)
+}
+
 // reconcileTile owns the shared clear/dedupe/push state machine for the
 // standalone rotating tiles (weather/forecast/air/meeting). The per-tile
 // decisions — whether the tile should be on the device and what it shows —

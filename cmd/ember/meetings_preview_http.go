@@ -11,18 +11,21 @@ import (
 // grid as /v1/preview. Open and read-only. Uses the live next occurrence when
 // the store is fresh, else a canned sample so the preview never renders blank.
 func (a *App) handleMeetingsPreview(w http.ResponseWriter, r *http.Request) {
-	now := time.Now()
+	writeJSON(w, http.StatusOK, a.meetingsPreview(time.Now()))
+}
+
+func (a *App) meetingsPreview(now time.Time) render.Preview {
 	title, mins := "STANDUP", 12
 	if occ, ok := a.meetings.next(now); ok && a.meetings.fresh(now) {
 		title = sanitizeMeetingTitle(occ.Title)
 		mins = meetingMinutes(now, occ.Start)
 	}
 	f := render.MeetingTileFrame(title, mins)
-	writeJSON(w, http.StatusOK, render.Preview{
+	return render.Preview{
 		Width:  32,
 		Height: 8,
 		Frames: []render.CardFrame{{Card: "meeting", Pixels: render.HexPixels(&f)}},
-	})
+	}
 }
 
 // handleMeetingsState lists the next few upcoming occurrences for the menu

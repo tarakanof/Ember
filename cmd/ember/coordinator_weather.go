@@ -25,12 +25,10 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 		tempText := weatherTempText(obs.TempC, cfg.Units)
 		window := forecastWindow(obs.Hourly, cfg.ForecastHours)
 		var p map[string]any
-		switch {
-		case cfg.MoonPhaseEnabled() && obs.Condition == render.WeatherClear &&
-			(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
+		switch moon := weatherTileMoon(cfg, obs, now); {
+		case moon != nil:
 			// Moon wins over native icons — there is no per-phase gallery set.
-			illum, waxing := moonIllumination(now)
-			p = render.WeatherPayloadMoon(tempText, obs.TempC, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
+			p = render.WeatherPayloadMoon(tempText, obs.TempC, window, *moon, usageAppLifetime)
 		case cfg.TileNativeIcons:
 			p = render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, obs.TempC, window, usageAppLifetime)
 		default:
@@ -38,6 +36,17 @@ func (c *coordinator) reconcileWeatherApp(now time.Time) {
 		}
 		return render.WithOverlay(p, weatherOverlay(obs, cfg))
 	})
+}
+
+// weatherTileMoon is the moon phase the conditions tile shows instead of its
+// icon on a clear night (moon_phase on, location set), or nil.
+func weatherTileMoon(cfg WeatherConfig, obs weatherObservation, now time.Time) *render.MoonView {
+	if !cfg.MoonPhaseEnabled() || obs.Condition != render.WeatherClear ||
+		(cfg.Latitude == 0 && cfg.Longitude == 0) || !isNight(cfg.Latitude, cfg.Longitude, now) {
+		return nil
+	}
+	illum, waxing := moonIllumination(now)
+	return &render.MoonView{Illum: illum, Waxing: waxing}
 }
 
 // forecastWindow returns the first `hours` hourly temps (hours clamped to a sane

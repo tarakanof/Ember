@@ -568,9 +568,6 @@ func (c *coordinator) onTick() {
 
 	c.publish(snap)
 	c.clearLegacyUsageApps()
-	c.reconcileWeatherApp(c.clk.Now())
-	c.reconcileForecastApp(c.clk.Now())
-	c.reconcileAirApp(c.clk.Now())
-	c.reconcileMeetingApp(c.clk.Now())
+	c.reconcileTiles(c.clk.Now())
 	c.checkLimitAlarms(c.clk.Now(), snap)
 }
