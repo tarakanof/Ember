@@ -7,15 +7,31 @@ APP="${1:-${CODESIGNING_FOLDER_PATH:-}}"
 [ -n "$APP" ] || { echo "usage: build-producers.sh <Ember.app> (or run from Xcode)"; exit 2; }
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 IDENTITY="${CODE_SIGN_IDENTITY:--}"    # Developer ID in release; ad-hoc for dev
+TIMESTAMP=--timestamp
+KEYCHAIN_ARGS=()                      # only for the local identity (EMBER_SIGNING_KEYCHAIN)
 
-# CODE_SIGNING_ALLOWED=NO (unsigned CI builds), or a configured identity that
-# isn't actually in the local keychain (no Developer ID cert installed): fall
-# back to ad-hoc signing so go build/lipo/plist copy/plutil lint still run —
-# only the signing step changes.
+# CODE_SIGNING_ALLOWED=NO (unsigned CI builds): ad-hoc, so go build/lipo/plist
+# copy/plutil lint still run and only the signing step changes. A configured
+# identity that isn't in the keychain (no Developer ID cert installed): the
+# stable self-signed "Ember Local Signing" identity when it exists (see
+# local-signing-identity.sh; it keeps Local Network grants across rebuilds),
+# else ad-hoc. An explicit "-" stays ad-hoc.
 if [ "$IDENTITY" != "-" ]; then
-  if [ "${CODE_SIGNING_ALLOWED:-YES}" = "NO" ] || ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
-    echo "build-producers.sh: no usable '$IDENTITY' identity — falling back to ad-hoc"
+  if [ "${CODE_SIGNING_ALLOWED:-YES}" = "NO" ]; then
+    echo "build-producers.sh: signing not allowed — ad-hoc"
     IDENTITY="-"
+  elif ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
+    if LOCAL="$("$REPO/scripts/local-signing-identity.sh" --hash)"; then
+      echo "build-producers.sh: no usable '$IDENTITY' identity — using Ember Local Signing ($LOCAL)"
+      IDENTITY="$LOCAL"
+      TIMESTAMP=--timestamp=none
+      if [ -n "${EMBER_SIGNING_KEYCHAIN:-}" ]; then
+        KEYCHAIN_ARGS=(--keychain "$EMBER_SIGNING_KEYCHAIN")
+      fi
+    else
+      echo "build-producers.sh: no usable '$IDENTITY' identity — falling back to ad-hoc"
+      IDENTITY="-"
+    fi
   fi
 fi
 MACOS_DIR="$APP/Contents/MacOS"
@@ -35,7 +51,7 @@ build_universal() {
   lipo -create "$tmp/arm64" "$tmp/amd64" -output "$MACOS_DIR/$out"
   rm -rf "$tmp"
   # Inside-out sign: hardened runtime + timestamp, same identity as the app.
-  codesign --force --sign "$IDENTITY" --identifier "$ident" --options runtime --timestamp "$MACOS_DIR/$out"
+  codesign --force --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} --identifier "$ident" --options runtime "$TIMESTAMP" "$MACOS_DIR/$out"
   echo "signed $out as $ident ($(lipo -info "$MACOS_DIR/$out" | sed 's/.*: //'))"
 }
 
