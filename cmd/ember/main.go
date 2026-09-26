@@ -574,7 +574,8 @@ type App struct {
 	// any store override or auto-discovery. deviceSource() uses it to tell
 	// "config" from "discovered". browseFn is the mDNS browse, overridable in tests.
 	deviceBaseline   string
-	deviceAutoPicked bool // set once at boot when discovery chose the clock URL
+	deviceAutoPicked atomic.Bool // set by rediscoverClock (boot or watch goroutine) when discovery chose the clock URL
+	republish        republishGate
 	browseFn         func(context.Context, time.Duration) ([]discovery.Candidate, error)
 
 	// deviceRediscoverMu single-flights rediscoverClock so the boot check and
@@ -977,10 +978,11 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
 	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
 	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
-	mux.HandleFunc("POST /hooks/awtrix/button", a.handleAwtrixButton)
+	// Unauthenticated (the device can't hold a token) but per-IP rate-limited.
+	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
 	// Same trust model as the button hook, and the same reason: a Berry script
 	// on the clock has nowhere to keep a token. See handleAwtrixBoot.
-	mux.HandleFunc("POST "+bootHookPath, a.handleAwtrixBoot)
+	mux.Handle("POST "+bootHookPath, rateLimit(a, http.HandlerFunc(a.handleAwtrixBoot)))
 
 	writeMux := http.NewServeMux()
 	writeMux.Handle("POST /v1/status", http.HandlerFunc(a.handleStatus))

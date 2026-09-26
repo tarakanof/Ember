@@ -433,9 +433,10 @@ func (a *App) loadPersistedPomodoroSettings() {
 // "uid":"<mac>"}` (NG ≥1.1.1; older firmware form-encoded the same fields as
 // `button=…&state=<1|0>&uid=…`, still accepted — see parseButtonEvent),
 // one per edge (press AND release). Unauthenticated by design — the device
-// cannot send a bearer token — and answered immediately, because the firmware
-// times out after 300 ms per edge on the display task and a slow reply shows up
-// as visible stutter.
+// cannot send a bearer token — but behind the per-IP rate limiter (its burst is
+// far above what a finger can press) and a buttonHookMaxBody cap. Answered
+// immediately, because the firmware times out after 300 ms per edge on the
+// display task and a slow reply shows up as visible stutter.
 //
 // `select` is kept as an accepted alias: NG's HTTP callback says "middle", but
 // its own MQTT topics and Berry `on_button` hook call the same button "select",
@@ -453,9 +454,16 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK) // accept-and-ignore; device keeps posting
 		return
 	}
+	// Without the cap, ParseForm reads up to 10 MB from an unauthenticated caller.
+	r.Body = http.MaxBytesReader(w, r.Body, buttonHookMaxBody)
 	button, down, err := parseButtonEvent(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		status := http.StatusBadRequest
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeError(w, status, err)
 		return
 	}
 	now := time.Now()
@@ -503,6 +511,10 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// buttonHookMaxBody caps a /hooks/awtrix/button request body. The largest real
+// edge (form-encoded, with a 12-hex-digit uid) is well under 100 bytes.
+const buttonHookMaxBody = 1024
+
 // parseButtonEvent reads the button and press edge from either callback body
 // shape: JSON (NG ≥1.1.1, boolean state) or form-encoded (NG ≤1.1.0,
 // state "1"/"0"). Both stay accepted so the server can ship ahead of — or
@@ -513,7 +525,7 @@ func parseButtonEvent(r *http.Request) (button string, down bool, err error) {
 			Button string `json:"button"`
 			State  bool   `json:"state"`
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&ev); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, buttonHookMaxBody)).Decode(&ev); err != nil {
 			return "", false, err
 		}
 		return ev.Button, ev.State, nil

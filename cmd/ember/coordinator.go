@@ -37,8 +37,8 @@ const (
 	cmdClear                        // all sessions cleared.
 	cmdShutdown                     // graceful stop.
 	// cmdRepublish drops the push-dedupe state and re-pushes everything at once.
-	// Sent when the device is known to have lost what we pushed — today only a
-	// detected reboot (App.RepublishAll).
+	// Sent via App.RepublishAll when the device has lost (or may have lost) what
+	// we pushed: a detected reboot, the boot-ping hook, or a swap to a new URL.
 	cmdRepublish
 )
 

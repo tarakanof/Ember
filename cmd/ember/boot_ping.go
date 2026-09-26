@@ -51,9 +51,10 @@ func (a *App) expectedBootCallback() string {
 // radius is a republish of state the server already owns: the coordinator
 // re-pushes the frames it would have pushed anyway when its 30 s watch loop
 // noticed the reboot. So an unauthenticated caller can make the server talk to
-// the clock it already talks to, and nothing else. Rate-limiting is not applied
-// for the same reason it isn't on the button hook: the device must never be
-// throttled into missing an edge, and a republish is idempotent.
+// the clock it already talks to, and nothing else. A republish is heavy on the
+// lossy link, though, so a flood is bounded twice: the route sits behind the
+// per-IP rate limiter, and RepublishAll coalesces anything closer together than
+// republishMinGap. The body is never read.
 //
 // Answers 204 immediately; the republish happens on the coordinator goroutine.
 func (a *App) handleAwtrixBoot(w http.ResponseWriter, r *http.Request) {

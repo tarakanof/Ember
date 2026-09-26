@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
@@ -82,7 +85,7 @@ func (a *App) deviceSource() string {
 	switch {
 	case cur == "":
 		return "none"
-	case a.deviceAutoPicked:
+	case a.deviceAutoPicked.Load():
 		// Discovery set this URL at boot — even if it happens to equal the
 		// (unreachable) config.json baseline, it was reached via discovery.
 		return "discovered"
@@ -111,6 +114,10 @@ func (a *App) initDeviceDiscovery(ctx context.Context) {
 // Returns true if the URL changed. Records the attempt (time + outcome) for
 // /admin/doctor. Safe to call from boot and from a periodic probe; callers
 // are serialized via deviceRediscoverMu so two browses can't race.
+//
+// The current URL gets rediscoverProbeAttempts tries before the browse: the
+// server→clock link drops a large share of requests, and one lost 1.5s GET is
+// not evidence that the clock moved.
 func (a *App) rediscoverClock(ctx context.Context) bool {
 	a.deviceRediscoverMu.Lock()
 	defer a.deviceRediscoverMu.Unlock()
@@ -118,10 +125,13 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	defer a.lastRediscoverAt.Store(time.Now().Unix())
 
 	cl := &http.Client{Timeout: 1500 * time.Millisecond}
-	if base := a.cfg.Load().AWTRIX.HTTPBaseURL; base != "" {
-		if _, ok := discovery.Reachable(ctx, cl, base); ok {
-			a.lastRediscoverResult.Store("reachable")
-			return false
+	cur := a.cfg.Load().AWTRIX.HTTPBaseURL
+	if cur != "" {
+		for i := 0; i < rediscoverProbeAttempts && ctx.Err() == nil; i++ {
+			if _, ok := discovery.Reachable(ctx, cl, cur); ok {
+				a.lastRediscoverResult.Store("reachable")
+				return false
+			}
 		}
 	}
 
@@ -136,8 +146,13 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 		return false
 	}
 	base := cands[0].BaseURL
+	if sameDeviceURL(base, cur) {
+		// Probes were lost but the clock didn't move: not a swap, no republish.
+		a.lastRediscoverResult.Store("reachable")
+		return false
+	}
 	a.updateConfig(func(cur *Config) { cur.AWTRIX.HTTPBaseURL = base }) // in-memory only; not persisted
-	a.deviceAutoPicked = true
+	a.deviceAutoPicked.Store(true)
 	a.lastRediscoverResult.Store("swapped")
 	a.logger.Info("clock auto-discovered", "base_url", cands[0].BaseURL, "uid", cands[0].UID)
 	// A different clock can be a different firmware build: re-read its
@@ -145,6 +160,32 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 	a.refreshCapabilities(ctx)
 	return true
 }
+
+// sameDeviceURL reports whether two clock base URLs address the same endpoint.
+// Discovery always builds "http://<ip>:<port>", while config.json usually omits
+// the default port, so a plain string compare would call the same clock a swap.
+func sameDeviceURL(x, y string) bool {
+	norm := func(raw string) (string, bool) {
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			return "", false
+		}
+		scheme := strings.ToLower(u.Scheme)
+		port := u.Port()
+		if port == "" {
+			port = map[string]string{"http": "80", "https": "443"}[scheme]
+		}
+		path := strings.TrimRight(u.EscapedPath(), "/")
+		return scheme + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port) + path, true
+	}
+	nx, okx := norm(x)
+	ny, oky := norm(y)
+	return okx && oky && nx == ny
+}
+
+// rediscoverProbeAttempts is how many reachability GETs rediscoverClock spends
+// on the current URL before it falls back to an mDNS browse.
+const rediscoverProbeAttempts = 2
 
 // deviceWatchInterval is how often the watcher probes the clock — both for
 // reachability (self-healing re-discovery) and for uptimeSeconds (reboot
@@ -159,29 +200,39 @@ const deviceWatchInterval = 30 * time.Second
 // its own tick.
 const deviceProbeTimeout = 1500 * time.Millisecond
 
-// deviceProbe is one device-watch observation. seen distinguishes "no probe has
-// completed yet" from "probed and found nothing", which matters because the
-// first observation of the process can never be a reboot.
+// deviceProbe is one device-watch observation: whether the clock answered, the
+// uptime it reported, and when we read it.
 type deviceProbe struct {
-	seen      bool
 	reachable bool
 	uptimeSec int64
+	at        time.Time
 }
 
-// rebootDetected reports whether the clock restarted between two consecutive
-// probes: either its uptime went backwards (it rebooted while we were watching)
-// or it answered again after a gap of being unreachable (it may well have
-// rebooted in the dark, and we cannot tell otherwise). The first probe of the
-// process is never a reboot — nothing has been pushed yet that a reboot could
-// have dropped.
-func rebootDetected(prev, cur deviceProbe) bool {
-	if !prev.seen || !cur.reachable {
+// rebootUptimeSlack absorbs the jitter between our wall clock and the device's
+// uptime counter: whole-second truncation on the device, plus up to one probe
+// timeout of latency on each of the two readings.
+const rebootUptimeSlack = 10 * time.Second
+
+// rebootDetected reports whether the clock restarted since last, the most
+// recent probe that got an answer. Only the uptime counter decides. A missed
+// probe says nothing: on the lossy server→clock link a dropped GET is routine,
+// and treating "silent, then answering" as a reboot republished (and
+// re-switched the screen) every few ticks.
+//
+// A reboot shows as uptime falling behind wall time. Usually the counter also
+// goes backwards, but a reboot during a gap longer than the old uptime leaves
+// it above last.uptimeSec while still well short of where it would be had the
+// clock stayed up. A zero last (no answer yet this process) is never a reboot:
+// nothing has been pushed yet that a reboot could have dropped.
+func rebootDetected(last, cur deviceProbe) bool {
+	if !last.reachable || !cur.reachable {
 		return false
 	}
-	if !prev.reachable {
+	if cur.uptimeSec < last.uptimeSec {
 		return true
 	}
-	return cur.uptimeSec < prev.uptimeSec
+	expected := last.uptimeSec + int64(cur.at.Sub(last.at)/time.Second)
+	return cur.uptimeSec+int64(rebootUptimeSlack/time.Second) < expected
 }
 
 // probeDevice fetches GET /api/v1/device from the currently-effective clock URL.
@@ -190,42 +241,96 @@ func rebootDetected(prev, cur deviceProbe) bool {
 func (a *App) probeDevice(ctx context.Context) deviceProbe {
 	base := a.cfg.Load().AWTRIX.HTTPBaseURL
 	if base == "" {
-		return deviceProbe{seen: true}
+		return deviceProbe{}
 	}
 	info, err := awtrix.NewClient(base, deviceProbeTimeout).DeviceInfo(ctx)
 	if err != nil {
-		return deviceProbe{seen: true}
+		return deviceProbe{}
 	}
-	return deviceProbe{seen: true, reachable: true, uptimeSec: info.UptimeSeconds}
+	return deviceProbe{reachable: true, uptimeSec: info.UptimeSeconds, at: time.Now()}
 }
 
 // StartDeviceWatch runs the periodic self-healing probe loop until ctx is
 // done. Each tick calls rediscoverClock (a no-op when the current effective
 // clock URL is already reachable), then reads the device's uptime to notice a
-// reboot and trigger a republish. Callers should gate the goroutine on
-// AWTRIXConfig.AutoRediscoverEnabled(); the loop itself runs unconditionally
-// once started.
+// reboot and trigger a republish. A swap to a new URL republishes too: pushes
+// to the old address were failing, and the uptime baseline belonged to it.
+// Callers should gate the goroutine on AWTRIXConfig.AutoRediscoverEnabled();
+// the loop itself runs unconditionally once started.
 func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	var prev deviceProbe
+	var last deviceProbe // most recent probe that got an answer
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			a.rediscoverClock(ctx)
+			if a.rediscoverClock(ctx) {
+				last = deviceProbe{}
+				a.RepublishAll("clock_rediscovered")
+			}
 			cur := a.probeDevice(ctx)
-			if rebootDetected(prev, cur) {
+			if !cur.reachable {
+				continue
+			}
+			if rebootDetected(last, cur) {
 				a.logger.Info("clock reboot detected",
 					"uptime_seconds", cur.uptimeSec,
-					"prev_uptime_seconds", prev.uptimeSec,
-					"prev_reachable", prev.reachable)
+					"prev_uptime_seconds", last.uptimeSec,
+					"since_prev_seconds", int64(cur.at.Sub(last.at)/time.Second))
 				a.RepublishAll("clock_reboot")
 			}
-			prev = cur
+			last = cur
 		}
 	}
+}
+
+// republishMinGap is the least time between two republishes. A republish
+// clears every dedupe entry and re-pushes the frame, the tiles, the indicators
+// and the hold switch to a clock on a lossy link, so the unauthenticated boot
+// hook must not be able to queue one per request. 10s is shorter than any real
+// reboot cycle (the boot ping lands ~12s after a reboot).
+const republishMinGap = 10 * time.Second
+
+// republishGate spaces out RepublishAll with a leading and a trailing edge:
+// the first request goes out at once, and requests inside the gap collapse
+// into one deferred republish at the gap's end. Deferring rather than dropping
+// matters when the clock reboots twice in quick succession: the second boot's
+// state still has to be pushed back.
+type republishGate struct {
+	mu      sync.Mutex
+	minGap  time.Duration // 0 means republishMinGap; tests shorten it
+	last    time.Time
+	pending bool
+}
+
+// admit reports whether a republish may go out now. When it may not, it
+// arranges for deferred to run once the gap has elapsed (at most one pending
+// at a time) and returns false.
+func (g *republishGate) admit(now time.Time, deferred func()) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	gap := g.minGap
+	if gap == 0 {
+		gap = republishMinGap
+	}
+	since := now.Sub(g.last)
+	if g.last.IsZero() || since >= gap {
+		g.last = now
+		return true
+	}
+	if !g.pending {
+		g.pending = true
+		time.AfterFunc(gap-since, func() {
+			g.mu.Lock()
+			g.pending = false
+			g.last = time.Now()
+			g.mu.Unlock()
+			deferred()
+		})
+	}
+	return false
 }
 
 // RepublishAll asks the coordinator to forget what it believes the device is
@@ -235,11 +340,23 @@ func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 // coordinator goroutine. reason is logged. This is the single entry point for
 // "the device lost our state"; issue #73's device boot-ping hook calls it
 // directly instead of waiting for the watch loop to notice.
+//
+// Calls closer together than republishMinGap are coalesced (see
+// republishGate): the first is sent at once, the rest become one deferred
+// republish.
 func (a *App) RepublishAll(reason string) {
 	if a.coord == nil {
 		return
 	}
-	a.logger.Info("republishing device state", "reason", reason)
+	if !a.republish.admit(time.Now(), func() { a.sendRepublish(reason, true) }) {
+		a.logger.Debug("republish coalesced", "reason", reason)
+		return
+	}
+	a.sendRepublish(reason, false)
+}
+
+func (a *App) sendRepublish(reason string, deferred bool) {
+	a.logger.Info("republishing device state", "reason", reason, "deferred", deferred)
 	a.coord.Send(coordCmd{kind: cmdRepublish})
 }
 

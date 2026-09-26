@@ -53,6 +53,9 @@ docker run -d --name ember --restart unless-stopped -p 3627:3627 \
   for everything except clock/server discovery (multicast doesn't cross the
   bridge). For the discovery features, run with `--network host` and drop `-p`
   (the production/Unraid path; see "Discovery & mDNS" and "Docker Hub release").
+  Also in `-p` bridge mode every client arrives from the Docker gateway IP, so
+  the clock's `/hooks/awtrix/*` calls share one rate-limit bucket with the Macs'
+  `/v1` traffic (60 burst, 5/s).
 - **When recreating the container, `docker inspect` it first** to replicate
   exact mount destinations / env names rather than reconstructing from memory.
 - **After any render-side change, rebuild + redeploy from current `main`** —
@@ -324,7 +327,10 @@ fingerprint doesn't exist on NG). The server advertises itself as
   reboot silently drops them all. The Berry boot-ping hook (#73)
   (`POST /hooks/awtrix/boot`, unauthenticated device-side hook, config toggle
   `awtrix.boot_ping`) republishes instantly on boot instead of waiting on the
-  next 30s tick — the 30s watch remains the fallback path.
+  next 30s tick — the 30s watch remains the fallback path. A missed probe
+  alone is never a reboot (only falling or lagging `uptimeSeconds` is), and
+  republishes less than 10s apart coalesce, so a `clock reboot detected` log
+  line on a lossy link now means a real reboot.
   `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
   `last_rediscover_at`/`last_rediscover_result`.
 - `EMBER_MDNS_ADVERTISE` (default on; `0`/`false` disables) gates only the
