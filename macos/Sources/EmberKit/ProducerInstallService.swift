@@ -54,6 +54,8 @@ public struct AgentOutcome: Sendable {
 /// Every method blocks on process spawns or `SMAppService` IPC, so the type is
 /// nonisolated and `Sendable`; the batch operations and `snapshot()` are
 /// `@concurrent` so a MainActor caller awaits them without stalling the UI.
+/// They still block a cooperative-pool thread while they run (process waits,
+/// XPC), which is acceptable for the two agents this manages.
 public final class ProducerInstallService: Sendable {
     private let sm: SMAppServiceControlling
     private let runner: ProducerCommandRunning
@@ -212,7 +214,4 @@ public struct ProducerSnapshot: Sendable {
     public let agents: [(agent: ProducerAgent, state: AgentState)]
     /// The aggregate toggle state across `agents`.
     public let toggle: ToggleState
-
-    /// Nothing detected, everything off; the value to show before the first read.
-    public static let empty = ProducerSnapshot(agents: [], toggle: .off)
 }

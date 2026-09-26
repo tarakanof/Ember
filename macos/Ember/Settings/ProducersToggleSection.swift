@@ -13,18 +13,25 @@ struct ProducersToggleSection: View {
     @State private var save: SaveState = .idle
     // Read off the main thread (filesystem + SMAppService IPC) on appear and
     // after every install/uninstall, instead of on each render.
-    @State private var snapshot: ProducerSnapshot = .empty
+    // nil until the first read lands, so the section shows "Checking…" rather
+    // than a false "No agent detected" with an enabled toggle.
+    @State private var snapshot: ProducerSnapshot?
+    // Bumped per read; a read applies only if no newer one started, so a slow
+    // initial read can't overwrite the one taken after install/uninstall.
+    @State private var snapshotSeq = 0
 
     var body: some View {
         Section {
             Toggle("Report this Mac's agent activity", isOn: toggleBinding)
-                .disabled(isWorking)
+                .disabled(isWorking || snapshot == nil)
 
-            if snapshot.agents.isEmpty {
+            if snapshot == nil {
+                LabeledContent("Checking agents…") { ProgressView().controlSize(.small) }
+            } else if let snapshot, snapshot.agents.isEmpty {
                 Text("No supported agent CLI detected on this Mac (looked for ~/.claude and ~/.codex).")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                ForEach(snapshot.agents, id: \.agent) { row in
+                ForEach(snapshot?.agents ?? [], id: \.agent) { row in
                     agentRow(row.agent, row.state)
                 }
             }
@@ -33,12 +40,12 @@ struct ProducersToggleSection: View {
         } footer: {
             footer
         }
-        .task { snapshot = await env.producers.snapshot() }
+        .task { await reloadSnapshot() }
     }
 
     private var toggleBinding: Binding<Bool> {
         Binding(
-            get: { snapshot.toggle == .on },
+            get: { snapshot?.toggle == .on },
             set: { newValue in Task { await apply(newValue) } }
         )
     }
@@ -82,7 +89,7 @@ struct ProducersToggleSection: View {
     @ViewBuilder private var statusCaption: some View {
         switch save {
         case .idle:
-            switch snapshot.toggle {
+            switch snapshot?.toggle {
             case .partial:
                 Label("Partially installed — some agents are on, some off.", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
@@ -107,13 +114,20 @@ struct ProducersToggleSection: View {
         isWorking = true
         save = .saving
         let outcomes = on ? await env.producers.installAll() : await env.producers.uninstallAll()
-        snapshot = await env.producers.snapshot()
+        await reloadSnapshot()
         isWorking = false
         if let failed = outcomes.first(where: { $0.error != nil }) {
             save = .error("\(failed.agent.displayName) failed: \(failed.error!.localizedDescription)")
         } else {
             save = .saved
         }
+    }
+
+    private func reloadSnapshot() async {
+        snapshotSeq += 1
+        let mine = snapshotSeq
+        let fresh = await env.producers.snapshot()
+        if mine == snapshotSeq { snapshot = fresh }
     }
 
     /// Opens System Settings > General > Login Items & Extensions, where a
