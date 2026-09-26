@@ -360,8 +360,16 @@
       "comment" : "Dashboard window subtitle: the server's host name or address.",
       "extractionState" : "manual"
     },
+    "Connected to %@ · v%@" : {
+      "comment" : "Dashboard window subtitle: the server's host name or address, then its version (\"0.29.0\").",
+      "extractionState" : "manual"
+    },
     "Connected · %@" : {
       "comment" : "Settings › Connection status: the server's version (\"0.28.0\")."
+    },
+    "Connected · v%@" : {
+      "comment" : "Dashboard window subtitle when the server's host is unknown: its version (\"0.29.0\").",
+      "extractionState" : "manual"
     },
     "Connecting to %@…" : {
       "comment" : "Dashboard window subtitle while the first request is in flight: the server's host name or address.",

@@ -30,6 +30,11 @@ public final class LiveModel {
     public private(set) var activity: Loadable<ActivitySummary> = .loading
     public private(set) var workhours: Loadable<WorkHours> = .loading
     public private(set) var heatmap: Loadable<Heatmap> = .loading
+    /// The server's release ("0.29.0", from `GET /version`); nil until read,
+    /// and for a dev build. Not a feed: it only changes when the server
+    /// restarts, so it's read when the connection comes up (first connect, a
+    /// new server, back from offline — an upgrade restarts the server).
+    public private(set) var serverVersion: String?
 
     /// The session the menu-bar icon and bot show. nil while the snapshot is
     /// stale: an old "running" must not keep the bot working through an outage.
@@ -127,6 +132,9 @@ public final class LiveModel {
     /// When each feed last fetched successfully. Not observed: a poll that
     /// returns the same value doesn't re-render anything.
     @ObservationIgnored private var fetchedAt: [Feed: Date] = [:]
+    /// The connection came up and `serverVersion` hasn't been read since.
+    @ObservationIgnored private var versionDue = false
+    @ObservationIgnored private var versionFetch: Task<Void, Never>?
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "live")
 
@@ -249,6 +257,10 @@ public final class LiveModel {
         workhours = .loading
         heatmap = .loading
         reportedPower = nil
+        serverVersion = nil
+        versionDue = false
+        versionFetch?.cancel()
+        versionFetch = nil
     }
 
     // MARK: Fetching
@@ -335,7 +347,9 @@ public final class LiveModel {
             applySuccess(.state, \.snapshot, snap)
             stateFailures = 0
             firstFailureAt = nil
+            if !connection.isOnline { versionDue = true }
             if case .online = connection {} else { connection = .online(since: now) }
+            if versionDue { fetchVersion(c) }
             return .ok
         } catch {
             let e = FeedError(error)
@@ -344,6 +358,37 @@ public final class LiveModel {
             return .failed(e, retryAfter: (error as? APIError)?.retryAfter)
         }
     }
+
+    /// Reads `/version` off the `/state` loop, so a lost request doesn't hold
+    /// up the 3 s poll. A transport miss or a 429 leaves it due for the next
+    /// good `/state`; any answer (even a 404 from a server without the route)
+    /// settles it until the connection comes up again.
+    private func fetchVersion(_ c: APIClient) {
+        guard versionFetch == nil else { return }
+        let gen = generation
+        versionFetch = Task {
+            defer { if gen == self.generation { self.versionFetch = nil } }
+            do {
+                let info: VersionInfo = try await c.get("/version")
+                guard gen == generation else { return }
+                serverVersion = info.release
+                versionDue = false
+            } catch {
+                guard gen == generation else { return }
+                switch FeedError(error) {
+                case .offline, .rateLimited: break
+                // The server answered without a version (a rollback to one
+                // without the route, say): don't keep showing the old one.
+                default:
+                    serverVersion = nil
+                    versionDue = false
+                }
+            }
+        }
+    }
+
+    /// Waits for a `/version` read in flight (tests).
+    func versionFetchSettled() async { await versionFetch?.value }
 
     private func recordStateFailure(_ e: FeedError) {
         // A throttled poll isn't evidence the server is down.
