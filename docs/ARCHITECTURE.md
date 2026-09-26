@@ -1337,7 +1337,10 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   "unsatisfied (Local network prohibited)". EmberKit maps that to
   `APIError`/`FeedError.localNetworkDenied` (`LocalNetworkDenial`) so the UI
   says "Local Network access is off" rather than "Server unreachable", and
-  Settings › Permissions probes it. Sign local builds with
+  Settings › Permissions probes it. Wi-Fi off gives the same -1009/`ENETDOWN`
+  for a LAN host, so without the failed path's reason that guess only counts
+  while `NetworkPathSnapshot` (one `NWPathMonitor`) says the Mac's path is
+  satisfied. Sign local builds with
   `scripts/local-signing-identity.sh` to keep the grant across rebuilds.
 - **Syntactically-valid-but-wrong config defeats validation.** A
   `EMBER_SERVER_URL` typo (`:800` for `:3627`) passed the URL validator but

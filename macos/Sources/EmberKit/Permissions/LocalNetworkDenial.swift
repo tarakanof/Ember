@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 
 /// Recognises macOS Local Network privacy refusing this app a LAN connection.
 ///
@@ -28,14 +29,16 @@ public enum LocalNetworkDenial {
     }
 
     /// Whether a browse or connection error is a Local Network refusal. A DNS
-    /// `NoAuth`/`PolicyDenied` always is; `ENETDOWN` is only when the host is
-    /// on the LAN (Wi-Fi off gives it for any host).
-    public static func isDenied(_ error: NWError, host: String? = nil) -> Bool {
+    /// `NoAuth`/`PolicyDenied` always is. `ENETDOWN` is only when the host is
+    /// on the LAN and this Mac's network path (`pathStatus`, from
+    /// `NetworkPathSnapshot`) is satisfied: Wi-Fi off gives it for any host.
+    public static func isDenied(_ error: NWError, host: String? = nil,
+                                pathStatus: NWPath.Status? = nil) -> Bool {
         switch error {
         case .dns(let code):
             return code == dnsNoAuth || code == dnsPolicyDenied
         case .posix(let code):
-            return code == .ENETDOWN && host.map(isLANHost) == true
+            return code == .ENETDOWN && pathStatus == .satisfied && host.map(isLANHost) == true
         default:
             return false
         }
@@ -43,47 +46,62 @@ public enum LocalNetworkDenial {
 
     /// Whether a URLSession (or Network) error from a request to `host` is a
     /// Local Network refusal. The failed path's unsatisfied reason decides
-    /// when the error carries it; otherwise `ENETDOWN` to a LAN host does.
-    public static func isDenied(_ error: Error, host: String?) -> Bool {
-        if let e = error as? NWError { return isDenied(e, host: host) }
+    /// when the error carries it; otherwise `ENETDOWN` to a LAN host does,
+    /// but only while `pathStatus` (this Mac's overall network path) is
+    /// satisfied, so Wi-Fi off or a pulled cable doesn't read as a refusal.
+    public static func isDenied(_ error: Error, host: String?, pathStatus: NWPath.Status?) -> Bool {
+        if let e = error as? NWError { return isDenied(e, host: host, pathStatus: pathStatus) }
         let ns = error as NSError
         guard ns.domain == NSURLErrorDomain else { return false }
         return isDenied(urlCode: ns.code,
                         streamDomain: streamValue(ns, "_kCFStreamErrorDomainKey"),
                         streamCode: streamValue(ns, "_kCFStreamErrorCodeKey"),
                         path: pathVerdict(ns),
-                        host: host)
+                        host: host,
+                        pathStatus: pathStatus)
     }
 
-    /// The pure rule under `isDenied(_:host:)`.
+    /// The pure rule under `isDenied(_:host:pathStatus:)`.
     static func isDenied(urlCode: Int, streamDomain: Int?, streamCode: Int?,
-                         path: PathVerdict?, host: String?) -> Bool {
+                         path: PathVerdict?, host: String?, pathStatus: NWPath.Status?) -> Bool {
         if let path { return path == .localNetworkDenied }
         guard urlCode == NSURLErrorNotConnectedToInternet || urlCode == NSURLErrorCannotConnectToHost,
-              streamDomain == posixStreamDomain, streamCode == posixNetworkDown
+              streamDomain == posixStreamDomain, streamCode == posixNetworkDown,
+              pathStatus == .satisfied
         else { return false }
         return host.map(isLANHost) ?? false
     }
 
+    /// Names only a local network resolves: mDNS, the home-network zone
+    /// (RFC 8375), ICANN's private-use TLD and the common router default.
+    static let lanSuffixes = [".local", ".home.arpa", ".internal", ".lan"]
+
     /// Whether Local Network privacy covers connections to `host`: a
-    /// private, link-local or unique-local address, a `.local` name, or a
-    /// bare single-label name.
+    /// private, link-local or unique-local address (IPv4-mapped IPv6
+    /// included), a name under a LAN-only suffix, or a bare single-label name.
     public static func isLANHost(_ host: String) -> Bool {
-        let h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        var h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         if h.isEmpty { return false }
-        if let v4 = IPv4Address(h) {
-            let b = [UInt8](v4.rawValue)
-            return b[0] == 10
-                || (b[0] == 172 && (16...31).contains(b[1]))
-                || (b[0] == 192 && b[1] == 168)
-                || (b[0] == 169 && b[1] == 254)
-        }
+        if let v4 = IPv4Address(h) { return isLANv4([UInt8](v4.rawValue)) }
         if let v6 = IPv6Address(h.split(separator: "%").first.map(String.init) ?? h) {
             let b = [UInt8](v6.rawValue)
+            // ::ffff:a.b.c.d
+            if b[0..<10].allSatisfy({ $0 == 0 }), b[10] == 0xff, b[11] == 0xff {
+                return isLANv4(Array(b[12..<16]))
+            }
             return (b[0] == 0xfe && (b[1] & 0xc0) == 0x80) || (b[0] & 0xfe) == 0xfc
         }
+        if h.hasSuffix(".") { h.removeLast() }
         if h == "localhost" { return false }
-        return h.hasSuffix(".local") || h.hasSuffix(".local.") || !h.contains(".")
+        return lanSuffixes.contains { h.hasSuffix($0) } || !h.contains(".")
+    }
+
+    /// 10/8, 172.16/12, 192.168/16 and link-local 169.254/16.
+    private static func isLANv4(_ b: [UInt8]) -> Bool {
+        b[0] == 10
+            || (b[0] == 172 && (16...31).contains(b[1]))
+            || (b[0] == 192 && b[1] == 168)
+            || (b[0] == 169 && b[1] == 254)
     }
 
     private static func streamValue(_ e: NSError, _ key: String) -> Int? {
@@ -99,5 +117,27 @@ public enum LocalNetworkDenial {
         guard let raw, let path = raw as? nw_path_t else { return nil }
         return nw_path_get_unsatisfied_reason(path) == nw_path_unsatisfied_reason_local_network_denied
             ? .localNetworkDenied : .other
+    }
+}
+
+/// This Mac's overall network path, kept current by one `NWPathMonitor`.
+/// Unsatisfied means no usable interface (Wi-Fi off, cable out), which also
+/// fails LAN requests with `ENETDOWN`; Local Network privacy doesn't change
+/// it, since that refuses per connection.
+public final class NetworkPathSnapshot: Sendable {
+    public static let shared = NetworkPathSnapshot()
+
+    private let monitor = NWPathMonitor()
+    private let latest = OSAllocatedUnfairLock<NWPath.Status?>(initialState: nil)
+
+    private init() {
+        monitor.pathUpdateHandler = { [latest] path in latest.withLock { $0 = path.status } }
+        monitor.start(queue: DispatchQueue(label: "com.ember.network-path"))
+    }
+
+    /// The last status the monitor reported, or its current path before the
+    /// first update arrives.
+    public var status: NWPath.Status {
+        latest.withLock { $0 } ?? monitor.currentPath.status
     }
 }
