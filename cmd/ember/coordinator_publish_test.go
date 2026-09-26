@@ -151,16 +151,13 @@ func TestTilePublishRetriesTransientDeviceFailure(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: 1, err: context.DeadlineExceeded}
 	c, _ := publishFixture(t, pub, nil)
 
-	var tracker *pushedUsageApp
-	c.reconcileTile(time.Now(), "ember-weather", &tracker, true, func() map[string]any {
-		return map[string]any{"text": "20C"}
-	})
+	c.tiles.push(coordTileWriter{c}, "ember-weather", map[string]any{"text": "20C"}, time.Now())
 
 	if got := len(pub.budgetsSnapshot()); got != 2 {
 		t.Errorf("CustomApp attempts = %d, want 2 (one retry after a transient failure)", got)
 	}
-	if tracker == nil {
-		t.Error("tile tracker = nil after a retried-then-successful push; the tile would be re-pushed every tick")
+	if _, tracked := c.tiles.pushed["ember-weather"]; !tracked {
+		t.Error("tile not in the ledger after a retried-then-successful push; the tile would be re-pushed every tick")
 	}
 }
 
@@ -283,10 +280,7 @@ func TestTilePublishDoesNotRetryDeviceRejection(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: rejected}
 	c, _ := publishFixture(t, pub, nil)
 
-	var tracker *pushedUsageApp
-	c.reconcileTile(time.Now(), "ember-weather", &tracker, true, func() map[string]any {
-		return map[string]any{"text": "20C"}
-	})
+	c.tiles.push(coordTileWriter{c}, "ember-weather", map[string]any{"text": "20C"}, time.Now())
 
 	if got := len(pub.budgetsSnapshot()); got != 1 {
 		t.Errorf("CustomApp attempts = %d, want 1 (a device rejection is final)", got)
@@ -489,13 +483,13 @@ func TestCoord_RepublishClearsDedupeAndRepushes(t *testing.T) {
 	if got := len(publisher.CustomAppsSnapshot()); got != 2 {
 		t.Fatalf("publishes after republish = %d, want 2 (dedupe must be cleared)", got)
 	}
-	if c.lastPayloadBytes == nil {
+	if c.mainPushed.body == nil {
 		t.Fatal("republish should have re-armed the dedupe cache from the fresh push")
 	}
 }
 
 // TestCoord_RepublishRepushesStandaloneTiles guards the other half of the
-// dedupe reset: the weather/forecast/air/meeting trackers must be dropped too,
+// dedupe reset: the tile ledger must be dropped too,
 // or a tile whose content hasn't changed would never come back after a reboot.
 func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	pub := &recordingPublisher{}
@@ -513,12 +507,12 @@ func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	app.weather.have = true
 	app.weather.mu.Unlock()
 
-	c.reconcileWeatherApp(now)
+	c.reconcileTiles(now)
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-weather" {
 		t.Fatalf("expected one ember-weather push, got %v", names)
 	}
 	// Unchanged content inside the refresh window: no re-push.
-	c.reconcileWeatherApp(now.Add(time.Minute))
+	c.reconcileTiles(now.Add(time.Minute))
 	if got := len(pub.CustomNamesSnapshot()); got != 1 {
 		t.Fatalf("pushes after unchanged reconcile = %d, want 1", got)
 	}

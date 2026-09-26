@@ -141,6 +141,7 @@ When in doubt, write the spec, then point at it from the code's commit message. 
   - `status_http.go` — `/v1/status`, `/v1/clear`, `/v1/notify`
   - `publisher.go` — the `Publisher` interface and `HTTPPublisher`
   - `coordinator*.go` — the display coordinator, one file per concern
+  - `coordinator_tiles.go` — the rotating-tile module: a new tile is one `tile` value in `tiles` (its view feeds both the push and the preview; never re-derive a tile in a preview handler)
 - A file past ~1200 lines is doing too much; split it the same way.
 
 ### HTTP servers
