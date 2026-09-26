@@ -19,13 +19,16 @@ func runUninstall() {
 	}
 	uid := os.Getuid()
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
-	// A job Ember.app registered under the same label is left running (#142).
-	if err := producer.CheckNotAppManaged(producer.ExecLaunchctl, target); err != nil {
-		fmt.Fprintln(os.Stderr, "uninstall: not unloading:", err)
-	} else {
-		producer.BootoutLegacyAgent(producer.ExecLaunchctl, target)
-	}
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+	// Only the CLI's own job is unloaded; Ember.app's, or any job the CLI
+	// can't identify, is left running (#142).
+	switch producer.AgentOwner(producer.ExecLaunchctl, target, plistPath) {
+	case producer.OwnedByCLI:
+		_, _ = producer.ExecLaunchctl("bootout", target)
+	case producer.OwnedByOther:
+		fmt.Fprintf(os.Stderr, "uninstall: left %s loaded: it's Ember.app's (turn reporting off in Ember › Settings › Agents)\n", target)
+	case producer.NotLoaded:
+	}
 	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintln(os.Stderr, "uninstall: remove plist:", err)
 	}

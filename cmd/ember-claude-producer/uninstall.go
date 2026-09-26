@@ -132,14 +132,17 @@ func uninstallSettings(home string) error {
 }
 
 // uninstallPlist unloads and removes the CLI-installed LaunchAgent. A job
-// Ember.app registered under the same label is left running (#142).
+// Ember.app registered under the same label, or any job it can't identify as
+// its own, is left running (#142).
 func uninstallPlist(lc producer.Launchctl, home string, uid int) error {
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
-	if err := producer.CheckNotAppManaged(lc, target); err != nil {
-		fmt.Fprintln(os.Stderr, "uninstall: not unloading:", err)
-	} else {
-		producer.BootoutLegacyAgent(lc, target)
+	switch producer.AgentOwner(lc, target, plistPath) {
+	case producer.OwnedByCLI:
+		_, _ = lc("bootout", target)
+	case producer.OwnedByOther:
+		fmt.Fprintf(os.Stderr, "uninstall: left %s loaded: it's Ember.app's (turn reporting off in Ember › Settings › Agents)\n", target)
+	case producer.NotLoaded:
 	}
 	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 		return err

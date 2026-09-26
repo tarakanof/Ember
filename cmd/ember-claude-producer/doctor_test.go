@@ -55,6 +55,19 @@ func TestHeartbeatStatusLine_LoadedNoFields(t *testing.T) {
 	}
 }
 
+func TestHeartbeatFixHintPointsAppSetupsAtRepair(t *testing.T) {
+	appRegistered := func(args ...string) ([]byte, error) {
+		return []byte("disabled services = {\n\t\t\"com.ember.heartbeat\" => enabled\n\t}\n"), nil
+	}
+	if got := heartbeatFixHint(appRegistered, 501, "/p.plist"); got != appRepairHint {
+		t.Errorf("app-registered hint = %q, want %q", got, appRepairHint)
+	}
+	cliOnly := func(args ...string) ([]byte, error) { return []byte("disabled services = {\n\t}\n"), nil }
+	if got := heartbeatFixHint(cliOnly, 501, "/p.plist"); !contains(got, "launchctl bootstrap gui/501") {
+		t.Errorf("CLI hint = %q, want a launchctl bootstrap", got)
+	}
+}
+
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
