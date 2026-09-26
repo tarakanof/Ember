@@ -178,15 +178,43 @@ macOS menu-bar companion, a **pure HTTP client** of the server (it reads
 without relaunch. Hybrid layout:
 
 - **`EmberKit` (`macos/Sources/`, SwiftPM)** — all testable logic, no scene
-  code: Codable models mirroring the wire shapes, `APIClient`, Status/Pomodoro/
-  Preview services, `pickWinning`, `EnvFile` + validation, the settings types,
-  and the `@Observable AppModel` + poller. Headless `swift test`.
+  code: Codable models mirroring the wire shapes (`Models/`), `APIClient`, one
+  service per endpoint group (`Services/`, `*Service.swift`), `pickWinning`,
+  `EnvFile` + validation, the settings types, and the app foundations (#119):
+  `Live/` (`LiveModel`, `RefreshCoordinator`, `ActionRunner`), `Config/`
+  (`ConfigModel` as `ServerConfigModel`/`EnvConfigModel`, `SettingsModels`)
+  and `Presentation/` (display names and formatters). Headless `swift test`.
 - **`Ember` (`macos/Ember/`, thin Xcode app)** — an `LSUIElement` agent
   app: a `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a
   sidebar `Settings` window (**Connection / Device / Agent / Pomodoro / Weather /
-  Reminders / App**),
-  and a status + preview **dashboard** `Window`. App-only prefs (icon palette,
-  tray glyphs) live in `UserDefaults`; launch-at-login is `SMAppService`.
+  Reminders / App**), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
+  menu while a window is open. `Ember/Shared/` holds the views all three
+  surfaces use (`LiveMatrixMirror`, `FeedStateView`, `StatTile`, `StaleChip`,
+  `PhaseBadge`, `EmberColors`). App-only prefs (icon palette, tray glyphs) live
+  in `UserDefaults`; launch-at-login is `SMAppService`.
+
+**Live data and polling.** Every server read the UI shows is a `Feed` in
+`LiveModel`, one `Loadable<T>` each (`.loading` / `.loaded(value, at:)` /
+`.failed(FeedError, last:, lastAt:)`, so a failure keeps the last value as
+stale). `RefreshCoordinator` runs one loop per active feed:
+
+| Tier | Feeds | Cadence |
+|---|---|---|
+| A, always | `state`, `pomodoroState` | 3 s; 15 s after 3 failures, 60 s after 10 |
+| B, always | `stats`, `usage`, `meetings`, `apps` | 60 s; 30 s (`stats`, `usage`) while a view holds them |
+| C, only while held | `screen` 1 s, `clockHealth` 15 s, `weather`/`activity`/`workhours`/`heatmap` 5 min | — |
+
+A view holds feeds for its lifetime with `.task { await env.live.track(…) }`
+(refcounted). 429s back off through `RateLimitBackoff`; a 404 is
+`.featureOff`. System sleep pauses every loop and wake refetches at once. A
+`/state` failure keeps the snapshot live for 3 polls (`degraded`), then marks it
+stale and the connection offline; the bot only follows a live snapshot. The
+menu adds no polling: opening it refetches `stats`/`meetings`/`usage` if
+they're over 15 s old. Actions (Pomodoro, clock, app visibility) go through
+`ActionRunner`, which keeps the last failure for 10 s and refreshes the feeds
+the action touched. With no window open the app makes 20 `/state` and 20
+`/v1/pomodoro/state` requests a minute and one each to stats, usage, meetings
+and apps.
 
 This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agent tab's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
