@@ -801,6 +801,22 @@ and last re-discovery time/result). The server also advertises
 itself as `_ember._tcp` so the menu app can discover it (gated by
 `EMBER_MDNS_ADVERTISE`). Both directions require host/macvlan networking.
 
+The app can find the clock itself (#57), for a server that can't see
+multicast. Settings › Clock's Discover sheet runs the server's
+`/v1/device/discover` and an app-side browse (`ClockDiscovery`, EmberKit) side
+by side and lists both, one row per `uid`, labelled by who found it (the
+server's address wins a tie: it has shown it can reach it). The app-side rules
+mirror `internal/discovery`: browse `_awtrixng._tcp` (listed in
+`NSBonjourServices`), resolve pinned to IPv4, base URL `http://<ipv4>:<port>`
+(0 → 80), fingerprint `GET /api/v1/device` with a 1.5 s timeout requiring 2xx,
+a non-empty `uid` and `boardType == "awtrixng"`. Two deliberate differences:
+no `FIND_AWTRIXNG` broadcast fallback (the Mac is on the clock's LAN with
+working mDNS, the case that fallback exists for) and no IPv6 fallback. A scan
+is bounded — a 5 s browse (the server's is 3 s; resolving the clock over its
+lossy Wi-Fi can take retries) plus the server's 2 s probe grace — and owned by the sheet's `.task`: dismissing the sheet or leaving the pane
+cancels it, and Mac sleep stops it (#61). Picking a clock is the usual
+`PUT /v1/device/config`, so the app still never writes to the device.
+
 Settings › Clock (and the clock half of Sounds & Alerts) manages the clock's
 *own* firmware settings — but **the server stays the only writer to the
 device**: the app sends only the keys that changed to `/v1/device/settings`

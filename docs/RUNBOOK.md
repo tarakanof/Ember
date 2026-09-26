@@ -365,6 +365,10 @@ fingerprint doesn't exist on NG). The server advertises itself as
 
 - **Host networking is required** for either direction — multicast doesn't cross
   the default Docker bridge. Run the container with `--network host` (or macvlan).
+  When the server can't see the clock anyway, Settings › Clock › Discover Clocks
+  (or **Find Clock from This Mac…**, shown when the server reports the clock
+  unreachable) also browses from the Mac and pins the pick on the server. The
+  app needs Local Network access for that.
 - Effective clock URL precedence: writable-store override (Settings › Clock › Discover Clocks) >
   reachable `awtrix.http_base_url` from `config.json` > mDNS auto-pick (in-memory;
   never written back to the read-only config or the store).
