@@ -150,26 +150,38 @@ public final class AppEnvironment {
         AppEnvironment.applyAppIcon(prefs.appIcon)
         BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot")
         feedBot()
-        // Best-effort: re-register any already-enabled producer LaunchAgents so a
-        // newly bundled binary takes over after an app update. Gated on the bundle
-        // version actually changing since the last reconcile, so a normal launch
-        // doesn't churn the LaunchAgent DB (and risk re-surfacing "needs approval").
-        // Runs off the main thread so it never blocks launch; a failure is logged
-        // and leaves the version unrecorded so the next launch retries.
-        let currentVersion = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
-            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
-            ?? ""
-        let defaults = UserDefaults.standard
-        let lastReconciledVersion = defaults.string(forKey: Self.lastReconciledVersionKey)
-        if shouldReconcileAfterUpdate(currentVersion: currentVersion, lastReconciledVersion: lastReconciledVersion) {
-            let producers = self.producers
-            Task {
-                do {
-                    try await producers.reconcileAfterUpdate()
-                    defaults.set(currentVersion, forKey: Self.lastReconciledVersionKey)
-                } catch {
-                    Self.log.error("producer reconcile failed: \(error.localizedDescription, privacy: .public)")
+        reconcileProducers()
+    }
+
+    /// Best-effort launch check of the producer LaunchAgents (#142), off the
+    /// main thread. After an app update (a new bundle fingerprint: version,
+    /// build and a digest of the bundled helpers) every enabled agent is
+    /// re-registered so the new helpers take over; otherwise only an enabled
+    /// agent launchd has no job for is. The fingerprint is recorded only when
+    /// every re-registration succeeded, so a failure retries next launch.
+    private func reconcileProducers() {
+        let bundle = Bundle.main
+        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let appURL = bundle.bundleURL
+        let producers = self.producers
+        let key = Self.lastReconciledVersionKey
+        let log = Self.log
+        Task.detached(priority: .utility) {
+            let defaults = UserDefaults.standard
+            let fingerprint = bundleFingerprint(appURL: appURL, version: version, build: build)
+            let changed = shouldReconcileAfterUpdate(currentVersion: fingerprint,
+                                                     lastReconciledVersion: defaults.string(forKey: key))
+            let outcomes = await producers.reconcile(bundleChanged: changed)
+            for outcome in outcomes {
+                if let error = outcome.error {
+                    log.error("producer re-register failed: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                } else {
+                    log.info("producer re-registered: agent=\(outcome.agent.rawValue, privacy: .public) reason=\(String(describing: outcome.reason), privacy: .public)")
                 }
+            }
+            if changed, outcomes.allSatisfy({ $0.error == nil }) {
+                defaults.set(fingerprint, forKey: key)
             }
         }
     }
