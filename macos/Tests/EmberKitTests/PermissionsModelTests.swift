@@ -86,9 +86,11 @@ private func snapshot(_ states: [(ProducerAgent, AgentState)], blocked: [Produce
 @Test func remindersMatterOnlyWhenAlarmsAreOn() {
     let asked = PermissionsModel.remindersRow(.notDetermined, inUse: true)
     #expect(asked.needsAttention && asked.action == .requestAccess)
+    // Alarms off: neutral, not a red Off, and the button goes to Calendar.
     let unused = PermissionsModel.remindersRow(.denied, inUse: false)
-    #expect(unused.status == .denied && !unused.needsAttention)
-    #expect(unused.action == .openSystemSettings(.reminders))
+    #expect(unused.status == .notInUse && !unused.required && !unused.needsAttention)
+    #expect(unused.action == .openPane(.calendar))
+    #expect(PermissionsModel.remindersRow(.notDetermined, inUse: false).status == .notInUse)
     #expect(!PermissionsModel.remindersRow(.granted, inUse: true).needsAttention)
 }
 
@@ -156,22 +158,47 @@ private final class FakeSources: PermissionSources {
     #expect(model.attention.isEmpty)
 }
 
-// A slow probe from an older refresh must not overwrite a newer one.
+// The pane's .task and didBecomeActive both refresh when Settings opens: the
+// second joins the running check instead of probing again.
 @MainActor
-@Test func newerRefreshWins() async {
+@Test func overlappingRefreshesShareOneCheck() async {
     let fake = FakeSources()
     let model = PermissionsModel(sources: fake)
     fake.network = .denied
     fake.holdNetwork = true
-    let first = Task { await model.refresh() }
+    let first = Task { await model.refresh(ifOlderThan: PermissionsModel.activationInterval) }
     while fake.gate == nil { await Task.yield() }
-    fake.network = .granted
-    await model.refresh()
-    #expect(model.row(.localNetwork)?.status == .granted)
+    let second = Task { await model.refresh(ifOlderThan: PermissionsModel.activationInterval) }
+    let explicit = Task { await model.refresh() }
+    for _ in 0..<20 { await Task.yield() }
     fake.gate?.resume()
     await first.value
-    #expect(model.row(.localNetwork)?.status == .granted)
+    await second.value
+    await explicit.value
+    #expect(fake.networkCalls == 1)
+    #expect(model.row(.localNetwork)?.status == .denied)
+    #expect(!model.isChecking)
+}
+
+// Activations re-check at most every few seconds; Check Again always does.
+@MainActor
+@Test func activationRefreshesAreThrottled() async {
+    let fake = FakeSources()
+    var clock = Date(timeIntervalSince1970: 1_000)
+    let model = PermissionsModel(sources: fake, now: { clock })
+    await model.refresh(ifOlderThan: PermissionsModel.activationInterval)
+    #expect(fake.networkCalls == 1)
+
+    clock += 2
+    await model.refresh(ifOlderThan: PermissionsModel.activationInterval)
+    #expect(fake.networkCalls == 1)
+
+    await model.refresh()
     #expect(fake.networkCalls == 2)
+
+    clock += PermissionsModel.activationInterval
+    await model.refresh(ifOlderThan: PermissionsModel.activationInterval)
+    #expect(fake.networkCalls == 3)
 }
 
 // While re-checking, the last Local Network verdict stays up (no flicker).

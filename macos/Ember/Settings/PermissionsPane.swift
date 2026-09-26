@@ -6,7 +6,7 @@ import EmberKit
 /// comes from `PermissionsModel`: Local Network by probing (macOS has no API
 /// for it), the rest from their frameworks and the producer installer.
 /// Re-checked when the pane appears and whenever Ember becomes active, e.g.
-/// back from System Settings.
+/// back from System Settings, at most every few seconds.
 struct PermissionsPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var producers: ProducerInstallModel?
@@ -21,7 +21,7 @@ struct PermissionsPane: View {
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("macOS gives Local Network access to one build of an app. A copy you build yourself without a Developer ID needs approval again after every rebuild, unless it's signed with the stable local identity (scripts/local-signing-identity.sh). If Ember is already on in Local Network settings but still blocked, turn it off and on again.")
+                    Text("macOS gives Local Network access to one build of an app, so a copy of Ember you build yourself can need approval again after every rebuild. If Ember is already on in Local Network settings but still blocked, turn it off and on again.")
                     if let failure = producers?.failure {
                         Label(failure, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
                     }
@@ -44,10 +44,10 @@ struct PermissionsPane: View {
         .formStyle(.grouped)
         .task {
             if producers == nil { producers = ProducerInstallModel(service: env.producers) }
-            await model.refresh()
+            await model.refresh(ifOlderThan: PermissionsModel.activationInterval)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await model.refresh() }
+            Task { await model.refresh(ifOlderThan: PermissionsModel.activationInterval) }
         }
     }
 
@@ -82,7 +82,7 @@ private struct PermissionRowView: View {
             HStack(spacing: 10) {
                 PermissionBadge(status: row.status)
                 if let action = row.action, row.status != .checking {
-                    Button { perform(action) } label: { Text(buttonTitle(action)) }
+                    Button { perform(action) } label: { buttonTitle(action) }
                         .help(Text(buttonHelp(action)))
                 }
             }
@@ -121,16 +121,15 @@ private struct PermissionRowView: View {
         }
     }
 
-    private func buttonTitle(_ action: PermissionAction) -> LocalizedStringKey {
+    private func buttonTitle(_ action: PermissionAction) -> Text {
         switch action {
-        case .openSystemSettings(.localNetwork): "Open Local Network Settings…"
-        case .openSystemSettings(.reminders): "Open Reminders Settings…"
-        case .openSystemSettings(.location): "Open Location Settings…"
-        case .openSystemSettings(.loginItems): "Open Login Items…"
-        case .requestAccess: "Allow Access…"
-        case .repair: "Repair"
-        case .openPane(.weather): "Show Weather"
-        case .openPane: "Show Agents"
+        case .openSystemSettings(.localNetwork): Text("Open Local Network Settings…")
+        case .openSystemSettings(.reminders): Text("Open Reminders Settings…")
+        case .openSystemSettings(.location): Text("Open Location Settings…")
+        case .openSystemSettings(.loginItems): Text("Open Login Items…")
+        case .requestAccess: Text("Allow Access…")
+        case .repair: Text("Repair")
+        case .openPane(let pane): Text("Show \(Text(pane.title))", comment: "Button that opens a Settings pane, e.g. Show Weather")
         }
     }
 

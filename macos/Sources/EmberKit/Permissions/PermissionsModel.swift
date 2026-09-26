@@ -118,11 +118,21 @@ public final class PermissionsModel {
     /// When the last full read finished.
     public private(set) var checkedAt: Date?
 
-    @ObservationIgnored private let sources: any PermissionSources
-    @ObservationIgnored private var seq = 0
+    /// How soon after one check the pane appearing or the app becoming
+    /// active checks again. A check runs a Bonjour browse and a request to
+    /// the server, and opening Settings from the menu bar does both at once.
+    public static let activationInterval: TimeInterval = 5
 
-    public init(sources: any PermissionSources) {
+    @ObservationIgnored private let sources: any PermissionSources
+    @ObservationIgnored private let now: @MainActor () -> Date
+    /// The check running now; later callers wait for it instead of starting
+    /// another.
+    @ObservationIgnored private var inFlight: Task<Void, Never>?
+    @ObservationIgnored private var startedAt: Date?
+
+    public init(sources: any PermissionSources, now: @escaping @MainActor () -> Date = { Date() }) {
         self.sources = sources
+        self.now = now
         rows = PermissionID.allCases.map {
             PermissionRow(id: $0, status: .checking, required: false, action: nil)
         }
@@ -133,12 +143,28 @@ public final class PermissionsModel {
 
     public func row(_ id: PermissionID) -> PermissionRow? { rows.first { $0.id == id } }
 
-    /// Re-reads everything. The quick reads land at once; the Local Network
-    /// probe and the producer read follow. A read applies only if no newer
-    /// refresh started.
-    public func refresh() async {
-        seq += 1
-        let mine = seq
+    /// Re-reads everything, or waits for the check already running. With
+    /// `minInterval` (the pane appearing, the app becoming active), it also
+    /// skips when the last check started less than that long ago; the user's
+    /// Check Again passes nil.
+    public func refresh(ifOlderThan minInterval: TimeInterval? = nil) async {
+        if let inFlight {
+            await inFlight.value
+            return
+        }
+        if let minInterval, let startedAt, now().timeIntervalSince(startedAt) < minInterval { return }
+        startedAt = now()
+        let task = Task {
+            await check()
+            inFlight = nil
+        }
+        inFlight = task
+        await task.value
+    }
+
+    /// The quick reads land at once; the Local Network probe and the
+    /// producer read follow.
+    private func check() async {
         isChecking = true
         let reminders = sources.reminders()
         let location = sources.location()
@@ -151,7 +177,6 @@ public final class PermissionsModel {
         async let network = sources.localNetwork()
         async let producers = sources.producers()
         let (n, p) = await (network, producers)
-        guard mine == seq else { return }
         rows = Self.rows(localNetwork: n, producers: p, keepingProducerRowsFrom: previous,
                          reminders: reminders.status, remindersInUse: reminders.inUse, location: location)
         isChecking = false
@@ -242,9 +267,14 @@ public final class PermissionsModel {
                              blockedHelpers: blocked)
     }
 
+    /// Reminders only matter while reminder alarms are on; otherwise the row
+    /// points at Calendar, where they're turned on.
     nonisolated static func remindersRow(_ access: AccessStatus, inUse: Bool) -> PermissionRow {
-        PermissionRow(id: .reminders, status: status(access), required: inUse,
-                      action: access == .notDetermined ? .requestAccess : .openSystemSettings(.reminders))
+        guard inUse else {
+            return PermissionRow(id: .reminders, status: .notInUse, required: false, action: .openPane(.calendar))
+        }
+        return PermissionRow(id: .reminders, status: status(access), required: true,
+                             action: access == .notDetermined ? .requestAccess : .openSystemSettings(.reminders))
     }
 
     /// Location is only asked for by Weather's Detect button, so it's never

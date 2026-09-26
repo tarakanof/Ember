@@ -852,7 +852,6 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "Review Permissions" : {},
     "Review Permissions…" : {},
     "Ring" : {},
     "Ring the clock for due reminders" : {},
@@ -911,9 +910,10 @@
       "extractionState" : "manual"
     },
     "Short break" : {},
+    "Show %@" : {
+      "comment" : "Button that opens a Settings pane, e.g. Show Weather"
+    },
     "Show AM/PM" : {},
-    "Show Agents" : {},
-    "Show Weather" : {},
     "Show for" : {},
     "Show next meeting" : {},
     "Show on Clock" : {},
@@ -1188,7 +1188,7 @@
     },
     "just now" : {},
     "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
-    "macOS gives Local Network access to one build of an app. A copy you build yourself without a Developer ID needs approval again after every rebuild, unless it's signed with the stable local identity (scripts/local-signing-identity.sh). If Ember is already on in Local Network settings but still blocked, turn it off and on again." : {},
+    "macOS gives Local Network access to one build of an app, so a copy of Ember you build yourself can need approval again after every rebuild. If Ember is already on in Local Network settings but still blocked, turn it off and on again." : {},
     "macOS is blocking %@ from the local network, so its reports don't reach the server." : {
       "comment" : "Settings › Permissions: the producer helper names macOS blocks, e.g. \"ember-codex-producer\" or \"ember-claude-producer and ember-codex-producer\"."
     },

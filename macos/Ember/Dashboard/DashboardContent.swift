@@ -46,7 +46,7 @@ struct DashboardContent<Source: DashboardSource>: View {
                 Text("macOS is blocking Ember from the server on your local network. Allow Ember under Local Network in System Settings.")
             } actions: {
                 Button("Try Again", action: onRetry)
-                Button("Review Permissions") { openSettings(pane: "permissions", using: openWindow) }
+                Button("Review Permissions…") { openSettings(pane: SettingsPaneID.permissions.rawValue, using: openWindow) }
             }
             .frame(maxWidth: .infinity, minHeight: 480)
         } else if source.isOfflineWithNothingLoaded {

@@ -86,19 +86,15 @@ struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .reloads { login = LoginItemService.status }
-        .task { await refreshPermissionsIfStale() }
+        .task { await env.permissions.refresh(ifOlderThan: Self.permissionsInterval) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await refreshPermissionsIfStale() }
+            Task { await env.permissions.refresh(ifOlderThan: Self.permissionsInterval) }
         }
     }
 
     /// The Local Network probe takes a few seconds and a request to the
     /// server, so the warning re-checks at most every half minute.
-    private func refreshPermissionsIfStale() async {
-        let model = env.permissions
-        guard !model.isChecking, model.checkedAt.map({ Date().timeIntervalSince($0) > 30 }) ?? true else { return }
-        await model.refresh()
-    }
+    private static let permissionsInterval: TimeInterval = 30
 
     private func glyphPicker(_ label: LocalizedStringKey, _ binding: Binding<String>) -> some View {
         Picker(label, selection: binding) {

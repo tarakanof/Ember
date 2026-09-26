@@ -184,7 +184,8 @@ with **Review Permissions…**.
 
 **Settings › Permissions** lists every OS permission Ember uses with its live
 status (text + symbol) and a fix button, re-checked when the pane appears and
-whenever Ember becomes active: Local Network (probed: a 3 s `_ember._tcp`
+whenever Ember becomes active (one check at a time, at most every 5 s;
+**Check Again** skips the wait): Local Network (probed: a 3 s `_ember._tcp`
 browse, where DNS-SD `NoAuth`/`PolicyDenied` means off, plus `GET /healthz`
 on the server when it's a LAN host), the helpers' Local Network (the
 `no_route` files above), Background Items (the producer agents, with Repair),
