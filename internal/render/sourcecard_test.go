@@ -57,6 +57,9 @@ func TestSourceCardText(t *testing.T) {
 	for in, want := range map[string]string{
 		"mbp": "MBP", "studio-m4": "STUD", "": "",
 		"über-mac": "ÜBER", // multibyte: rune (not byte) truncation to 4 runes
+		// NG's font draws M/N/W 5 px wide: truncate by width, not rune count, so
+		// the name never runs under the glass at col 25.
+		"mwmw-studio": "MW", "mbp1": "MBP", "m4": "M4", "nwn": "NW",
 	} {
 		if got := sourceCardText(in); got != want {
 			t.Fatalf("sourceCardText(%q) = %q, want %q", in, got, want)

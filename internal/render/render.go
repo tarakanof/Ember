@@ -483,16 +483,44 @@ func isUsageCard(card int) bool {
 func sourceCardEnabled(s Session) bool { return s.SourceCard == nil || *s.SourceCard }
 func sessionBarEnabled(s Session) bool { return s.SessionBar == nil || *s.SessionBar }
 
-// sourceCardText uppercases and truncates a source name to the 4 glyphs that
-// fit the drawn text area (cols 9-23 = 15 px = 4×4−1; full-frame db apps
-// cannot scroll native text, so longer names are cut, not scrolled).
-func sourceCardText(source string) string {
-	up := strings.ToUpper(source)
-	r := []rune(up)
-	if len(r) > 4 {
-		r = r[:4]
+// sourceNameMaxW is the widest source name the card shows: cols 9-23, leaving
+// col 24 blank before the glass at col 25.
+const sourceNameMaxW = rightSlotX - contentX - 1
+
+// ngGlyphW estimates how wide awtrix-ng's small font draws an uppercase rune:
+// 3 px for most, 5 px for the wide M/N/W, 1 px for a space. It errs wide for
+// runes it does not know, because underestimating lets the right-hand glass op
+// clip the last letter mid-glyph.
+func ngGlyphW(r rune) int {
+	switch r {
+	case 'M', 'N', 'W':
+		return 5
+	case ' ':
+		return 1
+	default:
+		return 3
 	}
-	return string(r)
+}
+
+// sourceCardText uppercases a source name and cuts it to what NG draws within
+// sourceNameMaxW (glyph widths plus 1-px spacers). The card cannot scroll the
+// name (the bitmap ops around it would clip the scroll), so longer names are
+// cut, not scrolled. "STUD" is 15 px; "MWMW" would be 23 px and becomes "MW".
+func sourceCardText(source string) string {
+	var out []rune
+	w := 0
+	for _, r := range strings.ToUpper(source) {
+		next := w + ngGlyphW(r)
+		if len(out) > 0 {
+			next++ // spacer
+		}
+		if next > sourceNameMaxW {
+			break
+		}
+		out = append(out, r)
+		w = next
+	}
+	return string(out)
 }
 
 // AvailableCards returns the cards this session offers, in rotation order.
