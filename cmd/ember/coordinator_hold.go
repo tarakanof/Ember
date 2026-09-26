@@ -30,6 +30,12 @@ const (
 // retry attempts and stays inside main's shutdown wait.
 const exitRestoreBudget = 5 * time.Second
 
+// restoreBackoffTicks is how many publishes a pending restore sits out after
+// one was lost. The restore is owed even when the frame is nil or deduped, so
+// with the clock offline every tick would otherwise block the (single)
+// coordinator goroutine for a full retry budget, delaying attention upserts.
+const restoreBackoffTicks = 5
+
 // takeoverPriorKey is the store key holding the user's pre-takeover settings
 // while a Pomodoro takeover is in force. Empty or absent means none is.
 const takeoverPriorKey = "pomo_takeover_prior"
@@ -55,6 +61,11 @@ func defaultTakeoverPrior() takeoverPrior { return takeoverPrior{AutoTransition:
 
 // priorFromSettings picks the two takeover keys out of GET /api/v1/settings,
 // keeping the default for any key the device did not report as a bool.
+//
+// A reading equal to the takeover itself is treated as unknown: the clock is
+// most likely still in a takeover nobody restored (an older binary that died
+// mid-focus, a lost snapshot write), and recording it as the user's choice
+// would make every later restore turn rotation off for good.
 func priorFromSettings(m map[string]any) takeoverPrior {
 	p := defaultTakeoverPrior()
 	if v, ok := m["autoTransition"].(bool); ok {
@@ -62,6 +73,9 @@ func priorFromSettings(m map[string]any) takeoverPrior {
 	}
 	if v, ok := m["blockNavigation"].(bool); ok {
 		p.BlockNavigation = v
+	}
+	if !p.AutoTransition && p.BlockNavigation {
+		return defaultTakeoverPrior()
 	}
 	return p
 }
@@ -212,10 +226,17 @@ func (c *coordinator) applyDisplayHold(want holdState, appName string) {
 	}
 	ctx := c.runCtx()
 	if restorePending {
-		if err := c.restoreTakeover(ctx); err != nil {
-			c.logger.Warn("display hold restore settings failed; retrying next tick", "err", err)
+		if c.restoreBackoff > 0 {
+			c.restoreBackoff--
 			return
 		}
+		if err := c.restoreTakeover(ctx); err != nil {
+			c.restoreBackoff = restoreBackoffTicks
+			c.logger.Warn("display hold restore settings failed; retrying after backoff",
+				"err", err, "skip_ticks", restoreBackoffTicks)
+			return
+		}
+		c.restoreBackoff = 0
 		if c.hold == holdPomodoro {
 			c.hold = holdNone
 		}

@@ -123,6 +123,9 @@ type coordinator struct {
 	// kv (when set) so a process that dies mid-takeover restores on its next
 	// start. Coordinator-goroutine-owned once Run starts.
 	prior *takeoverPrior
+	// restoreBackoff counts ticks left to skip before retrying a restore that
+	// was lost (see restoreBackoffTicks). Coordinator-goroutine-owned.
+	restoreBackoff int
 	kv    settingsKV
 
 	// onPublishResult, if non-nil, is called after every publish attempt

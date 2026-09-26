@@ -95,6 +95,63 @@ func TestCoordinatorTakeoverWaitsForASuccessfulSnapshotRead(t *testing.T) {
 	wantTakeoverSettings(t, s[1], false, false)
 }
 
+// A clock already in the takeover state when no snapshot exists (e.g. an old
+// binary died mid-focus without restoring) must not have that state recorded
+// as the user's choice, or every later restore turns rotation off for good.
+func TestCoordinatorTakeoverIgnoresSnapshotOfTheTakeoverItself(t *testing.T) {
+	c, pub, snap, pomo := holdFixture(t, "running")
+	pub.deviceSettings = map[string]any{"autoTransition": false, "blockNavigation": true}
+
+	*pomo = true
+	c.publish(*snap)
+	*pomo = false
+	c.publish(*snap)
+
+	s := pub.SettingsSnapshot()
+	if len(s) != 2 {
+		t.Fatalf("settings writes = %+v, want takeover + restore", s)
+	}
+	wantTakeoverSettings(t, s[1], true, false)
+}
+
+// With the clock offline and a restore owed, the coordinator must not spend
+// a full retry budget on it every tick: after a lost restore it skips a few
+// ticks, then tries again.
+func TestCoordinatorBacksOffPendingRestoreWhileClockOffline(t *testing.T) {
+	c, pub, snap, pomo := holdFixture(t, "running")
+	*pomo = true
+	c.publish(*snap)
+	base := len(pub.SettingsSnapshot())
+
+	pub.mu.Lock()
+	pub.settingsFails = 100
+	pub.mu.Unlock()
+	*pomo = false
+	c.publish(*snap)
+	afterFirst := len(pub.SettingsSnapshot())
+	if afterFirst == base {
+		t.Fatal("no restore attempt on the release edge")
+	}
+
+	for i := 0; i < restoreBackoffTicks; i++ {
+		c.publish(*snap)
+	}
+	if n := len(pub.SettingsSnapshot()); n != afterFirst {
+		t.Fatalf("restore attempts during backoff = %d, want 0", n-afterFirst)
+	}
+
+	pub.mu.Lock()
+	pub.settingsFails = 0
+	pub.mu.Unlock()
+	c.publish(*snap)
+	if c.hold != holdNone || c.prior != nil {
+		t.Fatalf("after backoff: hold=%v prior=%v, want restored", c.hold, c.prior)
+	}
+	if c.restoreBackoff != 0 {
+		t.Fatalf("restoreBackoff after success = %d, want 0", c.restoreBackoff)
+	}
+}
+
 // A device that answers the read with a 4xx never will: fall back to the
 // firmware defaults instead of blocking the takeover forever.
 func TestCoordinatorTakeoverFallsBackToDefaultsOnRejectedRead(t *testing.T) {
@@ -223,7 +280,9 @@ func TestCoordinatorRetriesFailedTakeoverRestore(t *testing.T) {
 		t.Fatalf("hold after a lost restore = %v, want holdPomodoro (restore pending)", c.hold)
 	}
 
-	c.publish(*snap)
+	for i := 0; i <= restoreBackoffTicks; i++ { // sit out the backoff, then retry
+		c.publish(*snap)
+	}
 	if c.hold != holdNone {
 		t.Fatalf("hold after the restore retry = %v, want holdNone", c.hold)
 	}
