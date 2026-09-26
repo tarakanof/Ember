@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
 // Every settings PUT merges (#144): a body naming one field leaves the others
@@ -90,5 +95,53 @@ func TestSettingsPutRejectsNonObjectBody(t *testing.T) {
 				t.Errorf("%s PUT %s = %d, want 400", h.name, body, w.Code)
 			}
 		}
+	}
+}
+
+// A value of the wrong type is an undecodable body: 400 plus the same
+// "request rejected" log line as any other body decodeOrReject refuses.
+func TestSettingsPutTypeErrorLogsRejection(t *testing.T) {
+	var buf bytes.Buffer
+	a := NewApp(defaultConfig(), &recordingPublisher{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	w := httptest.NewRecorder()
+	a.handleDisplayConfigPut(w, httptest.NewRequest("PUT", "/v1/display/config",
+		strings.NewReader(`{"attention_chime":"yes"}`)))
+	if w.Code != 400 {
+		t.Fatalf("PUT = %d, want 400", w.Code)
+	}
+	if !strings.Contains(buf.String(), "request rejected") || !strings.Contains(buf.String(), "reason=parse") {
+		t.Fatalf("missing request-rejected log line: %s", buf.String())
+	}
+	// A validation failure is not a parse error: no rejection line.
+	buf.Reset()
+	a.handleDisplayConfigPut(httptest.NewRecorder(), httptest.NewRequest("PUT", "/v1/display/config",
+		strings.NewReader(`{"attention_hold_seconds":1}`)))
+	if strings.Contains(buf.String(), "request rejected") {
+		t.Fatalf("validation error logged as a rejected body: %s", buf.String())
+	}
+}
+
+// Disabling Pomodoro through the settings PUT stops a running timer; a PUT
+// that leaves it enabled (enabled omitted) does not.
+func TestPomodoroSettingsDisableStopsRunningTimer(t *testing.T) {
+	a := newPomodoroApp(t)
+	running := func() bool { return a.engine.Status(time.Now()).Phase != pomodoro.PhaseIdle }
+	a.engine.Start(pomodoro.PhaseFocus)
+	if !running() {
+		t.Fatal("setup: timer not running")
+	}
+
+	if _, err := a.settings.pomodoro.put([]byte(`{"focus_minutes":30}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !running() {
+		t.Fatal("a PUT that keeps pomodoro enabled stopped the timer")
+	}
+
+	if _, err := a.settings.pomodoro.put([]byte(`{"enabled":false}`)); err != nil {
+		t.Fatal(err)
+	}
+	if running() {
+		t.Fatal("disabling pomodoro left the timer running")
 	}
 }

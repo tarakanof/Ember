@@ -57,8 +57,8 @@ type settingsOverlay struct {
 	all    []interface{ reapply() }
 }
 
-// appSettings is the App's overlay with every registered setting. The field
-// order below is the reapply order.
+// appSettings is the App's overlay with every registered setting. The reapply
+// order is the order of the register calls in newAppSettings.
 type appSettings struct {
 	*settingsOverlay
 	pomodoro *setting[pomodoroSettingsDTO]
@@ -104,8 +104,13 @@ func register[D any](o *settingsOverlay, spec settingSpec[D]) *setting[D] {
 // get returns the effective value.
 func (s *setting[D]) get() D { return s.spec.view(*s.o.load()) }
 
+// errSettingBody marks a patch that can't be decoded into the setting's DTO:
+// not a JSON object, or a value of the wrong type. HTTP answers it like any
+// other undecodable body (rejectBody); validation errors are separate.
+var errSettingBody = errors.New("invalid settings body")
+
 // errSettingNotObject rejects a patch that isn't a JSON object.
-var errSettingNotObject = errors.New("settings body must be a JSON object")
+var errSettingNotObject = fmt.Errorf("%w: must be a JSON object", errSettingBody)
 
 // put merges patch (a JSON object) over the effective value, validates and
 // swaps the result in, persists it, and runs the after hook. It returns the
@@ -210,7 +215,7 @@ func mergeSetting[D any](seed D, patch []byte) (D, error) {
 		return out, err
 	}
 	if err := json.Unmarshal(merged, &out); err != nil {
-		return out, fmt.Errorf("invalid settings value: %w", err)
+		return out, fmt.Errorf("%w: %w", errSettingBody, err)
 	}
 	return out, nil
 }
@@ -230,6 +235,10 @@ func serveSettingPut[D any](a *App, w http.ResponseWriter, r *http.Request, s *s
 		return zero, false
 	}
 	d, err := s.put(patch)
+	if errors.Is(err, errSettingBody) {
+		a.rejectBody(w, r, err)
+		return d, false
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return d, false
