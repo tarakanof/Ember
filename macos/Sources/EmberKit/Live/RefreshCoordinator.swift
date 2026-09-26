@@ -84,7 +84,8 @@ final class RefreshCoordinator {
     private var floors: [Feed: Duration] = [:]
     private var lastTick: [Feed: Duration] = [:]
     /// The fetch running for each feed; a second request joins it.
-    private var inFlight: [Feed: Task<FeedTick, Never>] = [:]
+    private var inFlight: [Feed: (id: Int, task: Task<FeedTick, Never>)] = [:]
+    private var nextFetchID = 0
 
     init(fetch: @escaping Fetch, sleep: @escaping Sleep, now: @escaping Now) {
         self.fetch = fetch
@@ -211,14 +212,25 @@ final class RefreshCoordinator {
     /// menu open, a phase change and a poll landing together cost one request.
     @discardableResult
     func tick(_ feed: Feed) async -> FeedTick {
-        if let running = inFlight[feed] { return await running.value }
-        let task = Task { await self.fetch(feed) }
-        inFlight[feed] = task
-        let result = await task.value
-        if inFlight[feed] == task { inFlight[feed] = nil }
-        lastTick[feed] = now()
-        floors[feed] = pacing[feed, default: FeedPacing()].record(result, tier: feed.tier)
-        return result
+        if let running = inFlight[feed] { return await running.task.value }
+        nextFetchID += 1
+        let id = nextFetchID
+        // The fetch task does its own bookkeeping before it completes, so every
+        // caller — starter or joiner — resumes to a recorded, no-longer-running
+        // fetch. Leaving it to the starter let a joiner that resumed first
+        // re-join the finished task without suspending and spin forever.
+        let task = Task { () -> FeedTick in
+            let result = await self.fetch(feed)
+            // A fetch dropped by forgetInFlight()/restart() (a server switch)
+            // must not stamp the new server's timing or backoff.
+            guard self.inFlight[feed]?.id == id else { return result }
+            self.inFlight[feed] = nil
+            self.lastTick[feed] = self.now()
+            self.floors[feed] = self.pacing[feed, default: FeedPacing()].record(result, tier: feed.tier)
+            return result
+        }
+        inFlight[feed] = (id, task)
+        return await task.value
     }
 
     // MARK: Loops
@@ -265,6 +277,9 @@ final class RefreshCoordinator {
                 continue
             }
             await tick(feed)
+            // Never spin the main actor: a tick that somehow left the feed
+            // still due yields before trying again.
+            if remaining(feed) <= .zero { await Task.yield() }
         }
     }
 
