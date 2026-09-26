@@ -75,6 +75,15 @@ func pinText(p map[string]any) map[string]any {
 	return p
 }
 
+// readOnce makes a notification stay until its text has scrolled through
+// once (NG repeat:1), however long it is. NG still honours durationMs as a
+// minimum, so a short label keeps its configured dwell; text that fits does
+// not scroll and is unaffected. Returns p.
+func readOnce(p map[string]any) map[string]any {
+	p["repeat"] = 1
+	return p
+}
+
 // applyHold marks a pushed-app payload as "this app takes and keeps the screen"
 // — Ember's display hold, formerly AWTRIX3's prio+force pair.
 //

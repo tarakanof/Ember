@@ -296,9 +296,23 @@ func (c *Client) GetSettings(ctx context.Context) (map[string]any, error) {
 	return out, nil
 }
 
+// SwitchMode picks how SwitchApp moves the display to an app.
+type SwitchMode int
+
+const (
+	// SwitchAnimated plays the device's configured transition.
+	SwitchAnimated SwitchMode = iota
+	// SwitchInstant jumps with no transition (NG's "fast":true).
+	SwitchInstant
+)
+
 // SwitchApp forces the display to the named app (PUT /api/v1/apps/active).
-func (c *Client) SwitchApp(ctx context.Context, name string) error {
-	return c.doJSON(ctx, http.MethodPut, "/api/v1/apps/active", map[string]any{"name": name}, nil)
+func (c *Client) SwitchApp(ctx context.Context, name string, mode SwitchMode) error {
+	body := map[string]any{"name": name}
+	if mode == SwitchInstant {
+		body["fast"] = true
+	}
+	return c.doJSON(ctx, http.MethodPut, "/api/v1/apps/active", body, nil)
 }
 
 // ListIcons returns the filenames in /ICONS (GET /api/v1/files?dir=/ICONS).

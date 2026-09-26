@@ -42,6 +42,9 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 		t.Errorf("text = %q, want %q", p["text"], "STANDUP IN 2M")
 	}
 	assertPinnedText(t, p)
+	if p["repeat"] != 1 {
+		t.Errorf("repeat = %v, want 1 (a long title is read to the end)", p["repeat"])
+	}
 	if p["durationMs"] != 30_000 {
 		t.Errorf("durationMs = %v, want 30000", p["durationMs"])
 	}

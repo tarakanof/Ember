@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // soundKeys are awtrix-ng's three notification sound fields (AWTRIX3 spelled the
@@ -72,8 +74,8 @@ func (q *quietPublisher) Settings(ctx context.Context, payload map[string]any) e
 func (q *quietPublisher) ReadSettings(ctx context.Context) (map[string]any, error) {
 	return q.next.ReadSettings(ctx)
 }
-func (q *quietPublisher) Switch(ctx context.Context, name string) error {
-	return q.next.Switch(ctx, name)
+func (q *quietPublisher) Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error {
+	return q.next.Switch(ctx, name, mode)
 }
 func (q *quietPublisher) ListIcons(ctx context.Context) ([]string, error) {
 	return q.next.ListIcons(ctx)

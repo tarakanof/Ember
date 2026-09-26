@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/render"
 )
 
@@ -84,6 +85,11 @@ func TestCoordinatorAttentionHoldSwitchesOnceOnTheEdge(t *testing.T) {
 	c.publish(*snap)
 	if sw := pub.SwitchesSnapshot(); len(sw) != 1 || sw[0] != appName {
 		t.Fatalf("switches on the lock edge = %v, want [%s]", sw, appName)
+	}
+	// Attention jumps at once (NG fast:true) instead of playing the ~1 s
+	// transition: the point is to be seen now.
+	if m := pub.SwitchModesSnapshot(); m[0] != awtrix.SwitchInstant {
+		t.Fatalf("attention switch mode = %v, want SwitchInstant", m[0])
 	}
 
 	// Still locked → no per-tick switch spam.
@@ -164,6 +170,9 @@ func TestCoordinatorPomodoroOutranksAttentionHold(t *testing.T) {
 	}
 	if sw := pub.SwitchesSnapshot(); len(sw) != 1 {
 		t.Fatalf("switches on the pomodoro edge = %d, want 1", len(sw))
+	}
+	if m := pub.SwitchModesSnapshot(); m[0] != awtrix.SwitchAnimated {
+		t.Fatalf("pomodoro switch mode = %v, want SwitchAnimated", m[0])
 	}
 
 	// Timer ends, attention lock survives → rotation restored, and the frame

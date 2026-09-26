@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 func newPublisherAgainst(t *testing.T, h http.HandlerFunc) *HTTPPublisher {
@@ -58,14 +60,14 @@ func TestPublisherSwitchPutsActiveApp(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	if err := pub.Switch(context.Background(), "ember"); err != nil {
+	if err := pub.Switch(context.Background(), "ember", awtrix.SwitchInstant); err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
 	if gotMethod != http.MethodPut || gotPath != "/api/v1/apps/active" {
 		t.Fatalf("got %s %s, want PUT /api/v1/apps/active", gotMethod, gotPath)
 	}
-	if gotBody["name"] != "ember" {
-		t.Fatalf("body name = %v, want ember", gotBody["name"])
+	if gotBody["name"] != "ember" || gotBody["fast"] != true {
+		t.Fatalf("body = %v, want name ember + fast true", gotBody)
 	}
 }
 

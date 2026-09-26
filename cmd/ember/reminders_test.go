@@ -31,8 +31,13 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	if p["durationMs"] != 10_000 {
 		t.Errorf("durationMs = %v, want 10000", p["durationMs"])
 	}
-	if p["soundRtttl"] != defaultReminderSound {
-		t.Errorf("soundRtttl = %v, want %q", p["soundRtttl"], defaultReminderSound)
+	// A held alarm rings until dismissed: the looped melody (with a trailing
+	// rest between rings) plus NG's soundLoop.
+	if p["soundRtttl"] != defaultReminderAlarm {
+		t.Errorf("soundRtttl = %v, want %q", p["soundRtttl"], defaultReminderAlarm)
+	}
+	if p["soundLoop"] != true {
+		t.Errorf("soundLoop = %v, want true on a held alarm", p["soundLoop"])
 	}
 	if p["hold"] != true {
 		t.Errorf("hold = %v, want true", p["hold"])
@@ -63,6 +68,37 @@ func TestHandleReminderFireNativeIconAndSilent(t *testing.T) {
 	}
 	if len(pub.rtttls) != 0 {
 		t.Errorf("sound=false should play no chime, got %v", pub.rtttls)
+	}
+}
+
+// TestHandleReminderFireUnheldChimesOnce: a reminder that auto-dismisses plays
+// its chime once; only a held alarm loops.
+func TestHandleReminderFireUnheldChimesOnce(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	app.handleReminderFire(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost,
+		"/v1/reminders/fire", strings.NewReader(`{"text":"Walk","sound":true,"duration":8}`)))
+	p := pub.NotifySnapshot()[0]
+	if p["soundRtttl"] != defaultReminderSound {
+		t.Errorf("soundRtttl = %v, want %q", p["soundRtttl"], defaultReminderSound)
+	}
+	if _, has := p["soundLoop"]; has {
+		t.Errorf("an unheld reminder must not loop its chime, payload = %v", p)
+	}
+}
+
+// TestHandleReminderFireSilentHoldDoesNotLoop: soundLoop without a melody is
+// pointless; a silent held alarm carries neither.
+func TestHandleReminderFireSilentHoldDoesNotLoop(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	app.handleReminderFire(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost,
+		"/v1/reminders/fire", strings.NewReader(`{"text":"Walk","sound":false,"hold":true}`)))
+	p := pub.NotifySnapshot()[0]
+	for _, k := range []string{"soundRtttl", "soundLoop"} {
+		if _, has := p[k]; has {
+			t.Errorf("silent held alarm carries %q, payload = %v", k, p)
+		}
 	}
 }
 

@@ -86,7 +86,7 @@ func meetingTileText(title string, minutes int) string {
 // The chime is NOT built here — the caller attaches `soundRtttl` to the
 // returned payload; awtrix-ng plays it in-band alongside the draw ops.
 func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]any {
-	return pinText(map[string]any{
+	return readOnce(pinText(map[string]any{
 		"text":        fmt.Sprintf("%s IN %dM", title, leadMinutes),
 		"textColor":   hexOf(meetingInk),
 		"durationMs":  msOf(durationSec),
@@ -95,7 +95,7 @@ func MeetingPopupPayload(title string, leadMinutes, durationSec int) map[string]
 		"draw":        []any{iconOp(meetingIconPixels())},
 		"textCenter":  false,
 		"textOffsetX": 9,
-	})
+	}))
 }
 
 // MeetingTileFrame is the preview-only drawn frame (the canvas can't render

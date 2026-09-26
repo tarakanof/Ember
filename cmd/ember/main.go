@@ -1386,8 +1386,9 @@ type Publisher interface {
 	// Used to snapshot the user's own values before a Pomodoro takeover
 	// overrides them, so the restore puts back what was there.
 	ReadSettings(ctx context.Context) (map[string]any, error)
-	// Switch forces the device to the named app (PUT /api/v1/apps/active).
-	Switch(ctx context.Context, name string) error
+	// Switch forces the device to the named app (PUT /api/v1/apps/active),
+	// with or without the device's transition animation.
+	Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error
 	// ListIcons returns the filenames in the device's /ICONS folder
 	// (GET /api/v1/files?dir=/ICONS). Used by the weather icon provisioner to
 	// find missing gallery icons.
@@ -1528,12 +1529,12 @@ func (p *HTTPPublisher) ReadSettings(ctx context.Context) (map[string]any, error
 	return c.GetSettings(ctx)
 }
 
-func (p *HTTPPublisher) Switch(ctx context.Context, name string) error {
+func (p *HTTPPublisher) Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error {
 	c, err := p.client()
 	if err != nil {
 		return err
 	}
-	return c.SwitchApp(ctx, name)
+	return c.SwitchApp(ctx, name, mode)
 }
 
 func main() {

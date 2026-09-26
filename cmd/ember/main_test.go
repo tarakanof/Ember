@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 type recordingPublisher struct {
@@ -38,6 +40,7 @@ type recordingPublisher struct {
 	// device starts accepting them again.
 	settingsFails  int
 	switchFails    int
+	switchModes    []awtrix.SwitchMode
 	dismissedNames []string
 	// dismissByNameErr, when non-nil, is returned by every DismissNotifyByName
 	// call (the device answers 404 for a name it no longer holds).
@@ -234,10 +237,11 @@ func (p *recordingPublisher) ReadSettings(_ context.Context) (map[string]any, er
 	return p.deviceSettings, nil
 }
 
-func (p *recordingPublisher) Switch(_ context.Context, name string) error {
+func (p *recordingPublisher) Switch(_ context.Context, name string, mode awtrix.SwitchMode) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.switches = append(p.switches, name)
+	p.switchModes = append(p.switchModes, mode)
 	p.ops = append(p.ops, "switch "+name)
 	if p.switchFails > 0 {
 		p.switchFails--
@@ -261,6 +265,16 @@ func (p *recordingPublisher) SettingsSnapshot() []map[string]any {
 	defer p.mu.Unlock()
 	out := make([]map[string]any, len(p.settings))
 	copy(out, p.settings)
+	return out
+}
+
+// SwitchModesSnapshot returns a copy of recorded switch modes under the lock,
+// index-aligned with SwitchesSnapshot.
+func (p *recordingPublisher) SwitchModesSnapshot() []awtrix.SwitchMode {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]awtrix.SwitchMode, len(p.switchModes))
+	copy(out, p.switchModes)
 	return out
 }
 
@@ -868,7 +882,7 @@ func (noopPublisher) PlayRTTTL(context.Context, string) error                 { 
 func (noopPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
 func (noopPublisher) ClearIndicator(context.Context, int) error               { return nil }
 func (noopPublisher) Settings(context.Context, map[string]any) error          { return nil }
-func (noopPublisher) Switch(context.Context, string) error                    { return nil }
+func (noopPublisher) Switch(context.Context, string, awtrix.SwitchMode) error { return nil }
 func (noopPublisher) ReadSettings(context.Context) (map[string]any, error)    { return nil, nil }
 
 func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {

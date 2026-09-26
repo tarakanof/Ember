@@ -209,14 +209,29 @@ func TestGetSettings(t *testing.T) {
 
 func TestSwitchApp(t *testing.T) {
 	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
-	if err := c.SwitchApp(context.Background(), "ember"); err != nil {
+	if err := c.SwitchApp(context.Background(), "ember", SwitchAnimated); err != nil {
 		t.Fatalf("SwitchApp: %v", err)
 	}
 	if rec.method != http.MethodPut || rec.path != "/api/v1/apps/active" {
 		t.Fatalf("got %s %s", rec.method, rec.path)
 	}
-	if m := decodeBody(t, rec); m["name"] != "ember" {
+	m := decodeBody(t, rec)
+	if m["name"] != "ember" {
 		t.Fatalf("body = %v", m)
+	}
+	if _, has := m["fast"]; has {
+		t.Fatalf("an animated switch must leave fast out (NG default false), body = %v", m)
+	}
+}
+
+// TestSwitchAppInstantSendsFast: NG's fast:true skips the transition.
+func TestSwitchAppInstantSendsFast(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.SwitchApp(context.Background(), "ember", SwitchInstant); err != nil {
+		t.Fatalf("SwitchApp: %v", err)
+	}
+	if m := decodeBody(t, rec); m["name"] != "ember" || m["fast"] != true {
+		t.Fatalf("body = %v, want name ember + fast true", m)
 	}
 }
 

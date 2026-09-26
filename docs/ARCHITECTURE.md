@@ -108,8 +108,9 @@ The aggregator and the only writer to the device.
   `prio:true`/`force:true`/`duration=lifetime` combination 422s on NG entirely.
   Reserved for attention: only the **locked** waiting/error frame (and the idle
   hot-usage frame) triggers a forced `PUT /api/v1/apps/active` on the hold
-  edge, and the app's own `durationMs == lifetimeMs` then sustains it for the
-  attention window (switching happens strictly **after** a successful push —
+  edge (with NG's `fast:true`, skipping the ~1 s transition; the Pomodoro
+  start keeps the animation), and the app's own `durationMs == lifetimeMs`
+  then sustains it for the attention window (switching happens strictly **after** a successful push —
   `apps/active` 404s on an app the device doesn't know yet). Merely-running
   frames ask for no forced switch and a short `durationMs` (6 s, same as the
   weather/forecast tiles) so an active agent rotates alongside the other apps
@@ -372,7 +373,11 @@ internal list. The **menu app** (`ReminderWatcher`, EventKit) polls incomplete
 reminders that have a due *time* and, when one comes due (within a short grace
 window, honoring an optional lead time), POSTs **`POST /v1/reminders/fire`**
 `{text, sound, duration, native_icon_id}` to the server, which renders the
-bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. The
+bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. A
+`hold` alarm with sound loops its chime (`soundLoop`, a melody with a
+trailing rest) until dismissed; an unheld one chimes once and carries
+`repeat:1`, so a long text scrolls through fully before it leaves (the
+meeting and weather popups do the same). The
 server is **stateless** for reminders — no list, no schedule, no stored config;
 all settings (enable/sound/lead/duration/icon) live app-side in UserDefaults.
 Consequence: reminders fire only while the Mac is awake and Ember is running (the

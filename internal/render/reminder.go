@@ -52,6 +52,11 @@ func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[s
 		"hold":       hold,
 		"textColor":  hexOf(reminderGold),
 	})
+	if !hold {
+		// A held alarm stays until dismissed; one that auto-dismisses must not
+		// leave before a long reminder has been read.
+		readOnce(p)
+	}
 	if iconID != "" {
 		p["icon"] = iconID
 	} else {

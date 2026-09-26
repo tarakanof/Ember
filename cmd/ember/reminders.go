@@ -17,6 +17,11 @@ import (
 // the AWTRIX3-era out-of-band /api/rtttl call is gone.
 const defaultReminderSound = "remind:d=4,o=6,b=140:8e,8g,8c7"
 
+// defaultReminderAlarm is defaultReminderSound for a held alarm, which NG
+// replays (soundLoop) until the alarm is dismissed. The trailing whole rest
+// (~1.7 s at 140 bpm) spaces the rings; without it they run into one trill.
+const defaultReminderAlarm = "remind:d=4,o=6,b=140:8e,8g,8c7,1p"
+
 // reminderFireRequest is the body of POST /v1/reminders/fire. The macOS app (which
 // watches Apple Reminders via EventKit) sends it when a reminder comes due; the
 // server only renders + pushes the bell popup. The server holds no reminder
@@ -76,7 +81,13 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	}
 	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, req.Hold)
 	payload["name"] = notifyNameReminder
-	if req.Sound {
+	switch {
+	case req.Sound && req.Hold:
+		// A held alarm rings until the user dismisses it, like an alarm clock.
+		// Quiet hours strip soundLoop with the melody.
+		payload["soundRtttl"] = defaultReminderAlarm
+		payload["soundLoop"] = true
+	case req.Sound:
 		payload["soundRtttl"] = defaultReminderSound
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)

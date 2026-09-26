@@ -62,6 +62,16 @@ func TestWeatherPopupDrawnVsNative(t *testing.T) {
 	}
 }
 
+// TestWeatherPopupRepeatsOnce: a label with a long location name is read to
+// the end before the popup leaves (repeat:1), drawn or native icon.
+func TestWeatherPopupRepeatsOnce(t *testing.T) {
+	for _, icon := range []string{"", "2422"} {
+		if p := WeatherPopupPayload(WeatherRain, "RAIN 12° AMSTERDAM", icon, 30); p["repeat"] != 1 {
+			t.Errorf("icon %q: repeat = %v, want 1", icon, p["repeat"])
+		}
+	}
+}
+
 func TestWeatherPopupNeverCarriesSound(t *testing.T) {
 	// The chime is played separately (firmware drops a notification's sound under
 	// an icon), so the popup payload must never carry a sound field.

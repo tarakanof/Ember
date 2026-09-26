@@ -207,13 +207,13 @@ func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime in
 // `icon` (which a weather popup always does), so the caller plays it separately
 // via /api/rtttl (RTTTL) or /api/sound (device melody name).
 func WeatherPopupPayload(cond, label, iconID string, durationSec int) map[string]any {
-	p := map[string]any{
+	p := readOnce(map[string]any{
 		"text":       label,
 		"durationMs": msOf(durationSec),
 		"wakeup":     true,
 		"stack":      false,
 		"textColor":  hexOf(WeatherColor(cond)),
-	}
+	})
 	if iconID != "" {
 		// Native animated icon: the firmware reserves the left 8px and lays text
 		// out in the remainder, so we must NOT set textCenter/textOffsetX (see
