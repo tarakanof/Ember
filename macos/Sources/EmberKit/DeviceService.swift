@@ -19,6 +19,29 @@ public struct DeviceService: Sendable {
     public func updateDisplay(_ patch: DeviceDisplay) async throws {
         try await client.put("/v1/device/display", body: patch)
     }
+    /// Blanks (false) or relights (true) the LED matrix. Runtime-only: a clock
+    /// reboot relights it.
+    public func setDisplayPower(_ on: Bool) async throws {
+        try await client.put("/v1/device/display/power", body: DisplayPowerUpdate(power: on))
+    }
+    /// Plays the server's built-in test chime, or previews a melody stored on
+    /// the clock. 503 when the clock has no buzzer.
+    public func playTestChime(melody: String? = nil) async throws {
+        if let melody {
+            try await client.post("/v1/device/audio/test", body: AudioTestRequest(melody: melody))
+        } else {
+            try await client.send("POST", "/v1/device/audio/test")
+        }
+    }
+    /// Silences every sound output on the clock.
+    public func stopAudio() async throws {
+        try await client.send("POST", "/v1/device/audio/stop")
+    }
+    /// Melodies stored on the clock, for melody pickers. 503 when the clock has
+    /// no buzzer; 404 on a server that predates the route.
+    public func melodies() async throws -> DeviceMelodyList {
+        try await client.get("/v1/device/audio/melodies")
+    }
     /// The clock's native apps (Time, Date, Temperature, Humidity, Battery, and
     /// any pushed/scripted app) with their enabled/inLoop state.
     public func apps() async throws -> [AppInfo] {
