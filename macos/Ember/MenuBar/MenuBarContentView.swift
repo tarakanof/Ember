@@ -44,8 +44,7 @@ struct MenuBarContentView: View {
 		Button("Settings…") { openSettings(using: openWindow) }
 			.keyboardShortcut(",", modifiers: .command)
 		Button("About Ember") {
-			NSApp.activate()
-			NSApp.orderFrontStandardAboutPanel(nil)
+			activateForUser { NSApp.orderFrontStandardAboutPanel(nil) }
 		}
 
 		Divider()
