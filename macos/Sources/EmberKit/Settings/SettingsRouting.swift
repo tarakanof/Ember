@@ -3,8 +3,10 @@ import Foundation
 /// The Settings panes by their stored name. The raw values are a contract:
 /// other windows open Settings on a pane by writing one to the
 /// `settings.pane` default (`openSettings(pane:using:)`).
-public enum SettingsPaneID: String, CaseIterable, Sendable {
+public enum SettingsPaneID: String, CaseIterable, Identifiable, Sendable {
     case general, connection, clock, agents, focus, weather, calendar, sounds
+
+    public var id: String { rawValue }
 
     /// The default the pane selection lives in.
     public static let storageKey = "settings.pane"
