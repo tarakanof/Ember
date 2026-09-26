@@ -718,8 +718,9 @@ forecast tile is the one full-panel chart (no icon) and uses all 32 columns.
   dark, preserving the silhouette. Shares the usage card sprites
   (Claude robot-face / Codex chevron) via `drawToolIcon8`.
 - **Number slot** — cols 9–24 (`contentX=9`), a **rotating set of cards**:
-  **source-name card** (source uppercased, cut to 15 px of NG glyph width — M/N/W
-  count 5 px — so it never runs under the glass; tinted in the
+  **source-name card** (source uppercased, cut to 15 px using the AWTRIX
+  panel font's real ink widths — M/W 5, N/Q 4, I 1, non-ASCII counted as 5 —
+  so it never runs under the glass; tinted in the
   source colour or white), **usage card** (when 5h ≥ `usage_threshold_pct`:
   5h clock → reset clock → 7d → per-model faces, rotating), context `NN⌷`,
   and the scrolling tool/trail card. The **source card's name is

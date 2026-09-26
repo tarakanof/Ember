@@ -488,19 +488,23 @@ func sessionBarEnabled(s Session) bool { return s.SessionBar == nil || *s.Sessio
 // col 24 blank before the glass at col 25.
 const sourceNameMaxW = rightSlotX - contentX - 1
 
-// ngGlyphW estimates how wide awtrix-ng's small font draws an uppercase rune:
-// 3 px for most, 5 px for the wide M/N/W, 1 px for a space. It errs wide for
-// runes it does not know, because underestimating lets the right-hand glass op
-// clip the last letter mid-glyph.
+// ngASCIIInkW is the ink width (xAdvance − 1) of every printable ASCII rune,
+// 0x20 '␠' through 0x7E '~', in the AWTRIX panel font (AWTRIX3
+// src/AwtrixFont.h, AwtrixFontGlyphs), which NG's small font uses for ASCII.
+// For example M/W are 5, N/Q 4, I and most punctuation 1, other letters 3.
+const ngASCIIInkW = "11333331223323133333333333123333333333333133354334333335333333332333333331333333333333333333133"
+
+// ngWideGlyphW is the width assumed for runes outside printable ASCII. NG draws
+// them from Matrix-Fonts, whose widths Ember does not have, so they count as
+// wide: an underestimate would let the glass op clip the last letter.
+const ngWideGlyphW = 5
+
+// ngGlyphW returns how many columns NG's small font inks for rune r.
 func ngGlyphW(r rune) int {
-	switch r {
-	case 'M', 'N', 'W':
-		return 5
-	case ' ':
-		return 1
-	default:
-		return 3
+	if r >= 0x20 && r <= 0x7E {
+		return int(ngASCIIInkW[r-0x20] - '0')
 	}
+	return ngWideGlyphW
 }
 
 // sourceCardText uppercases a source name and cuts it to what NG draws within
