@@ -205,16 +205,20 @@ stale). `RefreshCoordinator` runs one loop per active feed:
 | C, only while held | `screen` 1 s, `clockHealth` 15 s, `weather`/`activity`/`workhours`/`heatmap` 5 min | — |
 
 A view holds feeds for its lifetime with `.task { await env.live.track(…) }`
-(refcounted). 429s back off through `RateLimitBackoff`; a 404 is
-`.featureOff`. System sleep pauses every loop and wake refetches at once. A
-`/state` failure keeps the snapshot live for 3 polls (`degraded`), then marks it
-stale and the connection offline; the bot only follows a live snapshot. The
-menu adds no polling: opening it refetches `stats`/`meetings`/`usage` if
-they're over 15 s old. Actions (Pomodoro, clock, app visibility) go through
-`ActionRunner`, which keeps the last failure for 10 s and refreshes the feeds
-the action touched. With no window open the app makes 20 `/state` and 20
-`/v1/pomodoro/state` requests a minute and one each to stats, usage, meetings
-and apps.
+(refcounted). A feed has at most one request in flight; a second caller joins
+it. 429s back off through `RateLimitBackoff`; a 404 or 405 (an older server
+without the route) is `.featureOff`, which views show as "off", never as stale
+data. An unchanged poll doesn't republish its value. System sleep pauses every
+loop and wake refetches at once. A `/state` failure keeps the snapshot live for
+3 polls (`degraded`), then marks it stale and the connection offline; the bot
+only follows a live snapshot. The menu adds no polling: opening it catches up
+`stats`/`meetings`/`usage` only if they're over 60 s old, and every fetch pushes
+the next poll back, so stats stay at one request a minute. Actions (Pomodoro,
+clock, app visibility) go through `ActionRunner`, which keeps the last failure
+for 10 s and refreshes the feeds the action touched (stats follow a Pomodoro
+phase change). With no window open the app makes about 2,640 requests an hour:
+1,200 each to `/state` and `/v1/pomodoro/state`, 60 each to stats, usage,
+meetings and apps (the old poller made about 4,800, 1,200 of them stats).
 
 This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agent tab's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
