@@ -519,3 +519,47 @@ func TestCheckMeetingsStale(t *testing.T) {
 		t.Errorf("detail should mention age ('ago'); got %q", got.Detail)
 	}
 }
+
+func TestCheckAWTRIXReachable(t *testing.T) {
+	var gotMethod, gotPath string
+	status := http.StatusOK
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+	check := func(base string) CheckResult {
+		cfg := defaultConfig()
+		cfg.AWTRIX.HTTPBaseURL = base
+		return checkAWTRIXReachable(context.Background(), &cfg)
+	}
+
+	res := check(srv.URL)
+	if res.Status != StatusOK || gotMethod != http.MethodGet || gotPath != "/api/v1/device" {
+		t.Fatalf("200: status=%q request=%s %s", res.Status, gotMethod, gotPath)
+	}
+	if want := "GET " + srv.URL + "/api/v1/device → 200 ("; !strings.HasPrefix(res.Detail, want) {
+		t.Fatalf("200 detail = %q, want prefix %q", res.Detail, want)
+	}
+
+	status = http.StatusNotFound
+	if res := check(srv.URL); res.Status != StatusOK {
+		t.Fatalf("404 is still a reachable clock, got %q (%s)", res.Status, res.Detail)
+	}
+
+	status = http.StatusServiceUnavailable
+	if res := check(srv.URL); res.Status != StatusFail || !strings.Contains(res.Detail, "→ 503") {
+		t.Fatalf("503: %q %q", res.Status, res.Detail)
+	}
+
+	if res := check(""); res.Status != StatusFail || res.Detail != "awtrix.http_base_url empty" {
+		t.Fatalf("empty base: %q %q", res.Status, res.Detail)
+	}
+
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL
+	dead.Close()
+	if res := check(deadURL); res.Status != StatusFail || !strings.HasPrefix(res.Detail, "GET "+deadURL+"/api/v1/device: ") {
+		t.Fatalf("unreachable: %q %q", res.Status, res.Detail)
+	}
+}

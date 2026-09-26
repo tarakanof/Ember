@@ -37,8 +37,46 @@ public struct PomoDayStat: Codable, Sendable, Equatable {
 
 public struct PomoStats: Codable, Sendable, Equatable {
     public var today: PomoDayStat
+    /// The last 7 logical days, newest first (index 0 is today).
     public var history: [PomoDayStat]
     public var streak: Int
+    /// Fields below arrived after the original three; each decodes if present
+    /// so an older server still yields a usable value. Types are in
+    /// `Models/PomoStatsParts.swift`.
+    public var longestStreak: Int
+    /// Focus-phase outcomes over the last 30 days.
+    public var completion: CompletionStat
+    public var goal: GoalStatus
+    /// The last 12 ISO weeks, oldest first ("2026-W32").
+    public var weekly: [FocusBucket]
+
+    public init(today: PomoDayStat, history: [PomoDayStat], streak: Int,
+                longestStreak: Int = 0, completion: CompletionStat = CompletionStat(),
+                goal: GoalStatus = GoalStatus(), weekly: [FocusBucket] = []) {
+        self.today = today
+        self.history = history
+        self.streak = streak
+        self.longestStreak = longestStreak
+        self.completion = completion
+        self.goal = goal
+        self.weekly = weekly
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case today, history, streak, completion, goal, weekly
+        case longestStreak = "longest_streak"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        today = try c.decode(PomoDayStat.self, forKey: .today)
+        history = try c.decode([PomoDayStat].self, forKey: .history)
+        streak = try c.decode(Int.self, forKey: .streak)
+        longestStreak = try c.decodeIfPresent(Int.self, forKey: .longestStreak) ?? streak
+        completion = try c.decodeIfPresent(CompletionStat.self, forKey: .completion) ?? CompletionStat()
+        goal = try c.decodeIfPresent(GoalStatus.self, forKey: .goal) ?? GoalStatus()
+        weekly = try c.decodeIfPresent([FocusBucket].self, forKey: .weekly) ?? []
+    }
 }
 
 public struct PomoConfig: Codable, Sendable, Equatable {
@@ -53,11 +91,20 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     public var focusColor: String
     public var breakColor: String
     public var maxSessionMinutes: Int
+    /// Completed focus sessions per day; 0 turns the goal off. Servers before
+    /// 0.28 don't send it (and ignore it on PUT), so it decodes to the
+    /// server's own default.
+    public var dailyGoalSessions: Int
+    /// Active days per week; 0 turns the goal off. Same compatibility as above.
+    public var weeklyGoalDays: Int
 
     public init(focusMinutes: Int, shortBreakMinutes: Int, longBreakMinutes: Int,
                 roundsBeforeLongBreak: Int, autoStartNext: Bool, sound: Bool,
                 soundMelody: String, focusColor: String, breakColor: String,
-                maxSessionMinutes: Int = 480, enabled: Bool = false) {
+                maxSessionMinutes: Int = 480, enabled: Bool = false,
+                dailyGoalSessions: Int = 8, weeklyGoalDays: Int = 5) {
+        self.dailyGoalSessions = dailyGoalSessions
+        self.weeklyGoalDays = weeklyGoalDays
         self.enabled = enabled
         self.focusMinutes = focusMinutes
         self.shortBreakMinutes = shortBreakMinutes
@@ -83,6 +130,25 @@ public struct PomoConfig: Codable, Sendable, Equatable {
         case focusColor = "focus_color"
         case breakColor = "break_color"
         case maxSessionMinutes = "max_session_minutes"
+        case dailyGoalSessions = "daily_goal_sessions"
+        case weeklyGoalDays = "weekly_goal_days"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        focusMinutes = try c.decode(Int.self, forKey: .focusMinutes)
+        shortBreakMinutes = try c.decode(Int.self, forKey: .shortBreakMinutes)
+        longBreakMinutes = try c.decode(Int.self, forKey: .longBreakMinutes)
+        roundsBeforeLongBreak = try c.decode(Int.self, forKey: .roundsBeforeLongBreak)
+        autoStartNext = try c.decode(Bool.self, forKey: .autoStartNext)
+        sound = try c.decode(Bool.self, forKey: .sound)
+        soundMelody = try c.decodeIfPresent(String.self, forKey: .soundMelody) ?? ""
+        focusColor = try c.decode(String.self, forKey: .focusColor)
+        breakColor = try c.decode(String.self, forKey: .breakColor)
+        maxSessionMinutes = try c.decode(Int.self, forKey: .maxSessionMinutes)
+        dailyGoalSessions = try c.decodeIfPresent(Int.self, forKey: .dailyGoalSessions) ?? 8
+        weeklyGoalDays = try c.decodeIfPresent(Int.self, forKey: .weeklyGoalDays) ?? 5
     }
 }
 
@@ -177,6 +243,9 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var airTile: Bool
     /// Popup when the European AQI crosses this value; 0 disables it.
     public var airPopupThreshold: Int
+    /// The clock's own animated rain/snow/storm overlay on the conditions tile
+    /// and weather popups while it is precipitating.
+    public var overlay: Bool
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
                 latitude: Double = 0, longitude: Double = 0, locationName: String = "",
@@ -187,7 +256,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
                 popupOnChange: Bool = true, severeAlert: Bool = true,
                 severeSound: String = "", useNativeIcons: Bool = false,
                 iconIds: [String: String] = [:], tileNativeIcons: Bool = false,
-                airTile: Bool = true, airPopupThreshold: Int = 80) {
+                airTile: Bool = true, airPopupThreshold: Int = 80, overlay: Bool = true) {
         self.enabled = enabled
         self.provider = provider
         self.latitude = latitude
@@ -210,6 +279,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         self.tileNativeIcons = tileNativeIcons
         self.airTile = airTile
         self.airPopupThreshold = airPopupThreshold
+        self.overlay = overlay
     }
 
     enum CodingKeys: String, CodingKey {
@@ -232,6 +302,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case tileNativeIcons = "tile_native_icons"
         case airTile = "air_tile"
         case airPopupThreshold = "air_popup_threshold"
+        case overlay
     }
 
     /// Decode every field if-present (the server omits `icon_ids` when empty, and
@@ -262,6 +333,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         // re-save never silently turns the feature off (forecast convention).
         airTile = try c.decodeIfPresent(Bool.self, forKey: .airTile) ?? true
         airPopupThreshold = try c.decodeIfPresent(Int.self, forKey: .airPopupThreshold) ?? 80
+        overlay = try c.decodeIfPresent(Bool.self, forKey: .overlay) ?? true
     }
 }
 
@@ -394,8 +466,10 @@ public struct Session: Codable, Sendable, Equatable {
     }
 }
 
-public struct Snapshot: Codable, Sendable {
+public struct Snapshot: Codable, Sendable, Equatable {
     public var sessions: [Session]
+
+    public init(sessions: [Session]) { self.sessions = sessions }
 
     enum CodingKeys: String, CodingKey { case sessions }
 

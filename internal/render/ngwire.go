@@ -42,6 +42,48 @@ func scrollStaticWhenFits() map[string]any {
 	return map[string]any{"whenFits": "static"}
 }
 
+// NG's six weather overlays, drawn over the whole page after text, draw ops and
+// icon (reference/payload "Overlay"). An unknown name is a 422, so these are
+// the only spellings Ember sends. NG has no fog overlay.
+const (
+	OverlayRain    = "rain"
+	OverlayDrizzle = "drizzle"
+	OverlaySnow    = "snow"
+	OverlayStorm   = "storm"   // dense wind-slanted streaks
+	OverlayThunder = "thunder" // storm plus irregular white flashes
+	OverlayFrost   = "frost"   // static icy crust along the top and bottom edges
+)
+
+// WithOverlay sets p's per-app weather overlay and returns p. An empty name
+// leaves p untouched: an absent key and "" both fall back to the device's
+// global overlay, and omitting it keeps the payload shorter.
+func WithOverlay(p map[string]any, name string) map[string]any {
+	if name != "" {
+		p["overlay"] = name
+	}
+	return p
+}
+
+// pinText fixes the text behaviour of a payload that carries free text (a
+// reminder, a meeting title, a /v1/notify message), which NG would otherwise
+// inherit from the clock's global settings: textCase "upper", because the
+// previews draw only uppercase and the global uppercase setting can be off;
+// and scrollStaticWhenFits, the motion the agent cards already pin. Returns p.
+func pinText(p map[string]any) map[string]any {
+	p["textCase"] = "upper"
+	p["scroll"] = scrollStaticWhenFits()
+	return p
+}
+
+// readOnce makes a notification stay until its text has scrolled through
+// once (NG repeat:1), however long it is. NG still honours durationMs as a
+// minimum, so a short label keeps its configured dwell; text that fits does
+// not scroll and is unaffected. Returns p.
+func readOnce(p map[string]any) map[string]any {
+	p["repeat"] = 1
+	return p
+}
+
 // applyHold marks a pushed-app payload as "this app takes and keeps the screen"
 // — Ember's display hold, formerly AWTRIX3's prio+force pair.
 //

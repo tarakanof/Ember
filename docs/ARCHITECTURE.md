@@ -40,7 +40,9 @@ The aggregator and the only writer to the device.
   session, idempotent 204), `POST /v1/clear` (admin wipe), `POST /v1/notify`
   (ad-hoc notification), `POST /v1/usage` (per-tool subscription usage → the
   always-on usage widget; see below). Read (no auth): `GET /state` (snapshot), `GET /healthz`,
-  `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below).
+  `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below), and
+  the dashboard reads `GET /v1/usage`, `/v1/activity/summary`,
+  `/v1/weather/state`, `/v1/clock/health` (see "Dashboard read API").
   Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
   `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro, Weather
   (`GET/PUT /v1/weather/config`), and Reminders (`POST /v1/reminders/fire`)
@@ -51,13 +53,18 @@ The aggregator and the only writer to the device.
   Sessions are reaped when stale.
 - **Render priority.** `waiting > error > running > done`; `idle` never wins
   (it cedes the slot, publishing nothing). For ≥2 sessions in the winning group,
-  an aggregate label is shown.
+  an aggregate label is shown. One Go ordering, `render.StatePriority`: the
+  `/state` render and the preview pick their winner with `render.PickWinning`
+  (most recent within a state), while the clock's rotation and session bar
+  order by it via `render.SortedActiveKeys` (ties by source/tool/session). The
+  menu's Swift `pickWinning` is a port of `PickWinning`;
+  `TestPickWinningTable` is the case table a Swift test should mirror.
 - **The coordinator** (single-writer goroutine) owns all publish timing and
   device state. Responsibilities: rotation across sessions by **stable session
   key** (not slice index), attention **preempt** (jump to a waiting/error
   session) with an attention hold (`ack_timeout_seconds`, default 30 s, **read
   live** so a runtime PUT applies to the current lock) and an optional **chime**
-  on fresh lock acquisition (`attention_chime`, via `POST /api/v1/sounds/play`), the
+  on fresh lock acquisition (`attention_chime`, via `POST /api/v1/audio/play`), the
   **number-slot card cursor** (rotates cards within a session — see Display),
   publish **dedup** (skip identical payloads until the renewal margin — see
   "Publishing over a lossy link" below), and
@@ -88,7 +95,9 @@ The aggregator and the only writer to the device.
     lifetime, not on attempts, so a lost push is retried immediately instead of
     a dwell later. A retried-then-successful push is still one `ok` in
     `ember_publish_total`, so `ember_publish_retries_total` is what shows the
-    link degrading before it starts costing frames.
+    link degrading before it starts costing frames. The display-hold writes
+    (settings read/PATCH, forced switch) share this policy via `retryDevice`
+    and count in the same metric.
   - **Renewal margin.** `renewalDedupWindow` holds an unchanged frame for
     `lifetime − max(lifetime/3, dwell + retry budget + 1)`. The last tick before
     the window opens can land a full dwell early, so the wallclock slack before
@@ -102,16 +111,21 @@ The aggregator and the only writer to the device.
     monopolises the panel. Widen the margin instead.
 - **Display hold.** awtrix-ng has no per-payload priority — the AWTRIX3
   `prio:true`/`force:true`/`duration=lifetime` combination 422s on NG entirely.
-  Reserved for attention: only the **locked** waiting/error frame (and the idle
-  hot-usage frame) triggers a forced `PUT /api/v1/apps/active` on the hold
-  edge, and the app's own `durationMs == lifetimeMs` then sustains it for the
-  attention window (switching happens strictly **after** a successful push —
-  `apps/active` 404s on an app the device doesn't know yet). Merely-running
+  Reserved for attention: only the **locked** waiting/error frame triggers a
+  forced `PUT /api/v1/apps/active` on the hold edge, and the app's own
+  `durationMs == lifetimeMs` then sustains it for the attention window
+  (switching happens strictly **after** a successful push — `apps/active`
+  404s on an app the device doesn't know yet). The idle frames (dimmed icon,
+  hot-usage) are `holdNone`: long dwell, no forced switch. The attention
+  switch sends NG's `fast:true` to skip the ~1 s transition; the Pomodoro
+  start's switch keeps the animation. Merely-running
   frames ask for no forced switch and a short `durationMs` (6 s, same as the
   weather/forecast tiles) so an active agent rotates alongside the other apps
   instead of owning the screen. `autoTransition:false` outranks any per-app
   dwell entirely and is reserved for the Pomodoro takeover — hold precedence is
-  `holdPomodoro > holdAttention > holdNone` (`cmd/ember/coordinator.go`). Every
+  `holdPomodoro > holdAttention > holdNone` (`cmd/ember/coordinator_hold.go`).
+  The hold state is committed only after the device accepts the edge's writes;
+  a lost switch or settings PATCH is retried on the next tick. Every
   held app still expires at its `lifetimeMs` (`lifetimeExpiry` default
   `"remove"`, which **deletes** the pushed app outright) and the display
   **crash-safely** returns to native rotation if the server dies — re-pushing
@@ -169,17 +183,60 @@ macOS menu-bar companion, a **pure HTTP client** of the server (it reads
 without relaunch. Hybrid layout:
 
 - **`EmberKit` (`macos/Sources/`, SwiftPM)** — all testable logic, no scene
-  code: Codable models mirroring the wire shapes, `APIClient`, Status/Pomodoro/
-  Preview services, `pickWinning`, `EnvFile` + validation, the settings types,
-  and the `@Observable AppModel` + poller. Headless `swift test`.
+  code: Codable models mirroring the wire shapes (`Models/`), `APIClient`, one
+  service per endpoint group (`Services/`, `*Service.swift`), `pickWinning`,
+  `EnvFile` + validation, the settings types, and the app foundations (#119):
+  `Live/` (`LiveModel`, `RefreshCoordinator`, `ActionRunner`), `Config/`
+  (`ConfigModel` as `ServerConfigModel`/`EnvConfigModel`, `SettingsModels`)
+  and `Presentation/` (display names, formatters, and `MenuRows`, the menu's
+  row rules), plus `Device/` (`DeviceSettingsModel`: the clock's settings
+  saved as a patch of the keys that changed, overlay, sensors, apps, buttons,
+  audio) and `Settings/` (pane ids with the pre-restructure names mapped,
+  melody choices, the Connection probe). Headless `swift test`.
 - **`Ember` (`macos/Ember/`, thin Xcode app)** — an `LSUIElement` agent
-  app: a `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a
-  sidebar `Settings` window (**Connection / Device / Agent / Pomodoro / Weather /
-  Reminders / App**),
-  and a status + preview **dashboard** `Window`. App-only prefs (icon palette,
-  tray glyphs) live in `UserDefaults`; launch-at-login is `SMAppService`.
+  app: a `MenuBarExtra` (`.menu` style: session header and activity, other
+  sessions, 5h usage per tool, next meeting or reminder, Pomodoro status and
+  controls, today vs the goal, the last failed action, and a Clock submenu
+  with next/previous app, dismiss, display power and Show on Clock; rows a
+  server lacks are hidden, e.g. usage falls back to `/state` and display
+  power needs 0.28+), the animated bot or tool glyph as its icon, a
+  sidebar `Settings` window (**General / Connection / Clock / Agents / Focus /
+  Weather / Calendar / Sounds & Alerts**; the title follows the pane, the
+  subtitle is the one save status of every config model, controls stay
+  disabled until their model has loaded), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
+  menu while a window is open. `Ember/Shared/` holds the views all three
+  surfaces use (`LiveMatrixMirror`, `FeedStateView`, `StatTile`, `StaleChip`,
+  `PhaseBadge`, `EmberColors`). App-only prefs (icon palette, tray glyphs) live
+  in `UserDefaults`; launch-at-login is `SMAppService`.
 
-This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agent tab's
+**Live data and polling.** Every server read the UI shows is a `Feed` in
+`LiveModel`, one `Loadable<T>` each (`.loading` / `.loaded(value, at:)` /
+`.failed(FeedError, last:, lastAt:)`, so a failure keeps the last value as
+stale). `RefreshCoordinator` runs one loop per active feed:
+
+| Tier | Feeds | Cadence |
+|---|---|---|
+| A, always | `state`, `pomodoroState` | 3 s; 15 s after 3 failures, 60 s after 10 |
+| B, always | `stats`, `usage`, `meetings`, `apps` | 60 s; 30 s (`stats`, `usage`) while a view holds them |
+| C, only while held | `screen` 1 s, `clockHealth` 15 s, `weather`/`activity`/`workhours`/`heatmap` 5 min | — |
+
+A view holds feeds for its lifetime with `.task { await env.live.track(…) }`
+(refcounted). A feed has at most one request in flight; a second caller joins
+it. 429s back off through `RateLimitBackoff`; a 404 or 405 (an older server
+without the route) is `.featureOff`, which views show as "off", never as stale
+data. An unchanged poll doesn't republish its value. System sleep pauses every
+loop and wake refetches at once. A `/state` failure keeps the snapshot live for
+3 polls (`degraded`), then marks it stale and the connection offline; the bot
+only follows a live snapshot. The menu adds no polling: opening it catches up
+`stats`/`meetings`/`usage` only if they're over 60 s old, and every fetch pushes
+the next poll back, so stats stay at one request a minute. Actions (Pomodoro,
+clock, app visibility) go through `ActionRunner`, which keeps the last failure
+for 10 s and refreshes the feeds the action touched (stats follow a Pomodoro
+phase change). With no window open the app makes about 2,640 requests an hour:
+1,200 each to `/state` and `/v1/pomodoro/state`, 60 each to stats, usage,
+meetings and apps (the old poller made about 4,800, 1,200 of them stats).
+
+This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agents pane's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
 — produced by the same `internal/render` core the device uses (see below).
 
@@ -208,23 +265,45 @@ app). A pure `Engine` state machine (focus/short/long, pause/resume/skip/stop) d
 `holdAttention`) — an active timer renders `render.PomodoroPayload` (a built-in
 animated icon + native MM:SS + progress) and holds the slot, edge-triggering
 device `autoTransition:false`/`blockNavigation:true` (`PATCH /api/v1/settings`)
-plus a forced `PUT /api/v1/apps/active` on start, and restoring both settings
-on stop. Because a **device reboot** drops pushed apps and both settings while
-the coordinator's `hold` flag stays set, recovery arrives via the shared
+plus a forced `PUT /api/v1/apps/active` on start. Before the takeover the
+coordinator reads `GET /api/v1/settings` and snapshots the user's own
+`autoTransition`/`blockNavigation`; on stop it writes **those** back, not the
+firmware defaults (a lost read delays the takeover a tick; a 4xx, or a reading
+that equals the takeover itself — a clock left mid-takeover by an older
+server — falls back to the defaults). Device-tab edits to either key made
+**during** a focus block are overwritten by the snapshot on release, and
+turning `autoTransition` back on mid-focus breaks the takeover until the next
+edge. A lost restore backs off `restoreBackoffTicks` (5) publishes so an
+offline clock doesn't stall the coordinator every tick. NG persists settings across reboots, so a takeover left behind
+by a dead server would stick: the snapshot is therefore also persisted to the
+store (key `pomo_takeover_prior`) for as long as the takeover is in force, and
+a server that starts with one left over restores it on its first publish. On
+SIGTERM, `main` waits (bounded, `shutdownTimeout` 8 s) for the coordinator's
+exit restore before closing the store; if the clock is unreachable the
+snapshot stays for the next start. Every hold write (read, takeover, restore,
+switch) uses `pushApp`'s retry policy, and `hold` only moves once the edge's
+writes have landed, so a write lost on the lossy link is replayed next tick.
+Because a **device reboot** drops pushed apps while the coordinator's `hold`
+flag stays set, recovery arrives via the shared
 device-watch/boot-ping republish path (see "Device discovery & control" below)
 rather than a Pomodoro-specific re-assert loop: `RepublishAll` resets `hold` to
 force a fresh edge, which re-applies the takeover settings and the forced
-switch. The
+switch (keeping the original snapshot). The
 cycle **auto-advances** by default (`auto_start_next: true`) and **auto-stops**
 after a wall-clock budget (`max_session_minutes`, default 480 = 8h, `0` = off) so
 it never runs overnight; focus is configurable up to 8h. Stats persist in pure-Go
 SQLite (`modernc.org/sqlite`, no CGO → distroless build intact). Runtime config
 edits persist to the SQLite store (key `settings_json`, re-applied over the
 **read-only** bind-mounted `config.json` baseline at boot) — so the menu can
-change durations/colours/cap without a writable config file. API:
+change durations/colours/cap/goals without a writable config file. API:
 `POST /v1/pomodoro/{start,pause,resume,stop,skip}` + `GET/PUT /v1/pomodoro/config`
 (bearer; PUT is **merge semantics** since #84 — omitted fields keep their
-current value); open `GET /v1/pomodoro/{state,stats}`; **unauthenticated**
+current value; `daily_goal_sessions`/`weekly_goal_days` round-trip here too,
+validated against `[0, 50]`/`[0, 7]`, `0` = goal off); open
+`GET /v1/pomodoro/{state,stats,heatmap,workhours}` (`stats.goal` reports
+progress against those two config fields — `workhours` reports
+`work_start`/`work_end` as `null` on a day with no work);
+**unauthenticated**
 `POST /hooks/awtrix/button` (the device can't send a token) mapping
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
 left+right chord is removed).
@@ -242,19 +321,31 @@ latest observation lives in an in-memory `weatherStore`; the coordinator reconci
 three rotating tiles with the same change-and-staleness dedupe as the usage card:
 
 - **`ember-weather`** — 8×8 condition icon + the current temperature **centred**
-  in the free area + a 2-px-tall per-hour **forecast strip** (rows 6–7),
+  in the free area (rows 1–5), its digits in the strip's `TempColor` gradient
+  colour (degree sign white; coloured by °C in either unit) + a per-hour
+  **forecast strip** on the bottom bar
+  (row 7, cols 8–31; each hour takes `24/N` columns from col 8, see
+  `hourSlot`),
   coloured by a cold→warm temperature gradient (`render.TempColor`). On a
   **clear night** the icon becomes the current **moon phase** (`moon_phase`;
   phase computed locally in `cmd/ember/astro.go`, no API).
 - **`ember-forecast`** (`forecast_tile`, default on) — **full-width hourly
   temperature bars** (no icon/temp — those live on the conditions tile, so the
-  two tiles read differently at a glance); bars are stretched evenly across
-  all 32 columns (`forecast_hours`, 6..24; bar height + colour = temperature).
+  two tiles read differently at a glance); the bars sit on the same hour grid as
+  the strips (cols 8–31, `24/N` columns each), so hour *i* lines up across the
+  tiles and bar widths never alternate (`forecast_hours`, 6..24; bar height +
+  colour = temperature). The bars stay a drawn bitmap rather than NG's native
+  `barChart` (#109): `barChart` takes at most 16 values (24 h won't fit),
+  spreads them over the chart area right of the icon column (col 9, or col 0
+  with no icon, never col 8) with a 1-px gap between bars, so hour *i* can't
+  sit in its `hourSlot` under the strips; and a palette colours a bar by its
+  value within the chart's own range, not by absolute °C like `TempColor`.
 - **`ember-air`** (`air_tile`, default on) — **air quality**: 8×8 drawn wind
-  icon + the current **European AQI** value, both in the official EEA bucket
+  icon + the current **European AQI** value (rows 1–5), both in the EEA bucket
   colour (good→extreme; `render.AQIColor`/`AQIWord`, discrete — the scale is
-  bucketed), + a 2-px per-hour **AQI trend strip** (rows 6–7, next 24 h, each
-  pixel its own bucket colour). Data comes from the **Open-Meteo air-quality
+  bucketed; the top two buckets keep the EEA hue at full LED brightness), + a
+  per-hour **AQI trend strip** on the bottom bar (row 7, cols 8–31, next 24 h,
+  one column per hour, each in its own bucket colour). Data comes from the **Open-Meteo air-quality
   API** (`fetchAirQuality`, always Open-Meteo regardless of `provider` — MET
   Norway has no AQ product), riding `pollWeather`'s due-gate but fetched
   independently so one provider failing never starves the other.
@@ -271,6 +362,19 @@ emitted as a **partial bitmap** (`db` over cols 8–31). Device-verified
 phase wins** over native icons on clear nights (no per-phase gallery set).
 The forecast tile has no icon slot. Independent of `use_native_icons`
 (popup-only).
+
+**Precipitation overlay** (`overlay`, default on): while it is precipitating,
+the conditions tile and weather popups carry NG's per-app `overlay`, which the
+firmware animates over the finished page (drawn last, it never clears the
+text or bitmap). The provider code picks it, finer than the six buckets, by
+one rule for both providers: rain of any kind, freezing rain and sleet →
+`rain`, or `storm` when heavy (WMO 65/67/82, MET `heavy…rain`/`heavy…sleet`);
+snow → `snow`; thunder → `thunder`; drizzle → `drizzle` (WMO 51–57 only —
+MET has no drizzle symbol, and its light rain is WMO's slight rain 61/80);
+rime fog 48 → `frost`.
+Plain fog, clear and cloudy send no key, so the device's global overlay (if
+the user set one) still shows. Costs ~17 bytes per push, only while
+precipitating. The previews can't animate it and don't draw it.
 
 **Icon provisioning** (`ensureNativeIcons`): the device's own on-demand
 gallery downloads proved unreliable (observed failing for hours → iconless
@@ -330,18 +434,42 @@ Reminders are sourced from the user's **Apple Reminders** (macOS), not an
 internal list. The **menu app** (`ReminderWatcher`, EventKit) polls incomplete
 reminders that have a due *time* and, when one comes due (within a short grace
 window, honoring an optional lead time), POSTs **`POST /v1/reminders/fire`**
-`{text, sound, duration, native_icon_id}` to the server, which renders the
-bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. The
-server is **stateless** for reminders — no list, no schedule, no stored config;
-all settings (enable/sound/lead/duration/icon) live app-side in UserDefaults.
+`{text, sound, duration, native_icon_id, hold, repeat_sound}` to the server,
+which renders the
+bell-icon popup (`render.ReminderPopupPayload`) and pushes it to the device. A
+reminder chimes once. With the opt-in `repeat_sound` (menu: "Repeat sound
+until dismissed", default off) a `hold` alarm with sound loops its chime
+(`soundLoop`, a melody with a trailing rest) until dismissed. The server
+caps that loop, since an alarm nobody is there to dismiss would ring for
+hours: `StartReminderLoopGuard` checks every 15 s and dismisses the alarm by
+name when its 15-min hold window runs out, and at quiet-hours start dismisses
+it and re-pushes it held but silent (`quietPublisher` strips sound only at
+push time). A button acknowledgement just forgets the loop; a failed dismiss
+is retried on the next check. An unheld reminder carries `repeat:1`, so a
+long text scrolls through fully before it leaves (the meeting and weather
+popups do the same). The server keeps only that in-memory loop state for
+reminders — no list, no schedule, no stored config;
+all settings (enable/sound/hold/repeat/lead/duration/icon) live app-side in
+UserDefaults.
 Consequence: reminders fire only while the Mac is awake and Ember is running (the
-Linux server can't read Apple Reminders).
+Linux server can't read Apple Reminders). Each POST carries an `Idempotency-Key`
+header (the occurrence's `id|due` key); the server remembers keys for 10 min and
+answers a repeat with 200 without pushing again (a failed push releases the key).
+The app waits up to 20s for the answer (the server holds the request while it
+pushes to the clock, up to 10s) and retries on the next poll, inside the grace
+window, only when the failure proves nothing was sent: connection refused/no
+route, 429, or another 4xx. A timeout or 5xx (e.g. 502 after a lost clock ack)
+may have rung the clock, so it is not retried. The watcher logs through
+`os.Logger` (subsystem `com.ember.Ember`, category `reminders`) with reminder
+titles marked `.private`.
 
 > **Shared store.** Weather config + hidden-apps + Pomodoro stats all live in the
 > one SQLite store. Opening it is hoisted into `ensureStore` (out of
 > `initPomodoro`) so weather config persists even when Pomodoro is disabled;
 > `/admin/reload` re-applies all persisted settings over the reloaded file
-> config.
+> config. The clock URL is the exception: a reload keeps the running URL
+> (menu override or mDNS-discovered clock) unless the file's
+> `awtrix.http_base_url` itself changed, and even then a store override wins.
 
 ### Meetings — next-meeting countdown (`internal/meetings`, `cmd/ember/meetings*.go`)
 
@@ -391,6 +519,8 @@ meeting is within `tile_lead_minutes` (default 60) and the feed is fresh; it
 leaves the rotation at meeting start (the tile never shows "0m"). The countdown
 payload changes each minute, so the payload-bytes diff naturally re-pushes without
 a dedicated timer — the same mechanism that refreshes the weather tiles.
+The tile reads `<N>M <TITLE>`: the countdown leads, because a long title
+scrolls and minutes at the end of it were off screen for most of the dwell.
 
 **Popup and chime.** An edge-triggered T-minus popup fires at
 `start − popup_lead_minutes` (default 2; 0 = off), deduped per occurrence
@@ -458,16 +588,23 @@ resets one), so the steady state costs no extra device traffic.
 and again on every rediscovery, cached in-process, and served at
 `GET /v1/device/capabilities` (falling back to a live proxy fetch when the
 cache is cold) — the firmware's supported effect/transition/overlay/palette
-name lists, which the macOS Device tab uses to populate its transition picker
-instead of guessing at a static enum. `/admin/doctor` reports the cached
-counts as its `capabilities` check.
+name lists plus its `audio{buzzer,track,mp3,radio}` outputs (NG 1.1.0 replaced
+the old top-level `radio` flag), relayed as the device's own document so no
+key is dropped. Settings › Clock and Sounds use them to populate its transition
+picker and to gate the buzzer-volume row, instead of guessing at a static
+enum. `/admin/doctor` reports the cached counts (and whether a buzzer is
+present) as its `capabilities` check.
 
 **App ordering** (`GET/PUT /v1/device/apps`) proxies `GET /api/v1/apps` /
 `PUT /api/v1/apps/order` — ordering plus enable/disable of the device's own
 apps, replacing the AWTRIX3 settings keys `TIM`/`DAT`/`TEMP`/`HUM`/`BAT` that
 NG has no equivalent for (name only what you want to change). The ambient
 weather overlay is a separate concern, `PATCH /api/v1/display` via
-`GET/PUT /v1/device/display` — not part of app ordering. The device's own
+`GET/PUT /v1/device/display` — not part of app ordering. Display power is
+its own route, `PUT /v1/device/display/power {"power":bool}`, which sends
+`power` alone so an overlay edit can never blank the panel and a power toggle
+can never clear the overlay; the blank is runtime-only (a reboot relights the
+matrix) and a `wakeup` notification still punches through it. The device's own
 rotation needs at least two apps enabled to actually rotate; with only one
 enabled app it just stays on it.
 
@@ -490,8 +627,7 @@ again every 30s from a background watcher (`StartDeviceWatch`), and if the
 currently-effective URL (store override included) stops answering, the server
 falls through to a fresh mDNS auto-pick so the clock keeps working after a
 DHCP renumbering. The same watch tick also reads the device's `uptimeSeconds`
-to detect a reboot (uptime going backwards, or the device answering again
-after a gap) and triggers `RepublishAll` — pushed apps are RAM-only on
+to detect a reboot and triggers `RepublishAll` — pushed apps are RAM-only on
 awtrix-ng, so a reboot silently drops every app the coordinator believes is
 still on the device, and this is what pushes them all back. The 30s interval
 was chosen to match the old Pomodoro-only 30s re-assert loop it replaced, so
@@ -499,7 +635,18 @@ worst-case recovery latency didn't regress; the Berry boot-ping hook (#73)
 (`POST /hooks/awtrix/boot`, an unauthenticated device-side hook, config toggle
 `awtrix.boot_ping`) calls `RepublishAll` directly on boot instead of waiting
 for the next tick, making recovery near-instant with the 30s watch as
-fallback. Swaps are **in-memory
+fallback. Only the uptime counter decides a reboot: it went backwards, or it
+fell more than 10s behind wall time since the last answered probe (a reboot
+during a long gap). A missed probe on its own is **not** a reboot — the
+server→clock link drops a large share of requests, and the old "unreachable,
+then answering" rule republished (and re-switched the screen) every few ticks.
+For the same reason the reachability check retries once before it falls back
+to an mDNS browse, and a browse that finds the clock at the URL already in use
+is not a swap. A real swap to a new URL does republish. `RepublishAll`
+coalesces calls less than 10s apart into one immediate plus one deferred
+republish, and both `/hooks/awtrix/*` routes sit behind the per-IP rate
+limiter (the button hook also caps its body at 1 KB), so an unauthenticated
+flood can't turn into a republish storm. Swaps are **in-memory
 only** — `config.json` and the writable store are never rewritten, so a
 config/store edit still takes effect the next time its source URL goes
 unreachable. The whole probe loop is gated by `awtrix.auto_rediscover` (config,
@@ -508,8 +655,9 @@ and last re-discovery time/result). The server also advertises
 itself as `_ember._tcp` so the menu app can discover it (gated by
 `EMBER_MDNS_ADVERTISE`). Both directions require host/macvlan networking.
 
-The menu's Device tab manages the clock's *own* firmware settings — but **the
-server stays the only writer to the device**: the tab calls `/v1/device/settings`
+Settings › Clock (and the clock half of Sounds & Alerts) manages the clock's
+*own* firmware settings — but **the server stays the only writer to the
+device**: the app sends only the keys that changed to `/v1/device/settings`
 (bearer auth), and the server whitelists + range-validates each NG settings key
 (`device_settings.go`'s `deviceSettingRules`) before forwarding to the clock's
 unauthenticated `PATCH /api/v1/settings`. `autoTransition`/`blockNavigation`
@@ -520,6 +668,42 @@ discrete typed fields on NG (`timeMode`, `dateOrder`, `dateSeparator`, …) with
 no format strings to validate, unlike AWTRIX3's `TFORMAT`/`DFORMAT` strftime
 strings. `buttonCallback` is set separately via `PUT /v1/device/buttons`
 (below) because it lives on `/api/v1/system`, not `/api/v1/settings`.
+The whitelist tracks NG 1.1.x: `soundEnabled` (device mute) and
+`buzzerVolume` (0–100) replaced the pre-1.1.0 `volume` (0–30), and
+`smoothScroll` (an AWTRIX3 key NG never had; `scroll.mode` replaces it) is
+gone — NG rejects unknown keys with 422, so one stale key fails the whole
+PATCH. The per-app colours (`timeColor`, `dateColor`, `temperatureColor`,
+`humidityColor`, `batteryColor`) accept `null`, which returns the app to
+inheriting `textColor` (Settings' "Same as text"). A 0.27.x server filters its
+GET to its older whitelist, so the app treats missing `soundEnabled`/
+`buzzerVolume` as "no NG 1.1 support" and hides mute, volume and "Same as
+text" there; a 404 on the audio routes hides the test chime and melody list.
+
+When the clock refuses a proxied request, the `/v1/device/*` handlers relay
+its NG error envelope instead of a bare 502: the menu gets
+`{"error":"clock returned 422: <message> (field <key>)","code","field"}` with
+the device's status for request errors (400/404/409/413/415/422) and 503
+(busy / no such hardware), and 502 for everything else — a device 401/403
+included, so it can't be mistaken for a bad Ember token.
+
+**Audio** (`device_audio.go`, NG 1.1.x `/api/v1/audio/*`):
+`POST /v1/device/audio/test` plays a built-in test chime (inline RTTTL) or,
+with `{"melody":"<name>"}`, a melody stored on the clock;
+`POST /v1/device/audio/stop` silences every output; `GET
+/v1/device/audio/melodies` relays NG's melody list (name, RTTTL, parsed
+note count and duration, validity) for the menu's melody pickers. They are
+gated on the cached `capabilities.audio`: test and melodies need the buzzer,
+stop needs any output, and a clock without it gets 503 `unavailable` without
+a round trip. That matches what NG's `/api/v1/audio/play` answers for an
+absent output; NG's melodies and stop routes never 503, so there the refusal
+is Ember's own. A cold cache lets the call through so the clock decides; the
+cache is emptied when the menu switches clocks (`PUT /v1/device/config`) and
+when a rediscovery swap's capabilities fetch fails, so a stale entry can't
+refuse on the previous clock's word. The test chime is an explicit user action,
+so it plays during quiet hours; the clock's own `soundEnabled` mute still
+applies. These handlers (and display power) go through `internal/awtrix`
+client methods rather than the raw proxy; a client `*APIError` is relayed by
+the same envelope mapping.
 
 Sensor calibration (`GET/PUT /v1/device/sensors`) targets `tempOffset`/
 `humOffset` on `/api/v1/system` — NG has no dedicated settings-API key for
@@ -532,6 +716,75 @@ only took effect at boot. The Ulanzi firmware default is `tempOffset:-9`
 (self-heating compensation); an explicit `null` in a sensors PUT resets to that
 default (or `0` for humidity), so the menu treats −9/0 — not 0/0 — as the
 baseline.
+
+### Dashboard read API — `cmd/ember/dashboard_http.go`, `clock_health_http.go` (#110)
+
+Open (no token) reads for the native macOS dashboard, alongside the existing
+`GET /v1/pomodoro/{stats,heatmap,workhours}`:
+
+- **`GET /v1/usage`** — the latest `UsageStore` snapshot per tool (5h/7d windows,
+  `models` keyed by model name, `stale` past `usageStaleTTL`). Before this the
+  snapshot was write-only; `/state` leaked just the 5h percent.
+- **`GET /v1/activity/summary?days=7`** (1..90, per-IP rate-limited) — agent
+  activity from the `activity` table: `today` and `period` windows with
+  `total`/`by_tool`/`by_source` rows (`active_sec`, `sessions`, `attention`;
+  source rows carry `source_color`, explicit `null` when unknown, as in
+  `daily_by_source`), plus zero-filled `daily` (per tool) and
+  `daily_by_source` series. Active time counts **running/error rows only**
+  (producers re-post an unanswered waiting marker for hours), reuses the
+  work-hours span reconstruction (rows ≤ 5 min apart form a span) and unions
+  spans within a group, so concurrent sessions of one tool count once.
+  `attention` counts waiting episodes. `source_color` is remembered in memory
+  from status posts, so it is null for a source that hasn't posted since
+  restart. `recording` mirrors `work_hours_include_activity`: rows are only
+  stored while it is on. Rows are throttled to one per session per 2 min,
+  **except a transition into waiting**, which is written once at least 10 s
+  have passed since the session's last row, so a short prompt isn't lost.
+- **`GET /v1/weather/state`** — the poller's cached observation (condition,
+  the provider's raw `condition_code`, `temp_c`, hourly points stamped with the
+  provider's own series start), air quality, the user's `location_name` label
+  and today's sunrise/sunset **rounded to 5 min** (to the second they'd pin the
+  coordinates). No provider call; the coordinates are never echoed.
+- **`GET /v1/clock/health`** (per-IP rate-limited) — publish counts for the last
+  24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,
+  plus the clock's `currentApp`, `wifiRssi`, heap, uptime, `wifi.connects`,
+  `matrixPower`, battery and sensors from `GET /api/v1/device`, **cached 30 s**
+  and probed detached from the caller's cancellation, so polling can't add
+  traffic on the clock's lossy Wi-Fi and a disconnecting viewer can't cache
+  "unreachable". `latest_firmware`/`update_available` come from GitHub's
+  awtrix-ng latest-release API: the server's only call to the internet for this.
+  A background goroutine does the lookup (single in-flight), so the endpoint
+  serves the cached answer and never waits. It runs at most every 6 h, 30 min
+  after a failure (logged at Warn), fails soft to `null`, and is off with
+  `EMBER_FIRMWARE_CHECK=0`.
+  The clock's IP, SSID host, UID, hostname and button presses are not served.
+
+Wire conventions (for Swift's `JSONDecoder` `.iso8601` and Swift Charts):
+RFC 3339 timestamps with **whole seconds** (`.iso8601` rejects fractions),
+`null` instead of zero sentinels (work hours' empty days emit
+`work_start`/`work_end: null`, not `0001-01-01`), series as arrays of points,
+and the unit in every key (`_sec`, `_percent`, `_c`, `_dbm`, `_bytes`,
+`_ugm3`). Storage errors are logged, not returned. Handlers wrap `build*`
+methods that take `now`; `TestDashboardGolden` renders them at a fixed instant
+into `cmd/ember/testdata/dashboard/*.json` (`go test ./cmd/ember -run
+TestDashboardGolden -update` to regenerate), and EmberKit's decode tests read
+those same files. EmberKit's models are in `Sources/EmberKit/Models/`, with one
+service per feed in `Sources/EmberKit/Services/`.
+
+**The Dashboard window (#111)** is a card grid (`macos/Ember/Dashboard/`):
+Clock (live mirror + next/previous/dismiss/power), Focus, Usage, Upcoming,
+Agents, Last 7 days, 12 weeks, Work hours, When you focus (weekday × hour
+heatmap + 12-week strip), Agent time, Clock health, Weather. 3/2/1 columns
+at ≥1040/≥700 pt; a wide card waits for a half-filled row to fill. Every
+card reads plain values (`DashboardData`, built from `LiveModel` by
+`DashboardWindow`) and renders through `FeedStateView`, so previews and
+snapshot renders use fixtures (`Dashboard/Preview/`, the goldens above plus
+synthetic history). The window holds its tier-C feeds with one `.task` for as
+long as it's open. Chart transforms (bucketing, zero-fill, goal line, DST-safe
+day keys, wall-clock work spans, locale week order) live in
+`Sources/EmberKit/Dashboard/` with unit tests. A pre-0.28 server shows
+"Needs server 0.28" on the cards whose routes 404; Usage falls back to the
+sessions' 5-hour percentages.
 
 ## The "spine" — how display widgets are added
 
@@ -563,13 +816,16 @@ draws-if-present in `internal/render`, add a menu checkbox.
 - **Strict vs forward-compat decode:** `handleStatus` (`POST /v1/status`) decodes
   **non-strict** (unknown fields ignored) so newer producers can post fields an
   older server doesn't know. `handleDeleteStatus` + `handleNotify` stay **strict**
-  (reject unknown fields / trailing tokens, 413 via `http.MaxBytesReader`).
+  (reject unknown fields / trailing tokens). Every JSON handler decodes through
+  `decodeOrReject` (`server.go`): a body past the 1 MB cap answers **413**, any
+  other decode failure 400, both with a `request rejected` log line.
 - **Auth:** bearer token on write endpoints, via `EMBER_TOKEN` env only —
   never argv/URL/logs. `slog.LogValuer` redaction throughout. **Fails closed:**
   an unset `EMBER_TOKEN` rejects every `/v1` write with 401 (same policy as the
   `/admin` surface); the token is compared in constant time, and the per-IP
   rate limiter sits *outside* auth so rejected 401s still consume budget (a
-  wrong-token flood is throttled to 429).
+  wrong-token flood is throttled to 429). The unauthenticated device hooks
+  (`/hooks/awtrix/{button,boot}`) share the same per-IP limiter.
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
   ignores it — never in the `StatusRequest` body.
@@ -600,11 +856,13 @@ usage card for a tool **only when its 5h window ≥ `usage_threshold_pct`**
 tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
 (HH:MM reset clock), **7d** (percent in threshold colour, via
 `drawUnitPctFace`), **model-A** and **model-B** (`OP`/`SO` weekly frames).
-Every usage face replaces the context glass with a gray **window unit label**
-at the right edge (`drawUsageUnit`, cols 25–31, the same span the glass now
-takes): `5h` on the clock/reset/pct
-faces, `7d` / `OP` / `SO` on the weekly faces — the glass is a session metric
-and only non-usage cards draw it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
+Every usage face drops the context glass, which is a session metric that only
+non-usage cards draw. Percentage faces show a gray **window unit label** in its
+place (`drawUsageUnit`, cols 25–31): `5h` on the 5h pct face and the hourglass
+fallback, `7d` / `OP` / `SO` on the weekly faces. HH:MM reset-clock faces show a
+gray hourglass at cols 27–29 instead: a bare HH:MM reads as the time of day next
+to NG's Time app, and a `5h` one column after the clock (which ends at col 23)
+read as part of it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
 toggles remain server config (`usage_widget`, `usage_per_model`, default on);
 `usage_threshold_pct` is also server config (`GET/PUT /v1/usage/config`, store
 key `usage_json`, default 60, 0 = always). **Claude 5h fallback:** when the
@@ -652,6 +910,25 @@ Each metric owns a screen region as a **graphic**; numeric readouts are opt-in
 and disambiguated by a pictogram (graphics-first). Icon-left language throughout
 (redesign 2026-06-06).
 
+**Column grid.** Every app uses one grid, defined once in
+`internal/render/layout.go` and copied from awtrix-ng's own layout for an app
+with an 8px icon, so nothing jumps sideways as the device rotates between apps:
+
+| Cols | Rows | Element | Const |
+|---|---|---|---|
+| 0–7 | 0–7 | icon (drawn 8×8 sprite or native `icon`) | `iconW` |
+| 8 | 0–6 | icon gap: blank. Drawn icons on text payloads are sent as a 9-wide op (`iconOp`) whose col 8 is zeros, so scrolling native text disappears at col 9 instead of touching the icon | `iconOpW` |
+| 9–24 | 1–5 | content: 3×5 digits and native text (centred in 9–31 for weather/air/Pomodoro, left-aligned at 9 for agent cards) | `contentX`, `textRow` |
+| 25–31 | 1–5 | right slot: context glass or usage unit label | `rightSlotX` |
+| — | 6 | blank spacer | |
+| 8–31 | 7 | bottom bar: session bar, rate bar, usage bar, weather/AQI strip, Pomodoro progress (NG's native progress also starts at x=8 under an icon) | `barX0`, `barW`, `barRow` |
+
+`TestEveryBottomBarStartsAtBarX0` pins every app's row-7 bar to `barX0`.
+Hourly data (weather and AQI strips, forecast bars) share one rule, `hourSlot`:
+hour *i* of an N-hour window owns `24/N` whole columns from col 8. Windows that
+divide 24 fill the bar; others (22 h) leave an even dark tail on the right
+rather than doubling some hours.
+
 - **8×8 tool icon** — cols 0–7. Body painted in the session's **source colour**
   (`EMBER_SOURCE_COLOR` / `source_color` wire field; neutral `#CCCCCC` fallback
   when absent or invalid), so each machine has a persistent identity colour.
@@ -660,8 +937,10 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   blue=done). Idle dim frame: body drops to ~40% gray; eye sockets / cursor stay
   dark, preserving the silhouette. Shares the usage card sprites
   (Claude robot-face / Codex chevron) via `drawToolIcon8`.
-- **Number slot** — cols 9–24 (`numStart=9`), a **rotating set of cards**:
-  **source-name card** (source uppercased, truncated to 4 glyphs, tinted in the
+- **Number slot** — cols 9–24 (`contentX=9`), a **rotating set of cards**:
+  **source-name card** (source uppercased, cut to 15 px using the AWTRIX
+  panel font's real ink widths — M/W 5, N/Q 4, I 1, non-ASCII counted as 5 —
+  so it never runs under the glass; tinted in the
   source colour or white), **usage card** (when 5h ≥ `usage_threshold_pct`:
   5h clock → reset clock → 7d → per-model faces, rotating), context `NN⌷`,
   and the scrolling tool/trail card. The **source card's name is
@@ -676,10 +955,18 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   pixel), state-coloured; the topmost partial row fills left-to-right. Non-usage
   cards only — usage faces paint the gray window unit label
   (`5h`/`7d`/`OP`/`SO`) in this slot instead.
-- **Bottom row (row 7)** — three-way: the 5h rate bar (`drawRateBar`, when
-  `rate_bottom_bar` on + rate present), styled as the **dimmed (~55%) threshold
-  bar** over content cols 8–31; else the session-pixel bar (1 px per non-idle
-  session, priority-sorted, when `session_bar` on); else off.
+- **Bottom row (row 7, cols 8–31)** — three-way (`drawBottomBar`): the 5h
+  rate bar (`drawRateBar`, when `rate_bottom_bar` on + rate present), styled as
+  the **dimmed (~55%) threshold bar**; else the session-pixel bar (1 px per
+  non-idle session from col 8, priority-sorted, when `session_bar` on); else
+  off. Every card of the app carries it, including the scrolling tool card and
+  the locked attention card (as a 24×1 row-7 op), so row 7 does not blink as
+  the cards rotate.
+- **Usage colours** — usage percentages (digits, bars, reset urgency) use one
+  threshold palette (`usageThreshold`: green <70, amber 70–89, red ≥90), kept
+  apart from the agent-state colours. HH:MM reset-clock faces carry a gray
+  hourglass at cols 27–29 rather than `5h`: the clock ends at col 23, and a
+  `5h` at col 25 read as `17:305h`.
 - **Locked attention view** — 8×8 tool icon in cols 0–7, firmware-native
   blinking text `WAIT <SOURCE>` / `ERR <SOURCE>` at `textOffsetX:9` (with
   `textCenter:false` — see the gotcha below); scrolls when the label overflows
@@ -687,23 +974,51 @@ and disambiguated by a pictogram (graphics-first). Icon-left language throughout
   always names which agent/computer needs attention.
 - **Pomodoro view** — NG **built-in animated icon** (`icon` field: tomato
   `29802` focus / coffee `6396` break) + native MM:SS countdown + native progress
-  bar; paused dims the phase colour. (Not a drawn bitmap; the drawn
-  `RenderPomodoro` is retained for tests and the `GET /v1/pomodoro/preview`
-  endpoint.)
+  bar; paused dims the phase colour and fades the countdown (`textFadeMs`),
+  since the animated icon stays at full brightness. (Not a drawn bitmap; the
+  drawn `RenderPomodoro` backs `GET /v1/pomodoro/preview` and copies the device
+  layout: mug for both breaks, time centred in cols 9–31, progress from col 8.)
 
 ## Gotchas & constraints (hard-won)
 
 ### awtrix-ng firmware (verified on 1.0.13)
 - **No multi-frame `draw` arrays.** A 2-frame pulse payload triggers a
-  validation error on the device. Use firmware-native `blinkText` instead.
+  validation error on the device. Use firmware-native `textBlinkMs` instead.
   Several *bitmap ops* in one `draw` array are fine — that is not an animation.
-- **A full-panel `draw` op suppresses the text layer entirely.** Verified on
-  1.0.15: a payload with `["bitmap",0,0,32,8,…]` plus `text` renders the bitmap
-  and simply drops the text — no error, no pixels. Splitting the same pixels
-  into ops that leave the text box clear makes the text appear, with a bar-row
-  op underneath it unaffected (NG's text occupies rows 1–5). This is why the
-  source card emits three ops (`drawOpsAround`) instead of one full-frame
-  bitmap, and why `detailPayload` gets away with a single 8×8 icon op.
+- **`draw` ops paint over the text, zeros included.** NG's `textInFront`
+  defaults to `false`: text is drawn first and decorations (`draw` ops, then
+  progress, then charts) on top. Bitmap zeros are opaque black, so a
+  `["bitmap",0,0,32,8,…]` op plus `text` shows only the bitmap: the text is
+  drawn and then painted over (seen on 1.0.15, and the reason the old notes
+  said a full-panel op "suppresses" text). Ops that leave the text box (rows
+  1–5) clear let the text show, with a row-7 op under it unaffected. This is
+  why the source card emits three ops (`drawOpsAround`) instead of one
+  full-frame bitmap, why `detailPayload` sends only the icon op and a row-7 bar
+  op, and why a drawn icon's op is 9 wide (`iconOp`): without a native icon,
+  NG scrolls text across all 32 columns, and the blank col 8 keeps it out of
+  the gap.
+- **`textInFront` is deliberately not used (#109).** The docs are clear on
+  z-order only: with `true` the text is painted over the decorations. That
+  would let the source card send one full-frame bitmap, but the three ops do
+  two jobs a single op can't. They are a clip mask: NG's font is variable
+  width and `sourceCardText` only estimates it, so a name that overruns
+  col 24 is cut by the right-hand op today, and would paint over the context
+  glass with the text in front. On scrolling cards (tool, attention, popups)
+  text in front would run over the drawn icon, which the 9-wide `iconOp` now
+  masks. And the single op is larger: +200 B on a running source card (951 →
+  1151 B, measured), on a link that already loses pushes. The docs also don't
+  say whether the text layer paints only lit glyph pixels or its whole box
+  (the `textBlinkMs` note says off-phase glyphs are painted black), which
+  only a device test can settle.
+- **Text payloads inherit casing and scroll from the clock's globals.**
+  `textCase` defaults to `inherit` (the global `uppercase`, on by default) and
+  every `scroll` field inherits one by one from the global `scroll`. The
+  previews draw only uppercase, so every payload carrying free text (agent
+  cards pin `scroll` only; reminders, meetings, `/v1/notify` also pin
+  `textCase:"upper"`, via `pinText`) sets both explicitly, and the device
+  matches the preview whatever the user set in the web UI. `/v1/notify` has no
+  preview, so its caller may override the case with `text_case`
+  (`inherit`/`upper`/`asTyped`, validated; anything else is a 400).
 - **NG's font is 3px wide + 1px spacing, variable for wide letters.** "STUD"
   lands exactly in cols 9–23; "M" is 5 wide. This is what the source card buys
   by handing its text to the firmware: the in-house `font3x5` cannot form an
@@ -778,7 +1093,9 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   context window) and force the explicit blank instead.
 - **Pure-Go SQLite keeps the distroless static build** (`CGO_ENABLED=0`). Use a
   Docker **named volume** for the writable DB as nonroot; open WAL +
-  `SetMaxOpenConns(1)`; `Close()` on shutdown to checkpoint the WAL.
+  `SetMaxOpenConns(1)`; `Close()` on shutdown to checkpoint the WAL — only
+  after the background workers have stopped (`App.shutdown`), or a last
+  `pomoTick` writes to a closed DB.
 - **`/admin/reload` reverts runtime-persisted settings** unless the feature
   re-applies them after the config `Store` (Pomodoro durations live in SQLite,
   not the file).

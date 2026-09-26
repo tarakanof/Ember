@@ -1,15 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // settingKind classifies how a device setting value is validated before it is
@@ -25,6 +24,7 @@ const (
 	kObject
 	kNumber       // any finite float64, no bound (e.g. overlaySettings.speed)
 	kStringOrNull // string up to maxLen, or JSON null (e.g. overlaySettings.palette)
+	kColorOrNull  // a kColor, or JSON null to inherit (the per-app colours)
 )
 
 type settingRule struct {
@@ -76,11 +76,15 @@ var deviceSettingRules = map[string]settingRule{
 	// General
 	"brightness":     {kind: kInt, min: 0, max: 255},
 	"autoBrightness": {kind: kBool},
-	"volume":         {kind: kInt, min: 0, max: 30},
+	// Sound (NG 1.1.0): soundEnabled mutes the device; buzzerVolume replaced
+	// the 0-30 "volume", which NG now rejects with 422. The TC001 has only the
+	// piezo, so the DFPlayer/MP3/radio volumes are left out.
+	"soundEnabled": {kind: kBool},
+	"buzzerVolume": {kind: kInt, min: 0, max: 100},
 	// appDurationMs is milliseconds on NG (was ATIME, seconds, 1-3600, on
 	// AWTRIX3) — 1s-1h is a sane bound for a rotating app's dwell time.
 	"appDurationMs":        {kind: kInt, min: 1000, max: 3600000},
-	"autoTransition":       {kind: kBool}, // Pomodoro takeover key; coordinator.go writes this directly
+	"autoTransition":       {kind: kBool}, // Pomodoro takeover key; coordinator_hold.go writes this directly
 	"transitionDurationMs": {kind: kInt, min: 0, max: 60000},
 	// transitionEffect is a device-reported name (GET /api/v1/capabilities),
 	// not a static enum — capabilities-fetch plumbing to validate the live set
@@ -89,7 +93,7 @@ var deviceSettingRules = map[string]settingRule{
 	"transitionEffect": {kind: kString, maxLen: 32},
 	"textColor":        {kind: kColor},
 	"uppercase":        {kind: kBool},
-	"blockNavigation":  {kind: kBool}, // Pomodoro takeover key; coordinator.go writes this directly
+	"blockNavigation":  {kind: kBool}, // Pomodoro takeover key; coordinator_hold.go writes this directly
 	// Time & Date — NG replaced the TFORMAT/DFORMAT strftime strings with
 	// discrete typed fields; there are no format strings to validate anymore.
 	"timeMode":            {kind: kInt, min: 0, max: 6},
@@ -106,15 +110,16 @@ var deviceSettingRules = map[string]settingRule{
 	"calendarHeaderColor": {kind: kColor},
 	"calendarBodyColor":   {kind: kColor},
 	"calendarTextColor":   {kind: kColor},
-	// Native Apps — per-builtin-app text color, plus a couple of app-adjacent
-	// toggles (issue #92).
-	"timeColor":        {kind: kColor},
-	"dateColor":        {kind: kColor},
-	"temperatureColor": {kind: kColor},
-	"humidityColor":    {kind: kColor},
-	"batteryColor":     {kind: kColor},
+	// Native Apps — per-builtin-app text color (null = inherit textColor, which
+	// is how NG reports an unset one), plus an app-adjacent toggle (issue #92).
+	// There is no smoothScroll: that was AWTRIX3's SSCROLL; scroll.mode is the
+	// NG equivalent.
+	"timeColor":        {kind: kColorOrNull},
+	"dateColor":        {kind: kColorOrNull},
+	"temperatureColor": {kind: kColorOrNull},
+	"humidityColor":    {kind: kColorOrNull},
+	"batteryColor":     {kind: kColorOrNull},
 	"useCelsius":       {kind: kBool},
-	"smoothScroll":     {kind: kBool},
 	// Nested objects — the device speaks these NG shapes directly; the macOS
 	// app adapts to them in #71.
 	"scroll":     {kind: kObject, obj: scrollRules},
@@ -158,6 +163,10 @@ func validateSettingValue(k string, v any, rule settingRule) error {
 	case kColor:
 		if !validColor(v) {
 			return fmt.Errorf("%s must be a hex string or [r,g,b]", k)
+		}
+	case kColorOrNull:
+		if v != nil && !validColor(v) {
+			return fmt.Errorf("%s must be null, a hex string or [r,g,b]", k)
 		}
 	case kEnum:
 		s, ok := v.(string)
@@ -209,51 +218,98 @@ func validColor(v any) bool {
 	return false
 }
 
-// deviceBaseClient mirrors HTTPPublisher.baseAndClient but reads the live config
-// directly, so device-settings proxying follows the same resolved clock URL.
-func (a *App) deviceBaseClient() (string, *http.Client, error) {
+// deviceBaseURL returns the live clock base URL, so every menu-initiated call
+// follows the same resolved clock as the publisher.
+func (a *App) deviceBaseURL() (string, error) {
 	base := strings.TrimRight(a.cfg.Load().AWTRIX.HTTPBaseURL, "/")
 	if base == "" {
-		return "", nil, fmt.Errorf("clock not configured")
+		return "", fmt.Errorf("clock not configured")
 	}
-	return base, &http.Client{Timeout: 8 * time.Second}, nil
+	return base, nil
 }
 
-// proxyToDevice performs a request against the clock and returns the response
-// body. method is GET or POST; body is nil for GET.
-func (a *App) proxyToDevice(ctx context.Context, method, path string, body []byte) ([]byte, int, error) {
-	base, cl, err := a.deviceBaseClient()
+// deviceCall is one pass-through awtrix client call, usually a method
+// expression such as (*awtrix.Client).RawSettings.
+type deviceCall func(*awtrix.Client, context.Context) (awtrix.Reply, error)
+
+// withBody binds a request body to a body-taking raw client call.
+func withBody(call func(*awtrix.Client, context.Context, []byte) (awtrix.Reply, error), body []byte) deviceCall {
+	return func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
+		return call(cl, ctx, body)
+	}
+}
+
+// proxyToDevice runs call against the currently-resolved clock and returns
+// the reply body and status verbatim; a non-2xx status is not an error.
+func (a *App) proxyToDevice(ctx context.Context, call deviceCall) ([]byte, int, error) {
+	base, err := a.deviceBaseURL()
 	if err != nil {
 		return nil, 0, err
 	}
-	var rdr io.Reader
-	if body != nil {
-		rdr = bytes.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
+	reply, err := call(awtrix.NewClient(base, deviceClientTimeout), ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	return reply.Body, reply.Status, nil
+}
+
+// deviceProxyStatus picks the status the menu sees for a non-2xx clock reply.
+// Request errors (bad value, unknown key, missing app, wrong media type) and
+// a busy/absent-hardware 503 pass through unchanged, so the caller can tell
+// "the clock refused this" from "the clock is broken or unreachable".
+// Everything else becomes 502; a device 401/403 in particular must not read
+// as the menu's own bearer token being wrong.
+func deviceProxyStatus(status int) int {
+	switch status {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict,
+		http.StatusRequestEntityTooLarge, http.StatusUnsupportedMediaType,
+		http.StatusUnprocessableEntity, http.StatusServiceUnavailable:
+		return status
 	}
-	resp, err := cl.Do(req)
-	if err != nil {
-		return nil, 0, err
+	return http.StatusBadGateway
+}
+
+// writeDeviceError relays a non-2xx clock reply to the menu. The NG envelope
+// ({"error":{code,message,field}}) is flattened into the server's own error
+// shape — "error" stays a string, which is what the menu displays — with
+// "code" and "field" alongside so a caller can point at the rejected key.
+func writeDeviceError(w http.ResponseWriter, status int, body []byte) {
+	writeDeviceAPIError(w, awtrix.ParseAPIError(status, body))
+}
+
+// writeDeviceAPIError is writeDeviceError for a reply the awtrix client has
+// already parsed.
+func writeDeviceAPIError(w http.ResponseWriter, apiErr *awtrix.APIError) {
+	status := apiErr.StatusCode
+	msg := fmt.Sprintf("clock returned %d", status)
+	if detail := apiErr.Message; detail != "" {
+		// Cap a raw (non-envelope) body at 200 runes, never mid-sequence.
+		if r := []rune(detail); len(r) > 200 {
+			detail = string(r[:200]) + "…"
+		}
+		msg += ": " + detail
 	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	return out, resp.StatusCode, nil
+	if apiErr.Field != "" {
+		msg += " (field " + apiErr.Field + ")"
+	}
+	out := map[string]string{"error": msg}
+	if apiErr.Code != "" {
+		out["code"] = apiErr.Code
+	}
+	if apiErr.Field != "" {
+		out["field"] = apiErr.Field
+	}
+	writeJSON(w, deviceProxyStatus(status), out)
 }
 
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/settings", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawSettings)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	var all map[string]any
@@ -273,8 +329,7 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 	var m map[string]any
-	if err := decodeJSON(w, r, &m, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &m, false) {
 		return
 	}
 	if err := validateDeviceSettings(m); err != nil {
@@ -282,26 +337,26 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/settings", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPatchSettings, payload))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
 func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/device", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawDevice)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -314,13 +369,13 @@ func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {
 // awtrix-ng wraps the pixels: {"width":32,"height":8,"pixels":[256 ints]}
 // (AWTRIX3 returned the bare 256-int array) — consumers must unwrap.
 func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/display/screen", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawScreen)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -329,35 +384,35 @@ func (a *App) handleDeviceScreen(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceReboot(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, http.MethodPost, "/api/v1/device/reboot")
+	a.proxyAction(w, r, (*awtrix.Client).RawReboot)
 }
 
 // handleDeviceDismiss clears the currently-shown notification
 // (DELETE /api/v1/notifications/active — no body).
 func (a *App) handleDeviceDismiss(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, http.MethodDelete, "/api/v1/notifications/active")
+	a.proxyAction(w, r, (*awtrix.Client).RawDismissNotify)
 }
 
 // handleDeviceNextApp / handleDevicePrevApp advance the clock to the next or
 // previous app in its rotation (POST /api/v1/apps/next, /api/v1/apps/previous).
 func (a *App) handleDeviceNextApp(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, http.MethodPost, "/api/v1/apps/next")
+	a.proxyAction(w, r, (*awtrix.Client).RawNextApp)
 }
 
 func (a *App) handleDevicePrevApp(w http.ResponseWriter, r *http.Request) {
-	a.proxyAction(w, r, http.MethodPost, "/api/v1/apps/previous")
+	a.proxyAction(w, r, (*awtrix.Client).RawPreviousApp)
 }
 
 // proxyAction sends a bodiless request to a clock action endpoint and maps
 // the result.
-func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, method, path string) {
-	_, status, err := a.proxyToDevice(r.Context(), method, path, nil)
+func (a *App) proxyAction(w http.ResponseWriter, r *http.Request, call deviceCall) {
+	reply, status, err := a.proxyToDevice(r.Context(), call)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

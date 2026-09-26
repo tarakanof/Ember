@@ -1,6 +1,8 @@
 package pomodoro
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,7 +105,8 @@ func TestDayWorkSummary(t *testing.T) {
 	if d.Sessions != 2 {
 		t.Errorf("sessions = %d, want 2", d.Sessions)
 	}
-	if !d.WorkStart.Equal(utc(2026, 6, 10, 9, 5)) || !d.WorkEnd.Equal(utc(2026, 6, 10, 12, 0)) {
+	if d.WorkStart == nil || d.WorkEnd == nil ||
+		!d.WorkStart.Equal(utc(2026, 6, 10, 9, 5)) || !d.WorkEnd.Equal(utc(2026, 6, 10, 12, 0)) {
 		t.Errorf("work span = %v..%v", d.WorkStart, d.WorkEnd)
 	}
 	if d.ActiveSec != (50+80)*60 {
@@ -321,6 +324,35 @@ func TestActivityBetweenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPruneActivityDropsOnlyOlderRows(t *testing.T) {
+	st, err := Open(t.TempDir() + "/a.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	cut := utc(2026, 6, 10, 9, 0)
+	for _, at := range []time.Time{cut.Add(-48 * time.Hour), cut.Add(-time.Second), cut, cut.Add(time.Hour)} {
+		if err := st.RecordActivity(at, "Claude", "claude", "Claude/claude/s1", "running"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := st.PruneActivity(cut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("pruned %d rows, want 2", n)
+	}
+	got, err := st.ActivityBetween(cut.Add(-100*time.Hour), cut.Add(100*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[0].At.Equal(cut) {
+		t.Errorf("remaining rows = %+v, want the two at or after the cut", got)
+	}
+}
+
 func TestPhasesBetweenRoundTrip(t *testing.T) {
 	st, err := Open(t.TempDir() + "/a.db")
 	if err != nil {
@@ -352,5 +384,31 @@ func TestPhasesBetweenRoundTrip(t *testing.T) {
 	if !got[0].StartedAt.Equal(utc(2026, 6, 10, 9, 0).Local()) &&
 		got[0].StartedAt.Unix() != utc(2026, 6, 10, 9, 0).Unix() {
 		t.Errorf("row0 start unix = %d, want %d", got[0].StartedAt.Unix(), utc(2026, 6, 10, 9, 0).Unix())
+	}
+}
+
+// An empty day has no work span: work_start/work_end must serialise as JSON
+// null, not Go's zero time ("0001-01-01T00:00:00Z"), which clients would
+// otherwise render as a real (absurd) date.
+func TestDaySummaryEmptyDayHasNullWorkSpan(t *testing.T) {
+	day := utc(2026, 6, 10, 12, 0)
+	cases := []struct {
+		name string
+		d    DaySummary
+	}{
+		{"focus only", DayWork(nil, day, 15*time.Minute, 0, time.UTC)},
+		{"overlay", DayWorkOverlay(nil, nil, day, 15*time.Minute, 5*time.Minute, 0, time.UTC)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b, err := json.Marshal(c.d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := string(b)
+			if !strings.Contains(s, `"work_start":null`) || !strings.Contains(s, `"work_end":null`) {
+				t.Errorf("empty day JSON = %s, want null work_start/work_end", s)
+			}
+		})
 	}
 }

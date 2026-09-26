@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tarakanof/ember/internal/render"
@@ -15,6 +17,22 @@ import (
 // soundRtttl key — NG plays a notification's melody alongside its draw/icon, so
 // the AWTRIX3-era out-of-band /api/rtttl call is gone.
 const defaultReminderSound = "remind:d=4,o=6,b=140:8e,8g,8c7"
+
+// defaultReminderAlarm is defaultReminderSound for a held alarm that opted
+// into repeat_sound, which NG replays (soundLoop) until the alarm is
+// dismissed. The trailing whole rest (~1.7 s at 140 bpm) spaces the rings;
+// without it they run into one trill.
+const defaultReminderAlarm = "remind:d=4,o=6,b=140:8e,8g,8c7,1p"
+
+// reminderHoldWindow is how long a hold:true alarm is assumed to be on the
+// clock: button presses inside it acknowledge the alarm, and a looping chime
+// is stopped when it runs out.
+const reminderHoldWindow = 15 * time.Minute
+
+// reminderLoopCheckInterval is how often StartReminderLoopGuard checks a
+// ringing alarm against its window and quiet hours; a loop can overrun quiet
+// hours' start by up to this much.
+const reminderLoopCheckInterval = 15 * time.Second
 
 // reminderFireRequest is the body of POST /v1/reminders/fire. The macOS app (which
 // watches Apple Reminders via EventKit) sends it when a reminder comes due; the
@@ -28,6 +46,10 @@ type reminderFireRequest struct {
 	// Hold makes the alarm take over the display until the user dismisses it
 	// (middle button) rather than auto-dismissing after Duration.
 	Hold bool `json:"hold"`
+	// RepeatSound (opt-in) replays the chime of a held, sounding alarm until it
+	// is dismissed. The server stops it after reminderHoldWindow and when quiet
+	// hours start.
+	RepeatSound bool `json:"repeat_sound"`
 }
 
 // handleReminderFire renders a bell-icon popup for an Apple Reminder that has come
@@ -35,8 +57,7 @@ type reminderFireRequest struct {
 // list or schedule anymore.
 func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	var req reminderFireRequest
-	if err := decodeJSON(w, r, &req, true); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
 	text := strings.TrimSpace(req.Text)
@@ -53,24 +74,199 @@ func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	if dur < 1 || dur > 300 {
 		dur = 8
 	}
-	a.logger.Info("reminder fire", "sound", req.Sound, "hold", req.Hold, "duration", dur, "native_icon", req.NativeIconID != "")
+	// The app retries a fire it can't prove was delivered; the key makes that
+	// retry a no-op if the first attempt reached (or is still reaching) the clock.
+	// Checked before arming the hold window so a duplicate changes nothing.
+	key := r.Header.Get("Idempotency-Key")
+	if key != "" && len(key) <= maxReminderKeyLen {
+		if !a.reminderKeys.claim(key, time.Now()) {
+			a.logger.Info("reminder fire duplicate", "key", key)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	} else {
+		key = ""
+	}
+	a.logger.Info("reminder fire", "sound", req.Sound, "hold", req.Hold, "repeat_sound", req.RepeatSound,
+		"duration", dur, "native_icon", req.NativeIconID != "")
 	// While a hold:true alarm is on the clock, the device's button callback would
 	// otherwise start Pomodoro when the user presses a button to dismiss it. Arm a
 	// window so handleAwtrixButton treats that press as an acknowledgement instead.
+	now := time.Now()
 	if req.Hold {
-		a.reminderHeldUntil.Store(time.Now().Add(15 * time.Minute).UnixNano())
+		a.reminderHeldUntil.Store(now.Add(reminderHoldWindow).UnixNano())
 	}
 	payload := render.ReminderPopupPayload(text, req.NativeIconID, dur, req.Hold)
 	payload["name"] = notifyNameReminder
-	if req.Sound {
+	loop := req.Sound && req.Hold && req.RepeatSound
+	switch {
+	case loop:
+		payload["soundRtttl"] = defaultReminderAlarm
+		payload["soundLoop"] = true
+	case req.Sound:
 		payload["soundRtttl"] = defaultReminderSound
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	if err := a.publisher.Notify(ctx, payload); err != nil {
+		if key != "" {
+			a.reminderKeys.release(key)
+		}
 		a.logger.Warn("reminder fire failed", "err", err)
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
+	// quietPublisher already stripped the loop if quiet hours are on now, so
+	// there is nothing to stop later.
+	if loop && !a.quietNow(now) {
+		a.reminderLoop.arm(now.Add(reminderHoldWindow), payload)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// reminderLoop is the one held alarm whose chime NG is looping (soundLoop),
+// kept so the server can stop it: the device loops until dismissed, and an
+// alarm nobody is there to dismiss would ring for hours, or into quiet hours
+// (quietPublisher strips sound only at push time). The zero value is idle.
+type reminderLoop struct {
+	mu      sync.Mutex // protects until, payload, gen
+	until   time.Time
+	payload map[string]any // as pushed, for the silent re-push
+	gen     int            // bumped per arm, so a stale stop can't clear a newer loop
+}
+
+func (l *reminderLoop) arm(until time.Time, payload map[string]any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.until, l.payload = until, payload
+	l.gen++
+}
+
+// current returns the ringing alarm, or a nil payload when none is.
+func (l *reminderLoop) current() (until time.Time, payload map[string]any, gen int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.until, l.payload, l.gen
+}
+
+// clear forgets the alarm armed as gen; a newer one stays.
+func (l *reminderLoop) clear(gen int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.gen == gen {
+		l.payload = nil
+	}
+}
+
+// quietNow reports whether quiet hours are in force at now.
+func (a *App) quietNow(now time.Time) bool {
+	enabled, start, end := a.cfg.Load().quietHoursWindow()
+	return enabled && quietActive(start, end, now)
+}
+
+// StartReminderLoopGuard stops a looping reminder chime the user has not
+// dismissed, every reminderLoopCheckInterval until ctx ends.
+func (a *App) StartReminderLoopGuard(ctx context.Context) {
+	t := time.NewTicker(reminderLoopCheckInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			a.checkReminderLoop(ctx, now)
+		}
+	}
+}
+
+// checkReminderLoop ends a looping alarm that has run its hold window (it is
+// dismissed) or reached quiet hours (it is dismissed and re-pushed, still
+// held, without sound, so it stays visible but silent). An alarm the user has
+// acknowledged by button is just forgotten: the press already cleared it. A
+// failed device call keeps the loop armed, so the next check retries.
+func (a *App) checkReminderLoop(ctx context.Context, now time.Time) {
+	until, payload, gen := a.reminderLoop.current()
+	if payload == nil {
+		return
+	}
+	if a.reminderHeldUntil.Load() == 0 {
+		a.reminderLoop.clear(gen)
+		return
+	}
+	expired := !now.Before(until)
+	quiet := a.quietNow(now)
+	if !expired && !quiet {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := a.publisher.DismissNotifyByName(cctx, notifyNameReminder); err != nil && !isAPINotFound(err) {
+		a.logger.Warn("reminder loop stop failed", "err", err)
+		return
+	}
+	reason := "window"
+	if !expired {
+		reason = "quiet_hours"
+		silent := make(map[string]any, len(payload))
+		for k, v := range payload {
+			if !slices.Contains(soundKeys, k) {
+				silent[k] = v
+			}
+		}
+		if err := a.publisher.Notify(cctx, silent); err != nil {
+			// The alarm is already off the clock and silent; not retried.
+			a.logger.Warn("reminder silent re-push failed", "err", err)
+		}
+	}
+	a.logger.Info("reminder loop stopped", "reason", reason)
+	a.reminderLoop.clear(gen)
+}
+
+// reminderDedupeTTL is how long a fired reminder key is remembered: well past
+// the app's 90s fire window, so every retry of one occurrence is caught.
+const reminderDedupeTTL = 10 * time.Minute
+
+// maxReminderKeyLen bounds a client-supplied key; longer keys are ignored.
+const maxReminderKeyLen = 256
+
+// reminderDedupe remembers recently fired reminder idempotency keys so a retried
+// POST /v1/reminders/fire doesn't ring the same occurrence twice. The zero value
+// is ready to use.
+type reminderDedupe struct {
+	mu   sync.Mutex // protects seen
+	seen map[string]time.Time
+}
+
+// claim records key at now and reports true, or reports false when key was
+// claimed within the TTL. Expired keys are pruned on each call.
+func (d *reminderDedupe) claim(key string, now time.Time) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for k, at := range d.seen {
+		if now.Sub(at) >= reminderDedupeTTL {
+			delete(d.seen, k)
+		}
+	}
+	if _, ok := d.seen[key]; ok {
+		return false
+	}
+	if d.seen == nil {
+		d.seen = make(map[string]time.Time)
+	}
+	d.seen[key] = now
+	return true
+}
+
+// release forgets key, so a fire whose push failed can be retried.
+func (d *reminderDedupe) release(key string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.seen, key)
+}
+
+// size returns the number of remembered keys.
+func (d *reminderDedupe) size() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.seen)
 }

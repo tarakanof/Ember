@@ -86,8 +86,7 @@ func (a *App) handleDisplayConfigGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDisplayConfigPut(w http.ResponseWriter, r *http.Request) {
 	var dto displayConfigDTO
-	if err := decodeJSON(w, r, &dto, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &dto, false) {
 		return
 	}
 	if err := dto.validate(); err != nil {

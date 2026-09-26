@@ -34,7 +34,8 @@ func TestWeatherFileFalseSticks(t *testing.T) {
 	src := `{
 		"enabled": true, "rotate_in_apps": false, "forecast_tile": false,
 		"popup_on_change": false, "severe_alert": false, "sun_popups": false,
-		"moon_phase": false, "air_tile": false, "popup_interval_minutes": 0
+		"moon_phase": false, "air_tile": false, "overlay": false,
+		"popup_interval_minutes": 0
 	}`
 	var c WeatherConfig
 	if err := json.Unmarshal([]byte(src), &c); err != nil {
@@ -48,7 +49,7 @@ func TestWeatherFileFalseSticks(t *testing.T) {
 	mustJSONHave(t, blob,
 		`"rotate_in_apps":false`, `"forecast_tile":false`, `"popup_on_change":false`,
 		`"severe_alert":false`, `"sun_popups":false`, `"moon_phase":false`,
-		`"air_tile":false`, `"popup_interval_minutes":0`)
+		`"air_tile":false`, `"overlay":false`, `"popup_interval_minutes":0`)
 }
 
 // TestWeatherFileAbsentDefaults: fields absent from config.json still resolve
@@ -123,7 +124,7 @@ func TestOldWeatherBlobFillsDefaults(t *testing.T) {
 	mustJSONHave(t, w.Body.Bytes(),
 		// absent in the old blob → today's defaults
 		`"forecast_tile":true`, `"popup_on_change":true`, `"severe_alert":true`,
-		`"sun_popups":true`, `"moon_phase":true`, `"air_tile":true`,
+		`"sun_popups":true`, `"moon_phase":true`, `"air_tile":true`, `"overlay":true`,
 		// present in the old blob → verbatim, including explicit false/0
 		`"rotate_in_apps":false`, `"popup_interval_minutes":0`)
 }
@@ -158,7 +159,7 @@ func TestWeatherPutExplicitFalseSticks(t *testing.T) {
 		`"sun_popups":false,"moon_phase":false,"popup_interval_minutes":0,` +
 		`"popup_duration_seconds":30,"popup_on_change":false,"severe_alert":false,` +
 		`"severe_sound":"","use_native_icons":false,"tile_native_icons":false,` +
-		`"air_tile":false,"air_popup_threshold":0}`
+		`"air_tile":false,"air_popup_threshold":0,"overlay":false}`
 	pw := httptest.NewRecorder()
 	a.handleWeatherConfigPut(pw, httptest.NewRequest("PUT", "/v1/weather/config", strings.NewReader(body)))
 	if pw.Code != 200 {
@@ -169,7 +170,7 @@ func TestWeatherPutExplicitFalseSticks(t *testing.T) {
 	mustJSONHave(t, gw.Body.Bytes(),
 		`"rotate_in_apps":false`, `"forecast_tile":false`, `"popup_on_change":false`,
 		`"severe_alert":false`, `"sun_popups":false`, `"moon_phase":false`,
-		`"air_tile":false`, `"popup_interval_minutes":0`)
+		`"air_tile":false`, `"overlay":false`, `"popup_interval_minutes":0`)
 }
 
 // TestMeetingsPutExplicitFalseSticks: same for the meetings PUT.

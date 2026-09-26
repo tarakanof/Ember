@@ -59,6 +59,21 @@ import Foundation
     #expect(d.moonPhase)
 }
 
+@Test func weatherConfigOverlayDecodesAndDefaultsOn() throws {
+    let off = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2,"overlay":false}"#
+    #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(off.utf8)).overlay == false)
+
+    // Absent (older servers) → on, the server's default, so a re-save never
+    // turns it off.
+    let old = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#
+    #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8)).overlay)
+
+    var e = WeatherConfig(enabled: true, latitude: 1, longitude: 2)
+    e.overlay = false
+    let s = String(decoding: try JSONEncoder().encode(e), as: UTF8.self)
+    #expect(s.contains(#""overlay":false"#))
+}
+
 @Test func weatherConfigAirFieldsDecodeAndDefault() throws {
     // Explicit values decode.
     let json = #"""

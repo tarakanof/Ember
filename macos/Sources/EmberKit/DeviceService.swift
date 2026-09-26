@@ -2,9 +2,15 @@ import Foundation
 
 /// Typed wrapper over the server's /v1/device/* proxy endpoints (clock settings,
 /// display/apps/capabilities, stats, actions, and discovery/config).
-public struct DeviceService: Sendable {
+public struct DeviceService: Sendable, Equatable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
+
+    /// Two services are the same when they talk to the same server with the
+    /// same token (Settings rebuilds its clock model only on a real change).
+    public static func == (a: DeviceService, b: DeviceService) -> Bool {
+        a.client.baseURL == b.client.baseURL && a.client.token == b.client.token
+    }
 
     public func settings() async throws -> DeviceSettings {
         try await client.get("/v1/device/settings")
@@ -12,12 +18,40 @@ public struct DeviceService: Sendable {
     public func update(_ patch: DeviceSettings) async throws {
         try await client.put("/v1/device/settings", body: patch)
     }
+    /// Writes only the given keys; `.null` resets a per-app colour to inherit
+    /// (see `DeviceSettings.patch(from:)`).
+    public func update(patch: [String: JSONValue]) async throws {
+        try await client.put("/v1/device/settings", body: JSONValue.object(patch))
+    }
     /// NG's ambient-weather overlay (GET/PUT /v1/device/display).
     public func display() async throws -> DeviceDisplay {
         try await client.get("/v1/device/display")
     }
     public func updateDisplay(_ patch: DeviceDisplay) async throws {
         try await client.put("/v1/device/display", body: patch)
+    }
+    /// Blanks (false) or relights (true) the LED matrix. Runtime-only: a clock
+    /// reboot relights it.
+    public func setDisplayPower(_ on: Bool) async throws {
+        try await client.put("/v1/device/display/power", body: DisplayPowerUpdate(power: on))
+    }
+    /// Plays the server's built-in test chime, or previews a melody stored on
+    /// the clock. 503 when the clock has no buzzer.
+    public func playTestChime(melody: String? = nil) async throws {
+        if let melody {
+            try await client.post("/v1/device/audio/test", body: AudioTestRequest(melody: melody))
+        } else {
+            try await client.send("POST", "/v1/device/audio/test")
+        }
+    }
+    /// Silences every sound output on the clock.
+    public func stopAudio() async throws {
+        try await client.send("POST", "/v1/device/audio/stop")
+    }
+    /// Melodies stored on the clock, for melody pickers. 503 when the clock has
+    /// no buzzer; 404 on a server that predates the route.
+    public func melodies() async throws -> DeviceMelodyList {
+        try await client.get("/v1/device/audio/melodies")
     }
     /// The clock's native apps (Time, Date, Temperature, Humidity, Battery, and
     /// any pushed/scripted app) with their enabled/inLoop state.

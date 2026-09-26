@@ -85,8 +85,16 @@ public struct ProcessCommandRunner: ProducerCommandRunning {
 
         try process.run()
 
+        // Drain stderr on another thread: reading the two pipes one after the
+        // other deadlocks once the child fills the unread one's buffer.
+        let stderrBox = DataBox()
+        let drained = DispatchGroup()
+        DispatchQueue.global(qos: .userInitiated).async(group: drained) {
+            stderrBox.data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        }
         let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        drained.wait()
+        let stderrData = stderrBox.data
 
         process.waitUntilExit()
 
@@ -96,4 +104,10 @@ public struct ProcessCommandRunner: ProducerCommandRunning {
             stderr: String(decoding: stderrData, as: UTF8.self)
         )
     }
+}
+
+/// Hands the stderr bytes from the drain thread back to `run`; the
+/// `DispatchGroup.wait()` orders the write before the read.
+private final class DataBox: @unchecked Sendable {
+    var data = Data()
 }

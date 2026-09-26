@@ -56,10 +56,29 @@ func TestRenderForCoordNoCardsDoesNotPanic(t *testing.T) {
 func TestSourceCardText(t *testing.T) {
 	for in, want := range map[string]string{
 		"mbp": "MBP", "studio-m4": "STUD", "": "",
-		"über-mac": "ÜBER", // multibyte: rune (not byte) truncation to 4 runes
+		"über-mac": "ÜBE", // multibyte: counted per rune; Ü is non-ASCII so it counts 5 px
+		// NG draws ASCII in the AWTRIX panel font (M/W 5 px, N/Q 4, I 1):
+		// truncate by that width, not rune count, so the name never runs under
+		// the glass at col 25.
+		"mwmw-studio": "MW", "mbp1": "MBP", "m4": "M4",
+		"nwn":     "NWN", // 4+1+5+1+4 = 15: fits exactly
+		"qqqq":    "QQQ", // 19 px would run under the glass
+		"iiiiiii": "IIIIIII", "mini-pc": "MINI",
+		"ñandú": "ÑAN", // non-ASCII comes from another font: count it wide (5)
 	} {
 		if got := sourceCardText(in); got != want {
 			t.Fatalf("sourceCardText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNGGlyphWidthTableCoversPrintableASCII(t *testing.T) {
+	if got, want := len(ngASCIIInkW), 0x7E-0x20+1; got != want {
+		t.Fatalf("ngASCIIInkW has %d entries, want %d (0x20..0x7E)", got, want)
+	}
+	for r, want := range map[rune]int{'M': 5, 'W': 5, 'N': 4, 'Q': 4, 'I': 1, ' ': 1, 'A': 3, '4': 3, 'é': ngWideGlyphW} {
+		if got := ngGlyphW(r); got != want {
+			t.Errorf("ngGlyphW(%q) = %d, want %d", r, got, want)
 		}
 	}
 }
@@ -73,8 +92,8 @@ func TestComposeFrameSourceCard(t *testing.T) {
 	if f.Native == nil {
 		t.Fatal("source card: Native is nil, want the source name")
 	}
-	if f.Native.Text != "MBP" || f.Native.X != numStart || f.Native.Color != want {
-		t.Fatalf("source-card native text = %+v, want {MBP %d %v}", *f.Native, numStart, want)
+	if f.Native.Text != "MBP" || f.Native.X != contentX || f.Native.Color != want {
+		t.Fatalf("source-card native text = %+v, want {MBP %d %v}", *f.Native, contentX, want)
 	}
 }
 
@@ -84,7 +103,7 @@ func TestComposeFrameNoCardBlankNumberSlot(t *testing.T) {
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceCard: bptr(false)}
 	f := ComposeFrame(s, cardNone, nil, []Session{s}, time.Now())
 	for y := 1; y <= 5; y++ {
-		for x := numStart; x <= 23; x++ {
+		for x := contentX; x <= 23; x++ {
 			if f.Dirty[y][x] {
 				t.Fatalf("pixel (%d,%d) lit; number slot must be blank", x, y)
 			}
@@ -96,9 +115,9 @@ func TestComposeFrameBottomBarModes(t *testing.T) {
 	pct := 50
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", RateWindowPct: &pct}
 
-	// Default: session bar (one running pixel at barStart).
+	// Default: session bar (one running pixel at barX0).
 	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
-	if !f.Dirty[barRow][barStart] {
+	if !f.Dirty[barRow][barX0] {
 		t.Fatal("expected session bar pixel at default settings")
 	}
 

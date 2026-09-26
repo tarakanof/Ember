@@ -40,6 +40,51 @@ func TestReconcileWeatherTilePushesAndClears(t *testing.T) {
 	}
 }
 
+// TestWeatherTileCarriesOverlay: the conditions tile names the observation's
+// NG overlay in every icon mode, and overlay:false leaves it off.
+func TestWeatherTileCarriesOverlay(t *testing.T) {
+	cases := []struct {
+		name    string
+		native  bool
+		overlay *bool
+		want    any
+	}{
+		{"drawn", false, nil, render.OverlayThunder},
+		{"native icon", true, nil, render.OverlayThunder},
+		{"toggle off", false, boolPtr(false), nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pub := &recordingPublisher{}
+			cfg := defaultConfig()
+			cfg.Weather.applyDefaults()
+			cfg.Weather.Enabled = true
+			cfg.Weather.TileNativeIcons = tc.native
+			if tc.overlay != nil {
+				cfg.Weather.Overlay = tc.overlay
+			}
+			app := NewApp(cfg, pub, testLogger())
+			now := time.Now()
+			app.weather.mu.Lock()
+			app.weather.obs = weatherObservation{Condition: render.WeatherStorm, TempC: 18,
+				Overlay: render.OverlayThunder, FetchedAt: now}
+			app.weather.have = true
+			app.weather.mu.Unlock()
+
+			app.coord.reconcileWeatherApp(now)
+
+			pub.mu.Lock()
+			defer pub.mu.Unlock()
+			if len(pub.customApps) != 1 {
+				t.Fatalf("want one push, got %d", len(pub.customApps))
+			}
+			if got := pub.customApps[0]["overlay"]; got != tc.want {
+				t.Errorf("overlay = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReconcileForecastTilePushesAndClears(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()

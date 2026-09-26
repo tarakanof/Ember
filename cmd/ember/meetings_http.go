@@ -35,8 +35,7 @@ func (a *App) handleMeetingsConfigGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleMeetingsConfigPut(w http.ResponseWriter, r *http.Request) {
 	var cfg MeetingsConfig
-	if err := decodeJSON(w, r, &cfg, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &cfg, false) {
 		return
 	}
 	if err := a.applyMeetingsSettings(cfg); err != nil {

@@ -87,6 +87,20 @@ func (s *Store) RecordActivity(at time.Time, source, tool, sessionKey, state str
 	return nil
 }
 
+// PruneActivity deletes activity heartbeats recorded before cutoff and
+// returns how many rows it removed.
+func (s *Store) PruneActivity(cutoff time.Time) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM activity WHERE recorded_at < ?`, cutoff.Unix())
+	if err != nil {
+		return 0, fmt.Errorf("prune activity: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("prune activity: %w", err)
+	}
+	return n, nil
+}
+
 // ActivityBetween returns activity heartbeats in [lo, hi), oldest first.
 func (s *Store) ActivityBetween(lo, hi time.Time) ([]ActivityRecord, error) {
 	rows, err := s.db.Query(
@@ -256,15 +270,17 @@ func activitySpans(acts []ActivityRecord, maxGap time.Duration) []Interval {
 }
 
 // DaySummary is the headline work-hours rollup for one calendar day.
+// WorkStart/WorkEnd are nil on a day with no work, so the wire carries null
+// instead of Go's zero time (0001-01-01), which clients would chart as a date.
 type DaySummary struct {
-	Date       string    `json:"date"`
-	WorkStart  time.Time `json:"work_start"`
-	WorkEnd    time.Time `json:"work_end"`
-	SpanSec    int       `json:"span_sec"`    // work_end − work_start
-	ActiveSec  int       `json:"active_sec"`  // summed focus across sessions
-	BreakSec   int       `json:"break_sec"`   // span − active
-	Sessions   int       `json:"sessions"`    // number of work sessions
-	LongestSec int       `json:"longest_sec"` // longest single session's active time
+	Date       string     `json:"date"`
+	WorkStart  *time.Time `json:"work_start"`
+	WorkEnd    *time.Time `json:"work_end"`
+	SpanSec    int        `json:"span_sec"`    // work_end − work_start
+	ActiveSec  int        `json:"active_sec"`  // summed focus across sessions
+	BreakSec   int        `json:"break_sec"`   // span − active
+	Sessions   int        `json:"sessions"`    // number of work sessions
+	LongestSec int        `json:"longest_sec"` // longest single session's active time
 }
 
 // dayKey is the logical calendar day a timestamp belongs to, accounting for a
@@ -291,15 +307,15 @@ func DayWork(recs []PhaseRecord, day time.Time, gap time.Duration, dayStartHour 
 	if len(sessions) == 0 {
 		return d
 	}
-	d.WorkStart = sessions[0].Start
-	d.WorkEnd = sessions[len(sessions)-1].End
+	start, end := sessions[0].Start, sessions[len(sessions)-1].End
+	d.WorkStart, d.WorkEnd = &start, &end
 	for _, s := range sessions {
 		d.ActiveSec += s.ActiveSec
 		if s.ActiveSec > d.LongestSec {
 			d.LongestSec = s.ActiveSec
 		}
 	}
-	d.SpanSec = int(d.WorkEnd.Sub(d.WorkStart) / time.Second)
+	d.SpanSec = int(end.Sub(start) / time.Second)
 	d.BreakSec = d.SpanSec - d.ActiveSec
 	if d.BreakSec < 0 {
 		d.BreakSec = 0
@@ -336,9 +352,9 @@ func DayWorkOverlay(focus []PhaseRecord, acts []ActivityRecord, day time.Time, g
 	}
 	sessions := mergeIntervals(active, gap) // bridge short idle gaps into work sessions
 	d.Sessions = len(sessions)
-	d.WorkStart = sessions[0].Start
-	d.WorkEnd = sessions[len(sessions)-1].End
-	d.SpanSec = int(d.WorkEnd.Sub(d.WorkStart) / time.Second)
+	start, end := sessions[0].Start, sessions[len(sessions)-1].End
+	d.WorkStart, d.WorkEnd = &start, &end
+	d.SpanSec = int(end.Sub(start) / time.Second)
 	d.ActiveSec = totalSec(active)
 
 	// LongestSec: the most active wall-clock within a single session.

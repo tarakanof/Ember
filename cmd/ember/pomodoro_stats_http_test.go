@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +65,150 @@ func TestPomodoroStatsRichPayload(t *testing.T) {
 	}
 	if _, ok := body["weekly"]; !ok {
 		t.Errorf("missing weekly buckets")
+	}
+}
+
+// TestPomodoroStatsCachedUntilPhaseWrite asserts repeated stats polls are
+// served from cache (a row the app's store never wrote stays invisible) and
+// that a phase recorded through the app's store shows up on the next poll.
+func TestPomodoroStatsCachedUntilPhaseWrite(t *testing.T) {
+	app := newPomodoroApp(t)
+	path := filepath.Join(t.TempDir(), "shared.db")
+	own, err := pomodoro.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { own.Close() })
+	app.store = own
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	now := time.Now()
+	todayCompleted := func() float64 {
+		t.Helper()
+		_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/stats", "", "")
+		return body["today"].(map[string]any)["completed_focus"].(float64)
+	}
+
+	recFocus(t, app, now.Add(-10*time.Minute), 25, true, "completed")
+	if got := todayCompleted(); got != 1 {
+		t.Fatalf("first poll: completed = %v, want 1", got)
+	}
+
+	// A second handle on the same file writes behind the app's back: the
+	// app's cache has no reason to drop, so the poll must not re-query.
+	other, err := pomodoro.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	res := pomodoro.PhaseResult{Phase: pomodoro.PhaseFocus, PlannedSec: 1500, ActualSec: 1500, Completed: true, Reason: "completed"}
+	if err := other.RecordPhase(res, now.Add(-60*time.Minute), now.Add(-35*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := todayCompleted(); got != 1 {
+		t.Fatalf("cached poll: completed = %v, want 1 (served from cache)", got)
+	}
+
+	// A write through the app's own store invalidates the cache.
+	recFocus(t, app, now.Add(-5*time.Minute), 1, true, "completed")
+	if got := todayCompleted(); got != 3 {
+		t.Fatalf("after app write: completed = %v, want 3", got)
+	}
+}
+
+// statsBehindTheBack returns an app whose store shares a file with a second
+// handle; phases written through that handle do not invalidate the cache, so
+// they only show up when the cache is rebuilt for another reason.
+func statsBehindTheBack(t *testing.T) (*App, *pomodoro.Store) {
+	t.Helper()
+	app := newPomodoroApp(t)
+	path := filepath.Join(t.TempDir(), "shared.db")
+	own, err := pomodoro.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { own.Close() })
+	app.store = own
+	other, err := pomodoro.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	return app, other
+}
+
+func completedIn30d(t *testing.T, app *App, now time.Time) int {
+	t.Helper()
+	s, err := app.cachedStats(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Completion.CompletedFocus
+}
+
+func writeFocusVia(t *testing.T, st *pomodoro.Store, ended time.Time) {
+	t.Helper()
+	res := pomodoro.PhaseResult{Phase: pomodoro.PhaseFocus, PlannedSec: 1500, ActualSec: 1500, Completed: true, Reason: "completed"}
+	if err := st.RecordPhase(res, ended.Add(-25*time.Minute), ended); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPomodoroStatsCacheRebuildsOnLogicalDayRollover asserts crossing
+// day_start_hour rebuilds the cache even with no phase write in between.
+func TestPomodoroStatsCacheRebuildsOnLogicalDayRollover(t *testing.T) {
+	app, other := statsBehindTheBack(t)
+	startHour := app.cfg.Load().Pomodoro.DayStartHour
+	y, m, d := time.Now().AddDate(0, 0, -1).Date()
+	boundary := time.Date(y, m, d, startHour, 0, 0, 0, time.Local)
+	before, after := boundary.Add(-10*time.Second), boundary.Add(10*time.Second)
+
+	if got := completedIn30d(t, app, before); got != 0 {
+		t.Fatalf("before rollover: %d, want 0", got)
+	}
+	writeFocusVia(t, other, before.Add(-time.Hour))
+	if got := completedIn30d(t, app, before.Add(5*time.Second)); got != 0 {
+		t.Fatalf("same logical day: %d, want 0 (cached)", got)
+	}
+	if got := completedIn30d(t, app, after); got != 1 {
+		t.Errorf("after rollover: %d, want 1 (rebuilt)", got)
+	}
+}
+
+// TestPomodoroStatsCacheExpiresAfterTTL asserts the cache is rebuilt once
+// statsCacheTTL has passed, which is how writes by another store handle or
+// process become visible.
+func TestPomodoroStatsCacheExpiresAfterTTL(t *testing.T) {
+	app, other := statsBehindTheBack(t)
+	y, m, d := time.Now().AddDate(0, 0, -1).Date()
+	t0 := time.Date(y, m, d, 12, 0, 0, 0, time.Local) // clear of any day boundary
+
+	if got := completedIn30d(t, app, t0); got != 0 {
+		t.Fatalf("first build: %d, want 0", got)
+	}
+	writeFocusVia(t, other, t0.Add(-time.Hour))
+	if got := completedIn30d(t, app, t0.Add(statsCacheTTL-time.Second)); got != 0 {
+		t.Fatalf("within TTL: %d, want 0 (cached)", got)
+	}
+	if got := completedIn30d(t, app, t0.Add(statsCacheTTL+time.Second)); got != 1 {
+		t.Errorf("after TTL: %d, want 1 (rebuilt)", got)
+	}
+}
+
+// TestPomodoroStatsCacheFollowsConfig asserts a goal change is reflected
+// immediately rather than after the cache expires.
+func TestPomodoroStatsCacheFollowsConfig(t *testing.T) {
+	app := newPomodoroApp(t)
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/stats", "", "")
+	if got := body["goal"].(map[string]any)["daily_sessions"].(float64); got != 8 {
+		t.Fatalf("daily_sessions = %v, want 8", got)
+	}
+	app.updateConfig(func(c *Config) { c.Pomodoro.DailyGoalSessions = 3 })
+	_, body = doReq(t, srv, http.MethodGet, "/v1/pomodoro/stats", "", "")
+	if got := body["goal"].(map[string]any)["daily_sessions"].(float64); got != 3 {
+		t.Fatalf("daily_sessions after config change = %v, want 3", got)
 	}
 }
 
@@ -174,6 +320,42 @@ func TestStatusRecordsActivityThrottled(t *testing.T) {
 	}
 }
 
+// A transition into waiting is recorded inside the throttle window (a short
+// prompt is the attention signal the activity summary counts), but never
+// sooner than activityWaitFloor after the previous row, and other state changes
+// stay throttled so a flapping producer can't write a row per POST.
+func TestActivityHeartbeatRecordsWaitingTransitionWithFloor(t *testing.T) {
+	app := newPomodoroApp(t)
+	t0 := time.Now().Add(-time.Hour).Truncate(time.Second)
+	steps := []struct {
+		offset time.Duration
+		state  string
+	}{
+		{0, "running"},
+		{3 * time.Second, "waiting"},  // into waiting, but inside the 10s floor: dropped
+		{15 * time.Second, "waiting"}, // into waiting past the floor: recorded
+		{20 * time.Second, "running"}, // leaving waiting stays throttled
+		{25 * time.Second, "waiting"}, // the mark says waiting already: throttled
+		{3 * time.Minute, "running"},  // throttle window elapsed: recorded
+	}
+	for _, st := range steps {
+		app.recordActivityHeartbeat(Session{Source: "Claude", Tool: "claude", Session: "s1", State: st.state}, t0.Add(st.offset))
+	}
+
+	rows, err := app.store.ActivityBetween(t0.Add(-time.Minute), t0.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range rows {
+		got = append(got, fmt.Sprintf("%s@%s", r.State, r.At.Sub(t0)))
+	}
+	want := "running@0s,waiting@15s,running@3m0s"
+	if strings.Join(got, ",") != want {
+		t.Errorf("recorded rows = %v, want %s", got, want)
+	}
+}
+
 func TestPomodoroDashboardServesHTML(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -193,5 +375,37 @@ func TestPomodoroDashboardServesHTML(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(b), "Pomodoro") || !strings.Contains(string(b), "getJSON") {
 		t.Errorf("dashboard HTML looks wrong (len %d)", len(b))
+	}
+}
+
+// TestActivityHeartbeatBoundsGrowth asserts the per-session throttle map drops
+// entries that can no longer throttle anything, and that heartbeats prune
+// activity rows older than the retention window.
+func TestActivityHeartbeatBoundsGrowth(t *testing.T) {
+	app := newPomodoroApp(t)
+	now := time.Now()
+	ancient := now.Add(-activityRetention - time.Hour)
+	if err := app.store.RecordActivity(ancient, "Claude", "claude", "Claude/claude/old", "running"); err != nil {
+		t.Fatal(err)
+	}
+
+	app.recordActivityHeartbeat(Session{Source: "Claude", Tool: "claude", Session: "s1", State: "running"}, now)
+	later := now.Add(activitySweepInterval + time.Minute)
+	app.recordActivityHeartbeat(Session{Source: "Claude", Tool: "claude", Session: "s2", State: "running"}, later)
+
+	app.activityMu.Lock()
+	_, stale := app.activityLast["Claude/claude/s1"]
+	_, fresh := app.activityLast["Claude/claude/s2"]
+	app.activityMu.Unlock()
+	if stale || !fresh {
+		t.Errorf("activityLast: s1 kept=%v (want false), s2 kept=%v (want true)", stale, fresh)
+	}
+
+	rows, err := app.store.ActivityBetween(ancient.Add(-time.Hour), ancient.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("activity rows older than retention: got %d, want 0", len(rows))
 	}
 }

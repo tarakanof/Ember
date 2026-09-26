@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 func newPublisherAgainst(t *testing.T, h http.HandlerFunc) *HTTPPublisher {
@@ -58,14 +60,14 @@ func TestPublisherSwitchPutsActiveApp(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	if err := pub.Switch(context.Background(), "ember"); err != nil {
+	if err := pub.Switch(context.Background(), "ember", awtrix.SwitchInstant); err != nil {
 		t.Fatalf("Switch: %v", err)
 	}
 	if gotMethod != http.MethodPut || gotPath != "/api/v1/apps/active" {
 		t.Fatalf("got %s %s, want PUT /api/v1/apps/active", gotMethod, gotPath)
 	}
-	if gotBody["name"] != "ember" {
-		t.Fatalf("body name = %v, want ember", gotBody["name"])
+	if gotBody["name"] != "ember" || gotBody["fast"] != true {
+		t.Fatalf("body = %v, want name ember + fast true", gotBody)
 	}
 }
 
@@ -121,7 +123,7 @@ func TestPublisherListAppsParsesNGArray(t *testing.T) {
 	}
 }
 
-func TestPublisherPlayRTTTLPostsJSONSoundsPlay(t *testing.T) {
+func TestPublisherPlayRTTTLPostsJSONAudioPlay(t *testing.T) {
 	var gotPath, gotCT string
 	var gotBody map[string]any
 	pub := newPublisherAgainst(t, func(w http.ResponseWriter, r *http.Request) {
@@ -133,8 +135,8 @@ func TestPublisherPlayRTTTLPostsJSONSoundsPlay(t *testing.T) {
 	if err := pub.PlayRTTTL(context.Background(), "beep:d=16,o=6,b=140:c"); err != nil {
 		t.Fatalf("PlayRTTTL: %v", err)
 	}
-	if gotPath != "/api/v1/sounds/play" || gotCT != "application/json" {
-		t.Fatalf("got %s (%s), want /api/v1/sounds/play (application/json)", gotPath, gotCT)
+	if gotPath != "/api/v1/audio/play" || gotCT != "application/json" {
+		t.Fatalf("got %s (%s), want /api/v1/audio/play (application/json)", gotPath, gotCT)
 	}
 	if gotBody["rtttl"] != "beep:d=16,o=6,b=140:c" {
 		t.Fatalf("body = %v", gotBody)

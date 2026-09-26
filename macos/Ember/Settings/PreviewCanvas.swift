@@ -11,7 +11,6 @@ struct PreviewCanvas: View {
     var height: Int = 8
 
     @State private var index = 0
-    @State private var timer = Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()
 
     private var pixels: [Int] {
         guard !frames.isEmpty else { return Array(repeating: 0, count: width * height) }
@@ -33,9 +32,14 @@ struct PreviewCanvas: View {
                         .padding(3)
                 }
             }
-            .onReceive(timer) { _ in
-                guard !frames.isEmpty else { return }
-                index = (index + 1) % frames.count
+            // A task, not a Combine timer in @State (a build warning under the
+            // @State macro, audit #48); restarts when the frame count changes.
+            .task(id: frames.count) {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled, !frames.isEmpty else { continue }
+                    index = (index + 1) % frames.count
+                }
             }
             .onChange(of: frames.count) { _, n in if index >= n { index = 0 } }
     }

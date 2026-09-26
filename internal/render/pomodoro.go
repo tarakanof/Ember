@@ -49,8 +49,9 @@ var tomatoStem = []string{
 	"..XXX..", // row1
 }
 
-// coffeeMug is the short-break pictogram: a gray mug with a handle. The steam
-// wisp above is painted separately (dimmer) so it reads as a hot coffee.
+// coffeeMug is the break pictogram (short and long, like the device's coffee
+// icon): a gray mug with a handle. The steam wisp above is painted separately
+// (dimmer) so it reads as a hot coffee.
 var coffeeMug = []string{
 	".......", // row0 (steam painted separately)
 	".......", // row1
@@ -64,17 +65,6 @@ var coffeeMug = []string{
 var coffeeSteam = []string{
 	"..X.X..", // row0
 	"..X.X..", // row1
-}
-
-// breakMoon is the long-break pictogram (a crescent — "rest").
-var breakMoon = []string{
-	"..XXX..",
-	".XX....",
-	"XX.....",
-	"XX.....",
-	"XX.....",
-	".XX....",
-	"..XXX..",
 }
 
 // HexRGB parses a "#RRGGBB" colour string into an RGB. ok is false on malformed
@@ -114,24 +104,35 @@ func drawColon(f *Frame, x, startY int, c RGB) {
 	paintCell(f, x, startY+3, c)
 }
 
-// progressWidth returns how many of the 32 columns the remaining-time bar fills.
+// progressWidth returns how many of the barW bottom-bar columns the
+// remaining-time bar fills.
 func progressWidth(remaining, planned int) int {
 	if planned <= 0 {
 		return 0
 	}
-	w := (32*remaining + planned/2) / planned
+	w := (barW*remaining + planned/2) / planned
 	if w < 0 {
 		return 0
 	}
-	if w > 32 {
-		return 32
+	if w > barW {
+		return barW
 	}
 	return w
 }
 
-// RenderPomodoro paints a graphics-first Pomodoro frame: a phase pictogram in
-// the left columns, the MM:SS countdown in the phase colour, and a
-// remaining-time progress bar on the bottom row. Paused dims the colour.
+// pomoTimeW is the drawn MM:SS width: four 3-px digits, 1-px spacers, and a
+// 1-px colon with a spacer on each side.
+const pomoTimeW = 17
+
+// pomoTimeX centres the MM:SS in the content area, where NG centres the
+// device's native countdown after its icon.
+const pomoTimeX = contentX + (contentW-pomoTimeW)/2
+
+// RenderPomodoro paints the drawn preview of the Pomodoro tile for
+// /v1/pomodoro/preview. It copies the device layout of PomodoroPayload: a
+// phase pictogram where the native icon sits, the MM:SS countdown centred in
+// the phase colour, and the remaining-time progress along the bottom bar from
+// col 8. Paused dims the colour.
 func RenderPomodoro(v PomodoroView) *Frame {
 	f := &Frame{}
 	c := pomoBaseColor(v)
@@ -144,13 +145,11 @@ func RenderPomodoro(v PomodoroView) *Frame {
 	case pomoFocus:
 		paintBitmap(f, 0, 0, tomatoBody, c)
 		paintBitmap(f, 0, 0, tomatoStem, pomoStem)
-	case pomoShort:
+	case pomoShort, pomoLong:
 		// The mug is a fixed neutral gray (the requested "gray coffee cup"); the
 		// countdown + progress bar still carry the break colour for the phase cue.
 		paintBitmap(f, 0, 0, coffeeSteam, pomoSteam)
 		paintBitmap(f, 0, 0, coffeeMug, pomoCupGray)
-	case pomoLong:
-		paintBitmap(f, 0, 0, breakMoon, c)
 	}
 
 	// MM:SS countdown (digits via the shared 3×5 font), origin at (9,1).
@@ -163,16 +162,15 @@ func RenderPomodoro(v PomodoroView) *Frame {
 	if mm > 99 {
 		mm = 99
 	}
-	const startX, startY = 9, 1
-	drawDigits(f, fmt.Sprintf("%02d", mm), startX, startY, c)
-	drawColon(f, startX+8, startY, c)
-	drawDigits(f, fmt.Sprintf("%02d", ss), startX+10, startY, c)
+	drawDigits(f, fmt.Sprintf("%02d", mm), pomoTimeX, textRow, c)
+	drawColon(f, pomoTimeX+8, textRow, c)
+	drawDigits(f, fmt.Sprintf("%02d", ss), pomoTimeX+10, textRow, c)
 
-	// Progress bar on row 7: dim track under the whole width, phase colour
+	// Progress on the bottom bar: dim track under the whole bar, phase colour
 	// for the remaining portion.
-	paintRow(f, 0, 31, 7, pomoTrack)
+	paintRow(f, barX0, panelW-1, barRow, pomoTrack)
 	if w := progressWidth(rem, v.PlannedSec); w > 0 {
-		paintRow(f, 0, w-1, 7, c)
+		paintRow(f, barX0, barX0+w-1, barRow, c)
 	}
 
 	return f
@@ -213,9 +211,9 @@ func pomoProgressPct(remaining, planned int) int {
 
 // PomodoroPayload encodes a Pomodoro frame using AWTRIX's built-in animated icon
 // (tomato for focus, coffee for breaks) + a native MM:SS countdown + the native
-// progress bar. Paused dims the phase colour (the animated icon keeps animating
-// — an accepted cosmetic). RenderPomodoro (the drawn variant) is retained for
-// tests / any future preview use.
+// progress bar. Paused dims the phase colour and fades the countdown in and out
+// (textFadeMs): the animated icon keeps animating at full brightness, so the dim
+// alone is a weak cue. RenderPomodoro draws the same layout for the preview.
 func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 	c := pomoBaseColor(v)
 	if v.Paused {
@@ -255,6 +253,13 @@ func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 		"progressTrackColor": hexOf(pomoTrack), // dim track (else NG defaults to white)
 		"lifetimeMs":         msOf(lifetimeSeconds),
 	}
+	if v.Paused {
+		p["textFadeMs"] = pomoPausedFadeMs
+	}
 	applyHold(p, lifetimeSeconds)
 	return p
 }
+
+// pomoPausedFadeMs is the fade period of a paused countdown: slow enough to
+// read as "on hold" rather than an alert (attention labels blink at 500 ms).
+const pomoPausedFadeMs = 2000

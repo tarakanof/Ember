@@ -58,7 +58,9 @@ public struct EnvFile: Sendable {
         let fm = FileManager.default
         if let attrs = try? fm.attributesOfItem(atPath: dir.path),
            let perm = (attrs[.posixPermissions] as? NSNumber)?.int16Value, (perm & 0o077) != 0 {
-            throw ValidationError(message: "config dir \(dir.path) is wider than 0700; run chmod 0700 and retry")
+            throw ValidationError(message: LocalizedStringResource(
+                "Other users can read \(dir.path). Run chmod 700 on that folder and try again.",
+                comment: "Saving settings failed: the folder holding the token is readable by other users. The argument is its path."))
         }
         try fm.createDirectory(at: dir, withIntermediateDirectories: true,
                                attributes: [.posixPermissions: 0o700])

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // overlayValues are the ambient-weather overlay effects awtrix-ng exposes via
@@ -19,8 +21,9 @@ var overlaySettingsRules = map[string]settingRule{
 }
 
 // validateDeviceDisplay rejects unknown keys and out-of-range / wrong-type
-// values for PUT /v1/device/display. Only overlay and overlaySettings are in
-// scope for this ticket — moodlight and power are deliberately not exposed.
+// values for PUT /v1/device/display. Only overlay and overlaySettings are
+// accepted: power has its own route (PUT /v1/device/display/power) so an
+// overlay edit can never blank the panel, and moodlight is not exposed.
 func validateDeviceDisplay(m map[string]any) error {
 	for k, v := range m {
 		switch k {
@@ -48,13 +51,13 @@ func validateDeviceDisplay(m map[string]any) error {
 }
 
 func (a *App) handleDeviceDisplayGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/display", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawDisplay)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -64,8 +67,7 @@ func (a *App) handleDeviceDisplayGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
 	var m map[string]any
-	if err := decodeJSON(w, r, &m, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &m, false) {
 		return
 	}
 	if err := validateDeviceDisplay(m); err != nil {
@@ -73,13 +75,13 @@ func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPatch, "/api/v1/display", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPatchDisplay, payload))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -95,13 +97,13 @@ type deviceAppsPutBody struct {
 }
 
 func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/apps", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawApps)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -111,18 +113,17 @@ func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 	var body deviceAppsPutBody
-	if err := decodeJSON(w, r, &body, true); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &body, true) {
 		return
 	}
 	payload, _ := json.Marshal(body)
-	_, status, err := a.proxyToDevice(r.Context(), http.MethodPut, "/api/v1/apps/order", payload)
+	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPutAppOrder, payload))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status < 200 || status >= 300 {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, reply)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

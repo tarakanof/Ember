@@ -122,8 +122,7 @@ func (a *App) handleAppsPut(w http.ResponseWriter, r *http.Request) {
 		App     string `json:"app"`
 		Enabled bool   `json:"enabled"`
 	}
-	if err := decodeJSON(w, r, &req, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &req, false) {
 		return
 	}
 	if req.App == "" {

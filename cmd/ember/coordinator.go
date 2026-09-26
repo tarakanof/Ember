@@ -1,19 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"log/slog"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/render"
 )
 
@@ -37,8 +32,8 @@ const (
 	cmdClear                        // all sessions cleared.
 	cmdShutdown                     // graceful stop.
 	// cmdRepublish drops the push-dedupe state and re-pushes everything at once.
-	// Sent when the device is known to have lost what we pushed — today only a
-	// detected reboot (App.RepublishAll).
+	// Sent via App.RepublishAll when the device has lost (or may have lost) what
+	// we pushed: a detected reboot, the boot-ping hook, or a swap to a new URL.
 	cmdRepublish
 )
 
@@ -51,7 +46,11 @@ type coordCmd struct {
 }
 
 // coordinator owns the single goroutine that decides what AWTRIX
-// payload to publish and when. All AWTRIX HTTP writes pass through it.
+// payload to publish and when. Every write to the rotation (the session app,
+// tiles, indicators, the display hold) passes through it. One-shot
+// notifications (/v1/notify, reminders, weather and meeting popups, the
+// Pomodoro phase-end alert) call the Publisher directly, and the menu's
+// /v1/device proxy uses the awtrix client (device_settings.go proxyToDevice).
 type coordinator struct {
 	loadCfg   func() *Config // shape matches App.cfg.Load directly
 	publisher Publisher
@@ -65,7 +64,7 @@ type coordinator struct {
 	// Ticks: 1-slot drop-on-full channel. Stale ticks carry no info.
 	ticks chan struct{}
 
-	// State owned by the goroutine. Tests read it via muTest below.
+	// State owned by the goroutine, written under stateMu (see below).
 	pointer       string
 	cardCursor    int
 	locked        bool
@@ -111,9 +110,22 @@ type coordinator struct {
 	// hold is who currently owns the screen device-side. Edge-triggered: the
 	// forced app switch (and, for Pomodoro, the autoTransition/blockNavigation
 	// settings) are written only when this value changes, plus on a cmdRepublish
-	// (a device reboot clears both behind our back). Coordinator-goroutine-owned
-	// (read/written only from publish/onRepublish).
+	// (a device reboot clears the pushed app behind our back). It moves only
+	// once the device has accepted the edge's writes, so a lost write is
+	// replayed on the next tick. Coordinator-goroutine-owned (read/written only
+	// from publish/onRepublish).
 	hold holdState
+
+	// prior is the user's own autoTransition/blockNavigation, snapshotted
+	// before a Pomodoro takeover and written back on release. Non-nil means a
+	// takeover may be in force device-side and a restore is owed. Mirrored in
+	// kv (when set) so a process that dies mid-takeover restores on its next
+	// start. Coordinator-goroutine-owned once Run starts.
+	prior *takeoverPrior
+	// restoreBackoff counts ticks left to skip before retrying a restore that
+	// was lost (see restoreBackoffTicks). Coordinator-goroutine-owned.
+	restoreBackoff int
+	kv             settingsKV
 
 	// onPublishResult, if non-nil, is called after every publish attempt
 	// with the snapshot we tried to render and the error (nil on success).
@@ -128,9 +140,12 @@ type coordinator struct {
 	// that call publish before Run).
 	ctx context.Context
 
-	// muTest exists so tests can safely read coordinator-owned state
-	// without data-race detector warnings. Production code never touches it.
-	muTest sync.RWMutex
+	// stateMu guards pointer, cardCursor, the lock fields (locked, lockedKey,
+	// lockEnteredAt, lockReleaseTimer) and idleSince. Only the coordinator
+	// goroutine writes them, and it holds stateMu for every write; readers on
+	// any other goroutine (tests today) must RLock. The coordinator's own
+	// reads may skip the lock, since nothing else writes.
+	stateMu sync.RWMutex
 
 	publishCount atomic.Int64
 
@@ -199,7 +214,7 @@ const (
 )
 
 // idleStateLocked decides which rendering branch publish should take.
-// Caller MUST hold muTest. Returns the mode; mutates c.idleSince as a
+// Caller MUST hold stateMu. Returns the mode; mutates c.idleSince as a
 // side effect (zero when active, set to now on first all-idle call).
 func (c *coordinator) idleStateLocked(activeCount int, now time.Time, idleRestore time.Duration) coordIdleMode {
 	if activeCount > 0 {
@@ -219,7 +234,7 @@ func (c *coordinator) idleStateLocked(activeCount int, now time.Time, idleRestor
 // for starting its goroutine via Run.
 //
 // loadCfg returns the current *Config — pass `a.cfg.Load` from the App
-// (atomic.Pointer[Config]) so reloadable fields (refresh_seconds) take
+// (atomic.Pointer[Config]) so reloadable fields (rotation_dwell_seconds) take
 // effect at the next tick. Tests pass nil to capture cfg by value.
 //
 // m may be nil (tests that don't need metric counters).
@@ -367,7 +382,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 	transition := prior != next
 
 	freshLock := false
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	switch {
 	case attention && transition && !priorWasAttention && !c.keyHidden(key):
 		// Fresh attention transition from a non-attention state.
@@ -393,7 +408,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 		c.lockedKey = ""
 		c.disarmLockTimerLocked()
 	}
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 
 	if freshLock && c.loadCfg().Display.AttentionChime {
 		ctx := c.ctx
@@ -411,7 +426,7 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 }
 
 func (c *coordinator) onDelete(key string) {
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	if c.locked && c.lockedKey == key {
 		c.locked = false
 		c.lockedKey = ""
@@ -421,59 +436,23 @@ func (c *coordinator) onDelete(key string) {
 		c.pointer = ""
 		c.cardCursor = 0
 	}
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 	if c.snapshot != nil {
 		c.publish(c.filteredSnapshot())
 	}
 }
 
 func (c *coordinator) onClear() {
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	c.pointer = ""
 	c.cardCursor = 0
 	c.locked = false
 	c.lockedKey = ""
 	c.disarmLockTimerLocked()
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 
 	if c.snapshot != nil {
 		c.publish(c.filteredSnapshot())
-	}
-}
-
-// attentionRTTTL is the optional lock-acquisition chime (display.attention_chime).
-const attentionRTTTL = "attn:d=16,o=6,b=200:c,e,g"
-
-// ackTimeoutDur reads the attention-hold duration live so a /v1/display/config
-// PUT applies to the CURRENT lock without restart.
-func (c *coordinator) ackTimeoutDur() time.Duration {
-	sec := c.loadCfg().Display.AckTimeoutSeconds
-	if sec <= 0 {
-		sec = 30
-	}
-	return time.Duration(sec) * time.Second
-}
-
-// armLockTimerLocked installs (or replaces) the wallclock safety-net
-// timer that fires a cmdTick after the current ackTimeoutDur. Caller must hold muTest.
-// The timer is armed with the value at arm time; if the hold is shortened
-// mid-lock via a config PUT, the tick-driven release check in onTick still
-// releases promptly (it re-reads live on every tick), but this safety-net
-// timer may fire later than the new shorter value.
-func (c *coordinator) armLockTimerLocked() {
-	if c.lockReleaseTimer != nil {
-		c.lockReleaseTimer.Stop()
-	}
-	c.lockReleaseTimer = time.AfterFunc(c.ackTimeoutDur(), func() {
-		c.Send(coordCmd{kind: cmdTick})
-	})
-}
-
-// disarmLockTimerLocked stops the safety-net timer. Caller must hold muTest.
-func (c *coordinator) disarmLockTimerLocked() {
-	if c.lockReleaseTimer != nil {
-		c.lockReleaseTimer.Stop()
-		c.lockReleaseTimer = nil
 	}
 }
 
@@ -529,7 +508,7 @@ func (c *coordinator) onTick() {
 	// Evaluate all lock-release conditions against the current snapshot:
 	// ack timeout, drain (locked session moved out of attention state),
 	// reap (locked key no longer in active set).
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	if c.locked {
 		releaseReason := ""
 		if !slices.Contains(keys, c.lockedKey) {
@@ -555,9 +534,9 @@ func (c *coordinator) onTick() {
 			c.disarmLockTimerLocked()
 		}
 	}
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 
-	c.muTest.Lock()
+	c.stateMu.Lock()
 	switch {
 	case len(keys) == 0:
 		c.pointer = ""
@@ -585,7 +564,7 @@ func (c *coordinator) onTick() {
 			c.cardCursor = 0
 		}
 	}
-	c.muTest.Unlock()
+	c.stateMu.Unlock()
 
 	c.publish(snap)
 	c.clearLegacyUsageApps()
@@ -594,642 +573,4 @@ func (c *coordinator) onTick() {
 	c.reconcileAirApp(c.clk.Now())
 	c.reconcileMeetingApp(c.clk.Now())
 	c.checkLimitAlarms(c.clk.Now(), snap)
-}
-
-// adoptDeviceManagedApps seeds the in-memory push trackers from the apps
-// actually present on the device, so ember-managed custom apps (weather,
-// forecast, usage) left over from a previous process can be reconciled — and
-// cleared when no longer wanted — even though the trackers start empty after a
-// restart. Each adopted entry is seeded as stale (zero payload + time) so the
-// normal reconcile re-pushes it if still desired, or clears it if not. The base
-// rotating app and native apps (Time, etc.) are deliberately left untouched.
-// Returns false if the device loop can't be read, so the caller retries on a
-// later tick once the device is reachable. Runs on the coordinator goroutine.
-func (c *coordinator) adoptDeviceManagedApps() bool {
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	names, err := c.publisher.ListApps(ctx)
-	if err != nil {
-		c.logger.Warn("device app loop read failed; deferring adopt", "err", err)
-		return false
-	}
-	baseApp := c.loadCfg().AWTRIX.AppName
-	for _, name := range names {
-		switch {
-		case name == baseApp:
-			// The main rotating app is owned by publish(), not the reconcilers.
-		case name == "ember-weather":
-			if c.pushedWeather == nil {
-				c.pushedWeather = &pushedUsageApp{}
-			}
-		case name == "ember-forecast":
-			if c.pushedForecast == nil {
-				c.pushedForecast = &pushedUsageApp{}
-			}
-		case name == "ember-air":
-			if c.pushedAir == nil {
-				c.pushedAir = &pushedUsageApp{}
-			}
-		case name == "ember-meet":
-			if c.pushedMeeting == nil {
-				c.pushedMeeting = &pushedUsageApp{}
-			}
-		case strings.HasPrefix(name, "ember-usage-"):
-			if c.pushedUsageApps == nil {
-				c.pushedUsageApps = map[string]pushedUsageApp{}
-			}
-			if _, ok := c.pushedUsageApps[name]; !ok {
-				c.pushedUsageApps[name] = pushedUsageApp{}
-			}
-		}
-	}
-	return true
-}
-
-// publishAttemptTimeout bounds ONE pushed-app write, and publishAttempts is how
-// many of them a frame gets before the coordinator gives up until the next tick.
-//
-// awtrix.timeout_seconds (10s by default) is the wrong budget here: it is the
-// ceiling for any device call, while a frame push is a ~2.4 KB PUT to a device
-// on the same LAN that answers in well under a second when the link is healthy
-// (measured: 0.04s empty-ish, 0.55-0.68s at 3 KB). A push that has not answered
-// in 2.5s has almost certainly been dropped, and every second spent waiting is a
-// second the coordinator goroutine — which owns every device write — is not
-// serving ticks, so its missed ticks turn into dropped state-change commands.
-//
-// Retrying inside the tick (rather than waiting a whole dwell for the next one)
-// is what keeps a lossy link from evicting the app: the device drops a pushed
-// app on its own lifetime, and it counts wallclock, not attempts.
-const (
-	publishAttemptTimeout = 2500 * time.Millisecond
-	publishAttempts       = 2
-)
-
-// pushApp writes one pushed app, retrying a lost attempt within its own tick.
-// Each attempt gets publishAttemptTimeout; a device that answers with an error
-// (any *awtrix.APIError — a 422 rejection will not become a 200 on a retry) and
-// a cancelled coordinator context both stop the loop immediately. Returns the
-// last attempt's error. Coordinator goroutine only.
-func (c *coordinator) pushApp(name string, payload map[string]any) error {
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	budget := publishAttemptTimeout
-	if t := time.Duration(c.loadCfg().AWTRIX.TimeoutSeconds) * time.Second; t > 0 && t < budget {
-		budget = t
-	}
-
-	var err error
-	for i := 0; i < publishAttempts; i++ {
-		if i > 0 {
-			c.metrics.incPublishRetry()
-		}
-		attemptCtx, cancel := context.WithTimeout(ctx, budget)
-		err = c.publisher.CustomApp(attemptCtx, name, payload)
-		cancel()
-		if err == nil {
-			return nil
-		}
-		if !retryablePushErr(err) || ctx.Err() != nil {
-			return err
-		}
-	}
-	return err
-}
-
-// retryablePushErr reports whether a failed push is worth another attempt. A
-// transport failure (timeout, refused, reset) carries no status and is exactly
-// the lost-packet case retries exist for. A device that answered has decided:
-// only 5xx and 429 can change on their own — this clock watchdog-resets and
-// runs its HTTP server on the same task that drives the panel, so a 503 while
-// busy is transient. Any other 4xx (422 on a payload NG rejects, 413 on one too
-// large) will answer identically forever.
-func retryablePushErr(err error) bool {
-	var apiErr *awtrix.APIError
-	if !errors.As(err, &apiErr) {
-		return true
-	}
-	return apiErr.StatusCode >= 500 || apiErr.StatusCode == http.StatusTooManyRequests
-}
-
-// renewalDedupWindow returns how long an unchanged frame may be skipped before
-// publish must re-push it, given the device-side lifetime and the tick cadence
-// (both in seconds).
-//
-// The renewal margin it leaves is what a lossy link spends: the last tick before
-// the window opens can land a full dwell early, so the wallclock slack before
-// the device evicts the app is (margin - dwell). The original margin of one
-// dwell + 1s left 1s of slack — a single attempt, so one dropped push took the
-// app out of the device's rotation until the frame changed.
-//
-// A third of the lifetime is the target. The floor raises that for
-// configurations where a third is too thin to fit one full pushApp budget plus
-// the dwell jitter. On a lifetime so short that even the floor doesn't fit, the
-// window bottoms out at 1s and every tick re-pushes: dedupe is device/network
-// thrift, keeping the app alive is correctness, so the thrift is what gives.
-func renewalDedupWindow(lifetimeSec, dwellSec int) time.Duration {
-	margin := lifetimeSec / 3
-	if floor := dwellSec + int(publishAttempts*publishAttemptTimeout/time.Second) + 1; margin < floor {
-		margin = floor
-	}
-	window := time.Duration(lifetimeSec-margin) * time.Second
-	if window < time.Second {
-		window = time.Second
-	}
-	return window
-}
-
-// weatherTileStaleTTL clears the weather tile if no fresh observation arrived
-// within this window (≈3× the default 10-min poll), so a wedged poller doesn't
-// leave a stale temperature on the device indefinitely.
-const weatherTileStaleTTL = 30 * time.Minute
-
-// reconcileTile owns the shared clear/dedupe/push state machine for the
-// standalone rotating tiles (weather/forecast/air/meeting). The per-tile
-// decisions — whether the tile should be on the device and what it shows —
-// stay at the call sites: want gates, buildPayload runs only when want is
-// true. tracker is the per-tile *pushedUsageApp pointer-to-pointer so this
-// helper can nil it on clear. Coordinator goroutine only.
-func (c *coordinator) reconcileTile(now time.Time, name string, tracker **pushedUsageApp, want bool, buildPayload func() map[string]any) {
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if !want {
-		if *tracker != nil {
-			if err := c.publisher.ClearApp(ctx, name); err != nil {
-				c.logger.Warn("tile clear failed", "app", name, "err", err)
-				return
-			}
-			*tracker = nil
-		}
-		return
-	}
-	payload := buildPayload()
-	body, err := json.Marshal(payload)
-	if err != nil {
-		c.logger.Warn("tile payload marshal failed", "app", name, "err", err)
-		return
-	}
-	if *tracker != nil && bytes.Equal((*tracker).body, body) && now.Sub((*tracker).at) < usageRefreshInterval {
-		return
-	}
-	if err := c.pushApp(name, payload); err != nil {
-		c.logger.Warn("tile publish failed", "app", name, "err", err)
-		return
-	}
-	*tracker = &pushedUsageApp{body: body, at: now}
-}
-
-// reconcileWeatherApp pushes/refreshes the single "ember-weather" rotating tile
-// when the feature is enabled, set to rotate, and has a fresh observation; it
-// clears the tile otherwise. Coordinator goroutine only.
-func (c *coordinator) reconcileWeatherApp(now time.Time) {
-	if c.weather == nil {
-		return
-	}
-	cfg := c.loadCfg().Weather
-	obs, have := c.weather.current()
-	want := cfg.Enabled && cfg.RotateInAppsEnabled() && have && now.Sub(obs.FetchedAt) < weatherTileStaleTTL
-	c.reconcileTile(now, "ember-weather", &c.pushedWeather, want, func() map[string]any {
-		tempText := weatherTempText(obs.TempC, cfg.Units)
-		window := forecastWindow(obs.Hourly, cfg.ForecastHours)
-		switch {
-		case cfg.MoonPhaseEnabled() && obs.Condition == render.WeatherClear &&
-			(cfg.Latitude != 0 || cfg.Longitude != 0) && isNight(cfg.Latitude, cfg.Longitude, now):
-			// Moon wins over native icons — there is no per-phase gallery set.
-			illum, waxing := moonIllumination(now)
-			return render.WeatherPayloadMoon(tempText, window, render.MoonView{Illum: illum, Waxing: waxing}, usageAppLifetime)
-		case cfg.TileNativeIcons:
-			return render.WeatherPayloadNative(cfg.weatherIconID(obs.Condition), tempText, window, usageAppLifetime)
-		default:
-			return render.WeatherPayload(obs.Condition, tempText, window, usageAppLifetime)
-		}
-	})
-}
-
-// forecastWindow returns the first `hours` hourly temps (hours clamped to a sane
-// 1..24), or the whole slice when shorter. nil/empty in → nil out.
-func forecastWindow(hourly []float64, hours int) []float64 {
-	if hours <= 0 {
-		hours = 24
-	}
-	if hours > 24 {
-		hours = 24
-	}
-	if len(hourly) > hours {
-		return hourly[:hours]
-	}
-	return hourly
-}
-
-// reconcileForecastApp pushes/refreshes the standalone "ember-forecast" tile
-// (hourly temperature bars) when weather is enabled, the forecast tile is turned
-// on, and we have fresh hourly data; clears it otherwise. Coordinator goroutine only.
-func (c *coordinator) reconcileForecastApp(now time.Time) {
-	if c.weather == nil {
-		return
-	}
-	cfg := c.loadCfg().Weather
-	obs, have := c.weather.current()
-	hourly := forecastWindow(obs.Hourly, cfg.ForecastHours)
-	want := cfg.Enabled && cfg.ForecastTileEnabled() && have && len(hourly) > 0 &&
-		now.Sub(obs.FetchedAt) < weatherTileStaleTTL
-	c.reconcileTile(now, "ember-forecast", &c.pushedForecast, want, func() map[string]any {
-		return render.ForecastPayload(hourly, usageAppLifetime)
-	})
-}
-
-// reconcileAirApp pushes/refreshes the standalone "ember-air" tile (current
-// European AQI + hourly trend strip) when weather is enabled, the air tile is
-// turned on, and the air observation is fresh; clears it otherwise. Coordinator
-// goroutine only.
-func (c *coordinator) reconcileAirApp(now time.Time) {
-	if c.weather == nil {
-		return
-	}
-	cfg := c.loadCfg().Weather
-	air, have := c.weather.currentAir()
-	want := cfg.Enabled && cfg.AirTileEnabled() && have && now.Sub(air.FetchedAt) < weatherTileStaleTTL
-	c.reconcileTile(now, "ember-air", &c.pushedAir, want, func() map[string]any {
-		return render.AirPayload(air.AQI, air.HourlyAQI, usageAppLifetime)
-	})
-}
-
-// meetingMinutes is the displayed whole-minute countdown: ceil(remaining), min 1.
-// The tile never shows "0m" — it leaves the rotation at start.
-func meetingMinutes(now, start time.Time) int {
-	m := int((start.Sub(now) + time.Minute - 1) / time.Minute)
-	if m < 1 {
-		m = 1
-	}
-	return m
-}
-
-// reconcileMeetingApp pushes/refreshes the standalone "ember-meet" countdown
-// tile when meetings are enabled, the next meeting is inside the lead window,
-// and the feed data is fresh; clears it otherwise (including at meeting start —
-// the countdown never shows 0m). The minute-by-minute countdown needs no timer:
-// the payload text changes each minute, so the bytes-diff naturally re-pushes.
-// Coordinator goroutine only.
-func (c *coordinator) reconcileMeetingApp(now time.Time) {
-	if c.meetings == nil {
-		return
-	}
-	cfg := c.loadCfg().Meetings
-	occ, ok := c.meetings.next(now)
-	want := cfg.IsEnabled() && ok && c.meetings.fresh(now) &&
-		occ.Start.Sub(now) <= time.Duration(cfg.TileLeadMinutes)*time.Minute
-	c.reconcileTile(now, "ember-meet", &c.pushedMeeting, want, func() map[string]any {
-		return render.MeetingPayload(sanitizeMeetingTitle(occ.Title), meetingMinutes(now, occ.Start), usageAppLifetime)
-	})
-}
-
-const (
-	// usageAppLifetime keeps a pushed usage app alive on the device well above
-	// the ~5-min producer refresh, so a brief reconcile gap never blanks it.
-	usageAppLifetime = 600 // seconds
-	// usageStaleTTL is ~2x the 5-min poll interval: past this with no fresh
-	// post, a tool's apps are cleared from the device.
-	usageStaleTTL = 10 * time.Minute
-	// usageRefreshInterval forces a re-push of an unchanged usage app well
-	// before its on-device lifetime (usageAppLifetime) expires — otherwise a
-	// usage value that stops changing would let the device evict the app and
-	// never get refreshed. Must be < usageAppLifetime.
-	usageRefreshInterval = 4 * time.Minute
-)
-
-// pushedUsageApp records the payload bytes + push time of a usage app last sent
-// to the device, for change-and-staleness-aware re-push.
-type pushedUsageApp struct {
-	body []byte
-	at   time.Time
-}
-
-// pctInt rounds a float utilization to the nearest int, clamped to 0..100.
-func pctInt(f float64) int {
-	n := int(f + 0.5)
-	if n < 0 {
-		return 0
-	}
-	if n > 100 {
-		return 100
-	}
-	return n
-}
-
-// usageViews builds the per-tool usage views the render layer consumes:
-// endpoint usage preferred, statusline fallback (same precedence as the
-// limit alarm via effectiveFiveHour), gated at usage_threshold_pct. Hidden
-// tools and below-threshold tools are absent. Returns nil when the widget
-// is off or no store is wired.
-func (c *coordinator) usageViews(now time.Time, snap Snapshot) map[string]*render.UsageView {
-	cfg := c.loadCfg()
-	if c.usage == nil || !cfg.usageWidgetEnabled() {
-		return nil
-	}
-	thr := cfg.usageThresholdPct()
-	var hidden map[string]bool
-	if c.hiddenApps != nil {
-		hidden = c.hiddenApps()
-	}
-	views := map[string]*render.UsageView{}
-	for _, tool := range []string{"claude", "codex"} {
-		if hidden[tool] {
-			continue
-		}
-		pct, resetAt, ok := effectiveFiveHour(c.usage, snap, tool, now)
-		if !ok || pctInt(pct) < thr {
-			continue
-		}
-		v := &render.UsageView{FiveHourPct: pctInt(pct), ResetAt: resetAt}
-		if c.usage.Fresh(tool, now, usageStaleTTL) {
-			u, _ := c.usage.Get(tool)
-			if u.FiveHour != nil {
-				v.ResetLabel = u.FiveHour.ResetLabel
-			}
-			if u.SevenDay != nil {
-				p := pctInt(u.SevenDay.UsedPercent)
-				v.SevenDayPct = &p
-			}
-			if cfg.usagePerModelEnabled() {
-				for _, m := range []string{"opus", "sonnet"} {
-					if w := u.Models[m]; w != nil {
-						marker := "OP"
-						if m == "sonnet" {
-							marker = "SO"
-						}
-						v.Models = append(v.Models, render.ModelUsage{Marker: marker, Pct: pctInt(w.UsedPercent)})
-					}
-				}
-			}
-		} else {
-			// Statusline fallback: the newest live session's host-local label.
-			// effectiveFiveHour already accepted a session, but didn't give us
-			// the label — find the same best session to populate ResetLabel.
-			var best *render.Session
-			for i := range snap.Sessions {
-				s := &snap.Sessions[i]
-				if s.Tool != tool || s.RateResetLabel == "" {
-					continue
-				}
-				if best == nil || s.UpdatedAt.After(best.UpdatedAt) {
-					best = s
-				}
-			}
-			if best != nil {
-				v.ResetLabel = best.RateResetLabel
-			}
-		}
-		views[tool] = v
-	}
-	return views
-}
-
-// clearLegacyUsageApps removes any standalone ember-usage-* apps from the
-// device. Usage now renders inside the main app (usage card / idle usage
-// frame); the only standalone apps left to handle are leftovers from an
-// older server version, seeded into pushedUsageApps by
-// adoptDeviceManagedApps. Failed clears stay tracked and retry next tick.
-func (c *coordinator) clearLegacyUsageApps() {
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	for name := range c.pushedUsageApps {
-		if err := c.publisher.ClearApp(ctx, name); err != nil {
-			c.logger.Warn("legacy usage app clear failed", "name", name, "err", err)
-			continue
-		}
-		delete(c.pushedUsageApps, name)
-	}
-}
-
-// holdState is who owns the screen device-side, in precedence order.
-type holdState int
-
-const (
-	// holdNone: the ember app takes its turn in the device's app loop like any
-	// other tile, and no device setting is overridden. This covers the idle
-	// frames too: their payload asks for a long dwell so they linger once the
-	// rotation reaches them, but nothing about them is urgent enough to justify
-	// pushing the clock's own apps off the screen.
-	holdNone holdState = iota
-	// holdAttention: a locked waiting/error frame needs the screen now, so the
-	// app is force-switched to and its own long durationMs keeps it there for
-	// the attention window.
-	holdAttention
-	// holdPomodoro: a running timer owns the screen for its whole phase, which
-	// outlasts any dwell, so the device's rotation and native button navigation
-	// are disabled for the duration.
-	holdPomodoro
-)
-
-// takeoverSettings is the pair of device settings a Pomodoro takeover flips.
-func takeoverSettings(on bool) map[string]any {
-	return map[string]any{"autoTransition": !on, "blockNavigation": on}
-}
-
-// applyDisplayHold moves the device to the requested screen owner, writing only
-// on the edge — a per-tick re-assert would spam apps/active and re-trigger the
-// transition animation every dwell.
-//
-// awtrix-ng has no per-payload priority (AWTRIX3's prio+force 422 on NG), and a
-// pushed app's own durationMs only takes effect once the rotation reaches its
-// slot. So "this frame must own the screen NOW" is a forced PUT
-// /api/v1/apps/active, which the app's long durationMs then sustains. Measured
-// on firmware 1.0.13 against a live 7-app rotation: switch + durationMs=30000
-// held 31 s; switch + durationMs=6000 held 6.7 s; so the switch supplies the
-// jump and durationMs supplies the length.
-//
-// That is enough for a 30 s attention window but not for a 25-minute focus
-// block, which is why holdPomodoro additionally sets autoTransition:false
-// (verified to outrank the per-app dwell entirely) plus blockNavigation:true so
-// the buttons drive the timer instead of the app loop. holdAttention
-// deliberately leaves both settings alone: it stays crash-safe, since a server
-// that dies mid-hold leaves the clock to expire the dwell and resume rotation
-// on its own.
-//
-// Recovery from a device reboot (which drops the pushed apps and both settings)
-// arrives as a cmdRepublish, which fakes the edge by resetting c.hold. Runs on
-// the coordinator goroutine only.
-func (c *coordinator) applyDisplayHold(want holdState, appName string) {
-	if want == c.hold {
-		return
-	}
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	prev := c.hold
-	c.hold = want
-	if prev == holdPomodoro {
-		if err := c.publisher.Settings(ctx, takeoverSettings(false)); err != nil {
-			c.logger.Warn("display hold restore settings failed", "err", err)
-		}
-	}
-	if want == holdPomodoro {
-		if err := c.publisher.Settings(ctx, takeoverSettings(true)); err != nil {
-			c.logger.Warn("display hold takeover settings failed", "err", err)
-		}
-	}
-	if want != holdNone {
-		if err := c.publisher.Switch(ctx, appName); err != nil {
-			c.logger.Warn("display hold switch failed", "err", err, "hold", want)
-		}
-	}
-}
-
-// restorePomoTakeoverOnExit re-enables app rotation + native button navigation
-// if a Pomodoro takeover was in force when the coordinator stops. Uses a fresh
-// context because the Run context is already cancelled on exit. A holdAttention
-// needs no undo — nothing sticky was written for it.
-func (c *coordinator) restorePomoTakeoverOnExit() {
-	if c.hold != holdPomodoro {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := c.publisher.Settings(ctx, takeoverSettings(false)); err != nil {
-		c.logger.Warn("pomo restore on shutdown failed", "err", err)
-	}
-	c.hold = holdNone
-}
-
-// onRepublish forgets everything we believe the device is currently showing and
-// runs a full cycle on the spot. Pushed apps are RAM-only on awtrix-ng: after a
-// reboot the device holds none of them, while the dedupe caches below would
-// happily suppress a re-push for a whole frame lifetime (and a tile whose
-// content never changes would never come back at all). Dropping c.hold turns the
-// next applyDisplayHold into a fresh edge, so an in-flight focus block or
-// attention hold re-asserts its forced app switch (and, for Pomodoro, its
-// autoTransition/blockNavigation) too. Coordinator goroutine only.
-func (c *coordinator) onRepublish() {
-	c.lastPayloadBytes = nil
-	c.lastPublishedAt = time.Time{}
-	c.pushedWeather, c.pushedForecast, c.pushedAir, c.pushedMeeting = nil, nil, nil, nil
-	// Legacy standalone usage apps died with the reboot; nothing left to clear.
-	c.pushedUsageApps = nil
-	c.hold = holdNone
-	// A reboot also drops the corner LEDs, so forget them and let the cycle
-	// below re-assert whatever the snapshot asks for.
-	c.indicators = [3]indicatorState{}
-	c.onTick()
-}
-
-func (c *coordinator) publish(snap Snapshot) {
-	cfg := c.loadCfg()
-	lifetime := cfg.Display.FrameLifetimeSeconds
-	if lifetime < 5 {
-		lifetime = 5 // floor below the validated min — keeps dedupWindow positive in low-lifetime test setups
-	}
-	idleRestore := time.Duration(cfg.Display.IdleRestoreSeconds) * time.Second
-	now := c.clk.Now()
-
-	// Ambient corner-LED status, from the same snapshot this frame renders.
-	// Ahead of the frame work because it must run on every publish path,
-	// including the dedupe skip and the nothing-to-show return below.
-	c.applyIndicators(c.desiredIndicators(snap, now))
-
-	// Pomodoro preempt (highest priority). An active timer owns the display:
-	// render its frame and take the device over for the whole phase. When it
-	// goes idle, fall through to the normal session rendering below, which may
-	// itself want the (weaker) frame hold.
-	var pomoActive bool
-	var payload map[string]any
-	// want is the device-level screen owner this frame asks for; it is applied
-	// only once the payload is known to be on the device (see below).
-	want := holdNone
-	if c.pomoView != nil {
-		if view, on := c.pomoView(); on {
-			pomoActive = true
-			payload = render.PomodoroPayload(view, lifetime)
-			want = holdPomodoro
-		}
-	}
-
-	if !pomoActive {
-		keys := render.SortedActiveKeys(snap)
-		c.muTest.Lock()
-		mode := c.idleStateLocked(len(keys), now, idleRestore)
-		c.muTest.Unlock()
-
-		switch mode {
-		case idleModeActive:
-			// pointer/cardCursor/locked are read without muTest: publish runs only
-			// on the coordinator goroutine that also writes them; the lock exists
-			// solely so tests can read this state race-free.
-			payload = render.RenderForCoord(snap, c.pointer, c.cardCursor, c.locked, lifetime, c.usageViews(now, snap))
-			if render.AttentionHeld(snap, c.pointer, c.locked) {
-				want = holdAttention
-			}
-		case idleModeDimmed:
-			payload = render.RenderIdleFrame(lifetime)
-		case idleModeOff:
-			// Countdown elapsed. If a tool's 5h window is over the usage
-			// threshold, keep the slot alive with the dimmed usage frame so a
-			// hot window stays visible while the user is away. Otherwise let
-			// the device's lifetime expire (AWTRIX returns to native apps).
-			payload = render.RenderIdleUsagePayload(c.usageViews(now, snap), c.cardCursor, now, lifetime)
-		}
-	}
-	if payload == nil {
-		// Nothing to show — release the hold so the rotation (and, after a
-		// Pomodoro takeover, the device's own settings) come back.
-		c.applyDisplayHold(holdNone, cfg.AWTRIX.AppName)
-		return
-	}
-
-	body, mErr := json.Marshal(payload)
-	if mErr != nil {
-		c.logger.Error("coord payload marshal failed", "err", mErr)
-		return
-	}
-
-	// Skip identical re-publishes within the dedup window.
-	//
-	// The original reason — AWTRIX3 reset a re-POSTed app's render state, so an
-	// unchanged re-push restarted the blinking label mid-cycle as a visible
-	// stutter — does NOT apply to awtrix-ng. Measured on firmware 1.0.13: 20
-	// re-pushes of a byte-identical textBlinkMs:1000 payload over 6 s (i.e. more
-	// often than the 500 ms half-period) left the blink alternating on its
-	// original phase, and an app re-pushed every 2 s yielded its slot at the same
-	// ~8.7 s dwell as one pushed once. A re-push is idempotent for both animation
-	// phase and dwell timing.
-	//
-	// It stays because the work it avoids is real: an unchanged frame otherwise
-	// costs a JSON push (up to ~2.4 KB of bitmap) to the ESP32 on every rotation
-	// tick, parsed on the same task that drives the panel.
-	//
-	dwellSec := cfg.Display.RotationDwellSeconds
-	if dwellSec <= 0 {
-		dwellSec = 3
-	}
-	dedupWindow := renewalDedupWindow(lifetime, dwellSec)
-	if bytes.Equal(body, c.lastPayloadBytes) && now.Sub(c.lastPublishedAt) < dedupWindow {
-		// Same frame, already on the device: the hold edge may still be new
-		// (e.g. a Pomodoro pause that leaves the payload byte-identical).
-		c.applyDisplayHold(want, cfg.AWTRIX.AppName)
-		return
-	}
-
-	err := c.pushApp(cfg.AWTRIX.AppName, payload)
-	if err != nil {
-		c.logger.Warn("coord publish failed", "err", err)
-		c.metrics.incPublishFail()
-	} else {
-		c.publishCount.Add(1)
-		c.metrics.incPublishOK()
-		c.lastPayloadBytes = body
-		c.lastPublishedAt = now
-		// Only now is the app known to be in the device's loop — apps/active
-		// 404s on an app the device does not have.
-		c.applyDisplayHold(want, cfg.AWTRIX.AppName)
-	}
-	if c.onPublishResult != nil {
-		c.onPublishResult(snap, err)
-	}
 }

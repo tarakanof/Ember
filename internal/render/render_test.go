@@ -299,14 +299,14 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 	}}
 	payload := RenderForCoord(snap, "a/b/w", cardSource, true, 30, nil)
 	op := bmp(t, payload, 0)
-	if op[3] != 8 || op[4] != 8 {
-		t.Fatalf("locked icon = %vx%v, want 8x8 tool icon", op[3], op[4])
+	if op[3] != iconOpW || op[4] != 8 {
+		t.Fatalf("locked icon = %vx%v, want %dx8 (8×8 tool icon + blank gap col)", op[3], op[4], iconOpW)
 	}
 	pixels := bmpPixels(t, payload)
-	if len(pixels) != 64 {
-		t.Fatalf("locked pixel array = %v, want []int of length 64 (8×8)", op[5])
+	if len(pixels) != iconOpW*8 {
+		t.Fatalf("locked pixel array = %v, want []int of length %d", op[5], iconOpW*8)
 	}
-	at := func(x, y int) int { return pixels[y*8+x] }
+	at := func(x, y int) int { return pixels[y*iconOpW+x] }
 	// usageIconClaude: row0 "..X..X.." lights cols 2 & 5 (ears).
 	if at(2, 0) == 0 || at(5, 0) == 0 {
 		t.Errorf("row0 ears (cols 2,5) dark, want lit — not the Claude robot-face icon")
@@ -328,12 +328,19 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor string) {
 	t.Helper()
 	draw, ok := payload["draw"].([]any)
-	if !ok || len(draw) != 1 {
-		t.Fatalf("locked payload draw[] = %v, want exactly 1 entry (firmware rejects multi-frame draws)", payload["draw"])
+	if !ok || len(draw) == 0 {
+		t.Fatalf("locked payload draw[] = %v, want the icon op first", payload["draw"])
+	}
+	// Anything after the icon is the bottom bar: it must stay on row 7, clear
+	// of the blinking text in rows 1-5.
+	for i := 1; i < len(draw); i++ {
+		if op := bmp(t, payload, i); op[2] != barRow || op[4] != 1 {
+			t.Errorf("draw[%d] at y=%v h=%v, want a 1-row op on row %d", i, op[2], op[4], barRow)
+		}
 	}
 	op := bmp(t, payload, 0)
-	if op[3] != 8 {
-		t.Errorf("bitmap width = %v, want 8 (8×8 tool icon so the native text isn't clobbered)", op[3])
+	if op[3] != iconOpW {
+		t.Errorf("bitmap width = %v, want %d (8×8 tool icon + blank gap col, so the native text isn't clobbered)", op[3], iconOpW)
 	}
 	if got := payload["text"]; got != wantLabel {
 		t.Errorf("text = %v, want %q", got, wantLabel)
@@ -524,6 +531,49 @@ func TestPickWinning(t *testing.T) {
 	}
 }
 
+// TestPickWinningTable is the session-priority contract. The menu app's Swift
+// pickWinning (macos/Sources/EmberKit/StatusService.swift) ports PickWinning;
+// keep each case plain data (tool, state, seconds after an epoch) so a Swift
+// test can mirror the table verbatim.
+func TestPickWinningTable(t *testing.T) {
+	type sess struct {
+		tool, state string
+		at          int64
+	}
+	cases := []struct {
+		name     string
+		sessions []sess
+		want     string // winning tool, "" for none
+	}{
+		{"empty", nil, ""},
+		{"all idle", []sess{{"a", "idle", 1}, {"b", "idle", 2}}, ""},
+		{"unknown state never wins", []sess{{"a", "bogus", 9}}, ""},
+		{"waiting beats error, running, done", []sess{{"a", "done", 100}, {"b", "running", 90}, {"c", "error", 80}, {"d", "waiting", 10}}, "d"},
+		{"error beats running and done", []sess{{"a", "done", 100}, {"b", "running", 90}, {"c", "error", 10}}, "c"},
+		{"running beats done", []sess{{"a", "done", 100}, {"b", "running", 10}}, "b"},
+		{"done wins alone", []sess{{"a", "idle", 100}, {"b", "done", 10}}, "b"},
+		{"most recent within the top state", []sess{{"a", "running", 10}, {"b", "running", 99}, {"c", "running", 50}}, "b"},
+		{"exact tie keeps the first", []sess{{"a", "waiting", 5}, {"b", "waiting", 5}}, "a"},
+	}
+	epoch := time.Unix(1_000_000, 0)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessions := make([]Session, len(tc.sessions))
+			for i, s := range tc.sessions {
+				sessions[i] = Session{Source: "mbp", Tool: s.tool, Session: "y", State: s.state, UpdatedAt: epoch.Add(time.Duration(s.at) * time.Second)}
+			}
+			win, _, _ := PickWinning(sessions)
+			got := ""
+			if win != nil {
+				got = win.Tool
+			}
+			if got != tc.want {
+				t.Fatalf("winner = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFrameToCustomApp(t *testing.T) {
 	f := &Frame{}
 	paintCell(f, 0, 0, RGB{0xff, 0x00, 0x00})
@@ -691,12 +741,12 @@ func TestDrawSessionBar_OneRunning(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	if !f.Dirty[7][11] || f.Pixels[7][11] != colorRunning {
-		t.Errorf("col 11 = %+v dirty=%v, want %v lit", f.Pixels[7][11], f.Dirty[7][11], colorRunning)
+	if !f.Dirty[7][barX0] || f.Pixels[7][barX0] != colorRunning {
+		t.Errorf("col barX0 = %+v dirty=%v, want %v lit", f.Pixels[7][barX0], f.Dirty[7][barX0], colorRunning)
 	}
-	for x := 12; x < 32; x++ {
+	for x := barX0 + 1; x < 32; x++ {
 		if f.Dirty[7][x] {
-			t.Errorf("col %d unexpectedly lit (should only be col 11 for 1 session)", x)
+			t.Errorf("col %d unexpectedly lit (should only be col barX0 for 1 session)", x)
 		}
 	}
 }
@@ -714,14 +764,14 @@ func TestDrawSessionBar_PriorityOrder(t *testing.T) {
 	drawSessionBar(f, sessions)
 	wants := []RGB{colorWaiting, colorError, colorRunning}
 	for i, want := range wants {
-		col := 11 + i
+		col := barX0 + i
 		if !f.Dirty[7][col] || f.Pixels[7][col] != want {
 			t.Errorf("col %d = %+v dirty=%v, want %v", col, f.Pixels[7][col], f.Dirty[7][col], want)
 		}
 	}
 	// No fourth pixel.
-	if f.Dirty[7][14] {
-		t.Errorf("col 14 lit, want dark (only 3 sessions)")
+	if f.Dirty[7][barX0+3] {
+		t.Errorf("col barX0+3 lit, want dark (only 3 sessions)")
 	}
 }
 
@@ -748,12 +798,12 @@ func TestDrawSessionBar_DeterministicAcrossSliceOrder(t *testing.T) {
 				x, f1.Pixels[7][x], f1.Dirty[7][x], f2.Pixels[7][x], f2.Dirty[7][x])
 		}
 	}
-	// And both should have exactly 2 amber pixels at cols 11 and 12.
-	if f1.Pixels[7][11] != colorWaiting || f1.Pixels[7][12] != colorWaiting {
-		t.Errorf("expected two amber pixels, got col11=%v col12=%v", f1.Pixels[7][11], f1.Pixels[7][12])
+	// And both should have exactly 2 amber pixels at cols barX0 and barX0+1.
+	if f1.Pixels[7][barX0] != colorWaiting || f1.Pixels[7][barX0+1] != colorWaiting {
+		t.Errorf("expected two amber pixels, got col barX0=%v col barX0+1=%v", f1.Pixels[7][barX0], f1.Pixels[7][barX0+1])
 	}
-	if f1.Dirty[7][13] {
-		t.Errorf("col 13 lit, want dark (only 2 sessions)")
+	if f1.Dirty[7][barX0+2] {
+		t.Errorf("col barX0+2 lit, want dark (only 2 sessions)")
 	}
 }
 
@@ -765,11 +815,11 @@ func TestDrawSessionBar_IdleExcluded(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	if !f.Dirty[7][11] || f.Pixels[7][11] != colorRunning {
-		t.Errorf("col 11 = %v, want running green", f.Pixels[7][11])
+	if !f.Dirty[7][barX0] || f.Pixels[7][barX0] != colorRunning {
+		t.Errorf("col barX0 = %v, want running green", f.Pixels[7][barX0])
 	}
-	if f.Dirty[7][12] {
-		t.Errorf("col 12 lit; idle session must not produce a pixel")
+	if f.Dirty[7][barX0+1] {
+		t.Errorf("col barX0+1 lit; idle session must not produce a pixel")
 	}
 }
 
@@ -782,11 +832,11 @@ func TestDrawSessionBar_DoneIncluded(t *testing.T) {
 	f := &Frame{}
 	drawSessionBar(f, sessions)
 	// running sorts before done by priority.
-	if f.Pixels[7][11] != colorRunning {
-		t.Errorf("col 11 = %v, want running green", f.Pixels[7][11])
+	if f.Pixels[7][barX0] != colorRunning {
+		t.Errorf("col barX0 = %v, want running green", f.Pixels[7][barX0])
 	}
-	if f.Pixels[7][12] != colorDone {
-		t.Errorf("col 12 = %v, want done blue", f.Pixels[7][12])
+	if f.Pixels[7][barX0+1] != colorDone {
+		t.Errorf("col barX0+1 = %v, want done blue", f.Pixels[7][barX0+1])
 	}
 }
 
@@ -801,10 +851,10 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	// Exactly 21 pixels lit, cols 11..31.
-	for x := 11; x <= 31; x++ {
+	// Exactly barW (24) pixels lit, cols 8..31.
+	for x := barX0; x <= 31; x++ {
 		if !f.Dirty[7][x] {
-			t.Errorf("col %d should be lit (overflow truncation paints first 21)", x)
+			t.Errorf("col %d should be lit (overflow truncation paints first 24)", x)
 		}
 	}
 	// No spillover above row 7.
@@ -851,10 +901,10 @@ func TestDrawSessionBar_WaitingErrorRunningDoneMix(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	// Priority order: waiting (11), error (12), running (13), done (14).
+	// Priority order from barX0: waiting, error, running, done.
 	wants := []RGB{colorWaiting, colorError, colorRunning, colorDone}
 	for i, want := range wants {
-		col := 11 + i
+		col := barX0 + i
 		if !f.Dirty[7][col] || f.Pixels[7][col] != want {
 			t.Errorf("col %d = %v dirty=%v, want %v", col, f.Pixels[7][col], f.Dirty[7][col], want)
 		}
@@ -897,7 +947,7 @@ func TestDrawRateBar(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &Frame{}
-			drawRateBar(f, tc.pct, colorRunning)
+			drawRateBar(f, tc.pct)
 			if got := fillCount(f, tc.pct); got != tc.want {
 				t.Errorf("pct=%d fill = %d, want %d", tc.pct, got, tc.want)
 			}
@@ -905,7 +955,7 @@ func TestDrawRateBar(t *testing.T) {
 	}
 	// Colour is the dimmed threshold, derived from pct (the arg is ignored).
 	f := &Frame{}
-	drawRateBar(f, 50, colorError)
+	drawRateBar(f, 50)
 	if f.Pixels[7][8] != dimThreshold(50) {
 		t.Errorf("fill colour = %v, want dimThreshold(50) %v", f.Pixels[7][8], dimThreshold(50))
 	}
@@ -942,19 +992,19 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 		t.Errorf("rate bar over-filled past col 19")
 	}
 
-	// Toggle OFF → session-count bar (2 sessions → cols 11,12 by priority: waiting, running).
+	// Toggle OFF → session-count bar (2 sessions → cols barX0,barX0+1 by priority: waiting, running).
 	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now}
 	fOff := ComposeFrame(sOff, cardSource, nil, others, time.Now())
-	if fOff.Pixels[7][11] != colorWaiting || fOff.Pixels[7][12] != colorRunning {
-		t.Errorf("session bar: got col11=%v col12=%v, want waiting,running", fOff.Pixels[7][11], fOff.Pixels[7][12])
+	if fOff.Pixels[7][barX0] != colorWaiting || fOff.Pixels[7][barX0+1] != colorRunning {
+		t.Errorf("session bar: got col barX0=%v col barX0+1=%v, want waiting,running", fOff.Pixels[7][barX0], fOff.Pixels[7][barX0+1])
 	}
 
 	// Toggle ON but no rate data → graceful fallback to the session-count bar.
 	sFallback := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, UpdatedAt: now}
 	fFallback := ComposeFrame(sFallback, cardSource, nil, others, time.Now())
-	if fFallback.Pixels[7][11] != colorWaiting || fFallback.Pixels[7][12] != colorRunning {
-		t.Errorf("fallback: got col11=%v col12=%v, want session bar (waiting,running)", fFallback.Pixels[7][11], fFallback.Pixels[7][12])
+	if fFallback.Pixels[7][barX0] != colorWaiting || fFallback.Pixels[7][barX0+1] != colorRunning {
+		t.Errorf("fallback: got col barX0=%v col barX0+1=%v, want session bar (waiting,running)", fFallback.Pixels[7][barX0], fFallback.Pixels[7][barX0+1])
 	}
 }
 
@@ -969,21 +1019,21 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 		t.Fatal("expected non-nil payload")
 	}
 	pixels := panelPixels(t, payload)
-	// Row 7. Expect col 11 = waiting amber, col 12 = running green.
+	// Row 7. Expect col barX0 = waiting amber, col barX0+1 = running green.
 	// Derive expected values from the palette constants so the test stays
 	// correct if colors are ever updated.
 	wantWaiting := (int(colorWaiting.R) << 16) | (int(colorWaiting.G) << 8) | int(colorWaiting.B)
 	wantRunning := (int(colorRunning.R) << 16) | (int(colorRunning.G) << 8) | int(colorRunning.B)
-	got11 := pixels[7*32+11]
-	got12 := pixels[7*32+12]
+	got11 := pixels[7*32+barX0]
+	got12 := pixels[7*32+barX0+1]
 	if got11 != wantWaiting {
-		t.Errorf("row 7 col 11 = %#06x, want %#06x (waiting amber, priority first)", got11, wantWaiting)
+		t.Errorf("row 7 col barX0 = %#06x, want %#06x (waiting amber, priority first)", got11, wantWaiting)
 	}
 	if got12 != wantRunning {
-		t.Errorf("row 7 col 12 = %#06x, want %#06x (running green, priority second)", got12, wantRunning)
+		t.Errorf("row 7 col barX0+1 = %#06x, want %#06x (running green, priority second)", got12, wantRunning)
 	}
 	// Col 13+ on row 7 should be dark.
-	for x := 13; x < 32; x++ {
+	for x := barX0 + 2; x < 32; x++ {
 		if pixels[7*32+x] != 0 {
 			t.Errorf("row 7 col %d = %#06x, want 0 (only 2 sessions in snapshot)", x, pixels[7*32+x])
 		}
@@ -999,11 +1049,20 @@ func TestRateText(t *testing.T) {
 	}
 }
 
-func TestRateColor(t *testing.T) {
-	cases := map[int]RGB{0: colorRunning, 69: colorRunning, 70: colorWaiting, 89: colorWaiting, 90: colorError, 100: colorError}
+func TestUsageThresholdPalette(t *testing.T) {
+	cases := map[int]RGB{0: usageOK, 69: usageOK, 70: usageWarn, 89: usageWarn, 90: usageHot, 100: usageHot}
 	for in, want := range cases {
-		if got := rateColor(in); got != want {
-			t.Errorf("rateColor(%d) = %+v, want %+v", in, got, want)
+		if got := usageThreshold(in); got != want {
+			t.Errorf("usageThreshold(%d) = %+v, want %+v", in, got, want)
+		}
+	}
+	// One palette for usage, distinct from the agent-state colours, so an
+	// amber 87 % never reads as a waiting agent.
+	for _, c := range []RGB{usageOK, usageWarn, usageHot} {
+		for _, s := range []RGB{colorRunning, colorWaiting, colorError} {
+			if c == s {
+				t.Errorf("usage colour %v equals a state colour", c)
+			}
 		}
 	}
 }
@@ -1025,7 +1084,7 @@ func TestPercentGlyphDecodable(t *testing.T) {
 
 func TestDetailPayload_Blink(t *testing.T) {
 	s := Session{Source: "a", Tool: "b", Session: "w", State: "waiting"}
-	p := detailPayload(s, "WAIT", "#FFC14D", true, 30, true)
+	p := detailPayload(s, nil, "WAIT", "#FFC14D", true, 30, true)
 	if p["text"] != "WAIT" || p["textColor"] != "#FFC14D" {
 		t.Errorf("text/textColor = %v/%v", p["text"], p["textColor"])
 	}
@@ -1039,14 +1098,14 @@ func TestDetailPayload_Blink(t *testing.T) {
 		t.Errorf("textOffsetX/center = %v/%v, want 9/false", p["textOffsetX"], p["textCenter"])
 	}
 	op := bmp(t, p, 0)
-	if op[3] != 8 || len(bmpPixels(t, p)) != 64 {
-		t.Errorf("bitmap width/len = %v/%d, want 8/64", op[3], len(bmpPixels(t, p)))
+	if op[3] != iconOpW || len(bmpPixels(t, p)) != iconOpW*8 {
+		t.Errorf("bitmap width/len = %v/%d, want %d/%d", op[3], len(bmpPixels(t, p)), iconOpW, iconOpW*8)
 	}
 }
 
 func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 	s := Session{Source: "a", Tool: "b", Session: "r", State: "running"}
-	p := detailPayload(s, "Bash: npm test", "#2EE85E", false, 30, false)
+	p := detailPayload(s, nil, "Bash: npm test", "#2EE85E", false, 30, false)
 	if p["text"] != "Bash: npm test" {
 		t.Errorf("text = %v", p["text"])
 	}
@@ -1185,10 +1244,10 @@ func TestResetText(t *testing.T) {
 		wantText  string
 		wantColor RGB
 	}{
-		{"4h10m left → 5h green", 1_000_000 + 4*3600 + 600, "5" + string(resetGlyph), colorRunning},
-		{"exactly 2h → 2h green", 1_000_000 + 2*3600, "2" + string(resetGlyph), colorRunning},
-		{"40m left → 1h amber", 1_000_000 + 40*60, "1" + string(resetGlyph), colorWaiting},
-		{"already past → 0 amber", 1_000_000 - 10, "0" + string(resetGlyph), colorWaiting},
+		{"4h10m left → 5h green", 1_000_000 + 4*3600 + 600, "5" + string(resetGlyph), usageOK},
+		{"exactly 2h → 2h green", 1_000_000 + 2*3600, "2" + string(resetGlyph), usageOK},
+		{"40m left → 1h amber", 1_000_000 + 40*60, "1" + string(resetGlyph), usageWarn},
+		{"already past → 0 amber", 1_000_000 - 10, "0" + string(resetGlyph), usageWarn},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1204,6 +1263,9 @@ func TestResetGlyphInFont(t *testing.T) {
 	g := glyph(resetGlyph)
 	if g == nil || len(g) != 5 {
 		t.Fatalf("resetGlyph not a 5-row sprite: %v", g)
+	}
+	if slices.Equal(g, glyph('I')) {
+		t.Errorf("resetGlyph is the same bitmap as 'I': %v", g)
 	}
 }
 
@@ -1255,7 +1317,7 @@ func TestComposeFrameUsesToolIcon(t *testing.T) {
 
 func TestRateBarDimmedThreshold(t *testing.T) {
 	var f Frame
-	drawRateBar(&f, 50, rateColor(50)) // colour arg ignored; uses dimThreshold
+	drawRateBar(&f, 50)
 	filled := 0
 	for x := 8; x < 32; x++ {
 		if f.Pixels[7][x] == dimThreshold(50) {
@@ -1306,11 +1368,11 @@ func TestAvailableCardsUsageGating(t *testing.T) {
 	}
 }
 
-func TestDetailPayloadUses8pxIcon(t *testing.T) {
+func TestDetailPayloadUsesGapMaskedIcon(t *testing.T) {
 	s := Session{Source: "a", Tool: "claude", Session: "s", State: "waiting"}
-	p := detailPayload(s, "WAIT", "#FFC14D", true, 30, true)
-	if op := bmp(t, p, 0); op[3] != 8 || op[4] != 8 {
-		t.Errorf("locked bitmap not 8×8: %v %v", op[3], op[4])
+	p := detailPayload(s, nil, "WAIT", "#FFC14D", true, 30, true)
+	if op := bmp(t, p, 0); op[3] != iconOpW || op[4] != 8 {
+		t.Errorf("locked bitmap not %d×8: %v %v", iconOpW, op[3], op[4])
 	}
 	if p["textOffsetX"] != 9 {
 		t.Errorf("textOffsetX = %v, want 9", p["textOffsetX"])
@@ -1340,7 +1402,7 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	// pixel in the glass columns betrays a drawn glass.
 	requireUnit := func(t *testing.T, f *Frame, face string) {
 		t.Helper()
-		if got := f.Pixels[1][unitStart]; got != usageGray {
+		if got := f.Pixels[1][rightSlotX]; got != usageGray {
 			t.Fatalf("%s: unit pixel = %v, want gray %v", face, got, usageGray)
 		}
 		for y := glassTopRow; y <= glassBottomRow; y++ {
@@ -1352,8 +1414,29 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 		}
 	}
 
-	// 5h face in rate-bar mode: clock at numStart — '1' row 0 is ".X." so its
-	// lit pixel is x=numStart+1 — plus the "5h" unit where the glass was.
+	// requireResetMarker asserts an HH:MM clock face marks itself as a reset
+	// time with the gray hourglass at cols 27-29 and nothing else in the right
+	// slot. A bare HH:MM beside the robot reads as the time of day (NG's Time
+	// app shows one), and a "5h" at col 25 ran into the clock ("17:305h").
+	requireResetMarker := func(t *testing.T, f *Frame, face string) {
+		t.Helper()
+		g := glyph(resetGlyph)
+		for y := 0; y < barRow; y++ {
+			for x := rightSlotX; x < panelW; x++ {
+				gx, gy := x-resetMarkX, y-textRow
+				want := gx >= 0 && gx < 3 && gy >= 0 && gy < 5 && g[gy][gx] == 'X'
+				if f.Dirty[y][x] != want {
+					t.Fatalf("%s: (%d,%d) lit=%v, want the hourglass only at cols %d-%d", face, x, y, f.Dirty[y][x], resetMarkX, resetMarkX+2)
+				}
+				if want && f.Pixels[y][x] != usageGray {
+					t.Fatalf("%s: hourglass pixel (%d,%d) = %v, want gray %v", face, x, y, f.Pixels[y][x], usageGray)
+				}
+			}
+		}
+	}
+
+	// 5h face in rate-bar mode: clock at contentX — '1' row 0 is ".X." so its
+	// lit pixel is x=contentX+1 — and no unit label beside it.
 	f := ComposeFrame(s, cardUsage5h, u, []Session{s}, now)
 	if !f.Dirty[1][10] {
 		t.Fatal("5h face: clock not painted")
@@ -1361,45 +1444,49 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	if f.Pixels[1][10] != colorWhite {
 		t.Fatalf("5h face: clock pixel textColor = %v, want white %v", f.Pixels[1][10], colorWhite)
 	}
-	requireUnit(t, &f, "5h clock face")
+	requireResetMarker(t, &f, "5h clock face")
 
-	// 5h face in sessions-bar mode: "87%" digits in rateColor(87)=amber + unit.
+	// 5h face in sessions-bar mode: "87%" digits in the usage threshold amber + unit.
 	s2 := s
 	s2.RateBottomBar = false
 	f = ComposeFrame(s2, cardUsage5h, u, []Session{s2}, now)
-	if got := f.Pixels[1][9]; got != rateColor(87) {
-		t.Fatalf("5h pct face: pixel = %v, want amber %v", got, rateColor(87))
+	if got := f.Pixels[1][9]; got != usageWarn {
+		t.Fatalf("5h pct face: pixel = %v, want amber %v", got, usageWarn)
 	}
 	requireUnit(t, &f, "5h pct face")
 
-	// 7d face: red "95%" at numStart, gray "7d" unit at the right edge.
+	// The reset clock face (sessions-bar mode) carries the same marker.
+	f = ComposeFrame(s2, cardUsageReset, u, []Session{s2}, now)
+	requireResetMarker(t, &f, "reset clock face")
+
+	// 7d face: red "95%" at contentX, gray "7d" unit at the right edge.
 	f = ComposeFrame(s, cardUsage7d, u, []Session{s}, now)
-	if got := f.Pixels[1][9]; got != rateColor(95) {
-		t.Fatalf("7d pct: pixel = %v, want red %v", got, rateColor(95))
+	if got := f.Pixels[1][9]; got != usageHot {
+		t.Fatalf("7d pct: pixel = %v, want red %v", got, usageHot)
 	}
 	requireUnit(t, &f, "7d face")
 
 	// Model face: green "51%" + gray "OP" unit.
 	f = ComposeFrame(s, cardUsageModelA, u, []Session{s}, now)
-	if got := f.Pixels[1][9]; got != rateColor(51) {
-		t.Fatalf("model pct: pixel = %v, want green %v", got, rateColor(51))
+	if got := f.Pixels[1][9]; got != usageOK {
+		t.Fatalf("model pct: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "model A face")
 
 	// Model B face: green "12%" + gray "SO" unit. '1' row 0 is ".X." so the
 	// first lit pct pixel is x=10, not 9.
 	f = ComposeFrame(s, cardUsageModelB, u, []Session{s}, now)
-	if got := f.Pixels[1][10]; got != rateColor(12) {
-		t.Fatalf("model B pct: pixel = %v, want green %v", got, rateColor(12))
+	if got := f.Pixels[1][10]; got != usageOK {
+		t.Fatalf("model B pct: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "model B face")
 
 	// Reset face without a label: hourglass fallback (resetText colour) + "5h"
-	// unit (the countdown belongs to the 5h window).
+	// unit (the countdown belongs to the 5h window; it is short, so it fits).
 	u2 := &UsageView{FiveHourPct: 61, ResetAt: now.Add(3 * time.Hour).Unix()}
 	f = ComposeFrame(s2, cardUsageReset, u2, []Session{s2}, now)
-	if got := f.Pixels[1][9]; got != colorRunning { // 3 hours left -> green
-		t.Fatalf("reset fallback: pixel = %v, want green %v", got, colorRunning)
+	if got := f.Pixels[1][9]; got != usageOK { // 3 hours left -> green
+		t.Fatalf("reset fallback: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "reset face")
 
@@ -1440,12 +1527,18 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 		t.Fatal("cursor should wrap (face 2 == face 0)")
 	}
 
-	// The idle 5h face carries the gray "5h" unit label: '5' top-left lights
-	// (unitStart, 1), i.e. pixel index 1*32+unitStart in the db payload.
+	// The idle 5h face is the reset clock with the gray hourglass marker
+	// (top plate lights row 1 at resetMarkX); the 7d face keeps its "7d" label.
 	px := bmpPixels(t, p0)
-	wantGray := (int(usageGray.R) << 16) | (int(usageGray.G) << 8) | int(usageGray.B)
-	if got := px[1*32+unitStart]; got != wantGray {
-		t.Errorf("idle 5h face unit pixel = %#06x, want gray %#06x", got, wantGray)
+	if got := px[1*32+rightSlotX]; got != 0 {
+		t.Errorf("idle 5h face col %d = %#06x, want a gap before the marker", rightSlotX, got)
+	}
+	if got, want := px[1*32+resetMarkX], toInt(usageGray); got != want {
+		t.Errorf("idle 5h face marker pixel = %#06x, want gray %#06x", got, want)
+	}
+	px = bmpPixels(t, p1)
+	if got, want := px[1*32+rightSlotX+2], toInt(usageGray); got != want {
+		t.Errorf("idle 7d face unit pixel = %#06x, want gray %#06x", got, want)
 	}
 }
 

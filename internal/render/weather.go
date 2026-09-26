@@ -1,5 +1,7 @@
 package render
 
+import "strings"
+
 // Weather widget render primitives. The weather app renders as its own AWTRIX
 // custom app (a rotating tile) and as ad-hoc notification popups, mirroring the
 // usage-widget language: an 8×8 condition icon at cols 0–7 + a temperature
@@ -131,52 +133,55 @@ func WeatherColor(cond string) RGB {
 }
 
 // WeatherPayload returns the rotating-tile frame: the 8×8 condition icon at cols
-// 0–7 + the temperature text (e.g. "21°") drawn from col 9, plus a compact
-// hourly-forecast strip on the bottom row (one colour-coded pixel per hour, cols
-// 9–31 ≈ next 23h) when `hourly` is supplied. Mirrors the usage tiles (no
+// 0–7 + the temperature text (e.g. "21°") centred right of it, plus a compact
+// hourly-forecast strip on the bottom bar (colour-coded hours stretched over
+// cols 8–31) when `hourly` is supplied. Mirrors the usage tiles (no
 // prio/force) so it rotates natively alongside them. lifetime seconds.
-func WeatherPayload(cond, tempText string, hourly []float64, lifetime int) map[string]any {
-	return weatherTile(cond, tempText, hourly, nil, lifetime)
+func WeatherPayload(cond, tempText string, tempC float64, hourly []float64, lifetime int) map[string]any {
+	return weatherTile(cond, tempText, tempC, hourly, nil, lifetime)
 }
 
 // WeatherPayloadMoon is the clear-night variant: the left 8×8 icon shows the
 // moon phase (see MoonView) instead of the condition icon. Used when the caller
 // has determined it's night and the moon-phase option is on.
-func WeatherPayloadMoon(tempText string, hourly []float64, moon MoonView, lifetime int) map[string]any {
-	return weatherTile("", tempText, hourly, &moon, lifetime)
+func WeatherPayloadMoon(tempText string, tempC float64, hourly []float64, moon MoonView, lifetime int) map[string]any {
+	return weatherTile("", tempText, tempC, hourly, &moon, lifetime)
 }
 
-// drawWeatherBody paints the conditions tile's right side (cols 9-31): the
-// temperature digits centred in the free area (rows 0-4) and the 2px-tall
-// hourly strip (rows 6-7). Shared by the drawn tile, the native-icon variant,
-// and the moon variant so the layout can't drift.
-func drawWeatherBody(f *Frame, tempText string, hourly []float64) {
-	textW := len([]rune(tempText))*4 - 1
-	x := 9 + (23-textW)/2
-	if x < 9 {
-		x = 9
+// drawWeatherBody paints the conditions tile's right side: the temperature
+// centred in the content area on the text row (rows 1-5) and the hourly strip
+// on the bottom bar (row 7, cols 8-31). Shared by the drawn tile, the
+// native-icon variant, and the moon variant so the layout can't drift.
+//
+// The digits take TempColor(tempC), the gradient the strip below them uses, so
+// warm and cold read at a glance; the degree sign stays white. tempC is always
+// Celsius, whatever units tempText is in.
+func drawWeatherBody(f *Frame, tempText string, tempC float64, hourly []float64) {
+	x := centredX(tempText)
+	digits := strings.TrimSuffix(tempText, "°")
+	drawDigits(f, digits, x, textRow, TempColor(tempC))
+	if digits != tempText {
+		drawDigits(f, "°", x+4*len([]rune(digits)), textRow, colorWhite)
 	}
-	drawDigits(f, tempText, x, 0, colorWhite)
-	drawForecastStrip(f, hourly, 9, 31, 6)
-	drawForecastStrip(f, hourly, 9, 31, 7)
+	drawForecastStrip(f, hourly)
 }
 
 // WeatherTileFrame composes the drawn rotating-tile frame: condition icon (or
-// moon phase when moon is non-nil), centred temperature digits, 2px-tall
-// hourly strip. Shared by the device payload and /v1/weather/preview.
-func WeatherTileFrame(cond, tempText string, hourly []float64, moon *MoonView) Frame {
+// moon phase when moon is non-nil), centred temperature digits, hourly strip
+// on the bottom bar. Shared by the device payload and /v1/weather/preview.
+func WeatherTileFrame(cond, tempText string, tempC float64, hourly []float64, moon *MoonView) Frame {
 	var f Frame
 	if moon != nil {
 		paintBitmap(&f, 0, 0, moonSprite(*moon), moonColor)
 	} else {
 		paintBitmap(&f, 0, 0, weatherIcon(cond), WeatherColor(cond))
 	}
-	drawWeatherBody(&f, tempText, hourly)
+	drawWeatherBody(&f, tempText, tempC, hourly)
 	return f
 }
 
-func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifetime int) map[string]any {
-	f := WeatherTileFrame(cond, tempText, hourly, moon)
+func weatherTile(cond, tempText string, tempC float64, hourly []float64, moon *MoonView, lifetime int) map[string]any {
+	f := WeatherTileFrame(cond, tempText, tempC, hourly, moon)
 	return map[string]any{
 		"draw":       []any{bitmapOp(0, 0, 32, 8, framePixels(&f))},
 		"lifetimeMs": msOf(lifetime), "durationMs": msOf(rotateDwellSeconds),
@@ -193,12 +198,12 @@ func weatherTile(cond, tempText string, hourly []float64, moon *MoonView, lifeti
 // paints last of the two, so the bitmap must stay clear of cols 0-7 (it does).
 // Gallery icons download on first reference, so a fresh ID can be blank for a
 // few seconds — ensureNativeIcons provisions them up front for that reason.
-func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime int) map[string]any {
+func WeatherPayloadNative(iconID, tempText string, tempC float64, hourly []float64, lifetime int) map[string]any {
 	var f Frame
-	drawWeatherBody(&f, tempText, hourly)
+	drawWeatherBody(&f, tempText, tempC, hourly)
 	return map[string]any{
 		"icon":       iconID,
-		"draw":       []any{bitmapOp(8, 0, 24, 8, framePixelsRect(&f, 8, 0, 24, 8))},
+		"draw":       []any{bitmapOp(iconW, 0, panelW-iconW, 8, framePixelsRect(&f, iconW, 0, panelW-iconW, 8))},
 		"lifetimeMs": msOf(lifetime), "durationMs": msOf(rotateDwellSeconds),
 	}
 }
@@ -213,22 +218,22 @@ func WeatherPayloadNative(iconID, tempText string, hourly []float64, lifetime in
 // `icon` (which a weather popup always does), so the caller plays it separately
 // via /api/rtttl (RTTTL) or /api/sound (device melody name).
 func WeatherPopupPayload(cond, label, iconID string, durationSec int) map[string]any {
-	p := map[string]any{
+	p := readOnce(map[string]any{
 		"text":       label,
 		"durationMs": msOf(durationSec),
 		"wakeup":     true,
 		"stack":      false,
 		"textColor":  hexOf(WeatherColor(cond)),
-	}
+	})
 	if iconID != "" {
 		// Native animated icon: the firmware reserves the left 8px and lays text
 		// out in the remainder, so we must NOT set textCenter/textOffsetX (see
 		// Pomodoro).
 		p["icon"] = iconID
 	} else {
-		// Drawn icon as a bitmap op at cols 0–7 + left-aligned text from col 9.
+		// Drawn icon (iconOp masks cols 0-8) + left-aligned text from col 9.
 		iconPx := bitmap8(weatherIcon(cond), WeatherColor(cond))
-		p["draw"] = []any{bitmapOp(0, 0, 8, 8, iconPx)}
+		p["draw"] = []any{iconOp(iconPx)}
 		p["textCenter"] = false
 		p["textOffsetX"] = 9
 	}

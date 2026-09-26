@@ -49,7 +49,7 @@ func (a *App) handleWeatherPreview(w http.ResponseWriter, r *http.Request) {
 
 	p := render.Preview{Width: 32, Height: 8, Frames: []render.CardFrame{}}
 	if queryBoolDefault(q.Get("rotate_in_apps"), true) {
-		f := render.WeatherTileFrame(obs.Condition, tempText, window, nil)
+		f := render.WeatherTileFrame(obs.Condition, tempText, obs.TempC, window, nil)
 		p.Frames = append(p.Frames, render.CardFrame{Card: "weather", Pixels: render.HexPixels(&f)})
 	}
 	if queryBoolDefault(q.Get("forecast_tile"), true) && len(window) > 0 {

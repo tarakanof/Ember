@@ -46,7 +46,11 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     // General
     public var brightness: Int?
     public var autoBrightness: Bool?
-    public var volume: Int?
+    /// Device mute (NG 1.1.0). False silences every output, chimes included.
+    public var soundEnabled: Bool?
+    /// Piezo volume, 0–100 (NG 1.1.0 replaced the 0–30 `volume`, which it now
+    /// rejects with 422).
+    public var buzzerVolume: Int?
     /// Milliseconds (NG) — was ATIME in seconds on AWTRIX3.
     public var appDurationMs: Int?
     /// Pomodoro takeover key; coordinator.go writes this directly.
@@ -83,19 +87,18 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     public var humidityColor: String?
     public var batteryColor: String?
     public var useCelsius: Bool?
-    public var smoothScroll: Bool?
     // Nested objects
     public var scroll: ScrollSettings?
     public var weekdayBar: WeekdayBar?
 
     enum CodingKeys: String, CodingKey {
-        case brightness, autoBrightness, volume, appDurationMs, autoTransition, transitionDurationMs
+        case brightness, autoBrightness, soundEnabled, buzzerVolume, appDurationMs, autoTransition, transitionDurationMs
         case transitionEffect, textColor, uppercase, blockNavigation
         case timeMode, time24h, timeLeadingZero, timeShowSeconds, timeShowAmPm, timeSeparatorMode
         case dateOrder, dateSeparator, dateYearMode, dateShowWeekday, dateMonthNames
         case calendarHeaderColor, calendarBodyColor, calendarTextColor
         case timeColor, dateColor, temperatureColor, humidityColor, batteryColor
-        case useCelsius, smoothScroll
+        case useCelsius
         case scroll, weekdayBar
     }
 
@@ -106,7 +109,8 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
         func i(_ k: CodingKeys) -> Int? { (try? c.decodeIfPresent(Int.self, forKey: k)) ?? nil }
         func b(_ k: CodingKeys) -> Bool? { (try? c.decodeIfPresent(Bool.self, forKey: k)) ?? nil }
         func s(_ k: CodingKeys) -> String? { (try? c.decodeIfPresent(String.self, forKey: k)) ?? nil }
-        brightness = i(.brightness); autoBrightness = b(.autoBrightness); volume = i(.volume)
+        brightness = i(.brightness); autoBrightness = b(.autoBrightness)
+        soundEnabled = b(.soundEnabled); buzzerVolume = i(.buzzerVolume)
         appDurationMs = i(.appDurationMs); autoTransition = b(.autoTransition)
         transitionDurationMs = i(.transitionDurationMs); transitionEffect = s(.transitionEffect)
         textColor = s(.textColor); uppercase = b(.uppercase); blockNavigation = b(.blockNavigation)
@@ -119,7 +123,7 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
         calendarTextColor = s(.calendarTextColor)
         timeColor = s(.timeColor); dateColor = s(.dateColor); temperatureColor = s(.temperatureColor)
         humidityColor = s(.humidityColor); batteryColor = s(.batteryColor)
-        useCelsius = b(.useCelsius); smoothScroll = b(.smoothScroll)
+        useCelsius = b(.useCelsius)
         scroll = (try? c.decodeIfPresent(ScrollSettings.self, forKey: .scroll)) ?? nil
         weekdayBar = (try? c.decodeIfPresent(WeekdayBar.self, forKey: .weekdayBar)) ?? nil
     }
@@ -211,21 +215,28 @@ public struct SensorCalibration: Codable, Equatable, Sendable {
 /// no "clear" value in NG; clearing an overlay is an explicit `overlay: null`,
 /// so encode(to:) always writes the key (never omits it), mirroring
 /// SensorCalibration's explicit-null precedent.
+///
+/// `power` is read-only here: GET reports whether the matrix is lit, but the
+/// PUT rejects it. Toggle it with `DeviceService.setDisplayPower(_:)`, which
+/// has its own route so an overlay edit can never blank the panel.
 public struct DeviceDisplay: Codable, Equatable, Sendable {
     public var overlay: String?
     public var overlaySettings: OverlaySettings?
+    public var power: Bool?
 
-    enum CodingKeys: String, CodingKey { case overlay, overlaySettings }
+    enum CodingKeys: String, CodingKey { case overlay, overlaySettings, power }
 
-    public init(overlay: String? = nil, overlaySettings: OverlaySettings? = nil) {
+    public init(overlay: String? = nil, overlaySettings: OverlaySettings? = nil, power: Bool? = nil) {
         self.overlay = overlay
         self.overlaySettings = overlaySettings
+        self.power = power
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         overlay = (try? c.decodeIfPresent(String.self, forKey: .overlay)) ?? nil
         overlaySettings = (try? c.decodeIfPresent(OverlaySettings.self, forKey: .overlaySettings)) ?? nil
+        power = (try? c.decodeIfPresent(Bool.self, forKey: .power)) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -264,13 +275,31 @@ public struct AppInfo: Codable, Equatable, Sendable, Identifiable {
     public var enabled: Bool
     public var inLoop: Bool
     public var origin: String?
+    /// Whether the app is on the clock right now; false for a name NG keeps a
+    /// place for while the app is away. nil on firmware that doesn't say.
+    public var present: Bool?
+    /// 0-based place in the arranged order; nil when it has none.
+    public var slot: Int?
 
     public var id: String { name }
 
-    enum CodingKeys: String, CodingKey { case name, enabled, inLoop, origin }
+    enum CodingKeys: String, CodingKey { case name, enabled, inLoop, origin, present, slot }
 
-    public init(name: String, enabled: Bool = true, inLoop: Bool = true, origin: String? = nil) {
+    public init(name: String, enabled: Bool = true, inLoop: Bool = true, origin: String? = nil,
+                present: Bool? = nil, slot: Int? = nil) {
         self.name = name; self.enabled = enabled; self.inLoop = inLoop; self.origin = origin
+        self.present = present; self.slot = slot
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        // A module entry carries no enabled/inLoop.
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+        inLoop = (try? c.decodeIfPresent(Bool.self, forKey: .inLoop)) ?? true
+        origin = (try? c.decodeIfPresent(String.self, forKey: .origin)) ?? nil
+        present = (try? c.decodeIfPresent(Bool.self, forKey: .present)) ?? nil
+        slot = (try? c.decodeIfPresent(Int.self, forKey: .slot)) ?? nil
     }
 }
 
@@ -287,24 +316,46 @@ public struct AppsUpdate: Codable, Equatable, Sendable {
     }
 }
 
+/// capabilities.audio — which sound outputs the clock has (NG 1.1.0 replaced
+/// the top-level `radio` flag with this object). A TC001 has only the buzzer.
+public struct DeviceAudioCapabilities: Codable, Equatable, Sendable {
+    public var buzzer: Bool
+    public var track: Bool
+    public var mp3: Bool
+    public var radio: Bool
+
+    enum CodingKeys: String, CodingKey { case buzzer, track, mp3, radio }
+
+    public init(buzzer: Bool = false, track: Bool = false, mp3: Bool = false, radio: Bool = false) {
+        self.buzzer = buzzer; self.track = track; self.mp3 = mp3; self.radio = radio
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func b(_ k: CodingKeys) -> Bool { (try? c.decodeIfPresent(Bool.self, forKey: k)) ?? false }
+        buzzer = b(.buzzer); track = b(.track); mp3 = b(.mp3); radio = b(.radio)
+    }
+}
+
 /// GET /v1/device/capabilities — the device's live effect/transition/overlay/
 /// palette catalogue, used to feed pickers instead of a hardcoded table.
 /// Pinned server contract (see issue #70); every field defaults to empty/false
 /// so a decode of a partial or future-shaped response degrades gracefully.
+/// `audio` is nil when the firmware predates NG 1.1.0 (no audio object).
 public struct DeviceCapabilities: Codable, Equatable, Sendable {
     public var effects: [String]
     public var paletteEffects: [String]
     public var transitions: [String]
     public var overlays: [String]
     public var palettes: [String]
-    public var radio: Bool
+    public var audio: DeviceAudioCapabilities?
 
-    enum CodingKeys: String, CodingKey { case effects, paletteEffects, transitions, overlays, palettes, radio }
+    enum CodingKeys: String, CodingKey { case effects, paletteEffects, transitions, overlays, palettes, audio }
 
     public init(effects: [String] = [], paletteEffects: [String] = [], transitions: [String] = [],
-                overlays: [String] = [], palettes: [String] = [], radio: Bool = false) {
+                overlays: [String] = [], palettes: [String] = [], audio: DeviceAudioCapabilities? = nil) {
         self.effects = effects; self.paletteEffects = paletteEffects; self.transitions = transitions
-        self.overlays = overlays; self.palettes = palettes; self.radio = radio
+        self.overlays = overlays; self.palettes = palettes; self.audio = audio
     }
 
     public init(from decoder: Decoder) throws {
@@ -312,8 +363,12 @@ public struct DeviceCapabilities: Codable, Equatable, Sendable {
         func arr(_ k: CodingKeys) -> [String] { (try? c.decodeIfPresent([String].self, forKey: k)) ?? [] }
         effects = arr(.effects); paletteEffects = arr(.paletteEffects); transitions = arr(.transitions)
         overlays = arr(.overlays); palettes = arr(.palettes)
-        radio = (try? c.decodeIfPresent(Bool.self, forKey: .radio)) ?? false
+        audio = (try? c.decodeIfPresent(DeviceAudioCapabilities.self, forKey: .audio)) ?? nil
     }
+
+    /// Whether the clock has a buzzer. Unknown (no audio object) counts as
+    /// yes, so an older or unreachable clock still shows the sound controls.
+    public var hasBuzzer: Bool { audio?.buzzer ?? true }
 }
 
 /// The clock's live framebuffer envelope, as served by
@@ -402,4 +457,51 @@ public struct ButtonStatus: Codable, Equatable, Sendable {
 public struct ButtonsUpdate: Codable, Equatable, Sendable {
     public var enabled: Bool
     public init(enabled: Bool) { self.enabled = enabled }
+}
+
+/// PUT /v1/device/display/power body.
+public struct DisplayPowerUpdate: Codable, Equatable, Sendable {
+    public var power: Bool
+    public init(power: Bool) { self.power = power }
+}
+
+/// POST /v1/device/audio/test body naming a stored melody to preview.
+public struct AudioTestRequest: Codable, Equatable, Sendable {
+    public var melody: String
+    public init(melody: String) { self.melody = melody }
+}
+
+/// One melody stored on the clock (GET /v1/device/audio/melodies, NG's own
+/// shape). `notes`/`durationMs` come from parsing `rtttl` and are 0 when it
+/// does not parse; an unparseable file is still listed with `valid == false`
+/// and the reason in `error` at byte offset `index`.
+public struct DeviceMelody: Codable, Equatable, Sendable, Identifiable {
+    public var name: String
+    public var rtttl: String
+    public var bytes: Int
+    public var notes: Int
+    public var durationMs: Int
+    public var valid: Bool
+    public var error: String?
+    public var index: Int?
+
+    public var id: String { name }
+
+    public init(name: String, rtttl: String = "", bytes: Int = 0, notes: Int = 0,
+                durationMs: Int = 0, valid: Bool = true, error: String? = nil, index: Int? = nil) {
+        self.name = name; self.rtttl = rtttl; self.bytes = bytes; self.notes = notes
+        self.durationMs = durationMs; self.valid = valid; self.error = error; self.index = index
+    }
+}
+
+/// GET /v1/device/audio/melodies. `usedBytes`/`totalBytes` cover the clock's
+/// whole filesystem (icons and scripts share it), not just melodies.
+public struct DeviceMelodyList: Codable, Equatable, Sendable {
+    public var melodies: [DeviceMelody]
+    public var usedBytes: Int
+    public var totalBytes: Int
+
+    public init(melodies: [DeviceMelody] = [], usedBytes: Int = 0, totalBytes: Int = 0) {
+        self.melodies = melodies; self.usedBytes = usedBytes; self.totalBytes = totalBytes
+    }
 }

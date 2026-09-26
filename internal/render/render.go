@@ -146,9 +146,9 @@ func paintBitmap(f *Frame, ox, oy int, sprite []string, c RGB) {
 const glassGlyph = '⌷'
 
 // resetGlyph is the internal font key for the rate-reset hourglass pictogram
-// (a symmetric I-beam: wide top/bottom plates, thin sand stream) — the trailing
-// glyph on the reset-countdown card. Distinct from the digits and the context
-// tumbler glassGlyph.
+// (wide top/bottom plates pinched to a one-pixel waist) — the trailing glyph
+// on the reset-countdown card. Distinct from the digits, the letter I and the
+// context tumbler glassGlyph.
 const resetGlyph = '⧗'
 
 // font3x5 maps a rune to its 3-col × 5-row pixel sprite. Each entry is
@@ -169,9 +169,10 @@ var font3x5 = map[rune][]string{
 	'+': {"...", ".X.", "XXX", ".X.", "..."},
 	'-': {"...", "...", "XXX", "...", "..."},
 	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
-	// Degree sign for the weather widget's temperature readout: a small ring in
-	// the top two rows (reads as "°" beside the digits, distinct from '0').
-	'°': {"XX.", "XX.", "...", "...", "..."},
+	// Degree sign for the weather widget's temperature readout: a 3×3 ring in
+	// the top three rows (reads as "°" beside the digits, distinct from the
+	// 5-row '0'; a solid 2×2 block read as a blob at LED distance).
+	'°': {"XXX", "X.X", "XXX", "...", "..."},
 	// Usage-widget glyphs. ':' is 1-wide (tight clock colon); the letters are
 	// the 5h/7d unit suffixes + the per-model OP/SO markers. The tight clock is
 	// painted by drawClockInto (custom per-glyph advance), so the 1-wide ':'
@@ -183,7 +184,7 @@ var font3x5 = map[rune][]string{
 	'P':        {"XXX", "X.X", "XXX", "X..", "X.."},
 	'S':        {"XXX", "X..", "XXX", "..X", "XXX"},
 	glassGlyph: {"X.X", "X.X", "X.X", "XXX", "XXX"},
-	resetGlyph: {"XXX", ".X.", ".X.", ".X.", "XXX"},
+	resetGlyph: {"XXX", "X.X", ".X.", "X.X", "XXX"},
 	// Source-name card letters (A-Z minus the pre-existing O/P/S above).
 	'A': {"XXX", "X.X", "XXX", "X.X", "X.X"},
 	'B': {"XX.", "X.X", "XX.", "X.X", "XX."},
@@ -235,8 +236,8 @@ func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
 }
 
 const (
-	glassLeft  = 25
-	glassRight = 31 // the panel's last column: the glass owns the full right edge
+	glassLeft  = rightSlotX
+	glassRight = panelW - 1 // the panel's last column: the glass owns the full right edge
 	// The usage faces' unit label (drawUsageUnit) also runs to col 31, and only
 	// one of the two is ever drawn on a given card.
 	glassTopRow      = 1
@@ -293,20 +294,13 @@ func drawGlass(f *Frame, pct *int, c RGB) {
 	}
 }
 
-const (
-	barRow   = 7
-	barStart = 11
-	barEnd   = 31
-	barWidth = barEnd - barStart + 1
-)
-
-// drawSessionBar paints one pixel per non-idle session at row 7, starting
-// from cols barStart..barEnd. Pixels are coloured by each session's state
+// drawSessionBar paints one pixel per non-idle session on the bottom bar
+// (row 7, cols barX0..31). Pixels are coloured by each session's state
 // using the existing state-colour palette. Order is priority-first
 // (waiting > error > running > done) then (source, tool, session) lex.
-// Sessions in state "idle" are excluded. If more than barWidth (21)
-// non-idle sessions exist, only the first 21 are painted; overflow is
-// simply not indicated.
+// Sessions in state "idle" are excluded. If more than barW (24) non-idle
+// sessions exist, only the first 24 are painted; overflow is simply not
+// indicated.
 func drawSessionBar(f *Frame, sessions []Session) {
 	type entry struct {
 		prio  int
@@ -321,7 +315,7 @@ func drawSessionBar(f *Frame, sessions []Session) {
 			continue
 		}
 		out = append(out, entry{
-			prio:  statePriority(s.State),
+			prio:  StatePriority(s.State),
 			src:   s.Source,
 			tool:  s.Tool,
 			sess:  s.Session,
@@ -341,19 +335,18 @@ func drawSessionBar(f *Frame, sessions []Session) {
 		return strings.Compare(a.sess, b.sess)
 	})
 	for i, e := range out {
-		if i >= barWidth {
+		if i >= barW {
 			break
 		}
-		paintCell(f, barStart+i, barRow, e.color)
+		paintCell(f, barX0+i, barRow, e.color)
 	}
 }
 
 // drawRateBar paints the 5h rate-limit window as the usage-widget-style dimmed
-// threshold bar: content cols 8–31, row 7, fill = round(24*pct/100) in
+// threshold bar: bottom bar cols 8–31, row 7, fill = round(24*pct/100) in
 // dimThreshold(pct) over a usageTrack background — visually identical to the
-// usage apps' bars. The colour arg is retained for signature stability but
-// ignored (threshold colour is derived from pct).
-func drawRateBar(f *Frame, pct int, _ RGB) {
+// usage apps' bars.
+func drawRateBar(f *Frame, pct int) {
 	if pct < 0 {
 		pct = 0
 	}
@@ -361,7 +354,7 @@ func drawRateBar(f *Frame, pct int, _ RGB) {
 		pct = 100
 	}
 	for i, c := range usageBarPixels(pct) {
-		paintCell(f, 8+i, barRow, c)
+		paintCell(f, barX0+i, barRow, c)
 	}
 }
 
@@ -413,11 +406,11 @@ const rotateDwellSeconds = 6
 // box: everything left of it, everything right of it, and the bottom bar row
 // beneath it.
 //
-// A single draw op covering the whole 32×8 panel suppresses the firmware's text
-// layer completely — verified on firmware 1.0.15: the bitmap's own pixels
-// rendered and the text was simply absent. Split the same pixels into blocks
-// that clear the text box and the text appears, with the bar row underneath it
-// unaffected (the text occupies rows 1–5).
+// NG paints the text first and the draw ops over it (textInFront defaults to
+// false), and bitmap zeros are opaque black. A single op covering the whole
+// 32×8 panel therefore paints over the text, so on firmware 1.0.15 only the
+// bitmap showed. Split into blocks that leave the text box clear, the text
+// shows, with the bar row beneath it unaffected (the text occupies rows 1–5).
 func drawOpsAround(f *Frame, n *NativeText) []any {
 	right := n.X + n.W
 	ops := []any{}
@@ -491,16 +484,48 @@ func isUsageCard(card int) bool {
 func sourceCardEnabled(s Session) bool { return s.SourceCard == nil || *s.SourceCard }
 func sessionBarEnabled(s Session) bool { return s.SessionBar == nil || *s.SessionBar }
 
-// sourceCardText uppercases and truncates a source name to the 4 glyphs that
-// fit the drawn text area (cols 9-23 = 15 px = 4×4−1; full-frame db apps
-// cannot scroll native text, so longer names are cut, not scrolled).
-func sourceCardText(source string) string {
-	up := strings.ToUpper(source)
-	r := []rune(up)
-	if len(r) > 4 {
-		r = r[:4]
+// sourceNameMaxW is the widest source name the card shows: cols 9-23, leaving
+// col 24 blank before the glass at col 25.
+const sourceNameMaxW = rightSlotX - contentX - 1
+
+// ngASCIIInkW is the ink width (xAdvance − 1) of every printable ASCII rune,
+// 0x20 '␠' through 0x7E '~', in the AWTRIX panel font (AWTRIX3
+// src/AwtrixFont.h, AwtrixFontGlyphs), which NG's small font uses for ASCII.
+// For example M/W are 5, N/Q 4, I and most punctuation 1, other letters 3.
+const ngASCIIInkW = "11333331223323133333333333123333333333333133354334333335333333332333333331333333333333333333133"
+
+// ngWideGlyphW is the width assumed for runes outside printable ASCII. NG draws
+// them from Matrix-Fonts, whose widths Ember does not have, so they count as
+// wide: an underestimate would let the glass op clip the last letter.
+const ngWideGlyphW = 5
+
+// ngGlyphW returns how many columns NG's small font inks for rune r.
+func ngGlyphW(r rune) int {
+	if r >= 0x20 && r <= 0x7E {
+		return int(ngASCIIInkW[r-0x20] - '0')
 	}
-	return string(r)
+	return ngWideGlyphW
+}
+
+// sourceCardText uppercases a source name and cuts it to what NG draws within
+// sourceNameMaxW (glyph widths plus 1-px spacers). The card cannot scroll the
+// name (the bitmap ops around it would clip the scroll), so longer names are
+// cut, not scrolled. "STUD" is 15 px; "MWMW" would be 23 px and becomes "MW".
+func sourceCardText(source string) string {
+	var out []rune
+	w := 0
+	for _, r := range strings.ToUpper(source) {
+		next := w + ngGlyphW(r)
+		if len(out) > 0 {
+			next++ // spacer
+		}
+		if next > sourceNameMaxW {
+			break
+		}
+		out = append(out, r)
+		w = next
+	}
+	return string(out)
 }
 
 // AvailableCards returns the cards this session offers, in rotation order.
@@ -551,8 +576,8 @@ func rateText(pct int) string {
 }
 
 // resetText renders the time until the 5h rate-limit window resets as ceil-hours
-// (0..9) + the hourglass glyph, with an urgency colour: amber in the final hour
-// (remaining < 1h), green otherwise. remaining is clamped to >=0, so a stale
+// (0..9) + the hourglass glyph, with an urgency colour from the usage threshold
+// palette: amber in the final hour (remaining < 1h), green otherwise. remaining is clamped to >=0, so a stale
 // past timestamp renders "0" until the next post carries the next window.
 // Used by the usage-card faces.
 func resetText(resetAt int64, now time.Time) (string, RGB) {
@@ -564,36 +589,32 @@ func resetText(resetAt int64, now time.Time) (string, RGB) {
 	if hours > 9 {
 		hours = 9
 	}
-	color := colorRunning
+	color := usageOK
 	if remaining < 3600 {
-		color = colorWaiting
+		color = usageWarn
 	}
 	return itoa(hours) + string(resetGlyph), color
 }
 
-// rateColor threshold-colours the rate readout, matching Claude Code's
-// statusline convention: <70 green, 70–89 amber, >=90 red.
-func rateColor(pct int) RGB {
-	switch {
-	case pct >= 90:
-		return colorError
-	case pct >= 70:
-		return colorWaiting
-	default:
-		return colorRunning
-	}
-}
-
 // drawUsageClock paints the 5h reset readout: the host-local HH:MM tight
-// clock when the label is known, else the ceil-hours hourglass (codex, or
-// statusline data without a label).
+// clock when the label is known, else the ceil-hours hourglass plus the "5h"
+// unit (codex, or statusline data without a label).
+//
+// The HH:MM clock is marked with a gray hourglass at cols 27-29 instead of
+// the "5h" unit. A bare HH:MM beside the robot reads as the time of day (NG's
+// own Time app shows one in the same rotation), but the clock runs to col 23,
+// and a "5h" at col 25 was one blank column away, the same as the spacing
+// between glyphs, so the pair read as "17:305h". The 3-px hourglass leaves 3
+// blank columns after the clock.
 func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 	if u.ResetLabel != "" {
-		drawClockInto(f, u.ResetLabel, numStart)
+		drawClockInto(f, u.ResetLabel, contentX)
+		drawDigits(f, string(resetGlyph), resetMarkX, textRow, usageGray)
 		return
 	}
 	text, col := resetText(u.ResetAt, now)
-	drawDigits(f, text, numStart, 1, col)
+	drawDigits(f, text, contentX, textRow, col)
+	drawUsageUnit(f, "5h")
 }
 
 // drawUsageUnit paints the two-glyph gray window label ("5h", "7d", "OP",
@@ -601,62 +622,51 @@ func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 // cards. Context is a session metric, so usage faces show their window
 // instead of the glass.
 func drawUsageUnit(f *Frame, unit string) {
-	drawDigits(f, unit, unitStart, 1, usageGray)
+	drawDigits(f, unit, rightSlotX, 1, usageGray)
 }
 
 // drawUnitPctFace paints a clamped percent ("42%") in the threshold colour at
 // the number slot plus the gray unit label at the right edge — the shared
 // shape of the 7d and per-model faces.
 func drawUnitPctFace(f *Frame, unit string, pct int) {
-	drawDigits(f, rateText(pct), numStart, 1, rateColor(pct))
+	drawDigits(f, rateText(pct), contentX, textRow, usageThreshold(pct))
 	drawUsageUnit(f, unit)
 }
 
 // PickWinning returns the priority-winning session, its state colour, and
-// the total active session count (any non-idle session). When no session
-// is active, win is nil. Priority order: waiting > error > running > done.
-// Within a tie, the most recently updated session wins.
+// the number of active sessions (waiting, error, running or done). When no
+// session is active, win is nil. Priority follows StatePriority
+// (waiting > error > running > done; idle and unknown states never win);
+// within a state the most recently updated session wins, and on an exact
+// UpdatedAt tie the earlier one in sessions.
+//
+// The legacy /state render (cmd/ember sessions.go) and the preview pick
+// their winner here; the clock's rotation orders by the same StatePriority
+// through SortedActiveKeys. The menu app's
+// pickWinning (macos/Sources/EmberKit/StatusService.swift) is a port of it;
+// TestPickWinningTable is written so a Swift test can mirror its cases
+// one for one.
 func PickWinning(sessions []Session) (win *Session, color RGB, total int) {
-	var waiting, errored, running, done []*Session
 	for i := range sessions {
 		s := &sessions[i]
-		switch s.State {
-		case "waiting":
-			waiting = append(waiting, s)
-		case "error":
-			errored = append(errored, s)
-		case "running":
-			running = append(running, s)
-		case "done":
-			done = append(done, s)
+		prio := StatePriority(s.State)
+		if prio == priorityInactive {
+			continue
+		}
+		total++
+		if win == nil {
+			win = s
+			continue
+		}
+		best := StatePriority(win.State)
+		if prio < best || (prio == best && s.UpdatedAt.After(win.UpdatedAt)) {
+			win = s
 		}
 	}
-	total = len(waiting) + len(errored) + len(running) + len(done)
-
-	pickMostRecent := func(group []*Session) *Session {
-		if len(group) == 0 {
-			return nil
-		}
-		best := group[0]
-		for _, s := range group[1:] {
-			if s.UpdatedAt.After(best.UpdatedAt) {
-				best = s
-			}
-		}
-		return best
+	if win == nil {
+		return nil, RGB{}, total
 	}
-
-	switch {
-	case len(waiting) > 0:
-		return pickMostRecent(waiting), colorWaiting, total
-	case len(errored) > 0:
-		return pickMostRecent(errored), colorError, total
-	case len(running) > 0:
-		return pickMostRecent(running), colorRunning, total
-	case len(done) > 0:
-		return pickMostRecent(done), colorDone, total
-	}
-	return nil, RGB{}, total
+	return win, colorForState(win.State), total
 }
 
 // sessionKey is the canonical key for rotation pointer tracking and
@@ -681,10 +691,14 @@ func SessionByKey(snap Snapshot, key string) Session {
 	return Session{}
 }
 
-// statePriority returns lower values for higher-priority states. Idle is
-// never returned by SortedActiveKeys, so the constant for idle is unused
-// here but kept for symmetry with the spec's ordering.
-func statePriority(state string) int {
+// priorityInactive is StatePriority's rank for idle and unknown states: they
+// never win a render slot and are not counted as active.
+const priorityInactive = 4
+
+// StatePriority ranks a session state for display, lower first: waiting 0,
+// error 1, running 2, done 3, idle or unknown priorityInactive. It is the
+// single ordering PickWinning, SortedActiveKeys and the session bar share.
+func StatePriority(state string) int {
 	switch state {
 	case "waiting":
 		return 0
@@ -695,7 +709,7 @@ func statePriority(state string) int {
 	case "done":
 		return 3
 	default:
-		return 4 // idle / unknown
+		return priorityInactive
 	}
 }
 
@@ -717,7 +731,7 @@ func SortedActiveKeys(snap Snapshot) []string {
 		}
 		out = append(out, entry{
 			key:  sessionKey(s),
-			prio: statePriority(s.State),
+			prio: StatePriority(s.State),
 			src:  s.Source,
 			tool: s.Tool,
 			sess: s.Session,
@@ -809,15 +823,7 @@ func itoa(n int) string {
 	return strconv.Itoa(n)
 }
 
-// numStart is the left edge of the digit area (1-px gap after the 8×8 icon).
-const numStart = 9
-
-// unitStart is the left edge of the usage-face unit label ("5h"/"7d"/model
-// marker): two 3×5 glyphs at cols 25–31, the slot the context glass occupies
-// on non-usage cards.
-const unitStart = 25
-
-// detailPayload builds an 8×8 icon bitmap + firmware-native-text payload.
+// detailPayload builds a drawn-icon (iconOp) + firmware-native-text payload.
 // blink=true is the WAIT/ERR attention label; blink=false is the activity detail.
 //
 // textCenter must stay false. A `draw` bitmap indents nothing (only the native
@@ -834,10 +840,20 @@ const unitStart = 25
 // Both modes want the same motion: sit still when the label fits the 23 free
 // columns, scroll when it overflows. NG expresses that natively as
 // scroll.whenFits, which replaces the old len(text)<=5 character-count gate.
-func detailPayload(s Session, text, hexColor string, blink bool, lifetimeSeconds int, hold bool) map[string]any {
+//
+// The card also carries the app's bottom bar (see drawBottomBar), so row 7
+// does not blink off each time the rotation reaches it. NG text uses rows 1-5,
+// so a row-7 op never covers it. The context glass stays off: it would mask
+// scrolling text at cols 25-31.
+func detailPayload(s Session, sessions []Session, text, hexColor string, blink bool, lifetimeSeconds int, hold bool) map[string]any {
 	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
+	draw := []any{iconOp(pixels)}
+	var bar Frame
+	if drawBottomBar(&bar, s, sessions) {
+		draw = append(draw, bitmapOp(barX0, barRow, barW, 1, framePixelsRect(&bar, barX0, barRow, barW, 1)))
+	}
 	p := map[string]any{
-		"draw":        []any{bitmapOp(0, 0, 8, 8, pixels)},
+		"draw":        draw,
 		"text":        text,
 		"textColor":   hexColor,
 		"textOffsetX": 9,
@@ -898,7 +914,7 @@ func AttentionHeld(snap Snapshot, pointer string, locked bool) bool {
 // invalidation).
 //
 // locked: when true and the chosen session's state is "waiting" or
-// "error", an 8-col bitmap (just the robot sprite) is emitted with the
+// "error", a 9-col bitmap (the robot sprite + blank gap) is emitted with the
 // blinking label positioned to the right via textOffsetX, so the firmware
 // animates the attention indicator natively in the area the bitmap leaves
 // clear. A full-width draw would paint zeros across the right side of the
@@ -923,7 +939,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		if session.Source != "" {
 			label += " " + strings.ToUpper(session.Source)
 		}
-		return detailPayload(*session, label, hex, true, lifetimeSeconds, true)
+		return detailPayload(*session, snap.Sessions, label, hex, true, lifetimeSeconds, true)
 	}
 
 	// Resolve the per-tool usage view; nil map access is safe in Go.
@@ -939,7 +955,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		selected = cards[ci]
 	}
 	if selected == cardTool {
-		return detailPayload(*session, session.Activity, stateHex(session.State), false, lifetimeSeconds, false)
+		return detailPayload(*session, snap.Sessions, session.Activity, stateHex(session.State), false, lifetimeSeconds, false)
 	}
 	frame := ComposeFrame(*session, selected, u, snap.Sessions, snap.Now)
 	return frameToCustomApp(&frame, lifetimeSeconds, false)
@@ -965,12 +981,10 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 		if s.RateBottomBar {
 			drawUsageClock(&f, u, now) // pct lives on the bar; slot shows the clock
 		} else {
-			drawDigits(&f, rateText(u.FiveHourPct), numStart, 1, rateColor(u.FiveHourPct))
+			drawUnitPctFace(&f, "5h", u.FiveHourPct)
 		}
-		drawUsageUnit(&f, "5h")
 	case card == cardUsageReset && u != nil:
 		drawUsageClock(&f, u, now)
-		drawUsageUnit(&f, "5h") // the countdown belongs to the 5h window
 	case card == cardUsage7d && u != nil && u.SevenDayPct != nil:
 		drawUnitPctFace(&f, "7d", *u.SevenDayPct)
 	case card == cardUsageModelA && u != nil && len(u.Models) > 0:
@@ -980,8 +994,8 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 	case card == cardSource && s.Source != "":
 		f.Native = &NativeText{
 			Text:  sourceCardText(s.Source),
-			X:     numStart,
-			W:     glassLeft - numStart,
+			X:     contentX,
+			W:     glassLeft - contentX,
 			Color: sourceColorOr(s, colorWhite),
 		}
 	default:
@@ -994,13 +1008,29 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 		drawGlass(&f, s.ContextPct, colorForState(s.State))
 	}
 
-	if s.RateBottomBar && s.RateWindowPct != nil {
-		pct := *s.RateWindowPct
-		drawRateBar(&f, pct, rateColor(pct))
-	} else if sessionBarEnabled(s) {
-		drawSessionBar(&f, sessions)
-	}
+	drawBottomBar(&f, s, sessions)
 	return f
+}
+
+// drawBottomBar paints the agent app's row-7 bar: the 5h rate bar when the
+// session asks for it and has the data, else the session bar when enabled.
+// It reports whether it painted anything.
+func drawBottomBar(f *Frame, s Session, sessions []Session) bool {
+	switch {
+	case s.RateBottomBar && s.RateWindowPct != nil:
+		pct := *s.RateWindowPct
+		drawRateBar(f, pct)
+	case sessionBarEnabled(s):
+		drawSessionBar(f, sessions)
+	default:
+		return false
+	}
+	for x := barX0; x < panelW; x++ {
+		if f.Dirty[barRow][x] {
+			return true
+		}
+	}
+	return false
 }
 
 // colorForState returns the state palette colour. Unknown states map to
@@ -1100,7 +1130,6 @@ func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Ti
 		drawBarInto(&f, *u.SevenDayPct)
 	} else {
 		drawUsageClock(&f, u, now)
-		drawUsageUnit(&f, "5h")
 		drawBarInto(&f, u.FiveHourPct)
 	}
 	return frameToCustomApp(&f, lifetimeSeconds, true)

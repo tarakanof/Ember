@@ -132,11 +132,16 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 
 ### Files in this repo
 
-- `cmd/ember/main.go` is the single-file regime. Acceptable until ~1200 lines, after which split by responsibility:
-  - `server.go` — HTTP handlers, routing, middleware
-  - `store.go` — `App`, sessions, render priority
-  - `awtrix.go` — `HTTPPublisher`
+- `cmd/ember` is split by responsibility; keep new code in the file that owns the concern, and a file's test in the matching `_test.go`:
+  - `main.go` — `main`, subcommand dispatch, startup and shutdown
   - `config.go` — `Config`, `defaultConfig`, `loadConfig`, validation
+  - `app.go` — the `App` struct, `NewApp`, config swaps, the coordinator ticker
+  - `sessions.go` — the session map and the legacy `/state` render
+  - `server.go` — routing, middleware, auth, the JSON helpers
+  - `status_http.go` — `/v1/status`, `/v1/clear`, `/v1/notify`
+  - `publisher.go` — the `Publisher` interface and `HTTPPublisher`
+  - `coordinator*.go` — the display coordinator, one file per concern
+- A file past ~1200 lines is doing too much; split it the same way.
 
 ### HTTP servers
 

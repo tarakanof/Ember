@@ -88,14 +88,13 @@ func handleAdminDoctor(app *App) http.HandlerFunc {
 }
 
 // nonReloadableLeaves are config paths that cannot change at runtime: the
-// HTTP listener is bound once at startup, and admin auth tokens / refresh
-// cadence are wired into long-lived structures. Any change to these triggers
+// HTTP listener is bound once at startup, and admin auth tokens are wired
+// into long-lived structures. Any change to these triggers
 // 409 Conflict from /admin/reload — operator must restart the process.
 var nonReloadableLeaves = []string{
 	"http.addr",
 	"auth.status_token",
 	"auth.status_token_env",
-	"display.refresh_seconds",
 }
 
 // diffConfig returns dotted leaf paths whose values differ between oldCfg
@@ -169,8 +168,6 @@ func formatLeafValue(cfg Config, leaf string) string {
 		return "<redacted>"
 	case "auth.status_token_env":
 		return cfg.Auth.StatusTokenEnv
-	case "display.refresh_seconds":
-		return fmt.Sprintf("%d", cfg.Display.RefreshSeconds)
 	}
 	return ""
 }
@@ -244,6 +241,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// live — a hand-edited config.json shouldn't bypass the guard just
 		// because it arrived via reload instead of startup.
 		sanitizeConfigBaseline(&newCfg, app.logger)
+		warnDeprecatedConfig(newCfg, app.logger)
 		// Token isn't in the JSON file (env-only), so carry it over from
 		// the running config to keep the diff honest.
 		//
@@ -254,6 +252,14 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.cfgMu.Lock()
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
+		// The file's clock URL only applies when the file changed it. The
+		// running URL may be a menu override or a clock that discovery swapped
+		// in for a dead baseline; putting the file value back would stop
+		// publishing until the next device-watch tick.
+		fileURLChanged := newCfg.AWTRIX.HTTPBaseURL != app.deviceBaseline
+		if !fileURLChanged {
+			newCfg.AWTRIX.HTTPBaseURL = oldCfg.AWTRIX.HTTPBaseURL
+		}
 		if err := validateConfig(newCfg); err != nil {
 			app.cfgMu.Unlock()
 			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
@@ -270,6 +276,12 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		app.cfg.Store(&newCfg)
+		if fileURLChanged {
+			// The operator picked this URL, so it is the config baseline now,
+			// not a discovery result.
+			app.deviceBaseline = newCfg.AWTRIX.HTTPBaseURL
+			app.deviceAutoPicked.Store(false)
+		}
 		app.cfgMu.Unlock()
 		// Keep the Pomodoro engine in sync with the reloaded config and
 		// re-apply API-persisted settings so a reload doesn't revert them.
@@ -279,9 +291,12 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.loadPersistedWeatherSettings()
 		// And meetings settings (same pattern: menu edits must survive a reload).
 		app.loadPersistedMeetingsSettings()
-		// And the menu-chosen clock URL (Device tab), so a reload doesn't drop
-		// the store override back to the file-config baseline.
-		app.loadPersistedDeviceBaseURL()
+		// A new file URL must not beat the menu-chosen clock URL (Device tab).
+		// When the file URL is unchanged the running URL was kept above, and
+		// re-applying the override could revert a discovery swap away from it.
+		if fileURLChanged {
+			app.loadPersistedDeviceBaseURL()
+		}
 		app.loadPersistedUsageSettings()
 		// Likewise re-apply display config overrides so a reload doesn't revert them.
 		app.loadPersistedDisplaySettings()

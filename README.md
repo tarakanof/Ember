@@ -357,12 +357,14 @@ them to point at your Unraid IP and the same token you set above.
     "idle_text": "AI idle",
     "stale_seconds": 25,
     "done_ttl_seconds": 30,
-    "heartbeat_seconds": 10,
-    "refresh_seconds": 5,
-    "notify_on_waiting": false
+    "rotation_dwell_seconds": 3
   }
 }
 ```
+
+`display.heartbeat_seconds`, `display.refresh_seconds` and
+`display.notify_on_waiting` from older examples never did anything. Configs
+that still carry them load fine; the server logs a warning for each one.
 
 ## Pomodoro timer
 

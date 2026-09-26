@@ -134,3 +134,27 @@ func TestHistoryReturnsPerDayRollup(t *testing.T) {
 		t.Fatalf("history counts = %d,%d,%d, want 2,1,0", hist[0].CompletedFocus, hist[1].CompletedFocus, hist[2].CompletedFocus)
 	}
 }
+
+func TestRecordPhaseAdvancesPhaseGen(t *testing.T) {
+	s := openTestStore(t)
+	before := s.PhaseGen()
+	now := time.Now()
+	if err := s.RecordPhase(PhaseResult{Phase: PhaseFocus, PlannedSec: 60, ActualSec: 60, Completed: true, Reason: "completed"},
+		now.Add(-time.Minute), now); err != nil {
+		t.Fatalf("RecordPhase: %v", err)
+	}
+	if after := s.PhaseGen(); after == before {
+		t.Fatalf("PhaseGen unchanged after RecordPhase (%d)", after)
+	}
+}
+
+func TestSettingWriteLeavesPhaseGenAlone(t *testing.T) {
+	s := openTestStore(t)
+	before := s.PhaseGen()
+	if err := s.PutSetting("k", "v"); err != nil {
+		t.Fatal(err)
+	}
+	if after := s.PhaseGen(); after != before {
+		t.Fatalf("PhaseGen changed on a settings write: %d -> %d", before, after)
+	}
+}

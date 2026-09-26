@@ -41,6 +41,35 @@ func TestPomodoroValidationRejectsBadColor(t *testing.T) {
 	}
 }
 
+func TestPomodoroValidationRejectsBadDailyGoal(t *testing.T) {
+	c := defaultConfig()
+	c.applyDefaults()
+	c.Pomodoro.DailyGoalSessions = 51
+	if err := validateConfig(c); !errors.Is(err, ErrConfigValidate) {
+		t.Fatalf("expected validate error for daily_goal_sessions=51, got %v", err)
+	}
+}
+
+func TestPomodoroValidationRejectsBadWeeklyGoal(t *testing.T) {
+	c := defaultConfig()
+	c.applyDefaults()
+	c.Pomodoro.WeeklyGoalDays = 8
+	if err := validateConfig(c); !errors.Is(err, ErrConfigValidate) {
+		t.Fatalf("expected validate error for weekly_goal_days=8, got %v", err)
+	}
+}
+
+// Goals are allowed down to 0 ("off"), unlike the duration fields.
+func TestPomodoroValidationAcceptsGoalsOff(t *testing.T) {
+	c := defaultConfig()
+	c.applyDefaults()
+	c.Pomodoro.DailyGoalSessions = 0
+	c.Pomodoro.WeeklyGoalDays = 0
+	if err := validateConfig(c); err != nil {
+		t.Fatalf("goals=0 (disabled) should validate, got %v", err)
+	}
+}
+
 func TestPomodoroValidationAcceptsDefaults(t *testing.T) {
 	c := defaultConfig()
 	c.applyDefaults()

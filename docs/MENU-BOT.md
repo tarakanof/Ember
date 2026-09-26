@@ -17,7 +17,8 @@ per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
 | `macos/Sources/EmberKit/Bot/BotBehavior.swift` | The animation state machine. Pure and deterministic for a seed, so it is unit-tested. Produces a `BotPose` per frame. |
 | `macos/Sources/EmberKit/Bot/BotRenderer.swift` | CoreGraphics drawing of a `BotPose`, with a `BotStyle` for the menu bar and one for the Dock. |
 | `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, publishes `pose` for the menu-bar label, drives the `NSDockTile` view, crossfades the menu-bar colour. |
-| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the bot image or the tool glyph, per prefs. |
+| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the bot image or the tool glyph, per prefs. Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
+| `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. |
 | `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `applyAppIcon` switches the Dock tile. |
 | `macos/Tests/EmberKitTests/BotBehaviorTests.swift` | Behavior and renderer tests. |
 
@@ -140,8 +141,10 @@ These cost real debugging time.
 
 - **`MenuBarExtra` labels don't run `onChange` or `onAppear`.** State never
   reached the bot that way. `AppEnvironment.feedBot()` observes
-  `model.winningSession` with `withObservationTracking` and re-arms itself on
-  every change.
+  `live.winningSession` with `withObservationTracking` and re-arms itself on
+  every change. `winningSession` is nil once `/state` has failed 3 polls in a
+  row, so an outage sends the bot to idle rather than freezing it mid-mood,
+  while a single dropped poll changes nothing.
 - **A lazily drawn `NSImage` loses its colour in the menu bar.** An
   `NSImage(size:flipped:drawingHandler:)` came out monochrome even with
   `isTemplate = false`. The bot renders into a `CGContext` bitmap first, and

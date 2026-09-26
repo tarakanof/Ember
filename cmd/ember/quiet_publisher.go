@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // soundKeys are awtrix-ng's three notification sound fields (AWTRIX3 spelled the
@@ -13,8 +15,9 @@ var soundKeys = []string{"sound", "soundRtttl", "soundLoop"}
 // quietPublisher gates all device audio behind the quiet-hours window. During
 // the window, Notify payloads lose their sound keys and PlayRTTTL succeeds
 // without calling the device; everything else delegates unchanged. Enforced
-// here — the single path to the device — so every current and future sound
-// source is covered without per-feature checks.
+// here, on the Publisher every server-initiated sound goes through, so every
+// current and future sound source is covered without per-feature checks. The
+// menu's explicit audio test (/v1/device/audio/test) bypasses it on purpose.
 //
 // now must return wall-clock local time (time.Now in production); quietActive
 // reads Hour()/Minute() directly, no zone conversion.
@@ -69,8 +72,11 @@ func (q *quietPublisher) ClearIndicator(ctx context.Context, index int) error {
 func (q *quietPublisher) Settings(ctx context.Context, payload map[string]any) error {
 	return q.next.Settings(ctx, payload)
 }
-func (q *quietPublisher) Switch(ctx context.Context, name string) error {
-	return q.next.Switch(ctx, name)
+func (q *quietPublisher) ReadSettings(ctx context.Context) (map[string]any, error) {
+	return q.next.ReadSettings(ctx)
+}
+func (q *quietPublisher) Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error {
+	return q.next.Switch(ctx, name, mode)
 }
 func (q *quietPublisher) ListIcons(ctx context.Context) ([]string, error) {
 	return q.next.ListIcons(ctx)

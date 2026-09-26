@@ -27,6 +27,13 @@ public enum APIError: Error, Equatable, Sendable {
     }
 }
 
+/// Thrown by `APIClient.postIdempotent` when the connection failed before any
+/// bytes of the request reached the server, so it certainly had no effect.
+public struct RequestNotSent: Error, LocalizedError, Equatable, Sendable {
+    public let underlying: APIError
+    public var errorDescription: String? { underlying.errorDescription }
+}
+
 // Without this conformance, settings footers render the NSError bridge —
 // "EmberKit.APIError error 0." — instead of what the server actually said.
 extension APIError: LocalizedError {
@@ -65,11 +72,15 @@ public struct APIClient: Sendable {
     public let baseURL: URL?
     public let token: String?
     let session: URLSession
+    /// For requests the server may legitimately hold open longer than the
+    /// default 5s, like a reminder fire that waits on the clock (up to 10s).
+    let slowSession: URLSession
 
     public init(baseURL: URL?, token: String?, session: URLSession? = nil) {
         self.baseURL = baseURL
         self.token = token
         self.session = session ?? Self.defaultSession
+        self.slowSession = session ?? Self.defaultSlowSession
     }
 
     /// Dedicated session (not `URLSession.shared`) with short timeouts so a
@@ -84,6 +95,18 @@ public struct APIClient: Sendable {
         return URLSession(configuration: config)
     }()
 
+    private static let defaultSlowSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 25
+        return URLSession(configuration: config)
+    }()
+
+    /// URLError codes raised before the request left this Mac.
+    private static let notSentCodes: Set<URLError.Code> = [
+        .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .notConnectedToInternet,
+    ]
+
     private static func makeDecoder() -> JSONDecoder {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -92,7 +115,9 @@ public struct APIClient: Sendable {
 
     @discardableResult
     private func perform(_ method: String, _ path: String,
-                         query: [URLQueryItem], body: Data?) async throws -> Data {
+                         query: [URLQueryItem], body: Data?,
+                         headers: [String: String] = [:], slow: Bool = false,
+                         reportNotSent: Bool = false) async throws -> Data {
         guard let baseURL else { throw APIError.notConfigured }
         // Match the Go client: trim a trailing slash off the base, then append the
         // absolute path. Preserves any base path prefix and avoids double slashes.
@@ -111,12 +136,17 @@ public struct APIClient: Sendable {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
         let data: Data
         let resp: URLResponse
         do {
-            (data, resp) = try await session.data(for: req)
+            (data, resp) = try await (slow ? slowSession : session).data(for: req)
         } catch {
-            throw APIError.transport(error.localizedDescription)
+            let apiError = APIError.transport(error.localizedDescription)
+            if reportNotSent, let code = (error as? URLError)?.code, Self.notSentCodes.contains(code) {
+                throw RequestNotSent(underlying: apiError)
+            }
+            throw apiError
         }
         guard let http = resp as? HTTPURLResponse else {
             throw APIError.transport("non-HTTP response")
@@ -151,5 +181,14 @@ public struct APIClient: Sendable {
     public func post<B: Encodable>(_ path: String, body: B) async throws {
         let data = try JSONEncoder().encode(body)
         _ = try await perform("POST", path, query: [], body: data)
+    }
+
+    /// POST carrying an `Idempotency-Key` so the server can drop a retry, with a
+    /// timeout long enough to hear the server's answer instead of guessing.
+    /// Throws `RequestNotSent` when the connection failed before sending.
+    public func postIdempotent<B: Encodable>(_ path: String, body: B, key: String) async throws {
+        let data = try JSONEncoder().encode(body)
+        _ = try await perform("POST", path, query: [], body: data,
+                              headers: ["Idempotency-Key": key], slow: true, reportNotSent: true)
     }
 }

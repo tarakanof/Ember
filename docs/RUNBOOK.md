@@ -53,6 +53,9 @@ docker run -d --name ember --restart unless-stopped -p 3627:3627 \
   for everything except clock/server discovery (multicast doesn't cross the
   bridge). For the discovery features, run with `--network host` and drop `-p`
   (the production/Unraid path; see "Discovery & mDNS" and "Docker Hub release").
+  Also in `-p` bridge mode every client arrives from the Docker gateway IP, so
+  the clock's `/hooks/awtrix/*` calls share one rate-limit bucket with the Macs'
+  `/v1` traffic (60 burst, 5/s).
 - **When recreating the container, `docker inspect` it first** to replicate
   exact mount destinations / env names rather than reconstructing from memory.
 - **After any render-side change, rebuild + redeploy from current `main`** —
@@ -95,6 +98,25 @@ swift test --package-path macos                          # headless EmberKit tes
 ```
 
 The generated `Ember.xcodeproj` is gitignored — regenerate it after pulling.
+
+**Strings**: every user-facing string lives in `macos/Ember/Localizable.xcstrings`.
+After adding or changing UI text, run `scripts/strings.sh sync` (it builds the
+app into a fresh temp DerivedData; if you pass one as the second argument, make
+it a clean build, since a reused one keeps `.stringsdata` from deleted files and
+sync would re-add their keys), then give
+any new format string (`%@`, `%lld`, `^[…](inflect: true)`) a translator comment
+in the catalog. EmberKit's strings aren't extracted by Xcode, so the script
+adds them as manual entries. `scripts/strings.sh check` is what CI runs; it also
+warns about keys no code uses any more (delete those by hand).
+
+**CI**: [`ci.yml`](../.github/workflows/ci.yml) runs the Go job on every push/PR,
+plus a `macos` job (path-filtered to `macos/**`, `cmd/ember/testdata/**`, and
+the workflow file itself) that installs `xcodegen`, runs `swift test
+--package-path macos`, regenerates the Xcode project, and does an unsigned
+`xcodebuild ... CODE_SIGNING_ALLOWED=NO build` — there's no Developer ID on the
+runner, so `build-producers.sh`'s sign phase skips itself under
+`GITHUB_ACTIONS` (see that script) — then `scripts/strings.sh check` on that
+build, which fails when a string is missing from the catalog.
 Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The app
 reads `producer.env` for connection config and needs a server on a build that
 includes `GET /v1/preview` (added 2026-05; older servers 401 that route).
@@ -141,7 +163,7 @@ Bonjour/`_ember._tcp`); tapping one fills the Server URL. When the list is empty
 offers a **Grant Local Network Access…** button (macOS gates Bonjour browsing
 behind the Local Network privacy permission) + **Rescan**. The **Device** tab
 speaks the awtrix-ng schema directly (General / Native Apps / Time & Date /
-Actions), proxied through the server (`/v1/device/*`) — brightness, volume,
+Actions), proxied through the server (`/v1/device/*`) — brightness, sound (mute + buzzer volume),
 app time, transitions (the picker is fed by `GET /v1/device/capabilities`
 instead of a static list), native-app toggles, calendar colours, sensor
 calibration (temp/hum offsets, written via a read-merge-PUT of
@@ -167,7 +189,7 @@ deploy that wants them persisted needs that writable volume mounted.
 
 The clock's three physical buttons drive the timer via NG's `buttonCallback`
 (an HTTP POST per press; no MQTT broker needed). The easiest path is the menu
-app's Device tab (one-click `PUT /v1/device/buttons`, `{"enabled":true}`),
+app's Settings › Clock pane (one-click `PUT /v1/device/buttons`, `{"enabled":true}`),
 which computes the server's own reachable URL automatically. To set it by
 hand instead:
 
@@ -306,12 +328,12 @@ through; a resolved host is fingerprinted via `GET /api/v1/device`, requiring
 both a non-empty `uid` and `boardType == "awtrixng"` (the AWTRIX3 `/api/stats`
 fingerprint doesn't exist on NG). The server advertises itself as
 `_ember._tcp` so the macOS app can auto-fill the server URL (Connection tab →
-"Discovered servers"). The Device tab proxies the clock's own NG API through
+"Discovered servers"). Settings › Clock proxies the clock's own NG API through
 `/v1/device/*`.
 
 - **Host networking is required** for either direction — multicast doesn't cross
   the default Docker bridge. Run the container with `--network host` (or macvlan).
-- Effective clock URL precedence: writable-store override (menu's Device tab) >
+- Effective clock URL precedence: writable-store override (Settings › Clock › Discover Clocks) >
   reachable `awtrix.http_base_url` from `config.json` > mDNS auto-pick (in-memory;
   never written back to the read-only config or the store).
 - **Self-healing:** the server reachability-tests the effective URL (store
@@ -324,12 +346,20 @@ fingerprint doesn't exist on NG). The server advertises itself as
   reboot silently drops them all. The Berry boot-ping hook (#73)
   (`POST /hooks/awtrix/boot`, unauthenticated device-side hook, config toggle
   `awtrix.boot_ping`) republishes instantly on boot instead of waiting on the
-  next 30s tick — the 30s watch remains the fallback path.
+  next 30s tick — the 30s watch remains the fallback path. A missed probe
+  alone is never a reboot (only falling or lagging `uptimeSeconds` is), and
+  republishes less than 10s apart coalesce, so a `clock reboot detected` log
+  line on a lossy link now means a real reboot.
   `/admin/doctor`'s `clock` check reports `base_url`/`source`/`reachable` plus
   `last_rediscover_at`/`last_rediscover_result`.
-- `EMBER_MDNS_ADVERTISE` (default on; `0`/`false` disables) gates only the
-  advertising side; clock discovery and the Device tab still work with a
+- `EMBER_MDNS_ADVERTISE` (default on; `0`/`false`/`no`/`off` disables) gates only the
+  advertising side; clock discovery and Settings › Clock still work with a
   configured URL.
+- `EMBER_FIRMWARE_CHECK` (default on; `0`/`false`/`no`/`off` disables) gates the
+  server's only call to the internet for the dashboard: a background lookup of the latest
+  awtrix-ng release on GitHub (at most every 6h, 30 min after a failure, logged
+  at Warn) behind `latest_firmware`/`update_available` in `GET /v1/clock/health`.
+  Disabled, those fields are `null` and no request leaves the server.
 - **Troubleshooting — clock dark after its IP changed:** the server self-heals
   within ~30s (mDNS). To apply the new IP now, restart the container (re-runs boot discovery) or
   `PUT /v1/device/config {"base_url": …}`; `/admin/doctor` shows the clock's
@@ -354,8 +384,9 @@ fingerprint doesn't exist on NG). The server advertises itself as
 - Entries are in-memory; stale tools (no post within ~10 min) are cleared from
   the usage card automatically.
 
-**Verify it's flowing:** `GET /state` does not include usage (it's a separate
-store), but posting a crafted usage payload:
+**Verify it's flowing:** `GET /v1/usage` (no token) returns every tool's latest
+snapshot with `updated_at` and `stale`; `GET /state` carries only the 5h
+percent. Posting a crafted usage payload:
 `curl -s -XPOST localhost:3627/v1/usage -H "Authorization: Bearer $EMBER_TOKEN" \
   -d '{"tool":"claude","source":"endpoint","five_hour":{"used_percent":75,"reset_label":"14:25"}}'`
 then watching the clock's `ember` app show the usage card face in rotation confirms

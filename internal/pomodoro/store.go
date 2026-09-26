@@ -3,6 +3,7 @@ package pomodoro
 import (
 	"database/sql"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO; keeps the static build)
@@ -13,6 +14,9 @@ import (
 // each query, so callers control the timezone.
 type Store struct {
 	db *sql.DB
+	// phaseGen counts successful phase writes so callers can cache values
+	// derived from the phases table and drop them when it changes.
+	phaseGen atomic.Uint64
 }
 
 const schema = `
@@ -79,8 +83,13 @@ func (s *Store) RecordPhase(r PhaseResult, started, ended time.Time) error {
 	if err != nil {
 		return fmt.Errorf("record phase: %w", err)
 	}
+	s.phaseGen.Add(1)
 	return nil
 }
+
+// PhaseGen returns a counter that advances on every successful RecordPhase.
+// Anything computed from the phases table stays valid while it is unchanged.
+func (s *Store) PhaseGen() uint64 { return s.phaseGen.Load() }
 
 // DayStat is a per-day rollup of completed focus phases.
 type DayStat struct {

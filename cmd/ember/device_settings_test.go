@@ -10,7 +10,7 @@ import (
 
 func TestValidateDeviceSettings(t *testing.T) {
 	ok := map[string]any{
-		"brightness": float64(128), "volume": float64(10), "autoBrightness": true,
+		"brightness": float64(128), "buzzerVolume": float64(100), "soundEnabled": false, "autoBrightness": true,
 		"transitionEffect": "Rain", "textColor": "#FF8800", "uppercase": true,
 		"timeMode": float64(2), "calendarHeaderColor": []any{float64(255), float64(0), float64(0)},
 		"appDurationMs": float64(7000), "transitionDurationMs": float64(1000),
@@ -21,7 +21,7 @@ func TestValidateDeviceSettings(t *testing.T) {
 		"autoTransition": true, "blockNavigation": false,
 		"timeColor": "#FFFFFF", "dateColor": "#FFFFFF", "temperatureColor": "#FFFFFF",
 		"humidityColor": "#FFFFFF", "batteryColor": "#FFFFFF",
-		"useCelsius": true, "smoothScroll": true,
+		"useCelsius": true,
 		"scroll": map[string]any{
 			"mode": "wrap", "direction": "left", "entry": "inline", "whenFits": "static",
 			"speed": float64(100), "gap": float64(8), "holdMs": float64(1000),
@@ -34,9 +34,18 @@ func TestValidateDeviceSettings(t *testing.T) {
 	if err := validateDeviceSettings(ok); err != nil {
 		t.Fatalf("valid settings rejected: %v", err)
 	}
+	// null resets a per-app colour to inherit textColor (NG reports these as
+	// null until set).
+	inherit := map[string]any{
+		"timeColor": nil, "dateColor": nil, "temperatureColor": nil,
+		"humidityColor": nil, "batteryColor": nil,
+	}
+	if err := validateDeviceSettings(inherit); err != nil {
+		t.Fatalf("null per-app colours rejected: %v", err)
+	}
 	bad := []map[string]any{
 		{"brightness": float64(999)},                                         // out of range
-		{"volume": float64(-1)},                                              // out of range
+		{"buzzerVolume": float64(101)},                                       // out of range
 		{"NOPE": true},                                                       // unknown key
 		{"autoBrightness": "yes"},                                            // wrong type
 		{"textColor": "purple"},                                              // bad color
@@ -55,7 +64,14 @@ func TestValidateDeviceSettings(t *testing.T) {
 		{"weekdayBar": map[string]any{"weekendDays": []any{"sunday"}}},       // unlisted nested key
 		{"timeColor": "purple"},                                              // bad color
 		{"useCelsius": "yes"},                                                // wrong type
-		{"smoothScroll": "yes"},                                              // wrong type
+		{"soundEnabled": "yes"},                                              // wrong type
+		{"buzzerVolume": float64(-1)},                                        // out of range
+		// Keys NG 1.1.x no longer has: forwarding one gets the whole PATCH a 422.
+		{"volume": float64(10)},    // replaced by buzzerVolume in NG 1.1.0
+		{"smoothScroll": true},     // AWTRIX3 SSCROLL; never an NG key
+		{"textColor": nil},         // only the per-app colours are nullable
+		{"calendarBodyColor": nil}, // likewise
+		{"weekdayBar": map[string]any{"activeColor": nil}},
 	}
 	for i, b := range bad {
 		if err := validateDeviceSettings(b); err == nil {
@@ -76,7 +92,7 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"brightness":120,"volume":8,"soundEnabled":true,"NOPE":"x","MATP":true}`))
+			w.Write([]byte(`{"brightness":120,"volume":8,"soundEnabled":true,"buzzerVolume":80,"dfplayerVolume":80,"NOPE":"x","MATP":true}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -94,10 +110,10 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 	if gw.Code != 200 {
 		t.Fatalf("get code=%d body=%s", gw.Code, gw.Body.String())
 	}
-	if strings.Contains(gw.Body.String(), "NOPE") || strings.Contains(gw.Body.String(), "MATP") || strings.Contains(gw.Body.String(), "soundEnabled") {
+	if strings.Contains(gw.Body.String(), "NOPE") || strings.Contains(gw.Body.String(), "MATP") || strings.Contains(gw.Body.String(), `"volume"`) || strings.Contains(gw.Body.String(), "dfplayerVolume") {
 		t.Fatalf("get leaked non-whitelisted keys: %s", gw.Body.String())
 	}
-	if !strings.Contains(gw.Body.String(), "brightness") {
+	if !strings.Contains(gw.Body.String(), "brightness") || !strings.Contains(gw.Body.String(), "soundEnabled") || !strings.Contains(gw.Body.String(), "buzzerVolume") {
 		t.Fatalf("get dropped whitelisted key: %s", gw.Body.String())
 	}
 

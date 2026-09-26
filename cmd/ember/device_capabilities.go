@@ -15,11 +15,13 @@ import (
 const capabilitiesTimeout = 2 * time.Second
 
 // refreshCapabilities caches the clock's supported name lists (effects,
-// transitions, overlays, palettes, radio, gpio) plus its firmware version.
+// transitions, overlays, palettes, audio, gpio) plus its firmware version.
 // Called at startup and whenever rediscovery swaps to a different clock — the
 // lists are per firmware build, so they only change when the device does.
-// Failures leave the previous cache in place and log a warning; the endpoint
-// below falls back to a live fetch, so a dark clock at boot is not fatal.
+// A failure empties the cache and logs a warning: whatever was cached
+// described the previous clock, and the audio gate would refuse on its word.
+// The endpoint below falls back to a live fetch, so a dark clock at boot is
+// not fatal.
 func (a *App) refreshCapabilities(ctx context.Context) {
 	base := a.cfg.Load().AWTRIX.HTTPBaseURL
 	if base == "" {
@@ -31,6 +33,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	}
 	caps, err := cl.Capabilities(ctx)
 	if err != nil {
+		a.caps.Store(nil)
 		a.logger.Warn("device capabilities fetch failed", "base_url", base, "err", err)
 		return
 	}
@@ -38,7 +41,7 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 	a.logger.Info("device capabilities cached",
 		"effects", len(caps.Effects), "palette_effects", len(caps.PaletteEffects),
 		"transitions", len(caps.Transitions), "overlays", len(caps.Overlays),
-		"palettes", len(caps.Palettes), "radio", caps.Radio,
+		"palettes", len(caps.Palettes), "buzzer", caps.Audio.Buzzer,
 		"firmware", a.deviceFirmware())
 }
 
@@ -66,13 +69,13 @@ func (a *App) handleDeviceCapabilities(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, caps)
 		return
 	}
-	body, status, err := a.proxyToDevice(r.Context(), http.MethodGet, "/api/v1/capabilities", nil)
+	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawCapabilities)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	if status != http.StatusOK {
-		writeError(w, http.StatusBadGateway, fmt.Errorf("clock returned %d", status))
+		writeDeviceError(w, status, body)
 		return
 	}
 	var caps awtrix.Capabilities

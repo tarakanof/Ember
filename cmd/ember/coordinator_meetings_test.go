@@ -37,7 +37,7 @@ func seedMeeting(s *meetingsStore, occ meetings.Occurrence) {
 }
 
 // TestMeetingTilePushedInsideWindow: meeting now+30m, lead 60, fresh store
-// → CustomApp("ember-meet") with text "STANDUP 30m".
+// → CustomApp("ember-meet") with text "30M STANDUP".
 func TestMeetingTilePushedInsideWindow(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c, pub, store := meetingCoordFixture(t, now, 60)
@@ -58,7 +58,7 @@ func TestMeetingTilePushedInsideWindow(t *testing.T) {
 	if len(apps) != 1 {
 		t.Fatalf("expected one payload, got %d", len(apps))
 	}
-	wantText := "STANDUP 30m"
+	wantText := "30M STANDUP"
 	if got := apps[0]["text"]; got != wantText {
 		t.Errorf("payload text = %q, want %q", got, wantText)
 	}
@@ -101,8 +101,8 @@ func TestMeetingTileCountdownRepush(t *testing.T) {
 		t.Fatalf("first reconcile: want 1 push, got %d", got)
 	}
 	text1 := pub.CustomAppsSnapshot()[0]["text"]
-	if text1 != "STANDUP 30m" {
-		t.Errorf("first push text = %q, want %q", text1, "STANDUP 30m")
+	if text1 != "30M STANDUP" {
+		t.Errorf("first push text = %q, want %q", text1, "30M STANDUP")
 	}
 
 	// Advance 1 minute — payload text changes → must re-push despite fresh push.
@@ -118,8 +118,8 @@ func TestMeetingTileCountdownRepush(t *testing.T) {
 		t.Fatalf("second reconcile: want 2 pushes total, got %d", len(apps))
 	}
 	text2 := apps[1]["text"]
-	if text2 != "STANDUP 29m" {
-		t.Errorf("second push text = %q, want %q", text2, "STANDUP 29m")
+	if text2 != "29M STANDUP" {
+		t.Errorf("second push text = %q, want %q", text2, "29M STANDUP")
 	}
 }
 
@@ -154,9 +154,9 @@ func TestMeetingTileClearsAtStart(t *testing.T) {
 	if len(cleared) != 1 || cleared[0] != "ember-meet" {
 		t.Errorf("past start: want ClearApp(ember-meet), got %v", cleared)
 	}
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	pm := c.pushedMeeting
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if pm != nil {
 		t.Error("pushedMeeting should be nil after clear")
 	}
@@ -255,9 +255,9 @@ func TestMeetingTileAdopted(t *testing.T) {
 	if !c.adoptDeviceManagedApps() {
 		t.Fatal("adopt should succeed when device loop is readable")
 	}
-	c.muTest.RLock()
+	c.stateMu.RLock()
 	pm := c.pushedMeeting
-	c.muTest.RUnlock()
+	c.stateMu.RUnlock()
 	if pm == nil {
 		t.Fatal("pushedMeeting should be seeded non-nil after adopt")
 	}

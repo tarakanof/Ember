@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strings"
 
+	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/berry"
 )
 
@@ -51,9 +51,10 @@ func (a *App) expectedBootCallback() string {
 // radius is a republish of state the server already owns: the coordinator
 // re-pushes the frames it would have pushed anyway when its 30 s watch loop
 // noticed the reboot. So an unauthenticated caller can make the server talk to
-// the clock it already talks to, and nothing else. Rate-limiting is not applied
-// for the same reason it isn't on the button hook: the device must never be
-// throttled into missing an edge, and a republish is idempotent.
+// the clock it already talks to, and nothing else. A republish is heavy on the
+// lossy link, though, so a flood is bounded twice: the route sits behind the
+// per-IP rate limiter, and RepublishAll coalesces anything closer together than
+// republishMinGap. The body is never read.
 //
 // Answers 204 immediately; the republish happens on the coordinator goroutine.
 func (a *App) handleAwtrixBoot(w http.ResponseWriter, r *http.Request) {
@@ -115,15 +116,12 @@ func (a *App) ensureBootPingScript(ctx context.Context) {
 		"name", berry.BootPingName, "callback", url, "replaced", present)
 }
 
-// scriptPath is awtrix-ng's Berry script resource: PUT installs or replaces raw
-// source, GET serves it back. Removal goes through the app resource instead —
-// DELETE /api/v1/apps/{name} — because a script *is* an app to the firmware.
-func scriptPath(name string) string { return "/api/v1/apps/script/" + name }
-
 // getScript returns the Berry source the clock currently holds under name.
 // present is false (with a nil error) when the device has no such script.
 func (a *App) getScript(ctx context.Context, name string) (source string, present bool, err error) {
-	body, status, err := a.proxyToDevice(ctx, http.MethodGet, scriptPath(name), nil)
+	body, status, err := a.proxyToDevice(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
+		return cl.RawScript(ctx, name)
+	})
 	if err != nil {
 		return "", false, err
 	}
@@ -143,23 +141,14 @@ func (a *App) getScript(ctx context.Context, name string) (source string, presen
 // panel until a good source replaces it. So the reply body — not the status —
 // is what says the install worked, and a non-null "error" is returned as one.
 func (a *App) putScript(ctx context.Context, name, source string) error {
-	base, cl, err := a.deviceBaseClient()
+	body, status, err := a.proxyToDevice(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
+		return cl.RawPutScript(ctx, name, source)
+	})
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, base+scriptPath(name), strings.NewReader(source))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "text/plain")
-	resp, err := cl.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("clock returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("clock returned %d: %s", status, strings.TrimSpace(string(body)))
 	}
 	var reply struct {
 		Error json.RawMessage `json:"error"`
@@ -173,7 +162,9 @@ func (a *App) putScript(ctx context.Context, name, source string) error {
 // deleteScript removes the app (script included) from the clock. A device that
 // no longer holds it is success, not a failure.
 func (a *App) deleteScript(ctx context.Context, name string) error {
-	_, status, err := a.proxyToDevice(ctx, http.MethodDelete, "/api/v1/apps/"+name, nil)
+	_, status, err := a.proxyToDevice(ctx, func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
+		return cl.RawDeleteApp(ctx, name)
+	})
 	if err != nil {
 		return err
 	}

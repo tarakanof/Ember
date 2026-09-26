@@ -44,18 +44,23 @@ func ReminderPopupFrame(text string) Frame {
 }
 
 func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[string]any {
-	p := map[string]any{
+	p := pinText(map[string]any{
 		"text":       text,
 		"durationMs": msOf(durationSec),
 		"wakeup":     true,
 		"stack":      true,
 		"hold":       hold,
 		"textColor":  hexOf(reminderGold),
+	})
+	if !hold {
+		// A held alarm stays until dismissed; one that auto-dismisses must not
+		// leave before a long reminder has been read.
+		readOnce(p)
 	}
 	if iconID != "" {
 		p["icon"] = iconID
 	} else {
-		p["draw"] = []any{bitmapOp(0, 0, 8, 8, bitmap8(reminderBell, reminderGold))}
+		p["draw"] = []any{iconOp(bitmap8(reminderBell, reminderGold))}
 		p["textCenter"] = false
 		p["textOffsetX"] = 9
 	}
