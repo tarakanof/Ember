@@ -47,6 +47,20 @@ func TestSummarizeActivityGapSplitsSpans(t *testing.T) {
 	}
 }
 
+// Producers keep re-posting a waiting marker for hours while a permission
+// prompt sits unanswered; that is the agent idling, not working.
+func TestSummarizeActivityWaitingIsNotActiveTime(t *testing.T) {
+	var acts []ActivityRecord
+	acts = append(acts, beats("m4", "claude", "s1", "running", utc(2026, 6, 10, 9, 0), utc(2026, 6, 10, 9, 10), 2*time.Minute)...)
+	acts = append(acts, beats("m4", "claude", "s1", "waiting", utc(2026, 6, 10, 9, 12), utc(2026, 6, 10, 10, 10), 2*time.Minute)...)
+	acts = append(acts, beats("m4", "claude", "s1", "running", utc(2026, 6, 10, 10, 12), utc(2026, 6, 10, 10, 22), 2*time.Minute)...)
+
+	got := SummarizeActivity(acts, byTool, 5*time.Minute, 0, time.UTC)
+	if c := got["claude"]; c.ActiveSec != 20*60 || c.Sessions != 1 || c.Attention != 1 {
+		t.Errorf("claude = %+v, want 1200s active, 1 session, 1 attention", c)
+	}
+}
+
 func TestSummarizeActivityCountsWaitingEpisodes(t *testing.T) {
 	// running → waiting → waiting → running → waiting: two separate episodes
 	// where the agent asked for attention. Consecutive waiting rows are one.

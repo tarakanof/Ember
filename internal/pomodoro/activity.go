@@ -8,9 +8,13 @@ import (
 // ActivityTotals is an AI-coding-activity rollup for one group (a tool, a
 // source, or everything) over a window of heartbeats.
 type ActivityTotals struct {
-	// ActiveSec is wall-clock active time: each session's heartbeats are merged
-	// into spans (see activitySpans), and the spans of all sessions in the group
-	// are unioned per logical day, so two concurrent sessions don't count twice.
+	// ActiveSec is wall-clock working time: each session's running/error
+	// heartbeats are merged into spans (see activitySpans), and the spans of all
+	// sessions in the group are unioned per logical day, so two concurrent
+	// sessions don't count twice. Waiting rows never add time: an unanswered
+	// prompt is re-posted for hours and is the agent idling. An isolated
+	// heartbeat is a zero-width span and each span ends at its last heartbeat,
+	// so short bursts under-count by up to one recording interval.
 	ActiveSec int
 	// Sessions is the number of distinct session keys seen.
 	Sessions int
@@ -57,13 +61,34 @@ func SummarizeActivity(acts []ActivityRecord, group func(ActivityRecord) string,
 	return out
 }
 
-// DailyActiveSec returns wall-clock active seconds keyed by logical day
-// ("2006-01-02") and then by group(a). Only days and groups with heartbeats
-// appear.
+// workingState reports whether a heartbeat state is the agent doing work.
+func workingState(state string) bool { return state == "running" || state == "error" }
+
+// DailyActivity is SummarizeActivity per logical day: day ("2006-01-02") →
+// group → totals. A waiting episode spanning the day boundary counts on both.
+func DailyActivity(acts []ActivityRecord, group func(ActivityRecord) string, spanGap time.Duration, dayStartHour int, loc *time.Location) map[string]map[string]ActivityTotals {
+	byDay := map[string][]ActivityRecord{}
+	for _, a := range acts {
+		k := dayKey(a.At, dayStartHour, loc)
+		byDay[k] = append(byDay[k], a)
+	}
+	out := make(map[string]map[string]ActivityTotals, len(byDay))
+	for day, recs := range byDay {
+		out[day] = SummarizeActivity(recs, group, spanGap, dayStartHour, loc)
+	}
+	return out
+}
+
+// DailyActiveSec returns wall-clock working seconds keyed by logical day
+// ("2006-01-02") and then by group(a). Only days and groups with running/error
+// heartbeats appear.
 func DailyActiveSec(acts []ActivityRecord, group func(ActivityRecord) string, spanGap time.Duration, dayStartHour int, loc *time.Location) map[string]map[string]int {
 	type bucket struct{ day, group, session string }
 	bySession := map[bucket][]ActivityRecord{}
 	for _, a := range acts {
+		if !workingState(a.State) {
+			continue
+		}
 		k := bucket{dayKey(a.At, dayStartHour, loc), group(a), a.SessionKey}
 		bySession[k] = append(bySession[k], a)
 	}
