@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/tarakanof/ember/internal/awtrix"
 )
@@ -82,7 +83,7 @@ var deviceSettingRules = map[string]settingRule{
 	// appDurationMs is milliseconds on NG (was ATIME, seconds, 1-3600, on
 	// AWTRIX3) — 1s-1h is a sane bound for a rotating app's dwell time.
 	"appDurationMs":        {kind: kInt, min: 1000, max: 3600000},
-	"autoTransition":       {kind: kBool}, // Pomodoro takeover key; coordinator_hold.go writes this directly
+	"autoTransition":       {kind: kBool}, // Pomodoro takeover key: held back while a takeover is in force (applyMenuSettings)
 	"transitionDurationMs": {kind: kInt, min: 0, max: 60000},
 	// transitionEffect is a device-reported name (GET /api/v1/capabilities),
 	// not a static enum — capabilities-fetch plumbing to validate the live set
@@ -91,7 +92,7 @@ var deviceSettingRules = map[string]settingRule{
 	"transitionEffect": {kind: kString, maxLen: 32},
 	"textColor":        {kind: kColor},
 	"uppercase":        {kind: kBool},
-	"blockNavigation":  {kind: kBool}, // Pomodoro takeover key; coordinator_hold.go writes this directly
+	"blockNavigation":  {kind: kBool}, // Pomodoro takeover key: held back while a takeover is in force (applyMenuSettings)
 	// Time & Date — NG replaced the TFORMAT/DFORMAT strftime strings with
 	// discrete typed fields; there are no format strings to validate anymore.
 	"timeMode":            {kind: kInt, min: 0, max: 6},
@@ -216,6 +217,14 @@ func validColor(v any) bool {
 	return false
 }
 
+// deferredKeysHeader names, comma-separated, the takeover keys a
+// /v1/device/settings response answered from the Pomodoro takeover snapshot
+// rather than the device: on GET, the values reported are the user's own
+// (what the clock returns to after the focus block); on PUT, the keys that
+// were saved for then instead of written now. Absent when no takeover is in
+// force. A header, not a body field, so the body stays pure NG settings keys.
+const deferredKeysHeader = "X-Ember-Deferred-Keys"
+
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 	body, err := a.clock.fetch(r.Context(), (*awtrix.Client).RawSettings)
 	if err != nil {
@@ -234,6 +243,16 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 			out[k] = v
 		}
 	}
+	// Mid-focus the device holds the takeover's values; the menu shows the
+	// user's own, so its toggles don't flip for the length of a focus block
+	// and a save of an unrelated key can't write the takeover values back
+	// as the user's choice.
+	if p, ok := a.coord.takeoverPriorView(); ok {
+		for k, v := range p.settings() {
+			out[k] = v
+		}
+		w.Header().Set(deferredKeysHeader, strings.Join(takeoverKeys, ","))
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -246,8 +265,19 @@ func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	payload, _ := json.Marshal(m)
-	a.proxyAction(w, r, withBody((*awtrix.Client).RawPatchSettings, payload))
+	held, err := a.coord.applyMenuSettings(m, func(m map[string]any) error {
+		payload, _ := json.Marshal(m)
+		_, err := a.clock.fetch(r.Context(), withBody((*awtrix.Client).RawPatchSettings, payload))
+		return err
+	})
+	if err != nil {
+		writeClockError(w, err)
+		return
+	}
+	if len(held) > 0 {
+		w.Header().Set(deferredKeysHeader, strings.Join(held, ","))
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (a *App) handleDeviceStats(w http.ResponseWriter, r *http.Request) {

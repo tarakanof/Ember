@@ -76,7 +76,9 @@ keys keep their current value; an invalid merged result is a 400 and changes
 nothing — see `settings_overlay.go`), `GET/PUT /v1/device/config`
 (`{"base_url"}`, required),
 `GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
-`PATCH /api/v1/settings` keys — see `device_settings.go`),
+`PATCH /api/v1/settings` keys — see `device_settings.go`; during a Pomodoro
+takeover `autoTransition`/`blockNavigation` read and write the saved prior,
+flagged by an `X-Ember-Deferred-Keys` response header),
 `GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
 `PUT /v1/device/display/power` (`{"power":bool}` — blanks/relights the
 matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or

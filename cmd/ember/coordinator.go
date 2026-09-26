@@ -120,8 +120,15 @@ type coordinator struct {
 	// before a Pomodoro takeover and written back on release. Non-nil means a
 	// takeover may be in force device-side and a restore is owed. Mirrored in
 	// kv (when set) so a process that dies mid-takeover restores on its next
-	// start. Coordinator-goroutine-owned once Run starts.
+	// start. Only the coordinator goroutine moves the pointer (under
+	// priorMu); a menu edit (applyMenuSettings, on an HTTP goroutine) may
+	// change the pointed-to values under priorMu, so every read of the
+	// values off the coordinator goroutine, and the restore, takes it too.
 	prior *takeoverPrior
+	// priorMu serialises the takeover snapshot, the restore and menu writes
+	// of the takeover keys, so a menu edit can't land between the snapshot
+	// read and its record, or between the restore write and forgetting it.
+	priorMu sync.Mutex
 	// restoreBackoff counts ticks left to skip before retrying a restore that
 	// was lost (see restoreBackoffTicks). Coordinator-goroutine-owned.
 	restoreBackoff int
