@@ -12,12 +12,19 @@ struct PanelPreview: View {
     /// The frame to render; nil shows a blank matrix (not loaded yet).
     let frame: CardFrame?
 
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    /// White at `opacity`, or near-solid white with Increase Contrast on.
+    private func ink(_ opacity: Double) -> Color {
+        .white.opacity(contrast == .increased ? 0.95 : opacity)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(title).font(.caption.weight(.semibold)).foregroundStyle(Color.white.opacity(0.85))
+                Text(title).font(.caption.weight(.semibold)).foregroundStyle(ink(0.85))
                 if !enabled {
-                    Text("Off").font(.caption).foregroundStyle(Color.white.opacity(0.6))
+                    Text("Off").font(.caption).foregroundStyle(ink(0.6))
                 }
             }
             Group {
@@ -30,7 +37,7 @@ struct PanelPreview: View {
             .opacity(enabled ? 1 : 0.35)
             .frame(maxWidth: 420, alignment: .leading)
             .accessibilityHidden(true)
-            Text(caption).font(.caption).foregroundStyle(Color.white.opacity(0.65))
+            Text(caption).font(.caption).foregroundStyle(ink(0.65))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))

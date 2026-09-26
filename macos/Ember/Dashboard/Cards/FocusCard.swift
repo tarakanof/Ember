@@ -175,6 +175,7 @@ struct RingGaugeStyle: GaugeStyle {
         let lineWidth: CGFloat
         @ViewBuilder let label: Label
         @Environment(\.redactionReasons) private var redaction
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
             ZStack {
@@ -185,7 +186,7 @@ struct RingGaugeStyle: GaugeStyle {
                     .stroke(redaction.isEmpty ? AnyShapeStyle(tint) : AnyShapeStyle(.quaternary),
                             style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .animation(.smooth, value: value)
+                    .animation(reduceMotion ? nil : .smooth, value: value)
                 label
             }
             .padding(lineWidth / 2)
