@@ -6,11 +6,13 @@ set -euo pipefail
 # Builds ad-hoc (the only signing Xcode accepts without a trusted identity)
 # without the get-task-allow entitlement Xcode injects into such builds (a
 # debugger-attachable Release app is no install candidate),
-# then, when the "Ember Local Signing" identity exists (see
-# local-signing-identity.sh), re-signs the bundle inside-out with it so its
-# designated requirement, and with it the Local Network grant, survives
-# rebuilds. Without the identity the app stays ad-hoc and macOS asks for
-# Local Network access again after every rebuild.
+# then re-signs the bundle inside-out with a stable identity so its designated
+# requirement, and with it the Local Network grant, survives rebuilds. The
+# identity (see local-signing-identity.sh): EMBER_SIGNING_IDENTITY or
+# ~/.config/ember/signing-identity (a SHA-1, e.g. your Apple Development
+# certificate), else the self-signed "Ember Local Signing". Without either the
+# app stays ad-hoc and macOS asks for Local Network access again after every
+# rebuild.
 #
 # It does not install: copy the printed app into /Applications yourself
 # (quit Ember first, then `ditto <app> /Applications/Ember.app`).
@@ -27,12 +29,15 @@ xcodebuild -project "$REPO/macos/Ember.xcodeproj" -scheme Ember -configuration R
   CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO build
 APP="$DD/Build/Products/Release/Ember.app"
 
-if "$REPO/scripts/local-signing-identity.sh" --hash >/dev/null; then
-  "$REPO/scripts/local-signing-identity.sh" --sign "$APP"
-else
-  echo "no 'Ember Local Signing' identity: leaving the app ad-hoc signed"
-  echo "(run scripts/local-signing-identity.sh once to keep Local Network access across rebuilds)"
-fi
+rc=0
+"$REPO/scripts/local-signing-identity.sh" --hash >/dev/null || rc=$?
+case "$rc" in
+  0) "$REPO/scripts/local-signing-identity.sh" --sign "$APP" ;;
+  1) echo "no local signing identity: leaving the app ad-hoc signed"
+     echo "(set EMBER_SIGNING_IDENTITY / ~/.config/ember/signing-identity to your Apple Development"
+     echo " SHA-1, or run scripts/local-signing-identity.sh once, to keep Local Network access across rebuilds)" ;;
+  *) exit 1 ;; # the override is set but names no single identity; the error is printed above
+esac
 
 "$REPO/scripts/verify-bundle.sh" "$APP"
 echo "built: $APP"

@@ -15,18 +15,39 @@ set -euo pipefail
 # settings change. codesign signs with an untrusted identity fine; only
 # Gatekeeper would object, and a locally built app never goes through it.
 #
+# A certificate Apple issued you (an "Apple Development" identity from Xcode)
+# is the better choice when you have one: its requirement is
+#   identifier "com.ember.Ember" and anchor apple generic and
+#   certificate leaf[subject.CN] = "Apple Development: <name> (<id>)" and
+#   certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
+# which names the certificate's subject, not its hash, so it also holds for a
+# renewed certificate with the same name. Select it with
+# EMBER_SIGNING_IDENTITY, or once for good in ~/.config/ember/signing-identity
+# ($XDG_CONFIG_HOME/ember/signing-identity when XDG_CONFIG_HOME is set; the
+# first non-blank line after stripping # comments and whitespace). Either holds
+# a SHA-1 or an exact identity name of a valid identity (find-identity -v); a
+# name that matches more than one is an error, so prefer the SHA-1.
+# EMBER_SIGNING_IDENTITY=- forces ad-hoc for one build, ignoring the file.
+#
+# Which identity signs (--hash, --sign, --check): that override, else the
+# self-signed "Ember Local Signing" identity, else none (the caller leaves the
+# build ad-hoc). An override that names no valid identity, or a config file
+# that can't be read, is an error, not a silent fallback.
+#
 # Usage:
-#   local-signing-identity.sh            create it if missing (idempotent), print its SHA-1
-#   local-signing-identity.sh --check    report whether it exists (exit 1 if not)
-#   local-signing-identity.sh --hash     print only the SHA-1 (exit 1 if missing), for scripts
+#   local-signing-identity.sh            create "Ember Local Signing" if missing (idempotent), print its SHA-1
+#   local-signing-identity.sh --check    report the identity local builds sign with (exit 1 if none)
+#   local-signing-identity.sh --hash     print only its SHA-1 (exit 1 if none), for scripts
 #   local-signing-identity.sh --sign APP re-sign a built Ember.app inside-out with it
-#   local-signing-identity.sh --remove   delete it from the keychain
+#   local-signing-identity.sh --remove   delete "Ember Local Signing" from the keychain
 #
 # EMBER_SIGNING_KEYCHAIN overrides the keychain (default: the login keychain),
-# e.g. a scratch keychain for testing.
+# e.g. a scratch keychain for testing. EMBER_SIGNING_IDENTITY_FILE overrides
+# the config file path.
 
 NAME="Ember Local Signing"
 KEYCHAIN="${EMBER_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
+IDENTITY_FILE="${EMBER_SIGNING_IDENTITY_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/ember/signing-identity}"
 
 # identity_hash prints the SHA-1 of the first code-signing identity called
 # $NAME, valid or not (untrusted self-signed identities are listed only
@@ -34,6 +55,83 @@ KEYCHAIN="${EMBER_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
 identity_hash() {
   security find-identity -p codesigning "$KEYCHAIN" 2>/dev/null |
     awk -v n="\"$NAME\"" 'index($0, n) { print $2; exit }'
+}
+
+# override prints the configured identity (SHA-1 or name):
+# EMBER_SIGNING_IDENTITY, else the first non-blank line of $IDENTITY_FILE
+# (# starts a comment), else nothing.
+override() {
+  if [ -n "${EMBER_SIGNING_IDENTITY:-}" ]; then
+    echo "$EMBER_SIGNING_IDENTITY"
+  elif [ -e "$IDENTITY_FILE" ]; then
+    [ -r "$IDENTITY_FILE" ] || return 1
+    sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$IDENTITY_FILE" | awk 'NF { print; exit }'
+  fi
+}
+
+# matching prints the SHA-1 of every code-signing identity in $KEYCHAIN whose
+# SHA-1 ($1 = sha) or exact name ($1 = name) is $2, deduped. With $3 = -v, only
+# valid ones (not expired, revoked or untrusted); otherwise any, so an invalid
+# match can be told apart from no match. Invalid identities carry a trailing
+# "(CSSMERR_...)" after the quoted name.
+matching() {
+  local by="$1" want="$2" valid="${3:-}"
+  security find-identity ${valid:+"$valid"} -p codesigning "$KEYCHAIN" 2>/dev/null |
+    awk -v by="$by" -v w="$want" '
+      /^ *[0-9]+\) [0-9A-F]+ "/ {
+        name = $0; sub(/^[^"]*"/, "", name); sub(/"( \(CSSMERR_[A-Z_]+\))?$/, "", name)
+        if ((by == "sha" && $2 == w) || (by == "name" && name == w)) print $2
+      }' | sort -u
+}
+
+# override_hash resolves the override (a SHA-1 or an exact name) to the SHA-1
+# of exactly one valid identity in $KEYCHAIN, or fails with a message on
+# stderr: no such identity, only invalid ones, or several valid ones.
+override_hash() {
+  local want="$1" by=name hashes n what
+  what="\"$want\""
+  if printf '%s' "$want" | grep -Eq '^[0-9A-Fa-f]{40}$'; then
+    by=sha
+    want="$(printf '%s' "$want" | tr '[:lower:]' '[:upper:]')"
+    what="$want"
+  fi
+  hashes="$(matching "$by" "$want" -v)"
+  n="$(printf '%s' "$hashes" | grep -c . || true)"
+  if [ "$n" = 0 ] && [ -n "$(matching "$by" "$want")" ]; then
+    echo "error: signing identity override $what exists in $KEYCHAIN but is not valid (expired, revoked or untrusted)" >&2
+    return 1
+  fi
+  case "$n" in
+    1) echo "$hashes" ;;
+    0) echo "error: signing identity override $what: no such code-signing identity in $KEYCHAIN" >&2; return 1 ;;
+    *) echo "error: signing identity override \"$want\" matches $n identities; set it to one SHA-1:" >&2
+       printf '%s\n' "$hashes" | sed 's/^/  /' >&2
+       return 1 ;;
+  esac
+}
+
+# resolve sets HASH and LABEL to the identity local builds sign with: the
+# override, else "Ember Local Signing". Returns 0 when found, 1 when there is
+# neither or the override is "-" (ad-hoc), 2 when the override is set but
+# unusable or the config file can't be read (message on stderr). Callers run
+# it under || where errexit is off, so every failure is checked explicitly.
+resolve() {
+  local want
+  HASH="" LABEL=""
+  want="$(override)" || { echo "error: cannot read signing identity file $IDENTITY_FILE" >&2; return 2; }
+  if [ "$want" = "-" ]; then
+    LABEL="ad-hoc (signing identity override is \"-\")"
+    return 1
+  fi
+  if [ -n "$want" ]; then
+    HASH="$(override_hash "$want")" || return 2
+    LABEL="$(security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null |
+      awk -v h="$HASH" '$2 == h { sub(/^[^"]*"/, ""); sub(/"[^"]*$/, ""); print; exit }')"
+    return 0
+  fi
+  HASH="$(identity_hash)"
+  LABEL="$NAME"
+  [ -n "$HASH" ] || return 1
 }
 
 create() {
@@ -76,20 +174,27 @@ EOF
 }
 
 check() {
-  local hash
-  hash="$(identity_hash)"
-  if [ -z "$hash" ]; then
-    echo "$NAME: not found in $KEYCHAIN (run scripts/local-signing-identity.sh to create it)"
-    exit 1
-  fi
-  echo "$NAME: $hash (in $KEYCHAIN)"
+  local rc=0
+  resolve || rc=$?
+  case "$rc" in
+    0) echo "$LABEL: $HASH (in $KEYCHAIN)" ;;
+    2) exit 1 ;;
+    *) if [ -n "$LABEL" ]; then
+         echo "$LABEL"
+       else
+         echo "no local signing identity: no override (EMBER_SIGNING_IDENTITY or $IDENTITY_FILE)"
+         echo "and no '$NAME' in $KEYCHAIN (run scripts/local-signing-identity.sh to create it)"
+       fi
+       exit 1 ;;
+  esac
 }
 
+# print_hash exits 1 when there is no identity, 2 when the override is unusable.
 print_hash() {
-  local hash
-  hash="$(identity_hash)"
-  [ -n "$hash" ] || exit 1
-  echo "$hash"
+  local rc=0
+  resolve || rc=$?
+  [ "$rc" = 0 ] || exit "$rc"
+  echo "$HASH"
 }
 
 remove() {
@@ -108,10 +213,12 @@ remove() {
 # Hardened runtime and the entitlements are kept, except get-task-allow,
 # which Xcode injects into ad-hoc builds and a Release install must not have.
 sign_app() {
-  local app="$1" hash main f name ents
+  local app="$1" hash main f name ents rc=0
   [ -d "$app" ] || { echo "error: no such app bundle: $app" >&2; exit 2; }
-  hash="$(identity_hash)"
-  [ -n "$hash" ] || { echo "error: no '$NAME' identity; run scripts/local-signing-identity.sh first" >&2; exit 1; }
+  resolve || rc=$?
+  [ "$rc" != 2 ] || exit 1
+  [ "$rc" = 0 ] || { echo "error: no signing identity; set EMBER_SIGNING_IDENTITY or run scripts/local-signing-identity.sh first" >&2; exit 1; }
+  hash="$HASH"
   local cs=(codesign --force --sign "$hash" --keychain "$KEYCHAIN" --options runtime --timestamp=none)
 
   if [ -d "$app/Contents/Frameworks" ]; then
@@ -137,7 +244,7 @@ sign_app() {
     "${cs[@]}" "$app"
   fi
   rm -f "$ents"
-  echo "signed $(basename "$app") with $NAME ($hash)"
+  echo "signed $(basename "$app") with $LABEL ($hash)"
   codesign -dr - "$app" 2>&1 | sed -n 's/^designated => /designated requirement: /p'
 }
 
@@ -147,6 +254,6 @@ case "${1:-}" in
   --hash) print_hash ;;
   --sign) [ -n "${2:-}" ] || { echo "usage: $0 --sign <Ember.app>" >&2; exit 2; }; sign_app "$2" ;;
   --remove) remove ;;
-  -h | --help) sed -n '4,27p' "$0" ;;
+  -h | --help) sed -n '4,46p' "$0" ;;
   *) echo "usage: $0 [--create|--check|--hash|--sign APP|--remove]" >&2; exit 2 ;;
 esac

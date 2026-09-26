@@ -111,6 +111,8 @@ if codesign -dv "$APP" 2>&1 | grep -q '^Signature=adhoc'; then
   signer="ad-hoc (Local Network access must be re-approved after every rebuild)"
 fi
 echo "INFO signed by: ${signer:-unknown}"
+team="$(codesign -dv "$APP" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+echo "INFO team: ${team:-none}"
 echo "INFO $(codesign -dr - "$APP" 2>&1 | grep '^designated' || echo 'designated => (none)')"
 
 echo "ALL CHECKS PASSED: $APP"

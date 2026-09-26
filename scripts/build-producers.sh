@@ -13,25 +13,33 @@ KEYCHAIN_ARGS=()                      # only for the local identity (EMBER_SIGNI
 # CODE_SIGNING_ALLOWED=NO (unsigned CI builds): ad-hoc, so go build/lipo/plist
 # copy/plutil lint still run and only the signing step changes. A configured
 # identity that isn't in the keychain (no Developer ID cert installed): the
-# stable self-signed "Ember Local Signing" identity when it exists (see
-# local-signing-identity.sh; it keeps Local Network grants across rebuilds),
-# else ad-hoc. An explicit "-" stays ad-hoc.
+# local signing identity when there is one (see local-signing-identity.sh:
+# EMBER_SIGNING_IDENTITY or ~/.config/ember/signing-identity, else the
+# self-signed "Ember Local Signing"; it keeps Local Network grants across
+# rebuilds), else ad-hoc. An override naming no single identity fails the
+# build. An explicit "-" stays ad-hoc.
 if [ "$IDENTITY" != "-" ]; then
   if [ "${CODE_SIGNING_ALLOWED:-YES}" = "NO" ]; then
     echo "build-producers.sh: signing not allowed — ad-hoc"
     IDENTITY="-"
   elif ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
-    if LOCAL="$("$REPO/scripts/local-signing-identity.sh" --hash)"; then
-      echo "build-producers.sh: no usable '$IDENTITY' identity — using Ember Local Signing ($LOCAL)"
-      IDENTITY="$LOCAL"
-      TIMESTAMP=--timestamp=none
-      if [ -n "${EMBER_SIGNING_KEYCHAIN:-}" ]; then
-        KEYCHAIN_ARGS=(--keychain "$EMBER_SIGNING_KEYCHAIN")
-      fi
-    else
-      echo "build-producers.sh: no usable '$IDENTITY' identity — falling back to ad-hoc"
-      IDENTITY="-"
-    fi
+    rc=0
+    LOCAL="$("$REPO/scripts/local-signing-identity.sh" --hash)" || rc=$?
+    case "$rc" in
+      0)
+        echo "build-producers.sh: no usable '$IDENTITY' identity — using the local signing identity ($LOCAL)"
+        IDENTITY="$LOCAL"
+        TIMESTAMP=--timestamp=none
+        if [ -n "${EMBER_SIGNING_KEYCHAIN:-}" ]; then
+          KEYCHAIN_ARGS=(--keychain "$EMBER_SIGNING_KEYCHAIN")
+        fi
+        ;;
+      1)
+        echo "build-producers.sh: no usable '$IDENTITY' identity — falling back to ad-hoc"
+        IDENTITY="-"
+        ;;
+      *) exit 1 ;; # the signing identity override is unusable; error printed above
+    esac
   fi
 fi
 MACOS_DIR="$APP/Contents/MacOS"
