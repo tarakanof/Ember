@@ -600,13 +600,16 @@ func resetText(resetAt int64, now time.Time) (string, RGB) {
 // clock when the label is known, else the ceil-hours hourglass plus the "5h"
 // unit (codex, or statusline data without a label).
 //
-// The HH:MM clock gets no unit: it runs to col 23, and a "5h" at col 25 was
-// one blank column away, the same as the spacing between glyphs, so the pair
-// read as "17:305h". A reset time next to the tool icon needs no label; the
-// 5h percentage is on the preceding face or on the bar below.
+// The HH:MM clock is marked with a gray hourglass at cols 27-29 instead of
+// the "5h" unit. A bare HH:MM beside the robot reads as the time of day (NG's
+// own Time app shows one in the same rotation), but the clock runs to col 23,
+// and a "5h" at col 25 was one blank column away, the same as the spacing
+// between glyphs, so the pair read as "17:305h". The 3-px hourglass leaves 3
+// blank columns after the clock.
 func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 	if u.ResetLabel != "" {
 		drawClockInto(f, u.ResetLabel, contentX)
+		drawDigits(f, string(resetGlyph), resetMarkX, textRow, usageGray)
 		return
 	}
 	text, col := resetText(u.ResetAt, now)

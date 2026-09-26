@@ -643,9 +643,10 @@ tool (sessions-bar mode): **5h clock** (fully-drawn tight-colon), **reset**
 Every usage face drops the context glass, which is a session metric that only
 non-usage cards draw. Percentage faces show a gray **window unit label** in its
 place (`drawUsageUnit`, cols 25–31): `5h` on the 5h pct face and the hourglass
-fallback, `7d` / `OP` / `SO` on the weekly faces. HH:MM reset-clock faces leave
-the slot dark, because the clock runs to col 23 and a unit one column away read
-as part of it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
+fallback, `7d` / `OP` / `SO` on the weekly faces. HH:MM reset-clock faces show a
+gray hourglass at cols 27–29 instead: a bare HH:MM reads as the time of day next
+to NG's Time app, and a `5h` one column after the clock (which ends at col 23)
+read as part of it. Per-tool show/hide reuses `/v1/apps`; the widget + per-model
 toggles remain server config (`usage_widget`, `usage_per_model`, default on);
 `usage_threshold_pct` is also server config (`GET/PUT /v1/usage/config`, store
 key `usage_json`, default 60, 0 = always). **Claude 5h fallback:** when the
@@ -744,8 +745,9 @@ forecast tile is the one full-panel chart (no icon) and uses all 32 columns.
   the cards rotate.
 - **Usage colours** — usage percentages (digits, bars, reset urgency) use one
   threshold palette (`usageThreshold`: green <70, amber 70–89, red ≥90), kept
-  apart from the agent-state colours. HH:MM reset-clock faces carry no unit
-  label: the clock ends at col 23, and a `5h` at col 25 read as `17:305h`.
+  apart from the agent-state colours. HH:MM reset-clock faces carry a gray
+  hourglass at cols 27–29 rather than `5h`: the clock ends at col 23, and a
+  `5h` at col 25 read as `17:305h`.
 - **Locked attention view** — 8×8 tool icon in cols 0–7, firmware-native
   blinking text `WAIT <SOURCE>` / `ERR <SOURCE>` at `textOffsetX:9` (with
   `textCenter:false` — see the gotcha below); scrolls when the label overflows

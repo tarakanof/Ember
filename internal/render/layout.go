@@ -28,6 +28,9 @@ const (
 	textRow  = 1 // top row of 3×5 glyphs; NG's small font also uses rows 1-5
 
 	rightSlotX = 25 // context glass / usage unit label: cols 25-31
+	// resetMarkX places the hourglass beside an HH:MM reset clock (cols 27-29),
+	// 3 blank columns after the clock's last column (23).
+	resetMarkX = rightSlotX + 2
 
 	barRow = 7
 	barX0  = iconW // bottom bars start under the gap, like NG's native progress

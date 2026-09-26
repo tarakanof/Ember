@@ -1371,14 +1371,22 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 		}
 	}
 
-	// requireNoRightSlot asserts an HH:MM clock face leaves cols 25-31 dark:
-	// the 15 px clock ends at col 23, and a "5h" at col 25 read as "17:305h".
-	requireNoRightSlot := func(t *testing.T, f *Frame, face string) {
+	// requireResetMarker asserts an HH:MM clock face marks itself as a reset
+	// time with the gray hourglass at cols 27-29 and nothing else in the right
+	// slot. A bare HH:MM beside the robot reads as the time of day (NG's Time
+	// app shows one), and a "5h" at col 25 ran into the clock ("17:305h").
+	requireResetMarker := func(t *testing.T, f *Frame, face string) {
 		t.Helper()
+		g := glyph(resetGlyph)
 		for y := 0; y < barRow; y++ {
 			for x := rightSlotX; x < panelW; x++ {
-				if f.Dirty[y][x] {
-					t.Fatalf("%s: right slot lit at (%d,%d), want it dark beside the clock", face, x, y)
+				gx, gy := x-resetMarkX, y-textRow
+				want := gx >= 0 && gx < 3 && gy >= 0 && gy < 5 && g[gy][gx] == 'X'
+				if f.Dirty[y][x] != want {
+					t.Fatalf("%s: (%d,%d) lit=%v, want the hourglass only at cols %d-%d", face, x, y, f.Dirty[y][x], resetMarkX, resetMarkX+2)
+				}
+				if want && f.Pixels[y][x] != usageGray {
+					t.Fatalf("%s: hourglass pixel (%d,%d) = %v, want gray %v", face, x, y, f.Pixels[y][x], usageGray)
 				}
 			}
 		}
@@ -1393,7 +1401,7 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	if f.Pixels[1][10] != colorWhite {
 		t.Fatalf("5h face: clock pixel textColor = %v, want white %v", f.Pixels[1][10], colorWhite)
 	}
-	requireNoRightSlot(t, &f, "5h clock face")
+	requireResetMarker(t, &f, "5h clock face")
 
 	// 5h face in sessions-bar mode: "87%" digits in the usage threshold amber + unit.
 	s2 := s
@@ -1404,9 +1412,9 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	}
 	requireUnit(t, &f, "5h pct face")
 
-	// The reset clock face (sessions-bar mode) carries no unit either.
+	// The reset clock face (sessions-bar mode) carries the same marker.
 	f = ComposeFrame(s2, cardUsageReset, u, []Session{s2}, now)
-	requireNoRightSlot(t, &f, "reset clock face")
+	requireResetMarker(t, &f, "reset clock face")
 
 	// 7d face: red "95%" at contentX, gray "7d" unit at the right edge.
 	f = ComposeFrame(s, cardUsage7d, u, []Session{s}, now)
@@ -1476,11 +1484,14 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 		t.Fatal("cursor should wrap (face 2 == face 0)")
 	}
 
-	// The idle 5h face is the reset clock with no unit beside it (the bar
-	// below carries the 5h percentage); the 7d face keeps its "7d" label.
+	// The idle 5h face is the reset clock with the gray hourglass marker
+	// (top plate lights row 1 at resetMarkX); the 7d face keeps its "7d" label.
 	px := bmpPixels(t, p0)
 	if got := px[1*32+rightSlotX]; got != 0 {
-		t.Errorf("idle 5h face right slot = %#06x, want dark beside the clock", got)
+		t.Errorf("idle 5h face col %d = %#06x, want a gap before the marker", rightSlotX, got)
+	}
+	if got, want := px[1*32+resetMarkX], toInt(usageGray); got != want {
+		t.Errorf("idle 5h face marker pixel = %#06x, want gray %#06x", got, want)
 	}
 	px = bmpPixels(t, p1)
 	if got, want := px[1*32+rightSlotX+2], toInt(usageGray); got != want {
