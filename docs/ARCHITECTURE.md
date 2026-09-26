@@ -728,7 +728,12 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
 
 - **`GET /v1/usage`** — the latest `UsageStore` snapshot per tool (5h/7d windows,
   `models` keyed by model name, `stale` past `usageStaleTTL`). Before this the
-  snapshot was write-only; `/state` leaked just the 5h percent.
+  snapshot was write-only; `/state` leaked just the 5h percent. In-memory and
+  filled only by the producers' daemons (`ember-claude-producer run` relays the
+  statusline windows every heartbeat and polls the OAuth endpoint), so it is
+  empty after a server restart until one posts; the app's Usage card and menu
+  then fall back to the sessions' `rate_window_pct` (`MenuRows.sessionFiveHour`:
+  known reset, dropped once it passes).
 - **`GET /v1/activity/summary?days=7`** (1..90, per-IP rate-limited) — agent
   activity from the `activity` table: `today` and `period` windows with
   `total`/`by_tool`/`by_source` rows (`active_sec`, `sessions`, `attention`;
@@ -751,7 +756,8 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   coordinates). No provider call; the coordinates are never echoed.
 - **`GET /v1/clock/health`** (per-IP rate-limited) — publish counts for the last
   24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,
-  plus the clock's `currentApp`, `wifiRssi`, heap, uptime, `wifi.connects`,
+  plus the clock's `currentApp` (not shown by the app: 30 s behind a rotation
+  that changes every few seconds), `wifiRssi`, heap, uptime, `wifi.connects`,
   `matrixPower`, battery and sensors from `GET /api/v1/device`, **cached 30 s**
   and probed detached from the caller's cancellation, so polling can't add
   traffic on the clock's lossy Wi-Fi and a disconnecting viewer can't cache
