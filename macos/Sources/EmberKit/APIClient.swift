@@ -79,8 +79,8 @@ extension APIError: LocalizedError {
 
 /// How long a request may wait for the server, by what the server does before
 /// it answers. Each budget sits above the server's own for that work
-/// (`cmd/ember/clock_access.go`), so a slow clock reaches the app as the
-/// server's 502, not as a timeout of ours.
+/// (`cmd/ember/clock_access.go`), so a slow clock normally reaches the app as
+/// the server's 502, not as a timeout of ours.
 public enum RequestBudget: Sendable, CaseIterable {
     /// Server-only work (`/healthz`, `/state`, settings): 5s, so a dead server
     /// shows promptly.
@@ -88,10 +88,13 @@ public enum RequestBudget: Sendable, CaseIterable {
     /// One clock call through the server: `menuCallTimeout` is 8s. Discovery
     /// fits too (mDNS 3s, UDP fallback 3s, candidate probes 2s).
     case clock
-    /// Work that chains clock calls or waits on one: a system read-merge-PUT
-    /// queues behind another (two 8s calls each) and re-reads, a settings edit
-    /// can re-write over a Pomodoro restore, a reminder fire waits up to 10s.
-    /// The server's 30s `WriteTimeout` bounds them all.
+    /// Work that chains clock calls or waits on a lock before one: a system
+    /// read-merge-PUT queues behind another (two 8s calls each) and re-reads,
+    /// a settings read or edit waits on the Pomodoro takeover snapshot and can
+    /// re-write over a restore, a reminder fire waits up to 10s. Set above the
+    /// server's 30s `WriteTimeout`, which doesn't stop a handler: one that runs
+    /// past it has its connection dropped, which `classify` reports as a
+    /// timeout for this budget.
     case clockLong
 
     /// Longest wait for the response to start (`timeoutIntervalForRequest`).
@@ -119,7 +122,7 @@ public enum RequestBudget: Sendable, CaseIterable {
 public struct APIClient: Sendable {
     public let baseURL: URL?
     public let token: String?
-    /// One session per budget; an injected session (tests) serves them all.
+    /// The session for each budget: `session(for:)` unless a test injects one.
     let sessions: @Sendable (RequestBudget) -> URLSession
     /// This Mac's network path status, read when a request fails to tell a
     /// Local Network refusal from no network at all (`LocalNetworkDenial`).
@@ -127,13 +130,17 @@ public struct APIClient: Sendable {
 
     public init(baseURL: URL?, token: String?, session: URLSession? = nil,
                 pathStatus: (@Sendable () -> NWPath.Status?)? = nil) {
+        let pick: @Sendable (RequestBudget) -> URLSession
+        if let session { pick = { _ in session } } else { pick = { Self.session(for: $0) } }
+        self.init(baseURL: baseURL, token: token, sessions: pick, pathStatus: pathStatus)
+    }
+
+    /// Picks a session per budget (tests record which budget a call used).
+    init(baseURL: URL?, token: String?, sessions: @escaping @Sendable (RequestBudget) -> URLSession,
+         pathStatus: (@Sendable () -> NWPath.Status?)? = nil) {
         self.baseURL = baseURL
         self.token = token
-        if let session {
-            self.sessions = { _ in session }
-        } else {
-            self.sessions = { Self.defaultSessions[$0]! }
-        }
+        self.sessions = sessions
         if let pathStatus {
             self.pathStatus = pathStatus
         } else {
@@ -142,9 +149,14 @@ public struct APIClient: Sendable {
         }
     }
 
-    /// Dedicated sessions (not `URLSession.shared`, whose 60s defaults would
-    /// leave "Test Connection" against a vanished host hanging), one per budget.
-    static let defaultSessions: [RequestBudget: URLSession] = Dictionary(
+    /// The session a budget's requests run on: dedicated (not
+    /// `URLSession.shared`, whose 60s defaults would leave "Test Connection"
+    /// against a vanished host hanging), configured with the budget's timeouts.
+    static func session(for budget: RequestBudget) -> URLSession {
+        defaultSessions[budget]!
+    }
+
+    private static let defaultSessions: [RequestBudget: URLSession] = Dictionary(
         uniqueKeysWithValues: RequestBudget.allCases.map { budget in
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = budget.requestTimeout
@@ -179,9 +191,6 @@ public struct APIClient: Sendable {
 
         var req = URLRequest(url: url)
         req.httpMethod = method
-        // The session already enforces it; stamped too so the budget travels
-        // with the request and a test can read it.
-        req.timeoutInterval = budget.requestTimeout
         if let token, !token.isEmpty {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -195,7 +204,7 @@ public struct APIClient: Sendable {
         do {
             (data, resp) = try await sessions(budget).data(for: req)
         } catch {
-            let apiError = Self.classify(error, host: url.host, pathStatus: pathStatus())
+            let apiError = Self.classify(error, budget: budget, host: url.host, pathStatus: pathStatus())
             let denied = apiError == .localNetworkDenied
             if reportNotSent, denied || (error as? URLError).map({ Self.notSentCodes.contains($0.code) }) == true {
                 throw RequestNotSent(underlying: apiError)
@@ -218,13 +227,19 @@ public struct APIClient: Sendable {
 
     /// Maps a failed request to an APIError. A Local Network refusal wins over
     /// everything: macOS can surface one as a timeout, and the fix is a
-    /// permission, not patience.
-    static func classify(_ error: Error, host: String?, pathStatus: NWPath.Status?) -> APIError {
+    /// permission, not patience. Under `.clockLong` a dropped connection is a
+    /// timeout too: the server took the request and closed it when its
+    /// `WriteTimeout` passed, so the server was there, just slow.
+    static func classify(_ error: Error, budget: RequestBudget, host: String?,
+                         pathStatus: NWPath.Status?) -> APIError {
         if LocalNetworkDenial.isDenied(error, host: host, pathStatus: pathStatus) {
             return .localNetworkDenied
         }
-        if (error as? URLError)?.code == .timedOut { return .timedOut }
-        return .transport(error.localizedDescription)
+        switch (error as? URLError)?.code {
+        case .timedOut?: return .timedOut
+        case .networkConnectionLost? where budget == .clockLong: return .timedOut
+        default: return .transport(error.localizedDescription)
+        }
     }
 
     public func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [],

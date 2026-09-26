@@ -54,8 +54,8 @@ struct DashboardContent<Source: DashboardSource>: View {
                 Label { Text("Server not responding", comment: "Title shown in place of content: the server didn't answer in time.") }
                     icon: { Image(systemName: "clock.badge.exclamationmark") }
             } description: {
-                Text("The server didn't answer in time. It may be busy with the clock, or down. Try again in a moment.",
-                     comment: "Dashboard: explains a server that didn't answer in time.")
+                Text("The server didn't answer in time. It may be down or overloaded.",
+                     comment: "Explains a server that didn't answer in time.")
             } actions: {
                 Button("Try Again", action: onRetry)
                 Button("Open Connection Settings") { openSettings(pane: "connection", using: openWindow) }

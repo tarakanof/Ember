@@ -11,7 +11,7 @@ private let serverMenuCallBudget: TimeInterval = 8
 private let serverDiscoverBudget: TimeInterval = 8
 /// The reminder fire's publish context.
 private let serverReminderFireBudget: TimeInterval = 10
-/// `http.Server.WriteTimeout`: no handler can answer later than this.
+/// `http.Server.WriteTimeout`: past it the server drops the connection.
 private let serverWriteTimeout: TimeInterval = 30
 
 @Test func serverBudgetStaysShortSoADeadServerShowsFast() {
@@ -32,43 +32,67 @@ private let serverWriteTimeout: TimeInterval = 30
 }
 
 @Test(arguments: RequestBudget.allCases)
-func defaultSessionMatchesItsBudget(budget: RequestBudget) {
-    let client = APIClient(baseURL: URL(string: "http://example.local"), token: nil)
-    let session = client.sessions(budget)
+func eachBudgetHasASessionWithItsTimeouts(budget: RequestBudget) {
+    let session = APIClient.session(for: budget)
     #expect(session !== URLSession.shared)
     #expect(session.configuration.timeoutIntervalForRequest == budget.requestTimeout)
     #expect(session.configuration.timeoutIntervalForResource == budget.resourceTimeout)
 }
 
-// MARK: Which budget each call uses
+@Test(arguments: RequestBudget.allCases)
+func defaultClientRunsEachBudgetOnItsSession(budget: RequestBudget) {
+    let client = APIClient(baseURL: URL(string: "http://example.local"), token: nil)
+    #expect(client.sessions(budget) === APIClient.session(for: budget))
+}
 
-/// Records method, path and the request's stamped timeout.
-private final class RequestLog: @unchecked Sendable {
+// MARK: Which session each call runs on
+
+private let budgetHeader = "X-Test-Budget"
+
+/// Records, per "METHOD /path", the budget of the session that sent it.
+private final class BudgetLog: @unchecked Sendable {
     private let lock = NSLock()
-    private var entries: [String: TimeInterval] = [:]
+    private var entries: [String: String] = [:]
     func add(_ req: URLRequest) {
-        lock.withLock { entries["\(req.httpMethod ?? "") \(req.url?.path ?? "")"] = req.timeoutInterval }
+        let key = "\(req.httpMethod ?? "") \(req.url?.path ?? "")"
+        let budget = req.value(forHTTPHeaderField: budgetHeader) ?? "none"
+        lock.withLock { entries[key] = budget }
     }
-    subscript(_ key: String) -> TimeInterval? { lock.withLock { entries[key] } }
+    subscript(_ key: String) -> String? { lock.withLock { entries[key] } }
 }
 
-private func recordingDevice() -> (DeviceService, RequestLog) {
-    let log = RequestLog()
-    let client = stubbedClient { req in
+/// A client whose per-budget sessions each tag their requests with their
+/// budget, so the stub sees which session `perform` picked.
+private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> String = { _ in "{}" })
+    -> (APIClient, BudgetLog) {
+    let log = BudgetLog()
+    let host = "stub-\(UUID().uuidString.lowercased()).local"
+    StubURLProtocol.register(host: host) { req in
         log.add(req)
-        let body: String
-        switch req.url?.path {
-        case "/v1/device/apps": body = "[]"
-        case "/v1/device/screen": body = #"{"width":32,"height":8,"pixels":[]}"#
-        default: body = "{}"
-        }
-        return (okResponse(req.url!), Data(body.utf8))
+        return (okResponse(req.url!), Data(body(req).utf8))
     }
-    return (DeviceService(client: client), log)
+    var sessions: [RequestBudget: URLSession] = [:]
+    for budget in RequestBudget.allCases {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self]
+        config.httpAdditionalHeaders = [budgetHeader: "\(budget)"]
+        sessions[budget] = URLSession(configuration: config)
+    }
+    let pick = sessions
+    let client = APIClient(baseURL: URL(string: "http://\(host)"), token: nil,
+                           sessions: { pick[$0]! }, pathStatus: { .satisfied })
+    return (client, log)
 }
 
-@Test func everyClockProxyCallGetsAClockBudget() async {
-    let (device, log) = recordingDevice()
+@Test func everyClockProxyCallRunsOnAClockSession() async {
+    let (client, log) = budgetRecordingClient { req in
+        switch req.url?.path {
+        case "/v1/device/apps": "[]"
+        case "/v1/device/screen": #"{"width":32,"height":8,"pixels":[]}"#
+        default: "{}"
+        }
+    }
+    let device = DeviceService(client: client)
     // Decoding may fail on the stub's empty bodies; only the request matters.
     _ = try? await device.settings()
     _ = try? await device.update(patch: [:])
@@ -94,60 +118,51 @@ private func recordingDevice() -> (DeviceService, RequestLog) {
     _ = try? await device.config()
     _ = try? await device.setConfig(baseURL: "http://192.168.0.66")
 
-    let clock = RequestBudget.clock.requestTimeout
-    let long = RequestBudget.clockLong.requestTimeout
-    let expected: [String: TimeInterval] = [
-        "GET /v1/device/settings": clock,
-        "PUT /v1/device/settings": long,
-        "GET /v1/device/display": clock,
-        "PUT /v1/device/display": clock,
-        "PUT /v1/device/display/power": clock,
-        "POST /v1/device/audio/test": clock,
-        "POST /v1/device/audio/stop": clock,
-        "GET /v1/device/audio/melodies": clock,
-        "GET /v1/device/apps": clock,
-        "PUT /v1/device/apps": clock,
-        "GET /v1/device/capabilities": clock,
-        "GET /v1/device/stats": clock,
-        "GET /v1/device/sensors": clock,
-        "PUT /v1/device/sensors": long,
-        "GET /v1/device/screen": clock,
-        "POST /v1/device/reboot": clock,
-        "POST /v1/device/notify/dismiss": clock,
-        "POST /v1/device/app/next": clock,
-        "POST /v1/device/app/previous": clock,
-        "GET /v1/device/discover": clock,
-        "PUT /v1/device/buttons": long,
-        "GET /v1/device/buttons": clock,
+    let expected: [String: RequestBudget] = [
+        // The server reads the takeover snapshot under its lock first.
+        "GET /v1/device/settings": .clockLong,
+        "PUT /v1/device/settings": .clockLong,
+        "GET /v1/device/display": .clock,
+        "PUT /v1/device/display": .clock,
+        "PUT /v1/device/display/power": .clock,
+        "POST /v1/device/audio/test": .clock,
+        "POST /v1/device/audio/stop": .clock,
+        "GET /v1/device/audio/melodies": .clock,
+        "GET /v1/device/apps": .clock,
+        "PUT /v1/device/apps": .clock,
+        "GET /v1/device/capabilities": .clock,
+        "GET /v1/device/stats": .clock,
+        "GET /v1/device/sensors": .clock,
+        "PUT /v1/device/sensors": .clockLong,
+        "GET /v1/device/screen": .clock,
+        "POST /v1/device/reboot": .clock,
+        "POST /v1/device/notify/dismiss": .clock,
+        "POST /v1/device/app/next": .clock,
+        "POST /v1/device/app/previous": .clock,
+        "GET /v1/device/discover": .clock,
+        "PUT /v1/device/buttons": .clockLong,
+        "GET /v1/device/buttons": .clock,
         // The clock URL lives on the server; setting it never calls the clock.
-        "GET /v1/device/config": RequestBudget.server.requestTimeout,
-        "PUT /v1/device/config": RequestBudget.server.requestTimeout,
+        "GET /v1/device/config": .server,
+        "PUT /v1/device/config": .server,
     ]
-    for (call, timeout) in expected {
-        #expect(log[call] == timeout, "\(call)")
+    for (call, budget) in expected {
+        #expect(log[call] == "\(budget)", "\(call)")
     }
 }
 
-@Test func plainServerCallsKeepTheServerBudget() async throws {
-    let log = RequestLog()
-    let client = stubbedClient { req in
-        log.add(req)
-        return (okResponse(req.url!), Data("{\"sessions\":[]}".utf8))
-    }
+@Test func plainServerCallsKeepTheServerSession() async throws {
+    let (client, log) = budgetRecordingClient { _ in #"{"sessions":[]}"# }
     let _: Snapshot = try await client.get("/state")
     try await client.send("GET", "/healthz")
-    #expect(log["GET /state"] == RequestBudget.server.requestTimeout)
-    #expect(log["GET /healthz"] == RequestBudget.server.requestTimeout)
+    #expect(log["GET /state"] == "server")
+    #expect(log["GET /healthz"] == "server")
 }
 
-@Test func reminderFireGetsTheLongClockBudget() async throws {
-    let log = RequestLog()
-    let client = stubbedClient { req in
-        log.add(req)
-        return (okResponse(req.url!), Data())
-    }
+@Test func reminderFireRunsOnTheLongClockSession() async throws {
+    let (client, log) = budgetRecordingClient { _ in "" }
     try await client.postIdempotent("/v1/reminders/fire", body: ["x": 1], key: "k")
-    #expect(log["POST /v1/reminders/fire"] == RequestBudget.clockLong.requestTimeout)
+    #expect(log["POST /v1/reminders/fire"] == "clockLong")
 }
 
 // MARK: Timeouts
@@ -163,6 +178,24 @@ private func recordingDevice() -> (DeviceService, RequestLog) {
     let client = stubbedClient { _ in throw URLError(.timedOut) }
     await #expect(throws: APIError.timedOut) {
         try await client.postIdempotent("/v1/reminders/fire", body: ["x": 1], key: "k")
+    }
+}
+
+// Past the server's WriteTimeout the handler keeps running but the server
+// drops the connection: under .clockLong that is a slow server, not a gone one.
+@Test func droppedConnectionIsATimeoutOnlyForTheLongClockBudget() {
+    let lost = URLError(.networkConnectionLost)
+    #expect(APIClient.classify(lost, budget: .clockLong, host: "192.168.0.2", pathStatus: .satisfied) == .timedOut)
+    for budget in [RequestBudget.server, .clock] {
+        let e = APIClient.classify(lost, budget: budget, host: "192.168.0.2", pathStatus: .satisfied)
+        guard case .transport = e else { Issue.record("\(budget): got \(e)"); continue }
+    }
+}
+
+@Test func droppedLongClockRequestReadsNotResponding() async {
+    let client = stubbedClient { _ in throw URLError(.networkConnectionLost) }
+    await #expect(throws: APIError.timedOut) {
+        try await client.put("/v1/device/sensors", body: ["temp_offset": 0], budget: .clockLong)
     }
 }
 
@@ -188,7 +221,7 @@ private func recordingDevice() -> (DeviceService, RequestLog) {
     #expect(String(localized: header.title).hasPrefix("Offline — server not responding since"))
     let subtitle = ConnectionHealth.offline(since: since).subtitle(serverHost: "h", offlineReason: .timedOut,
                                                                    locale: en, timeZone: utc)
-    #expect(String(localized: subtitle).hasPrefix("Not responding since"))
+    #expect(String(localized: subtitle).hasPrefix("Offline: not responding since"))
     let plain = MenuRows.header(connection: .offline(since: since), hasEverLoaded: true, winning: nil,
                                 offlineReason: .offline, locale: en, timeZone: utc)
     #expect(String(localized: plain.title).hasPrefix("Offline — server unreachable since"))
@@ -211,11 +244,12 @@ private func recordingDevice() -> (DeviceService, RequestLog) {
 }
 
 // The classifier asks about a refusal before it looks at the code, so a
-// refusal wins even over a timeout.
-@Test func classifierPutsTheRefusalFirst() {
+// refusal wins over a timeout and over a dropped long-clock connection.
+@Test(arguments: RequestBudget.allCases)
+func classifierPutsTheRefusalFirst(budget: RequestBudget) {
     let noAuth = NWError.dns(LocalNetworkDenial.dnsNoAuth)
-    #expect(APIClient.classify(noAuth, host: "192.168.0.2", pathStatus: .satisfied) == .localNetworkDenied)
-    #expect(APIClient.classify(URLError(.timedOut), host: "192.168.0.2", pathStatus: .satisfied) == .timedOut)
-    let lost = APIClient.classify(URLError(.networkConnectionLost), host: "192.168.0.2", pathStatus: .satisfied)
-    guard case .transport = lost else { Issue.record("got \(lost)"); return }
+    #expect(APIClient.classify(noAuth, budget: budget, host: "192.168.0.2", pathStatus: .satisfied)
+        == .localNetworkDenied)
+    #expect(APIClient.classify(URLError(.timedOut), budget: budget, host: "192.168.0.2", pathStatus: .satisfied)
+        == .timedOut)
 }

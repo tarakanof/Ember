@@ -36,8 +36,8 @@ extension ConnectionHealth {
             var style = Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)
             style.timeZone = timeZone
             return LocalizedStringResource(
-                "Not responding since \(since.formatted(style))",
-                comment: "Dashboard window subtitle: the server stopped answering in time; the time it began.")
+                "Offline: not responding since \(since.formatted(style))",
+                comment: "Dashboard window subtitle: the server stopped answering in time; the time it began (matches \"Offline since %@\").")
         case .offline(let since):
             var style = Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)
             style.timeZone = timeZone

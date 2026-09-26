@@ -56,9 +56,3 @@ import Foundation
     }
 }
 
-// The server holds the fire request while it pushes to the clock (up to 10s);
-// the default 5s/10s session would time out and misreport a delivered popup.
-@Test func fireBudgetOutlastsTheServersClockPush() {
-    #expect(RequestBudget.clockLong.requestTimeout > 10)
-    #expect(RequestBudget.clockLong.resourceTimeout > 10)
-}

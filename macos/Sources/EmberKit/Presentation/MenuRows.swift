@@ -37,7 +37,7 @@ public enum MenuRows {
         case .offline(let since) where offlineReason == .timedOut && hasEverLoaded:
             return Header(title: LocalizedStringResource(
                 "Offline — server not responding since \(time(since, locale: locale, timeZone: timeZone))",
-                comment: "Menu header: the server stopped answering in time; the time it began."),
+                comment: "Menu header: the server stopped answering in time; the time it began (matches \"Offline — server unreachable since %@\")."),
                           detail: nil)
         case .offline(let since):
             guard hasEverLoaded else { return Header(title: "Offline", detail: nil) }

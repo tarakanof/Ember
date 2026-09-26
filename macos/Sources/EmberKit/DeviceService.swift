@@ -14,8 +14,10 @@ public struct DeviceService: Sendable, Equatable {
         a.client.baseURL == b.client.baseURL && a.client.token == b.client.token
     }
 
+    /// `.clockLong`: the server reads the Pomodoro takeover snapshot first,
+    /// whose lock a restore holds across its own clock writes.
     public func settings() async throws -> DeviceSettings {
-        try await client.get("/v1/device/settings", budget: .clock)
+        try await client.get("/v1/device/settings", budget: .clockLong)
     }
     public func update(_ patch: DeviceSettings) async throws {
         try await client.put("/v1/device/settings", body: patch, budget: .clockLong)

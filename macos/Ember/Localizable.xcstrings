@@ -704,10 +704,6 @@
     "Not responding" : {
       "comment" : "Connection status: the server didn't answer in time."
     },
-    "Not responding since %@" : {
-      "comment" : "Dashboard window subtitle: the server stopped answering in time; the time it began.",
-      "extractionState" : "manual"
-    },
     "Not running" : {},
     "Not set" : {},
     "Not set up" : {
@@ -741,7 +737,7 @@
       "extractionState" : "manual"
     },
     "Offline — server not responding since %@" : {
-      "comment" : "Menu header: the server stopped answering in time; the time it began.",
+      "comment" : "Menu header: the server stopped answering in time; the time it began (matches \"Offline — server unreachable since %@\").",
       "extractionState" : "manual"
     },
     "Offline — server unreachable since %@" : {
@@ -750,6 +746,10 @@
     },
     "Offline: Local Network access is off" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Offline: not responding since %@" : {
+      "comment" : "Dashboard window subtitle: the server stopped answering in time; the time it began (matches \"Offline since %@\").",
       "extractionState" : "manual"
     },
     "On" : {},
@@ -1014,8 +1014,8 @@
       "comment" : "Error: a request reached the server but no reply came before the app stopped waiting.",
       "extractionState" : "manual"
     },
-    "The server didn't answer in time. It may be busy with the clock, or down. Try again in a moment." : {
-      "comment" : "Dashboard: explains a server that didn't answer in time."
+    "The server didn't answer in time. It may be down or overloaded." : {
+      "comment" : "Explains a server that didn't answer in time."
     },
     "The server fetches conditions from a free provider that needs no key." : {},
     "The server is rate-limiting this Mac." : {
