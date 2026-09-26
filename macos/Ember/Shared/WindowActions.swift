@@ -26,7 +26,13 @@ enum WindowID {
 ///    since macOS 14 but still honoured, and the user did ask for the window.
 @MainActor
 func presentWindow(id: String, using openWindow: OpenWindowAction) {
-    if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
+    if NSApp.activationPolicy() != .regular {
+        NSApp.setActivationPolicy(.regular)
+        // Promotion drops the runtime Dock icon for the bundle's static one;
+        // AppDelegate.syncPolicy re-applies it only when it promotes, and
+        // here it finds the app already regular.
+        AppEnvironment.applyAppIcon(AppEnvironment.loadPrefs().appIcon)
+    }
     openWindow(id: id)
     raise(id: id, attempts: 10)
 }
