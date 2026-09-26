@@ -460,3 +460,86 @@ func TestParseAPIError(t *testing.T) {
 		t.Fatalf("raw = %+v", raw)
 	}
 }
+
+func TestSetDisplayPower(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+		if err := c.SetDisplayPower(context.Background(), on); err != nil {
+			t.Fatalf("SetDisplayPower(%v): %v", on, err)
+		}
+		if rec.method != http.MethodPatch || rec.path != "/api/v1/display" {
+			t.Fatalf("got %s %s", rec.method, rec.path)
+		}
+		// Only power: an overlay key in the same PATCH would clear the
+		// ambient weather overlay.
+		if m := decodeBody(t, rec); m["power"] != on || len(m) != 1 {
+			t.Fatalf("body = %v", m)
+		}
+	}
+}
+
+func TestPlayMelody(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.PlayMelody(context.Background(), "doorbell"); err != nil {
+		t.Fatalf("PlayMelody: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	// "melody" never falls back to an MP3 of the same name, unlike "sound".
+	if m := decodeBody(t, rec); m["melody"] != "doorbell" || len(m) != 1 {
+		t.Fatalf("body = %v", m)
+	}
+}
+
+func TestStopAudio(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
+	if err := c.StopAudio(context.Background()); err != nil {
+		t.Fatalf("StopAudio: %v", err)
+	}
+	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/stop" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if len(rec.body) != 0 {
+		t.Fatalf("body = %q, want none (no body stops everything)", rec.body)
+	}
+}
+
+func TestMelodies(t *testing.T) {
+	c, rec := serve(t, http.StatusOK, `{"melodies":[
+		{"name":"doorbell","rtttl":"doorbell:d=4,o=5,b=100:e,c","bytes":26,"notes":2,"durationMs":2400,"valid":true},
+		{"name":"broken","rtttl":"broken:x","bytes":8,"notes":0,"durationMs":0,"valid":false,"error":"bad note","index":7}],
+		"usedBytes":41216,"totalBytes":1048576}`)
+	got, err := c.Melodies(context.Background())
+	if err != nil {
+		t.Fatalf("Melodies: %v", err)
+	}
+	if rec.method != http.MethodGet || rec.path != "/api/v1/audio/melodies" {
+		t.Fatalf("got %s %s", rec.method, rec.path)
+	}
+	if len(got.Melodies) != 2 || got.UsedBytes != 41216 || got.TotalBytes != 1048576 {
+		t.Fatalf("list = %+v", got)
+	}
+	d := got.Melodies[0]
+	if d.Name != "doorbell" || d.RTTTL != "doorbell:d=4,o=5,b=100:e,c" || d.Bytes != 26 ||
+		d.Notes != 2 || d.DurationMs != 2400 || !d.Valid || d.Error != "" || d.Index != nil {
+		t.Fatalf("doorbell = %+v", d)
+	}
+	b := got.Melodies[1]
+	if b.Valid || b.Error != "bad note" || b.Index == nil || *b.Index != 7 {
+		t.Fatalf("broken = %+v", b)
+	}
+}
+
+// An empty flash lists no melodies; the menu must see [] rather than null.
+func TestMelodiesEmptyListIsNotNull(t *testing.T) {
+	c, _ := serve(t, http.StatusOK, `{"melodies":[],"usedBytes":1,"totalBytes":2}`)
+	got, err := c.Melodies(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	if !strings.Contains(string(b), `"melodies":[]`) {
+		t.Fatalf("marshal = %s", b)
+	}
+}
