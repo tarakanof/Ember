@@ -159,7 +159,9 @@ private final class FakeSources: PermissionSources {
 }
 
 // The pane's .task and didBecomeActive both refresh when Settings opens: the
-// second joins the running check instead of probing again.
+// second joins the running check instead of probing again. An explicit call
+// (Check Again, after Repair) runs a fresh check once it's done, since the
+// running one may predate the fix.
 @MainActor
 @Test func overlappingRefreshesShareOneCheck() async {
     let fake = FakeSources()
@@ -171,12 +173,14 @@ private final class FakeSources: PermissionSources {
     let second = Task { await model.refresh(ifOlderThan: PermissionsModel.activationInterval) }
     let explicit = Task { await model.refresh() }
     for _ in 0..<20 { await Task.yield() }
+    fake.network = .granted
     fake.gate?.resume()
     await first.value
     await second.value
+    #expect(fake.networkCalls <= 2)
     await explicit.value
-    #expect(fake.networkCalls == 1)
-    #expect(model.row(.localNetwork)?.status == .denied)
+    #expect(fake.networkCalls == 2)
+    #expect(model.row(.localNetwork)?.status == .granted)
     #expect(!model.isChecking)
 }
 

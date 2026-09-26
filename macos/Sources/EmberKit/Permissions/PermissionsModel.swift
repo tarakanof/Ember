@@ -143,14 +143,20 @@ public final class PermissionsModel {
 
     public func row(_ id: PermissionID) -> PermissionRow? { rows.first { $0.id == id } }
 
-    /// Re-reads everything, or waits for the check already running. With
-    /// `minInterval` (the pane appearing, the app becoming active), it also
-    /// skips when the last check started less than that long ago; the user's
-    /// Check Again passes nil.
+    /// Re-reads everything. With `minInterval` (the pane appearing, the app
+    /// becoming active) it joins a check already running, and skips when the
+    /// last one started less than that long ago. Without it (Check Again, or
+    /// after Repair or Allow Access) it waits out a running check, which may
+    /// predate the change, then runs a fresh one, or joins a newer one
+    /// another caller started meanwhile.
     public func refresh(ifOlderThan minInterval: TimeInterval? = nil) async {
-        if let inFlight {
-            await inFlight.value
-            return
+        if let running = inFlight {
+            await running.value
+            guard minInterval == nil else { return }
+            if let next = inFlight {
+                await next.value
+                return
+            }
         }
         if let minInterval, let startedAt, now().timeIntervalSince(startedAt) < minInterval { return }
         startedAt = now()
