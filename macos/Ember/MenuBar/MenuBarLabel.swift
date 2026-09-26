@@ -34,13 +34,7 @@ struct MenuBarLabel: View {
     var body: some View {
         icon
             .accessibilityLabel(Text("Ember"))
-            .task(id: accessibilityValue) {
-                // The status bar window may not exist yet on the first pass.
-                for _ in 0..<20 {
-                    if StatusItemAccessibility.setValue(accessibilityValue) || Task.isCancelled { return }
-                    try? await Task.sleep(for: .milliseconds(250))
-                }
-            }
+            .task(id: accessibilityValue) { await StatusItemAccessibility.setValueWhenReady(accessibilityValue) }
     }
 
     private var accessibilityValue: String {
