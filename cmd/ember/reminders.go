@@ -57,8 +57,7 @@ type reminderFireRequest struct {
 // list or schedule anymore.
 func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
 	var req reminderFireRequest
-	if err := decodeJSON(w, r, &req, true); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
 	text := strings.TrimSpace(req.Text)

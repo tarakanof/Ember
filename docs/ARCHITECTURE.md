@@ -781,7 +781,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
 - **Strict vs forward-compat decode:** `handleStatus` (`POST /v1/status`) decodes
   **non-strict** (unknown fields ignored) so newer producers can post fields an
   older server doesn't know. `handleDeleteStatus` + `handleNotify` stay **strict**
-  (reject unknown fields / trailing tokens, 413 via `http.MaxBytesReader`).
+  (reject unknown fields / trailing tokens). Every JSON handler decodes through
+  `decodeOrReject` (`server.go`): a body past the 1 MB cap answers **413**, any
+  other decode failure 400, both with a `request rejected` log line.
 - **Auth:** bearer token on write endpoints, via `EMBER_TOKEN` env only —
   never argv/URL/logs. `slog.LogValuer` redaction throughout. **Fails closed:**
   an unset `EMBER_TOKEN` rejects every `/v1` write with 401 (same policy as the

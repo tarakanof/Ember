@@ -147,20 +147,7 @@ func isHexColor(s string) bool {
 
 func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	var req StatusRequest
-	if err := decodeJSON(w, r, &req, false); err != nil {
-		var maxBytes *http.MaxBytesError
-		reason := "parse"
-		status := http.StatusBadRequest
-		if errors.As(err, &maxBytes) {
-			reason = "too_large"
-			status = http.StatusRequestEntityTooLarge
-		}
-		a.logger.InfoContext(r.Context(), "request rejected",
-			"remote_addr", r.RemoteAddr,
-			"path", r.URL.Path,
-			"reason", reason,
-		)
-		writeError(w, status, err)
+	if !a.decodeOrReject(w, r, &req, false) {
 		return
 	}
 	if err := req.validate(); err != nil {
@@ -236,20 +223,7 @@ func (r DeleteRequest) key() string {
 
 func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 	var req DeleteRequest
-	if err := decodeJSON(w, r, &req, true); err != nil {
-		var maxBytes *http.MaxBytesError
-		reason := "parse"
-		status := http.StatusBadRequest
-		if errors.As(err, &maxBytes) {
-			reason = "too_large"
-			status = http.StatusRequestEntityTooLarge
-		}
-		a.logger.InfoContext(r.Context(), "request rejected",
-			"remote_addr", r.RemoteAddr,
-			"path", r.URL.Path,
-			"reason", reason,
-		)
-		writeError(w, status, err)
+	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
 	if err := req.validate(); err != nil {
@@ -269,20 +243,7 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	var req NotifyRequest
-	if err := decodeJSON(w, r, &req, true); err != nil {
-		var maxBytes *http.MaxBytesError
-		reason := "parse"
-		status := http.StatusBadRequest
-		if errors.As(err, &maxBytes) {
-			reason = "too_large"
-			status = http.StatusRequestEntityTooLarge
-		}
-		a.logger.InfoContext(r.Context(), "request rejected",
-			"remote_addr", r.RemoteAddr,
-			"path", r.URL.Path,
-			"reason", reason,
-		)
-		writeError(w, status, err)
+	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
 	if req.Text == "" {

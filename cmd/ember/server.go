@@ -127,6 +127,47 @@ func (a *App) routes() http.Handler {
 	return loggingMiddleware(a.logger, observeRequests(a, mux))
 }
 
+// decodeOrReject decodes r's JSON body into dst (see decodeJSON) and, when
+// that fails, answers the request itself via rejectBody. It reports whether
+// the handler should go on.
+func (a *App) decodeOrReject(w http.ResponseWriter, r *http.Request, dst any, strict bool) bool {
+	if err := decodeJSON(w, r, dst, strict); err != nil {
+		a.rejectBody(w, r, err)
+		return false
+	}
+	return true
+}
+
+// decodeOptionalOrReject is decodeOrReject for endpoints whose body is
+// optional: an empty body leaves dst untouched and succeeds.
+func (a *App) decodeOptionalOrReject(w http.ResponseWriter, r *http.Request, dst any, strict bool) bool {
+	if err := decodeJSON(w, r, dst, strict); err != nil && !errors.Is(err, io.EOF) {
+		a.rejectBody(w, r, err)
+		return false
+	}
+	return true
+}
+
+// rejectBody answers a request whose body could not be read or decoded: 413
+// when it ran past the http.MaxBytesReader cap, 400 otherwise, with one
+// "request rejected" line so the reason survives beyond the access log.
+func (a *App) rejectBody(w http.ResponseWriter, r *http.Request, err error) {
+	reason, status := "parse", http.StatusBadRequest
+	var maxBytes *http.MaxBytesError
+	if errors.As(err, &maxBytes) {
+		reason, status = "too_large", http.StatusRequestEntityTooLarge
+	}
+	a.logger.InfoContext(r.Context(), "request rejected",
+		"remote_addr", r.RemoteAddr,
+		"path", r.URL.Path,
+		"reason", reason,
+	)
+	writeError(w, status, err)
+}
+
+// decodeJSON reads one JSON value from r's body, capped at 1 MB, and rejects
+// trailing data. strict also rejects unknown fields. Handlers normally go
+// through decodeOrReject, which maps the error to a response.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any, strict bool) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	dec := json.NewDecoder(r.Body)

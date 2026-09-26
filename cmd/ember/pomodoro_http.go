@@ -241,7 +241,7 @@ func (a *App) handlePomodoroStart(w http.ResponseWriter, r *http.Request) {
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, err)
+		a.rejectBody(w, r, err)
 		return
 	}
 	phase := pomodoro.PhaseFocus
@@ -320,8 +320,7 @@ func (a *App) handlePomodoroConfigGet(w http.ResponseWriter, r *http.Request) {
 func (a *App) handlePomodoroConfigPut(w http.ResponseWriter, r *http.Request) {
 	// No enabled-gate: this is how the app turns the feature on.
 	var dto pomodoroSettingsDTO
-	if err := decodeJSON(w, r, &dto, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &dto, false) {
 		return
 	}
 	if err := a.applyPomodoroSettings(dto); err != nil {

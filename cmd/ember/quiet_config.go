@@ -156,8 +156,7 @@ func (a *App) handleQuietConfigGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleQuietConfigPut(w http.ResponseWriter, r *http.Request) {
 	dto := a.quietDTO() // pre-seed so a partial body only changes named fields
-	if err := decodeJSON(w, r, &dto, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &dto, false) {
 		return
 	}
 	if err := dto.validate(); err != nil {

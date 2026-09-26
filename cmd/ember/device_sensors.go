@@ -86,8 +86,7 @@ func (a *App) handleDeviceSensorsGet(w http.ResponseWriter, r *http.Request) {
 // dev.json-backed endpoint keep working.
 func (a *App) handleDeviceSensorsPut(w http.ResponseWriter, r *http.Request) {
 	var patch map[string]any
-	if err := decodeJSON(w, r, &patch, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &patch, false) {
 		return
 	}
 	if len(patch) == 0 {

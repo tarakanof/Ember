@@ -101,8 +101,7 @@ func (a *App) handleDeviceButtonsPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := decodeJSON(w, r, &body, true); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &body, true) {
 		return
 	}
 	sys, err := a.readSystem(r.Context())

@@ -67,8 +67,7 @@ func (a *App) handleDeviceDisplayGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
 	var m map[string]any
-	if err := decodeJSON(w, r, &m, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &m, false) {
 		return
 	}
 	if err := validateDeviceDisplay(m); err != nil {
@@ -114,8 +113,7 @@ func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 	var body deviceAppsPutBody
-	if err := decodeJSON(w, r, &body, true); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &body, true) {
 		return
 	}
 	payload, _ := json.Marshal(body)

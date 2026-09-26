@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +138,57 @@ func TestDecodeJSON_RejectsTrailingValue(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("trailing value: code = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestOversizedJSONBodyIs413 pins the shared decode contract on every JSON
+// write endpoint: a body past the cap answers 413, not a generic 400. The
+// body opens as valid JSON so the decoder reads up to the cap instead of
+// stopping at the first bad byte.
+func TestOversizedJSONBodyIs413(t *testing.T) {
+	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	t.Cleanup(clock.Close)
+	app := newPomodoroApp(t)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
+	srv := httptest.NewServer(app.routes())
+	t.Cleanup(srv.Close)
+
+	big := `{"x":"` + strings.Repeat("a", 1<<20) + `"}`
+	endpoints := []struct{ method, path string }{
+		{"POST", "/v1/status"},
+		{"DELETE", "/v1/status"},
+		{"POST", "/v1/notify"},
+		{"POST", "/v1/usage"},
+		{"PUT", "/v1/usage/config"},
+		{"PUT", "/v1/apps"},
+		{"PUT", "/v1/display/config"},
+		{"PUT", "/v1/quiet/config"},
+		{"PUT", "/v1/weather/config"},
+		{"PUT", "/v1/meetings/config"},
+		{"PUT", "/v1/pomodoro/config"},
+		{"POST", "/v1/pomodoro/start"},
+		{"POST", "/v1/reminders/fire"},
+		{"PUT", "/v1/device/config"},
+		{"PUT", "/v1/device/settings"},
+		{"PUT", "/v1/device/display"},
+		{"PUT", "/v1/device/display/power"},
+		{"POST", "/v1/device/audio/test"},
+		{"PUT", "/v1/device/apps"},
+		{"PUT", "/v1/device/sensors"},
+		{"PUT", "/v1/device/buttons"},
+	}
+	for _, ep := range endpoints {
+		t.Run(ep.method+" "+ep.path, func(t *testing.T) {
+			resp, err := srv.Client().Do(authedRequest(t, ep.method, srv.URL+ep.path, big))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusRequestEntityTooLarge {
+				t.Fatalf("code = %d, want 413", resp.StatusCode)
+			}
+		})
 	}
 }

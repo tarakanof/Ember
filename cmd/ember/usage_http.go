@@ -47,20 +47,7 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		SevenDay *UsageWindow            `json:"seven_day"`
 		Models   map[string]*UsageWindow `json:"models"`
 	}
-	if err := decodeJSON(w, r, &req, true); err != nil {
-		var maxBytes *http.MaxBytesError
-		reason := "parse"
-		status := http.StatusBadRequest
-		if errors.As(err, &maxBytes) {
-			reason = "too_large"
-			status = http.StatusRequestEntityTooLarge
-		}
-		a.logger.InfoContext(r.Context(), "request rejected",
-			"remote_addr", r.RemoteAddr,
-			"path", r.URL.Path,
-			"reason", reason,
-		)
-		writeError(w, status, err)
+	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
 	if !toolNameRe.MatchString(req.Tool) {

@@ -329,8 +329,7 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceSettingsPut(w http.ResponseWriter, r *http.Request) {
 	var m map[string]any
-	if err := decodeJSON(w, r, &m, false); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	if !a.decodeOrReject(w, r, &m, false) {
 		return
 	}
 	if err := validateDeviceSettings(m); err != nil {
