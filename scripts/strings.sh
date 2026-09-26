@@ -32,6 +32,10 @@ if [ -z "$DD" ]; then
   xcodebuild -project "$REPO/macos/Ember.xcodeproj" -scheme Ember -configuration Debug \
     -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO build >"$WORK/build.log" 2>&1 \
     || { tail -40 "$WORK/build.log" >&2; exit 1; }
+  # Don't leave this throwaway app registered: a stray com.ember.Ember copy can
+  # shadow the installed one in Local Network checks (see lsregister-clean.sh).
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -u "$DD/Build/Products/Debug/Ember.app" 2>/dev/null || true
 fi
 APP_DATA="$(find "$DD/Build/Intermediates.noindex" -path '*/Ember.build/*' -name '*.stringsdata' 2>/dev/null | sort)"
 [ -n "$APP_DATA" ] || { echo "strings.sh: no Ember .stringsdata under $DD (was it an Xcode build of the app?)" >&2; exit 1; }

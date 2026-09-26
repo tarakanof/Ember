@@ -174,7 +174,7 @@ registers another Ember.app, and a stale copy can shadow the installed one:
 connections log `unsatisfied (Local network prohibited)` and a browse fails
 with `NoAuth(-65555)` (mDNSResponder logs `App Info.plist(NSBonjourServices)
 does not allow …`). `build-local.sh` stamps a unique `CFBundleVersion` per
-build (`EMBER_BUILD_NUMBER` overrides it) and unregisters its own output;
+build (`2.<timestamp>`, below the next release's number) (`EMBER_BUILD_NUMBER` overrides it) and unregisters its own output;
 `scripts/lsregister-clean.sh` (`--dry-run` to list) unregisters every other
 copy and re-registers /Applications/Ember.app. If a browse is still refused,
 `sudo killall mDNSResponder` drops its cached decision. Read the logs with

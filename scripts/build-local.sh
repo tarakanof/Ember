@@ -14,8 +14,8 @@ set -euo pipefail
 # app stays ad-hoc and macOS asks for Local Network access again after every
 # rebuild.
 #
-# Each build gets a unique CFBundleVersion (EMBER_BUILD_NUMBER, default a
-# yyyymmddHHMM stamp): with a fixed build number macOS keeps serving cached
+# Each build gets a unique CFBundleVersion (EMBER_BUILD_NUMBER, default
+# 2.<yyyymmddHHMMSS>, kept below the next release's integer build number): with a fixed build number macOS keeps serving cached
 # bundle info, e.g. an Info.plist whose NSBonjourServices predates a new
 # service type, so its browse fails with NoAuth (-65555).
 #
@@ -33,7 +33,7 @@ xcodebuild -project "$REPO/macos/Ember.xcodeproj" -scheme Ember -configuration R
   -derivedDataPath "$DD" -quiet \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
   CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
-  CURRENT_PROJECT_VERSION="${EMBER_BUILD_NUMBER:-$(date +%Y%m%d%H%M)}" build
+  CURRENT_PROJECT_VERSION="${EMBER_BUILD_NUMBER:-2.$(date +%Y%m%d%H%M%S)}" build
 APP="$DD/Build/Products/Release/Ember.app"
 
 rc=0

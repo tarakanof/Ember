@@ -21,7 +21,7 @@ DRY=0
 list=$(mktemp)
 trap 'rm -f "$list"' EXIT
 "$LSREGISTER" -dump 2>/dev/null |
-  awk '/^path:/{p=$0} /^identifier:.*com\.ember\./{print p}' |
+  awk '/^path:/{p=$0} /^identifier: *com\.ember\.[A-Za-z0-9.-]+$/{print p}' |
   sed -E 's/^path: *//; s/ \(0x[0-9a-f]+\)$//' | sort -u |
   grep -vx "$INSTALLED" > "$list" || true
 
@@ -40,6 +40,11 @@ if [[ $DRY -eq 1 ]]; then
   echo "$n stale registration(s)"
   exit 0
 fi
-[[ -d "$INSTALLED" ]] && "$LSREGISTER" -f -R "$INSTALLED"
-echo "unregistered $n stale copy(ies); re-registered $INSTALLED"
+echo "tried to unregister $n stale copy(ies)"
+if [[ -d "$INSTALLED" ]]; then
+  "$LSREGISTER" -f -R "$INSTALLED"
+  echo "re-registered $INSTALLED"
+else
+  echo "no $INSTALLED to re-register"
+fi
 echo "if a browse still fails with NoAuth, restart mDNSResponder: sudo killall mDNSResponder"
