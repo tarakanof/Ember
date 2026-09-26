@@ -372,7 +372,7 @@ three rotating tiles with the same change-and-staleness dedupe as the usage card
   temperature bars** (no icon/temp — those live on the conditions tile, so the
   two tiles read differently at a glance); the bars sit on the same hour grid as
   the strips (cols 8–31, `24/N` columns each), so hour *i* lines up across the
-  tiles and bar widths never alternate (`forecast_hours`, 6..24; bar height +
+  tiles and bar widths never alternate (`forecast_hours`, 1..24; bar height +
   colour = temperature). The bars stay a drawn bitmap rather than NG's native
   `barChart` (#109): `barChart` takes at most 16 values (24 h won't fit),
   spreads them over the chart area right of the icon column (col 9, or col 0

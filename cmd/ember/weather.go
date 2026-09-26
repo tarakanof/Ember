@@ -39,7 +39,7 @@ type WeatherConfig struct {
 	RefreshMinutes       int     `json:"refresh_minutes"`        // poll cadence
 	RotateInApps         *bool   `json:"rotate_in_apps"`         // show the rotating tile
 	ForecastTile         *bool   `json:"forecast_tile"`          // show the separate hourly-forecast bar tile
-	ForecastHours        int     `json:"forecast_hours"`         // hours shown in the strip/tile (6..24)
+	ForecastHours        int     `json:"forecast_hours"`         // hours shown in the strip/tile (1..24)
 	SunPopups            *bool   `json:"sun_popups"`             // popup at sunrise/sunset
 	MoonPhase            *bool   `json:"moon_phase"`             // show the moon phase on clear nights
 	PopupIntervalMinutes *int    `json:"popup_interval_minutes"` // 0 = no interval popups
@@ -187,11 +187,8 @@ func (c *WeatherConfig) applyDefaults() {
 	if *c.PopupIntervalMinutes < 0 {
 		c.PopupIntervalMinutes = intPtr(0)
 	}
-	if c.ForecastHours <= 0 {
-		c.ForecastHours = 24
-	} else if c.ForecastHours < 6 {
-		c.ForecastHours = 6
-	} else if c.ForecastHours > 24 {
+	// 1..24, the range forecastWindow draws; absent/0 means the full day.
+	if c.ForecastHours <= 0 || c.ForecastHours > 24 {
 		c.ForecastHours = 24
 	}
 	if c.AirPopupThreshold < 0 {
@@ -234,6 +231,11 @@ func validateWeather(c WeatherConfig) error {
 	}
 	if c.AirPopupThreshold < 0 || c.AirPopupThreshold > 200 {
 		return errors.New("weather.air_popup_threshold must be 0..200")
+	}
+	// 0 is "unset" (the full day, filled in by applyDefaults / the settings
+	// apply); otherwise the 1..24 hours forecastWindow draws.
+	if c.ForecastHours < 0 || c.ForecastHours > 24 {
+		return errors.New("weather.forecast_hours must be 1..24")
 	}
 	// Sort keys so a config with multiple invalid entries always names the
 	// same (lowest) offending key, keeping the 400 message deterministic.
@@ -890,6 +892,9 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 		view: func(c Config) WeatherConfig { return c.Weather },
 		apply: func(c *Config, w WeatherConfig) error {
 			w.fillAbsent()
+			if w.ForecastHours == 0 {
+				w.ForecastHours = 24 // unset means the full day, as at file load
+			}
 			if err := validateWeather(w); err != nil {
 				return err
 			}

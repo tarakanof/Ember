@@ -98,6 +98,23 @@ func TestSettingsPutRejectsNonObjectBody(t *testing.T) {
 	}
 }
 
+// forecast_hours takes the full 1..24 the clock draws (no silent raise to 6);
+// out of range is a 400.
+func TestWeatherForecastHoursRange(t *testing.T) {
+	a := newTestAppWithStore(t)
+	base := `{"provider":"open-meteo","units":"metric","refresh_minutes":10,"popup_duration_seconds":30,"forecast_hours":`
+	for body, want := range map[string]int{base + `3}`: 200, base + `24}`: 200, base + `25}`: 400, base + `-1}`: 400} {
+		w := httptest.NewRecorder()
+		a.handleWeatherConfigPut(w, httptest.NewRequest("PUT", "/v1/weather/config", strings.NewReader(body)))
+		if w.Code != want {
+			t.Errorf("PUT %s = %d, want %d", body, w.Code, want)
+		}
+	}
+	if _, err := a.settings.weather.put([]byte(`{"forecast_hours":3}`)); err != nil || a.cfg.Load().Weather.ForecastHours != 3 {
+		t.Fatalf("forecast_hours 3 not kept: %v, %d", err, a.cfg.Load().Weather.ForecastHours)
+	}
+}
+
 // A value of the wrong type is an undecodable body: 400 plus the same
 // "request rejected" log line as any other body decodeOrReject refuses.
 func TestSettingsPutTypeErrorLogsRejection(t *testing.T) {
