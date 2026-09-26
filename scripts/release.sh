@@ -5,7 +5,9 @@ IFS=$'\n\t'
 # Cut a release: bump the macOS app version, tag, and publish a GitHub Release —
 # which triggers .github/workflows/docker-publish.yml to build + push the server
 # image to Docker Hub. Keeps the app's MARKETING_VERSION and the release tag in
-# lockstep so they can't drift (the only version that isn't already tag-derived).
+# lockstep so they can't drift (the only version that isn't already tag-derived),
+# and bumps CURRENT_PROJECT_VERSION (CFBundleVersion) by one so every release
+# has a new build number.
 #
 # Usage:
 #   scripts/release.sh <X.Y.Z> [release title]
@@ -77,9 +79,13 @@ fi
 
 current="$(sed -n 's/^[[:space:]]*MARKETING_VERSION:[[:space:]]*"\([^"]*\)".*/\1/p' "$PROJECT_YML" | head -1)"
 [ -n "$current" ] || { echo "error: couldn't read MARKETING_VERSION from $PROJECT_YML" >&2; exit 1; }
+build="$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*"\([0-9]*\)".*/\1/p' "$PROJECT_YML" | head -1)"
+[ -n "$build" ] || { echo "error: couldn't read a numeric CURRENT_PROJECT_VERSION from $PROJECT_YML" >&2; exit 1; }
+next_build=$((build + 1))
 
 echo "Release plan:"
 echo "  app version : $current -> $VERSION  ($PROJECT_YML)"
+echo "  app build   : $build -> $next_build"
 echo "  tag         : $TAG  (on $(git rev-parse --short HEAD))"
 echo "  title       : $TITLE"
 echo "  publishes   : GitHub Release -> docker-publish.yml -> Docker Hub (:$VERSION, :latest)"
@@ -93,6 +99,7 @@ fi
 
 # -i.bak is portable across BSD (macOS) and GNU sed; drop the backup after.
 sed -i.bak "s/^\([[:space:]]*MARKETING_VERSION:[[:space:]]*\"\)[^\"]*\(\".*\)/\1$VERSION\2/" "$PROJECT_YML"
+sed -i.bak "s/^\([[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*\"\)[^\"]*\(\".*\)/\1$next_build\2/" "$PROJECT_YML"
 rm -f "$PROJECT_YML.bak"
 
 # Keep the generated Xcode project in sync for local builds (it's gitignored, so
