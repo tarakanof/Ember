@@ -98,7 +98,9 @@ struct WeatherTab: View {
                 Toggle("Show on clock", isOn: $config.rotateInApps)
                 Toggle("Native animated icon", isOn: $config.tileNativeIcons)
                 Toggle("Moon phase on clear nights", isOn: $config.moonPhase)
-                Toggle("Animated rain / snow overlay", isOn: $config.overlay)
+                Toggle("Rain / snow overlay on tile and popups", isOn: $config.overlay)
+                Text("The clock animates the current rain, drizzle, snow, storm or thunder over this panel and over weather popups, only while it is falling. The preview doesn't show it.")
+                    .font(.caption).foregroundStyle(.secondary)
             } header: {
                 Text("Current conditions panel")
             }
