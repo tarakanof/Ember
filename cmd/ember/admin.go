@@ -252,14 +252,9 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.cfgMu.Lock()
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
-		// The file's clock URL only applies when the file changed it. The
-		// running URL may be a menu override or a clock that discovery swapped
-		// in for a dead baseline; putting the file value back would stop
-		// publishing until the next device-watch tick.
-		fileURLChanged := newCfg.AWTRIX.HTTPBaseURL != app.deviceBaseline
-		if !fileURLChanged {
-			newCfg.AWTRIX.HTTPBaseURL = oldCfg.AWTRIX.HTTPBaseURL
-		}
+		// The menu override and a discovery swap are runtime tiers the file
+		// doesn't hold; carryClockURL decides which survive a new baseline.
+		carryClockURL(oldCfg, &newCfg)
 		if err := validateConfig(newCfg); err != nil {
 			app.cfgMu.Unlock()
 			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
@@ -276,22 +271,10 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		app.cfg.Store(&newCfg)
-		if fileURLChanged {
-			// The operator picked this URL, so it is the config baseline now,
-			// not a discovery result.
-			app.deviceBaseline = newCfg.AWTRIX.HTTPBaseURL
-			app.deviceAutoPicked.Store(false)
-		}
 		app.cfgMu.Unlock()
 		// Keep the Pomodoro engine in sync with the reloaded config; the
 		// persisted settings are re-applied below.
 		app.resyncPomodoroAfterReload()
-		// A new file URL must not beat the menu-chosen clock URL (Device tab).
-		// When the file URL is unchanged the running URL was kept above, and
-		// re-applying the override could revert a discovery swap away from it.
-		if fileURLChanged {
-			app.loadPersistedDeviceBaseURL()
-		}
 		app.settings.reapply()
 		// awtrix.boot_ping is a device-provisioning toggle, so a reload that
 		// flipped it has to reach the clock. Off the request path: it does

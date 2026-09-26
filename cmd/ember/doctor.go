@@ -174,7 +174,7 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 }
 
 func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
-	if cfg == nil || cfg.AWTRIX.HTTPBaseURL == "" {
+	if cfg == nil || cfg.effectiveClockURL() == "" {
 		return CheckResult{Status: StatusFail, Detail: "awtrix.http_base_url empty"}
 	}
 	cl, err := newClockAccess(func() *Config { return cfg }).client(callDoctor)
@@ -314,8 +314,7 @@ func checkMeetings(app *App, cfg *Config) CheckResult {
 // only warns — the periodic probe (StartDeviceWatch) is expected to recover
 // it, so doctor must not 503 on a momentary miss.
 func checkClock(ctx context.Context, app *App) CheckResult {
-	baseURL := app.cfg.Load().AWTRIX.HTTPBaseURL
-	source := app.deviceSource()
+	baseURL, source := app.cfg.Load().clockURL()
 
 	probeCtx, cancel := context.WithTimeout(ctx, probeCallTimeout)
 	defer cancel()

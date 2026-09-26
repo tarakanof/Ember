@@ -104,9 +104,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Resolve the clock address before the coordinator publishes: store override
-	// > reachable config.json baseline > mDNS auto-discovery. Bounded so it can't
-	// stall startup for long; a no-op when a reachable URL is already configured.
+	// Resolve the clock address before the coordinator publishes. Effective =
+	// menu override, else config.json baseline; if that fails its probes, an
+	// in-memory mDNS swap replaces it (the pin included) until a PUT naming
+	// base_url or a reload that changes the file URL (see clock_url.go).
+	// Bounded so it can't stall startup; a no-op when the URL answers.
 	app.initDeviceDiscovery(ctx)
 
 	// Every background worker joins workers so shutdown can wait for their

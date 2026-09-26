@@ -295,7 +295,7 @@ type clockDeviceWire struct {
 // probe runs detached from ctx's cancellation: a viewer that disconnects
 // mid-probe must not cache "unreachable" for everyone else.
 func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceOut {
-	base := a.cfg.Load().AWTRIX.HTTPBaseURL
+	base := a.cfg.Load().effectiveClockURL()
 	if base == "" {
 		return nil
 	}

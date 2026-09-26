@@ -29,8 +29,8 @@ func TestRediscoverClock_SwapsWhenCurrentUnreachable(t *testing.T) {
 		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
 	}
 	changed := a.rediscoverClock(context.Background())
-	if !changed || a.cfg.Load().AWTRIX.HTTPBaseURL != clock.URL {
-		t.Fatalf("expected swap to %s, got changed=%v url=%s", clock.URL, changed, a.cfg.Load().AWTRIX.HTTPBaseURL)
+	if !changed || a.cfg.Load().effectiveClockURL() != clock.URL {
+		t.Fatalf("expected swap to %s, got changed=%v url=%s", clock.URL, changed, a.cfg.Load().effectiveClockURL())
 	}
 	if got := a.lastRediscoverResult.Load(); got != "swapped" {
 		t.Fatalf("lastRediscoverResult=%v want swapped", got)
@@ -38,8 +38,8 @@ func TestRediscoverClock_SwapsWhenCurrentUnreachable(t *testing.T) {
 	if a.lastRediscoverAt.Load() == 0 {
 		t.Fatalf("lastRediscoverAt not recorded")
 	}
-	if !a.deviceAutoPicked.Load() {
-		t.Fatalf("expected deviceAutoPicked=true after swap")
+	if a.deviceSource() != clockSourceDiscovered {
+		t.Fatalf("expected source discovered after swap")
 	}
 }
 
@@ -93,9 +93,10 @@ func TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride(t *testing.T) 
 		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
 	}
 
+	a.settings.reapply() // what main does once the store opens
 	a.initDeviceDiscovery(context.Background())
 
-	if got := a.cfg.Load().AWTRIX.HTTPBaseURL; got != clock.URL {
+	if got := a.cfg.Load().effectiveClockURL(); got != clock.URL {
 		t.Fatalf("expected fall-through to discovered clock %s, got %s", clock.URL, got)
 	}
 }
@@ -119,10 +120,11 @@ func TestDeviceSource_StaleStoreOverrideReportsDiscovered(t *testing.T) {
 		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
 	}
 
+	a.settings.reapply() // what main does once the store opens
 	a.initDeviceDiscovery(context.Background())
 
 	if got := a.deviceSource(); got != "discovered" {
-		t.Fatalf("deviceSource()=%q want discovered (effective url=%s)", got, a.cfg.Load().AWTRIX.HTTPBaseURL)
+		t.Fatalf("deviceSource()=%q want discovered (effective url=%s)", got, a.cfg.Load().effectiveClockURL())
 	}
 }
 
@@ -131,7 +133,7 @@ func TestDeviceSource_StaleStoreOverrideReportsDiscovered(t *testing.T) {
 // case — no stale-pin incident), deviceSource must keep reporting "store".
 func TestDeviceSource_MatchingStoreOverrideStillReportsStore(t *testing.T) {
 	a := newTestAppWithStore(t)
-	if err := a.applyDeviceBaseURL("http://10.0.0.5"); err != nil {
+	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
 		t.Fatal(err)
 	}
 	if got := a.deviceSource(); got != "store" {
@@ -180,12 +182,12 @@ func TestStartDeviceWatch_SwapsOnUnreachableCurrent(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if a.cfg.Load().AWTRIX.HTTPBaseURL == clock.URL {
+		if a.cfg.Load().effectiveClockURL() == clock.URL {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if got := a.cfg.Load().AWTRIX.HTTPBaseURL; got != clock.URL {
+	if got := a.cfg.Load().effectiveClockURL(); got != clock.URL {
 		t.Fatalf("expected swap to %s within timeout, got %s", clock.URL, got)
 	}
 

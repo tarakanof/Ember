@@ -19,7 +19,7 @@ import (
 // The endpoint below falls back to a live fetch, so a dark clock at boot is
 // not fatal.
 func (a *App) refreshCapabilities(ctx context.Context) {
-	base := a.cfg.Load().AWTRIX.HTTPBaseURL
+	base := a.cfg.Load().effectiveClockURL()
 	cl, err := a.clock.client(callCapabilities)
 	if errors.Is(err, errClockNotConfigured) {
 		return

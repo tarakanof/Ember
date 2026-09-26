@@ -35,6 +35,12 @@ type settingSpec[D any] struct {
 	// after, if set, runs once a change has landed (outside the config lock):
 	// engine updates, re-render nudges, device provisioning.
 	after func(Config)
+	// encode and decode, if set, replace JSON as the stored form: encode maps
+	// the view to the stored string, decode maps a stored string back to a
+	// merge patch. The clock URL uses them to keep the raw-string format it
+	// was stored in before it joined the overlay.
+	encode func(D) string
+	decode func(string) []byte
 }
 
 // setting is a registered settingSpec bound to its overlay.
@@ -67,6 +73,7 @@ type appSettings struct {
 	usage    *setting[usageConfigDTO]
 	display  *setting[displayConfigDTO]
 	quiet    *setting[quietConfigDTO]
+	clock    *setting[clockConfigDTO]
 }
 
 // newAppSettings wires the overlay to a's live config and settings store and
@@ -91,6 +98,7 @@ func newAppSettings(a *App) appSettings {
 		usage:           register(o, a.usageSettingSpec()),
 		display:         register(o, displaySettingSpec()),
 		quiet:           register(o, quietSettingSpec()),
+		clock:           register(o, clockSettingSpec()),
 	}
 }
 
@@ -116,7 +124,12 @@ var errSettingNotObject = fmt.Errorf("%w: must be a JSON object", errSettingBody
 // swaps the result in, persists it, and runs the after hook. It returns the
 // new effective value, or an error (and changes nothing) when patch is not an
 // object or the merged value is invalid.
-func (s *setting[D]) put(patch []byte) (D, error) {
+func (s *setting[D]) put(patch []byte) (D, error) { return s.putWith(patch, nil) }
+
+// putWith is put plus also, run on the merged config inside the same critical
+// section once apply has accepted it. It carries a client-only side effect
+// that reapply must not repeat (the clock URL's PUT clears a discovery swap).
+func (s *setting[D]) putWith(patch []byte, also func(*Config)) (D, error) {
 	var next Config
 	err := s.o.update(func(cur *Config) error {
 		d, err := mergeSetting(s.spec.view(*cur), patch)
@@ -125,6 +138,9 @@ func (s *setting[D]) put(patch []byte) (D, error) {
 		}
 		if err := s.spec.apply(cur, d); err != nil {
 			return err
+		}
+		if also != nil {
+			also(cur)
 		}
 		// Persist inside the lock so a racing PUT can't overwrite the store
 		// with a value older than the one left live.
@@ -148,12 +164,22 @@ func (s *setting[D]) persist(c Config) {
 	if kv == nil {
 		return
 	}
-	blob, err := json.Marshal(s.spec.view(c))
-	if err != nil {
-		s.o.logger.Warn("settings marshal failed", "key", s.spec.key, "err", err)
-		return
+	var blob string
+	if s.spec.encode != nil {
+		// An empty encoded form means nothing to store (the clock URL with
+		// no override): don't write an empty row.
+		if blob = s.spec.encode(s.spec.view(c)); blob == "" {
+			return
+		}
+	} else {
+		b, err := json.Marshal(s.spec.view(c))
+		if err != nil {
+			s.o.logger.Warn("settings marshal failed", "key", s.spec.key, "err", err)
+			return
+		}
+		blob = string(b)
 	}
-	if err := kv.PutSetting(s.spec.key, string(blob)); err != nil {
+	if err := kv.PutSetting(s.spec.key, blob); err != nil {
 		s.o.logger.Warn("settings persist failed", "key", s.spec.key, "err", err)
 	}
 }
@@ -169,7 +195,11 @@ func (s *setting[D]) reapply() {
 	if err != nil || !ok {
 		return
 	}
-	if _, err := s.put([]byte(blob)); err != nil {
+	patch := []byte(blob)
+	if s.spec.decode != nil {
+		patch = s.spec.decode(blob)
+	}
+	if _, err := s.put(patch); err != nil {
 		s.o.logger.Warn("persisted settings ignored", "key", s.spec.key, "err", err)
 	}
 }
@@ -229,12 +259,22 @@ func serveSettingGet[D any](w http.ResponseWriter, s *setting[D]) {
 // returns the new effective value for the caller to write; otherwise it has
 // already answered (413/400).
 func serveSettingPut[D any](a *App, w http.ResponseWriter, r *http.Request, s *setting[D]) (D, bool) {
+	return serveSettingPutWith(a, w, r, s, nil)
+}
+
+// serveSettingPutWith is serveSettingPut with a client-only side effect:
+// also, given the raw patch, may return a mutation for putWith.
+func serveSettingPutWith[D any](a *App, w http.ResponseWriter, r *http.Request, s *setting[D], also func(patch []byte) func(*Config)) (D, bool) {
 	var patch json.RawMessage
 	if !a.decodeOrReject(w, r, &patch, false) {
 		var zero D
 		return zero, false
 	}
-	d, err := s.put(patch)
+	var fn func(*Config)
+	if also != nil {
+		fn = also(patch)
+	}
+	d, err := s.putWith(patch, fn)
 	if errors.Is(err, errSettingBody) {
 		a.rejectBody(w, r, err)
 		return d, false

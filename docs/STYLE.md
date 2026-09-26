@@ -141,6 +141,7 @@ When in doubt, write the spec, then point at it from the code's commit message. 
   - `status_http.go` — `/v1/status`, `/v1/clear`, `/v1/notify`
   - `publisher.go` — the `Publisher` interface (the seam for server-initiated writes) and its real adapter, `clockPublisher` (built only by `NewApp`, always behind `quietPublisher`)
   - `clock_access.go` — the clock-access module: URL rule, per-call-class timeouts, retry rule, error map, serialised `/api/v1/system` writes; the only `awtrix.NewClient` in `cmd/ember` (guarded by `clock_access_guard_test.go`). A new clock call goes through it, never a new client
+  - `clock_url.go` — the clock URL's tiers (file baseline, menu override, discovery swap) and `Config.clockURL()`, the one precedence rule. Code that needs the clock's address asks `clockURL()`/`effectiveClockURL()`; `AWTRIX.HTTPBaseURL` is only the file value (guarded by `TestHTTPBaseURLOnlyReadAsBaseline`)
   - `coordinator*.go` — the display coordinator, one file per concern
   - `coordinator_tiles.go` — the rotating-tile module: a new tile over existing inputs is one `tile` value in `tiles` (its view feeds both the push and the preview; never re-derive a tile in a preview handler); a new data source also adds fields to `tileInputs`, filled by `coordinator.tileInputs`
   - `settings_overlay.go` — merge/validate/persist/re-apply for every
