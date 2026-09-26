@@ -11,15 +11,7 @@ struct LiveMatrixMirror: View {
     var body: some View {
         MatrixScreenView(pixels: env.live.screen.value ?? Array(repeating: 0, count: 256))
             .accessibilityLabel("Clock display")
-            .accessibilityValue(currentApp)
+            .accessibilityValue(env.live.screen.value == nil ? String(localized: "Not available") : "")
             .task { await env.live.track(.screen) }
-    }
-
-    /// The clock's current app, when a view is also holding clock health.
-    private var currentApp: String {
-        guard let app = env.live.clockHealth.value?.device?.currentApp, !app.isEmpty else {
-            return env.live.screen.value == nil ? String(localized: "Not available") : ""
-        }
-        return String(localized: AppNames.display(app))
     }
 }

@@ -39,6 +39,34 @@ public struct AgentTimeChart: Equatable, Sendable {
         days.map { d in (d, segments.filter { $0.date == d }.reduce(0) { $0 + $1.minutes }) }
     }
 
+    /// One day's bar, for the hover callout.
+    public struct DayDetail: Equatable, Sendable {
+        public struct Part: Equatable, Sendable {
+            public let source: String
+            public let minutes: Double
+        }
+
+        public let key: String
+        public let date: Date
+        public let totalMinutes: Double
+        /// Sources that worked that day, in stacking order.
+        public let parts: [Part]
+    }
+
+    /// The day `key` ("2026-09-26") names, or nil outside the window.
+    public func detail(forKey key: String) -> DayDetail? {
+        let day = segments.filter { $0.key == key }
+        guard let date = day.first?.date else { return nil }
+        return DayDetail(key: key, date: date, totalMinutes: day.reduce(0) { $0 + $1.minutes },
+                         parts: day.filter { $0.minutes > 0 }.map { DayDetail.Part(source: $0.source, minutes: $0.minutes) })
+    }
+
+    /// Day keys, oldest first: the chart's categorical x domain.
+    public var dayKeys: [String] {
+        var seen = Set<String>()
+        return segments.map(\.key).filter { seen.insert($0).inserted }
+    }
+
     /// `windowDays` days ending with the server's today (`summary.today.from`
     /// falls on it), zero-filled where the summary has fewer.
     public init(summary: ActivitySummary, windowDays: Int = 7, calendar: Calendar) {

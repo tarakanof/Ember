@@ -1,8 +1,13 @@
 import SwiftUI
 import EmberKit
 
-/// Card 1: the clock's real LED matrix, what it's showing, and the few
-/// actions that change it.
+/// Card 1: the clock's real LED matrix and the few actions that change it.
+/// No "Showing <app>" label: the only source is clock health's
+/// `current_app`, cached up to 30 s on the server and polled every 15 s,
+/// while the clock rotates apps every few seconds and the mirror updates
+/// each second — the label was wrong most of the time. NG's screen
+/// endpoint carries no app name, and an extra per-second request is too
+/// much for the clock's lossy link, so the mirror speaks for itself.
 struct ClockCard: View {
     let screen: Loadable<[Int]>
     let health: Loadable<ClockHealth>
@@ -38,25 +43,12 @@ struct ClockCard: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Clock display")
-            .accessibilityValue(appName.map { Text($0) } ?? (screen.value == nil ? Text("Not available") : Text(verbatim: "")))
-    }
-
-    private var appName: LocalizedStringResource? {
-        guard let app = health.value?.device?.currentApp, !app.isEmpty else { return nil }
-        return AppNames.display(app)
+            .accessibilityValue(screen.value == nil ? Text("Not available") : Text(verbatim: ""))
     }
 
     @ViewBuilder
     private var controls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Showing")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                (appName.map { Text($0) } ?? Text(verbatim: "—"))
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-            }
             ControlGroup {
                 button(.previous, "Previous App", "chevron.backward")
                 button(.next, "Next App", "chevron.forward")

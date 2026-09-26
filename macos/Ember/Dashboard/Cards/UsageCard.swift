@@ -24,8 +24,9 @@ struct UsageCard: View {
 
     /// On a server without `GET /v1/usage` the rows come from sessions, so
     /// the off state never shows: old servers still get the 5-hour window.
+    /// Session rows also show while the snapshot hasn't arrived yet.
     private var feed: Loadable<[UsageRow]> {
-        if usage.error == .featureOff { return .loaded(rows, at: now) }
+        if usage.error == .featureOff || (usage.value == nil && !rows.isEmpty) { return .loaded(rows, at: now) }
         return usage.map { _ in rows }
     }
 
@@ -122,6 +123,7 @@ private struct ToolUsageView: View {
 private extension UsageRow {
     static func placeholder(_ tool: String) -> UsageRow {
         UsageRow.rows(fromSessions: [try! JSONDecoder().decode(Session.self, from: Data(
-            #"{"tool":"\#(tool)","state":"idle","rate_window_pct":40}"#.utf8))])[0]
+            #"{"tool":"\#(tool)","state":"idle","rate_window_pct":40,"rate_reset_at":4102444800}"#.utf8))],
+            now: .distantPast)[0]
     }
 }

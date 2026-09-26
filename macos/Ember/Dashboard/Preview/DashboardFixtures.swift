@@ -187,8 +187,8 @@ enum DashboardFixtures {
 
     static var snapshot: Snapshot {
         let rows = [
-            ##"{"source":"m4","tool":"claude","session":"a1","state":"running","activity":"Bash: go test ./... -race","context_pct":8,"rate_window_pct":14,"source_color":"#00C8C8","updated_at":"2026-09-26T10:29:50+02:00"}"##,
-            ##"{"source":"m5","tool":"codex","session":"b2","state":"waiting","activity":"exec: swift test --package-path macos","context_pct":41,"rate_window_pct":3,"source_color":"#FF8800","updated_at":"2026-09-26T10:27:40+02:00"}"##,
+            ##"{"source":"m4","tool":"claude","session":"a1","state":"running","activity":"Bash: go test ./... -race","context_pct":8,"rate_window_pct":14,"rate_reset_at":1790419200,"source_color":"#00C8C8","updated_at":"2026-09-26T10:29:50+02:00"}"##,
+            ##"{"source":"m5","tool":"codex","session":"b2","state":"waiting","activity":"exec: swift test --package-path macos","context_pct":41,"rate_window_pct":3,"rate_reset_at":1790424600,"source_color":"#FF8800","updated_at":"2026-09-26T10:27:40+02:00"}"##,
             ##"{"source":"m4","tool":"claude","session":"c3","state":"done","message":"Refactored the heatmap transform","context_pct":63,"source_color":"#00C8C8","updated_at":"2026-09-26T10:05:00+02:00"}"##,
         ]
         let decoder = JSONDecoder()

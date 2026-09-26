@@ -42,7 +42,10 @@ struct SensorsSection: View {
         } header: {
             Text("Sensor Calibration")
         } footer: {
-            SectionFooter(text: "The firmware subtracts 9 °C to make up for the clock warming itself. Compare the reading with a thermometer you trust and adjust by the difference.",
+            // Generic on purpose: the offset is whatever the clock holds
+            // (NG's default is −9 °C, many clocks are recalibrated), so the
+            // footer states the semantics, not a number.
+            SectionFooter(text: "The clock adds these offsets to its sensor's readings; the temperature one makes up for the clock warming itself. Compare Measured now with a thermometer you trust and change the offset by the difference.",
                           error: m.saveError)
         }
         .disabled(!m.isLoaded)
