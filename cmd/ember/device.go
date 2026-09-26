@@ -45,7 +45,9 @@ func validDeviceURL(raw string) error {
 }
 
 // applyDeviceBaseURL validates a clock base URL, swaps it into the live config,
-// and persists it to the store. Mirrors applyWeatherSettings.
+// and persists it to the store. Not a settings-overlay setting: it is a raw
+// string, discovery swaps it in memory, and /admin/reload re-applies it only
+// when the file URL changed (see admin.go).
 func (a *App) applyDeviceBaseURL(raw string) error {
 	if err := validDeviceURL(raw); err != nil {
 		return err

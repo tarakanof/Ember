@@ -84,12 +84,6 @@ func main() {
 	} else {
 		logger.Info("pomodoro wired", "enabled", app.cfg.Load().Pomodoro.Enabled, "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
 	}
-	// Weather only needs the store to *persist* menu edits; it runs fine
-	// in-memory. A store-open failure here (e.g. Pomodoro disabled and no
-	// writable DB volume) must not block startup — warn and carry on.
-	if err := app.initWeather(cfg); err != nil {
-		logger.Warn("weather store init failed; config will not persist across restarts", "err", err)
-	}
 	// ICS calendar URLs are credentials; they live only in the env var and are
 	// never logged as strings, stored, or echoed in API responses (count only).
 	{
@@ -101,9 +95,6 @@ func main() {
 	}
 	if len(app.meetingsURLs) > 0 {
 		logger.Info("meetings ICS feeds configured", "count", len(app.meetingsURLs))
-	}
-	if err := app.initMeetings(cfg); err != nil {
-		logger.Warn("meetings store init failed; config will not persist across restarts", "err", err)
 	}
 	app.settings.reapply() // runtime settings overrides over the file baseline
 	if cfg.Weather.Enabled {

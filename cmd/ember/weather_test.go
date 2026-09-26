@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -259,11 +260,11 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 func TestApplyWeatherSettingsValidation(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	bad := WeatherConfig{Provider: "open-meteo", Units: "metric", Latitude: 200, Longitude: 0, RefreshMinutes: 10, PopupDurationSeconds: 30}
-	if err := app.applyWeatherSettings(bad); err == nil {
+	if err := putWeather(app, bad); err == nil {
 		t.Error("latitude 200 should be rejected")
 	}
 	good := WeatherConfig{Provider: "met-no", Units: "imperial", Latitude: 52, Longitude: 4, RefreshMinutes: 15, PopupDurationSeconds: 20}
-	if err := app.applyWeatherSettings(good); err != nil {
+	if err := putWeather(app, good); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 	if app.cfg.Load().Weather.Provider != "met-no" {
@@ -288,7 +289,7 @@ func TestWeatherIconIDOverride(t *testing.T) {
 
 // TestApplyWeatherSettingsPreservesDisables guards the review fix: a menu PUT
 // that turns the opt-in toggles off (and sets interval=0) must survive — earlier
-// applyWeatherSettings re-ran applyDefaults and forced them back on.
+// the weather apply path re-ran applyDefaults and forced them back on.
 func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	off := WeatherConfig{
@@ -296,7 +297,7 @@ func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 		RefreshMinutes: 10, PopupDurationSeconds: 30,
 		RotateInApps: boolPtr(false), PopupOnChange: boolPtr(false), SevereAlert: boolPtr(false), PopupIntervalMinutes: intPtr(0),
 	}
-	if err := app.applyWeatherSettings(off); err != nil {
+	if err := putWeather(app, off); err != nil {
 		t.Fatalf("config rejected: %v", err)
 	}
 	got := app.cfg.Load().Weather
@@ -330,16 +331,16 @@ func TestWeatherAirDefaults(t *testing.T) {
 func TestWeatherAirValidation(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	bad := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirPopupThreshold: 201}
-	if err := app.applyWeatherSettings(bad); err == nil {
+	if err := putWeather(app, bad); err == nil {
 		t.Error("air_popup_threshold 201 should be rejected")
 	}
 	bad.AirPopupThreshold = -1
-	if err := app.applyWeatherSettings(bad); err == nil {
+	if err := putWeather(app, bad); err == nil {
 		t.Error("air_popup_threshold -1 should be rejected")
 	}
 	// A menu PUT turning the tile + popup off must survive (no re-defaulting).
 	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: boolPtr(false), AirPopupThreshold: 0}
-	if err := app.applyWeatherSettings(off); err != nil {
+	if err := putWeather(app, off); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
 	}
 	got := app.cfg.Load().Weather
@@ -625,4 +626,14 @@ func TestValidateWeatherOKWithoutIconIDs(t *testing.T) {
 	if err := validateWeather(validWeatherConfig()); err != nil {
 		t.Errorf("baseline valid config should pass validateWeather: %v", err)
 	}
+}
+
+// putWeather PUTs a whole WeatherConfig through the settings overlay.
+func putWeather(a *App, c WeatherConfig) error {
+	b, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	_, err = a.settings.weather.put(b)
+	return err
 }

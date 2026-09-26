@@ -114,7 +114,7 @@ func TestOldWeatherBlobFillsDefaults(t *testing.T) {
 	if err := a.store.PutSetting(weatherSettingsKey, oldBlob); err != nil {
 		t.Fatal(err)
 	}
-	a.loadPersistedWeatherSettings()
+	a.settings.reapply()
 
 	w := httptest.NewRecorder()
 	a.handleWeatherConfigGet(w, httptest.NewRequest("GET", "/v1/weather/config", nil))
@@ -137,7 +137,7 @@ func TestOldMeetingsBlobFillsDefaults(t *testing.T) {
 	if err := a.store.PutSetting(meetingsSettingsKey, oldBlob); err != nil {
 		t.Fatal(err)
 	}
-	a.loadPersistedMeetingsSettings()
+	a.settings.reapply()
 
 	w := httptest.NewRecorder()
 	a.handleMeetingsConfigGet(w, httptest.NewRequest("GET", "/v1/meetings/config", nil))

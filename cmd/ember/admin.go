@@ -286,11 +286,6 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		// Keep the Pomodoro engine in sync with the reloaded config and
 		// re-apply API-persisted settings so a reload doesn't revert them.
 		app.resyncPomodoroAfterReload()
-		// Likewise re-apply menu-persisted weather settings over the
-		// freshly reloaded file config.
-		app.loadPersistedWeatherSettings()
-		// And meetings settings (same pattern: menu edits must survive a reload).
-		app.loadPersistedMeetingsSettings()
 		// A new file URL must not beat the menu-chosen clock URL (Device tab).
 		// When the file URL is unchanged the running URL was kept above, and
 		// re-applying the override could revert a discovery swap away from it.

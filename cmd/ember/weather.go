@@ -875,50 +875,32 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	}
 }
 
-// ---- config persistence (mirrors the Pomodoro store pattern) ----
+// ---- runtime settings (see settings_overlay.go) ----
 
 const weatherSettingsKey = "weather_json"
 
-func (a *App) applyWeatherSettings(cfg WeatherConfig) error {
-	// This is the runtime write/persist path (menu PUT +
-	// loadPersistedWeatherSettings). fillAbsent resolves only fields the payload
-	// omitted (e.g. a store blob written before a field existed) to their
-	// defaults; explicit false / popup_interval=0 always stick, so the toggles
-	// stay disableable (mirrors applyPomodoroSettings). Filling before persist
-	// also keeps the stored blob and the GET response free of JSON nulls.
-	cfg.fillAbsent()
-	if err := validateWeather(cfg); err != nil {
-		return err
-	}
-	a.updateConfig(func(cur *Config) { cur.Weather = cfg })
-	if a.store != nil {
-		if blob, err := json.Marshal(cfg); err == nil {
-			if err := a.store.PutSetting(weatherSettingsKey, string(blob)); err != nil {
-				a.logger.Warn("weather settings persist failed", "err", err)
+// weatherSettingSpec registers the weather config with the settings overlay.
+// apply's fillAbsent resolves only fields still absent after the merge (JSON
+// null) to their defaults; explicit false / popup_interval=0 always stick, so
+// the toggles stay disableable. Filling before the swap also keeps the stored
+// blob and the GET response free of JSON nulls.
+func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
+	return settingSpec[WeatherConfig]{
+		key:  weatherSettingsKey,
+		view: func(c Config) WeatherConfig { return c.Weather },
+		apply: func(c *Config, w WeatherConfig) error {
+			w.fillAbsent()
+			if err := validateWeather(w); err != nil {
+				return err
 			}
-		}
-	}
-	a.nudgePomo()
-	// Provision any native icons the new config needs onto the device, off
-	// the request path (it does device + gallery HTTP).
-	go a.ensureNativeIcons(context.Background())
-	return nil
-}
-
-func (a *App) loadPersistedWeatherSettings() {
-	if a.store == nil {
-		return
-	}
-	blob, ok, err := a.store.GetSetting(weatherSettingsKey)
-	if err != nil || !ok {
-		return
-	}
-	var cfg WeatherConfig
-	if err := json.Unmarshal([]byte(blob), &cfg); err != nil {
-		a.logger.Warn("weather persisted settings parse failed", "err", err)
-		return
-	}
-	if err := a.applyWeatherSettings(cfg); err != nil {
-		a.logger.Warn("weather persisted settings invalid, ignoring", "err", err)
+			c.Weather = w
+			return nil
+		},
+		after: func(Config) {
+			a.nudgePomo()
+			// Provision any native icons the new config needs onto the device,
+			// off the request path (it does device + gallery HTTP).
+			go a.ensureNativeIcons(context.Background())
+		},
 	}
 }

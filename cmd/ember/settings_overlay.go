@@ -61,9 +61,11 @@ type settingsOverlay struct {
 // order below is the reapply order.
 type appSettings struct {
 	*settingsOverlay
-	usage   *setting[usageConfigDTO]
-	display *setting[displayConfigDTO]
-	quiet   *setting[quietConfigDTO]
+	weather  *setting[WeatherConfig]
+	meetings *setting[MeetingsConfig]
+	usage    *setting[usageConfigDTO]
+	display  *setting[displayConfigDTO]
+	quiet    *setting[quietConfigDTO]
 }
 
 // newAppSettings wires the overlay to a's live config and settings store and
@@ -82,6 +84,8 @@ func newAppSettings(a *App) appSettings {
 	}
 	return appSettings{
 		settingsOverlay: o,
+		weather:         register(o, a.weatherSettingSpec()),
+		meetings:        register(o, a.meetingsSettingSpec()),
 		usage:           register(o, a.usageSettingSpec()),
 		display:         register(o, displaySettingSpec()),
 		quiet:           register(o, quietSettingSpec()),
