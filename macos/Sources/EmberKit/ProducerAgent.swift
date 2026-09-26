@@ -28,4 +28,10 @@ public enum ProducerAgent: String, CaseIterable, Sendable {
     public var detectRelPath: String {
         self == .claude ? ".claude" : ".codex"
     }
+
+    /// Where (under `$HOME`) the helper's LaunchAgent records whether it last
+    /// reached the server (Go: `producer.LinkStatusPath`).
+    public var linkStatusRelPath: String {
+        self == .claude ? ".config/ember/claude-producer.link.json" : ".config/ember/codex-producer.link.json"
+    }
 }

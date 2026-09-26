@@ -711,6 +711,7 @@
     "Open Connection Settings" : {},
     "Open Dashboard" : {},
     "Open Dashboard at launch" : {},
+    "Open Local Network Settings…" : {},
     "Open Location Settings…" : {},
     "Open Login Items Settings…" : {},
     "Open Privacy Settings…" : {},
@@ -1126,6 +1127,13 @@
     },
     "just now" : {},
     "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
+    "macOS is blocking %@ from the local network, so its reports don't reach the server. Allow it under Local Network." : {
+      "comment" : "Settings › Agents hint; the placeholder is a list of helper program names as shown in System Settings (\"ember-claude-producer and ember-codex-producer\")."
+    },
+    "macOS wouldn't stop the stuck background helper (launchctl exit %d: %@)." : {
+      "comment" : "Settings › Agents failure after Repair when launchctl bootout fails; exit code, then launchctl's message.",
+      "extractionState" : "manual"
+    },
     "moderate" : {},
     "not supported by this server" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",

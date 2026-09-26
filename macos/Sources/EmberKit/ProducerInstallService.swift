@@ -25,8 +25,11 @@ public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
 }
 
 /// Whether `launchctl print` output describes a job launchd keeps failing to
-/// spawn: not running, and `job state = spawn failed` or `needs LWCR update`
-/// in its properties.
+/// spawn: not running, `job state = spawn failed`, and either `needs LWCR
+/// update` in its properties or `last exit code = 78`. One signal alone isn't
+/// enough: right after a changed helper's first spawn, launchd sets `needs
+/// LWCR update` while its own repair is still running, and booting the job
+/// out then would cut that repair short where it works.
 ///
 /// That's where an ad-hoc signed helper ends up after its code changes.
 /// Background Items pins the job's launch constraint (LWCR) to the helper's
@@ -37,9 +40,11 @@ public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
 /// spawn exits 78 (EX_CONFIG) until the job is booted out and registered again.
 public func launchdJobIsStuck(_ output: String) -> Bool {
     let fields = launchctlPrintFields(output)
-    if fields["state"] == "running" { return false }
-    if fields["job state"] == "spawn failed" { return true }
-    return fields["properties"]?.contains("needs LWCR update") ?? false
+    guard fields["state"] != "running", fields["job state"] == "spawn failed" else { return false }
+    let needsLWCR = fields["properties"]?.contains("needs LWCR update") ?? false
+    let lastExit = fields["last exit code"] ?? ""
+    let exitedConfig = lastExit == "78" || lastExit.hasPrefix("78:")
+    return needsLWCR || exitedConfig
 }
 
 /// The job's own `key = value` lines from `launchctl print` output (one tab
@@ -125,6 +130,20 @@ public func reconcileReason(registration: AgentRegistration, liveness: AgentLive
 public enum ProducerInstallError: Error, Equatable, Sendable {
     /// The producer binary's `configure` subcommand exited non-zero.
     case configureFailed(exit: Int32)
+    /// `launchctl bootout` of a stuck job failed (exit -1: it didn't run).
+    case bootoutFailed(exit: Int32, detail: String)
+}
+
+extension ProducerInstallError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .configureFailed:
+            nil   // unchanged: Foundation's default description
+        case .bootoutFailed(let exit, let detail):
+            String(localized: "macOS wouldn't stop the stuck background helper (launchctl exit \(exit): \(detail)).",
+                   comment: "Settings › Agents failure after Repair when launchctl bootout fails; exit code, then launchctl's message.")
+        }
+    }
 }
 
 /// The per-agent LaunchAgent registration state, derived from
@@ -184,8 +203,11 @@ public final class ProducerInstallService: Sendable {
     private let bundleMacOSDir: URL
     private let home: URL
     private let fileExists: @Sendable (String) -> Bool
+    private let readFile: @Sendable (String) -> Data?
     private let uid: uid_t
     private let probeWarned = OSAllocatedUnfairLock(initialState: false)
+    /// One install/uninstall/reconcile at a time (see `reconcile`).
+    private let serial = SerialGate()
     private static let log = Logger(subsystem: "com.ember.Ember", category: "producers")
 
     public init(
@@ -194,6 +216,7 @@ public final class ProducerInstallService: Sendable {
         bundleMacOSDir: URL,
         home: URL,
         fileExists: @escaping @Sendable (String) -> Bool,
+        readFile: @escaping @Sendable (String) -> Data? = { FileManager.default.contents(atPath: $0) },
         uid: uid_t = getuid()
     ) {
         self.sm = sm
@@ -201,6 +224,7 @@ public final class ProducerInstallService: Sendable {
         self.bundleMacOSDir = bundleMacOSDir
         self.home = home
         self.fileExists = fileExists
+        self.readFile = readFile
         self.uid = uid
     }
 
@@ -324,15 +348,17 @@ public final class ProducerInstallService: Sendable {
     /// Installs every detected agent off the calling actor, catching
     /// per-agent failures so one agent's error never prevents the others from
     /// being attempted. Never throws; inspect each `AgentOutcome.error` to see
-    /// what failed.
+    /// what failed. Serialized with the other batch operations (`serial`).
     @concurrent
     public func installAll() async -> [AgentOutcome] {
-        detectedAgents().map { agent in
-            do {
-                try install(agent)
-                return AgentOutcome(agent: agent, error: nil)
-            } catch {
-                return AgentOutcome(agent: agent, error: error)
+        await serial.run {
+            detectedAgents().map { agent in
+                do {
+                    try install(agent)
+                    return AgentOutcome(agent: agent, error: nil)
+                } catch {
+                    return AgentOutcome(agent: agent, error: error)
+                }
             }
         }
     }
@@ -340,15 +366,17 @@ public final class ProducerInstallService: Sendable {
     /// Uninstalls every detected agent off the calling actor, catching
     /// per-agent failures so one agent's error never prevents the others from
     /// being attempted. Never throws; inspect each `AgentOutcome.error` to see
-    /// what failed.
+    /// what failed. Serialized with the other batch operations (`serial`).
     @concurrent
     public func uninstallAll() async -> [AgentOutcome] {
-        detectedAgents().map { agent in
-            do {
-                try uninstall(agent)
-                return AgentOutcome(agent: agent, error: nil)
-            } catch {
-                return AgentOutcome(agent: agent, error: error)
+        await serial.run {
+            detectedAgents().map { agent in
+                do {
+                    try uninstall(agent)
+                    return AgentOutcome(agent: agent, error: nil)
+                } catch {
+                    return AgentOutcome(agent: agent, error: error)
+                }
             }
         }
     }
@@ -360,28 +388,54 @@ public final class ProducerInstallService: Sendable {
     /// it leaves launchd holding the stale job. Runs off the calling actor.
     /// Agents that aren't enabled are never touched. Never throws; one agent's
     /// failure doesn't stop the others.
+    ///
+    /// Serialized with Repair, install and uninstall (`serial`): the launch
+    /// recheck and a Repair click never run bootout/register on the same
+    /// label at once, and whichever runs second probes again, sees the healed
+    /// job, and does nothing.
     @concurrent
     public func reconcile(bundleChanged: Bool) async -> [ReconcileOutcome] {
+        await serial.run { reconcileNow(bundleChanged: bundleChanged) }
+    }
+
+    private func reconcileNow(bundleChanged: Bool) -> [ReconcileOutcome] {
         ProducerAgent.allCases.compactMap { agent in
             let registration = sm.status(plistName: agent.plistName)
             let live = registration == .enabled && !bundleChanged ? liveness(agent) : .running
             guard let reason = reconcileReason(registration: registration, liveness: live,
                                                bundleChanged: bundleChanged) else { return nil }
-            if reason == .stuck {
-                // Best effort: register's outcome below is what gets reported.
-                _ = try? runner.run(executable: "/bin/launchctl",
-                                    arguments: ["bootout", launchdTarget(agent)])
-            }
+            // Still register when bootout fails (it can't hurt), but report
+            // the failure: the job may well stay stuck.
+            let bootoutError = reason == .stuck ? bootout(agent) : nil
             do {
                 // A stale registration (launchd dropped the job) may refuse
                 // to unregister; register is what matters, so go on anyway.
                 try? sm.unregister(plistName: agent.plistName)
                 try sm.register(plistName: agent.plistName)
-                return ReconcileOutcome(agent: agent, reason: reason, error: nil)
+                return ReconcileOutcome(agent: agent, reason: reason, error: bootoutError)
             } catch {
                 return ReconcileOutcome(agent: agent, reason: reason, error: error)
             }
         }
+    }
+
+    /// `launchctl bootout` of the agent's job. "No such service" counts as
+    /// done; any other failure is logged and returned.
+    private func bootout(_ agent: ProducerAgent) -> ProducerInstallError? {
+        let target = launchdTarget(agent)
+        let exit: Int32
+        let detail: String
+        do {
+            let result = try runner.run(executable: "/bin/launchctl", arguments: ["bootout", target])
+            if bootoutSucceeded(result) { return nil }
+            exit = result.exitCode
+            detail = (result.stderr + result.stdout).trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            exit = -1
+            detail = error.localizedDescription
+        }
+        Self.log.error("launchctl bootout \(target, privacy: .public) failed: exit=\(exit) \(detail, privacy: .public)")
+        return .bootoutFailed(exit: exit, detail: detail)
     }
 
     /// Settings' Repair action: re-registers every enabled agent that isn't
@@ -397,11 +451,92 @@ public final class ProducerInstallService: Sendable {
     @concurrent
     public func snapshot() async -> ProducerSnapshot {
         let agents = detectedAgents().map { (agent: $0, state: agentState($0)) }
-        return ProducerSnapshot(agents: agents, toggle: Self.toggle(for: agents.map(\.state)))
+        let blocked = agents.filter { $0.state == .on && localNetworkBlocked($0.agent) }.map(\.agent)
+        return ProducerSnapshot(agents: agents, toggle: Self.toggle(for: agents.map(\.state)),
+                                localNetworkBlocked: blocked)
+    }
+
+    /// Whether the agent's helper last failed to reach the server with "no
+    /// route to host": how macOS denies a LAN connection it hasn't been given
+    /// Local Network access for. Read from the file the helper's LaunchAgent
+    /// records (`ProducerAgent.linkStatusRelPath`).
+    public func localNetworkBlocked(_ agent: ProducerAgent) -> Bool {
+        guard let data = readFile(home.appendingPathComponent(agent.linkStatusRelPath).path) else { return false }
+        return ProducerLinkState.decode(data)?.noRoute ?? false
     }
 
     private func executablePath(for agent: ProducerAgent) -> String {
         bundleMacOSDir.appendingPathComponent(agent.binaryName).path
+    }
+}
+
+/// Whether a `launchctl bootout` result means the job is gone: exit 0, or
+/// launchd had no such job (113, or 3 "No such process").
+public func bootoutSucceeded(_ result: CommandResult) -> Bool {
+    result.exitCode == 0 || result.exitCode == 113 || result.exitCode == 3
+        || (result.stderr + result.stdout).contains("Could not find service")
+}
+
+/// What a producer helper's LaunchAgent last recorded about reaching the
+/// server (Go `producer.LinkState`, in `~/.config/ember/<name>.link.json`).
+public struct ProducerLinkState: Decodable, Sendable, Equatable {
+    public let ok: Bool
+    public let noRoute: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case noRoute = "no_route"
+    }
+
+    public init(ok: Bool, noRoute: Bool) {
+        self.ok = ok
+        self.noRoute = noRoute
+    }
+
+    /// nil for anything that isn't the helper's JSON.
+    public static func decode(_ data: Data) -> ProducerLinkState? {
+        try? JSONDecoder().decode(ProducerLinkState.self, from: data)
+    }
+}
+
+/// Runs operations one at a time, in arrival order, without blocking a
+/// thread while waiting.
+final class SerialGate: Sendable {
+    private struct State: Sendable {
+        var busy = false
+        var waiters: [CheckedContinuation<Void, Never>] = []
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func run<T>(_ body: () -> T) async -> T {
+        await acquire()
+        defer { release() }
+        return body()
+    }
+
+    private func acquire() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let proceed = state.withLock { s -> Bool in
+                if s.busy {
+                    s.waiters.append(continuation)
+                    return false
+                }
+                s.busy = true
+                return true
+            }
+            if proceed { continuation.resume() }
+        }
+    }
+
+    private func release() {
+        let next = state.withLock { s -> CheckedContinuation<Void, Never>? in
+            if s.waiters.isEmpty {
+                s.busy = false
+                return nil
+            }
+            return s.waiters.removeFirst()
+        }
+        next?.resume()
     }
 }
 
@@ -412,6 +547,16 @@ public struct ProducerSnapshot: Sendable {
     public let agents: [(agent: ProducerAgent, state: AgentState)]
     /// The aggregate toggle state across `agents`.
     public let toggle: ToggleState
+    /// Running agents whose helper can't reach the server because macOS
+    /// hasn't given it Local Network access.
+    public let localNetworkBlocked: [ProducerAgent]
+
+    public init(agents: [(agent: ProducerAgent, state: AgentState)], toggle: ToggleState,
+                localNetworkBlocked: [ProducerAgent] = []) {
+        self.agents = agents
+        self.toggle = toggle
+        self.localNetworkBlocked = localNetworkBlocked
+    }
 
     /// Whether an agent is on but not running, so Settings offers Repair.
     public var needsRepair: Bool { agents.contains { $0.state == .notRunning } }

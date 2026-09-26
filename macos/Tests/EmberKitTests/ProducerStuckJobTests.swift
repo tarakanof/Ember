@@ -92,13 +92,24 @@ private func ok(_ stdout: String) -> CommandResult { CommandResult(exitCode: 0, 
     #expect(launchdProbe(ok("")) == .loaded)
 }
 
-@Test func eitherSignalAloneMeansStuck() {
+@Test func oneSignalAloneIsNotStuck() {
+    // Mid-repair: launchd flagged the constraint but hasn't given up yet.
     let lwcrOnly = "x = {\n\tstate = spawn scheduled\n\tproperties = keepalive | needs LWCR update | has LWCR\n}"
-    let spawnFailedOnly = "x = {\n\tstate = not running\n\tjob state = spawn failed\n}"
-    #expect(launchdJobIsStuck(lwcrOnly))
-    #expect(launchdJobIsStuck(spawnFailedOnly))
+    let spawnFailedOnly = "x = {\n\tstate = not running\n\tjob state = spawn failed\n\tlast exit code = 1\n}"
+    let exit78Only = "x = {\n\tstate = spawn scheduled\n\tjob state = exited\n\tlast exit code = 78: EX_CONFIG\n}"
+    #expect(!launchdJobIsStuck(lwcrOnly))
+    #expect(!launchdJobIsStuck(spawnFailedOnly))
+    #expect(!launchdJobIsStuck(exit78Only))
+}
+
+@Test func spawnFailedWithLWCROrExit78IsStuck() {
+    let withLWCR = "x = {\n\tstate = spawn scheduled\n\tjob state = spawn failed\n\tproperties = needs LWCR update\n}"
+    let withExit78 = "x = {\n\tstate = spawn scheduled\n\tjob state = spawn failed\n\tlast exit code = 78: EX_CONFIG\n}"
+    #expect(launchdJobIsStuck(withLWCR))
+    #expect(launchdJobIsStuck(withExit78))
+    #expect(!launchdJobIsStuck("x = {\n\tjob state = spawn failed\n\tlast exit code = 780\n}"))
     // A job that is running right now is never stuck, whatever its history.
-    #expect(!launchdJobIsStuck("x = {\n\tstate = running\n\tproperties = needs LWCR update\n}"))
+    #expect(!launchdJobIsStuck("x = {\n\tstate = running\n\tjob state = spawn failed\n\tproperties = needs LWCR update\n}"))
 }
 
 @Test func printFieldsReadOnlyTheJobsOwnLines() {
@@ -146,7 +157,8 @@ private func runner(stuck labels: Set<String>) -> FakeRunner {
     let outcomes = await service(sm, r).repairAll()
     #expect(outcomes.map(\.agent) == [.claude])
     #expect(outcomes.allSatisfy { $0.error == nil })
-    #expect(r.calls.map(\.1).filter { $0.first == "bootout" } == [["bootout", "gui/501/com.ember.heartbeat"]])
+    let bootouts: [[String]] = r.calls.map(\.1).filter { $0.first == "bootout" }
+    #expect(bootouts == [["bootout", "gui/501/com.ember.heartbeat"]])
     #expect(sm.unregistered == [heartbeat])
     #expect(sm.registered == [heartbeat])
 }
@@ -167,13 +179,95 @@ private func runner(stuck labels: Set<String>) -> FakeRunner {
     #expect(sm.registered == [codex])
 }
 
-@MainActor @Test func aFailedBootoutStillRegisters() async {
+@MainActor @Test func aFailedBootoutStillRegistersButRepairReportsIt() async {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled]
     let r = runner(stuck: ["com.ember.heartbeat"])
     r.exitFor = { args in args.first == "bootout" ? 5 : 0 }
     let outcomes = await service(sm, r).repairAll()
     #expect(sm.registered == [heartbeat])
+    #expect(outcomes.count == 1)
+    let error = outcomes.first?.error as? ProducerInstallError
+    #expect(error == .bootoutFailed(exit: 5, detail: ""))
+}
+
+@MainActor @Test func bootingOutAJobThatIsAlreadyGoneIsFine() async {
+    let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled]
+    let r = runner(stuck: ["com.ember.heartbeat"])
+    r.exitFor = { args in args.first == "bootout" ? 3 : 0 }   // "No such process"
+    let outcomes = await service(sm, r).repairAll()
     #expect(outcomes.allSatisfy { $0.error == nil })
+}
+
+@Test func bootoutResultClassification() {
+    #expect(bootoutSucceeded(CommandResult(exitCode: 0, stdout: "", stderr: "")))
+    #expect(bootoutSucceeded(CommandResult(exitCode: 113, stdout: "", stderr: "")))
+    #expect(bootoutSucceeded(CommandResult(exitCode: 3, stdout: "", stderr: "Boot-out failed: 3: No such process")))
+    #expect(!bootoutSucceeded(CommandResult(exitCode: 5, stdout: "", stderr: "Boot-out failed: 5: Input/output error")))
+    #expect(!bootoutSucceeded(CommandResult(exitCode: 1, stdout: "", stderr: "Operation not permitted")))
+}
+
+/// A runner whose `launchctl print` shows the stuck job until the first
+/// bootout, then the running one; each bootout takes a little while, so two
+/// overlapping reconciles would both boot the job out.
+private final class HealingRunner: ProducerCommandRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var healed = false
+    private(set) var bootouts = 0
+    func run(executable: String, arguments: [String]) throws -> CommandResult {
+        if arguments.first == "bootout" {
+            Thread.sleep(forTimeInterval: 0.05)
+            lock.withLock { bootouts += 1; healed = true }
+            return CommandResult(exitCode: 0, stdout: "", stderr: "")
+        }
+        let out = lock.withLock { healed } ? runningPrint : stuckPrint
+        return CommandResult(exitCode: 0, stdout: out, stderr: "")
+    }
+}
+
+@Test func concurrentRepairsBootOutOnce() async {
+    let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled]
+    let r = HealingRunner()
+    let svc = ProducerInstallService(sm: sm, runner: r,
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { _ in true }, uid: 501)
+    async let a = svc.repairAll()   // e.g. the launch recheck
+    async let b = svc.repairAll()   // and a Repair click
+    let (first, second) = await (a, b)
+    #expect(r.bootouts == 1)
+    #expect(first.count + second.count == 1)   // the second probe sees it healed
+}
+
+// MARK: - Local Network
+
+@Test func linkStateDecodesTheHelpersJSON() {
+    let blocked = Data(#"{"ok":false,"no_route":true,"error":"dial tcp: connect: no route to host","at":"2026-09-26T16:40:20+02:00"}"#.utf8)
+    #expect(ProducerLinkState.decode(blocked) == ProducerLinkState(ok: false, noRoute: true))
+    #expect(ProducerLinkState.decode(Data(#"{"ok":true,"no_route":false,"at":"2026-09-26T16:40:20Z"}"#.utf8))
+        == ProducerLinkState(ok: true, noRoute: false))
+    #expect(ProducerLinkState.decode(Data("garbage".utf8)) == nil)
+}
+
+@MainActor @Test func snapshotListsRunningAgentsBlockedFromTheLocalNetwork() async {
+    let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codex: .enabled]
+    let files: [String: String] = [
+        "/Users/x/.config/ember/claude-producer.link.json": #"{"ok":false,"no_route":true}"#,
+        "/Users/x/.config/ember/codex-producer.link.json": #"{"ok":true,"no_route":false}"#,
+    ]
+    let svc = ProducerInstallService(sm: sm, runner: runner(stuck: []),
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { _ in true }, readFile: { files[$0].map { Data($0.utf8) } }, uid: 501)
+    let snap = await svc.snapshot()
+    #expect(snap.localNetworkBlocked == [.claude])
+}
+
+@MainActor @Test func aStoppedAgentIsNotReportedAsBlocked() async {
+    // The file outlives the helper; only a running agent's state matters.
+    let sm = FakeSMAppService(); sm.statuses = [heartbeat: .notRegistered]
+    let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { _ in true }, readFile: { _ in Data(#"{"ok":false,"no_route":true}"#.utf8) }, uid: 501)
+    let snap = await svc.snapshot()
+    #expect(snap.localNetworkBlocked.isEmpty)
 }
 
 @Test func recheckRunsOnlyAfterAnUpdateReRegisteredSomething() {
