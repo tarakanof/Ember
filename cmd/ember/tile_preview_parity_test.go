@@ -107,6 +107,9 @@ func weatherQuery(c WeatherConfig) url.Values {
 		"air_tile":       {strconv.FormatBool(c.AirTileEnabled())},
 		"forecast_hours": {strconv.Itoa(c.ForecastHours)},
 		"units":          {c.Units},
+		"moon_phase":     {strconv.FormatBool(c.MoonPhaseEnabled())},
+		"lat":            {strconv.FormatFloat(c.Latitude, 'f', -1, 64)},
+		"lon":            {strconv.FormatFloat(c.Longitude, 'f', -1, 64)},
 	}
 }
 
@@ -174,6 +177,61 @@ func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
 				t.Errorf("device overlay = %v, want %q", got, render.OverlayRain)
 			}
 		})
+	}
+}
+
+// The Settings pane previews a draft before its autosave lands, so the moon
+// must follow the draft's moon_phase/lat/lon, not the saved config: a preview
+// from an app whose saved config differs must still equal the payload an app
+// saved with the draft pushes. A bad coordinate pair falls back to the saved
+// location.
+func TestWeatherPreviewMoonFollowsDraft(t *testing.T) {
+	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
+	obs := weatherObservation{Condition: render.WeatherClear, TempC: 3, Hourly: arc(24), FetchedAt: night}
+	london := func(c *WeatherConfig) { c.Latitude, c.Longitude = 51.5, -0.1 }
+	noMoon := func(c *WeatherConfig) { london(c); c.MoonPhase = boolPtr(false) }
+	noLocation := func(c *WeatherConfig) {}
+
+	cases := []struct {
+		name         string
+		saved, draft func(*WeatherConfig)
+	}{
+		{"moon toggled on", noMoon, london},
+		{"moon toggled off", london, noMoon},
+		{"location typed", noLocation, london},
+		{"location cleared", london, noLocation},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want, pub := weatherParityApp(t, tc.draft, obs)
+			payload := pushedTiles(t, want, pub, night)["ember-weather"]
+			stale, _ := weatherParityApp(t, tc.saved, obs)
+			preview := stale.weatherPreview(weatherQuery(want.cfg.Load().Weather), night)
+			assertFrameMatchesPayload(t, "weather", previewCard(t, preview, "weather"), payload)
+		})
+	}
+
+	// Out-of-range, unparsable or half-sent pairs keep the saved location.
+	saved, _ := weatherParityApp(t, london, obs)
+	base := saved.weatherPreview(weatherQuery(saved.cfg.Load().Weather), night)
+	for _, bad := range []url.Values{
+		{"lat": {"91"}, "lon": {"0"}},
+		{"lat": {"10"}, "lon": {"-181"}},
+		{"lat": {"NaN"}, "lon": {"0"}},
+		{"lat": {"abc"}, "lon": {"1"}},
+		{"lat": {"0"}},
+		{},
+	} {
+		q := weatherQuery(saved.cfg.Load().Weather)
+		q.Del("lat")
+		q.Del("lon")
+		for k, v := range bad {
+			q[k] = v
+		}
+		got := saved.weatherPreview(q, night)
+		if !slicesEqualStr(previewCard(t, got, "weather"), previewCard(t, base, "weather")) {
+			t.Errorf("lat/lon %v: preview must fall back to the saved location", bad)
+		}
 	}
 }
 

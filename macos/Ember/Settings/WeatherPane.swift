@@ -220,8 +220,8 @@ struct WeatherPane: View {
 
     /// Always asks for every tile: the toggles dim the panels here instead of
     /// removing them, so each option stays visible.
-    private var previewDraft: WeatherConfig {
-        var draft = model.draft
+    private var previewDraft: WeatherPreviewDraft {
+        var draft = WeatherPreviewDraft(model.draft)
         draft.rotateInApps = true
         draft.forecastTile = true
         draft.airTile = true

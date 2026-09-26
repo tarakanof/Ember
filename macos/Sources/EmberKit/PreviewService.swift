@@ -29,6 +29,47 @@ public struct DraftDisplay: Sendable, Equatable {
     }
 }
 
+/// The weather config fields that change the Weather-tab preview, mapped 1:1
+/// to GET /v1/weather/preview query params. Moon phase and location are here
+/// because the pane previews a draft before its autosave lands, so the server
+/// can't read them from the saved config. Fields that don't change the frames
+/// (popups, location name, payload-only native icons and overlay) are left
+/// out, so editing them doesn't refetch the preview.
+public struct WeatherPreviewDraft: Sendable, Equatable {
+    public var rotateInApps: Bool
+    public var forecastTile: Bool
+    public var airTile: Bool
+    public var forecastHours: Int
+    public var units: String
+    public var moonPhase: Bool
+    public var latitude: Double
+    public var longitude: Double
+
+    public init(_ cfg: WeatherConfig) {
+        rotateInApps = cfg.rotateInApps
+        forecastTile = cfg.forecastTile
+        airTile = cfg.airTile
+        forecastHours = cfg.forecastHours
+        units = cfg.units
+        moonPhase = cfg.moonPhase
+        latitude = cfg.latitude
+        longitude = cfg.longitude
+    }
+
+    var queryItems: [URLQueryItem] {
+        [
+            URLQueryItem(name: "rotate_in_apps", value: rotateInApps ? "true" : "false"),
+            URLQueryItem(name: "forecast_tile", value: forecastTile ? "true" : "false"),
+            URLQueryItem(name: "air_tile", value: airTile ? "true" : "false"),
+            URLQueryItem(name: "forecast_hours", value: String(forecastHours)),
+            URLQueryItem(name: "units", value: units),
+            URLQueryItem(name: "moon_phase", value: moonPhase ? "true" : "false"),
+            URLQueryItem(name: "lat", value: String(latitude)),
+            URLQueryItem(name: "lon", value: String(longitude)),
+        ]
+    }
+}
+
 public struct PreviewService: Sendable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
@@ -36,16 +77,10 @@ public struct PreviewService: Sendable {
         try await client.get("/v1/preview", query: draft.queryItems)
     }
 
-    /// Weather-tab preview: GET /v1/weather/preview with the draft weather
-    /// config's display-relevant fields. Same response shape as /v1/preview.
-    public func fetchWeatherPreview(_ cfg: WeatherConfig) async throws -> PreviewResponse {
-        try await client.get("/v1/weather/preview", query: [
-            URLQueryItem(name: "rotate_in_apps", value: cfg.rotateInApps ? "true" : "false"),
-            URLQueryItem(name: "forecast_tile", value: cfg.forecastTile ? "true" : "false"),
-            URLQueryItem(name: "air_tile", value: cfg.airTile ? "true" : "false"),
-            URLQueryItem(name: "forecast_hours", value: String(cfg.forecastHours)),
-            URLQueryItem(name: "units", value: cfg.units),
-        ])
+    /// Weather-tab preview: GET /v1/weather/preview with the draft's
+    /// display-relevant fields. Same response shape as /v1/preview.
+    public func fetchWeatherPreview(_ draft: WeatherPreviewDraft) async throws -> PreviewResponse {
+        try await client.get("/v1/weather/preview", query: draft.queryItems)
     }
 
     /// Pomodoro-tab preview: GET /v1/pomodoro/preview with the draft config's
