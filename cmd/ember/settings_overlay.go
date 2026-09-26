@@ -57,6 +57,37 @@ type settingsOverlay struct {
 	all    []interface{ reapply() }
 }
 
+// appSettings is the App's overlay with every registered setting. The field
+// order below is the reapply order.
+type appSettings struct {
+	*settingsOverlay
+	usage   *setting[usageConfigDTO]
+	display *setting[displayConfigDTO]
+	quiet   *setting[quietConfigDTO]
+}
+
+// newAppSettings wires the overlay to a's live config and settings store and
+// registers each feature.
+func newAppSettings(a *App) appSettings {
+	o := &settingsOverlay{
+		update: a.tryUpdateConfig,
+		load:   a.cfg.Load,
+		kv: func() settingsKV {
+			if a.store == nil { // a typed nil would slip past a nil-interface check
+				return nil
+			}
+			return a.store
+		},
+		logger: a.logger,
+	}
+	return appSettings{
+		settingsOverlay: o,
+		usage:           register(o, a.usageSettingSpec()),
+		display:         register(o, displaySettingSpec()),
+		quiet:           register(o, quietSettingSpec()),
+	}
+}
+
 // register binds spec to o and adds it to the reapply order.
 func register[D any](o *settingsOverlay, spec settingSpec[D]) *setting[D] {
 	s := &setting[D]{o: o, spec: spec}

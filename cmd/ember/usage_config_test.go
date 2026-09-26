@@ -49,15 +49,19 @@ func TestUsageConfigThresholdRoundtrip(t *testing.T) {
 		t.Fatalf("threshold not persisted: %q ok=%v", v, ok)
 	}
 
-	// PUT an out-of-range value; the persisted blob must store the clamped
-	// value (100), not the raw PUT value (150).
-	pw2 := httptest.NewRecorder()
-	pr2 := httptest.NewRequest("PUT", "/v1/usage/config", strings.NewReader(`{"usage_threshold_pct":150}`))
-	a.handleUsageConfigPut(pw2, pr2)
-	if pw2.Code != http.StatusOK || !strings.Contains(pw2.Body.String(), `"usage_threshold_pct":100`) {
-		t.Fatalf("PUT clamp response: code=%d body=%s", pw2.Code, pw2.Body.String())
+	// An out-of-range value is rejected like every other settings PUT (it
+	// used to be clamped silently); the live and persisted value stay 75.
+	for _, bad := range []string{`{"usage_threshold_pct":150}`, `{"usage_threshold_pct":-1}`} {
+		pw2 := httptest.NewRecorder()
+		a.handleUsageConfigPut(pw2, httptest.NewRequest("PUT", "/v1/usage/config", strings.NewReader(bad)))
+		if pw2.Code != http.StatusBadRequest {
+			t.Fatalf("PUT %s: code=%d body=%s, want 400", bad, pw2.Code, pw2.Body.String())
+		}
 	}
-	if v, ok, _ := a.store.GetSetting(usageSettingsKey); !ok || !strings.Contains(v, `"usage_threshold_pct":100`) {
-		t.Fatalf("clamped threshold not persisted (got raw value): %q ok=%v", v, ok)
+	if got := a.cfg.Load().usageThresholdPct(); got != 75 {
+		t.Fatalf("rejected PUT changed the live threshold to %d", got)
+	}
+	if v, ok, _ := a.store.GetSetting(usageSettingsKey); !ok || !strings.Contains(v, `"usage_threshold_pct":75`) {
+		t.Fatalf("rejected PUT changed the persisted blob: %q ok=%v", v, ok)
 	}
 }

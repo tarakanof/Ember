@@ -59,13 +59,13 @@ func TestDisplayConfigPersistence(t *testing.T) {
 		t.Fatalf("display settings not persisted: %q ok=%v", v, ok)
 	}
 
-	// Simulate restart: new App over the same store, then loadPersistedDisplaySettings.
+	// Simulate restart: new App over the same store, then re-apply stored settings.
 	a2 := newTestAppWithStore(t)
 	// Manually inject stored value to a2's store so we can test the load.
 	if err := a2.store.PutSetting(displaySettingsKey, `{"idle_hide_minutes":3,"attention_hold_seconds":60,"attention_chime":true}`); err != nil {
 		t.Fatal(err)
 	}
-	a2.loadPersistedDisplaySettings()
+	a2.settings.reapply()
 	cfg2 := a2.cfg.Load()
 	if cfg2.Display.IdleRestoreSeconds != 180 || cfg2.Display.AckTimeoutSeconds != 60 || !cfg2.Display.AttentionChime {
 		t.Fatalf("persisted settings not applied on load: %+v", cfg2.Display)
@@ -77,9 +77,33 @@ func TestDisplayConfigPersistence(t *testing.T) {
 	if err := a3.store.PutSetting(displaySettingsKey, `{"idle_hide_minutes":999,"attention_hold_seconds":5}`); err != nil {
 		t.Fatal(err)
 	}
-	a3.loadPersistedDisplaySettings()
+	a3.settings.reapply()
 	if a3.cfg.Load().Display.AckTimeoutSeconds != baseline {
 		t.Fatalf("invalid persisted settings should not change baseline; got %d want %d",
 			a3.cfg.Load().Display.AckTimeoutSeconds, baseline)
+	}
+}
+
+// A partial PUT changes only the fields it names (merge semantics, #144).
+// Before the settings overlay, the handler decoded into a zero DTO, so the
+// omitted attention_hold_seconds became 0 and failed validation with a 400.
+func TestDisplayConfigPartialPutKeepsOmittedFields(t *testing.T) {
+	a := newTestAppWithStore(t)
+	full := httptest.NewRecorder()
+	a.handleDisplayConfigPut(full, httptest.NewRequest("PUT", "/v1/display/config",
+		strings.NewReader(`{"idle_hide_minutes":4,"attention_hold_seconds":45,"attention_chime":true}`)))
+	if full.Code != 200 {
+		t.Fatalf("full PUT = %d body=%s", full.Code, full.Body)
+	}
+
+	pw := httptest.NewRecorder()
+	a.handleDisplayConfigPut(pw, httptest.NewRequest("PUT", "/v1/display/config",
+		strings.NewReader(`{"attention_chime":false}`)))
+	if pw.Code != 200 {
+		t.Fatalf("partial PUT = %d body=%s", pw.Code, pw.Body)
+	}
+	d := a.cfg.Load().Display
+	if d.IdleRestoreSeconds != 240 || d.AckTimeoutSeconds != 45 || d.AttentionChime {
+		t.Fatalf("partial PUT must only flip attention_chime: %+v", d)
 	}
 }

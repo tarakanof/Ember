@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -9,7 +10,7 @@ import (
 
 // TestUpdateConfigConcurrentPUTsBothSurvive drives two goroutines that each
 // repeatedly PUT a different config section (display, quiet hours) via the
-// HTTP appliers, while a third goroutine polls the live config. Each applier
+// settings overlay, while a third goroutine polls the live config. Each applier
 // does an unsynchronized read-copy-write on the shared atomic.Pointer[Config]
 // (cur := *a.cfg.Load(); cur.X = ...; a.cfg.Store(&cur)): if goroutine B reads
 // its copy before goroutine A's store lands, B's own store can silently
@@ -26,6 +27,9 @@ func TestUpdateConfigConcurrentPUTsBothSurvive(t *testing.T) {
 	displayTarget := displayConfigDTO{IdleHideMinutes: 5, AttentionHoldSeconds: 45, AttentionChime: true}
 	quietTarget := quietConfigDTO{Enabled: true, Start: "23:00", End: "07:00"}
 
+	displayBody, _ := json.Marshal(displayTarget)
+	quietBody, _ := json.Marshal(quietTarget)
+
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
 	wg.Add(2)
@@ -33,13 +37,13 @@ func TestUpdateConfigConcurrentPUTsBothSurvive(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			a.applyDisplaySettings(displayTarget)
+			_, _ = a.settings.display.put(displayBody)
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iterations; i++ {
-			a.applyQuietSettings(quietTarget)
+			_, _ = a.settings.quiet.put(quietBody)
 		}
 	}()
 

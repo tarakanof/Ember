@@ -143,14 +143,16 @@ func TestQuietDTODefaultsAndApply(t *testing.T) {
 	a := newTestAppWithStore(t)
 
 	t.Run("default DTO shows disabled with 22:00-08:00 window", func(t *testing.T) {
-		d := a.quietDTO()
+		d := a.settings.quiet.get()
 		if d.Enabled || d.Start != "22:00" || d.End != "08:00" {
 			t.Fatalf("default DTO = %+v, want disabled 22:00-08:00", d)
 		}
 	})
 
-	t.Run("applyQuietSettings updates live config", func(t *testing.T) {
-		a.applyQuietSettings(quietConfigDTO{Enabled: true, Start: "23:00", End: "07:00"})
+	t.Run("put updates live config", func(t *testing.T) {
+		if _, err := a.settings.quiet.put([]byte(`{"enabled":true,"start":"23:00","end":"07:00"}`)); err != nil {
+			t.Fatal(err)
+		}
 		q := a.cfg.Load().QuietHours
 		if !q.Enabled || q.Start != "23:00" || q.End != "07:00" {
 			t.Fatalf("applied config = %+v", q)
@@ -222,12 +224,12 @@ func TestQuietConfigPersistence(t *testing.T) {
 		t.Fatalf("quiet settings not persisted: %q ok=%v", v, ok)
 	}
 
-	// Simulate restart: new App over a fresh store, inject stored value, loadPersistedQuietSettings.
+	// Simulate restart: new App over a fresh store, inject stored value, re-apply.
 	a2 := newTestAppWithStore(t)
 	if err := a2.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"23:00","end":"07:00"}`); err != nil {
 		t.Fatal(err)
 	}
-	a2.loadPersistedQuietSettings()
+	a2.settings.reapply()
 	cfg2 := a2.cfg.Load()
 	if !cfg2.QuietHours.Enabled || cfg2.QuietHours.Start != "23:00" || cfg2.QuietHours.End != "07:00" {
 		t.Fatalf("persisted settings not applied on load: %+v", cfg2.QuietHours)
@@ -239,7 +241,7 @@ func TestQuietConfigPersistence(t *testing.T) {
 	if err := a3.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"23:00"}`); err != nil {
 		t.Fatal(err)
 	}
-	a3.loadPersistedQuietSettings()
+	a3.settings.reapply()
 	cfg3 := a3.cfg.Load()
 	if cfg3.QuietHours.End != "08:00" {
 		t.Fatalf("legacy blob missing 'end' should keep default 08:00, got %q", cfg3.QuietHours.End)
@@ -251,7 +253,7 @@ func TestQuietConfigPersistence(t *testing.T) {
 	if err := a4.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"25:00","end":"07:00"}`); err != nil {
 		t.Fatal(err)
 	}
-	a4.loadPersistedQuietSettings()
+	a4.settings.reapply()
 	if a4.cfg.Load().QuietHours.Start != baseline {
 		t.Fatalf("invalid persisted settings should not change baseline; got %q want %q",
 			a4.cfg.Load().QuietHours.Start, baseline)

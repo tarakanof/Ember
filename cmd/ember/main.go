@@ -105,9 +105,7 @@ func main() {
 	if err := app.initMeetings(cfg); err != nil {
 		logger.Warn("meetings store init failed; config will not persist across restarts", "err", err)
 	}
-	app.loadPersistedUsageSettings()   // runtime usage-widget toggles over the file baseline
-	app.loadPersistedDisplaySettings() // runtime display config overrides over the file baseline
-	app.loadPersistedQuietSettings()   // quiet-hours override over the file baseline
+	app.settings.reapply() // runtime settings overrides over the file baseline
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}

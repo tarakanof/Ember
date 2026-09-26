@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 )
@@ -10,7 +9,8 @@ const displaySettingsKey = "display_json"
 
 // displayConfigDTO is the runtime-editable slice of DisplayConfig
 // (GET/PUT /v1/display/config). Values are EFFECTIVE: config.json is the
-// baseline, the store override (this DTO) wins after first PUT.
+// baseline, the store override (this DTO) wins after first PUT; a PUT merges
+// (omitted fields keep their value, see settings_overlay.go).
 type displayConfigDTO struct {
 	IdleHideMinutes      int  `json:"idle_hide_minutes"`
 	AttentionHoldSeconds int  `json:"attention_hold_seconds"`
@@ -27,72 +27,39 @@ func (d displayConfigDTO) validate() error {
 	return nil
 }
 
-// displayDTO converts the live config into the runtime DTO.
-// IdleRestoreSeconds is integer-divided by 60; a file-baseline like 90s
-// rounds down to 1 minute — acceptable since the DTO only allows whole minutes.
-func (a *App) displayDTO() displayConfigDTO {
-	c := a.cfg.Load()
-	return displayConfigDTO{
-		IdleHideMinutes:      c.Display.IdleRestoreSeconds / 60,
-		AttentionHoldSeconds: c.Display.AckTimeoutSeconds,
-		AttentionChime:       c.Display.AttentionChime,
-	}
-}
-
-// applyDisplaySettings swaps the display knobs into the live config and
-// persists them to the store so they survive restarts. The coordinator reads
-// these fields live, so the change takes effect on the next reconcile tick.
-func (a *App) applyDisplaySettings(dto displayConfigDTO) {
-	a.updateConfig(func(cur *Config) {
-		cur.Display.IdleRestoreSeconds = dto.IdleHideMinutes * 60
-		cur.Display.AckTimeoutSeconds = dto.AttentionHoldSeconds
-		cur.Display.AttentionChime = dto.AttentionChime
-	})
-	if a.store != nil {
-		if blob, err := json.Marshal(dto); err == nil {
-			if err := a.store.PutSetting(displaySettingsKey, string(blob)); err != nil {
-				a.logger.Warn("display settings persist failed", "err", err)
+// displaySettingSpec registers the display knobs with the settings overlay.
+// IdleRestoreSeconds is integer-divided by 60; a file baseline like 90s rounds
+// down to 1 minute, acceptable since the DTO only allows whole minutes. The
+// coordinator reads these fields live, so a change takes effect on the next
+// reconcile tick.
+func displaySettingSpec() settingSpec[displayConfigDTO] {
+	return settingSpec[displayConfigDTO]{
+		key: displaySettingsKey,
+		view: func(c Config) displayConfigDTO {
+			return displayConfigDTO{
+				IdleHideMinutes:      c.Display.IdleRestoreSeconds / 60,
+				AttentionHoldSeconds: c.Display.AckTimeoutSeconds,
+				AttentionChime:       c.Display.AttentionChime,
 			}
-		}
+		},
+		apply: func(c *Config, d displayConfigDTO) error {
+			if err := d.validate(); err != nil {
+				return err
+			}
+			c.Display.IdleRestoreSeconds = d.IdleHideMinutes * 60
+			c.Display.AckTimeoutSeconds = d.AttentionHoldSeconds
+			c.Display.AttentionChime = d.AttentionChime
+			return nil
+		},
 	}
-}
-
-// loadPersistedDisplaySettings re-applies any previously PUT display config
-// from the store over the current (file-baseline) config. Called at startup and
-// after POST /admin/reload to prevent a reload from clobbering the store override.
-func (a *App) loadPersistedDisplaySettings() {
-	if a.store == nil {
-		return
-	}
-	blob, ok, err := a.store.GetSetting(displaySettingsKey)
-	if err != nil || !ok {
-		return
-	}
-	var dto displayConfigDTO
-	if err := json.Unmarshal([]byte(blob), &dto); err != nil {
-		a.logger.Warn("display persisted settings parse failed", "err", err)
-		return
-	}
-	if err := dto.validate(); err != nil {
-		a.logger.Warn("display persisted settings invalid; ignoring", "err", err)
-		return
-	}
-	a.applyDisplaySettings(dto)
 }
 
 func (a *App) handleDisplayConfigGet(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.displayDTO())
+	serveSettingGet(w, a.settings.display)
 }
 
 func (a *App) handleDisplayConfigPut(w http.ResponseWriter, r *http.Request) {
-	var dto displayConfigDTO
-	if !a.decodeOrReject(w, r, &dto, false) {
-		return
+	if d, ok := serveSettingPut(a, w, r, a.settings.display); ok {
+		writeJSON(w, http.StatusOK, d)
 	}
-	if err := dto.validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	a.applyDisplaySettings(dto)
-	writeJSON(w, http.StatusOK, a.displayDTO())
 }

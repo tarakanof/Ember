@@ -69,6 +69,10 @@ type App struct {
 
 	statsCache statsCache // last GET /v1/pomodoro/stats payload
 
+	// settings is the runtime-settings overlay: every menu-editable config
+	// slice, merged over the config.json baseline and persisted to store.
+	settings appSettings
+
 	appsMu     sync.Mutex      // guards hiddenApps
 	hiddenApps map[string]bool // tool names hidden from the device display
 
@@ -161,6 +165,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
 	a.sessions = a.newSessionRegistry(realClock{}.Now)
+	a.settings = newAppSettings(a)
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	if hp, ok := publisher.(*HTTPPublisher); ok {
