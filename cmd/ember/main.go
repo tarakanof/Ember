@@ -60,13 +60,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	publisher, err := NewHTTPPublisher()
-	if err != nil {
-		logger.Error("create publisher failed", "err", err)
-		os.Exit(1)
-	}
-
-	app := NewApp(cfg, publisher, logger)
+	app := NewApp(cfg, nil, logger)
 	// The dashboard's "update available" badge looks up the latest awtrix-ng
 	// release on GitHub; EMBER_FIRMWARE_CHECK=0 keeps the server offline.
 	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) {

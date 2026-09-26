@@ -51,18 +51,7 @@ func validateDeviceDisplay(m map[string]any) error {
 }
 
 func (a *App) handleDeviceDisplayGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawDisplay)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status != http.StatusOK {
-		writeDeviceError(w, status, body)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(body)
+	a.proxyRead(w, r, (*awtrix.Client).RawDisplay)
 }
 
 func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
@@ -75,16 +64,7 @@ func (a *App) handleDeviceDisplayPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(m)
-	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPatchDisplay, payload))
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status < 200 || status >= 300 {
-		writeDeviceError(w, status, reply)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
+	a.proxyAction(w, r, withBody((*awtrix.Client).RawPatchDisplay, payload))
 }
 
 // deviceAppsPutBody is the only shape PUT /v1/device/apps accepts — it
@@ -97,18 +77,7 @@ type deviceAppsPutBody struct {
 }
 
 func (a *App) handleDeviceAppsGet(w http.ResponseWriter, r *http.Request) {
-	body, status, err := a.proxyToDevice(r.Context(), (*awtrix.Client).RawApps)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status != http.StatusOK {
-		writeDeviceError(w, status, body)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(body)
+	a.proxyRead(w, r, (*awtrix.Client).RawApps)
 }
 
 func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
@@ -117,14 +86,5 @@ func (a *App) handleDeviceAppsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, _ := json.Marshal(body)
-	reply, status, err := a.proxyToDevice(r.Context(), withBody((*awtrix.Client).RawPutAppOrder, payload))
-	if err != nil {
-		writeError(w, http.StatusBadGateway, err)
-		return
-	}
-	if status < 200 || status >= 300 {
-		writeDeviceError(w, status, reply)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
+	a.proxyAction(w, r, withBody((*awtrix.Client).RawPutAppOrder, payload))
 }

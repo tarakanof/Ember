@@ -270,8 +270,7 @@ func TestRateLimit_CountsUnauthorizedAttempts(t *testing.T) {
 	cfg.RateLimit.RefillPerSec = 0.5
 	cfg.applyDefaults()
 
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, discardLogger())
+	app := NewApp(cfg, nil, discardLogger())
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -314,8 +313,7 @@ func TestRateLimit_CountsUnauthorizedAdminAttempts(t *testing.T) {
 	cfg.RateLimit.RefillPerSec = 0.5
 	cfg.applyDefaults()
 
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, discardLogger())
+	app := NewApp(cfg, nil, discardLogger())
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -373,8 +371,7 @@ func TestRateLimit_DoesNotApplyToReads(t *testing.T) {
 	cfg.RateLimit.RefillPerSec = 0.5
 	cfg.applyDefaults()
 
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, discardLogger())
+	app := NewApp(cfg, nil, discardLogger())
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()

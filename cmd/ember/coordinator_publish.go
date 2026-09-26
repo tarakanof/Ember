@@ -3,31 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"net/http"
 	"time"
 
-	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/render"
-)
-
-// publishAttemptTimeout bounds ONE pushed-app write, and publishAttempts is how
-// many of them a frame gets before the coordinator gives up until the next tick.
-//
-// awtrix.timeout_seconds (10s by default) is the wrong budget here: it is the
-// ceiling for any device call, while a frame push is a ~2.4 KB PUT to a device
-// on the same LAN that answers in well under a second when the link is healthy
-// (measured: 0.04s empty-ish, 0.55-0.68s at 3 KB). A push that has not answered
-// in 2.5s has almost certainly been dropped, and every second spent waiting is a
-// second the coordinator goroutine — which owns every device write — is not
-// serving ticks, so its missed ticks turn into dropped state-change commands.
-//
-// Retrying inside the tick (rather than waiting a whole dwell for the next one)
-// is what keeps a lossy link from evicting the app: the device drops a pushed
-// app on its own lifetime, and it counts wallclock, not attempts.
-const (
-	publishAttemptTimeout = 2500 * time.Millisecond
-	publishAttempts       = 2
 )
 
 // pushApp writes one pushed app, retrying a lost attempt within its own tick.
@@ -41,28 +19,16 @@ func (c *coordinator) pushApp(name string, payload map[string]any) error {
 	})
 }
 
-// retryDevice runs one device call with pushApp's retry policy: up to
-// publishAttempts attempts of publishAttemptTimeout each, stopping early on
-// success, on an answer a retry can't change (see retryablePushErr), or when
-// ctx is done. Returns the last attempt's error.
+// retryDevice runs one device call with the clock's retry policy
+// (retryClockCall): publishAttempts attempts of publishAttemptTimeout each,
+// or of awtrix.timeout_seconds when that is shorter, counting every retry in
+// ember_publish_retries_total. Returns the last attempt's error.
 func (c *coordinator) retryDevice(ctx context.Context, op func(context.Context) error) error {
 	budget := publishAttemptTimeout
 	if t := time.Duration(c.loadCfg().AWTRIX.TimeoutSeconds) * time.Second; t > 0 && t < budget {
 		budget = t
 	}
-	var err error
-	for i := 0; i < publishAttempts; i++ {
-		if i > 0 {
-			c.metrics.incPublishRetry()
-		}
-		attemptCtx, cancel := context.WithTimeout(ctx, budget)
-		err = op(attemptCtx)
-		cancel()
-		if err == nil || !retryablePushErr(err) || ctx.Err() != nil {
-			return err
-		}
-	}
-	return err
+	return retryClockCall(ctx, budget, c.metrics.incPublishRetry, op)
 }
 
 // runCtx is the Run context, or Background before Run has started (tests that
@@ -72,21 +38,6 @@ func (c *coordinator) runCtx() context.Context {
 		return context.Background()
 	}
 	return c.ctx
-}
-
-// retryablePushErr reports whether a failed push is worth another attempt. A
-// transport failure (timeout, refused, reset) carries no status and is exactly
-// the lost-packet case retries exist for. A device that answered has decided:
-// only 5xx and 429 can change on their own — this clock watchdog-resets and
-// runs its HTTP server on the same task that drives the panel, so a 503 while
-// busy is transient. Any other 4xx (422 on a payload NG rejects, 413 on one too
-// large) will answer identically forever.
-func retryablePushErr(err error) bool {
-	var apiErr *awtrix.APIError
-	if !errors.As(err, &apiErr) {
-		return true
-	}
-	return apiErr.StatusCode >= 500 || apiErr.StatusCode == http.StatusTooManyRequests
 }
 
 // renewalDedupWindow returns how long an unchanged frame may be skipped before

@@ -20,7 +20,8 @@ type App struct {
 	cfgMu        sync.Mutex             // serializes cfg's read-copy-write; see updateConfig
 	configPath   string                 // resolved at startup; "" when running on defaults
 	configSource string                 // "flag" | "env" | "cwd" | "defaults"
-	publisher    Publisher
+	publisher    Publisher              // server-initiated writes, quiet-gated; the coordinator holds the same one
+	clock        *clockAccess           // every other clock call (menu proxy, probes, doctor); see clock_access.go
 	logger       *slog.Logger
 	listener     net.Listener // bound HTTP listener; captured at startup for doctor introspection
 	versionInfo  versionInfo  // computed once at startup; served by /version
@@ -147,6 +148,8 @@ type App struct {
 	bootPingMu sync.Mutex
 }
 
+// NewApp builds the App. A nil publisher means the real clock (the App's own
+// clockAccess); tests pass a fake Publisher instead.
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
 		publisher:      publisher,
@@ -164,16 +167,18 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.meetingsFetcher = newICSFetcher()
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
+	a.clock = newClockAccess(a.cfg.Load)
 	a.sessions = a.newSessionRegistry(realClock{}.Now)
 	a.settings = newAppSettings(a)
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
-	if hp, ok := publisher.(*HTTPPublisher); ok {
-		hp.app = a
+	if publisher == nil {
+		publisher = clockPublisher{a.clock}
 	}
-	// All device traffic flows through the quiet-hours gate; the raw publisher
-	// is never handed out past this point.
-	quiet := &quietPublisher{next: publisher, cfg: a.cfg.Load, now: time.Now}
+	// Every server-initiated write, and so every sound, goes through the
+	// quiet-hours gate: the ungated publisher is never stored or handed out.
+	// a.clock (menu proxy, probes) has no Publisher methods of its own.
+	quiet := &quietPublisher{Publisher: publisher, cfg: a.cfg.Load, now: time.Now}
 	a.publisher = quiet
 	a.coord = newCoordinator(cfg, a.cfg.Load, quiet, realClock{}, logger, a.metrics)
 	a.coord.snapshot = a.Snapshot

@@ -59,7 +59,7 @@ func TestReminderChimeStrippedDuringQuietHours(t *testing.T) {
 	pub := &recordingPublisher{}
 	// Re-wrap with a quiet gate whose window is always active.
 	app.publisher = &quietPublisher{
-		next: pub,
+		Publisher: pub,
 		cfg: func() *Config {
 			c := *app.cfg.Load()
 			c.QuietHours.Enabled = true

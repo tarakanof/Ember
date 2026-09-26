@@ -310,11 +310,11 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 	pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), clockProbeTimeout)
 	defer cancel()
 	dev := clockDeviceOut{CheckedAt: now}
-	body, status, err := a.proxyToDevice(pctx, (*awtrix.Client).RawDevice)
-	if err == nil && status == http.StatusOK {
+	reply, err := a.clock.raw(pctx, (*awtrix.Client).RawDevice)
+	if err == nil && reply.Status == http.StatusOK {
 		dev.Reachable = true
 		var raw clockDeviceWire
-		if json.Unmarshal(body, &raw) == nil {
+		if json.Unmarshal(reply.Body, &raw) == nil {
 			dev.Firmware = optString(raw.Version)
 			dev.CurrentApp = optString(raw.CurrentApp)
 			dev.UptimeSec = raw.Uptime

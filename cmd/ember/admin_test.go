@@ -58,8 +58,7 @@ func TestVersionHandler_PublicAndJSON(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -94,8 +93,7 @@ func TestVersionHandler_ReportsInjectedRelease(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	// Stands in for a release build's -ldflags "-X main.version=0.22.0".
 	// Bare semver, no leading "v": docker-publish.yml passes metadata-action's
 	// {{version}}, which strips it, so that is what a released image reports.
@@ -114,8 +112,7 @@ func TestVersionHandler_ReportsDevWithoutInjectedRelease(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -148,8 +145,7 @@ func TestAdminDoctor_NoTokenFailsClosed(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.Auth.StatusToken = "" // unset
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -169,8 +165,7 @@ func TestAdminDoctor_WrongTokenIs401(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.Auth.StatusToken = "right"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -200,8 +195,7 @@ func TestAdminDoctor_OKReturnsResult(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = awtrix.URL
 	cfg.Auth.StatusToken = "tok"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	app.configPath = "/tmp/x.json"
 	app.configSource = "flag"
 	// Wire a listener so http_listening reports OK rather than Skipped.
@@ -254,8 +248,7 @@ func TestAdminDoctor_FailReturns503(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = strings.TrimSuffix(dead, "/healthz")
 	cfg.Auth.StatusToken = "tok"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
@@ -298,8 +291,7 @@ func newAppForReload(t *testing.T, cfgBody string) (*App, string) {
 		t.Fatal(err)
 	}
 	cfg.Auth.StatusToken = "tok"
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	app.configPath = path
 	app.configSource = "flag"
 	return app, path
@@ -469,8 +461,7 @@ func TestAdminReload_FromDefaults412(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.Auth.StatusToken = "tok"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	app.configPath = ""
 	app.configSource = "defaults"
 
@@ -520,8 +511,7 @@ func TestAdminRequireAuth_LogsInfoOnEmptyToken(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.Auth.StatusToken = ""
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, captureLogger(&buf))
+	app := NewApp(cfg, nil, captureLogger(&buf))
 
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()

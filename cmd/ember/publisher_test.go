@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {
+func TestClockPublisher_BaseURLReloadable(t *testing.T) {
 	hits1, hits2 := 0, 0
 	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits1++
@@ -26,12 +26,8 @@ func TestHTTPPublisher_BaseURLReloadable(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = srv1.URL
 	cfg.applyDefaults()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pub, err := NewHTTPPublisher() // app filled below
-	if err != nil {
-		t.Fatal(err)
-	}
-	app := NewApp(cfg, pub, logger)
-	pub.app = app
+	app := NewApp(cfg, nil, logger)
+	pub := clockPublisher{app.clock}
 
 	if err := pub.Notify(context.Background(), map[string]any{"text": "x"}); err != nil {
 		t.Fatalf("publish 1: %v", err)

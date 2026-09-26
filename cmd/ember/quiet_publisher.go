@@ -4,8 +4,6 @@ import (
 	"context"
 	"slices"
 	"time"
-
-	"github.com/tarakanof/ember/internal/awtrix"
 )
 
 // soundKeys are awtrix-ng's three notification sound fields (AWTRIX3 spelled the
@@ -22,9 +20,9 @@ var soundKeys = []string{"sound", "soundRtttl", "soundLoop"}
 // now must return wall-clock local time (time.Now in production); quietActive
 // reads Hour()/Minute() directly, no zone conversion.
 type quietPublisher struct {
-	next Publisher
-	cfg  func() *Config
-	now  func() time.Time
+	Publisher // every other method passes through unchanged
+	cfg       func() *Config
+	now       func() time.Time
 }
 
 func (q *quietPublisher) quiet() bool {
@@ -43,44 +41,12 @@ func (q *quietPublisher) Notify(ctx context.Context, payload map[string]any) err
 		}
 		payload = stripped
 	}
-	return q.next.Notify(ctx, payload)
+	return q.Publisher.Notify(ctx, payload)
 }
 
 func (q *quietPublisher) PlayRTTTL(ctx context.Context, rtttl string) error {
 	if q.quiet() {
 		return nil
 	}
-	return q.next.PlayRTTTL(ctx, rtttl)
-}
-
-func (q *quietPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
-	return q.next.CustomApp(ctx, name, payload)
-}
-func (q *quietPublisher) ClearApp(ctx context.Context, name string) error {
-	return q.next.ClearApp(ctx, name)
-}
-func (q *quietPublisher) ListApps(ctx context.Context) ([]string, error) { return q.next.ListApps(ctx) }
-func (q *quietPublisher) DismissNotifyByName(ctx context.Context, name string) error {
-	return q.next.DismissNotifyByName(ctx, name)
-}
-func (q *quietPublisher) Indicator(ctx context.Context, index int, payload map[string]any) error {
-	return q.next.Indicator(ctx, index, payload)
-}
-func (q *quietPublisher) ClearIndicator(ctx context.Context, index int) error {
-	return q.next.ClearIndicator(ctx, index)
-}
-func (q *quietPublisher) Settings(ctx context.Context, payload map[string]any) error {
-	return q.next.Settings(ctx, payload)
-}
-func (q *quietPublisher) ReadSettings(ctx context.Context) (map[string]any, error) {
-	return q.next.ReadSettings(ctx)
-}
-func (q *quietPublisher) Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error {
-	return q.next.Switch(ctx, name, mode)
-}
-func (q *quietPublisher) ListIcons(ctx context.Context) ([]string, error) {
-	return q.next.ListIcons(ctx)
-}
-func (q *quietPublisher) PutIcon(ctx context.Context, filename string, data []byte) error {
-	return q.next.PutIcon(ctx, filename, data)
+	return q.Publisher.PlayRTTTL(ctx, rtttl)
 }

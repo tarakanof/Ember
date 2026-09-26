@@ -167,8 +167,7 @@ func TestServeTLS_EndToEnd(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
-	pub, _ := NewHTTPPublisher()
-	app := NewApp(cfg, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	server := &http.Server{Handler: app.routes()}
 	t.Cleanup(func() { _ = server.Close() })

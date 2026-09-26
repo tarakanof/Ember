@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tarakanof/ember/internal/awtrix"
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
@@ -128,11 +127,10 @@ func (a *App) rediscoverClock(ctx context.Context) bool {
 
 	defer a.lastRediscoverAt.Store(time.Now().Unix())
 
-	cl := &http.Client{Timeout: 1500 * time.Millisecond}
 	cur := a.cfg.Load().AWTRIX.HTTPBaseURL
 	if cur != "" {
 		for i := 0; i < rediscoverProbeAttempts && ctx.Err() == nil; i++ {
-			if _, ok := discovery.Reachable(ctx, cl, cur); ok {
+			if a.clock.reachable(ctx, cur) {
 				a.lastRediscoverResult.Store("reachable")
 				return false
 			}
@@ -199,11 +197,6 @@ const rediscoverProbeAttempts = 2
 // hook (issue #73) will make recovery instant and let this relax again.
 const deviceWatchInterval = 30 * time.Second
 
-// deviceProbeTimeout bounds one GET /api/v1/device in the watch loop. Same
-// budget as the re-discovery reachability probe — the loop must never outlive
-// its own tick.
-const deviceProbeTimeout = 1500 * time.Millisecond
-
 // deviceProbe is one device-watch observation: whether the clock answered, the
 // uptime it reported, and when we read it.
 type deviceProbe struct {
@@ -243,11 +236,11 @@ func rebootDetected(last, cur deviceProbe) bool {
 // Any failure (no URL, timeout, non-2xx) reports an unreachable probe rather
 // than an error: the caller only needs the reachable/uptime pair.
 func (a *App) probeDevice(ctx context.Context) deviceProbe {
-	base := a.cfg.Load().AWTRIX.HTTPBaseURL
-	if base == "" {
+	cl, err := a.clock.client(callProbe)
+	if err != nil {
 		return deviceProbe{}
 	}
-	info, err := awtrix.NewClient(base, deviceProbeTimeout).DeviceInfo(ctx)
+	info, err := cl.DeviceInfo(ctx)
 	if err != nil {
 		return deviceProbe{}
 	}

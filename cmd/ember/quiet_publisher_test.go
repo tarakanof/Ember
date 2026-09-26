@@ -11,9 +11,9 @@ import (
 func quietTestPub(rec *recordingPublisher, enabled bool, hour int) *quietPublisher {
 	cfg := Config{QuietHours: QuietHoursConfig{Enabled: enabled, Start: "22:00", End: "08:00"}}
 	return &quietPublisher{
-		next: rec,
-		cfg:  func() *Config { return &cfg },
-		now:  func() time.Time { return time.Date(2026, 6, 11, hour, 0, 0, 0, time.UTC) },
+		Publisher: rec,
+		cfg:       func() *Config { return &cfg },
+		now:       func() time.Time { return time.Date(2026, 6, 11, hour, 0, 0, 0, time.UTC) },
 	}
 }
 

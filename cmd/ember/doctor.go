@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/tarakanof/ember/internal/awtrix"
-	"github.com/tarakanof/ember/internal/discovery"
 )
 
 // CheckStatus is one of "ok" | "warn" | "fail" | "skipped".
@@ -178,11 +177,10 @@ func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
 	if cfg == nil || cfg.AWTRIX.HTTPBaseURL == "" {
 		return CheckResult{Status: StatusFail, Detail: "awtrix.http_base_url empty"}
 	}
-	timeout := time.Duration(cfg.AWTRIX.TimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 2 * time.Second
+	cl, err := newClockAccess(func() *Config { return cfg }).client(callDoctor)
+	if err != nil {
+		return CheckResult{Status: StatusFail, Detail: "awtrix.http_base_url: " + err.Error()}
 	}
-	cl := awtrix.NewClient(cfg.AWTRIX.HTTPBaseURL, timeout)
 	url := cl.BaseURL() + awtrix.DevicePath
 	start := time.Now()
 	reply, err := cl.RawDevice(ctx)
@@ -319,10 +317,9 @@ func checkClock(ctx context.Context, app *App) CheckResult {
 	baseURL := app.cfg.Load().AWTRIX.HTTPBaseURL
 	source := app.deviceSource()
 
-	probeCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	probeCtx, cancel := context.WithTimeout(ctx, probeCallTimeout)
 	defer cancel()
-	cl := &http.Client{Timeout: 1500 * time.Millisecond}
-	_, reachable := discovery.Reachable(probeCtx, cl, baseURL)
+	reachable := app.clock.reachable(probeCtx, baseURL)
 
 	var lastAt *int64
 	if v := app.lastRediscoverAt.Load(); v != 0 {

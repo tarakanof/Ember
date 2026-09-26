@@ -242,9 +242,9 @@ func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
 	if !ok {
 		t.Fatalf("App.publisher = %T, want *quietPublisher", app.publisher)
 	}
-	rp, ok := qp.next.(*recordingPublisher)
+	rp, ok := qp.Publisher.(*recordingPublisher)
 	if !ok {
-		t.Fatalf("quiet gate wraps %T, want *recordingPublisher", qp.next)
+		t.Fatalf("quiet gate wraps %T, want *recordingPublisher", qp.Publisher)
 	}
 	if got := rp.DismissedNamesSnapshot(); len(got) != 1 || got[0] != notifyNameReminder {
 		t.Fatalf("middle press should dismiss %q once, got %v", notifyNameReminder, got)

@@ -139,7 +139,8 @@ When in doubt, write the spec, then point at it from the code's commit message. 
   - `sessions.go` — the App's adapter onto the session registry (`internal/sessions`: map, staleness, reaping, winner) and the legacy `/state` render
   - `server.go` — routing, middleware, auth, the JSON helpers
   - `status_http.go` — `/v1/status`, `/v1/clear`, `/v1/notify`
-  - `publisher.go` — the `Publisher` interface and `HTTPPublisher`
+  - `publisher.go` — the `Publisher` interface (the seam for server-initiated writes) and its real adapter, `clockPublisher` (built only by `NewApp`, always behind `quietPublisher`)
+  - `clock_access.go` — the clock-access module: URL rule, per-call-class timeouts, retry rule, error map, serialised `/api/v1/system` writes; the only `awtrix.NewClient` in `cmd/ember` (guarded by `clock_access_guard_test.go`). A new clock call goes through it, never a new client
   - `coordinator*.go` — the display coordinator, one file per concern
   - `coordinator_tiles.go` — the rotating-tile module: a new tile over existing inputs is one `tile` value in `tiles` (its view feeds both the push and the preview; never re-derive a tile in a preview handler); a new data source also adds fields to `tileInputs`, filled by `coordinator.tileInputs`
   - `settings_overlay.go` — merge/validate/persist/re-apply for every
