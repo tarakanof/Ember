@@ -55,6 +55,14 @@ final class StubURLProtocol: URLProtocol {
     }
 }
 
+/// A URLSession routed through StubURLProtocol, for code that takes a session
+/// rather than an APIClient (the clock probe talks to the device directly).
+func stubSession() -> URLSession {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [StubURLProtocol.self]
+    return URLSession(configuration: config)
+}
+
 /// Builds an APIClient routed through StubURLProtocol with a UNIQUE host, so the
 /// handler can't collide with concurrently-running tests.
 func stubbedClient(token: String? = nil,
