@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -94,75 +93,40 @@ func (d quietConfigDTO) validate() error {
 	return nil
 }
 
-// quietDTO converts the live config into the runtime DTO with the effective
-// (defaulted) window bounds, so clients always see concrete times.
-func (a *App) quietDTO() quietConfigDTO {
-	q := a.cfg.Load().QuietHours
-	d := quietConfigDTO{Enabled: q.Enabled, Start: q.Start, End: q.End}
-	if d.Start == "" {
-		d.Start = "22:00"
-	}
-	if d.End == "" {
-		d.End = "08:00"
-	}
-	return d
-}
-
-// applyQuietSettings swaps the window into the live config and persists it.
-// The quietPublisher reads quietHoursWindow() per publish, so the change
-// takes effect on the next sound.
-func (a *App) applyQuietSettings(dto quietConfigDTO) {
-	a.updateConfig(func(cur *Config) {
-		cur.QuietHours = QuietHoursConfig{Enabled: dto.Enabled, Start: dto.Start, End: dto.End}
-	})
-	if a.store != nil {
-		if blob, err := json.Marshal(dto); err == nil {
-			if err := a.store.PutSetting(quietSettingsKey, string(blob)); err != nil {
-				a.logger.Warn("quiet settings persist failed", "err", err)
+// quietSettingSpec registers the quiet-hours window with the settings
+// overlay. The view reports the effective (defaulted) bounds so clients always
+// see concrete times. The quietPublisher reads quietHoursWindow() per publish,
+// so a change takes effect on the next sound.
+func quietSettingSpec() settingSpec[quietConfigDTO] {
+	return settingSpec[quietConfigDTO]{
+		key: quietSettingsKey,
+		view: func(c Config) quietConfigDTO {
+			q := c.QuietHours
+			d := quietConfigDTO{Enabled: q.Enabled, Start: q.Start, End: q.End}
+			if d.Start == "" {
+				d.Start = "22:00"
 			}
-		}
+			if d.End == "" {
+				d.End = "08:00"
+			}
+			return d
+		},
+		apply: func(c *Config, d quietConfigDTO) error {
+			if err := d.validate(); err != nil {
+				return err
+			}
+			c.QuietHours = QuietHoursConfig{Enabled: d.Enabled, Start: d.Start, End: d.End}
+			return nil
+		},
 	}
-}
-
-// loadPersistedQuietSettings re-applies any previously PUT quiet config from
-// the store over the file baseline. Called at startup and after /admin/reload.
-func (a *App) loadPersistedQuietSettings() {
-	if a.store == nil {
-		return
-	}
-	blob, ok, err := a.store.GetSetting(quietSettingsKey)
-	if err != nil || !ok {
-		return
-	}
-	// Pre-seed from the live config so missing keys in a legacy blob (e.g.
-	// blobs written before a new field existed) keep their default values
-	// rather than unmarshalling as zero and silently disabling the feature
-	// (same schema-evolution guard as loadPersistedUsageSettings).
-	dto := a.quietDTO()
-	if err := json.Unmarshal([]byte(blob), &dto); err != nil {
-		a.logger.Warn("quiet persisted settings parse failed", "err", err)
-		return
-	}
-	if err := dto.validate(); err != nil {
-		a.logger.Warn("quiet persisted settings invalid; ignoring", "err", err)
-		return
-	}
-	a.applyQuietSettings(dto)
 }
 
 func (a *App) handleQuietConfigGet(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.quietDTO())
+	serveSettingGet(w, a.settings.quiet)
 }
 
 func (a *App) handleQuietConfigPut(w http.ResponseWriter, r *http.Request) {
-	dto := a.quietDTO() // pre-seed so a partial body only changes named fields
-	if !a.decodeOrReject(w, r, &dto, false) {
-		return
+	if d, ok := serveSettingPut(a, w, r, a.settings.quiet); ok {
+		writeJSON(w, http.StatusOK, d)
 	}
-	if err := dto.validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	a.applyQuietSettings(dto)
-	writeJSON(w, http.StatusOK, a.quietDTO())
 }

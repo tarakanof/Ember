@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 )
@@ -45,7 +44,7 @@ func (c MeetingsConfig) PopupLeadMins() int {
 
 // fillAbsent resolves nil optional fields to their concrete defaults WITHOUT
 // touching explicit values — false / popup_lead=0 always stick. Runs at file
-// load (applyDefaults) and on the runtime write path (applyMeetingsSettings)
+// load (applyDefaults) and on the runtime write path (meetingsSettingSpec)
 // so config snapshots marshal to concrete values, never nulls. Mirrors
 // WeatherConfig.fillAbsent.
 func (c *MeetingsConfig) fillAbsent() {
@@ -83,48 +82,26 @@ func validateMeetings(c MeetingsConfig) error {
 	return nil
 }
 
-// ---- config persistence (mirrors the Weather store pattern) ----
+// ---- runtime settings (see settings_overlay.go) ----
 
 const meetingsSettingsKey = "meetings_json"
 
-func (a *App) applyMeetingsSettings(cfg MeetingsConfig) error {
-	// This is the runtime write/persist path (menu PUT +
-	// loadPersistedMeetingsSettings). fillAbsent resolves only fields the
-	// payload omitted (e.g. a store blob written before a field existed) to
-	// their defaults; explicit false / popup_lead=0 always stick (mirrors
-	// applyWeatherSettings). Filling before persist also keeps the stored blob
-	// and the GET response free of JSON nulls.
-	cfg.fillAbsent()
-	if err := validateMeetings(cfg); err != nil {
-		return err
-	}
-	a.updateConfig(func(cur *Config) { cur.Meetings = cfg })
-	if a.store != nil {
-		if blob, err := json.Marshal(cfg); err == nil {
-			if err := a.store.PutSetting(meetingsSettingsKey, string(blob)); err != nil {
-				a.logger.Warn("meetings settings persist failed", "err", err)
+// meetingsSettingSpec registers the meetings config with the settings overlay.
+// As for weather, fillAbsent resolves only JSON nulls left after the merge;
+// explicit false / popup_lead=0 always stick.
+func (a *App) meetingsSettingSpec() settingSpec[MeetingsConfig] {
+	return settingSpec[MeetingsConfig]{
+		key:  meetingsSettingsKey,
+		view: func(c Config) MeetingsConfig { return c.Meetings },
+		apply: func(c *Config, m MeetingsConfig) error {
+			m.fillAbsent()
+			if err := validateMeetings(m); err != nil {
+				return err
 			}
-		}
-	}
-	a.nudgePomo()
-	return nil
-}
-
-func (a *App) loadPersistedMeetingsSettings() {
-	if a.store == nil {
-		return
-	}
-	blob, ok, err := a.store.GetSetting(meetingsSettingsKey)
-	if err != nil || !ok {
-		return
-	}
-	var cfg MeetingsConfig
-	if err := json.Unmarshal([]byte(blob), &cfg); err != nil {
-		a.logger.Warn("meetings persisted settings parse failed", "err", err)
-		return
-	}
-	if err := a.applyMeetingsSettings(cfg); err != nil {
-		a.logger.Warn("meetings persisted settings invalid, ignoring", "err", err)
+			c.Meetings = m
+			return nil
+		},
+		after: func(Config) { a.nudgePomo() },
 	}
 }
 

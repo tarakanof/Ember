@@ -142,6 +142,9 @@ When in doubt, write the spec, then point at it from the code's commit message. 
   - `publisher.go` — the `Publisher` interface and `HTTPPublisher`
   - `coordinator*.go` — the display coordinator, one file per concern
   - `coordinator_tiles.go` — the rotating-tile module: a new tile is one `tile` value in `tiles` (its view feeds both the push and the preview; never re-derive a tile in a preview handler)
+  - `settings_overlay.go` — merge/validate/persist/re-apply for every
+    runtime-editable setting; a new menu setting is one `settingSpec`
+    registered in `newAppSettings`, never another hand-written load/apply pair
 - A file past ~1200 lines is doing too much; split it the same way.
 
 ### HTTP servers

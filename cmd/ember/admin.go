@@ -283,24 +283,16 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			app.deviceAutoPicked.Store(false)
 		}
 		app.cfgMu.Unlock()
-		// Keep the Pomodoro engine in sync with the reloaded config and
-		// re-apply API-persisted settings so a reload doesn't revert them.
+		// Keep the Pomodoro engine in sync with the reloaded config; the
+		// persisted settings are re-applied below.
 		app.resyncPomodoroAfterReload()
-		// Likewise re-apply menu-persisted weather settings over the
-		// freshly reloaded file config.
-		app.loadPersistedWeatherSettings()
-		// And meetings settings (same pattern: menu edits must survive a reload).
-		app.loadPersistedMeetingsSettings()
 		// A new file URL must not beat the menu-chosen clock URL (Device tab).
 		// When the file URL is unchanged the running URL was kept above, and
 		// re-applying the override could revert a discovery swap away from it.
 		if fileURLChanged {
 			app.loadPersistedDeviceBaseURL()
 		}
-		app.loadPersistedUsageSettings()
-		// Likewise re-apply display config overrides so a reload doesn't revert them.
-		app.loadPersistedDisplaySettings()
-		app.loadPersistedQuietSettings()
+		app.settings.reapply()
 		// awtrix.boot_ping is a device-provisioning toggle, so a reload that
 		// flipped it has to reach the clock. Off the request path: it does
 		// device HTTP and the reply must not wait on an unreachable clock.

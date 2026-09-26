@@ -85,7 +85,8 @@ The aggregator and the only writer to the device.
   accepted tradeoff versus back-pressuring every producer. The three behavior knobs are runtime-editable via
   `GET/PUT /v1/display/config` using the standard **baseline + store-override**
   pattern (config.json baseline; SQLite `display_json` override wins, survives
-  restarts and `/admin/reload`) — same shape as weather/pomodoro/usage config.
+  restarts and `/admin/reload`) — one of the settings-overlay registrations
+  (see "Runtime settings overlay" below).
 - **Rotating tiles — one module** (`cmd/ember/coordinator_tiles.go`, #145).
   The standalone apps Ember owns (`ember-weather`, `ember-forecast`,
   `ember-air`, `ember-meet`) are one `tile` value each in `tiles`: app name,
@@ -371,7 +372,7 @@ three rotating tiles with the same change-and-staleness dedupe as the usage card
   temperature bars** (no icon/temp — those live on the conditions tile, so the
   two tiles read differently at a glance); the bars sit on the same hour grid as
   the strips (cols 8–31, `24/N` columns each), so hour *i* lines up across the
-  tiles and bar widths never alternate (`forecast_hours`, 6..24; bar height +
+  tiles and bar widths never alternate (`forecast_hours`, 1..24; bar height +
   colour = temperature). The bars stay a drawn bitmap rather than NG's native
   `barChart` (#109): `barChart` takes at most 16 values (24 h won't fit),
   spreads them over the chart area right of the icon column (col 9, or col 0
@@ -516,13 +517,39 @@ EventKit adapter (`EventKitReminderSource`, deliberately not MainActor so the
 EventKit callback queue doesn't trap), authorization, prefs in UserDefaults,
 and the App Nap assertion held while the scheduler runs.
 
-> **Shared store.** Weather config + hidden-apps + Pomodoro stats all live in the
-> one SQLite store. Opening it is hoisted into `ensureStore` (out of
-> `initPomodoro`) so weather config persists even when Pomodoro is disabled;
-> `/admin/reload` re-applies all persisted settings over the reloaded file
-> config. The clock URL is the exception: a reload keeps the running URL
+> **Shared store.** Runtime settings + hidden-apps + Pomodoro stats all live in
+> the one SQLite store, opened once at boot by `initPomodoro` (`ensureStore`,
+> path `pomodoro.db_path`) whether or not Pomodoro is enabled. The clock URL is
+> the exception to the settings overlay below: a reload keeps the running URL
 > (menu override or mDNS-discovered clock) unless the file's
 > `awtrix.http_base_url` itself changed, and even then a store override wins.
+
+### Runtime settings overlay (`settings_overlay.go`)
+
+Every menu-editable config slice — pomodoro (`settings_json`), weather
+(`weather_json`), meetings (`meetings_json`), usage (`usage_json`), display
+(`display_json`), quiet hours (`quiet_json`) — is one registration with the
+settings overlay: a `settingSpec[D]` giving its store key, `view` (effective
+`Config` → wire DTO), `apply` (DTO → config copy, validation included) and an
+optional `after` hook (engine update, re-render nudge, icon provisioning).
+The overlay owns the rest, identically for all of them:
+
+- **Merge.** A PUT body (or stored blob) must be a JSON object; its top-level
+  keys are laid over the JSON of the current effective value and decoded into
+  a fresh DTO. Omitted key = unchanged; a present key replaces the whole field
+  (objects/maps included).
+- **Validate + swap + persist atomically** under `cfgMu` (`tryUpdateConfig`):
+  an invalid result is a 400 and changes nothing; the persisted blob is the
+  normalised view, never the raw body.
+- **Re-apply** (`settings.reapply()`): at startup right after the store opens,
+  and after `/admin/reload` swaps in the new file baseline, every stored
+  override is laid over the baseline through the same merge — so a blob written
+  before a field existed keeps that field's current value.
+
+The clock URL (`device_base_url`) is not a registration: it's stored as a raw
+string, discovery swaps it in memory, and a reload re-applies it only when the
+file URL changed. Hidden apps (`display_hidden_apps`) are a set toggle, not a
+config overlay.
 
 ### Meetings — next-meeting countdown (`internal/meetings`, `cmd/ember/meetings*.go`)
 
@@ -589,7 +616,7 @@ the popup visual always shows).
 
 **Config and persistence.** `MeetingsConfig` (`enabled`, `tile_lead_minutes`,
 `popup_lead_minutes`, `chime`) is persisted to SQLite store key `meetings_json`
-via the same baseline + store-override pattern as weather/pomodoro/usage config.
+via the settings overlay (see "Runtime settings overlay").
 API: `GET/PUT /v1/meetings/config` (bearer auth).
 
 **Read endpoints (no auth).** `GET /v1/meetings/preview` renders the `ember-meet`

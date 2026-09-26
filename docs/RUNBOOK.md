@@ -299,7 +299,8 @@ Unlike the spine flags above, its toggles are **server config (JSON), not
 
 Runtime overrides for all fields: `GET/PUT /v1/usage/config` (bearer auth,
 store key `usage_json`). Partial PUT bodies are safe — missing fields keep their
-current values (pre-seeded from the live config before decode).
+current values (like every settings PUT). `usage_threshold_pct` outside 0–100
+is a 400.
 
 Per-tool show/hide reuses the existing per-app visibility (`PUT /v1/apps`) — hide
 `claude` or `codex` to drop its usage card faces too.
@@ -317,7 +318,8 @@ Toggle with `limit_alarm` above.
 
 Runtime display knobs: `GET/PUT /v1/display/config` (bearer auth, store key
 `display_json`). `config.json` is the baseline; a PUT overrides and persists to
-the SQLite store, surviving restarts and `POST /admin/reload`.
+the SQLite store, surviving restarts and `POST /admin/reload`. A partial body
+changes only the fields it names.
 
 | Field | Range | Default (config.json) | Notes |
 |---|---|---|---|

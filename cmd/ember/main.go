@@ -79,16 +79,14 @@ func main() {
 	// from the app (cfg.Pomodoro.Enabled — persisted to the store — gates whether
 	// it runs). Non-fatal: if the store can't open, the feature is simply
 	// unavailable until the data dir is writable.
-	if err := app.initPomodoro(cfg.Pomodoro); err != nil {
-		logger.Warn("pomodoro init failed; feature unavailable until the data store is writable", "err", err, "db_path", cfg.Pomodoro.DBPath)
+	// The same store holds every menu-edited setting; without it they apply
+	// in memory only and don't survive a restart.
+	pomoErr := app.initPomodoro(cfg.Pomodoro)
+	app.settings.reapply() // runtime settings overrides over the file baseline
+	if pomoErr != nil {
+		logger.Warn("pomodoro init failed; feature unavailable and settings will not persist until the data store is writable", "err", pomoErr, "db_path", cfg.Pomodoro.DBPath)
 	} else {
 		logger.Info("pomodoro wired", "enabled", app.cfg.Load().Pomodoro.Enabled, "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
-	}
-	// Weather only needs the store to *persist* menu edits; it runs fine
-	// in-memory. A store-open failure here (e.g. Pomodoro disabled and no
-	// writable DB volume) must not block startup — warn and carry on.
-	if err := app.initWeather(cfg); err != nil {
-		logger.Warn("weather store init failed; config will not persist across restarts", "err", err)
 	}
 	// ICS calendar URLs are credentials; they live only in the env var and are
 	// never logged as strings, stored, or echoed in API responses (count only).
@@ -102,12 +100,6 @@ func main() {
 	if len(app.meetingsURLs) > 0 {
 		logger.Info("meetings ICS feeds configured", "count", len(app.meetingsURLs))
 	}
-	if err := app.initMeetings(cfg); err != nil {
-		logger.Warn("meetings store init failed; config will not persist across restarts", "err", err)
-	}
-	app.loadPersistedUsageSettings()   // runtime usage-widget toggles over the file baseline
-	app.loadPersistedDisplaySettings() // runtime display config overrides over the file baseline
-	app.loadPersistedQuietSettings()   // quiet-hours override over the file baseline
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}

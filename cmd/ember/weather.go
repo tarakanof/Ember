@@ -39,7 +39,7 @@ type WeatherConfig struct {
 	RefreshMinutes       int     `json:"refresh_minutes"`        // poll cadence
 	RotateInApps         *bool   `json:"rotate_in_apps"`         // show the rotating tile
 	ForecastTile         *bool   `json:"forecast_tile"`          // show the separate hourly-forecast bar tile
-	ForecastHours        int     `json:"forecast_hours"`         // hours shown in the strip/tile (6..24)
+	ForecastHours        int     `json:"forecast_hours"`         // hours shown in the strip/tile (1..24)
 	SunPopups            *bool   `json:"sun_popups"`             // popup at sunrise/sunset
 	MoonPhase            *bool   `json:"moon_phase"`             // show the moon phase on clear nights
 	PopupIntervalMinutes *int    `json:"popup_interval_minutes"` // 0 = no interval popups
@@ -187,11 +187,8 @@ func (c *WeatherConfig) applyDefaults() {
 	if *c.PopupIntervalMinutes < 0 {
 		c.PopupIntervalMinutes = intPtr(0)
 	}
-	if c.ForecastHours <= 0 {
-		c.ForecastHours = 24
-	} else if c.ForecastHours < 6 {
-		c.ForecastHours = 6
-	} else if c.ForecastHours > 24 {
+	// 1..24, the range forecastWindow draws; absent/0 means the full day.
+	if c.ForecastHours <= 0 || c.ForecastHours > 24 {
 		c.ForecastHours = 24
 	}
 	if c.AirPopupThreshold < 0 {
@@ -234,6 +231,11 @@ func validateWeather(c WeatherConfig) error {
 	}
 	if c.AirPopupThreshold < 0 || c.AirPopupThreshold > 200 {
 		return errors.New("weather.air_popup_threshold must be 0..200")
+	}
+	// 0 is "unset" (the full day, filled in by applyDefaults / the settings
+	// apply); otherwise the 1..24 hours forecastWindow draws.
+	if c.ForecastHours < 0 || c.ForecastHours > 24 {
+		return errors.New("weather.forecast_hours must be 1..24")
 	}
 	// Sort keys so a config with multiple invalid entries always names the
 	// same (lowest) offending key, keeping the 400 message deterministic.
@@ -875,50 +877,35 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	}
 }
 
-// ---- config persistence (mirrors the Pomodoro store pattern) ----
+// ---- runtime settings (see settings_overlay.go) ----
 
 const weatherSettingsKey = "weather_json"
 
-func (a *App) applyWeatherSettings(cfg WeatherConfig) error {
-	// This is the runtime write/persist path (menu PUT +
-	// loadPersistedWeatherSettings). fillAbsent resolves only fields the payload
-	// omitted (e.g. a store blob written before a field existed) to their
-	// defaults; explicit false / popup_interval=0 always stick, so the toggles
-	// stay disableable (mirrors applyPomodoroSettings). Filling before persist
-	// also keeps the stored blob and the GET response free of JSON nulls.
-	cfg.fillAbsent()
-	if err := validateWeather(cfg); err != nil {
-		return err
-	}
-	a.updateConfig(func(cur *Config) { cur.Weather = cfg })
-	if a.store != nil {
-		if blob, err := json.Marshal(cfg); err == nil {
-			if err := a.store.PutSetting(weatherSettingsKey, string(blob)); err != nil {
-				a.logger.Warn("weather settings persist failed", "err", err)
+// weatherSettingSpec registers the weather config with the settings overlay.
+// apply's fillAbsent resolves only fields still absent after the merge (JSON
+// null) to their defaults; explicit false / popup_interval=0 always stick, so
+// the toggles stay disableable. Filling before the swap also keeps the stored
+// blob and the GET response free of JSON nulls.
+func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
+	return settingSpec[WeatherConfig]{
+		key:  weatherSettingsKey,
+		view: func(c Config) WeatherConfig { return c.Weather },
+		apply: func(c *Config, w WeatherConfig) error {
+			w.fillAbsent()
+			if w.ForecastHours == 0 {
+				w.ForecastHours = 24 // unset means the full day, as at file load
 			}
-		}
-	}
-	a.nudgePomo()
-	// Provision any native icons the new config needs onto the device, off
-	// the request path (it does device + gallery HTTP).
-	go a.ensureNativeIcons(context.Background())
-	return nil
-}
-
-func (a *App) loadPersistedWeatherSettings() {
-	if a.store == nil {
-		return
-	}
-	blob, ok, err := a.store.GetSetting(weatherSettingsKey)
-	if err != nil || !ok {
-		return
-	}
-	var cfg WeatherConfig
-	if err := json.Unmarshal([]byte(blob), &cfg); err != nil {
-		a.logger.Warn("weather persisted settings parse failed", "err", err)
-		return
-	}
-	if err := a.applyWeatherSettings(cfg); err != nil {
-		a.logger.Warn("weather persisted settings invalid, ignoring", "err", err)
+			if err := validateWeather(w); err != nil {
+				return err
+			}
+			c.Weather = w
+			return nil
+		},
+		after: func(Config) {
+			a.nudgePomo()
+			// Provision any native icons the new config needs onto the device,
+			// off the request path (it does device + gallery HTTP).
+			go a.ensureNativeIcons(context.Background())
+		},
 	}
 }

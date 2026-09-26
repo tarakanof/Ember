@@ -260,11 +260,11 @@ func TestForecastDefaultsAndWindow(t *testing.T) {
 	if c.ForecastHours != 24 {
 		t.Errorf("ForecastHours default = %d, want 24", c.ForecastHours)
 	}
-	// Out-of-range hours clamp.
+	// 1..24 is kept as-is (the clock draws any of it); out of range clamps.
 	c2 := WeatherConfig{ForecastHours: 3}
 	c2.applyDefaults()
-	if c2.ForecastHours != 6 {
-		t.Errorf("ForecastHours 3 clamped to %d, want 6", c2.ForecastHours)
+	if c2.ForecastHours != 3 {
+		t.Errorf("ForecastHours 3 became %d, want 3 kept", c2.ForecastHours)
 	}
 	c3 := WeatherConfig{ForecastHours: 99}
 	c3.applyDefaults()

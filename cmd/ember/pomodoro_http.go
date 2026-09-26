@@ -23,11 +23,10 @@ var errPomodoroDisabled = errors.New("pomodoro feature is not enabled")
 const defaultPomoMelody = "pomo:d=4,o=5,b=125:8g6,8c7,8e7"
 
 // pomodoroSettingsDTO is the wire shape for GET/PUT /v1/pomodoro/config and the
-// persisted-settings blob in the store. Every field is a pointer: nil means
-// "omitted, leave the current value unchanged" (applyPomodoroSettings merges
-// rather than replaces); dtoFromConfig always fills every pointer so GET
-// responses and the persisted blob are fully resolved and round-trip byte-for-
-// byte identically to the pre-pointer wire shape.
+// persisted-settings blob in the store. A PUT merges through the settings
+// overlay (omitted keys keep their value); every field is also a pointer so
+// an explicit JSON null means "unchanged" too. dtoFromConfig always fills every
+// pointer so GET responses and the persisted blob are fully resolved.
 type pomodoroSettingsDTO struct {
 	Enabled               *bool   `json:"enabled,omitempty"`
 	FocusMinutes          *int    `json:"focus_minutes,omitempty"`
@@ -99,8 +98,9 @@ func (a *App) ensureStore(path string) error {
 	return nil
 }
 
-// initPomodoro opens the shared store, constructs the engine from config, wires
-// both into the app, and re-applies any settings persisted by a previous run.
+// initPomodoro opens the shared store, constructs the engine from config and
+// wires both into the app. main() then re-applies every persisted setting
+// (settings.reapply), Pomodoro's included, which also updates the engine.
 // Called unconditionally from main() — cfg.Pomodoro.Enabled only gates
 // whether the engine actually runs, not whether it's wired up.
 func (a *App) initPomodoro(p PomodoroConfig) error {
@@ -109,7 +109,6 @@ func (a *App) initPomodoro(p PomodoroConfig) error {
 	}
 	engine := pomodoro.New(engineSettings(p), realClock{})
 	a.EnablePomodoro(engine, a.store)
-	a.loadPersistedPomodoroSettings()
 	a.loadHiddenApps()
 	return nil
 }
@@ -314,130 +313,81 @@ func (a *App) handlePomodoroState(w http.ResponseWriter, r *http.Request) {
 func (a *App) handlePomodoroConfigGet(w http.ResponseWriter, r *http.Request) {
 	// Always available (incl. when disabled) so the app can show the Enable
 	// toggle and the current settings.
-	writeJSON(w, http.StatusOK, dtoFromConfig(a.cfg.Load().Pomodoro))
+	serveSettingGet(w, a.settings.pomodoro)
 }
 
 func (a *App) handlePomodoroConfigPut(w http.ResponseWriter, r *http.Request) {
 	// No enabled-gate: this is how the app turns the feature on.
-	var dto pomodoroSettingsDTO
-	if !a.decodeOrReject(w, r, &dto, false) {
-		return
+	if d, ok := serveSettingPut(a, w, r, a.settings.pomodoro); ok {
+		writeJSON(w, http.StatusOK, d)
 	}
-	if err := a.applyPomodoroSettings(dto); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, dtoFromConfig(a.cfg.Load().Pomodoro))
 }
 
-// applyPomodoroSettings merges the DTO onto the live config (nil fields keep
-// their current value, matching how Enabled has always worked — a
-// settings-only PUT or an older persisted blob can't accidentally zero fields
-// it didn't intend to touch), validates the merged result, updates the
-// engine, and persists it to the store for restart durability.
-func (a *App) applyPomodoroSettings(dto pomodoroSettingsDTO) error {
-	a.cfgMu.Lock()
-	cur := *a.cfg.Load()
-	p := cur.Pomodoro
-	if dto.FocusMinutes != nil {
-		p.FocusMinutes = *dto.FocusMinutes
-	}
-	if dto.ShortBreakMinutes != nil {
-		p.ShortBreakMinutes = *dto.ShortBreakMinutes
-	}
-	if dto.LongBreakMinutes != nil {
-		p.LongBreakMinutes = *dto.LongBreakMinutes
-	}
-	if dto.RoundsBeforeLongBreak != nil {
-		p.RoundsBeforeLongBreak = *dto.RoundsBeforeLongBreak
-	}
-	if dto.AutoStartNext != nil {
-		p.AutoStartNext = *dto.AutoStartNext
-	}
-	if dto.Sound != nil {
-		p.Sound = *dto.Sound
-	}
-	if dto.SoundMelody != nil {
-		p.SoundMelody = *dto.SoundMelody
-	}
-	if dto.FocusColor != nil {
-		p.FocusColor = *dto.FocusColor
-	}
-	if dto.BreakColor != nil {
-		p.BreakColor = *dto.BreakColor
-	}
-	if dto.MaxSessionMinutes != nil {
-		p.MaxSessionMinutes = *dto.MaxSessionMinutes
-	}
-	if dto.DailyGoalSessions != nil {
-		p.DailyGoalSessions = *dto.DailyGoalSessions
-	}
-	if dto.WeeklyGoalDays != nil {
-		p.WeeklyGoalDays = *dto.WeeklyGoalDays
-	}
-	if dto.Enabled != nil {
-		p.Enabled = *dto.Enabled
-	}
-	if err := validatePomodoro(p); err != nil {
-		a.cfgMu.Unlock()
-		return err
-	}
-	cur.Pomodoro = p
-	a.cfg.Store(&cur)
-	a.cfgMu.Unlock()
-	if a.engine != nil {
-		a.engine.UpdateSettings(engineSettings(p))
-		// An explicit disable must not strand a running timer on the clock.
-		if dto.Enabled != nil && !*dto.Enabled && a.engine.Status(time.Now()).Phase != pomodoro.PhaseIdle {
-			a.engine.Stop(time.Now())
-		}
-	}
-	if a.store != nil {
-		// Persist the resolved config (always carries enabled) so it survives a
-		// restart even if the incoming DTO omitted enabled.
-		if blob, err := json.Marshal(dtoFromConfig(p)); err == nil {
-			if err := a.store.PutSetting(pomodoroSettingsKey, string(blob)); err != nil {
-				a.logger.Warn("pomodoro settings persist failed", "err", err)
+// pomodoroSettingSpec registers the Pomodoro config with the settings overlay.
+// apply validates the merged result, not just the incoming fields; after keeps
+// the engine in step with the new config.
+func (a *App) pomodoroSettingSpec() settingSpec[pomodoroSettingsDTO] {
+	return settingSpec[pomodoroSettingsDTO]{
+		key:  pomodoroSettingsKey,
+		view: func(c Config) pomodoroSettingsDTO { return dtoFromConfig(c.Pomodoro) },
+		apply: func(c *Config, d pomodoroSettingsDTO) error {
+			p := c.Pomodoro
+			d.mergeInto(&p)
+			if err := validatePomodoro(p); err != nil {
+				return err
 			}
-		}
+			c.Pomodoro = p
+			return nil
+		},
+		after: func(c Config) {
+			if a.engine != nil {
+				a.engine.UpdateSettings(engineSettings(c.Pomodoro))
+				// Disabling must not strand a running timer on the clock.
+				if !c.Pomodoro.Enabled && a.engine.Status(time.Now()).Phase != pomodoro.PhaseIdle {
+					a.engine.Stop(time.Now())
+				}
+			}
+			a.nudgePomo()
+			// Provision any native icons the new config needs onto the device,
+			// off the request path (it does device + gallery HTTP).
+			go a.ensureNativeIcons(context.Background())
+		},
 	}
-	a.nudgePomo()
-	// Provision any native icons the new config needs onto the device, off
-	// the request path (it does device + gallery HTTP).
-	go a.ensureNativeIcons(context.Background())
-	return nil
+}
+
+// mergeInto copies d's non-nil fields into p (nil = explicit JSON null, which
+// leaves the field unchanged).
+func (d pomodoroSettingsDTO) mergeInto(p *PomodoroConfig) {
+	setIf(&p.Enabled, d.Enabled)
+	setIf(&p.FocusMinutes, d.FocusMinutes)
+	setIf(&p.ShortBreakMinutes, d.ShortBreakMinutes)
+	setIf(&p.LongBreakMinutes, d.LongBreakMinutes)
+	setIf(&p.RoundsBeforeLongBreak, d.RoundsBeforeLongBreak)
+	setIf(&p.AutoStartNext, d.AutoStartNext)
+	setIf(&p.Sound, d.Sound)
+	setIf(&p.SoundMelody, d.SoundMelody)
+	setIf(&p.FocusColor, d.FocusColor)
+	setIf(&p.BreakColor, d.BreakColor)
+	setIf(&p.MaxSessionMinutes, d.MaxSessionMinutes)
+	setIf(&p.DailyGoalSessions, d.DailyGoalSessions)
+	setIf(&p.WeeklyGoalDays, d.WeeklyGoalDays)
+}
+
+func setIf[T any](dst *T, v *T) {
+	if v != nil {
+		*dst = *v
+	}
 }
 
 // resyncPomodoroAfterReload re-aligns the engine with the freshly reloaded
-// config and re-applies any settings persisted via the API, so a /admin/reload
-// neither silently reverts runtime Pomodoro edits nor leaves the engine
-// diverged from cfg. No-op when the feature is disabled.
+// file config. /admin/reload then re-applies persisted settings
+// (settings.reapply), whose after hook updates the engine again when a
+// Pomodoro override is stored. No-op when the engine isn't wired.
 func (a *App) resyncPomodoroAfterReload() {
 	if a.engine == nil {
 		return
 	}
 	a.engine.UpdateSettings(engineSettings(a.cfg.Load().Pomodoro))
-	a.loadPersistedPomodoroSettings()
-}
-
-// loadPersistedPomodoroSettings applies any settings blob saved by a previous
-// run on top of the file config, so menu-app edits survive restarts.
-func (a *App) loadPersistedPomodoroSettings() {
-	if a.store == nil {
-		return
-	}
-	blob, ok, err := a.store.GetSetting(pomodoroSettingsKey)
-	if err != nil || !ok {
-		return
-	}
-	var dto pomodoroSettingsDTO
-	if err := json.Unmarshal([]byte(blob), &dto); err != nil {
-		a.logger.Warn("pomodoro persisted settings parse failed", "err", err)
-		return
-	}
-	if err := a.applyPomodoroSettings(dto); err != nil {
-		a.logger.Warn("pomodoro persisted settings invalid, ignoring", "err", err)
-	}
 }
 
 // handleAwtrixButton ingests the awtrix-ng button callback: a plain-HTTP,

@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
 // usageSettingsKey is the writable-store key for the runtime usage-widget
-// toggles (overrides the config.json baseline, mirrors weather/pomodoro).
+// toggles (overrides the config.json baseline via the settings overlay).
 const usageSettingsKey = "usage_json"
 
 type usageConfigDTO struct {
@@ -16,76 +16,41 @@ type usageConfigDTO struct {
 	UsageThresholdPct int  `json:"usage_threshold_pct"`
 }
 
-func (a *App) usageDTO() usageConfigDTO {
-	c := a.cfg.Load()
-	return usageConfigDTO{
-		UsageWidget:       c.usageWidgetEnabled(),
-		UsagePerModel:     c.usagePerModelEnabled(),
-		LimitAlarm:        c.limitAlarmEnabled(),
-		UsageThresholdPct: c.usageThresholdPct(),
-	}
-}
-
-// applyUsageSettings swaps the toggles into the live config and persists them.
-// The coordinator reads usageWidgetEnabled()/usagePerModelEnabled()/limitAlarmEnabled()
-// live, so the change takes effect on the next reconcile tick.
-func (a *App) applyUsageSettings(dto usageConfigDTO) {
-	uw, upm, la := dto.UsageWidget, dto.UsagePerModel, dto.LimitAlarm
-	thr := dto.UsageThresholdPct
-	if thr < 0 {
-		thr = 0
-	}
-	if thr > 100 {
-		thr = 100
-	}
-	a.updateConfig(func(cur *Config) {
-		cur.UsageWidget = &uw
-		cur.UsagePerModel = &upm
-		cur.LimitAlarm = &la
-		cur.UsageThresholdPct = &thr
-	})
-	dto.UsageThresholdPct = thr // persist the clamped value, not the raw PUT value
-	if a.store != nil {
-		if blob, err := json.Marshal(dto); err == nil {
-			if err := a.store.PutSetting(usageSettingsKey, string(blob)); err != nil {
-				a.logger.Warn("usage settings persist failed", "err", err)
+// usageSettingSpec registers the usage-widget toggles with the settings
+// overlay. The coordinator reads usageWidgetEnabled()/usagePerModelEnabled()/
+// limitAlarmEnabled() live; the after hook nudges a prompt re-render so the
+// toggle shows quickly.
+func (a *App) usageSettingSpec() settingSpec[usageConfigDTO] {
+	return settingSpec[usageConfigDTO]{
+		key: usageSettingsKey,
+		view: func(c Config) usageConfigDTO {
+			return usageConfigDTO{
+				UsageWidget:       c.usageWidgetEnabled(),
+				UsagePerModel:     c.usagePerModelEnabled(),
+				LimitAlarm:        c.limitAlarmEnabled(),
+				UsageThresholdPct: c.usageThresholdPct(),
 			}
-		}
+		},
+		apply: func(c *Config, d usageConfigDTO) error {
+			if d.UsageThresholdPct < 0 || d.UsageThresholdPct > 100 {
+				return fmt.Errorf("usage_threshold_pct %d out of range [0, 100]", d.UsageThresholdPct)
+			}
+			c.UsageWidget = &d.UsageWidget
+			c.UsagePerModel = &d.UsagePerModel
+			c.LimitAlarm = &d.LimitAlarm
+			c.UsageThresholdPct = &d.UsageThresholdPct
+			return nil
+		},
+		after: func(Config) { a.nudgePomo() },
 	}
-	a.nudgePomo() // prompt a prompt re-render so the toggle is reflected quickly
-}
-
-func (a *App) loadPersistedUsageSettings() {
-	if a.store == nil {
-		return
-	}
-	blob, ok, err := a.store.GetSetting(usageSettingsKey)
-	if err != nil || !ok {
-		return
-	}
-	// Pre-seed from the current config so missing keys in a legacy blob (e.g.
-	// blobs written before limit_alarm existed) keep their default values
-	// rather than unmarshalling as false and silently disabling the feature.
-	dto := a.usageDTO()
-	if err := json.Unmarshal([]byte(blob), &dto); err != nil {
-		a.logger.Warn("usage persisted settings parse failed", "err", err)
-		return
-	}
-	a.applyUsageSettings(dto)
 }
 
 func (a *App) handleUsageConfigGet(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.usageDTO())
+	serveSettingGet(w, a.settings.usage)
 }
 
 func (a *App) handleUsageConfigPut(w http.ResponseWriter, r *http.Request) {
-	// Pre-seed from the live config so a partial body only changes the fields
-	// it names (same schema-evolution guard as loadPersistedUsageSettings) —
-	// otherwise a future client omitting a newer field would silently zero it.
-	dto := a.usageDTO()
-	if !a.decodeOrReject(w, r, &dto, false) {
-		return
+	if d, ok := serveSettingPut(a, w, r, a.settings.usage); ok {
+		writeJSON(w, http.StatusOK, d)
 	}
-	a.applyUsageSettings(dto)
-	writeJSON(w, http.StatusOK, a.usageDTO())
 }

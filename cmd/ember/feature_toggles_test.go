@@ -120,7 +120,7 @@ func TestUsageConfigLegacyBlobKeepsLimitAlarmDefault(t *testing.T) {
 	if err := a.store.PutSetting(usageSettingsKey, legacy); err != nil {
 		t.Fatalf("PutSetting: %v", err)
 	}
-	a.loadPersistedUsageSettings()
+	a.settings.reapply()
 	if !a.cfg.Load().limitAlarmEnabled() {
 		t.Error("legacy blob without limit_alarm key must not disable the alarm (default=true)")
 	}

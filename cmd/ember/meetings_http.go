@@ -4,17 +4,6 @@ import (
 	"net/http"
 )
 
-// initMeetings opens the shared store and re-applies persisted meeting
-// settings (menu edits survive restarts). The poll loop (StartMeetings, added
-// with the poller) is started separately from run().
-func (a *App) initMeetings(cfg Config) error {
-	if err := a.ensureStore(cfg.Pomodoro.DBPath); err != nil {
-		return err
-	}
-	a.loadPersistedMeetingsSettings()
-	return nil
-}
-
 type meetingsConfigDTO struct {
 	MeetingsConfig
 	// IcsUrlsConfigured tells the menu whether feeds exist server-side without
@@ -34,13 +23,7 @@ func (a *App) handleMeetingsConfigGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleMeetingsConfigPut(w http.ResponseWriter, r *http.Request) {
-	var cfg MeetingsConfig
-	if !a.decodeOrReject(w, r, &cfg, false) {
-		return
+	if _, ok := serveSettingPut(a, w, r, a.settings.meetings); ok {
+		writeJSON(w, http.StatusOK, a.meetingsDTO())
 	}
-	if err := a.applyMeetingsSettings(cfg); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, a.meetingsDTO())
 }
