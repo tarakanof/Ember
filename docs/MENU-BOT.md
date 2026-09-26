@@ -17,7 +17,7 @@ per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
 | `macos/Sources/EmberKit/Bot/BotBehavior.swift` | The animation state machine. Pure and deterministic for a seed, so it is unit-tested. Produces a `BotPose` per frame. |
 | `macos/Sources/EmberKit/Bot/BotRenderer.swift` | CoreGraphics drawing of a `BotPose`, with a `BotStyle` for the menu bar and one for the Dock. |
 | `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, publishes `pose` for the menu-bar label, drives the `NSDockTile` view, crossfades the menu-bar colour. |
-| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the bot image or the tool glyph, per prefs. |
+| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the bot image or the tool glyph, per prefs. Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
 | `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `applyAppIcon` switches the Dock tile. |
 | `macos/Tests/EmberKitTests/BotBehaviorTests.swift` | Behavior and renderer tests. |
 

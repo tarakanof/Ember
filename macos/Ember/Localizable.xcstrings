@@ -6,6 +6,22 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@ 5h %@" : {
+      "comment" : "Menu usage row: tool name, then percent of its 5-hour window used (\"Claude 5h 47%\").",
+      "extractionState" : "manual"
+    },
+    "%@ 5h %@ · resets %@" : {
+      "comment" : "Menu usage row: tool name, percent used, then when the 5-hour window resets (a time, or weekday and time).",
+      "extractionState" : "manual"
+    },
+    "%@ 5h limit reached" : {
+      "comment" : "Menu usage row: tool name; its 5-hour window is used up.",
+      "extractionState" : "manual"
+    },
+    "%@ 5h limit reached · resets %@" : {
+      "comment" : "Menu usage row: tool name, then when the used-up 5-hour window resets.",
+      "extractionState" : "manual"
+    },
     "%@ context" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -14,8 +30,28 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "%@ · %@" : {
+      "comment" : "Menu Other Sessions row: session title (\"Codex on m5 — Waiting\"), then context use (\"41% context\").",
+      "extractionState" : "manual"
+    },
+    "%@ · %@ left · round %lld" : {
+      "comment" : "Menu Pomodoro status: phase name, remaining time (\"18:42\"), round number.",
+      "extractionState" : "manual"
+    },
+    "%@ · paused · %@ left" : {
+      "comment" : "Menu Pomodoro status while paused: phase name, remaining time.",
+      "extractionState" : "manual"
+    },
+    "%@ · ready to start" : {
+      "comment" : "Menu Pomodoro status: the next phase's name, waiting to be started.",
+      "extractionState" : "manual"
+    },
     "%@ — %@" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "%lld more" : {
+      "comment" : "Last row of the Other Sessions submenu: number of sessions not listed.",
       "extractionState" : "manual"
     },
     "Air Quality" : {
@@ -52,8 +88,56 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Couldn't dismiss the notification: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't hide %@: %@" : {
+      "comment" : "Menu error row: app name, then a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't pause: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't restart the clock: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't resume: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
     "Couldn't save — see below" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Couldn't show %@: %@" : {
+      "comment" : "Menu error row: app name, then a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't skip: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't start: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't stop: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't switch apps: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't turn the display off: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't turn the display on: %@" : {
+      "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
     },
     "Done" : {
@@ -84,6 +168,26 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Next: %@ %@" : {
+      "comment" : "Menu next-event row: event title, then weekday and time (\"Next: Retro Mon 09:00\").",
+      "extractionState" : "manual"
+    },
+    "Next: %@ at %@" : {
+      "comment" : "Menu next-event row: event title, then a time today.",
+      "extractionState" : "manual"
+    },
+    "Next: %@ in %lld min" : {
+      "comment" : "Menu next-event row: event title, then minutes until it starts.",
+      "extractionState" : "manual"
+    },
+    "Next: %@ now" : {
+      "comment" : "Menu next-event row: event title; it starts now.",
+      "extractionState" : "manual"
+    },
+    "Next: %@ tomorrow at %@" : {
+      "comment" : "Menu next-event row: event title, then a time tomorrow.",
+      "extractionState" : "manual"
+    },
     "Not available — the feature is off or the server is too old." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -96,8 +200,16 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Offline" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Offline since %@" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Offline — server unreachable since %@" : {
+      "comment" : "Menu header: the time the server stopped answering.",
       "extractionState" : "manual"
     },
     "Pause" : {
@@ -110,6 +222,10 @@
     },
     "Reminder" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Reminder: %@" : {
+      "comment" : "Prefix for an Apple Reminder title in the menu's next-event row.",
       "extractionState" : "manual"
     },
     "Resume" : {
@@ -168,6 +284,42 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Today %lld of %lld · %@" : {
+      "comment" : "Menu row: focus sessions completed today, the daily goal, total focus time (\"1h 15m\").",
+      "extractionState" : "manual"
+    },
+    "Today %lld sessions · %@" : {
+      "comment" : "Menu row: focus sessions completed today (no daily goal), total focus time (\"1h 15m\").",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Today %lld session · %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Today %lld sessions · %@"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Turn Display Off" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Turn Display On" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Unauthorized — check the token in Connection settings." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -198,6 +350,26 @@
     },
     "Weather Alert" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "not supported by this server" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "rate-limited" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "server error" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "server unreachable" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "unauthorized" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     }
   },

@@ -188,9 +188,15 @@ without relaunch. Hybrid layout:
   `EnvFile` + validation, the settings types, and the app foundations (#119):
   `Live/` (`LiveModel`, `RefreshCoordinator`, `ActionRunner`), `Config/`
   (`ConfigModel` as `ServerConfigModel`/`EnvConfigModel`, `SettingsModels`)
-  and `Presentation/` (display names and formatters). Headless `swift test`.
+  and `Presentation/` (display names, formatters, and `MenuRows`, the menu's
+  row rules). Headless `swift test`.
 - **`Ember` (`macos/Ember/`, thin Xcode app)** — an `LSUIElement` agent
-  app: a `MenuBarExtra` (status + Pomodoro controls + dynamic tray glyph), a
+  app: a `MenuBarExtra` (`.menu` style: session header and activity, other
+  sessions, 5h usage per tool, next meeting or reminder, Pomodoro status and
+  controls, today vs the goal, the last failed action, and a Clock submenu
+  with next/previous app, dismiss, display power and Show on Clock; rows a
+  server lacks are hidden, e.g. usage falls back to `/state` and display
+  power needs 0.28+), the animated bot or tool glyph as its icon, a
   sidebar `Settings` window (**Connection / Device / Agent / Pomodoro / Weather /
   Reminders / App**), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
   menu while a window is open. `Ember/Shared/` holds the views all three
