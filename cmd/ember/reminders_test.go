@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHandleReminderFireRendersBellPopup(t *testing.T) {
@@ -71,5 +73,84 @@ func TestHandleReminderFireValidation(t *testing.T) {
 		strings.NewReader(`{"text":"  "}`)))
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("blank text should 400, got %d", w.Code)
+	}
+}
+
+func fireWithKey(t *testing.T, app *App, key string) int {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/v1/reminders/fire",
+		strings.NewReader(`{"text":"Stand-up","duration":8}`))
+	if key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
+	w := httptest.NewRecorder()
+	app.handleReminderFire(w, req)
+	return w.Code
+}
+
+func TestHandleReminderFireDuplicateKeyDoesNotRingAgain(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	if code := fireWithKey(t, app, "r1|100"); code != http.StatusNoContent {
+		t.Fatalf("first fire status = %d, want 204", code)
+	}
+	if code := fireWithKey(t, app, "r1|100"); code != http.StatusOK {
+		t.Fatalf("duplicate fire status = %d, want 200", code)
+	}
+	if n := len(pub.NotifySnapshot()); n != 1 {
+		t.Fatalf("popups = %d, want 1", n)
+	}
+}
+
+func TestHandleReminderFireDistinctOrMissingKeysAllRing(t *testing.T) {
+	pub := &recordingPublisher{}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	for _, key := range []string{"r1|100", "r1|160", "", ""} {
+		if code := fireWithKey(t, app, key); code != http.StatusNoContent {
+			t.Fatalf("fire %q status = %d, want 204", key, code)
+		}
+	}
+	if n := len(pub.NotifySnapshot()); n != 4 {
+		t.Fatalf("popups = %d, want 4", n)
+	}
+}
+
+func TestHandleReminderFireFailedPushReleasesKey(t *testing.T) {
+	pub := &recordingPublisher{}
+	failed := false
+	pub.failNotify = func() error {
+		if !failed {
+			failed = true
+			return errors.New("clock unreachable")
+		}
+		return nil
+	}
+	app := NewApp(defaultConfig(), pub, testLogger())
+	if code := fireWithKey(t, app, "r1|100"); code != http.StatusBadGateway {
+		t.Fatalf("failed fire status = %d, want 502", code)
+	}
+	if code := fireWithKey(t, app, "r1|100"); code != http.StatusNoContent {
+		t.Fatalf("retry after failure status = %d, want 204", code)
+	}
+	if n := len(pub.NotifySnapshot()); n != 1 {
+		t.Fatalf("popups = %d, want 1", n)
+	}
+}
+
+func TestReminderDedupeForgetsKeysAfterTTL(t *testing.T) {
+	var d reminderDedupe
+	now := time.Unix(1_000_000, 0)
+	if !d.claim("k", now) {
+		t.Fatal("first claim should succeed")
+	}
+	if d.claim("k", now.Add(reminderDedupeTTL-time.Second)) {
+		t.Fatal("claim inside the TTL should be refused")
+	}
+	if !d.claim("k", now.Add(reminderDedupeTTL+time.Second)) {
+		t.Fatal("claim after the TTL should succeed")
+	}
+	d.claim("other", now.Add(3*reminderDedupeTTL))
+	if n := d.size(); n != 1 {
+		t.Fatalf("expired keys should be pruned, size = %d, want 1", n)
 	}
 }
