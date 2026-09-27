@@ -29,7 +29,8 @@ type stallClock struct {
 	stallSettings bool         // stall GET /api/v1/settings
 	onWrite       func()       // runs before a write is answered
 	onSettingsGet func()       // runs before GET /api/v1/settings is answered
-	gets          int
+	gets          int          // GET /api/v1/system
+	settingsGets  int          // GET /api/v1/settings
 	writes        int
 	release       chan struct{}
 }
@@ -60,12 +61,13 @@ func (f *stallClock) serve(w http.ResponseWriter, r *http.Request) {
 	var stall bool
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/settings":
-		stall, onGet := f.stallSettings, f.onSettingsGet
+		f.settingsGets++
+		stallRead, onRead := f.stallSettings, f.onSettingsGet
 		f.mu.Unlock()
-		if onGet != nil {
-			onGet()
+		if onRead != nil {
+			onRead()
 		}
-		if stall {
+		if stallRead {
 			f.stall(r)
 			return
 		}
@@ -101,6 +103,12 @@ func (f *stallClock) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		_, _ = w.Write(sys)
 	}
+}
+
+func (f *stallClock) settingsGetCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.settingsGets
 }
 
 func (f *stallClock) writeCount() int {
@@ -263,6 +271,7 @@ func TestClockReadBudgetSettingsGetAnswers504BeforeWriteTimeout(t *testing.T) {
 	cases := []struct {
 		name  string
 		setup func(a *App, f *stallClock)
+		reads int // GET /api/v1/settings that reached the clock
 	}{
 		{
 			name: "first priorMu wait behind a stalled holder",
@@ -274,6 +283,7 @@ func TestClockReadBudgetSettingsGetAnswers504BeforeWriteTimeout(t *testing.T) {
 		{
 			name:  "settings read stalls",
 			setup: func(_ *App, f *stallClock) { f.stallSettings = true },
+			reads: 1,
 		},
 		{
 			// A takeover edge or menu edit takes priorMu while the read is
@@ -283,6 +293,7 @@ func TestClockReadBudgetSettingsGetAnswers504BeforeWriteTimeout(t *testing.T) {
 				startTestTakeover(a, takeoverPrior{AutoTransition: true})
 				f.onSettingsGet = func() { a.coord.priorMu.Lock() }
 			},
+			reads: 1,
 		},
 	}
 	for _, c := range cases {
@@ -309,6 +320,9 @@ func TestClockReadBudgetSettingsGetAnswers504BeforeWriteTimeout(t *testing.T) {
 			}
 			if got := f.writeCount(); got != 0 {
 				t.Fatalf("clock saw %d writes, want 0", got)
+			}
+			if got := f.settingsGetCount(); got != c.reads {
+				t.Fatalf("clock saw %d settings reads, want %d", got, c.reads)
 			}
 		})
 	}

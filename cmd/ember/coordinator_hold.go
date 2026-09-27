@@ -350,15 +350,10 @@ func (c *coordinator) mergeIntoPrior(m map[string]any, keys []string) {
 		"keys", keys, "autoTransition", c.prior.AutoTransition, "blockNavigation", c.prior.BlockNavigation)
 }
 
-// takeoverPriorView returns the user's own takeover-key values while a
+// takeoverPriorViewContext returns the user's own takeover-key values while a
 // takeover snapshot exists, for the menu to show instead of the takeover's.
-func (c *coordinator) takeoverPriorView() (takeoverPrior, bool) {
-	p, ok, _ := c.takeoverPriorViewContext(context.Background())
-	return p, ok
-}
-
-// takeoverPriorViewContext is takeoverPriorView whose priorMu wait gives up
-// with ctx.Err() when ctx ends (the settings GET's clockReadBudget).
+// Its priorMu wait gives up with ctx.Err() when ctx ends (the settings GET's
+// clockReadBudget).
 func (c *coordinator) takeoverPriorViewContext(ctx context.Context) (takeoverPrior, bool, error) {
 	if err := c.priorMu.LockContext(ctx); err != nil {
 		return takeoverPrior{}, false, err
