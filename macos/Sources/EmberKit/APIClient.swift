@@ -16,10 +16,11 @@ public enum APIError: Error, Equatable, Sendable {
     /// macOS Local Network privacy refused the connection to a LAN server
     /// (`LocalNetworkDenial`): the server may be fine.
     case localNetworkDenied
-    /// 504 with code `clock_timeout`: the server answered, but a clock write
-    /// ran out of the server's budget (`clockWriteBudget`). Carries what the
-    /// server knows about the write.
-    case clockTimedOut(ClockWriteOutcome)
+    /// 504 with code `clock_timeout`: the server answered, but its clock
+    /// work ran out of the server's budget (`clockWriteBudget`, or
+    /// `clockReadBudget` for the settings read). Carries what the server knows
+    /// about the write; nil for a read, which has none.
+    case clockTimedOut(ClockWriteOutcome?)
     case decoding(String)
 
     public var isUnauthorized: Bool {
@@ -48,14 +49,19 @@ public enum ClockWriteOutcome: String, Equatable, Sendable {
     case unknown
     /// The write landed; the work after it didn't finish.
     case applied
+}
 
-    /// The outcome a 504 body reports, or nil when it isn't a
-    /// `clock_timeout`. An unrecognised `write` reads as `.unknown`.
-    static func parse(status: Int, body: Data) -> ClockWriteOutcome? {
+extension APIError {
+    /// The `clockTimedOut` a 504 body reports, or nil when it isn't a
+    /// `clock_timeout`. No `write` field means a read ran out
+    /// (`clockReadBudget`), so the outcome is nil; an unrecognised one reads
+    /// as `.unknown`.
+    static func clockTimeout(status: Int, body: Data) -> APIError? {
         guard status == 504,
               let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               obj["code"] as? String == "clock_timeout" else { return nil }
-        return (obj["write"] as? String).flatMap(ClockWriteOutcome.init(rawValue:)) ?? .unknown
+        guard let write = obj["write"] as? String else { return .clockTimedOut(nil) }
+        return .clockTimedOut(ClockWriteOutcome(rawValue: write) ?? .unknown)
     }
 }
 
@@ -247,8 +253,8 @@ public struct APIClient: Sendable {
                 throw APIError.rateLimited(retryAfter: RateLimitBackoff.retryAfter(
                     header: http.value(forHTTPHeaderField: "Retry-After")))
             }
-            if let outcome = ClockWriteOutcome.parse(status: http.statusCode, body: data) {
-                throw APIError.clockTimedOut(outcome)
+            if let timeout = APIError.clockTimeout(status: http.statusCode, body: data) {
+                throw timeout
             }
             let snippet = String(data: data.prefix(512), encoding: .utf8) ?? ""
             throw APIError.http(status: http.statusCode, body: snippet)
@@ -261,8 +267,8 @@ public struct APIClient: Sendable {
     /// permission, not patience. Under `.clockLong` a dropped connection is a
     /// timeout too: the server took the request and closed it when its
     /// `WriteTimeout` passed, so the server was there, just slow. The budgeted
-    /// PUTs answer 504 instead, but other `.clockLong` requests can still
-    /// drop.
+    /// handlers (the device PUTs, the settings GET) answer 504 instead, but
+    /// other `.clockLong` requests can still drop.
     static func classify(_ error: Error, budget: RequestBudget, host: String?,
                          pathStatus: NWPath.Status?) -> APIError {
         if LocalNetworkDenial.isDenied(error, host: host, pathStatus: pathStatus) {
