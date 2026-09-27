@@ -15,20 +15,23 @@ import (
 // WriteTimeout (30s). The gap is wide so a slow -race run can't flake it.
 const (
 	testWriteBudget  = 200 * time.Millisecond
+	testReadBudget   = 200 * time.Millisecond
 	testWriteTimeout = 2 * time.Second
 )
 
 // stallClock is a fake awtrix-ng clock whose system and settings calls can
 // stall until the caller gives up, and which records what reached it.
 type stallClock struct {
-	mu        sync.Mutex
-	system    map[string]any
-	stallGets map[int]bool // stall the nth GET /api/v1/system (1-based)
-	stallPut  bool         // stall PUT /api/v1/system and PATCH /api/v1/settings
-	onWrite   func()       // runs before a write is answered
-	gets      int
-	writes    int
-	release   chan struct{}
+	mu            sync.Mutex
+	system        map[string]any
+	stallGets     map[int]bool // stall the nth GET /api/v1/system (1-based)
+	stallPut      bool         // stall PUT /api/v1/system and PATCH /api/v1/settings
+	stallSettings bool         // stall GET /api/v1/settings
+	onWrite       func()       // runs before a write is answered
+	onSettingsGet func()       // runs before GET /api/v1/settings is answered
+	gets          int
+	writes        int
+	release       chan struct{}
 }
 
 func newStallClock(t *testing.T) (*stallClock, *httptest.Server) {
@@ -56,6 +59,19 @@ func (f *stallClock) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	var stall bool
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/settings":
+		stall, onGet := f.stallSettings, f.onSettingsGet
+		f.mu.Unlock()
+		if onGet != nil {
+			onGet()
+		}
+		if stall {
+			f.stall(r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"brightness":64,"autoTransition":false}`))
+		return
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system":
 		f.gets++
 		stall = f.stallGets[f.gets]
@@ -98,6 +114,7 @@ func budgetTestApp(t *testing.T, clock string) *App {
 	t.Helper()
 	a := sensorTestApp(t, clock)
 	a.clock.writeBudget = testWriteBudget
+	a.clock.readBudget = testReadBudget
 	return a
 }
 
@@ -236,5 +253,63 @@ func TestClockWriteBudgetAfterLandedPutAnswersWrittenObject(t *testing.T) {
 	status, body, _ = serveOnce(t, a.handleDeviceButtonsPut, http.MethodPut, "/v1/device/buttons", `{"enabled":true}`)
 	if status != http.StatusOK || body["configured"] != true {
 		t.Fatalf("buttons: status = %d body = %v, want 200 with the written callback", status, body)
+	}
+}
+
+// GET /v1/device/settings waits on priorMu around its clock read. Behind a
+// stalled holder, or with the read itself stalled, it answers 504 in time in
+// the clock error shape, with no "write" field: a read changes nothing.
+func TestClockReadBudgetSettingsGetAnswers504BeforeWriteTimeout(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(a *App, f *stallClock)
+	}{
+		{
+			name: "first priorMu wait behind a stalled holder",
+			setup: func(a *App, _ *stallClock) {
+				startTestTakeover(a, takeoverPrior{AutoTransition: true})
+				a.coord.priorMu.Lock()
+			},
+		},
+		{
+			name:  "settings read stalls",
+			setup: func(_ *App, f *stallClock) { f.stallSettings = true },
+		},
+		{
+			// A takeover edge or menu edit takes priorMu while the read is
+			// in flight and keeps it past the budget.
+			name: "second priorMu wait behind a stalled holder",
+			setup: func(a *App, f *stallClock) {
+				startTestTakeover(a, takeoverPrior{AutoTransition: true})
+				f.onSettingsGet = func() { a.coord.priorMu.Lock() }
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f, clock := newStallClock(t)
+			a := budgetTestApp(t, clock.URL)
+			c.setup(a, f)
+
+			status, body, elapsed := serveOnce(t, a.handleDeviceSettingsGet, http.MethodGet, "/v1/device/settings", "")
+			if status != http.StatusGatewayTimeout {
+				t.Fatalf("status = %d body = %v, want 504", status, body)
+			}
+			if elapsed >= testWriteTimeout {
+				t.Fatalf("answered after %s, past the %s WriteTimeout", elapsed, testWriteTimeout)
+			}
+			if body["code"] != "clock_timeout" {
+				t.Fatalf("body = %v, want code clock_timeout", body)
+			}
+			if _, ok := body["write"]; ok {
+				t.Fatalf("body = %v, want no write field on a read", body)
+			}
+			if msg, _ := body["error"].(string); !strings.Contains(msg, testReadBudget.String()) || strings.Contains(msg, ":") {
+				t.Fatalf("error = %q, want it to name the %s budget with no write fate", msg, testReadBudget)
+			}
+			if got := f.writeCount(); got != 0 {
+				t.Fatalf("clock saw %d writes, want 0", got)
+			}
+		})
 	}
 }

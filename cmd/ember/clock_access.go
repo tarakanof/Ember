@@ -37,12 +37,14 @@ type clockAccess struct {
 	// holder can take two menu-class calls, up to 16s).
 	systemLock ctxLock
 
-	// writeBudget is clockWriteBudget; tests shorten it.
+	// writeBudget is clockWriteBudget and readBudget clockReadBudget; tests
+	// shorten them.
 	writeBudget time.Duration
+	readBudget  time.Duration
 }
 
 func newClockAccess(cfg func() *Config) *clockAccess {
-	return &clockAccess{cfg: cfg, systemLock: newCtxLock(), writeBudget: clockWriteBudget}
+	return &clockAccess{cfg: cfg, systemLock: newCtxLock(), writeBudget: clockWriteBudget, readBudget: clockReadBudget}
 }
 
 // ctxLock is a mutex whose waiters can give up: a channel of capacity 1 that
@@ -124,6 +126,16 @@ const (
 // 504 (writeBudgetError). The app's .clockLong budget (35s, RequestBudget in
 // EmberKit's APIClient) sits above both.
 const clockWriteBudget = 25 * time.Second
+
+// clockReadBudget bounds a menu read that waits on a lock around its clock
+// call, under the same WriteTimeout. GET /v1/device/settings reads the
+// Pomodoro takeover snapshot under priorMu before and after its settings
+// read: with one holder on each side (a menu edit's PATCH, or a takeover
+// snapshot/restore, 8s each) that is 8+8+8 = 24s, and each edit queued ahead
+// adds 8s (#190). 25s covers the one-holder case and leaves the same 5s for
+// the answer. Out of it the handler answers 504 clock_timeout without a
+// "write" field (readBudgetError): a read changes nothing.
+const clockReadBudget = 25 * time.Second
 
 // timeout is the budget for one call of class c under cfg.
 func (c callClass) timeout(cfg *Config) time.Duration {
@@ -287,6 +299,12 @@ func (k *clockAccess) writeContext(ctx context.Context) (context.Context, contex
 	return context.WithTimeout(ctx, k.writeBudget)
 }
 
+// readContext returns ctx bounded by the read budget (clockReadBudget), for
+// a read handler to run its lock waits and clock call under.
+func (k *clockAccess) readContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, k.readBudget)
+}
+
 // sentWriteError marks a failed clock write that went out: without an
 // answer, it may have landed. It reads and unwraps as the error it carries.
 type sentWriteError struct{ err error }
@@ -335,6 +353,22 @@ func (k *clockAccess) writeBudgetError(ctx context.Context, w http.ResponseWrite
 		"error": fmt.Sprintf("clock didn't finish within %s: %s", k.writeBudget, fate),
 		"code":  "clock_timeout",
 		"write": string(outcome),
+	})
+}
+
+// readBudgetError answers a failed budgeted read. When ctx's budget ran out
+// and the clock didn't refuse, it is the 504 clock error shape without
+// "write": a read has no write whose fate to report. Any other failure goes
+// to writeClockError.
+func (k *clockAccess) readBudgetError(ctx context.Context, w http.ResponseWriter, err error) {
+	var apiErr *awtrix.APIError
+	if errors.As(err, &apiErr) || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		writeClockError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusGatewayTimeout, map[string]string{
+		"error": fmt.Sprintf("clock didn't finish within %s", k.readBudget),
+		"code":  "clock_timeout",
 	})
 }
 

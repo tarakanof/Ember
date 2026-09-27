@@ -141,6 +141,15 @@ The aggregator and the only writer to the device.
     `APIError.clockTimedOut` and shows "The clock didn't finish in time."
     with the fate ("Nothing was changed." / "The change may not have been
     saved." / "Saved, but not fully applied yet.").
+  - the read budget (`clockReadBudget`, 25 s, #190) for `GET
+    /v1/device/settings`, which reads the takeover snapshot under `priorMu`
+    before and after its settings read: 8 s wait, 8 s read, 8 s wait with one
+    holder each side, plus 8 s per edit queued ahead. Both waits and the read
+    share 25 s; out of it the handler answers the same 504 without `write`
+    (`{"error":"clock didn't finish within 25s","code":"clock_timeout"}`),
+    which the app maps to `clockTimedOut(nil)` and shows as "The clock
+    didn't finish in time." with no fate. The other device GETs make one
+    clock call and take no lock, so `callMenu`'s 8 s bounds them.
 
   The app's side of these budgets is `RequestBudget` in EmberKit's
   `APIClient` (request / whole-request timeout): `.server` 5 s / 10 s for
@@ -150,11 +159,10 @@ The aggregator and the only writer to the device.
   requests that chain clock calls or wait on a lock first (sensors/buttons
   read-merge-PUT plus re-read, device settings read or edit behind the
   takeover snapshot's lock, a reminder fire). `.clockLong` sits above both
-  the server's 25 s write budget, so sensors/buttons/settings PUT answer
-  (504 at worst) before the app gives up, and its 30 s `WriteTimeout`. A
-  handler outside the budget can still run past the `WriteTimeout` (`GET
-  /v1/device/settings` waits on `priorMu` twice around its read, #190); the
-  server then drops the connection, which the app reports
+  the server's 25 s write and read budgets, so sensors/buttons/settings PUT
+  and settings GET answer (504 at worst) before the app gives up, and its
+  30 s `WriteTimeout`. Should any other `.clockLong` handler run past the
+  `WriteTimeout`, the server drops the connection, which the app reports
   (`networkConnectionLost` under `.clockLong`) as a timeout, not
   "unreachable". `DeviceService` picks a budget per call
   (pinned by `RequestBudgetTests`); change a server budget here, check the

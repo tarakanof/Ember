@@ -353,12 +353,21 @@ func (c *coordinator) mergeIntoPrior(m map[string]any, keys []string) {
 // takeoverPriorView returns the user's own takeover-key values while a
 // takeover snapshot exists, for the menu to show instead of the takeover's.
 func (c *coordinator) takeoverPriorView() (takeoverPrior, bool) {
-	c.priorMu.Lock()
+	p, ok, _ := c.takeoverPriorViewContext(context.Background())
+	return p, ok
+}
+
+// takeoverPriorViewContext is takeoverPriorView whose priorMu wait gives up
+// with ctx.Err() when ctx ends (the settings GET's clockReadBudget).
+func (c *coordinator) takeoverPriorViewContext(ctx context.Context) (takeoverPrior, bool, error) {
+	if err := c.priorMu.LockContext(ctx); err != nil {
+		return takeoverPrior{}, false, err
+	}
 	defer c.priorMu.Unlock()
 	if c.prior == nil {
-		return takeoverPrior{}, false
+		return takeoverPrior{}, false, nil
 	}
-	return *c.prior, true
+	return *c.prior, true, nil
 }
 
 // applyDisplayHold moves the device to the requested screen owner, writing only
