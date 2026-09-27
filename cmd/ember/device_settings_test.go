@@ -298,7 +298,7 @@ func TestDeviceSettingsDuringTakeoverUsePrior(t *testing.T) {
 	if h := pw.Header().Get(deferredKeysHeader); h != "autoTransition" {
 		t.Fatalf("put %s = %q", deferredKeysHeader, h)
 	}
-	if p, _ := a.coord.takeoverPriorView(); p.AutoTransition || p.BlockNavigation {
+	if p, _ := priorView(a.coord); p.AutoTransition || p.BlockNavigation {
 		t.Fatalf("prior = %+v, want autoTransition:false blockNavigation:false", p)
 	}
 	if v, _, _ := a.store.GetSetting(takeoverPriorKey); !strings.Contains(v, `"autoTransition":false`) {
@@ -338,7 +338,7 @@ func TestDeviceSettingsPutDuringTakeoverFailureKeepsPrior(t *testing.T) {
 	if h := pw.Header().Get(deferredKeysHeader); h != "" {
 		t.Fatalf("%s = %q on a failed save", deferredKeysHeader, h)
 	}
-	if p, _ := a.coord.takeoverPriorView(); !p.AutoTransition {
+	if p, _ := priorView(a.coord); !p.AutoTransition {
 		t.Fatalf("prior = %+v, want unchanged", p)
 	}
 	if v, _, _ := a.store.GetSetting(takeoverPriorKey); v != stored {

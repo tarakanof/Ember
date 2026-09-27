@@ -40,7 +40,7 @@ func TestMenuEditDuringTakeoverIsAppliedOnRestore(t *testing.T) {
 	if len(written) != 1 || len(written[0]) != 1 || written[0]["brightness"] != 40.0 {
 		t.Fatalf("device writes = %v, want only brightness", written)
 	}
-	if p, ok := c.takeoverPriorView(); !ok || !p.AutoTransition || p.BlockNavigation {
+	if p, ok := priorView(c); !ok || !p.AutoTransition || p.BlockNavigation {
 		t.Fatalf("prior view = %+v/%v, want the edit", p, ok)
 	}
 	if s := pub.SettingsSnapshot(); len(s) != 1 {
@@ -67,7 +67,7 @@ func TestMenuEditWithoutTakeoverGoesToDevice(t *testing.T) {
 	if len(written) != 1 || len(written[0]) != 3 {
 		t.Fatalf("device writes = %v, want the whole edit", written)
 	}
-	if _, ok := c.takeoverPriorView(); ok {
+	if _, ok := priorView(c); ok {
 		t.Fatal("prior view reported with no takeover")
 	}
 }
@@ -86,7 +86,7 @@ func TestMenuEditOfOnlyTakeoverKeysSkipsTheDevice(t *testing.T) {
 	if len(written) != 0 {
 		t.Fatalf("device writes = %v, want none", written)
 	}
-	if p, _ := c.takeoverPriorView(); p.AutoTransition || p.BlockNavigation {
+	if p, _ := priorView(c); p.AutoTransition || p.BlockNavigation {
 		t.Fatalf("prior = %+v, want autoTransition:false blockNavigation:false", p)
 	}
 }
@@ -149,7 +149,7 @@ func TestMenuEditRacesTakeoverEdges(t *testing.T) {
 			if _, err := c.applyMenuSettings(context.Background(), map[string]any{"autoTransition": i%2 == 0, "brightness": 10.0}, write); err != nil {
 				t.Error(err)
 			}
-			c.takeoverPriorView()
+			priorView(c)
 		}
 	}()
 	for i := range 20 {
@@ -160,7 +160,7 @@ func TestMenuEditRacesTakeoverEdges(t *testing.T) {
 	*pomo = false
 	c.publish(*snap)
 
-	if p, ok := c.takeoverPriorView(); ok {
+	if p, ok := priorView(c); ok {
 		t.Fatalf("snapshot %+v left after the last block", p)
 	}
 	last := (edits-1)%2 == 0
@@ -205,7 +205,7 @@ func TestMenuEditInFlightWhenTakeoverStartsIsRecorded(t *testing.T) {
 	if r.err != nil || len(r.held) != 1 || r.held[0] != "autoTransition" {
 		t.Fatalf("held=%v err=%v, want [autoTransition]", r.held, r.err)
 	}
-	if p, ok := c.takeoverPriorView(); !ok || !p.AutoTransition {
+	if p, ok := priorView(c); !ok || !p.AutoTransition {
 		t.Fatalf("snapshot = %+v/%v, want the in-flight edit recorded", p, ok)
 	}
 	if got := clk.get("autoTransition"); got != false {
@@ -323,7 +323,7 @@ func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
 				t.Fatal(r.err)
 			}
 			if !endBlockFirst {
-				if p, _ := c.takeoverPriorView(); p.AutoTransition {
+				if p, _ := priorView(c); p.AutoTransition {
 					t.Fatalf("snapshot = %+v, want E2's autoTransition:false", p)
 				}
 				if got := clk.get("autoTransition"); got != false {
@@ -384,4 +384,10 @@ func TestMenuEditRewriteLostAnswersError(t *testing.T) {
 	if got := clk.get("autoTransition"); got != true {
 		t.Fatalf("clock autoTransition = %v, want the first write's true", got)
 	}
+}
+
+// priorView is takeoverPriorViewContext without a deadline, for tests.
+func priorView(c *coordinator) (takeoverPrior, bool) {
+	p, ok, _ := c.takeoverPriorViewContext(context.Background())
+	return p, ok
 }

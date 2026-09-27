@@ -16,8 +16,9 @@ public enum FeedError: Error, Equatable, Sendable {
     case rateLimited
     /// 404/405: the feature is off, or the server predates the route.
     case featureOff
-    /// The server answered, but the clock didn't finish a write in time.
-    case clockTimedOut(ClockWriteOutcome)
+    /// The server answered, but the clock didn't finish in time: a write,
+    /// with its outcome, or a read (nil).
+    case clockTimedOut(ClockWriteOutcome?)
     /// Anything else, with the server's message.
     case server(String)
 
@@ -70,6 +71,9 @@ extension FeedError: LocalizedError {
         case .unauthorized: "Unauthorized — check the token in Connection settings."
         case .rateLimited: "The server is rate-limiting this Mac."
         case .featureOff: "Not available — the feature is off or the server is too old."
+        case .clockTimedOut(nil):
+            LocalizedStringResource("The clock didn't finish in time.",
+                                    comment: "Error: reading the clock's settings failed because the clock was too slow; nothing was changed.")
         case .clockTimedOut(.notSent):
             LocalizedStringResource("The clock didn't finish in time. Nothing was changed.",
                                     comment: "Error: a clock setting wasn't saved because the clock was too slow; the clock is unchanged.")

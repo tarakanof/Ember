@@ -226,10 +226,18 @@ func validColor(v any) bool {
 const deferredKeysHeader = "X-Ember-Deferred-Keys"
 
 func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
-	before, hadBefore := a.coord.takeoverPriorView()
-	body, err := a.clock.fetch(r.Context(), (*awtrix.Client).RawSettings)
+	// Both priorMu waits and the read share clockReadBudget; out of it, the
+	// answer is a 504 clock_timeout.
+	ctx, cancel := a.clock.readContext(r.Context())
+	defer cancel()
+	before, hadBefore, err := a.coord.takeoverPriorViewContext(ctx)
 	if err != nil {
-		writeClockError(w, err)
+		a.clock.readBudgetError(ctx, w, err)
+		return
+	}
+	body, err := a.clock.fetch(ctx, (*awtrix.Client).RawSettings)
+	if err != nil {
+		a.clock.readBudgetError(ctx, w, err)
 		return
 	}
 	var all map[string]any
@@ -251,7 +259,11 @@ func (a *App) handleDeviceSettingsGet(w http.ResponseWriter, r *http.Request) {
 	// read: a restore that completes during it leaves the device answer
 	// with the takeover values and no snapshot after, so the one from
 	// before (what the restore wrote) is used.
-	p, ok := a.coord.takeoverPriorView()
+	p, ok, err := a.coord.takeoverPriorViewContext(ctx)
+	if err != nil {
+		a.clock.readBudgetError(ctx, w, err)
+		return
+	}
 	if !ok {
 		p, ok = before, hadBefore
 	}

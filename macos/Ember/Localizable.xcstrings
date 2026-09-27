@@ -992,6 +992,10 @@
     "The Dashboard tracks these." : {},
     "The activity card scrolls the current tool call next to the icon. These apply to this Mac's sessions." : {},
     "The clock adds these offsets to its sensor's readings; the temperature one makes up for the clock warming itself. Compare Measured now with a thermometer you trust and change the offset by the difference." : {},
+    "The clock didn't finish in time." : {
+      "comment" : "Error: reading the clock's settings failed because the clock was too slow; nothing was changed.",
+      "extractionState" : "manual"
+    },
     "The clock didn't finish in time. Nothing was changed." : {
       "comment" : "Error: a clock setting wasn't saved because the clock was too slow; the clock is unchanged.",
       "extractionState" : "manual"
