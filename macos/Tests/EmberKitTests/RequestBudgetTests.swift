@@ -43,6 +43,13 @@ func eachBudgetHasASessionWithItsTimeouts(budget: RequestBudget) {
 }
 
 @Test(arguments: RequestBudget.allCases)
+func eachBudgetsSessionSkipsTheURLCache(budget: RequestBudget) {
+    let config = APIClient.session(for: budget).configuration
+    #expect(config.urlCache == nil)
+    #expect(config.requestCachePolicy == .reloadIgnoringLocalCacheData)
+}
+
+@Test(arguments: RequestBudget.allCases)
 func defaultClientRunsEachBudgetOnItsSession(budget: RequestBudget) {
     let client = APIClient(baseURL: URL(string: "http://example.local"), token: nil)
     #expect(client.sessions(budget) === APIClient.session(for: budget))

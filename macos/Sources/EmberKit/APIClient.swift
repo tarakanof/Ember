@@ -195,6 +195,10 @@ public struct APIClient: Sendable {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = budget.requestTimeout
             config.timeoutIntervalForResource = budget.resourceTimeout
+            // The 3 s polls want fresh JSON and the server sends no cache
+            // headers; the default on-disk URLCache only wrote every poll to Cache.db.
+            config.urlCache = nil
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
             return (budget, URLSession(configuration: config))
         })
 
