@@ -33,8 +33,8 @@ struct MenuBarLabel: View, Equatable {
     private var icon: Image {
         let colored = state.trayTint == "color"
         if state.trayStyle == "bot" {
-            // Only the current frame, for the rare re-render (prefs, session,
-            // connection); BotAnimator animates the status button directly.
+            // Only the current frame, for the rare re-render (state, glyph,
+            // prefs, VoiceOver value); BotAnimator animates the status button directly.
             return Image(nsImage: BotAnimator.shared.menuBarImage(colored: colored))
         }
         return Image(nsImage: Self.trayImage(glyph: state.glyph, state: state.state, colored: colored))

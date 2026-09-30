@@ -74,10 +74,14 @@ public enum MenuRows {
         /// prefs, so a glyph pref change re-renders and a tool change that
         /// keeps the same glyph doesn't.
         public let glyph: String
-        public let connection: ConnectionHealth
+        /// "bot" draws the animated bot, anything else the tool glyph.
         public let trayStyle: String
+        /// "color" tints the icon by state, anything else leaves it monochrome.
         public let trayTint: String
-        /// What VoiceOver reads after "Ember" (see `accessibilityValue`).
+        /// What VoiceOver reads after "Ember" (see `accessibilityValue`). The
+        /// only way the connection reaches the label: holding the
+        /// `ConnectionHealth` itself would re-render on every `online(since:)`
+        /// or `degraded(failures:)` change the icon doesn't show.
         public let accessibilityValue: String
     }
 
@@ -85,7 +89,6 @@ public enum MenuRows {
     public static func label(connection: ConnectionHealth, winning: Session?, prefs: MenuPrefs) -> LabelState {
         LabelState(state: winning?.state ?? "idle",
                    glyph: glyphForTool(winning?.tool ?? "", prefs),
-                   connection: connection,
                    trayStyle: prefs.trayStyle,
                    trayTint: prefs.trayTint,
                    accessibilityValue: String(localized: accessibilityValue(connection: connection, winning: winning)))

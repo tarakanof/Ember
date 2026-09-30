@@ -17,9 +17,9 @@ per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
 | `macos/Sources/EmberKit/Bot/BotBehavior.swift` | The animation state machine. Pure and deterministic for a seed, so it is unit-tested. Produces a `BotPose` per frame. |
 | `macos/Sources/EmberKit/Bot/BotRenderer.swift` | CoreGraphics drawing of a `BotPose`, with a `BotStyle` for the menu bar and one for the Dock. |
 | `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, sets each frame on the `NSStatusBarButton` directly, drives the `NSDockTile` view, crossfades the menu-bar colour. Not `@Observable`: see Performance. |
-| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the tool glyph, or the bot's current frame when prefs, session or connection change (the animator takes over from the next frame). Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
+| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the tool glyph, or the bot's current frame when its `MenuRows.LabelState` changes (the animator takes over from the next frame). Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
 | `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. `StatusItemButton.find()` locates the button for this and for the animator. |
-| `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `applyAppIcon` switches the Dock tile. |
+| `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `feedMenuBarLabel()` keeps `menuBarLabel` (a `MenuRows.LabelState`) current and sets it only when it changes, so the label skips polls that only move a timestamp or activity text. `applyAppIcon` switches the Dock tile. |
 | `macos/Tests/EmberKitTests/BotBehaviorTests.swift` | Behavior and renderer tests. |
 
 ## Moods
@@ -180,8 +180,9 @@ two costs, both measured on a running app:
 
 Now the loop sets `NSStatusBarButton.image` itself, and only when the pose
 changed or a colour fade is running. The label reads the animator without
-observing it, so it re-renders only for prefs, session or connection changes,
-and then shows the current frame. Each such change can overwrite the button
+observing it, so it re-renders only when the winning session's state or tool
+glyph, the tray prefs, or the VoiceOver value change, and then shows the
+current frame. Each such change can overwrite the button
 image; prefs changes restart the loop, which always pushes its first frame. If
 the button doesn't exist yet at launch, the loop retries every 0.25 s.
 
