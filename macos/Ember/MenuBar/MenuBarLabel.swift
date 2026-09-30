@@ -23,8 +23,6 @@ struct MenuBarLabel: View {
     let connection: ConnectionHealth
     let prefs: MenuPrefs
 
-    private var bot = BotAnimator.shared
-
     init(session: Session?, connection: ConnectionHealth, prefs: MenuPrefs) {
         self.session = session
         self.connection = connection
@@ -44,7 +42,9 @@ struct MenuBarLabel: View {
     private var icon: Image {
         let colored = prefs.trayTint == "color"
         if prefs.trayStyle == "bot" {
-            return Image(nsImage: bot.menuBarImage(colored: colored))
+            // Only the current frame, for the rare re-render (prefs, session,
+            // connection); BotAnimator animates the status button directly.
+            return Image(nsImage: BotAnimator.shared.menuBarImage(colored: colored))
         }
         return Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
                                              state: session?.state ?? "idle",

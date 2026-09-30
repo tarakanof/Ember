@@ -16,9 +16,9 @@ per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
 |---|---|
 | `macos/Sources/EmberKit/Bot/BotBehavior.swift` | The animation state machine. Pure and deterministic for a seed, so it is unit-tested. Produces a `BotPose` per frame. |
 | `macos/Sources/EmberKit/Bot/BotRenderer.swift` | CoreGraphics drawing of a `BotPose`, with a `BotStyle` for the menu bar and one for the Dock. |
-| `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, publishes `pose` for the menu-bar label, drives the `NSDockTile` view, crossfades the menu-bar colour. |
-| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the bot image or the tool glyph, per prefs. Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
-| `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. |
+| `macos/Ember/MenuBar/BotAnimator.swift` | The one frame loop. Owns the behavior, sets each frame on the `NSStatusBarButton` directly, drives the `NSDockTile` view, crossfades the menu-bar colour. Not `@Observable`: see Performance. |
+| `macos/Ember/MenuBar/MenuBarLabel.swift` | Shows the tool glyph, or the bot's current frame when prefs, session or connection change (the animator takes over from the next frame). Tells VoiceOver the state in words (label "Ember", value from `MenuRows.accessibilityValue`), since the icon only shows it through colour and eyes. |
+| `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. `StatusItemButton.find()` locates the button for this and for the animator. |
 | `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `applyAppIcon` switches the Dock tile. |
 | `macos/Tests/EmberKitTests/BotBehaviorTests.swift` | Behavior and renderer tests. |
 
@@ -165,10 +165,25 @@ These cost real debugging time.
 The loop only runs while something moves. It renders at 30 fps during blinks,
 glances and hops, 60 fps only during the 0.7 s mood morph, and otherwise sleeps
 until the next scheduled event (at most 10 s). It stops completely when neither
-the menu bar nor a visible Dock tile shows the bot. Measured on an M4 with a
-session running: 3.6% average CPU with the bot against 2.8% with the static
-glyphs. Most of the cost is SwiftUI re-rendering the `MenuBarExtra` label each
-frame, which is why the everyday rate is 30 fps.
+the menu bar nor a visible Dock tile shows the bot.
+
+Frames bypass SwiftUI. The animator used to publish an observed `pose` that
+the `MenuBarExtra` label read, so every frame re-evaluated the label. That had
+two costs, both measured on a running app:
+
+- **Memory.** SwiftUI never released the Observation registrations made from
+  the label, one per frame. After 3.5 days the heap held about 740k
+  `Set<AnyKeyPath>` and 12.9k live `ObservationTracking` tables, and RSS was
+  around 600 MB and still growing.
+- **CPU.** 3 to 8% while idle, nearly all of it in AttributeGraph finding and
+  re-rendering the label, not in drawing the bot.
+
+Now the loop sets `NSStatusBarButton.image` itself, and only when the pose
+changed or a colour fade is running. The label reads the animator without
+observing it, so it re-renders only for prefs, session or connection changes,
+and then shows the current frame. Each such change can overwrite the button
+image; prefs changes restart the loop, which always pushes its first frame. If
+the button doesn't exist yet at launch, the loop retries every 0.25 s.
 
 ## Changing it
 

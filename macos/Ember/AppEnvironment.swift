@@ -44,7 +44,7 @@ public final class AppEnvironment {
         didSet {
             AppEnvironment.savePrefs(prefs)
             AppEnvironment.applyAppIcon(prefs.appIcon)
-            BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot")
+            BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         }
     }
 
@@ -138,7 +138,7 @@ public final class AppEnvironment {
         reminderWatcher.start()
         serverDiscovery.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
-        BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot")
+        BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         feedBot()
         reconcileProducers()
     }

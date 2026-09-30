@@ -1,30 +1,37 @@
 import AppKit
 import EmberKit
-import Observation
 
-/// Runs the bot's single frame loop and feeds both the menu-bar label (via the
-/// observed `pose`) and the Dock tile.
+/// Runs the bot's single frame loop and feeds both the menu-bar status item and
+/// the Dock tile.
 ///
 /// The loop renders at 30 fps only while `BotBehavior` reports motion (a blink,
 /// a glance, a hop) and otherwise sleeps until the next scheduled event, so an
 /// idle bot costs a wake-up every few seconds, not a timer per frame. It stops
 /// entirely while nothing on screen shows the bot.
-@MainActor @Observable
+///
+/// Frames go straight to the `NSStatusBarButton`, not through SwiftUI. Letting
+/// the `MenuBarExtra` label observe a per-frame value leaked SwiftUI's
+/// Observation registrations (about 600 MB after 3.5 days) and kept 3-8% CPU
+/// busy in AttributeGraph re-evaluating the label. Deliberately not
+/// `@Observable`, so nothing can start observing `pose` again.
+@MainActor
 final class BotAnimator {
     static let shared = BotAnimator()
 
     private(set) var pose = BotPose()
 
-    @ObservationIgnored private var behavior: BotBehavior
-    @ObservationIgnored private var loop: Task<Void, Never>?
-    @ObservationIgnored private let dockView = BotDockView()
-    @ObservationIgnored private var dockEnabled = false
-    @ObservationIgnored private var menuBarEnabled = false
+    private var behavior: BotBehavior
+    private var loop: Task<Void, Never>?
+    private let dockView = BotDockView()
+    private var dockEnabled = false
+    private var menuBarEnabled = false
+    private var menuBarColored = true
+    private weak var statusButton: NSStatusBarButton?
     /// Menu-bar colour crossfade on mood changes; nil = the menu bar's own
     /// foreground (the template look).
-    @ObservationIgnored private var tintFrom: NSColor?
-    @ObservationIgnored private var tintTo: NSColor?
-    @ObservationIgnored private var tintStart = -Double.infinity
+    private var tintFrom: NSColor?
+    private var tintTo: NSColor?
+    private var tintStart = -Double.infinity
     private static let tintFade = 0.35
 
     private init() {
@@ -65,10 +72,13 @@ final class BotAnimator {
         return a.blended(withFraction: max(k, 0), of: b) ?? b
     }
 
-    /// Whether the menu-bar label shows the bot (vs the tool glyphs).
-    func showInMenuBar(_ on: Bool) {
-        guard on != menuBarEnabled else { return }
+    /// Whether the menu-bar label shows the bot (vs the tool glyphs), and in
+    /// colour or as a template. Called on every prefs change, which also
+    /// re-renders the label and overwrites the button image, so it always
+    /// restarts the loop to push a fresh frame.
+    func showInMenuBar(_ on: Bool, colored: Bool) {
         menuBarEnabled = on
+        menuBarColored = colored
         restart()
     }
 
@@ -104,20 +114,39 @@ final class BotAnimator {
     private func run() async {
         // Demotion to .accessory ends the loop here; the next promotion
         // re-applies the icon (AppDelegate → applyAppIcon), which restarts it.
+        // The first frame is always pushed: a restart usually follows a label
+        // re-render that replaced the button image.
+        var menuBarStale = true
         while !Task.isCancelled && (menuBarEnabled || dockVisible) {
             let t = Self.now
             let p = behavior.pose(at: t)
+            let fading = menuBarColored && t - tintStart < Self.tintFade
             if p != pose {
                 pose = p
+                menuBarStale = true
                 renderDock()
+            }
+            if menuBarEnabled && (menuBarStale || fading) {
+                menuBarStale = !pushMenuBar()
             }
             // 30 fps for everyday blinks and glances (each frame re-rasterises the
             // status item); 60 fps only for the short mood morphs, which glide.
-            let wait = behavior.isTransitioning ? 1.0 / 60
-                : behavior.isAnimating ? 1.0 / 30
+            var wait = behavior.isTransitioning ? 1.0 / 60
+                : behavior.isAnimating || fading ? 1.0 / 30
                 : min(max(behavior.nextEventAt - t, 1.0 / 30), 10)
+            // No status item yet (early launch): retry soon, not at the next event.
+            if menuBarEnabled && menuBarStale { wait = min(wait, 0.25) }
             try? await Task.sleep(for: .seconds(wait))
         }
+    }
+
+    /// Sets the current frame on the status item button. False while the
+    /// `MenuBarExtra` hasn't created it yet.
+    private func pushMenuBar() -> Bool {
+        if statusButton == nil { statusButton = StatusItemButton.find() }
+        guard let button = statusButton else { return false }
+        button.image = menuBarImage(colored: menuBarColored)
+        return true
     }
 
     private func renderDock() {

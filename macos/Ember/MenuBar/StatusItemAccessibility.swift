@@ -16,15 +16,9 @@ enum StatusItemAccessibility {
     /// one yet (early in launch), so the caller can retry.
     @discardableResult
     static func setValue(_ value: String) -> Bool {
-        // Ember has exactly one status item: the MenuBarExtra. Walking every
-        // window avoids depending on the status bar window's private class.
-        for window in NSApp.windows {
-            if let button = statusButton(in: window.contentView) {
-                if button.accessibilityValue() as? String != value { button.setAccessibilityValue(value) }
-                return true
-            }
-        }
-        return false
+        guard let button = StatusItemButton.find() else { return false }
+        if button.accessibilityValue() as? String != value { button.setAccessibilityValue(value) }
+        return true
     }
 
     /// Retries `setValue` while the status item is being created, and logs
@@ -39,12 +33,26 @@ enum StatusItemAccessibility {
             log.error("status item button not found; VoiceOver won't hear the menu-bar state")
         }
     }
+}
 
-    private static func statusButton(in view: NSView?) -> NSStatusBarButton? {
+/// Finds the `MenuBarExtra`'s `NSStatusBarButton`, which SwiftUI doesn't expose.
+@MainActor
+enum StatusItemButton {
+    /// Ember's status item button, or nil before the `MenuBarExtra` creates it.
+    static func find() -> NSStatusBarButton? {
+        // Ember has exactly one status item: the MenuBarExtra. Walking every
+        // window avoids depending on the status bar window's private class.
+        for window in NSApp.windows {
+            if let button = find(in: window.contentView) { return button }
+        }
+        return nil
+    }
+
+    private static func find(in view: NSView?) -> NSStatusBarButton? {
         guard let view else { return nil }
         if let button = view as? NSStatusBarButton { return button }
         for sub in view.subviews {
-            if let button = statusButton(in: sub) { return button }
+            if let button = find(in: sub) { return button }
         }
         return nil
     }
