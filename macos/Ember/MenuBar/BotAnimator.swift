@@ -9,7 +9,7 @@ import EmberKit
 /// idle bot costs a wake-up every few seconds, not a timer per frame. It stops
 /// entirely while nothing on screen shows the bot. A frame that would
 /// rasterise the same as the last one pushed is skipped: each push costs a
-/// status-item relayout and an XPC round-trip to the menu bar.
+/// rasterisation and a status-button redraw.
 ///
 /// Frames go straight to the `NSStatusBarButton`, not through SwiftUI. Letting
 /// the `MenuBarExtra` label observe a per-frame value leaked SwiftUI's
@@ -32,6 +32,12 @@ final class BotAnimator {
     private var menuBarEnabled = false
     private var menuBarColored = true
     private weak var statusButton: NSStatusBarButton?
+    /// The image on the status button; each frame swaps in a new rep. A new
+    /// `setImage:` per frame made AppKit re-measure the item, about half of
+    /// each push's cost, though the size never changes. Owned by the loop
+    /// only: the SwiftUI label gets its own snapshot from `menuBarImage(colored:)`.
+    private var liveImage: NSImage?
+    private var liveContext: CGContext?
     /// Menu-bar colour crossfade on mood changes; nil = the menu bar's own
     /// foreground (the template look).
     private var tintFrom: NSColor?
@@ -123,6 +129,8 @@ final class BotAnimator {
 
     private func restart() {
         loop?.cancel()
+        // A fresh image forces one `setImage:` on the first push.
+        liveImage = nil
         loop = Task { [weak self] in await self?.run() }
     }
 
@@ -169,13 +177,44 @@ final class BotAnimator {
         }
     }
 
-    /// Sets the current frame on the status item button. False while the
-    /// `MenuBarExtra` hasn't created it yet.
+    /// Draws the current frame into the status button's image. False while
+    /// the `MenuBarExtra` hasn't created the button yet.
     private func pushMenuBar() -> Bool {
         if statusButton == nil { statusButton = StatusItemButton.find() }
         guard let button = statusButton else { return false }
-        button.image = menuBarImage(colored: menuBarColored)
+        let tint = menuBarColored ? tint(at: Self.now) : nil
+        if liveImage?.isTemplate != (tint == nil) { makeLiveImage(template: tint == nil) }
+        // No context means no memory for 7 KB; skip the frame rather than
+        // mark it stale, which would retry every 0.25 s and draw nothing.
+        guard let image = liveImage, let ctx = liveContext else { return true }
+        let rect = CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height)
+        ctx.clear(rect)
+        BotRenderer.draw(pose, in: ctx, rect: rect, style: .menuBar(tint: tint?.cgColor ?? NSColor.black.cgColor))
+        guard let cg = ctx.makeImage() else { return false }
+        // A fresh rep, not new pixels in the old one: the button's layer
+        // compares display lists by CGImage identity, so rewriting a rep's
+        // bitmap in place (even after `recache()`) left the menu bar stale.
+        let rep = NSBitmapImageRep(cgImage: cg)
+        rep.size = image.size
+        image.representations.forEach(image.removeRepresentation)
+        image.addRepresentation(rep)
+        // Only a new image object needs `setImage:`: a restart, a template
+        // switch, or a label re-render that put its own snapshot on the button.
+        if button.image !== image { button.image = image }
+        button.needsDisplay = true
         return true
+    }
+
+    /// A 22 pt image, and the 44 px context its frames are drawn in.
+    private func makeLiveImage(template: Bool) {
+        let pt = 22, px = pt * 2
+        liveContext = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard liveContext != nil else { liveImage = nil; return }
+        let image = NSImage(size: NSSize(width: pt, height: pt))
+        image.isTemplate = template
+        liveImage = image
     }
 
     private func renderDock() {

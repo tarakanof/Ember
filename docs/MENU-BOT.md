@@ -170,8 +170,8 @@ the menu bar nor a visible Dock tile shows the bot.
 Many consecutive poses differ by less than a pixel, so the loop compares
 `BotPose.quantized(toPixels:)` for each target (the 16 px menu-bar radius, the
 Dock tile's own) and skips a push when it matches the last one shown. Each
-menu-bar push costs a status-item relayout, a redraw and an XPC round-trip to
-the menu-bar agent, and those were nearly all of the app's idle CPU. The step
+menu-bar push costs a rasterisation, a button redraw and a scene update to the
+menu-bar agent, and those are nearly all of the app's idle CPU. The step
 is half a pixel per field, from how far `BotRenderer` moves an edge per unit
 of each field; scale moves edges about twice as far, so it gets half that.
 
@@ -191,13 +191,33 @@ two costs, both measured on a running app:
 - **CPU.** 3 to 8% while idle, nearly all of it in AttributeGraph finding and
   re-rendering the label, not in drawing the bot.
 
-Now the loop sets `NSStatusBarButton.image` itself, and only when the pose
+Now the loop draws into the status button itself, and only when the pose
 changed or a colour fade is running. The label reads the animator without
 observing it, so it re-renders only when the winning session's state or tool
-glyph, the tray prefs, or the VoiceOver value change, and then shows the
-current frame. Each such change can overwrite the button
+glyph, the tray prefs, or the VoiceOver value change, and then shows its own
+snapshot of the current frame. Each such change can overwrite the button
 image; prefs changes restart the loop, which always pushes its first frame. If
 the button doesn't exist yet at launch, the loop retries every 0.25 s.
+
+The button keeps one `NSImage` for the life of the loop. A push draws the
+frame into a 44 px `CGContext` kept by the animator, swaps the image's only
+representation for one over a `makeImage()` snapshot of it (a copy, since the
+old rep still holds the previous one), and marks the button for display. Setting
+`button.image` per frame instead made AppKit re-measure the item
+(`-[NSStatusItem _adjustLength]`), which was about half the cost of a push
+although the size never changes. `button.image` is set only when the image
+object changes: a loop restart, a switch between template and colour, or a
+label re-render that put its own snapshot on the button.
+
+Rewriting the pixels of one `NSBitmapImageRep` in place does not work, even
+after `recache()`: the menu bar kept showing the first frame. The button's
+layer seems to compare its drawing by `CGImage` identity, so each frame needs
+a new representation. The remaining per-push cost is the rasterisation, the
+`NSStatusBarButtonCell` redraw, and the `NSStatusItemScene updateSettings`
+that every redraw triggers from a CA commit handler. With the per-frame rep
+swap, a mono idle bot used 0.87 s of CPU over 120 s, down from 1.27 s. If the
+menu-bar bot ever freezes after a macOS update, go back to setting
+`button.image` per frame.
 
 ## Changing it
 
