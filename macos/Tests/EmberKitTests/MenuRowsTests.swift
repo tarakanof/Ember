@@ -73,6 +73,69 @@ private func pomo(_ phase: String, running: Bool = false, paused: Bool = false,
     #expect(MenuRows.accessibilityValue(connection: .offline(since: now), winning: nil).text == "Offline")
 }
 
+// MARK: Menu-bar label
+
+private func prefs(claude: String = "claude", codex: String = "codex",
+                   style: String = "glyph", tint: String = "mono") -> MenuPrefs {
+    MenuPrefs(appIcon: "bot", trayClaudeGlyph: claude, trayCodexGlyph: codex,
+              trayIdleGlyph: "ember-e-pixel", trayStyle: style, trayTint: tint)
+}
+
+@Test func labelShowsTheWinnersStateAndGlyph() throws {
+    let s = try session(tool: "codex", source: "m5", state: "waiting")
+    let label = MenuRows.label(connection: .online(since: now), winning: s, prefs: prefs(codex: "codex-alt"))
+    #expect(label.state == "waiting")
+    #expect(label.glyph == "codex-alt")
+    #expect(label.accessibilityValue == "Codex on m5 — Waiting")
+}
+
+@Test func labelWithoutAWinnerIsIdle() {
+    let label = MenuRows.label(connection: .online(since: now), winning: nil, prefs: prefs())
+    #expect(label.state == "idle")
+    #expect(label.glyph == "ember-e-pixel")
+    #expect(label.accessibilityValue == "Idle")
+}
+
+@Test func labelCarriesTheTrayPrefs() {
+    let label = MenuRows.label(connection: .online(since: now), winning: nil, prefs: prefs(style: "bot", tint: "color"))
+    #expect(label.trayStyle == "bot")
+    #expect(label.trayTint == "color")
+}
+
+@Test func labelSaysOfflineWhenTheConnectionIsDown() throws {
+    let s = try session(tool: "claude", state: "running")
+    #expect(MenuRows.label(connection: .offline(since: now), winning: s, prefs: prefs()).accessibilityValue == "Offline")
+}
+
+@Test func labelIgnoresConnectionChangesTheIconDoesntShow() throws {
+    let s = try session(tool: "claude", state: "running")
+    let online = MenuRows.label(connection: .online(since: now), winning: s, prefs: prefs())
+    #expect(MenuRows.label(connection: .online(since: now.addingTimeInterval(60)), winning: s, prefs: prefs()) == online)
+    #expect(MenuRows.label(connection: .degraded(failures: 2), winning: s, prefs: prefs()) == online)
+}
+
+@Test func labelIconFollowsTheGlyphPrefNotTheTool() throws {
+    let claude = try session(tool: "claude", state: "running")
+    let codex = try session(tool: "codex", state: "running")
+    let shared = prefs(claude: "ember-e-pixel", codex: "ember-e-pixel")
+    let before = MenuRows.label(connection: .online(since: now), winning: claude, prefs: shared)
+    #expect(MenuRows.label(connection: .online(since: now), winning: claude, prefs: prefs()) != before)
+    // Same state and glyph; only the VoiceOver value names the other tool.
+    let other = MenuRows.label(connection: .online(since: now), winning: codex, prefs: shared)
+    #expect(other.glyph == before.glyph)
+    #expect(other.state == before.state)
+}
+
+@Test func labelIgnoresWhatOnlyTheMenuShows() throws {
+    var s = try session(tool: "claude", source: "m4", state: "running")
+    let before = MenuRows.label(connection: .online(since: now), winning: s, prefs: .default)
+    s.updatedAt = now.addingTimeInterval(3)
+    s.activity = "Bash: npm test"
+    #expect(MenuRows.label(connection: .online(since: now), winning: s, prefs: .default) == before)
+    s.state = "waiting"
+    #expect(MenuRows.label(connection: .online(since: now), winning: s, prefs: .default) != before)
+}
+
 // MARK: Other sessions
 
 @Test func otherSessionsExcludeTheWinnerAndPutAttentionFirst() throws {

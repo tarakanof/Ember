@@ -61,6 +61,39 @@ public enum MenuRows {
         }
     }
 
+    // MARK: Menu-bar label
+
+    /// Everything the menu-bar icon is drawn from, and nothing more. The
+    /// winner's `updatedAt` and activity change on nearly every `/state` poll
+    /// while agents run; holding this instead of the `Session` keeps the label
+    /// from re-rendering unless the icon or its VoiceOver value would change.
+    public struct LabelState: Equatable, Sendable {
+        /// The winning session's state, "idle" when there is none.
+        public let state: String
+        /// The tray glyph for the winning session's tool under the current
+        /// prefs, so a glyph pref change re-renders and a tool change that
+        /// keeps the same glyph doesn't.
+        public let glyph: String
+        /// "bot" draws the animated bot, anything else the tool glyph.
+        public let trayStyle: String
+        /// "color" tints the icon by state, anything else leaves it monochrome.
+        public let trayTint: String
+        /// What VoiceOver reads after "Ember" (see `accessibilityValue`). The
+        /// only way the connection reaches the label: holding the
+        /// `ConnectionHealth` itself would re-render on every `online(since:)`
+        /// or `degraded(failures:)` change the icon doesn't show.
+        public let accessibilityValue: String
+    }
+
+    /// The label for the session the menu heads (`LiveModel.winningSession`).
+    public static func label(connection: ConnectionHealth, winning: Session?, prefs: MenuPrefs) -> LabelState {
+        LabelState(state: winning?.state ?? "idle",
+                   glyph: glyphForTool(winning?.tool ?? "", prefs),
+                   trayStyle: prefs.trayStyle,
+                   trayTint: prefs.trayTint,
+                   accessibilityValue: String(localized: accessibilityValue(connection: connection, winning: winning)))
+    }
+
     // MARK: Other sessions
 
     public struct SessionRow: Identifiable, Sendable {
