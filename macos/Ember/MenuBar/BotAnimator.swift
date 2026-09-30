@@ -4,10 +4,12 @@ import EmberKit
 /// Runs the bot's single frame loop and feeds both the menu-bar status item and
 /// the Dock tile.
 ///
-/// The loop renders at 30 fps only while `BotBehavior` reports motion (a blink,
+/// The loop renders at 24 fps only while `BotBehavior` reports motion (a blink,
 /// a glance, a hop) and otherwise sleeps until the next scheduled event, so an
 /// idle bot costs a wake-up every few seconds, not a timer per frame. It stops
-/// entirely while nothing on screen shows the bot.
+/// entirely while nothing on screen shows the bot. A frame that would
+/// rasterise the same as the last one pushed is skipped: each push costs a
+/// status-item relayout and an XPC round-trip to the menu bar.
 ///
 /// Frames go straight to the `NSStatusBarButton`, not through SwiftUI. Letting
 /// the `MenuBarExtra` label observe a per-frame value leaked SwiftUI's
@@ -24,6 +26,9 @@ final class BotAnimator {
     private var loop: Task<Void, Never>?
     private let dockView = BotDockView()
     private var dockEnabled = false
+    /// Mirrors `NSApp.activationPolicy()`, which is an XPC round-trip per call.
+    /// Kept current by `activationPolicyDidChange(_:)`.
+    private var isRegular = NSApplication.shared.activationPolicy() == .regular
     private var menuBarEnabled = false
     private var menuBarColored = true
     private weak var statusButton: NSStatusBarButton?
@@ -33,6 +38,12 @@ final class BotAnimator {
     private var tintTo: NSColor?
     private var tintStart = -Double.infinity
     private static let tintFade = 0.35
+    /// Everyday blinks and glances; 24 fps is smooth for them at 16 pt.
+    private static let frameInterval = 1.0 / 24
+    /// The 0.7 s mood morph glides, so it gets the display's rate.
+    private static let morphFrameInterval = 1.0 / 60
+    /// The 16 pt ball's radius on the 44 px menu-bar raster.
+    private static let menuBarRadius = BotStyle.menuBar(tint: NSColor.black.cgColor).bodyRadius(side: 44)
 
     private init() {
         behavior = BotBehavior(seed: .random(in: 0 ... .max), now: Self.now)
@@ -101,39 +112,57 @@ final class BotAnimator {
         restart()
     }
 
-    /// The Dock tile is only on screen while a window promotes us to .regular.
-    private var dockVisible: Bool {
-        dockEnabled && NSApplication.shared.activationPolicy() == .regular
+    /// Call after every `setActivationPolicy`. A promotion must be reported
+    /// before `showInDock`, whose restart reads it.
+    func activationPolicyDidChange(_ policy: NSApplication.ActivationPolicy) {
+        isRegular = policy == .regular
     }
+
+    /// The Dock tile is only on screen while a window promotes us to .regular.
+    private var dockVisible: Bool { dockEnabled && isRegular }
 
     private func restart() {
         loop?.cancel()
         loop = Task { [weak self] in await self?.run() }
     }
 
+    /// Pushes a menu-bar frame only when its quantised pose changes, or on
+    /// every frame of a colour fade plus once when the fade ends: that last
+    /// push carries the final colour, which a held-still pose would skip.
     private func run() async {
         // Demotion to .accessory ends the loop here; the next promotion
         // re-applies the icon (AppDelegate → applyAppIcon), which restarts it.
         // The first frame is always pushed: a restart usually follows a label
         // re-render that replaced the button image.
         var menuBarStale = true
+        var menuBarShown: BotPose?, dockShown: BotPose?
+        var wasFading = false
+        let dockScale = NSScreen.main?.backingScaleFactor ?? 2
+        let dockRadius = BotStyle.dock(badge: nil)
+            .bodyRadius(side: NSApplication.shared.dockTile.size.width * dockScale)
         while !Task.isCancelled && (menuBarEnabled || dockVisible) {
             let t = Self.now
-            let p = behavior.pose(at: t)
+            pose = behavior.pose(at: t)
             let fading = menuBarColored && t - tintStart < Self.tintFade
-            if p != pose {
-                pose = p
+            if wasFading && !fading { menuBarStale = true }
+            wasFading = fading
+            var menuBarKey = pose.quantized(toPixels: Self.menuBarRadius)
+            menuBarKey.badge = 0   // the menu-bar style draws no badge
+            if menuBarKey != menuBarShown {
+                menuBarShown = menuBarKey
                 menuBarStale = true
+            }
+            let dockKey = pose.quantized(toPixels: dockRadius)
+            if dockKey != dockShown {
+                dockShown = dockKey
                 renderDock()
             }
             if menuBarEnabled && (menuBarStale || fading) {
                 menuBarStale = !pushMenuBar()
             }
-            // 30 fps for everyday blinks and glances (each frame re-rasterises the
-            // status item); 60 fps only for the short mood morphs, which glide.
-            var wait = behavior.isTransitioning ? 1.0 / 60
-                : behavior.isAnimating || fading ? 1.0 / 30
-                : min(max(behavior.nextEventAt - t, 1.0 / 30), 10)
+            var wait = behavior.isTransitioning ? Self.morphFrameInterval
+                : behavior.isAnimating || fading ? Self.frameInterval
+                : min(max(behavior.nextEventAt - t, Self.frameInterval), 10)
             // No status item yet (early launch): retry soon, not at the next event.
             if menuBarEnabled && menuBarStale { wait = min(wait, 0.25) }
             try? await Task.sleep(for: .seconds(wait))

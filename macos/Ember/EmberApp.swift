@@ -100,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        BotAnimator.shared.activationPolicyDidChange(.accessory)
         let nc = NotificationCenter.default
         nc.addObserver(self, selector: #selector(syncPolicy),
                        name: NSWindow.didBecomeKeyNotification, object: nil)
@@ -124,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let wanted: NSApplication.ActivationPolicy = hasWindow ? .regular : .accessory
             if NSApp.activationPolicy() != wanted {
                 NSApp.setActivationPolicy(wanted)
+                BotAnimator.shared.activationPolicyDidChange(wanted)
                 if wanted == .regular {
                     NSApp.activate()
                     // Promoting to .regular makes the Dock fall back to the

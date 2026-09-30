@@ -162,10 +162,23 @@ These cost real debugging time.
 
 ## Performance
 
-The loop only runs while something moves. It renders at 30 fps during blinks,
+The loop only runs while something moves. It renders at 24 fps during blinks,
 glances and hops, 60 fps only during the 0.7 s mood morph, and otherwise sleeps
 until the next scheduled event (at most 10 s). It stops completely when neither
 the menu bar nor a visible Dock tile shows the bot.
+
+Many consecutive poses differ by less than a pixel, so the loop compares
+`BotPose.quantized(toPixels:)` for each target (the 16 px menu-bar radius, the
+Dock tile's own) and skips a push when it matches the last one shown. Each
+menu-bar push costs a status-item relayout, a redraw and an XPC round-trip to
+the menu-bar agent, and those were nearly all of the app's idle CPU. The step
+is half a pixel per field, from how far `BotRenderer` moves an edge per unit
+of each field; scale moves edges about twice as far, so it gets half that.
+
+The loop also keeps its own copy of the activation policy instead of asking
+`NSApp.activationPolicy()` each frame, which is an XPC call too. Every
+`setActivationPolicy` call site reports the change through
+`BotAnimator.activationPolicyDidChange(_:)`.
 
 Frames bypass SwiftUI. The animator used to publish an observed `pose` that
 the `MenuBarExtra` label read, so every frame re-evaluated the label. That had

@@ -28,6 +28,7 @@ enum WindowID {
 func presentWindow(id: String, using openWindow: OpenWindowAction) {
     if NSApp.activationPolicy() != .regular {
         NSApp.setActivationPolicy(.regular)
+        BotAnimator.shared.activationPolicyDidChange(.regular)
         // Promotion drops the runtime Dock icon for the bundle's static one;
         // AppDelegate.syncPolicy re-applies it only when it promotes, and
         // here it finds the app already regular.
