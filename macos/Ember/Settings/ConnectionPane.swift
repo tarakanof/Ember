@@ -100,6 +100,7 @@ struct ConnectionPane: View {
             if focused != .serverURL { serverURL = applied.serverURL }
         }
         .onChange(of: env.serverURL) { _, _ in Task { await runProbe() } }
+        .task { await env.serverDiscovery.browse() }
         .reloads {
             await model.load()
             if let applied = model.applied {

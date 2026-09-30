@@ -136,7 +136,6 @@ public final class AppEnvironment {
         live.start()
         observeSleep()
         reminderWatcher.start()
-        serverDiscovery.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
         BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         feedBot()

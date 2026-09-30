@@ -39,8 +39,22 @@ public final class ServerDiscovery {
     public private(set) var status: Status = .searching
     private var browser: NWBrowser?
     private var pending: [ObjectIdentifier: NWConnection] = [:]
+    private var holds = HoldCount()
 
     public init() {}
+
+    /// Browses until the calling task is cancelled: use it from a view's
+    /// `.task`. A permanent Bonjour browse costs mDNS traffic and wakeups, so it
+    /// runs only while something shows the results. Holds are refcounted
+    /// because SwiftUI can start a reappearing view's task before the old
+    /// task's cancellation has run its `defer`.
+    public func browse() async {
+        if holds.acquire() { start() }
+        defer { if holds.release() { stop() } }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(3600))
+        }
+    }
 
     public func start() {
         guard browser == nil else { return }
@@ -128,6 +142,23 @@ public final class ServerDiscovery {
     private func finish(_ key: ObjectIdentifier) {
         pending[key]?.cancel()
         pending[key] = nil
+    }
+
+    /// Counts overlapping holders; the first acquire and the last release are
+    /// the edges that start and stop the browse.
+    struct HoldCount {
+        private(set) var count = 0
+        /// Returns true when this is the first holder.
+        mutating func acquire() -> Bool {
+            count += 1
+            return count == 1
+        }
+        /// Returns true when this was the last holder.
+        mutating func release() -> Bool {
+            guard count > 0 else { return false }
+            count -= 1
+            return count == 0
+        }
     }
 
     nonisolated static func hostString(_ host: NWEndpoint.Host) -> String {
