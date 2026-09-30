@@ -39,8 +39,22 @@ public final class ServerDiscovery {
     public private(set) var status: Status = .searching
     private var browser: NWBrowser?
     private var pending: [ObjectIdentifier: NWConnection] = [:]
+    private var holds = HoldCount()
 
     public init() {}
+
+    /// Browses until the calling task is cancelled: use it from a view's
+    /// `.task`. A permanent Bonjour browse costs mDNS traffic and wakeups, so it
+    /// runs only while something shows the results. Holds are refcounted
+    /// because SwiftUI can start a reappearing view's task before the old
+    /// task's cancellation has run its `defer`.
+    public func browse() async {
+        if holds.acquire() { start() }
+        defer { if holds.release() { stop() } }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(3600))
+        }
+    }
 
     public func start() {
         guard browser == nil else { return }
@@ -48,31 +62,38 @@ public final class ServerDiscovery {
         let params = NWParameters()
         params.includePeerToPeer = false
         let b = NWBrowser(for: .bonjour(type: "_ember._tcp", domain: nil), using: params)
-        b.stateUpdateHandler = { [weak self] state in
-            Task { @MainActor [weak self] in
+        // Callbacks hop to the main actor, so one queued just before stop()
+        // can land after it; only the current browser's are applied, or a
+        // stale status or server would show on the next open.
+        b.stateUpdateHandler = { [weak self, weak b] state in
+            Task { @MainActor [weak self, weak b] in
+                guard let self, let b, self.browser === b else { return }
                 switch state {
                 case .ready:
-                    self?.status = .searching
+                    self.status = .searching
                 // Only a PolicyDenied browse means Local Network access is off;
                 // any other wait is transient and the browse keeps going. If
                 // results arrive anyway, the list is shown regardless of status.
                 case .waiting(let e), .failed(let e):
                     if BonjourClockBrowser.isPolicyDenied(e) {
-                        self?.status = .needsAccess
+                        self.status = .needsAccess
                     } else if case .failed = state {
-                        self?.status = .unavailable
+                        self.status = .unavailable
                     }
                 default:
                     break
                 }
             }
         }
-        b.browseResultsChangedHandler = { [weak self] results, _ in
+        b.browseResultsChangedHandler = { [weak self, weak b] results, _ in
             let endpoints = results.compactMap { result -> (String, NWEndpoint)? in
                 if case let .service(name, _, _, _) = result.endpoint { return (name, result.endpoint) }
                 return nil
             }
-            Task { @MainActor [weak self] in self?.resolve(endpoints) }
+            Task { @MainActor [weak self, weak b] in
+                guard let self, let b, self.browser === b else { return }
+                self.resolve(endpoints)
+            }
         }
         b.start(queue: .main)
         browser = b
@@ -91,6 +112,7 @@ public final class ServerDiscovery {
         for conn in pending.values { conn.cancel() }
         pending.removeAll()
         servers = []
+        status = .searching
     }
 
     private func resolve(_ endpoints: [(String, NWEndpoint)]) {
@@ -104,7 +126,11 @@ public final class ServerDiscovery {
                     if let path = conn.currentPath, case let .hostPort(host, port) = path.remoteEndpoint {
                         let hostStr = Self.hostString(host)
                         let p = Int(port.rawValue)
-                        Task { @MainActor [weak self] in self?.add(Found(id: name, name: name, host: hostStr, port: p)) }
+                        // A resolution that stop() already reclaimed is stale.
+                        Task { @MainActor [weak self] in
+                            guard let self, self.pending[key] != nil else { return }
+                            self.add(Found(id: name, name: name, host: hostStr, port: p))
+                        }
                     }
                     Task { @MainActor [weak self] in self?.finish(key) }
                 // .waiting means the path is unsatisfied (port filtered/refused) and
@@ -128,6 +154,23 @@ public final class ServerDiscovery {
     private func finish(_ key: ObjectIdentifier) {
         pending[key]?.cancel()
         pending[key] = nil
+    }
+
+    /// Counts overlapping holders; the first acquire and the last release are
+    /// the edges that start and stop the browse.
+    struct HoldCount {
+        private(set) var count = 0
+        /// Returns true when this is the first holder.
+        mutating func acquire() -> Bool {
+            count += 1
+            return count == 1
+        }
+        /// Returns true when this was the last holder.
+        mutating func release() -> Bool {
+            guard count > 0 else { return false }
+            count -= 1
+            return count == 0
+        }
     }
 
     nonisolated static func hostString(_ host: NWEndpoint.Host) -> String {
