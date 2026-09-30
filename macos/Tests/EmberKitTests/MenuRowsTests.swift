@@ -73,6 +73,36 @@ private func pomo(_ phase: String, running: Bool = false, paused: Bool = false,
     #expect(MenuRows.accessibilityValue(connection: .offline(since: now), winning: nil).text == "Offline")
 }
 
+// MARK: Menu-bar label
+
+@Test func labelFollowsWinnerConnectionAndPrefs() throws {
+    let s = try session(tool: "codex", source: "m5", state: "waiting")
+    let prefs = MenuPrefs(appIcon: "bot", trayClaudeGlyph: "claude", trayCodexGlyph: "codex-alt",
+                          trayIdleGlyph: "ember-e-pixel", trayStyle: "glyph", trayTint: "mono")
+    let label = MenuRows.label(connection: .online(since: now), winning: s, prefs: prefs)
+    #expect(label.state == "waiting")
+    #expect(label.glyph == "codex-alt")
+    #expect(label.connection == .online(since: now))
+    #expect(label.trayStyle == "glyph")
+    #expect(label.trayTint == "mono")
+    #expect(label.accessibilityValue == "Codex on m5 — Waiting")
+
+    let idle = MenuRows.label(connection: .offline(since: now), winning: nil, prefs: .default)
+    #expect(idle.state == "idle")
+    #expect(idle.glyph == MenuPrefs.default.trayIdleGlyph)
+    #expect(idle.accessibilityValue == "Offline")
+}
+
+@Test func labelIgnoresWhatOnlyTheMenuShows() throws {
+    var s = try session(tool: "claude", source: "m4", state: "running")
+    let before = MenuRows.label(connection: .online(since: now), winning: s, prefs: .default)
+    s.updatedAt = now.addingTimeInterval(3)
+    s.activity = "Bash: npm test"
+    #expect(MenuRows.label(connection: .online(since: now), winning: s, prefs: .default) == before)
+    s.state = "waiting"
+    #expect(MenuRows.label(connection: .online(since: now), winning: s, prefs: .default) != before)
+}
+
 // MARK: Other sessions
 
 @Test func otherSessionsExcludeTheWinnerAndPutAttentionFirst() throws {

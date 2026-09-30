@@ -48,6 +48,11 @@ public final class AppEnvironment {
         }
     }
 
+    /// What the menu-bar label draws. Set only when it changes, so the scene
+    /// body that reads it (unlike one reading `live.winningSession`) isn't
+    /// re-evaluated on every `/state` poll.
+    public private(set) var menuBarLabel = MenuRows.label(connection: .connecting, winning: nil, prefs: .default)
+
     private static let log = Logger(subsystem: "com.ember.Ember", category: "app")
 
     static let prefsDefaults = UserDefaults.standard
@@ -85,6 +90,17 @@ public final class AppEnvironment {
             Task { @MainActor in self?.feedBot() }
         }
         BotAnimator.shared.setState(state)
+    }
+
+    /// Recomputes `menuBarLabel` whenever the snapshot, connection or prefs
+    /// change, and stores it only when the result differs.
+    private func feedMenuBarLabel() {
+        let label = withObservationTracking {
+            MenuRows.label(connection: live.connection, winning: live.winningSession, prefs: prefs)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.feedMenuBarLabel() }
+        }
+        if label != menuBarLabel { menuBarLabel = label }
     }
 
     /// Applies the chosen Ember icon as the runtime Dock icon (visible only while
@@ -139,6 +155,7 @@ public final class AppEnvironment {
         AppEnvironment.applyAppIcon(prefs.appIcon)
         BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         feedBot()
+        feedMenuBarLabel()
         reconcileProducers()
     }
 

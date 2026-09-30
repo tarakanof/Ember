@@ -15,7 +15,7 @@ struct EmberApp: App {
                 .environment(env)
                 .capturesOpenWindow(into: env)
         } label: {
-            MenuBarLabel(session: env.live.winningSession, connection: env.live.connection, prefs: env.prefs)
+            MenuBarLabel(state: env.menuBarLabel)
         }
         .menuBarExtraStyle(.menu)
         .commands { EmberCommands(env: env) }
