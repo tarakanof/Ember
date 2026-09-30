@@ -111,8 +111,7 @@ Two distinct cases:
 ### 12. Documentation has a layered structure
 
 - `README.md` — how to run it, basic config, endpoints. Skimmable in 60 seconds.
-- `AGENTS.md` — repository conventions, build/test commands, secrets, runtime notes. The first thing any AI assistant reads.
-- `CLAUDE.md` — points at AGENTS.md (we keep one source of truth).
+- `AGENTS.md` — repository conventions, build/test commands, secrets, runtime notes. The single source of truth every AI assistant (Claude Code included) loads; there is no `CLAUDE.md`.
 - `docs/STYLE.md` — this file.
 - `Superpowers Specs/<project>/` (Obsidian vault) — design contracts + matching implementation plans for non-trivial work, dated.
 - Inline docs (godoc) — exported API only.
