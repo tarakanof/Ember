@@ -55,22 +55,64 @@ private func seconds(_ d: Duration) -> TimeInterval {
     Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
 }
 
-/// A scheduler whose wall clock is `base + clock.now`.
+/// A scheduler whose wall clock is `base + clock.now` and whose uptime keeps
+/// pace with it (the Mac never sleeps).
 @MainActor
-private func makeScheduler(_ source: FakeSource, _ sent: Sent, clock: ManualClock = ManualClock(),
+private func makeScheduler(_ source: any ReminderSource, _ sent: Sent, clock: ManualClock = ManualClock(),
                            prefs: ReminderPrefs = enabled,
-                           onRunningChange: @escaping @MainActor (Bool) -> Void = { _ in }) -> ReminderScheduler {
+                           onArmedChange: @escaping @MainActor (Bool) -> Void = { _ in }) -> ReminderScheduler {
     ReminderScheduler(source: source, prefs: prefs, send: sent.send,
                       now: { base.addingTimeInterval(seconds(clock.now)) },
-                      sleep: clock.sleepFn, onRunningChange: onRunningChange)
+                      uptime: { seconds(clock.now) },
+                      sleep: clock.sleepFn, onArmedChange: onArmedChange)
 }
 
-/// A scheduler polled by hand at `now()`.
+/// A scheduler polled by hand at `now()`. Uptime follows the wall clock unless
+/// `uptime` is given.
 @MainActor
 private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPrefs = enabled,
+                           uptime: (@MainActor () -> TimeInterval)? = nil,
                            now: @escaping @MainActor () -> Date) -> ReminderScheduler {
     ReminderScheduler(source: source, prefs: prefs, send: sent.send, now: now,
+                      uptime: uptime ?? { now().timeIntervalSince(base) },
                       sleep: { _ in })
+}
+
+/// A source whose first fetch waits until `open()` and returns `first`; later
+/// fetches return nothing at once.
+private final class GatedSource: ReminderSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private let first: [DueReminder]
+    private var fetches = 0
+    private var opened = false
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    init(first: [DueReminder]) { self.first = first }
+
+    var hasAccess: Bool { true }
+    func dueTimedReminders() async -> [DueReminder] {
+        let isFirst = lock.withLock { fetches += 1; return fetches == 1 }
+        guard isFirst else { return [] }
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            let ready: Bool = lock.withLock {
+                if opened { return true }
+                waiter = c
+                return false
+            }
+            if ready { c.resume() }
+        }
+        return first
+    }
+
+    func open() {
+        let c: CheckedContinuation<Void, Never>? = lock.withLock {
+            opened = true
+            let w = waiter
+            waiter = nil
+            return w
+        }
+        c?.resume()
+    }
 }
 
 // MARK: Timing (the loop, on the manual clock)
@@ -117,11 +159,10 @@ private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPr
     s.prefs.enabled = false
 }
 
-@MainActor @Test func disablingStopsTheLoopAndReportsIt() async {
+@MainActor @Test func disablingStopsTheLoop() async {
     let clock = ManualClock()
     let source = FakeSource()
-    var changes: [Bool] = []
-    let s = makeScheduler(source, Sent(), clock: clock, prefs: ReminderPrefs(enabled: false)) { changes.append($0) }
+    let s = makeScheduler(source, Sent(), clock: clock, prefs: ReminderPrefs(enabled: false))
 
     s.sync()
     #expect(!s.isRunning)
@@ -133,15 +174,13 @@ private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPr
     let fetches = source.fetches
     await clock.advance(by: .seconds(120))
     #expect(source.fetches == fetches)
-    #expect(changes == [true, false])
 }
 
 @MainActor @Test func losingAccessStopsFiringAndSyncStopsTheLoop() async {
     let clock = ManualClock()
     let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(60))])
     let sent = Sent()
-    var changes: [Bool] = []
-    let s = makeScheduler(source, sent, clock: clock) { changes.append($0) }
+    let s = makeScheduler(source, sent, clock: clock)
     s.sync()
     await clock.advance(by: .seconds(1))
     source.access = false
@@ -149,7 +188,6 @@ private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPr
     #expect(sent.fires.isEmpty)     // each poll checks access first
     s.sync()
     #expect(!s.isRunning)
-    #expect(changes == [true, false])
 }
 
 @MainActor @Test func doesNotStartWithoutAccess() {
@@ -158,6 +196,187 @@ private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPr
     let s = makeScheduler(source, Sent())
     s.sync()
     #expect(!s.isRunning)
+}
+
+// MARK: Arming (App Nap is defeated only near a fire)
+
+@MainActor @Test func armsOnlyOnceTheNextFireIsWithinFiveMinutes() async {
+    let clock = ManualClock()
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(600))])
+    let sent = Sent()
+    var changes: [Bool] = []
+    let s = makeScheduler(source, sent, clock: clock) { changes.append($0) }
+    s.sync()
+
+    await clock.advance(by: .seconds(299))
+    #expect(changes.isEmpty)        // polled at 270 with the fire 330 s away
+    await clock.advance(by: .seconds(1))
+    #expect(changes == [true])      // polled at 300 with the fire 300 s away
+    s.prefs.enabled = false
+}
+
+@MainActor @Test func releasesAfterTheFireWhenNothingElseIsNear() async {
+    let clock = ManualClock()
+    let source = FakeSource([
+        DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(60)),
+        DueReminder(id: "b", title: "Run", due: base.addingTimeInterval(3600)),
+    ])
+    let sent = Sent()
+    var changes: [Bool] = []
+    let s = makeScheduler(source, sent, clock: clock) { changes.append($0) }
+    s.sync()
+
+    await clock.advance(by: .seconds(61))
+    #expect(sent.fires.map(\.text) == ["Walk"])
+    #expect(changes == [true, false])
+    s.prefs.enabled = false
+    #expect(changes == [true, false])
+}
+
+/// The armed state as the scheduler last reported it.
+@MainActor private final class ArmedLog {
+    var changes: [Bool] = []
+    var armed: Bool { changes.last ?? false }
+}
+
+@MainActor @Test func holdsWhileAFireIsInProgress() async {
+    let clock = ManualClock()
+    let log = ArmedLog()
+    let armedAtSend = ArmedLog()
+    let s = ReminderScheduler(source: FakeSource([DueReminder(id: "a", title: "Walk", due: base)]),
+                              prefs: enabled,
+                              send: { _ in await MainActor.run { armedAtSend.changes.append(log.armed) } },
+                              now: { base.addingTimeInterval(seconds(clock.now)) },
+                              uptime: { seconds(clock.now) },
+                              sleep: clock.sleepFn) { log.changes.append($0) }
+    s.sync()
+
+    await clock.settle()
+    #expect(armedAtSend.changes == [true])
+    #expect(log.changes == [true, false])   // released once nothing is near
+    s.prefs.enabled = false
+}
+
+@MainActor @Test func staysArmedUntilAFailedFireIsRetried() async {
+    let clock = ManualClock()
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base)])
+    let sent = Sent()
+    var changes: [Bool] = []
+    let s = makeScheduler(source, sent, clock: clock) { changes.append($0) }
+    sent.failNext(RequestNotSent(underlying: .transport("refused")))
+    s.sync()
+
+    await clock.settle()
+    #expect(sent.fires.count == 1)
+    #expect(changes == [true])          // the retry's sleep stays armed
+    await clock.advance(by: .seconds(30))
+    #expect(sent.fires.count == 2)
+    #expect(changes == [true, false])   // released once the retry delivered
+    s.prefs.enabled = false
+}
+
+@MainActor @Test func aPollFromAStoppedLoopCannotArmItsSuccessor() async {
+    let clock = ManualClock()
+    let source = GatedSource(first: [DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(30))])
+    var changes: [Bool] = []
+    let s = makeScheduler(source, Sent(), clock: clock) { changes.append($0) }
+    s.sync()
+    await clock.settle()                // the first loop's poll waits on the gate
+    s.prefs.enabled = false
+    s.prefs.enabled = true              // the second loop polls and finds nothing
+    await clock.settle()
+
+    source.open()
+    await clock.settle()
+    #expect(changes.isEmpty)
+    s.prefs.enabled = false
+}
+
+@MainActor @Test func stoppingReleasesAnArmedHold() async {
+    let clock = ManualClock()
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(30))])
+    var changes: [Bool] = []
+    let s = makeScheduler(source, Sent(), clock: clock) { changes.append($0) }
+    s.sync()
+
+    await clock.settle()
+    #expect(changes == [true])
+    s.prefs.enabled = false
+    #expect(changes == [true, false])
+}
+
+/// Unarmed, App Nap may stretch a sleep well past its deadline; the late poll
+/// must still fire what came due meanwhile.
+@MainActor @Test func aLateWakeStillFiresWhatCameDueDuringTheSleep() async {
+    var now = base
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(200))])
+    let sent = Sent()
+    let s = makeScheduler(source, sent) { now }
+    await s.poll()
+    now = base.addingTimeInterval(270)
+    await s.poll()
+    #expect(sent.fires.map(\.text) == ["Walk"])
+}
+
+/// A napped sleep leaves uptime running, so the Mac was awake: fire what came
+/// due since the last poll even past the grace window, once.
+@MainActor @Test func aNappedSleepPastGraceStillFires() async {
+    var now = base
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(200))])
+    let sent = Sent()
+    let s = makeScheduler(source, sent) { now }
+    await s.poll()
+    now = base.addingTimeInterval(400)
+    await s.poll()
+    #expect(sent.fires.map(\.text) == ["Walk"])
+    now = base.addingTimeInterval(430)
+    await s.poll()
+    #expect(sent.fires.count == 1)
+}
+
+@MainActor @Test func regainingAccessDoesNotCatchUpAcrossTheGap() async {
+    var now = base
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(200))])
+    let sent = Sent()
+    let s = makeScheduler(source, sent) { now }
+    await s.poll()
+    source.access = false
+    now = base.addingTimeInterval(3600)
+    await s.poll()
+    source.access = true
+    now = base.addingTimeInterval(3630)
+    await s.poll()
+    #expect(sent.fires.isEmpty)
+}
+
+@MainActor @Test func aRestartDoesNotCatchUpAcrossTheStop() async {
+    let clock = ManualClock()
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(200))])
+    let sent = Sent()
+    let s = makeScheduler(source, sent, clock: clock)
+    s.sync()
+    await clock.advance(by: .seconds(1))
+    s.prefs.enabled = false
+    await clock.advance(by: .seconds(400))   // uptime keeps pace: awake, not asleep
+    s.prefs.enabled = true
+    await clock.settle()
+    #expect(sent.fires.isEmpty)
+    s.prefs.enabled = false
+}
+
+/// System sleep pauses uptime; reminders ring only while the Mac is awake, so
+/// one that came due during the sleep and is past grace stays silent.
+@MainActor @Test func aSystemSleepPastGraceDoesNotFire() async {
+    var now = base
+    var uptime: TimeInterval = 0
+    let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(200))])
+    let sent = Sent()
+    let s = makeScheduler(source, sent, uptime: { uptime }) { now }
+    await s.poll()
+    now = base.addingTimeInterval(400)
+    uptime = 10
+    await s.poll()
+    #expect(sent.fires.isEmpty)
 }
 
 // MARK: Selection and delivery (polled by hand)
@@ -283,7 +502,7 @@ private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPr
     var prefs = enabled
     prefs.leadMinutes = 5
     let s = makeScheduler(source, Sent(), prefs: prefs) { base }
-    let next = await s.poll()
+    let next = await s.poll().next
     #expect(next == base.addingTimeInterval(100))
 }
 
@@ -291,7 +510,7 @@ private func makeScheduler(_ source: FakeSource, _ sent: Sent, prefs: ReminderPr
     let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base)])
     let sent = Sent()
     let s = makeScheduler(source, sent, prefs: ReminderPrefs(enabled: false)) { base }
-    let next = await s.poll()
+    let next = await s.poll().next
     #expect(next == nil)
     #expect(source.fetches == 0)
     #expect(sent.fires.isEmpty)
