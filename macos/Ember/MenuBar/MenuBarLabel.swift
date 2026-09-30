@@ -18,46 +18,35 @@ import EmberKit
 /// ("Claude on m4 — Running", "Idle", "Offline"). The value is set on the
 /// status item button itself (`StatusItemAccessibility`): `MenuBarExtra`
 /// forwards the label but not `accessibilityValue`.
-struct MenuBarLabel: View {
-    let session: Session?
-    let connection: ConnectionHealth
-    let prefs: MenuPrefs
-
-    private var bot = BotAnimator.shared
-
-    init(session: Session?, connection: ConnectionHealth, prefs: MenuPrefs) {
-        self.session = session
-        self.connection = connection
-        self.prefs = prefs
-    }
+///
+/// Equatable on `MenuRows.LabelState` alone, so SwiftUI skips the body on the
+/// polls that only move the winner's timestamp or activity text.
+struct MenuBarLabel: View, Equatable {
+    let state: MenuRows.LabelState
 
     var body: some View {
         icon
             .accessibilityLabel(Text("Ember"))
-            .task(id: accessibilityValue) { await StatusItemAccessibility.setValueWhenReady(accessibilityValue) }
-    }
-
-    private var accessibilityValue: String {
-        String(localized: MenuRows.accessibilityValue(connection: connection, winning: session))
+            .task(id: state.accessibilityValue) { await StatusItemAccessibility.setValueWhenReady(state.accessibilityValue) }
     }
 
     private var icon: Image {
-        let colored = prefs.trayTint == "color"
-        if prefs.trayStyle == "bot" {
-            return Image(nsImage: bot.menuBarImage(colored: colored))
+        let colored = state.trayTint == "color"
+        if state.trayStyle == "bot" {
+            // Only the current frame, for the rare re-render (state, glyph,
+            // prefs, VoiceOver value); BotAnimator animates the status button directly.
+            return Image(nsImage: BotAnimator.shared.menuBarImage(colored: colored))
         }
-        return Image(nsImage: Self.trayImage(tool: session?.tool ?? "",
-                                             state: session?.state ?? "idle",
-                                             prefs: prefs, colored: colored))
+        return Image(nsImage: Self.trayImage(glyph: state.glyph, state: state.state, colored: colored))
     }
 
-    static func trayImage(tool: String, state: String, prefs: MenuPrefs, colored: Bool = true) -> NSImage {
+    static func trayImage(glyph: String, state: String, colored: Bool = true) -> NSImage {
         let rgb = stateColorRGB(state)
         let color = NSColor(srgbRed: CGFloat(rgb.r) / 255,
                             green: CGFloat(rgb.g) / 255,
                             blue: CGFloat(rgb.b) / 255,
                             alpha: 1)
-        guard let base = NSImage(named: "tray-\(glyphForTool(tool, prefs))") else {
+        guard let base = NSImage(named: "tray-\(glyph)") else {
             return NSImage()
         }
         if !colored {

@@ -389,6 +389,8 @@ beat a report), a successful power write or reboot, and Settings' overlay read
 is in flight the switches show its target (`ActionRunner.pendingDisplayPower`). With no window open the app makes about 2,640 requests an hour:
 1,200 each to `/state` and `/v1/pomodoro/state`, 60 each to stats, usage,
 meetings and apps (the old poller made about 4,800, 1,200 of them stats).
+`APIClient`'s sessions and the direct screen mirror skip the on-disk `URLCache`,
+which, with no cache headers from the server, only rewrote `Cache.db` every poll.
 
 This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agents pane's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
@@ -652,7 +654,17 @@ injected clocks, so `ReminderSchedulerTests` drive it with a fake source and
 `ManualClock`. The app keeps only the platform side in `ReminderWatcher`: the
 EventKit adapter (`EventKitReminderSource`, deliberately not MainActor so the
 EventKit callback queue doesn't trap), authorization, prefs in UserDefaults,
-and the App Nap assertion held while the scheduler runs.
+and the App Nap assertion. That assertion (`.userInitiatedAllowingIdleSystemSleep`)
+is held only while the scheduler is armed (`onArmedChange`): a fire in
+progress, a `.notDelivered` fire awaiting its retry, or the next fire time
+within 5 minutes. The rest of the time Ember may nap, and App Nap can stretch
+a 30 s sleep past the 90 s grace. So each poll compares wall-clock and uptime
+progress since the last one: uptime pauses during system sleep but not during
+App Nap, so if both advanced together (within 5 s) the Mac stayed awake and
+the poll fires anything whose fire time fell since the last poll, even past
+grace. After a system sleep it doesn't, which keeps "rings only while the Mac
+is awake". A poll from a stopped loop can't arm the scheduler (generation
+counter).
 
 > **Shared store.** Runtime settings + hidden-apps + Pomodoro stats all live in
 > the one SQLite store, opened once at boot by `initPomodoro` (`ensureStore`,
@@ -890,7 +902,8 @@ unreachable. The whole probe loop is gated by `awtrix.auto_rediscover` (config,
 default on; `/admin/doctor`'s `clock` check reports the source, reachability,
 and last re-discovery time/result). The server also advertises
 itself as `_ember._tcp` so the menu app can discover it (gated by
-`EMBER_MDNS_ADVERTISE`). Both directions require host/macvlan networking.
+`EMBER_MDNS_ADVERTISE`); the app browses (`ServerDiscovery`) only while
+Settings › Connection is open. Both directions require host/macvlan networking.
 
 The app can find the clock itself (#57), for a server that can't see
 multicast. Settings › Clock's Discover sheet runs the server's

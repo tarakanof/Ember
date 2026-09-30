@@ -96,12 +96,14 @@ public struct DeviceService: Sendable, Equatable {
     /// Fallback for servers that predate /v1/device/screen: read the clock's
     /// awtrix-ng display/screen endpoint directly (read-only, same LAN — what
     /// the AWTRIX app does), unwrapping the same envelope as the proxy.
+    // The mirror polls every tick; `.shared` would write each frame to the on-disk cache.
+    private static let directScreenSession = URLSession(configuration: .ephemeral)
     public static func directScreen(clockBaseURL: String) async throws -> [Int] {
         let base = clockBaseURL.hasSuffix("/") ? String(clockBaseURL.dropLast()) : clockBaseURL
         guard let url = URL(string: base + "/api/v1/display/screen") else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.timeoutInterval = 5
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await directScreenSession.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return try JSONDecoder().decode(ScreenFrame.self, from: data).pixels
     }

@@ -29,3 +29,22 @@ import Testing
     let f = ServerDiscovery.Found(id: "a", name: "a", host: "fe80::1%en0", port: 3627)
     #expect(f.urlString == "http://[fe80::1%25en0]:3627")
 }
+
+// The browse starts on the first hold and stops only when the last one goes,
+// so a reappearing pane's task overlapping the old one's teardown keeps it on.
+@Test func discoveryHoldCountStartsOnFirstAndStopsOnLast() {
+    var h = ServerDiscovery.HoldCount()
+    let edges = [h.acquire(), h.acquire(), h.release(), h.release()]
+    #expect(edges == [true, false, false, true])
+    #expect(h.count == 0)
+}
+
+// An unbalanced release doesn't go negative or signal a second stop.
+@Test func discoveryHoldCountIgnoresExtraRelease() {
+    var h = ServerDiscovery.HoldCount()
+    let stopped = h.release()
+    #expect(!stopped)
+    #expect(h.count == 0)
+    let started = h.acquire()
+    #expect(started)
+}
