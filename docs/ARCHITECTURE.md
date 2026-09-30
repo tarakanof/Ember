@@ -654,7 +654,17 @@ injected clocks, so `ReminderSchedulerTests` drive it with a fake source and
 `ManualClock`. The app keeps only the platform side in `ReminderWatcher`: the
 EventKit adapter (`EventKitReminderSource`, deliberately not MainActor so the
 EventKit callback queue doesn't trap), authorization, prefs in UserDefaults,
-and the App Nap assertion held while the scheduler runs.
+and the App Nap assertion. That assertion (`.userInitiatedAllowingIdleSystemSleep`)
+is held only while the scheduler is armed (`onArmedChange`): a fire in
+progress, a `.notDelivered` fire awaiting its retry, or the next fire time
+within 5 minutes. The rest of the time Ember may nap, and App Nap can stretch
+a 30 s sleep past the 90 s grace. So each poll compares wall-clock and uptime
+progress since the last one: uptime pauses during system sleep but not during
+App Nap, so if both advanced together (within 5 s) the Mac stayed awake and
+the poll fires anything whose fire time fell since the last poll, even past
+grace. After a system sleep it doesn't, which keeps "rings only while the Mac
+is awake". A poll from a stopped loop can't arm the scheduler (generation
+counter).
 
 > **Shared store.** Runtime settings + hidden-apps + Pomodoro stats all live in
 > the one SQLite store, opened once at boot by `initPomodoro` (`ensureStore`,

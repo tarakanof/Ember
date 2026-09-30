@@ -6,7 +6,7 @@ import EmberKit
 /// Apple Reminders → clock bell-popup. The scheduling lives in EmberKit's
 /// `ReminderScheduler`; this keeps the platform side: the EventKit source and
 /// its authorization, prefs persisted in UserDefaults, and the App Nap
-/// assertion held while the scheduler runs.
+/// assertion held while the scheduler is armed.
 @MainActor
 @Observable
 public final class ReminderWatcher {
@@ -30,7 +30,7 @@ public final class ReminderWatcher {
         let appNap = AppNapAssertion()
         self.source = source
         scheduler = ReminderScheduler(source: source, client: client, prefs: ReminderWatcher.load(),
-                                      onRunningChange: { appNap.hold($0) })
+                                      onArmedChange: { appNap.hold($0) })
     }
 
     public var authorization: EKAuthorizationStatus { source.authorization }
@@ -70,21 +70,27 @@ public final class ReminderWatcher {
     }
 }
 
-/// Holds the App Nap assertion while the scheduler runs. An idle LSUIElement
-/// app gets napped, which throttles the scheduler's sleep so reminders miss
-/// their fire window (they ring on phone/Mac but not the clock).
+/// Holds the App Nap assertion while the scheduler is armed: a fire is in
+/// progress, a failed fire awaits its retry, or the next fire time is within
+/// five minutes. An idle LSUIElement app gets napped, which throttles the
+/// scheduler's sleep so reminders miss their fire window (they ring on
+/// phone/Mac but not the clock). Holding it only then lets Ember nap the rest
+/// of the time: `.userInitiated*` also turns off timer coalescing and sudden
+/// termination app-wide, too costly to keep for hours, but the lightest option
+/// that reliably defeats App Nap for the short armed window. If a napped sleep
+/// still overshoots, the scheduler fires on the late poll.
 /// `AllowingIdleSystemSleep` keeps "rings only while the Mac is awake": we
 /// defeat App Nap but never block system sleep.
 @MainActor
 private final class AppNapAssertion {
     private var activity: NSObjectProtocol?
 
-    func hold(_ running: Bool) {
-        if running, activity == nil {
+    func hold(_ armed: Bool) {
+        if armed, activity == nil {
             activity = ProcessInfo.processInfo.beginActivity(
                 options: .userInitiatedAllowingIdleSystemSleep,
                 reason: "Watching Apple Reminders")
-        } else if !running, let a = activity {
+        } else if !armed, let a = activity {
             ProcessInfo.processInfo.endActivity(a)
             activity = nil
         }
