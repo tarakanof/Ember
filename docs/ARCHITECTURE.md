@@ -389,6 +389,8 @@ beat a report), a successful power write or reboot, and Settings' overlay read
 is in flight the switches show its target (`ActionRunner.pendingDisplayPower`). With no window open the app makes about 2,640 requests an hour:
 1,200 each to `/state` and `/v1/pomodoro/state`, 60 each to stats, usage,
 meetings and apps (the old poller made about 4,800, 1,200 of them stats).
+`APIClient`'s sessions and the direct screen mirror skip the on-disk `URLCache`,
+which, with no cache headers from the server, only rewrote `Cache.db` every poll.
 
 This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agents pane's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids

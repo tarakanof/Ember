@@ -195,6 +195,9 @@ public struct APIClient: Sendable {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = budget.requestTimeout
             config.timeoutIntervalForResource = budget.resourceTimeout
+            // No cache headers from the server; the default disk cache only rewrote Cache.db every request.
+            config.urlCache = nil
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
             return (budget, URLSession(configuration: config))
         })
 
