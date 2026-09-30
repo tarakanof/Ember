@@ -46,6 +46,28 @@ public struct BotPose: Equatable, Sendable {
     public var offsetX = 0.0, offsetY = 0.0
 
     public init() {}
+
+    /// This pose with every continuous field rounded to half a pixel's worth
+    /// for a body `radius` pixels across, so two poses that would rasterise
+    /// the same (sub-pixel gaze or lid drift) compare equal. Mood and eyes are
+    /// kept as is. Only for deciding whether to redraw: draw the raw pose.
+    ///
+    /// Per `BotRenderer`, a unit of any field moves an edge by at most about
+    /// one body radius (gaze × 0.6 reach plus lean, lids × 0.4, triangle
+    /// × 0.5, offsets × 1), except scale, which reaches ~2 radii: the 1.1
+    /// triangle corner plus the ground pivot. So scale gets half the step.
+    public func quantized(toPixels radius: Double) -> BotPose {
+        // Half a pixel, in body radii.
+        let step = 0.5 / max(radius, 1)
+        func q(_ v: Double, _ s: Double) -> Double { (v / s).rounded() * s }
+        var p = self
+        p.gazeX = q(gazeX, step); p.gazeY = q(gazeY, step)
+        p.lidLeft = q(lidLeft, step); p.lidRight = q(lidRight, step)
+        p.triangle = q(triangle, step); p.slump = q(slump, step); p.badge = q(badge, step)
+        p.scaleX = q(scaleX, step / 2); p.scaleY = q(scaleY, step / 2)
+        p.offsetX = q(offsetX, step); p.offsetY = q(offsetY, step)
+        return p
+    }
 }
 
 /// Procedural "alive" behaviour for the bot icon: blinks, gaze shifts, hops and

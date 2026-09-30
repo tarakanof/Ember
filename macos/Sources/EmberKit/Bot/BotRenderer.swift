@@ -47,6 +47,9 @@ public struct BotStyle: Sendable {
         return s
     }
 
+    /// The ball's radius, in the same units, on a square canvas `side` across.
+    public func bodyRadius(side: Double) -> Double { side / 2 * fill }
+
     /// Apple's macOS 26 icon template: 824 px plate on a 1024 px canvas.
     static let plateSize = 824.0 / 1024
     static let plateCorner = 0.225
@@ -57,7 +60,7 @@ public struct BotStyle: Sendable {
 public enum BotRenderer {
     public static func draw(_ pose: BotPose, in ctx: CGContext, rect: CGRect, style: BotStyle) {
         let half = min(rect.width, rect.height) / 2
-        let r = half * style.fill
+        let r = style.bodyRadius(side: 2 * half)
         ctx.saveGState()
         defer { ctx.restoreGState() }
 
