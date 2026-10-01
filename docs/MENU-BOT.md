@@ -95,7 +95,8 @@ A state change should glide, not snap. Over about 0.7 s:
 
 ### Waiting hop
 
-Every 4.5 s median, a 0.62 s hop: crouch (wider and shorter), a stretched rise,
+One hop 0.6 s after entering the mood, then every 15 s median (8 to 40 s), a
+0.62 s hop: crouch (wider and shorter), a stretched rise,
 a fall, then a landing squash. Squash pivots on the ground so the ball doesn't
 float. The menu bar uses half the Dock's hop height to stay inside its image.
 
