@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-// ngDeviceServer serves GET /api/v1/device with the supplied body and 404s
-// everything else, mimicking an awtrix-ng clock.
 func ngDeviceServer(t *testing.T, body string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -125,10 +123,6 @@ func TestParseUDPReply(t *testing.T) {
 	}
 }
 
-// TestCollectUDPRepliesUsesSourceIP drives the reply-collection half of the UDP
-// fallback over real loopback UDP: a fake device answers with its hostname, and
-// the collected service must carry the reply's SOURCE address (not the
-// possibly-unresolvable hostname).
 func TestCollectUDPRepliesUsesSourceIP(t *testing.T) {
 	collector, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
@@ -152,8 +146,6 @@ func TestCollectUDPRepliesUsesSourceIP(t *testing.T) {
 	}
 }
 
-// TestCollectUDPRepliesHonoursReplyPort covers the "<hostname>:<port>" form:
-// the device's web port replaces the implied 80 in the base URL.
 func TestCollectUDPRepliesHonoursReplyPort(t *testing.T) {
 	collector, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {

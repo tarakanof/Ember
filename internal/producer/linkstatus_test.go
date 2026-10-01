@@ -62,12 +62,12 @@ func TestLinkStatusRewritesOnlyOnChange(t *testing.T) {
 
 func TestNilLinkStatusIsANoOp(t *testing.T) {
 	var l *LinkStatus
-	l.Record(errors.New("x")) // must not panic
+	l.Record(errors.New("x"))
 }
 
 func TestClientRecordsLinkState(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized) // an HTTP answer still means the link works
+		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
 	path := filepath.Join(t.TempDir(), "c.link.json")

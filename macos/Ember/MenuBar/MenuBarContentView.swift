@@ -1,22 +1,13 @@
 import SwiftUI
 import EmberKit
 
-/// The menu-bar menu (`.menu` style, so every row becomes an `NSMenuItem`):
-/// glance rows, Pomodoro, the Clock submenu, then Dashboard/Settings/About/
-/// Quit. Row rules live in `MenuRows` (EmberKit, unit-tested); this view only
-/// lays them out. It reads `LiveModel`, runs actions through `ActionRunner`,
-/// and never polls: `.task` and timers don't run in a `.menu` extra, and the
-/// rows update live because the model is `@Observable`.
+/// The menu-bar menu; row rules live in `MenuRows`.
 struct MenuBarContentView: View {
 	@Environment(AppEnvironment.self) private var env
 	@Environment(\.openWindow) private var openWindow
 
 	var body: some View {
 		Group { items }
-			// Fires when the menu opens. Catches up glance feeds whose poll is
-			// overdue (after a backoff); 60 s so opening the menu often can't
-			// push stats past one request a minute (each fetch also pushes the
-			// next poll back).
 			.onAppear {
 				Task { await env.live.refreshNow([.stats, .meetings, .usage], ifOlderThan: .seconds(60)) }
 			}
@@ -55,8 +46,6 @@ struct MenuBarContentView: View {
 
 	// MARK: Glance
 
-	/// Session header + activity, other sessions, 5h usage, next event.
-	/// Disabled text rows: they're read, not clicked.
 	@ViewBuilder
 	private func glanceRows(_ live: LiveModel, now: Date) -> some View {
 		let header = MenuRows.header(connection: live.connection, hasEverLoaded: live.snapshot.value != nil,
@@ -64,7 +53,6 @@ struct MenuBarContentView: View {
 		Text(header.title)
 		if let detail = header.detail { Text(verbatim: "   \(detail)") }
 
-		// Offline, the last snapshot's sessions are history: list none.
 		let sessions = MenuRows.liveSessions(live.snapshot)
 		let others = MenuRows.otherSessions(sessions, winning: live.winningSession)
 		if !others.rows.isEmpty {
@@ -81,7 +69,6 @@ struct MenuBarContentView: View {
 		}
 	}
 
-	/// Apple Reminders the app already watches locally (no server call).
 	private var reminders: [MenuRows.Reminder] {
 		let watcher = env.reminderWatcher
 		guard watcher.prefs.enabled else { return [] }
@@ -90,8 +77,6 @@ struct MenuBarContentView: View {
 
 	// MARK: Pomodoro
 
-	/// Status line, the controls that apply (icons on the whole group, per
-	/// the HIG's all-or-none), today vs the goal, and the last failed action.
 	@ViewBuilder
 	private func pomodoroRows(_ live: LiveModel) -> some View {
 		if let group = MenuRows.pomodoroControls(live.pomodoro, connection: live.connection) {
@@ -120,8 +105,6 @@ struct MenuBarContentView: View {
 
 	@ViewBuilder
 	private func clockMenu(_ live: LiveModel) -> some View {
-		// The matrix state is only current while something (the Dashboard)
-		// holds the clock-health feed; the menu doesn't poll it.
 		let matrixPower = live.isTracked(.clockHealth) ? live.displayPower : nil
 		let power = MenuRows.displayPower(usage: live.usage, clockHealth: live.clockHealth, matrixPower: matrixPower)
 		let apps = MenuRows.showOnClock(live.apps)
@@ -158,7 +141,6 @@ struct MenuBarContentView: View {
 	}
 }
 
-/// ⇧⌘P on the context-sensitive primary Pomodoro item.
 private struct PrimaryShortcut: ViewModifier {
 	let key: Character?
 

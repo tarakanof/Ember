@@ -11,9 +11,6 @@ import (
 	"time"
 )
 
-// A clock refusal of the system write (NG 422 with its envelope) reaches the
-// menu as the same relay every other /v1/device route gives it, not as a bare
-// 502 that hides which key the firmware refused (#146).
 func TestDeviceSystemWritesRelayClockRefusal(t *testing.T) {
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -46,7 +43,6 @@ func TestDeviceSystemWritesRelayClockRefusal(t *testing.T) {
 	}
 }
 
-// A refused system read is relayed the same way on the sensors GET.
 func TestDeviceSensorsGetRelaysClockRefusal(t *testing.T) {
 	a := ngRejecting(t, http.StatusNotFound, "notFound", "")
 	w := httptest.NewRecorder()
@@ -56,9 +52,6 @@ func TestDeviceSensorsGetRelaysClockRefusal(t *testing.T) {
 	}
 }
 
-// Two menu writes to /api/v1/system at once (a sensor offset and the button
-// callback) are each a full read-merge-PUT. Unserialised, both read the same
-// object and the second PUT silently drops the first one's change (#146).
 func TestDeviceSystemWritesAreSerialised(t *testing.T) {
 	var mu sync.Mutex
 	system := map[string]any{"tempOffset": -9.0, "humOffset": 0.0, "buttonCallback": "", "wifiPassword": "secret"}
@@ -67,8 +60,6 @@ func TestDeviceSystemWritesAreSerialised(t *testing.T) {
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			// Hold the first read open until a second read arrives (or 300ms
-			// pass): unserialised writers always interleave here.
 			mu.Lock()
 			gets++
 			if gets == 2 {

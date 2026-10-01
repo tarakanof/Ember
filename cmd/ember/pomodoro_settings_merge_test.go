@@ -6,13 +6,6 @@ import (
 	"testing"
 )
 
-// TestPomodoroConfigPutPartialEnableLeavesOtherFieldsUnchanged is the
-// regression test for the bug where pomodoroSettingsDTO's Enabled was the
-// only tri-state (pointer) field: a PUT carrying just {"enabled":true} full-
-// replaced every other field with its Go zero value, silently zeroing
-// auto_start_next, sound, sound_melody, focus_color, break_color and the
-// durations (durations were masked because validation re-rejected the zeroed
-// values before persisting — but the boolean/string fields sailed through).
 func TestPomodoroConfigPutPartialEnableLeavesOtherFieldsUnchanged(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -53,10 +46,6 @@ func TestPomodoroConfigPutPartialEnableLeavesOtherFieldsUnchanged(t *testing.T) 
 	}
 }
 
-// TestPomodoroConfigPutPartialUpdateTouchesOnlyGivenField mirrors the
-// regression test from the other direction: a PUT naming a single non-enabled
-// field must change only that field and leave everything else (including
-// enabled) as-is.
 func TestPomodoroConfigPutPartialUpdateTouchesOnlyGivenField(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -99,11 +88,6 @@ func TestPomodoroConfigPutPartialUpdateTouchesOnlyGivenField(t *testing.T) {
 	}
 }
 
-// TestLoadPersistedPomodoroSettingsRestoresFullBlob confirms an
-// old-style persisted blob — dtoFromConfig always emits every field
-// non-nil — restores every field identically through the same merge path
-// the settings overlay uses for a live PUT, so persisted settings written
-// before or after this change behave identically.
 func TestLoadPersistedPomodoroSettingsRestoresFullBlob(t *testing.T) {
 	app := newPomodoroApp(t)
 
@@ -130,8 +114,6 @@ func TestLoadPersistedPomodoroSettingsRestoresFullBlob(t *testing.T) {
 		t.Fatalf("put setting: %v", err)
 	}
 
-	// Diverge the live config from the persisted blob so a no-op merge would
-	// be indistinguishable from a real restore.
 	cfg := *app.cfg.Load()
 	cfg.Pomodoro = PomodoroConfig{Enabled: false, FocusMinutes: 25, ShortBreakMinutes: 5, LongBreakMinutes: 15, RoundsBeforeLongBreak: 4, DBPath: cfg.Pomodoro.DBPath}
 	app.cfg.Store(&cfg)
@@ -139,17 +121,12 @@ func TestLoadPersistedPomodoroSettingsRestoresFullBlob(t *testing.T) {
 	app.settings.reapply()
 
 	got := app.cfg.Load().Pomodoro
-	full.DBPath = got.DBPath // DBPath isn't part of the DTO; preserve whatever the live config carries.
+	full.DBPath = got.DBPath
 	if got != full {
 		t.Fatalf("restored config = %+v, want %+v", got, full)
 	}
 }
 
-// TestApplyPomodoroSettingsRejectsBadMergedResult confirms validation still
-// runs on the merged (not just the incoming) settings — a partial update that
-// only touches an unrelated field must not let a value already present as
-// invalid slip through, and a partial update introducing an invalid value
-// must be rejected outright without partially applying.
 func TestApplyPomodoroSettingsRejectsBadMergedResult(t *testing.T) {
 	app := newPomodoroApp(t)
 	before := app.cfg.Load().Pomodoro

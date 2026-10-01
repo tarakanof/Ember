@@ -12,18 +12,8 @@ import (
 	"time"
 )
 
-// dockerfileLdflags matches the -ldflags="..." argument of the Dockerfile's
-// `go build` line. The test reuses that exact string, so the symbol path the
-// release image injects into is the one exercised here.
 var dockerfileLdflags = regexp.MustCompile(`-ldflags="([^"]*)"`)
 
-// TestVersion_DockerfileLdflagsReachBinary pins the -X symbol path the
-// Dockerfile targets (#62). The linker silently ignores an -X target that
-// doesn't resolve, so moving `version` out of package main, or editing the
-// Dockerfile's -X path without moving the variable, would ship images that
-// report "dev" with every other test still green. This builds ./cmd/ember with
-// the Dockerfile's own ldflags ($VERSION substituted) and checks the `version`
-// subcommand prints the injected value.
 func TestVersion_DockerfileLdflagsReachBinary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the server binary; skipped under -short (CI runs the full suite)")
@@ -56,7 +46,6 @@ func TestVersion_DockerfileLdflagsReachBinary(t *testing.T) {
 	}
 
 	run := exec.CommandContext(ctx, bin, "version")
-	// A missing config file makes a broken dispatcher exit before binding :3627.
 	run.Env = append(os.Environ(), "CONFIG_PATH=/nonexistent/awtrix.json")
 	var stdout, stderr bytes.Buffer
 	run.Stdout, run.Stderr = &stdout, &stderr

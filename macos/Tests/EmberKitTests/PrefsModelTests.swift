@@ -31,9 +31,9 @@ import Testing
     var p = MenuPrefs(appIcon: "bogus", trayClaudeGlyph: "codex", trayCodexGlyph: "nope", trayIdleGlyph: "ember")
     p = p.validated()
     #expect(p.appIcon == "bot")
-    #expect(p.trayClaudeGlyph == "codex")          // valid glyph kept
-    #expect(p.trayCodexGlyph == "codex")           // "nope" → default codex
-    #expect(p.trayIdleGlyph == "ember")            // valid glyph kept
+    #expect(p.trayClaudeGlyph == "codex")
+    #expect(p.trayCodexGlyph == "codex")
+    #expect(p.trayIdleGlyph == "ember")
 }
 
 @Test func glyphForToolMapping() {

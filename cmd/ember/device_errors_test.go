@@ -10,8 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-// ngRejecting is a fake clock that answers every request with status and the
-// NG error envelope naming field.
 func ngRejecting(t *testing.T, status int, code, field string) *App {
 	t.Helper()
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +25,6 @@ func ngRejecting(t *testing.T, status int, code, field string) *App {
 	return a
 }
 
-// decodeProxyError reads the proxy's error body.
 func decodeProxyError(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -37,9 +34,6 @@ func decodeProxyError(t *testing.T, w *httptest.ResponseRecorder) map[string]any
 	return m
 }
 
-// TestDeviceSettingsPutForwardsNGValidationError: a device 422 must reach the
-// menu with its status and the offending field, not as a bare
-// "clock returned 422" 502 that hides which key the firmware refused.
 func TestDeviceSettingsPutForwardsNGValidationError(t *testing.T) {
 	a := ngRejecting(t, http.StatusUnprocessableEntity, "validationFailed", "brightness")
 	w := httptest.NewRecorder()
@@ -65,10 +59,7 @@ func TestDeviceProxyErrorStatusMapping(t *testing.T) {
 		{http.StatusConflict, http.StatusConflict},
 		{http.StatusRequestEntityTooLarge, http.StatusRequestEntityTooLarge},
 		{http.StatusServiceUnavailable, http.StatusServiceUnavailable},
-		// A device 429 must not reach the menu as 429: the app reads that as
-		// Ember's own rate limiter and backs off every request.
 		{http.StatusTooManyRequests, http.StatusBadGateway},
-		// Device auth failures must not look like the menu's own bad token.
 		{http.StatusUnauthorized, http.StatusBadGateway},
 		{http.StatusForbidden, http.StatusBadGateway},
 		{http.StatusInternalServerError, http.StatusBadGateway},
@@ -81,8 +72,6 @@ func TestDeviceProxyErrorStatusMapping(t *testing.T) {
 	}
 }
 
-// A long non-envelope body is cut to 200 runes without splitting a UTF-8
-// sequence, so the relayed message stays valid text.
 func TestWriteDeviceErrorTruncatesOnRuneBoundary(t *testing.T) {
 	w := httptest.NewRecorder()
 	writeDeviceError(w, http.StatusInternalServerError, []byte(strings.Repeat("é", 300)))

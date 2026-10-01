@@ -10,10 +10,7 @@ const (
 	trailMaxLen    = 80
 )
 
-// PrependTrail returns prev with head prepended as the newest, newest-first
-// trail item, joined by " · " and capped at 80 chars by dropping whole
-// trailing items. Empty head returns prev unchanged. A head equal to the
-// current newest item is collapsed (no stutter on repeated actions).
+// PrependTrail returns prev with head prepended as the newest, newest-first trail item, capped at 80 chars by dropping whole trailing items.
 func PrependTrail(head, prev string) string {
 	head = strings.TrimSpace(head)
 	if head == "" {
@@ -28,13 +25,7 @@ func PrependTrail(head, prev string) string {
 	return capTrail(head + trailSeparator + prev)
 }
 
-// AnnotateTrail marks one tool call's trail item with its outcome (#76): the
-// newest item equal to item is replaced in place by annotated, so an outcome
-// that lands after later calls still marks the right entry. When no item
-// matches, prepend decides: true puts annotated at the head (trail mode: the
-// outcome is still news), false leaves trail as is (single-item mode, where a
-// non-matching value is a newer call the outcome must not overwrite). The
-// result is capped like PrependTrail's.
+// AnnotateTrail marks one tool call's trail item with its outcome: the newest item equal to item is replaced by annotated.
 func AnnotateTrail(trail, item, annotated string, prepend bool) string {
 	item, annotated = strings.TrimSpace(item), strings.TrimSpace(annotated)
 	if item == "" || annotated == "" {
@@ -55,11 +46,6 @@ func AnnotateTrail(trail, item, annotated string, prepend bool) string {
 	return PrependTrail(annotated, trail)
 }
 
-// capTrail trims s to trailMaxLen runes, preferring to drop whole trailing
-// " · "-delimited items; only hard-cuts when the first item alone exceeds the
-// limit. Rune-based (like Truncate) so the hard cut never splits a multibyte
-// character into a mangled trailing byte (U+FFFD), and so its output stays
-// within the server's 80-rune activity limit.
 func capTrail(s string) string {
 	if utf8.RuneCountInString(s) <= trailMaxLen {
 		return s

@@ -24,14 +24,12 @@ func TestUsageThresholdDefaultAndClamp(t *testing.T) {
 func TestUsageConfigThresholdRoundtrip(t *testing.T) {
 	a := newTestAppWithStore(t)
 
-	// GET default includes the threshold.
 	gw := httptest.NewRecorder()
 	a.handleUsageConfigGet(gw, httptest.NewRequest("GET", "/v1/usage/config", nil))
 	if gw.Code != http.StatusOK || !strings.Contains(gw.Body.String(), `"usage_threshold_pct":60`) {
 		t.Fatalf("GET default: code=%d body=%s", gw.Code, gw.Body.String())
 	}
 
-	// PUT a new threshold; other fields keep their values (pre-seed guard).
 	pw := httptest.NewRecorder()
 	pr := httptest.NewRequest("PUT", "/v1/usage/config", strings.NewReader(`{"usage_threshold_pct":75}`))
 	a.handleUsageConfigPut(pw, pr)
@@ -44,13 +42,10 @@ func TestUsageConfigThresholdRoundtrip(t *testing.T) {
 	if got := a.cfg.Load().usageThresholdPct(); got != 75 {
 		t.Fatalf("live config: got %d, want 75", got)
 	}
-	// Persisted for restart.
 	if v, ok, _ := a.store.GetSetting(usageSettingsKey); !ok || !strings.Contains(v, `"usage_threshold_pct":75`) {
 		t.Fatalf("threshold not persisted: %q ok=%v", v, ok)
 	}
 
-	// An out-of-range value is rejected like every other settings PUT (it
-	// used to be clamped silently); the live and persisted value stay 75.
 	for _, bad := range []string{`{"usage_threshold_pct":150}`, `{"usage_threshold_pct":-1}`} {
 		pw2 := httptest.NewRecorder()
 		a.handleUsageConfigPut(pw2, httptest.NewRequest("PUT", "/v1/usage/config", strings.NewReader(bad)))

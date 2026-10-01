@@ -10,9 +10,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// A container restart mid-focus must put the clock's rotation back before the
-// process exits: shutdown has to wait for the coordinator's exit restore, and
-// only then close the store.
 func TestShutdownWaitsForTakeoverRestore(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
@@ -29,7 +26,6 @@ func TestShutdownWaitsForTakeoverRestore(t *testing.T) {
 	var workers sync.WaitGroup
 	workers.Go(func() { a.StartCoordinator(ctx) })
 
-	// Wait for the takeover to land (initial tick: push, settings, switch).
 	deadline := time.Now().Add(5 * time.Second)
 	for len(pub.SwitchesSnapshot()) == 0 {
 		if time.Now().After(deadline) {
@@ -54,8 +50,6 @@ func TestShutdownWaitsForTakeoverRestore(t *testing.T) {
 	}
 }
 
-// slowRestorePublisher delays the restore PATCH like a real round trip to the
-// clock, so a shutdown that doesn't wait for it returns first.
 type slowRestorePublisher struct{ *recordingPublisher }
 
 func (p *slowRestorePublisher) Settings(ctx context.Context, payload map[string]any) error {
@@ -69,7 +63,6 @@ func (p *slowRestorePublisher) Settings(ctx context.Context, payload map[string]
 	return p.recordingPublisher.Settings(ctx, payload)
 }
 
-// A worker that ignores cancellation must not hang the exit past the deadline.
 func TestShutdownIsBoundedByItsDeadline(t *testing.T) {
 	a := newTestAppWithStore(t)
 	release := make(chan struct{})

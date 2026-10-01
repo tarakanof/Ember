@@ -14,10 +14,6 @@ import (
 	"testing"
 )
 
-// TestDiffConfig_ReportsChangeInEveryTopLevelSection guards against the
-// hand-rolled leaf list going stale: diffConfig must surface a changed path
-// for every top-level Config section, including ones with no dedicated leaf
-// entries today (Weather, Meetings, QuietHours, Pomodoro, usage toggles).
 func TestDiffConfig_ReportsChangeInEveryTopLevelSection(t *testing.T) {
 	base := defaultConfig()
 	base.applyDefaults()
@@ -94,10 +90,6 @@ func TestVersionHandler_ReportsInjectedRelease(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
 	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	// Stands in for a release build's -ldflags "-X main.version=0.22.0".
-	// Bare semver, no leading "v": docker-publish.yml passes metadata-action's
-	// {{version}}, which strips it, so that is what a released image reports.
-	// Must be set before routes() — handleVersion closes over the struct by value.
 	app.versionInfo.Version = "0.22.0"
 
 	srv := httptest.NewServer(app.routes())
@@ -117,7 +109,6 @@ func TestVersionHandler_ReportsDevWithoutInjectedRelease(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// The test binary carries no -X main.version, like a local source build.
 	if got := fetchVersion(t, srv).Version; got != "dev" {
 		t.Errorf("version = %q, want dev", got)
 	}
@@ -143,7 +134,7 @@ func fetchVersion(t *testing.T, srv *httptest.Server) versionInfo {
 func TestAdminDoctor_NoTokenFailsClosed(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
-	cfg.Auth.StatusToken = "" // unset
+	cfg.Auth.StatusToken = ""
 	cfg.applyDefaults()
 	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
@@ -198,7 +189,6 @@ func TestAdminDoctor_OKReturnsResult(t *testing.T) {
 	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	app.configPath = "/tmp/x.json"
 	app.configSource = "flag"
-	// Wire a listener so http_listening reports OK rather than Skipped.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -230,9 +220,6 @@ func TestAdminDoctor_OKReturnsResult(t *testing.T) {
 	if body.Mode != "online" {
 		t.Errorf("Mode = %q", body.Mode)
 	}
-	// app.listener is wired above, so http_listening reports OK. With a happy
-	// AWTRIX upstream and a writable config path, all eight checks should pass
-	// and the overall result is OK with status 200.
 	if !body.OK {
 		t.Errorf("OK = false, want true; checks = %#v", body.Checks)
 	}
@@ -244,7 +231,6 @@ func TestAdminDoctor_OKReturnsResult(t *testing.T) {
 func TestAdminDoctor_FailReturns503(t *testing.T) {
 	cfg := defaultConfig()
 	dead := deadAddr(t)
-	// Trim trailing /healthz from deadAddr; the clock probe appends /api/v1/device itself.
 	cfg.AWTRIX.HTTPBaseURL = strings.TrimSuffix(dead, "/healthz")
 	cfg.Auth.StatusToken = "tok"
 	cfg.applyDefaults()
@@ -367,11 +353,6 @@ func TestAdminReload_NonReloadable409(t *testing.T) {
 	}
 }
 
-// TestAdminReload_InvalidIconIDsDroppedWithWarn mirrors
-// TestLoadConfig_InvalidIconIDsDroppedWithWarn (config_test.go) but exercises
-// the /admin/reload path: it must run the same sanitizeConfigBaseline repair
-// as startup, so a hand-edited config.json containing a path-traversal
-// weather.icon_ids value is dropped rather than loaded live.
 func TestAdminReload_InvalidIconIDsDroppedWithWarn(t *testing.T) {
 	body := `{"awtrix":{"http_base_url":"http://x"},"weather":{"icon_ids":{"clear":"123"}}}`
 	app, path := newAppForReload(t, body)
@@ -632,9 +613,6 @@ func TestAdminReload_RateLimitDisabledFlipped(t *testing.T) {
 	}
 }
 
-// TestAdminReload_G2FrameLifetimeReloaded verifies that
-// display.frame_lifetime_seconds appears in changed_fields after a reload
-// that mutates it, and that the new value is applied.
 func TestAdminReload_G2FrameLifetimeReloaded(t *testing.T) {
 	body := `{"awtrix":{"http_base_url":"http://x"},"display":{"frame_lifetime_seconds":30}}`
 	app, path := newAppForReload(t, body)
@@ -680,9 +658,6 @@ func TestAdminReload_G2FrameLifetimeReloaded(t *testing.T) {
 	}
 }
 
-// TestAdminReload_G2IdleRestoreReloaded verifies that
-// display.idle_restore_seconds appears in changed_fields after a reload
-// that mutates it, and that the new value is applied.
 func TestAdminReload_G2IdleRestoreReloaded(t *testing.T) {
 	body := `{"awtrix":{"http_base_url":"http://x"},"display":{"idle_restore_seconds":1200}}`
 	app, path := newAppForReload(t, body)
@@ -728,8 +703,6 @@ func TestAdminReload_G2IdleRestoreReloaded(t *testing.T) {
 	}
 }
 
-// postReload rewrites the config file to body and calls /admin/reload,
-// failing the test unless it returns 200.
 func postReload(t *testing.T, app *App, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -753,12 +726,9 @@ func postReload(t *testing.T, app *App, path, body string) {
 	}
 }
 
-// TestAdminReload_KeepsDiscoveredClockURL asserts a reload that leaves the
-// file's clock URL alone does not put that (dead) URL back over the clock
-// that discovery swapped in.
 func TestAdminReload_KeepsDiscoveredClockURL(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"old"}}`)
-	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" }) // what rediscoverClock does
+	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" })
 
 	postReload(t, app, path, `{"awtrix":{"http_base_url":"http://1.2.3.4"},"display":{"idle_text":"new"}}`)
 
@@ -770,15 +740,12 @@ func TestAdminReload_KeepsDiscoveredClockURL(t *testing.T) {
 	}
 }
 
-// TestAdminReload_KeepsDiscoveredOverStaleStoreOverride asserts the reload
-// does not re-apply a menu override that discovery already replaced because
-// it stopped answering.
 func TestAdminReload_KeepsDiscoveredOverStaleStoreOverride(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
 	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
 		t.Fatal(err)
 	}
-	if err := putClockOverride(app, "http://10.0.0.1"); err != nil { // menu override, since gone dead
+	if err := putClockOverride(app, "http://10.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" })
@@ -790,9 +757,6 @@ func TestAdminReload_KeepsDiscoveredOverStaleStoreOverride(t *testing.T) {
 	}
 }
 
-// TestAdminReload_FileClockURLChangeReportsConfigSource asserts that once a
-// reload applies a new file URL, deviceSource calls it "config" again, even
-// if discovery had picked the clock at boot.
 func TestAdminReload_FileClockURLChangeReportsConfigSource(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
 	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" })
@@ -807,8 +771,6 @@ func TestAdminReload_FileClockURLChangeReportsConfigSource(t *testing.T) {
 	}
 }
 
-// TestAdminReload_StoreOverrideBeatsChangedFileURL asserts a menu-chosen
-// clock URL still wins when the reloaded file changes its own URL.
 func TestAdminReload_StoreOverrideBeatsChangedFileURL(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
 	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
@@ -828,8 +790,6 @@ func TestAdminReload_StoreOverrideBeatsChangedFileURL(t *testing.T) {
 	}
 }
 
-// TestAdminReload_FileClockURLChangeApplies asserts an operator edit of the
-// file's clock URL still takes effect, including on a second edit.
 func TestAdminReload_FileClockURLChangeApplies(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
 	app.updateConfig(func(c *Config) { c.AWTRIX.clockDiscovered = "http://5.6.7.8" })

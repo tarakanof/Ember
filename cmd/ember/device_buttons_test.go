@@ -14,9 +14,9 @@ func TestBuildCallbackURL(t *testing.T) {
 	}{
 		{"192.168.0.2", ":3627", "http://192.168.0.2:3627/hooks/awtrix/button"},
 		{"10.0.0.5", "0.0.0.0:3627", "http://10.0.0.5:3627/hooks/awtrix/button"},
-		{"", ":3627", ""},           // no IP → no URL
-		{"192.168.0.2", "", ""},     // no addr → no URL
-		{"192.168.0.2", "junk", ""}, // unparseable addr → no URL
+		{"", ":3627", ""},
+		{"192.168.0.2", "", ""},
+		{"192.168.0.2", "junk", ""},
 	}
 	for _, c := range cases {
 		if got := buildCallbackURL(c.ip, c.addr); got != c.want {
@@ -30,7 +30,6 @@ func TestButtonPressTrackedAndReported(t *testing.T) {
 	defer dev.Close()
 	a := sensorTestApp(t, dev.URL)
 
-	// Fresh app: no presses yet → seconds_since null.
 	w := httptest.NewRecorder()
 	a.handleDeviceButtons(w, httptest.NewRequest("GET", "/v1/device/buttons", nil))
 	if w.Code != http.StatusOK {
@@ -40,7 +39,6 @@ func TestButtonPressTrackedAndReported(t *testing.T) {
 		t.Fatalf("fresh app should report null seconds_since, got %s", w.Body.String())
 	}
 
-	// A received button POST is recorded even when Pomodoro is disabled.
 	pr := httptest.NewRequest("POST", "/hooks/awtrix/button", strings.NewReader("button=select&state=1"))
 	pr.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	a.handleAwtrixButton(httptest.NewRecorder(), pr)

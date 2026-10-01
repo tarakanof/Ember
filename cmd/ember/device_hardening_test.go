@@ -14,8 +14,6 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
-// drainRepublishes counts the cmdRepublish commands queued on the coordinator
-// within d. The test App's coordinator isn't running, so the channel is ours.
 func drainRepublishes(a *App, d time.Duration) int {
 	n := 0
 	deadline := time.After(d)
@@ -31,10 +29,6 @@ func drainRepublishes(a *App, d time.Duration) int {
 	}
 }
 
-// A burst of boot pings (a Berry script in a boot loop, or any LAN host) must
-// not turn into a burst of full republishes: the first goes out at once, the
-// rest collapse into a single deferred one, so the last request is still
-// honoured.
 func TestRepublishAll_CoalescesBurst(t *testing.T) {
 	a := newTestApp(t)
 	a.republish.minGap = 100 * time.Millisecond
@@ -48,7 +42,6 @@ func TestRepublishAll_CoalescesBurst(t *testing.T) {
 	if got := drainRepublishes(a, 250*time.Millisecond); got != 1 {
 		t.Fatalf("deferred republishes = %d, want 1", got)
 	}
-	// Once the gap has passed with nothing pending, the next call is immediate.
 	time.Sleep(120 * time.Millisecond)
 	a.RepublishAll("device_boot")
 	if got := drainRepublishes(a, 30*time.Millisecond); got != 1 {
@@ -56,8 +49,6 @@ func TestRepublishAll_CoalescesBurst(t *testing.T) {
 	}
 }
 
-// The hooks are unauthenticated but no longer unthrottled: they share the
-// per-IP limiter with /v1/ and /admin/.
 func TestDeviceHooks_AreRateLimited(t *testing.T) {
 	for _, path := range []string{"/hooks/awtrix/boot", "/hooks/awtrix/button"} {
 		t.Run(path, func(t *testing.T) {
@@ -83,8 +74,6 @@ func TestDeviceHooks_AreRateLimited(t *testing.T) {
 	}
 }
 
-// The form branch used ParseForm, which reads up to 10 MB; a button edge is a
-// few dozen bytes.
 func TestButtonHook_RejectsOversizedBody(t *testing.T) {
 	a := newPomodoroApp(t)
 	a.updateConfig(func(c *Config) { c.Pomodoro.ButtonCallback = true })
@@ -102,8 +91,6 @@ func TestButtonHook_RejectsOversizedBody(t *testing.T) {
 	}
 }
 
-// The discovered tier is written by the watch goroutine (rediscoverClock) and
-// read by HTTP handlers (deviceSource). Run both at once under -race.
 func TestDeviceAutoPicked_ConcurrentAccess(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
@@ -135,13 +122,10 @@ func TestDeviceAutoPicked_ConcurrentAccess(t *testing.T) {
 	}
 }
 
-// Browsing mDNS after one dropped 1.5s probe is how the lossy link turned into
-// a browse storm; one retry must be spent first.
 func TestRediscoverClock_RetriesProbeBeforeBrowsing(t *testing.T) {
 	var hits atomic.Int64
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if hits.Add(1) == 1 {
-			// First probe "lost": drop the connection without answering.
 			hj, _ := w.(http.Hijacker)
 			conn, _, _ := hj.Hijack()
 			_ = conn.Close()
@@ -163,12 +147,9 @@ func TestRediscoverClock_RetriesProbeBeforeBrowsing(t *testing.T) {
 	}
 }
 
-// When the browse finds the clock at the URL we already use (the probe was just
-// lost twice), nothing changed: no swap, no republish, source untouched.
 func TestRediscoverClock_SameURLIsNotASwap(t *testing.T) {
 	cases := []struct{ name, cur, found string }{
 		{"identical", "http://127.0.0.1:9", "http://127.0.0.1:9"},
-		// config.json omits the port; discovery always spells it out.
 		{"port-less config URL", "http://127.0.0.1", "http://127.0.0.1:80"},
 	}
 	for _, c := range cases {
@@ -191,14 +172,10 @@ func TestRediscoverClock_SameURLIsNotASwap(t *testing.T) {
 	}
 }
 
-// A lost probe followed by a good one used to count as a reboot. On a link
-// that drops ~44% of requests that meant a republish (and a screen switch)
-// every few ticks. Only an uptime that fell behind wall time is a reboot.
 func TestStartDeviceWatch_LostProbeIsNotAReboot(t *testing.T) {
 	var down atomic.Bool
 	var ok, failed atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Quiet without rebooting: rediscover probes and probeDevice all miss.
 		if down.Load() {
 			failed.Add(1)
 			http.Error(w, "lost", http.StatusServiceUnavailable)
@@ -231,7 +208,6 @@ func TestStartDeviceWatch_LostProbeIsNotAReboot(t *testing.T) {
 
 	waitFor("a baseline probe", func() bool { return ok.Load() >= 4 })
 	down.Store(true)
-	// A tick sends 2 rediscover probes then probeDevice: 6 misses cover a probeDevice.
 	waitFor("probes to fail", func() bool { return failed.Load() >= 6 })
 	answered := ok.Load()
 	down.Store(false)

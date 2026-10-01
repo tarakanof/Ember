@@ -1,8 +1,7 @@
 import Foundation
 
 /// One incomplete reminder that has a due *time* (date-only reminders are not
-/// due at any moment, so sources leave them out). Also the row type of
-/// `ReminderScheduler.upcoming`.
+/// due at any moment, so sources leave them out).
 public struct DueReminder: Identifiable, Equatable, Sendable {
     /// Stable per reminder (EventKit's `calendarItemIdentifier`); a recurring
     /// reminder keeps it across occurrences.
@@ -17,11 +16,9 @@ public struct DueReminder: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Where `ReminderScheduler` reads reminders from. The app's adapter wraps
-/// EventKit; tests use an in-memory fake. A source never mutates reminders.
+/// Where `ReminderScheduler` reads reminders from.
 public protocol ReminderSource: Sendable {
-    /// True while reminders may be read (EventKit full access). Checked before
-    /// every poll, so revoking access stops firing without a restart.
+    /// True while reminders may be read (EventKit full access).
     var hasAccess: Bool { get }
 
     /// Every incomplete reminder with a due time, in any order.

@@ -12,7 +12,6 @@ import (
 func TestAuthRequiredOnWriteEndpoints(t *testing.T) {
 	_, srv := newTestServerWithToken(t, "secret-token")
 
-	// No auth header
 	resp := postJSON(t, srv, "/v1/status", map[string]any{
 		"source": "a", "tool": "b", "session": "c", "state": "running",
 	}, map[string]string{})
@@ -20,7 +19,6 @@ func TestAuthRequiredOnWriteEndpoints(t *testing.T) {
 		t.Errorf("no auth: status = %d, want 401", resp.StatusCode)
 	}
 
-	// Wrong token
 	resp = postJSON(t, srv, "/v1/status", map[string]any{
 		"source": "a", "tool": "b", "session": "c", "state": "running",
 	}, map[string]string{"Authorization": "Bearer wrong"})
@@ -28,7 +26,6 @@ func TestAuthRequiredOnWriteEndpoints(t *testing.T) {
 		t.Errorf("wrong token: status = %d, want 401", resp.StatusCode)
 	}
 
-	// Correct token
 	resp = postJSON(t, srv, "/v1/status", map[string]any{
 		"source": "a", "tool": "b", "session": "c", "state": "running",
 	}, map[string]string{"Authorization": "Bearer secret-token"})
@@ -83,7 +80,6 @@ func TestRequireAuth_TokenRotation(t *testing.T) {
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
-	// Old token works.
 	req1, _ := http.NewRequest("GET", srv.URL, nil)
 	req1.Header.Set("Authorization", "Bearer old")
 	resp1, err := srv.Client().Do(req1)
@@ -95,12 +91,10 @@ func TestRequireAuth_TokenRotation(t *testing.T) {
 	}
 	resp1.Body.Close()
 
-	// Rotate.
 	newCfg := *app.cfg.Load()
 	newCfg.Auth.StatusToken = "new"
 	app.cfg.Store(&newCfg)
 
-	// Old now rejected.
 	req2, _ := http.NewRequest("GET", srv.URL, nil)
 	req2.Header.Set("Authorization", "Bearer old")
 	resp2, err := srv.Client().Do(req2)
@@ -112,7 +106,6 @@ func TestRequireAuth_TokenRotation(t *testing.T) {
 	}
 	resp2.Body.Close()
 
-	// New accepted.
 	req3, _ := http.NewRequest("GET", srv.URL, nil)
 	req3.Header.Set("Authorization", "Bearer new")
 	resp3, err := srv.Client().Do(req3)
@@ -128,7 +121,6 @@ func TestRequireAuth_TokenRotation(t *testing.T) {
 func TestDecodeJSON_RejectsTrailingValue(t *testing.T) {
 	srv := newRawTestServer(t, discardLogger())
 
-	// Two top-level JSON values back-to-back.
 	body := `{"source":"a","tool":"t","session":"s","state":"running"}{"x":1}`
 	req := authedRequest(t, "POST", srv.URL+"/v1/status", body)
 	resp, err := srv.Client().Do(req)
@@ -141,10 +133,6 @@ func TestDecodeJSON_RejectsTrailingValue(t *testing.T) {
 	}
 }
 
-// TestOversizedJSONBodyIs413 pins the shared decode contract on every JSON
-// write endpoint: a body past the cap answers 413, not a generic 400. The
-// body opens as valid JSON so the decoder reads up to the cap instead of
-// stopping at the first bad byte.
 func TestOversizedJSONBodyIs413(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{}`)
@@ -192,8 +180,6 @@ func TestOversizedJSONBodyIs413(t *testing.T) {
 		})
 	}
 
-	// A small valid value followed by padding past the cap trips the cap in
-	// the trailing-token read, which must still be a 413, not a 400.
 	t.Run("valid JSON then 2 MB whitespace", func(t *testing.T) {
 		padded := `{"text":"hi"}` + strings.Repeat(" ", 2<<20)
 		resp, err := srv.Client().Do(authedRequest(t, "POST", srv.URL+"/v1/notify", padded))

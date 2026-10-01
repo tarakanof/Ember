@@ -4,11 +4,11 @@ import Foundation
 
 @MainActor @Test func aggregatePartialWhenOneOnOneOff() {
     let sm = FakeSMAppService()
-    sm.statuses["com.ember.heartbeat.plist"] = .enabled       // claude on
-    sm.statuses["com.ember.codex.plist"] = .notRegistered     // codex off
+    sm.statuses["com.ember.heartbeat.plist"] = .enabled
+    sm.statuses["com.ember.codex.plist"] = .notRegistered
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })   // both detected
+        fileExists: { _ in true })
     #expect(svc.toggleState() == .partial)
 }
 
@@ -46,7 +46,7 @@ import Foundation
     sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.codex.plist": .enabled]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in false })   // nothing detected
+        fileExists: { _ in false })
     #expect(svc.toggleState() == .off)
 }
 

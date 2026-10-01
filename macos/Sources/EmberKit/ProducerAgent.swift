@@ -1,9 +1,7 @@
 import Foundation
 
 /// The two producer agents managed by the unified installer: the Claude
-/// heartbeat producer and the Codex producer. Each case carries the
-/// metadata needed to locate its binary, its LaunchAgent plist, and the
-/// per-agent config directory used for auto-detection.
+/// heartbeat producer and the Codex producer.
 public enum ProducerAgent: String, CaseIterable, Sendable {
     case claude, codex
 

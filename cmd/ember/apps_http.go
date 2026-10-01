@@ -7,12 +7,8 @@ import (
 	"sort"
 )
 
-// hiddenAppsKey is the store key holding the JSON array of tool names hidden
-// from the device display.
 const hiddenAppsKey = "display_hidden_apps"
 
-// baselineApps always appear in the menu toggle list even when idle, so the user
-// can pre-hide a tool before it first reports.
 var baselineApps = []string{"claude", "codex"}
 
 var errEmptyAppName = errors.New("app name is required")
@@ -22,7 +18,6 @@ type appDTO struct {
 	Enabled bool   `json:"enabled"`
 }
 
-// hiddenAppsSet returns a copy of the hidden-tool set.
 func (a *App) hiddenAppsSet() map[string]bool {
 	a.appsMu.Lock()
 	defer a.appsMu.Unlock()
@@ -35,8 +30,6 @@ func (a *App) hiddenAppsSet() map[string]bool {
 	return out
 }
 
-// loadHiddenApps reads the persisted hidden set from the store (no-op if the
-// store is absent or the key is unset).
 func (a *App) loadHiddenApps() {
 	if a.store == nil {
 		return
@@ -58,8 +51,6 @@ func (a *App) loadHiddenApps() {
 	a.appsMu.Unlock()
 }
 
-// setAppHidden updates the in-memory hidden set and persists it. Persistence
-// failure is logged but non-fatal (matches the Pomodoro-settings behaviour).
 func (a *App) setAppHidden(name string, hidden bool) {
 	a.appsMu.Lock()
 	if a.hiddenApps == nil {
@@ -85,8 +76,6 @@ func (a *App) setAppHidden(name string, hidden bool) {
 	}
 }
 
-// knownApps is the union of baseline tools, tools seen in the live snapshot, and
-// any currently-hidden tool, each with its enabled flag.
 func (a *App) knownApps() []appDTO {
 	hidden := a.hiddenAppsSet()
 	set := map[string]bool{}

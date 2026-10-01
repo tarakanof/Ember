@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-// View-models behind the Dashboard's non-chart cards.
-
 private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
 
 private func decode<T: Decodable>(_ json: String) -> T {
@@ -44,8 +42,6 @@ private let now = iso("2026-09-26T10:00:00+02:00")
     #expect(f.ring == .goal(completed: 0, goal: nil))
     #expect(f.gauge == (0, 1))
     #expect(f.completionRate == nil)
-    // New user: longest streak is 9 in the fixture, so not empty; a truly
-    // fresh stats payload is.
     let fresh = PomoStats(today: decode(#"{"date":"2026-09-26","completed_focus":0,"focus_min":0}"#),
                           history: [], streak: 0)
     #expect(FocusSummary(stats: fresh, state: nil, now: now).isEmpty)
@@ -90,18 +86,16 @@ private func session(_ tool: String, source: String = "m4", pct: Int? = nil, res
 private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:00:00+02:00","stale_after_sec":600,"tools":[]}"#)
 
 @Test func usageRowsFallBackToSessionsWhenTheSnapshotIsEmpty() {
-    // 0.28 with no producer posting /v1/usage: the sessions' 5h window still shows.
     let sessions = [
         session("claude", source: "m4", pct: 16, resetAt: "2026-09-26T12:40:00+02:00", updated: "2026-09-26T09:59:00+02:00"),
         session("claude", source: "m5", pct: 18, resetAt: "2026-09-26T12:40:00+02:00", updated: "2026-09-26T09:59:30+02:00"),
-        session("codex", pct: 5),  // no known reset: left out, as in the menu
+        session("codex", pct: 5),
     ]
     let rows = UsageRow.rows(from: emptyUsage, sessions: sessions, now: now)
     #expect(rows.map(\.tool) == ["claude"])
     #expect(rows[0].fiveHour == UsageRow.Window(percent: 18, resetsAt: iso("2026-09-26T12:40:00+02:00"), resetLabel: nil))
     #expect(rows[0].source == "m5")
     #expect(!rows[0].stale)
-    // Old server (no /v1/usage): same rows.
     #expect(UsageRow.rows(from: nil, sessions: sessions, now: now) == rows)
 }
 
@@ -129,7 +123,6 @@ private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:
     #expect(rows.count == 1)
     #expect(rows[0].fiveHour?.percent == 60)
     #expect(!rows[0].stale)
-    // The slow-moving parts survive the merge.
     #expect(rows[0].models.map(\.name) == ["sonnet", "opus"])
     let weekly: UsageSnapshot = decode(#"""
     {"generated_at":"2026-09-26T10:30:00+02:00","stale_after_sec":600,"tools":[
@@ -145,7 +138,6 @@ private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:
 }
 
 @Test func usageSnapshotWindowPastItsResetCountsAsNone() {
-    // Fresh entry, but its 5h window reset at 10:00 and it's 10:00 now.
     let over: UsageSnapshot = decode(#"""
     {"generated_at":"2026-09-26T10:00:00+02:00","stale_after_sec":600,"tools":[
      {"tool":"claude","source":"statusline","updated_at":"2026-09-26T09:59:00+02:00","stale":false,
@@ -153,15 +145,12 @@ private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:
       "seven_day":{"used_percent":33,"resets_at":null,"reset_label":"FRI"},"models":{}}]}
     """#)
     let live = [session("claude", pct: 4, resetAt: "2026-09-26T15:00:00+02:00")]
-    // Card: borrows the session's window, keeps the 7-day one.
     let rows = UsageRow.rows(from: over, sessions: live, now: now)
     #expect(rows.first?.fiveHour?.percent == 4)
     #expect(rows.first?.sevenDay?.percent == 33)
-    // Without a session the 5h bar goes, the 7-day one stays.
     let alone = UsageRow.rows(from: over, sessions: [], now: now)
     #expect(alone.first?.fiveHour == nil)
     #expect(alone.first?.sevenDay?.percent == 33)
-    // Menu: the same rule, then the session fallback.
     let menu = MenuRows.usage(.loaded(over, at: now), sessions: live, now: now)
     #expect(menu.count == 1)
     #expect(String(localized: menu[0].text).contains("4"))

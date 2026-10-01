@@ -23,12 +23,6 @@ import (
 	"time"
 )
 
-// genSelfSignedPEM writes a fresh self-signed P-256 cert + key as PEM
-// files into dir and returns (certPath, keyPath). The cert is valid for
-// 1 hour, has subjectAltName=IP:127.0.0.1, and is marked CA-capable so
-// it can be added directly to a trust pool by the healthcheck client
-// tests. Self-signed + IsCA=true means the same cert acts as both leaf
-// and trust anchor — fine for our test scope.
 func genSelfSignedPEM(t *testing.T, dir string) (certPath, keyPath string) {
 	t.Helper()
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -189,10 +183,6 @@ func TestServeTLS_EndToEnd(t *testing.T) {
 	}
 }
 
-// runServerWithEnv invokes `go run .` with the given extra env. Returns
-// the combined stdout+stderr output + the exit error. Used to assert main()'s
-// slog.Error + os.Exit(1) on TLS misconfig BEFORE binding the listener —
-// so no port collision. slog writes to os.Stdout, so we capture both.
 func runServerWithEnv(t *testing.T, extraEnv ...string) (string, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

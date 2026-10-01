@@ -1,9 +1,7 @@
 import Foundation
 
 /// Typed wrapper over the server's /v1/device/* proxy endpoints (clock settings,
-/// display/apps/capabilities, stats, actions, and discovery/config). Every call
-/// the server passes to the clock gets a clock budget (`RequestBudget`); only
-/// the clock-URL config, which never touches the clock, keeps the server one.
+/// display/apps/capabilities, stats, actions, and discovery/config).
 public struct DeviceService: Sendable, Equatable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
@@ -34,13 +32,12 @@ public struct DeviceService: Sendable, Equatable {
     public func updateDisplay(_ patch: DeviceDisplay) async throws {
         try await client.put("/v1/device/display", body: patch, budget: .clock)
     }
-    /// Blanks (false) or relights (true) the LED matrix. Runtime-only: a clock
-    /// reboot relights it.
+    /// Blanks (false) or relights (true) the LED matrix.
     public func setDisplayPower(_ on: Bool) async throws {
         try await client.put("/v1/device/display/power", body: DisplayPowerUpdate(power: on), budget: .clock)
     }
     /// Plays the server's built-in test chime, or previews a melody stored on
-    /// the clock. 503 when the clock has no buzzer.
+    /// the clock.
     public func playTestChime(melody: String? = nil) async throws {
         if let melody {
             try await client.post("/v1/device/audio/test", body: AudioTestRequest(melody: melody), budget: .clock)
@@ -52,8 +49,7 @@ public struct DeviceService: Sendable, Equatable {
     public func stopAudio() async throws {
         try await client.send("POST", "/v1/device/audio/stop", budget: .clock)
     }
-    /// Melodies stored on the clock, for melody pickers. 503 when the clock has
-    /// no buzzer; 404 on a server that predates the route.
+    /// Melodies stored on the clock, for melody pickers.
     public func melodies() async throws -> DeviceMelodyList {
         try await client.get("/v1/device/audio/melodies", budget: .clock)
     }
@@ -68,9 +64,7 @@ public struct DeviceService: Sendable, Equatable {
         try await client.put("/v1/device/apps", body: patch, budget: .clock)
     }
     /// The device's live effect/transition/overlay/palette catalogue, used to
-    /// feed pickers instead of a hardcoded table. Pinned server contract; a 404
-    /// from an older server (or one still bringing this endpoint up) should be
-    /// handled by the caller falling back to DeviceKnownValues.fallbackTransitions.
+    /// feed pickers instead of a hardcoded table.
     public func capabilities() async throws -> DeviceCapabilities {
         try await client.get("/v1/device/capabilities", budget: .clock)
     }
@@ -78,25 +72,19 @@ public struct DeviceService: Sendable, Equatable {
         try await client.get("/v1/device/stats", budget: .clock)
     }
     /// The calibration offsets on the clock's system object (nil = firmware
-    /// default). Applies live — no reboot.
+    /// default).
     public func sensors() async throws -> SensorCalibration {
         try await client.get("/v1/device/sensors", budget: .clock)
     }
-    /// Writes the offsets into the clock's system object. Applies live — no
-    /// reboot follows.
+    /// Writes the offsets into the clock's system object.
     public func updateSensors(_ cal: SensorCalibration) async throws {
         try await client.put("/v1/device/sensors", body: cal, budget: .clockLong)
     }
-    /// The clock's live framebuffer: 24-bit RGB ints, row-major. NG wraps the
-    /// pixel array in {"width","height","pixels"}; this unwraps it.
+    /// The clock's live framebuffer: 24-bit RGB ints, row-major.
     public func screen() async throws -> [Int] {
         let frame: ScreenFrame = try await client.get("/v1/device/screen", budget: .clock)
         return frame.pixels
     }
-    /// Fallback for servers that predate /v1/device/screen: read the clock's
-    /// awtrix-ng display/screen endpoint directly (read-only, same LAN — what
-    /// the AWTRIX app does), unwrapping the same envelope as the proxy.
-    // The mirror polls every tick; `.shared` would write each frame to the on-disk cache.
     private static let directScreenSession = URLSession(configuration: .ephemeral)
     public static func directScreen(clockBaseURL: String) async throws -> [Int] {
         let base = clockBaseURL.hasSuffix("/") ? String(clockBaseURL.dropLast()) : clockBaseURL
@@ -129,8 +117,6 @@ public struct DeviceService: Sendable, Equatable {
         try await client.put("/v1/device/config", body: ["base_url": baseURL])
     }
     public func discover() async throws -> DiscoverResult {
-        // The server browses mDNS for 3s (plus a 3s UDP fallback when that finds
-        // nothing), then probes candidates for up to 2s: up to ~8s.
         try await client.get("/v1/device/discover", budget: .clock)
     }
     public func buttons() async throws -> ButtonStatus {
@@ -138,8 +124,7 @@ public struct DeviceService: Sendable, Equatable {
     }
     /// Sets (enabled:true) or clears (enabled:false) the clock's buttonCallback
     /// so it points at this server — one click instead of hand-editing the
-    /// clock's system config. Re-fetches the status so the caller sees the
-    /// clock's confirmed state.
+    /// clock's system config.
     public func updateButtons(enabled: Bool) async throws -> ButtonStatus {
         try await client.put("/v1/device/buttons", body: ButtonsUpdate(enabled: enabled), budget: .clockLong)
         return try await buttons()

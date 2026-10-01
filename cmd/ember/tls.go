@@ -11,21 +11,11 @@ const (
 	envTLSKeyFile  = "EMBER_TLS_KEY_FILE"
 )
 
-// tlsBundle holds the resolved TLS state for the server.
 type tlsBundle struct {
 	enabled bool
-	cert    tls.Certificate // valid only when enabled
+	cert    tls.Certificate
 }
 
-// readTLSEnv resolves TLS configuration from the environment. Either both
-// EMBER_TLS_CERT_FILE and EMBER_TLS_KEY_FILE must be set (HTTPS), or
-// neither (HTTP). Exactly one set is a startup error. When both are set,
-// the cert/key pair is parsed eagerly so a malformed cert fails main()
-// with a useful slog.Error rather than the server goroutine.
-//
-// "Bad cert" means "fails tls.LoadX509KeyPair": malformed PEM, unreadable
-// file, key/cert mismatch. It does NOT validate expiry, SAN coverage, or
-// trust chain — those are the operator's responsibility.
 func readTLSEnv() (tlsBundle, error) {
 	cert := os.Getenv(envTLSCertFile)
 	key := os.Getenv(envTLSKeyFile)

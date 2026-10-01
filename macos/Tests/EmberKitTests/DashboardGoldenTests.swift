@@ -2,22 +2,16 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-// These decode the server's golden files (cmd/ember/testdata/dashboard), which
-// TestDashboardGolden generates from the real Go builders. A renamed or
-// retyped field on either side fails one of the two suites. Which route and
-// query each feed asks for is LiveModelTests' `everyFeedAsksForItsRoute`.
-
 private func golden(_ name: String) throws -> Data {
     let url = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()      // EmberKitTests
-        .deletingLastPathComponent()      // Tests
-        .deletingLastPathComponent()      // macos
-        .deletingLastPathComponent()      // repo root
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
         .appendingPathComponent("cmd/ember/testdata/dashboard/\(name).json")
     return try Data(contentsOf: url)
 }
 
-/// Decodes `body` the way `APIClient` decodes a response.
 private func decode<T: Decodable>(_ body: Data) async throws -> T {
     let client = stubbedClient { req in (okResponse(req.url!), body) }
     return try await client.get("/")
@@ -137,7 +131,6 @@ private let workHoursJSON = #"""
     #expect(empty.workEnd == nil)
 }
 
-// Servers before 0.28 sent Go's zero time for an empty day.
 @Test func workHoursMapsLegacyZeroTimeToNil() async throws {
     let legacy = workHoursJSON
         .replacingOccurrences(of: #""work_start":null"#, with: #""work_start":"0001-01-01T00:00:00Z""#)

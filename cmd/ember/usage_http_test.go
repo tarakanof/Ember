@@ -26,7 +26,7 @@ func TestUsageHTTPStoresPayload(t *testing.T) {
 
 func TestUsageHTTPRequiresAuth(t *testing.T) {
 	_, srv := newTestServerWithToken(t, "secret-token")
-	resp := postJSON(t, srv, "/v1/usage", map[string]any{"tool": "claude"}, map[string]string{}) // no Authorization header
+	resp := postJSON(t, srv, "/v1/usage", map[string]any{"tool": "claude"}, map[string]string{})
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
@@ -35,9 +35,6 @@ func TestUsageHTTPRequiresAuth(t *testing.T) {
 func TestUsageHTTP_OversizedBodyRejected(t *testing.T) {
 	srv := newRawTestServer(t, discardLogger())
 
-	// Valid JSON but padded well past the cap via an oversized source field,
-	// so the rejection actually exercises MaxBytesReader rather than a plain
-	// JSON-syntax error.
 	body := `{"tool":"claude","source":"` + strings.Repeat("x", 2<<20) + `"}`
 	req := authedRequest(t, "POST", srv.URL+"/v1/usage", body)
 	resp, err := srv.Client().Do(req)
@@ -83,10 +80,10 @@ func TestUsageHTTP_RejectsUnknownField(t *testing.T) {
 func TestUsageHTTP_RejectsBadToolName(t *testing.T) {
 	cases := []string{
 		"",
-		"Claude",                // uppercase not allowed
-		"claude codex",          // space not allowed
-		"claude!",               // punctuation not allowed
-		strings.Repeat("a", 33), // over 32 chars
+		"Claude",
+		"claude codex",
+		"claude!",
+		strings.Repeat("a", 33),
 	}
 	for _, tool := range cases {
 		srv := newRawTestServer(t, discardLogger())
@@ -103,9 +100,6 @@ func TestUsageHTTP_RejectsBadToolName(t *testing.T) {
 	}
 }
 
-// TestUsageHTTP_ClampsOutOfRangeUsedPercent: the producers post UNCLAMPED
-// upstream values, so out-of-[0,100] percents are accepted and clamped in
-// place (matching the coordinator's pctInt convention), not rejected.
 func TestUsageHTTP_ClampsOutOfRangeUsedPercent(t *testing.T) {
 	app, srv := newTestServerWithToken(t, "secret-token")
 	auth := map[string]string{"Authorization": "Bearer secret-token"}
@@ -138,9 +132,6 @@ func TestUsageHTTP_ClampsOutOfRangeUsedPercent(t *testing.T) {
 	}
 }
 
-// JSON has no NaN literal, so a NaN used_percent can only arrive as invalid
-// JSON — the strict decoder rejects it at parse time with 400. The clamp
-// helper additionally normalizes an in-process NaN to 0 as defense in depth.
 func TestUsageHTTP_NaNUsedPercent(t *testing.T) {
 	srv := newRawTestServer(t, discardLogger())
 	req := authedRequest(t, "POST", srv.URL+"/v1/usage", `{"tool":"claude","five_hour":{"used_percent":NaN}}`)

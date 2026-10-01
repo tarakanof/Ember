@@ -11,10 +11,6 @@ import (
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
-// Every settings PUT merges (#144): a body naming one field leaves the others
-// at their current value. Weather and meetings used to decode into a zero
-// config, so a partial body reset omitted fields to zero or their defaults.
-
 func TestWeatherConfigPartialPutKeepsOmittedFields(t *testing.T) {
 	a := newTestAppWithStore(t)
 	full := httptest.NewRecorder()
@@ -98,8 +94,6 @@ func TestSettingsPutRejectsNonObjectBody(t *testing.T) {
 	}
 }
 
-// forecast_hours takes the full 1..24 the clock draws (no silent raise to 6);
-// out of range is a 400.
 func TestWeatherForecastHoursRange(t *testing.T) {
 	a := newTestAppWithStore(t)
 	base := `{"provider":"open-meteo","units":"metric","refresh_minutes":10,"popup_duration_seconds":30,"forecast_hours":`
@@ -115,8 +109,6 @@ func TestWeatherForecastHoursRange(t *testing.T) {
 	}
 }
 
-// A value of the wrong type is an undecodable body: 400 plus the same
-// "request rejected" log line as any other body decodeOrReject refuses.
 func TestSettingsPutTypeErrorLogsRejection(t *testing.T) {
 	var buf bytes.Buffer
 	a := NewApp(defaultConfig(), &recordingPublisher{}, slog.New(slog.NewTextHandler(&buf, nil)))
@@ -129,7 +121,6 @@ func TestSettingsPutTypeErrorLogsRejection(t *testing.T) {
 	if !strings.Contains(buf.String(), "request rejected") || !strings.Contains(buf.String(), "reason=parse") {
 		t.Fatalf("missing request-rejected log line: %s", buf.String())
 	}
-	// A validation failure is not a parse error: no rejection line.
 	buf.Reset()
 	a.handleDisplayConfigPut(httptest.NewRecorder(), httptest.NewRequest("PUT", "/v1/display/config",
 		strings.NewReader(`{"attention_hold_seconds":1}`)))
@@ -138,8 +129,6 @@ func TestSettingsPutTypeErrorLogsRejection(t *testing.T) {
 	}
 }
 
-// Disabling Pomodoro through the settings PUT stops a running timer; a PUT
-// that leaves it enabled (enabled omitted) does not.
 func TestPomodoroSettingsDisableStopsRunningTimer(t *testing.T) {
 	a := newPomodoroApp(t)
 	running := func() bool { return a.engine.Status(time.Now()).Phase != pomodoro.PhaseIdle }

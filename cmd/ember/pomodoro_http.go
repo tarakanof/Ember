@@ -18,15 +18,8 @@ import (
 
 var errPomodoroDisabled = errors.New("pomodoro feature is not enabled")
 
-// defaultPomoMelody is a short RTTTL chime played at phase end when no custom
-// melody is configured (stock TC001 piezo buzzer is RTTTL-only).
 const defaultPomoMelody = "pomo:d=4,o=5,b=125:8g6,8c7,8e7"
 
-// pomodoroSettingsDTO is the wire shape for GET/PUT /v1/pomodoro/config and the
-// persisted-settings blob in the store. A PUT merges through the settings
-// overlay (omitted keys keep their value); every field is also a pointer so
-// an explicit JSON null means "unchanged" too. dtoFromConfig always fills every
-// pointer so GET responses and the persisted blob are fully resolved.
 type pomodoroSettingsDTO struct {
 	Enabled               *bool   `json:"enabled,omitempty"`
 	FocusMinutes          *int    `json:"focus_minutes,omitempty"`
@@ -74,10 +67,6 @@ func engineSettings(p PomodoroConfig) pomodoro.Settings {
 	}
 }
 
-// ensureStore opens the shared SQLite store at path (creating its directory)
-// once, idempotently. The store backs Pomodoro stats AND the key/value settings
-// used by hidden-apps and weather — so any of those features can
-// open it independently of whether Pomodoro is enabled.
 func (a *App) ensureStore(path string) error {
 	if a.store != nil {
 		return nil
@@ -92,17 +81,10 @@ func (a *App) ensureStore(path string) error {
 		return err
 	}
 	a.store = store
-	// Before the coordinator starts: it may owe a takeover restore from a
-	// previous process that died mid-focus.
 	a.coord.setSettingsKV(store)
 	return nil
 }
 
-// initPomodoro opens the shared store, constructs the engine from config and
-// wires both into the app. main() then re-applies every persisted setting
-// (settings.reapply), Pomodoro's included, which also updates the engine.
-// Called unconditionally from main() — cfg.Pomodoro.Enabled only gates
-// whether the engine actually runs, not whether it's wired up.
 func (a *App) initPomodoro(p PomodoroConfig) error {
 	if err := a.ensureStore(p.DBPath); err != nil {
 		return err
@@ -113,23 +95,17 @@ func (a *App) initPomodoro(p PomodoroConfig) error {
 	return nil
 }
 
-// EnablePomodoro wires the engine + store into the app and connects the
-// coordinator's preempt hook. Call once at startup when the feature is enabled.
+// EnablePomodoro wires the engine + store into the app and connects the coordinator's preempt hook.
 func (a *App) EnablePomodoro(engine *pomodoro.Engine, store *pomodoro.Store) {
 	a.engine = engine
 	a.store = store
 	a.coord.pomoView = a.pomoView
 }
 
-// pomodoroOn reports whether the Pomodoro feature is both available (engine
-// wired — the store opened) and enabled (the runtime cfg flag, persisted). The
-// engine is always wired at boot now; this flag gates the feature.
 func (a *App) pomodoroOn() bool {
 	return a.engine != nil && a.cfg.Load().Pomodoro.Enabled
 }
 
-// pomoView builds the render view for the coordinator from the live engine
-// status and the configured colours. Returns active=false when idle/disabled.
 func (a *App) pomoView() (render.PomodoroView, bool) {
 	if !a.pomodoroOn() {
 		return render.PomodoroView{}, false
@@ -151,16 +127,12 @@ func (a *App) pomoView() (render.PomodoroView, bool) {
 	}, true
 }
 
-// nudgePomo asks the coordinator to re-render promptly after a state change.
 func (a *App) nudgePomo() {
 	if a.coord != nil {
 		a.coord.Send(coordCmd{kind: cmdTick})
 	}
 }
 
-// pomoTick is called once per second by the coordinator loop. It advances the
-// engine, records completed/elapsed phases, fires the phase-end alert, and
-// nudges a re-render while a timer is active.
 func (a *App) pomoTick() {
 	if !a.pomodoroOn() {
 		return
@@ -189,8 +161,6 @@ func (a *App) recordPhase(res *pomodoro.PhaseResult, ended time.Time) {
 	}
 }
 
-// pomoPhaseEndAlert plays a notification (with a buzzer chime) when a phase
-// completes, announcing the next phase.
 func (a *App) pomoPhaseEndAlert(res *pomodoro.PhaseResult) {
 	p := a.cfg.Load().Pomodoro
 	if !p.Sound {
@@ -216,7 +186,6 @@ func (a *App) pomoPhaseEndAlert(res *pomodoro.PhaseResult) {
 	}
 }
 
-// writePomoState writes the current engine status as the JSON response body.
 func (a *App) writePomoState(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, a.engine.Status(time.Now()))
 }
@@ -311,21 +280,15 @@ func (a *App) handlePomodoroState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handlePomodoroConfigGet(w http.ResponseWriter, r *http.Request) {
-	// Always available (incl. when disabled) so the app can show the Enable
-	// toggle and the current settings.
 	serveSettingGet(w, a.settings.pomodoro)
 }
 
 func (a *App) handlePomodoroConfigPut(w http.ResponseWriter, r *http.Request) {
-	// No enabled-gate: this is how the app turns the feature on.
 	if d, ok := serveSettingPut(a, w, r, a.settings.pomodoro); ok {
 		writeJSON(w, http.StatusOK, d)
 	}
 }
 
-// pomodoroSettingSpec registers the Pomodoro config with the settings overlay.
-// apply validates the merged result, not just the incoming fields; after keeps
-// the engine in step with the new config.
 func (a *App) pomodoroSettingSpec() settingSpec[pomodoroSettingsDTO] {
 	return settingSpec[pomodoroSettingsDTO]{
 		key:  pomodoroSettingsKey,
@@ -342,21 +305,16 @@ func (a *App) pomodoroSettingSpec() settingSpec[pomodoroSettingsDTO] {
 		after: func(c Config) {
 			if a.engine != nil {
 				a.engine.UpdateSettings(engineSettings(c.Pomodoro))
-				// Disabling must not strand a running timer on the clock.
 				if !c.Pomodoro.Enabled && a.engine.Status(time.Now()).Phase != pomodoro.PhaseIdle {
 					a.engine.Stop(time.Now())
 				}
 			}
 			a.nudgePomo()
-			// Provision any native icons the new config needs onto the device,
-			// off the request path (it does device + gallery HTTP).
 			go a.ensureNativeIcons(context.Background())
 		},
 	}
 }
 
-// mergeInto copies d's non-nil fields into p (nil = explicit JSON null, which
-// leaves the field unchanged).
 func (d pomodoroSettingsDTO) mergeInto(p *PomodoroConfig) {
 	setIf(&p.Enabled, d.Enabled)
 	setIf(&p.FocusMinutes, d.FocusMinutes)
@@ -379,10 +337,6 @@ func setIf[T any](dst *T, v *T) {
 	}
 }
 
-// resyncPomodoroAfterReload re-aligns the engine with the freshly reloaded
-// file config. /admin/reload then re-applies persisted settings
-// (settings.reapply), whose after hook updates the engine again when a
-// Pomodoro override is stored. No-op when the engine isn't wired.
 func (a *App) resyncPomodoroAfterReload() {
 	if a.engine == nil {
 		return
@@ -390,33 +344,12 @@ func (a *App) resyncPomodoroAfterReload() {
 	a.engine.UpdateSettings(engineSettings(a.cfg.Load().Pomodoro))
 }
 
-// handleAwtrixButton ingests the awtrix-ng button callback: a plain-HTTP,
-// fire-and-forget POST of `{"button":"<left|middle|right>","state":<bool>,
-// "uid":"<mac>"}` (NG ≥1.1.1; older firmware form-encoded the same fields as
-// `button=…&state=<1|0>&uid=…`, still accepted — see parseButtonEvent),
-// one per edge (press AND release). Unauthenticated by design — the device
-// cannot send a bearer token — but behind the per-IP rate limiter (its burst is
-// far above what a finger can press) and a buttonHookMaxBody cap. Answered
-// immediately, because the firmware times out after 300 ms per edge on the
-// display task and a slow reply shows up as visible stutter.
-//
-// `select` is kept as an accepted alias: NG's HTTP callback says "middle", but
-// its own MQTT topics and Berry `on_button` hook call the same button "select",
-// as did AWTRIX3. uid is deliberately ignored — it exists so several panels can
-// share one endpoint, and Ember drives exactly one clock.
-//
-// Mapping: middle=pause/resume/start, left=stop, right=skip — all on press;
-// releases are ignored.
 func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
-	// Record receipt before any early-return: a POST landing here at all proves
-	// the clock's button_callback is configured + reaching us (surfaced via
-	// GET /v1/device/buttons), independent of whether Pomodoro acts on it.
 	a.lastButtonAt.Store(time.Now().Unix())
 	if !a.pomodoroOn() || !a.cfg.Load().Pomodoro.ButtonCallback {
-		w.WriteHeader(http.StatusOK) // accept-and-ignore; device keeps posting
+		w.WriteHeader(http.StatusOK)
 		return
 	}
-	// Without the cap, ParseForm reads up to 10 MB from an unauthenticated caller.
 	r.Body = http.MaxBytesReader(w, r.Body, buttonHookMaxBody)
 	button, down, err := parseButtonEvent(r)
 	if err != nil {
@@ -430,19 +363,6 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 
-	// While a hold:true reminder alarm is on the clock, any button edge is the
-	// user acknowledging it — not a Pomodoro action; a middle/select press
-	// disarms the window.
-	//
-	// The server's own DELETE is belt-and-braces: contrary to the AWTRIX3-era
-	// assumption, NG documents that a configured buttonCallback does NOT consume
-	// the press ("the buttons keep their normal job"), and that a select press
-	// dismisses the showing notification regardless — even with blockNavigation
-	// set. So the firmware has very likely cleared it already and the DELETE
-	// 404s, which is why a not-found is not a failure here. It is kept because
-	// the failure mode of being wrong the other way is a hold:true alarm stuck on
-	// the clock forever. Dismissing BY NAME (not the active notification) means a
-	// foreign popup that arrived in the meantime is never the one cleared.
 	if held := a.reminderHeldUntil.Load(); held != 0 && now.UnixNano() < held {
 		if down && (button == "middle" || button == "select") {
 			a.reminderHeldUntil.Store(0)
@@ -473,14 +393,8 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// buttonHookMaxBody caps a /hooks/awtrix/button request body. The largest real
-// edge (form-encoded, with a 12-hex-digit uid) is well under 100 bytes.
 const buttonHookMaxBody = 1024
 
-// parseButtonEvent reads the button and press edge from either callback body
-// shape: JSON (NG ≥1.1.1, boolean state) or form-encoded (NG ≤1.1.0,
-// state "1"/"0"). Both stay accepted so the server can ship ahead of — or
-// roll back independently of — a firmware flash.
 func parseButtonEvent(r *http.Request) (button string, down bool, err error) {
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt == "application/json" {
 		var ev struct {
@@ -498,8 +412,6 @@ func parseButtonEvent(r *http.Request) (button string, down bool, err error) {
 	return r.PostFormValue("button"), r.PostFormValue("state") == "1", nil
 }
 
-// pomoMiddlePress is the middle/select play-pause: running→pause, idle→start
-// focus, paused/parked→resume.
 func (a *App) pomoMiddlePress(now time.Time) {
 	st := a.engine.Status(now)
 	switch {
@@ -512,8 +424,6 @@ func (a *App) pomoMiddlePress(now time.Time) {
 	}
 }
 
-// pomoSideButton processes a left/right edge: left=stop, right=skip, both on
-// press. Releases are ignored. Returns whether the engine state changed.
 func (a *App) pomoSideButton(button string, down bool, now time.Time) bool {
 	if !down {
 		return false

@@ -71,7 +71,7 @@ func TestLoadConfig_PollIntervalFloor(t *testing.T) {
 }
 
 func TestLoadConfig_RatePctEnabled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // no producer.env → defaults
+	t.Setenv("HOME", t.TempDir())
 	cfg, err := loadConfig()
 	if err != nil {
 		t.Fatal(err)

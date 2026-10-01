@@ -9,13 +9,11 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// fakeClock is a hand-moved clock for the registry.
 type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) Now() time.Time          { return c.t }
 func (c *fakeClock) Advance(d time.Duration) { c.t = c.t.Add(d) }
 
-// harness is a registry on a fake clock with a fixed policy, recording reaps.
 type harness struct {
 	*Registry
 	clk    *fakeClock
@@ -84,7 +82,6 @@ func TestStalenessPerState(t *testing.T) {
 	}
 }
 
-// Reaping belongs to the registry, not to any render: every access reaps.
 func TestEveryAccessReaps(t *testing.T) {
 	ops := map[string]func(h *harness){
 		"View":   func(h *harness) { h.View() },
@@ -131,7 +128,6 @@ func TestUpsertStampsClockAndReportsPrior(t *testing.T) {
 		t.Fatalf("sessions = %+v, want one waiting session", v.Sessions)
 	}
 
-	// A session that went stale is gone before the next upsert: it comes back new.
 	h.clk.Advance(26 * time.Second)
 	if _, prior = h.Upsert(sess("a", "running")); prior != "" {
 		t.Fatalf("prior after going stale = %q, want \"\"", prior)
@@ -144,7 +140,7 @@ func TestViewIsNewestFirst(t *testing.T) {
 		h.Upsert(sess(src, "running"))
 		h.clk.Advance(time.Second)
 	}
-	h.Upsert(sess("a", "running")) // refresh a
+	h.Upsert(sess("a", "running"))
 	if got, want := keys(h.View()), []string{"a", "c", "b"}; !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}
@@ -159,7 +155,7 @@ func TestDeleteAndClear(t *testing.T) {
 	if got := keys(v); !slices.Equal(got, []string{"b"}) {
 		t.Fatalf("after Delete = %v, want [b]", got)
 	}
-	h.Delete("never/was/here") // idempotent
+	h.Delete("never/was/here")
 
 	if v := h.Clear(); len(v.Sessions) != 0 {
 		t.Fatalf("after Clear = %v, want none", keys(v))
@@ -169,7 +165,6 @@ func TestDeleteAndClear(t *testing.T) {
 	}
 }
 
-// The policy is read per access, so a config hot-reload applies immediately.
 func TestPolicyIsReadPerAccess(t *testing.T) {
 	h := newHarness()
 	h.Upsert(sess("a", "running"))
@@ -212,7 +207,6 @@ func TestViewWinnerAndCount(t *testing.T) {
 	}
 }
 
-// Deleting a session that has already gone stale is a delete, not a reap.
 func TestDeleteOfStaleSessionIsNotAReap(t *testing.T) {
 	h := newHarness()
 	h.Upsert(sess("a", "running"))
@@ -225,8 +219,6 @@ func TestDeleteOfStaleSessionIsNotAReap(t *testing.T) {
 	}
 }
 
-// Concurrent upserts, views and deletes while sessions are being reaped
-// (1ns TTL: every access finds the others' sessions stale).
 func TestConcurrentAccess(t *testing.T) {
 	var reaps atomic.Int64
 	r := New(time.Now,
@@ -254,7 +246,6 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 }
 
-// A nil onReap is allowed.
 func TestNilOnReap(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(0, 0)}
 	r := New(clk.Now, func() Policy { return Policy{StaleAfter: time.Second, DoneTTL: time.Second} }, nil)

@@ -13,11 +13,6 @@ import (
 
 const defaultHealthcheckURL = "http://127.0.0.1:3627/healthz"
 
-// healthcheckTarget returns the URL the in-image healthcheck should probe.
-// EMBER_HEALTHCHECK_URL overrides; otherwise the default points at the
-// container's loopback. When EMBER_TLS_CERT_FILE is set, the default
-// scheme flips to https — keeps the in-image probe coherent with the
-// server's listen mode without an extra knob.
 func healthcheckTarget() string {
 	if u := os.Getenv("EMBER_HEALTHCHECK_URL"); u != "" {
 		return u
@@ -29,14 +24,6 @@ func healthcheckTarget() string {
 	return fmt.Sprintf("%s://127.0.0.1:3627/healthz", scheme)
 }
 
-// healthcheckOnce does a single probe against url. The 2 s client timeout
-// sits 1 s under the Dockerfile's HEALTHCHECK --timeout=3s so the binary
-// can surface a diagnostic on stderr before the daemon kills the probe.
-//
-// For https targets, two env knobs control verification:
-//   - EMBER_HEALTHCHECK_CA_FILE: PEM bundle to add to the trust pool.
-//   - EMBER_HEALTHCHECK_INSECURE=1|true: skip verify. Fine on a trusted LAN
-//     where the operator can't be bothered to mount a CA bundle.
 func healthcheckOnce(url string) error {
 	client := &http.Client{Timeout: 2 * time.Second}
 	if strings.HasPrefix(url, "https://") {

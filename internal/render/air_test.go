@@ -29,7 +29,6 @@ func TestAQIBuckets(t *testing.T) {
 }
 
 func TestAirTileFrame(t *testing.T) {
-	// AQI 85 → "very poor" bucket; hourly strip spans three buckets.
 	f := AirTileFrame(85, []float64{10, 50, 110})
 	veryPoor := RGB{0xFF, 0x10, 0x60}
 
@@ -63,8 +62,6 @@ func TestAirTileFrame(t *testing.T) {
 		t.Error("no AQI digit pixels lit in cols 9–31 rows 1–5")
 	}
 
-	// Hourly strip on the bottom bar: the three hours stretched over cols 8-31
-	// (8 columns each), each in that hour's own bucket colour.
 	wantStrip := []RGB{{0x50, 0xF0, 0xE6}, {0xF0, 0xE6, 0x41}, AQIColor(110)}
 	for i, want := range wantStrip {
 		for x := barX0 + i*8; x < barX0+(i+1)*8; x++ {
@@ -73,7 +70,6 @@ func TestAirTileFrame(t *testing.T) {
 			}
 		}
 	}
-	// Col 8 stays a gutter between icon and body above the bar.
 	for y := 0; y < barRow; y++ {
 		if f.Dirty[y][8] {
 			t.Errorf("gutter col 8 lit at row %d", y)
@@ -117,8 +113,6 @@ func TestAirPopupPayload(t *testing.T) {
 	}
 }
 
-// TestAQIColoursAreBrightOnTheLED guards against print-palette values: the
-// worst buckets must be as readable on the matrix as the good ones.
 func TestAQIColoursAreBrightOnTheLED(t *testing.T) {
 	for _, b := range aqiBuckets {
 		if m := max(b.c.R, b.c.G, b.c.B); m < 0xC0 {

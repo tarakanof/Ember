@@ -1,26 +1,19 @@
 import SwiftUI
 import EmberKit
 
-/// The Dashboard's cards (design §2.3).
 enum DashboardCardID: Hashable, Sendable, CaseIterable {
     case clock, focus, usage, upcoming, agents, lastSeven, twelveWeeks, workHours, heatmap
     case agentTime, clockHealth, weather
 
-    /// How often a card that shows time relative to now re-renders on its own;
-    /// nil for cards that only change with their feed.
     var clockTick: TimeInterval? {
         switch self {
         case .usage, .upcoming, .agents, .workHours, .clockHealth, .weather: 60
-        // Only the day or week boundary matters.
         case .twelveWeeks, .heatmap: 600
         case .clock, .focus, .lastSeven, .agentTime: nil
         }
     }
 }
 
-/// The card grid (design §2.2): the ordered card list, hidden cards
-/// dropped, cut into runs for the current column count. Each card is its own
-/// view reading only its own feeds from `source`.
 struct DashboardContent<Source: DashboardSource>: View {
     let source: Source
     var onRetry: () -> Void = {}
@@ -98,10 +91,6 @@ struct DashboardContent<Source: DashboardSource>: View {
     static var spacing: CGFloat { 16 }
 }
 
-/// One card, as its own view: its body reads only that card's feeds, so a
-/// change elsewhere doesn't re-render it. Its inputs (the id and an
-/// `Equatable` source) compare equal across parent re-renders, so SwiftUI
-/// skips it then too.
 struct DashboardCardSlot<Source: DashboardSource>: View {
     let id: DashboardCardID
     let source: Source
@@ -152,8 +141,7 @@ struct DashboardCardSlot<Source: DashboardSource>: View {
 }
 
 #if DEBUG
-/// Counts card body evaluations, to check that a fast feed re-renders only
-/// its own card (the snapshot tool prints it).
+/// Counts card body evaluations for the snapshot tool.
 @MainActor
 final class DashboardRenderCounter {
     static let shared = DashboardRenderCounter()

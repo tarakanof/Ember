@@ -128,7 +128,7 @@ func TestDeleteStatusRejectsEmptyKey(t *testing.T) {
 func TestPostStatusRejectsOversizedBody(t *testing.T) {
 	_, srv := newTestServer(t, defaultConfig())
 
-	huge := strings.Repeat("x", (1<<20)+1) // 1 MiB + 1 byte
+	huge := strings.Repeat("x", (1<<20)+1)
 	body := map[string]any{
 		"source":  "dt-mbp",
 		"tool":    "claude",
@@ -257,9 +257,6 @@ func TestHandleNotify_LogsInfoOnEmptyText(t *testing.T) {
 	}
 }
 
-// TestHandleNotify_EmitsNGPayload pins the /v1/notify handler's ad-hoc payload
-// on awtrix-ng's schema: the request's seconds become durationMs, and the
-// request colour lands on textColor. AWTRIX3's `duration`/`color` 422 on NG.
 func TestHandleNotify_EmitsNGPayload(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
@@ -289,7 +286,6 @@ func TestHandleNotify_EmitsNGPayload(t *testing.T) {
 			t.Errorf("legacy AWTRIX3 key %q present — NG rejects the whole payload", k)
 		}
 	}
-	// Casing and scroll are pinned, not inherited from the clock's globals.
 	if p["textCase"] != "upper" {
 		t.Errorf("textCase = %v, want upper", p["textCase"])
 	}
@@ -298,9 +294,6 @@ func TestHandleNotify_EmitsNGPayload(t *testing.T) {
 	}
 }
 
-// TestHandleNotify_TextCasePassesThrough: a caller that asks for a textCase
-// gets it; only an unset one defaults to upper; an unknown one is a 400 and
-// nothing reaches the clock (NG would 422 it).
 func TestHandleNotify_TextCasePassesThrough(t *testing.T) {
 	cases := []struct {
 		body     string
@@ -334,8 +327,6 @@ func TestHandleNotify_TextCasePassesThrough(t *testing.T) {
 	}
 }
 
-// The default colour must be the same canonical "#RRGGBB" form every render
-// builder emits.
 func TestHandleNotify_DefaultColorIsCanonicalHex(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
@@ -431,16 +422,11 @@ func TestStatusRequest_ActivityLengthValidated(t *testing.T) {
 	}
 }
 
-// Producers truncate activity to 80 runes; the server must count runes, not
-// bytes, or a multibyte activity (≤80 chars but >80 bytes) 400s every status
-// POST for that session. Regression guard for the rune/byte mismatch.
 func TestStatusRequest_ActivityMultibyteWithin80Runes(t *testing.T) {
-	// 80 Cyrillic runes = 160 bytes: valid by rune count, would fail by bytes.
 	activity := strings.Repeat("я", 80)
 	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: activity}).validate(); err != nil {
 		t.Errorf("80-rune multibyte activity should be valid, got %v", err)
 	}
-	// 81 runes must still be rejected.
 	if err := (StatusRequest{Source: "a", Tool: "claude", Session: "s", State: "running", Activity: strings.Repeat("я", 81)}).validate(); err == nil {
 		t.Errorf("81-rune activity should be rejected")
 	}

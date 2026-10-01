@@ -13,7 +13,6 @@ import (
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
-// recFocus inserts a focus phase ending at `ended` lasting durMin minutes.
 func recFocus(t *testing.T, app *App, ended time.Time, durMin int, completed bool, reason string) {
 	t.Helper()
 	res := pomodoro.PhaseResult{
@@ -32,11 +31,9 @@ func TestPomodoroStatsRichPayload(t *testing.T) {
 	defer srv.Close()
 	now := time.Now()
 
-	// Three focus phases today: two completed, one abandoned.
 	recFocus(t, app, now.Add(-10*time.Minute), 25, true, "completed")
 	recFocus(t, app, now.Add(-45*time.Minute), 25, true, "completed")
 	recFocus(t, app, now.Add(-80*time.Minute), 8, false, "stopped")
-	// One completed yesterday, to extend the streak.
 	recFocus(t, app, now.AddDate(0, 0, -1), 25, true, "completed")
 
 	_, body := doReq(t, srv, http.MethodGet, "/v1/pomodoro/stats", "", "")
@@ -48,7 +45,6 @@ func TestPomodoroStatsRichPayload(t *testing.T) {
 	if body["streak"].(float64) < 2 {
 		t.Errorf("streak = %v, want >= 2", body["streak"])
 	}
-	// Completion spans 30 days: 3 completed (2 today + 1 yesterday) + 1 abandoned.
 	comp := body["completion"].(map[string]any)
 	if comp["completed_focus"].(float64) != 3 || comp["abandoned_focus"].(float64) != 1 {
 		t.Errorf("completion = %+v", comp)
@@ -68,9 +64,6 @@ func TestPomodoroStatsRichPayload(t *testing.T) {
 	}
 }
 
-// TestPomodoroStatsCachedUntilPhaseWrite asserts repeated stats polls are
-// served from cache (a row the app's store never wrote stays invisible) and
-// that a phase recorded through the app's store shows up on the next poll.
 func TestPomodoroStatsCachedUntilPhaseWrite(t *testing.T) {
 	app := newPomodoroApp(t)
 	path := filepath.Join(t.TempDir(), "shared.db")
@@ -94,8 +87,6 @@ func TestPomodoroStatsCachedUntilPhaseWrite(t *testing.T) {
 		t.Fatalf("first poll: completed = %v, want 1", got)
 	}
 
-	// A second handle on the same file writes behind the app's back: the
-	// app's cache has no reason to drop, so the poll must not re-query.
 	other, err := pomodoro.Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -109,16 +100,12 @@ func TestPomodoroStatsCachedUntilPhaseWrite(t *testing.T) {
 		t.Fatalf("cached poll: completed = %v, want 1 (served from cache)", got)
 	}
 
-	// A write through the app's own store invalidates the cache.
 	recFocus(t, app, now.Add(-5*time.Minute), 1, true, "completed")
 	if got := todayCompleted(); got != 3 {
 		t.Fatalf("after app write: completed = %v, want 3", got)
 	}
 }
 
-// statsBehindTheBack returns an app whose store shares a file with a second
-// handle; phases written through that handle do not invalidate the cache, so
-// they only show up when the cache is rebuilt for another reason.
 func statsBehindTheBack(t *testing.T) (*App, *pomodoro.Store) {
 	t.Helper()
 	app := newPomodoroApp(t)
@@ -154,8 +141,6 @@ func writeFocusVia(t *testing.T, st *pomodoro.Store, ended time.Time) {
 	}
 }
 
-// TestPomodoroStatsCacheRebuildsOnLogicalDayRollover asserts crossing
-// day_start_hour rebuilds the cache even with no phase write in between.
 func TestPomodoroStatsCacheRebuildsOnLogicalDayRollover(t *testing.T) {
 	app, other := statsBehindTheBack(t)
 	startHour := app.cfg.Load().Pomodoro.DayStartHour
@@ -175,13 +160,10 @@ func TestPomodoroStatsCacheRebuildsOnLogicalDayRollover(t *testing.T) {
 	}
 }
 
-// TestPomodoroStatsCacheExpiresAfterTTL asserts the cache is rebuilt once
-// statsCacheTTL has passed, which is how writes by another store handle or
-// process become visible.
 func TestPomodoroStatsCacheExpiresAfterTTL(t *testing.T) {
 	app, other := statsBehindTheBack(t)
 	y, m, d := time.Now().AddDate(0, 0, -1).Date()
-	t0 := time.Date(y, m, d, 12, 0, 0, 0, time.Local) // clear of any day boundary
+	t0 := time.Date(y, m, d, 12, 0, 0, 0, time.Local)
 
 	if got := completedIn30d(t, app, t0); got != 0 {
 		t.Fatalf("first build: %d, want 0", got)
@@ -195,8 +177,6 @@ func TestPomodoroStatsCacheExpiresAfterTTL(t *testing.T) {
 	}
 }
 
-// TestPomodoroStatsCacheFollowsConfig asserts a goal change is reflected
-// immediately rather than after the cache expires.
 func TestPomodoroStatsCacheFollowsConfig(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -259,9 +239,7 @@ func TestPomodoroWorkHoursOverlay(t *testing.T) {
 	defer srv.Close()
 	now := time.Now()
 
-	// A 25-min focus block, then AI activity for ~10 min after it (10-min gap →
-	// same work session). Overlay active = 25m focus + 10m activity = 35m.
-	recFocus(t, app, now.Add(-40*time.Minute), 25, true, "completed") // [-65m, -40m]
+	recFocus(t, app, now.Add(-40*time.Minute), 25, true, "completed")
 	for tm := now.Add(-30 * time.Minute); !tm.After(now.Add(-20 * time.Minute)); tm = tm.Add(2 * time.Minute) {
 		if err := app.store.RecordActivity(tm, "Claude", "claude", "Claude/claude/s1", "running"); err != nil {
 			t.Fatal(err)
@@ -274,7 +252,6 @@ func TestPomodoroWorkHoursOverlay(t *testing.T) {
 	}
 	d0 := body["days"].([]any)[0].(map[string]any)
 	active := d0["active_sec"].(float64)
-	// Must exceed focus-only (25m) because the post-focus activity span adds ~10m.
 	if active < 34*60 {
 		t.Errorf("overlay active_sec = %v, want ~2100 (35m incl. activity)", active)
 	}
@@ -291,9 +268,9 @@ func TestStatusRecordsActivityThrottled(t *testing.T) {
 			t.Fatalf("status post %s = %d", state, resp.StatusCode)
 		}
 	}
-	post("running") // records
-	post("running") // throttled (within 2m window) → no new row
-	post("idle")    // not an active state → no row
+	post("running")
+	post("running")
+	post("idle")
 
 	rows, err := app.store.ActivityBetween(time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
 	if err != nil {
@@ -306,12 +283,11 @@ func TestStatusRecordsActivityThrottled(t *testing.T) {
 		t.Errorf("row = %+v", rows[0])
 	}
 
-	// Disabling the overlay stops recording.
 	cfg := *app.cfg.Load()
 	cfg.Pomodoro.WorkHoursIncludeActivity = false
 	app.cfg.Store(&cfg)
 	app.activityMu.Lock()
-	delete(app.activityLast, "Claude/claude/s1") // clear throttle so a row could be written
+	delete(app.activityLast, "Claude/claude/s1")
 	app.activityMu.Unlock()
 	post("running")
 	rows, _ = app.store.ActivityBetween(time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
@@ -320,10 +296,6 @@ func TestStatusRecordsActivityThrottled(t *testing.T) {
 	}
 }
 
-// A transition into waiting is recorded inside the throttle window (a short
-// prompt is the attention signal the activity summary counts), but never
-// sooner than activityWaitFloor after the previous row, and other state changes
-// stay throttled so a flapping producer can't write a row per POST.
 func TestActivityHeartbeatRecordsWaitingTransitionWithFloor(t *testing.T) {
 	app := newPomodoroApp(t)
 	t0 := time.Now().Add(-time.Hour).Truncate(time.Second)
@@ -332,11 +304,11 @@ func TestActivityHeartbeatRecordsWaitingTransitionWithFloor(t *testing.T) {
 		state  string
 	}{
 		{0, "running"},
-		{3 * time.Second, "waiting"},  // into waiting, but inside the 10s floor: dropped
-		{15 * time.Second, "waiting"}, // into waiting past the floor: recorded
-		{20 * time.Second, "running"}, // leaving waiting stays throttled
-		{25 * time.Second, "waiting"}, // the mark says waiting already: throttled
-		{3 * time.Minute, "running"},  // throttle window elapsed: recorded
+		{3 * time.Second, "waiting"},
+		{15 * time.Second, "waiting"},
+		{20 * time.Second, "running"},
+		{25 * time.Second, "waiting"},
+		{3 * time.Minute, "running"},
 	}
 	for _, st := range steps {
 		app.recordActivityHeartbeat(Session{Source: "Claude", Tool: "claude", Session: "s1", State: st.state}, t0.Add(st.offset))
@@ -378,9 +350,6 @@ func TestPomodoroDashboardServesHTML(t *testing.T) {
 	}
 }
 
-// TestActivityHeartbeatBoundsGrowth asserts the per-session throttle map drops
-// entries that can no longer throttle anything, and that heartbeats prune
-// activity rows older than the retention window.
 func TestActivityHeartbeatBoundsGrowth(t *testing.T) {
 	app := newPomodoroApp(t)
 	now := time.Now()

@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// TestNewClient_UsesHookTimeout confirms the hook-path client stays bound to
-// HookTimeoutMs, since it blocks the `claude` CLI and must stay fast.
 func TestNewClient_UsesHookTimeout(t *testing.T) {
 	cfg := Config{ServerURL: "http://example.invalid", HookTimeoutMs: 500}
 	c := NewClient(cfg)
@@ -15,9 +13,6 @@ func TestNewClient_UsesHookTimeout(t *testing.T) {
 	}
 }
 
-// TestNewDaemonClient_IndependentOfHookTimeout is the Task-9 regression test:
-// daemon traffic (heartbeat re-POSTs, reap DELETEs, usage POSTs) must not
-// inherit the 500ms hook budget, which flaps on slow links with zero evidence.
 func TestNewDaemonClient_IndependentOfHookTimeout(t *testing.T) {
 	cfg := Config{ServerURL: "http://example.invalid", HookTimeoutMs: 50}
 	c := NewDaemonClient(cfg)

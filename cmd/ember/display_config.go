@@ -7,10 +7,6 @@ import (
 
 const displaySettingsKey = "display_json"
 
-// displayConfigDTO is the runtime-editable slice of DisplayConfig
-// (GET/PUT /v1/display/config). Values are EFFECTIVE: config.json is the
-// baseline, the store override (this DTO) wins after first PUT; a PUT merges
-// (omitted fields keep their value, see settings_overlay.go).
 type displayConfigDTO struct {
 	IdleHideMinutes      int  `json:"idle_hide_minutes"`
 	AttentionHoldSeconds int  `json:"attention_hold_seconds"`
@@ -27,11 +23,6 @@ func (d displayConfigDTO) validate() error {
 	return nil
 }
 
-// displaySettingSpec registers the display knobs with the settings overlay.
-// IdleRestoreSeconds is integer-divided by 60; a file baseline like 90s rounds
-// down to 1 minute, acceptable since the DTO only allows whole minutes. The
-// coordinator reads these fields live, so a change takes effect on the next
-// reconcile tick.
 func displaySettingSpec() settingSpec[displayConfigDTO] {
 	return settingSpec[displayConfigDTO]{
 		key: displaySettingsKey,

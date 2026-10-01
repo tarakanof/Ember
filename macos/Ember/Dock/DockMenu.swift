@@ -1,10 +1,6 @@
 import AppKit
 import EmberKit
 
-/// The Dock icon's menu (shown while a window keeps Ember in the Dock): the
-/// status header, the Pomodoro status and the controls that apply now, the
-/// last failed action, then Open Dashboard and Settings. Built fresh each
-/// time the menu opens, from the same `MenuRows` as the menu bar.
 @MainActor
 enum DockMenu {
     static func make(env: AppEnvironment) -> NSMenu {
@@ -44,7 +40,6 @@ enum DockMenu {
         return menu
     }
 
-    /// A read-only row.
     private static func textItem(_ title: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
@@ -52,7 +47,6 @@ enum DockMenu {
     }
 }
 
-/// An `NSMenuItem` that runs a closure.
 @MainActor
 private final class ActionMenuItem: NSMenuItem {
     private let handler: @MainActor () -> Void

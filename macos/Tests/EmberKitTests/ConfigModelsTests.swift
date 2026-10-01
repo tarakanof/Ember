@@ -8,7 +8,6 @@ import Foundation
     #expect(cfg.idleHideMinutes == 2)
     #expect(cfg.attentionHoldSeconds == 30)
     #expect(cfg.attentionChime == false)
-    // encode side: keys are snake_case
     let data = try JSONEncoder().encode(cfg)
     let s = String(decoding: data, as: UTF8.self)
     #expect(s.contains("\"idle_hide_minutes\""))

@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// Lock-guarded value the stub handler (URLProtocol thread) reads and writes.
 private final class Shared<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: T
@@ -13,8 +12,6 @@ private final class Shared<T: Sendable>: @unchecked Sendable {
     }
 }
 
-/// A server whose `/state` can fail and whose `/version` can change; counts
-/// `/version` reads.
 private final class VersionedServer: Sendable {
     let down = Shared(false)
     let versionLost = Shared(false)
@@ -39,7 +36,6 @@ private final class VersionedServer: Sendable {
     }
 }
 
-/// Only `refreshNow` fetches: the coordinator's clock never advances.
 @MainActor
 private func makeModel() -> LiveModel {
     let clock = ManualClock()
@@ -60,7 +56,6 @@ private func poll(_ m: LiveModel) async {
     m.configure(client: server.client())
     #expect(m.serverVersion == nil)
     await poll(m)
-    // Dirty and the commit are left out: just the release.
     #expect(m.serverVersion == "0.29.0")
     await poll(m)
     await poll(m)
@@ -74,7 +69,6 @@ private func poll(_ m: LiveModel) async {
     await poll(m)
     #expect(m.serverVersion == "0.29.0")
 
-    // A degraded blip isn't a restart: no re-read.
     server.down.value = true
     await poll(m)
     #expect(m.connection == .degraded(failures: 1))
@@ -82,7 +76,6 @@ private func poll(_ m: LiveModel) async {
     await poll(m)
     #expect(server.versionReads.value == 1)
 
-    // Offline, then back on a newer build: an upgrade restarts the server.
     server.down.value = true
     for _ in 0..<LiveModel.offlineAfterFailures { await poll(m) }
     #expect(m.connection == .offline(since: Date(timeIntervalSince1970: 1_000)))
@@ -141,7 +134,6 @@ private func poll(_ m: LiveModel) async {
     await poll(m)
     #expect(m.serverVersion == "0.29.0")
 
-    // Rolled back to a server without the route: the old version goes.
     down.value = true
     for _ in 0..<LiveModel.offlineAfterFailures { await poll(m) }
     broken.value = true

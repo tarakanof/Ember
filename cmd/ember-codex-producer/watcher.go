@@ -28,7 +28,7 @@ type watcher struct {
 	cfg            Config
 	now            func() time.Time
 	activityWindow time.Duration
-	sessions       map[string]*sessionState // keyed by file path
+	sessions       map[string]*sessionState
 	ignored        map[string]bool
 }
 
@@ -42,8 +42,6 @@ func newWatcher(cfg Config) *watcher {
 	}
 }
 
-// candidateFiles lists rollout-*.jsonl under the today + yesterday UTC date
-// dirs (covers the midnight-UTC boundary without scanning all history).
 func (w *watcher) candidateFiles(now time.Time) []string {
 	var out []string
 	for _, day := range []time.Time{now.UTC(), now.UTC().AddDate(0, 0, -1)} {
@@ -62,9 +60,6 @@ func (w *watcher) candidateFiles(now time.Time) []string {
 	return out
 }
 
-// buildUsageRequest turns a session's derived weekly+primary windows into a
-// /v1/usage payload. ok is false when this pass carries no rate-limit data
-// (weeklyResetAt unset). Labels are formatted in the host's local timezone.
 func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 	if d.weeklyResetAt == 0 {
 		return producer.UsageRequest{}, false
@@ -80,14 +75,8 @@ func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 	}, true
 }
 
-// tick scans, tails, and reconciles the live-session map. It returns the POST,
-// DELETE, and usage requests to issue (so the loop is testable without HTTP).
 func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
 	now := w.now()
-	// The scan set is the union of the candidate-window files and the paths of
-	// all currently-tracked live sessions, so a session whose file has aged out
-	// of the today+yesterday window keeps being tailed until it actually
-	// disappears or ages out via the activity TTL.
 	candidates := map[string]bool{}
 	for _, path := range w.candidateFiles(now) {
 		candidates[path] = true
@@ -115,7 +104,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		if ss == nil {
 			meta, ok := readFirstMeta(path)
 			if !ok {
-				continue // first line not yet a valid session_meta; retry next tick
+				continue
 			}
 			if meta.source != "cli" {
 				w.ignored[path] = true
@@ -124,13 +113,6 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 			ss = &sessionState{path: path, uuid: meta.id}
 			w.sessions[path] = ss
 		}
-		// Truncation/rotation recovery: a file smaller than the stored offset was
-		// truncated or replaced. Reset the offset and re-derive from scratch so a
-		// full re-read doesn't double-apply state (e.g. the activity trail).
-		// Limitation: a same-size file replacement isn't detected (only
-		// size < offset triggers recovery) — acceptable for append-only
-		// rollout JSONL, which never gets replaced by another file of the
-		// exact same byte length.
 		if info.Size() < ss.offset {
 			ss.offset = 0
 			ss.derived = derived{}
@@ -146,7 +128,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 			continue
 		}
 		if now.Sub(ss.lastModified) > w.activityWindow {
-			continue // aged out; the reap loop below will DELETE it — don't keepalive a dead session
+			continue
 		}
 		fp := fingerprint(ss.derived)
 		if fp != ss.fingerprint || now.Sub(ss.lastPostedAt) >= keepaliveInterval {
@@ -164,8 +146,6 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 			delete(w.sessions, path)
 		}
 	}
-	// Prune ignored entries that have left the candidate window so the map can't
-	// grow without bound over an indefinite daemon lifetime.
 	for path := range w.ignored {
 		if !candidates[path] {
 			delete(w.ignored, path)

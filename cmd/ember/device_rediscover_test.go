@@ -10,8 +10,6 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
-// newTestApp builds a bare App (no store) with a config and a discard logger,
-// suitable for rediscoverClock tests that don't need store persistence.
 func newTestApp(t *testing.T) *App {
 	t.Helper()
 	a := NewApp(defaultConfig(), &recordingPublisher{}, discardLogger())
@@ -20,11 +18,11 @@ func newTestApp(t *testing.T) *App {
 
 func TestRediscoverClock_SwapsWhenCurrentUnreachable(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`)) // /api/v1/device fingerprint
+		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
 	}))
 	defer clock.Close()
 	a := newTestApp(t)
-	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" }) // unreachable
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
 	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
 	}
@@ -62,7 +60,7 @@ func TestRediscoverClock_NoopWhenReachable(t *testing.T) {
 
 func TestRediscoverClock_NoDeviceFound(t *testing.T) {
 	a := newTestApp(t)
-	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" }) // unreachable
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
 	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return nil, nil
 	}
@@ -74,11 +72,6 @@ func TestRediscoverClock_NoDeviceFound(t *testing.T) {
 	}
 }
 
-// TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride covers the
-// boot fall-through fix: previously initDeviceDiscovery returned early once
-// deviceSource() == "store" (a menu-chosen override existed), even if that
-// override was unreachable. Now the reachability check + browse happen
-// regardless of source.
 func TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
@@ -86,14 +79,14 @@ func TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride(t *testing.T) 
 	defer clock.Close()
 
 	a := newTestAppWithStore(t)
-	if err := a.store.PutSetting(deviceBaseURLKey, "http://127.0.0.1:9"); err != nil { // stale store override
+	if err := a.store.PutSetting(deviceBaseURLKey, "http://127.0.0.1:9"); err != nil {
 		t.Fatal(err)
 	}
 	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
 	}
 
-	a.settings.reapply() // what main does once the store opens
+	a.settings.reapply()
 	a.initDeviceDiscovery(context.Background())
 
 	if got := a.cfg.Load().effectiveClockURL(); got != clock.URL {
@@ -101,11 +94,6 @@ func TestInitDeviceDiscovery_FallsThroughUnreachableStoreOverride(t *testing.T) 
 	}
 }
 
-// TestDeviceSource_StaleStoreOverrideReportsDiscovered covers the reporting
-// side of the fall-through fix: once rediscoverClock swaps away from an
-// unreachable store override to a discovered candidate (in-memory only), the
-// store entry still exists but no longer matches the effective URL, so
-// deviceSource must report "discovered", not "store".
 func TestDeviceSource_StaleStoreOverrideReportsDiscovered(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
@@ -113,14 +101,14 @@ func TestDeviceSource_StaleStoreOverrideReportsDiscovered(t *testing.T) {
 	defer clock.Close()
 
 	a := newTestAppWithStore(t)
-	if err := a.store.PutSetting(deviceBaseURLKey, "http://127.0.0.1:9"); err != nil { // stale store override
+	if err := a.store.PutSetting(deviceBaseURLKey, "http://127.0.0.1:9"); err != nil {
 		t.Fatal(err)
 	}
 	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
 	}
 
-	a.settings.reapply() // what main does once the store opens
+	a.settings.reapply()
 	a.initDeviceDiscovery(context.Background())
 
 	if got := a.deviceSource(); got != "discovered" {
@@ -128,9 +116,6 @@ func TestDeviceSource_StaleStoreOverrideReportsDiscovered(t *testing.T) {
 	}
 }
 
-// TestDeviceSource_MatchingStoreOverrideStillReportsStore is the regression
-// guard: when the store value still equals the effective URL (the common
-// case — no stale-pin incident), deviceSource must keep reporting "store".
 func TestDeviceSource_MatchingStoreOverrideStillReportsStore(t *testing.T) {
 	a := newTestAppWithStore(t)
 	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
@@ -156,10 +141,6 @@ func TestAutoRediscoverEnabled_ExplicitFalse(t *testing.T) {
 	}
 }
 
-// TestStartDeviceWatch_SwapsOnUnreachableCurrent drives the loop with a fast
-// interval, an unreachable current URL, and a reachable browse candidate:
-// it polls (with a timeout) for the swap to happen, then cancels and asserts
-// the goroutine returns promptly (no leak).
 func TestStartDeviceWatch_SwapsOnUnreachableCurrent(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
@@ -167,13 +148,13 @@ func TestStartDeviceWatch_SwapsOnUnreachableCurrent(t *testing.T) {
 	defer clock.Close()
 
 	a := newTestApp(t)
-	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" }) // unreachable
+	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
 	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // safety net if an assertion below fails before the explicit cancel
+	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		a.StartDeviceWatch(ctx, 10*time.Millisecond)

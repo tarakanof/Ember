@@ -26,7 +26,6 @@ import Foundation
     #expect(MelodyChoice(value: "  ", available: names) == .builtIn)
     #expect(MelodyChoice(value: "bell", available: names) == .stored("bell"))
     #expect(MelodyChoice(value: "x:d=4:c", available: names) == .custom)
-    // A name the clock no longer has stays as typed rather than vanishing.
     #expect(MelodyChoice(value: "gone", available: names) == .custom)
 }
 

@@ -12,7 +12,7 @@ public enum JSONValue: Equatable, Sendable, Encodable {
     case array([JSONValue])
     case object([String: JSONValue])
 
-    /// Converts a `JSONSerialization` result. Unknown types become `null`.
+    /// Converts a `JSONSerialization` result.
     public init(_ any: Any) {
         switch any {
         case is NSNull:

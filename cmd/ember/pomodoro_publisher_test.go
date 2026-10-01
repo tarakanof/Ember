@@ -13,8 +13,6 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-// newPublisherAgainst returns the real, ungated Publisher adapter pointed at
-// a fake clock serving h.
 func newPublisherAgainst(t *testing.T, h http.HandlerFunc) Publisher {
 	t.Helper()
 	srv := httptest.NewServer(h)
@@ -154,8 +152,6 @@ func TestPublisherClearIndicatorDeletes(t *testing.T) {
 	}
 }
 
-// A 422 from the device must surface the offending field name so operators can
-// see exactly which payload key NG rejected.
 func TestPublisherSurfaces422Field(t *testing.T) {
 	pub := newPublisherAgainst(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

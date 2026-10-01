@@ -11,17 +11,13 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// derived is the state + metrics folded from a session's rollout events.
 type derived struct {
-	state         string // "", running, waiting, done, error
+	state         string
 	message       string
 	contextPct    *int
 	rateWindowPct *int
 	activity      string
 	rateResetAt   int64
-	// weekly (secondary) rate window, surfaced to the usage widget. weeklyPct is
-	// the clamped int; weeklyRaw/primaryRaw keep float precision for the usage
-	// payload (the status card uses the clamped ints).
 	weeklyPct     *int
 	weeklyResetAt int64
 	weeklyRaw     float64
@@ -73,7 +69,6 @@ type eventPayload struct {
 	} `json:"invocation,omitempty"`
 }
 
-// parseSessionMeta extracts the session UUID + source from a session_meta line.
 func parseSessionMeta(line []byte) (sessionMeta, bool) {
 	var rl rolloutLine
 	if json.Unmarshal(line, &rl) != nil || rl.Type != "session_meta" {
@@ -96,10 +91,6 @@ func isRunningEvent(t string) bool {
 	return false
 }
 
-// foldEvent applies one rollout line to d. Non-event_msg lines are ignored.
-// token_count is data-only (updates metrics, never state). contextPctEnabled
-// gates context_pct; ratePctEnabled gates rate_window_pct; trailEnabled gates
-// activity trail accumulation.
 func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trailEnabled bool) {
 	var rl rolloutLine
 	if json.Unmarshal(line, &rl) != nil || rl.Type != "event_msg" {
@@ -158,14 +149,10 @@ func clampPct(n int) int {
 	return n
 }
 
-// truncate is rune-safe: see producer.Truncate.
 func truncate(s string, n int) string {
 	return producer.Truncate(s, n)
 }
 
-// labelForEvent returns a short trail label for a detail-bearing action event,
-// or ("", false) for non-action events. Missing detail fields degrade to a
-// coarse verb so payload-shape drift never drops an action entirely.
 func labelForEvent(p eventPayload) (string, bool) {
 	switch p.Type {
 	case "exec_command_begin":

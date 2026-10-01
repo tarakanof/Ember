@@ -1,9 +1,7 @@
 import Foundation
 import EmberKit
 
-/// Shape-only sample data the cards show redacted while their feed is still
-/// loading (design §2.5), so the grid keeps its layout on first paint. None
-/// of it is ever shown as real data.
+/// Shape-only sample data shown redacted while a feed loads.
 @MainActor
 enum DashboardPlaceholders {
     private static let decoder: JSONDecoder = {
@@ -13,7 +11,6 @@ enum DashboardPlaceholders {
     }()
 
     private static func decode<T: Decodable>(_ json: String) -> T {
-        // Literals below; a failure is a programming error caught by previews.
         try! decoder.decode(T.self, from: Data(json.utf8))
     }
 

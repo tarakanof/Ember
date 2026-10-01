@@ -1,8 +1,7 @@
 import Foundation
 
 /// The six display toggles that affect a single-session render, plus usageCard
-/// and an optional source colour. Maps 1:1 to GET /v1/preview query params.
-/// activity_trail is deliberately absent (it has no single-session effect; see the spec).
+/// and an optional source colour.
 public struct DraftDisplay: Sendable, Equatable {
     public var contextPct = false
     public var activityDetail = false
@@ -10,7 +9,7 @@ public struct DraftDisplay: Sendable, Equatable {
     public var sourceCard = true
     public var sessionBar = true
     public var usageCard = true
-    public var sourceColor = ""   // "" = omit param
+    public var sourceColor = ""
     public init() {}
 
     var queryItems: [URLQueryItem] {
@@ -30,11 +29,7 @@ public struct DraftDisplay: Sendable, Equatable {
 }
 
 /// The weather config fields that change the Weather-tab preview, mapped 1:1
-/// to GET /v1/weather/preview query params. Moon phase and location are here
-/// because the pane previews a draft before its autosave lands, so the server
-/// can't read them from the saved config. Fields that don't change the frames
-/// (popups, location name, payload-only native icons and overlay) are left
-/// out, so editing them doesn't refetch the preview.
+/// to GET /v1/weather/preview query params.
 public struct WeatherPreviewDraft: Sendable, Equatable {
     public var rotateInApps: Bool
     public var forecastTile: Bool
@@ -78,14 +73,13 @@ public struct PreviewService: Sendable {
     }
 
     /// Weather-tab preview: GET /v1/weather/preview with the draft's
-    /// display-relevant fields. Same response shape as /v1/preview.
+    /// display-relevant fields.
     public func fetchWeatherPreview(_ draft: WeatherPreviewDraft) async throws -> PreviewResponse {
         try await client.get("/v1/weather/preview", query: draft.queryItems)
     }
 
     /// Pomodoro-tab preview: GET /v1/pomodoro/preview with the draft config's
-    /// display-relevant fields. Returns one frame per phase
-    /// (focus / short_break / long_break).
+    /// display-relevant fields.
     public func fetchPomodoroPreview(_ cfg: PomoConfig) async throws -> PreviewResponse {
         try await client.get("/v1/pomodoro/preview", query: [
             URLQueryItem(name: "focus_minutes", value: String(cfg.focusMinutes)),
@@ -97,7 +91,7 @@ public struct PreviewService: Sendable {
     }
 
     /// Reminders-tab preview: GET /v1/reminders/preview — the bell alarm popup
-    /// with the server's sample text. One "reminder" frame.
+    /// with the server's sample text.
     public func fetchReminderPreview() async throws -> PreviewResponse {
         try await client.get("/v1/reminders/preview", query: [])
     }

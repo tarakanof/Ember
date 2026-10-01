@@ -30,9 +30,6 @@ func TestPrependTrail(t *testing.T) {
 }
 
 func TestPrependTrailCapsAt80DroppingWholeItems(t *testing.T) {
-	// Distinct heads each iteration (filea..filel) so the trail actually grows
-	// and the whole-item-drop path in capTrail is exercised (not short-circuited
-	// by the consecutive-dedup guard).
 	prev := ""
 	for i := 0; i < 12; i++ {
 		prev = PrependTrail("Edit: file"+string(rune('a'+i))+".go", prev)
@@ -40,7 +37,6 @@ func TestPrependTrailCapsAt80DroppingWholeItems(t *testing.T) {
 	if len(prev) > 80 {
 		t.Fatalf("trail = %d chars (%q), want <= 80", len(prev), prev)
 	}
-	// Newest item (i=11 → 'l') must be at the head; oldest (i=0 → 'a') dropped.
 	if !strings.HasPrefix(prev, "Edit: filel.go") {
 		t.Errorf("newest item not at head: %q", prev)
 	}
@@ -60,9 +56,6 @@ func TestPrependTrailSingleOverlongItemHardCut(t *testing.T) {
 	}
 }
 
-// A multibyte overlong item must hard-cut on a rune boundary (never producing
-// U+FFFD) and to 80 runes, so the result also stays within the server's 80-rune
-// activity limit.
 func TestPrependTrailMultibyteHardCutIsRuneSafe(t *testing.T) {
 	head := "Bash: " + strings.Repeat("я", 200)
 	got := PrependTrail(head, "")
@@ -105,8 +98,6 @@ func TestAnnotateTrail(t *testing.T) {
 	}
 }
 
-// Annotating can lengthen the trail past 80 runes; whole trailing items are
-// dropped, as PrependTrail does.
 func TestAnnotateTrailStaysCapped(t *testing.T) {
 	head := "Bash: " + strings.Repeat("a", 30)
 	trail := PrependTrail(head, "Read: "+strings.Repeat("b", 38))

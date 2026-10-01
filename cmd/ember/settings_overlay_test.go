@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// mapKV is the in-memory settingsKV adapter used by the overlay tests.
 type mapKV struct {
 	mu sync.Mutex
 	m  map[string]string
@@ -32,8 +31,6 @@ func (k *mapKV) PutSetting(key, value string) error {
 	return nil
 }
 
-// toyDTO exercises the merge rules over three Config fields of different
-// shapes: an int, a string and a map.
 type toyDTO struct {
 	A int               `json:"a"`
 	B string            `json:"b"`
@@ -63,8 +60,6 @@ func toySpec(afterCalls *int) settingSpec[toyDTO] {
 	}
 }
 
-// newTestOverlay builds an overlay over a standalone config and kv, the same
-// wiring App uses (tryUpdateConfig semantics) without the rest of App.
 func newTestOverlay(base Config, kv *mapKV) (*settingsOverlay, *atomic.Pointer[Config]) {
 	var cfg atomic.Pointer[Config]
 	cfg.Store(&base)
@@ -166,7 +161,6 @@ func TestSettingPutKeyMatchIsCaseInsensitive(t *testing.T) {
 
 func TestSettingsReapplyLaysStoredBlobsOverBaseline(t *testing.T) {
 	kv := &mapKV{}
-	// A legacy blob without "a" keeps the baseline value of a.
 	_ = kv.PutSetting("toy_json", `{"b":"stored"}`)
 	var afters int
 	o, cfg := newTestOverlay(toyBase(), kv)
@@ -191,7 +185,6 @@ func TestSettingsReapplyIgnoresInvalidOrMissingBlob(t *testing.T) {
 			t.Fatalf("blob %q changed the baseline", blob)
 		}
 	}
-	// No stored override: nothing happens, including no after hook.
 	var afters int
 	o, _ := newTestOverlay(toyBase(), &mapKV{})
 	register(o, toySpec(&afters))
@@ -208,7 +201,7 @@ func TestSettingWithoutStoreStaysInMemory(t *testing.T) {
 	if _, err := s.put([]byte(`{"a":3}`)); err != nil {
 		t.Fatal(err)
 	}
-	o.reapply() // no store: a no-op, not a panic
+	o.reapply()
 	if cfg.Load().Display.IdleRestoreSeconds != 3 || s.get().A != 3 {
 		t.Fatalf("in-memory put not applied")
 	}

@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// beats builds heartbeats for one session every step from start through end
-// (inclusive), all in the given state.
 func beats(source, tool, session, state string, start, end time.Time, step time.Duration) []ActivityRecord {
 	var out []ActivityRecord
 	for t := start; !t.After(end); t = t.Add(step) {
@@ -18,8 +16,6 @@ func beats(source, tool, session, state string, start, end time.Time, step time.
 func byTool(a ActivityRecord) string { return a.Tool }
 
 func TestSummarizeActivityActiveTimeIsWallClockUnionPerGroup(t *testing.T) {
-	// Two claude sessions overlap 10:00-10:20 and 10:10-10:30: the tool was
-	// active 30 wall-clock minutes, not 40. codex is a separate 10-min span.
 	var acts []ActivityRecord
 	acts = append(acts, beats("m4", "claude", "s1", "running", utc(2026, 6, 10, 10, 0), utc(2026, 6, 10, 10, 20), 2*time.Minute)...)
 	acts = append(acts, beats("m5", "claude", "s2", "running", utc(2026, 6, 10, 10, 10), utc(2026, 6, 10, 10, 30), 2*time.Minute)...)
@@ -36,7 +32,6 @@ func TestSummarizeActivityActiveTimeIsWallClockUnionPerGroup(t *testing.T) {
 }
 
 func TestSummarizeActivityGapSplitsSpans(t *testing.T) {
-	// A 30-min silence inside one session is idle time, not activity.
 	var acts []ActivityRecord
 	acts = append(acts, beats("m4", "claude", "s1", "running", utc(2026, 6, 10, 9, 0), utc(2026, 6, 10, 9, 10), 2*time.Minute)...)
 	acts = append(acts, beats("m4", "claude", "s1", "running", utc(2026, 6, 10, 9, 40), utc(2026, 6, 10, 9, 50), 2*time.Minute)...)
@@ -47,8 +42,6 @@ func TestSummarizeActivityGapSplitsSpans(t *testing.T) {
 	}
 }
 
-// Producers keep re-posting a waiting marker for hours while a permission
-// prompt sits unanswered; that is the agent idling, not working.
 func TestSummarizeActivityWaitingIsNotActiveTime(t *testing.T) {
 	var acts []ActivityRecord
 	acts = append(acts, beats("m4", "claude", "s1", "running", utc(2026, 6, 10, 9, 0), utc(2026, 6, 10, 9, 10), 2*time.Minute)...)
@@ -62,8 +55,6 @@ func TestSummarizeActivityWaitingIsNotActiveTime(t *testing.T) {
 }
 
 func TestSummarizeActivityCountsWaitingEpisodes(t *testing.T) {
-	// running → waiting → waiting → running → waiting: two separate episodes
-	// where the agent asked for attention. Consecutive waiting rows are one.
 	states := []string{"running", "waiting", "waiting", "running", "waiting"}
 	var acts []ActivityRecord
 	for i, st := range states {
@@ -71,7 +62,6 @@ func TestSummarizeActivityCountsWaitingEpisodes(t *testing.T) {
 			At: utc(2026, 6, 10, 9, 2*i), Source: "m4", Tool: "claude", SessionKey: "s1", State: st,
 		})
 	}
-	// A waiting row from a different session is its own episode.
 	acts = append(acts, ActivityRecord{At: utc(2026, 6, 10, 9, 3), Source: "m5", Tool: "claude", SessionKey: "s2", State: "waiting"})
 
 	got := SummarizeActivity(acts, byTool, 5*time.Minute, 0, time.UTC)
@@ -81,7 +71,6 @@ func TestSummarizeActivityCountsWaitingEpisodes(t *testing.T) {
 }
 
 func TestDailyActiveSecSplitsByLogicalDay(t *testing.T) {
-	// With a 04:00 day start, 02:00 activity belongs to the previous day.
 	var acts []ActivityRecord
 	acts = append(acts, beats("m4", "claude", "s1", "running", utc(2026, 6, 10, 22, 0), utc(2026, 6, 10, 22, 10), 2*time.Minute)...)
 	acts = append(acts, beats("m4", "claude", "s1", "running", utc(2026, 6, 11, 2, 0), utc(2026, 6, 11, 2, 20), 2*time.Minute)...)

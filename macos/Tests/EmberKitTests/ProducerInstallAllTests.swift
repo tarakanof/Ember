@@ -19,7 +19,6 @@ import Foundation
     let sm = FakeSMAppService(); let runner = FakeRunner()
     runner.exitFor = { _ in 0 }
     sm.registerError = nil
-    // Force the codex configure call to fail, claude to succeed.
     runner.exitFor = { _ in 0 }
     let failingRunner = FailingForCodexRunner()
     let svc = ProducerInstallService(sm: sm, runner: failingRunner,
@@ -63,12 +62,10 @@ final class FailingForCodexRunner: ProducerCommandRunning {
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
     _ = await svc.reconcile(bundleChanged: true)
-    #expect(sm.unregistered == ["com.ember.heartbeat.plist"])   // only the enabled one cycled
+    #expect(sm.unregistered == ["com.ember.heartbeat.plist"])
     #expect(sm.registered == ["com.ember.heartbeat.plist"])
 }
 
-// installAll spawns processes and does SMAppService IPC; awaited from the
-// MainActor (the Settings UI), that work must not run on the main thread.
 @MainActor @Test func batchOperationsRunOffTheMainThread() async {
     let runner = FakeRunner()
     let svc = ProducerInstallService(sm: FakeSMAppService(), runner: runner,

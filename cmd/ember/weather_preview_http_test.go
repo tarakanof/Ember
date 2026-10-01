@@ -40,7 +40,6 @@ func decodeWeatherPreview(t *testing.T, url string) render.Preview {
 func TestWeatherPreview_SampleFallbackAndFlags(t *testing.T) {
 	_, srv := weatherPreviewServer(t)
 
-	// No live observation → sample data, all three tiles by default.
 	p := decodeWeatherPreview(t, srv.URL+"/v1/weather/preview")
 	if len(p.Frames) != 3 || p.Frames[0].Card != "weather" || p.Frames[1].Card != "forecast" || p.Frames[2].Card != "air" {
 		t.Fatalf("default frames = %+v, want [weather forecast air]", p.Frames)
@@ -52,7 +51,6 @@ func TestWeatherPreview_SampleFallbackAndFlags(t *testing.T) {
 		t.Errorf("air pixels len = %d, want 256", len(p.Frames[2].Pixels))
 	}
 
-	// Toggles drop their tile.
 	p = decodeWeatherPreview(t, srv.URL+"/v1/weather/preview?forecast_tile=false")
 	if len(p.Frames) != 2 || p.Frames[0].Card != "weather" || p.Frames[1].Card != "air" {
 		t.Fatalf("forecast off: frames = %+v, want [weather air]", p.Frames)

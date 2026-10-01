@@ -2,17 +2,12 @@ import Foundation
 
 extension DeviceSettings {
     /// The per-app colours that may be `null`: null means "inherit
-    /// `textColor`". A server older than the NG 1.1 alignment rejects null.
+    /// `textColor`".
     public static let inheritableColorKeys: Set<String> = [
         "timeColor", "dateColor", "temperatureColor", "humidityColor", "batteryColor",
     ]
 
-    /// The keys that changed between `old` and `self`, as a PUT body. The clock
-    /// merges a settings PATCH key by key, so sending only what changed keeps
-    /// a save from rewriting values it never touched (the Pomodoro takeover
-    /// flips `autoTransition`/`blockNavigation` behind the app's back). A
-    /// per-app colour set back to nil is sent as an explicit `null`. A nested
-    /// object (`scroll`, `weekdayBar`) is sent whole when any field changed.
+    /// The keys that changed between `old` and `self`, as a PUT body.
     public func patch(from old: DeviceSettings) -> [String: JSONValue] {
         let new = (try? JSONValue.object(encoding: self)) ?? [:]
         let before = (try? JSONValue.object(encoding: old)) ?? [:]
@@ -30,8 +25,7 @@ extension DeviceSettings {
     }
 
     /// Whether the server writes the NG 1.1 keys (mute, buzzer volume,
-    /// inherit colours). A 0.27.x server filters its GET to its whitelist, so
-    /// the sound keys are simply missing there.
+    /// inherit colours).
     public var serverSupportsNG11: Bool {
         soundEnabled != nil || buzzerVolume != nil
     }

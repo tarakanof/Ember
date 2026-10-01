@@ -1,8 +1,7 @@
 import Foundation
 
 /// The Connection tab's editable view of producer.env (token is write-only and
-/// handled separately; blank means "keep current"). Ports the retired Go menu's
-/// form.go connection half of settingsForm + applyForm.
+/// handled separately; blank means "keep current").
 public struct ConnectionSettings: Equatable, Sendable {
     public var source: String
     public var serverURL: String
@@ -24,16 +23,14 @@ public struct ConnectionSettings: Equatable, Sendable {
         !env.get(SettingsKeys.token).isEmpty
     }
 
-    /// Whether the required fields (Source + Server URL) are both filled in — i.e.
-    /// this is a complete, usable configuration rather than a half-entered first run.
+    /// Whether the required fields (Source + Server URL) are both filled in.
     public var isComplete: Bool {
         !source.trimmingCharacters(in: .whitespaces).isEmpty
             && !serverURL.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// Validates ALL fields, then writes them into env (so nothing is written on a
-    /// validation throw). A non-blank `token` is validated + written; blank/nil
-    /// leaves the existing value.
+    /// validation throw).
     public func apply(to env: inout EnvFile, token: String?) throws {
         let normSource = try validateSource(source)
         let normURL = try validateServerURL(serverURL)
@@ -48,19 +45,8 @@ public struct ConnectionSettings: Equatable, Sendable {
         if let normToken { env.set(SettingsKeys.token, normToken) }
     }
 
-    /// First-run–safe apply. Unlike `apply`, a still-empty *required* field (Source
-    /// or Server URL) is tolerated rather than rejected, so a fresh install can be
-    /// configured one field at a time in any order without deadlocking. Each field
-    /// that DOES have a value is still validated — so a genuinely bad URL/color
-    /// still throws and drives the red-error UX. Only non-empty valid fields are
-    /// written; empty required fields are left untouched until the user fills them.
-    /// A non-blank `token` is validated + written; blank/nil keeps the existing one.
+    /// First-run–safe apply.
     public func applyTolerant(to env: inout EnvFile, token: String?) throws {
-        // Clearing a required field that ALREADY has a committed value is a user
-        // error, not first-run tolerance: silently skipping the write would leave
-        // the UI blank while producer.env keeps the old value (which reappears on
-        // relaunch). Reject it so the caller surfaces an error. An empty required
-        // field with NO existing value is still tolerated (first run, any order).
         if source.trimmingCharacters(in: .whitespaces).isEmpty,
            !env.get(SettingsKeys.source).isEmpty {
             throw ValidationError(message: "Enter a source name.")
@@ -73,7 +59,6 @@ public struct ConnectionSettings: Equatable, Sendable {
             ? nil : try validateSource(source)
         let normURL = serverURL.trimmingCharacters(in: .whitespaces).isEmpty
             ? nil : try validateServerURL(serverURL)
-        // sourceColor validates "" as "unset" (no tint), so it's always safe to run.
         let normColor = try validateSourceColor(sourceColor)
         var normToken: String? = nil
         if let token, !token.trimmingCharacters(in: .whitespaces).isEmpty {

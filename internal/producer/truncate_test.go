@@ -13,9 +13,6 @@ func TestTruncate(t *testing.T) {
 		{"exactly n untouched", "hello", 5, "hello"},
 		{"trims surrounding whitespace first", "  hello  ", 80, "hello"},
 		{"ascii cut at byte boundary", "abcdefghij", 5, "abcde"},
-		// U+1F600 (grinning face emoji) is 4 bytes in UTF-8. A byte-based
-		// slice at n=5 would cut mid-rune, producing an invalid tail that
-		// decodes to U+FFFD in the /state view and the menu.
 		{"emoji at the exact truncation boundary", "abcd\U0001F600efgh", 5, "abcd\U0001F600"},
 		{"emoji just past the boundary is dropped whole", "abcd\U0001F600efgh", 4, "abcd"},
 		{"multibyte (non-emoji) rune at boundary", "café résumé", 4, "café"},

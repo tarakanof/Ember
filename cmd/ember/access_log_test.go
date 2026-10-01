@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// TestLoggingMiddlewareLevelAndStatus asserts the access log records the
-// response status and keeps every successful request (menu polling, producer
-// heartbeats) at Debug, while failures stay at Info.
 func TestLoggingMiddlewareLevelAndStatus(t *testing.T) {
 	cases := []struct {
 		name      string

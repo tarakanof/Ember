@@ -10,7 +10,6 @@ import (
 
 func TestPomodoroEnableToggleRuntime(t *testing.T) {
 	a := newTestAppWithStore(t)
-	// Always-wire the engine; default config has enabled=false.
 	if err := a.initPomodoro(a.cfg.Load().Pomodoro); err != nil {
 		t.Fatal(err)
 	}
@@ -18,21 +17,18 @@ func TestPomodoroEnableToggleRuntime(t *testing.T) {
 		t.Fatal("should start disabled (default config enabled=false)")
 	}
 
-	// config GET is available even when disabled, and reports enabled:false.
 	gw := httptest.NewRecorder()
 	a.handlePomodoroConfigGet(gw, httptest.NewRequest("GET", "/v1/pomodoro/config", nil))
 	if gw.Code != http.StatusOK || !strings.Contains(gw.Body.String(), `"enabled":false`) {
 		t.Fatalf("config GET while disabled: code=%d body=%s", gw.Code, gw.Body.String())
 	}
 
-	// start is 404 while disabled.
 	sw := httptest.NewRecorder()
 	a.handlePomodoroStart(sw, httptest.NewRequest("POST", "/v1/pomodoro/start", nil))
 	if sw.Code != http.StatusNotFound {
 		t.Fatalf("start while disabled: code=%d want 404", sw.Code)
 	}
 
-	// Enable via PUT (flip enabled on the current valid DTO).
 	var dto pomodoroSettingsDTO
 	if err := json.Unmarshal(gw.Body.Bytes(), &dto); err != nil {
 		t.Fatal(err)
@@ -48,19 +44,16 @@ func TestPomodoroEnableToggleRuntime(t *testing.T) {
 	if !a.pomodoroOn() {
 		t.Fatal("pomodoroOn should be true after enable")
 	}
-	// persisted (so it survives restart)
 	if v, ok, _ := a.store.GetSetting(pomodoroSettingsKey); !ok || !strings.Contains(v, `"enabled":true`) {
 		t.Fatalf("enabled not persisted: %q ok=%v", v, ok)
 	}
 
-	// start now works.
 	sw2 := httptest.NewRecorder()
 	a.handlePomodoroStart(sw2, httptest.NewRequest("POST", "/v1/pomodoro/start", nil))
 	if sw2.Code == http.StatusNotFound {
 		t.Fatalf("start after enable still 404")
 	}
 
-	// Disable again → start 404 again.
 	off := false
 	dto.Enabled = &off
 	body, _ = json.Marshal(dto)
@@ -110,12 +103,8 @@ func TestUsageConfigToggles(t *testing.T) {
 	}
 }
 
-// TestUsageConfigLegacyBlobKeepsLimitAlarmDefault verifies that a blob written
-// before "limit_alarm" existed (i.e. it has no limit_alarm key) does not
-// silently disable the alarm on load.
 func TestUsageConfigLegacyBlobKeepsLimitAlarmDefault(t *testing.T) {
 	a := newTestAppWithStore(t)
-	// Persist a legacy blob that has no limit_alarm key.
 	legacy := `{"usage_widget":true,"usage_per_model":false}`
 	if err := a.store.PutSetting(usageSettingsKey, legacy); err != nil {
 		t.Fatalf("PutSetting: %v", err)
@@ -124,7 +113,6 @@ func TestUsageConfigLegacyBlobKeepsLimitAlarmDefault(t *testing.T) {
 	if !a.cfg.Load().limitAlarmEnabled() {
 		t.Error("legacy blob without limit_alarm key must not disable the alarm (default=true)")
 	}
-	// Other fields from the legacy blob should still be respected.
 	if !a.cfg.Load().usageWidgetEnabled() {
 		t.Error("usage_widget should be true from legacy blob")
 	}

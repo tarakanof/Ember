@@ -52,9 +52,6 @@ func runDoctor() {
 		fmt.Printf("  LaunchAgent: NOT installed\n")
 	}
 
-	// A plist on disk doesn't mean the agent is loaded. If it isn't, the 10s
-	// tick never runs and active sessions are reaped once they pass the server's
-	// stale window — the display falls back to the dim idle robot mid-session.
 	uid := os.Getuid()
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
 	out, err := exec.Command("launchctl", "print", target).CombinedOutput()
@@ -62,12 +59,8 @@ func runDoctor() {
 	fmt.Printf("  heartbeat agent: %s\n", heartbeatStatusLine(err == nil, string(out), hint))
 }
 
-// appRepairHint is the fix for a heartbeat that Ember.app registered.
 const appRepairHint = "open Ember › Settings › Agents and click Repair"
 
-// heartbeatFixHint is the remediation for a heartbeat that isn't loaded: the
-// app's Repair when Ember.app registered the label (bootstrapping the CLI
-// plist would fight that registration, #142), else a launchctl bootstrap.
 func heartbeatFixHint(lc producer.Launchctl, uid int, plistPath string) string {
 	if producer.AppRegistered(lc, fmt.Sprintf("gui/%d", uid), launchAgentLabel) {
 		return appRepairHint
@@ -75,8 +68,6 @@ func heartbeatFixHint(lc producer.Launchctl, uid int, plistPath string) string {
 	return fmt.Sprintf("launchctl bootstrap gui/%d %q", uid, plistPath)
 }
 
-// launchctlField extracts the value of a tab-indented `key = value` line from
-// `launchctl print` output. Returns "" when the key is absent.
 func launchctlField(out, key string) string {
 	for _, line := range strings.Split(out, "\n") {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(line), key+" = "); ok {
@@ -86,10 +77,6 @@ func launchctlField(out, key string) string {
 	return ""
 }
 
-// heartbeatStatusLine renders the doctor line for the heartbeat LaunchAgent's
-// runtime state. loaded is whether `launchctl print` found the service; printOut
-// is its output (parsed for runs/last-exit when loaded); hint is the remediation
-// command shown when the agent is not loaded.
 func heartbeatStatusLine(loaded bool, printOut, hint string) string {
 	if !loaded {
 		return "NOT loaded — heartbeat ticks aren't running, so active sessions go " +

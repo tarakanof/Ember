@@ -34,7 +34,6 @@ private let t0 = Date(timeIntervalSince1970: 100)
     let l = Loadable<Int>.loading.afterFailure(.featureOff)
     #expect(l == .failed(.featureOff, last: nil, lastAt: nil))
     #expect(!l.isStale)
-    // A second failure keeps the original last value, not nil.
     let twice = Loadable.loaded(1, at: t0).afterFailure(.offline).afterFailure(.unauthorized)
     #expect(twice == .failed(.unauthorized, last: 1, lastAt: t0))
 }

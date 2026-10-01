@@ -10,14 +10,6 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-// refreshCapabilities caches the clock's supported name lists (effects,
-// transitions, overlays, palettes, audio, gpio) plus its firmware version.
-// Called at startup and whenever rediscovery swaps to a different clock — the
-// lists are per firmware build, so they only change when the device does.
-// A failure empties the cache and logs a warning: whatever was cached
-// described the previous clock, and the audio gate would refuse on its word.
-// The endpoint below falls back to a live fetch, so a dark clock at boot is
-// not fatal.
 func (a *App) refreshCapabilities(ctx context.Context) {
 	base := a.cfg.Load().effectiveClockURL()
 	cl, err := a.clock.client(callCapabilities)
@@ -46,7 +38,6 @@ func (a *App) refreshCapabilities(ctx context.Context) {
 		"firmware", a.deviceFirmware())
 }
 
-// capabilities returns the cached capabilities, false when nothing is cached yet.
 func (a *App) capabilities() (awtrix.Capabilities, bool) {
 	if c := a.caps.Load(); c != nil {
 		return *c, true
@@ -54,17 +45,11 @@ func (a *App) capabilities() (awtrix.Capabilities, bool) {
 	return awtrix.Capabilities{}, false
 }
 
-// deviceFirmware returns the clock's firmware version as last seen, "" if unknown.
 func (a *App) deviceFirmware() string {
 	v, _ := a.deviceVersion.Load().(string)
 	return v
 }
 
-// handleDeviceCapabilities serves GET /v1/device/capabilities: the cached
-// awtrix-ng capabilities document, verbatim in shape, so the menu app can render
-// real effect/transition/overlay/palette pickers instead of a hardcoded table.
-// An empty cache (clock was dark at startup) falls through to a live proxy fetch,
-// which also warms the cache.
 func (a *App) handleDeviceCapabilities(w http.ResponseWriter, r *http.Request) {
 	if caps, ok := a.capabilities(); ok {
 		writeJSON(w, http.StatusOK, caps)

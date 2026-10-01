@@ -77,9 +77,6 @@ import Foundation
 
 // MARK: Native apps
 
-/// NG 1.1.2 `GET /api/v1/apps` as the server relays it: arranged apps
-/// first, an Ember tile that's away between pushes (origin null, present
-/// false, slot kept), a script, and a module (no enabled/inLoop/slot).
 private let appsJSON = #"""
 [{"name":"Time","enabled":true,"inLoop":true,"present":true,"slot":0,"origin":"builtin"},
  {"name":"ember","enabled":true,"inLoop":true,"present":true,"slot":1,"origin":"pushed"},
@@ -126,7 +123,6 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
 }
 
 @Test func moveKeepsPushedAppsInPlace() {
-    // Move "Date" (listed index 1) to the top.
     let (apps, u) = NativeAppsPlan.move(in: sampleApps, fromOffsets: IndexSet(integer: 1), toOffset: 0)
     #expect(apps.map(\.name) == ["Date", "ember", "Time", "ember-weather", "Battery", "clockface", "mathlib"])
     #expect(u.order == ["Date", "ember", "Time", "ember-weather", "clockface"])
@@ -147,33 +143,24 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
 
 // MARK: Model
 
-/// A fake server for /v1/device/*: canned GETs, a log of writes.
 private final class FakeClock: @unchecked Sendable {
     private let lock = NSLock()
     var responses: [String: (Int, String)] = [:]
-    /// Requests for this route wait for `gate`. Setting it re-arms
-    /// `gatedRequestArrived()` for that route.
     var gatedRoute: String? {
         get { lock.withLock { _gatedRoute } }
         set { lock.withLock { _gatedRoute = newValue; armedRoute = newValue; gatedArrived = false } }
     }
     let gate = DispatchSemaphore(value: 0)
     private var _gatedRoute: String?
-    /// The last route armed, kept after it arrives for the timeout message.
     private var armedRoute: String?
     private var _log: [(String, String, [String: Any])] = []
     private var gatedArrived = false
     private var arrivalWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
-    /// Every request the server received, logged on arrival: a gated one is
-    /// in here before `gatedRequestArrived()` returns, even if its caller is
-    /// cancelled and never waits for the answer.
     var log: [(method: String, path: String, body: [String: Any])] {
         lock.withLock { _log.map { ($0.0, $0.1, $0.2) } }
     }
     var paths: [String] { log.map { "\($0.method) \($0.path)" } }
 
-    /// Returns once the gated request has arrived and is held at the gate,
-    /// or records an issue naming the route if it hasn't within `timeout`.
     func gatedRequestArrived(timeout: Duration = .seconds(5),
                              sourceLocation: SourceLocation = #_sourceLocation) async {
         let id = UUID()
@@ -252,7 +239,6 @@ private func ngServer() -> FakeClock {
     await m.load()
     #expect(m.isLoaded)
     #expect(m.supportsNG11)
-    // #149: the overlay read's power goes to the one display-power value.
     #expect(live.displayPower == true)
     #expect(m.transitions == ["Fade"])
     #expect(m.overlays == ["rain"])
@@ -279,7 +265,6 @@ private func ngServer() -> FakeClock {
     #expect(put.body["brightness"] as? Int == 200)
     #expect(put.body["timeColor"] is NSNull)
     #expect(m.settings.status == .saved)
-    // A second edit diffs against what was just saved.
     m.settings.draft.brightness = 10
     m.settings.scheduleSave()
     await clock.advance(by: .milliseconds(600))
@@ -292,7 +277,6 @@ private func ngServer() -> FakeClock {
     let fake = FakeClock()
     fake.responses = [
         "GET /v1/device/settings": (200, #"{"brightness":120,"uppercase":true}"#),
-        // 0.27.1 relays NG's display body raw, power included.
         "GET /v1/device/display": (200, #"{"overlay":null,"power":true}"#),
     ]
     let (m, _) = makeModel(fake)
@@ -324,7 +308,6 @@ private func ngServer() -> FakeClock {
     #expect(m.firmwareTooOld)
 }
 
-/// Polls until `done` holds (the stub answers on another thread).
 @MainActor private func eventually(_ done: () -> Bool) async {
     for _ in 0..<400 where !done() { try? await Task.sleep(for: .milliseconds(5)) }
 }
@@ -333,15 +316,14 @@ private func ngServer() -> FakeClock {
     let fake = ngServer()
     let (m, clock) = makeModel(fake)
     await m.load()
-    // The Pomodoro takeover flips these on the clock meanwhile.
     fake.responses["GET /v1/device/settings"] = (200, ##"{"brightness":120,"soundEnabled":true,"buzzerVolume":80,"timeColor":"#FF0000","autoTransition":false,"blockNavigation":true}"##)
     fake.gatedRoute = "GET /v1/device/settings"
     let refocus = Task { await m.load() }
-    await fake.gatedRequestArrived()                // the GET is in flight
+    await fake.gatedRequestArrived()
     m.settings.draft.brightness = 200
     m.settings.scheduleSave()
     fake.gate.signal()
-    await refocus.value                             // discarded: an edit is pending
+    await refocus.value
     #expect(m.settings.applied?.autoTransition == true)
     await clock.advance(by: .milliseconds(600))
     await eventually { fake.log.contains { $0.method == "PUT" } }
@@ -354,12 +336,12 @@ private func ngServer() -> FakeClock {
     let (m, _) = makeModel(fake)
     fake.gatedRoute = "GET /v1/device/apps"
     let first = Task { await m.load() }
-    await fake.gatedRequestArrived()                // secondary reads under way
+    await fake.gatedRequestArrived()
     first.cancel()
     fake.gate.signal()
     await first.value
     let before = fake.paths.filter { $0 == "GET /v1/device/apps" }.count
-    await m.load()                                  // not throttled by the cut-short one
+    await m.load()
     #expect(fake.paths.filter { $0 == "GET /v1/device/apps" }.count == before + 1)
 }
 
@@ -371,7 +353,7 @@ private func ngServer() -> FakeClock {
     fake.gatedRoute = "GET /v1/device/apps"
     let running = Task { await m.load(force: true) }
     await fake.gatedRequestArrived()
-    await m.load(force: true)                       // returns at once, queued
+    await m.load(force: true)
     let during = settingsGets()
     fake.gate.signal()
     await running.value
@@ -386,7 +368,6 @@ private func ngServer() -> FakeClock {
     await m.load()
     #expect(!m.isLoaded)
     #expect(m.loadError != nil)
-    // Only the clock's address follows, so Status can show where it looked.
     #expect(fake.paths == ["GET /v1/device/settings", "GET /v1/device/config"])
     #expect(m.config?.baseURL == nil)
 }
@@ -397,7 +378,7 @@ private func ngServer() -> FakeClock {
     await m.load()
     let first = fake.paths.count
     await m.load()
-    #expect(fake.paths.count == first + 1)          // settings only
+    #expect(fake.paths.count == first + 1)
     await m.load(force: true)
     #expect(fake.paths.count == first + 1 + 9)
 }

@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// Review follow-ups for #76 (PR #173).
-
 func writeSpikeLogFixture(t *testing.T, home string) string {
 	t.Helper()
 	p := spikeLogPath(home)
@@ -24,8 +22,6 @@ func writeSpikeLogFixture(t *testing.T, home string) string {
 	return p
 }
 
-// The spike log holds full failed-command output: configure and deconfigure
-// (and so install/uninstall, which call them) delete it.
 func TestConfigureAndDeconfigure_DeleteSpikeLog(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -46,7 +42,6 @@ func TestConfigureAndDeconfigure_DeleteSpikeLog(t *testing.T) {
 	if _, err := os.Stat(p); !os.IsNotExist(err) {
 		t.Errorf("deconfigure left the spike log: %v", err)
 	}
-	// Absent log is fine both ways.
 	if err := configureAt(home, bin); err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +61,6 @@ func setHookNow(t *testing.T, at time.Time) *time.Time {
 
 const promptBash = `{"session_id":"s1","cwd":"/repo","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}`
 
-// The dialog's permission_prompt Notification landing after the approved
-// call already ran must not put the session back in waiting.
 func TestLatePermissionPromptAfterResumeIsIgnored(t *testing.T) {
 	stubOwner(t)
 	now := setHookNow(t, time.Unix(1_800_000_000, 0))
@@ -83,7 +76,6 @@ func TestLatePermissionPromptAfterResumeIsIgnored(t *testing.T) {
 	if h.posts.Load() != 3 {
 		t.Errorf("posts = %d, want 3 (late prompt dropped)", h.posts.Load())
 	}
-	// The next call's PreToolUse doesn't reopen the window either.
 	dispatchHookForTest(t, "pre-tool-use", []byte(`{"session_id":"s1","cwd":"/repo","tool_name":"Read","tool_input":{"file_path":"/repo/a.go"},"tool_use_id":"toolu_09"}`))
 	dispatchHookForTest(t, "notification", []byte(promptBash))
 	if m := h.marker(t, "s1"); m.State != "running" {
@@ -104,8 +96,6 @@ func TestPermissionPromptAfterGraceStillWaits(t *testing.T) {
 	}
 }
 
-// A prompt for another tool, or a new dialog's prompt (PermissionRequest
-// first), is never dropped.
 func TestPermissionPromptForOtherDialogStillWaits(t *testing.T) {
 	stubOwner(t)
 	setHookNow(t, time.Unix(1_800_000_000, 0))
@@ -127,9 +117,6 @@ func TestPermissionPromptForOtherDialogStillWaits(t *testing.T) {
 	}
 }
 
-// An identical call retried while the first one's (async) outcome is still
-// in flight: the first call's late PostToolUse has the same fingerprint but a
-// different tool_use_id, and must not end the second call's wait.
 func TestIdenticalRetriedCall_ToolUseIDKeepsWait(t *testing.T) {
 	stubOwner(t)
 	setHookNow(t, time.Unix(1_800_000_000, 0))
@@ -148,7 +135,7 @@ func TestIdenticalRetriedCall_ToolUseIDKeepsWait(t *testing.T) {
 	if m := h.marker(t, "s1"); m.PendingToolUseID != "toolu_B" {
 		t.Fatalf("pending tool_use_id = %q, want toolu_B", m.PendingToolUseID)
 	}
-	dispatchHookForTest(t, "post-tool-use", post("toolu_A")) // late duplicate of A's outcome
+	dispatchHookForTest(t, "post-tool-use", post("toolu_A"))
 	if m := h.marker(t, "s1"); m.State != "waiting" {
 		t.Fatalf("A's outcome ended B's wait: state=%q", m.State)
 	}
@@ -158,8 +145,6 @@ func TestIdenticalRetriedCall_ToolUseIDKeepsWait(t *testing.T) {
 	}
 }
 
-// PostToolUse's tool_response can be megabytes and precedes tool_use_id: the
-// hook must still decode everything it needs, and never keep the response.
 func TestDecodeHookInput_LargeToolResponse(t *testing.T) {
 	big := strings.Repeat("x", 5<<20)
 	payload := `{"session_id":"s1","cwd":"/repo","hook_event_name":"PostToolUse","tool_name":"Read",` +
@@ -184,8 +169,6 @@ func TestDecodeHookInput_LargeToolResponse(t *testing.T) {
 	}
 }
 
-// End to end through the runHook reader path: a >1 MiB PostToolUse still
-// ends the wait (the old 1 MiB cap cut it off).
 func TestLargePostToolUseStillEndsWait(t *testing.T) {
 	stubOwner(t)
 	setHookNow(t, time.Unix(1_800_000_000, 0))

@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Panel power, brightness, text and scrolling.
 struct DisplaySection: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
@@ -9,10 +8,7 @@ struct DisplaySection: View {
     var body: some View {
         let s = device.settings
         Section {
-            // The same switch and value as the menu and the Dashboard.
             if device.supportsControlRoutes, let power = env.live.displayPower {
-                // Shows the target at once; a failure ends the write and the
-                // switch falls back to the confirmed value.
                 let pending = env.actions.pendingDisplayPower
                 Toggle(isOn: Binding(
                     get: { pending ?? power },

@@ -1,9 +1,8 @@
 import Foundation
 
-/// Durations as the UI shows them. All go through `Duration.formatted`, never
-/// `String(format:)`, so they follow the locale.
+/// Durations as the UI shows them.
 public enum DurationText {
-    /// A countdown: "18:42", or "1:02:05" from an hour up. Negative clamps to 0.
+    /// A countdown: "18:42", or "1:02:05" from an hour up.
     public static func remaining(_ seconds: Int, locale: Locale = .current) -> String {
         let s = max(0, seconds)
         let pattern: Duration.TimeFormatStyle.Pattern = s >= 3600 ? .hourMinuteSecond : .minuteSecond
@@ -26,7 +25,7 @@ public enum DurationText {
 
 /// Percentages as the UI shows them.
 public enum Percent {
-    /// 47 → "47%". Takes a 0...100 value, as the server sends.
+    /// 47 → "47%".
     public static func text(_ percent: Double, locale: Locale = .current) -> String {
         (percent / 100).formatted(.percent.precision(.fractionLength(0)).locale(locale))
     }

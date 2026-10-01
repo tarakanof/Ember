@@ -1,9 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Every sound the clock makes, in one place: the clock's own mute and
-/// volume, quiet hours, and each feature's chime (each row saves through the
-/// model of the feature it belongs to).
 struct SoundsPane: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
@@ -149,8 +146,7 @@ struct SoundsPane: View {
     }
 }
 
-/// A melody setting: the feature's built-in chime, a melody stored on the
-/// clock, or (where the server accepts it) an RTTTL string typed in.
+/// A melody choice: the built-in chime, a melody stored on the clock, or an RTTTL string.
 private struct MelodyRow: View {
     let title: LocalizedStringKey
     @Binding var value: String

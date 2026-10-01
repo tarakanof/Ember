@@ -22,49 +22,21 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// The clock-access parity harness pins what the server does to the clock over
-// a lossy link, request by request. A fake awtrix-ng clock behind real HTTP
-// drops requests on a fixed pattern (it reads the request, then tears the
-// connection down mid-reply: the lost-packet case the coordinator retries)
-// and delays a few past the probe timeouts. Scripted faults on coordinator
-// pushes pin the per-attempt budget (a 1.8s answer lands inside
-// publishAttemptTimeout (2.5s), a 3.5s one times out and is retried) and the retry
-// classification (a 503 is retried). The harness drives the coordinator
-// (frames, attention lock with chime and switch, indicators, Pomodoro takeover
-// and restore, republish), the server-initiated notifications (quiet hours
-// off, then on at 23:00: sound keys stripped, no audio/play sent),
-// the menu's /v1/device/* handlers, and the watch/doctor probes, and logs
-// every device request and every handler answer. The golden files were first
-// generated on main before the clock-access refactor (#146), so a diff here is
-// a change in device traffic, retries, timeouts or menu-facing errors.
-//
-// Regenerate with: go test ./cmd/ember -run TestClockParity -update
-
-// parityPatterns are the loss patterns, indexed by request number. true drops
-// the request. lossy44 is the field-observed rate; lossy60 is worse than seen.
 var parityPatterns = map[string][]bool{
 	"none":    {false},
 	"lossy44": {false, true, false, true, false, false, true, false, true},
 	"lossy60": {true, false, true, true, false, true, false, true, true, false},
 }
 
-// paritySlowDelay is past the probe (1.5s) and capabilities (2s) budgets but
-// inside the menu (8s) and publish budgets, so the harness can show that each
-// call class still gets its own timeout (see parityClock.slowNext).
 const paritySlowDelay = 3 * time.Second
 
 type parityClock struct {
-	t   *testing.T
-	mu  sync.Mutex
-	pat []bool
-	n   int
-	log *strings.Builder
-	// slowNext delays the next request by paritySlowDelay instead of applying
-	// the loss pattern to it.
-	slowNext bool
-	// pushFaults is applied, in order, to the next pushed-app PUTs instead of
-	// the loss pattern: "slow1800", "slow3500" (answered after that many ms)
-	// or "503" (a busy clock).
+	t          *testing.T
+	mu         sync.Mutex
+	pat        []bool
+	n          int
+	log        *strings.Builder
+	slowNext   bool
 	pushFaults []string
 
 	conns    map[net.Conn]int
@@ -118,7 +90,7 @@ func (f *parityClock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			slow, delay = true, 3500*time.Millisecond
 		}
 	}
-	f.connID(r.Context().Value(parityConnKey{}).(net.Conn)) // counted for the keep-alive bound
+	f.connID(r.Context().Value(parityConnKey{}).(net.Conn))
 	h := sha256.Sum256(body)
 	outcome := "ok"
 	switch {
@@ -139,20 +111,12 @@ func (f *parityClock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		c, _, err := hj.Hijack()
 		if err == nil {
-			// A cut-off status line, not a bare close: Go's transport
-			// silently replays a GET that got no reply bytes on a reused
-			// connection, and whether the connection was reused is a race.
-			// A torn reply is never replayed, so the log is deterministic.
 			_, _ = io.WriteString(c, "HTTP/1.1 ")
 			c.Close()
 		}
 		return
 	}
 	if slow {
-		// A request the client gave up on is never answered: answering it
-		// late would still change the fake's state (a /device GET bumps
-		// uptime) at a moment set by the scheduler, not the script, and
-		// the next probes would read it or not (the -race flake).
 		select {
 		case <-time.After(delay):
 		case <-r.Context().Done():
@@ -178,7 +142,6 @@ func ngError(code, msg, field string) string {
 	return string(b)
 }
 
-// answer is the fake device. f.mu held.
 func (f *parityClock) answer(method, path string, body []byte) (int, string) {
 	var in map[string]any
 	_ = json.Unmarshal(body, &in)
@@ -304,7 +267,6 @@ func TestClockParity(t *testing.T) {
 	}
 }
 
-// lineDiff reports the first differing lines, enough to see what moved.
 func lineDiff(want, got string) string {
 	w := strings.Split(want, "\n")
 	g := strings.Split(got, "\n")
@@ -343,12 +305,10 @@ func runClockParity(t *testing.T, pat []bool) string {
 	cfg.Display.AttentionChime = true
 	cfg.HTTP.Addr = ":3627"
 	cfg.applyDefaults()
-	app := NewApp(cfg, nil, testLogger()) // the real clock adapter
+	app := NewApp(cfg, nil, testLogger())
 	app.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: srv.URL, UID: "abc"}}, nil
 	}
-	// The quiet gate judges a fixed local 23:00, so enabling quiet hours
-	// (22:00-08:00) below puts it inside the window in any time zone.
 	night := time.Date(2026, 9, 26, 23, 0, 0, 0, time.Local)
 	qp := app.publisher.(*quietPublisher)
 	qp.now = func() time.Time { return night }
@@ -363,7 +323,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 		return parityPort.ReplaceAllString(s, "HOST")
 	}
 
-	// --- Coordinator: frames, lock, indicators, takeover, republish. ---
 	c := app.coord
 	clk := newFakeClock()
 	c.clk = clk
@@ -386,8 +345,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 		step("tick %02d state=%s pomo=%v hold=%d", tick, state, pomo, c.hold)
 		switch tick {
 		case 5, 15, 24:
-			// One scripted fault on this tick's push: within the attempt
-			// budget, past it (retried), and a busy 503 (retried).
 			dev.mu.Lock()
 			dev.pushFaults = append(dev.pushFaults, map[int]string{5: "slow1800", 15: "slow3500", 24: "503"}[tick])
 			dev.mu.Unlock()
@@ -411,9 +368,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 		clk.Advance(37 * time.Second)
 	}
 
-	// --- Server-initiated notifications through the quiet gate: quiet hours
-	// off (sound sent), then on at 23:00 (sound keys stripped from the
-	// notification, no audio/play request at all). ---
 	for _, quiet := range []bool{false, true} {
 		cur := *app.cfg.Load()
 		cur.QuietHours = QuietHoursConfig{Enabled: quiet, Start: "22:00", End: "08:00"}
@@ -429,7 +383,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 	quietOff.QuietHours.Enabled = false
 	app.cfg.Store(&quietOff)
 
-	// --- Menu handlers. ---
 	type call struct {
 		name string
 		h    http.HandlerFunc
@@ -438,7 +391,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 	calls := []call{
 		{"settings.get", app.handleDeviceSettingsGet, ""},
 		{"settings.put", app.handleDeviceSettingsPut, `{"brightness":50}`},
-		// A takeover key with no takeover in force passes straight through.
 		{"settings.put.takeover_key", app.handleDeviceSettingsPut, `{"autoTransition":true}`},
 		{"settings.put.refused", app.handleDeviceSettingsPut, `{"uppercase":true}`},
 		{"stats", app.handleDeviceStats, ""},
@@ -476,7 +428,7 @@ func runClockParity(t *testing.T, pat []bool) string {
 			}
 			step("menu %s r%d → %d %s", cl.name, round, w.Code, out)
 		}
-		app.caps.Store(nil) // capabilities falls through to the device each round
+		app.caps.Store(nil)
 	}
 
 	slow := func() {
@@ -485,7 +437,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 		dev.mu.Unlock()
 	}
 
-	// --- One slow answer per call class: which ones give up is the timeout. ---
 	slow()
 	step("slow publish err=%v", norm(fmt.Sprint(app.publisher.Notify(context.Background(), map[string]any{"text": "slow"}))))
 	slow()
@@ -506,7 +457,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 	slow()
 	step("slow rediscover swapped=%v", app.rediscoverClock(context.Background()))
 
-	// --- Watch, rediscovery, capabilities, doctor. ---
 	for i := 0; i < 4; i++ {
 		p := app.probeDevice(context.Background())
 		step("probe #%d reachable=%v uptime=%d", i, p.reachable, p.uptimeSec)
@@ -529,7 +479,6 @@ func runClockParity(t *testing.T, pat []bool) string {
 		step("doctor.clock #%d %s reachable=%v", i, cr.Status, *cr.Reachable)
 	}
 
-	// Unconfigured clock: every path must refuse without a request.
 	cur := *app.cfg.Load()
 	cur.AWTRIX.HTTPBaseURL = ""
 	app.cfg.Store(&cur)
@@ -545,15 +494,9 @@ func runClockParity(t *testing.T, pat []bool) string {
 	dev.mu.Lock()
 	defer dev.mu.Unlock()
 	fmt.Fprintf(&log, "requests=%d\n", dev.n)
-	// Keep-alive: with nothing dropped, answered bodies are drained and the
-	// connection goes back to the pool, so a handful of connections carry the
-	// whole run (a slow answer the client gave up on costs one). Which request
-	// lands on a fresh connection is a transport race, so only the bound is
-	// checked, not the golden.
 	if len(pat) == 1 && !pat[0] && len(dev.conns) > 10 {
 		t.Errorf("connections = %d for %d requests on a lossless link, want <= 10 (keep-alive reuse broken)", len(dev.conns), dev.n)
 	}
-	// Normalise every address once more: error texts embed the listener.
 	var out strings.Builder
 	sc := bufio.NewScanner(strings.NewReader(log.String()))
 	for sc.Scan() {

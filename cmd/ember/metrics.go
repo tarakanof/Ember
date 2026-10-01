@@ -11,21 +11,13 @@ import (
 	"time"
 )
 
-// requestKey is the sync.Map key for ember_requests_total. Using a struct
-// avoids parsing the key back out of a formatted string.
 type requestKey struct {
 	pattern string
 	status  int
 }
 
-// metrics holds counters and the sync-map of per-(pattern,status) request
-// counters. Render-time gauges are read from App, not stored here.
-//
-// All increment helpers are nil-safe: existing tests construct bare
-// &App{} literals (see ratelimit_test.go's newTestLimiter), and a panic
-// inside a deferred increment would mask the original test failure.
 type metrics struct {
-	requestsTotal    sync.Map // map[requestKey]*atomic.Int64
+	requestsTotal    sync.Map
 	publishTotalOK   atomic.Int64
 	publishTotalFail atomic.Int64
 	publishRetries   atomic.Int64
@@ -36,9 +28,6 @@ type metrics struct {
 
 func newMetrics() *metrics { return &metrics{} }
 
-// incRequest charges one increment to (pattern, status). Empty pattern
-// (route didn't match) collapses to a single "<unmatched>" series so a
-// 404 spammer can't blow up cardinality.
 func (m *metrics) incRequest(pattern string, status int) {
 	if m == nil {
 		return
@@ -82,29 +71,11 @@ func (m *metrics) incCommandDropped() {
 	}
 }
 
-// promLabelValue escapes a string for use as a Prometheus label value per
-// the text-exposition spec: backslash → \\, double-quote → \", newline → \n.
-// Go's %q would do MORE than this (e.g. escape non-printables as \xNN),
-// which Prometheus parsers consider malformed. We escape only what the
-// spec requires and pass everything else through.
 func promLabelValue(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 	return r.Replace(s)
 }
 
-// render writes Prometheus exposition format to w. App is consulted for
-// gauges that are computed at render time (sessions count, uptime, last
-// publish, rate-limit bucket count, build info).
-//
-// Returns no error: write failures on a Prometheus scrape connection are
-// not actionable from inside the render function (the connection is
-// already broken; logging here would just spam at scrape rate). The
-// caller is the http handler — Go closes the connection cleanly on
-// client disconnect.
-//
-// Order: each metric is preceded by `# HELP` then `# TYPE`. Counters use
-// the _total suffix; gauges do not. The format follows
-// https://github.com/prometheus/docs/blob/main/content/docs/instrumenting/exposition_formats.md
 func (m *metrics) render(w io.Writer, app *App) {
 	type entry struct {
 		pattern string
@@ -136,9 +107,6 @@ func (m *metrics) render(w io.Writer, app *App) {
 	fmt.Fprintf(w, "ember_publish_total{result=\"ok\"} %d\n", m.publishTotalOK.Load())
 	fmt.Fprintf(w, "ember_publish_total{result=\"fail\"} %d\n", m.publishTotalFail.Load())
 
-	// Retries are the early-warning signal for a degrading link: a push that
-	// succeeds on its second attempt still counts as one ok publish, so without
-	// this counter the loss rate is invisible until BOTH attempts fail.
 	fmt.Fprintln(w, "# HELP ember_publish_retries_total Device calls (pushed apps, display-hold settings and switches) retried after a lost attempt.")
 	fmt.Fprintln(w, "# TYPE ember_publish_retries_total counter")
 	fmt.Fprintf(w, "ember_publish_retries_total %d\n", m.publishRetries.Load())
@@ -196,7 +164,7 @@ func (m *metrics) render(w io.Writer, app *App) {
 	v := app.versionInfo
 	rev := v.Revision
 	if rev == "" {
-		rev = "unknown" // mirrors runVersion() so /metrics matches the version subcommand
+		rev = "unknown"
 	}
 	if v.Dirty {
 		rev += "+dirty"
@@ -207,11 +175,6 @@ func (m *metrics) render(w io.Writer, app *App) {
 		promLabelValue(rev), promLabelValue(v.GoVersion), promLabelValue(v.Version))
 }
 
-// statusRecorder wraps http.ResponseWriter to capture the first
-// WriteHeader call (mirrors net/http's "only the first WriteHeader takes
-// effect" contract). Implements Unwrap so http.NewResponseController can
-// reach the underlying writer for Flusher/Hijacker if a future handler
-// needs them.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -227,8 +190,7 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// Write triggers an implicit WriteHeader(200) per Go's contract; capture
-// it so handlers that skip an explicit WriteHeader still record 200.
+// Write triggers an implicit WriteHeader(200) per Go's contract; capture it so handlers that skip an explicit WriteHeader still record 200.
 func (r *statusRecorder) Write(b []byte) (int, error) {
 	if !r.wrote {
 		r.WriteHeader(http.StatusOK)
@@ -238,20 +200,6 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 
 func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
-// observeRequests is HTTP middleware that captures (matched-pattern, status)
-// for every request and increments the ember_requests_total counter map.
-// It composes inside loggingMiddleware so the access log keeps recording
-// the status the inner handler wrote.
-//
-// /metrics scrapes are deliberately not self-counted — they're regular
-// every-15s requests that would dominate the counters without telling us
-// anything new.
-//
-// r.Pattern is set by Go 1.22 ServeMux *before* the inner handler runs, so
-// reading it after next.ServeHTTP returns is safe. For unauthenticated
-// requests rejected by requireAuth/adminRequireAuth, r.Pattern stays at
-// the outer prefix ("/v1/" or "/admin/"); per-route 401 counts are an
-// explicit non-feature.
 func observeRequests(app *App, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}

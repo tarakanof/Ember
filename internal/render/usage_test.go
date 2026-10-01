@@ -5,7 +5,6 @@ import (
 )
 
 func TestUsageBarFill(t *testing.T) {
-	// 24-wide content bar, 50% -> 12 filled
 	px := usageBarPixels(50)
 	if len(px) != 24 {
 		t.Fatalf("len = %d", len(px))

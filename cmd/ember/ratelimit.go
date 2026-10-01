@@ -11,10 +11,7 @@ import (
 	"time"
 )
 
-// IPLimiter is a per-IP token-bucket rate limiter. Lives on App so its
-// sweeper goroutine has the right lifetime and tests can construct it
-// without leaking goroutines. Reads RateLimitConfig via app.cfg.Load()
-// once per Allow call so /admin/reload tweaks take effect coherently.
+// IPLimiter is a per-IP token-bucket rate limiter.
 type IPLimiter struct {
 	app     *App
 	clock   func() time.Time
@@ -37,9 +34,7 @@ func NewIPLimiter(app *App) *IPLimiter {
 	}
 }
 
-// Allow consumes one token from the bucket for the given IP. Returns
-// (allowed, retryAfterSeconds). retryAfterSeconds is meaningful only
-// when allowed=false.
+// Allow consumes one token from the bucket for the given IP.
 func (l *IPLimiter) Allow(ip string) (bool, int) {
 	rl := l.app.cfg.Load().RateLimit
 	if rl.Disabled || rl.Burst <= 0 || rl.RefillPerSec <= 0 {
@@ -80,9 +75,6 @@ func (l *IPLimiter) Allow(ip string) (bool, int) {
 	return false, retryAfterSeconds(b.tokens, rl.RefillPerSec)
 }
 
-// retryAfterSeconds returns the number of whole seconds a client should
-// wait before retrying. Computed as ceil((1 - tokens) / refillPerSec),
-// clamped to a minimum of 1.
 func retryAfterSeconds(tokens, refillPerSec float64) int {
 	needed := 1 - tokens
 	if needed <= 0 {
@@ -95,7 +87,6 @@ func retryAfterSeconds(tokens, refillPerSec float64) int {
 	return int(secs)
 }
 
-// sweep removes buckets idle longer than IdleEvictSeconds.
 func (l *IPLimiter) sweep() {
 	rl := l.app.cfg.Load().RateLimit
 	if rl.IdleEvictSeconds <= 0 {
@@ -116,8 +107,6 @@ func (l *IPLimiter) sweep() {
 	}
 }
 
-// runSweeper runs sweep() every (IdleEvictSeconds / 5) seconds, capped
-// between 5s and 60s. Exits on ctx.Done.
 func (l *IPLimiter) runSweeper(ctx context.Context) {
 	interval := time.Duration(l.app.cfg.Load().RateLimit.IdleEvictSeconds/5) * time.Second
 	if interval > 60*time.Second {
@@ -138,8 +127,6 @@ func (l *IPLimiter) runSweeper(ctx context.Context) {
 	}
 }
 
-// clientIP returns the host portion of r.RemoteAddr, stripping the port.
-// Falls back to RemoteAddr unchanged if it doesn't contain a port.
 func clientIP(r *http.Request) string {
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		return host
@@ -147,9 +134,6 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// rateLimit wraps next in a middleware that consults app.limiter. On
-// deny, writes 429 + Retry-After header + JSON body, plus an Info
-// slog entry.
 func rateLimit(app *App, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)

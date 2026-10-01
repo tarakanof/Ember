@@ -55,8 +55,6 @@ func TestPreviewSessionToggles(t *testing.T) {
 		t.Fatalf("live ctx pct should win over sample, got %v", got.ContextPct)
 	}
 
-	// Live-value leakage: RateWindowPct must be nil when RateBottomBar is off,
-	// even if the base session carries a live value.
 	liveRate := base
 	liveRate.RateWindowPct = ptrInt(75)
 	leaked := PreviewSession(DraftDisplay{RateBottomBar: false}, liveRate)
@@ -98,7 +96,6 @@ func TestPreviewFramesIncludeUsageCards(t *testing.T) {
 			t.Errorf("missing preview card %q (got %v)", want, names)
 		}
 	}
-	// Without a view: no usage cards.
 	p = PreviewFrames(s, nil, now)
 	for _, f := range p.Frames {
 		if strings.HasPrefix(f.Card, "usage-") {
@@ -108,9 +105,6 @@ func TestPreviewFramesIncludeUsageCards(t *testing.T) {
 }
 
 func TestPreviewFramesExcludesToolCard(t *testing.T) {
-	// PreviewFrames uses AvailableCards(s, nil): no usage view, so only
-	// source and tool are possible. The tool card is excluded from Frames
-	// (it has no static grid form) and reflected in Activity instead.
 	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
 	s := Session{
 		Source: "mbp", Tool: "claude", State: "running", Activity: "Bash: go test",
@@ -132,7 +126,6 @@ func TestPreviewFramesExcludesToolCard(t *testing.T) {
 			}
 		}
 	}
-	// AvailableCards(s, nil): source + tool; tool is excluded from Frames.
 	if want := []string{"source"}; !slices.Equal(names, want) {
 		t.Fatalf("cards = %v, want %v", names, want)
 	}

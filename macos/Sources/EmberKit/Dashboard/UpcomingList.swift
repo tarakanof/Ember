@@ -23,8 +23,7 @@ public struct UpcomingItem: Equatable, Sendable, Identifiable {
     public static let relativeBelow: TimeInterval = 3600
 
     /// Meetings and reminders from `now` to `now + horizon`, soonest first,
-    /// at most `limit`. A meeting that started up to 5 minutes ago still
-    /// counts (you may be joining late).
+    /// at most `limit`.
     public static func merge(meetings: [MeetingsState.Item], reminders: [UpcomingItem],
                              now: Date) -> [UpcomingItem] {
         let from = now.addingTimeInterval(-5 * 60), to = now.addingTimeInterval(horizon)

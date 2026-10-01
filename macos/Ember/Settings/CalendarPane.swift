@@ -2,8 +2,6 @@ import SwiftUI
 import EventKit
 import EmberKit
 
-/// Calendar alerts on the clock: meetings from the server's ICS feeds, and
-/// Apple Reminders due on this Mac. Their chimes are under Sounds & Alerts.
 struct CalendarPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var meetingPreview = PreviewModel()

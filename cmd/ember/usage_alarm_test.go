@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-// makeAlarmCoord creates a coordinator wired with a usage store, fake clock,
-// and recording publisher — the minimal setup for alarm tests. The coordinator
-// goroutine is NOT started; tests drive checkLimitAlarms directly.
 func makeAlarmCoord(t *testing.T) (*coordinator, *UsageStore, *recordingPublisher, *fakeClock) {
 	t.Helper()
 	cfg := defaultConfig()
@@ -26,7 +23,6 @@ func TestLimitAlarmArmsFiresOnce(t *testing.T) {
 	c, st, pub, clk := makeAlarmCoord(t)
 	t0 := clk.Now()
 
-	// Arm: claude at 100%, resets at T0+90.
 	resetAt := t0.Unix() + 90
 	st.Put("claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 100, ResetsAt: resetAt},
@@ -35,7 +31,6 @@ func TestLimitAlarmArmsFiresOnce(t *testing.T) {
 
 	snap := Snapshot{}
 
-	// T0: arm, no fire.
 	c.checkLimitAlarms(t0, snap)
 	if len(pub.NotifySnapshot()) != 0 {
 		t.Fatalf("at T0: expected 0 notifies, got %d", len(pub.NotifySnapshot()))
@@ -44,17 +39,13 @@ func TestLimitAlarmArmsFiresOnce(t *testing.T) {
 		t.Fatalf("alarm not armed at T0")
 	}
 
-	// T0+100: inside grace (armed+60 = T0+150) — still no fire.
 	clk.Advance(100 * time.Second)
 	c.checkLimitAlarms(clk.Now(), snap)
 	if len(pub.NotifySnapshot()) != 0 {
 		t.Fatalf("at T0+100: expected 0 notifies (inside grace), got %d", len(pub.NotifySnapshot()))
 	}
 
-	// At T0+160 (past armed+grace = T0+150) the store is still fresh and still
-	// reports (100, T0+90); the drift guard doesn't apply (resetAt == armed,
-	// not later), so the alarm fires.
-	clk.Advance(60 * time.Second) // now T0+160
+	clk.Advance(60 * time.Second)
 	c.checkLimitAlarms(clk.Now(), snap)
 	notifies := pub.NotifySnapshot()
 	if len(notifies) != 1 {
@@ -73,7 +64,6 @@ func TestLimitAlarmArmsFiresOnce(t *testing.T) {
 		t.Fatalf("the alarm chime rides on the notification, got %d out-of-band plays", len(rtttls))
 	}
 
-	// T0+170: fired dedupe — still 1 notify.
 	clk.Advance(10 * time.Second)
 	c.checkLimitAlarms(clk.Now(), snap)
 	if len(pub.NotifySnapshot()) != 1 {
@@ -85,7 +75,6 @@ func TestLimitAlarmReArmsOnDriftedReset(t *testing.T) {
 	c, st, pub, clk := makeAlarmCoord(t)
 	t0 := clk.Now()
 
-	// Arm at resetAt=T0+90.
 	resetAt1 := t0.Unix() + 90
 	st.Put("claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 100, ResetsAt: resetAt1},
@@ -95,8 +84,6 @@ func TestLimitAlarmReArmsOnDriftedReset(t *testing.T) {
 	snap := Snapshot{}
 	c.checkLimitAlarms(t0, snap)
 
-	// At T0+160 (past armed+grace), fresh data arrives with still >=99.5 but
-	// a later resetAt=T0+400 — estimate drifted, re-arm, no fire.
 	clk.Advance(160 * time.Second)
 	resetAt2 := t0.Unix() + 400
 	st.Put("claude", ToolUsage{
@@ -111,8 +98,7 @@ func TestLimitAlarmReArmsOnDriftedReset(t *testing.T) {
 		t.Fatalf("re-armed value wrong: got %d, want %d", c.alarmArmed["claude"], resetAt2)
 	}
 
-	// At T0+461 (past resetAt2+grace=T0+460), usage now at 10% (store fresh).
-	clk.Advance(301 * time.Second) // T0+461
+	clk.Advance(301 * time.Second)
 	st.Put("claude", ToolUsage{
 		FiveHour:  &UsageWindow{UsedPercent: 10, ResetsAt: resetAt2},
 		UpdatedAt: clk.Now(),
@@ -127,7 +113,6 @@ func TestLimitAlarmFallsBackToSessionData(t *testing.T) {
 	c, _, pub, clk := makeAlarmCoord(t)
 	t0 := clk.Now()
 
-	// No Put to the usage store for claude. Session carries RateWindowPct=100.
 	resetAt := t0.Unix() + 90
 	pct := 100
 	snap := Snapshot{Sessions: []Session{
@@ -140,7 +125,6 @@ func TestLimitAlarmFallsBackToSessionData(t *testing.T) {
 		t.Fatalf("alarm not armed from session data")
 	}
 
-	// Past armed+grace; session is gone (empty snap) -> fires.
 	clk.Advance(160 * time.Second)
 	c.checkLimitAlarms(clk.Now(), Snapshot{})
 	if len(pub.NotifySnapshot()) != 1 {
@@ -150,7 +134,6 @@ func TestLimitAlarmFallsBackToSessionData(t *testing.T) {
 
 func TestLimitAlarmRespectsToggle(t *testing.T) {
 	c, st, pub, clk := makeAlarmCoord(t)
-	// Disable the alarm.
 	disabled := false
 	cfg := *c.loadCfg()
 	cfg.LimitAlarm = &disabled
@@ -164,7 +147,6 @@ func TestLimitAlarmRespectsToggle(t *testing.T) {
 	})
 
 	snap := Snapshot{}
-	// Advance through the full timeline: arm check, grace, fire window.
 	for _, d := range []time.Duration{0, 100 * time.Second, 60 * time.Second, 10 * time.Second} {
 		clk.Advance(d)
 		c.checkLimitAlarms(clk.Now(), snap)
@@ -188,11 +170,9 @@ func TestLimitAlarmNotifyFailureRetries(t *testing.T) {
 		UpdatedAt: t0,
 	})
 
-	// Arm.
 	snap := Snapshot{}
 	c.checkLimitAlarms(t0, snap)
 
-	// First attempt at T0+160: Notify returns an error.
 	callCount := 0
 	pub.mu.Lock()
 	pub.failNotify = func() error {
@@ -206,7 +186,6 @@ func TestLimitAlarmNotifyFailureRetries(t *testing.T) {
 
 	clk.Advance(160 * time.Second)
 	c.checkLimitAlarms(clk.Now(), snap)
-	// Still armed, no successful notify yet.
 	if len(pub.NotifySnapshot()) != 0 {
 		t.Fatalf("after first failure: expected 0 successful notifies, got %d", len(pub.NotifySnapshot()))
 	}
@@ -214,7 +193,6 @@ func TestLimitAlarmNotifyFailureRetries(t *testing.T) {
 		t.Fatal("after failure: alarm should remain armed for retry")
 	}
 
-	// Second attempt: succeeds.
 	clk.Advance(5 * time.Second)
 	c.checkLimitAlarms(clk.Now(), snap)
 	if len(pub.NotifySnapshot()) != 1 {

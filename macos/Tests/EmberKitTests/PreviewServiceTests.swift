@@ -44,7 +44,6 @@ import Foundation
         #expect(q["air_tile"] == "false")
         #expect(q["forecast_hours"] == "12")
         #expect(q["units"] == "imperial")
-        // The moon inputs ride along: the preview runs before the autosave lands.
         #expect(q["moon_phase"] == "false")
         #expect(q["lat"] == "51.5")
         #expect(q["lon"] == "-0.1")
@@ -55,8 +54,6 @@ import Foundation
     #expect(p.frames.first?.card == "weather")
 }
 
-/// The pane refetches when its draft changes, so a moon or location edit must
-/// change the draft; edits that don't change the frames must not.
 @Test func weatherPreviewDraftTracksMoonAndLocation() {
     let cfg = WeatherConfig(enabled: true, latitude: 51.5, longitude: -0.1)
     let base = WeatherPreviewDraft(cfg)

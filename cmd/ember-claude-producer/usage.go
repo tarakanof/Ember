@@ -18,9 +18,6 @@ const usageEndpoint = "https://api.anthropic.com/api/oauth/usage"
 const usagePollInterval = 5 * time.Minute
 const defaultClaudeVersion = "2.1.0"
 
-// usageClientTimeout bounds fetchUsage's TLS+request round trip. Without it,
-// one stalled connection to the endpoint hangs until the daemon restarts —
-// http.DefaultClient has no Timeout.
 const usageClientTimeout = 30 * time.Second
 
 var usageHTTPClient = &http.Client{Timeout: usageClientTimeout}
@@ -46,7 +43,7 @@ func parseUsageResponse(b []byte) (usageResponse, error) {
 func clockLabel(t time.Time, loc *time.Location) string { return t.In(loc).Format("15:04") }
 
 func dayLabel(t time.Time, loc *time.Location) string {
-	return strings.ToUpper(t.In(loc).Format("Mon")) // MON, TUE, ...
+	return strings.ToUpper(t.In(loc).Format("Mon"))
 }
 
 var claudeVersionOnce sync.Once
@@ -57,7 +54,7 @@ func claudeUA() string {
 		claudeVersionCached = defaultClaudeVersion
 		if out, err := exec.Command("claude", "--version").Output(); err == nil {
 			for _, f := range strings.Fields(string(out)) {
-				if strings.Count(f, ".") == 2 { // first x.y.z token
+				if strings.Count(f, ".") == 2 {
 					claudeVersionCached = f
 					break
 				}
@@ -85,8 +82,6 @@ func fetchUsage(ctx context.Context, token string) (usageResponse, int, error) {
 	return u, resp.StatusCode, err
 }
 
-// win converts an endpoint window into the wire window, formatting the reset
-// label in loc. A nil/zero ResetsAt yields a window with just the percent.
 func win(w usageWindow, loc *time.Location, label func(time.Time, *time.Location) string) *producer.UsageWindow {
 	out := &producer.UsageWindow{UsedPercent: w.Utilization}
 	if ts, err := time.Parse(time.RFC3339, w.ResetsAt); err == nil {
@@ -96,17 +91,6 @@ func win(w usageWindow, loc *time.Location, label func(time.Time, *time.Location
 	return out
 }
 
-// usageModelsCache holds the most recent per-model usage breakdown
-// (opus/sonnet) fetched from the OAuth endpoint. Claude Code's statusline JSON
-// carries no per-model figures, so the statusline-driven /v1/usage POST
-// (dispatchTick's postStatuslineUsage) forwards this cached snapshot instead
-// of leaving Models nil — otherwise the server's last-write-wins storage
-// (UsageStore.Put replaces the whole per-tool entry) would blank the
-// per-model breakdown on the very next heartbeat, since that heartbeat runs
-// every 10s while the OAuth endpoint is only polled every usagePollInterval.
-//
-// Process-lifetime singleton: shared state across usagePollLoop (writer) and
-// dispatchTick (reader) is the whole point, same rationale as tickFailLog above.
 type usageModelsCache struct {
 	mu     sync.Mutex
 	models map[string]*producer.UsageWindow
@@ -126,23 +110,18 @@ func (c *usageModelsCache) get() map[string]*producer.UsageWindow {
 	return c.models
 }
 
-// reset clears cached state; test-only (mirrors tickFailLog.Reset()).
 func (c *usageModelsCache) reset() {
 	c.set(nil)
 }
 
-// usagePollOnce reads creds, fetches the endpoint, and posts to the server.
-// On 401 it logs and returns (never refreshes the token). On success it also
-// caches the per-model breakdown in usageModels, so the more-frequent
-// statusline-driven /v1/usage POST (see tick.go) can carry it forward.
 func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 	creds, err := readClaudeCreds()
 	if err != nil || creds.AccessToken == "" {
-		return // no creds — open Claude Code
+		return
 	}
 	u, code, err := fetchUsage(ctx, creds.AccessToken)
 	if err != nil || code != http.StatusOK {
-		return // 401 => open Claude Code; transient errors retried next tick
+		return
 	}
 	loc := time.Now().Location()
 	req := producer.UsageRequest{
@@ -156,16 +135,11 @@ func usagePollOnce(ctx context.Context, cfg Config, client *Client) {
 		},
 	}
 	usageModels.set(req.Models)
-	if err := client.Usage(ctx, req); err != nil { // Client is producer.Client (see client.go alias)
+	if err := client.Usage(ctx, req); err != nil {
 		tickFailLog.Warn(slog.Default(), "claude_usage", "usage POST failed", "err", err)
 	}
 }
 
-// postStatuslineUsage relays the freshest statusline-derived 5h and/or weekly
-// windows to /v1/usage with source "statusline", merging in usageModels' last
-// per-model snapshot (see usageModelsCache above) so the per-model breakdown
-// survives a POST that otherwise only carries statusline data. A no-op when
-// snap has neither window (nothing to relay).
 func postStatuslineUsage(ctx context.Context, client *Client, snap statuslineUsageSnapshot) {
 	req := producer.UsageRequest{
 		Tool:   "claude",
@@ -194,9 +168,6 @@ func postStatuslineUsage(ctx context.Context, client *Client, snap statuslineUsa
 	}
 }
 
-// usagePollLoop polls the usage endpoint every usagePollInterval until ctx is
-// cancelled. It reloads config each pass (like heartbeatPass) so producer.env
-// edits take effect live, and polls immediately before the first tick.
 func usagePollLoop(ctx context.Context) {
 	t := time.NewTicker(usagePollInterval)
 	defer t.Stop()

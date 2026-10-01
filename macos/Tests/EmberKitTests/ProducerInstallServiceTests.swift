@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// Fakes are called off the MainActor by the `@concurrent` batch operations,
-/// so their state is lock-guarded rather than actor-isolated.
 final class FakeSMAppService: SMAppServiceControlling, @unchecked Sendable {
     private let lock = NSLock()
     private var _statuses: [String: AgentRegistration] = [:]
@@ -64,7 +62,7 @@ final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
     let home = URL(fileURLWithPath: "/Users/x")
     let svc = ProducerInstallService(sm: FakeSMAppService(), runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: home,
-        fileExists: { $0.hasSuffix("/.claude") })   // only claude present
+        fileExists: { $0.hasSuffix("/.claude") })
     #expect(svc.detectedAgents() == [.claude])
 }
 
@@ -86,7 +84,7 @@ final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
     #expect(throws: (any Error).self) { try svc.install(.claude) }
-    #expect(runner.calls.map(\.1) == [["configure"], ["deconfigure"]])   // configure then rollback
+    #expect(runner.calls.map(\.1) == [["configure"], ["deconfigure"]])
     #expect(sm.registered.isEmpty)
 }
 
@@ -97,7 +95,7 @@ final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
     #expect(throws: (any Error).self) { try svc.install(.claude) }
-    #expect(runner.calls.count == 1)   // no rollback attempt since configure itself failed
+    #expect(runner.calls.count == 1)
     #expect(sm.registered.isEmpty)
 }
 

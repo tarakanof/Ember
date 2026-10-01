@@ -4,7 +4,7 @@ import Foundation
 /// does the token work?
 public enum ConnectionProbe {
     public enum Result: Equatable, Sendable {
-        /// Reached, token accepted. `version` from `GET /version` when known.
+        /// Reached, token accepted.
         case connected(version: String?)
         /// No (valid) server URL.
         case notConfigured
@@ -38,7 +38,6 @@ public enum ConnectionProbe {
         case .http(401, _): return .unauthorized
         case .http(let status, _): return .serverError(status: status)
         case .clockTimedOut: return .serverError(status: 504)
-        // The limiter sits in front of auth: reachable, token untested.
         case .rateLimited: return .rateLimited
         case .transport: return .unreachable
         case .timedOut: return .timedOut

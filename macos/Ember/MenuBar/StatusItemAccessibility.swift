@@ -1,19 +1,10 @@
 import AppKit
 import os
 
-/// Sets the menu-bar status item's accessibility value by hand.
-///
-/// `MenuBarExtra` passes the label view's `accessibilityLabel` to its
-/// `NSStatusBarButton` (as AXTitle) but drops `accessibilityValue`, so
-/// VoiceOver heard "Ember" with no state. The value is set on the button
-/// directly; SwiftUI re-rendering the icon doesn't reset it (checked against
-/// the AX tree: AXValue survives image swaps).
 @MainActor
 enum StatusItemAccessibility {
     private static let log = Logger(subsystem: "com.ember.Ember", category: "accessibility")
 
-    /// Sets `value` on Ember's status item button. False when no window holds
-    /// one yet (early in launch), so the caller can retry.
     @discardableResult
     static func setValue(_ value: String) -> Bool {
         guard let button = StatusItemButton.find() else { return false }
@@ -21,9 +12,6 @@ enum StatusItemAccessibility {
         return true
     }
 
-    /// Retries `setValue` while the status item is being created, and logs
-    /// if it never appears (a macOS change would otherwise silently bring
-    /// back a menu-bar icon VoiceOver can't read).
     static func setValueWhenReady(_ value: String) async {
         for _ in 0..<20 {
             if setValue(value) || Task.isCancelled { return }
@@ -35,13 +23,9 @@ enum StatusItemAccessibility {
     }
 }
 
-/// Finds the `MenuBarExtra`'s `NSStatusBarButton`, which SwiftUI doesn't expose.
 @MainActor
 enum StatusItemButton {
-    /// Ember's status item button, or nil before the `MenuBarExtra` creates it.
     static func find() -> NSStatusBarButton? {
-        // Ember has exactly one status item: the MenuBarExtra. Walking every
-        // window avoids depending on the status bar window's private class.
         for window in NSApp.windows {
             if let button = find(in: window.contentView) { return button }
         }

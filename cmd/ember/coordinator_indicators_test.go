@@ -5,13 +5,8 @@ import (
 	"time"
 )
 
-// indicatorTestNow is noon local: inside the indicator tests' clock, outside the
-// default 22:00–08:00 quiet window.
 var indicatorTestNow = time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC)
 
-// indicatorCoord builds a coordinator over a snapshot of sessions, with the
-// indicator feature enabled unless off is set, and a clock at 12:00 local
-// (outside the default quiet window).
 func indicatorCoord(t *testing.T, on bool, sessions ...Session) (*coordinator, *recordingPublisher, *fakeClock) {
 	t.Helper()
 	cfg := defaultConfig()
@@ -136,7 +131,6 @@ func TestIndicatorsWrittenOnlyOnChange(t *testing.T) {
 	running := Session{Source: "a", Tool: "b", Session: "s", State: "running", UpdatedAt: time.Now()}
 	c, pub, _ := indicatorCoord(t, true, running)
 
-	// Three publishes of the same desired state: one write.
 	c.publish(c.snapshot())
 	c.publish(c.snapshot())
 	c.publish(c.snapshot())
@@ -144,7 +138,6 @@ func TestIndicatorsWrittenOnlyOnChange(t *testing.T) {
 		t.Fatalf("steady state must write once, got %d writes", len(got))
 	}
 
-	// The session goes away: indicator 1 is cleared, once.
 	empty := Snapshot{}
 	c.snapshot = func() Snapshot { return empty }
 	c.publish(empty)
@@ -164,7 +157,6 @@ func TestIndicatorsReassertAfterRepublish(t *testing.T) {
 	if got := len(pub.IndicatorCallsSnapshot()); got != 1 {
 		t.Fatalf("first publish writes = %d, want 1", got)
 	}
-	// A reboot dropped whatever the device held: the next cycle re-asserts.
 	c.onRepublish()
 	if got := len(pub.IndicatorCallsSnapshot()); got != 2 {
 		t.Fatalf("after republish writes = %d, want 2 (re-asserted)", got)

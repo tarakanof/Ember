@@ -13,32 +13,11 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
-// clockAccess is the server's one way to reach the awtrix-ng clock. It
-// resolves the clock from the live config on every call (so rediscovery and
-// PUT /v1/device/config apply at once), applies one URL rule and one timeout
-// per call class, serialises read-merge-writes of the clock's system object,
-// and is the only code in cmd/ember that constructs an awtrix client. The
-// error map (writeClockError) and the retry rule (retryClockCall) sit here
-// too, so every question of "how do we talk to the clock" has one answer.
-//
-// Server-initiated writes reach it through the Publisher seam
-// (clockPublisher in publisher.go, wrapped by quietPublisher); the menu's
-// /v1/device/* handlers, the watch loop and doctor call its methods directly.
-// It deliberately has no Notify/PlayRTTTL of its own, so a.clock can't be
-// used to sound the clock past the quiet-hours gate.
 type clockAccess struct {
 	cfg func() *Config
 
-	// systemLock serialises read-merge-PUTs of /api/v1/system. The object
-	// holds the Wi-Fi credentials, the sensor offsets and the button
-	// callback, and NG only offers a full replace, so two unserialised
-	// writers lose one write. A ctxLock so a waiter whose request is
-	// cancelled or out of budget stops queueing behind a stuck clock (a
-	// holder can take two menu-class calls, up to 16s).
 	systemLock ctxLock
 
-	// writeBudget is clockWriteBudget and readBudget clockReadBudget; tests
-	// shorten them.
 	writeBudget time.Duration
 	readBudget  time.Duration
 }
@@ -47,9 +26,6 @@ func newClockAccess(cfg func() *Config) *clockAccess {
 	return &clockAccess{cfg: cfg, systemLock: newCtxLock(), writeBudget: clockWriteBudget, readBudget: clockReadBudget}
 }
 
-// ctxLock is a mutex whose waiters can give up: a channel of capacity 1 that
-// holds a token while the lock is held. Build it with newCtxLock; a nil
-// ctxLock blocks forever.
 type ctxLock chan struct{}
 
 func newCtxLock() ctxLock { return make(ctxLock, 1) }
@@ -57,8 +33,7 @@ func newCtxLock() ctxLock { return make(ctxLock, 1) }
 // Lock waits for the lock however long it takes.
 func (l ctxLock) Lock() { l <- struct{}{} }
 
-// Unlock releases a held lock. Like sync.Mutex, it panics on a lock that
-// isn't held rather than block forever.
+// Unlock releases a held lock.
 func (l ctxLock) Unlock() {
 	select {
 	case <-l:
@@ -67,8 +42,7 @@ func (l ctxLock) Unlock() {
 	}
 }
 
-// LockContext waits for the lock until ctx ends, and then returns ctx.Err()
-// without it.
+// LockContext waits for the lock until ctx ends, and then returns ctx.Err() without it.
 func (l ctxLock) LockContext(ctx context.Context) error {
 	select {
 	case l <- struct{}{}:
@@ -78,26 +52,13 @@ func (l ctxLock) LockContext(ctx context.Context) error {
 	}
 }
 
-// callClass picks a call's timeout. Each is the whole budget for one HTTP
-// exchange; a caller's context can only shorten it.
 type callClass int
 
 const (
-	// callPublish is a server-initiated write through Publisher. The ceiling
-	// is awtrix.timeout_seconds; the coordinator's retry narrows each attempt
-	// to publishAttemptTimeout through its context.
 	callPublish callClass = iota
-	// callMenu is a menu-initiated /v1/device/* call, the boot-ping script
-	// sync and the dashboard's health probe.
 	callMenu
-	// callProbe is a reachability or uptime probe (watch loop, rediscovery,
-	// doctor's clock check). It must not outlive its own watch tick.
 	callProbe
-	// callCapabilities is the startup/rediscovery capabilities fetch: a dark
-	// clock must not delay boot.
 	callCapabilities
-	// callDoctor is `ember doctor`'s awtrix_reachable check, which also runs
-	// offline against a bare config.
 	callDoctor
 )
 
@@ -108,36 +69,10 @@ const (
 	doctorFallbackTimeout   = 2 * time.Second
 )
 
-// clockWriteBudget bounds a whole menu handler that chains clock calls
-// behind a lock, so it answers before http.Server's 30s WriteTimeout
-// (main.go). The WriteTimeout doesn't stop a handler: past it the late answer
-// is lost, the connection drops, and the clock write may still land.
-//
-// Unbounded, the handlers stack past it:
-//   - PUT /v1/device/sensors and /v1/device/buttons, 40s: systemLock wait
-//     (a holder runs two menu calls, 16s), read (8s), PUT (8s), re-read (8s);
-//   - PUT /v1/device/settings, 32s and more when waiters queue: priorMu wait
-//     (a holder runs one menu call, 8s), PATCH (8s), priorMu again (8s), the
-//     reconcile PATCH (8s).
-//
-// 25s leaves 5s of the WriteTimeout, which runs from the end of the request
-// headers, for the small request body and the answer. Every lock wait and
-// call in the handler shares the budget; when it runs out the handler answers
-// 504 (writeBudgetError). The app's .clockLong budget (35s, RequestBudget in
-// EmberKit's APIClient) sits above both.
 const clockWriteBudget = 25 * time.Second
 
-// clockReadBudget bounds a menu read that waits on a lock around its clock
-// call, under the same WriteTimeout. GET /v1/device/settings reads the
-// Pomodoro takeover snapshot under priorMu before and after its settings
-// read: with one holder on each side (a menu edit's PATCH, or a takeover
-// snapshot/restore, 8s each) that is 8+8+8 = 24s, and each edit queued ahead
-// adds 8s (#190). 25s covers the one-holder case and leaves the same 5s for
-// the answer. Out of it the handler answers 504 clock_timeout without a
-// "write" field (readBudgetError): a read changes nothing.
 const clockReadBudget = 25 * time.Second
 
-// timeout is the budget for one call of class c under cfg.
 func (c callClass) timeout(cfg *Config) time.Duration {
 	switch c {
 	case callMenu:
@@ -155,12 +90,8 @@ func (c callClass) timeout(cfg *Config) time.Duration {
 	return time.Duration(cfg.AWTRIX.TimeoutSeconds) * time.Second
 }
 
-// errClockNotConfigured is every call's answer when there is no clock URL.
 var errClockNotConfigured = errors.New("clock not configured")
 
-// clockBaseURL is the clock cfg points at, trimmed and held to the same rule
-// (validDeviceURL) every entry point applies when a URL is stored, so nothing
-// but an absolute http(s) URL is ever dialled.
 func clockBaseURL(cfg *Config) (string, error) {
 	base := strings.TrimRight(cfg.effectiveClockURL(), "/")
 	if base == "" {
@@ -172,12 +103,8 @@ func clockBaseURL(cfg *Config) (string, error) {
 	return base, nil
 }
 
-// client returns an awtrix client for the currently-resolved clock with the
-// class's timeout. The only awtrix.NewClient call in cmd/ember
-// (clock_access_guard_test.go keeps it that way). Clients share
-// http.DefaultTransport, so building one per call keeps the keep-alive pool.
 func (k *clockAccess) client(c callClass) (*awtrix.Client, error) {
-	cfg := k.cfg() // one load: URL and timeout come from the same config
+	cfg := k.cfg()
 	base, err := clockBaseURL(cfg)
 	if err != nil {
 		return nil, err
@@ -185,7 +112,6 @@ func (k *clockAccess) client(c callClass) (*awtrix.Client, error) {
 	return awtrix.NewClient(base, c.timeout(cfg)), nil
 }
 
-// do runs one typed client call of class c against the clock.
 func (k *clockAccess) do(ctx context.Context, c callClass, fn func(context.Context, *awtrix.Client) error) error {
 	cl, err := k.client(c)
 	if err != nil {
@@ -194,20 +120,14 @@ func (k *clockAccess) do(ctx context.Context, c callClass, fn func(context.Conte
 	return fn(ctx, cl)
 }
 
-// deviceCall is one pass-through awtrix client call, usually a method
-// expression such as (*awtrix.Client).RawSettings.
 type deviceCall func(*awtrix.Client, context.Context) (awtrix.Reply, error)
 
-// withBody binds a request body to a body-taking raw client call.
 func withBody(call func(*awtrix.Client, context.Context, []byte) (awtrix.Reply, error), body []byte) deviceCall {
 	return func(cl *awtrix.Client, ctx context.Context) (awtrix.Reply, error) {
 		return call(cl, ctx, body)
 	}
 }
 
-// raw runs a pass-through call (menu class) and returns the reply verbatim; a
-// non-2xx status is not an error. For callers that give a status its own
-// meaning (a 404 script is "absent").
 func (k *clockAccess) raw(ctx context.Context, call deviceCall) (awtrix.Reply, error) {
 	cl, err := k.client(callMenu)
 	if err != nil {
@@ -216,8 +136,6 @@ func (k *clockAccess) raw(ctx context.Context, call deviceCall) (awtrix.Reply, e
 	return call(cl, ctx)
 }
 
-// fetch is raw for callers that only want success: a non-2xx reply comes back
-// as the clock's *awtrix.APIError, ready for writeClockError.
 func (k *clockAccess) fetch(ctx context.Context, call deviceCall) ([]byte, error) {
 	reply, err := k.raw(ctx, call)
 	if err != nil {
@@ -229,15 +147,11 @@ func (k *clockAccess) fetch(ctx context.Context, call deviceCall) ([]byte, error
 	return reply.Body, nil
 }
 
-// reachable reports whether base answers as an awtrix-ng clock right now,
-// within one probe budget. base is explicit because rediscovery probes the URL
-// it is about to judge, not necessarily the one in the config.
 func (k *clockAccess) reachable(ctx context.Context, base string) bool {
 	_, ok := discovery.Reachable(ctx, &http.Client{Timeout: probeCallTimeout}, base)
 	return ok
 }
 
-// readSystem fetches the clock's /api/v1/system object in full.
 func (k *clockAccess) readSystem(ctx context.Context) (map[string]any, error) {
 	body, err := k.fetch(ctx, (*awtrix.Client).RawSystem)
 	if err != nil {
@@ -250,14 +164,6 @@ func (k *clockAccess) readSystem(ctx context.Context) (map[string]any, error) {
 	return m, nil
 }
 
-// updateSystem read-merge-PUTs /api/v1/system: it reads the whole object,
-// lets mutate change it, and writes all of it back, holding systemLock for
-// the round trip so a concurrent writer can't read the object before this
-// write lands. It returns the object it wrote. A caller whose ctx ends while
-// waiting for the lock, or before the PUT, gets ctx.Err() without writing; a
-// failed PUT comes back as a sentWriteError. A full replace, never a partial
-// PUT: a partial one that the firmware treated as a replace would drop the
-// stored Wi-Fi password. NG applies system changes live, no reboot.
 func (k *clockAccess) updateSystem(ctx context.Context, mutate func(sys map[string]any)) (map[string]any, error) {
 	if err := k.systemLock.LockContext(ctx); err != nil {
 		return nil, err
@@ -278,9 +184,6 @@ func (k *clockAccess) updateSystem(ctx context.Context, mutate func(sys map[stri
 	return sys, nil
 }
 
-// sendWrite runs a clock write (menu class). It returns ctx.Err() unsent when
-// ctx has already ended, and marks a failure after sending as a
-// sentWriteError.
 func (k *clockAccess) sendWrite(ctx context.Context, call deviceCall) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -291,47 +194,27 @@ func (k *clockAccess) sendWrite(ctx context.Context, call deviceCall) error {
 	return nil
 }
 
-// ---- Write budget ----
-
-// writeContext returns ctx bounded by the write budget (clockWriteBudget), for
-// a handler to run all its lock waits and clock calls under.
 func (k *clockAccess) writeContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, k.writeBudget)
 }
 
-// readContext returns ctx bounded by the read budget (clockReadBudget), for
-// a read handler to run its lock waits and clock call under.
 func (k *clockAccess) readContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, k.readBudget)
 }
 
-// sentWriteError marks a failed clock write that went out: without an
-// answer, it may have landed. It reads and unwraps as the error it carries.
 type sentWriteError struct{ err error }
 
 func (e sentWriteError) Error() string { return e.err.Error() }
 func (e sentWriteError) Unwrap() error { return e.err }
 
-// writeOutcome is what a handler knows about its clock write when the write
-// budget runs out, reported as "write" in the 504 body.
 type writeOutcome string
 
 const (
-	// writeNotSent: the budget ran out before the write went out (in a lock
-	// wait or the read before it). The clock is unchanged.
 	writeNotSent writeOutcome = "not_sent"
-	// writeUnknown: a write went out without an answer. It may have landed.
 	writeUnknown writeOutcome = "unknown"
-	// writeApplied: the clock took the write; what ran out was the work after
-	// it (the settings edit's Pomodoro reconcile).
 	writeApplied writeOutcome = "applied"
 )
 
-// writeBudgetError answers a failed budgeted handler. When ctx's budget ran
-// out and the clock didn't refuse, it is a 504 in the clock error shape:
-// "error" (what the menu shows, the write's fate included), "code"
-// ("clock_timeout") and "write" (a writeOutcome). landed says a write of this
-// handler already succeeded. Any other failure goes to writeClockError.
 func (k *clockAccess) writeBudgetError(ctx context.Context, w http.ResponseWriter, err error, landed bool) {
 	var apiErr *awtrix.APIError
 	if errors.As(err, &apiErr) || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -340,9 +223,6 @@ func (k *clockAccess) writeBudgetError(ctx context.Context, w http.ResponseWrite
 	}
 	outcome, fate := writeNotSent, "nothing was changed"
 	var sent sentWriteError
-	// An unanswered write wins over an earlier landed one: a settings edit
-	// whose first PATCH landed and whose reconcile re-write then went
-	// unanswered doesn't know which value the clock holds now.
 	switch {
 	case errors.As(err, &sent):
 		outcome, fate = writeUnknown, "the change may not have been saved"
@@ -356,10 +236,6 @@ func (k *clockAccess) writeBudgetError(ctx context.Context, w http.ResponseWrite
 	})
 }
 
-// readBudgetError answers a failed budgeted read. When ctx's budget ran out
-// and the clock didn't refuse, it is the 504 clock error shape without
-// "write": a read has no write whose fate to report. Any other failure goes
-// to writeClockError.
 func (k *clockAccess) readBudgetError(ctx context.Context, w http.ResponseWriter, err error) {
 	var apiErr *awtrix.APIError
 	if errors.As(err, &apiErr) || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -372,11 +248,6 @@ func (k *clockAccess) readBudgetError(ctx context.Context, w http.ResponseWriter
 	})
 }
 
-// ---- Error map ----
-
-// writeClockError answers the menu for a failed clock call: a clock refusal
-// (*awtrix.APIError) is relayed through writeDeviceAPIError, anything else (no
-// clock configured, network failure, undecodable reply) is 502.
 func writeClockError(w http.ResponseWriter, err error) {
 	var apiErr *awtrix.APIError
 	if errors.As(err, &apiErr) {
@@ -386,12 +257,6 @@ func writeClockError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusBadGateway, err)
 }
 
-// deviceProxyStatus picks the status the menu sees for a non-2xx clock reply.
-// Request errors (bad value, unknown key, missing app, wrong media type) and
-// a busy/absent-hardware 503 pass through unchanged, so the caller can tell
-// "the clock refused this" from "the clock is broken or unreachable".
-// Everything else becomes 502; a device 401/403 in particular must not read
-// as the menu's own bearer token being wrong.
 func deviceProxyStatus(status int) int {
 	switch status {
 	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict,
@@ -402,21 +267,14 @@ func deviceProxyStatus(status int) int {
 	return http.StatusBadGateway
 }
 
-// writeDeviceError relays a non-2xx clock reply to the menu. The NG envelope
-// ({"error":{code,message,field}}) is flattened into the server's own error
-// shape — "error" stays a string, which is what the menu displays — with
-// "code" and "field" alongside so a caller can point at the rejected key.
 func writeDeviceError(w http.ResponseWriter, status int, body []byte) {
 	writeDeviceAPIError(w, awtrix.ParseAPIError(status, body))
 }
 
-// writeDeviceAPIError is writeDeviceError for a reply the awtrix client has
-// already parsed.
 func writeDeviceAPIError(w http.ResponseWriter, apiErr *awtrix.APIError) {
 	status := apiErr.StatusCode
 	msg := fmt.Sprintf("clock returned %d", status)
 	if detail := apiErr.Message; detail != "" {
-		// Cap a raw (non-envelope) body at 200 runes, never mid-sequence.
 		if r := []rune(detail); len(r) > 200 {
 			detail = string(r[:200]) + "…"
 		}
@@ -435,31 +293,11 @@ func writeDeviceAPIError(w http.ResponseWriter, apiErr *awtrix.APIError) {
 	writeJSON(w, deviceProxyStatus(status), out)
 }
 
-// ---- Retry ----
-
-// publishAttemptTimeout bounds ONE pushed-app write, and publishAttempts is how
-// many of them a frame gets before the coordinator gives up until the next tick.
-//
-// awtrix.timeout_seconds (10s by default) is the wrong budget here: it is the
-// ceiling for any device call, while a frame push is a ~2.4 KB PUT to a device
-// on the same LAN that answers in well under a second when the link is healthy
-// (measured: 0.04s empty-ish, 0.55-0.68s at 3 KB). A push that has not answered
-// in 2.5s has almost certainly been dropped, and every second spent waiting is a
-// second the coordinator goroutine — which owns every device write — is not
-// serving ticks, so its missed ticks turn into dropped state-change commands.
-//
-// Retrying inside the tick (rather than waiting a whole dwell for the next one)
-// is what keeps a lossy link from evicting the app: the device drops a pushed
-// app on its own lifetime, and it counts wallclock, not attempts.
 const (
 	publishAttemptTimeout = 2500 * time.Millisecond
 	publishAttempts       = 2
 )
 
-// retryClockCall runs op up to publishAttempts times, each attempt bounded by
-// budget, stopping early on success, on an answer a retry can't change (see
-// retryableClockErr), or when ctx is done. onRetry runs before every attempt
-// after the first. Returns the last attempt's error.
 func retryClockCall(ctx context.Context, budget time.Duration, onRetry func(), op func(context.Context) error) error {
 	var err error
 	for i := 0; i < publishAttempts; i++ {
@@ -476,13 +314,6 @@ func retryClockCall(ctx context.Context, budget time.Duration, onRetry func(), o
 	return err
 }
 
-// retryableClockErr reports whether a failed clock call is worth another
-// attempt. A transport failure (timeout, refused, reset) carries no status and
-// is exactly the lost-packet case retries exist for. A device that answered
-// has decided: only 5xx and 429 can change on their own — this clock
-// watchdog-resets and runs its HTTP server on the same task that drives the
-// panel, so a 503 while busy is transient. Any other 4xx (422 on a payload NG
-// rejects, 413 on one too large) will answer identically forever.
 func retryableClockErr(err error) bool {
 	var apiErr *awtrix.APIError
 	if !errors.As(err, &apiErr) {

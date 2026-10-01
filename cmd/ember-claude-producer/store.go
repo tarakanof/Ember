@@ -37,8 +37,6 @@ func lockPath(stateDir, sessionID string) string {
 	return filepath.Join(stateDir, sessionID+".lock")
 }
 
-// writeMarker writes body to markerPath atomically via temp+rename.
-// The temp file lives in the same directory so rename is atomic on POSIX.
 func writeMarker(markerPath string, body []byte) error {
 	dir := filepath.Dir(markerPath)
 	tmp, err := os.CreateTemp(dir, ".tmp-*.json")
@@ -93,6 +91,5 @@ func withLock(lockPath string, op int, fn func() error) error {
 		return err
 	}
 	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
-	// Note: lock file is NEVER deleted (POSIX flock-on-inode constraint).
 	return fn()
 }

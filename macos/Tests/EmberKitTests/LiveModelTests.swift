@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// Lock-guarded mutable value the stub handler (URLProtocol thread) reads.
 private final class Box<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: T
@@ -20,8 +19,6 @@ private func sessionJSON(_ tool: String, state: String = "running") -> Data {
 private let pomoJSON = #"{"phase":"focus","running":true,"paused":false,"remaining_sec":300,"planned_sec":1500,"round":1}"#
 private let statsJSON = #"{"today":{"date":"2026-05-29","completed_focus":2,"focus_min":50},"history":[],"streak":3}"#
 
-/// A model whose coordinator runs on a manual clock that tests never advance,
-/// so only `refreshNow` fetches.
 @MainActor
 private func makeModel(now: Date = Date(timeIntervalSince1970: 1_000)) -> LiveModel {
     let clock = ManualClock()
@@ -61,8 +58,6 @@ private func makeModel(now: Date = Date(timeIntervalSince1970: 1_000)) -> LiveMo
     #expect(m.stats.loadedAt == Date(timeIntervalSince1970: 1_000))
 }
 
-// Pomodoro 404s while the feature is off. That's `.featureOff` for its feeds,
-// not a connection problem.
 @MainActor @Test func pomodoroDisabledIsFeatureOffAndStaysConnected() async {
     let client = stubbedClient { req in
         if req.url!.path.hasPrefix("/v1/pomodoro/") {
@@ -109,7 +104,6 @@ private func makeModel(now: Date = Date(timeIntervalSince1970: 1_000)) -> LiveMo
     #expect(m.connection == .degraded(failures: 1))
     await m.refreshNow(.state)
     #expect(m.connection == .degraded(failures: 2))
-    // The snapshot is still treated as live: the bot keeps its state.
     #expect(m.winningSession?.tool == "claude")
 
     await m.refreshNow(.state)
@@ -146,7 +140,6 @@ private func makeModel(now: Date = Date(timeIntervalSince1970: 1_000)) -> LiveMo
     #expect(m.connection == .connecting)
 }
 
-/// Lock-guarded flag the stub handler flips.
 private final class Flag: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
@@ -154,8 +147,6 @@ private final class Flag: @unchecked Sendable {
     var isSet: Bool { lock.withLock { value } }
 }
 
-// A slow response from the server the model was configured for before a
-// Connection change must not land after, and overwrite, the new server's.
 @MainActor @Test func staleResponseFromPreviousServerIsDropped() async throws {
     let started = Flag()
     let gate = DispatchSemaphore(value: 0)
@@ -228,7 +219,6 @@ private final class Flag: @unchecked Sendable {
 }
 
 @MainActor @Test func screenFallsBackToTheClockWhenTheProxyFails() async {
-    // The proxy 404s and device/config has no clock: no pixels, offline.
     let client = stubbedClient { req in
         if req.url!.path == "/v1/device/config" {
             return (okResponse(req.url!), Data(#"{"base_url":"","source":""}"#.utf8))
@@ -269,7 +259,6 @@ private final class Flag: @unchecked Sendable {
     let m = makeModel()
     m.configure(client: client)
     await m.refreshNow(.state)
-    // A Connection save of the source name rebuilds an identical client.
     m.configure(client: APIClient(baseURL: client.baseURL, token: client.token))
     #expect(m.connection.isOnline)
     #expect(m.winningSession?.tool == "claude")
@@ -306,7 +295,7 @@ private final class Flag: @unchecked Sendable {
     m.configure(client: client)
     await m.refreshNow(.stats)
     now = Date(timeIntervalSince1970: 70)
-    await m.refreshNow(.stats)                 // same value, fetched at 70
+    await m.refreshNow(.stats)
     fail.value = true
     await m.refreshNow(.stats)
     #expect(m.stats.loadedAt == Date(timeIntervalSince1970: 70))
@@ -334,8 +323,6 @@ private final class Flag: @unchecked Sendable {
     #expect(configReads.paths.count == 2)
 }
 
-/// A clock-health body whose probe is `age` seconds old at `generated`, both
-/// in server time.
 private func healthJSON(power: Bool, generated: Int, age: Int) -> Data {
     let fmt = { (s: Int) in Date(timeIntervalSince1970: TimeInterval(s)).ISO8601Format() }
     return Data("""
@@ -345,9 +332,6 @@ private func healthJSON(power: Bool, generated: Int, age: Int) -> Data {
     """.utf8)
 }
 
-// #149: one display-power value. A write, a direct read and the health feed
-// all report it, and the newest observation wins, so a health probe the
-// server cached before a write can't flip the switch back.
 @MainActor @Test func displayPowerIsTheNewestObservation() async {
     let body = Box(healthJSON(power: false, generated: 5_000, age: 0))
     let client = stubbedClient { req in (okResponse(req.url!), body.value) }
@@ -368,20 +352,16 @@ private func healthJSON(power: Bool, generated: Int, age: Int) -> Data {
     m.reportDisplayPower(true, written: m.displayPowerTicket())
     #expect(m.displayPower == true)
 
-    // 5 s later the server still serves a probe taken 20 s ago: ignored.
     now.value = Date(timeIntervalSince1970: 1_015)
     body.value = healthJSON(power: false, generated: 5_015, age: 20)
     await m.refreshNow(.clockHealth)
     #expect(m.displayPower == true)
 
-    // Whole-second wire times plus latency blur a probe's date by about a
-    // second: one dated within the margin after the write still loses.
     now.value = Date(timeIntervalSince1970: 1_016)
     body.value = healthJSON(power: false, generated: 5_016, age: 4)
     await m.refreshNow(.clockHealth)
     #expect(m.displayPower == true)
 
-    // A fresh probe that says off (the clock's button) wins.
     now.value = Date(timeIntervalSince1970: 1_045)
     body.value = healthJSON(power: false, generated: 5_045, age: 0)
     await m.refreshNow(.clockHealth)
@@ -404,13 +384,13 @@ private func timedModel(_ now: Box<Date>) -> LiveModel {
     let now = Box(Date(timeIntervalSince1970: 1_000))
     let m = timedModel(now)
     m.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
-    let read = m.displayPowerTicket()          // overlay GET issued
+    let read = m.displayPowerTicket()
     now.value = Date(timeIntervalSince1970: 1_001)
     let write = m.displayPowerTicket()
     now.value = Date(timeIntervalSince1970: 1_002)
     m.reportDisplayPower(false, written: write)
     now.value = Date(timeIntervalSince1970: 1_003)
-    m.reportDisplayPower(true, read: read)    // lands after, saw the old state
+    m.reportDisplayPower(true, read: read)
     #expect(m.displayPower == false)
 }
 

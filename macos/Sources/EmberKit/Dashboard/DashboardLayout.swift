@@ -25,11 +25,7 @@ public enum DashboardLayout {
         return 1
     }
 
-    /// Cuts `cards` into runs for a grid of `columns` columns. Standard cards
-    /// keep their order and share grid runs; a wide card is its own run. A
-    /// wide card that would leave a hole in a half-filled row waits until the
-    /// standard cards after it have filled that row (the §2.4 wireframe:
-    /// Upcoming pairs with Last 7 days before Agents).
+    /// Cuts `cards` into runs for a grid of `columns` columns.
     public static func runs<ID: Hashable & Sendable>(_ cards: [(id: ID, size: CardSize)], columns: Int) -> [Run<ID>] {
         let cols = max(1, columns)
         var out: [Run<ID>] = []

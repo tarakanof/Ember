@@ -2,7 +2,6 @@ import SwiftUI
 import ServiceManagement
 import EmberKit
 
-/// This Mac's look and startup. Mac-local prefs, applied at once.
 struct GeneralPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var login = LoginItemService.status
@@ -92,8 +91,6 @@ struct GeneralPane: View {
         }
     }
 
-    /// The Local Network probe takes a few seconds and a request to the
-    /// server, so the warning re-checks at most every half minute.
     private static let permissionsInterval: TimeInterval = 30
 
     private func glyphPicker(_ label: LocalizedStringKey, _ binding: Binding<String>) -> some View {

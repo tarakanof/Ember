@@ -2,10 +2,6 @@ package render
 
 import "strings"
 
-// Reminder widget render primitives. A reminder is an alarm popup (a notification
-// — there is no rotating tile): a drawn bell icon + the reminder text, optionally
-// with a chime. Mirrors the weather popup shape.
-
 var reminderBell = []string{
 	"...XX...",
 	"..XXXX..",
@@ -17,25 +13,10 @@ var reminderBell = []string{
 	"........",
 }
 
-// reminderGold is the bell colour (a warm amber that reads as "alarm").
 var reminderGold = RGB{0xff, 0xcc, 0x33}
 
-// ReminderPopupPayload returns a notification payload for an alarm: a drawn bell
-// icon at cols 0–7 + the reminder text scrolling from col 9. iconID, when
-// non-empty, swaps in a native AWTRIX icon (firmware then owns the layout, so we
-// drop center/textOffset). stack:true so two reminders due at the same minute
-// queue rather than the second replacing the first on-device. hold:true makes the
-// alarm take over the display until the user dismisses it (middle button) instead
-// of auto-dismissing after durationSec — the alarm then ignores the duration.
-//
-// The chime is NOT built here: the caller owns the melody choice and attaches
-// it to this payload as `soundRtttl` — awtrix-ng plays a notification's own
-// sound even when the payload also draws (unlike AWTRIX3, which dropped it).
-// ReminderPopupFrame composes the drawn alarm-popup frame for settings
-// previews: the gold bell at cols 0-7 + the text from col 9 in the 3×5 font
-// (uppercased — the font has no lowercase; overlong text clips at the right
-// edge, where the device would scroll instead). The device payload keeps its
-// own firmware text layout — this frame is preview-only.
+// ReminderPopupFrame composes the preview-only drawn alarm popup: gold bell
+// plus the uppercased text in the 3×5 font.
 func ReminderPopupFrame(text string) Frame {
 	var f Frame
 	paintBitmap(&f, 0, 0, reminderBell, reminderGold)
@@ -43,6 +24,8 @@ func ReminderPopupFrame(text string) Frame {
 	return f
 }
 
+// ReminderPopupPayload returns the alarm notification payload: a drawn bell
+// icon at cols 0–7 plus the reminder text scrolling from col 9.
 func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[string]any {
 	p := pinText(map[string]any{
 		"text":       text,
@@ -53,8 +36,6 @@ func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[s
 		"textColor":  hexOf(reminderGold),
 	})
 	if !hold {
-		// A held alarm stays until dismissed; one that auto-dismisses must not
-		// leave before a long reminder has been read.
 		readOnce(p)
 	}
 	if iconID != "" {

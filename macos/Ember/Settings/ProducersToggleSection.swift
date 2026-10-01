@@ -2,8 +2,6 @@ import SwiftUI
 import AppKit
 import EmberKit
 
-/// "Report this Mac's agent activity": installs or removes the Claude/Codex
-/// producer LaunchAgents, with a status row per agent CLI found on this Mac.
 struct ProducersToggleSection: View {
     let model: ProducerInstallModel
 
@@ -56,10 +54,6 @@ struct ProducersToggleSection: View {
         .task { await model.refresh() }
     }
 
-    /// The helper runs but macOS denies it the LAN ("no route to host"), so
-    /// nothing reaches the server while the row still says On. A rebuilt or
-    /// re-signed helper needs Local Network access again. The fix (and why)
-    /// lives in Settings › Permissions.
     private func localNetworkHint(_ agents: [ProducerAgent]) -> some View {
         let helpers = ListFormatter.localizedString(byJoining: agents.map(\.binaryName))
         return VStack(alignment: .leading, spacing: 6) {

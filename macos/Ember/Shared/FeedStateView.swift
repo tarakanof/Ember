@@ -1,24 +1,9 @@
 import SwiftUI
 import EmberKit
 
-/// Renders a feed in whichever state it's in, so every Dashboard card handles
-/// loading, empty, off, offline, unauthorized and stale the same way:
-///
-/// | State | Shows |
-/// |---|---|
-/// | never loaded | `placeholder` redacted, else a spinner |
-/// | loaded | `content`, or the empty message when `isEmpty` |
-/// | 404/405 (feature off, old server) | the off message and its Settings button, even with an old value |
-/// | offline/server error/429 with a value | `content` plus a stale chip (none for 429) |
-/// | offline, no value | "Server unreachable" |
-/// | timed out, no value | "Server not responding" |
-/// | Local Network denied, no value | "Local Network access is off" |
-/// | server error, no value | "Server error" with its message |
-/// | 429, no value | a spinner (a retry is already scheduled) |
-/// | 401 | "Needs token" with a button to Connection |
+/// Renders a feed in whichever state it's in, so every Dashboard card handles them alike.
 struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
     let feed: Loadable<T>
-    /// Rendered redacted while loading, so the card keeps its shape.
     var placeholder: T? = nil
     var isEmpty: (T) -> Bool = { _ in false }
     var emptyTitle: LocalizedStringKey = "Nothing yet"
@@ -26,7 +11,6 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
     var offTitle: LocalizedStringKey = "Needs a newer server"
     var offDescription: LocalizedStringKey? = nil
     var offSymbol: String = "power"
-    /// Settings pane ("focus") the off state's button opens; no button if nil.
     var offSettingsPane: String? = nil
     var showsStaleChip = true
     @ViewBuilder let content: (T) -> Content
@@ -54,8 +38,6 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
                 Button("Open Connection Settings") { openSettings(pane: "connection", using: openWindow) }
             }
         case .failed(.featureOff, _, _):
-            // Even with an old value: the feature was turned off, the old
-            // numbers aren't "stale", they're gone (the Dock menu agrees).
             ContentUnavailableView {
                 Label(offTitle, systemImage: offSymbol)
             } description: {

@@ -1,11 +1,6 @@
 import SwiftUI
 import EmberKit
 
-// Stock Form rows the panes share, so every stepper, slider and colour well
-// reads the same way: label in the label column, value in the control.
-
-/// "Focus   [25 min] [⌃⌄]": the value sits next to the stepper, not in the
-/// label, so labels line up in the form's label column.
 struct StepperRow: View {
     let title: LocalizedStringKey
     @Binding var value: Int
@@ -34,7 +29,6 @@ struct StepperRow: View {
     }
 }
 
-/// The same with a fractional step (sensor offsets).
 struct DecimalStepperRow: View {
     let title: LocalizedStringKey
     @Binding var value: Double
@@ -63,7 +57,6 @@ struct DecimalStepperRow: View {
     }
 }
 
-/// A 0–100 % slider with its value after it.
 struct PercentSliderRow: View {
     let title: LocalizedStringKey
     @Binding var percent: Int
@@ -95,8 +88,6 @@ struct PercentSliderRow: View {
     }
 }
 
-/// A stock colour well bound to a "#RRGGBB" string. The clock is 8-bit sRGB,
-/// so a wide-gamut pick is quantised on the way back, as intended.
 struct HexColorRow: View {
     let title: LocalizedStringKey
     @Binding var hex: String
@@ -113,12 +104,9 @@ struct HexColorRow: View {
     }
 }
 
-/// A per-app colour that can follow the text colour ("Same as text") or be
-/// set. Without server support for null it's a plain colour well.
 struct InheritableColorRow: View {
     let title: LocalizedStringKey
     @Binding var hex: String?
-    /// What an inherited colour looks like (the text colour).
     let inherited: String
     let supportsInherit: Bool
 
@@ -156,7 +144,6 @@ struct InheritableColorRow: View {
     }
 }
 
-/// The error under a section whose model failed to save.
 struct SaveErrorFooter: View {
     let error: FeedError?
 
@@ -168,7 +155,6 @@ struct SaveErrorFooter: View {
     }
 }
 
-/// A footer: help text plus the section model's save error, if any.
 struct SectionFooter: View {
     var text: LocalizedStringKey?
     var error: FeedError?
@@ -181,12 +167,9 @@ struct SectionFooter: View {
     }
 }
 
-/// The first section of a pane while its model hasn't loaded: a spinner, or
-/// why it failed with a way to retry.
 struct LoadStateSection: View {
     let isLoaded: Bool
     let error: FeedError?
-    /// What to say when the server doesn't have this feature (404).
     var offMessage: LocalizedStringKey = "This server doesn't support these settings. Update the Ember server."
     let retry: () async -> Void
 
@@ -216,13 +199,10 @@ struct LoadStateSection: View {
 }
 
 extension View {
-    /// Saves `model` 600 ms after each edit of its draft.
     func autosaves<T: Equatable & Sendable>(_ model: ConfigModel<T>) -> some View {
         onChange(of: model.draft) { _, _ in model.scheduleSave() }
     }
 
-    /// Runs `load` when the pane appears and whenever the window becomes
-    /// active again (settings may have changed on the server meanwhile).
     func reloads(_ load: @escaping @MainActor () async -> Void) -> some View {
         modifier(ReloadOnActivate(load: load))
     }
@@ -241,7 +221,6 @@ private struct ReloadOnActivate: ViewModifier {
     }
 }
 
-/// Bridges an "HH:MM" string to the Date an hour-and-minute DatePicker wants.
 func hourMinuteBinding(_ hhmm: Binding<String>) -> Binding<Date> {
     Binding(
         get: {
@@ -257,7 +236,6 @@ func hourMinuteBinding(_ hhmm: Binding<String>) -> Binding<Date> {
         })
 }
 
-/// Opens a System Settings pane by URL.
 func openSystemSettings(_ url: String) {
     if let url = URL(string: url) { NSWorkspace.shared.open(url) }
 }

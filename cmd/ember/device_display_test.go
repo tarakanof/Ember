@@ -21,15 +21,15 @@ func TestValidateDeviceDisplay(t *testing.T) {
 		}
 	}
 	bad := []map[string]any{
-		{"overlay": "rainbow"},          // not in enum
-		{"overlay": 3},                  // wrong type
-		{"overlay": "clear"},            // NG has no "clear"; use null
-		{"power": true},                 // own route: PUT /v1/device/display/power
-		{"moodlight": map[string]any{}}, // out of scope this ticket
-		{"overlaySettings": map[string]any{"speed": "x"}}, // wrong type
-		{"overlaySettings": map[string]any{"nope": true}}, // unknown subkey
-		{"overlaySettings": "not-an-object"},              // wrong shape
-		{"NOPE": true},                                    // unknown top-level key
+		{"overlay": "rainbow"},
+		{"overlay": 3},
+		{"overlay": "clear"},
+		{"power": true},
+		{"moodlight": map[string]any{}},
+		{"overlaySettings": map[string]any{"speed": "x"}},
+		{"overlaySettings": map[string]any{"nope": true}},
+		{"overlaySettings": "not-an-object"},
+		{"NOPE": true},
 	}
 	for i, m := range bad {
 		if err := validateDeviceDisplay(m); err == nil {
@@ -125,9 +125,9 @@ func TestDeviceAppsProxy(t *testing.T) {
 	}
 
 	bad := []string{
-		`{"order":[1,2]}`,                 // non-string entries
-		`{"order":["Time"],"extra":true}`, // unknown top-level key
-		`{"foo":"bar"}`,                   // completely wrong shape
+		`{"order":[1,2]}`,
+		`{"order":["Time"],"extra":true}`,
+		`{"foo":"bar"}`,
 	}
 	for _, body := range bad {
 		bw := httptest.NewRecorder()

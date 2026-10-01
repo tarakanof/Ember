@@ -27,7 +27,6 @@ func probeCombines(browse: LocalNetworkProbe.BrowseOutcome, server: LocalNetwork
     #expect(LocalNetworkProbe.outcome(for: .setup) == nil)
 }
 
-// Any HTTP status means the request got through.
 @Test func probeServerAnswers() async {
     #expect(LocalNetworkProbe.serverOutcome(for: APIError.http(status: 401, body: "")) == .reachable)
     #expect(LocalNetworkProbe.serverOutcome(for: APIError.localNetworkDenied) == .denied)
@@ -86,7 +85,6 @@ private func snapshot(_ states: [(ProducerAgent, AgentState)], blocked: [Produce
 @Test func remindersMatterOnlyWhenAlarmsAreOn() {
     let asked = PermissionsModel.remindersRow(.notDetermined, inUse: true)
     #expect(asked.needsAttention && asked.action == .requestAccess)
-    // Alarms off: neutral, not a red Off, and the button goes to Calendar.
     let unused = PermissionsModel.remindersRow(.denied, inUse: false)
     #expect(unused.status == .notInUse && !unused.required && !unused.needsAttention)
     #expect(unused.action == .openPane(.calendar))
@@ -117,7 +115,6 @@ private final class FakeSources: PermissionSources {
     var remindersAccess: AccessStatus = .granted
     var remindersInUse = false
     var locationAccess: AccessStatus = .notDetermined
-    /// Holds `localNetwork()` until released, to test overlapping refreshes.
     var gate: CheckedContinuation<Void, Never>?
     var holdNetwork = false
     var networkCalls = 0
@@ -151,17 +148,12 @@ private final class FakeSources: PermissionSources {
     #expect(model.attention.map(\.id) == [.localNetwork, .reminders])
     #expect(!model.isChecking && model.checkedAt != nil)
 
-    // Fixed in System Settings, re-checked on app activation.
     fake.network = .granted
     fake.remindersAccess = .granted
     await model.refresh()
     #expect(model.attention.isEmpty)
 }
 
-// The pane's .task and didBecomeActive both refresh when Settings opens: the
-// second joins the running check instead of probing again. An explicit call
-// (Check Again, after Repair) runs a fresh check once it's done, since the
-// running one may predate the fix.
 @MainActor
 @Test func overlappingRefreshesShareOneCheck() async {
     let fake = FakeSources()
@@ -184,7 +176,6 @@ private final class FakeSources: PermissionSources {
     #expect(!model.isChecking)
 }
 
-// Activations re-check at most every few seconds; Check Again always does.
 @MainActor
 @Test func activationRefreshesAreThrottled() async {
     let fake = FakeSources()
@@ -205,7 +196,6 @@ private final class FakeSources: PermissionSources {
     #expect(fake.networkCalls == 3)
 }
 
-// While re-checking, the last Local Network verdict stays up (no flicker).
 @MainActor
 @Test func refreshKeepsTheLastVerdictWhileProbing() async {
     let fake = FakeSources()

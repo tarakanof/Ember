@@ -53,14 +53,9 @@ public enum DateYearMode: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// Fallback catalogues and preview renderers for the Device tab's pickers.
-/// NG replaced AWTRIX3's static TEFF (0–10) table and TFORMAT/DFORMAT strftime
-/// strings — transition/effect names now come from the live
-/// GET /v1/device/capabilities response, and time/date are discrete typed
-/// fields with no format string to render.
 public enum DeviceKnownValues {
     /// Shown when the capabilities endpoint is unreachable or hasn't loaded
     /// yet, so the transition-effect picker still has something sane to offer.
-    /// The live list from GET /v1/device/capabilities always wins once loaded.
     public static let fallbackTransitions = [
         "random", "slide", "dim", "zoom", "rotate", "pixelate", "curtain", "ripple", "blink", "reload", "fade",
     ]
@@ -71,8 +66,7 @@ public enum DeviceKnownValues {
         return String(first).uppercased() + raw.dropFirst()
     }
 
-    /// Renders a live example of the discrete time fields, e.g. "14:05:09" or
-    /// "2:05 PM" — replaces DeviceFormats.example's strftime rendering.
+    /// Renders a live example of the discrete time fields.
     public static func timePreview(hour24: Bool, leadingZero: Bool, showSeconds: Bool, showAmPm: Bool,
                                     at date: Date = .now, timeZone: TimeZone = .current) -> String {
         var calendar = Calendar(identifier: .gregorian)
@@ -89,8 +83,7 @@ public enum DeviceKnownValues {
         return out
     }
 
-    /// Renders a live example of the discrete date fields, e.g. "07.06.26" or
-    /// "06/07" (year hidden) — replaces DeviceFormats.example's strftime rendering.
+    /// Renders a live example of the discrete date fields.
     public static func datePreview(order: DateOrder, separator: DateSeparator, yearMode: DateYearMode,
                                     at date: Date = .now, timeZone: TimeZone = .current) -> String {
         var calendar = Calendar(identifier: .gregorian)
@@ -111,7 +104,7 @@ public enum DeviceKnownValues {
         switch order {
         case .dayMonthYear: parts = [day, month]
         case .monthDayYear: parts = [month, day]
-        case .yearMonthDay: parts = [month, day] // year prepended below
+        case .yearMonthDay: parts = [month, day]
         }
         if let year {
             if order == .yearMonthDay {

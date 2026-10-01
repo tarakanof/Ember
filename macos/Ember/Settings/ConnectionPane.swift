@@ -2,14 +2,9 @@ import SwiftUI
 import AppKit
 import EmberKit
 
-/// The server this Mac talks to and how it identifies itself. Stored in
-/// producer.env (shared with the producers) through `env.settings.connectionEnv`
-/// and `env.envStore`.
 struct ConnectionPane: View {
     @Environment(AppEnvironment.self) private var env
 
-    // Source and Server URL commit on Return or when the field loses focus:
-    // saving a half-typed URL would repoint every model at a wrong server.
     @State private var source = ""
     @State private var serverURL = ""
     @State private var token = ""
@@ -87,9 +82,6 @@ struct ConnectionPane: View {
         .disabled(!model.isLoaded)
         .autosaves(model)
         .onChange(of: focused) { old, _ in commitOnFocusLeave(old) }
-        // Leaving the pane or closing the window tears the view down without
-        // a focus change; don't lose a typed source or URL. The token is only
-        // ever saved by Save Token or Return.
         .onDisappear {
             commitOnFocusLeave(.source)
             commitOnFocusLeave(.serverURL)
@@ -245,8 +237,6 @@ struct ConnectionPane: View {
         Task { await model.saveNow() }
     }
 
-    /// The token is saved on its own and only on request: it's a secret and a
-    /// partly typed value must never reach producer.env.
     private func saveToken() async {
         guard !tokenIsBlank else { return }
         let value = token

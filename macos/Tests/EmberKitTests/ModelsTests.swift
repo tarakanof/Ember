@@ -31,7 +31,6 @@ import Foundation
 }
 
 @Test func usageConfigThresholdDecodesWithOlderServerDefault() throws {
-    // Older server: no usage_threshold_pct in the body -> default 60.
     let old = #"{"usage_widget":true,"usage_per_model":false,"limit_alarm":true}"#
     let cfg = try JSONDecoder().decode(UsageConfig.self, from: Data(old.utf8))
     #expect(cfg.usageThresholdPct == 60)
@@ -81,7 +80,6 @@ import Foundation
     #expect(obj["tile_lead_minutes"] != nil)
     #expect(obj["popup_lead_minutes"] != nil)
     #expect(obj["chime"] != nil)
-    // round-trip
     let dec = JSONDecoder()
     let cfg2 = try dec.decode(MeetingsConfig.self, from: data)
     #expect(cfg2 == cfg)
@@ -93,7 +91,6 @@ import Foundation
     let state = try dec.decode(MeetingsState.self, from: Data(json.utf8))
     #expect(state.upcoming.count == 1)
     #expect(state.upcoming[0].title == "STANDUP")
-    // start must decode as a Date (non-zero interval since 1970)
     #expect(state.upcoming[0].start.timeIntervalSince1970 > 0)
     #expect(state.fetchedAt != nil)
 }
@@ -107,8 +104,6 @@ import Foundation
 }
 
 @Test func testMeetingsStateItemUID() throws {
-    // Items must carry the uid from the server, and two items with the same
-    // title+start but different UIDs must produce different id values.
     let json = #"""
     {"upcoming":[
       {"uid":"alpha@feed1","title":"STANDUP","start":"2026-06-12T09:30:00Z"},
@@ -120,18 +115,15 @@ import Foundation
     #expect(state.upcoming.count == 2)
     #expect(state.upcoming[0].uid == "alpha@feed1")
     #expect(state.upcoming[1].uid == "beta@feed2")
-    // Same title and same start — different uid must produce different ids.
     #expect(state.upcoming[0].id != state.upcoming[1].id)
 }
 
 @Test func testMeetingsStateItemUIDOlderServer() throws {
-    // Older server payload without uid must still decode (uid defaults to "").
     let json = #"{"upcoming":[{"title":"STANDUP","start":"2026-06-12T09:30:00Z"}]}"#
     let dec = JSONDecoder(); dec.dateDecodingStrategy = .iso8601
     let state = try dec.decode(MeetingsState.self, from: Data(json.utf8))
     #expect(state.upcoming.count == 1)
     #expect(state.upcoming[0].uid == "")
-    // id must still be non-empty (falls back to title|start form).
     #expect(!state.upcoming[0].id.isEmpty)
 }
 

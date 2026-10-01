@@ -1,8 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Card 2: today against the goal, or the running phase, plus the streak
-/// and completion numbers.
 struct FocusCard: View {
     let stats: Loadable<PomoStats>
     let pomodoro: Loadable<PomoState>
@@ -24,14 +22,11 @@ struct FocusCard: View {
         }
     }
 
-    /// The timer state wins over stats for the off state: both are 404 when
-    /// Pomodoro is off, but the timer loads first.
     private func model() -> Loadable<FocusSummary> {
         if pomodoro.error == .featureOff || stats.error == .featureOff {
             return .failed(.featureOff, last: nil, lastAt: nil)
         }
         if stats.isLoading {
-            // A running timer is worth showing before the numbers arrive.
             guard let p = pomodoro.value, p.mode != .idle else { return .loading }
             return .loaded(FocusSummary(stats: nil, state: p, now: now), at: now)
         }
@@ -157,8 +152,6 @@ struct FocusCard: View {
         state: nil, now: .now)
 }
 
-/// A ring gauge sized by its frame, for the Focus card: the stock
-/// `.accessoryCircularCapacity` is watch-complication small on the Mac.
 struct RingGaugeStyle: GaugeStyle {
     var tint: Color
     var lineWidth: CGFloat
@@ -195,7 +188,6 @@ struct RingGaugeStyle: GaugeStyle {
 }
 
 extension PomoDayStat {
-    /// Shape-only sample for redacted loading states.
     static let placeholder = try! JSONDecoder().decode(
         PomoDayStat.self, from: Data(#"{"date":"2026-01-01","completed_focus":3,"focus_min":75}"#.utf8))
 }

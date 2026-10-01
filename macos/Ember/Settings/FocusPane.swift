@@ -1,12 +1,9 @@
 import SwiftUI
 import EmberKit
 
-/// The Pomodoro timer: lengths, goals, behaviour and colours. Server-wide.
-/// The phase-end chime is under Sounds & Alerts.
 struct FocusPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var preview = PreviewModel()
-    /// "Custom" picked while the length is still one of the presets.
     @State private var customFocus = false
 
     private var model: ServerConfigModel<PomoConfig> { env.settings.pomodoro }
@@ -107,8 +104,6 @@ struct FocusPane: View {
 }
 
 extension ClosedRange where Bound == Int {
-    /// The range, widened to include `value` so a setting made elsewhere
-    /// isn't clamped the moment the stepper is touched.
     func including(_ value: Int) -> ClosedRange<Int> {
         Swift.min(lowerBound, value)...Swift.max(upperBound, value)
     }

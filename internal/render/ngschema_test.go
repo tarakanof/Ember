@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// checkNGKeys fails t with every reason NG 1.1.2 would reject p.
 func checkNGKeys(t *testing.T, name string, p map[string]any, notification bool) {
 	t.Helper()
 	for _, e := range CheckNGPayload(p, notification) {
@@ -14,7 +13,6 @@ func checkNGKeys(t *testing.T, name string, p map[string]any, notification bool)
 	}
 }
 
-// TestCheckNGPayloadCatches: the checker itself rejects what NG would.
 func TestCheckNGPayloadCatches(t *testing.T) {
 	if n := len(ngSharedKeys) + len(ngNotifyOnlyKeys); n != 42 {
 		t.Fatalf("key table has %d keys, NG documents 42", n)
@@ -43,8 +41,6 @@ func TestCheckNGPayloadCatches(t *testing.T) {
 	}
 }
 
-// TestPayloadBuildersEmitOnlyNGKeys guards against a 422: every payload
-// builder, in every variant, emits only keys NG 1.1.2 accepts for its route.
 func TestPayloadBuildersEmitOnlyNGKeys(t *testing.T) {
 	hourly := []float64{3, 4, 5, 6, 7, 8}
 	waiting := waitingSnap()

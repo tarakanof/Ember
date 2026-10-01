@@ -1,16 +1,7 @@
 import SwiftUI
 import EmberKit
 
-/// Live mirror of the clock's 32×8 LED matrix (24-bit RGB ints, row-major, as
-/// served by /v1/device/screen). Lit pixels are rounded squares over a soft
-/// halo so they read as glowing LEDs; unlit pixels keep a faint dot so the
-/// panel shape stays visible. Colours are shown at full vibrancy — the panel's
-/// global brightness isn't simulated, since multiplying every pixel's opacity
-/// flattens the per-pixel contrast the buffer carries.
-///
-/// The view sizes itself to the panel: square cells at a whole-point pitch
-/// (`LEDMatrixLayout`), so it never stretches, and a background applied to it
-/// hugs the LEDs. `maxPitch` caps how large it grows in a wide container.
+/// Live mirror of the clock's 32×8 LED matrix.
 struct MatrixScreenView: View {
     let pixels: [Int]
     var width: Int = 32
@@ -27,7 +18,6 @@ struct MatrixScreenView: View {
                 draw(layout, in: &ctx)
             }
         }
-        // One element, not 256 unlabeled shapes; callers set label and value.
         .accessibilityElement()
         .accessibilityLabel("LED matrix")
         .accessibilityAddTraits(.isImage)
@@ -46,9 +36,6 @@ struct MatrixScreenView: View {
                 }
                 let colour = Self.color(value)
                 if layout.showsGlow {
-                    // The halo is a radial gradient confined to the pixel's
-                    // own cell: it shows in the gap around the LED but can't
-                    // bleed into a neighbour, which a blurred layer did.
                     let cell = layout.cell(x: x, y: y)
                     ctx.fill(Path(cell), with: .radialGradient(
                         Gradient(colors: [colour.opacity(0.45), colour.opacity(0)]),
@@ -68,8 +55,6 @@ struct MatrixScreenView: View {
     }
 }
 
-/// Sizes its one child to the snapped panel for whatever space is offered,
-/// and centres it when handed more.
 private struct LEDMatrixFrame: Layout {
     let columns: Int
     let rows: Int

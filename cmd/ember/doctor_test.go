@@ -108,8 +108,6 @@ func TestRunDoctorChecks_ClockReachable(t *testing.T) {
 	app := newAppForDoctor(t, awtrix.URL)
 	cfg := app.cfg.Load()
 
-	// Populate the T1/T2 atomics the way boot / the periodic probe would, so
-	// the clock check has a real last-rediscover record to surface.
 	app.rediscoverClock(context.Background())
 
 	res := runDoctorChecks(context.Background(), app, cfg)
@@ -140,15 +138,9 @@ func TestRunDoctorChecks_ClockReachable(t *testing.T) {
 	}
 }
 
-// TestRunDoctorChecks_ClockUnreachableWarnsButDoesNotFailOverall isolates the
-// clock check's own contract: give it a URL that responds 200 (so the
-// fail-capable awtrix_reachable check stays OK) but without the AWTRIX uid
-// fingerprint (so discovery.Reachable, and therefore clock, sees it as not a
-// real clock). clock alone must not flip res.OK to false — mirrors the
-// meetings-stale WARN precedent.
 func TestRunDoctorChecks_ClockUnreachableWarnsButDoesNotFailOverall(t *testing.T) {
 	notAClock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK) // 200, but no AWTRIX JSON body/uid
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer notAClock.Close()
 
@@ -176,7 +168,7 @@ func TestRunDoctorChecks_ClockUnreachableWarnsButDoesNotFailOverall(t *testing.T
 
 func TestRunDoctorChecks_AWTRIXUnreachable(t *testing.T) {
 	cfg := defaultConfig()
-	cfg.AWTRIX.HTTPBaseURL = strings.Replace(deadAddr(t), "/healthz", "", 1) // closed port
+	cfg.AWTRIX.HTTPBaseURL = strings.Replace(deadAddr(t), "/healthz", "", 1)
 	cfg.applyDefaults()
 
 	res := runDoctorChecks(context.Background(), nil, &cfg)
@@ -197,7 +189,7 @@ func TestRunDoctorChecks_AWTRIXHonorsTimeout(t *testing.T) {
 
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = slow.URL
-	cfg.AWTRIX.TimeoutSeconds = 1 // 1s > 200ms, should pass
+	cfg.AWTRIX.TimeoutSeconds = 1
 	cfg.applyDefaults()
 
 	res := runDoctorChecks(context.Background(), nil, &cfg)
@@ -223,7 +215,6 @@ func TestDoctorCLI_OfflineSucceeds(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer awtrix.Close()
-	// Rewrite the cfg to point at the AWTRIX stub.
 	body := `{"awtrix":{"http_base_url":"` + awtrix.URL + `"}}`
 	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -258,14 +249,7 @@ func TestDoctorCLI_FlagsBeforeSubcommand(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "go", "run", ".", "-config", cfgPath, "doctor", "--offline", "--json")
 	cmd.Env = append(cmd.Environ(), "CONFIG_PATH=/nonexistent/awtrix.json")
 	if err := cmd.Run(); err == nil {
-		// expected exit 0 because static checks could pass; if they fail
-		// (e.g. AWTRIX is "http://x" and unreachable), exit 1 is also a
-		// valid demonstration that the dispatcher reached the doctor.
-		// We only care that it didn't fall through to server start.
 	}
-	// If the dispatcher fell through, `go run` would block on the server
-	// starting. The 30 s context timeout would kick in. Treat any clean
-	// (timely) exit as a pass.
 }
 
 func TestDoctorCLI_OnlineUsesServerURL(t *testing.T) {
@@ -367,9 +351,6 @@ func TestRunDoctorChecks_HTTPListening_PlainScheme(t *testing.T) {
 	}
 }
 
-// TestDoctorWarnIsNonFatal: when the meetings feed is configured but its
-// lastFetchOK is beyond meetingsStaleTTL, checkMeetings returns StatusWarn.
-// runDoctorChecks must then set res.OK = true (warn is non-fatal).
 func TestDoctorWarnIsNonFatal(t *testing.T) {
 	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -377,7 +358,6 @@ func TestDoctorWarnIsNonFatal(t *testing.T) {
 	defer awtrix.Close()
 
 	app := newAppForDoctor(t, awtrix.URL)
-	// Configure a meetings URL; set lastFetchOK 61m ago so meetings warns.
 	app.meetingsURLs = []string{"http://calendar.example.com/feed.ics"}
 	app.meetings.mu.Lock()
 	app.meetings.lastFetchOK = time.Now().Add(-61 * time.Minute)
@@ -393,9 +373,6 @@ func TestDoctorWarnIsNonFatal(t *testing.T) {
 	}
 }
 
-// TestAdminDoctorWarnReturns200: when the meetings check warns (URLs set, never
-// fetched), /admin/doctor must return 200, not 503. A stale-but-configured
-// calendar feed must not make monitoring see the server as unavailable.
 func TestAdminDoctorWarnReturns200(t *testing.T) {
 	awtrix := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -403,8 +380,6 @@ func TestAdminDoctorWarnReturns200(t *testing.T) {
 	defer awtrix.Close()
 
 	app := newAppForDoctor(t, awtrix.URL)
-	// Inject a meetings URL so checkMeetings enters the "configured" path.
-	// lastFetchOK is zero (never fetched) → StatusWarn.
 	app.meetingsURLs = []string{"http://calendar.example.com/feed.ics"}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -443,8 +418,6 @@ func TestAdminDoctorWarnReturns200(t *testing.T) {
 	}
 }
 
-// TestRenderDoctorText_WarnSummary: when there is one WARN and no FAILs, the
-// summary line must say "OK (1 warning)" rather than plain "OK (online)".
 func TestRenderDoctorText_WarnSummary(t *testing.T) {
 	res := DoctorResult{
 		OK:   true,
@@ -465,10 +438,6 @@ func TestRenderDoctorText_WarnSummary(t *testing.T) {
 	}
 }
 
-// TestCheckMeetingsDisabledWithURLs: URLs set but cfg.Meetings.Enabled = boolPtr(false)
-// and never fetched → StatusOK (not StatusWarn), detail mentions "disabled".
-// Rationale: the poller never runs when disabled, so lastOK stays zero; that is
-// expected and must not surface as a "feed broken" warning.
 func TestCheckMeetingsDisabledWithURLs(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := newMeetingsTestApp(t, pub)
@@ -476,7 +445,6 @@ func TestCheckMeetingsDisabledWithURLs(t *testing.T) {
 		"http://calendar.example.com/feed1.ics",
 		"http://calendar.example.com/feed2.ics",
 	}
-	// lastFetchOK is zero (never fetched) — the poller never ran because disabled.
 
 	cfg := app.cfg.Load()
 	cfg.Meetings.Enabled = boolPtr(false)
@@ -491,15 +459,10 @@ func TestCheckMeetingsDisabledWithURLs(t *testing.T) {
 	}
 }
 
-// TestCheckMeetingsStale: URLs set, lastFetchOK 61m in the past → StatusWarn
-// with the age mentioned in the detail.
 func TestCheckMeetingsStale(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := newMeetingsTestApp(t, pub)
 	app.meetingsURLs = []string{"http://calendar.example.com/feed.ics"}
-	// Seed a lastFetchOK 61 minutes before real now (beyond meetingsStaleTTL = 60m).
-	// Use time.Now() so the age calculation in checkMeetings (which also calls
-	// time.Now()) yields a positive age ≥ meetingsStaleTTL.
 	app.meetings.mu.Lock()
 	app.meetings.lastFetchOK = time.Now().Add(-61 * time.Minute)
 	app.meetings.mu.Unlock()
@@ -513,7 +476,6 @@ func TestCheckMeetingsStale(t *testing.T) {
 	if !strings.Contains(got.Detail, "stale") {
 		t.Errorf("detail should mention 'stale'; got %q", got.Detail)
 	}
-	// The age (≈61m) must appear so operators can diagnose the feed.
 	if !strings.Contains(got.Detail, "ago") {
 		t.Errorf("detail should mention age ('ago'); got %q", got.Detail)
 	}

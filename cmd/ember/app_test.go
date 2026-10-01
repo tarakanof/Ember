@@ -21,7 +21,6 @@ func TestApp_PublishUpdatesLastPublishFields(t *testing.T) {
 	cfg.applyDefaults()
 
 	app := NewApp(cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	// Seed a running session so RenderForCoord produces a non-nil payload.
 	app.Upsert(StatusRequest{Source: "dt", Tool: "claude", Session: "s1", State: "running"})
 
 	ctx, cancel := context.WithCancel(context.Background())

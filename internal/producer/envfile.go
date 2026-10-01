@@ -8,10 +8,7 @@ import (
 	"syscall"
 )
 
-// ReadEnvFile reads a KEY=value file, requiring it to be a regular file with
-// mode 0600 owned by the current user (it carries a bearer token). A missing
-// file yields an empty map and no error. Quoted values are unquoted; comment
-// and blank lines are skipped.
+// ReadEnvFile reads a KEY=value file, requiring it to be a regular file with mode 0600 owned by the current user (it carries a bearer token).
 func ReadEnvFile(path string) (map[string]string, error) {
 	stat, err := os.Lstat(path)
 	if err != nil {

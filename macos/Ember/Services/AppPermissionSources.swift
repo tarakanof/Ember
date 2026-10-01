@@ -2,9 +2,6 @@ import CoreLocation
 import EventKit
 import EmberKit
 
-/// `PermissionsModel`'s reads over the real frameworks: EventKit, CoreLocation,
-/// the producer installer and a Local Network probe against the configured
-/// server.
 @MainActor
 final class AppPermissionSources: PermissionSources {
     private let connection: ServerConnection
@@ -33,7 +30,6 @@ final class AppPermissionSources: PermissionSources {
         let status: AccessStatus = switch reminderWatcher.authStatus {
         case .fullAccess: .granted
         case .notDetermined: .notDetermined
-        // Write-only access can't read due dates, so alarms can't work.
         default: .denied
         }
         return (status, reminderWatcher.prefs.enabled)

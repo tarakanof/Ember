@@ -1,9 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// The clock's built-in apps: which run, in what order, in which colour.
-/// Ember's own tiles (pushed apps) are left out so they can't be switched
-/// off here by accident.
 struct NativeAppsSection: View {
     @Environment(DeviceSettingsModel.self) private var device
 
@@ -87,7 +84,6 @@ struct NativeAppsSection: View {
 }
 
 extension ConfigModel where T == DeviceSettings {
-    /// An optional field as is (nil = inherit).
     func binding(_ key: WritableKeyPath<DeviceSettings, String?>) -> Binding<String?> {
         Binding(get: { self.draft[keyPath: key] }, set: { self.draft[keyPath: key] = $0 })
     }

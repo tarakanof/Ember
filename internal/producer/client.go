@@ -1,5 +1,4 @@
-// Package producer holds the shared HTTP client, env-file parser, and log
-// rotation used by both the Claude and Codex ember producers.
+// Package producer holds the shared HTTP client, env-file parser, and log rotation used by both the Claude and Codex ember producers.
 package producer
 
 import (
@@ -12,37 +11,27 @@ import (
 	"time"
 )
 
-// StatusRequest is the POST /v1/status body. Pointer fields are omitted when nil.
+// StatusRequest is the POST /v1/status body.
 type StatusRequest struct {
-	Source        string  `json:"source"`
-	Tool          string  `json:"tool"`
-	Session       string  `json:"session"`
-	State         string  `json:"state"`
-	Message       string  `json:"message,omitempty"`
-	ContextPct    *int    `json:"context_pct,omitempty"`
-	SourceColor   *string `json:"source_color,omitempty"`
-	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
-	Activity      string  `json:"activity,omitempty"`
-	ContextNumber bool    `json:"context_number,omitempty"`
-	RateBottomBar bool    `json:"rate_bottom_bar,omitempty"`
-	RateResetAt   int64   `json:"rate_reset_at,omitempty"`
-	RateReset     bool    `json:"rate_reset,omitempty"`
-	// RateResetLabel is the host-local "HH:MM" 5h-reset label set by the Claude
-	// statusline path. It exists so the server (which runs UTC in the container)
-	// can render a correct local label in the usage-widget 5h fallback without
-	// doing timezone math itself.
-	RateResetLabel string `json:"rate_reset_label,omitempty"`
-	SourceCard     *bool  `json:"source_card,omitempty"`
-	SessionBar     *bool  `json:"session_bar,omitempty"`
-	// RateWeekPct/RateWeekResetAt/RateWeekResetLabel carry the Claude
-	// statusline's weekly (seven_day) rate-limit window. They exist so the
-	// on-disk session marker (which embeds StatusRequest) can pass this data
-	// from the statusline process to the heartbeat daemon, which relays it to
-	// POST /v1/usage — they are never meant to reach POST /v1/status itself,
-	// and the Claude producer clears them before that POST.
-	RateWeekPct        *int   `json:"rate_week_pct,omitempty"`
-	RateWeekResetAt    int64  `json:"rate_week_reset_at,omitempty"`
-	RateWeekResetLabel string `json:"rate_week_reset_label,omitempty"`
+	Source             string  `json:"source"`
+	Tool               string  `json:"tool"`
+	Session            string  `json:"session"`
+	State              string  `json:"state"`
+	Message            string  `json:"message,omitempty"`
+	ContextPct         *int    `json:"context_pct,omitempty"`
+	SourceColor        *string `json:"source_color,omitempty"`
+	RateWindowPct      *int    `json:"rate_window_pct,omitempty"`
+	Activity           string  `json:"activity,omitempty"`
+	ContextNumber      bool    `json:"context_number,omitempty"`
+	RateBottomBar      bool    `json:"rate_bottom_bar,omitempty"`
+	RateResetAt        int64   `json:"rate_reset_at,omitempty"`
+	RateReset          bool    `json:"rate_reset,omitempty"`
+	RateResetLabel     string  `json:"rate_reset_label,omitempty"`
+	SourceCard         *bool   `json:"source_card,omitempty"`
+	SessionBar         *bool   `json:"session_bar,omitempty"`
+	RateWeekPct        *int    `json:"rate_week_pct,omitempty"`
+	RateWeekResetAt    int64   `json:"rate_week_reset_at,omitempty"`
+	RateWeekResetLabel string  `json:"rate_week_reset_label,omitempty"`
 }
 
 // DeleteRequest is the DELETE /v1/status body.
@@ -59,7 +48,7 @@ type Client struct {
 	link       *LinkStatus
 }
 
-// NewClient builds a Client. token may be empty (no Authorization header sent).
+// NewClient builds a Client.
 func NewClient(serverURL, token string, timeout time.Duration) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: timeout},
@@ -68,15 +57,13 @@ func NewClient(serverURL, token string, timeout time.Duration) *Client {
 	}
 }
 
-// WithLinkStatus makes c record whether each request reached the server
-// into link (see LinkStatus), and returns c.
+// WithLinkStatus makes c record each request's reachability into link and returns c.
 func (c *Client) WithLinkStatus(link *LinkStatus) *Client {
 	c.link = link
 	return c
 }
 
-// Timeout reports the HTTP client's configured Timeout, for asserting client
-// configuration in tests without exercising a real network call.
+// Timeout reports the HTTP client's configured Timeout.
 func (c *Client) Timeout() time.Duration {
 	return c.httpClient.Timeout
 }
@@ -97,22 +84,20 @@ func (c *Client) Delete(ctx context.Context, req DeleteRequest) error {
 	return c.send(ctx, http.MethodDelete, "/v1/status", body)
 }
 
-// UsageWindow is one usage window (5h or weekly). ResetsAt is unix epoch
-// seconds; ResetLabel is the host-local display string ("14:25" or "MON").
+// UsageWindow is one usage window (5h or weekly).
 type UsageWindow struct {
 	UsedPercent float64 `json:"used_percent"`
 	ResetsAt    int64   `json:"resets_at,omitempty"`
 	ResetLabel  string  `json:"reset_label,omitempty"`
 }
 
-// UsageRequest is the POST /v1/usage body. Tool is "claude" or "codex".
-// Source is "endpoint" | "statusline" | "codex_stream". Models is Claude-only.
+// UsageRequest is the POST /v1/usage body.
 type UsageRequest struct {
 	Tool     string                  `json:"tool"`
 	Source   string                  `json:"source"`
 	FiveHour *UsageWindow            `json:"five_hour,omitempty"`
 	SevenDay *UsageWindow            `json:"seven_day,omitempty"`
-	Models   map[string]*UsageWindow `json:"models,omitempty"` // "opus","sonnet"
+	Models   map[string]*UsageWindow `json:"models,omitempty"`
 }
 
 func (c *Client) Usage(ctx context.Context, req UsageRequest) error {

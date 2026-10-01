@@ -13,9 +13,7 @@ public enum LaunchdProbe: Sendable, Equatable {
     case unknown
 }
 
-/// Classifies a `launchctl print` result. Only "no such service" is
-/// `.notLoaded`, and only a job `launchdJobIsStuck` recognises is `.stuck`;
-/// anything else that fails is `.unknown`, never a reason to re-register.
+/// Classifies a `launchctl print` result.
 public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
     if result.exitCode == 0 { return launchdJobIsStuck(result.stdout) ? .stuck : .loaded }
     if result.exitCode == 113 || (result.stderr + result.stdout).contains("Could not find service") {
@@ -26,18 +24,7 @@ public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
 
 /// Whether `launchctl print` output describes a job launchd keeps failing to
 /// spawn: not running, `job state = spawn failed`, and either `needs LWCR
-/// update` in its properties or `last exit code = 78`. One signal alone isn't
-/// enough: right after a changed helper's first spawn, launchd sets `needs
-/// LWCR update` while its own repair is still running, and booting the job
-/// out then would cut that repair short where it works.
-///
-/// That's where an ad-hoc signed helper ends up after its code changes.
-/// Background Items pins the job's launch constraint (LWCR) to the helper's
-/// cdhash, and re-registering keeps the existing item, so the new helper's
-/// first spawn is a Launch Constraint Violation. launchd's own repair then
-/// makes Background Items replace the item (new UUID, fresh constraint) but
-/// reports failure, and the loaded job keeps the old item's UUID: every later
-/// spawn exits 78 (EX_CONFIG) until the job is booted out and registered again.
+/// update` in its properties or `last exit code = 78`.
 public func launchdJobIsStuck(_ output: String) -> Bool {
     let fields = launchctlPrintFields(output)
     guard fields["state"] != "running", fields["job state"] == "spawn failed" else { return false }
@@ -47,8 +34,6 @@ public func launchdJobIsStuck(_ output: String) -> Bool {
     return needsLWCR || exitedConfig
 }
 
-/// The job's own `key = value` lines from `launchctl print` output (one tab
-/// deep). Nested blocks, such as a coalition's `state = active`, are skipped.
 func launchctlPrintFields(_ output: String) -> [String: String] {
     var fields: [String: String] = [:]
     for line in output.split(separator: "\n") {
@@ -70,9 +55,7 @@ public func shouldRecordFingerprint(bundleChanged: Bool, outcomes: [ReconcileOut
 }
 
 /// Whether launch should look at the agents again a little after an update
-/// reconcile re-registered some. A changed ad-hoc helper only fails once
-/// launchd has tried to spawn it (see `launchdJobIsStuck`), so the job looks
-/// fine right after registering and gets stuck seconds later.
+/// reconcile re-registered some.
 public func shouldRecheckAfterReconcile(bundleChanged: Bool, outcomes: [ReconcileOutcome]) -> Bool {
     bundleChanged && outcomes.contains { $0.error == nil }
 }
@@ -83,11 +66,7 @@ public func shouldRecheckAfterReconcile(bundleChanged: Bool, outcomes: [Reconcil
 public let producerRecheckDelay: Duration = .seconds(30)
 
 /// Decides whether launch should treat the bundle as updated: re-register
-/// every enabled agent's LaunchAgent so the new helpers take over. Re-registering
-/// on every launch is needless churn (and can re-surface a "needs approval"
-/// state), so the caller compares a fingerprint of the bundle
-/// (`bundleFingerprint(appURL:version:build:)`) with the one recorded after the
-/// last successful reconcile. `nil` (nothing recorded) reconciles once.
+/// every enabled agent's LaunchAgent so the new helpers take over.
 public func shouldReconcileAfterUpdate(currentVersion: String, lastReconciledVersion: String?) -> Bool {
     currentVersion != lastReconciledVersion
 }
@@ -96,13 +75,9 @@ public func shouldReconcileAfterUpdate(currentVersion: String, lastReconciledVer
 public enum ReconcileReason: Sendable, Equatable {
     /// The app bundle (helpers or plists) changed since the last reconcile.
     case bundleChanged
-    /// Enabled in Background Items, but launchd has no job for it: booted out
-    /// (e.g. by the CLI `uninstall`), or dropped after it couldn't be spawned.
-    /// launchd won't bring it back before the next login on its own.
+    /// Enabled in Background Items, but launchd has no job for it: booted out.
     case notRunning
     /// launchd has the job but keeps failing to spawn it (`launchdJobIsStuck`).
-    /// Registering again on top of it keeps the stuck job, so it's booted out
-    /// first.
     case stuck
 }
 
@@ -113,8 +88,7 @@ public enum AgentLiveness: Sendable, Equatable {
     case stuck
 }
 
-/// Whether an agent needs re-registering, and why. Only an agent the user
-/// turned on (`.enabled`) is ever touched.
+/// Whether an agent needs re-registering, and why.
 public func reconcileReason(registration: AgentRegistration, liveness: AgentLiveness,
                             bundleChanged: Bool) -> ReconcileReason? {
     guard registration == .enabled else { return nil }
@@ -138,7 +112,7 @@ extension ProducerInstallError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .configureFailed:
-            nil   // unchanged: Foundation's default description
+            nil
         case .bootoutFailed(let exit, let detail):
             String(localized: "macOS wouldn't stop the stuck background helper (launchctl exit \(exit): \(detail)).",
                    comment: "Settings › Agents failure after Repair when launchctl bootout fails; exit code, then launchctl's message.")
@@ -153,7 +127,7 @@ public enum AgentState: Sendable, Equatable {
     case needsApproval
     case on
     /// Registered and enabled, but launchd has no job for it or can't start
-    /// it, so nothing is reporting. `ProducerInstallService.repairAll()` fixes it.
+    /// it, so nothing is reporting.
     case notRunning
     case error(String)
 }
@@ -169,15 +143,13 @@ public enum ToggleState: Sendable, Equatable {
 }
 
 /// The result of installing or uninstalling a single agent as part of a
-/// batch operation (`installAll`/`uninstallAll`). `error` is `nil` on
-/// success.
+/// batch operation (`installAll`/`uninstallAll`).
 public struct AgentOutcome: Sendable {
     public let agent: ProducerAgent
     public let error: Error?
 }
 
-/// One agent `reconcile(bundleChanged:)` re-registered. `error` is `nil` on
-/// success.
+/// One agent `reconcile(bundleChanged:)` re-registered.
 public struct ReconcileOutcome: Sendable {
     public let agent: ProducerAgent
     public let reason: ReconcileReason
@@ -185,18 +157,7 @@ public struct ReconcileOutcome: Sendable {
 }
 
 /// Orchestrates detection, install, and uninstall of the unified installer's
-/// producer agents (Claude heartbeat producer, Codex producer). Install
-/// shells out to the producer binary's `configure` subcommand, then
-/// registers the corresponding LaunchAgent via `SMAppServiceControlling`;
-/// if registration fails, it best-effort rolls back the shell-side
-/// configuration via `deconfigure`. Uninstall reverses the order:
-/// unregister first, then `deconfigure`.
-///
-/// Every method blocks on process spawns or `SMAppService` IPC, so the type is
-/// nonisolated and `Sendable`; the batch operations and `snapshot()` are
-/// `@concurrent` so a MainActor caller awaits them without stalling the UI.
-/// They still block a cooperative-pool thread while they run (process waits,
-/// XPC), which is acceptable for the two agents this manages.
+/// producer agents (Claude heartbeat producer, Codex producer).
 public final class ProducerInstallService: Sendable {
     private let sm: SMAppServiceControlling
     private let runner: ProducerCommandRunning
@@ -206,7 +167,6 @@ public final class ProducerInstallService: Sendable {
     private let readFile: @Sendable (String) -> Data?
     private let uid: uid_t
     private let probeWarned = OSAllocatedUnfairLock(initialState: false)
-    /// One install/uninstall/reconcile at a time (see `reconcile`).
     private let serial = SerialGate()
     private static let log = Logger(subsystem: "com.ember.Ember", category: "producers")
 
@@ -238,8 +198,7 @@ public final class ProducerInstallService: Sendable {
     }
 
     /// Runs the producer binary's `configure` subcommand, then registers its
-    /// LaunchAgent. If registration throws, best-effort runs `deconfigure`
-    /// to roll back the shell-side configuration, then rethrows.
+    /// LaunchAgent.
     public func install(_ agent: ProducerAgent) throws {
         let result = try runner.run(executable: executablePath(for: agent), arguments: ["configure"])
         guard result.exitCode == 0 else {
@@ -255,19 +214,14 @@ public final class ProducerInstallService: Sendable {
     }
 
     /// Unregisters the LaunchAgent, then runs the producer binary's
-    /// `deconfigure` subcommand. Leaves `producer.env` untouched; that's
-    /// `deconfigure`'s responsibility.
+    /// `deconfigure` subcommand.
     public func uninstall(_ agent: ProducerAgent) throws {
         try sm.unregister(plistName: agent.plistName)
         _ = try runner.run(executable: executablePath(for: agent), arguments: ["deconfigure"])
     }
 
     /// Whether launchd has a job for `agent` in this user's GUI domain, and
-    /// can start it. `SMAppService.status` can't tell: it reads the Background
-    /// Items database, which stays `.enabled` after launchd drops the job or
-    /// stops being able to spawn it. A probe that can't run, or fails any
-    /// other way than "no such service", counts as running (logged once), so
-    /// a broken probe never churns registrations.
+    /// can start it.
     public func liveness(_ agent: ProducerAgent) -> AgentLiveness {
         let result: CommandResult
         do {
@@ -347,8 +301,7 @@ public final class ProducerInstallService: Sendable {
 
     /// Installs every detected agent off the calling actor, catching
     /// per-agent failures so one agent's error never prevents the others from
-    /// being attempted. Never throws; inspect each `AgentOutcome.error` to see
-    /// what failed. Serialized with the other batch operations (`serial`).
+    /// being attempted.
     @concurrent
     public func installAll() async -> [AgentOutcome] {
         await serial.run {
@@ -365,8 +318,7 @@ public final class ProducerInstallService: Sendable {
 
     /// Uninstalls every detected agent off the calling actor, catching
     /// per-agent failures so one agent's error never prevents the others from
-    /// being attempted. Never throws; inspect each `AgentOutcome.error` to see
-    /// what failed. Serialized with the other batch operations (`serial`).
+    /// being attempted.
     @concurrent
     public func uninstallAll() async -> [AgentOutcome] {
         await serial.run {
@@ -384,15 +336,7 @@ public final class ProducerInstallService: Sendable {
     /// Re-registers (unregister then register) each enabled agent that
     /// `reconcileReason` picks: all of them after an app update, so the newly
     /// bundled helpers take over, otherwise only those launchd has no job for
-    /// or can't start. A stuck job is booted out first: registering on top of
-    /// it leaves launchd holding the stale job. Runs off the calling actor.
-    /// Agents that aren't enabled are never touched. Never throws; one agent's
-    /// failure doesn't stop the others.
-    ///
-    /// Serialized with Repair, install and uninstall (`serial`): the launch
-    /// recheck and a Repair click never run bootout/register on the same
-    /// label at once, and whichever runs second probes again, sees the healed
-    /// job, and does nothing.
+    /// or can't start.
     @concurrent
     public func reconcile(bundleChanged: Bool) async -> [ReconcileOutcome] {
         await serial.run { reconcileNow(bundleChanged: bundleChanged) }
@@ -404,12 +348,8 @@ public final class ProducerInstallService: Sendable {
             let live = registration == .enabled && !bundleChanged ? liveness(agent) : .running
             guard let reason = reconcileReason(registration: registration, liveness: live,
                                                bundleChanged: bundleChanged) else { return nil }
-            // Still register when bootout fails (it can't hurt), but report
-            // the failure: the job may well stay stuck.
             let bootoutError = reason == .stuck ? bootout(agent) : nil
             do {
-                // A stale registration (launchd dropped the job) may refuse
-                // to unregister; register is what matters, so go on anyway.
                 try? sm.unregister(plistName: agent.plistName)
                 try sm.register(plistName: agent.plistName)
                 return ReconcileOutcome(agent: agent, reason: reason, error: bootoutError)
@@ -419,8 +359,6 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// `launchctl bootout` of the agent's job. "No such service" counts as
-    /// done; any other failure is logged and returned.
     private func bootout(_ agent: ProducerAgent) -> ProducerInstallError? {
         let target = launchdTarget(agent)
         let exit: Int32
@@ -458,8 +396,7 @@ public final class ProducerInstallService: Sendable {
 
     /// Whether the agent's helper last failed to reach the server with "no
     /// route to host": how macOS denies a LAN connection it hasn't been given
-    /// Local Network access for. Read from the file the helper's LaunchAgent
-    /// records (`ProducerAgent.linkStatusRelPath`).
+    /// Local Network access for.
     public func localNetworkBlocked(_ agent: ProducerAgent) -> Bool {
         guard let data = readFile(home.appendingPathComponent(agent.linkStatusRelPath).path) else { return false }
         return ProducerLinkState.decode(data)?.noRoute ?? false
@@ -499,8 +436,6 @@ public struct ProducerLinkState: Decodable, Sendable, Equatable {
     }
 }
 
-/// Runs operations one at a time, in arrival order, without blocking a
-/// thread while waiting.
 final class SerialGate: Sendable {
     private struct State: Sendable {
         var busy = false

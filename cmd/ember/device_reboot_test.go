@@ -68,9 +68,6 @@ func TestProbeDevice_ReadsUptimeFromNGDeviceInfo(t *testing.T) {
 	}
 }
 
-// TestStartDeviceWatch_RepublishesOnReboot is the event-driven replacement for
-// the removed blind 30s Pomodoro re-assert loop: the watcher notices the clock's
-// uptime went backwards and queues a republish command on the coordinator.
 func TestStartDeviceWatch_RepublishesOnReboot(t *testing.T) {
 	var calls atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +76,7 @@ func TestStartDeviceWatch_RepublishesOnReboot(t *testing.T) {
 			return
 		}
 		uptime := 3874
-		if calls.Add(1) > 2 { // first tick probes twice (rediscover + uptime)
+		if calls.Add(1) > 2 {
 			uptime = 7
 		}
 		_, _ = w.Write([]byte(`{"uid":"e868e705ffb8","boardType":"awtrixng","uptimeSeconds":` +

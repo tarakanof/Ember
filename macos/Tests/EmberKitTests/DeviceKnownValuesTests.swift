@@ -4,7 +4,6 @@ import Foundation
 
 private let utc = TimeZone(identifier: "UTC")!
 
-// 2026-06-07 14:05:09 UTC — fixed instant so preview rendering is deterministic.
 private let referenceDate: Date = {
     var c = Calendar(identifier: .gregorian)
     c.timeZone = utc
@@ -98,7 +97,6 @@ private let referenceDate: Date = {
 }
 
 @Test func overlayEffectCasesMatchTheServerEnum() {
-    // Per the #67 mapping: drizzle, frost, rain, snow, storm, thunder — no "clear".
     #expect(OverlayEffect.allCases.count == 6)
     #expect(OverlayEffect(rawValue: "drizzle") != nil)
     #expect(OverlayEffect(rawValue: "clear") == nil)

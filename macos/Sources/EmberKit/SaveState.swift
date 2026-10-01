@@ -8,9 +8,7 @@ public enum SaveState: Equatable, Sendable {
     case error(String)
 }
 
-/// Coalesces rapid edits into a single deferred write. macOS-14-safe (plain
-/// Swift concurrency only — no SwiftUI/Observation). Each `schedule` cancels the
-/// previous pending action, so a burst collapses to one run after `delay`.
+/// Coalesces rapid edits into a single deferred write.
 @MainActor
 public final class DebouncedWriter {
     private var task: Task<Void, Never>?
@@ -21,7 +19,6 @@ public final class DebouncedWriter {
         self.init(delay: delay, sleep: { try await Task.sleep(for: $0) })
     }
 
-    /// Tests inject the sleep to run the debounce on a manual clock.
     init(delay: Duration, sleep: @escaping @Sendable (Duration) async throws -> Void) {
         self.delay = delay
         self.sleep = sleep

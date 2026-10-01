@@ -1,7 +1,6 @@
 import Foundation
 
-/// A Pomodoro phase as a type. The wire uses snake_case ("short_break"), which
-/// `String.capitalized` turned into "Short_Break" in the menu (audit #10).
+/// A Pomodoro phase as a type.
 public enum PomoPhase: Hashable, Sendable {
     case idle, focus, shortBreak, longBreak
     case unknown(String)
@@ -38,7 +37,7 @@ extension PomoState {
         case running
         case paused
         /// Not running and not paused, but mid-cycle (a finished phase waiting
-        /// for the next to start when auto-advance is off). Resume and Stop apply.
+        /// for the next to start when auto-advance is off).
         case parked
     }
 

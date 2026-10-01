@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// "Stale · 2 min": a feed failed and the card shows its last value.
 struct StaleChip: View {
     let since: Date
 
@@ -17,7 +16,6 @@ struct StaleChip: View {
     }
 }
 
-/// A session state as a coloured dot plus its name, never colour alone.
 struct PhaseBadge: View {
     let state: Session.State
 
@@ -34,8 +32,6 @@ struct PhaseBadge: View {
     }
 }
 
-/// One number with its caption: "87 %" over "Battery". Used by the Focus,
-/// Clock health and Weather cards.
 struct StatTile: View {
     let title: LocalizedStringKey
     let value: String

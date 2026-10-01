@@ -2,25 +2,6 @@ import SwiftUI
 import AppKit
 import EmberKit
 
-/// The menu-bar icon: the animated bot, or the per-tool glyph recoloured to the
-/// current state colour.
-///
-/// A SwiftUI `Image(...).renderingMode(.template).foregroundStyle(color)` is forced
-/// MONOCHROME by the macOS menu bar (the tint is ignored), which dropped the
-/// per-state cue. Instead we recolour the glyph into a NON-template `NSImage` with
-/// the classic `sourceAtop` recipe (draw the glyph, then paint the colour only
-/// where the glyph is opaque), preserving its shape/anti-aliasing. `isTemplate =
-/// false` stops the menu bar from re-tinting it. Equivalent to the old Go
-/// icon.go `tintAlpha`.
-///
-/// The icon's colour and the bot's eyes are the only visual state cue, so
-/// VoiceOver gets it in words: label "Ember", value the menu's header
-/// ("Claude on m4 — Running", "Idle", "Offline"). The value is set on the
-/// status item button itself (`StatusItemAccessibility`): `MenuBarExtra`
-/// forwards the label but not `accessibilityValue`.
-///
-/// Equatable on `MenuRows.LabelState` alone, so SwiftUI skips the body on the
-/// polls that only move the winner's timestamp or activity text.
 struct MenuBarLabel: View, Equatable {
     let state: MenuRows.LabelState
 
@@ -33,8 +14,6 @@ struct MenuBarLabel: View, Equatable {
     private var icon: Image {
         let colored = state.trayTint == "color"
         if state.trayStyle == "bot" {
-            // The animator's live image, not a snapshot: SwiftUI re-applies it
-            // on its own (see `liveMenuBarImage`), while BotAnimator animates it.
             return Image(nsImage: BotAnimator.shared.liveMenuBarImage(colored: colored))
         }
         return Image(nsImage: Self.trayImage(glyph: state.glyph, state: state.state, colored: colored))

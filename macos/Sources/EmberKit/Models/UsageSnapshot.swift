@@ -1,15 +1,8 @@
 import Foundation
 
-// Dashboard wire models (cmd/ember/dashboard_http.go). The server emits RFC 3339
-// timestamps with whole seconds, null for "no value", series as arrays of
-// points, and the unit in every key, so these decode with APIClient's .iso8601
-// decoder and feed Swift Charts directly. The decode tests read the server's
-// own golden files (cmd/ember/testdata/dashboard).
-
 /// GET /v1/usage — the latest subscription-usage snapshot per tool.
 public struct UsageSnapshot: Decodable, Sendable, Equatable {
-    /// One quota window. `resetsAt`/`resetLabel` are nil when the producer
-    /// didn't report them.
+    /// One quota window.
     public struct Window: Decodable, Sendable, Equatable {
         public var usedPercent: Double
         public var resetsAt: Date?

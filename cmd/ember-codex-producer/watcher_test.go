@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-// writeRollout creates a rollout file under sessionsDir in the UTC date dir for
-// `when`, with the given lines, and sets its mtime to `when`.
 func writeRollout(t *testing.T, sessionsDir, name string, when time.Time, lines ...string) string {
 	t.Helper()
 	d := when.UTC()
@@ -104,8 +102,6 @@ func TestWatcher_RecoversFromTruncation(t *testing.T) {
 	if posts, _, _ := w.tick(); len(posts) != 1 || posts[0].State != "running" {
 		t.Fatalf("first tick want 1 running post, got %+v", posts)
 	}
-	// Rewrite the file smaller (truncation/rotation): the new size is below the
-	// stored offset, so a naive seek would read nothing and keep stale state.
 	later := now.Add(3 * time.Second)
 	if err := os.WriteFile(path, []byte(metaCLI+"\n"+evDone+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -126,8 +122,6 @@ func TestWatcher_TracksSessionOlderThanWindow(t *testing.T) {
 	if posts, _, _ := w.tick(); len(posts) != 1 {
 		t.Fatalf("initial discovery want 1 post, got %d", len(posts))
 	}
-	// Two UTC days later the file's date dir falls outside the candidate window,
-	// but the session is still active (fresh append + recent mtime).
 	day2 := day0.Add(48 * time.Hour)
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	f.WriteString(evDone + "\n")
@@ -152,7 +146,6 @@ func TestWatcher_PrunesIgnoredOutsideWindow(t *testing.T) {
 	if !w.ignored[exec] {
 		t.Fatalf("exec (non-cli) session should be ignored after first tick")
 	}
-	// Two UTC days later the exec file is outside the candidate window.
 	day2 := day0.Add(48 * time.Hour)
 	w.now = func() time.Time { return day2 }
 	w.tick()
@@ -166,7 +159,7 @@ func TestWatcher_TailsAppendedEvents(t *testing.T) {
 	now := time.Now()
 	path := writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted)
 	w := newTestWatcher(dir, now)
-	w.tick() // running
+	w.tick()
 	later := now.Add(3 * time.Second)
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	f.WriteString(evDone + "\n")

@@ -12,8 +12,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// clock abstracts the wall clock so coordinator tests can drive timers
-// deterministically. Production uses realClock; tests inject fakeClock.
 type clock interface {
 	Now() time.Time
 }
@@ -22,209 +20,87 @@ type realClock struct{}
 
 func (realClock) Now() time.Time { return time.Now() }
 
-// coordCmdKind is the discriminator for coordCmd.
 type coordCmdKind int
 
 const (
-	cmdTick     coordCmdKind = iota // dwell timer fired; advance rotation if not locked.
-	cmdUpsert                       // a session was upserted; may trigger preempt.
-	cmdDelete                       // a session was deleted; may release lock.
-	cmdClear                        // all sessions cleared.
-	cmdShutdown                     // graceful stop.
-	// cmdRepublish drops the push-dedupe state and re-pushes everything at once.
-	// Sent via App.RepublishAll when the device has lost (or may have lost) what
-	// we pushed: a detected reboot, the boot-ping hook, or a swap to a new URL.
+	cmdTick coordCmdKind = iota
+	cmdUpsert
+	cmdDelete
+	cmdClear
+	cmdShutdown
 	cmdRepublish
 )
 
-// coordCmd is a single command sent on the buffered command channel.
 type coordCmd struct {
 	kind       coordCmdKind
-	sessionKey string // for upsert/delete
-	priorState string // for upsert: the state BEFORE this upsert (empty for new)
-	newState   string // for upsert: the state AFTER this upsert
+	sessionKey string
+	priorState string
+	newState   string
 }
 
-// coordinator owns the single goroutine that decides what AWTRIX
-// payload to publish and when. Every write to the rotation (the session app,
-// tiles, indicators, the display hold) passes through it. One-shot
-// notifications (/v1/notify, reminders, weather and meeting popups, the
-// Pomodoro phase-end alert) call the Publisher directly, and the menu's
-// /v1/device proxy uses the awtrix client (clock_access.go).
 type coordinator struct {
-	loadCfg   func() *Config // shape matches App.cfg.Load directly
+	loadCfg   func() *Config
 	publisher Publisher
 	clk       clock
 	logger    *slog.Logger
-	metrics   *metrics // may be nil in tests that don't care about counters
+	metrics   *metrics
 
-	// State-change commands (upsert/delete/clear/shutdown). Wide buffer
-	// so a producer burst never drops an attention transition.
-	cmds chan coordCmd
-	// Ticks: 1-slot drop-on-full channel. Stale ticks carry no info.
+	cmds  chan coordCmd
 	ticks chan struct{}
 
-	// State owned by the goroutine, written under stateMu (see below).
-	pointer       string
-	cardCursor    int
-	locked        bool
-	lockedKey     string
-	lockEnteredAt time.Time
-	// lockReleaseTimer is a wallclock-based safety net that fires a tick
-	// after the attention hold (ackTimeoutDur), guaranteeing release even if
-	// dwell happens to be configured larger than the hold (the tick-driven
-	// check in onTick is otherwise the only release path on a sleepy
-	// rotation cadence).
-	// Tests still drive release via fakeClock + Send(cmdTick); the timer
-	// uses real wallclock and so does nothing in those test setups —
-	// behaviour stays test-friendly.
+	pointer          string
+	cardCursor       int
+	locked           bool
+	lockedKey        string
+	lockEnteredAt    time.Time
 	lockReleaseTimer *time.Timer
 
-	// idleSince tracks when the most recent transition to "no active
-	// sessions" happened. Zero value means "currently have active
-	// sessions" (the normal case). Used by publish() to decide between
-	// active rendering, dimmed-idle rendering, and stopping publishing
-	// once the countdown elapses.
 	idleSince time.Time
 
-	// snapshot is set by the App when it wires the coordinator in.
-	// In tests, the test sets it directly.
 	snapshot func() Snapshot
 
-	// pomoView, when non-nil, reports the current Pomodoro render view and
-	// whether a timer is active. An active Pomodoro preempts everything
-	// (including attention locks): publish renders its frame into the app
-	// slot and holds it. nil when the Pomodoro feature is disabled.
 	pomoView func() (render.PomodoroView, bool)
 
-	// hiddenApps, when non-nil, returns the set of tool names to omit from the
-	// DEVICE display (rotation + attention lock). /state (Dashboard) is
-	// unaffected — only the coordinator's render path filters.
 	hiddenApps func() map[string]bool
 
-	// indicators is what we last successfully wrote to the three corner LEDs, so
-	// publish can write them on edges only (see coordinator_indicators.go).
-	// Coordinator-goroutine-owned.
 	indicators [3]indicatorState
 
-	// hold is who currently owns the screen device-side. Edge-triggered: the
-	// forced app switch (and, for Pomodoro, the autoTransition/blockNavigation
-	// settings) are written only when this value changes, plus on a cmdRepublish
-	// (a device reboot clears the pushed app behind our back). It moves only
-	// once the device has accepted the edge's writes, so a lost write is
-	// replayed on the next tick. Coordinator-goroutine-owned (read/written only
-	// from publish/onRepublish).
 	hold holdState
 
-	// prior is the user's own autoTransition/blockNavigation, snapshotted
-	// before a Pomodoro takeover and written back on release. Non-nil means a
-	// takeover may be in force device-side and a restore is owed. Mirrored in
-	// kv (when set) so a process that dies mid-takeover restores on its next
-	// start. Only the coordinator goroutine moves the pointer (under
-	// priorMu); a menu edit (applyMenuSettings, on an HTTP goroutine) may
-	// change the pointed-to values under priorMu, so every read of the
-	// values off the coordinator goroutine, and the restore, takes it too.
-	prior *takeoverPrior
-	// priorMu serialises the takeover snapshot, the restore and menu edits
-	// made while a snapshot exists, so such an edit can't land between the
-	// restore write and forgetting the snapshot. It is a leaf lock: nothing
-	// but the store write (persistPrior) and one device exchange is done
-	// under it. It is held across a device call, so waiters are bounded by
-	// that call: a menu edit during a takeover holds it for one menu-class
-	// PATCH (menuCallTimeout, 8s); the snapshot read and the restore hold it
-	// for one retryDevice (publishAttempts x publishAttemptTimeout, 5s). A
-	// Pomodoro start/stop edge (or the exit restore, whose own budget is 5s)
-	// can therefore wait that long; mid-block ticks never take it. Edits
-	// made with no snapshot write unlocked (applyMenuSettings), then relock
-	// to reconcile, which may do one more device write under it. GET
-	// /v1/device/settings takes it on both sides of its clock read, so behind
-	// a locked edit or restore it can wait about twice menuCallTimeout plus
-	// its own read. A menu edit's waits give up at its clockWriteBudget
-	// (applyMenuSettings); every other taker waits (Lock), so it is a
-	// ctxLock, built in newCoordinator.
-	priorMu ctxLock
-	// priorGen counts snapshot records and clears (setPrior), so an unlocked
-	// menu edit can tell a takeover edge ran during its device write. Guarded
-	// by priorMu.
-	priorGen uint64
-	// editSeq numbers menu edits of the takeover keys on entry, and keySeq
-	// and keyVal are, per key, the newest edit that has landed (on the
-	// device or in the snapshot) and its value. A raced edit only merges the
-	// keys it is still newest for and re-writes the newest values, so an
-	// older edit whose write sat in flight can't replace a newer one. All
-	// guarded by priorMu.
-	editSeq uint64
-	keySeq  map[string]uint64
-	keyVal  map[string]any
-	// restoreBackoff counts ticks left to skip before retrying a restore that
-	// was lost (see restoreBackoffTicks). Coordinator-goroutine-owned.
+	prior          *takeoverPrior
+	priorMu        ctxLock
+	priorGen       uint64
+	editSeq        uint64
+	keySeq         map[string]uint64
+	keyVal         map[string]any
 	restoreBackoff int
 	kv             settingsKV
 
-	// onPublishResult, if non-nil, is called after every publish attempt
-	// with the snapshot we tried to render and the error (nil on success).
-	// Used by App to update lastPublish* AND lastPublished (the legacy
-	// Render metadata the admin endpoints expose).
 	onPublishResult func(snap Snapshot, err error)
 
-	// ctx is the Run context, used by publish() so an in-flight HTTP
-	// publish cancels on shutdown rather than waiting for HTTP timeout.
-	// Set on first Run() entry; before that, publish() falls back to
-	// context.Background() (only happens in pathological test setups
-	// that call publish before Run).
 	ctx context.Context
 
-	// stateMu guards pointer, cardCursor, the lock fields (locked, lockedKey,
-	// lockEnteredAt, lockReleaseTimer) and idleSince. Only the coordinator
-	// goroutine writes them, and it holds stateMu for every write; readers on
-	// any other goroutine (tests today) must RLock. The coordinator's own
-	// reads may skip the lock, since nothing else writes.
 	stateMu sync.RWMutex
 
 	publishCount atomic.Int64
 
-	// usage holds the latest per-tool usage snapshots; nil disables the usage
-	// widget.
 	usage *UsageStore
 
-	// alarmArmed/alarmFired track the 5h limit-reset alarm per tool (key:
-	// tool, value: ResetsAt epoch). In-memory by design; see checkLimitAlarms.
-	// Coordinator-goroutine-owned (touched only from onTick).
 	alarmArmed map[string]int64
 	alarmFired map[string]int64
 
-	// weather and meetings, when non-nil, hold the latest observations and
-	// upcoming occurrences the rotating tiles read (see tileInputs).
 	weather  *weatherStore
 	meetings *meetingsStore
 
-	// tiles owns the standalone rotating tiles' pushed-app ledger (and any
-	// legacy ember-usage-* leftovers); reconcileTiles converges the device on
-	// it every tick. Coordinator-goroutine-owned. See coordinator_tiles.go.
 	tiles tileSet
 
-	// adoptedApps records whether we've seeded the tile ledger from the
-	// device's actual app loop yet (once per process, on the first reachable
-	// tick). Until then ember-managed apps left on the device by a previous run
-	// are invisible to the reconcilers and never get cleared. See
-	// adoptDeviceManagedApps.
 	adoptedApps bool
 
-	// mainPushed is the main app's last successful push, so publish can skip
-	// identical re-publishes within renewalDedupWindow (see publish for why the
-	// dedupe stays). Only success updates it, so a failed publish retries on
-	// the next tick. Same ledger shape as the tiles' (pushedApp).
 	mainPushed pushedApp
 
-	// lastDropWarnNano throttles the "command dropped" warning to at most
-	// ~1/min so a wedged device (onTick blocking on unreachable-device HTTP)
-	// can't turn every dropped producer command into a log line. Holds the
-	// wallclock UnixNano of the last emitted warning; updated with a CAS so
-	// the throttle itself never blocks or allocates on the hot Send path.
 	lastDropWarnNano atomic.Int64
 }
 
-// dropWarnInterval bounds how often Send logs a dropped-command warning.
 const dropWarnInterval = time.Minute
 
 type coordIdleMode int
@@ -235,9 +111,6 @@ const (
 	idleModeOff
 )
 
-// idleStateLocked decides which rendering branch publish should take.
-// Caller MUST hold stateMu. Returns the mode; mutates c.idleSince as a
-// side effect (zero when active, set to now on first all-idle call).
 func (c *coordinator) idleStateLocked(activeCount int, now time.Time, idleRestore time.Duration) coordIdleMode {
 	if activeCount > 0 {
 		c.idleSince = time.Time{}
@@ -252,14 +125,6 @@ func (c *coordinator) idleStateLocked(activeCount int, now time.Time, idleRestor
 	return idleModeDimmed
 }
 
-// newCoordinator constructs the coordinator. The caller is responsible
-// for starting its goroutine via Run.
-//
-// loadCfg returns the current *Config — pass `a.cfg.Load` from the App
-// (atomic.Pointer[Config]) so reloadable fields (rotation_dwell_seconds) take
-// effect at the next tick. Tests pass nil to capture cfg by value.
-//
-// m may be nil (tests that don't need metric counters).
 func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk clock, logger *slog.Logger, m *metrics) *coordinator {
 	if logger == nil {
 		logger = slog.Default()
@@ -275,53 +140,18 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 		clk:       clk,
 		logger:    logger,
 		metrics:   m,
-		// State-change commands get a generous buffer so a burst of
-		// producer activity never drops an upsert/delete/clear: those
-		// carry the only signal of an attention transition. Ticks have
-		// their own narrow drop-on-full channel since stale ticks add
-		// no information (the next tick catches up).
-		cmds:  make(chan coordCmd, 64),
-		ticks: make(chan struct{}, 1),
-		tiles: tileSet{logger: logger},
+		cmds:      make(chan coordCmd, 64),
+		ticks:     make(chan struct{}, 1),
+		tiles:     tileSet{logger: logger},
 	}
 }
 
-// Send enqueues a command. It NEVER blocks: every caller of Send is either
-// the tick ticker/timer or a producer-driven HTTP handler (handleStatus,
-// handleClear, handleDeleteStatus), and the coordinator goroutine can stall
-// for tens of seconds inside onTick when the device is unreachable (up to ~7
-// sequential 10 s-timeout device HTTP calls). A blocking Send would wedge
-// those HTTP handlers behind the coordinator, so producers time out.
-//
-// Stale ticks (cmdTick) drop on their 1-slot channel — the next tick picks up
-// wherever the snapshot has landed. State-change commands (upsert/delete/clear)
-// go to a wide 64-slot buffer; when THAT fills we drop the command rather than
-// block, counting it and warning (throttled).
-//
-// Dropping a state-change command is an accepted tradeoff, in two parts:
-//
-// (a) Display state self-heals. The authoritative state lives in App.sessions
-// (already updated by Upsert/Delete/Clear before Send is called), producers
-// re-POST heartbeats every 10–15 s, and each dwell tick re-reads that
-// snapshot: onTick's release logic (reap/drain/ack-timeout) and pointer
-// advance converge the frame within ~one dwell interval, so a dropped
-// delete/clear/non-attention upsert only delays the display by a tick.
-//
-// (b) A dropped FRESH-attention upsert loses that edge's preempt+chime
-// permanently. Lock acquisition is edge-triggered and lives ONLY in onUpsert
-// (attention && transition && !priorWasAttention); onTick has no acquisition
-// path, and a heartbeat re-POST of a still-waiting session is
-// waiting→waiting (no transition), so it cannot re-acquire. The preempt is
-// gone until the session's next transition edge. Accepted because it only
-// happens during a sustained >64-command burst while the coordinator is
-// wedged on an unreachable device, and the session still appears in the
-// normal rotation — versus back-pressuring every producer.
+// Send enqueues a command.
 func (c *coordinator) Send(cmd coordCmd) {
 	if cmd.kind == cmdTick {
 		select {
 		case c.ticks <- struct{}{}:
 		default:
-			// Stale tick is fine to drop.
 		}
 		return
 	}
@@ -333,10 +163,6 @@ func (c *coordinator) Send(cmd coordCmd) {
 	}
 }
 
-// warnDropThrottled logs a dropped-command warning at most once per
-// dropWarnInterval. A single atomic CAS gates the log so a flood of drops
-// (the exact situation that triggers this) doesn't spam the log or contend on
-// a mutex on the Send hot path.
 func (c *coordinator) warnDropThrottled(cmd coordCmd) {
 	now := time.Now().UnixNano()
 	last := c.lastDropWarnNano.Load()
@@ -344,26 +170,17 @@ func (c *coordinator) warnDropThrottled(cmd coordCmd) {
 		return
 	}
 	if !c.lastDropWarnNano.CompareAndSwap(last, now) {
-		return // another goroutine just emitted the warning
+		return
 	}
 	c.logger.Warn("coord: cmd channel full — dropping command (state self-heals via heartbeats/next tick)",
 		"kind", cmd.kind, "session_key", cmd.sessionKey)
 }
 
-// Run is the goroutine entry point. Cancels cleanly on ctx.Done.
-// The ctx is threaded into publish() so an in-flight HTTP publish
-// cancels on shutdown rather than blocking on its full timeout.
-// State-change commands win against ticks via channel ordering (Go's
-// select is random when both are ready, so we drain cmds first
-// opportunistically — preempt latency wins over rotation jitter).
+// Run is the goroutine entry point.
 func (c *coordinator) Run(ctx context.Context) {
 	c.ctx = ctx
-	// On shutdown, undo any active Pomodoro device takeover so a restart while
-	// a timer is running doesn't leave the device with rotation + native button
-	// navigation disabled.
 	defer c.restorePomoTakeoverOnExit()
 	for {
-		// Opportunistic drain: if cmds has work, prefer it.
 		select {
 		case <-ctx.Done():
 			return
@@ -396,7 +213,6 @@ func (c *coordinator) handle(cmd coordCmd) {
 	case cmdRepublish:
 		c.onRepublish()
 	case cmdShutdown:
-		// no-op for now
 	}
 }
 
@@ -409,7 +225,6 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 	c.stateMu.Lock()
 	switch {
 	case attention && transition && !priorWasAttention && !c.keyHidden(key):
-		// Fresh attention transition from a non-attention state.
 		c.pointer = key
 		c.cardCursor = 0
 		c.locked = true
@@ -418,15 +233,9 @@ func (c *coordinator) onUpsert(key, prior, next string) {
 		c.armLockTimerLocked()
 		freshLock = true
 	case attention && transition && priorWasAttention && c.locked && c.lockedKey == key:
-		// Same session shifting between waiting and error (e.g.,
-		// waiting → error during an approval prompt that then failed).
-		// Reset the ack timer so the new attention class gets its own
-		// window — but DON'T re-target the pointer and DON'T re-chime.
 		c.lockEnteredAt = c.clk.Now()
 		c.armLockTimerLocked()
 	case !attention && c.locked && c.lockedKey == key:
-		// Drain: the locked session moved out of attention state. Release
-		// the lock immediately rather than waiting for the next dwell tick.
 		c.logger.Info("coord lock released", "key", c.lockedKey, "reason", "drain")
 		c.locked = false
 		c.lockedKey = ""
@@ -480,8 +289,6 @@ func (c *coordinator) onClear() {
 	}
 }
 
-// keyHidden reports whether a session key's tool segment is in the hidden set.
-// Keys are "source/tool/session"; the tool is the second segment.
 func (c *coordinator) keyHidden(key string) bool {
 	if c.hiddenApps == nil {
 		return false
@@ -494,9 +301,6 @@ func (c *coordinator) keyHidden(key string) bool {
 	return len(parts) >= 2 && hidden[parts[1]]
 }
 
-// filteredSnapshot returns the snapshot with hidden-tool sessions removed, used
-// everywhere the coordinator computes the device display. nil hiddenApps or an
-// empty set returns the snapshot unchanged (no copy).
 func (c *coordinator) filteredSnapshot() Snapshot {
 	snap := c.snapshot()
 	if c.hiddenApps == nil {
@@ -520,25 +324,18 @@ func (c *coordinator) onTick() {
 	if c.snapshot == nil {
 		return
 	}
-	// Once per process, adopt the ember-managed apps already on the device so the
-	// reconciles below can clear any left over from a previous run (retried on a
-	// later tick if the device is unreachable now).
 	if !c.adoptedApps {
 		c.adoptedApps = c.adoptDeviceManagedApps()
 	}
 	snap := c.filteredSnapshot()
 	keys := render.SortedActiveKeys(snap)
 
-	// Evaluate all lock-release conditions against the current snapshot:
-	// ack timeout, drain (locked session moved out of attention state),
-	// reap (locked key no longer in active set).
 	c.stateMu.Lock()
 	if c.locked {
 		releaseReason := ""
 		if !slices.Contains(keys, c.lockedKey) {
 			releaseReason = "reap"
 		} else {
-			// Drain: locked session moved out of attention state.
 			for _, s := range snap.Sessions {
 				if s.Key() == c.lockedKey {
 					if s.State != "waiting" && s.State != "error" {
@@ -564,21 +361,14 @@ func (c *coordinator) onTick() {
 	switch {
 	case len(keys) == 0:
 		c.pointer = ""
-		// cardCursor doubles as the idle usage-face cursor (wraps in render).
 		c.cardCursor++
 	case c.locked:
-		// Locked: hold the target; cards never cycle during attention.
 		c.pointer = c.lockedKey
 		c.cardCursor = 0
 	case c.pointer == "" || !slices.Contains(keys, c.pointer):
-		// First tick or the pointed-at session was reaped: restart at the
-		// first session's first card.
 		c.pointer = keys[0]
 		c.cardCursor = 0
 	default:
-		// Advance within the current session's cards, else move to the next
-		// session. n is resolved from the pre-advance pointer. Usage views are
-		// passed so card count includes any usage card that is over threshold.
 		sess := render.SessionByKey(snap, c.pointer)
 		n := render.CardsForSession(sess, c.usageViews(c.clk.Now(), snap)[sess.Tool])
 		if c.cardCursor+1 < n {

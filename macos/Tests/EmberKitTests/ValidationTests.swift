@@ -17,8 +17,6 @@ import Testing
     #expect((try? validateSourceColor("#ggg")) == nil)
 }
 
-/// Validation errors reach the UI (the token footer, a save error), so they
-/// are localizable sentences, not log-style fragments.
 @Test func validationErrorsAreUserFacingSentences() {
     func message(_ body: () throws -> Void) -> String? {
         do { try body(); return nil } catch let e as ValidationError { return e.message.text } catch { return nil }

@@ -4,9 +4,9 @@ import Foundation
 /// plus a per-day calendar for the consistency strip.
 public struct Heatmap: Decodable, Sendable, Equatable {
     /// Completed-focus minutes, `grid[weekday][hour]`, weekday 0 = Sunday
-    /// (server-local time). Always 7 × 24.
+    /// (server-local time).
     public var grid: [[Int]]
-    /// Per logical day, oldest first. Days without focus are absent.
+    /// Per logical day, oldest first.
     public var calendar: [FocusBucket]
     /// The window the server covered.
     public var days: Int

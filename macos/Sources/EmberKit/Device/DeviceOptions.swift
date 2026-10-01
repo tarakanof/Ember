@@ -21,7 +21,7 @@ public enum DeviceUnits {
     public static let firmwareHumidityOffset = 0.0
 }
 
-/// NG `timeMode` (0–6). The names follow NG's settings reference.
+/// NG `timeMode` (0–6).
 public enum ClockTimeStyle: Int, CaseIterable, Identifiable, Sendable {
     /// Centered time, full-width weekday bar.
     case centered = 0
@@ -55,15 +55,9 @@ public enum ScrollMode: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
 }
 
-/// Builds the `PUT /v1/device/apps` bodies for the Native Apps list. NG's
-/// `disabled` only switches apps off and an app named in neither list keeps
-/// what it had, so turning one on means naming it in `order`. Every body
-/// orders the apps that are on (keeping pushed apps where they are, so
-/// Ember's own tiles don't move, even while one is away between pushes),
-/// never names a module, and never names an app in both lists.
+/// Builds the `PUT /v1/device/apps` bodies for the Native Apps list.
 public enum NativeAppsPlan {
-    /// The apps Settings lists: the clock's built-ins. Pushed apps (Ember's
-    /// own tiles) and placeholders for absent apps are left out.
+    /// The apps Settings lists: the clock's built-ins.
     public static func listed(_ apps: [AppInfo]) -> [AppInfo] {
         apps.filter { $0.origin == "builtin" && $0.present != false }
     }
@@ -91,9 +85,6 @@ public enum NativeAppsPlan {
         return (next, AppsUpdate(order: orderOfEnabled(next), disabled: []))
     }
 
-    /// What runs, in order. Modules aren't apps (a name in `order` would
-    /// hold a phantom slot for them). An app that's away but has a slot (an
-    /// Ember tile between pushes) keeps it.
     private static func orderOfEnabled(_ apps: [AppInfo]) -> [String] {
         apps.filter { a in
             a.origin != "module" && a.enabled && (a.present != false || a.slot != nil)

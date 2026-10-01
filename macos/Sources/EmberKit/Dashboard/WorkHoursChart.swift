@@ -7,9 +7,7 @@ public struct WorkHoursChart: Equatable, Sendable {
         public let key: String
         /// Local midnight of the day.
         public let date: Date
-        /// Wall-clock hours from the day's midnight (9.5 = 09:30). Past
-        /// midnight continues above 24 (01:15 the next day = 25.25). nil on a
-        /// day without work.
+        /// Wall-clock hours from the day's midnight (9.5 = 09:30).
         public let start: Double?
         public let end: Double?
         public let activeSec: Int
@@ -32,8 +30,7 @@ public struct WorkHoursChart: Equatable, Sendable {
 
     public var isEmpty: Bool { !rows.contains(where: \.hasWork) }
 
-    /// `days` is the server's list (newest first). Older days without work
-    /// are dropped down to `minimumRows`.
+    /// `days` is the server's list (newest first).
     public init(days: [WorkHours.Day], now: Date, calendar: Calendar) {
         let todayKey = days.first?.date
         var all: [Row] = days.reversed().compactMap { d in
@@ -65,7 +62,7 @@ public struct WorkHoursChart: Equatable, Sendable {
 
     /// The hour axis: the worked range padded by an hour each side, stretched
     /// to show now on today's row, at least `minimumSpan` hours and within
-    /// 0...30. Without work it's 08...18.
+    /// 0...30.
     public static func domain(low: Double?, high: Double?, now: Double?) -> ClosedRange<Double> {
         guard var lo = low, var hi = high else { return 8...18 }
         if let now, now >= lo - 1, now <= 30 { hi = max(hi, now) }

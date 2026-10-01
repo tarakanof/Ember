@@ -10,9 +10,6 @@ import (
 	"github.com/tarakanof/ember/internal/sessions"
 )
 
-// newSessionRegistry builds the session registry on clock now, with the
-// staleness policy read from the live config on every access, and every reap
-// logged and counted.
 func (a *App) newSessionRegistry(now func() time.Time) *sessions.Registry {
 	return sessions.New(now, a.sessionPolicy, a.onSessionReaped)
 }
@@ -36,10 +33,7 @@ func (a *App) onSessionReaped(r sessions.Reaped) {
 	)
 }
 
-// Upsert stores req's session and returns the resulting /state Render plus
-// the state the session held before this upsert ("" if new). The registry
-// reads the prior state and writes under one lock, so concurrent POSTs for
-// the same session never misclassify the transition.
+// Upsert stores req's session and returns the resulting /state Render plus the state the session held before this upsert ("" if new).
 func (a *App) Upsert(req StatusRequest) (Render, string) {
 	v, prior := a.sessions.Upsert(req.normalized())
 	return a.legacyRender(v), prior
@@ -63,12 +57,8 @@ func (a *App) Snapshot() Snapshot {
 	}
 }
 
-// legacyRender is the /state summary of v: the winner's label (or an
-// aggregate when its state group has two or more sessions), colour and
-// per-state counters.
 func (a *App) legacyRender(v sessions.View) Render {
 	waiting, running, errored, done := v.Count("waiting"), v.Count("running"), v.Count("error"), v.Count("done")
-	// Done sessions linger for display but no longer count as active.
 	activeTotal := waiting + running + errored
 
 	win := v.Winner()
@@ -97,9 +87,6 @@ func (a *App) legacyRender(v sessions.View) Render {
 	}
 }
 
-// legacyStateColor is the /state Render colour for the winning state. It
-// predates the clock palette (render.colorForState), and /state clients
-// already see these values, so it stays its own table.
 func legacyStateColor(state string) string {
 	switch state {
 	case "waiting", "error":
@@ -133,12 +120,6 @@ func labelFor(session Session) string {
 	}
 }
 
-// compactText collapses whitespace and caps the label at 80 characters,
-// counted in runes so a Cyrillic or emoji message is never cut mid-sequence
-// (which would surface as U+FFFD in /state). The cut also backs off so it
-// never strands a combining mark, variation selector, skin-tone modifier or
-// ZWJ-joined emoji part: an approximation of a grapheme boundary, since the
-// standard library has no segmenter.
 func compactText(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
 	r := []rune(text)
@@ -154,12 +135,11 @@ func compactText(text string) string {
 
 const zeroWidthJoiner = '‍'
 
-// extendsCluster reports whether r attaches to the rune before it.
 func extendsCluster(r rune) bool {
 	switch {
 	case r == zeroWidthJoiner, r == '︎', r == '️':
 		return true
-	case r >= 0x1f3fb && r <= 0x1f3ff: // emoji skin-tone modifiers
+	case r >= 0x1f3fb && r <= 0x1f3ff:
 		return true
 	}
 	return unicode.In(r, unicode.Mn, unicode.Me)

@@ -1,7 +1,5 @@
-// Package pomodoro implements a clock-injected Pomodoro timer state machine
-// and its statistics store. The engine is pure (no I/O): it advances only when
-// Tick is called with the current time, so it is fully deterministic in tests
-// and drives the device display from the ember coordinator.
+// Package pomodoro implements a clock-injected Pomodoro timer state machine and
+// its statistics store.
 package pomodoro
 
 import (
@@ -26,7 +24,7 @@ type Settings struct {
 	LongMin          int
 	RoundsBeforeLong int
 	AutoStartNext    bool
-	MaxSessionMin    int // 0 = no cap; else auto-stop the whole cycle after this many wall-clock minutes (pauses count toward it, unlike per-phase elapsed time)
+	MaxSessionMin    int
 }
 
 // Status is a point-in-time snapshot of the engine, computed for a given now.
@@ -40,7 +38,6 @@ type Status struct {
 }
 
 // PhaseResult is emitted whenever a phase ends (completed, skipped, stopped).
-// The coordinator records it in the stats store.
 type PhaseResult struct {
 	Phase      Phase
 	PlannedSec int
@@ -52,8 +49,7 @@ type PhaseResult struct {
 // Clock abstracts wall time so the engine is deterministic in tests.
 type Clock interface{ Now() time.Time }
 
-// Engine is the Pomodoro state machine. All methods are safe for concurrent
-// use; callers pass the current time so behaviour stays clock-injected.
+// Engine is the Pomodoro state machine.
 type Engine struct {
 	mu       sync.Mutex
 	settings Settings
@@ -63,13 +59,13 @@ type Engine struct {
 	running bool
 	paused  bool
 
-	startedAt   time.Time     // when the current phase's countdown began
-	accumPaused time.Duration // total paused time within the current phase
-	pausedAt    time.Time     // when the current pause began (valid iff paused)
+	startedAt   time.Time
+	accumPaused time.Duration
+	pausedAt    time.Time
 
-	focusCount int // completed focus phases since the last long break
+	focusCount int
 
-	sessionStartedAt time.Time // when the current cycle began (first Start out of idle); zero when idle
+	sessionStartedAt time.Time
 }
 
 // New constructs an idle engine with the given settings.
@@ -77,8 +73,7 @@ func New(s Settings, clk Clock) *Engine {
 	return &Engine{settings: s, clk: clk, phase: PhaseIdle}
 }
 
-// UpdateSettings replaces the settings. In-flight phase durations are not
-// retroactively changed; new durations apply to subsequent phases.
+// UpdateSettings replaces the settings.
 func (e *Engine) UpdateSettings(s Settings) {
 	e.mu.Lock()
 	e.settings = s
@@ -105,7 +100,6 @@ func (e *Engine) plannedSec(p Phase) int {
 	}
 }
 
-// beginLocked starts phase p running from a full duration at now.
 func (e *Engine) beginLocked(p Phase, now time.Time) {
 	e.phase = p
 	e.running = true
@@ -115,7 +109,6 @@ func (e *Engine) beginLocked(p Phase, now time.Time) {
 	e.pausedAt = time.Time{}
 }
 
-// parkLocked sets phase p as the pending next phase, not running.
 func (e *Engine) parkLocked(p Phase) {
 	e.phase = p
 	e.running = false
@@ -124,8 +117,6 @@ func (e *Engine) parkLocked(p Phase) {
 	e.pausedAt = time.Time{}
 }
 
-// elapsedLocked returns how much of the current phase has elapsed at now,
-// excluding paused time.
 func (e *Engine) elapsedLocked(now time.Time) time.Duration {
 	if e.phase == PhaseIdle {
 		return 0
@@ -153,7 +144,7 @@ func (e *Engine) Start(p Phase) {
 	e.mu.Unlock()
 }
 
-// Pause freezes the countdown. No-op unless running and not already paused.
+// Pause freezes the countdown.
 func (e *Engine) Pause(now time.Time) {
 	e.mu.Lock()
 	if e.running && !e.paused {
@@ -177,8 +168,7 @@ func (e *Engine) Resume(now time.Time) {
 	}
 }
 
-// Stop ends the current phase early and returns to idle. Returns a not-completed
-// PhaseResult, or nil if already idle.
+// Stop ends the current phase early and returns to idle.
 func (e *Engine) Stop(now time.Time) *PhaseResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -195,7 +185,7 @@ func (e *Engine) Stop(now time.Time) *PhaseResult {
 }
 
 // Skip ends the current phase (not completed) and advances to the next phase,
-// auto-starting it. Returns the skipped PhaseResult, or nil if idle.
+// auto-starting it.
 func (e *Engine) Skip(now time.Time) *PhaseResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -208,9 +198,7 @@ func (e *Engine) Skip(now time.Time) *PhaseResult {
 	return res
 }
 
-// Tick advances the engine to now. If the running phase has elapsed it ends as
-// completed, transitions to the next phase (auto-started or parked per
-// settings), and returns the completed PhaseResult. Otherwise returns nil.
+// Tick advances the engine to now.
 func (e *Engine) Tick(now time.Time) *PhaseResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -232,7 +220,7 @@ func (e *Engine) Tick(now time.Time) *PhaseResult {
 		return nil
 	}
 	res := e.endResultLocked(now, true, "completed")
-	res.ActualSec = res.PlannedSec // completed phases report their full planned length
+	res.ActualSec = res.PlannedSec
 	next := e.advanceLocked(res.Phase)
 	if e.settings.AutoStartNext {
 		e.beginLocked(next, now)
@@ -242,7 +230,6 @@ func (e *Engine) Tick(now time.Time) *PhaseResult {
 	return res
 }
 
-// endResultLocked builds a PhaseResult for the current phase at now.
 func (e *Engine) endResultLocked(now time.Time, completed bool, reason string) *PhaseResult {
 	planned := e.plannedSec(e.phase)
 	actual := int(e.elapsedLocked(now) / time.Second)
@@ -258,8 +245,6 @@ func (e *Engine) endResultLocked(now time.Time, completed bool, reason string) *
 	}
 }
 
-// advanceLocked computes the next phase after `ended` finished, updating the
-// focus/long-break round counter. It does not start the next phase.
 func (e *Engine) advanceLocked(ended Phase) Phase {
 	switch ended {
 	case PhaseFocus:
@@ -271,7 +256,7 @@ func (e *Engine) advanceLocked(ended Phase) Phase {
 	case PhaseLong:
 		e.focusCount = 0
 		return PhaseFocus
-	default: // short break or anything else → back to focus
+	default:
 		return PhaseFocus
 	}
 }

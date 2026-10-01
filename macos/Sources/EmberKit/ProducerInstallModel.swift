@@ -27,8 +27,7 @@ public final class ProducerInstallModel {
     /// Whether reporting is on for every detected agent.
     public var isOn: Bool { snapshot?.toggle == .on }
 
-    /// Rereads the state. A read applies only if no newer one started, so a
-    /// slow first read can't overwrite the one taken after an install.
+    /// Rereads the state.
     public func refresh() async {
         seq += 1
         let mine = seq

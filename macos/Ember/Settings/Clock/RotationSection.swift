@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// How the clock steps through its apps, and the ambient overlay on top.
 struct RotationSection: View {
     @Environment(DeviceSettingsModel.self) private var device
 

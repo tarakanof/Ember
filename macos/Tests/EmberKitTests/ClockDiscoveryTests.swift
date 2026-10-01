@@ -3,8 +3,6 @@ import Foundation
 import Network
 @testable import EmberKit
 
-// A real awtrix-ng 1.1.2 `GET /api/v1/device` reply, captured read-only from
-// the home clock. The fingerprint must accept it as-is.
 private let ngDeviceFixture = #"""
 {"version":"1.1.2","uid":"e868e705ffb8","boardType":"awtrixng","soc":"esp32",
 "updateImage":"firmware-awtrix-ng.bin","ipAddress":"192.168.0.66","hostname":"Awtrix",
@@ -34,7 +32,6 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
                                  uid: "e868e705ffb8", version: "1.1.2"))
 }
 
-// The uid alone is not enough: /api/v1/device is a generic-looking path.
 @Test func clockFingerprintRejectsAnotherBoardType() {
     #expect(fingerprint(#"{"uid":"abc","boardType":"esphome","version":"1"}"#) == nil)
     #expect(fingerprint(#"{"uid":"abc","version":"1"}"#) == nil)
@@ -45,7 +42,6 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
     #expect(fingerprint(#"{"boardType":"awtrixng"}"#) == nil)
 }
 
-// The server accepts any 2xx (awtrix.checkStatus) and nothing else.
 @Test func clockFingerprintRejectsANon2xxStatus() {
     #expect(fingerprint(ngDeviceFixture, status: 404) == nil)
     #expect(fingerprint(ngDeviceFixture, status: 500) == nil)
@@ -67,12 +63,10 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
     #expect(ClockDiscovery.baseURL(host: "192.168.0.66", port: 8080) == "http://192.168.0.66:8080")
 }
 
-// dnssd reports port 0 for a record with no port; the server falls back to 80.
 @Test func clockBaseURLDefaultsAMissingPortTo80() {
     #expect(ClockDiscovery.baseURL(host: "192.168.0.66", port: 0) == "http://192.168.0.66:80")
 }
 
-// The resolve pins IPv4; anything else is not a URL the server can use.
 @Test func clockBaseURLRejectsNonIPv4Hosts() {
     #expect(ClockDiscovery.baseURL(host: "", port: 80) == nil)
     #expect(ClockDiscovery.baseURL(host: "fe80::1%en0", port: 80) == nil)
@@ -112,7 +106,6 @@ private func clock(_ host: String, _ base: String, uid: String) -> DiscoveredClo
     let merged = ClockChoice.merge(server: server, mac: mac)
     #expect(merged.count == 1)
     #expect(merged[0].source == .both)
-    // The server can reach the address it found; saving it is the safe pick.
     #expect(merged[0].clock.baseURL == "http://192.168.0.66:80")
 }
 
@@ -129,7 +122,6 @@ private func clock(_ host: String, _ base: String, uid: String) -> DiscoveredClo
     #expect(merged.map(\.clock.baseURL) == ["http://10.0.0.2:80"])
 }
 
-// Probes land in whatever order the LAN answers; the list must not reshuffle.
 @Test func clockMergeOrdersByHostThenAddress() {
     let list = ClockDiscovery.merged(ClockDiscovery.merged([], adding: clock("b", "http://10.0.0.1:80", uid: "2")),
                                      adding: clock("a", "http://10.0.0.9:80", uid: "1"))
@@ -139,7 +131,6 @@ private func clock(_ host: String, _ base: String, uid: String) -> DiscoveredClo
     #expect(tie.map(\.uid) == ["1", "2"])
 }
 
-// Discovery always emits a port; a hand-entered address often doesn't.
 @Test func clockURLMatchesAPortlessConfiguredAddress() {
     #expect(ClockURL.same("http://192.168.0.66:80", "http://192.168.0.66"))
     #expect(ClockURL.same("http://192.168.0.66:80", "http://192.168.0.66/"))
@@ -164,24 +155,18 @@ private func loaded(_ h: ClockHealth) -> Loadable<ClockHealth> { .loaded(h, at: 
     #expect(lost(loaded(try healthJSON(#""device":null"#))))
 }
 
-// The clock's Wi-Fi drops requests and the server caches one probe for 30 s:
-// a failed probe alone must not raise the prompt, only with a failed push too.
 @Test func serverLostClockNeedsAFailedProbeAndAFailedPush() throws {
     #expect(!lost(loaded(try healthJSON(reachableFalse, lastOk: true))))
     #expect(lost(loaded(try healthJSON(reachableFalse, lastOk: false))))
     #expect(!lost(loaded(try healthJSON(reachableTrue, lastOk: false))))
 }
 
-// A stale value kept after the health feed failed says nothing about now
-// (the server itself may be what's down).
 @Test func serverLostClockIgnoresStaleHealth() throws {
     let bad = try healthJSON(reachableFalse, lastOk: false)
     #expect(!lost(.failed(.offline, last: bad, lastAt: Date())))
     #expect(!lost(.loading))
 }
 
-// A proxied settings read that failed on the server's side (502) means the
-// clock; an unreachable server or a bad token is not something discovery fixes.
 @Test func serverLostClockWhenTheSettingsProxyFails() {
     #expect(lost(.loading, settingsLoaded: false, settingsError: .server("HTTP 502")))
     #expect(!lost(.loading, settingsLoaded: false, settingsError: .offline))
@@ -203,8 +188,6 @@ private func healthJSON(_ device: String, lastOk: Bool = true) throws -> ClockHe
 
 // MARK: Resolve states — keep waiting, give up only on failure or denial
 
-// A lost mDNS answer parks the connection in .waiting; NWConnection retries
-// on its own and the scan window bounds it, so it must not be dropped.
 @Test func resolveKeepsWaitingOnATransientError() {
     #expect(BonjourClockBrowser.step(for: .waiting(.posix(.ENETUNREACH))) == .keepWaiting)
     #expect(BonjourClockBrowser.step(for: .waiting(.dns(DNSServiceErrorType(kDNSServiceErr_Timeout)))) == .keepWaiting)
@@ -240,8 +223,6 @@ private final class FakeBrowser: ClockBrowsing {
     }
 }
 
-/// Probes that answer as a clock (uid = host) once `release` is called for
-/// that base URL, so a test can hold one in flight.
 @MainActor
 private final class HeldProbes {
     var calls: [String] = []
@@ -251,7 +232,6 @@ private final class HeldProbes {
     func probe(_ name: String, _ base: String) async -> DiscoveredClock? {
         calls.append(base)
         if !released.contains(base) {
-            // Honours cancellation the way URLSession does.
             await withTaskCancellationHandler {
                 await withCheckedContinuation { c in
                     if Task.isCancelled { c.resume() } else { waiting[base] = c }
@@ -296,11 +276,9 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     await scan.value
     #expect(browser.cancelled == 1)
     #expect(!d.isScanning)
-    // A scan that ran its course keeps its list for the user to pick from.
     #expect(d.clocks.count == 1)
 }
 
-// NWBrowser replays results; one address is probed once per scan.
 @MainActor @Test func scanProbesEachAddressOnce() async {
     let (d, browser, probes, clock) = makeDiscovery()
     probes.release("http://192.168.0.66:80")
@@ -326,10 +304,9 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     d.stop()
     #expect(browser.cancelled == 1)
     #expect(!d.isScanning)
-    probes.releaseAll()          // the in-flight probe answers after the stop
+    probes.releaseAll()
     await clock.settle()
     #expect(d.clocks.isEmpty)
-    // Resolutions after the stop go nowhere.
     browser.resolve("192.168.0.67")
     await clock.settle()
     #expect(probes.calls.count == 1)
@@ -338,8 +315,6 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     #expect(d.clocks.isEmpty)
 }
 
-// The sheet runs scan() in `.task`: dismissing it cancels the task, and that
-// alone must tear the browse down (no reliance on .onDisappear).
 @MainActor @Test func cancellingTheScanTaskTearsDown() async {
     let (d, browser, _, clock) = makeDiscovery()
     let scan = Task { await d.scan() }
@@ -353,15 +328,13 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     #expect(d.clocks.isEmpty)
 }
 
-// A probe still out when the browse window closes gets a bounded grace, then
-// is cancelled — the scan always ends.
 @MainActor @Test func scanCancelsProbesStillOutAfterTheGrace() async {
     let (d, browser, probes, clock) = makeDiscovery()
     let scan = Task { await d.scan() }
     await clock.settle()
     browser.resolve("192.168.0.66")
     await clock.advance(by: ClockDiscovery.browseWindow)
-    #expect(d.isScanning)                        // waiting on the probe
+    #expect(d.isScanning)
     await clock.advance(by: ClockDiscovery.probeGrace)
     await scan.value
     #expect(!d.isScanning)
@@ -369,7 +342,6 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     probes.releaseAll()
 }
 
-// A probe that lands inside the grace is kept.
 @MainActor @Test func scanKeepsAProbeThatLandsInTheGrace() async {
     let (d, browser, probes, clock) = makeDiscovery()
     let scan = Task { await d.scan() }
@@ -381,7 +353,6 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     #expect(d.clocks.map(\.uid) == ["http://192.168.0.66:80"])
 }
 
-// Search Again restarts cleanly: the old browse is cancelled, a new one runs.
 @MainActor @Test func aNewScanSupersedesTheRunningOne() async {
     let (d, browser, _, clock) = makeDiscovery()
     let first = Task { await d.scan() }
@@ -409,7 +380,6 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     #expect(d.access == .unavailable)
     await clock.advance(by: ClockDiscovery.browseWindow)
     await scan.value
-    // The hint outlives the window, so the sheet can still show it.
     #expect(d.access == .unavailable)
 }
 
@@ -438,7 +408,6 @@ private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
     #expect(box.paths.first == "PUT /v1/device/config")
 }
 
-// Rows from a finished scan must not show when the next one starts.
 @MainActor @Test func aNewScanStartsWithAnEmptyList() async {
     let (d, browser, probes, clock) = makeDiscovery()
     probes.release("http://192.168.0.66:80")
@@ -456,8 +425,6 @@ private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
     await second.value
 }
 
-/// Only a PolicyDenied browse means Local Network access is off; any other
-/// wait is transient and the scan keeps searching.
 @Test func browseWaitIsNeedsAccessOnlyWhenPolicyDenied() {
     let denied = NWError.dns(DNSServiceErrorType(kDNSServiceErr_PolicyDenied))
     #expect(BonjourClockBrowser.browseState(for: .waiting(denied)) == .denied)
@@ -467,7 +434,6 @@ private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
     #expect(BonjourClockBrowser.browseState(for: .ready) == .ready)
 }
 
-/// On-device the denied browse failed with NoAuth (-65555), not PolicyDenied.
 @Test func noAuthBrowseFailureMeansLocalNetworkIsOff() {
     let noAuth = NWError.dns(DNSServiceErrorType(kDNSServiceErr_NoAuth))
     #expect(BonjourClockBrowser.browseState(for: .failed(noAuth)) == .denied)

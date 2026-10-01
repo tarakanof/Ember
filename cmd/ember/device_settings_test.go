@@ -35,8 +35,6 @@ func TestValidateDeviceSettings(t *testing.T) {
 	if err := validateDeviceSettings(ok); err != nil {
 		t.Fatalf("valid settings rejected: %v", err)
 	}
-	// null resets a per-app colour to inherit textColor (NG reports these as
-	// null until set).
 	inherit := map[string]any{
 		"timeColor": nil, "dateColor": nil, "temperatureColor": nil,
 		"humidityColor": nil, "batteryColor": nil,
@@ -45,33 +43,32 @@ func TestValidateDeviceSettings(t *testing.T) {
 		t.Fatalf("null per-app colours rejected: %v", err)
 	}
 	bad := []map[string]any{
-		{"brightness": float64(999)},                                         // out of range
-		{"buzzerVolume": float64(101)},                                       // out of range
-		{"NOPE": true},                                                       // unknown key
-		{"autoBrightness": "yes"},                                            // wrong type
-		{"textColor": "purple"},                                              // bad color
-		{"timeMode": float64(9)},                                             // out of range
-		{"brightness": float64(12.5)},                                        // non-integer
-		{"timeSeparatorMode": "rainbow"},                                     // not in enum
-		{"dateOrder": "nope"},                                                // not in enum
-		{"transitionEffect": strings.Repeat("x", 33)},                        // too long
-		{"calendarHeaderColor": []any{float64(255), float64(0)}},             // 2-element array
-		{"calendarHeaderColor": []any{float64(300), float64(0), float64(0)}}, // component out of range
-		{"appDurationMs": float64(500)},                                      // below unit-changed min
-		{"scroll": map[string]any{"speed": "fast"}},                          // wrong type in nested obj
-		{"scroll": map[string]any{"nope": true}},                             // unknown nested key
-		{"scroll": "not-an-object"},                                          // wrong shape
-		{"weekdayBar": map[string]any{"activeColor": "purple"}},              // bad nested color
-		{"weekdayBar": map[string]any{"weekendDays": []any{"sunday"}}},       // unlisted nested key
-		{"timeColor": "purple"},                                              // bad color
-		{"useCelsius": "yes"},                                                // wrong type
-		{"soundEnabled": "yes"},                                              // wrong type
-		{"buzzerVolume": float64(-1)},                                        // out of range
-		// Keys NG 1.1.x no longer has: forwarding one gets the whole PATCH a 422.
-		{"volume": float64(10)},    // replaced by buzzerVolume in NG 1.1.0
-		{"smoothScroll": true},     // AWTRIX3 SSCROLL; never an NG key
-		{"textColor": nil},         // only the per-app colours are nullable
-		{"calendarBodyColor": nil}, // likewise
+		{"brightness": float64(999)},
+		{"buzzerVolume": float64(101)},
+		{"NOPE": true},
+		{"autoBrightness": "yes"},
+		{"textColor": "purple"},
+		{"timeMode": float64(9)},
+		{"brightness": float64(12.5)},
+		{"timeSeparatorMode": "rainbow"},
+		{"dateOrder": "nope"},
+		{"transitionEffect": strings.Repeat("x", 33)},
+		{"calendarHeaderColor": []any{float64(255), float64(0)}},
+		{"calendarHeaderColor": []any{float64(300), float64(0), float64(0)}},
+		{"appDurationMs": float64(500)},
+		{"scroll": map[string]any{"speed": "fast"}},
+		{"scroll": map[string]any{"nope": true}},
+		{"scroll": "not-an-object"},
+		{"weekdayBar": map[string]any{"activeColor": "purple"}},
+		{"weekdayBar": map[string]any{"weekendDays": []any{"sunday"}}},
+		{"timeColor": "purple"},
+		{"useCelsius": "yes"},
+		{"soundEnabled": "yes"},
+		{"buzzerVolume": float64(-1)},
+		{"volume": float64(10)},
+		{"smoothScroll": true},
+		{"textColor": nil},
+		{"calendarBodyColor": nil},
 		{"weekdayBar": map[string]any{"activeColor": nil}},
 	}
 	for i, b := range bad {
@@ -105,7 +102,6 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// GET filters to whitelisted keys only.
 	gw := httptest.NewRecorder()
 	a.handleDeviceSettingsGet(gw, httptest.NewRequest("GET", "/v1/device/settings", nil))
 	if gw.Code != 200 {
@@ -118,14 +114,12 @@ func TestDeviceSettingsProxyForwardsAndFilters(t *testing.T) {
 		t.Fatalf("get dropped whitelisted key: %s", gw.Body.String())
 	}
 
-	// PUT validates then forwards.
 	pw := httptest.NewRecorder()
 	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"brightness":128}`)))
 	if pw.Code != 200 || !strings.Contains(gotBody, "128") {
 		t.Fatalf("put code=%d forwarded=%q", pw.Code, gotBody)
 	}
 
-	// PUT with a bad value is rejected before reaching the device.
 	bw := httptest.NewRecorder()
 	a.handleDeviceSettingsPut(bw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"brightness":999}`)))
 	if bw.Code != http.StatusBadRequest {
@@ -171,19 +165,16 @@ func TestDeviceProxyMapsDeviceErrorTo502(t *testing.T) {
 	if err := putClockOverride(a, dev.URL); err != nil {
 		t.Fatal(err)
 	}
-	// GET maps a device 500 to 502.
 	gw := httptest.NewRecorder()
 	a.handleDeviceSettingsGet(gw, httptest.NewRequest("GET", "/v1/device/settings", nil))
 	if gw.Code != http.StatusBadGateway {
 		t.Fatalf("get code=%d want 502", gw.Code)
 	}
-	// PUT (valid body) maps a device 500 to 502.
 	pw := httptest.NewRecorder()
 	a.handleDeviceSettingsPut(pw, httptest.NewRequest("PUT", "/v1/device/settings", strings.NewReader(`{"brightness":120}`)))
 	if pw.Code != http.StatusBadGateway {
 		t.Fatalf("put code=%d want 502", pw.Code)
 	}
-	// Reboot maps a device 500 to 502.
 	rw := httptest.NewRecorder()
 	a.handleDeviceReboot(rw, httptest.NewRequest("POST", "/v1/device/reboot", nil))
 	if rw.Code != http.StatusBadGateway {
@@ -246,10 +237,6 @@ func TestDeviceScreenProxyMapsErrorTo502(t *testing.T) {
 	}
 }
 
-// During a Pomodoro takeover the menu sees and edits the user's own
-// autoTransition/blockNavigation, not the takeover's (#162): GET reports the
-// saved prior, PUT stores those two keys in it, and everything else is
-// proxied as usual.
 func TestDeviceSettingsDuringTakeoverUsePrior(t *testing.T) {
 	var patches []string
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -306,17 +293,12 @@ func TestDeviceSettingsDuringTakeoverUsePrior(t *testing.T) {
 	}
 }
 
-// startTestTakeover records p as the takeover snapshot, as the coordinator
-// does on a Pomodoro start (under priorMu, persisted to the store).
 func startTestTakeover(a *App, p takeoverPrior) {
 	a.coord.priorMu.Lock()
 	defer a.coord.priorMu.Unlock()
 	a.coord.setPrior(&p)
 }
 
-// A save that fails at the clock changes nothing: the menu gets the mapped
-// error, no deferred-keys header, and the snapshot (and its stored copy)
-// keep the user's old values.
 func TestDeviceSettingsPutDuringTakeoverFailureKeepsPrior(t *testing.T) {
 	dev := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

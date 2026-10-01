@@ -31,13 +31,12 @@ func iconTestApp(t *testing.T, mutate func(*WeatherConfig)) (*App, *recordingPub
 
 func TestEnsureWeatherIcons_UploadsMissing(t *testing.T) {
 	app, pub := iconTestApp(t, func(w *WeatherConfig) { w.TileNativeIcons = true })
-	pub.icons = []string{"2289.gif"} // snow already on the device
+	pub.icons = []string{"2289.gif"}
 
 	app.ensureNativeIcons(context.Background())
 
 	got := pub.PutIconNamesSnapshot()
 	slices.Sort(got)
-	// All six defaults minus the present snow icon.
 	want := []string{"11428.gif", "1338.gif", "17056.gif", "2286.gif", "72.gif"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("uploaded %v, want %v", got, want)
@@ -91,7 +90,7 @@ func TestEnsureNativeIcons_PomodoroEnabledProvisionsTomatoAndCoffee(t *testing.T
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
-	cfg.Weather.Enabled = false // isolate: weather must contribute nothing here
+	cfg.Weather.Enabled = false
 	cfg.Pomodoro.Enabled = true
 	app := NewApp(cfg, pub, testLogger())
 	app.iconFetch = func(_ context.Context, id string) ([]byte, string, error) {
@@ -131,9 +130,6 @@ func TestEnsureNativeIcons_PomodoroDisabledProvisionsWeatherOnly(t *testing.T) {
 	}
 }
 
-// tinyPNG encodes an 8x8 opaque PNG, mirroring the real gallery's
-// extensionless-URL fallback response for icons like 29802 that have no
-// .gif/.jpg form.
 func tinyPNG(t *testing.T) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
@@ -149,11 +145,6 @@ func tinyPNG(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
-// TestFetchIconFrom_PNGFallbackConvertsToGIF exercises the real wire scenario
-// for icon 29802 (tomato): the gallery has neither a .gif nor a .jpg, but
-// serves an 8x8 PNG at the extensionless URL. awtrix-ng's upload endpoint
-// rejects PNG (415, magic-byte check), so the fallback must convert it to a
-// GIF before it's usable.
 func TestFetchIconFrom_PNGFallbackConvertsToGIF(t *testing.T) {
 	pngBytes := tinyPNG(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -180,8 +171,6 @@ func TestFetchIconFrom_PNGFallbackConvertsToGIF(t *testing.T) {
 	}
 }
 
-// TestFetchIconFrom_AllFormsMissingFails covers the case where the gallery
-// has no .gif, .jpg, or extensionless form at all (a genuinely absent icon).
 func TestFetchIconFrom_AllFormsMissingFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
@@ -193,9 +182,6 @@ func TestFetchIconFrom_AllFormsMissingFails(t *testing.T) {
 	}
 }
 
-// TestFetchIconFrom_ExtensionlessNonPNGFails guards pngToGIF against
-// converting something that isn't a small PNG (e.g. an HTML error page
-// mislabeled with a 200).
 func TestFetchIconFrom_ExtensionlessNonPNGFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

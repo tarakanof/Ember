@@ -15,7 +15,6 @@ import (
 	"strings"
 )
 
-// versionInfo is the JSON body served by /version. Computed once at startup.
 type versionInfo struct {
 	Binary    string `json:"binary"`
 	Version   string `json:"version"`
@@ -46,10 +45,6 @@ func handleVersion(info versionInfo) http.HandlerFunc {
 	}
 }
 
-// adminRequireAuth is stricter than requireAuth: empty token = closed door.
-// Admin endpoints expose mutation (reload) and runtime detail (sessions),
-// neither of which should be open by default just because the operator
-// hasn't set EMBER_TOKEN yet.
 func adminRequireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := app.cfg.Load().Auth.StatusToken
@@ -87,42 +82,24 @@ func handleAdminDoctor(app *App) http.HandlerFunc {
 	}
 }
 
-// nonReloadableLeaves are config paths that cannot change at runtime: the
-// HTTP listener is bound once at startup, and admin auth tokens are wired
-// into long-lived structures. Any change to these triggers
-// 409 Conflict from /admin/reload — operator must restart the process.
 var nonReloadableLeaves = []string{
 	"http.addr",
 	"auth.status_token",
 	"auth.status_token_env",
 }
 
-// diffConfig returns dotted leaf paths whose values differ between oldCfg
-// and newCfg. It walks Config's fields via reflection (unbounded recursion
-// into nested config structs, see diffStructFields), deriving each path from
-// the field's json tag — there is no hand-rolled leaf list to go stale, so a
-// newly added Config field is diffed automatically the moment it exists,
-// with no code change required here.
 func diffConfig(oldCfg, newCfg Config) []string {
 	var changed []string
 	diffStructFields(reflect.ValueOf(oldCfg), reflect.ValueOf(newCfg), "", &changed)
 	return changed
 }
 
-// diffStructFields appends prefix-qualified json-tag paths for every field of
-// oldV/newV (both must be the same struct type) whose values differ.
-// Struct-typed fields recurse unconditionally, however deep the nesting goes
-// (today Config nests exactly one struct level, but a deeper future section
-// is handled without changes here); every non-struct field is compared with
-// reflect.DeepEqual, which correctly distinguishes nil vs. non-nil pointers
-// (the pattern used throughout Config for "unset vs. explicit false/zero"
-// optional fields).
 func diffStructFields(oldV, newV reflect.Value, prefix string, changed *[]string) {
 	t := oldV.Type()
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if f.PkgPath != "" {
-			continue // unexported
+			continue
 		}
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if name == "" || name == "-" {
@@ -143,8 +120,6 @@ func diffStructFields(oldV, newV reflect.Value, prefix string, changed *[]string
 	}
 }
 
-// nonReloadableChange returns the first changed leaf path that appears in
-// nonReloadableLeaves, or "" if all changes are safe to apply at runtime.
 func nonReloadableChange(changed []string) string {
 	for _, c := range changed {
 		for _, n := range nonReloadableLeaves {
@@ -156,10 +131,6 @@ func nonReloadableChange(changed []string) string {
 	return ""
 }
 
-// formatLeafValue renders a single config leaf as a string for inclusion in
-// the 409 error message. auth.status_token is redacted to avoid leaking the
-// running secret in an error response — defense-in-depth even though the
-// preserve-token copy normally prevents that leaf from diffing.
 func formatLeafValue(cfg Config, leaf string) string {
 	switch leaf {
 	case "http.addr":
@@ -172,18 +143,6 @@ func formatLeafValue(cfg Config, leaf string) string {
 	return ""
 }
 
-// handleAdminReload re-reads the config file path captured at startup,
-// validates, and atomically swaps via app.cfg.Store. State machine:
-//   - 412 if server started from defaults (no file path).
-//   - 500 on read error.
-//   - 400 on parse error.
-//   - 422 on validation error.
-//   - 409 if any non-reloadable leaf changed.
-//   - 200 with {reloaded, changed_fields} on success.
-//
-// Auth.StatusToken is preserved from the running config because the JSON
-// file doesn't carry it (env-only by repo policy); without this copy a
-// reload would always trip the 409 guard for auth.status_token.
 func handleAdminReload(app *App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1024)
@@ -225,9 +184,6 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			}
 			return
 		}
-		// Required-field check on the RAW parsed config: applyDefaults
-		// would mask an explicit operator empty string by filling in the
-		// fallback URL, hiding their misconfiguration.
 		if newCfg.AWTRIX.HTTPBaseURL == "" {
 			err := fmt.Errorf("%w: awtrix.http_base_url is required", ErrConfigValidate)
 			logOutcome(http.StatusUnprocessableEntity, 0, err.Error())
@@ -235,25 +191,11 @@ func handleAdminReload(app *App) http.HandlerFunc {
 			return
 		}
 		newCfg.applyDefaults()
-		// Same baseline repair loadConfig applies at startup: drop/replace
-		// values that fail the SSRF-guard validators (e.g. a hand-edited
-		// weather.icon_ids path-traversal entry) instead of loading them
-		// live — a hand-edited config.json shouldn't bypass the guard just
-		// because it arrived via reload instead of startup.
 		sanitizeConfigBaseline(&newCfg, app.logger)
 		warnDeprecatedConfig(newCfg, app.logger)
-		// Token isn't in the JSON file (env-only), so carry it over from
-		// the running config to keep the diff honest.
-		//
-		// The load (oldCfg) through the store below is one critical section
-		// under cfgMu: it must observe and replace the same config value a
-		// concurrent settings PUT (via updateConfig) would, or one of the two
-		// changes is silently lost.
 		app.cfgMu.Lock()
 		oldCfg := *app.cfg.Load()
 		newCfg.Auth.StatusToken = oldCfg.Auth.StatusToken
-		// The menu override and a discovery swap are runtime tiers the file
-		// doesn't hold; carryClockURL decides which survive a new baseline.
 		carryClockURL(oldCfg, &newCfg)
 		if err := validateConfig(newCfg); err != nil {
 			app.cfgMu.Unlock()
@@ -272,13 +214,8 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		}
 		app.cfg.Store(&newCfg)
 		app.cfgMu.Unlock()
-		// Keep the Pomodoro engine in sync with the reloaded config; the
-		// persisted settings are re-applied below.
 		app.resyncPomodoroAfterReload()
 		app.settings.reapply()
-		// awtrix.boot_ping is a device-provisioning toggle, so a reload that
-		// flipped it has to reach the clock. Off the request path: it does
-		// device HTTP and the reply must not wait on an unreachable clock.
 		go app.ensureBootPingScript(context.Background())
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{

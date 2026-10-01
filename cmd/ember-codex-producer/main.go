@@ -5,7 +5,6 @@ import (
 	"os"
 )
 
-// version is overridable at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
 func main() {

@@ -18,11 +18,9 @@ func TestMoonSpriteFullNewHalf(t *testing.T) {
 	if discTotal == 0 {
 		t.Fatal("full moon drew nothing")
 	}
-	// New moon is dark.
 	if n := litCount(moonSprite(MoonView{Illum: 0, Waxing: true})); n != 0 {
 		t.Errorf("new moon lit %d pixels, want 0", n)
 	}
-	// Half moon lights roughly half the disc.
 	half := litCount(moonSprite(MoonView{Illum: 0.5, Waxing: true}))
 	if half == 0 || half >= discTotal {
 		t.Errorf("half moon lit %d, want between 0 and %d", half, discTotal)
@@ -32,8 +30,6 @@ func TestMoonSpriteFullNewHalf(t *testing.T) {
 func TestMoonSpriteWaxingVsWaning(t *testing.T) {
 	wax := moonSprite(MoonView{Illum: 0.5, Waxing: true})
 	wan := moonSprite(MoonView{Illum: 0.5, Waxing: false})
-	// Middle row spans the full width (cols 0–7). Waxing lights the right limb,
-	// waning the left.
 	if wax[3][7] != 'X' || wax[3][0] != '.' {
 		t.Errorf("waxing half should light the right limb: %q", wax[3])
 	}
@@ -43,8 +39,6 @@ func TestMoonSpriteWaxingVsWaning(t *testing.T) {
 }
 
 func TestWeatherPayloadMoonUsesMoonIcon(t *testing.T) {
-	// The clear-night tile should differ in the icon region (cols 0–7) from the
-	// day (sun) tile, proving the moon was drawn there.
 	day := WeatherPayload(WeatherClear, "12°", 12, nil, 600)
 	night := WeatherPayloadMoon("12°", 12, nil, MoonView{Illum: 0.5, Waxing: true}, 600)
 	dp := bmpPixels(t, day)
@@ -80,7 +74,6 @@ func TestSunPopupPayload(t *testing.T) {
 	if set["textColor"] != hexOf(sunsetColor) {
 		t.Errorf("sunset colour = %v, want %v", set["textColor"], hexOf(sunsetColor))
 	}
-	// No sound on the notification (firmware drops it under a draw op).
 	if _, has := rise["sound"]; has {
 		t.Error("sun popup must not carry a sound field")
 	}

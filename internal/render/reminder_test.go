@@ -5,17 +5,14 @@ import "testing"
 func TestReminderPopupFrame(t *testing.T) {
 	f := ReminderPopupFrame("HI")
 
-	// Bell occupies cols 0-7 in gold: row 5 is fully lit ("XXXXXXXX").
 	for x := 0; x < 8; x++ {
 		if !f.Dirty[5][x] || f.Pixels[5][x] != reminderGold {
 			t.Fatalf("bell pixel (%d,5) = %v dirty=%v, want gold", x, f.Pixels[5][x], f.Dirty[5][x])
 		}
 	}
-	// Text starts at col 9, row 1 (3×5 font): 'H' row0 is "X.X" → (9,1) lit gold.
 	if !f.Dirty[1][9] || f.Pixels[1][9] != reminderGold {
 		t.Fatalf("text pixel (9,1) = %v dirty=%v, want gold", f.Pixels[1][9], f.Dirty[1][9])
 	}
-	// Gap column between bell and text stays unlit.
 	for y := 0; y < 8; y++ {
 		if f.Dirty[y][8] {
 			t.Fatalf("gap pixel (8,%d) lit, want blank", y)
@@ -23,16 +20,11 @@ func TestReminderPopupFrame(t *testing.T) {
 	}
 }
 
-// TestReminderPopupPinsText: the reminder text is typed by the user in mixed
-// case; the device must uppercase it like the preview does, whatever the
-// clock's global uppercase setting, in both icon modes.
 func TestReminderPopupPinsText(t *testing.T) {
 	assertPinnedText(t, ReminderPopupPayload("Call mom", "", 8, false))
 	assertPinnedText(t, ReminderPopupPayload("Call mom", "1234", 8, true))
 }
 
-// TestReminderPopupRepeatsUnlessHeld: an auto-dismissing reminder stays until
-// its text has scrolled through once (repeat:1); a held one needs no count.
 func TestReminderPopupRepeatsUnlessHeld(t *testing.T) {
 	if p := ReminderPopupPayload("Call mom about the weekend", "", 8, false); p["repeat"] != 1 {
 		t.Errorf("unheld repeat = %v, want 1", p["repeat"])
@@ -43,11 +35,10 @@ func TestReminderPopupRepeatsUnlessHeld(t *testing.T) {
 }
 
 func TestReminderPopupFrame_LongTextClips(t *testing.T) {
-	// Must not panic and must not paint past the right edge (paintCell bounds).
 	f := ReminderPopupFrame("MEETING WITH A VERY LONG TITLE")
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 32; x++ {
-			_ = f.Pixels[y][x] // touching every cell is enough; OOB would have panicked
+			_ = f.Pixels[y][x]
 		}
 	}
 }

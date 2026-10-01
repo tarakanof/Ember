@@ -1,21 +1,7 @@
 import AppKit
 import EmberKit
 
-/// Runs the bot's single frame loop and feeds both the menu-bar status item and
-/// the Dock tile.
-///
-/// The loop renders at 24 fps only while `BotBehavior` reports motion (a blink,
-/// a glance, a hop) and otherwise sleeps until the next scheduled event, so an
-/// idle bot costs a wake-up every few seconds, not a timer per frame. It stops
-/// entirely while nothing on screen shows the bot. A frame that would
-/// rasterise the same as the last one pushed is skipped: each push costs a
-/// rasterisation and a status-button redraw.
-///
-/// Frames go straight to the `NSStatusBarButton`, not through SwiftUI. Letting
-/// the `MenuBarExtra` label observe a per-frame value leaked SwiftUI's
-/// Observation registrations (about 600 MB after 3.5 days) and kept 3-8% CPU
-/// busy in AttributeGraph re-evaluating the label. Deliberately not
-/// `@Observable`, so nothing can start observing `pose` again.
+/// Runs the bot's single frame loop for the menu-bar status item and the Dock tile.
 @MainActor
 final class BotAnimator {
     static let shared = BotAnimator()
@@ -26,35 +12,21 @@ final class BotAnimator {
     private var loop: Task<Void, Never>?
     private let dockView = BotDockView()
     private var dockEnabled = false
-    /// Mirrors `NSApp.activationPolicy()`, which is an XPC round-trip per call.
-    /// Kept current by `activationPolicyDidChange(_:)`.
     private var isRegular = NSApplication.shared.activationPolicy() == .regular
     private var menuBarEnabled = false
     private var menuBarColored = true
     private weak var statusButton: NSStatusBarButton?
-    /// The one image on the status button, for the app's lifetime; each frame
-    /// swaps in a new rep. A new `setImage:` per frame made AppKit re-measure
-    /// the item, about half of each push's cost, though the size never
-    /// changes. The SwiftUI label shows this same object too, see
-    /// `liveMenuBarImage(colored:)`.
     private let liveImage = NSImage(size: NSSize(width: 22, height: 22))
-    /// `liveImage.isTemplate` as of the button's last `setImage:`.
     private var buttonTemplate: Bool?
-    /// The 44 px (2x) context frames are drawn in.
     private let liveContext = CGContext(data: nil, width: 44, height: 44, bitsPerComponent: 8, bytesPerRow: 0,
                                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-    /// Menu-bar colour crossfade on mood changes; nil = the menu bar's own
-    /// foreground (the template look).
     private var tintFrom: NSColor?
     private var tintTo: NSColor?
     private var tintStart = -Double.infinity
     private static let tintFade = 0.35
-    /// Everyday blinks and glances; 24 fps is smooth for them at 16 pt.
     private static let frameInterval = 1.0 / 24
-    /// The 0.7 s mood morph glides, so it gets the display's rate.
     private static let morphFrameInterval = 1.0 / 60
-    /// The 16 pt ball's radius on the 44 px menu-bar raster.
     private static let menuBarRadius = BotStyle.menuBar(tint: NSColor.black.cgColor).bodyRadius(side: 44)
 
     private init() {
@@ -75,7 +47,6 @@ final class BotAnimator {
 
     private static var now: Double { ProcessInfo.processInfo.systemUptime }
 
-    /// Feeds the winning session's state; a no-op when the mood is unchanged.
     func setState(_ state: String) {
         let t = Self.now
         let from = tint(at: t)
@@ -86,7 +57,6 @@ final class BotAnimator {
         restart()
     }
 
-    /// The menu-bar colour at `t`, mid-fade included; nil = template foreground.
     private func tint(at t: Double) -> NSColor? {
         let k = (t - tintStart) / Self.tintFade
         guard k < 1 else { return tintTo }
@@ -95,24 +65,17 @@ final class BotAnimator {
         return a.blended(withFraction: max(k, 0), of: b) ?? b
     }
 
-    /// Whether the menu-bar label shows the bot (vs the tool glyphs), and in
-    /// colour or as a template. Called on every prefs change, which also
-    /// re-renders the label and overwrites the button image, so it always
-    /// restarts the loop to push a fresh frame.
     func showInMenuBar(_ on: Bool, colored: Bool) {
         menuBarEnabled = on
         menuBarColored = colored
         restart()
     }
 
-    /// Swaps the Dock tile between the live bot and the static bundle icon.
     func showInDock(_ on: Bool) {
         dockEnabled = on
         let app = NSApplication.shared
         let tile = app.dockTile
         if on {
-            // Cmd-Tab and Finder read the icon image, not the tile view. Set it
-            // first: assigning it afterwards replaces the live content view.
             app.applicationIconImage = Self.staticIcon()
             dockView.frame = NSRect(origin: .zero, size: tile.size)
             dockView.pose = pose
@@ -124,13 +87,10 @@ final class BotAnimator {
         restart()
     }
 
-    /// Call after every `setActivationPolicy`. A promotion must be reported
-    /// before `showInDock`, whose restart reads it.
     func activationPolicyDidChange(_ policy: NSApplication.ActivationPolicy) {
         isRegular = policy == .regular
     }
 
-    /// The Dock tile is only on screen while a window promotes us to .regular.
     private var dockVisible: Bool { dockEnabled && isRegular }
 
     private func restart() {
@@ -138,14 +98,7 @@ final class BotAnimator {
         loop = Task { [weak self] in await self?.run() }
     }
 
-    /// Pushes a menu-bar frame only when its quantised pose changes, or on
-    /// every frame of a colour fade plus once when the fade ends: that last
-    /// push carries the final colour, which a held-still pose would skip.
     private func run() async {
-        // Demotion to .accessory ends the loop here; the next promotion
-        // re-applies the icon (AppDelegate → applyAppIcon), which restarts it.
-        // The first frame is always pushed: a restart usually follows a label
-        // re-render that replaced the button image.
         var menuBarStale = true
         var menuBarShown: BotPose?, dockShown: BotPose?
         var wasFading = false
@@ -159,7 +112,7 @@ final class BotAnimator {
             if wasFading && !fading { menuBarStale = true }
             wasFading = fading
             var menuBarKey = pose.quantized(toPixels: Self.menuBarRadius)
-            menuBarKey.badge = 0   // the menu-bar style draws no badge
+            menuBarKey.badge = 0
             if menuBarKey != menuBarShown {
                 menuBarShown = menuBarKey
                 menuBarStale = true
@@ -175,21 +128,15 @@ final class BotAnimator {
             var wait = behavior.isTransitioning ? Self.morphFrameInterval
                 : behavior.isAnimating || fading ? Self.frameInterval
                 : min(max(behavior.nextEventAt - t, Self.frameInterval), 10)
-            // No status item yet (early launch): retry soon, not at the next event.
             if menuBarEnabled && menuBarStale { wait = min(wait, 0.25) }
             try? await Task.sleep(for: .seconds(wait))
         }
     }
 
-    /// Draws the current frame into the status button's image. False while
-    /// the `MenuBarExtra` hasn't created the button yet.
     private func pushMenuBar() -> Bool {
         if statusButton == nil { statusButton = StatusItemButton.find() }
         guard let button = statusButton else { return false }
         drawLiveFrame()
-        // Only a different image object needs `setImage:`; a template flip on
-        // the same one is re-read by the cell only on a fresh `setImage:`, and
-        // the label may have flipped it since the button last got it.
         if button.image !== liveImage || buttonTemplate != liveImage.isTemplate {
             button.image = nil
             button.image = liveImage
@@ -199,34 +146,20 @@ final class BotAnimator {
         return true
     }
 
-    /// The live image, holding the current frame, for the `MenuBarExtra` label.
-    /// SwiftUI re-applies the label's image whenever the button's appearance
-    /// changes, and AppKit changes it on every refresh of the copies of the
-    /// status item it shows on other displays' menu bars. A one-off snapshot
-    /// there froze those copies on the frame of the last label re-render.
-    ///
-    /// Idle/sleepy — and every mood when `colored` is off — render as a template
-    /// (black or white to match the menu bar, like the reference's black ball);
-    /// otherwise active moods keep the per-state colour cue, crossfading on change.
     func liveMenuBarImage(colored: Bool) -> NSImage {
         menuBarColored = colored
         drawLiveFrame()
         return liveImage
     }
 
-    /// Draws the current frame into `liveImage` as a new representation.
     private func drawLiveFrame() {
         let tint = menuBarColored ? tint(at: Self.now) : nil
         liveImage.isTemplate = tint == nil
-        // No context means no memory for 7 KB; keep the last frame.
         guard let ctx = liveContext else { return }
         let rect = CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height)
         ctx.clear(rect)
         BotRenderer.draw(pose, in: ctx, rect: rect, style: .menuBar(tint: tint?.cgColor ?? NSColor.black.cgColor))
         guard let cg = ctx.makeImage() else { return }
-        // A fresh rep, not new pixels in the old one: the button's layer
-        // compares display lists by CGImage identity, so rewriting a rep's
-        // bitmap in place (even after `recache()`) left the menu bar stale.
         let rep = NSBitmapImageRep(cgImage: cg)
         rep.size = liveImage.size
         liveImage.representations.forEach(liveImage.removeRepresentation)
@@ -244,7 +177,6 @@ final class BotAnimator {
 
     // MARK: - Images
 
-    /// The session colour a mood stands for; nil for the monochrome moods.
     static func tint(for mood: BotMood) -> NSColor? {
         switch mood {
         case .idle, .sleepy: return nil
@@ -255,8 +187,6 @@ final class BotAnimator {
         }
     }
 
-    /// The colour template menu-bar images end up drawn in, so a crossfade to or
-    /// from the template look starts and ends where the menu bar would put it.
     private static func menuBarForeground() -> NSColor {
         let bar = NSApplication.shared.windows.first { $0.className == "NSStatusBarWindow" }
         let appearance = bar?.contentView?.effectiveAppearance ?? NSApplication.shared.effectiveAppearance
@@ -276,7 +206,6 @@ final class BotAnimator {
     }
 }
 
-/// The Dock tile's content: redrawn by `NSDockTile.display()` on each frame.
 final class BotDockView: NSView {
     var pose = BotPose()
 

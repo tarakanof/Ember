@@ -6,12 +6,8 @@ import (
 	"testing"
 )
 
-// takeoverKeyEdit is the menu edit the #162 tests make mid-focus: the user's
-// prior was rotation off with navigation free; they turn rotation on, keep
-// navigation free, and change the brightness in the same save.
 var takeoverKeyEdit = map[string]any{"autoTransition": true, "blockNavigation": false, "brightness": 40.0}
 
-// recordWrites is a device-write func that records what it was given.
 func recordWrites(into *[]map[string]any) func(map[string]any) error {
 	return func(m map[string]any) error {
 		*into = append(*into, m)
@@ -19,9 +15,6 @@ func recordWrites(into *[]map[string]any) func(map[string]any) error {
 	}
 }
 
-// A menu edit of a takeover key during a focus block must not reach the
-// device (it would resume rotation mid-focus); it becomes the value the
-// restore writes. Other keys in the same edit go to the device at once.
 func TestMenuEditDuringTakeoverIsAppliedOnRestore(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.deviceSettings = map[string]any{"autoTransition": false, "blockNavigation": false}
@@ -56,7 +49,6 @@ func TestMenuEditDuringTakeoverIsAppliedOnRestore(t *testing.T) {
 	wantTakeoverSettings(t, s[1], true, false)
 }
 
-// With no takeover in force the edit goes straight to the device, whole.
 func TestMenuEditWithoutTakeoverGoesToDevice(t *testing.T) {
 	c, _, _, _ := holdFixture(t, "running")
 	var written []map[string]any
@@ -72,7 +64,6 @@ func TestMenuEditWithoutTakeoverGoesToDevice(t *testing.T) {
 	}
 }
 
-// An edit made only of takeover keys during a focus block writes nothing.
 func TestMenuEditOfOnlyTakeoverKeysSkipsTheDevice(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.deviceSettings = map[string]any{"autoTransition": true, "blockNavigation": false}
@@ -91,10 +82,6 @@ func TestMenuEditOfOnlyTakeoverKeysSkipsTheDevice(t *testing.T) {
 	}
 }
 
-// modelClock is a recordingPublisher whose settings behave like the clock's:
-// a write merges into the state a later read returns. The tests route the
-// menu's writes through it too, so coordinator and menu writes share one
-// ordered device state.
 type modelClock struct {
 	*recordingPublisher
 	mu    sync.Mutex
@@ -134,10 +121,6 @@ func modelFixture(t *testing.T) (*coordinator, *modelClock, *Snapshot, *bool) {
 	return c, clk, snap, pomo
 }
 
-// Menu edits arrive on HTTP goroutines while the coordinator takes and
-// restores the snapshot on its own. Whatever the interleaving, once the
-// last block has ended the clock holds the user's last choice and no
-// snapshot is left (and -race sees every access).
 func TestMenuEditRacesTakeoverEdges(t *testing.T) {
 	c, clk, snap, pomo := modelFixture(t)
 	write := func(m map[string]any) error { return clk.Settings(context.Background(), m) }
@@ -172,10 +155,6 @@ func TestMenuEditRacesTakeoverEdges(t *testing.T) {
 	}
 }
 
-// An edit whose device write is in flight when a Pomodoro starts: the
-// snapshot read may miss it, so the edit is folded into the snapshot, the
-// takeover's value is put back for the focus block, and the restore applies
-// the edit.
 func TestMenuEditInFlightWhenTakeoverStartsIsRecorded(t *testing.T) {
 	c, clk, snap, pomo := modelFixture(t)
 	entered, release := make(chan struct{}), make(chan struct{})
@@ -199,7 +178,7 @@ func TestMenuEditInFlightWhenTakeoverStartsIsRecorded(t *testing.T) {
 	}()
 	<-entered
 	*pomo = true
-	c.publish(*snap) // snapshot reads autoTransition:false; takeover lands
+	c.publish(*snap)
 	close(release)
 	r := <-res
 	if r.err != nil || len(r.held) != 1 || r.held[0] != "autoTransition" {
@@ -219,8 +198,6 @@ func TestMenuEditInFlightWhenTakeoverStartsIsRecorded(t *testing.T) {
 	}
 }
 
-// The edit is persisted with the snapshot, so a server that dies mid-focus
-// restores the user's latest choice on its next start.
 func TestMenuEditDuringTakeoverSurvivesCrash(t *testing.T) {
 	kv := &memKV{}
 	c, pub, snap, pomo := holdFixture(t, "running")
@@ -243,9 +220,6 @@ func TestMenuEditDuringTakeoverSurvivesCrash(t *testing.T) {
 	wantTakeoverSettings(t, s[0], true, false)
 }
 
-// gatedWrite is a menu write func against clk whose first call blocks until
-// release is closed (after closing entered), and whose call number failAt
-// (1-based, 0 for never) fails as a lost write.
 type gatedWrite struct {
 	clk              *modelClock
 	entered, release chan struct{}
@@ -283,8 +257,6 @@ type editResult struct {
 	err  error
 }
 
-// startEdit runs applyMenuSettings on its own goroutine, as an HTTP handler
-// would, and returns once its first device write is in flight.
 func startEdit(c *coordinator, m map[string]any, g *gatedWrite) chan editResult {
 	res := make(chan editResult, 1)
 	go func() {
@@ -299,9 +271,6 @@ func directWrite(clk *modelClock) func(map[string]any) error {
 	return func(m map[string]any) error { return clk.Settings(context.Background(), m) }
 }
 
-// Two clients: E1's write is slow; a focus block starts, and E2, made later,
-// is saved into the snapshot. E1 landing afterwards must not replace E2,
-// whether the block is still running or has ended by then.
 func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
 	for _, endBlockFirst := range []bool{false, true} {
 		t.Run(map[bool]string{false: "during focus", true: "after focus"}[endBlockFirst], func(t *testing.T) {
@@ -316,7 +285,7 @@ func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
 			}
 			if endBlockFirst {
 				*pomo = false
-				c.publish(*snap) // the restore writes E2's false
+				c.publish(*snap)
 			}
 			close(g.release)
 			if r := <-e1; r.err != nil {
@@ -339,18 +308,15 @@ func TestOlderInFlightEditDoesNotReplaceNewer(t *testing.T) {
 	}
 }
 
-// A whole focus block starts and ends while the edit's write is in flight:
-// the restore may have put the older value over the edit, so the edit is
-// written again.
 func TestMenuEditInFlightAcrossWholeTakeoverIsRewritten(t *testing.T) {
 	c, clk, snap, pomo := modelFixture(t)
 	g := newGatedWrite(clk)
 	e := startEdit(c, map[string]any{"autoTransition": true}, g)
 
 	*pomo = true
-	c.publish(*snap) // snapshot records false
+	c.publish(*snap)
 	*pomo = false
-	c.publish(*snap) // the restore writes false
+	c.publish(*snap)
 	close(g.release)
 	r := <-e
 	if r.err != nil || len(r.held) != 0 {
@@ -364,9 +330,6 @@ func TestMenuEditInFlightAcrossWholeTakeoverIsRewritten(t *testing.T) {
 	}
 }
 
-// The re-write over a restore is lost: the save answers the error although
-// its first write landed (here after the restore, so the clock holds the
-// edit); the menu shows a failed save and re-reads the clock's state.
 func TestMenuEditRewriteLostAnswersError(t *testing.T) {
 	c, clk, snap, pomo := modelFixture(t)
 	g := newGatedWrite(clk)
@@ -386,7 +349,6 @@ func TestMenuEditRewriteLostAnswersError(t *testing.T) {
 	}
 }
 
-// priorView is takeoverPriorViewContext without a deadline, for tests.
 func priorView(c *coordinator) (takeoverPrior, bool) {
 	p, ok, _ := c.takeoverPriorViewContext(context.Background())
 	return p, ok

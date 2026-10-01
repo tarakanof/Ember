@@ -8,21 +8,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// handlePomodoroPreview renders one drawn frame per Pomodoro phase under a
-// draft config, in the same 32×8 grid as /v1/preview. Open and read-only,
-// like the weather preview. The clock itself shows the native animated icon +
-// firmware text (PomodoroPayload); the preview shows the drawn equivalent
-// (RenderPomodoro) — same colours, countdown and progress bar.
-//
-// Query params:
-//   - focus_minutes        int 1..480 (default 25)
-//   - short_break_minutes  int 1..60  (default 5)
-//   - long_break_minutes   int 1..180 (default 15)
-//   - focus_color          "#RRGGBB" (default: built-in phase colour)
-//   - break_color          "#RRGGBB" (default: built-in phase colour)
-//
-// Each countdown shows 70% of the phase remaining, so the progress bar reads
-// as mid-session rather than full or empty.
 func (a *App) handlePomodoroPreview(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	focusMin := queryIntClamped(q, "focus_minutes", 25, 1, 480)
@@ -53,8 +38,6 @@ func (a *App) handlePomodoroPreview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
-// queryIntClamped reads an integer query param, falling back to def when
-// absent or malformed and clamping into [min, max].
 func queryIntClamped(q url.Values, key string, def, min, max int) int {
 	v, err := strconv.Atoi(q.Get(key))
 	if err != nil {

@@ -8,17 +8,12 @@ import (
 )
 
 const (
-	// limitAlarmThreshold treats a 5h window as maxed (endpoint percents are
-	// rounded, so 99.5 catches an int 100 without firing at a real 99).
 	limitAlarmThreshold = 99.5
-	limitAlarmGraceSec  = 60 // reset estimates drift; fire a minute late, never early
+	limitAlarmGraceSec  = 60
 	limitAlarmPopupSec  = 10
 	limitAlarmRTTTL     = "reset:d=8,o=6,b=160:g,8p,c7,8p,e7"
 )
 
-// effectiveFiveHour returns the freshest 5h window for tool: endpoint usage
-// when fresh, else the newest live session's statusline data — the same
-// precedence the usage-app fallback uses.
 func effectiveFiveHour(st *UsageStore, snap Snapshot, tool string, now time.Time) (pct float64, resetAt int64, ok bool) {
 	if st != nil && st.Fresh(tool, now, usageStaleTTL) {
 		if u, _ := st.Get(tool); u.FiveHour != nil {
@@ -41,17 +36,8 @@ func effectiveFiveHour(st *UsageStore, snap Snapshot, tool string, now time.Time
 	return float64(*best.RateWindowPct), best.RateResetAt, true
 }
 
-// checkLimitAlarms arms when a tool's 5h window is maxed with a known reset
-// time, and fires one popup+chime once that reset (plus grace) passes.
-// Armed/fired state is in-memory: a restart mid-window simply re-arms from the
-// next snapshot. Coordinator-goroutine-owned.
 func (c *coordinator) checkLimitAlarms(now time.Time, snap Snapshot) {
 	if c.usage == nil || !c.loadCfg().limitAlarmEnabled() {
-		// Drop any armed state so re-enabling hours later can't fire a stale
-		// "reset" popup for a window that long since passed. alarmFired is
-		// deliberately left intact: its entries hold past resetAt values, so
-		// the resetAt>now arm guard already blocks them — nilling it too
-		// would be harmless but suggests the dedupe depends on this path.
 		c.alarmArmed = nil
 		return
 	}
@@ -68,14 +54,12 @@ func (c *coordinator) checkLimitAlarms(now time.Time, snap Snapshot) {
 		if !isArmed || now.Unix() < armed+limitAlarmGraceSec {
 			continue
 		}
-		// Due. If fresh data says the window is still maxed with a LATER
-		// reset, the estimate drifted — re-arm, don't fire.
 		if ok && pct >= limitAlarmThreshold && resetAt > armed {
 			c.alarmArmed[tool] = resetAt
 			continue
 		}
 		if err := c.fireLimitAlarm(tool); err != nil {
-			continue // device unreachable: retry next tick, stay armed
+			continue
 		}
 		c.alarmFired[tool] = armed
 		delete(c.alarmArmed, tool)

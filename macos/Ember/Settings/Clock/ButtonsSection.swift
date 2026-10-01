@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Whether the clock's buttons drive Pomodoro through this server.
 struct ButtonsSection: View {
     @Environment(DeviceSettingsModel.self) private var device
 

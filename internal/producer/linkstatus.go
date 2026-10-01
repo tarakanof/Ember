@@ -11,26 +11,15 @@ import (
 	"time"
 )
 
-// LinkState is what a LinkStatus file holds: whether the daemon's last
-// request reached the server. The macOS app reads it to tell the user when
-// macOS blocks the helper's Local Network access, which otherwise only shows
-// as "connect: no route to host" in the daemon log.
+// LinkState is what a LinkStatus file holds: whether the daemon's last request reached the server.
 type LinkState struct {
-	// OK: the last request got an HTTP response (any status).
-	OK bool `json:"ok"`
-	// NoRoute: the last request failed with EHOSTUNREACH, which is how
-	// Local Network privacy denies a LAN connection.
-	NoRoute bool `json:"no_route"`
-	// Error: the last transport error, empty when OK.
-	Error string `json:"error,omitempty"`
-	// At: when this state began.
-	At time.Time `json:"at"`
+	OK      bool      `json:"ok"`
+	NoRoute bool      `json:"no_route"`
+	Error   string    `json:"error,omitempty"`
+	At      time.Time `json:"at"`
 }
 
-// LinkStatus records a daemon's link state in a small JSON file, rewriting
-// it only when the state changes. Hooks run in the user's terminal, which
-// has its own Local Network permission, so only the LaunchAgent records.
-// A nil *LinkStatus records nothing.
+// LinkStatus persists a daemon's link state to a JSON file.
 type LinkStatus struct {
 	path string
 	now  func() time.Time
@@ -40,13 +29,12 @@ type LinkStatus struct {
 	written bool
 }
 
-// NewLinkStatus records into path.
+// NewLinkStatus returns a LinkStatus that records into path.
 func NewLinkStatus(path string) *LinkStatus {
 	return &LinkStatus{path: path, now: time.Now}
 }
 
-// LinkStatusPath is where the named daemon ("claude-producer",
-// "codex-producer") records its link state: next to producer.env.
+// LinkStatusPath is where the named daemon ("claude-producer", "codex-producer") records its link state: next to producer.env.
 func LinkStatusPath(name string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -63,9 +51,7 @@ func IsNoRoute(err error) bool {
 	return errors.Is(err, syscall.EHOSTUNREACH) || strings.Contains(err.Error(), "no route to host")
 }
 
-// Record notes the result of one request: nil for any HTTP response, the
-// transport error otherwise. Best effort: a write failure is ignored and
-// retried on the next change.
+// Record notes the result of one request: nil for any HTTP response, the transport error otherwise.
 func (l *LinkStatus) Record(err error) {
 	if l == nil {
 		return

@@ -9,7 +9,6 @@ import (
 	"github.com/tarakanof/ember/internal/meetings"
 )
 
-// mustLoad reads a fixture from testdata/ and returns its bytes.
 func mustLoad(t *testing.T, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", name))
@@ -26,11 +25,6 @@ func TestExpandWeeklyWithExdateAndOverride(t *testing.T) {
 		t.Fatalf("Expand: %v", err)
 	}
 
-	// want, in order (Belgrade is UTC+2 in June):
-	// Mon 08 07:30Z "Standup", Tue 09 07:30Z "Standup",
-	// [Wed 10 EXDATE'd → absent],
-	// Thu 11 12:00Z "Standup (moved)" (RECURRENCE-ID override),
-	// Fri 12 07:30Z "Standup"
 	want := []meetings.Occurrence{
 		{
 			UID:   "standup@test",
@@ -127,7 +121,6 @@ func TestExpandSkipsCancelled(t *testing.T) {
 }
 
 func TestExpandHorizonBounds(t *testing.T) {
-	// from AFTER the event → 0 results
 	afterFrom := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	occs, err := meetings.Expand(mustLoad(t, "single.ics"), afterFrom, 24*time.Hour)
 	if err != nil {
@@ -137,8 +130,6 @@ func TestExpandHorizonBounds(t *testing.T) {
 		t.Errorf("from after event: want 0, got %d", len(occs))
 	}
 
-	// from far before but horizon ending before the event → 0 results
-	// Event is at 2026-06-09 12:00Z; start from 2026-06-08, horizon 1h → window ends 2026-06-08T01:00Z
 	earlyFrom := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
 	occs, err = meetings.Expand(mustLoad(t, "single.ics"), earlyFrom, time.Hour)
 	if err != nil {
@@ -150,9 +141,6 @@ func TestExpandHorizonBounds(t *testing.T) {
 }
 
 func TestExpandDSTBoundary(t *testing.T) {
-	// Europe switched to CEST on 2026-03-29:
-	// Mar 24 occurrence is 09:00 CET = 08:00 UTC
-	// Mar 31 occurrence is 09:00 CEST = 07:00 UTC
 	from := time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC)
 	occs, err := meetings.Expand(mustLoad(t, "dst.ics"), from, 14*24*time.Hour)
 	if err != nil {
@@ -172,12 +160,6 @@ func TestExpandDSTBoundary(t *testing.T) {
 	}
 }
 
-// TestExpandOverrideMovedBeforeWindow verifies that a RECURRENCE-ID override
-// whose new DTSTART is before the poll window is excluded from results.
-// The fixture has a daily event starting 2026-06-15; the Wed 2026-06-17
-// instance is overridden to 2026-06-10 09:30 Belgrade (before window start).
-// Polling from 2026-06-15 for 5 days should yield Mon/Tue/Thu/Fri but NOT
-// the backward-moved occurrence.
 func TestExpandOverrideMovedBeforeWindow(t *testing.T) {
 	from := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 	occs, err := meetings.Expand(mustLoad(t, "override_backward.ics"), from, 5*24*time.Hour)
@@ -185,8 +167,6 @@ func TestExpandOverrideMovedBeforeWindow(t *testing.T) {
 		t.Fatalf("Expand: %v", err)
 	}
 
-	// The Wed instance was moved to 2026-06-10 (before window), so it must be absent.
-	// In-window occurrences: Mon 15, Tue 16, [Wed 17 overridden out], Thu 18, Fri 19.
 	for _, occ := range occs {
 		if occ.Title == "Weekly (moved back)" {
 			t.Errorf("override moved before window must not appear, but got: %v", occ)
@@ -196,17 +176,11 @@ func TestExpandOverrideMovedBeforeWindow(t *testing.T) {
 		}
 	}
 
-	// Also assert the four un-overridden in-window occurrences are present.
 	if len(occs) != 4 {
 		t.Errorf("want 4 occurrences (Mon/Tue/Thu/Fri), got %d: %v", len(occs), occs)
 	}
 }
 
-// TestExpandOverrideMovedIntoWindow verifies that a RECURRENCE-ID override
-// whose original instance is OUTSIDE the window but whose new DTSTART is
-// INSIDE the window is included in results (the "pull next week forward" case).
-// The fixture has a weekly Monday event; the Jun-22 instance is overridden to
-// Jun-16 11:00 Belgrade (09:00 UTC). Window: 2026-06-15T00:00Z for 5 days.
 func TestExpandOverrideMovedIntoWindow(t *testing.T) {
 	from := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 	occs, err := meetings.Expand(mustLoad(t, "override_forward.ics"), from, 5*24*time.Hour)
@@ -214,11 +188,6 @@ func TestExpandOverrideMovedIntoWindow(t *testing.T) {
 		t.Fatalf("Expand: %v", err)
 	}
 
-	// Expect:
-	//   Mon Jun-15 08:00Z — in-window instance (10:00 Belgrade = UTC+2)
-	//   Tue Jun-16 09:00Z — override of Jun-22, moved forward into window (11:00 Belgrade)
-	// Must NOT appear:
-	//   Mon Jun-22 — original instance is outside the window; its override IS in-window above
 	wantLen := 2
 	if len(occs) != wantLen {
 		t.Fatalf("want %d occurrences, got %d: %v", wantLen, len(occs), occs)
@@ -240,7 +209,6 @@ func TestExpandOverrideMovedIntoWindow(t *testing.T) {
 		t.Errorf("[1] Title: want %q, got %q", "Weekly Monday (moved forward)", occs[1].Title)
 	}
 
-	// Confirm no occurrence falls outside the window.
 	until := from.Add(5 * 24 * time.Hour)
 	for _, occ := range occs {
 		if occ.Start.Before(from) || !occ.Start.Before(until) {
@@ -249,8 +217,6 @@ func TestExpandOverrideMovedIntoWindow(t *testing.T) {
 	}
 }
 
-// TestExpandSkipsCancelledOrphanOverride verifies that an orphan override
-// (master event not in feed) with STATUS:CANCELLED is not surfaced.
 func TestExpandSkipsCancelledOrphanOverride(t *testing.T) {
 	const icsData = "BEGIN:VCALENDAR\r\n" +
 		"VERSION:2.0\r\n" +
@@ -281,7 +247,6 @@ func TestMergeSortsAndDedupes(t *testing.T) {
 		{UID: "b@test", Title: "Beta", Start: time.Date(2026, 6, 9, 9, 0, 0, 0, time.UTC), End: time.Date(2026, 6, 9, 10, 0, 0, 0, time.UTC)},
 	}
 	b := []meetings.Occurrence{
-		// duplicate of a[0] — same UID and Start
 		{UID: "a@test", Title: "Alpha", Start: time.Date(2026, 6, 9, 10, 0, 0, 0, time.UTC), End: time.Date(2026, 6, 9, 11, 0, 0, 0, time.UTC)},
 		{UID: "c@test", Title: "Gamma", Start: time.Date(2026, 6, 9, 8, 0, 0, 0, time.UTC), End: time.Date(2026, 6, 9, 9, 0, 0, 0, time.UTC)},
 	}
@@ -291,7 +256,6 @@ func TestMergeSortsAndDedupes(t *testing.T) {
 	if len(merged) != 3 {
 		t.Fatalf("want 3 (deduplicated), got %d: %v", len(merged), merged)
 	}
-	// Want sorted by Start: Gamma(8:00), Beta(9:00), Alpha(10:00)
 	wantOrder := []string{"Gamma", "Beta", "Alpha"}
 	for i, title := range wantOrder {
 		if merged[i].Title != title {

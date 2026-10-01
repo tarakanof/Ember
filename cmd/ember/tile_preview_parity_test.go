@@ -13,15 +13,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// These tests pin the menu previews to what the clock is actually sent: for
-// the same config, observation and instant, a preview frame must equal the
-// bitmap of the payload the coordinator pushes. Deliberate exceptions, which
-// the canvas cannot show: the NG overlay (animated by the firmware on top of
-// the finished page) and the native gallery icon at cols 0-7 (the preview
-// draws the condition sprite there). Both live only in the payload.
-
-// pushedTiles runs one tile reconcile at now and returns the payload pushed to
-// each device app.
 func pushedTiles(t *testing.T, app *App, pub *recordingPublisher, now time.Time) map[string]map[string]any {
 	t.Helper()
 	app.coord.reconcileTiles(now)
@@ -33,8 +24,6 @@ func pushedTiles(t *testing.T, app *App, pub *recordingPublisher, now time.Time)
 	return out
 }
 
-// payloadBitmap returns the first bitmap draw op of a pushed payload as
-// "#rrggbb" strings, with its x origin and width.
 func payloadBitmap(t *testing.T, p map[string]any) (x, w int, px []string) {
 	t.Helper()
 	draw, _ := p["draw"].([]any)
@@ -54,8 +43,6 @@ func payloadBitmap(t *testing.T, p map[string]any) (x, w int, px []string) {
 	return 0, 0, nil
 }
 
-// assertFrameMatchesPayload compares preview pixels against the payload's
-// bitmap over the columns the bitmap covers.
 func assertFrameMatchesPayload(t *testing.T, card string, preview []string, payload map[string]any) {
 	t.Helper()
 	x0, w, px := payloadBitmap(t, payload)
@@ -99,7 +86,6 @@ func weatherParityApp(t *testing.T, mut func(*WeatherConfig), obs weatherObserva
 	return app, pub
 }
 
-// weatherQuery is the query the menu sends for a stored config.
 func weatherQuery(c WeatherConfig) url.Values {
 	return url.Values{
 		"rotate_in_apps": {strconv.FormatBool(c.RotateInAppsEnabled())},
@@ -122,7 +108,6 @@ func arc(n int) []float64 {
 }
 
 func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
-	// 23:00 UTC in mid-January: night in London.
 	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
 	if !isNight(51.5, -0.1, night) {
 		t.Fatal("fixture: expected night in London")
@@ -146,7 +131,6 @@ func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
 			c.MoonPhase = boolPtr(false)
 		}, false},
 		{"native icon", noon, render.WeatherSnow, func(c *WeatherConfig) { c.TileNativeIcons = true }, true},
-		// forecast_hours as the PUT path can store it (it does not clamp).
 		{"forecast hours 3", noon, render.WeatherClouds, func(c *WeatherConfig) { c.ForecastHours = 3 }, false},
 		{"forecast hours 0", noon, render.WeatherClouds, func(c *WeatherConfig) { c.ForecastHours = 0 }, false},
 		{"forecast hours 30", noon, render.WeatherClouds, func(c *WeatherConfig) { c.ForecastHours = 30 }, false},
@@ -172,7 +156,6 @@ func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
 					t.Error("native mode: device payload must carry the gallery icon")
 				}
 			}
-			// The overlay reaches the device only; the preview can't animate it.
 			if got := pushed["ember-weather"]["overlay"]; got != render.OverlayRain {
 				t.Errorf("device overlay = %v, want %q", got, render.OverlayRain)
 			}
@@ -180,11 +163,6 @@ func TestWeatherPreviewMatchesDevicePayload(t *testing.T) {
 	}
 }
 
-// The Settings pane previews a draft before its autosave lands, so the moon
-// must follow the draft's moon_phase/lat/lon, not the saved config: a preview
-// from an app whose saved config differs must still equal the payload an app
-// saved with the draft pushes. A bad coordinate pair falls back to the saved
-// location.
 func TestWeatherPreviewMoonFollowsDraft(t *testing.T) {
 	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
 	obs := weatherObservation{Condition: render.WeatherClear, TempC: 3, Hourly: arc(24), FetchedAt: night}
@@ -211,7 +189,6 @@ func TestWeatherPreviewMoonFollowsDraft(t *testing.T) {
 		})
 	}
 
-	// Out-of-range, unparsable or half-sent pairs keep the saved location.
 	saved, _ := weatherParityApp(t, london, obs)
 	base := saved.weatherPreview(weatherQuery(saved.cfg.Load().Weather), night)
 	for _, bad := range []url.Values{
@@ -235,9 +212,6 @@ func TestWeatherPreviewMoonFollowsDraft(t *testing.T) {
 	}
 }
 
-// A caller that sends no draft params (curl, a CLI) must see exactly what the
-// clock is sent for the saved config: every absent param defaults from the
-// saved weather config, not from fixed values (#167).
 func TestWeatherPreviewNoParamsMatchesSavedConfig(t *testing.T) {
 	night := time.Date(2026, 1, 15, 23, 0, 0, 0, time.UTC)
 	noon := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
@@ -313,8 +287,6 @@ func TestMeetingsPreviewMatchesDevicePayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The device renders the text natively (textCase upper); the preview draws
-	// the same text in the 3×5 font.
 	want := render.MeetingTileFrame(title, n)
 	got := previewCard(t, app.meetingsPreview(now), "meeting")
 	if !slicesEqualStr(got, render.HexPixels(&want)) {

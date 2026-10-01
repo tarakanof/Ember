@@ -5,8 +5,6 @@ import (
 	"net/http"
 )
 
-// usageSettingsKey is the writable-store key for the runtime usage-widget
-// toggles (overrides the config.json baseline via the settings overlay).
 const usageSettingsKey = "usage_json"
 
 type usageConfigDTO struct {
@@ -16,10 +14,6 @@ type usageConfigDTO struct {
 	UsageThresholdPct int  `json:"usage_threshold_pct"`
 }
 
-// usageSettingSpec registers the usage-widget toggles with the settings
-// overlay. The coordinator reads usageWidgetEnabled()/usagePerModelEnabled()/
-// limitAlarmEnabled() live; the after hook nudges a prompt re-render so the
-// toggle shows quickly.
 func (a *App) usageSettingSpec() settingSpec[usageConfigDTO] {
 	return settingSpec[usageConfigDTO]{
 		key: usageSettingsKey,

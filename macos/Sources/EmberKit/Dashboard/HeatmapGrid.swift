@@ -21,10 +21,8 @@ public struct HeatmapGrid: Equatable, Sendable {
 
     public var isEmpty: Bool { maxMinutes == 0 }
 
-    /// The (weekday, hour) with the most focus; nil when empty. Ties go to
-    /// the earliest in the locale's week order, then the earliest hour.
+    /// The (weekday, hour) with the most focus; nil when empty.
     public var peak: Cell? {
-        // `cells` is in display order, so the first maximum is the earliest.
         var best: Cell?
         for c in cells where c.minutes > (best?.minutes ?? 0) { best = c }
         return best
@@ -83,7 +81,6 @@ public struct CalendarStrip: Equatable, Sendable {
                 in calendar: Calendar, weeks: Int = 12) {
         let byKey = Dictionary(buckets.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let end = today.flatMap { DayKey.date($0, in: calendar) } ?? calendar.startOfDay(for: now)
-        // Row of `end`, then back to the first weekday of the oldest week.
         let endRow = Self.row(of: end, calendar: calendar)
         let count = (max(1, weeks) - 1) * 7 + endRow + 1
         var cells: [Cell] = []
@@ -98,9 +95,8 @@ public struct CalendarStrip: Equatable, Sendable {
         maxMinutes = cells.map(\.focusMin).max() ?? 0
     }
 
-    /// 0-based position of `date`'s weekday in the locale's week.
     static func row(of date: Date, calendar: Calendar) -> Int {
-        let wd = calendar.component(.weekday, from: date)   // 1 = Sunday
+        let wd = calendar.component(.weekday, from: date)
         return ((wd - calendar.firstWeekday) % 7 + 7) % 7
     }
 }

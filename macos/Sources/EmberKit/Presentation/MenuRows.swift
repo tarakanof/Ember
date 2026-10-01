@@ -1,10 +1,6 @@
 import Foundation
 
-/// The rows of the menu-bar menu, built from `LiveModel` values. Pure, so the
-/// menu's rules (which session heads it, when a row hides, how a time reads)
-/// are unit-tested; the view only lays them out. A feature the server doesn't
-/// have (`.featureOff`, or never loaded) hides its rows instead of showing an
-/// error.
+/// The rows of the menu-bar menu, built from `LiveModel` values.
 public enum MenuRows {
 
     // MARK: Header
@@ -21,9 +17,7 @@ public enum MenuRows {
 
     /// "Claude on m4 — Running" + activity; "Idle" when connected with no
     /// session to show; "Offline — server unreachable since 10:42" (or just
-    /// "Offline" when this server never answered). `offlineReason` is the
-    /// snapshot's error: when macOS blocks the LAN it says so instead, since
-    /// the server is probably fine.
+    /// "Offline" when this server never answered).
     public static func header(connection: ConnectionHealth, hasEverLoaded: Bool, winning: Session?,
                               offlineReason: FeedError? = nil,
                               locale: Locale = .current, timeZone: TimeZone = .current) -> Header {
@@ -63,10 +57,7 @@ public enum MenuRows {
 
     // MARK: Menu-bar label
 
-    /// Everything the menu-bar icon is drawn from, and nothing more. The
-    /// winner's `updatedAt` and activity change on nearly every `/state` poll
-    /// while agents run; holding this instead of the `Session` keeps the label
-    /// from re-rendering unless the icon or its VoiceOver value would change.
+    /// Everything the menu-bar icon is drawn from, and nothing more.
     public struct LabelState: Equatable, Sendable {
         /// The winning session's state, "idle" when there is none.
         public let state: String
@@ -78,10 +69,7 @@ public enum MenuRows {
         public let trayStyle: String
         /// "color" tints the icon by state, anything else leaves it monochrome.
         public let trayTint: String
-        /// What VoiceOver reads after "Ember" (see `accessibilityValue`). The
-        /// only way the connection reaches the label: holding the
-        /// `ConnectionHealth` itself would re-render on every `online(since:)`
-        /// or `degraded(failures:)` change the icon doesn't show.
+        /// What VoiceOver reads after "Ember" (see `accessibilityValue`).
         public let accessibilityValue: String
     }
 
@@ -110,7 +98,7 @@ public enum MenuRows {
 
     /// Every session but the one in the header, attention first (waiting,
     /// error, running, done, idle), newest first within a state, cut at
-    /// `limit`. Empty with a single session.
+    /// `limit`.
     public static func otherSessions(_ sessions: [Session], winning: Session?, limit: Int = 8,
                                      locale: Locale = .current) -> OtherSessions {
         guard sessions.count > 1 else { return OtherSessions(rows: [], overflow: nil) }
@@ -156,19 +144,12 @@ public enum MenuRows {
     /// The share of a 5-hour window from which a row counts as high.
     public static let highPercent: Double = 80
 
-    /// One row per tool with a current 5-hour window, sorted by tool. Picks
-    /// the window the way the server's `effectiveFiveHour` does: a fresh
-    /// `/v1/usage` entry (server 0.28+) with a 5h window, else the newest
-    /// `/state` session carrying `rate_window_pct` and a known reset. Pass
-    /// only live sessions (`liveSessions`). A window whose reset time has
-    /// passed is over, so its row is dropped rather than shown as still full.
+    /// One row per tool with a current 5-hour window, sorted by tool.
     public static func usage(_ usage: Loadable<UsageSnapshot>, sessions: [Session], now: Date,
                              locale: Locale = .current, timeZone: TimeZone = .current) -> [UsageRow] {
         var rows: [String: UsageRow] = [:]
         var covered = Set<String>()
         for t in usage.value?.tools ?? [] where !t.stale {
-            // A window whose reset has passed is over: no row from it, and
-            // the tool stays open to the session fallback.
             guard let w = t.fiveHour, w.resetsAt.map({ $0 > now }) ?? true else { continue }
             covered.insert(t.tool)
             let reset: String?
@@ -186,7 +167,6 @@ public enum MenuRows {
         return rows.values.sorted { $0.tool < $1.tool }
     }
 
-    /// A 5-hour window read off a `/state` session.
     struct SessionWindow: Equatable {
         let tool: String
         let percent: Int
@@ -194,11 +174,6 @@ public enum MenuRows {
         let session: Session
     }
 
-    /// The session fallback for 5-hour usage, shared by the menu and the
-    /// Dashboard's Usage card: per tool not in `excluding`, the freshest
-    /// session carrying `rate_window_pct` and a known reset
-    /// (`rate_reset_at > 0`), dropped once that reset has passed. Sorted by
-    /// tool.
     static func sessionFiveHour(_ sessions: [Session], excluding: Set<String> = [], now: Date) -> [SessionWindow] {
         let candidates = sessions.filter {
             $0.rateWindowPct != nil && $0.rateResetAt > 0 && !$0.tool.isEmpty && !excluding.contains($0.tool)
@@ -215,9 +190,6 @@ public enum MenuRows {
     }
 
     /// The sessions the menu may show: none unless the snapshot is live.
-    /// After `/state` has failed (offline) its last sessions are history, and
-    /// listing them would show a "Running" that may have ended long ago; the
-    /// bot follows the same rule through `LiveModel.winningSession`.
     public static func liveSessions(_ snapshot: Loadable<Snapshot>) -> [Session] {
         guard case .loaded(let snap, _) = snapshot else { return [] }
         return snap.sessions
@@ -237,7 +209,6 @@ public enum MenuRows {
         return UsageRow(tool: tool, text: text, level: level)
     }
 
-    /// "04:20" within a day, "Sun 16:00" beyond; nil once it has passed.
     private static func resetText(_ date: Date, now: Date, locale: Locale, timeZone: TimeZone) -> String? {
         let ahead = date.timeIntervalSince(now)
         guard ahead > 0 else { return nil }
@@ -261,11 +232,10 @@ public enum MenuRows {
 
     /// How far ahead the next-event row looks.
     public static let nextEventHorizon: TimeInterval = 36 * 3600
-    /// A meeting that started this recently still reads "now".
     static let startedGrace: TimeInterval = 5 * 60
 
     /// "Next: Standup in 12 min", "Next: Reminder: Pay rent at 14:30",
-    /// "Next: Retro tomorrow at 09:00". nil when nothing starts within 36 h.
+    /// "Next: Retro tomorrow at 09:00".
     public static func nextEvent(meetings: MeetingsState?, reminders: [Reminder], now: Date,
                                  locale: Locale = .current, timeZone: TimeZone = .current) -> LocalizedStringResource? {
         let candidates: [(title: String, start: Date)] =
@@ -326,14 +296,13 @@ public enum MenuRows {
     }
 
     /// "Today 3 of 8 · 1h 15m"; "Today 3 sessions · 1h 15m" with the daily
-    /// goal off (0, or a server too old to report it). nil until stats load.
+    /// goal off (0, or a server too old to report it).
     public static func today(_ stats: PomoStats?, locale: Locale = .current) -> LocalizedStringResource? {
         guard let stats else { return nil }
         let done = stats.today.completedFocus
         let time = DurationText.minutes(stats.today.focusMin, locale: locale)
         let goal = stats.goal.dailySessions
         if goal > 0 { return "Today \(done) of \(goal) · \(time)" }
-        // One key with plural variations in the catalog ("1 session").
         return "Today \(done) sessions · \(time)"
     }
 
@@ -359,7 +328,6 @@ public enum MenuRows {
         }
     }
 
-    /// A menu row is one line: the reason is a few words.
     private static func shortReason(_ error: FeedError) -> LocalizedStringResource {
         switch error {
         case .offline: "server unreachable"
@@ -384,11 +352,7 @@ public enum MenuRows {
         public var id: Bool { on }
     }
 
-    /// Display power items. `PUT /v1/device/display/power` shipped with the
-    /// 0.28 read endpoints, so a server that answers `/v1/usage` or
-    /// `/v1/clock/health` has it; an older one gets no item. With the matrix
-    /// state known (`matrixPower`, from a clock-health feed someone holds)
-    /// only the useful item shows, otherwise both.
+    /// Display power items.
     public static func displayPower(usage: Loadable<UsageSnapshot>, clockHealth: Loadable<ClockHealth>,
                                     matrixPower: Bool?) -> [PowerItem] {
         guard usage.value != nil || clockHealth.value != nil else { return [] }

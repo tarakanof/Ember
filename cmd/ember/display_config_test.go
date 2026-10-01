@@ -9,7 +9,6 @@ import (
 func TestDisplayConfigRoundTripAndValidation(t *testing.T) {
 	a := newTestAppWithStore(t)
 
-	// PUT valid → effective values change.
 	pw := httptest.NewRecorder()
 	a.handleDisplayConfigPut(pw, httptest.NewRequest("PUT", "/v1/display/config",
 		strings.NewReader(`{"idle_hide_minutes":1,"attention_hold_seconds":45,"attention_chime":true}`)))
@@ -21,14 +20,12 @@ func TestDisplayConfigRoundTripAndValidation(t *testing.T) {
 		t.Fatalf("config not applied: %+v", cfg.Display)
 	}
 
-	// GET returns effective values.
 	gw := httptest.NewRecorder()
 	a.handleDisplayConfigGet(gw, httptest.NewRequest("GET", "/v1/display/config", nil))
 	if gw.Code != 200 || !strings.Contains(gw.Body.String(), `"idle_hide_minutes":1`) {
 		t.Fatalf("GET = %d body=%s", gw.Code, gw.Body)
 	}
 
-	// Out-of-range rejected (idle 0-60, hold 5-300).
 	for _, bad := range []string{
 		`{"idle_hide_minutes":99,"attention_hold_seconds":45}`,
 		`{"idle_hide_minutes":-1,"attention_hold_seconds":45}`,
@@ -46,7 +43,6 @@ func TestDisplayConfigRoundTripAndValidation(t *testing.T) {
 func TestDisplayConfigPersistence(t *testing.T) {
 	a := newTestAppWithStore(t)
 
-	// PUT a valid config to persist it.
 	pw := httptest.NewRecorder()
 	a.handleDisplayConfigPut(pw, httptest.NewRequest("PUT", "/v1/display/config",
 		strings.NewReader(`{"idle_hide_minutes":3,"attention_hold_seconds":60,"attention_chime":true}`)))
@@ -54,14 +50,11 @@ func TestDisplayConfigPersistence(t *testing.T) {
 		t.Fatalf("PUT = %d body=%s", pw.Code, pw.Body)
 	}
 
-	// Confirm the blob is actually stored.
 	if v, ok, _ := a.store.GetSetting(displaySettingsKey); !ok || !strings.Contains(v, `"idle_hide_minutes":3`) {
 		t.Fatalf("display settings not persisted: %q ok=%v", v, ok)
 	}
 
-	// Simulate restart: new App over the same store, then re-apply stored settings.
 	a2 := newTestAppWithStore(t)
-	// Manually inject stored value to a2's store so we can test the load.
 	if err := a2.store.PutSetting(displaySettingsKey, `{"idle_hide_minutes":3,"attention_hold_seconds":60,"attention_chime":true}`); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +64,6 @@ func TestDisplayConfigPersistence(t *testing.T) {
 		t.Fatalf("persisted settings not applied on load: %+v", cfg2.Display)
 	}
 
-	// Invalid stored blob → ignored, baseline kept.
 	a3 := newTestAppWithStore(t)
 	baseline := a3.cfg.Load().Display.AckTimeoutSeconds
 	if err := a3.store.PutSetting(displaySettingsKey, `{"idle_hide_minutes":999,"attention_hold_seconds":5}`); err != nil {
@@ -84,9 +76,6 @@ func TestDisplayConfigPersistence(t *testing.T) {
 	}
 }
 
-// A partial PUT changes only the fields it names (merge semantics, #144).
-// Before the settings overlay, the handler decoded into a zero DTO, so the
-// omitted attention_hold_seconds became 0 and failed validation with a 400.
 func TestDisplayConfigPartialPutKeepsOmittedFields(t *testing.T) {
 	a := newTestAppWithStore(t)
 	full := httptest.NewRecorder()

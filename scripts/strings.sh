@@ -6,16 +6,6 @@ set -euo pipefail
 #   scripts/strings.sh sync  [DerivedData]   write every extracted key into the catalog
 #   scripts/strings.sh check [DerivedData]   fail if a key is missing or a format
 #                                            string has no translator comment
-#
-# The app target's keys come from the .stringsdata the compiler emits during an
-# Xcode build (SWIFT_EMIT_LOC_STRINGS, set in project.yml). Pass the build's
-# -derivedDataPath; without one the script builds the app unsigned into a temp
-# dir first. EmberKit's keys come from compiling the package with the same
-# flag: Xcode doesn't extract a package's strings into the app's catalog, so
-# they stay "manual" entries and this script adds any that are missing.
-#
-# Sync is what Xcode does when it builds with the catalog open, plus the
-# EmberKit keys, run from the command line so it works without the IDE.
 
 MODE="${1:-}"
 case "$MODE" in sync|check) ;; *) echo "usage: strings.sh sync|check [DerivedData]" >&2; exit 2 ;; esac
@@ -32,8 +22,6 @@ if [ -z "$DD" ]; then
   xcodebuild -project "$REPO/macos/Ember.xcodeproj" -scheme Ember -configuration Debug \
     -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO build >"$WORK/build.log" 2>&1 \
     || { tail -40 "$WORK/build.log" >&2; exit 1; }
-  # Don't leave this throwaway app registered: a stray com.ember.Ember copy can
-  # shadow the installed one in Local Network checks (see lsregister-clean.sh).
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -u "$DD/Build/Products/Debug/Ember.app" 2>/dev/null || true
 fi

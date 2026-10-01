@@ -9,16 +9,10 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-// testChimeRTTTL is what "Play Test Chime" plays when no melody is named: a
-// short rising arpeggio, distinct from the feature chimes so it can't be
-// mistaken for a real alert.
 const testChimeRTTTL = "test:d=16,o=6,b=180:c,e,g,8c7"
 
-// melodyName is NG's rule for a stored melody's name (1–24 of [A-Za-z0-9_-]).
 var melodyName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,24}$`)
 
-// callDevice runs one client call against the clock and answers
-// 200 {"ok":true} (NG's own success body) or the mapped error.
 func (a *App) callDevice(w http.ResponseWriter, r *http.Request, call func(context.Context, *awtrix.Client) error) {
 	if err := a.clock.do(r.Context(), callMenu, call); err != nil {
 		writeClockError(w, err)
@@ -27,11 +21,6 @@ func (a *App) callDevice(w http.ResponseWriter, r *http.Request, call func(conte
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// audioUnavailable answers 503 unavailable when the cached capabilities say
-// the clock lacks what has needs. The status matches what NG's
-// /api/v1/audio/play gives for an absent output; its melodies and stop routes
-// never 503, so for those the refusal is Ember's own. With nothing cached the
-// request goes through and the clock decides.
 func (a *App) audioUnavailable(w http.ResponseWriter, has func(awtrix.AudioCaps) bool, what string) bool {
 	caps, ok := a.capabilities()
 	if !ok || has(caps.Audio) {
@@ -48,10 +37,6 @@ func hasBuzzer(c awtrix.AudioCaps) bool { return c.Buzzer }
 
 func hasAnyAudio(c awtrix.AudioCaps) bool { return c.Buzzer || c.Track || c.MP3 || c.Radio }
 
-// handleDevicePowerPut serves PUT /v1/device/display/power {"power":bool}:
-// blanks or relights the matrix. It is its own route, not a key on
-// PUT /v1/device/display, so an overlay edit can never blank the panel and a
-// power toggle can never touch the overlay.
 func (a *App) handleDevicePowerPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Power *bool `json:"power"`
@@ -68,10 +53,6 @@ func (a *App) handleDevicePowerPut(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDeviceAudioTest serves POST /v1/device/audio/test: plays the built-in
-// test chime, or {"melody":"<name>"} to preview a melody stored on the clock.
-// It is an explicit user action, so it plays during quiet hours too; the
-// clock's own soundEnabled mute still applies.
 func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Melody *string `json:"melody"`
@@ -94,8 +75,6 @@ func (a *App) handleDeviceAudioTest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDeviceAudioStop serves POST /v1/device/audio/stop: silences every
-// output, radio included.
 func (a *App) handleDeviceAudioStop(w http.ResponseWriter, r *http.Request) {
 	if a.audioUnavailable(w, hasAnyAudio, "audio output") {
 		return
@@ -105,10 +84,6 @@ func (a *App) handleDeviceAudioStop(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDeviceAudioMelodies serves GET /v1/device/audio/melodies: the melody
-// files stored on the clock, in NG's own shape
-// ({"melodies":[{name,rtttl,bytes,notes,durationMs,valid,error?,index?}],
-// "usedBytes","totalBytes"}), for the menu's melody pickers.
 func (a *App) handleDeviceAudioMelodies(w http.ResponseWriter, r *http.Request) {
 	if a.audioUnavailable(w, hasBuzzer, "buzzer") {
 		return

@@ -1,8 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// The Time and Date apps: clock style, time and date format, the calendar
-/// box and the weekday bar.
 struct TimeDateSection: View {
     @Environment(DeviceSettingsModel.self) private var device
 

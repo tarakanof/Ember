@@ -2,9 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// A preview route whose answers the test releases by hand, in any order.
-/// It ignores cancellation on purpose: the model must stay latest-wins even
-/// when a superseded request still returns.
 @MainActor
 private final class FakeRoute {
     private(set) var calls: [String] = []
@@ -65,8 +62,6 @@ private func makeModel() -> (PreviewModel, ManualClock, FakeRoute) {
     #expect(route.calls == ["b"])
 }
 
-/// Regression for #151: the Agents pane applied whichever response landed
-/// last, so a slow older one overwrote the newer preview.
 @MainActor @Test func previewSlowOlderResponseNeverOverwritesANewerOne() async {
     let (m, clock, route) = makeModel()
     m.request(route.fetch("old"))

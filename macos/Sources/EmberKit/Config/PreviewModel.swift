@@ -1,16 +1,7 @@
 import Foundation
 import Observation
 
-/// The pixel preview at the top of a Settings pane. A pane calls `request`
-/// with a closure that fetches its preview route for the current draft; the
-/// model waits out the debounce, fetches, and applies the outcome **only if
-/// no newer request or `cancel()` came since**, so a slow older response can
-/// never replace a newer preview. A request supersedes (and cancels) the
-/// pending or in-flight one.
-///
-/// A failure keeps the last good `response` and records `error` (a missing
-/// route is `.featureOff`); the next success clears it. Panes wire it up with
-/// the app's `previews(_:into:fetch:)` modifier, which decides when to fetch.
+/// The pixel preview at the top of a Settings pane.
 @MainActor
 @Observable
 public final class PreviewModel {
@@ -30,16 +21,12 @@ public final class PreviewModel {
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private var task: Task<Void, Never>?
-    /// Bumped by every `request` and `cancel`; an outcome whose generation
-    /// isn't current is dropped. This, not task cancellation, is what makes
-    /// the ordering latest-wins: a fetch may still return after it's cancelled.
     @ObservationIgnored private var generation = 0
 
     public convenience init(debounce: Duration = .milliseconds(300)) {
         self.init(debounce: debounce, sleep: { try await Task.sleep(for: $0) })
     }
 
-    /// Tests inject the sleep so the debounce runs on a manual clock.
     init(debounce: Duration, sleep: @escaping @Sendable (Duration) async throws -> Void) {
         self.debounce = debounce
         self.sleep = sleep

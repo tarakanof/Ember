@@ -16,9 +16,7 @@ import re
 import sys
 
 KIT_COMMENT = "From EmberKit (not extracted automatically; kept in step by StringCatalogTests)."
-# A printf specifier (%@, %lld, %1$@…) or automatic grammar agreement.
 NEEDS_COMMENT = re.compile(r"%(\d+\$)?(@|l{0,2}[dfu]|[dfu])|\^\[")
-
 
 def load_keys(paths):
     """Key -> first non-empty source comment, over the given .stringsdata files."""
@@ -35,11 +33,9 @@ def load_keys(paths):
                     keys[item["key"]] = comment
     return keys
 
-
 def write(catalog_path, catalog):
     with open(catalog_path, "w", encoding="utf-8") as f:
         f.write(json.dumps(catalog, indent=2, separators=(",", " : "), sort_keys=True, ensure_ascii=False) + "\n")
-
 
 def main():
     mode, catalog_path, app_list, kit_dir = sys.argv[1:5]
@@ -68,8 +64,6 @@ def main():
             continue
         if NEEDS_COMMENT.search(key) and not (entry.get("comment") or app.get(key) or kit.get(key)):
             problems.append(f"format string without a translator comment: {key!r}")
-    # Reverse drift: keys whose code is gone. A warning, not a failure: a
-    # translator may still want the old text, and sync never deletes.
     extracted = set(app) | set(kit)
     stale = sorted(k for k, e in strings.items() if k not in extracted and e.get("extractionState") != "stale")
     marked = sorted(k for k, e in strings.items() if e.get("extractionState") == "stale")
@@ -80,7 +74,6 @@ def main():
         print("\n".join(problems), file=sys.stderr)
         print("Run scripts/strings.sh sync, then add comments to the new entries.", file=sys.stderr)
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

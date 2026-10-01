@@ -8,7 +8,6 @@ private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
     return try d.decode(T.self, from: Data(json.utf8))
 }
 
-// Shape captured from the live server's GET /v1/pomodoro/stats.
 private let fullStats = #"""
 {"today":{"date":"2026-09-25","completed_focus":3,"focus_min":75},
  "history":[{"date":"2026-09-25","completed_focus":3,"focus_min":75}],
@@ -97,7 +96,6 @@ func phaseDisplayNames(wire: String, name: String) {
 }
 
 @Test func shortBreakNeverRendersWithAnUnderscore() {
-    // Regression for audit #10: `"short_break".capitalized` is "Short_Break".
     #expect(!PomoPhase(wire: "short_break").displayName.text.contains("_"))
     #expect(PomoPhase(wire: "short_break").isBreak)
     #expect(!PomoPhase.focus.isBreak)

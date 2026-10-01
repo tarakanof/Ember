@@ -2,10 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-// APIError must surface readable text via localizedDescription — without
-// LocalizedError conformance users see "EmberKit.APIError error 0." in the
-// settings footers instead of what the server actually said.
-
 @Test func httpErrorSurfacesServerErrorField() {
     let e = APIError.http(status: 404, body: #"{"error":"pomodoro feature is not enabled"}"#)
     #expect(e.localizedDescription == "HTTP 404 — pomodoro feature is not enabled")

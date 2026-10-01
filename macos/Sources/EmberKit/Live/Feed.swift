@@ -1,7 +1,6 @@
 import Foundation
 
-/// One server read that `LiveModel` keeps fresh. Every view reads feeds from
-/// `LiveModel`; nothing else polls.
+/// One server read that `LiveModel` keeps fresh.
 public enum Feed: Hashable, CaseIterable, Sendable {
     /// Tier A: always polled, every 3 s.
     case state, pomodoroState
@@ -22,8 +21,7 @@ public enum Feed: Hashable, CaseIterable, Sendable {
         }
     }
 
-    /// Cadence with no view tracking the feed. Tier C feeds don't poll then;
-    /// their value is the cadence used once tracked.
+    /// Cadence with no view tracking the feed.
     public var baseCadence: Duration {
         switch tier {
         case .a: .seconds(3)

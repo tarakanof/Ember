@@ -1,9 +1,6 @@
 import Foundation
 @testable import EmberKit
 
-/// A clock tests advance by hand. `sleep` suspends until `advance` passes the
-/// deadline (or the task is cancelled); `advance` wakes sleepers in deadline
-/// order and lets the woken tasks run before moving on.
 @MainActor
 final class ManualClock {
     private(set) var now: Duration = .zero
@@ -38,7 +35,6 @@ final class ManualClock {
         sleepers.remove(at: i).cont.resume(throwing: CancellationError())
     }
 
-    /// Moves time forward, waking every sleeper whose deadline falls inside.
     func advance(by d: Duration) async {
         let target = now + d
         await settle()
@@ -52,12 +48,10 @@ final class ManualClock {
         await settle()
     }
 
-    /// Lets every runnable main-actor task run to its next suspension.
     func settle() async {
         for _ in 0..<200 { await Task.yield() }
     }
 
-    /// Hands out the closures `RefreshCoordinator` takes.
     var sleepFn: RefreshCoordinator.Sleep { { [self] d in try await self.sleep(d) } }
     var nowFn: RefreshCoordinator.Now { { [self] in self.now } }
 }

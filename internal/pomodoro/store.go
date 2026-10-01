@@ -6,16 +6,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO; keeps the static build)
+	_ "modernc.org/sqlite"
 )
 
 // Store persists completed/ended phases and key/value settings in SQLite.
-// Day bucketing uses the calendar date in the location of the time passed to
-// each query, so callers control the timezone.
 type Store struct {
-	db *sql.DB
-	// phaseGen counts successful phase writes so callers can cache values
-	// derived from the phases table and drop them when it changes.
+	db       *sql.DB
 	phaseGen atomic.Uint64
 }
 
@@ -47,14 +43,13 @@ CREATE INDEX IF NOT EXISTS idx_activity_recorded ON activity(recorded_at);
 `
 
 // Open opens (creating if needed) the SQLite database at path and ensures the
-// schema exists. WAL mode keeps the single writer (coordinator) from blocking
-// stats reads.
+// schema exists.
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %q: %w", path, err)
 	}
-	db.SetMaxOpenConns(1) // single-writer; avoids "database is locked" under WAL
+	db.SetMaxOpenConns(1)
 	if _, err := db.Exec("PRAGMA journal_mode=WAL;"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("set WAL: %w", err)
@@ -88,7 +83,6 @@ func (s *Store) RecordPhase(r PhaseResult, started, ended time.Time) error {
 }
 
 // PhaseGen returns a counter that advances on every successful RecordPhase.
-// Anything computed from the phases table stays valid while it is unchanged.
 func (s *Store) PhaseGen() uint64 { return s.phaseGen.Load() }
 
 // DayStat is a per-day rollup of completed focus phases.
@@ -98,13 +92,11 @@ type DayStat struct {
 	FocusMin       int    `json:"focus_min"`
 }
 
-// dayBounds returns [start, end) unix seconds for the calendar day containing t.
 func dayBounds(t time.Time) (int64, int64) {
 	start := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 	return start.Unix(), start.AddDate(0, 0, 1).Unix()
 }
 
-// dayStat returns the completed-focus rollup for the day containing t.
 func (s *Store) dayStat(t time.Time) (DayStat, error) {
 	lo, hi := dayBounds(t)
 	row := s.db.QueryRow(
@@ -147,7 +139,7 @@ func (s *Store) History(now time.Time, days int) ([]DayStat, error) {
 }
 
 // Streak returns the number of consecutive days (ending today) that have at
-// least one completed focus phase. Zero if today has none.
+// least one completed focus phase.
 func (s *Store) Streak(now time.Time) (int, error) {
 	streak := 0
 	for i := 0; ; i++ {
@@ -163,7 +155,7 @@ func (s *Store) Streak(now time.Time) (int, error) {
 	return streak, nil
 }
 
-// GetSetting returns the stored value for key. ok is false if the key is absent.
+// GetSetting returns the stored value for key.
 func (s *Store) GetSetting(key string) (value string, ok bool, err error) {
 	row := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key)
 	switch err := row.Scan(&value); err {

@@ -76,7 +76,6 @@ func TestMeetingsConfigZeroSurvivesPut(t *testing.T) {
 		t.Fatalf("PUT status = %d, body = %s", resp.StatusCode, b)
 	}
 
-	// GET must return popup_lead_minutes = 0 (no re-defaulting on the runtime write path)
 	req2, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/meetings/config", nil)
 	req2.Header.Set("Authorization", "Bearer "+token)
 	resp2, err := srv.Client().Do(req2)
@@ -101,7 +100,6 @@ func TestMeetingsConfigGetReportsURLCount(t *testing.T) {
 	cfg.Auth.StatusToken = token
 	app, srv := newTestServer(t, cfg)
 
-	// Inject two fake ICS URLs into the app (env-only path; not real credentials)
 	app.meetingsURLs = []string{"http://a.example/x.ics", "http://b.example/y.ics"}
 
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/meetings/config", nil)
@@ -117,7 +115,6 @@ func TestMeetingsConfigGetReportsURLCount(t *testing.T) {
 	if !strings.Contains(body, `"ics_urls_configured":2`) {
 		t.Errorf("GET body must contain ics_urls_configured:2; got: %s", body)
 	}
-	// The actual URL strings must never appear in the response (they're credentials)
 	if strings.Contains(body, "a.example") {
 		t.Errorf("GET body must not contain the ICS URL hostname 'a.example'; got: %s", body)
 	}
@@ -134,13 +131,10 @@ func TestParseICSURLs(t *testing.T) {
 		{"ftp dropped", "ftp://x", 0, 1},
 		{"no scheme dropped", "x.ics", 0, 1},
 		{"empty string", "", 0, 0},
-		// Finding 1: scheme comparison is case-insensitive; original casing preserved
 		{"uppercase HTTPS accepted", "HTTPS://host/x.ics", 1, 0},
 		{"mixed case Http accepted", "Http://host/x.ics", 1, 0},
-		// Finding 1: webcal/webcals rewritten to https
 		{"webcal rewritten to https", "webcal://host/x.ics", 1, 0},
 		{"webcals rewritten to https", "webcals://host/x.ics", 1, 0},
-		// dropped count is correct when mix of valid and invalid
 		{"one valid one ftp", "https://good/a.ics,ftp://bad/b.ics", 1, 1},
 	}
 	for _, tc := range cases {
@@ -155,7 +149,6 @@ func TestParseICSURLs(t *testing.T) {
 		})
 	}
 
-	// Verify trimming and webcal rewrite for specific cases.
 	trimmed, _ := parseICSURLs(" http://a/x.ics , ,https://b/y.ics ")
 	if len(trimmed) == 2 {
 		if trimmed[0] != "http://a/x.ics" {
@@ -165,7 +158,6 @@ func TestParseICSURLs(t *testing.T) {
 			t.Errorf("second entry not trimmed: got %q", trimmed[1])
 		}
 	}
-	// webcal rewrite: scheme replaced, rest of URL intact.
 	webcalURLs, _ := parseICSURLs("webcal://cal.example.com/feed.ics")
 	if len(webcalURLs) != 1 || webcalURLs[0] != "https://cal.example.com/feed.ics" {
 		t.Errorf("webcal rewrite: got %v, want [https://cal.example.com/feed.ics]", webcalURLs)
@@ -179,14 +171,12 @@ func TestParseICSURLs(t *testing.T) {
 func TestMeetingsConfigRoundTrip(t *testing.T) {
 	a := newTestAppWithStore(t)
 
-	// GET returns defaults.
 	gw := httptest.NewRecorder()
 	a.handleMeetingsConfigGet(gw, httptest.NewRequest("GET", "/v1/meetings/config", nil))
 	if gw.Code != http.StatusOK {
 		t.Fatalf("GET default: code=%d body=%s", gw.Code, gw.Body)
 	}
 
-	// PUT valid config.
 	pw := httptest.NewRecorder()
 	a.handleMeetingsConfigPut(pw, httptest.NewRequest("PUT", "/v1/meetings/config",
 		strings.NewReader(`{"enabled":true,"tile_lead_minutes":30,"popup_lead_minutes":5,"chime":false}`)))
@@ -198,7 +188,6 @@ func TestMeetingsConfigRoundTrip(t *testing.T) {
 		t.Fatalf("config not applied: %+v", cfg)
 	}
 
-	// PUT invalid (tile out of range) → 400.
 	bw := httptest.NewRecorder()
 	a.handleMeetingsConfigPut(bw, httptest.NewRequest("PUT", "/v1/meetings/config",
 		strings.NewReader(`{"tile_lead_minutes":0,"popup_lead_minutes":0}`)))

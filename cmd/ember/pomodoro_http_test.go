@@ -13,9 +13,6 @@ import (
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
-// TestPomoPhaseEndAlertUsesNGKeys pins the ad-hoc phase-end notification on
-// awtrix-ng's schema: durationMs in milliseconds and soundRtttl for the inline
-// melody (AWTRIX3's `duration`/`rtttl` are 422s on NG).
 func TestPomoPhaseEndAlertUsesNGKeys(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -88,8 +85,6 @@ func doReq(t *testing.T, srv *httptest.Server, method, path, token, body string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// An empty token means "use the default test token" so write endpoints
-	// (fail-closed) are reachable; auth-boundary tests pass an explicit token.
 	if token == "" {
 		token = testToken
 	}
@@ -161,22 +156,18 @@ func TestPomodoroButtonHookMapsPresses(t *testing.T) {
 		}
 	}
 
-	// Middle press toggles pause.
 	press("middle", "1")
 	if st := pomoState(t, srv); st["paused"] != true {
 		t.Fatalf("after middle press state = %+v", st)
 	}
-	// Release is ignored (state 0).
 	press("middle", "0")
 	if st := pomoState(t, srv); st["paused"] != true {
 		t.Fatalf("release should not change state = %+v", st)
 	}
-	// Middle again resumes.
 	press("middle", "1")
 	if st := pomoState(t, srv); st["paused"] != false {
 		t.Fatalf("second middle press should resume = %+v", st)
 	}
-	// Left stops immediately on press; release is a no-op.
 	press("left", "1")
 	if st := pomoState(t, srv); st["phase"] != "idle" {
 		t.Fatalf("left press should stop immediately = %+v", st)
@@ -187,8 +178,6 @@ func TestPomodoroButtonHookMapsPresses(t *testing.T) {
 	}
 }
 
-// TestPomodoroButtonRightSkipsOnPress pins right=skip firing on the press
-// edge (state=1), with no chord left to pre-empt it.
 func TestPomodoroButtonRightSkipsOnPress(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -201,7 +190,6 @@ func TestPomodoroButtonRightSkipsOnPress(t *testing.T) {
 	if st := pomoState(t, srv); st["phase"] != "short_break" {
 		t.Fatalf("right press should skip focus into short_break immediately, got %+v", st)
 	}
-	// Release is a no-op.
 	press(url.Values{"button": {"right"}, "state": {"0"}, "uid": {"awtrix_test"}})
 	if st := pomoState(t, srv); st["phase"] != "short_break" {
 		t.Fatalf("right release should not change state, got %+v", st)
@@ -214,7 +202,6 @@ func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
 	defer srv.Close()
 
 	doReq(t, srv, http.MethodPost, "/v1/pomodoro/start", "", `{"phase":"focus"}`)
-	// Arm a held reminder window.
 	app.reminderHeldUntil.Store(time.Now().Add(time.Minute).UnixNano())
 
 	press := func(button string) {
@@ -228,16 +215,13 @@ func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
 		resp.Body.Close()
 	}
 
-	// While held, the middle press acknowledges the reminder — Pomodoro must NOT pause.
 	press("middle")
 	if st := pomoState(t, srv); st["paused"] == true {
 		t.Fatalf("held middle press should not pause Pomodoro = %+v", st)
 	}
-	// The middle press disarmed the window and dismissed the on-clock notification.
 	if app.reminderHeldUntil.Load() != 0 {
 		t.Fatal("middle press should disarm reminderHeldUntil")
 	}
-	// App.publisher is the quiet-hours gate; the recorder is the one behind it.
 	qp, ok := app.publisher.(*quietPublisher)
 	if !ok {
 		t.Fatalf("App.publisher = %T, want *quietPublisher", app.publisher)
@@ -255,8 +239,6 @@ func TestAwtrixButtonHeldReminderSuppressesPomodoro(t *testing.T) {
 	}
 }
 
-// buttonPresser posts an awtrix-ng button callback exactly as the firmware does:
-// form-encoded button/state/uid over plain HTTP, one call per edge.
 func buttonPresser(t *testing.T, srv *httptest.Server) func(form url.Values) int {
 	t.Helper()
 	return func(form url.Values) int {
@@ -274,8 +256,6 @@ func buttonPresser(t *testing.T, srv *httptest.Server) func(form url.Values) int
 	}
 }
 
-// NG names the centre button "middle"; MQTT, Berry scripts and AWTRIX3 all call
-// the same button "select", so both spellings must drive the timer.
 func TestAwtrixButtonAcceptsMiddleAndSelectSpellings(t *testing.T) {
 	for _, name := range []string{"middle", "select"} {
 		t.Run(name, func(t *testing.T) {
@@ -294,8 +274,6 @@ func TestAwtrixButtonAcceptsMiddleAndSelectSpellings(t *testing.T) {
 	}
 }
 
-// The uid the firmware attaches (its MAC, so several panels can share one
-// endpoint) must neither be required nor change the mapping.
 func TestAwtrixButtonIgnoresUID(t *testing.T) {
 	cases := []struct {
 		name string
@@ -320,9 +298,6 @@ func TestAwtrixButtonIgnoresUID(t *testing.T) {
 	}
 }
 
-// An unknown button name (a future firmware, or a swapped/rotated panel naming
-// scheme we don't know) is accepted and ignored — the callback is
-// fire-and-forget, so a non-200 would only cost the device stutter.
 func TestAwtrixButtonIgnoresUnknownButton(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -338,22 +313,18 @@ func TestAwtrixButtonIgnoresUnknownButton(t *testing.T) {
 
 func TestPomodoroAuthBoundaries(t *testing.T) {
 	app := newPomodoroApp(t)
-	// Force a token so /v1/ requires auth.
 	cfg := *app.cfg.Load()
 	cfg.Auth.StatusToken = "secret"
 	app.cfg.Store(&cfg)
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// Write endpoint with a non-matching token → 401.
 	if resp, _ := doReq(t, srv, http.MethodPost, "/v1/pomodoro/start", "wrong", `{"phase":"focus"}`); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("start with wrong token = %d, want 401", resp.StatusCode)
 	}
-	// Read state is open.
 	if resp, _ := doReq(t, srv, http.MethodGet, "/v1/pomodoro/state", "", ""); resp.StatusCode != http.StatusOK {
 		t.Fatalf("state without token = %d, want 200", resp.StatusCode)
 	}
-	// Button hook is open (device cannot send a bearer token).
 	form := url.Values{"button": {"middle"}, "state": {"1"}}
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/awtrix/button", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -380,7 +351,6 @@ func TestPomodoroConfigPutPersists(t *testing.T) {
 	if got["focus_minutes"] != float64(30) || got["focus_color"] != "#112233" || got["auto_start_next"] != true {
 		t.Fatalf("config after put = %+v", got)
 	}
-	// New focus duration should be reflected in a freshly started phase.
 	doReq(t, srv, http.MethodPost, "/v1/pomodoro/start", "", `{"phase":"focus"}`)
 	if st := pomoState(t, srv); st["planned_sec"] != float64(30*60) {
 		t.Fatalf("planned after config change = %v, want 1800", st["planned_sec"])
@@ -414,7 +384,6 @@ func TestPomodoroButtonStartsFromIdle(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// Engine is idle. A middle press should begin a focus block.
 	form := url.Values{"button": {"middle"}, "state": {"1"}}
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/hooks/awtrix/button", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -445,10 +414,6 @@ func TestPomodoroConfigPutRoundTripsCap(t *testing.T) {
 	}
 }
 
-// TestPomodoroConfigPutRoundTripsGoals pins issue #131: daily_goal_sessions
-// and weekly_goal_days must survive a GET/PUT round trip like every other
-// Pomodoro setting (previously the DTO lacked both fields, so GET never
-// returned them and PUT silently dropped them via the non-strict decoder).
 func TestPomodoroConfigPutRoundTripsGoals(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -462,7 +427,6 @@ func TestPomodoroConfigPutRoundTripsGoals(t *testing.T) {
 		t.Fatalf("goal config round-trip = %+v", got)
 	}
 
-	// A goal turned "off" (0) must round-trip too, not just be omitted.
 	if resp, _ := doReq(t, srv, http.MethodPut, "/v1/pomodoro/config", "", `{"daily_goal_sessions":0}`); resp.StatusCode != http.StatusOK {
 		t.Fatalf("put status = %d", resp.StatusCode)
 	}
@@ -475,9 +439,6 @@ func TestPomodoroConfigPutRoundTripsGoals(t *testing.T) {
 	}
 }
 
-// TestPomodoroConfigPutRejectsOutOfRangeGoals confirms the [0, 50] / [0, 7]
-// ranges from validatePomodoro apply to a PUT, not just applyDefaults/file
-// config.
 func TestPomodoroConfigPutRejectsOutOfRangeGoals(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())
@@ -494,18 +455,15 @@ func TestPomodoroConfigPutRejectsOutOfRangeGoals(t *testing.T) {
 func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
 	app := newPomodoroApp(t)
 
-	// Persist a runtime edit (focus=30) via the API path.
 	if _, err := app.settings.pomodoro.put([]byte(`{"focus_minutes":30,"short_break_minutes":5,` +
 		`"long_break_minutes":15,"rounds_before_long_break":4,"focus_color":"#FF3B30","break_color":"#2EE85E"}`)); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
-	// Simulate a config reload that resets the file's pomodoro block to 25/engine untouched.
 	cfg := *app.cfg.Load()
 	cfg.Pomodoro.FocusMinutes = 25
 	app.cfg.Store(&cfg)
 
-	// The /admin/reload sequence.
 	app.resyncPomodoroAfterReload()
 	app.settings.reapply()
 
@@ -517,8 +475,6 @@ func TestResyncPomodoroAfterReloadKeepsPersistedEdits(t *testing.T) {
 	}
 }
 
-// TestPomodoroButtonHookAcceptsJSON pins NG ≥1.1.1's buttonCallback body:
-// JSON with a boolean state instead of the form-encoded button=…&state=1.
 func TestPomodoroButtonHookAcceptsJSON(t *testing.T) {
 	app := newPomodoroApp(t)
 	srv := httptest.NewServer(app.routes())

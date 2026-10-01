@@ -8,10 +8,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// readNewLines reads complete (newline-terminated) lines from path starting at
-// byte offset, returning the lines (without the trailing '\n') and the new
-// offset advanced past only the complete lines. A trailing partial line is left
-// unconsumed for a later read.
 func readNewLines(path string, offset int64) ([][]byte, int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -39,7 +35,6 @@ func readNewLines(path string, offset int64) ([][]byte, int64, error) {
 	return lines, newOffset, nil
 }
 
-// buildStatusRequest assembles the POST body for a Codex session.
 func buildStatusRequest(cfg Config, uuid string, d derived) producer.StatusRequest {
 	req := producer.StatusRequest{
 		Source:        cfg.Source,

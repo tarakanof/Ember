@@ -28,10 +28,7 @@ const (
 	StatusSkipped CheckStatus = "skipped"
 )
 
-// CheckResult is one of the named checks in DoctorResult. The BaseURL/Source/
-// Reachable/LastRediscoverAt/LastRediscoverResult fields are only populated by
-// the `clock` check; every other check leaves them zero and they're omitted
-// from JSON.
+// CheckResult is one of the named checks in DoctorResult.
 type CheckResult struct {
 	Status               CheckStatus `json:"status"`
 	Detail               string      `json:"detail,omitempty"`
@@ -42,20 +39,13 @@ type CheckResult struct {
 	LastRediscoverResult string      `json:"last_rediscover_result,omitempty"`
 }
 
-// DoctorResult is the full diagnostic. OK is true when no check has StatusFail
-// or StatusSkipped. Warn does NOT flip OK — a stale-but-configured meetings feed
-// should not make monitoring see the server as unavailable.
-// Skipped IS non-OK (offline mode is partial by design); automation must treat
-// OK==false as either failed or partial and inspect Mode + per-check Status.
+// DoctorResult is the full diagnostic.
 type DoctorResult struct {
 	OK     bool                   `json:"ok"`
-	Mode   string                 `json:"mode"` // "online" or "offline"
+	Mode   string                 `json:"mode"`
 	Checks map[string]CheckResult `json:"checks"`
 }
 
-// runDoctorChecks runs all named checks. With app==nil, runtime checks are
-// marked skipped (offline pre-flight mode). Otherwise online: the running
-// server's state is used.
 func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	res := DoctorResult{Checks: make(map[string]CheckResult, 10)}
 	if app == nil {
@@ -64,7 +54,6 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		res.Mode = "online"
 	}
 
-	// 1. config_loaded
 	if cfg == nil {
 		res.Checks["config_loaded"] = CheckResult{Status: StatusFail, Detail: "no config loaded"}
 	} else {
@@ -78,7 +67,6 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		}
 	}
 
-	// 2. auth_token_present  (skipped offline)
 	if app == nil {
 		res.Checks["auth_token_present"] = CheckResult{Status: StatusSkipped, Detail: "server not running; operator env != container env"}
 	} else {
@@ -90,15 +78,12 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		}
 	}
 
-	// 3. awtrix_reachable (detail notes where the clock URL came from:
-	// store override / config.json / mDNS discovery)
 	awtrixCheck := checkAWTRIXReachable(ctx, cfg)
 	if app != nil {
 		awtrixCheck.Detail += fmt.Sprintf(" [source=%s]", app.deviceSource())
 	}
 	res.Checks["awtrix_reachable"] = awtrixCheck
 
-	// 4. http_listening (skipped offline)
 	if app == nil || app.listener == nil {
 		res.Checks["http_listening"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
@@ -112,57 +97,44 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		}
 	}
 
-	// 5. sessions_summary  (skipped offline)
 	if app == nil {
 		res.Checks["sessions_summary"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["sessions_summary"] = checkSessionsSummary(app)
 	}
 
-	// 6. last_publish  (skipped offline)
 	if app == nil {
 		res.Checks["last_publish"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["last_publish"] = checkLastPublish(app)
 	}
 
-	// 7. uptime  (skipped offline)
 	if app == nil {
 		res.Checks["uptime"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["uptime"] = CheckResult{Status: StatusOK, Detail: time.Since(app.startedAt).Round(time.Second).String()}
 	}
 
-	// 8. build
 	res.Checks["build"] = checkBuild()
 
-	// 9. meetings  (skipped offline)
 	if app == nil {
 		res.Checks["meetings"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["meetings"] = checkMeetings(app, cfg)
 	}
 
-	// 10. clock  (skipped offline; needs app state for source + rediscover history)
 	if app == nil {
 		res.Checks["clock"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["clock"] = checkClock(ctx, app)
 	}
 
-	// 11. capabilities  (skipped offline; the cache lives in the running server)
 	if app == nil {
 		res.Checks["capabilities"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["capabilities"] = checkCapabilities(app)
 	}
 
-	// StatusWarn is non-fatal: a stale meetings feed (or the startup window
-	// before the first ICS poll) must not make /admin/doctor return 503 and
-	// must not make `ember doctor` exit 1 on the online path.
-	// StatusSkipped IS fatal (offline mode is partial by design — existing
-	// semantics preserved: TestRunDoctorChecks_OfflineMarksRuntimeSkipped
-	// asserts OK==false when skipped checks are present).
 	res.OK = true
 	for _, c := range res.Checks {
 		if c.Status == StatusFail || c.Status == StatusSkipped {
@@ -194,9 +166,6 @@ func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("GET %s → %d (%v)", url, reply.Status, elapsed)}
 }
 
-// checkCapabilities reports the cached firmware capability counts. A missing
-// cache is a Warn, not a Fail: the clock was simply unreachable at startup, and
-// GET /v1/device/capabilities still answers from a live fetch.
 func checkCapabilities(app *App) CheckResult {
 	caps, ok := app.capabilities()
 	if !ok {
@@ -266,10 +235,6 @@ func checkBuild() CheckResult {
 	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("rev=%s%s go=%s", rev, dirty, runtime.Version())}
 }
 
-// checkMeetings reports the state of the meetings / ICS calendar feature.
-// Covers: not configured, URLs present but never fetched or stale, and healthy
-// with an upcoming count. URL strings never appear in the output — they are
-// credentials. Feed count and next-meeting title are safe.
 func checkMeetings(app *App, cfg *Config) CheckResult {
 	if len(app.meetingsURLs) == 0 {
 		return CheckResult{Status: StatusOK, Detail: "not configured (EMBER_MEETINGS_ICS_URLS unset)"}
@@ -307,12 +272,6 @@ func checkMeetings(app *App, cfg *Config) CheckResult {
 	}
 }
 
-// checkClock reports live reachability of the effective clock URL alongside
-// where that URL came from (deviceSource) and the outcome of the most recent
-// self-healing re-discovery attempt (T1/T2). Unlike awtrix_reachable (which
-// is fail-capable and part of the older static check), a transient blip here
-// only warns — the periodic probe (StartDeviceWatch) is expected to recover
-// it, so doctor must not 503 on a momentary miss.
 func checkClock(ctx context.Context, app *App) CheckResult {
 	baseURL, source := app.cfg.Load().clockURL()
 
@@ -344,9 +303,6 @@ func checkClock(ctx context.Context, app *App) CheckResult {
 	}
 }
 
-// runDoctor parses doctor-specific flags from args, runs the diagnostic
-// online (against --server-url) or offline (--offline / fallback after
-// network error), and prints the result. Exits 0 if healthy, 1 otherwise.
 func runDoctor(args []string) {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	configPath := fs.String("config", "", "path to config JSON file")
@@ -355,9 +311,6 @@ func runDoctor(args []string) {
 	asJSON := fs.Bool("json", false, "print result as JSON")
 	_ = fs.Parse(args)
 
-	// doctor is a standalone CLI invocation with no app-wide structured
-	// logger; build a bare stderr one so baseline-repair warnings from
-	// loadConfig are still visible instead of silently dropped.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	cfg, err := loadConfig(*configPath, logger)
 	if err != nil {
@@ -399,8 +352,6 @@ func runDoctor(args []string) {
 			exit = 1
 		}
 	case "offline":
-		// In offline mode, failures of static checks are real failures.
-		// Skipped checks are expected and don't count.
 		for _, c := range res.Checks {
 			if c.Status == StatusFail {
 				exit = 1
@@ -413,9 +364,6 @@ func runDoctor(args []string) {
 
 var errAuthFailure = errors.New("auth failure (401)")
 
-// tryAdminDoctor performs GET /admin/doctor. Returns errAuthFailure on 401.
-// Returns a transport error on dial/connect issues. Otherwise returns the
-// decoded result.
 func tryAdminDoctor(ctx context.Context, base, token string) (DoctorResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/admin/doctor", nil)
 	if err != nil {
@@ -441,7 +389,6 @@ func tryAdminDoctor(ctx context.Context, base, token string) (DoctorResult, erro
 	return res, nil
 }
 
-// renderDoctorText prints a human-readable check table to w.
 func renderDoctorText(w io.Writer, res DoctorResult) {
 	keys := make([]string, 0, len(res.Checks))
 	for k := range res.Checks {

@@ -5,8 +5,6 @@ import "testing"
 func TestMeetingPayloadShape(t *testing.T) {
 	p := MeetingPayload("STANDUP", 12, 600)
 
-	// The countdown leads: a long title scrolls, and the minutes are what
-	// the tile is for.
 	if p["text"] != "12M STANDUP" {
 		t.Errorf("text = %q, want %q", p["text"], "12M STANDUP")
 	}
@@ -71,9 +69,6 @@ func TestMeetingPopupPayloadShape(t *testing.T) {
 	}
 }
 
-// assertPinnedText checks that a text payload pins the two text behaviours NG
-// otherwise inherits from the device's global settings: uppercase (the
-// previews always draw uppercase) and "still when it fits, scroll when not".
 func assertPinnedText(t *testing.T, p map[string]any) {
 	t.Helper()
 	if p["textCase"] != "upper" {
@@ -85,8 +80,6 @@ func assertPinnedText(t *testing.T, p map[string]any) {
 	}
 }
 
-// TestMeetingTileFrameLeadsWithMinutes: the preview shows what the device
-// shows at rest, the countdown first ("12M" from col 9).
 func TestMeetingTileFrameLeadsWithMinutes(t *testing.T) {
 	f := MeetingTileFrame("STANDUP", 12)
 	var want Frame
@@ -101,8 +94,6 @@ func TestMeetingTileFrameLeadsWithMinutes(t *testing.T) {
 }
 
 func TestMeetingTileFrame(t *testing.T) {
-	// Lowercase title must render identically to uppercase (font3x5 has no
-	// lowercase glyphs; the function must uppercase before drawing).
 	fLower := MeetingTileFrame("standup", 12)
 	fUpper := MeetingTileFrame("STANDUP", 12)
 	if fLower != fUpper {

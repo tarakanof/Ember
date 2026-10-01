@@ -59,7 +59,7 @@ func TestFold_TokenCountIsDataOnly(t *testing.T) {
 	if d.state != "running" {
 		t.Errorf("token_count must not change state; got %q", d.state)
 	}
-	if d.contextPct == nil || *d.contextPct != 50 { // 129200/258400 = 0.5
+	if d.contextPct == nil || *d.contextPct != 50 {
 		t.Errorf("contextPct = %v, want 50", d.contextPct)
 	}
 	if d.rateWindowPct == nil || *d.rateWindowPct != 42 {
@@ -67,9 +67,6 @@ func TestFold_TokenCountIsDataOnly(t *testing.T) {
 	}
 }
 
-// TestFold_ContextGatedOff_RateStillCaptured proves the two metric gates are
-// independent: with context capture disabled (and rate enabled via foldAll),
-// contextPct is dropped while rateWindowPct is still recorded.
 func TestFold_ContextGatedOff_RateStillCaptured(t *testing.T) {
 	d := foldAll([]string{evStarted, evToken}, false)
 	if d.contextPct != nil {
@@ -160,7 +157,6 @@ func TestFoldEvent_CapturesRateResetAt(t *testing.T) {
 	if d.rateResetAt != 1778614633 {
 		t.Errorf("rateResetAt = %d, want 1778614633", d.rateResetAt)
 	}
-	// Gated by ratePctEnabled=false → not captured.
 	var d2 derived
 	d2.foldEvent(line, true, false, false)
 	if d2.rateResetAt != 0 {
@@ -212,11 +208,9 @@ func TestFoldEventParsesSecondaryWeekly(t *testing.T) {
 }
 
 func TestBuildUsageRequest(t *testing.T) {
-	// No rate-limit data this pass -> ok=false.
 	if _, ok := buildUsageRequest(derived{state: "running"}); ok {
 		t.Error("no weekly reset should yield ok=false")
 	}
-	// Populated -> codex usage request with both windows.
 	d := derived{rateResetAt: 1780669527, primaryRaw: 3.0, weeklyResetAt: 1781168271, weeklyRaw: 18.0}
 	req, ok := buildUsageRequest(d)
 	if !ok {

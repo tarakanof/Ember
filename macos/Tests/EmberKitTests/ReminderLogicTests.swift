@@ -49,7 +49,7 @@ import Foundation
 @Test func trackerRefusesAKeyThatIsInFlight() {
     var t = ReminderFireTracker()
     let first = t.begin("k")
-    let second = t.begin("k")   // second poll while the first request is pending
+    let second = t.begin("k")
     #expect(first)
     #expect(!second)
 }

@@ -34,7 +34,6 @@ func TestWaitingStatusWinsOverRunningStatus(t *testing.T) {
 	}
 }
 
-// withSessionClock swaps app's session registry for one on a fake clock.
 func withSessionClock(app *App) *fakeClock {
 	clk := newFakeClock()
 	app.sessions = app.newSessionRegistry(clk.Now)
@@ -55,9 +54,6 @@ func sessionKeys(snap Snapshot) map[string]bool {
 	return out
 }
 
-// The registry's policy comes from the live display config: stale_seconds for
-// active states, done_ttl_seconds for done/error. The per-state boundaries
-// are covered in internal/sessions; this pins the wiring.
 func TestSessionPolicyFollowsDisplayConfig(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Display.StaleSeconds = 25
@@ -77,15 +73,12 @@ func TestSessionPolicyFollowsDisplayConfig(t *testing.T) {
 		t.Errorf("done at 28s should linger (done_ttl_seconds=30)")
 	}
 
-	// A hot-reloaded config applies on the next access.
 	app.updateConfig(func(c *Config) { c.Display.DoneTTLSeconds = 20 })
 	if sessionKeys(app.Snapshot())["src/claude/done"] {
 		t.Errorf("done at 28s should be reaped once done_ttl_seconds drops to 20")
 	}
 }
 
-// A reap triggered by a DELETE of another session (no /state read) is still
-// logged and counted.
 func TestReapTriggeredByDeleteIsLoggedAndCounted(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Display.StaleSeconds = 25
@@ -110,7 +103,6 @@ func TestRenderDoneLingersWhenAlone(t *testing.T) {
 	if render.Done != 1 {
 		t.Errorf("Done = %d, want 1", render.Done)
 	}
-	// Per-session label for single-session done group:
 	if !contains(render.Text, "build green") && !contains(render.Text, "done") {
 		t.Errorf("Text = %q, want a per-session done label", render.Text)
 	}
@@ -159,13 +151,10 @@ func TestCompactTextTruncatesByRune(t *testing.T) {
 		{"short ascii", "  a   b  ", "a b"},
 		{"ascii at 80", strings.Repeat("a", 80), strings.Repeat("a", 80)},
 		{"ascii over 80", strings.Repeat("a", 81), strings.Repeat("a", 77) + "..."},
-		// 60 Cyrillic runes are 120 bytes: under the 80-character cap, kept whole.
 		{"cyrillic within 80 runes", strings.Repeat("ж", 60), strings.Repeat("ж", 60)},
 		{"cyrillic over 80 runes", strings.Repeat("ж", 90), strings.Repeat("ж", 77) + "..."},
 		{"emoji over 80 runes", strings.Repeat("🔥", 81), strings.Repeat("🔥", 77) + "..."},
-		// Rune 77 is a combining acute: the cut backs off to keep "é" whole.
 		{"combining mark at the cut", strings.Repeat("a", 76) + "é" + strings.Repeat("b", 10), strings.Repeat("a", 76) + "..."},
-		// A ZWJ family (man ZWJ woman) straddling the cut is dropped whole.
 		{"zwj sequence at the cut", strings.Repeat("a", 76) + "👨‍👩" + strings.Repeat("b", 10), strings.Repeat("a", 76) + "..."},
 		{"skin tone at the cut", strings.Repeat("a", 76) + "👍🏽" + strings.Repeat("b", 10), strings.Repeat("a", 76) + "..."},
 	}
@@ -184,7 +173,7 @@ func TestCompactTextTruncatesByRune(t *testing.T) {
 
 func TestWaitingRenderKeepsMultibyteMessageValid(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
-	msg := strings.Repeat("проверка ", 12) // 108 runes, 204 bytes
+	msg := strings.Repeat("проверка ", 12)
 	render, _ := app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "1", State: "waiting", Message: msg})
 	if !utf8.ValidString(render.Text) {
 		t.Fatalf("Text is not valid UTF-8: %q", render.Text)

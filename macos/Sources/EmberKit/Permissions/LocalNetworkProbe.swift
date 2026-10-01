@@ -2,16 +2,13 @@ import Foundation
 import Network
 
 /// Whether this app has Local Network access, as far as a probe can tell.
-/// macOS has no API that reports it, so it's inferred from what a browse and
-/// a request to the server get back.
 public enum LocalNetworkStatus: Equatable, Sendable {
     case granted, denied, unknown
 }
 
 /// Probes Local Network access with an explicit, short Bonjour browse for
 /// `_ember._tcp`, plus a request to the configured server when that's a LAN
-/// host. Each alone can be inconclusive (no server advertising; a server on
-/// the internet), so `combine` weighs both.
+/// host.
 public enum LocalNetworkProbe {
     /// What the browse reported before `browseTimeout`.
     public enum BrowseOutcome: Equatable, Sendable {
@@ -38,7 +35,7 @@ public enum LocalNetworkProbe {
     public static let browseTimeout: Duration = .seconds(3)
 
     /// A denial from either side wins: each only reports one when macOS
-    /// said so. Otherwise any sign the LAN works means access is on.
+    /// said so.
     public static func combine(browse: BrowseOutcome, server: ServerOutcome) -> LocalNetworkStatus {
         if browse == .denied || server == .denied { return .denied }
         if browse == .ready || server == .reachable { return .granted }
@@ -74,10 +71,6 @@ public enum LocalNetworkProbe {
         }
     }
 
-    /// Maps a browser state to a verdict, nil while it's still undecided.
-    /// `.waiting` for another reason stays undecided: it can recover.
-    /// `.ready` alone isn't final (a refusal can still follow): the browse
-    /// settles on it only if nothing else arrives before the timeout.
     static func outcome(for state: NWBrowser.State) -> BrowseOutcome? {
         switch state {
         case .ready: return .ready
@@ -89,7 +82,7 @@ public enum LocalNetworkProbe {
 
     /// A one-off `_ember._tcp` browse, ended by a result (on), a refusal
     /// (off) or `browseTimeout` (on if the browse got to ready, else
-    /// inconclusive). Also what first shows macOS's Local Network prompt.
+    /// inconclusive).
     @MainActor
     public static func browse(timeout: Duration = browseTimeout) async -> BrowseOutcome {
         let params = NWParameters()
@@ -121,7 +114,6 @@ public enum LocalNetworkProbe {
         return verdict
     }
 
-    /// Resumes the browse's continuation with the first verdict only.
     @MainActor
     private final class Once {
         private var cont: CheckedContinuation<BrowseOutcome, Never>?

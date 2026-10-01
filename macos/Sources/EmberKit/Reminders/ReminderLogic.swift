@@ -2,8 +2,7 @@ import Foundation
 
 /// True when `now` is inside a reminder's fire window: at or after its fire time
 /// (dueDate shifted earlier by `leadMinutes`) and no later than `grace` seconds
-/// after it. The grace window lets a missed/coalesced poll still fire, while
-/// keeping a long-overdue reminder from firing on launch.
+/// after it.
 public func reminderShouldFire(now: Date, dueDate: Date, leadMinutes: Int, grace: TimeInterval) -> Bool {
     let fireTime = dueDate.addingTimeInterval(-Double(leadMinutes) * 60)
     let delta = now.timeIntervalSince(fireTime)
@@ -17,9 +16,7 @@ public func reminderDedupeKey(id: String, dueDate: Date) -> String {
 }
 
 /// The reminder occurrences (by `reminderDedupeKey`) already delivered to the
-/// clock, so each rings once. Callers record a key only after the fire request
-/// succeeds, so a failed fire is retried on the next poll while still inside
-/// the grace window. `prune` keeps the set from growing for the app's lifetime.
+/// clock, so each rings once.
 public struct ReminderFiredLedger: Sendable {
     private var dueByKey: [String: Date] = [:]
 
@@ -34,8 +31,7 @@ public struct ReminderFiredLedger: Sendable {
     /// Remembers that the occurrence `key`, due at `due`, reached the clock.
     public mutating func record(_ key: String, due: Date) { dueByKey[key] = due }
 
-    /// Forgets occurrences due more than `keep` before `now`. They are long past
-    /// any fire window, so forgetting them can't cause a second ring.
+    /// Forgets occurrences due more than `keep` before `now`.
     public mutating func prune(now: Date, keep: TimeInterval = 86_400) {
         dueByKey = dueByKey.filter { now.timeIntervalSince($0.value) <= keep }
     }
@@ -45,15 +41,12 @@ public struct ReminderFiredLedger: Sendable {
 public enum ReminderFireOutcome: Equatable, Sendable {
     case delivered
     /// The request may have reached the server (timeout, 5xx such as a 502
-    /// after a lost clock ack). Treated as delivered: a second ring is worse
-    /// than a lost one, and the server's idempotency key catches most repeats.
+    /// after a lost clock ack).
     case maybeDelivered
     /// The request provably had no effect; safe to retry.
     case notDelivered
 
-    /// Classifies a `RemindersService.fire` error. Only failures that prove
-    /// the server never acted are `.notDelivered`: no connection, not
-    /// configured, 429, or another 4xx (rejected before the push).
+    /// Classifies a `RemindersService.fire` error.
     public init(error: Error) {
         switch error {
         case is RequestNotSent:
@@ -68,11 +61,7 @@ public enum ReminderFireOutcome: Equatable, Sendable {
     }
 }
 
-/// Decides which due reminder occurrences to fire. `begin` claims a key before
-/// the request is sent, so an overlapping poll (e.g. after a disable/re-enable
-/// cycle) can't fire the same occurrence while the first request is in flight.
-/// `finish` records the key unless the attempt was `.notDelivered`, which is
-/// retried on the next poll while still inside the grace window.
+/// Decides which due reminder occurrences to fire.
 public struct ReminderFireTracker: Sendable {
     private var fired = ReminderFiredLedger()
     private var inFlight = Set<String>()
@@ -100,8 +89,7 @@ public struct ReminderFireTracker: Sendable {
     public var firedCount: Int { fired.count }
 }
 
-/// Apple-Reminders watcher settings, persisted app-side (UserDefaults). The
-/// server holds none of this — it's sent per-fire.
+/// Apple-Reminders watcher settings, persisted app-side (UserDefaults).
 public struct ReminderPrefs: Codable, Equatable, Sendable {
     public var enabled: Bool
     public var sound: Bool
@@ -112,8 +100,7 @@ public struct ReminderPrefs: Codable, Equatable, Sendable {
     /// When true the alarm takes over the clock until dismissed (middle button);
     /// when false it auto-dismisses after `popupDuration`.
     public var hold: Bool
-    /// Opt-in: a held alarm with sound repeats its chime until dismissed. The
-    /// server stops it after 15 minutes and when quiet hours start.
+    /// Opt-in: a held alarm with sound repeats its chime until dismissed.
     public var repeatSound: Bool
 
     public init(enabled: Bool = false, sound: Bool = true, leadMinutes: Int = 0,
@@ -129,8 +116,6 @@ public struct ReminderPrefs: Codable, Equatable, Sendable {
         self.repeatSound = repeatSound
     }
 
-    // Custom decoder so prefs persisted before `hold` existed still load (defaulting
-    // hold to true) instead of failing to decode.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false

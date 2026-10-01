@@ -163,14 +163,12 @@ func TestQuietDTODefaultsAndApply(t *testing.T) {
 func TestQuietConfigRoundTripAndValidation(t *testing.T) {
 	a := newTestAppWithStore(t)
 
-	// GET returns defaults: disabled, 22:00-08:00.
 	gw := httptest.NewRecorder()
 	a.handleQuietConfigGet(gw, httptest.NewRequest("GET", "/v1/quiet/config", nil))
 	if gw.Code != 200 || !strings.Contains(gw.Body.String(), `"start":"22:00"`) {
 		t.Fatalf("GET default = %d body=%s", gw.Code, gw.Body)
 	}
 
-	// PUT valid → effective values change.
 	pw := httptest.NewRecorder()
 	a.handleQuietConfigPut(pw, httptest.NewRequest("PUT", "/v1/quiet/config",
 		strings.NewReader(`{"enabled":true,"start":"23:00","end":"07:00"}`)))
@@ -185,7 +183,6 @@ func TestQuietConfigRoundTripAndValidation(t *testing.T) {
 		t.Fatalf("config not applied: %+v", q)
 	}
 
-	// PUT with bad body (invalid start) → 400.
 	bw := httptest.NewRecorder()
 	a.handleQuietConfigPut(bw, httptest.NewRequest("PUT", "/v1/quiet/config",
 		strings.NewReader(`{"start":"25:00"}`)))
@@ -193,7 +190,6 @@ func TestQuietConfigRoundTripAndValidation(t *testing.T) {
 		t.Fatalf("expected 400 for bad start, got %d body=%s", bw.Code, bw.Body)
 	}
 
-	// Partial PUT: only change enabled → start stays "23:00" (pre-seed guard).
 	ppw := httptest.NewRecorder()
 	a.handleQuietConfigPut(ppw, httptest.NewRequest("PUT", "/v1/quiet/config",
 		strings.NewReader(`{"enabled":false}`)))
@@ -211,7 +207,6 @@ func TestQuietConfigRoundTripAndValidation(t *testing.T) {
 func TestQuietConfigPersistence(t *testing.T) {
 	a := newTestAppWithStore(t)
 
-	// PUT a valid config to persist it.
 	pw := httptest.NewRecorder()
 	a.handleQuietConfigPut(pw, httptest.NewRequest("PUT", "/v1/quiet/config",
 		strings.NewReader(`{"enabled":true,"start":"23:00","end":"07:00"}`)))
@@ -219,12 +214,10 @@ func TestQuietConfigPersistence(t *testing.T) {
 		t.Fatalf("PUT = %d body=%s", pw.Code, pw.Body)
 	}
 
-	// Confirm the blob is actually stored under the right key.
 	if v, ok, _ := a.store.GetSetting(quietSettingsKey); !ok || !strings.Contains(v, `"start":"23:00"`) {
 		t.Fatalf("quiet settings not persisted: %q ok=%v", v, ok)
 	}
 
-	// Simulate restart: new App over a fresh store, inject stored value, re-apply.
 	a2 := newTestAppWithStore(t)
 	if err := a2.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"23:00","end":"07:00"}`); err != nil {
 		t.Fatal(err)
@@ -235,8 +228,6 @@ func TestQuietConfigPersistence(t *testing.T) {
 		t.Fatalf("persisted settings not applied on load: %+v", cfg2.QuietHours)
 	}
 
-	// Simulate restart with legacy blob missing a field — pre-seed guard keeps default.
-	// A blob without "end" should keep the live-config default ("08:00"), not zero it.
 	a3 := newTestAppWithStore(t)
 	if err := a3.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"23:00"}`); err != nil {
 		t.Fatal(err)
@@ -247,7 +238,6 @@ func TestQuietConfigPersistence(t *testing.T) {
 		t.Fatalf("legacy blob missing 'end' should keep default 08:00, got %q", cfg3.QuietHours.End)
 	}
 
-	// Corrupt/invalid stored blob → ignored, baseline kept.
 	a4 := newTestAppWithStore(t)
 	baseline := a4.cfg.Load().QuietHours.Start
 	if err := a4.store.PutSetting(quietSettingsKey, `{"enabled":true,"start":"25:00","end":"07:00"}`); err != nil {

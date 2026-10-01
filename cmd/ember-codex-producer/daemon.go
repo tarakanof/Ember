@@ -16,13 +16,8 @@ import (
 
 const httpTimeout = 5 * time.Second
 
-// daemonFailLog throttles POST/DELETE failure warnings across ticks (~1/min
-// per failure kind), so a stalled server doesn't flood the log every
-// pollInterval.
 var daemonFailLog = producer.NewFailureLogger(time.Minute)
 
-// runDaemon is the entry point for `ember-codex-producer run` (and the bare
-// default). It polls until SIGINT/SIGTERM.
 func runDaemon() {
 	rotateCodexLogs()
 	openDaemonLog("ember-codex-producer")
@@ -34,7 +29,7 @@ func runDaemon() {
 	w := newWatcher(cfg)
 	client := producer.NewClient(cfg.ServerURL, cfg.Token, httpTimeout)
 	if path, err := producer.LinkStatusPath("codex-producer"); err == nil {
-		client.WithLinkStatus(producer.NewLinkStatus(path)) // for the app's Local Network hint
+		client.WithLinkStatus(producer.NewLinkStatus(path))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -55,11 +50,6 @@ func runDaemon() {
 	}
 }
 
-// openDaemonLog routes stdout/stderr (both the OS fds and the Go-level
-// variables) and the slog default logger to ~/Library/Logs/<name>.log so the
-// daemon logs correctly even when launched from a plist with no
-// StandardOutPath (a bundled static plist can't encode a per-user path).
-// Best-effort: on failure it silently leaves stderr as-is.
 func openDaemonLog(name string) {
 	f, err := producer.OpenDaemonLog(name)
 	if err != nil {
@@ -69,8 +59,6 @@ func openDaemonLog(name string) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }
 
-// runOnce performs a single reconcile pass, issuing POSTs/DELETEs and keeping
-// the menu-bar marker files in sync (write on POST, remove on DELETE).
 func runOnce(ctx context.Context, w *watcher, client *producer.Client) {
 	posts, deletes, usages := w.tick()
 	for _, req := range posts {

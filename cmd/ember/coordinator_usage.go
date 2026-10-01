@@ -7,20 +7,11 @@ import (
 )
 
 const (
-	// usageAppLifetime keeps a pushed usage app alive on the device well above
-	// the ~5-min producer refresh, so a brief reconcile gap never blanks it.
-	usageAppLifetime = 600 // seconds
-	// usageStaleTTL is ~2x the 5-min poll interval: past this with no fresh
-	// post, a tool's apps are cleared from the device.
-	usageStaleTTL = 10 * time.Minute
-	// usageRefreshInterval forces a re-push of an unchanged usage app well
-	// before its on-device lifetime (usageAppLifetime) expires — otherwise a
-	// usage value that stops changing would let the device evict the app and
-	// never get refreshed. Must be < usageAppLifetime.
+	usageAppLifetime     = 600
+	usageStaleTTL        = 10 * time.Minute
 	usageRefreshInterval = 4 * time.Minute
 )
 
-// pctInt rounds a float utilization to the nearest int, clamped to 0..100.
 func pctInt(f float64) int {
 	n := int(f + 0.5)
 	if n < 0 {
@@ -32,11 +23,6 @@ func pctInt(f float64) int {
 	return n
 }
 
-// usageViews builds the per-tool usage views the render layer consumes:
-// endpoint usage preferred, statusline fallback (same precedence as the
-// limit alarm via effectiveFiveHour), gated at usage_threshold_pct. Hidden
-// tools and below-threshold tools are absent. Returns nil when the widget
-// is off or no store is wired.
 func (c *coordinator) usageViews(now time.Time, snap Snapshot) map[string]*render.UsageView {
 	cfg := c.loadCfg()
 	if c.usage == nil || !cfg.usageWidgetEnabled() {
@@ -78,9 +64,6 @@ func (c *coordinator) usageViews(now time.Time, snap Snapshot) map[string]*rende
 				}
 			}
 		} else {
-			// Statusline fallback: the newest live session's host-local label.
-			// effectiveFiveHour already accepted a session, but didn't give us
-			// the label — find the same best session to populate ResetLabel.
 			var best *render.Session
 			for i := range snap.Sessions {
 				s := &snap.Sessions[i]

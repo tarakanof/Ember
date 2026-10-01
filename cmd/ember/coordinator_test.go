@@ -31,11 +31,6 @@ func TestNewCoordinator_DefaultsFromConfig(t *testing.T) {
 	cancel()
 }
 
-// fakeClock is already declared in ratelimit_test.go (same package).
-
-// blockingPublisher wedges the coordinator goroutine inside publish() the way
-// an unreachable device does: CustomApp blocks until release is closed. All
-// other Publisher methods delegate to the embedded recordingPublisher.
 type blockingPublisher struct {
 	*recordingPublisher
 	release chan struct{}
@@ -46,14 +41,6 @@ func (p *blockingPublisher) CustomApp(ctx context.Context, name string, payload 
 	return p.recordingPublisher.CustomApp(ctx, name, payload)
 }
 
-// TestCoord_Send_DoesNotBackPressureProducers is the Task-6 guard: when the
-// coordinator goroutine is wedged on a black-holed device (CustomApp never
-// returns), producer-driven Send calls (upsert/delete/clear — the work
-// handleStatus/handleClear/handleDeleteStatus do after touching App state)
-// must return promptly rather than block behind the full command buffer.
-// Send is the only unbounded-blocking step in those handlers, so bounding
-// Send latency bounds handler latency. A rising drop counter proves the
-// overflow is being shed, not silently queued/blocked.
 func TestCoord_Send_DoesNotBackPressureProducers(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -71,12 +58,9 @@ func TestCoord_Send_DoesNotBackPressureProducers(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	// First command wedges the goroutine inside publish()->CustomApp forever.
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "running", newState: "running"})
-	t.Cleanup(func() { close(pub.release) }) // let Run drain + exit at teardown
+	t.Cleanup(func() { close(pub.release) })
 
-	// Flood well past the 64-slot buffer. With the goroutine wedged, a blocking
-	// Send would deadlock here; a non-blocking Send drops the overflow.
 	const flood = 500
 	done := make(chan time.Duration, 1)
 	go func() {
@@ -131,12 +115,6 @@ func TestCoord_Tick_SingleSession_PublishesOnce(t *testing.T) {
 	}
 }
 
-// TestCoord_Tick_NoActive_EmitsIdleFrame replaces G.1b's NoPublish
-// expectation. With G.2 display hold, the coordinator emits a dimmed
-// idle frame on the first all-idle tick (start of the idle countdown)
-// instead of ceding the slot immediately. The slot only releases after
-// IdleRestoreSeconds elapses (covered by TestCoord_IdleCountdown_Off
-// in Task 6).
 func TestCoord_Tick_NoActive_EmitsIdleFrame(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -156,7 +134,6 @@ func TestCoord_Tick_NoActive_EmitsIdleFrame(t *testing.T) {
 	if got := len(apps); got != 1 {
 		t.Fatalf("publishes = %d, want 1 (idle countdown dim frame)", got)
 	}
-	// No text means no attention; the idle frame is robot-only.
 	if _, hasText := apps[0]["text"]; hasText {
 		t.Errorf("idle frame has text key; want robot-only dim frame")
 	}
@@ -168,9 +145,6 @@ func TestCoord_Tick_TwoSessions_AdvancesPointer(t *testing.T) {
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
-	// Use distinct Source values so each session's source card draws different
-	// text ("MBP" vs "STUD"), preventing the dedup logic from suppressing the
-	// second publish when payloads would otherwise be identical.
 	c.snapshot = func() Snapshot {
 		return Snapshot{Sessions: []Session{
 			{Source: "mbp", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()},
@@ -205,12 +179,6 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
 
-	// Both sessions start in running so sortedActiveKeys orders by
-	// (running-priority, source, tool, session) — s1 sorts before s2.
-	// A vanilla cmdTick will put the pointer on s1. The preempt must
-	// JUMP it to s2 once s2 transitions into waiting. Pre-fix the test
-	// pre-seeded s2 as waiting which already sorts ahead, so a passing
-	// assertion didn't actually prove the jump.
 	var mu sync.Mutex
 	s2State := "running"
 	c.snapshot = func() Snapshot {
@@ -226,7 +194,6 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	// Tick — pointer ends up on s1 (alphabetically first under same priority).
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
@@ -237,7 +204,6 @@ func TestCoord_Preempt_OnWaitingTransition(t *testing.T) {
 		t.Fatalf("setup: pointer before preempt = %q, want a/b/s1 (so a real jump can happen)", beforePtr)
 	}
 
-	// Now flip s2 to waiting in the snapshot AND send the preempt command.
 	mu.Lock()
 	s2State = "waiting"
 	mu.Unlock()
@@ -277,12 +243,12 @@ func TestCoord_Preempt_NotOnReheartbeat(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	c.Send(coordCmd{kind: cmdTick}) // initial: picks s1, but not locked.
+	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 	c.Send(coordCmd{
 		kind:       cmdUpsert,
 		sessionKey: "a/b/s1",
-		priorState: "waiting", // already waiting → no transition.
+		priorState: "waiting",
 		newState:   "waiting",
 	})
 	time.Sleep(50 * time.Millisecond)
@@ -327,7 +293,6 @@ func TestCoord_DrainReleasesLock(t *testing.T) {
 	}
 	c.stateMu.RUnlock()
 
-	// Session drains naturally to running.
 	stateMu.Lock()
 	state = "running"
 	stateMu.Unlock()
@@ -367,7 +332,6 @@ func TestCoord_DeleteWhileLocked_ReleasesLock(t *testing.T) {
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
-	// Remove it from the snapshot, then send cmdDelete.
 	sessMu.Lock()
 	sessions = nil
 	sessMu.Unlock()
@@ -386,9 +350,6 @@ func TestCoord_DeleteWhileLocked_ReleasesLock(t *testing.T) {
 	}
 }
 
-// TestCoord_ClearPublishes verifies onClear publishes through the same path
-// its siblings (onUpsert/onDelete) use, instead of only mutating state and
-// leaving the last frame on the device until the next dwell tick.
 func TestCoord_ClearPublishes(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -433,7 +394,7 @@ func TestCoord_ReapReleasesLock(t *testing.T) {
 
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
-	live.Store(false) // reaped
+	live.Store(false)
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
@@ -465,7 +426,6 @@ func TestCoord_PointerPinned_WhenLocked(t *testing.T) {
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
-	// Tick three times while locked. Pointer must stay on s1.
 	for i := 0; i < 3; i++ {
 		c.Send(coordCmd{kind: cmdTick})
 		time.Sleep(20 * time.Millisecond)
@@ -505,7 +465,6 @@ func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
 	}
 	c.stateMu.RUnlock()
 
-	// Advance fake clock past the ack timeout, then tick.
 	clk.Advance(31 * time.Second)
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
@@ -518,13 +477,10 @@ func TestCoord_AckTimeout_ReleasesLock(t *testing.T) {
 	}
 }
 
-// TestCoord_IdleCountdown_Off verifies that after IdleRestoreSeconds
-// of all-idle ticks, the coordinator stops publishing entirely so the
-// device's lifetime elapses and AWTRIX scheduler returns to natives.
 func TestCoord_IdleCountdown_Off(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
-	cfg.Display.IdleRestoreSeconds = 60 // shorter window for tests
+	cfg.Display.IdleRestoreSeconds = 60
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 	c := newCoordinator(cfg, nil, publisher, clk, nil, nil)
@@ -534,7 +490,6 @@ func TestCoord_IdleCountdown_Off(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	// First tick: starts the countdown, emits dim frame.
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 	beforeExpiry := len(publisher.CustomAppsSnapshot())
@@ -542,7 +497,6 @@ func TestCoord_IdleCountdown_Off(t *testing.T) {
 		t.Fatalf("publishes after first idle tick = %d, want 1", beforeExpiry)
 	}
 
-	// Advance past the countdown.
 	clk.Advance(61 * time.Second)
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
@@ -552,11 +506,6 @@ func TestCoord_IdleCountdown_Off(t *testing.T) {
 	}
 }
 
-// TestCoord_NewSessionAfterIdleExpiry_ResumesPublish covers the
-// crash-safety bookend: once the device has gone back to natives
-// (we've stopped publishing), a fresh non-idle session must wake the
-// display by publishing immediately on the upsert command, with the
-// rich active-session frame.
 func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -578,7 +527,6 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	// Idle countdown starts, then expires.
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 	idleCount := len(publisher.CustomAppsSnapshot())
@@ -589,7 +537,6 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 		t.Fatalf("countdown not yet idle-off")
 	}
 
-	// New session arrives.
 	snapMu.Lock()
 	sessions = []Session{{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()}}
 	snapMu.Unlock()
@@ -601,13 +548,9 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 		t.Fatalf("publishes after wake = %d, want %d (one new active-session publish)", len(apps), idleCount+1)
 	}
 	last := apps[len(apps)-1]
-	// Active frame must NOT be the dim-white robot — it should be a state-coloured
-	// render spanning the panel. The source card splits its bitmap into blocks
-	// around the firmware-rendered name, so measure the ops' combined reach
-	// rather than the first op's width.
 	reach := 0
 	for _, raw := range last["draw"].([]any) {
-		op := raw.([]any) // NG: ["bitmap", x, y, w, h, data]
+		op := raw.([]any)
 		if r := op[1].(int) + op[3].(int); r > reach {
 			reach = r
 		}
@@ -618,9 +561,6 @@ func TestCoord_NewSessionAfterIdleExpiry_ResumesPublish(t *testing.T) {
 }
 
 func TestCoord_Interleave_SourceAndToolCards(t *testing.T) {
-	// Verifies the coordinator cycles through source + tool cards and wraps.
-	// The old rate/ctx cards are gone; the tool card is only offered for
-	// running sessions with non-empty Activity.
 	cfg := defaultConfig()
 	cfg.applyDefaults()
 	publisher := &recordingPublisher{}
@@ -631,7 +571,6 @@ func TestCoord_Interleave_SourceAndToolCards(t *testing.T) {
 			{Source: "a", Tool: "b", Session: "s1", State: "running", Activity: "Bash: x", UpdatedAt: clk.Now()},
 		}}
 	}
-	// source + tool = 2 cards.
 	if got := render.CardsForSession(c.snapshot().Sessions[0], nil); got != 2 {
 		t.Fatalf("CardsForSession = %d, want 2", got)
 	}
@@ -646,15 +585,15 @@ func TestCoord_Interleave_SourceAndToolCards(t *testing.T) {
 	}
 	tick := func() { c.Send(coordCmd{kind: cmdTick}); time.Sleep(50 * time.Millisecond) }
 
-	tick() // pointer="" → s1, cursor 0 (source)
+	tick()
 	if got := readCursor(); got != 0 {
 		t.Fatalf("after tick 1, cardCursor = %d, want 0", got)
 	}
-	tick() // cursor 1 (tool)
+	tick()
 	if got := readCursor(); got != 1 {
 		t.Fatalf("after tick 2, cardCursor = %d, want 1", got)
 	}
-	tick() // cards exhausted → wrap, cursor 0
+	tick()
 	if got := readCursor(); got != 0 {
 		t.Fatalf("after tick 3, cardCursor = %d, want 0 (wrap)", got)
 	}
@@ -683,8 +622,6 @@ func TestCoord_Interleave_TwoSessionsOrder(t *testing.T) {
 	}
 	tick := func() { c.Send(coordCmd{kind: cmdTick}); time.Sleep(50 * time.Millisecond) }
 
-	// Each session has only the source card (no rate/ctx/tool); rotation advances
-	// session-by-session: s1→s2→s1→s2…
 	type stop struct {
 		ptr  string
 		card int
@@ -699,11 +636,6 @@ func TestCoord_Interleave_TwoSessionsOrder(t *testing.T) {
 	}
 }
 
-// TestCoord_NewSessionMidCountdown_CancelsIdleTimer ensures that if a
-// session arrives partway through the idle countdown, the dim-frame
-// pathway is abandoned cleanly and the idleSince timestamp resets.
-// Without this, a session that arrives at t=900s (with 1200s window)
-// could be cut off 300s later instead of getting its full lifetime.
 func TestCoord_NewSessionMidCountdown_CancelsIdleTimer(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -724,11 +656,9 @@ func TestCoord_NewSessionMidCountdown_CancelsIdleTimer(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	// Start the idle countdown (no sessions).
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	// Halfway through the window, a session shows up.
 	clk.Advance(30 * time.Second)
 	snapMu.Lock()
 	sessions = []Session{{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: clk.Now()}}
@@ -736,7 +666,6 @@ func TestCoord_NewSessionMidCountdown_CancelsIdleTimer(t *testing.T) {
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s1", priorState: "", newState: "running"})
 	time.Sleep(50 * time.Millisecond)
 
-	// idleSince must be reset (zero) after the active publish.
 	c.stateMu.RLock()
 	gotIdleSince := c.idleSince
 	c.stateMu.RUnlock()

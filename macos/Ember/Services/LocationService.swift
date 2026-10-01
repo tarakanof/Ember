@@ -2,18 +2,13 @@ import CoreLocation
 import MapKit
 import Observation
 
-/// One-shot current-location lookup for the Weather tab: requests when-in-use
-/// authorization, gets a single fix, and reverse-geocodes a short place name.
 @MainActor
 @Observable
 public final class LocationService: NSObject, CLLocationManagerDelegate {
     public struct Fix: Sendable { public let latitude: Double; public let longitude: Double; public let name: String? }
     public enum LocationError: Error {
-        case denied        // the user explicitly turned Location off for Ember
-        case unavailable   // authorized, but no fix arrived (hardware/timeout)
-        /// We asked for authorization but macOS never resolved it — for a menu-bar
-        /// (accessory) app the system often does NOT present the "Allow location"
-        /// prompt, so the user has to enable Ember manually in System Settings.
+        case denied
+        case unavailable
         case authorizationUnavailable
     }
 
@@ -22,39 +17,25 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var awaitingAuth = false
     @ObservationIgnored private var watchdog: Task<Void, Never>?
 
-    /// Observable mirror of the CoreLocation authorization status for the UI. The
-    /// delegate keeps it current (CLLocationManager's status isn't observable on
-    /// its own), so the Weather tab's access row updates live on grant/deny — and
-    /// when the user flips the toggle in System Settings while the tab is open.
     public private(set) var authStatus: CLAuthorizationStatus = .notDetermined
 
     public override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyKilometer // weather doesn't need precision
+        manager.desiredAccuracy = kCLLocationAccuracyKilometer
         authStatus = manager.authorizationStatus
     }
 
-    /// Re-reads the current status; call when the Weather tab appears so a change
-    /// made in System Settings (or another launch's grant) shows without relaunch.
     public func refreshAuthorization() {
         authStatus = manager.authorizationStatus
     }
 
-    /// Detect the current location + place name. Throws on denial/failure.
     public func current() async throws -> Fix {
         let loc = try await requestFix()
         let name = try? await reverseGeocode(loc)
         return Fix(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude, name: name)
     }
 
-    /// Resumes the in-flight continuation if neither a fix nor an authorization
-    /// decision arrives in time. Without this, a stuck request would orphan the
-    /// continuation and wedge the UI. Cancels any prior watchdog so each request
-    /// gets a fresh timer. If we were still waiting on the authorization prompt
-    /// when it expires, that almost always means macOS never showed the prompt
-    /// (common for accessory apps) — surface that as `.authorizationUnavailable`
-    /// so the UI can point the user at System Settings instead of a generic error.
     private func startWatchdog() {
         watchdog?.cancel()
         watchdog = Task { @MainActor [weak self] in
@@ -68,13 +49,11 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
     }
 
     private func requestFix() async throws -> CLLocation {
-        guard continuation == nil else { throw LocationError.unavailable } // a detect is already in flight
+        guard continuation == nil else { throw LocationError.unavailable }
         switch manager.authorizationStatus {
         case .denied, .restricted:
             throw LocationError.denied
         case .notDetermined:
-            // Defer requestLocation() until the user answers the prompt (issuing it
-            // now, while .notDetermined, does not reliably deliver a callback).
             return try await withCheckedThrowingContinuation { cont in
                 self.continuation = cont
                 self.awaitingAuth = true
@@ -93,14 +72,12 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
     private func reverseGeocode(_ loc: CLLocation) async throws -> String? {
         guard let request = MKReverseGeocodingRequest(location: loc) else { return nil }
         let address = try await request.mapItems.first?.addressRepresentations
-        // Not regionName: that is the country, where the old CLPlacemark
-        // fallback (administrativeArea) was the state.
         return address?.cityName ?? address?.cityWithContext
     }
 
     nonisolated public func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
         Task { @MainActor in
-            self.authStatus = self.manager.authorizationStatus  // keep the UI's access row live
+            self.authStatus = self.manager.authorizationStatus
             guard self.awaitingAuth else { return }
             switch self.manager.authorizationStatus {
             case .authorizedWhenInUse, .authorizedAlways:
@@ -112,7 +89,7 @@ public final class LocationService: NSObject, CLLocationManagerDelegate {
                 self.watchdog?.cancel()
                 self.continuation?.resume(throwing: LocationError.denied); self.continuation = nil
             case .notDetermined:
-                break // still waiting for the user's answer
+                break
             @unknown default:
                 self.awaitingAuth = false
                 self.watchdog?.cancel()

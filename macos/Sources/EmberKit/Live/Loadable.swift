@@ -1,15 +1,13 @@
 import Foundation
 
-/// A feed's value and how fresh it is. A failure keeps the last good value so
-/// views can show it as stale instead of blanking.
+/// A feed's value and how fresh it is.
 public enum Loadable<T: Sendable & Equatable>: Equatable, Sendable {
     /// Never loaded (or reset by a server change).
     case loading
     /// `at` is when this value was first fetched: a poll returning the same
     /// value doesn't change it (see `LiveModel.lastFetched`).
     case loaded(T, at: Date)
-    /// The latest attempt failed. `last`/`lastAt` are the previous good value,
-    /// nil when there never was one.
+    /// The latest attempt failed.
     case failed(FeedError, last: T?, lastAt: Date?)
 
     /// The loaded value, or the last good one after a failure.

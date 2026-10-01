@@ -8,7 +8,6 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-// memKV is an in-memory settingsKV standing in for the SQLite store.
 type memKV struct {
 	mu sync.Mutex
 	m  map[string]string
@@ -43,8 +42,6 @@ func wantTakeoverSettings(t *testing.T, got map[string]any, autoTransition, bloc
 	}
 }
 
-// The restore puts back what the user had, not a hardcoded "rotation on,
-// navigation on" that would clobber a Device-tab choice.
 func TestCoordinatorTakeoverRestoresUsersPriorSettings(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.deviceSettings = map[string]any{"autoTransition": false, "blockNavigation": false, "brightness": 90.0}
@@ -65,8 +62,6 @@ func TestCoordinatorTakeoverRestoresUsersPriorSettings(t *testing.T) {
 	}
 }
 
-// A lost read must not guess: the takeover waits for the next tick rather than
-// snapshotting defaults the user may not have.
 func TestCoordinatorTakeoverWaitsForASuccessfulSnapshotRead(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.readSettingsErr = errUnreachableDevice
@@ -95,9 +90,6 @@ func TestCoordinatorTakeoverWaitsForASuccessfulSnapshotRead(t *testing.T) {
 	wantTakeoverSettings(t, s[1], false, false)
 }
 
-// A clock already in the takeover state when no snapshot exists (e.g. an old
-// binary died mid-focus without restoring) must not have that state recorded
-// as the user's choice, or every later restore turns rotation off for good.
 func TestCoordinatorTakeoverIgnoresSnapshotOfTheTakeoverItself(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.deviceSettings = map[string]any{"autoTransition": false, "blockNavigation": true}
@@ -114,9 +106,6 @@ func TestCoordinatorTakeoverIgnoresSnapshotOfTheTakeoverItself(t *testing.T) {
 	wantTakeoverSettings(t, s[1], true, false)
 }
 
-// With the clock offline and a restore owed, the coordinator must not spend
-// a full retry budget on it every tick: after a lost restore it skips a few
-// ticks, then tries again.
 func TestCoordinatorBacksOffPendingRestoreWhileClockOffline(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	*pomo = true
@@ -152,8 +141,6 @@ func TestCoordinatorBacksOffPendingRestoreWhileClockOffline(t *testing.T) {
 	}
 }
 
-// A device that answers the read with a 4xx never will: fall back to the
-// firmware defaults instead of blocking the takeover forever.
 func TestCoordinatorTakeoverFallsBackToDefaultsOnRejectedRead(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.readSettingsErr = &awtrix.APIError{StatusCode: http.StatusNotFound}
@@ -170,12 +157,10 @@ func TestCoordinatorTakeoverFallsBackToDefaultsOnRejectedRead(t *testing.T) {
 	wantTakeoverSettings(t, s[1], true, false)
 }
 
-// A switch lost on the lossy link must be retried on a later tick, not
-// marked done.
 func TestCoordinatorRetriesFailedHoldSwitch(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "waiting")
 	c.locked, c.lockedKey, c.pointer = true, "mbp/claude/a", "mbp/claude/a"
-	pub.switchFails = publishAttempts // every attempt in the first tick is lost
+	pub.switchFails = publishAttempts
 
 	c.publish(*snap)
 	if c.hold != holdNone {
@@ -191,7 +176,6 @@ func TestCoordinatorRetriesFailedHoldSwitch(t *testing.T) {
 	}
 }
 
-// One lost attempt is absorbed inside the tick, like pushApp.
 func TestCoordinatorRetriesHoldSwitchWithinTheTick(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "waiting")
 	c.locked, c.lockedKey, c.pointer = true, "mbp/claude/a", "mbp/claude/a"
@@ -203,8 +187,6 @@ func TestCoordinatorRetriesHoldSwitchWithinTheTick(t *testing.T) {
 	}
 }
 
-// A lost takeover PATCH must be retried, or the device keeps rotating away
-// from the timer for the whole focus block.
 func TestCoordinatorRetriesFailedTakeoverSettings(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.settingsFails = publishAttempts
@@ -224,9 +206,6 @@ func TestCoordinatorRetriesFailedTakeoverSettings(t *testing.T) {
 	}
 }
 
-// The clock drops off WiFi (no reboot, so no republish) as a focus block
-// starts: every call fails for several ticks. Once it answers again the
-// ordinary ticks must land the takeover on their own.
 func TestCoordinatorTakeoverLandsAfterClockOutageWithoutRepublish(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	fail := &failingCustomAppPublisher{recordingPublisher: pub, fail: true}
@@ -240,8 +219,6 @@ func TestCoordinatorTakeoverLandsAfterClockOutageWithoutRepublish(t *testing.T) 
 	for range 3 {
 		c.publish(*snap)
 	}
-	// Back online, but the first push lands while the settings calls still
-	// fail: the frame is on the device, the takeover is not.
 	fail.fail = false
 	c.publish(*snap)
 	if c.hold != holdNone {
@@ -251,7 +228,7 @@ func TestCoordinatorTakeoverLandsAfterClockOutageWithoutRepublish(t *testing.T) 
 	pub.mu.Lock()
 	pub.readSettingsErr, pub.settingsFails, pub.switchFails = nil, 0, 0
 	pub.mu.Unlock()
-	c.publish(*snap) // same frame: the dedupe path must still replay the edge
+	c.publish(*snap)
 	if c.hold != holdPomodoro {
 		t.Fatalf("hold once the clock answers = %v, want holdPomodoro", c.hold)
 	}
@@ -264,8 +241,6 @@ func TestCoordinatorTakeoverLandsAfterClockOutageWithoutRepublish(t *testing.T) 
 	wantTakeoverSettings(t, s[len(s)-1], false, false)
 }
 
-// A lost restore PATCH leaves rotation off with no timer running; it must be
-// retried until it lands.
 func TestCoordinatorRetriesFailedTakeoverRestore(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	*pomo = true
@@ -280,7 +255,7 @@ func TestCoordinatorRetriesFailedTakeoverRestore(t *testing.T) {
 		t.Fatalf("hold after a lost restore = %v, want holdPomodoro (restore pending)", c.hold)
 	}
 
-	for i := 0; i <= restoreBackoffTicks; i++ { // sit out the backoff, then retry
+	for i := 0; i <= restoreBackoffTicks; i++ {
 		c.publish(*snap)
 	}
 	if c.hold != holdNone {
@@ -290,8 +265,6 @@ func TestCoordinatorRetriesFailedTakeoverRestore(t *testing.T) {
 	wantTakeoverSettings(t, s[len(s)-1], true, false)
 }
 
-// Takeover settings landed but the switch was lost: if the timer stops before
-// the retry, the settings still have to be restored.
 func TestCoordinatorRestoresHalfAppliedTakeover(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.switchFails = publishAttempts
@@ -308,8 +281,6 @@ func TestCoordinatorRestoresHalfAppliedTakeover(t *testing.T) {
 	wantTakeoverSettings(t, s[1], true, false)
 }
 
-// The snapshot is persisted for the length of the takeover, so a process that
-// dies mid-focus can still restore the user's values on its next start.
 func TestCoordinatorPersistsTakeoverSnapshotAcrossRestart(t *testing.T) {
 	kv := &memKV{}
 	c, pub, snap, pomo := holdFixture(t, "running")
@@ -322,8 +293,6 @@ func TestCoordinatorPersistsTakeoverSnapshotAcrossRestart(t *testing.T) {
 		t.Fatal("takeover snapshot not persisted")
 	}
 
-	// Crash: no exit restore. A fresh coordinator on the same store, no timer
-	// running (the engine is not persisted).
 	c2, pub2, snap2, _ := holdFixture(t, "running")
 	c2.setSettingsKV(kv)
 	c2.publish(*snap2)
@@ -338,8 +307,6 @@ func TestCoordinatorPersistsTakeoverSnapshotAcrossRestart(t *testing.T) {
 	}
 }
 
-// The exit restore that cannot reach the device leaves the snapshot in the
-// store for the next start.
 func TestCoordinatorExitRestoreKeepsSnapshotWhenDeviceUnreachable(t *testing.T) {
 	kv := &memKV{}
 	c, pub, snap, pomo := holdFixture(t, "running")
@@ -365,8 +332,6 @@ func TestCoordinatorExitRestoreKeepsSnapshotWhenDeviceUnreachable(t *testing.T) 
 	}
 }
 
-// ensureStore wires the store into the coordinator before it runs, so a
-// snapshot left by a previous process is owed a restore.
 func TestEnsureStoreLoadsLeftoverTakeoverSnapshot(t *testing.T) {
 	path := t.TempDir() + "/s.db"
 	first := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
@@ -390,8 +355,6 @@ func TestEnsureStoreLoadsLeftoverTakeoverSnapshot(t *testing.T) {
 	}
 }
 
-// A reboot republish mid-focus re-applies the takeover but must keep the
-// original snapshot: re-reading now would capture Ember's own takeover values.
 func TestCoordinatorRepublishKeepsOriginalTakeoverSnapshot(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "running")
 	pub.deviceSettings = map[string]any{"autoTransition": false, "blockNavigation": false}
@@ -401,7 +364,7 @@ func TestCoordinatorRepublishKeepsOriginalTakeoverSnapshot(t *testing.T) {
 	pub.mu.Lock()
 	pub.deviceSettings = map[string]any{"autoTransition": false, "blockNavigation": true}
 	pub.mu.Unlock()
-	c.hold = holdNone // what onRepublish does
+	c.hold = holdNone
 	c.mainPushed = pushedApp{}
 	c.publish(*snap)
 

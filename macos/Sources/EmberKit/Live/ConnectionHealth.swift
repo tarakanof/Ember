@@ -1,8 +1,7 @@
 import Foundation
 
 /// Whether the server answers `/state`, as the menu, the Dashboard subtitle
-/// and the bot see it. One failed poll isn't an outage on this Wi-Fi, so
-/// `.degraded` holds the last snapshot for a couple of misses first.
+/// and the bot see it.
 public enum ConnectionHealth: Equatable, Sendable {
     /// No server URL in producer.env.
     case unconfigured

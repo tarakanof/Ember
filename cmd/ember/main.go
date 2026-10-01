@@ -15,8 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	// Embedded tz database: TZID resolution must work in the distroless container
-	// image that ships no zoneinfo files; the meetings ICS parser uses LoadLocation.
 	_ "time/tzdata"
 
 	"github.com/tarakanof/ember/internal/discovery"
@@ -61,29 +59,19 @@ func main() {
 	}
 
 	app := NewApp(cfg, nil, logger)
-	// The dashboard's "update available" badge looks up the latest awtrix-ng
-	// release on GitHub; EMBER_FIRMWARE_CHECK=0 keeps the server offline.
 	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) {
 		app.firmware.url = ngReleasesURL
 	}
 	app.configPath = configPath
 	app.configSource = configSource
 
-	// Always wire the Pomodoro engine so the feature can be toggled at runtime
-	// from the app (cfg.Pomodoro.Enabled — persisted to the store — gates whether
-	// it runs). Non-fatal: if the store can't open, the feature is simply
-	// unavailable until the data dir is writable.
-	// The same store holds every menu-edited setting; without it they apply
-	// in memory only and don't survive a restart.
 	pomoErr := app.initPomodoro(cfg.Pomodoro)
-	app.settings.reapply() // runtime settings overrides over the file baseline
+	app.settings.reapply()
 	if pomoErr != nil {
 		logger.Warn("pomodoro init failed; feature unavailable and settings will not persist until the data store is writable", "err", pomoErr, "db_path", cfg.Pomodoro.DBPath)
 	} else {
 		logger.Info("pomodoro wired", "enabled", app.cfg.Load().Pomodoro.Enabled, "db_path", cfg.Pomodoro.DBPath, "button_callback", cfg.Pomodoro.ButtonCallback)
 	}
-	// ICS calendar URLs are credentials; they live only in the env var and are
-	// never logged as strings, stored, or echoed in API responses (count only).
 	{
 		var meetingsDropped int
 		app.meetingsURLs, meetingsDropped = parseICSURLs(os.Getenv("EMBER_MEETINGS_ICS_URLS"))
@@ -104,20 +92,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Resolve the clock address before the coordinator publishes. Effective =
-	// menu override, else config.json baseline; if that fails its probes, an
-	// in-memory mDNS swap replaces it (the pin included) until a PUT naming
-	// base_url or a reload that changes the file URL (see clock_url.go).
-	// Bounded so it can't stall startup; a no-op when the URL answers.
 	app.initDeviceDiscovery(ctx)
 
-	// Every background worker joins workers so shutdown can wait for their
-	// cleanup (the coordinator's takeover restore) before closing the store.
 	var workers sync.WaitGroup
 
-	// Advertise the server over mDNS so the macOS app can discover it (requires
-	// host/macvlan networking to reach the LAN). Non-fatal; off via
-	// EMBER_MDNS_ADVERTISE=0.
 	if envEnabled(os.Getenv("EMBER_MDNS_ADVERTISE")) {
 		if port, perr := discovery.PortFromAddr(cfg.HTTP.Addr); perr == nil {
 			ver := app.versionInfo.Revision
@@ -146,13 +124,8 @@ func main() {
 	workers.Go(func() { app.StartWeather(ctx) })
 	workers.Go(func() { app.StartMeetings(ctx) })
 	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
-	// Off the startup path: it does device HTTP, and a clock that isn't up yet
-	// must not delay the listener. Re-run after every /admin/reload.
 	workers.Go(func() { app.ensureBootPingScript(ctx) })
 
-	// Periodic self-healing watch: re-check the effective clock URL and swap to
-	// a reachable mDNS candidate if it's gone dark, and re-push everything when
-	// the clock's uptime shows it rebooted. Off via awtrix.auto_rediscover=false.
 	if cfg.AWTRIX.AutoRediscoverEnabled() {
 		logger.Info("clock auto-rediscover enabled", "interval", deviceWatchInterval.String())
 		workers.Go(func() { app.StartDeviceWatch(ctx, deviceWatchInterval) })
@@ -181,8 +154,6 @@ func main() {
 		addr := listener.Addr().String()
 		var serveErr error
 		if tlsCfg.enabled {
-			// Wrap the existing TCP listener so app.listener still points at
-			// the raw socket for doctor's http_listening detail.
 			tlsListener := tls.NewListener(listener, &tls.Config{
 				Certificates: []tls.Certificate{tlsCfg.cert},
 				MinVersion:   tls.VersionTLS12,
@@ -205,17 +176,8 @@ func main() {
 	app.shutdown(shutdownCtx, server, &workers)
 }
 
-// shutdownTimeout bounds the whole exit: HTTP drain plus the background
-// workers' own cleanup, chiefly the coordinator's Pomodoro takeover restore
-// (exitRestoreBudget). It stays under Docker's default 10 s stop grace period
-// so the container is never SIGKILLed mid-restore.
 const shutdownTimeout = 8 * time.Second
 
-// shutdown stops the HTTP server, waits (until ctx is done) for the background
-// workers, whose context the caller has already cancelled, and only then
-// closes the store. Returning from main kills every goroutine on the spot, so
-// without the wait the coordinator's exit restore PATCH never reaches the
-// clock, and a last pomoTick can write to a closed DB.
 func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.WaitGroup) {
 	if err := server.Shutdown(ctx); err != nil {
 		a.logger.Warn("server shutdown failed", "err", err)
@@ -230,8 +192,6 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 	case <-ctx.Done():
 		a.logger.Warn("background workers still running at the shutdown deadline; closing the store anyway")
 	}
-	// Close the store so WAL is checkpointed and in-flight writes are flushed
-	// before exit.
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {
 			a.logger.Warn("pomodoro store close failed", "err", err)
@@ -239,10 +199,6 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 	}
 }
 
-// scanSubcommand walks args to find the first non-flag positional. It
-// recognises `-flag=value` (single token) and `-flag value` (two tokens)
-// for the server's own flags. Returns (token, remaining-after-token, true)
-// if the token matches a known subcommand; otherwise ("", nil, false).
 func scanSubcommand(args []string) (sub string, rest []string, ok bool) {
 	known := map[string]bool{
 		"version": true, "-v": true, "--version": true,
@@ -258,11 +214,11 @@ func scanSubcommand(args []string) (sub string, rest []string, ok bool) {
 			continue
 		}
 		if flagWithValue[tok] {
-			i++ // skip its value
+			i++
 			continue
 		}
 		if strings.HasPrefix(tok, "-") {
-			continue // unknown flag; skip
+			continue
 		}
 		if known[tok] {
 			return tok, args[i+1:], true

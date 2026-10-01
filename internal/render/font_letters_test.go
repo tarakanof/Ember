@@ -2,8 +2,6 @@ package render
 
 import "testing"
 
-// The source-name card draws arbitrary uppercased source names, so the whole
-// A-Z range must exist in font3x5 as 5-row × 3-col sprites.
 func TestFontUppercaseComplete(t *testing.T) {
 	for r := 'A'; r <= 'Z'; r++ {
 		g := glyph(r)

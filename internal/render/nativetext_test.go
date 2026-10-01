@@ -10,10 +10,6 @@ func nativeTextSession() Session {
 		UpdatedAt: time.Now(), ContextPct: intPtr(40)}
 }
 
-// The 3×5 font has no room for a real M (or N, or W): three columns can't hold
-// a middle peak plus two stems. The source name is the one card that is pure
-// letters, so it hands the text to the firmware's own font instead of drawing
-// it — the number slot stays unpainted in the bitmap and NativeText carries it.
 func TestSourceCardLeavesTheTextSlotToTheFirmware(t *testing.T) {
 	now := time.Now()
 	s := nativeTextSession()
@@ -37,7 +33,6 @@ func TestSourceCardLeavesTheTextSlotToTheFirmware(t *testing.T) {
 	}
 }
 
-// Everything else on the card still comes from the bitmap.
 func TestSourceCardStillDrawsIconGlassAndBar(t *testing.T) {
 	now := time.Now()
 	s := nativeTextSession()
@@ -54,8 +49,6 @@ func TestSourceCardStillDrawsIconGlassAndBar(t *testing.T) {
 	}
 }
 
-// The payload has to spell out textCenter:false — NG adds textOffsetX to the
-// centred position otherwise, which walks the name off the right edge.
 func TestSourceCardPayloadCarriesNativeText(t *testing.T) {
 	now := time.Now()
 	s := nativeTextSession()
@@ -82,8 +75,6 @@ func TestSourceCardPayloadCarriesNativeText(t *testing.T) {
 	}
 }
 
-// A card with no native text must not grow the text keys — an empty "text" on
-// a bitmap-only frame would blank NG's own rendering of nothing in particular.
 func TestNonSourceCardPayloadHasNoTextKeys(t *testing.T) {
 	now := time.Now()
 	s := nativeTextSession()
@@ -102,9 +93,6 @@ func TestNonSourceCardPayloadHasNoTextKeys(t *testing.T) {
 	}
 }
 
-// The Settings preview renders the bitmap, so a card whose text is native
-// would otherwise show an empty slot. It draws the 3×5 approximation instead —
-// same content, near-enough letterforms — rather than lying about a blank card.
 func TestPreviewFillsInNativeTextWithTheBitmapFont(t *testing.T) {
 	now := time.Now()
 	s := nativeTextSession()
@@ -134,10 +122,6 @@ func TestPreviewFillsInNativeTextWithTheBitmapFont(t *testing.T) {
 
 func boolPtr(v bool) *bool { return &v }
 
-// A single draw op covering the whole panel suppresses NG's text layer outright
-// (verified on firmware 1.0.15), so a frame carrying native text must emit its
-// bitmap as blocks that leave the text box clear — while still painting the bar
-// row underneath it.
 func TestNativeTextPayloadLeavesTheTextBoxUndrawn(t *testing.T) {
 	now := time.Now()
 	s := nativeTextSession()
@@ -160,7 +144,6 @@ func TestNativeTextPayloadLeavesTheTextBoxUndrawn(t *testing.T) {
 			sawBarRow = true
 			continue
 		}
-		// Every other op must clear the text columns entirely.
 		if x < glassLeft && x+w > contentX && y < barRow {
 			t.Errorf("draw op x=%d w=%d y=%d h=%d overlaps the native text box (cols %d-%d)",
 				x, w, y, h, contentX, glassLeft-1)

@@ -7,7 +7,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// rotateProducerLogs rotates the Claude producer's two log files.
 func rotateProducerLogs() {
 	home, err := os.UserHomeDir()
 	if err != nil {

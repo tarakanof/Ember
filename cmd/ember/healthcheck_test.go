@@ -16,9 +16,6 @@ import (
 	"time"
 )
 
-// deadAddr returns a URL whose host:port is known to be closed: it binds
-// an ephemeral listener, captures the address, and closes the listener
-// before returning. More deterministic than picking a "low" port like 1.
 func deadAddr(t *testing.T) string {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -83,11 +80,6 @@ func TestHealthcheckOnce_Down(t *testing.T) {
 	}
 }
 
-// runHealthcheckSubprocess invokes `go run . healthcheck` with a context
-// timeout. CONFIG_PATH points at a missing file so that, if the dispatcher
-// is broken, loadConfig() returns an error and the subprocess exits 1
-// before binding :3627. (A trailing `-config` CLI arg would not work —
-// flag.Parse() stops at the first positional.)
 func runHealthcheckSubprocess(t *testing.T, healthURL string) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -153,7 +145,6 @@ func TestHealthcheckTarget_OverrideWinsOverTLS(t *testing.T) {
 	}
 }
 
-// Reuse genSelfSignedPEM from tls_test.go via the same package.
 func TestHealthcheckOnce_HTTPS_TrustedViaCAFile(t *testing.T) {
 	dir := t.TempDir()
 	cert, key := genSelfSignedPEM(t, dir)

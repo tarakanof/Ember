@@ -31,9 +31,7 @@ public struct CommandResult: Sendable {
     }
 }
 
-/// Boundary over running an external command (e.g. a producer binary's
-/// `configure`/`deconfigure` subcommand) so callers can be unit tested
-/// without spawning real processes.
+/// Boundary over running an external command.
 public protocol ProducerCommandRunning: Sendable {
     func run(executable: String, arguments: [String]) throws -> CommandResult
 }
@@ -85,8 +83,6 @@ public struct ProcessCommandRunner: ProducerCommandRunning {
 
         try process.run()
 
-        // Drain stderr on another thread: reading the two pipes one after the
-        // other deadlocks once the child fills the unread one's buffer.
         let stderrBox = DataBox()
         let drained = DispatchGroup()
         DispatchQueue.global(qos: .userInitiated).async(group: drained) {
@@ -106,8 +102,6 @@ public struct ProcessCommandRunner: ProducerCommandRunning {
     }
 }
 
-/// Hands the stderr bytes from the drain thread back to `run`; the
-/// `DispatchGroup.wait()` orders the write before the read.
 private final class DataBox: @unchecked Sendable {
     var data = Data()
 }

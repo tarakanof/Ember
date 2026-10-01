@@ -1,9 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// What the clock shows about Claude and Codex sessions. Card toggles are
-/// this Mac's producer.env (`agentsEnv`); usage cards and behaviour are
-/// server-wide.
 struct AgentsPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var preview = PreviewModel()
@@ -13,8 +10,6 @@ struct AgentsPane: View {
     private var usage: ServerConfigModel<UsageConfig> { env.settings.usage }
     private var behavior: ServerConfigModel<DisplayConfig> { env.settings.display }
 
-    /// Title and caption per preview card key (the server names frames after
-    /// render's card constants).
     private func meta(_ card: String) -> (title: LocalizedStringKey, caption: LocalizedStringKey) {
         switch card {
         case "source": ("Source card", "Tool icon and machine name in the source color.")
@@ -23,7 +18,7 @@ struct AgentsPane: View {
         case "usage-7d": ("7-day usage", "Weekly window usage.")
         case "usage-model-a": ("First model", "Per-model 5-hour usage, e.g. Opus.")
         case "usage-model-b": ("Second model", "Per-model 5-hour usage, e.g. Sonnet.")
-        default: (LocalizedStringKey(card), LocalizedStringKey(String()))  // no caption; not a catalog key
+        default: (LocalizedStringKey(card), LocalizedStringKey(String()))
         }
     }
 
@@ -136,8 +131,6 @@ struct AgentsPane: View {
         }
     }
 
-    /// Always asks for the source and usage cards: the toggles dim the
-    /// panels here instead of removing them, so each option stays visible.
     private var previewDraft: DraftDisplay {
         var draft = cards.draft.draftDisplay(sourceColor: env.settings.connectionEnv.draft.sourceColor)
         draft.sourceCard = true

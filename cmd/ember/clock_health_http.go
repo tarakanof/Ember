@@ -15,47 +15,32 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-// GET /v1/clock/health: publish success, the clock's own telemetry, and
-// whether newer awtrix-ng firmware exists — without scraping /metrics or
-// needing the token /v1/device/stats sits behind. See dashboard_http.go for
-// the wire conventions.
-
-// clockProbeTTL bounds how often the open health endpoint may reach the clock:
-// however many viewers poll it, the clock sees one GET per window.
 const clockProbeTTL = 30 * time.Second
 
-// clockProbeTimeout bounds one health probe. The clock's Wi-Fi is lossy; a
-// dashboard would rather show "unreachable" than hang.
 const clockProbeTimeout = 3 * time.Second
 
-// ngReleasesURL is awtrix-ng's latest-release API. main() wires it into
-// App.firmware; tests leave it unset so they never touch the network.
 const ngReleasesURL = "https://api.github.com/repos/Blueforcer/awtrix-ng/releases/latest"
 
 const (
-	firmwareCheckTTL     = 6 * time.Hour    // a release lookup stays good this long
-	firmwareCheckRetry   = 30 * time.Minute // after a failed lookup, wait this long
+	firmwareCheckTTL     = 6 * time.Hour
+	firmwareCheckRetry   = 30 * time.Minute
 	firmwareCheckTimeout = 4 * time.Second
 )
 
-// clockProbeCache holds the last GET /api/v1/device result. The zero value is
-// ready to use.
 type clockProbeCache struct {
-	mu   sync.Mutex // protects all fields; held across a probe to single-flight it
+	mu   sync.Mutex
 	at   time.Time
-	base string // the clock URL probed; a different URL invalidates the entry
+	base string
 	dev  clockDeviceOut
 }
 
-// publishWindow counts publish outcomes in hourly buckets over the last 24h.
-// The zero value is ready to use.
 type publishWindow struct {
-	mu      sync.Mutex // protects buckets
+	mu      sync.Mutex
 	buckets [24]publishBucket
 }
 
 type publishBucket struct {
-	hour     int64 // unix hour this bucket holds; stale buckets are reset on reuse
+	hour     int64
 	ok, fail int64
 }
 
@@ -74,7 +59,6 @@ func (p *publishWindow) add(at time.Time, ok bool) {
 	}
 }
 
-// last24h sums the buckets for the 24 hours ending at now.
 func (p *publishWindow) last24h(now time.Time) (ok, fail int64) {
 	h := now.Unix() / 3600
 	p.mu.Lock()
@@ -88,26 +72,18 @@ func (p *publishWindow) last24h(now time.Time) (ok, fail int64) {
 	return ok, fail
 }
 
-// firmwareCheck caches the latest awtrix-ng release version. Lookups run in
-// a background goroutine so /v1/clock/health never waits on GitHub. The zero
-// value is ready to use and disabled (url empty).
 type firmwareCheck struct {
-	mu       sync.Mutex // protects the fields below
-	url      string     // "" disables the lookup (EMBER_FIRMWARE_CHECK=0, tests)
+	mu       sync.Mutex
+	url      string
 	client   *http.Client
-	at       time.Time // last attempt started
-	ok       bool      // last attempt succeeded
-	latest   string    // "1.1.2", from the release tag
-	inFlight bool      // a refresh goroutine is running
+	at       time.Time
+	ok       bool
+	latest   string
+	inFlight bool
 
-	wg sync.WaitGroup // tracks the refresh goroutine; tests Wait on it
+	wg sync.WaitGroup
 }
 
-// cached returns the newest known firmware version ("" when disabled or not
-// yet looked up) and, when the cached answer is due for renewal, starts one
-// background refresh. It never blocks on the network. Failures keep the
-// previous answer, log once per attempt (at most every firmwareCheckRetry),
-// and retry after that window.
 func (f *firmwareCheck) cached(now time.Time, logger *slog.Logger) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -127,8 +103,6 @@ func (f *firmwareCheck) cached(now time.Time, logger *slog.Logger) string {
 	return f.latest
 }
 
-// refresh performs one lookup and records the result. The goroutine is bounded
-// by firmwareCheckTimeout.
 func (f *firmwareCheck) refresh(logger *slog.Logger) {
 	defer f.wg.Done()
 	v, err := f.fetch(context.Background())
@@ -152,7 +126,7 @@ func (f *firmwareCheck) fetch(ctx context.Context) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "ember (github.com/tarakanof/ember)") // required by the GitHub API
+	req.Header.Set("User-Agent", "ember (github.com/tarakanof/ember)")
 	cl := f.client
 	if cl == nil {
 		cl = &http.Client{Timeout: firmwareCheckTimeout}
@@ -178,7 +152,6 @@ func (f *firmwareCheck) fetch(ctx context.Context) (string, error) {
 	return v, nil
 }
 
-// parseVersion splits "1.1.2" into its numeric parts.
 func parseVersion(v string) ([]int, bool) {
 	if v == "" {
 		return nil, false
@@ -195,8 +168,6 @@ func parseVersion(v string) ([]int, bool) {
 	return out, true
 }
 
-// versionNewer reports whether latest is a higher version than installed; ok is
-// false when either doesn't parse.
 func versionNewer(latest, installed string) (newer, ok bool) {
 	l, ok1 := parseVersion(latest)
 	i, ok2 := parseVersion(installed)
@@ -218,8 +189,6 @@ func versionNewer(latest, installed string) (newer, ok bool) {
 	return false, true
 }
 
-// clockDeviceOut is the clock's own telemetry. Pointers are null when the
-// clock is unreachable or its firmware doesn't report the field.
 type clockDeviceOut struct {
 	Reachable        bool      `json:"reachable"`
 	CheckedAt        time.Time `json:"checked_at"`
@@ -229,7 +198,7 @@ type clockDeviceOut struct {
 	FreeHeapBytes    *int64    `json:"free_heap_bytes"`
 	MinFreeHeapBytes *int64    `json:"min_free_heap_bytes"`
 	WifiRSSIDbm      *int      `json:"wifi_rssi_dbm"`
-	WifiConnects     *int      `json:"wifi_connects"` // (re)connects since boot; >1 means the link dropped
+	WifiConnects     *int      `json:"wifi_connects"`
 	ResetReason      *string   `json:"reset_reason"`
 	FPS              *float64  `json:"fps"`
 	MatrixPower      *bool     `json:"matrix_power"`
@@ -239,38 +208,29 @@ type clockDeviceOut struct {
 	HumidityPercent  *float64  `json:"humidity_percent"`
 }
 
-// publishHealthOut is the server→clock push record.
 type publishHealthOut struct {
-	CountingSince time.Time `json:"counting_since"` // server start; every counter resets on restart
+	CountingSince time.Time `json:"counting_since"`
 	OK24h         int64     `json:"ok_24h"`
 	Fail24h       int64     `json:"fail_24h"`
-	// SuccessRatio24h is ok/(ok+fail) over the last 24h, 0..1; null without
-	// publishes in that window.
+	// SuccessRatio24h is ok/(ok+fail) over the last 24h, 0..1; null without publishes in that window.
 	SuccessRatio24h *float64   `json:"success_ratio_24h"`
 	OKTotal         int64      `json:"ok_total"`
 	FailTotal       int64      `json:"fail_total"`
-	RetriesTotal    int64      `json:"retries_total"` // lost first attempts that a retry recovered
+	RetriesTotal    int64      `json:"retries_total"`
 	LastAt          *time.Time `json:"last_at"`
 	LastOK          bool       `json:"last_ok"`
 }
 
-// clockHealthOut is the GET /v1/clock/health response.
 type clockHealthOut struct {
 	GeneratedAt time.Time        `json:"generated_at"`
 	Publish     publishHealthOut `json:"publish"`
-	Device      *clockDeviceOut  `json:"device"` // null when no clock is configured
-	// LatestFirmware is the newest awtrix-ng release ("1.1.2"), looked up on
-	// GitHub in the background at most every 6h; null when unknown (the first
-	// request after start, offline, rate-limited, or EMBER_FIRMWARE_CHECK=0).
+	Device      *clockDeviceOut  `json:"device"`
+	// LatestFirmware is the newest awtrix-ng release ("1.1.2"), looked up on GitHub in the background at most every 6h; null when unknown (the first request after start, offline, rate-limited, or EMBER_FIRMWARE_CHECK=0).
 	LatestFirmware *string `json:"latest_firmware"`
-	// UpdateAvailable compares LatestFirmware with device.firmware; null when
-	// either is unknown.
+	// UpdateAvailable compares LatestFirmware with device.firmware; null when either is unknown.
 	UpdateAvailable *bool `json:"update_available"`
 }
 
-// clockDeviceWire decodes the subset of awtrix-ng's GET /api/v1/device the
-// health view needs. Everything else in that payload (IP, SSID host, UID,
-// hostname) is deliberately dropped: this endpoint is unauthenticated.
 type clockDeviceWire struct {
 	Version     string   `json:"version"`
 	CurrentApp  string   `json:"currentApp"`
@@ -290,10 +250,6 @@ type clockDeviceWire struct {
 	} `json:"wifi"`
 }
 
-// probeClockHealth returns the cached device telemetry, refreshing it from the
-// clock when older than clockProbeTTL. nil means no clock is configured. The
-// probe runs detached from ctx's cancellation: a viewer that disconnects
-// mid-probe must not cache "unreachable" for everyone else.
 func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceOut {
 	base := a.cfg.Load().effectiveClockURL()
 	if base == "" {
@@ -335,7 +291,6 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 	return &dev
 }
 
-// buildClockHealth assembles GET /v1/clock/health as of now.
 func (a *App) buildClockHealth(ctx context.Context, now time.Time) clockHealthOut {
 	loc := now.Location()
 	a.mu.Lock()
@@ -373,7 +328,6 @@ func (a *App) buildClockHealth(ctx context.Context, now time.Time) clockHealthOu
 	return out
 }
 
-// handleClockHealth serves GET /v1/clock/health.
 func (a *App) handleClockHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.buildClockHealth(r.Context(), time.Now()))
 }

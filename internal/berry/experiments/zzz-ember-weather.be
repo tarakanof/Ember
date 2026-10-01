@@ -6,20 +6,10 @@
 # @config  lon   text   "Longitude" default="13.40"
 # @config  every number "Refresh"   default=5 min=1 max=60 unit=min
 
-# Not provisioned by Ember and not a feature — see README.md. It answers one
-# question: can a 32x8 tile Ember renders server-side be produced on the device
-# instead? The layout mirrors internal/render's weather tile: a drawn condition
-# glyph in the left 8 columns, the temperature centred in the rest, and a
-# 24-hour trend strip along the bottom two rows.
-#
-# It fetches Open-Meteo directly rather than Ember, because Ember's only public
-# weather endpoint (GET /v1/weather/preview) serves a rendered pixel frame —
-# ~7.8 KB of "#rrggbb" strings and no scalars. See README.md.
-
 class ZzzEmberWeather
   var url, hurl
   var temp, code, label
-  var trend, tmin, tmax   # up to 16 hourly temps + their range
+  var trend, tmin, tmax
   var ticks, phase, in_flight
 
   def init()
@@ -42,11 +32,6 @@ class ZzzEmberWeather
     if body == nil return end
 
     if self.phase == 0
-      # The needle is the object, not the field: Open-Meteo emits
-      # "current_weather_units":{…,"temperature":"°C",…} BEFORE the real
-      # reading, so a find on "temperature": lands on the units block and the
-      # window holds no number at all. (The API reference's worked example has
-      # exactly this bug.) One 128-byte window then holds both values.
       var m = re.search("\"temperature\":([-0-9.]+)", body)
       if m == nil
         log("zzz-weather: no temperature in window")
@@ -61,12 +46,11 @@ class ZzzEmberWeather
       if c != nil self.code = num(c[1]) end
       store.set("temp", t)
       store.set("code", self.code)
-      self.phase = 1        # trend on the next tick
+      self.phase = 1
       self.ticks = 0
       return
     end
 
-    # matchall's first hit is the "2" of temperature_2m in the needle itself.
     var ns = re.matchall("[-0-9.]+", body)
     if ns == nil || size(ns) < 3 return end
     var n = size(ns) - 1
@@ -110,7 +94,6 @@ class ZzzEmberWeather
   def draw()
     clear()
 
-    # Drawn glyph, not a gallery icon: nothing to install, nothing to fail.
     var c = self.code
     if c == nil || c <= 1
       circle_fill(3, 3, 2, 0xFFC14D)

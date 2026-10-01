@@ -7,29 +7,21 @@ import (
 	"time"
 )
 
-// RGB is a 24-bit colour. Alpha is implicit (always full).
+// RGB is a 24-bit colour.
 type RGB struct {
 	R, G, B uint8
 }
 
-// Frame is a 32×8 pixel buffer. Dirty[y][x] is true when the pixel has
-// been painted; otherwise Pixels[y][x] is meaningless and should not be
-// emitted. The encoder treats undirty pixels as "off" (black).
+// Frame is a 32×8 pixel buffer.
 type Frame struct {
 	Pixels [8][32]RGB
 	Dirty  [8][32]bool
 	// Native, when set, is text the FIRMWARE renders in its own font on top of
-	// this bitmap, rather than something painted into Pixels. Reserved for the
-	// source name: it is the one card that is pure letters, and the 3×5 font
-	// cannot form a real M/N/W in three columns. Callers must leave the pixels
-	// under it unpainted — the two are composited by the device, not here.
+	// this bitmap, rather than something painted into Pixels.
 	Native *NativeText
 }
 
-// NativeText is firmware-rendered text laid over a Frame's bitmap. X is the
-// literal start column (the payload sets textCenter:false, because NG otherwise
-// ADDS textOffsetX to the centred position and walks the text off the panel).
-// W reserves the box the bitmap must leave alone — see frameToCustomApp.
+// NativeText is firmware-rendered text laid over a Frame's bitmap.
 type NativeText struct {
 	Text  string
 	X     int
@@ -68,14 +60,11 @@ func (s Session) Key() string {
 }
 
 // UsageView is the per-tool account-usage data the usage card renders.
-// The coordinator builds one per tool from the UsageStore (endpoint data
-// preferred, statusline fallback) and only when the tool's 5h window is
-// over the configured threshold — render never sees a below-threshold view.
 type UsageView struct {
 	FiveHourPct int
-	ResetLabel  string // host-local "HH:MM"; "" → hourglass fallback from ResetAt
-	ResetAt     int64  // unix; used only when ResetLabel is ""
-	SevenDayPct *int   // nil when the 7d window is unknown
+	ResetLabel  string
+	ResetAt     int64 // unix; used only when ResetLabel is ""
+	SevenDayPct *int  // nil when the 7d window is unknown
 	Models      []ModelUsage
 }
 
@@ -104,8 +93,6 @@ type Render struct {
 	Message     string `json:"message,omitempty"`
 }
 
-// paintCell sets a single pixel. Out-of-bounds writes are no-ops so callers
-// can paint sprites that overhang the matrix without bounds-checking each one.
 func paintCell(f *Frame, x, y int, c RGB) {
 	if x < 0 || x >= 32 || y < 0 || y >= 8 {
 		return
@@ -114,7 +101,6 @@ func paintCell(f *Frame, x, y int, c RGB) {
 	f.Dirty[y][x] = true
 }
 
-// paintRow paints a horizontal run from x0 to x1 inclusive on row y.
 func paintRow(f *Frame, x0, x1, y int, c RGB) {
 	if y < 0 || y >= 8 {
 		return
@@ -127,8 +113,6 @@ func paintRow(f *Frame, x0, x1, y int, c RGB) {
 	}
 }
 
-// paintBitmap paints the lit pixels of a sprite at (ox, oy). Each row of
-// the sprite is a string of 'X' (lit) / '.' (transparent) chars.
 func paintBitmap(f *Frame, ox, oy int, sprite []string, c RGB) {
 	for y, row := range sprite {
 		for x, ch := range row {
@@ -139,44 +123,26 @@ func paintBitmap(f *Frame, ox, oy int, sprite []string, c RGB) {
 	}
 }
 
-// glassGlyph is the internal font key for the context-window glass pictogram
-// (an open-top tumbler with a filled base — a partially-full glass) — the
-// trailing glyph on the context-number card. Deliberately NOT 0-shaped: a
-// hollow open-top sprite reads as "0" at LED distance, so the base is solid.
 const glassGlyph = '⌷'
 
-// resetGlyph is the internal font key for the rate-reset hourglass pictogram
-// (wide top/bottom plates pinched to a one-pixel waist) — the trailing glyph
-// on the reset-countdown card. Distinct from the digits, the letter I and the
-// context tumbler glassGlyph.
 const resetGlyph = '⧗'
 
-// font3x5 maps a rune to its 3-col × 5-row pixel sprite. Each entry is
-// exactly 5 strings of exactly 3 chars; 'X' = lit, '.' = transparent.
-// Glyphs are based on the classic Picopixel-style 3×5 family.
 var font3x5 = map[rune][]string{
-	'0': {"XXX", "X.X", "X.X", "X.X", "XXX"},
-	'1': {".X.", "XX.", ".X.", ".X.", "XXX"},
-	'2': {"XXX", "..X", "XXX", "X..", "XXX"},
-	'3': {"XXX", "..X", "XXX", "..X", "XXX"},
-	'4': {"X.X", "X.X", "XXX", "..X", "..X"},
-	'5': {"XXX", "X..", "XXX", "..X", "XXX"},
-	'6': {"XXX", "X..", "XXX", "X.X", "XXX"},
-	'7': {"XXX", "..X", "..X", "..X", "..X"},
-	'8': {"XXX", "X.X", "XXX", "X.X", "XXX"},
-	'9': {"XXX", "X.X", "XXX", "..X", "XXX"},
-	'/': {"..X", "..X", ".X.", "X..", "X.."},
-	'+': {"...", ".X.", "XXX", ".X.", "..."},
-	'-': {"...", "...", "XXX", "...", "..."},
-	'%': {"X.X", "..X", ".X.", "X..", "X.X"},
-	// Degree sign for the weather widget's temperature readout: a 3×3 ring in
-	// the top three rows (reads as "°" beside the digits, distinct from the
-	// 5-row '0'; a solid 2×2 block read as a blob at LED distance).
-	'°': {"XXX", "X.X", "XXX", "...", "..."},
-	// Usage-widget glyphs. ':' is 1-wide (tight clock colon); the letters are
-	// the 5h/7d unit suffixes + the per-model OP/SO markers. The tight clock is
-	// painted by drawClockInto (custom per-glyph advance), so the 1-wide ':'
-	// never reaches drawDigits' fixed +4 advance.
+	'0':        {"XXX", "X.X", "X.X", "X.X", "XXX"},
+	'1':        {".X.", "XX.", ".X.", ".X.", "XXX"},
+	'2':        {"XXX", "..X", "XXX", "X..", "XXX"},
+	'3':        {"XXX", "..X", "XXX", "..X", "XXX"},
+	'4':        {"X.X", "X.X", "XXX", "..X", "..X"},
+	'5':        {"XXX", "X..", "XXX", "..X", "XXX"},
+	'6':        {"XXX", "X..", "XXX", "X.X", "XXX"},
+	'7':        {"XXX", "..X", "..X", "..X", "..X"},
+	'8':        {"XXX", "X.X", "XXX", "X.X", "XXX"},
+	'9':        {"XXX", "X.X", "XXX", "..X", "XXX"},
+	'/':        {"..X", "..X", ".X.", "X..", "X.."},
+	'+':        {"...", ".X.", "XXX", ".X.", "..."},
+	'-':        {"...", "...", "XXX", "...", "..."},
+	'%':        {"X.X", "..X", ".X.", "X..", "X.X"},
+	'°':        {"XXX", "X.X", "XXX", "...", "..."},
 	':':        {".", "X", ".", "X", "."},
 	'h':        {"X..", "X..", "XXX", "X.X", "X.X"},
 	'd':        {"..X", "..X", "XXX", "X.X", "XXX"},
@@ -185,34 +151,31 @@ var font3x5 = map[rune][]string{
 	'S':        {"XXX", "X..", "XXX", "..X", "XXX"},
 	glassGlyph: {"X.X", "X.X", "X.X", "XXX", "XXX"},
 	resetGlyph: {"XXX", "X.X", ".X.", "X.X", "XXX"},
-	// Source-name card letters (A-Z minus the pre-existing O/P/S above).
-	'A': {"XXX", "X.X", "XXX", "X.X", "X.X"},
-	'B': {"XX.", "X.X", "XX.", "X.X", "XX."},
-	'C': {"XXX", "X..", "X..", "X..", "XXX"},
-	'D': {"XX.", "X.X", "X.X", "X.X", "XX."},
-	'E': {"XXX", "X..", "XXX", "X..", "XXX"},
-	'F': {"XXX", "X..", "XXX", "X..", "X.."},
-	'G': {"XXX", "X..", "X.X", "X.X", "XXX"},
-	'H': {"X.X", "X.X", "XXX", "X.X", "X.X"},
-	'I': {"XXX", ".X.", ".X.", ".X.", "XXX"},
-	'J': {"..X", "..X", "..X", "X.X", "XXX"},
-	'K': {"X.X", "X.X", "XX.", "X.X", "X.X"},
-	'L': {"X..", "X..", "X..", "X..", "XXX"},
-	'M': {"XXX", "XXX", "X.X", "X.X", "X.X"},
-	'N': {"X.X", "XXX", "X.X", "X.X", "X.X"},
-	'Q': {"XXX", "X.X", "X.X", "XXX", "..X"},
-	'R': {"XX.", "X.X", "XX.", "X.X", "X.X"},
-	'T': {"XXX", ".X.", ".X.", ".X.", ".X."},
-	'U': {"X.X", "X.X", "X.X", "X.X", "XXX"},
-	'V': {"X.X", "X.X", "X.X", "X.X", ".X."},
-	'W': {"X.X", "X.X", "XXX", "XXX", "X.X"},
-	'X': {"X.X", "X.X", ".X.", "X.X", "X.X"},
-	'Y': {"X.X", "X.X", ".X.", ".X.", ".X."},
-	'Z': {"XXX", "..X", ".X.", "X..", "XXX"},
+	'A':        {"XXX", "X.X", "XXX", "X.X", "X.X"},
+	'B':        {"XX.", "X.X", "XX.", "X.X", "XX."},
+	'C':        {"XXX", "X..", "X..", "X..", "XXX"},
+	'D':        {"XX.", "X.X", "X.X", "X.X", "XX."},
+	'E':        {"XXX", "X..", "XXX", "X..", "XXX"},
+	'F':        {"XXX", "X..", "XXX", "X..", "X.."},
+	'G':        {"XXX", "X..", "X.X", "X.X", "XXX"},
+	'H':        {"X.X", "X.X", "XXX", "X.X", "X.X"},
+	'I':        {"XXX", ".X.", ".X.", ".X.", "XXX"},
+	'J':        {"..X", "..X", "..X", "X.X", "XXX"},
+	'K':        {"X.X", "X.X", "XX.", "X.X", "X.X"},
+	'L':        {"X..", "X..", "X..", "X..", "XXX"},
+	'M':        {"XXX", "XXX", "X.X", "X.X", "X.X"},
+	'N':        {"X.X", "XXX", "X.X", "X.X", "X.X"},
+	'Q':        {"XXX", "X.X", "X.X", "XXX", "..X"},
+	'R':        {"XX.", "X.X", "XX.", "X.X", "X.X"},
+	'T':        {"XXX", ".X.", ".X.", ".X.", ".X."},
+	'U':        {"X.X", "X.X", "X.X", "X.X", "XXX"},
+	'V':        {"X.X", "X.X", "X.X", "X.X", ".X."},
+	'W':        {"X.X", "X.X", "XXX", "XXX", "X.X"},
+	'X':        {"X.X", "X.X", ".X.", "X.X", "X.X"},
+	'Y':        {"X.X", "X.X", ".X.", ".X.", ".X."},
+	'Z':        {"XXX", "..X", ".X.", "X..", "XXX"},
 }
 
-// glyph returns the sprite for the given rune, or nil when unsupported.
-// Callers that pass user input must check the return value.
 func glyph(r rune) []string {
 	g, ok := font3x5[r]
 	if !ok {
@@ -221,9 +184,6 @@ func glyph(r rune) []string {
 	return g
 }
 
-// drawDigits paints text at (startX, startY) using the 3×5 font.
-// Glyph spacing is 1 px so each character advances startX by 4.
-// Unsupported runes are silently skipped (callers should pre-validate).
 func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
 	x := startX
 	for _, ch := range text {
@@ -231,30 +191,22 @@ func drawDigits(f *Frame, text string, startX, startY int, c RGB) {
 		if g != nil {
 			paintBitmap(f, x, startY, g, c)
 		}
-		x += 4 // 3-wide glyph + 1-px spacer
+		x += 4
 	}
 }
 
 const (
-	glassLeft  = rightSlotX
-	glassRight = panelW - 1 // the panel's last column: the glass owns the full right edge
-	// The usage faces' unit label (drawUsageUnit) also runs to col 31, and only
-	// one of the two is ever drawn on a given card.
+	glassLeft        = rightSlotX
+	glassRight       = panelW - 1
 	glassTopRow      = 1
 	glassBottomRow   = 5
-	glassInteriorW   = 5 // interior cols 26–30
-	glassInteriorH   = 4 // interior rows 1–4
+	glassInteriorW   = 5
+	glassInteriorH   = 4
 	glassInteriorPix = glassInteriorW * glassInteriorH
 )
 
 var glassWall = RGB{0xcc, 0xcc, 0xcc}
 
-// drawGlass paints the context-window glass at cols 25–31, rows 1–5.
-// If pct is nil the glass is not drawn at all (visually empty space —
-// distinguishes from a session reporting 0 %). When non-nil, the outline is
-// drawn in glassWall and the 20 interior pixels (cols 26–30 × rows 1–4) are
-// filled bottom-up in c, proportional to pct (5 % per pixel, so e.g. 73 % and
-// 99 % look different). The topmost partial row fills left-to-right.
 func drawGlass(f *Frame, pct *int, c RGB) {
 	if pct == nil {
 		return
@@ -272,17 +224,16 @@ func drawGlass(f *Frame, pct *int, c RGB) {
 	if v > 100 {
 		v = 100
 	}
-	n := (v*glassInteriorPix + 50) / 100 // round(v/100 * 20)
+	n := (v*glassInteriorPix + 50) / 100
 	if n > glassInteriorPix {
 		n = glassInteriorPix
 	}
-	// Left-to-right column order within a row: 26 … 30.
 	var colOrder [glassInteriorW]int
 	for i := range colOrder {
 		colOrder[i] = glassLeft + 1 + i
 	}
 	for row := 0; row < glassInteriorH && n > 0; row++ {
-		y := (glassBottomRow - 1) - row // 4, 3, 2, 1 (bottom-up)
+		y := (glassBottomRow - 1) - row
 		k := n
 		if k > glassInteriorW {
 			k = glassInteriorW
@@ -294,13 +245,6 @@ func drawGlass(f *Frame, pct *int, c RGB) {
 	}
 }
 
-// drawSessionBar paints one pixel per non-idle session on the bottom bar
-// (row 7, cols barX0..31). Pixels are coloured by each session's state
-// using the existing state-colour palette. Order is priority-first
-// (waiting > error > running > done) then (source, tool, session) lex.
-// Sessions in state "idle" are excluded. If more than barW (24) non-idle
-// sessions exist, only the first 24 are painted; overflow is simply not
-// indicated.
 func drawSessionBar(f *Frame, sessions []Session) {
 	type entry struct {
 		prio  int
@@ -342,10 +286,6 @@ func drawSessionBar(f *Frame, sessions []Session) {
 	}
 }
 
-// drawRateBar paints the 5h rate-limit window as the usage-widget-style dimmed
-// threshold bar: bottom bar cols 8–31, row 7, fill = round(24*pct/100) in
-// dimThreshold(pct) over a usageTrack background — visually identical to the
-// usage apps' bars.
 func drawRateBar(f *Frame, pct int) {
 	if pct < 0 {
 		pct = 0
@@ -358,9 +298,6 @@ func drawRateBar(f *Frame, pct int) {
 	}
 }
 
-// framePixels extracts the 256-int row-major pixel array from a Frame.
-// Used by frameToCustomApp to serialise a Frame into the AWTRIX db
-// (drawBMP) pixel array. Undirty cells emit 0 (the encoder's "off" colour).
 func framePixels(f *Frame) []int {
 	pixels := make([]int, 256)
 	for y := 0; y < 8; y++ {
@@ -375,9 +312,6 @@ func framePixels(f *Frame) []int {
 	return pixels
 }
 
-// framePixelsRect emits the pixels of the w×h rectangle anchored at (x0,y0)
-// row-major as 0xRRGGBB ints (undirty/out-of-bounds pixels emit 0), for
-// partial db draws that leave the native-icon columns untouched.
 func framePixelsRect(f *Frame, x0, y0, w, h int) []int {
 	out := make([]int, w*h)
 	for y := 0; y < h; y++ {
@@ -393,24 +327,8 @@ func framePixelsRect(f *Frame, x0, y0, w, h int) []int {
 	return out
 }
 
-// rotateDwellSeconds is the on-screen dwell for frames published WITHOUT the
-// display hold — the same short slot the weather/forecast tiles get, so a
-// merely-running agent rotates alongside them instead of owning the screen.
 const rotateDwellSeconds = 6
 
-// frameToCustomApp encodes a Frame as an awtrix-ng pushed-app payload using one
-// bitmap draw command. Pixels are emitted row-major as 0xRRGGBB ints — undirty
-// pixels emit 0 (black/off). hold=true takes the display hold (see applyHold);
-// hold=false rotates natively with a short dwell.
-// drawOpsAround emits the frame's bitmap as the blocks AROUND a native-text
-// box: everything left of it, everything right of it, and the bottom bar row
-// beneath it.
-//
-// NG paints the text first and the draw ops over it (textInFront defaults to
-// false), and bitmap zeros are opaque black. A single op covering the whole
-// 32×8 panel therefore paints over the text, so on firmware 1.0.15 only the
-// bitmap showed. Split into blocks that leave the text box clear, the text
-// shows, with the bar row beneath it unaffected (the text occupies rows 1–5).
 func drawOpsAround(f *Frame, n *NativeText) []any {
 	right := n.X + n.W
 	ops := []any{}
@@ -452,27 +370,18 @@ var (
 	colorWhite   = RGB{0xff, 0xff, 0xff}
 )
 
-// cardNone is passed to ComposeFrame when no cards are available — the number
-// slot is left blank (icon/glass/bar still render). The default branch in
-// ComposeFrame's switch handles any unrecognised value including cardNone.
 const cardNone = -1
 
-// Card identifies which readout the number slot shows for the current
-// session. cardSource is the source-name card; cardTool the scrolling
-// activity detail; the cardUsage* family is the account-usage card —
-// present only when the coordinator passes a UsageView (5h window over
-// the configured threshold).
 const (
-	cardSource      = iota // source-name card
-	cardTool               // scrolling activity detail
-	cardUsage5h            // 5h window: reset clock (rate-bar mode) or "NN%" (otherwise)
-	cardUsageReset         // 5h reset clock when the bar is NOT in rate mode
-	cardUsage7d            // 7-day window: "7dNN"
-	cardUsageModelA        // per-model faces (Models[0] / Models[1])
+	cardSource = iota
+	cardTool
+	cardUsage5h
+	cardUsageReset
+	cardUsage7d
+	cardUsageModelA
 	cardUsageModelB
 )
 
-// isUsageCard reports whether card is one of the account-usage faces.
 func isUsageCard(card int) bool {
 	switch card {
 	case cardUsage5h, cardUsageReset, cardUsage7d, cardUsageModelA, cardUsageModelB:
@@ -484,22 +393,12 @@ func isUsageCard(card int) bool {
 func sourceCardEnabled(s Session) bool { return s.SourceCard == nil || *s.SourceCard }
 func sessionBarEnabled(s Session) bool { return s.SessionBar == nil || *s.SessionBar }
 
-// sourceNameMaxW is the widest source name the card shows: cols 9-23, leaving
-// col 24 blank before the glass at col 25.
 const sourceNameMaxW = rightSlotX - contentX - 1
 
-// ngASCIIInkW is the ink width (xAdvance − 1) of every printable ASCII rune,
-// 0x20 '␠' through 0x7E '~', in the AWTRIX panel font (AWTRIX3
-// src/AwtrixFont.h, AwtrixFontGlyphs), which NG's small font uses for ASCII.
-// For example M/W are 5, N/Q 4, I and most punctuation 1, other letters 3.
 const ngASCIIInkW = "11333331223323133333333333123333333333333133354334333335333333332333333331333333333333333333133"
 
-// ngWideGlyphW is the width assumed for runes outside printable ASCII. NG draws
-// them from Matrix-Fonts, whose widths Ember does not have, so they count as
-// wide: an underestimate would let the glass op clip the last letter.
 const ngWideGlyphW = 5
 
-// ngGlyphW returns how many columns NG's small font inks for rune r.
 func ngGlyphW(r rune) int {
 	if r >= 0x20 && r <= 0x7E {
 		return int(ngASCIIInkW[r-0x20] - '0')
@@ -507,17 +406,13 @@ func ngGlyphW(r rune) int {
 	return ngWideGlyphW
 }
 
-// sourceCardText uppercases a source name and cuts it to what NG draws within
-// sourceNameMaxW (glyph widths plus 1-px spacers). The card cannot scroll the
-// name (the bitmap ops around it would clip the scroll), so longer names are
-// cut, not scrolled. "STUD" is 15 px; "MWMW" would be 23 px and becomes "MW".
 func sourceCardText(source string) string {
 	var out []rune
 	w := 0
 	for _, r := range strings.ToUpper(source) {
 		next := w + ngGlyphW(r)
 		if len(out) > 0 {
-			next++ // spacer
+			next++
 		}
 		if next > sourceNameMaxW {
 			break
@@ -529,9 +424,6 @@ func sourceCardText(source string) string {
 }
 
 // AvailableCards returns the cards this session offers, in rotation order.
-// u is the session tool's usage view (nil = below threshold / widget off /
-// no data): without it no usage faces appear. May return an empty slice —
-// the frame then shows icon + glass + bar with a blank number slot.
 func AvailableCards(s Session, u *UsageView) []int {
 	var cards []int
 	if sourceCardEnabled(s) && s.Source != "" {
@@ -540,7 +432,6 @@ func AvailableCards(s Session, u *UsageView) []int {
 	if u != nil {
 		cards = append(cards, cardUsage5h)
 		if !s.RateBottomBar && (u.ResetLabel != "" || u.ResetAt > 0) {
-			// Pct occupies the 5h face, so the reset clock needs its own card.
 			cards = append(cards, cardUsageReset)
 		}
 		if u.SevenDayPct != nil {
@@ -561,10 +452,6 @@ func AvailableCards(s Session, u *UsageView) []int {
 
 func CardsForSession(s Session, u *UsageView) int { return len(AvailableCards(s, u)) }
 
-// rateText renders a 5h-rate percent as "NN%". Clamped to 0..99 so the
-// 3-glyph value always fits cols 9–19 (before the glass at col 25); the
-// red threshold colour already signals a maxed window, so 99 vs 100 is
-// immaterial on an ambient display. Used by the usage-card faces.
 func rateText(pct int) string {
 	if pct < 0 {
 		pct = 0
@@ -575,17 +462,12 @@ func rateText(pct int) string {
 	return itoa(pct) + "%"
 }
 
-// resetText renders the time until the 5h rate-limit window resets as ceil-hours
-// (0..9) + the hourglass glyph, with an urgency colour from the usage threshold
-// palette: amber in the final hour (remaining < 1h), green otherwise. remaining is clamped to >=0, so a stale
-// past timestamp renders "0" until the next post carries the next window.
-// Used by the usage-card faces.
 func resetText(resetAt int64, now time.Time) (string, RGB) {
 	remaining := resetAt - now.Unix()
 	if remaining < 0 {
 		remaining = 0
 	}
-	hours := int((remaining + 3599) / 3600) // ceil to whole hours
+	hours := int((remaining + 3599) / 3600)
 	if hours > 9 {
 		hours = 9
 	}
@@ -596,16 +478,6 @@ func resetText(resetAt int64, now time.Time) (string, RGB) {
 	return itoa(hours) + string(resetGlyph), color
 }
 
-// drawUsageClock paints the 5h reset readout: the host-local HH:MM tight
-// clock when the label is known, else the ceil-hours hourglass plus the "5h"
-// unit (codex, or statusline data without a label).
-//
-// The HH:MM clock is marked with a gray hourglass at cols 27-29 instead of
-// the "5h" unit. A bare HH:MM beside the robot reads as the time of day (NG's
-// own Time app shows one in the same rotation), but the clock runs to col 23,
-// and a "5h" at col 25 was one blank column away, the same as the spacing
-// between glyphs, so the pair read as "17:305h". The 3-px hourglass leaves 3
-// blank columns after the clock.
 func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 	if u.ResetLabel != "" {
 		drawClockInto(f, u.ResetLabel, contentX)
@@ -617,35 +489,17 @@ func drawUsageClock(f *Frame, u *UsageView, now time.Time) {
 	drawUsageUnit(f, "5h")
 }
 
-// drawUsageUnit paints the two-glyph gray window label ("5h", "7d", "OP",
-// "SO") at the right edge — the slot the context glass occupies on non-usage
-// cards. Context is a session metric, so usage faces show their window
-// instead of the glass.
 func drawUsageUnit(f *Frame, unit string) {
 	drawDigits(f, unit, rightSlotX, 1, usageGray)
 }
 
-// drawUnitPctFace paints a clamped percent ("42%") in the threshold colour at
-// the number slot plus the gray unit label at the right edge — the shared
-// shape of the 7d and per-model faces.
 func drawUnitPctFace(f *Frame, unit string, pct int) {
 	drawDigits(f, rateText(pct), contentX, textRow, usageThreshold(pct))
 	drawUsageUnit(f, unit)
 }
 
-// PickWinning returns the priority-winning session, its state colour, and
-// the number of active sessions (waiting, error, running or done). When no
-// session is active, win is nil. Priority follows StatePriority
-// (waiting > error > running > done; idle and unknown states never win);
-// within a state the most recently updated session wins, and on an exact
-// UpdatedAt tie the earlier one in sessions.
-//
-// The legacy /state render (cmd/ember sessions.go) and the preview pick
-// their winner here; the clock's rotation orders by the same StatePriority
-// through SortedActiveKeys. The menu app's
-// pickWinning (macos/Sources/EmberKit/StatusService.swift) is a port of it;
-// TestPickWinningTable is written so a Swift test can mirror its cases
-// one for one.
+// PickWinning returns the priority-winning session, its state colour, and the
+// number of active sessions (waiting, error, running or done).
 func PickWinning(sessions []Session) (win *Session, color RGB, total int) {
 	for i := range sessions {
 		s := &sessions[i]
@@ -669,19 +523,12 @@ func PickWinning(sessions []Session) (win *Session, color RGB, total int) {
 	return win, colorForState(win.State), total
 }
 
-// sessionKey is the canonical key for rotation pointer tracking and
-// preempt addressing. Delegates to Session.key (slash-delimited form
-// also used by App.sessions and DeleteRequest.key) so handlers and the
-// coordinator agree on one string for one session — without that
-// alignment, priorState() lookups and delete-while-locked release
-// silently miss.
 func sessionKey(s Session) string {
 	return s.Key()
 }
 
-// SessionByKey returns the session in snap whose canonical key matches,
-// or the zero Session when absent. Shared by the coordinator's rotation
-// advance and RenderForCoord so both agree on the session a key names.
+// SessionByKey returns the session in snap whose canonical key matches, or the
+// zero Session when absent.
 func SessionByKey(snap Snapshot, key string) Session {
 	for i := range snap.Sessions {
 		if sessionKey(snap.Sessions[i]) == key {
@@ -691,13 +538,10 @@ func SessionByKey(snap Snapshot, key string) Session {
 	return Session{}
 }
 
-// priorityInactive is StatePriority's rank for idle and unknown states: they
-// never win a render slot and are not counted as active.
 const priorityInactive = 4
 
 // StatePriority ranks a session state for display, lower first: waiting 0,
-// error 1, running 2, done 3, idle or unknown priorityInactive. It is the
-// single ordering PickWinning, SortedActiveKeys and the session bar share.
+// error 1, running 2, done 3, idle or unknown priorityInactive.
 func StatePriority(state string) int {
 	switch state {
 	case "waiting":
@@ -713,9 +557,8 @@ func StatePriority(state string) int {
 	}
 }
 
-// SortedActiveKeys returns the canonical keys of non-idle sessions in
-// rotation order: state-priority first, then (source, tool, session)
-// lexicographically. Stable for a given snapshot.
+// SortedActiveKeys returns the canonical keys of non-idle sessions in rotation
+// order: state-priority first, then (source, tool, session) lexicographically.
 func SortedActiveKeys(snap Snapshot) []string {
 	type entry struct {
 		key  string
@@ -768,9 +611,7 @@ func SortedActiveKeys(snap Snapshot) []string {
 	return keys
 }
 
-// PickRotated advances the rotation pointer. Returns "" on empty input.
-// If prev is empty or no longer in keys, returns the first key. Otherwise
-// returns the next key with wraparound.
+// PickRotated advances the rotation pointer.
 func PickRotated(prev string, keys []string) string {
 	if len(keys) == 0 {
 		return ""
@@ -782,8 +623,6 @@ func PickRotated(prev string, keys []string) string {
 	return keys[(idx+1)%len(keys)]
 }
 
-// isHexColor reports whether s is a 7-char string of the form "#RRGGBB"
-// with lowercase or uppercase hex digits.
 func isHexColor(s string) bool {
 	if len(s) != 7 || s[0] != '#' {
 		return false
@@ -797,9 +636,6 @@ func isHexColor(s string) bool {
 	return true
 }
 
-// parseHex parses a "#RRGGBB" string into an RGB. Returns false on malformed
-// input; callers should already have validated via isHexColor, so failure
-// here indicates a programming bug.
 func parseHex(s string) (RGB, bool) {
 	if !isHexColor(s) {
 		return RGB{}, false
@@ -815,7 +651,6 @@ func parseHex(s string) (RGB, bool) {
 	}, true
 }
 
-// itoa is a small stdlib-only digit-to-string for the count formatter.
 func itoa(n int) string {
 	if n < 10 {
 		return string(rune('0' + n))
@@ -823,28 +658,6 @@ func itoa(n int) string {
 	return strconv.Itoa(n)
 }
 
-// detailPayload builds a drawn-icon (iconOp) + firmware-native-text payload.
-// blink=true is the WAIT/ERR attention label; blink=false is the activity detail.
-//
-// textCenter must stay false. A `draw` bitmap indents nothing (only the native
-// `icon` field reserves a column), and textOffsetX is ADDED to the centred
-// position rather than replacing it, so leaving textCenter at its default true
-// would both centre the label over the sprite and then push it 9px right off the
-// panel. With textCenter:false, textOffsetX:9 is the literal start column —
-// verified on firmware 1.0.13: an 8px drawn bitmap plus textCenter:false /
-// textOffsetX:9 puts the first glyph at col 9, while the same payload with
-// textCenter left at its default starts it at col 19.
-//
-// hold follows the frameToCustomApp contract.
-//
-// Both modes want the same motion: sit still when the label fits the 23 free
-// columns, scroll when it overflows. NG expresses that natively as
-// scroll.whenFits, which replaces the old len(text)<=5 character-count gate.
-//
-// The card also carries the app's bottom bar (see drawBottomBar), so row 7
-// does not blink off each time the rotation reaches it. NG text uses rows 1-5,
-// so a row-7 op never covers it. The context glass stays off: it would mask
-// scrolling text at cols 25-31.
 func detailPayload(s Session, sessions []Session, text, hexColor string, blink bool, lifetimeSeconds int, hold bool) map[string]any {
 	pixels := composeToolIconPixels(s, iconBodyColor(s), colorForState(s.State))
 	draw := []any{iconOp(pixels)}
@@ -871,9 +684,6 @@ func detailPayload(s Session, sessions []Session, text, hexColor string, blink b
 	return p
 }
 
-// chooseSession resolves the session RenderForCoord will draw: the pointed-at
-// one, or the first sorted active session when the pointer is empty or stale.
-// nil when the snapshot has no session under the chosen key.
 func chooseSession(snap Snapshot, keys []string, pointer string) *Session {
 	chosen := pointer
 	if !slices.Contains(keys, chosen) {
@@ -889,9 +699,7 @@ func chooseSession(snap Snapshot, keys []string, pointer string) *Session {
 
 // AttentionHeld reports whether RenderForCoord will emit the held attention
 // frame for this snapshot/pointer/lock combination — i.e. whether the frame
-// claims the display hold and the caller must pin the app device-side too. It
-// resolves the session exactly as RenderForCoord does, so the pointer-fallback
-// rule stays in one place.
+// claims the display hold and the caller must pin the app device-side too.
 func AttentionHeld(snap Snapshot, pointer string, locked bool) bool {
 	if !locked {
 		return false
@@ -905,24 +713,7 @@ func AttentionHeld(snap Snapshot, pointer string, locked bool) bool {
 }
 
 // RenderForCoord composes the awtrix-ng pushed-app payload for the
-// coordinator's current display state. Returns nil when there is no
-// active session (caller skips publish entirely).
-//
-// pointer: the session key the coordinator wants to display. If empty
-// or missing from the snapshot's active set, the first sorted active
-// session is chosen instead (fallback for first-publish / pointer
-// invalidation).
-//
-// locked: when true and the chosen session's state is "waiting" or
-// "error", a 9-col bitmap (the robot sprite + blank gap) is emitted with the
-// blinking label positioned to the right via textOffsetX, so the firmware
-// animates the attention indicator natively in the area the bitmap leaves
-// clear. A full-width draw would paint zeros across the right side of the
-// matrix and clobber the text underneath. That frame takes the display hold —
-// AttentionHeld reports the same decision for the caller.
-//
-// usage: per-tool account usage views (keyed by tool name, e.g. "claude").
-// A nil map is valid — cards that need usage data simply won't appear.
+// coordinator's current display state.
 func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int, usage map[string]*UsageView) map[string]any {
 	keys := SortedActiveKeys(snap)
 	if len(keys) == 0 {
@@ -933,8 +724,6 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		return nil
 	}
 	if locked && (session.State == "waiting" || session.State == "error") {
-		// Attention names WHO/WHERE (tool icon + source), not which tool call —
-		// activity detail no longer substitutes here (2026-06-11 redesign).
 		label, hex := attentionLabelAndColor(session.State)
 		if session.Source != "" {
 			label += " " + strings.ToUpper(session.Source)
@@ -942,11 +731,10 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 		return detailPayload(*session, snap.Sessions, label, hex, true, lifetimeSeconds, true)
 	}
 
-	// Resolve the per-tool usage view; nil map access is safe in Go.
 	u := usage[session.Tool]
 
 	cards := AvailableCards(*session, u)
-	selected := cardNone // no cards: blank number slot (icon/glass/bar still render)
+	selected := cardNone
 	if len(cards) > 0 {
 		ci := card
 		if ci < 0 || ci >= len(cards) {
@@ -961,17 +749,7 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	return frameToCustomApp(&frame, lifetimeSeconds, false)
 }
 
-// ComposeFrame paints the standard layout for one session. The icon body
-// (cols 0-7) is painted in the session's source colour (s.SourceColor), or
-// iconNeutral when absent/invalid, so each machine has a persistent identity
-// colour. The inner feature — Claude eye sockets or the Codex "_" cursor —
-// is painted in the state colour (green/amber/red/blue) so activity is always
-// readable. Card text colours are per-card: source = source colour or white;
-// 5h/7d/model percent = threshold colour (green <70 / amber 70–89 / red ≥90);
-// reset clock = white digits with a dimmed colon; hourglass fallback = urgency
-// colour (amber in the final hour, green otherwise). Glass uses the state
-// colour. Row 7 receives either the rate bar (when RateBottomBar is set and
-// data is present), the session-count bar (when sessionBarEnabled), or nothing.
+// ComposeFrame paints the standard layout for one session.
 func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now time.Time) Frame {
 	var f Frame
 	drawToolIcon8(&f, s, iconBodyColor(s), colorForState(s.State))
@@ -979,7 +757,7 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 	switch {
 	case card == cardUsage5h && u != nil:
 		if s.RateBottomBar {
-			drawUsageClock(&f, u, now) // pct lives on the bar; slot shows the clock
+			drawUsageClock(&f, u, now)
 		} else {
 			drawUnitPctFace(&f, "5h", u.FiveHourPct)
 		}
@@ -999,11 +777,8 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 			Color: sourceColorOr(s, colorWhite),
 		}
 	default:
-		// card == cardNone (no cards available): blank number slot.
 	}
 
-	// The context glass is a session metric; usage faces replace it with the
-	// window unit label, so only non-usage cards draw it.
 	if !isUsageCard(card) {
 		drawGlass(&f, s.ContextPct, colorForState(s.State))
 	}
@@ -1012,9 +787,6 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 	return f
 }
 
-// drawBottomBar paints the agent app's row-7 bar: the 5h rate bar when the
-// session asks for it and has the data, else the session bar when enabled.
-// It reports whether it painted anything.
 func drawBottomBar(f *Frame, s Session, sessions []Session) bool {
 	switch {
 	case s.RateBottomBar && s.RateWindowPct != nil:
@@ -1033,8 +805,6 @@ func drawBottomBar(f *Frame, s Session, sessions []Session) bool {
 	return false
 }
 
-// colorForState returns the state palette colour. Unknown states map to
-// white so render never panics on bad input.
 func colorForState(state string) RGB {
 	switch state {
 	case "waiting":
@@ -1050,11 +820,6 @@ func colorForState(state string) RGB {
 	}
 }
 
-// attentionLabelAndColor returns the short blinking label and its
-// hex colour for the locked attention state. Only the firmware-known
-// attention states ("waiting" → "WAIT", "error" → "ERR") have defined
-// labels; other states fall back to "WAIT" but the call site already
-// guards against entry with state ∉ {waiting, error}.
 func attentionLabelAndColor(state string) (string, string) {
 	if state == "error" {
 		return "ERR", hexOf(colorError)
@@ -1062,27 +827,13 @@ func attentionLabelAndColor(state string) (string, string) {
 	return "WAIT", hexOf(colorWaiting)
 }
 
-// stateHex returns the "#RRGGBB" string for a state's palette colour, for use
-// as the textColor in detail payloads.
 func stateHex(state string) string { return hexOf(colorForState(state)) }
 
-// idleDimWhite is the robot colour during the idle-restore countdown:
-// roughly 40% brightness (0x66 / 0xff) — a clear "the display is alive
-// but no work is happening" cue, distinct from the bright state colours
-// used while sessions are active.
 var idleDimWhite = RGB{0x66, 0x66, 0x66}
 
-// RenderIdleFrame returns the dimmed-robot payload emitted during the
-// G.2 idle-restore countdown. No digits, no glass, no text — the body dims
-// to ~40% white and the rest of the matrix stays dark, leaving an
-// unambiguous "AI idle" signal that's also visually distinct from the
-// active rotation frames. The eye sockets / cursor overlay are left dark
-// (not painted) so the sprite silhouette is preserved even in the idle dim.
-// Takes the display hold (see applyHold) so the slot stays put until the
-// countdown elapses and we stop publishing.
+// RenderIdleFrame returns the dimmed-robot payload emitted during the G.2
+// idle-restore countdown.
 func RenderIdleFrame(lifetimeSeconds int) map[string]any {
-	// Idle dims the body only; deliberately skips the feature overlay so the
-	// eye sockets / cursor remain dark, preserving the sprite silhouette.
 	pixels := composeToolIconBodyPixels(Session{State: "idle"}, idleDimWhite)
 	p := map[string]any{
 		"draw":       []any{bitmapOp(0, 0, 8, 8, pixels)},
@@ -1092,14 +843,10 @@ func RenderIdleFrame(lifetimeSeconds int) map[string]any {
 	return p
 }
 
-// idleUsageTools is the fixed tool order for idle usage faces.
 var idleUsageTools = []string{"claude", "codex"}
 
 // RenderIdleUsagePayload renders the idle-with-hot-usage frame: dimmed tool
-// icon + one usage face + the dimmed threshold bar. views holds only tools
-// over the threshold (the coordinator gates); cursor picks the face across
-// all hot tools (claude faces first, then codex), wrapping. Returns nil when
-// no tool is hot — the caller then simply stops publishing (classic idle-off).
+// icon + one usage face + the dimmed threshold bar.
 func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Time, lifetimeSeconds int) map[string]any {
 	type face struct {
 		tool   string
@@ -1119,7 +866,6 @@ func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Ti
 	if len(faces) == 0 {
 		return nil
 	}
-	// Modulo that handles negative cursor values safely.
 	fc := faces[((cursor%len(faces))+len(faces))%len(faces)]
 	u := views[fc.tool]
 
@@ -1135,9 +881,6 @@ func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Ti
 	return frameToCustomApp(&f, lifetimeSeconds, true)
 }
 
-// toolIcon8 returns the 8×8 tool sprite for a session: codex chevron, else the
-// Claude robot-face. Reuses the usage widget icons so the whole display shares
-// one icon set.
 func toolIcon8(s Session) []string {
 	if s.Tool == "codex" {
 		return usageIconCodex
@@ -1145,15 +888,8 @@ func toolIcon8(s Session) []string {
 	return usageIconClaude
 }
 
-// iconNeutral is the icon body when no (valid) source colour is configured —
-// the state channel lives in the eye/cursor overlay, so the body must never
-// fall back to a state colour.
 var iconNeutral = RGB{0xcc, 0xcc, 0xcc}
 
-// claudeEyes8 lights the robot-face eye sockets in the state colour.
-// Each eye is 1 col × 2 rows; there are two eyes (cols 2 and 5, rows 2-3).
-// These positions are holes in usageIconClaude (body sprite), so painting
-// the overlay fills the sockets without disturbing the body.
 var claudeEyes8 = []string{
 	"........",
 	"........",
@@ -1165,8 +901,6 @@ var claudeEyes8 = []string{
 	"........",
 }
 
-// codexCursor8 is the "_" cursor of usageIconCodex (row 6, cols 3-6); painted
-// after the body it overrides those pixels with the state colour.
 var codexCursor8 = []string{
 	"........",
 	"........",
@@ -1178,7 +912,6 @@ var codexCursor8 = []string{
 	"........",
 }
 
-// sourceColorOr returns the session's source colour when it parses, else fallback.
 func sourceColorOr(s Session, fallback RGB) RGB {
 	if s.SourceColor != nil {
 		if c, ok := parseHex(*s.SourceColor); ok {
@@ -1188,15 +921,10 @@ func sourceColorOr(s Session, fallback RGB) RGB {
 	return fallback
 }
 
-// iconBodyColor returns the colour for the 8×8 icon body: the session's source
-// colour when present and valid, else iconNeutral. The state channel lives in
-// the eye/cursor overlay, so the body must never fall back to a state colour.
 func iconBodyColor(s Session) RGB {
 	return sourceColorOr(s, iconNeutral)
 }
 
-// iconOverlay8 returns the 8×8 feature overlay for a session: the Codex cursor
-// bitmap for Codex sessions, else the Claude eye-socket bitmap.
 func iconOverlay8(s Session) []string {
 	if s.Tool == "codex" {
 		return codexCursor8
@@ -1204,17 +932,11 @@ func iconOverlay8(s Session) []string {
 	return claudeEyes8
 }
 
-// drawToolIcon8 paints the 8×8 tool icon at cols 0-7. body is the identity
-// colour (source colour or neutral) for the icon sprite; feature is the state
-// colour painted over the inner detail (Claude eye sockets / Codex "_" cursor).
 func drawToolIcon8(f *Frame, s Session, body, feature RGB) {
 	paintBitmap(f, 0, 0, toolIcon8(s), body)
 	paintBitmap(f, 0, 0, iconOverlay8(s), feature)
 }
 
-// packIcon8 extracts the 8×8 top-left region of f into a 64-int row-major
-// pixel array (0xRRGGBB; undirty cells emit 0). It is the 8-wide analogue of
-// framePixels and is the shared packing step for the icon db ops.
 func packIcon8(f *Frame) []int {
 	px := make([]int, 64)
 	for y := 0; y < 8; y++ {
@@ -1228,20 +950,12 @@ func packIcon8(f *Frame) []int {
 	return px
 }
 
-// composeToolIconBodyPixels paints only the body (no overlay) of the 8×8 tool
-// icon into a 64-int pixel array. Used by RenderIdleFrame so the idle dim
-// covers the body but deliberately leaves the eye sockets / cursor dark,
-// preserving the sprite silhouette.
 func composeToolIconBodyPixels(s Session, body RGB) []int {
 	var f Frame
 	paintBitmap(&f, 0, 0, toolIcon8(s), body)
 	return packIcon8(&f)
 }
 
-// composeToolIconPixels paints the full 8×8 icon (body + feature overlay) into
-// a tight 8×8 = 64-int pixel array (for the locked-attention db, leaving cols
-// 8-31 clear for native text). body is the identity colour; feature is the
-// state colour for the eye/cursor overlay.
 func composeToolIconPixels(s Session, body, feature RGB) []int {
 	var f Frame
 	drawToolIcon8(&f, s, body, feature)

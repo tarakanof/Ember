@@ -1,11 +1,6 @@
 import CoreGraphics
 
 /// Where the clock's LED matrix sits inside the space a view is offered.
-///
-/// Cells are square and their pitch is a whole number of points, so every LED
-/// lands on the same pixel pattern and the panel keeps its exact 4:1 shape at
-/// any window size. A fractional pitch is what made resized previews smear:
-/// neighbouring cells rounded to different widths and the glow bled across.
 public struct LEDMatrixLayout: Equatable, Sendable {
     /// Smallest pitch drawn; below it the dots stop reading as a panel.
     public static let minPitch: CGFloat = 3
@@ -23,14 +18,11 @@ public struct LEDMatrixLayout: Equatable, Sendable {
     /// The panel itself: `columns × pitch` by `rows × pitch`.
     public let size: CGSize
     /// Top-left of the panel, centred in the container and snapped to device
-    /// pixels. Zero along an axis the container leaves open (nil or infinite).
-    /// Negative when the container is smaller than the minimum panel.
+    /// pixels.
     public let origin: CGPoint
 
     /// - Parameters:
     ///   - width, height: the offered space; nil or infinite means unconstrained.
-    ///   - scale: device pixels per point, for snapping the origin.
-    ///   - maxPitch: a caller's own cap (settings previews stay smaller).
     public init(width: CGFloat?, height: CGFloat?, columns: Int = 32, rows: Int = 8,
                 scale: CGFloat = 1, maxPitch: CGFloat = LEDMatrixLayout.maxPitch) {
         let cols = max(columns, 1), rws = max(rows, 1)
@@ -44,7 +36,7 @@ public struct LEDMatrixLayout: Equatable, Sendable {
         } else if width == nil && height == nil {
             pitch = min(Self.idealPitch, cap)
         } else {
-            pitch = cap // offered unbounded space: take the largest panel
+            pitch = cap
         }
         let size = CGSize(width: pitch * CGFloat(cols), height: pitch * CGFloat(rws))
         let s = scale > 0 ? scale : 1

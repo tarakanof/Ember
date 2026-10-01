@@ -1,13 +1,10 @@
 import SwiftUI
 import EmberKit
 
-/// Card 5: every agent session the server knows, what needs attention first.
 struct AgentsCard: View {
     let snapshot: Loadable<Snapshot>
     var now = Date()
 
-    /// A wide card sits in its own row, so it can hug a short table instead
-    /// of showing a mostly empty one; it grows to the standard wide height.
     private func height(_ table: Loadable<AgentsTable>) -> CGFloat {
         guard let n = (table.value ?? (table.isLoading ? Self.placeholder : nil))?.rows.count, n > 0 else {
             return DashboardCardHeight.standard
@@ -104,7 +101,6 @@ private struct ContextCell: View {
     }
 }
 
-/// "just now", "2 min", "1 h": short relative times for dense rows.
 enum RelativeText {
     static func short(_ date: Date, now: Date) -> String {
         let s = max(0, now.timeIntervalSince(date))

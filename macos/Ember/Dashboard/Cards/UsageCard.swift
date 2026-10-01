@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Card 3: subscription usage per tool, 5-hour and 7-day windows.
 struct UsageCard: View {
     let usage: Loadable<UsageSnapshot>
     let rows: [UsageRow]
@@ -22,9 +21,6 @@ struct UsageCard: View {
         }
     }
 
-    /// On a server without `GET /v1/usage` the rows come from sessions, so
-    /// the off state never shows: old servers still get the 5-hour window.
-    /// Session rows also show while the snapshot hasn't arrived yet.
     private var feed: Loadable<[UsageRow]> {
         if usage.error == .featureOff || (usage.value == nil && !rows.isEmpty) { return .loaded(rows, at: now) }
         return usage.map { _ in rows }
@@ -105,7 +101,6 @@ private struct ToolUsageView: View {
         }
     }
 
-    /// "47%, resets at 16:20": the percent plus what the reset column shows.
     private func accessibilityValue(_ w: UsageRow.Window) -> Text {
         let percent = Percent.text(w.percent)
         if let at = w.resetsAt, at > now {

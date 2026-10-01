@@ -69,8 +69,8 @@ func TestWMOOverlay(t *testing.T) {
 		code int
 		want string
 	}{
-		{0, ""}, {3, ""}, {45, ""}, // no precipitation; NG has no fog overlay
-		{48, render.OverlayFrost}, // depositing rime fog
+		{0, ""}, {3, ""}, {45, ""},
+		{48, render.OverlayFrost},
 		{51, render.OverlayDrizzle}, {57, render.OverlayDrizzle},
 		{61, render.OverlayRain}, {63, render.OverlayRain}, {66, render.OverlayRain}, {80, render.OverlayRain},
 		{65, render.OverlayStorm}, {67, render.OverlayStorm}, {82, render.OverlayStorm},
@@ -90,13 +90,11 @@ func TestMetSymbolOverlay(t *testing.T) {
 		want string
 	}{
 		{"clearsky_day", ""}, {"cloudy", ""}, {"fog", ""},
-		// Same rule as WMO: light rain is slight rain (61/80), not drizzle.
 		{"lightrain", render.OverlayRain},
 		{"lightrainshowers_day", render.OverlayRain},
 		{"rain", render.OverlayRain},
 		{"rainshowers_night", render.OverlayRain},
 		{"heavyrain", render.OverlayStorm},
-		// Sleet animates like WMO freezing rain (66 rain, 67 storm).
 		{"sleet", render.OverlayRain},
 		{"lightsleetshowers_day", render.OverlayRain},
 		{"heavysleet", render.OverlayStorm},
@@ -111,8 +109,6 @@ func TestMetSymbolOverlay(t *testing.T) {
 	}
 }
 
-// TestWeatherPopupCarriesOverlay: a popup for precipitating conditions carries
-// the NG overlay, and the overlay toggle turns it off.
 func TestWeatherPopupCarriesOverlay(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
@@ -213,9 +209,6 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 
 	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
 
-	// Severe transition fires + chimes. The chime is NOT on the notification
-	// (firmware drops it under an icon) — it's played via /api/rtttl (the default
-	// severe sound is an RTTTL string).
 	storm := weatherObservation{Condition: render.WeatherStorm, TempC: 18, Severe: true, FetchedAt: now}
 	if !app.evaluateWeatherPopup(context.Background(), now, storm, render.WeatherClouds, false, time.Time{}, wcfg) {
 		t.Fatal("severe transition should fire")
@@ -235,8 +228,6 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 	}
 	pub.mu.Unlock()
 
-	// Already-severe (prevSevere true) does NOT re-fire on severe path; but a
-	// condition change still does (without any chime).
 	rain := weatherObservation{Condition: render.WeatherRain, TempC: 16, Severe: false, FetchedAt: now}
 	if !app.evaluateWeatherPopup(context.Background(), now, rain, render.WeatherStorm, true, now, wcfg) {
 		t.Fatal("condition change should fire")
@@ -251,7 +242,6 @@ func TestEvaluateWeatherPopupPriority(t *testing.T) {
 	}
 	pub.mu.Unlock()
 
-	// No change, interval not elapsed → no popup.
 	if app.evaluateWeatherPopup(context.Background(), now, rain, render.WeatherRain, false, now, wcfg) {
 		t.Error("stable weather within interval should not fire")
 	}
@@ -281,15 +271,11 @@ func TestWeatherIconIDOverride(t *testing.T) {
 	if got := cfg.weatherIconID(render.WeatherRain); got != "999" {
 		t.Errorf("override rain icon = %q, want 999", got)
 	}
-	// A condition with no override still falls back to the default.
 	if got := cfg.weatherIconID(render.WeatherSnow); got != "2289" {
 		t.Errorf("unset snow icon = %q, want default 2289", got)
 	}
 }
 
-// TestApplyWeatherSettingsPreservesDisables guards the review fix: a menu PUT
-// that turns the opt-in toggles off (and sets interval=0) must survive — earlier
-// the weather apply path re-ran applyDefaults and forced them back on.
 func TestApplyWeatherSettingsPreservesDisables(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	off := WeatherConfig{
@@ -338,7 +324,6 @@ func TestWeatherAirValidation(t *testing.T) {
 	if err := putWeather(app, bad); err == nil {
 		t.Error("air_popup_threshold -1 should be rejected")
 	}
-	// A menu PUT turning the tile + popup off must survive (no re-defaulting).
 	off := WeatherConfig{Provider: "open-meteo", Units: "metric", RefreshMinutes: 10, PopupDurationSeconds: 30, AirTile: boolPtr(false), AirPopupThreshold: 0}
 	if err := putWeather(app, off); err != nil {
 		t.Fatalf("valid config rejected: %v", err)
@@ -378,8 +363,6 @@ func TestFetchAirQuality(t *testing.T) {
 	}
 }
 
-// newAirTestApp wires an App at a stubbed weather provider + a stubbed AQ
-// server whose AQI is read from *aqi on each hit (counted in *hits).
 func newAirTestApp(t *testing.T, pub *recordingPublisher, aqi *float64, hits *int32) *App {
 	t.Helper()
 	weatherSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -396,7 +379,7 @@ func newAirTestApp(t *testing.T, pub *recordingPublisher, aqi *float64, hits *in
 	cfg.Weather.applyDefaults()
 	cfg.Weather.Enabled = true
 	cfg.Weather.RefreshMinutes = 10
-	cfg.Weather.PopupIntervalMinutes = intPtr(0) // keep interval popups out of the way
+	cfg.Weather.PopupIntervalMinutes = intPtr(0)
 	cfg.Weather.AirPopupThreshold = 80
 	app := NewApp(cfg, pub, testLogger())
 	app.weatherFetcher = newWeatherFetcher()
@@ -424,7 +407,6 @@ func TestPollAirStoresAndPopsOnEdge(t *testing.T) {
 		return n
 	}
 
-	// Below threshold: stored, no popup.
 	app.pollWeather(context.Background(), t0)
 	air, have := app.weather.currentAir()
 	if !have || air.AQI != 50 || len(air.HourlyAQI) != 1 {
@@ -434,21 +416,18 @@ func TestPollAirStoresAndPopsOnEdge(t *testing.T) {
 		t.Fatal("below-threshold reading must not pop")
 	}
 
-	// Rising edge across 80 → one popup, in the bucket colour.
 	aqi = 85
 	app.pollWeather(context.Background(), t0.Add(11*time.Minute))
 	if countAirPopups() != 1 {
 		t.Fatalf("rising edge should fire exactly one popup, got %d", countAirPopups())
 	}
 
-	// Still above: no re-fire.
 	aqi = 90
 	app.pollWeather(context.Background(), t0.Add(22*time.Minute))
 	if countAirPopups() != 1 {
 		t.Fatalf("staying above threshold must not re-fire, got %d", countAirPopups())
 	}
 
-	// Drop below re-arms; next crossing fires again.
 	aqi = 70
 	app.pollWeather(context.Background(), t0.Add(33*time.Minute))
 	aqi = 81
@@ -459,7 +438,6 @@ func TestPollAirStoresAndPopsOnEdge(t *testing.T) {
 }
 
 func TestPollAirFirstObservationAboveThresholdPops(t *testing.T) {
-	// A restart mid-episode should still alert (severe-weather precedent).
 	pub := &recordingPublisher{}
 	aqi := 120.0
 	var hits int32
@@ -521,10 +499,6 @@ func TestPollAirFailureKeepsWeatherWorking(t *testing.T) {
 	}
 }
 
-// TestPollWeatherBackoffAndSeed guards two review fixes: (1) a failing provider
-// is not refetched until a full refresh interval elapses (no 60s hammering while
-// have==false); (2) the first successful observation seeds the interval clock so
-// no interval popup fires on startup.
 func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	var hits int32
 	fail := true
@@ -549,16 +523,12 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	app.weatherFetcher.openMeteoBase = srv.URL
 
 	t0 := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
-	// Failing fetch: one attempt, lastFetch recorded.
 	app.pollWeather(context.Background(), t0)
-	// A minute later, still inside the refresh interval -> NOT due, no new hit.
 	app.pollWeather(context.Background(), t0.Add(time.Minute))
 	if got := atomic.LoadInt32(&hits); got != 1 {
 		t.Fatalf("failing provider was refetched within the interval: %d hits, want 1", got)
 	}
 
-	// Past the refresh interval, provider recovers: fetch succeeds, seeds the
-	// interval clock, and must NOT fire an interval popup on this first success.
 	fail = false
 	app.pollWeather(context.Background(), t0.Add(11*time.Minute))
 	if got := atomic.LoadInt32(&hits); got != 2 {
@@ -571,7 +541,6 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 		t.Errorf("first successful observation fired %d popups, want 0 (interval clock should seed silently)", popups)
 	}
 
-	// One full interval after the seed -> the interval popup now fires.
 	app.pollWeather(context.Background(), t0.Add(11*time.Minute+121*time.Minute))
 	pub.mu.Lock()
 	popups = len(pub.notify)
@@ -581,9 +550,6 @@ func TestPollWeatherBackoffAndSeed(t *testing.T) {
 	}
 }
 
-// validWeatherConfig returns a WeatherConfig that passes every validateWeather
-// check except whatever the test mutates, so icon-id cases exercise only the
-// IconIDs branch.
 func validWeatherConfig() WeatherConfig {
 	return WeatherConfig{
 		Provider:             "open-meteo",
@@ -628,7 +594,6 @@ func TestValidateWeatherOKWithoutIconIDs(t *testing.T) {
 	}
 }
 
-// putWeather PUTs a whole WeatherConfig through the settings overlay.
 func putWeather(a *App, c WeatherConfig) error {
 	b, err := json.Marshal(c)
 	if err != nil {
