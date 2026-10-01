@@ -38,6 +38,8 @@ final class BotAnimator {
     /// changes. The SwiftUI label shows this same object too, see
     /// `liveMenuBarImage(colored:)`.
     private let liveImage = NSImage(size: NSSize(width: 22, height: 22))
+    /// `liveImage.isTemplate` as of the button's last `setImage:`.
+    private var buttonTemplate: Bool?
     /// The 44 px (2x) context frames are drawn in.
     private let liveContext = CGContext(data: nil, width: 44, height: 44, bitsPerComponent: 8, bytesPerRow: 0,
                                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -184,12 +186,14 @@ final class BotAnimator {
     private func pushMenuBar() -> Bool {
         if statusButton == nil { statusButton = StatusItemButton.find() }
         guard let button = statusButton else { return false }
-        let templateChanged = drawLiveFrame()
+        drawLiveFrame()
         // Only a different image object needs `setImage:`; a template flip on
-        // the same one is re-read by the cell only on a fresh `setImage:`.
-        if button.image !== liveImage || templateChanged {
+        // the same one is re-read by the cell only on a fresh `setImage:`, and
+        // the label may have flipped it since the button last got it.
+        if button.image !== liveImage || buttonTemplate != liveImage.isTemplate {
             button.image = nil
             button.image = liveImage
+            buttonTemplate = liveImage.isTemplate
         }
         button.needsDisplay = true
         return true
@@ -211,18 +215,15 @@ final class BotAnimator {
     }
 
     /// Draws the current frame into `liveImage` as a new representation.
-    /// Returns whether its template flag flipped.
-    @discardableResult
-    private func drawLiveFrame() -> Bool {
+    private func drawLiveFrame() {
         let tint = menuBarColored ? tint(at: Self.now) : nil
-        let templateChanged = liveImage.isTemplate != (tint == nil)
         liveImage.isTemplate = tint == nil
         // No context means no memory for 7 KB; keep the last frame.
-        guard let ctx = liveContext else { return templateChanged }
+        guard let ctx = liveContext else { return }
         let rect = CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height)
         ctx.clear(rect)
         BotRenderer.draw(pose, in: ctx, rect: rect, style: .menuBar(tint: tint?.cgColor ?? NSColor.black.cgColor))
-        guard let cg = ctx.makeImage() else { return templateChanged }
+        guard let cg = ctx.makeImage() else { return }
         // A fresh rep, not new pixels in the old one: the button's layer
         // compares display lists by CGImage identity, so rewriting a rep's
         // bitmap in place (even after `recache()`) left the menu bar stale.
@@ -230,7 +231,6 @@ final class BotAnimator {
         rep.size = liveImage.size
         liveImage.representations.forEach(liveImage.removeRepresentation)
         liveImage.addRepresentation(rep)
-        return templateChanged
     }
 
     private func renderDock() {
