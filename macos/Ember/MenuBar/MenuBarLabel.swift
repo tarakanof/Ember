@@ -33,9 +33,9 @@ struct MenuBarLabel: View, Equatable {
     private var icon: Image {
         let colored = state.trayTint == "color"
         if state.trayStyle == "bot" {
-            // Only the current frame, for the rare re-render (state, glyph,
-            // prefs, VoiceOver value); BotAnimator animates the status button directly.
-            return Image(nsImage: BotAnimator.shared.menuBarImage(colored: colored))
+            // The animator's live image, not a snapshot: SwiftUI re-applies it
+            // on its own (see `liveMenuBarImage`), while BotAnimator animates it.
+            return Image(nsImage: BotAnimator.shared.liveMenuBarImage(colored: colored))
         }
         return Image(nsImage: Self.trayImage(glyph: state.glyph, state: state.state, colored: colored))
     }

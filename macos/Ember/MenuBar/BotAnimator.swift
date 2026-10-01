@@ -32,12 +32,16 @@ final class BotAnimator {
     private var menuBarEnabled = false
     private var menuBarColored = true
     private weak var statusButton: NSStatusBarButton?
-    /// The image on the status button; each frame swaps in a new rep. A new
-    /// `setImage:` per frame made AppKit re-measure the item, about half of
-    /// each push's cost, though the size never changes. Owned by the loop
-    /// only: the SwiftUI label gets its own snapshot from `menuBarImage(colored:)`.
-    private var liveImage: NSImage?
-    private var liveContext: CGContext?
+    /// The one image on the status button, for the app's lifetime; each frame
+    /// swaps in a new rep. A new `setImage:` per frame made AppKit re-measure
+    /// the item, about half of each push's cost, though the size never
+    /// changes. The SwiftUI label shows this same object too, see
+    /// `liveMenuBarImage(colored:)`.
+    private let liveImage = NSImage(size: NSSize(width: 22, height: 22))
+    /// The 44 px (2x) context frames are drawn in.
+    private let liveContext = CGContext(data: nil, width: 44, height: 44, bitsPerComponent: 8, bytesPerRow: 0,
+                                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
     /// Menu-bar colour crossfade on mood changes; nil = the menu bar's own
     /// foreground (the template look).
     private var tintFrom: NSColor?
@@ -129,8 +133,6 @@ final class BotAnimator {
 
     private func restart() {
         loop?.cancel()
-        // A fresh image forces one `setImage:` on the first push.
-        liveImage = nil
         loop = Task { [weak self] in await self?.run() }
     }
 
@@ -182,39 +184,53 @@ final class BotAnimator {
     private func pushMenuBar() -> Bool {
         if statusButton == nil { statusButton = StatusItemButton.find() }
         guard let button = statusButton else { return false }
-        let tint = menuBarColored ? tint(at: Self.now) : nil
-        if liveImage?.isTemplate != (tint == nil) { makeLiveImage(template: tint == nil) }
-        // No context means no memory for 7 KB; skip the frame rather than
-        // mark it stale, which would retry every 0.25 s and draw nothing.
-        guard let image = liveImage, let ctx = liveContext else { return true }
-        let rect = CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height)
-        ctx.clear(rect)
-        BotRenderer.draw(pose, in: ctx, rect: rect, style: .menuBar(tint: tint?.cgColor ?? NSColor.black.cgColor))
-        guard let cg = ctx.makeImage() else { return false }
-        // A fresh rep, not new pixels in the old one: the button's layer
-        // compares display lists by CGImage identity, so rewriting a rep's
-        // bitmap in place (even after `recache()`) left the menu bar stale.
-        let rep = NSBitmapImageRep(cgImage: cg)
-        rep.size = image.size
-        image.representations.forEach(image.removeRepresentation)
-        image.addRepresentation(rep)
-        // Only a new image object needs `setImage:`: a restart, a template
-        // switch, or a label re-render that put its own snapshot on the button.
-        if button.image !== image { button.image = image }
+        let templateChanged = drawLiveFrame()
+        // Only a different image object needs `setImage:`; a template flip on
+        // the same one is re-read by the cell only on a fresh `setImage:`.
+        if button.image !== liveImage || templateChanged {
+            button.image = nil
+            button.image = liveImage
+        }
         button.needsDisplay = true
         return true
     }
 
-    /// A 22 pt image, and the 44 px context its frames are drawn in.
-    private func makeLiveImage(template: Bool) {
-        let pt = 22, px = pt * 2
-        liveContext = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        guard liveContext != nil else { liveImage = nil; return }
-        let image = NSImage(size: NSSize(width: pt, height: pt))
-        image.isTemplate = template
-        liveImage = image
+    /// The live image, holding the current frame, for the `MenuBarExtra` label.
+    /// SwiftUI re-applies the label's image whenever the button's appearance
+    /// changes, and AppKit changes it on every refresh of the copies of the
+    /// status item it shows on other displays' menu bars. A one-off snapshot
+    /// there froze those copies on the frame of the last label re-render.
+    ///
+    /// Idle/sleepy — and every mood when `colored` is off — render as a template
+    /// (black or white to match the menu bar, like the reference's black ball);
+    /// otherwise active moods keep the per-state colour cue, crossfading on change.
+    func liveMenuBarImage(colored: Bool) -> NSImage {
+        menuBarColored = colored
+        drawLiveFrame()
+        return liveImage
+    }
+
+    /// Draws the current frame into `liveImage` as a new representation.
+    /// Returns whether its template flag flipped.
+    @discardableResult
+    private func drawLiveFrame() -> Bool {
+        let tint = menuBarColored ? tint(at: Self.now) : nil
+        let templateChanged = liveImage.isTemplate != (tint == nil)
+        liveImage.isTemplate = tint == nil
+        // No context means no memory for 7 KB; keep the last frame.
+        guard let ctx = liveContext else { return templateChanged }
+        let rect = CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height)
+        ctx.clear(rect)
+        BotRenderer.draw(pose, in: ctx, rect: rect, style: .menuBar(tint: tint?.cgColor ?? NSColor.black.cgColor))
+        guard let cg = ctx.makeImage() else { return templateChanged }
+        // A fresh rep, not new pixels in the old one: the button's layer
+        // compares display lists by CGImage identity, so rewriting a rep's
+        // bitmap in place (even after `recache()`) left the menu bar stale.
+        let rep = NSBitmapImageRep(cgImage: cg)
+        rep.size = liveImage.size
+        liveImage.representations.forEach(liveImage.removeRepresentation)
+        liveImage.addRepresentation(rep)
+        return templateChanged
     }
 
     private func renderDock() {
@@ -239,34 +255,12 @@ final class BotAnimator {
         }
     }
 
-    /// Idle/sleepy — and every mood when `colored` is off — render as a template
-    /// (black or white to match the menu bar, like the reference's black ball);
-    /// otherwise active moods keep the per-state colour cue, crossfading on change.
-    func menuBarImage(colored: Bool) -> NSImage {
-        Self.menuBarImage(pose, tint: colored ? tint(at: Self.now) : nil)
-    }
-
     /// The colour template menu-bar images end up drawn in, so a crossfade to or
     /// from the template look starts and ends where the menu bar would put it.
     private static func menuBarForeground() -> NSColor {
         let bar = NSApplication.shared.windows.first { $0.className == "NSStatusBarWindow" }
         let appearance = bar?.contentView?.effectiveAppearance ?? NSApplication.shared.effectiveAppearance
         return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black
-    }
-
-    private static func menuBarImage(_ pose: BotPose, tint: NSColor?) -> NSImage {
-        let body = tint?.cgColor ?? NSColor.black.cgColor
-        // Rasterised up front: the menu bar treats a lazily drawn NSImage as a
-        // template and drops the colour.
-        let pt = 22, px = pt * 2
-        guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return NSImage() }
-        BotRenderer.draw(pose, in: ctx, rect: CGRect(x: 0, y: 0, width: px, height: px), style: .menuBar(tint: body))
-        guard let cg = ctx.makeImage() else { return NSImage() }
-        let img = NSImage(cgImage: cg, size: NSSize(width: pt, height: pt))
-        img.isTemplate = tint == nil
-        return img
     }
 
     static func staticIcon(size: CGFloat = 512) -> NSImage {
