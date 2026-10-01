@@ -154,7 +154,9 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
         // The first hop flags the new mood; later ones are an occasional nudge.
         #expect(hops.first.map { $0 < 1.5 } == true, "seed \(seed)")
         let gaps = zip(hops, hops.dropFirst()).map { $1 - $0 }
-        #expect(gaps.allSatisfy { $0 >= 7.9 }, "seed \(seed): \(gaps)")
+        #expect(hops.count >= 5, "seed \(seed): \(hops)")
+        #expect(gaps.allSatisfy { (7.9...40.1).contains($0) }, "seed \(seed): \(gaps)")
+        #expect(hops.last.map { 180 - $0 <= 40.1 } == true, "seed \(seed): \(hops)")
     }
 }
 
