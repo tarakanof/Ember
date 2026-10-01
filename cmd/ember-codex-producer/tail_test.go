@@ -18,7 +18,7 @@ func TestReadNewLines_AdvancesAndSkipsPartial(t *testing.T) {
 	if len(lines) != 2 || string(lines[0]) != "line1" || string(lines[1]) != "line2" {
 		t.Fatalf("lines = %v", lines)
 	}
-	if off != 12 { // "line1\nline2\n" = 12 bytes; "partial" not consumed
+	if off != 12 {
 		t.Fatalf("offset = %d, want 12", off)
 	}
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)

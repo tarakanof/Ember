@@ -42,9 +42,6 @@ import Foundation
     }
 }
 
-// The Go server marshals time.Time as RFC3339 with nanosecond fractional seconds
-// (e.g. "2026-05-29T20:33:44.336159758Z"). The decoder must parse both fractional
-// and non-fractional ISO8601, or /state decode fails and the app shows offline.
 @Test func decodesFractionalSecondTimestamps() async throws {
     let client = stubbedClient { req in
         let body = #"{"sessions":[{"source":"mbp","tool":"claude","session":"s","state":"running","message":"","updated_at":"2026-05-29T20:33:44.336159758Z"}]}"#

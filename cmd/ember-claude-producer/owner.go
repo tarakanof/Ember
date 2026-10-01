@@ -11,12 +11,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// marker is the on-disk session record: the wire StatusRequest plus local-only
-// owner-liveness fields. owner_pid/owner_start identify the Claude Code process
-// that owns this session, letting the heartbeat drop the session as soon as
-// that process exits (window closed, crash — no SessionEnd fires) instead of
-// keeping it alive via re-POST until the marker TTL. These fields never reach
-// the server: the tick POSTs the embedded StatusRequest, which omits them.
 type marker struct {
 	producer.StatusRequest
 	OwnerPID   int    `json:"owner_pid,omitempty"`
@@ -24,24 +18,14 @@ type marker struct {
 	ToolTrack
 }
 
-// ToolTrack is marker-only bookkeeping for the tool-outcome hooks (#76,
-// posttool.go); none of it goes on the wire.
+// ToolTrack is marker-only bookkeeping for the tool-outcome hooks; none of it goes on the wire.
 type ToolTrack struct {
-	// PendingPermission fingerprints the call a PermissionRequest put the
-	// session in "waiting" for (permissionFingerprint), and PendingToolUseID
-	// is its tool_use_id when known. Only that call's outcome ends the wait.
 	PendingPermission string `json:"pending_permission,omitempty"`
 	PendingToolUseID  string `json:"pending_tool_use_id,omitempty"`
-	// LastToolUseID / LastToolFP are the latest PreToolUse's tool_use_id and
-	// fingerprint. PermissionRequest has no tool_use_id; when its fingerprint
-	// matches LastToolFP, the id is taken from here.
-	LastToolUseID string `json:"last_tool_use_id,omitempty"`
-	LastToolFP    string `json:"last_tool_fp,omitempty"`
-	// ResumedTool / ResumedAt (unix seconds) record the last wait an outcome
-	// ended, so that dialog's late permission_prompt Notification can't put
-	// the session back in "waiting".
-	ResumedTool string `json:"resumed_tool,omitempty"`
-	ResumedAt   int64  `json:"resumed_at,omitempty"`
+	LastToolUseID     string `json:"last_tool_use_id,omitempty"`
+	LastToolFP        string `json:"last_tool_fp,omitempty"`
+	ResumedTool       string `json:"resumed_tool,omitempty"`
+	ResumedAt         int64  `json:"resumed_at,omitempty"`
 }
 
 var shellComms = map[string]bool{
@@ -49,11 +33,6 @@ var shellComms = map[string]bool{
 	"ksh": true, "csh": true, "tcsh": true, "login": true, "env": true,
 }
 
-// detectOwner walks up from this hook process to the owning Claude Code
-// process, returning its PID and start time. A hook runs as
-// claude -> sh -> ember-claude-producer, so the first non-shell, non-self
-// ancestor is Claude. Returns (0, "") when it can't be determined.
-// Overridable in tests.
 var detectOwner = func() (int, string) {
 	pid := resolveOwner(os.Getppid(), procParentComm)
 	if pid <= 0 {
@@ -63,8 +42,6 @@ var detectOwner = func() (int, string) {
 	return pid, start
 }
 
-// resolveOwner is the testable core of detectOwner: walk ancestors, skipping
-// shell wrappers and our own binary, and return the first real ancestor.
 func resolveOwner(startPID int, info func(int) (ppid int, comm string, ok bool)) int {
 	cur := startPID
 	for i := 0; i < 12 && cur > 1; i++ {
@@ -97,8 +74,6 @@ func procParentComm(pid int) (int, string, bool) {
 	return ppid, strings.Join(fields[1:], " "), true
 }
 
-// procStart returns the process start time (ps lstart — a stable absolute
-// timestamp used to guard against PID reuse) and whether the process exists.
 func procStart(pid int) (string, bool) {
 	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
@@ -111,10 +86,6 @@ func procStart(pid int) (string, bool) {
 	return s, true
 }
 
-// ownerAlive reports whether the recorded owner process is still running as the
-// same process (PID present and start time unchanged, so a reused PID reads as
-// dead). A missing recorded start time falls back to a bare existence check.
-// Overridable in tests.
 var ownerAlive = func(pid int, start string) bool {
 	cur, ok := procStart(pid)
 	if !ok {
@@ -126,9 +97,6 @@ var ownerAlive = func(pid int, start string) bool {
 	return cur == start
 }
 
-// markerOwner reads the owner identity recorded in a marker file. ok is false
-// when the marker has no recorded owner (pre-upgrade markers, or detection
-// failed) — such markers fall back to TTL-based cleanup.
 func markerOwner(markerP string) (pid int, start string, ok bool) {
 	body, err := readMarker(markerP)
 	if err != nil {

@@ -10,13 +10,10 @@ import (
 	"testing"
 )
 
-// fakeSystemDevice emulates the clock's /api/v1/system endpoint, recording
-// what the handlers send it. system always reflects the full config, the way
-// the real device does — there is no "absent key" state.
 type fakeSystemDevice struct {
 	mu       sync.Mutex
 	system   map[string]any
-	lastPut  string // last full PUT /api/v1/system body
+	lastPut  string
 	putCount int
 	failPut  bool
 }
@@ -117,9 +114,6 @@ func TestDeviceSensorsPutMergesFullSystemObjectNoReboot(t *testing.T) {
 	if got := merged["humOffset"]; got != 2.5 {
 		t.Fatalf("humOffset=%v want 2.5", got)
 	}
-	// Unrelated system keys (notably Wi-Fi credentials) must survive the
-	// read-merge-PUT untouched — this is the whole point of not blind-PUTting
-	// a partial object.
 	if got := merged["buttonCallback"]; got != "http://e/hooks" {
 		t.Fatalf("buttonCallback=%v — unrelated system keys must survive", got)
 	}
@@ -129,7 +123,6 @@ func TestDeviceSensorsPutMergesFullSystemObjectNoReboot(t *testing.T) {
 	if dev.putCount != 1 {
 		t.Fatalf("putCount=%d want exactly one PUT", dev.putCount)
 	}
-	// NG applies system changes live; no reboot call was made.
 	if strings.Contains(w.Body.String(), "rebooted") {
 		t.Fatalf("body=%s must not claim a reboot happened", w.Body.String())
 	}

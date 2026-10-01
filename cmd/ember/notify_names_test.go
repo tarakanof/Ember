@@ -12,7 +12,6 @@ import (
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
-// notifyName returns the "name" key of the nth recorded notification.
 func notifyName(t *testing.T, pub *recordingPublisher, n int) string {
 	t.Helper()
 	all := pub.NotifySnapshot()
@@ -57,7 +56,6 @@ func TestReminderChimeStrippedDuringQuietHours(t *testing.T) {
 	cfg := defaultConfig()
 	app := NewApp(cfg, &recordingPublisher{}, testLogger())
 	pub := &recordingPublisher{}
-	// Re-wrap with a quiet gate whose window is always active.
 	app.publisher = &quietPublisher{
 		Publisher: pub,
 		cfg: func() *Config {
@@ -81,8 +79,6 @@ func TestReminderChimeStrippedDuringQuietHours(t *testing.T) {
 	}
 }
 
-// newButtonAckApp returns an app with the Pomodoro engine wired and the button
-// callback on, with a hold:true reminder alarm considered live on the clock.
 func newButtonAckApp(t *testing.T, pub Publisher) *App {
 	t.Helper()
 	cfg := defaultConfig()
@@ -109,8 +105,6 @@ func TestButtonAckDismissesReminderByName(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	// Blind "dismiss whatever is on screen" is impossible at the type level now:
-	// Publisher has no DismissNotify, only DismissNotifyByName.
 	if got := pub.DismissedNamesSnapshot(); len(got) != 1 || got[0] != notifyNameReminder {
 		t.Fatalf("dismissed names = %v, want [%s]", got, notifyNameReminder)
 	}

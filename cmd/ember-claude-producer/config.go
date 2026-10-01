@@ -33,7 +33,7 @@ type Config struct {
 	SessionBarEnabled     bool
 }
 
-// LogValue redacts the token. Implements slog.LogValuer.
+// LogValue redacts the token.
 func (c Config) LogValue() slog.Value {
 	tokenStatus := "unset"
 	if c.Token != "" {
@@ -73,7 +73,6 @@ func loadConfig() (Config, error) {
 	}
 	data, err := producer.ReadEnvFile(path)
 	if err != nil {
-		// Permission/symlink errors: log to stderr, treat as missing
 		fmt.Fprintln(os.Stderr, "warning: ignoring producer.env:", err)
 	}
 	for k, v := range data {

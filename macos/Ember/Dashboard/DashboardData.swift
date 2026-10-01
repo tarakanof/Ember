@@ -2,11 +2,7 @@ import Foundation
 import SwiftUI
 import EmberKit
 
-/// Everything the Dashboard's cards read. Each card reads only its own
-/// properties, so with `LiveDashboardSource` (which forwards to the
-/// observable `LiveModel`) a feed change re-renders only the cards that show
-/// it: the 1 s mirror never rebuilds the heatmap. `DashboardData` is the
-/// plain-value version for previews and snapshot renders.
+/// Everything the Dashboard's cards read.
 @MainActor
 protocol DashboardSource {
     var connection: ConnectionHealth { get }
@@ -21,44 +17,28 @@ protocol DashboardSource {
     var activity: Loadable<ActivitySummary> { get }
     var workhours: Loadable<WorkHours> { get }
     var heatmap: Loadable<Heatmap> { get }
-    /// Due-timed Apple reminders (the app watches them locally).
     var reminders: [UpcomingItem] { get }
     var remindersEnabled: Bool { get }
-    /// nil until the Pomodoro config has loaded.
     var pomoConfig: PomoConfig? { get }
-    /// nil until the meetings config has loaded.
     var meetingsEnabled: Bool? { get }
-    /// The clock's own web UI, when the server knows its address.
     var clockWebURL: URL? { get }
     var calendar: Calendar { get }
-    /// A fixed clock for fixtures; nil means live (cards that show time
-    /// relative to now tick on a `TimelineView`).
     var fixedNow: Date? { get }
     var actions: DashboardActions { get }
 }
 
 extension DashboardSource {
-    /// Card 12 is hidden while weather is off.
     var showsWeather: Bool { weather.value?.enabled != false }
-    /// Card 4 is hidden while both meetings and reminders are off.
     var showsUpcoming: Bool { meetingsEnabled != false || remindersEnabled }
-    /// Card 3 is hidden until some tool has reported usage.
     var showsUsage: Bool { usage.isLoading || !usageRows.isEmpty }
 
-    /// Usage from `GET /v1/usage`, falling back per tool to the 5-hour
-    /// window `/state` sessions carry (the menu's rule) when the snapshot has
-    /// nothing fresh for it, or when the server has no `GET /v1/usage`.
     var usageRows: [UsageRow] {
         let snap = usage.error == .featureOff ? nil : usage.value
         return UsageRow.rows(from: snap, sessions: MenuRows.liveSessions(snapshot), now: fixedNow ?? Date())
     }
 
-    /// Focus length for the goal line; the stats payload doesn't carry it.
     var focusMinutes: Int? { pomoConfig?.focusMinutes }
 
-    /// The server is offline and no card has ever loaded: one window-level
-    /// message instead of a dozen identical cards. Reads the connection
-    /// first, so while online no feed is touched.
     var isOfflineWithNothingLoaded: Bool {
         guard case .offline = connection else { return false }
         let feeds: [(error: FeedError?, hasValue: Bool)] = [
@@ -94,20 +74,14 @@ struct DashboardData: DashboardSource {
     var fixedNow: Date? { now }
 }
 
-/// What the cards can ask the app to do.
 struct DashboardActions {
     var clock: (ClockAction) -> Void = { _ in }
-    /// Clock actions in flight, to disable their buttons.
     var running: Set<EmberAction> = []
-    /// Whether the matrix is lit (`LiveModel.displayPower`); nil hides the switch.
     var displayPower: Bool?
-    /// The state an in-flight display write is setting (`ActionRunner`).
     var pendingDisplayPower: Bool?
 }
 
-/// Copy shared by the cards whose routes arrived with the dashboard API.
 enum ServerRequirement {
-    /// The first server version with the Dashboard read routes.
     static let dashboardVersion = "0.28"
     static var title: LocalizedStringKey { "Needs server \(dashboardVersion)" }
     static let symbol = "arrow.up.circle"

@@ -45,9 +45,7 @@ func TestIncompleteAndBreakPhasesDoNotCountAsFocus(t *testing.T) {
 	s := openTestStore(t)
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 
-	// A stopped focus phase: doesn't count toward completed focus.
 	_ = s.RecordPhase(PhaseResult{Phase: PhaseFocus, PlannedSec: 1500, ActualSec: 120, Completed: false, Reason: "stopped"}, now.Add(-2*time.Minute), now)
-	// A completed break: not a focus phase.
 	_ = s.RecordPhase(PhaseResult{Phase: PhaseShort, PlannedSec: 300, ActualSec: 300, Completed: true, Reason: "completed"}, now.Add(-5*time.Minute), now)
 
 	day, err := s.Today(now)
@@ -69,7 +67,6 @@ func TestStreakCountsConsecutiveDaysAndBreaksOnGap(t *testing.T) {
 			t.Fatalf("RecordPhase: %v", err)
 		}
 	}
-	// Today, yesterday, 2 days ago → streak 3. Gap at 3 days ago. 4 days ago present but unreachable.
 	rec(0)
 	rec(1)
 	rec(2)
@@ -100,7 +97,6 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if val != "30" {
 		t.Fatalf("value = %q, want 30", val)
 	}
-	// Overwrite.
 	if err := s.PutSetting("focus_min", "45"); err != nil {
 		t.Fatalf("PutSetting overwrite: %v", err)
 	}
@@ -129,7 +125,6 @@ func TestHistoryReturnsPerDayRollup(t *testing.T) {
 	if len(hist) != 3 {
 		t.Fatalf("history len = %d, want 3", len(hist))
 	}
-	// Most recent first.
 	if hist[0].CompletedFocus != 2 || hist[1].CompletedFocus != 1 || hist[2].CompletedFocus != 0 {
 		t.Fatalf("history counts = %d,%d,%d, want 2,1,0", hist[0].CompletedFocus, hist[1].CompletedFocus, hist[2].CompletedFocus)
 	}

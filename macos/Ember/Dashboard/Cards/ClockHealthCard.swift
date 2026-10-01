@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Card 11: the clock's own telemetry and how reliably the server reaches it.
 struct ClockHealthCard: View {
     let health: Loadable<ClockHealth>
     var webURL: URL?
@@ -50,8 +49,6 @@ struct ClockHealthCard: View {
             GridRow {
                 cell("Last publish", symbol: "paperplane", value: h.publish.lastAt.map { RelativeText.short($0, now: now) },
                      warn: h.publish.lastAt != nil && !h.publish.lastOk)
-                // No "Showing" cell: current_app lags the clock's rotation
-                // by up to 45 s (see ClockCard).
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,7 +82,6 @@ struct ClockHealthCard: View {
     private func cell(_ title: LocalizedStringKey, symbol: String, variable: Double? = nil, value: String?,
                       note: String? = nil, warn: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            // Orange alone doesn't say "warning" to everyone.
             Image(systemName: warn && differentiateWithoutColor ? "exclamationmark.triangle.fill" : symbol,
                   variableValue: variable)
                 .foregroundStyle(warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))

@@ -2,11 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-// A clock write that runs out of the server's budget (clockWriteBudget)
-// answers 504 {"code":"clock_timeout","write":…}. The app shows it as a slow
-// clock with what happened to the change, not as a server error. A read that
-// runs out (clockReadBudget) answers the same shape without "write".
-
 @Test(arguments: [
     ("not_sent", ClockWriteOutcome.notSent),
     ("unknown", ClockWriteOutcome.unknown),

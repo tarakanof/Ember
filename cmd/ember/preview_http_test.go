@@ -12,7 +12,6 @@ func TestPreviewSourceCardDefaultOnAndOff(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// Common params — no source_card or session_bar; deprecated params are ignored.
 	oldParams := "context_pct=false&rate_bottom_bar=false&activity_detail=false"
 
 	decodeFrames := func(rawURL string) []struct {
@@ -52,7 +51,6 @@ func TestPreviewSourceCardDefaultOnAndOff(t *testing.T) {
 		return false
 	}
 
-	// 1) Old client: no source_card param → defaults to true → source card present.
 	frames := decodeFrames(srv.URL + "/v1/preview?" + oldParams)
 	if !hasCard(frames, "source") {
 		t.Fatalf("case 1 (no source_card param): expected source card, got %v",
@@ -65,14 +63,11 @@ func TestPreviewSourceCardDefaultOnAndOff(t *testing.T) {
 			}())
 	}
 
-	// 2) Explicit source_card=false → source card absent.
 	frames = decodeFrames(srv.URL + "/v1/preview?" + oldParams + "&source_card=false")
 	if hasCard(frames, "source") {
 		t.Fatal("case 2 (source_card=false): source card should be absent")
 	}
 
-	// 3) session_bar=false + rate_bottom_bar=false → bottom bar row (row 7) all black.
-	//    Use source card (always present via default source_card=true) for pixel check.
 	frames = decodeFrames(srv.URL + "/v1/preview?" + oldParams + "&session_bar=false")
 	var sourcePixels []string
 	for _, f := range frames {
@@ -84,7 +79,6 @@ func TestPreviewSourceCardDefaultOnAndOff(t *testing.T) {
 	if sourcePixels == nil {
 		t.Fatal("case 3: source card not found for pixel check")
 	}
-	// Row 7 = pixels [224..255] (32 pixels × row index 7).
 	for i := 224; i < 256; i++ {
 		if sourcePixels[i] != "#000000" {
 			t.Fatalf("case 3 (session_bar=false): row 7 pixel %d = %q, want #000000", i, sourcePixels[i])
@@ -97,13 +91,10 @@ func TestPreviewEndpointOpenAndShaped(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// No /state sessions -> sample fallback (state "running", tool "claude").
-	// Enable context_pct and activity; deprecated params (rate_pct, context_number,
-	// rate_reset) are silently ignored.
 	url := srv.URL + "/v1/preview?context_pct=true&rate_bottom_bar=false" +
 		"&activity_detail=true&source_color=%23ff8800"
 
-	resp, err := http.Get(url) // no Authorization header: endpoint must be open
+	resp, err := http.Get(url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,8 +128,6 @@ func TestPreviewEndpointOpenAndShaped(t *testing.T) {
 			t.Fatalf("card %s pixels = %d, want 256", f.Card, len(f.Pixels))
 		}
 	}
-	// Source card is always present; the tool card is excluded from Frames (no static grid).
-	// Usage cards are present because usage_card defaults true.
 	if !seen["source"] {
 		t.Fatalf("expected source card, got %v", seen)
 	}

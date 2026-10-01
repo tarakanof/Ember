@@ -9,12 +9,11 @@ public struct PomodoroItem: Hashable, Sendable, Identifiable {
     /// SF Symbol.
     public let systemImage: String
     /// The key for ⇧⌘-key, on the one context-sensitive primary item
-    /// (Start / Pause / Resume). nil on the others.
+    /// (Start / Pause / Resume).
     public let shortcutKey: Character?
 
     public var id: PomodoroAction { action }
 
-    // One item per action: the rest is derived from it.
     public static func == (a: PomodoroItem, b: PomodoroItem) -> Bool { a.action == b.action }
     public func hash(into h: inout Hasher) { h.combine(action) }
 }
@@ -24,9 +23,7 @@ public enum PomodoroControls {
     /// The key of the primary control's ⇧⌘ shortcut.
     public static let primaryShortcutKey: Character = "p"
 
-    /// Idle: Start. Running: Pause, Skip, Stop. Paused: Resume, Skip, Stop.
-    /// Parked (between phases, not paused): Resume, Stop. nil (feature off or
-    /// not loaded) is treated as idle.
+    /// Idle: Start.
     public static func items(for state: PomoState?) -> [PomodoroItem] {
         switch state?.mode ?? .idle {
         case .idle: [start]

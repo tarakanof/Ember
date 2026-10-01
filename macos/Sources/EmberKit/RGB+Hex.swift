@@ -1,8 +1,7 @@
 import Foundation
 
 extension RGB {
-    /// Parses a "#rrggbb" string (exactly 6 hex digits after #). Returns nil on
-    /// any other shape. Used to draw the /v1/preview color grid in a SwiftUI Canvas.
+    /// Parses a "#rrggbb" string (exactly 6 hex digits after #).
     public init?(hex: String) {
         guard hex.count == 7, hex.hasPrefix("#") else { return nil }
         let body = hex.dropFirst()

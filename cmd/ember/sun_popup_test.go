@@ -24,7 +24,6 @@ func TestSunPopupFiresOncePerDay(t *testing.T) {
 		t.Fatal("expected sunrise")
 	}
 
-	// At the sunrise instant → fires once with a SUNRISE label.
 	app.checkSunPopups(context.Background(), sunrise, wcfg)
 	pub.mu.Lock()
 	if len(pub.notify) != 1 {
@@ -35,7 +34,6 @@ func TestSunPopupFiresOncePerDay(t *testing.T) {
 	}
 	pub.mu.Unlock()
 
-	// A minute later (still in grace) → no duplicate.
 	app.checkSunPopups(context.Background(), sunrise.Add(time.Minute), wcfg)
 	pub.mu.Lock()
 	if len(pub.notify) != 1 {
@@ -48,7 +46,6 @@ func TestSunPopupSkippedWhenDisabledOrBeforeEvent(t *testing.T) {
 	date := time.Date(2024, 3, 20, 0, 0, 0, 0, time.UTC)
 	sunrise, _, _ := sunTimes(10, 10, date)
 
-	// Disabled → nothing.
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
 	cfg.Weather.applyDefaults()
@@ -63,7 +60,6 @@ func TestSunPopupSkippedWhenDisabledOrBeforeEvent(t *testing.T) {
 		t.Errorf("disabled sun popups fired %d", got)
 	}
 
-	// Enabled but well before the event → nothing.
 	pub2 := &recordingPublisher{}
 	cfg2 := defaultConfig()
 	cfg2.Weather.applyDefaults()

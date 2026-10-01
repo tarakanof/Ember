@@ -50,7 +50,6 @@ private func bodyObject(_ req: URLRequest) throws -> [String: Any] {
 }
 
 @Test func melodiesDecodesNGList() async throws {
-    // Shape from device_audio_test.go / NG's GET /api/v1/audio/melodies.
     let json = #"""
     {"melodies":[
       {"name":"doorbell","rtttl":"doorbell:d=4,o=5,b=100:e,c","bytes":26,"notes":2,"durationMs":2400,"valid":true},
@@ -89,7 +88,6 @@ private func bodyObject(_ req: URLRequest) throws -> [String: Any] {
     let d = try JSONDecoder().decode(DeviceDisplay.self, from: Data(json.utf8))
     #expect(d.power == false)
     #expect(d.overlay == "rain")
-    // PUT /v1/device/display rejects power; it has its own route.
     let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(d)) as! [String: Any]
     #expect(obj.index(forKey: "power") == nil)
 }

@@ -1,7 +1,6 @@
 import Foundation
 
-/// Mirror of the server's `GET /version` payload (unauthenticated). Used to show
-/// the connected server build in the App tab so app↔server skew is visible.
+/// Mirror of the server's `GET /version` payload (unauthenticated).
 public struct VersionInfo: Codable, Sendable {
     public var binary: String?
     public var version: String?
@@ -15,17 +14,14 @@ public struct VersionInfo: Codable, Sendable {
     }
 
     /// The release version alone ("0.29.0"), for places that show just the
-    /// build: no commit and no dirty marker. nil for a local "dev" build or a
-    /// server that reports none.
+    /// build: no commit and no dirty marker.
     public var release: String? {
         guard var ver = version?.trimmingCharacters(in: .whitespaces), !ver.isEmpty, ver != "dev" else { return nil }
         if ver.hasPrefix("v") { ver.removeFirst() }
         return ver.isEmpty ? nil : ver
     }
 
-    /// Short human-readable form. A released server reports a semver, shown with
-    /// the commit, e.g. "0.9.0 · 44143ca"; a local/"dev" or older server (no
-    /// semver) falls back to "ember @ 44143ca" (or "…-dirty").
+    /// Short human-readable form.
     public var short: String {
         let rev = String((revision ?? "").prefix(7))
         let suffix = dirty == true ? "-dirty" : ""

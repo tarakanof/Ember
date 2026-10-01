@@ -2,61 +2,34 @@ package render
 
 import "fmt"
 
-// awtrix-ng wire encoding. awtrix-ng validates payloads strictly: one unknown
-// key rejects the whole push with 422 and names the offending field, so every
-// NG spelling this package emits is spelled once, here.
-//
-// Reference: https://blueforcer.github.io/awtrix-ng/reference/payload/
-
-// ngMaxPayloadBytes is NG's HTTP body limit; a larger body is refused with 413
-// and nothing is applied. Only the 32×8 full-frame bitmap tiles come anywhere
-// near it (~2.4 KB worst case).
 const ngMaxPayloadBytes = 8192
 
-// msOf converts whole seconds to the milliseconds NG's durationMs/lifetimeMs
-// take. AWTRIX3's duration/lifetime were seconds; forgetting the ×1000 is a
-// silent 1000× shortening, not an error, so all conversions route through here.
 func msOf(seconds int) int { return seconds * 1000 }
 
-// bitmapOp builds NG's ["bitmap", x, y, w, h, data] draw command — the array
-// form that replaced AWTRIX3's {"db": [x, y, w, h, pixels]} object. data stays
-// an array of packed 0xRRGGBB ints, one of the two encodings NG accepts (the
-// other is base64 RGB888), so the existing framePixels output feeds it directly.
 func bitmapOp(x, y, w, h int, data []int) []any {
 	return []any{"bitmap", x, y, w, h, data}
 }
 
-// scrollStatic is NG's "this text never moves" scroll object, replacing
-// AWTRIX3's noScroll:true. For text known to fit the panel.
 func scrollStatic() map[string]any {
 	return map[string]any{"mode": "static"}
 }
 
-// scrollStaticWhenFits asks NG to leave text at rest when it fits the panel and
-// scroll it only when it overflows — the native replacement for Ember's old
-// len(text)<=5 character-count gate. whenFits is a string enum, NOT a bool: a
-// bool is rejected with 422 field "scroll.whenFits" (verified on firmware
-// 1.0.13). Set explicitly rather than relying on the default, because every
-// scroll field inherits individually from the device's global scroll setting.
 func scrollStaticWhenFits() map[string]any {
 	return map[string]any{"whenFits": "static"}
 }
 
 // NG's six weather overlays, drawn over the whole page after text, draw ops and
-// icon (reference/payload "Overlay"). An unknown name is a 422, so these are
-// the only spellings Ember sends. NG has no fog overlay.
+// icon (reference/payload "Overlay").
 const (
 	OverlayRain    = "rain"
 	OverlayDrizzle = "drizzle"
 	OverlaySnow    = "snow"
-	OverlayStorm   = "storm"   // dense wind-slanted streaks
-	OverlayThunder = "thunder" // storm plus irregular white flashes
-	OverlayFrost   = "frost"   // static icy crust along the top and bottom edges
+	OverlayStorm   = "storm"
+	OverlayThunder = "thunder"
+	OverlayFrost   = "frost"
 )
 
-// WithOverlay sets p's per-app weather overlay and returns p. An empty name
-// leaves p untouched: an absent key and "" both fall back to the device's
-// global overlay, and omitting it keeps the payload shorter.
+// WithOverlay sets p's per-app weather overlay and returns p.
 func WithOverlay(p map[string]any, name string) map[string]any {
 	if name != "" {
 		p["overlay"] = name
@@ -64,51 +37,19 @@ func WithOverlay(p map[string]any, name string) map[string]any {
 	return p
 }
 
-// pinText fixes the text behaviour of a payload that carries free text (a
-// reminder, a meeting title, a /v1/notify message), which NG would otherwise
-// inherit from the clock's global settings: textCase "upper", because the
-// previews draw only uppercase and the global uppercase setting can be off;
-// and scrollStaticWhenFits, the motion the agent cards already pin. Returns p.
 func pinText(p map[string]any) map[string]any {
 	p["textCase"] = "upper"
 	p["scroll"] = scrollStaticWhenFits()
 	return p
 }
 
-// readOnce makes a notification stay until its text has scrolled through
-// once (NG repeat:1), however long it is. NG still honours durationMs as a
-// minimum, so a short label keeps its configured dwell; text that fits does
-// not scroll and is unaffected. Returns p.
 func readOnce(p map[string]any) map[string]any {
 	p["repeat"] = 1
 	return p
 }
 
-// applyHold marks a pushed-app payload as "this app takes and keeps the screen"
-// — Ember's display hold, formerly AWTRIX3's prio+force pair.
-//
-// NG has no per-payload priority: prio and force are not in the pushed-app
-// schema and 422 the entire push (verified on firmware 1.0.13:
-// {"code":"validationFailed","message":"unknown key \"prio\"","field":"prio"}).
-// The only lever a payload has is its dwell, so a held frame requests a dwell as
-// long as its own lifetime — it then occupies its rotation slot for the whole
-// time Ember intends to own the screen.
-//
-// The jump onto the screen is a device-level operation, not a payload one, and
-// the coordinator owns it (applyDisplayHold): PUT /api/v1/apps/active moves the
-// display to the app, and this long dwell is what then keeps it there. Measured
-// on firmware 1.0.13 against a live 7-app rotation: the dwell is honoured
-// exactly, both when the rotation arrives at the slot on its own (durationMs
-// 90000 → held 90 s, cut short only by the lifetime expiring) and after a forced
-// switch (durationMs 30000 → 31 s; durationMs 6000 → 6.7 s). At lifetimeMs the
-// app is deleted outright (lifetimeExpiry defaults to "remove") and the display
-// returns to the native rotation — which is what Ember's idle model relies on.
 func applyHold(p map[string]any, lifetimeSeconds int) {
 	p["durationMs"] = msOf(lifetimeSeconds)
 }
 
-// hexOf formats an RGB as NG's canonical colour string "#RRGGBB". NG also
-// accepts bare "RRGGBB", "#RGB", [r,g,b] and packed ints, but every Ember colour
-// field uses this one form: it is what the device echoes back on reads, and it
-// is the form isHexColor/parseHex already validate on the way in.
 func hexOf(c RGB) string { return fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B) }

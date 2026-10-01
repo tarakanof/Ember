@@ -7,11 +7,6 @@ import (
 	"testing"
 )
 
-// These tests cover upgrading from the pre-rebrand binary
-// (awtrix-claude-producer): install must REPLACE its leftover hook/statusLine
-// entries rather than leaving them to double-fire alongside the new ones, and
-// uninstall must remove them too.
-
 const legacyHookSettings = `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/old/bin/awtrix-claude-producer hook stop"}]}]}}` + "\n"
 
 func TestMergeSettings_ReplacesLegacyAwtrixHooks(t *testing.T) {

@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// Records fetches and answers each feed with a scripted result.
 @MainActor
 private final class FakeFeeds {
     var calls: [Feed] = []
@@ -38,7 +37,7 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     let (c, clock, feeds) = makeCoordinator()
     c.start()
     await clock.advance(by: .seconds(59))
-    #expect(feeds.count(.state) == 20)          // t = 0, 3, …, 57
+    #expect(feeds.count(.state) == 20)
     #expect(feeds.count(.stats) == 1)
     await clock.advance(by: .seconds(1))
     #expect(feeds.count(.stats) == 2)
@@ -51,7 +50,7 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     c.start()
     c.hold([.screen])
     await clock.advance(by: .milliseconds(2500))
-    #expect(feeds.count(.screen) == 3)          // t = 0, 1, 2
+    #expect(feeds.count(.screen) == 3)
     c.release([.screen])
     #expect(!c.isActive(.screen))
     await clock.advance(by: .seconds(10))
@@ -63,12 +62,12 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     let (c, clock, feeds) = makeCoordinator()
     c.start()
     c.hold([.clockHealth])
-    c.hold([.clockHealth, .clockHealth])      // a duplicate in one call counts once
+    c.hold([.clockHealth, .clockHealth])
     #expect(c.holdCount(.clockHealth) == 2)
     c.release([.clockHealth])
     #expect(c.isActive(.clockHealth))
     await clock.advance(by: .seconds(16))
-    #expect(feeds.count(.clockHealth) == 2)     // t = 0, 15
+    #expect(feeds.count(.clockHealth) == 2)
     c.release([.clockHealth])
     #expect(!c.isActive(.clockHealth))
     #expect(c.holdCount(.clockHealth) == 0)
@@ -84,12 +83,11 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
 
     c.hold([.stats])
     #expect(c.cadence(for: .stats) == .seconds(30))
-    // The loop slept for 60 s at t = 0; the hold wakes it onto 30 s.
-    await clock.advance(by: .seconds(21))       // t = 31
-    #expect(feeds.count(.stats) == 2)           // fetched at t = 30
+    await clock.advance(by: .seconds(21))
+    #expect(feeds.count(.stats) == 2)
 
     c.release([.stats])
-    await clock.advance(by: .seconds(58))       // t = 89: next is t = 90
+    await clock.advance(by: .seconds(58))
     #expect(feeds.count(.stats) == 2)
     await clock.advance(by: .seconds(1))
     #expect(feeds.count(.stats) == 3)
@@ -100,15 +98,15 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     let (c, clock, feeds) = makeCoordinator()
     feeds.results[.state] = .failed(.offline)
     c.start()
-    await clock.advance(by: .seconds(7))        // t = 0, 3, 6
+    await clock.advance(by: .seconds(7))
     #expect(feeds.count(.state) == 3)
     #expect(c.interval(for: .state) == .seconds(15))
-    await clock.advance(by: .seconds(13))       // t = 20; t = 21 is next
+    await clock.advance(by: .seconds(13))
     #expect(feeds.count(.state) == 3)
     await clock.advance(by: .seconds(1))
     #expect(feeds.count(.state) == 4)
 
-    await clock.advance(by: .seconds(15 * 6))   // failures 5…10
+    await clock.advance(by: .seconds(15 * 6))
     #expect(c.consecutiveFailures(.state) == 10)
     #expect(c.interval(for: .state) == .seconds(60))
 
@@ -130,7 +128,6 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     var p = FeedPacing()
     #expect(p.record(.failed(.rateLimited, retryAfter: .seconds(4)), tier: .a) == .seconds(4))
     #expect(p.record(.failed(.rateLimited, retryAfter: .seconds(4)), tier: .a) == .seconds(8))
-    // A 429 doesn't count as the server failing.
     #expect(p.consecutiveFailures == 0)
     #expect(p.record(.ok, tier: .a) == .zero)
     #expect(p.record(.failed(.rateLimited, retryAfter: .seconds(2)), tier: .a) == .seconds(2))
@@ -152,7 +149,7 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     c.start()
     c.hold([.screen])
     await clock.advance(by: .milliseconds(6500))
-    #expect(feeds.count(.screen) == 3)          // t = 0, 3, 6
+    #expect(feeds.count(.screen) == 3)
     c.stop()
 }
 
@@ -182,7 +179,7 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     #expect(feeds.count(.stats) == 1)
     await c.refreshNow([.stats])
     #expect(feeds.count(.stats) == 2)
-    await clock.advance(by: .seconds(30))       // t = 70: the t = 60 poll moved to t = 100
+    await clock.advance(by: .seconds(30))
     #expect(feeds.count(.stats) == 2)
     await clock.advance(by: .seconds(30))
     #expect(feeds.count(.stats) == 3)
@@ -260,10 +257,6 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     #expect(feeds.count(.stats) == 1)
 }
 
-/// A caller that joins a running fetch must see that fetch's bookkeeping done
-/// when it resumes. Before, only the caller that started the fetch recorded it;
-/// a joiner (a feed's loop) that resumed first found the finished task still in
-/// flight, re-joined it without suspending and spun the main actor forever.
 @MainActor @Test func aJoinedFetchIsRecordedBeforeAnyCallerResumes() async {
     let clock = ManualClock()
     var gate: CheckedContinuation<Void, Never>?
@@ -285,7 +278,6 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     #expect(calls == 1)
     #expect(seen.count == 2)
     #expect(seen.allSatisfy { $0 != nil })
-    // A third tick after completion starts a fresh fetch, not a stale join.
     let third = Task { await c.tick(.stats) }
     while calls < 2 { await Task.yield() }
     gate?.resume()
@@ -293,8 +285,6 @@ private func makeCoordinator() -> (RefreshCoordinator, ManualClock, FakeFeeds) {
     #expect(calls == 2)
 }
 
-/// A fetch dropped by a server switch must not record its failure against the
-/// new server: no backoff, no timestamp that would delay the first new fetch.
 @MainActor @Test func aForgottenFetchDoesNotRecordAgainstTheNewServer() async {
     let clock = ManualClock()
     var gate: CheckedContinuation<Void, Never>?

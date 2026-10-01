@@ -11,32 +11,10 @@ import (
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
-// This file serves the read-only endpoints behind the native macOS dashboard
-// (issue #110): usage, agent activity and weather; clock health lives in
-// clock_health_http.go. They are unauthenticated like /state and the previews,
-// so none of them carries a secret: no clock/ICS URL, Wi-Fi SSID/IP, device
-// UID, button presses, or home coordinates (sun times are rounded for that).
-//
-// Wire conventions, chosen for Swift's JSONDecoder (.iso8601) and Swift Charts:
-// timestamps are RFC 3339 with whole seconds (the .iso8601 strategy rejects
-// fractional seconds); "no value" is null rather than a zero sentinel; series
-// are arrays of points; every quantity names its unit in the key (_sec,
-// _percent, _c, _dbm, _bytes, _ugm3).
-//
-// Each handler is a thin wrapper over a build* method that takes `now`; the
-// response is rendered in now's location. The golden tests
-// (testdata/dashboard/*.json) call the builders with a fixed instant, and the
-// EmberKit decode tests read the same files.
-
-// errDashboardInternal is the body of a 500 on an open endpoint; the cause is
-// logged, not returned, so storage errors don't leak to unauthenticated callers.
 var errDashboardInternal = errors.New("internal error")
 
-// wireTime renders t in loc, truncated to whole seconds so it marshals without
-// a fraction.
 func wireTime(t time.Time, loc *time.Location) time.Time { return t.In(loc).Truncate(time.Second) }
 
-// wireTimePtr is wireTime for optional instants: the zero time becomes nil.
 func wireTimePtr(t time.Time, loc *time.Location) *time.Time {
 	if t.IsZero() {
 		return nil
@@ -45,31 +23,26 @@ func wireTimePtr(t time.Time, loc *time.Location) *time.Time {
 	return &w
 }
 
-// ---- GET /v1/usage ----
-
-// usageWindowOut is one quota window on the wire.
 type usageWindowOut struct {
 	UsedPercent float64    `json:"used_percent"`
 	ResetsAt    *time.Time `json:"resets_at"`
 	ResetLabel  *string    `json:"reset_label"`
 }
 
-// usageToolOut is the latest snapshot one tool's producer posted.
 type usageToolOut struct {
 	Tool      string                    `json:"tool"`
 	Source    *string                   `json:"source"`
 	UpdatedAt time.Time                 `json:"updated_at"`
-	Stale     bool                      `json:"stale"` // older than stale_after_sec; the clock hides it too
+	Stale     bool                      `json:"stale"`
 	FiveHour  *usageWindowOut           `json:"five_hour"`
 	SevenDay  *usageWindowOut           `json:"seven_day"`
-	Models    map[string]usageWindowOut `json:"models"` // keyed by model name, e.g. "opus"
+	Models    map[string]usageWindowOut `json:"models"`
 }
 
-// usageSnapshotOut is the GET /v1/usage response.
 type usageSnapshotOut struct {
 	GeneratedAt   time.Time      `json:"generated_at"`
 	StaleAfterSec int            `json:"stale_after_sec"`
-	Tools         []usageToolOut `json:"tools"` // sorted by tool name
+	Tools         []usageToolOut `json:"tools"`
 }
 
 func optString(s string) *string {
@@ -91,7 +64,6 @@ func usageWindowWire(w *UsageWindow, loc *time.Location) *usageWindowOut {
 	return out
 }
 
-// buildUsageSnapshot assembles GET /v1/usage as of now.
 func (a *App) buildUsageSnapshot(now time.Time) usageSnapshotOut {
 	loc := now.Location()
 	all := a.usage.All()
@@ -121,25 +93,16 @@ func (a *App) buildUsageSnapshot(now time.Time) usageSnapshotOut {
 	return out
 }
 
-// handleUsageSnapshot serves GET /v1/usage: the latest per-tool subscription
-// usage the producers POSTed, which /state only leaks as the 5h percent.
 func (a *App) handleUsageSnapshot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.buildUsageSnapshot(time.Now()))
 }
 
-// ---- GET /v1/activity/summary ----
-
 var errActivityUnavailable = errors.New("activity store is not available")
 
-// activityMaxDays caps ?days: the endpoint is open and each request walks every
-// heartbeat in the window on the store's single connection.
 const activityMaxDays = 90
 
-// sourceColorMemo remembers the last source_color each producer source posted,
-// so activity charts can colour sources that have no live session. In memory
-// only: it refills as producers post. The zero value is ready to use.
 type sourceColorMemo struct {
-	mu     sync.Mutex // protects colors
+	mu     sync.Mutex
 	colors map[string]string
 }
 
@@ -155,7 +118,6 @@ func (m *sourceColorMemo) remember(source string, color *string) {
 	m.colors[source] = *color
 }
 
-// lookup returns the remembered colour for source, or nil.
 func (m *sourceColorMemo) lookup(source string) *string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -165,73 +127,58 @@ func (m *sourceColorMemo) lookup(source string) *string {
 	return nil
 }
 
-// activityTotalsOut is one rollup row. Key is the tool name and is omitted on
-// the window total.
 type activityTotalsOut struct {
 	Key       string `json:"key,omitempty"`
 	ActiveSec int    `json:"active_sec"`
 	Sessions  int    `json:"sessions"`
-	Attention int    `json:"attention"` // waiting episodes (agent asked for input)
+	Attention int    `json:"attention"`
 }
 
-// activitySourceTotalsOut is a by_source row: Key is the source name and
-// SourceColor is "#RRGGBB", or null until the source posts one — the same
-// convention as daily_by_source.
 type activitySourceTotalsOut struct {
 	activityTotalsOut
 	SourceColor *string `json:"source_color"`
 }
 
-// activityWindowOut summarises the heartbeats in [from, to).
 type activityWindowOut struct {
 	From     time.Time                 `json:"from"`
 	To       time.Time                 `json:"to"`
 	Total    activityTotalsOut         `json:"total"`
-	ByTool   []activityTotalsOut       `json:"by_tool"`   // most active first
-	BySource []activitySourceTotalsOut `json:"by_source"` // most active first
+	ByTool   []activityTotalsOut       `json:"by_tool"`
+	BySource []activitySourceTotalsOut `json:"by_source"`
 }
 
-// activityToolDay is one (day, tool) bar for a stacked daily chart.
 type activityToolDay struct {
-	Day       string    `json:"day"`  // logical day, "2006-01-02"
-	Date      time.Time `json:"date"` // local midnight of Day, for a chart's date axis
+	Day       string    `json:"day"`
+	Date      time.Time `json:"date"`
 	Tool      string    `json:"tool"`
 	ActiveSec int       `json:"active_sec"`
 	Sessions  int       `json:"sessions"`
 	Attention int       `json:"attention"`
 }
 
-// activitySourceDay is one (day, source) bar, coloured by the source.
 type activitySourceDay struct {
 	Day         string    `json:"day"`
 	Date        time.Time `json:"date"`
 	Source      string    `json:"source"`
-	SourceColor *string   `json:"source_color"` // "#RRGGBB"; null until the source posts one
+	SourceColor *string   `json:"source_color"`
 	ActiveSec   int       `json:"active_sec"`
 	Sessions    int       `json:"sessions"`
 	Attention   int       `json:"attention"`
 }
 
-// activitySummaryOut is the GET /v1/activity/summary response.
 type activitySummaryOut struct {
 	GeneratedAt time.Time `json:"generated_at"`
-	// Recording is false while work_hours_include_activity is off: no new
-	// heartbeats are stored, so recent windows read as zero.
+	// Recording is false while work_hours_include_activity is off: no new heartbeats are stored, so recent windows read as zero.
 	Recording bool `json:"recording"`
 	Days      int  `json:"days"`
-	// SpanGapSec: running heartbeats of one session no more than this apart
-	// form one active span. A span ends at its last heartbeat and a lone
-	// heartbeat is zero-width, so short bursts under-count by up to one
-	// recording interval (2 min); spans are also cut at the day start.
+	// SpanGapSec: running heartbeats of one session no more than this apart form one active span.
 	SpanGapSec    int                 `json:"span_gap_sec"`
 	Today         activityWindowOut   `json:"today"`
-	Period        activityWindowOut   `json:"period"`          // the last Days logical days, today included
-	Daily         []activityToolDay   `json:"daily"`           // oldest first, zero-filled per tool
-	DailyBySource []activitySourceDay `json:"daily_by_source"` // oldest first, zero-filled per source
+	Period        activityWindowOut   `json:"period"`
+	Daily         []activityToolDay   `json:"daily"`
+	DailyBySource []activitySourceDay `json:"daily_by_source"`
 }
 
-// logicalDayStart is the instant the logical day containing t began: the
-// day-start hour on that calendar day in loc (see logicalDayKey).
 func logicalDayStart(t time.Time, dayStartHour int, loc *time.Location) time.Time {
 	d := t.In(loc).Add(-time.Duration(dayStartHour) * time.Hour)
 	return time.Date(d.Year(), d.Month(), d.Day(), dayStartHour, 0, 0, 0, loc)
@@ -241,7 +188,6 @@ func activityByTool(r pomodoro.ActivityRecord) string   { return r.Tool }
 func activityBySource(r pomodoro.ActivityRecord) string { return r.Source }
 func activityAll(pomodoro.ActivityRecord) string        { return "" }
 
-// activityGroups flattens a rollup into rows, most active first.
 func activityGroups(m map[string]pomodoro.ActivityTotals) []activityTotalsOut {
 	out := make([]activityTotalsOut, 0, len(m))
 	for k, t := range m {
@@ -253,7 +199,6 @@ func activityGroups(m map[string]pomodoro.ActivityTotals) []activityTotalsOut {
 	return out
 }
 
-// sourceGroups is activityGroups for sources, adding each source's colour.
 func (a *App) sourceGroups(m map[string]pomodoro.ActivityTotals) []activitySourceTotalsOut {
 	rows := activityGroups(m)
 	out := make([]activitySourceTotalsOut, 0, len(rows))
@@ -281,8 +226,6 @@ func (a *App) activityWindow(acts []pomodoro.ActivityRecord, from, to time.Time,
 	}
 }
 
-// buildActivitySummary assembles GET /v1/activity/summary for the last `days`
-// logical days as of now; days and hours bucket in now's location.
 func (a *App) buildActivitySummary(now time.Time, days int) (activitySummaryOut, error) {
 	p := a.cfg.Load().Pomodoro
 	loc := now.Location()
@@ -337,10 +280,6 @@ func (a *App) buildActivitySummary(now time.Time, days int) (activitySummaryOut,
 	}, nil
 }
 
-// handleActivitySummary serves GET /v1/activity/summary?days=7 (1..90): agent
-// activity (from the heartbeats behind the work-hours overlay) per tool and per
-// source for today and the last `days` days, plus daily per-tool and
-// per-source series.
 func (a *App) handleActivitySummary(w http.ResponseWriter, r *http.Request) {
 	if a.store == nil {
 		writeError(w, http.StatusNotFound, errActivityUnavailable)
@@ -356,32 +295,23 @@ func (a *App) handleActivitySummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// ---- GET /v1/weather/state ----
-
-// sunRounding coarsens sunrise/sunset on the open endpoint: to the second they
-// pin the configured coordinates to a few hundred metres, while the dashboard
-// only shows HH:mm.
 const sunRounding = 5 * time.Minute
 
-// tempPoint is one hourly forecast temperature.
 type tempPoint struct {
 	Time  time.Time `json:"time"`
 	TempC float64   `json:"temp_c"`
 }
 
-// aqiPoint is one hourly European AQI forecast value.
 type aqiPoint struct {
 	Time time.Time `json:"time"`
 	AQI  float64   `json:"european_aqi"`
 }
 
-// weatherCurrentOut is the cached provider observation.
 type weatherCurrentOut struct {
 	FetchedAt time.Time `json:"fetched_at"`
-	Stale     bool      `json:"stale"` // older than the tile TTL; the clock has dropped the tile
+	Stale     bool      `json:"stale"`
 	Condition string    `json:"condition"`
-	// ConditionCode is the provider's raw code (WMO code for open-meteo,
-	// symbol_code for met-no); Provider says which. Null on old observations.
+	// ConditionCode is the provider's raw code (WMO code for open-meteo, symbol_code for met-no); Provider says which.
 	ConditionCode *string `json:"condition_code"`
 	Severe        bool    `json:"severe"`
 	TempC         float64 `json:"temp_c"`
@@ -389,7 +319,6 @@ type weatherCurrentOut struct {
 	Hourly []tempPoint `json:"hourly"`
 }
 
-// airOut is the cached air-quality observation.
 type airOut struct {
 	FetchedAt time.Time  `json:"fetched_at"`
 	Stale     bool       `json:"stale"`
@@ -399,28 +328,23 @@ type airOut struct {
 	Hourly    []aqiPoint `json:"hourly"`
 }
 
-// sunOut is today's sunrise and sunset, rounded to sunRounding.
 type sunOut struct {
 	Sunrise time.Time `json:"sunrise"`
 	Sunset  time.Time `json:"sunset"`
 }
 
-// weatherStateOut is the GET /v1/weather/state response. Temperatures are
-// always Celsius; Units is the user's display preference for converting.
 type weatherStateOut struct {
 	GeneratedAt time.Time `json:"generated_at"`
 	Enabled     bool      `json:"enabled"`
 	Provider    string    `json:"provider"`
 	Units       string    `json:"units"`
-	// LocationName is the label the user typed for the location (never the
-	// coordinates); null when unset.
+	// LocationName is the label the user typed for the location (never the coordinates); null when unset.
 	LocationName *string            `json:"location_name"`
-	Current      *weatherCurrentOut `json:"current"` // null until the first successful fetch
-	Air          *airOut            `json:"air"`     // null until the first air-quality fetch
-	Sun          *sunOut            `json:"sun"`     // null without a location, or in polar day/night
+	Current      *weatherCurrentOut `json:"current"`
+	Air          *airOut            `json:"air"`
+	Sun          *sunOut            `json:"sun"`
 }
 
-// buildWeatherState assembles GET /v1/weather/state from the poller's cache.
 func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 	loc := now.Location()
 	cfg := a.cfg.Load().Weather
@@ -473,8 +397,6 @@ func (a *App) buildWeatherState(now time.Time) weatherStateOut {
 	return out
 }
 
-// handleWeatherState serves GET /v1/weather/state: the poller's cached
-// observation (no provider call). The coordinates are never echoed.
 func (a *App) handleWeatherState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a.buildWeatherState(time.Now()))
 }

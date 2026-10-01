@@ -1,8 +1,7 @@
 import SwiftUI
 import EmberKit
 
-/// The sidebar's panes. The raw values (`SettingsPaneID`) are the
-/// cross-window contract: `openSettings(pane: "connection", …)`.
+/// The sidebar's panes; raw values are the cross-window contract for `openSettings(pane:)`.
 typealias SettingsPane = SettingsPaneID
 
 extension SettingsPaneID {
@@ -35,8 +34,6 @@ extension SettingsPaneID {
     }
 }
 
-/// Switches the open Settings window to a pane (the selection lives in the
-/// `settings.pane` default the sidebar reads).
 @MainActor
 func showSettingsPane(_ pane: SettingsPaneID) {
     UserDefaults.standard.set(pane.rawValue, forKey: SettingsPaneID.storageKey)

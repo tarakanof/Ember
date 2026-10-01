@@ -109,9 +109,6 @@ func TestExtractWeekPct(t *testing.T) {
 	}
 }
 
-// A malformed rate_limits.seven_day (wrong type) must not parse into a usable
-// value — parseStatusline should either fail outright or leave SevenDay nil,
-// and extractWeekPct must report ok=false either way.
 func TestExtractWeekPct_Malformed(t *testing.T) {
 	if in, ok := parseStatusline([]byte(`{"rate_limits":{"seven_day":"not-an-object"}}`)); ok {
 		if _, gotOK := extractWeekPct(in); gotOK {
@@ -133,8 +130,6 @@ func TestExtractWeekResetAt(t *testing.T) {
 }
 
 func TestExtractWeekResetLabel(t *testing.T) {
-	// 1778700000 unix -> a specific instant; just assert it round-trips through
-	// dayLabel the same way usage.go's poller path would for the same instant.
 	in, _ := parseStatusline([]byte(`{"rate_limits":{"seven_day":{"used_percentage":20,"resets_at":1778700000}}}`))
 	got, ok := extractWeekResetLabel(in)
 	if !ok {
@@ -164,7 +159,6 @@ func TestExtractRateResetAt(t *testing.T) {
 
 func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	dir := t.TempDir()
-	// seed a marker via a hook upsert
 	markerP := markerPath(dir, "sess1")
 	lockP := lockPath(dir, "sess1")
 	cfg := Config{Source: "mbp", ServerURL: "http://x"}
@@ -192,7 +186,6 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	if req.RateWeekResetLabel != "MON" {
 		t.Errorf("RateWeekResetLabel = %q, want MON", req.RateWeekResetLabel)
 	}
-	// A subsequent hook upsert must PRESERVE the statusline-owned reset + label.
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "sess1", "running", "m2", "", markerP, lockP)
 	raw2, _ := readMarker(markerP)
 	var req2 StatusRequest
@@ -205,8 +198,6 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	}
 }
 
-// The statusline runs often; it must not strip the owner-liveness fields the
-// hook recorded, or the heartbeat could never detect an ungraceful close.
 func TestEnrichMarker_PreservesOwner(t *testing.T) {
 	dir := t.TempDir()
 	mp := markerPath(dir, "sess1")
@@ -282,7 +273,6 @@ func TestEnrichMarker(t *testing.T) {
 		t.Errorf("hook fields not preserved: %+v", req)
 	}
 
-	// nil ctx leaves context_pct untouched (rate-only enrichment).
 	if err := enrichMarker(dir, "sess1", ratePtr(80), nil, nil, "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +286,6 @@ func TestEnrichMarker(t *testing.T) {
 		t.Errorf("rate should update to 80, got %v", req.RateWindowPct)
 	}
 
-	// Absent marker → not created.
 	if err := enrichMarker(dir, "ghost", ratePtr(50), ratePtr(50), nil, "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +293,6 @@ func TestEnrichMarker(t *testing.T) {
 		t.Error("ghost marker should not be created")
 	}
 
-	// Unparseable marker → untouched.
 	bad := markerPath(dir, "bad")
 	if err := os.WriteFile(bad, []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
@@ -317,9 +305,6 @@ func TestEnrichMarker(t *testing.T) {
 	}
 }
 
-// TestEnrichMarker_Week covers the seven_day (weekly) fields: set, then a
-// nil weekPct on a later enrich call must leave the previous value untouched
-// (same "never clears" contract as the five-hour and context fields).
 func TestEnrichMarker_Week(t *testing.T) {
 	dir := t.TempDir()
 	mp := markerPath(dir, "sess1")
@@ -343,8 +328,6 @@ func TestEnrichMarker_Week(t *testing.T) {
 		t.Errorf("rate_week_reset_label = %q, want MON", req.RateWeekResetLabel)
 	}
 
-	// A later enrich call with weekPct=nil (e.g. seven_day absent from a
-	// statusline payload) must NOT clear the previously stored value.
 	if err := enrichMarker(dir, "sess1", ratePtr(10), nil, nil, "", nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}

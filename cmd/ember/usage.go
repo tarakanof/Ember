@@ -22,9 +22,7 @@ type ToolUsage struct {
 	UpdatedAt time.Time               `json:"updated_at"`
 }
 
-// UsageStore is an in-memory, concurrency-safe per-tool usage cache. It is
-// deliberately NOT persisted: every entry refreshes on a <=5-min cadence, so a
-// restart self-heals within one interval.
+// UsageStore is an in-memory, concurrency-safe per-tool usage cache.
 type UsageStore struct {
 	mu     sync.RWMutex
 	byTool map[string]ToolUsage

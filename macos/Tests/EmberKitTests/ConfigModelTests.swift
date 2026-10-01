@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// A fake store: scripted load value, a queue of errors to throw, and a log
-/// of saved values.
 private final class Store: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: Int
@@ -200,7 +198,7 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
     m.draft = 2
     let save = Task { await m.saveNow() }
     await clock.settle()
-    m.draft = 3                                  // while the first save waits out a 429
+    m.draft = 3
     await clock.advance(by: .seconds(1))
     await save.value
     #expect(store.saved == [2])
@@ -271,8 +269,6 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
     m.draft = 2
     await m.saveNow()
     #expect(m.saveError == .offline)
-    // The server is back: the next reload (pane appear, ⌘R) saves the edit
-    // instead of skipping because of it.
     await m.load()
     #expect(store.saved == [2])
     #expect(m.saveError == nil)

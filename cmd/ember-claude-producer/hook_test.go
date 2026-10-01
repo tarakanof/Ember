@@ -13,7 +13,6 @@ import (
 	"testing"
 )
 
-// hookHarness builds a temp HOME, a fake server, and minimal config.
 type hookHarness struct {
 	t       *testing.T
 	home    string
@@ -81,10 +80,6 @@ func TestHook_UserPromptSubmit_UpsertsRunning(t *testing.T) {
 	}
 }
 
-// Stop no longer deletes: the session stays present (sustained by the heartbeat
-// tick) until the Claude Code window closes (SessionEnd). Deleting on every Stop
-// dropped the display to the idle robot between turns and during text
-// generation, when no hook fires.
 func TestHook_Stop_KeepsMarkerForHeartbeat(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -106,7 +101,6 @@ func TestHook_Stop_KeepsMarkerForHeartbeat(t *testing.T) {
 	}
 }
 
-// SessionEnd is now the path that clears the session when the window closes.
 func TestHook_SessionEnd_DeletesMarker(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -128,11 +122,6 @@ func TestHook_SessionEnd_DeletesMarker(t *testing.T) {
 	}
 }
 
-// TestHook_SessionEnd_Clear_DeletesMarker is the Task-9 /clear-ghost
-// regression test: Claude Code fires SessionEnd(reason="clear") and issues a
-// new session id, but before this fix "clear" fell through the switch,
-// leaving the old marker (and its still-alive owner PID) to display as a
-// phantom "running" session.
 func TestHook_SessionEnd_Clear_DeletesMarker(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -181,10 +170,6 @@ func TestHook_Notification_FiltersByType(t *testing.T) {
 	}
 }
 
-// TestHook_Notification_AgentNeedsInput_UpsertsWaiting is the #75 regression:
-// Claude Code's Notification hook can fire with notification_type
-// "agent_needs_input" — an explicit "waiting for the user" signal that should
-// upsert the same "waiting" state as the existing permission_prompt path.
 func TestHook_Notification_AgentNeedsInput_UpsertsWaiting(t *testing.T) {
 	h := newHookHarness(t)
 	in := hookInput{HookEventName: "Notification", SessionID: "abc", CWD: "/repo",
@@ -202,10 +187,6 @@ func TestHook_Notification_AgentNeedsInput_UpsertsWaiting(t *testing.T) {
 	}
 }
 
-// TestHook_Notification_AgentCompleted_UpsertsDone is the #75 regression:
-// notification_type "agent_completed" is an explicit "finished" signal and
-// should upsert state "done" (not delete the marker — the process-ancestry
-// walk / SessionEnd remain the source of truth for clearing a session).
 func TestHook_Notification_AgentCompleted_UpsertsDone(t *testing.T) {
 	h := newHookHarness(t)
 	in := hookInput{HookEventName: "Notification", SessionID: "abc", CWD: "/repo",
@@ -244,7 +225,6 @@ func TestHook_SessionStart_NonStartupClearsMarker(t *testing.T) {
 	}
 }
 
-// dispatchHookForTest is the testable seam: calls dispatchHook with a context+timeout.
 func dispatchHookForTest(t *testing.T, event string, stdin []byte) {
 	t.Helper()
 	cfg, err := loadConfig()
@@ -256,7 +236,6 @@ func dispatchHookForTest(t *testing.T, event string, stdin []byte) {
 
 func TestDispatchHook_UpsertEnrichesWithSourceColor(t *testing.T) {
 	h := newHookHarness(t)
-	// Stage producer.env with source_color
 	cfgDir := filepath.Join(h.home, ".config", "ember")
 	env := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\nEMBER_SOURCE_COLOR=#aa66ff\n"
 	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
@@ -299,11 +278,6 @@ func TestDispatchHook_PreservesContextPctWhenEnabled(t *testing.T) {
 	}
 }
 
-// TestDispatchHook_PreservesWeekFieldsOnMarkerButStripsFromStatusPost verifies
-// two things at once: a hook event must not clobber the statusline-owned
-// weekly (rate_week_*) fields on the marker file (so the next heartbeat tick
-// can still relay them to /v1/usage), AND those fields must never appear on
-// the POST /v1/status body itself — they're marker-only.
 func TestDispatchHook_PreservesWeekFieldsOnMarkerButStripsFromStatusPost(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -369,7 +343,6 @@ func TestDispatchHook_ClearsContextPctWhenDisabled(t *testing.T) {
 func TestHandleUpsert_PreservesRateWindowPct(t *testing.T) {
 	h := newHookHarness(t)
 
-	// Pre-write a marker that already carries rate_window_pct=42 (set by statusline).
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -380,12 +353,10 @@ func TestHandleUpsert_PreservesRateWindowPct(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Fire a hook event that goes through handleUpsert.
 	in := hookInput{HookEventName: "UserPromptSubmit", SessionID: "s1", CWD: "/repo", Prompt: "do something"}
 	body, _ := json.Marshal(in)
 	dispatchHookForTest(t, "user-prompt-submit", body)
 
-	// Assert: marker still carries rate_window_pct=42.
 	raw, err := os.ReadFile(markerP)
 	if err != nil {
 		t.Fatalf("marker missing after upsert: %v", err)
@@ -400,7 +371,6 @@ func TestHandleUpsert_PreservesRateWindowPct(t *testing.T) {
 		t.Errorf("marker: rate_window_pct = %d, want 42", *got.RateWindowPct)
 	}
 
-	// Assert: POSTed body also carries rate_window_pct=42.
 	if h.posts.Load() != 1 {
 		t.Fatalf("posts = %d, want 1", h.posts.Load())
 	}
@@ -409,7 +379,6 @@ func TestHandleUpsert_PreservesRateWindowPct(t *testing.T) {
 		t.Errorf("POST body missing rate_window_pct=42: %s", postBody)
 	}
 
-	// Sub-case: marker with NO rate — upsert must not introduce a spurious value.
 	markerP2 := filepath.Join(dir, "s2.json")
 	noRate := `{"source":"test-mbp","tool":"claude","session":"s2","state":"running"}`
 	if err := os.WriteFile(markerP2, []byte(noRate), 0o600); err != nil {
@@ -570,7 +539,6 @@ func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Create a marker so handleDelete has something to remove
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -586,7 +554,6 @@ func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
 		t.Fatalf("deletes = %d, want 1", h.deletes.Load())
 	}
 	got := (*h.bodies)[0]
-	// DeleteRequest must NOT carry context_pct or source_color
 	if strings.Contains(got, `"context_pct"`) || strings.Contains(got, `"source_color"`) {
 		t.Errorf("DELETE body must not carry G.3 fields: %s", got)
 	}

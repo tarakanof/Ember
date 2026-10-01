@@ -9,8 +9,6 @@ func markerPath(stateDir, uuid string) string {
 	return filepath.Join(stateDir, uuid+".json")
 }
 
-// writeMarker atomically writes body to <stateDir>/<uuid>.json (temp + rename),
-// creating stateDir 0700 first. Markers are not secret, so no chmod.
 func writeMarker(stateDir, uuid string, body []byte) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
@@ -42,7 +40,6 @@ func writeMarker(stateDir, uuid string, body []byte) error {
 	return nil
 }
 
-// removeMarker deletes the marker, tolerating a missing file.
 func removeMarker(stateDir, uuid string) error {
 	if err := os.Remove(markerPath(stateDir, uuid)); err != nil && !os.IsNotExist(err) {
 		return err

@@ -6,7 +6,6 @@ import EmberKit
 struct EmberApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
-    /// Owned by the delegate so AppKit callbacks (the Dock menu) reach it.
     private var env: AppEnvironment { delegate.env }
 
     var body: some Scene {
@@ -31,8 +30,6 @@ struct EmberApp: App {
         .restorationBehavior(.disabled)
 
         Window("Settings", id: WindowID.settings) {
-            // Fixed width, as System Settings: every pane is laid out for it
-            // and only the height follows the user.
             SettingsRootView()
                 .frame(width: SettingsRootView.windowWidth)
                 .frame(minHeight: 520)
@@ -49,9 +46,6 @@ struct EmberApp: App {
     }
 }
 
-/// App-menu commands: ⌘, Settings (the classic `Settings` scene doesn't suit
-/// an `LSUIElement` app), ⌘0 Dashboard, ⌘R refresh. Views inside a
-/// `CommandGroup` pick up the scene's `openWindow`.
 private struct EmberCommands: Commands {
     let env: AppEnvironment
 
@@ -89,11 +83,6 @@ private struct OpenWindowCommand: View {
     }
 }
 
-/// Ember is a menu-bar agent (`LSUIElement`), so it normally has no Dock icon.
-/// We promote it to a regular app (Dock icon + app menu) only while a real
-/// window — Settings or the Dashboard — is on screen, and demote it back to an
-/// accessory when the last one closes. The Ember icon shown in the Dock is the
-/// runtime `applicationIconImage` set by `AppEnvironment.applyAppIcon`.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let env = AppEnvironment()
@@ -112,11 +101,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DockMenu.make(env: env)
     }
 
-    /// A window "counts" toward Dock presence only if it's a visible, titled
-    /// window — i.e. Settings or the Dashboard. The borderless MenuBarExtra panel
-    /// and the status-bar window are untitled, so clicking the menu bar never
-    /// summons a Dock icon. Deferred to the next runloop tick so `isVisible` is
-    /// already updated when this fires from `willClose`.
     @objc private func syncPolicy() {
         DispatchQueue.main.async {
             let hasWindow = NSApp.windows.contains { w in
@@ -128,9 +112,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 BotAnimator.shared.activationPolicyDidChange(wanted)
                 if wanted == .regular {
                     NSApp.activate()
-                    // Promoting to .regular makes the Dock fall back to the
-                    // bundle's static AppIcon; the runtime icon set at launch
-                    // (while still an accessory) is lost. Re-apply it.
                     AppEnvironment.applyAppIcon(AppEnvironment.loadPrefs().appIcon)
                 }
             }

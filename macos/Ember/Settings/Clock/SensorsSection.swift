@@ -1,8 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Offsets for the clock's temperature and humidity sensor. Auto-applied;
-/// the clock picks them up within seconds, no restart.
 struct SensorsSection: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
@@ -42,9 +40,6 @@ struct SensorsSection: View {
         } header: {
             Text("Sensor Calibration")
         } footer: {
-            // Generic on purpose: the offset is whatever the clock holds
-            // (NG's default is −9 °C, many clocks are recalibrated), so the
-            // footer states the semantics, not a number.
             SectionFooter(text: "The clock adds these offsets to its sensor's readings; the temperature one makes up for the clock warming itself. Compare Measured now with a thermometer you trust and change the offset by the difference.",
                           error: m.saveError)
         }

@@ -2,9 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// Every user-facing string EmberKit hands the app. Xcode only extracts
-/// literals from the app target, so these keys are added to the catalog by
-/// hand; this list keeps the two in step.
 private func emberKitStrings() -> [LocalizedStringResource] {
     var out: [LocalizedStringResource] = []
     let states: [Session.State] = [.running, .waiting, .done, .error, .idle, .unknown(""), .unknown("x")]

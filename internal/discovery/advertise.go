@@ -8,8 +8,6 @@ import (
 	"github.com/brutella/dnssd"
 )
 
-// emberServiceType is the DNS-SD type the Ember server advertises so the macOS
-// app can find it on the LAN.
 const emberServiceType = "_ember._tcp"
 
 // PortFromAddr extracts the numeric port from a listen address like ":3627" or
@@ -22,10 +20,7 @@ func PortFromAddr(addr string) (int, error) {
 	return strconv.Atoi(p)
 }
 
-// Advertise announces an _ember._tcp service until ctx is cancelled. The TXT
-// record carries the server version and a health path so clients can confirm
-// the endpoint. Requires multicast reachability (Docker host/macvlan
-// networking); on a bridge network it simply won't reach the LAN.
+// Advertise announces an _ember._tcp service until ctx is cancelled.
 func Advertise(ctx context.Context, name string, port int, version string) error {
 	cfg := dnssd.Config{
 		Name: name,
@@ -44,5 +39,5 @@ func Advertise(ctx context.Context, name string, port int, version string) error
 	if _, err := rp.Add(sv); err != nil {
 		return err
 	}
-	return rp.Respond(ctx) // blocks until ctx is done
+	return rp.Respond(ctx)
 }

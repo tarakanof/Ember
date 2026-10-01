@@ -3,14 +3,6 @@ set -euo pipefail
 
 # Unregisters every com.ember.* bundle LaunchServices knows about except the
 # installed /Applications/Ember.app, then re-registers that one.
-#
-# Why: macOS resolves com.ember.Ember through LaunchServices when it checks
-# Local Network access (nehelper caches the allowed executable UUIDs from that
-# bundle) and NSBonjourServices (mDNSResponder). Every scratch or DerivedData
-# build registers another copy; one of them can shadow the installed app, and
-# its browse then fails with NoAuth (-65555) or its connections with "Local
-# network prohibited" even though the toggle in System Settings is on.
-#
 # Usage: lsregister-clean.sh [--dry-run]
 
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister

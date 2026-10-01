@@ -64,16 +64,13 @@ func TestRunOnce_WritesAndRemovesMarker(t *testing.T) {
 		t.Fatalf("marker not written after POST: %v", err)
 	}
 
-	w.now = func() time.Time { return now.Add(200 * time.Second) } // age out -> DELETE
+	w.now = func() time.Time { return now.Add(200 * time.Second) }
 	runOnce(context.Background(), w, client)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Errorf("marker should be removed after reap, stat err = %v", err)
 	}
 }
 
-// TestRunOnce_WarnsOnPostFailure is the Task-9 error-visibility regression
-// test: a failing POST must produce a throttled slog Warn instead of being
-// silently discarded (previously `_ = client.Post(ctx, req)`).
 func TestRunOnce_WarnsOnPostFailure(t *testing.T) {
 	daemonFailLog.Reset()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

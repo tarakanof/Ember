@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// fakeClock is a thread-safe, manually-advanced clock for limiter and coordinator tests.
 type fakeClock struct {
 	mu  sync.RWMutex
 	now time.Time
@@ -289,22 +288,14 @@ func TestRateLimit_CountsUnauthorizedAttempts(t *testing.T) {
 		return resp.StatusCode
 	}
 
-	// First unauthorized attempt passes the limiter (consuming the only
-	// token in the bucket) and is then rejected by auth → 401.
 	if code := wrongToken(); code != http.StatusUnauthorized {
 		t.Fatalf("first wrong-token call: code = %d, want 401", code)
 	}
-	// Second unauthorized attempt from the same IP: the limiter sits outside
-	// auth now, so the drained bucket throttles the request before auth runs
-	// → 429. This is the point of the reorder: 401s consume rate-limit budget.
 	if code := wrongToken(); code != http.StatusTooManyRequests {
 		t.Fatalf("second wrong-token call: code = %d, want 429 (401s must consume limiter budget)", code)
 	}
 }
 
-// Admin endpoints authenticate with the same token as /v1/, so their 401s must
-// also consume rate-limit budget — otherwise an attacker throttled on /v1/
-// could keep probing the token at full speed via /admin/ 401s.
 func TestRateLimit_CountsUnauthorizedAdminAttempts(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
@@ -399,7 +390,6 @@ func TestRateLimit_IncrementsDeniedCounter(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// 1st request: allowed (consumes the only token).
 	w1 := httptest.NewRecorder()
 	r1 := httptest.NewRequest("POST", "/v1/status", nil)
 	r1.RemoteAddr = "192.0.2.1:1234"
@@ -408,7 +398,6 @@ func TestRateLimit_IncrementsDeniedCounter(t *testing.T) {
 		t.Fatalf("first call: status %d, want 200", w1.Code)
 	}
 
-	// 2nd + 3rd: denied (counter should advance to 2).
 	for i := 0; i < 2; i++ {
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest("POST", "/v1/status", nil)
@@ -424,11 +413,6 @@ func TestRateLimit_IncrementsDeniedCounter(t *testing.T) {
 	}
 }
 
-// One Mac runs the menu app (four polled endpoints) plus a producer per
-// session, and they all share one source IP. After a network stall they
-// reconnect together — 15 requests landing in the same millisecond was
-// observed in the wild — so the default burst has to absorb a reconnect
-// without answering 429 to a legitimate client.
 func TestDefaultRateLimitAbsorbsClientReconnectBurst(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -437,7 +421,7 @@ func TestDefaultRateLimitAbsorbsClientReconnectBurst(t *testing.T) {
 	app.metrics = newMetrics()
 	lim := NewIPLimiter(app)
 	clock := newFakeClock()
-	lim.clock = clock.Now // no refill between calls: this is a single instant
+	lim.clock = clock.Now
 
 	const reconnectBurst = 20
 	for i := 0; i < reconnectBurst; i++ {

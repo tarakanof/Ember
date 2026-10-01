@@ -51,15 +51,6 @@ func TestOpenDaemonLog_AppendsAcrossCalls(t *testing.T) {
 	}
 }
 
-// TestRedirectStandardIO_CatchesRuntimePanic proves the regression this
-// function fixes: an unrecovered panic is written by the Go runtime directly
-// to fd 2, bypassing the os.Stderr variable entirely. Reassigning
-// os.Stderr alone (the pre-fix behavior) would lose that output once the
-// plist stops using StandardErrorPath; only an fd-level dup2 catches it.
-//
-// This re-execs the test binary as a subprocess (the standard Go pattern for
-// testing crash/exit behavior) so the panic's process teardown doesn't kill
-// the test runner itself.
 func TestRedirectStandardIO_CatchesRuntimePanic(t *testing.T) {
 	if os.Getenv("EMBER_LOGFD_CRASH") == "1" {
 		f, err := OpenDaemonLog("crash-test")

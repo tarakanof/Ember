@@ -5,8 +5,7 @@ import os
 
 /// One `_awtrixng._tcp` instance resolved to an address.
 public struct ClockService: Equatable, Sendable {
-    /// The Bonjour instance name. NG names it after its hostname ("Awtrix"),
-    /// which is what the server reports as `host`.
+    /// The Bonjour instance name.
     public var name: String
     /// An IPv4 literal.
     public var host: String
@@ -18,31 +17,16 @@ public enum ClockBrowseState: Sendable {
     case ready, denied, failed
 }
 
-/// The mDNS browse under `ClockDiscovery`: finds `_awtrixng._tcp` instances and
-/// resolves each to an address. A seam so the scan's lifecycle is testable
-/// without a network.
 @MainActor
 protocol ClockBrowsing: AnyObject {
     func start(onState: @escaping @MainActor (ClockBrowseState) -> Void,
                onResolved: @escaping @MainActor (ClockService) -> Void)
-    /// Stops browsing and resolving. Idempotent.
     func cancel()
 }
 
 /// Finds awtrix-ng clocks from this Mac: the app-side twin of the server's
 /// `GET /v1/device/discover`, for when the server can't see multicast (a
-/// bridge-networked container). Matching mirrors `internal/discovery`:
-/// browse `_awtrixng._tcp`, then keep the hosts whose `GET /api/v1/device`
-/// answers 2xx with a non-empty `uid` and `boardType == "awtrixng"`.
-///
-/// A scan is bounded and owned by its caller: `scan()` browses for
-/// `browseWindow`, gives probes still out `probeGrace`, then stops on its
-/// own, keeping what it found. Cancelling the task running it, or `stop()`,
-/// tears everything down and clears the list. There is no FIND_AWTRIXNG
-/// broadcast fallback: the server's exists for hosts where multicast doesn't
-/// get through (a Docker bridge), while the Mac shares the clock's LAN with
-/// working mDNS, and the fallback's fixed reply port (4211) would clash with
-/// a server running on the same Mac.
+/// bridge-networked container).
 @MainActor
 @Observable
 public final class ClockDiscovery {
@@ -59,13 +43,8 @@ public final class ClockDiscovery {
     public private(set) var isScanning = false
     public private(set) var access: Access = .ok
 
-    /// Longer than the server's 3 s (`handleDeviceDiscover`): rows show as
-    /// they land, and the clock's Wi-Fi drops enough packets that resolving
-    /// it can take a few tries.
     nonisolated static let browseWindow: Duration = .seconds(5)
-    /// The server's probe phase budget (`BrowseAWTRIX`).
     nonisolated static let probeGrace: Duration = .seconds(2)
-    /// The server's per-probe timeout (`defaultProbeTimeout`).
     nonisolated static let probeTimeout: TimeInterval = 1.5
 
     typealias Probe = @Sendable (_ name: String, _ baseURL: String) async -> DiscoveredClock?
@@ -77,8 +56,6 @@ public final class ClockDiscovery {
     @ObservationIgnored private var browser: (any ClockBrowsing)?
     @ObservationIgnored private var probes: [Task<Void, Never>] = []
     @ObservationIgnored private var probed: Set<String> = []
-    /// Bumped by every stop; callbacks and probes from an older scan compare
-    /// against it and drop themselves.
     @ObservationIgnored private var generation = 0
 
     public convenience init() {
@@ -94,9 +71,7 @@ public final class ClockDiscovery {
         self.sleep = sleep
     }
 
-    /// Runs one bounded scan, replacing any running one. Returns when the scan
-    /// ends: its window ran out (results kept), `stop()` was called, or the
-    /// calling task was cancelled (both clear the results).
+    /// Runs one bounded scan, replacing any running one.
     public func scan() async {
         stop()
         let gen = generation
@@ -136,7 +111,6 @@ public final class ClockDiscovery {
         isScanning = false
     }
 
-    /// Waits for the probes still out, cancelling them after `probeGrace`.
     private func drainProbes() async {
         let pending = probes
         guard !pending.isEmpty else { return }
@@ -177,10 +151,6 @@ public final class ClockDiscovery {
 
     // MARK: Matching rules (pure; mirror internal/discovery)
 
-    /// `http://<ipv4>:<port>`, the port always explicit and 0 meaning 80, so a
-    /// clock found here is byte-identical to the server's `baseURLFor`. nil for
-    /// anything but an IPv4 literal: the resolve pins IPv4, and the server's
-    /// IPv6 fallback isn't mirrored (a v6-only LAN is left to the server).
     nonisolated static func baseURL(host: String, port: Int) -> String? {
         guard IPv4Address(host) != nil, host.contains(".") else { return nil }
         return "http://\(host):\(port == 0 ? 80 : port)"
@@ -192,9 +162,6 @@ public final class ClockDiscovery {
         let boardType: String?
     }
 
-    /// A `GET /api/v1/device` reply as a candidate, or nil when the host isn't
-    /// an awtrix-ng clock: a non-2xx, a body that isn't the device object, an
-    /// empty `uid`, or a `boardType` other than "awtrixng".
     nonisolated static func candidate(name: String, baseURL: String, status: Int, body: Data) -> DiscoveredClock? {
         guard (200..<300).contains(status),
               let d = try? JSONDecoder().decode(DeviceProbe.self, from: body),
@@ -203,7 +170,6 @@ public final class ClockDiscovery {
         return DiscoveredClock(host: name, baseURL: baseURL, uid: uid, version: d.version ?? "")
     }
 
-    /// Fingerprints one host. Any failure means "not a clock".
     nonisolated static func probe(name: String, baseURL: String,
                                   session: URLSession = probeSession) async -> DiscoveredClock? {
         guard let url = URL(string: baseURL + "/api/v1/device") else { return nil }
@@ -232,9 +198,6 @@ public final class ClockDiscovery {
         return URLSession(configuration: config)
     }()
 
-    /// Adds a candidate unless its `uid` is already listed (one clock can
-    /// resolve through several records), keeping the list ordered by host and
-    /// address so it doesn't reshuffle as probes land.
     nonisolated static func merged(_ list: [DiscoveredClock], adding c: DiscoveredClock) -> [DiscoveredClock] {
         guard !list.contains(where: { $0.uid == c.uid }) else { return list }
         return (list + [c]).sorted { ($0.host, $0.baseURL) < ($1.host, $1.baseURL) }
@@ -243,10 +206,7 @@ public final class ClockDiscovery {
     /// Whether to offer finding the clock from this Mac: the server's health
     /// (fresh, not a stale value kept after the feed failed) says it has no
     /// clock, or that its last probe AND its last push both failed; or the
-    /// proxied settings read failed on the server's side. One probe alone
-    /// isn't enough: the clock's Wi-Fi drops requests, and the probe result is
-    /// cached for 30 s. An unreachable server or a rejected token isn't
-    /// something discovery can fix.
+    /// proxied settings read failed on the server's side.
     public nonisolated static func serverLostClock(health: Loadable<ClockHealth>, settingsLoaded: Bool,
                                                    settingsError: FeedError?) -> Bool {
         if case .loaded(let h, _) = health {
@@ -269,8 +229,7 @@ public struct ClockChoice: Identifiable, Equatable, Sendable {
     public var id: String { clock.uid }
 
     /// The server's and this Mac's results as one list, one row per `uid`,
-    /// ordered by host. When both found a clock the server's address wins:
-    /// the server has shown it can reach that one.
+    /// ordered by host.
     public static func merge(server: [DiscoveredClock], mac: [DiscoveredClock]) -> [ClockChoice] {
         var out: [ClockChoice] = []
         for c in server where !out.contains(where: { $0.clock.uid == c.uid }) {
@@ -305,17 +264,12 @@ public enum ClockURL {
     }
 }
 
-/// The real browse: `NWBrowser` over `_awtrixng._tcp`, each instance resolved
-/// by a UDP "connection" pinned to IPv4. UDP reaches `.ready` once the address
-/// resolves, without a handshake with the clock.
 @MainActor
 final class BonjourClockBrowser: ClockBrowsing {
     static let serviceType = "_awtrixng._tcp"
 
     private var browser: NWBrowser?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
-    /// Instances already being (or done) resolving. NWBrowser replays the
-    /// whole result set on every change.
     private var claimed: Set<String> = []
 
     func start(onState: @escaping @MainActor (ClockBrowseState) -> Void,
@@ -360,8 +314,6 @@ final class BonjourClockBrowser: ClockBrowsing {
                   claimed.insert("\(name).\(type).\(domain)").inserted
             else { continue }
             let params = NWParameters.udp
-            // Mirrors the server's IPv4 preference; a link-local IPv6 address
-            // isn't a URL the server can use.
             if let ip = params.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
                 ip.version = .v4
             }
@@ -390,7 +342,6 @@ final class BonjourClockBrowser: ClockBrowsing {
                         self?.finish(key)
                     case .failed:
                         Self.log.notice("clock resolve failed name=\(name, privacy: .public) state=\(what, privacy: .public)")
-                        // Unclaimed, so the browse's next result set retries it.
                         self?.claimed.remove(claim)
                         self?.finish(key)
                     case .ignore:
@@ -402,13 +353,9 @@ final class BonjourClockBrowser: ClockBrowsing {
         }
     }
 
-    /// What a resolve connection's state means for the scan.
     enum ResolveStep: Equatable {
         case resolved
-        /// Unsatisfied path or a lost mDNS answer: NWConnection keeps
-        /// retrying on its own, and the scan window bounds it.
         case keepWaiting
-        /// Local Network privacy refused it.
         case denied
         case failed
         case ignore
@@ -423,10 +370,6 @@ final class BonjourClockBrowser: ClockBrowsing {
         }
     }
 
-    /// Maps the browser's state. Only a PolicyDenied wait means Local Network
-    /// access is off; any other wait (e.g. the path briefly unsatisfied at
-    /// start) is transient — NWBrowser keeps going and may still report
-    /// results — so the scan keeps searching instead of giving up.
     nonisolated static func browseState(for state: NWBrowser.State) -> ClockBrowseState? {
         switch state {
         case .ready: return .ready
@@ -436,9 +379,6 @@ final class BonjourClockBrowser: ClockBrowsing {
         }
     }
 
-    /// DNS-SD `PolicyDenied` or `NoAuth`: what macOS returns to a browse or
-    /// resolve when the app isn't allowed on the local network. The codes
-    /// live in `LocalNetworkDenial`.
     nonisolated static func isPolicyDenied(_ e: NWError) -> Bool {
         guard case .dns = e else { return false }
         return LocalNetworkDenial.isDenied(e)

@@ -32,7 +32,6 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	if p["durationMs"] != 10_000 {
 		t.Errorf("durationMs = %v, want 10000", p["durationMs"])
 	}
-	// By default a held alarm chimes once: looping is opt-in (repeat_sound).
 	if p["soundRtttl"] != defaultReminderSound {
 		t.Errorf("soundRtttl = %v, want %q", p["soundRtttl"], defaultReminderSound)
 	}
@@ -45,7 +44,6 @@ func TestHandleReminderFireRendersBellPopup(t *testing.T) {
 	if _, hasDraw := p["draw"]; !hasDraw {
 		t.Error("no native_icon_id -> should draw the bell")
 	}
-	// The chime rides on the notification; nothing is played out-of-band.
 	if len(pub.rtttls) != 0 {
 		t.Errorf("expected no out-of-band chime, got %v", pub.rtttls)
 	}
@@ -71,8 +69,6 @@ func TestHandleReminderFireNativeIconAndSilent(t *testing.T) {
 	}
 }
 
-// TestHandleReminderFireUnheldChimesOnce: a reminder that auto-dismisses plays
-// its chime once; only a held alarm loops.
 func TestHandleReminderFireUnheldChimesOnce(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
@@ -87,8 +83,6 @@ func TestHandleReminderFireUnheldChimesOnce(t *testing.T) {
 	}
 }
 
-// fireLoopingReminder fires a held, sounding reminder that opted into
-// repeat_sound and returns the time it was armed at (just before the call).
 func fireLoopingReminder(t *testing.T, app *App) time.Time {
 	t.Helper()
 	at := time.Now()
@@ -101,8 +95,6 @@ func fireLoopingReminder(t *testing.T, app *App) time.Time {
 	return at
 }
 
-// TestReminderRepeatSoundLoopsTheChime: with repeat_sound the held alarm
-// carries the looped melody and soundLoop.
 func TestReminderRepeatSoundLoopsTheChime(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
@@ -113,9 +105,6 @@ func TestReminderRepeatSoundLoopsTheChime(t *testing.T) {
 	}
 }
 
-// TestReminderLoopDismissedAtWindowEnd: nobody pressed the button, so the
-// server dismisses the ringing alarm once the hold window has run out, and
-// only then.
 func TestReminderLoopDismissedAtWindowEnd(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
@@ -138,8 +127,6 @@ func TestReminderLoopDismissedAtWindowEnd(t *testing.T) {
 	}
 }
 
-// TestReminderLoopFailedStopRetries: the dismiss is lost on the link, so the
-// loop stays armed and the next check tries again.
 func TestReminderLoopFailedStopRetries(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
@@ -157,14 +144,11 @@ func TestReminderLoopFailedStopRetries(t *testing.T) {
 	}
 }
 
-// TestReminderLoopStopsAtQuietHours: when quiet hours begin under a ringing
-// alarm, it is dismissed and re-pushed held but silent.
 func TestReminderLoopStopsAtQuietHours(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
 	at := fireLoopingReminder(t, app)
 
-	// Quiet hours start a minute after the alarm fired, well inside its window.
 	check := at.Add(time.Minute)
 	app.updateConfig(func(c *Config) {
 		c.QuietHours = QuietHoursConfig{Enabled: true,
@@ -189,21 +173,17 @@ func TestReminderLoopStopsAtQuietHours(t *testing.T) {
 	}
 }
 
-// TestReminderLoopForgottenAfterButtonAck: the middle press already cleared
-// the alarm, so the guard sends nothing.
 func TestReminderLoopForgottenAfterButtonAck(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())
 	at := fireLoopingReminder(t, app)
-	app.reminderHeldUntil.Store(0) // what the button hook does on a middle press
+	app.reminderHeldUntil.Store(0)
 	app.checkReminderLoop(context.Background(), at.Add(reminderHoldWindow+time.Second))
 	if got := pub.DismissedNamesSnapshot(); len(got) != 0 {
 		t.Errorf("dismissed after the user's ack: %v", got)
 	}
 }
 
-// TestHandleReminderFireSilentHoldDoesNotLoop: soundLoop without a melody is
-// pointless; a silent held alarm carries neither.
 func TestHandleReminderFireSilentHoldDoesNotLoop(t *testing.T) {
 	pub := &recordingPublisher{}
 	app := NewApp(defaultConfig(), pub, testLogger())

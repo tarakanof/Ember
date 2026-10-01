@@ -20,8 +20,6 @@ func runUninstall() {
 	uid := os.Getuid()
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	// Only the CLI's own job is unloaded; Ember.app's, or any job the CLI
-	// can't identify, is left running (#142).
 	switch producer.AgentOwner(producer.ExecLaunchctl, target, plistPath) {
 	case producer.OwnedByCLI:
 		_, _ = producer.ExecLaunchctl("bootout", target)
@@ -43,12 +41,6 @@ func runDeconfigure() {
 	fmt.Println("Deconfigure complete.")
 }
 
-// deconfigureAt reverses configureAt's settings-independent changes for the
-// given home. Codex has no settings.json — its only owned config is
-// producer.env, which uninstall deliberately leaves in place (it's shared
-// with the Claude producer). There is nothing left for deconfigure to remove,
-// so this is a defined no-op kept for symmetry with the Claude producer and
-// as an extension point if codex ever gains its own config file.
 func deconfigureAt(home string) error {
 	return nil
 }

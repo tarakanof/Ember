@@ -10,13 +10,11 @@ func bptr(b bool) *bool { return &b }
 func TestSourceCardAvailability(t *testing.T) {
 	base := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running"}
 
-	// Default (nil pointer): source card present and first.
 	cards := AvailableCards(base, nil)
 	if len(cards) == 0 || cards[0] != cardSource {
 		t.Fatalf("default cards = %v, want cardSource first", cards)
 	}
 
-	// Explicitly disabled: absent.
 	off := base
 	off.SourceCard = bptr(false)
 	for _, c := range AvailableCards(off, nil) {
@@ -25,7 +23,6 @@ func TestSourceCardAvailability(t *testing.T) {
 		}
 	}
 
-	// Empty source: absent even when enabled.
 	noSrc := base
 	noSrc.Source = ""
 	for _, c := range AvailableCards(noSrc, nil) {
@@ -43,8 +40,6 @@ func TestAvailableCardsMayBeEmpty(t *testing.T) {
 }
 
 func TestRenderForCoordNoCardsDoesNotPanic(t *testing.T) {
-	// A session that yields zero cards (no source, no data) must render a
-	// frame (icon/bar only), not panic on an empty card slice.
 	s := Session{Source: "", Tool: "claude", Session: "s1", State: "done", UpdatedAt: time.Now()}
 	snap := Snapshot{Now: time.Now(), Sessions: []Session{s}}
 	p := RenderForCoord(snap, s.Key(), 0, false, 30, nil)
@@ -56,15 +51,12 @@ func TestRenderForCoordNoCardsDoesNotPanic(t *testing.T) {
 func TestSourceCardText(t *testing.T) {
 	for in, want := range map[string]string{
 		"mbp": "MBP", "studio-m4": "STUD", "": "",
-		"über-mac": "ÜBE", // multibyte: counted per rune; Ü is non-ASCII so it counts 5 px
-		// NG draws ASCII in the AWTRIX panel font (M/W 5 px, N/Q 4, I 1):
-		// truncate by that width, not rune count, so the name never runs under
-		// the glass at col 25.
+		"über-mac":    "ÜBE",
 		"mwmw-studio": "MW", "mbp1": "MBP", "m4": "M4",
-		"nwn":     "NWN", // 4+1+5+1+4 = 15: fits exactly
-		"qqqq":    "QQQ", // 19 px would run under the glass
+		"nwn":     "NWN",
+		"qqqq":    "QQQ",
 		"iiiiiii": "IIIIIII", "mini-pc": "MINI",
-		"ñandú": "ÑAN", // non-ASCII comes from another font: count it wide (5)
+		"ñandú": "ÑAN",
 	} {
 		if got := sourceCardText(in); got != want {
 			t.Fatalf("sourceCardText(%q) = %q, want %q", in, got, want)
@@ -87,7 +79,6 @@ func TestComposeFrameSourceCard(t *testing.T) {
 	col := "#3366FF"
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceColor: &col}
 	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
-	// The name is handed to the firmware's font, tinted with the source colour.
 	want := RGB{0x33, 0x66, 0xFF}
 	if f.Native == nil {
 		t.Fatal("source card: Native is nil, want the source name")
@@ -98,8 +89,6 @@ func TestComposeFrameSourceCard(t *testing.T) {
 }
 
 func TestComposeFrameNoCardBlankNumberSlot(t *testing.T) {
-	// source_card=false + non-empty Source: card -1 must draw NOTHING in the
-	// number slot (cols 9-23, rows 1-5) — regression for the review finding.
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", SourceCard: bptr(false)}
 	f := ComposeFrame(s, cardNone, nil, []Session{s}, time.Now())
 	for y := 1; y <= 5; y++ {
@@ -115,13 +104,11 @@ func TestComposeFrameBottomBarModes(t *testing.T) {
 	pct := 50
 	s := Session{Source: "mbp", Tool: "claude", Session: "s1", State: "running", RateWindowPct: &pct}
 
-	// Default: session bar (one running pixel at barX0).
 	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
 	if !f.Dirty[barRow][barX0] {
 		t.Fatal("expected session bar pixel at default settings")
 	}
 
-	// session_bar=false, no rate bar: row 7 empty.
 	off := s
 	off.SessionBar = bptr(false)
 	f = ComposeFrame(off, cardSource, nil, []Session{off}, time.Now())
@@ -131,7 +118,6 @@ func TestComposeFrameBottomBarModes(t *testing.T) {
 		}
 	}
 
-	// rate bar wins regardless of session_bar.
 	rate := off
 	rate.RateBottomBar = true
 	f = ComposeFrame(rate, cardSource, nil, []Session{rate}, time.Now())

@@ -12,10 +12,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// TestServerFinishedPayloadsPassNGSchema checks the payloads as they reach the
-// publisher, after the server has added its own keys (name, sound, soundLoop,
-// overlay), against NG 1.1.2's schema: the render builders are checked on
-// their own in internal/render, but a key added here would 422 just the same.
 func TestServerFinishedPayloadsPassNGSchema(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
@@ -57,7 +53,6 @@ func TestServerFinishedPayloadsPassNGSchema(t *testing.T) {
 		}
 	}
 
-	// The conditions tile with its overlay, as the coordinator pushes it.
 	app.weather.mu.Lock()
 	app.weather.obs, app.weather.have = obs, true
 	app.weather.mu.Unlock()

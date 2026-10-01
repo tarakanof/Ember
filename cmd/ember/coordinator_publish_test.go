@@ -15,16 +15,13 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// attemptPublisher records one entry per CustomApp attempt (the deadline the
-// caller granted it) and fails the first `failures` of them. Every other
-// Publisher method delegates to the embedded recorder.
 type attemptPublisher struct {
 	*recordingPublisher
 	mu       sync.Mutex
-	failures int   // remaining attempts to fail
-	err      error // what a failing attempt returns
+	failures int
+	err      error
 	budgets  []time.Duration
-	payloads []map[string]any // every attempt's payload, failed ones included
+	payloads []map[string]any
 }
 
 func (p *attemptPublisher) CustomApp(ctx context.Context, name string, payload map[string]any) error {
@@ -62,7 +59,6 @@ func (p *attemptPublisher) payloadsSnapshot() []map[string]any {
 	return out
 }
 
-// publishFixture wires a coordinator around pub with one running session.
 func publishFixture(t *testing.T, pub Publisher, m *metrics) (*coordinator, Snapshot) {
 	t.Helper()
 	cfg := defaultConfig()
@@ -76,10 +72,6 @@ func publishFixture(t *testing.T, pub Publisher, m *metrics) (*coordinator, Snap
 	return c, snap
 }
 
-// A frame lost in flight (the device never answered before the deadline) must
-// be retried inside the same tick: the device evicts a pushed app on its own
-// lifetime, so waiting a whole dwell for the next attempt is what lets a lossy
-// link drop the app out of the rotation entirely.
 func TestPublishRetriesTransientDeviceFailure(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: 1, err: context.DeadlineExceeded}
 	m := newMetrics()
@@ -98,10 +90,6 @@ func TestPublishRetriesTransientDeviceFailure(t *testing.T) {
 	}
 }
 
-// Each attempt gets its own bounded deadline. Without this the coordinator
-// goroutine — which owns every device write — stalls for the full
-// awtrix.timeout_seconds on a black-holed device, and the ticks it misses
-// become dropped state-change commands.
 func TestPublishBoundsEachAttemptDeadline(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: context.DeadlineExceeded}
 	m := newMetrics()
@@ -127,8 +115,6 @@ func TestPublishBoundsEachAttemptDeadline(t *testing.T) {
 	}
 }
 
-// A device that answered — with a rejection — is not a lost packet. Retrying
-// a 422 just spends the coordinator's time on an answer that will not change.
 func TestPublishDoesNotRetryDeviceRejection(t *testing.T) {
 	rejected := &awtrix.APIError{StatusCode: 422, Code: "validationFailed", Field: "text"}
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: rejected}
@@ -145,8 +131,6 @@ func TestPublishDoesNotRetryDeviceRejection(t *testing.T) {
 	}
 }
 
-// The rotating tiles ride the same lossy link as the main frame and are
-// evicted by the same device-side lifetime, so they retry the same way.
 func TestTilePublishRetriesTransientDeviceFailure(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: 1, err: context.DeadlineExceeded}
 	c, _ := publishFixture(t, pub, nil)
@@ -161,9 +145,6 @@ func TestTilePublishRetriesTransientDeviceFailure(t *testing.T) {
 	}
 }
 
-// A 5xx is the clock talking while it can't serve — it watchdog-resets and runs
-// its HTTP server on the task that drives the panel. That is worth another
-// attempt, unlike a 4xx verdict on the payload itself.
 func TestPublishRetriesDeviceServerError(t *testing.T) {
 	for _, status := range []int{500, 503, http.StatusTooManyRequests} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
@@ -180,7 +161,6 @@ func TestPublishRetriesDeviceServerError(t *testing.T) {
 	}
 }
 
-// A 4xx that isn't 429 is the device's final answer on this payload.
 func TestPublishDoesNotRetryClientErrors(t *testing.T) {
 	for _, status := range []int{400, 404, 413, 422} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
@@ -197,9 +177,6 @@ func TestPublishDoesNotRetryClientErrors(t *testing.T) {
 	}
 }
 
-// On shutdown the retry must not fire: the coordinator's context is cancelled,
-// and a second attempt would just wait out its own deadline against a device
-// nobody is listening to any more.
 func TestPublishDoesNotRetryAfterShutdown(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: context.Canceled}
 	c, snap := publishFixture(t, pub, nil)
@@ -214,9 +191,6 @@ func TestPublishDoesNotRetryAfterShutdown(t *testing.T) {
 	}
 }
 
-// A configured awtrix.timeout_seconds below the per-attempt default is a
-// deliberate "this device answers fast or not at all" and must still cap the
-// attempt — the clamp is a floor on impatience, not a way to widen it.
 func TestPublishAttemptHonoursSmallerConfiguredTimeout(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: context.DeadlineExceeded}
 	cfg := defaultConfig()
@@ -238,8 +212,6 @@ func TestPublishAttemptHonoursSmallerConfiguredTimeout(t *testing.T) {
 	}
 }
 
-// The retry re-sends the same frame. A retry that rebuilt the payload could
-// push a frame the coordinator never decided on.
 func TestPublishRetrySendsTheSamePayload(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: 1, err: context.DeadlineExceeded}
 	c, snap := publishFixture(t, pub, nil)
@@ -257,8 +229,6 @@ func TestPublishRetrySendsTheSamePayload(t *testing.T) {
 	}
 }
 
-// A push that succeeds on its second attempt counts as one ok publish, so the
-// retry counter is the only thing that still sees the link degrading.
 func TestPublishRetryIsCounted(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: 1, err: context.DeadlineExceeded}
 	m := newMetrics()
@@ -274,7 +244,6 @@ func TestPublishRetryIsCounted(t *testing.T) {
 	}
 }
 
-// A device rejection of a tile is final, exactly as for the main frame.
 func TestTilePublishDoesNotRetryDeviceRejection(t *testing.T) {
 	rejected := &awtrix.APIError{StatusCode: 422, Code: "validationFailed"}
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: rejected}
@@ -287,10 +256,6 @@ func TestTilePublishDoesNotRetryDeviceRejection(t *testing.T) {
 	}
 }
 
-// An unchanged frame is renewed several dwell ticks before the device would
-// evict it. The old margin (one dwell + 1s) gave a lossy link a single attempt
-// at the renewal, so one dropped push took the app out of the clock's rotation
-// until the frame changed.
 func TestUnchangedFrameRenewsSeveralTicksBeforeEviction(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -310,15 +275,12 @@ func TestUnchangedFrameRenewsSeveralTicksBeforeEviction(t *testing.T) {
 		t.Fatalf("publishes after first frame = %d, want 1", got)
 	}
 
-	// One dwell later the identical frame is still deduped — renewal must not
-	// mean re-pushing the same bitmap on every tick.
 	clk.Advance(dwell)
 	c.publish(snap)
 	if got := len(pub.CustomAppsSnapshot()); got != 1 {
 		t.Errorf("publishes one dwell after the first = %d, want 1 (identical frame should dedupe)", got)
 	}
 
-	// The first tick once the window has passed renews the frame...
 	window := renewalDedupWindow(cfg.Display.FrameLifetimeSeconds, cfg.Display.RotationDwellSeconds)
 	clk.Advance(window)
 	c.publish(snap)
@@ -326,33 +288,25 @@ func TestUnchangedFrameRenewsSeveralTicksBeforeEviction(t *testing.T) {
 		t.Fatalf("publishes after the %v dedup window = %d, want 2", window, got)
 	}
 
-	// ...and it does so with a full retry budget still to spare, which is the
-	// point of the margin: this worst-case tick lands a whole dwell late.
 	spare := lifetime - (dwell + window)
 	if budget := time.Duration(publishAttempts) * publishAttemptTimeout; spare < budget {
 		t.Errorf("renewal landed with %v before eviction, want >= %v (one pushApp budget)", spare, budget)
 	}
 }
 
-// The renewal margin is what a lossy link spends. The last tick before the
-// window opens can land a full dwell early, so the wallclock slack before the
-// device evicts the app is (margin - dwell) — and that has to cover at least
-// one full pushApp budget, or a single dropped push still costs the app its
-// slot. Swept across the validated frame_lifetime_seconds range [10,120] and
-// the dwell values a config can produce.
 func TestRenewalMarginCoversTheRetryBudget(t *testing.T) {
 	retryBudget := time.Duration(publishAttempts) * publishAttemptTimeout
 	for _, lifetime := range []int{10, 11, 20, 30, 45, 60, 90, 120} {
 		for _, dwell := range []int{1, 3, 6, 10, 20, 40} {
 			if dwell >= lifetime {
-				continue // a dwell longer than the lifetime is not a coherent config
+				continue
 			}
 			window := renewalDedupWindow(lifetime, dwell)
 			if window < time.Second {
 				t.Errorf("lifetime=%ds dwell=%ds: window=%v, want >= 1s", lifetime, dwell, window)
 			}
 			if window == time.Second {
-				continue // already re-pushing on every tick; nothing left to give
+				continue
 			}
 			margin := time.Duration(lifetime)*time.Second - window
 			if slack := margin - time.Duration(dwell)*time.Second; slack < retryBudget {
@@ -363,9 +317,6 @@ func TestRenewalMarginCoversTheRetryBudget(t *testing.T) {
 	}
 }
 
-// At the defaults the renewal must get more than one shot — that "exactly one
-// attempt" is what let a single dropped push evict the app — while still
-// leaving a real dedup window (the defaults are not a degenerate config).
 func TestDefaultRenewalMarginBuysMoreThanOneAttempt(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -383,8 +334,6 @@ func TestDefaultRenewalMarginBuysMoreThanOneAttempt(t *testing.T) {
 
 var errTransientPush = errors.New("transient push failure")
 
-// Guard: the retry must not swallow a genuine, sustained device outage — the
-// publish still fails and is still counted.
 func TestPublishReportsFailureAfterAllAttempts(t *testing.T) {
 	pub := &attemptPublisher{recordingPublisher: &recordingPublisher{}, failures: publishAttempts, err: errTransientPush}
 	m := newMetrics()
@@ -403,17 +352,9 @@ func TestPublishReportsFailureAfterAllAttempts(t *testing.T) {
 	}
 }
 
-// TestCoord_DedupesIdenticalPublishes verifies that re-publishing the
-// same payload within the dedup window (< lifetime) is skipped. Without
-// this, every dwell tick re-POSTs /api/custom and the firmware restarts
-// the blinkText phase mid-cycle, producing a visible animation stutter.
 func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
-	// applyDefaults sets FrameLifetimeSeconds=30 and RotationDwellSeconds=3, so
-	// the dedup window is renewalDedupWindow(30,3) = 20s. (A much shorter
-	// lifetime no longer dedupes at all: the renewal margin needs room for a
-	// full pushApp retry budget, and below that the window bottoms out at 1s.)
 	dedupWindow := renewalDedupWindow(cfg.Display.FrameLifetimeSeconds, cfg.Display.RotationDwellSeconds)
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
@@ -428,11 +369,9 @@ func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	// Tick 1: initial publish.
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	// Tick 2 within dedup window (1s later): identical payload, should be skipped.
 	clk.Advance(1 * time.Second)
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
@@ -441,7 +380,6 @@ func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
 		t.Errorf("publishes after dedup-window tick = %d, want 1 (identical payload should be skipped)", got)
 	}
 
-	// Tick 3 past the dedup window.
 	clk.Advance(dedupWindow)
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
@@ -451,11 +389,6 @@ func TestCoord_DedupesIdenticalPublishes(t *testing.T) {
 	}
 }
 
-// TestCoord_RepublishClearsDedupeAndRepushes covers the reboot-recovery path:
-// pushed apps are RAM-only on awtrix-ng, so once the device restarts the
-// coordinator's dedupe cache describes apps that no longer exist. A republish
-// must drop that cache and push again on the spot, without waiting for the
-// dedupe window (or the frame lifetime) to expire.
 func TestCoord_RepublishClearsDedupeAndRepushes(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -473,7 +406,6 @@ func TestCoord_RepublishClearsDedupeAndRepushes(t *testing.T) {
 	if got := len(publisher.CustomAppsSnapshot()); got != 1 {
 		t.Fatalf("publishes after first publish = %d, want 1", got)
 	}
-	// Identical payload inside the dedupe window: skipped, as designed.
 	c.publish(snap)
 	if got := len(publisher.CustomAppsSnapshot()); got != 1 {
 		t.Fatalf("publishes after deduped publish = %d, want 1", got)
@@ -488,9 +420,6 @@ func TestCoord_RepublishClearsDedupeAndRepushes(t *testing.T) {
 	}
 }
 
-// TestCoord_RepublishRepushesStandaloneTiles guards the other half of the
-// dedupe reset: the tile ledger must be dropped too,
-// or a tile whose content hasn't changed would never come back after a reboot.
 func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
@@ -511,7 +440,6 @@ func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	if names := pub.CustomNamesSnapshot(); len(names) != 1 || names[0] != "ember-weather" {
 		t.Fatalf("expected one ember-weather push, got %v", names)
 	}
-	// Unchanged content inside the refresh window: no re-push.
 	c.reconcileTiles(now.Add(time.Minute))
 	if got := len(pub.CustomNamesSnapshot()); got != 1 {
 		t.Fatalf("pushes after unchanged reconcile = %d, want 1", got)
@@ -529,9 +457,6 @@ func TestCoord_RepublishRepushesStandaloneTiles(t *testing.T) {
 	}
 }
 
-// TestCoord_DedupePublishesAgainOnStateChange verifies that a payload
-// change (state transition, lock acquisition, etc.) bypasses the dedup
-// window so attention transitions land immediately.
 func TestCoord_DedupePublishesAgainOnStateChange(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -557,8 +482,6 @@ func TestCoord_DedupePublishesAgainOnStateChange(t *testing.T) {
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)
 
-	// Same instant, transition to waiting — payload changes (text=WAIT
-	// appears) and the publish must NOT be skipped despite no clock advance.
 	stateMu.Lock()
 	state = "waiting"
 	stateMu.Unlock()

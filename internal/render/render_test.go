@@ -12,7 +12,6 @@ import (
 func TestFrameAndPainters(t *testing.T) {
 	f := &Frame{}
 
-	// paintCell sets a single pixel.
 	paintCell(f, 5, 2, RGB{0x12, 0x34, 0x56})
 	if !f.Dirty[2][5] {
 		t.Fatalf("paintCell(5,2): Dirty[2][5] = false, want true")
@@ -21,7 +20,6 @@ func TestFrameAndPainters(t *testing.T) {
 		t.Fatalf("paintCell(5,2) textColor = %v, want #123456", got)
 	}
 
-	// paintRow sets a horizontal run inclusive on both ends.
 	paintRow(f, 10, 13, 7, RGB{0xff, 0x00, 0x00})
 	for x := 10; x <= 13; x++ {
 		if !f.Dirty[7][x] {
@@ -32,7 +30,6 @@ func TestFrameAndPainters(t *testing.T) {
 		t.Fatalf("paintRow leaked outside [10..13]")
 	}
 
-	// paintBitmap paints lit pixels of a sprite at an offset.
 	sprite := []string{
 		".X.",
 		"XXX",
@@ -51,7 +48,6 @@ func TestFrameAndPainters(t *testing.T) {
 		}
 	}
 
-	// Out-of-bounds writes are silent no-ops, not panics.
 	paintCell(f, 32, 0, RGB{1, 2, 3})
 	paintCell(f, 0, 8, RGB{1, 2, 3})
 	paintCell(f, -1, -1, RGB{1, 2, 3})
@@ -134,7 +130,6 @@ func TestDrawDigits(t *testing.T) {
 
 func intPtr(v int) *int { return &v }
 
-// litInterior counts lit pixels in the glass interior (cols 26-30, rows 1-4).
 func litInterior(f *Frame) int {
 	n := 0
 	for y := 1; y <= 4; y++ {
@@ -150,20 +145,17 @@ func litInterior(f *Frame) int {
 func TestDrawGlass(t *testing.T) {
 	fill := RGB{0x2e, 0xe8, 0x5e}
 
-	// Absent pct → nothing drawn (no outline, no fill).
 	f := &Frame{}
 	drawGlass(f, nil, fill)
 	if f.Dirty[1][25] || litInterior(f) != 0 {
 		t.Errorf("absent pct: drew something")
 	}
 
-	// The glass owns the full right edge: cols 25-31, so the interior is 5×4 =
-	// 20 pixels and each one is worth 5%.
 	counts := []struct{ pct, want int }{
 		{0, 0}, {25, 5}, {50, 10}, {75, 15}, {100, 20},
-		{73, 15}, {99, 20}, // still distinguishable
-		{5, 1}, // 5% per pixel → first pixel
-		{2, 0}, // below half a pixel → empty, not a phantom pixel
+		{73, 15}, {99, 20},
+		{5, 1},
+		{2, 0},
 	}
 	for _, c := range counts {
 		f := &Frame{}
@@ -176,7 +168,6 @@ func TestDrawGlass(t *testing.T) {
 		}
 	}
 
-	// Nothing may spill past the panel's right edge.
 	f = &Frame{}
 	drawGlass(f, intPtr(100), fill)
 	for y := glassTopRow; y <= glassBottomRow; y++ {
@@ -185,7 +176,6 @@ func TestDrawGlass(t *testing.T) {
 		}
 	}
 
-	// Left-to-right partial row: 55% → 11px → rows 4,3 full (10) + col 26 in row 2.
 	f = &Frame{}
 	drawGlass(f, intPtr(55), fill)
 	for x := 26; x <= 30; x++ {
@@ -205,7 +195,6 @@ func TestDrawGlass(t *testing.T) {
 		t.Errorf("55%%: interior lit = %d, want 11", litInterior(f))
 	}
 
-	// 60% → 12px → partial row has the left pair (26,27); the rest dark.
 	f = &Frame{}
 	drawGlass(f, intPtr(60), fill)
 	if !f.Dirty[2][26] || !f.Dirty[2][27] || f.Dirty[2][28] || f.Dirty[2][29] || f.Dirty[2][30] {
@@ -227,7 +216,6 @@ func TestRenderForCoord_PointerMissing_PicksFirst(t *testing.T) {
 	if payload == nil {
 		t.Fatal("expected non-nil payload for single running session")
 	}
-	// Source "a" → sourceCardText "A", handed to the firmware's font.
 	if got := payload["text"]; got != "A" {
 		t.Errorf("payload text = %v, want A", got)
 	}
@@ -241,7 +229,6 @@ func TestRenderForCoord_TwoActive_HonorsPointer(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s2", State: "running", SourceColor: &green, UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/s2", cardSource, false, 30, nil)
-	// The pointed-at session's SourceColor tints the (native) source name.
 	if got, want := payload["textColor"], "#2EE85E"; got != want {
 		t.Errorf("source-name colour = %v, want %v (s2 SourceColor)", got, want)
 	}
@@ -253,7 +240,6 @@ func TestRenderForCoord_LockedAttention_EmitsBlinkText(t *testing.T) {
 		wantLabel string
 		wantColor string
 	}{
-		// Source "a" is appended (uppercased) to the attention label.
 		{"waiting", "WAIT A", "#FFC14D"},
 		{"error", "ERR A", "#FF3A3A"},
 	}
@@ -268,31 +254,16 @@ func TestRenderForCoord_LockedAttention_EmitsBlinkText(t *testing.T) {
 	}
 }
 
-// TestRenderForCoord_Locked_PointerWinsOverRotation proves that when
-// multiple sessions are active, the locked pointer's state — not the
-// sort-order default — drives the attention payload. Without this,
-// the single-session test above could pass even if the code accidentally
-// always picked keys[0].
 func TestRenderForCoord_Locked_PointerWinsOverRotation(t *testing.T) {
 	now := time.Now()
 	snap := Snapshot{Sessions: []Session{
-		// Sort order will put s1 (running) ahead of s2 (error) because
-		// state priority puts error first… so to make this a real test
-		// we want pointer to select a session that is NOT keys[0].
 		{Source: "a", Tool: "b", Session: "s1", State: "error", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "s2", State: "waiting", UpdatedAt: now},
 	}}
-	// Pointer locked on s2 (waiting) even though s1 (error) sorts first
-	// because state priority puts error ahead of waiting.
-	// Source "a" is appended to the attention label.
 	payload := RenderForCoord(snap, "a/b/s2", cardSource, true, 30, nil)
 	assertBlinkText(t, payload, "WAIT A", "#FFC14D")
 }
 
-// TestRenderForCoord_LockedAttention_PixelGeometry asserts the locked payload
-// uses the 8×8 tool icon (usageIconClaude robot-face for a non-codex tool),
-// leaving cols 8-31 clear for the native blink text. Guards against regression
-// to the old 10-wide robot sprite.
 func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
@@ -307,17 +278,14 @@ func TestRenderForCoord_LockedAttention_PixelGeometry(t *testing.T) {
 		t.Fatalf("locked pixel array = %v, want []int of length %d", op[5], iconOpW*8)
 	}
 	at := func(x, y int) int { return pixels[y*iconOpW+x] }
-	// usageIconClaude: row0 "..X..X.." lights cols 2 & 5 (ears).
 	if at(2, 0) == 0 || at(5, 0) == 0 {
 		t.Errorf("row0 ears (cols 2,5) dark, want lit — not the Claude robot-face icon")
 	}
-	// row4 "XXXXXXXX" — fully lit.
 	for x := 0; x < 8; x++ {
 		if at(x, 4) == 0 {
 			t.Errorf("row4 col %d dark, want lit (full row)", x)
 		}
 	}
-	// row7 "........" — fully dark, and nothing painted in cols 8-31 (text region).
 	for x := 0; x < 8; x++ {
 		if at(x, 7) != 0 {
 			t.Errorf("row7 col %d lit, want dark", x)
@@ -331,8 +299,6 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if !ok || len(draw) == 0 {
 		t.Fatalf("locked payload draw[] = %v, want the icon op first", payload["draw"])
 	}
-	// Anything after the icon is the bottom bar: it must stay on row 7, clear
-	// of the blinking text in rows 1-5.
 	for i := 1; i < len(draw); i++ {
 		if op := bmp(t, payload, i); op[2] != barRow || op[4] != 1 {
 			t.Errorf("draw[%d] at y=%v h=%v, want a 1-row op on row %d", i, op[2], op[4], barRow)
@@ -354,8 +320,6 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	if got := payload["textOffsetX"]; got != 9 {
 		t.Errorf("textOffsetX = %v, want 9 (1-col gap after the 8×8 icon; text sits in cols 9-31 — 23 cols)", got)
 	}
-	// Fit is the firmware's call now: scroll.whenFits leaves a label that fits at
-	// rest and scrolls one that overflows, whatever its length.
 	if got, ok := payload["scroll"].(map[string]any); !ok || got["whenFits"] != "static" {
 		t.Errorf("scroll = %v, want {\"whenFits\":\"static\"}", payload["scroll"])
 	}
@@ -368,10 +332,6 @@ func assertBlinkText(t *testing.T, payload map[string]any, wantLabel, wantColor 
 	assertHeld(t, payload, 30)
 }
 
-// assertHeld pins Ember's NG display-hold encoding: a dwell as long as the
-// payload's own lifetime, and none of AWTRIX3's prio/force (which NG 422s).
-// Pinning the app past the rotation is a device-level call — see applyHold and
-// issue #69.
 func assertHeld(t *testing.T, payload map[string]any, lifetimeSeconds int) {
 	t.Helper()
 	for _, k := range []string{"prio", "force"} {
@@ -384,8 +344,6 @@ func assertHeld(t *testing.T, payload map[string]any, lifetimeSeconds int) {
 	}
 }
 
-// assertRotates is assertHeld's counterpart: an unheld frame takes the same
-// short dwell as the weather tiles so it cycles with them.
 func assertRotates(t *testing.T, payload map[string]any) {
 	t.Helper()
 	for _, k := range []string{"prio", "force"} {
@@ -400,9 +358,9 @@ func assertRotates(t *testing.T, payload map[string]any) {
 
 func TestFramePixelsRect(t *testing.T) {
 	var f Frame
-	paintCell(&f, 8, 0, RGB{0x00, 0xff, 0x00})  // top-left of the rect
-	paintCell(&f, 31, 7, RGB{0xff, 0x00, 0x00}) // bottom-right of the rect
-	paintCell(&f, 0, 0, RGB{0x00, 0x00, 0xff})  // outside (icon area) — excluded
+	paintCell(&f, 8, 0, RGB{0x00, 0xff, 0x00})
+	paintCell(&f, 31, 7, RGB{0xff, 0x00, 0x00})
+	paintCell(&f, 0, 0, RGB{0x00, 0x00, 0xff})
 	px := framePixelsRect(&f, 8, 0, 24, 8)
 	if len(px) != 24*8 {
 		t.Fatalf("len = %d, want 192", len(px))
@@ -451,7 +409,6 @@ func TestRenderForCoord_RunningToolCard_NoDisplayHold(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "s1", State: "running", Activity: "Bash: npm test", UpdatedAt: time.Now()},
 	}}
-	// AvailableCards = [cardSource, cardTool]; cursor 1 selects the tool card.
 	assertRotates(t, RenderForCoord(snap, "a/b/s1", 1, false, 30, nil))
 }
 
@@ -461,9 +418,6 @@ func TestRenderForCoord_LockedButNotAttentionState_StaticBitmapOps(t *testing.T)
 	}}
 	payload := RenderForCoord(snap, "a/b/r", cardSource, true, 30, nil)
 	ops := payload["draw"].([]any)
-	// Several bitmap ops are fine (the source card splits its bitmap around the
-	// native text); what NG rejects is a multi-FRAME animation array, so every
-	// entry must be a plain bitmap op.
 	if len(ops) == 0 {
 		t.Fatal("locked running: no draw ops")
 	}
@@ -490,7 +444,6 @@ func TestRenderForCoord_SourceCard_UsesTheFirmwareFont(t *testing.T) {
 	}
 }
 
-// strconvItoa avoids strconv import noise in the test file.
 func strconvItoa(i int) string { return string(rune('a' + i)) }
 
 func TestPickWinning(t *testing.T) {
@@ -531,10 +484,6 @@ func TestPickWinning(t *testing.T) {
 	}
 }
 
-// TestPickWinningTable is the session-priority contract. The menu app's Swift
-// pickWinning (macos/Sources/EmberKit/StatusService.swift) ports PickWinning;
-// keep each case plain data (tool, state, seconds after an epoch) so a Swift
-// test can mirror the table verbatim.
 func TestPickWinningTable(t *testing.T) {
 	type sess struct {
 		tool, state string
@@ -543,7 +492,7 @@ func TestPickWinningTable(t *testing.T) {
 	cases := []struct {
 		name     string
 		sessions []sess
-		want     string // winning tool, "" for none
+		want     string
 	}{
 		{"empty", nil, ""},
 		{"all idle", []sess{{"a", "idle", 1}, {"b", "idle", 2}}, ""},
@@ -625,10 +574,10 @@ func TestSortedActiveKeys(t *testing.T) {
 	}}
 	got := SortedActiveKeys(snap)
 	want := []string{
-		"src/tool/w1", // waiting first
-		"src/tool/e1", // error
-		"src/tool/r1", // running
-		"src/tool/d1", // done
+		"src/tool/w1",
+		"src/tool/e1",
+		"src/tool/r1",
+		"src/tool/d1",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("SortedActiveKeys =\n  %v\nwant\n  %v", got, want)
@@ -672,8 +621,6 @@ func TestRenderIdleFrame_Shape(t *testing.T) {
 	if len(pixels) != 64 {
 		t.Fatalf("idle pixels = %d ints, want 64", len(pixels))
 	}
-	// At least one pixel must be lit (the robot is drawn) and any lit
-	// pixel must be roughly 40% brightness (dim white).
 	var litCount int
 	for _, p := range pixels {
 		if p == 0 {
@@ -699,7 +646,7 @@ func TestRenderIdleFrame_Shape(t *testing.T) {
 	if payload["lifetimeMs"] != 30_000 {
 		t.Errorf("lifetimeMs = %v, want 30000", payload["lifetimeMs"])
 	}
-	assertHeld(t, payload, 30) // idle still holds the display
+	assertHeld(t, payload, 30)
 }
 
 func TestAttentionLabelAndColor(t *testing.T) {
@@ -710,7 +657,7 @@ func TestAttentionLabelAndColor(t *testing.T) {
 	}{
 		{"waiting", "WAIT", "#FFC14D"},
 		{"error", "ERR", "#FF3A3A"},
-		{"running", "WAIT", "#FFC14D"}, // fallback path; never reached in production
+		{"running", "WAIT", "#FFC14D"},
 	} {
 		t.Run(tc.state, func(t *testing.T) {
 			label, hex := attentionLabelAndColor(tc.state)
@@ -753,8 +700,6 @@ func TestDrawSessionBar_OneRunning(t *testing.T) {
 
 func TestDrawSessionBar_PriorityOrder(t *testing.T) {
 	now := time.Now()
-	// Arrival order: running, waiting, error.
-	// Priority order: waiting > error > running.
 	sessions := []Session{
 		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: now},
@@ -769,7 +714,6 @@ func TestDrawSessionBar_PriorityOrder(t *testing.T) {
 			t.Errorf("col %d = %+v dirty=%v, want %v", col, f.Pixels[7][col], f.Dirty[7][col], want)
 		}
 	}
-	// No fourth pixel.
 	if f.Dirty[7][barX0+3] {
 		t.Errorf("col barX0+3 lit, want dark (only 3 sessions)")
 	}
@@ -777,28 +721,21 @@ func TestDrawSessionBar_PriorityOrder(t *testing.T) {
 
 func TestDrawSessionBar_DeterministicAcrossSliceOrder(t *testing.T) {
 	now := time.Now()
-	// Two same-state sessions in reversed slice orderings must produce
-	// identical bars. This proves the sort is invoked (without it, slice
-	// order would leak through) and that the comparator is a total order.
-	// The lex *direction* (source "a" sorts before "z") is verified by
-	// TestSortedActiveKeys, which exercises the same comparator shape.
 	sessions1 := []Session{
 		{Source: "z", Tool: "t", Session: "s", State: "waiting", UpdatedAt: now},
 		{Source: "a", Tool: "t", Session: "s", State: "waiting", UpdatedAt: now},
 	}
-	sessions2 := []Session{sessions1[1], sessions1[0]} // reversed
+	sessions2 := []Session{sessions1[1], sessions1[0]}
 	f1 := &Frame{}
 	f2 := &Frame{}
 	drawSessionBar(f1, sessions1)
 	drawSessionBar(f2, sessions2)
-	// Both bars must be identical pixel-for-pixel across row 7.
 	for x := 0; x < 32; x++ {
 		if f1.Dirty[7][x] != f2.Dirty[7][x] || f1.Pixels[7][x] != f2.Pixels[7][x] {
 			t.Errorf("col %d differs between slice orderings: f1=%v dirty=%v vs f2=%v dirty=%v (slice order leaked through; sort must be invoked deterministically)",
 				x, f1.Pixels[7][x], f1.Dirty[7][x], f2.Pixels[7][x], f2.Dirty[7][x])
 		}
 	}
-	// And both should have exactly 2 amber pixels at cols barX0 and barX0+1.
 	if f1.Pixels[7][barX0] != colorWaiting || f1.Pixels[7][barX0+1] != colorWaiting {
 		t.Errorf("expected two amber pixels, got col barX0=%v col barX0+1=%v", f1.Pixels[7][barX0], f1.Pixels[7][barX0+1])
 	}
@@ -831,7 +768,6 @@ func TestDrawSessionBar_DoneIncluded(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	// running sorts before done by priority.
 	if f.Pixels[7][barX0] != colorRunning {
 		t.Errorf("col barX0 = %v, want running green", f.Pixels[7][barX0])
 	}
@@ -851,13 +787,11 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	// Exactly barW (24) pixels lit, cols 8..31.
 	for x := barX0; x <= 31; x++ {
 		if !f.Dirty[7][x] {
 			t.Errorf("col %d should be lit (overflow truncation paints first 24)", x)
 		}
 	}
-	// No spillover above row 7.
 	for y := 0; y < 7; y++ {
 		for x := 0; x < 32; x++ {
 			if f.Dirty[y][x] {
@@ -868,23 +802,18 @@ func TestDrawSessionBar_Overflow(t *testing.T) {
 }
 
 func TestComposeFrame_CodexSprite(t *testing.T) {
-	// No SourceColor → neutral body; state colour covers the "_" cursor overlay.
 	f := ComposeFrame(Session{Tool: "codex", State: "running"}, cardSource, nil, nil, time.Now())
-	// Row 0 col 0 lights the chevron body in iconNeutral.
 	if !f.Dirty[0][0] || f.Pixels[0][0] != iconNeutral {
 		t.Errorf("codex icon (0,0) not lit in neutral body colour: %v", f.Pixels[0][0])
 	}
-	// Row 6 cols 3-6 are the "_" cursor — state colour (running = green).
 	for _, x := range []int{3, 4, 5, 6} {
 		if !f.Dirty[6][x] || f.Pixels[6][x] != colorRunning {
 			t.Errorf("codex cursor col %d not lit in running colour: dirty=%v val=%v", x, f.Dirty[6][x], f.Pixels[6][x])
 		}
 	}
-	// Row 6 col 0 is chevron body (iconNeutral), not cursor.
 	if !f.Dirty[6][0] || f.Pixels[6][0] != iconNeutral {
 		t.Errorf("codex chevron tail (6,0) should be neutral body: %v", f.Pixels[6][0])
 	}
-	// Distinct from the Claude robot-face, which lights (2,0) not (0,0).
 	if f.Dirty[0][2] {
 		t.Error("codex frame lit (2,0) — that's the Claude icon, not codex")
 	}
@@ -892,7 +821,6 @@ func TestComposeFrame_CodexSprite(t *testing.T) {
 
 func TestDrawSessionBar_WaitingErrorRunningDoneMix(t *testing.T) {
 	now := time.Now()
-	// One of each, arrival order shuffled.
 	sessions := []Session{
 		{Source: "a", Tool: "b", Session: "d", State: "done", UpdatedAt: now},
 		{Source: "a", Tool: "b", Session: "r", State: "running", UpdatedAt: now},
@@ -901,7 +829,6 @@ func TestDrawSessionBar_WaitingErrorRunningDoneMix(t *testing.T) {
 	}
 	f := &Frame{}
 	drawSessionBar(f, sessions)
-	// Priority order from barX0: waiting, error, running, done.
 	wants := []RGB{colorWaiting, colorError, colorRunning, colorDone}
 	for i, want := range wants {
 		col := barX0 + i
@@ -921,9 +848,7 @@ func TestDrawRateBar(t *testing.T) {
 		}
 		return out
 	}
-	_ = litCols // dimmed bar paints the whole content area (track or fill); count fills below
-	// New design: usage-widget dimmed threshold bar over content cols 8-31.
-	// Every content cell is painted (track or fill), so we count dimThreshold fills.
+	_ = litCols
 	fillCount := func(f *Frame, pct int) int {
 		n := 0
 		for x := 8; x < 32; x++ {
@@ -939,7 +864,7 @@ func TestDrawRateBar(t *testing.T) {
 	}{
 		{name: "zero — no fill", pct: 0, want: 0},
 		{name: "negative — clamped 0", pct: -5, want: 0},
-		{name: "tiny non-zero — min 1px", pct: 2, want: 1}, // round(0.48)=0 → forced to 1
+		{name: "tiny non-zero — min 1px", pct: 2, want: 1},
 		{name: "half — 12px", pct: 50, want: 12},
 		{name: "full — 24px", pct: 100, want: 24},
 		{name: "over 100 — clamped full", pct: 130, want: 24},
@@ -953,7 +878,6 @@ func TestDrawRateBar(t *testing.T) {
 			}
 		})
 	}
-	// Colour is the dimmed threshold, derived from pct (the arg is ignored).
 	f := &Frame{}
 	drawRateBar(f, 50)
 	if f.Pixels[7][8] != dimThreshold(50) {
@@ -971,14 +895,11 @@ func rangeInts(lo, hi int) []int {
 
 func TestComposeFrame_RateBottomBar(t *testing.T) {
 	now := time.Now()
-	// All sessions passed to ComposeFrame; the displayed session `s` governs row 7.
 	others := []Session{
 		{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now},
 		{Source: "a", Tool: "claude", Session: "s2", State: "waiting", UpdatedAt: now},
 	}
 
-	// Toggle ON + rate present → dimmed threshold bar over content cols 8-31;
-	// 50% → 12 fills (cols 8-19) in dimThreshold(50), cols 20+ are track.
 	rw := 50
 	s := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, RateWindowPct: &rw, UpdatedAt: now}
@@ -992,14 +913,12 @@ func TestComposeFrame_RateBottomBar(t *testing.T) {
 		t.Errorf("rate bar over-filled past col 19")
 	}
 
-	// Toggle OFF → session-count bar (2 sessions → cols barX0,barX0+1 by priority: waiting, running).
 	sOff := Session{Source: "a", Tool: "claude", Session: "s1", State: "running", UpdatedAt: now}
 	fOff := ComposeFrame(sOff, cardSource, nil, others, time.Now())
 	if fOff.Pixels[7][barX0] != colorWaiting || fOff.Pixels[7][barX0+1] != colorRunning {
 		t.Errorf("session bar: got col barX0=%v col barX0+1=%v, want waiting,running", fOff.Pixels[7][barX0], fOff.Pixels[7][barX0+1])
 	}
 
-	// Toggle ON but no rate data → graceful fallback to the session-count bar.
 	sFallback := Session{Source: "a", Tool: "claude", Session: "s1", State: "running",
 		RateBottomBar: true, UpdatedAt: now}
 	fFallback := ComposeFrame(sFallback, cardSource, nil, others, time.Now())
@@ -1019,9 +938,6 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 		t.Fatal("expected non-nil payload")
 	}
 	pixels := panelPixels(t, payload)
-	// Row 7. Expect col barX0 = waiting amber, col barX0+1 = running green.
-	// Derive expected values from the palette constants so the test stays
-	// correct if colors are ever updated.
 	wantWaiting := (int(colorWaiting.R) << 16) | (int(colorWaiting.G) << 8) | int(colorWaiting.B)
 	wantRunning := (int(colorRunning.R) << 16) | (int(colorRunning.G) << 8) | int(colorRunning.B)
 	got11 := pixels[7*32+barX0]
@@ -1032,7 +948,6 @@ func TestRenderForCoord_SessionBar_RowSevenReflectsSnapshot(t *testing.T) {
 	if got12 != wantRunning {
 		t.Errorf("row 7 col barX0+1 = %#06x, want %#06x (running green, priority second)", got12, wantRunning)
 	}
-	// Col 13+ on row 7 should be dark.
 	for x := barX0 + 2; x < 32; x++ {
 		if pixels[7*32+x] != 0 {
 			t.Errorf("row 7 col %d = %#06x, want 0 (only 2 sessions in snapshot)", x, pixels[7*32+x])
@@ -1056,8 +971,6 @@ func TestUsageThresholdPalette(t *testing.T) {
 			t.Errorf("usageThreshold(%d) = %+v, want %+v", in, got, want)
 		}
 	}
-	// One palette for usage, distinct from the agent-state colours, so an
-	// amber 87 % never reads as a waiting agent.
 	for _, c := range []RGB{usageOK, usageWarn, usageHot} {
 		for _, s := range []RGB{colorRunning, colorWaiting, colorError} {
 			if c == s {
@@ -1112,7 +1025,6 @@ func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 	if _, has := p["textBlinkMs"]; has {
 		t.Errorf("textBlinkMs must be absent in detail mode")
 	}
-	// scroll.whenFits (not a hard static mode) so the firmware scrolls overflow.
 	if got, ok := p["scroll"].(map[string]any); !ok || got["whenFits"] != "static" || got["mode"] != nil {
 		t.Errorf("scroll = %v, want {\"whenFits\":\"static\"} with no hard mode", p["scroll"])
 	}
@@ -1122,20 +1034,17 @@ func TestDetailPayload_NoBlinkScrolls(t *testing.T) {
 }
 
 func TestCardsForSession(t *testing.T) {
-	// CardsForSession is a thin wrapper over AvailableCards; nil view → source only.
 	if got := CardsForSession(Session{Source: "mbp"}, nil); got != 1 {
 		t.Errorf("CardsForSession(nil view) = %d, want 1", got)
 	}
 	p7 := 30
 	u := &UsageView{FiveHourPct: 80, SevenDayPct: &p7}
 	if got := CardsForSession(Session{Source: "mbp", RateBottomBar: true}, u); got != 3 {
-		// source + usage5h + usage7d (no reset card in rate-bar mode)
 		t.Errorf("CardsForSession(rate-bar, 5h+7d) = %d, want 3", got)
 	}
 }
 
 func TestAvailableCards(t *testing.T) {
-	// nil view: only source and tool cards are possible.
 	cases := []struct {
 		name string
 		s    Session
@@ -1161,7 +1070,6 @@ func TestRenderForCoord_ToolCard_EmitsScrollingDetail(t *testing.T) {
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "s1", State: "running", Activity: "Bash: npm test", UpdatedAt: time.Now()},
 	}}
-	// AvailableCards = [cardSource, cardTool]; cursor 1 selects the tool card.
 	payload := RenderForCoord(snap, "a/b/s1", 1, false, 30, nil)
 	if payload["text"] != "Bash: npm test" {
 		t.Errorf("text = %v, want the activity string", payload["text"])
@@ -1182,9 +1090,6 @@ func TestRenderForCoord_CursorOutOfRange_ClampsToFirstCard(t *testing.T) {
 		{Source: "a", Tool: "b", Session: "s1", State: "running", UpdatedAt: time.Now()},
 	}}
 	payload := RenderForCoord(snap, "a/b/s1", 2, false, 30, nil)
-	// Clamping lands on the source card: a bitmap frame carrying the source
-	// name as native text — NOT the scrolling activity payload, which has a
-	// draw op of only the 8×8 icon.
 	if _, hasDraw := payload["draw"]; !hasDraw {
 		t.Error("out-of-range card index must clamp to the first card's pixel frame")
 	}
@@ -1194,9 +1099,6 @@ func TestRenderForCoord_CursorOutOfRange_ClampsToFirstCard(t *testing.T) {
 }
 
 func TestRenderForCoord_LockedAttention_ActivityDoesNotSubstituteLabel(t *testing.T) {
-	// 2026-06-11 redesign: activity detail no longer substitutes the attention
-	// label. The frame always shows "WAIT <SOURCE>" so the user knows which
-	// agent/computer needs them, regardless of what tool call is in progress.
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", Activity: "Bash: rm -rf x", UpdatedAt: time.Now()},
 	}}
@@ -1213,8 +1115,6 @@ func TestRenderForCoord_LockedAttention_ActivityDoesNotSubstituteLabel(t *testin
 }
 
 func TestRenderForCoord_LockedAttention_NoActivityStillBlinks(t *testing.T) {
-	// Source "a" is appended — activity (absent here) never drove the label
-	// anyway after the 2026-06-11 redesign.
 	snap := Snapshot{Sessions: []Session{
 		{Source: "a", Tool: "b", Session: "w", State: "waiting", UpdatedAt: time.Now()},
 	}}
@@ -1274,11 +1174,9 @@ func TestDrawToolIcon8(t *testing.T) {
 	blue := RGB{0x00, 0x00, 0xff}
 	var fc Frame
 	drawToolIcon8(&fc, Session{Tool: "claude", State: "error"}, red, blue)
-	// Body pixel (row 0, col 2 — lit in usageIconClaude, not in claudeEyes8) is red.
 	if !fc.Dirty[0][2] || fc.Pixels[0][2] != red {
 		t.Errorf("claude icon body pixel (2,0) not painted in body colour: %v", fc.Pixels[0][2])
 	}
-	// Eye pixel (row 2, col 2 — a hole in body, lit in claudeEyes8) is blue.
 	if !fc.Dirty[2][2] || fc.Pixels[2][2] != blue {
 		t.Errorf("claude eye pixel (2,2) not painted in feature colour: %v", fc.Pixels[2][2])
 	}
@@ -1309,7 +1207,6 @@ func TestComposeFrameUsesToolIcon(t *testing.T) {
 	if !f.Dirty[0][2] {
 		t.Errorf("icon not drawn at (2,0)")
 	}
-	// The source name itself is native text, not pixels.
 	if f.Native == nil || f.Native.Text == "" {
 		t.Errorf("source-card name missing from the frame's native text")
 	}
@@ -1324,7 +1221,7 @@ func TestRateBarDimmedThreshold(t *testing.T) {
 			filled++
 		}
 	}
-	if filled != 12 { // 24-wide content, 50% -> 12
+	if filled != 12 {
 		t.Errorf("filled = %d, want 12 dimmed cells", filled)
 	}
 	if f.Pixels[7][8] != dimThreshold(50) {
@@ -1335,14 +1232,11 @@ func TestRateBarDimmedThreshold(t *testing.T) {
 func TestAvailableCardsUsageGating(t *testing.T) {
 	s := Session{Source: "mbp", Tool: "claude", State: "running", RateBottomBar: true}
 
-	// No usage view -> only the source card (rate/ctx/reset cards are gone).
 	cards := AvailableCards(s, nil)
 	if len(cards) != 1 || cards[0] != cardSource {
 		t.Fatalf("nil view: got %v, want [cardSource]", cards)
 	}
 
-	// Full view, rate-bar mode: 5h face (clock), 7d, two models. No cardUsageReset
-	// (the 5h face already shows the clock; pct lives on the bar).
 	p7 := 42
 	u := &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7,
 		Models: []ModelUsage{{Marker: "OP", Pct: 51}, {Marker: "SO", Pct: 12}}}
@@ -1352,7 +1246,6 @@ func TestAvailableCardsUsageGating(t *testing.T) {
 		t.Fatalf("rate-bar mode: got %v, want %v", cards, want)
 	}
 
-	// Sessions-bar mode: pct moves into the 5h face, so the clock needs its own card.
 	s.RateBottomBar = false
 	cards = AvailableCards(s, u)
 	want = []int{cardSource, cardUsage5h, cardUsageReset, cardUsage7d, cardUsageModelA, cardUsageModelB}
@@ -1360,7 +1253,6 @@ func TestAvailableCardsUsageGating(t *testing.T) {
 		t.Fatalf("sessions-bar mode: got %v, want %v", cards, want)
 	}
 
-	// View without optional data: just the 5h face (+ reset since not rate-bar mode, ResetAt set).
 	cards = AvailableCards(s, &UsageView{FiveHourPct: 61, ResetAt: 1})
 	want = []int{cardSource, cardUsage5h, cardUsageReset}
 	if !slices.Equal(cards, want) {
@@ -1397,9 +1289,6 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 		Models: []ModelUsage{{Marker: "OP", Pct: 51}, {Marker: "SO", Pct: 12}}}
 	s := Session{Source: "mbp", Tool: "claude", State: "running", RateBottomBar: true, ContextPct: &ctx}
 
-	// requireUnit asserts the gray window label at the unit slot and that the
-	// context glass is absent: units paint usageGray, so any glassWall-coloured
-	// pixel in the glass columns betrays a drawn glass.
 	requireUnit := func(t *testing.T, f *Frame, face string) {
 		t.Helper()
 		if got := f.Pixels[1][rightSlotX]; got != usageGray {
@@ -1414,10 +1303,6 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 		}
 	}
 
-	// requireResetMarker asserts an HH:MM clock face marks itself as a reset
-	// time with the gray hourglass at cols 27-29 and nothing else in the right
-	// slot. A bare HH:MM beside the robot reads as the time of day (NG's Time
-	// app shows one), and a "5h" at col 25 ran into the clock ("17:305h").
 	requireResetMarker := func(t *testing.T, f *Frame, face string) {
 		t.Helper()
 		g := glyph(resetGlyph)
@@ -1435,8 +1320,6 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 		}
 	}
 
-	// 5h face in rate-bar mode: clock at contentX — '1' row 0 is ".X." so its
-	// lit pixel is x=contentX+1 — and no unit label beside it.
 	f := ComposeFrame(s, cardUsage5h, u, []Session{s}, now)
 	if !f.Dirty[1][10] {
 		t.Fatal("5h face: clock not painted")
@@ -1446,7 +1329,6 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	}
 	requireResetMarker(t, &f, "5h clock face")
 
-	// 5h face in sessions-bar mode: "87%" digits in the usage threshold amber + unit.
 	s2 := s
 	s2.RateBottomBar = false
 	f = ComposeFrame(s2, cardUsage5h, u, []Session{s2}, now)
@@ -1455,42 +1337,34 @@ func TestComposeFrameUsageFaces(t *testing.T) {
 	}
 	requireUnit(t, &f, "5h pct face")
 
-	// The reset clock face (sessions-bar mode) carries the same marker.
 	f = ComposeFrame(s2, cardUsageReset, u, []Session{s2}, now)
 	requireResetMarker(t, &f, "reset clock face")
 
-	// 7d face: red "95%" at contentX, gray "7d" unit at the right edge.
 	f = ComposeFrame(s, cardUsage7d, u, []Session{s}, now)
 	if got := f.Pixels[1][9]; got != usageHot {
 		t.Fatalf("7d pct: pixel = %v, want red %v", got, usageHot)
 	}
 	requireUnit(t, &f, "7d face")
 
-	// Model face: green "51%" + gray "OP" unit.
 	f = ComposeFrame(s, cardUsageModelA, u, []Session{s}, now)
 	if got := f.Pixels[1][9]; got != usageOK {
 		t.Fatalf("model pct: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "model A face")
 
-	// Model B face: green "12%" + gray "SO" unit. '1' row 0 is ".X." so the
-	// first lit pct pixel is x=10, not 9.
 	f = ComposeFrame(s, cardUsageModelB, u, []Session{s}, now)
 	if got := f.Pixels[1][10]; got != usageOK {
 		t.Fatalf("model B pct: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "model B face")
 
-	// Reset face without a label: hourglass fallback (resetText colour) + "5h"
-	// unit (the countdown belongs to the 5h window; it is short, so it fits).
 	u2 := &UsageView{FiveHourPct: 61, ResetAt: now.Add(3 * time.Hour).Unix()}
 	f = ComposeFrame(s2, cardUsageReset, u2, []Session{s2}, now)
-	if got := f.Pixels[1][9]; got != usageOK { // 3 hours left -> green
+	if got := f.Pixels[1][9]; got != usageOK {
 		t.Fatalf("reset fallback: pixel = %v, want green %v", got, usageOK)
 	}
 	requireUnit(t, &f, "reset face")
 
-	// The source card keeps the context glass: (31,1) is its right wall.
 	f = ComposeFrame(s, cardSource, u, []Session{s}, now)
 	if got := f.Pixels[1][glassRight]; got != glassWall {
 		t.Fatalf("source card glass wall: pixel = %v, want %v", got, glassWall)
@@ -1511,9 +1385,9 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 	views := map[string]*UsageView{
 		"claude": {FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7},
 	}
-	p0 := RenderIdleUsagePayload(views, 0, now, 30) // 5h face
-	p1 := RenderIdleUsagePayload(views, 1, now, 30) // 7d face
-	p2 := RenderIdleUsagePayload(views, 2, now, 30) // wraps to 5h
+	p0 := RenderIdleUsagePayload(views, 0, now, 30)
+	p1 := RenderIdleUsagePayload(views, 1, now, 30)
+	p2 := RenderIdleUsagePayload(views, 2, now, 30)
 	if p0 == nil || p1 == nil {
 		t.Fatal("hot view: want non-nil payloads")
 	}
@@ -1527,8 +1401,6 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 		t.Fatal("cursor should wrap (face 2 == face 0)")
 	}
 
-	// The idle 5h face is the reset clock with the gray hourglass marker
-	// (top plate lights row 1 at resetMarkX); the 7d face keeps its "7d" label.
 	px := bmpPixels(t, p0)
 	if got := px[1*32+rightSlotX]; got != 0 {
 		t.Errorf("idle 5h face col %d = %#06x, want a gap before the marker", rightSlotX, got)
@@ -1545,19 +1417,16 @@ func TestRenderIdleUsagePayload(t *testing.T) {
 func TestRenderIdleUsagePayload_MultiTool(t *testing.T) {
 	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 
-	// claude: 5h + 7d faces (2 faces).
-	// codex: 5h only — no SevenDayPct, no ResetLabel, but ResetAt set.
-	// Fixed order: claude faces first, then codex → 3 faces total.
 	p7 := 42
 	views := map[string]*UsageView{
 		"claude": {FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p7},
 		"codex":  {FiveHourPct: 73, ResetAt: now.Add(2 * time.Hour).Unix()},
 	}
 
-	p0 := RenderIdleUsagePayload(views, 0, now, 30) // claude 5h
-	p1 := RenderIdleUsagePayload(views, 1, now, 30) // claude 7d
-	p2 := RenderIdleUsagePayload(views, 2, now, 30) // codex 5h
-	p3 := RenderIdleUsagePayload(views, 3, now, 30) // wraps → claude 5h
+	p0 := RenderIdleUsagePayload(views, 0, now, 30)
+	p1 := RenderIdleUsagePayload(views, 1, now, 30)
+	p2 := RenderIdleUsagePayload(views, 2, now, 30)
+	p3 := RenderIdleUsagePayload(views, 3, now, 30)
 
 	if p0 == nil || p1 == nil || p2 == nil || p3 == nil {
 		t.Fatal("all cursors over hot tools: want non-nil payloads")
@@ -1589,7 +1458,6 @@ func TestRenderForCoordUsesUsageView(t *testing.T) {
 	snap := Snapshot{Now: now, Sessions: []Session{s}}
 	views := map[string]*UsageView{"claude": {FiveHourPct: 87, ResetLabel: "17:30"}}
 
-	// card index 1 = cardUsage5h (after cardSource) only when views are passed.
 	withUsage := RenderForCoord(snap, s.Key(), 1, false, 30, views)
 	without := RenderForCoord(snap, s.Key(), 1, false, 30, nil)
 	bu, _ := json.Marshal(withUsage)

@@ -2,9 +2,6 @@ import Accessibility
 import SwiftUI
 import EmberKit
 
-// Audio graphs and VoiceOver chart summaries for the Dashboard charts
-// (design §2.7). Each describes the same numbers the chart draws.
-
 struct WeekBarsDescriptor: AXChartDescriptorRepresentable {
     let bars: WeekBars
 
@@ -118,7 +115,6 @@ struct AgentTimeDescriptor: AXChartDescriptorRepresentable {
     }
 }
 
-/// A localized string with automatic grammar agreement ("1 day", "2 days").
 func inflected(_ resource: LocalizedStringResource) -> String {
     String(AttributedString(localized: resource).characters)
 }

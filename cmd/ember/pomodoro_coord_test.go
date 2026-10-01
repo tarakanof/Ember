@@ -26,21 +26,17 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 		return render.PomodoroView{Phase: "focus", RemainingSec: 1500, PlannedSec: 1500, FocusColor: render.RGB{R: 0xff}}, true
 	}
 
-	// Inactive: normal path, no device-takeover settings written.
 	c.publish(snap)
 	if n := len(pub.SettingsSnapshot()); n != 0 {
 		t.Fatalf("settings before active = %d, want 0", n)
 	}
 
-	// Activate → pomodoro frame published, takeover settings + switch fire once.
 	active = true
 	c.publish(snap)
 	apps := pub.CustomAppsSnapshot()
 	if len(apps) == 0 {
 		t.Fatal("expected a published custom app")
 	}
-	// Pomodoro now publishes a built-in animated icon payload (tomato/coffee)
-	// rather than a drawn db frame.
 	if got := apps[len(apps)-1]["icon"]; got != "29802" && got != "6396" {
 		t.Fatalf("expected pomodoro built-in icon payload, got %+v", apps[len(apps)-1])
 	}
@@ -52,13 +48,11 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 		t.Fatalf("switch = %+v, want [%s]", sw, cfg.AWTRIX.AppName)
 	}
 
-	// Still active: takeover is edge-triggered, not repeated.
 	c.publish(snap)
 	if n := len(pub.SettingsSnapshot()); n != 1 {
 		t.Fatalf("settings while still active = %d, want 1 (edge only)", n)
 	}
 
-	// Deactivate → rotation/nav restored once.
 	active = false
 	c.publish(snap)
 	s = pub.SettingsSnapshot()
@@ -67,11 +61,6 @@ func TestCoordinatorPomodoroPreemptsAndTakesOver(t *testing.T) {
 	}
 }
 
-// TestCoordinatorReassertsTakeoverOnRepublish replaces the old blind 30s
-// re-assert loop: the takeover stays purely edge-triggered no matter how much
-// time passes, and reboot recovery arrives as a republish command (queued by the
-// device watcher when the clock's uptime resets) which re-issues the settings +
-// forced app switch.
 func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
@@ -86,7 +75,6 @@ func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 		return render.PomodoroView{Phase: "focus", RemainingSec: 1500, PlannedSec: 1500, FocusColor: render.RGB{R: 0xff}}, true
 	}
 
-	// Activate → takeover settings + switch fire once.
 	c.publish(snap)
 	if n := len(pub.SettingsSnapshot()); n != 1 {
 		t.Fatalf("settings after activate = %d, want 1", n)
@@ -95,7 +83,6 @@ func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 		t.Fatalf("switches after activate = %d, want 1", n)
 	}
 
-	// No amount of elapsed time re-issues on its own any more.
 	clk.Advance(10 * time.Minute)
 	c.publish(snap)
 	if n := len(pub.SettingsSnapshot()); n != 1 {
@@ -105,7 +92,6 @@ func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 		t.Fatalf("switches after 10min of steady state = %d, want 1", n)
 	}
 
-	// Reboot event → takeover re-asserted (settings + switch) immediately.
 	c.onRepublish()
 	s := pub.SettingsSnapshot()
 	if len(s) != 2 || s[1]["autoTransition"] != false || s[1]["blockNavigation"] != true {
@@ -118,7 +104,6 @@ func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 		t.Fatal("hold should be holdPomodoro again after the re-assert")
 	}
 
-	// Deactivate → single restore, flag cleared.
 	c.pomoView = func() (render.PomodoroView, bool) { return render.PomodoroView{}, false }
 	clk.Advance(time.Second)
 	c.publish(snap)
@@ -128,8 +113,6 @@ func TestCoordinatorReassertsTakeoverOnRepublish(t *testing.T) {
 	}
 }
 
-// TestCoordinatorRepublishSkipsPomoWhenIdle guards the other half: a republish
-// with no timer running must not write takeover settings at all.
 func TestCoordinatorRepublishSkipsPomoWhenIdle(t *testing.T) {
 	pub := &recordingPublisher{}
 	cfg := defaultConfig()
@@ -154,13 +137,11 @@ func TestCoordinatorRestoresTakeoverOnShutdown(t *testing.T) {
 	cfg.applyDefaults()
 	c := newCoordinator(cfg, func() *Config { return &cfg }, pub, realClock{}, testLogger(), nil)
 
-	// Not in takeover → no restore call.
 	c.restorePomoTakeoverOnExit()
 	if n := len(pub.SettingsSnapshot()); n != 0 {
 		t.Fatalf("restore without active takeover wrote %d settings, want 0", n)
 	}
 
-	// In takeover → restore autoTransition/blockNavigation once and clear the flag.
 	c.hold = holdPomodoro
 	c.restorePomoTakeoverOnExit()
 	s := pub.SettingsSnapshot()
@@ -185,7 +166,6 @@ func TestCoordinatorHiddenAppDoesNotGrabAttentionLock(t *testing.T) {
 	c.snapshot = func() Snapshot { return snap }
 	c.hiddenApps = func() map[string]bool { return map[string]bool{"codex": true} }
 
-	// codex (hidden) transitions into an attention state.
 	c.onUpsert("mbp/codex/b", "running", "waiting")
 
 	if c.locked {
@@ -217,7 +197,6 @@ func TestCoordinatorHidesAppFromDisplay(t *testing.T) {
 		t.Fatalf("hidden codex session became the display pointer: %q", c.pointer)
 	}
 
-	// With codex hidden and claude present, the pointer must be the claude session.
 	if c.pointer != "mbp/claude/a" {
 		t.Fatalf("pointer = %q, want mbp/claude/a", c.pointer)
 	}

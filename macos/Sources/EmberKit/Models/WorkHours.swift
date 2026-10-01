@@ -37,8 +37,6 @@ public struct WorkHours: Decodable, Sendable, Equatable {
             longestSec = try c.decode(Int.self, forKey: .longestSec)
         }
 
-        /// Servers before 0.28 send Go's zero time ("0001-01-01T00:00:00Z") for
-        /// an empty day; treat anything before 1971 as "no value".
         static func realDate(_ d: Date?) -> Date? {
             guard let d, d.timeIntervalSince1970 > 365 * 86_400 else { return nil }
             return d

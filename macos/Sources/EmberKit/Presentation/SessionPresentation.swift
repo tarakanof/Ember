@@ -38,22 +38,13 @@ public struct SessionPresentation: Sendable, Equatable {
 
     /// Producer text as it may be shown: activity strings are raw agent
     /// output and can carry markup ("<task-notification>…</task-notification>",
-    /// or a tag cut off mid-way by the producer's own truncation). Drops
-    /// tagged blocks, stray and unterminated tags and control characters,
-    /// collapses whitespace, and cuts to `maxLength` characters (graphemes,
-    /// so an emoji or accent is never split) with an ellipsis. nil when
-    /// nothing readable is left.
+    /// or a tag cut off mid-way by the producer's own truncation).
     public static func displayText(_ raw: String, maxLength: Int) -> String? {
         var s = raw
-        // A whole element is a wrapper around machine content: drop it.
         s = s.replacing(/(?s)<([A-Za-z][\w:.-]*)\b[^>]*>.*?<\/\1\s*>/, with: " ")
-        // Remaining complete tags (<br>, </x>, <x/>).
         s = s.replacing(/<\/?[A-Za-z][^<>]*>/, with: " ")
-        // A tag the producer's truncation cut off ("<task-notifica…c1</"):
-        // everything from its "<" on is markup. "a < b" isn't a tag.
         s = s.replacing(/<\/?[A-Za-z][^>]*$/, with: " ")
         s = s.replacing(/<\/?$/, with: " ")
-        // Cc only: format characters (Cf) include the joiner inside emoji.
         s = String(String.UnicodeScalarView(s.unicodeScalars.map { $0.properties.generalCategory == .control ? " " : $0 }))
         s = s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard !s.isEmpty, maxLength > 0 else { return nil }

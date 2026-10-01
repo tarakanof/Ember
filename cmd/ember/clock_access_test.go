@@ -18,8 +18,6 @@ func clockAccessFor(url string, timeoutSec int) *clockAccess {
 	return newClockAccess(func() *Config { return &cfg })
 }
 
-// One URL rule for every call: empty is "not configured", anything that isn't
-// an absolute http(s) URL never gets dialled, a trailing slash is dropped.
 func TestClockAccessURLRule(t *testing.T) {
 	if _, err := clockAccessFor("", 10).client(callMenu); !errors.Is(err, errClockNotConfigured) {
 		t.Fatalf("empty url err = %v, want errClockNotConfigured", err)
@@ -35,9 +33,6 @@ func TestClockAccessURLRule(t *testing.T) {
 	}
 }
 
-// The timeout table. The lossy-link tuning lives in these numbers: the probe
-// must fit its watch tick, capabilities must not delay boot, and the publish
-// ceiling is the config's (the coordinator narrows each attempt itself).
 func TestClockAccessCallClassTimeouts(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.AWTRIX.TimeoutSeconds = 10
@@ -61,7 +56,6 @@ func TestClockAccessCallClassTimeouts(t *testing.T) {
 	}
 }
 
-// Every call reads the live URL, so a rediscovery swap applies to the next one.
 func TestClockAccessFollowsTheLiveURL(t *testing.T) {
 	hits := map[string]int{}
 	srv := func(name string) *httptest.Server {
@@ -85,8 +79,6 @@ func TestClockAccessFollowsTheLiveURL(t *testing.T) {
 	}
 }
 
-// fetch turns a refusal into the clock's own *awtrix.APIError, and
-// writeClockError relays it exactly as the raw-reply path always has.
 func TestClockAccessErrorMapParity(t *testing.T) {
 	body := `{"error":{"code":"validationFailed","message":"bad","field":"brightness"}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,14 +106,12 @@ func TestClockAccessErrorMapParity(t *testing.T) {
 	}
 }
 
-// A system write waiting behind another one gives up when its request does,
-// without touching the clock.
 func TestClockAccessSystemLockHonoursContext(t *testing.T) {
 	hits := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
 	defer srv.Close()
 	k := clockAccessFor(srv.URL, 10)
-	k.systemLock.Lock() // another writer holds it
+	k.systemLock.Lock()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if _, err := k.updateSystem(ctx, func(map[string]any) {}); !errors.Is(err, context.DeadlineExceeded) {
@@ -132,8 +122,6 @@ func TestClockAccessSystemLockHonoursContext(t *testing.T) {
 	}
 }
 
-// Unlocking a ctxLock that isn't held panics, as sync.Mutex does, instead of
-// blocking forever.
 func TestCtxLockUnlockOfUnlockedPanics(t *testing.T) {
 	l := newCtxLock()
 	l.Lock()

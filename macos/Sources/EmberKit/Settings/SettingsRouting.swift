@@ -1,8 +1,6 @@
 import Foundation
 
-/// The Settings panes by their stored name. The raw values are a contract:
-/// other windows open Settings on a pane by writing one to the
-/// `settings.pane` default (`openSettings(pane:using:)`).
+/// The Settings panes by their stored name.
 public enum SettingsPaneID: String, CaseIterable, Identifiable, Sendable {
     case general, connection, clock, agents, focus, weather, calendar, sounds, permissions
 
@@ -13,7 +11,7 @@ public enum SettingsPaneID: String, CaseIterable, Identifiable, Sendable {
 
     /// Resolves a stored name, including the names panes had before the
     /// Settings restructure, so a saved selection or an older caller still
-    /// lands on the right pane. Unknown names open Connection.
+    /// lands on the right pane.
     public init(stored name: String?) {
         if let name, let pane = SettingsPaneID(rawValue: name) {
             self = pane

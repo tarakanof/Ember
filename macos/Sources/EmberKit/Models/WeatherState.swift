@@ -1,7 +1,6 @@
 import Foundation
 
 /// GET /v1/weather/state — the server's cached weather observation.
-/// Temperatures are always Celsius; `units` is the display preference.
 public struct WeatherState: Decodable, Sendable, Equatable {
     public struct TempPoint: Decodable, Sendable, Equatable, Identifiable {
         public var time: Date
@@ -31,7 +30,7 @@ public struct WeatherState: Decodable, Sendable, Equatable {
         /// Render bucket: clear, clouds, fog, rain, snow or storm.
         public var condition: String
         /// The provider's raw code: WMO code for open-meteo ("61"), symbol_code
-        /// for met-no ("rain_showers_day"). See `WeatherState.provider`.
+        /// for met-no ("rain_showers_day").
         public var conditionCode: String?
         public var severe: Bool
         public var tempC: Double

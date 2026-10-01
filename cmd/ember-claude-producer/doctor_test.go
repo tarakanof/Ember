@@ -2,8 +2,6 @@ package main
 
 import "testing"
 
-// Representative `launchctl print gui/<uid>/<label>` output for a loaded,
-// healthy periodic agent (between ticks: not currently running, last run OK).
 const sampleLaunchctlPrint = `com.ember.heartbeat = {
 	active count = 0
 	path = /Users/joe/Library/LaunchAgents/com.ember.heartbeat.plist

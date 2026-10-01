@@ -14,9 +14,6 @@ func TestBootPingSourceBakesCallbackURL(t *testing.T) {
 	}
 }
 
-// The header lines are what the device's web UI reads, and the trailing
-// `return` is what makes the file an app at all — an install without it
-// compiles and then never runs.
 func TestBootPingSourceHasAppShape(t *testing.T) {
 	src := BootPingSource("http://e/hooks/awtrix/boot")
 	for _, want := range []string{
@@ -36,9 +33,6 @@ func TestBootPingSourceHasAppShape(t *testing.T) {
 	}
 }
 
-// NG ≥1.1.1 dropped the fixed 8 KB scriptMaxBytes cap for available-memory
-// checks, but the compile still draws on the shared ~96 KB Berry heap, so 8 KB
-// stays as Ember's own budget: a script this small must stay small.
 func TestBootPingSourceFitsScriptBudget(t *testing.T) {
 	if n := len(BootPingSource("http://192.168.0.2:3627/hooks/awtrix/boot")); n > 8192 {
 		t.Fatalf("script is %d bytes, over Ember's 8192-byte script budget", n)

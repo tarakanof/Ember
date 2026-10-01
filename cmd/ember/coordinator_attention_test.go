@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// TestAttentionChimeOncePerLock verifies that PlayRTTTL is called exactly once
-// per fresh attention lock, not on waiting↔error re-arms, and not at all when
-// AttentionChime is false.
 func TestAttentionChimeOncePerLock(t *testing.T) {
 	t.Run("chime_on_fresh_lock_only", func(t *testing.T) {
 		cfg := defaultConfig()
@@ -29,7 +26,6 @@ func TestAttentionChimeOncePerLock(t *testing.T) {
 		t.Cleanup(cancel)
 		go c.Run(ctx)
 
-		// 1) Fresh lock: running → waiting. Expect exactly 1 chime.
 		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "running", newState: "waiting"})
 		time.Sleep(50 * time.Millisecond)
 
@@ -37,7 +33,6 @@ func TestAttentionChimeOncePerLock(t *testing.T) {
 			t.Errorf("after fresh lock: PlayRTTTL calls = %d, want 1", got)
 		}
 
-		// 2) Same key, waiting → error (re-arm branch). Still exactly 1 total.
 		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "waiting", newState: "error"})
 		time.Sleep(50 * time.Millisecond)
 
@@ -45,7 +40,6 @@ func TestAttentionChimeOncePerLock(t *testing.T) {
 			t.Errorf("after waiting→error re-arm: PlayRTTTL calls = %d, want 1 (no extra chime)", got)
 		}
 
-		// 3) Drain (→ running), then a new fresh waiting transition: now 2 total.
 		c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/s", priorState: "error", newState: "running"})
 		time.Sleep(50 * time.Millisecond)
 
@@ -91,10 +85,6 @@ func TestAttentionChimeOncePerLock(t *testing.T) {
 	})
 }
 
-// TestAckTimeoutReadLive verifies that swapping the config's AckTimeoutSeconds
-// at runtime takes effect for the CURRENT lock without a restart. With the old
-// captured-field approach, advancing 6s while the captured timeout is 30s
-// would leave the lock held; with live reads, 6s >= the new 5s timeout releases it.
 func TestAckTimeoutReadLive(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -102,7 +92,6 @@ func TestAckTimeoutReadLive(t *testing.T) {
 	publisher := &recordingPublisher{}
 	clk := &fakeClock{now: time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)}
 
-	// Back the coordinator with a swappable config pointer.
 	var cfgPtr atomic.Pointer[Config]
 	stored := cfg
 	cfgPtr.Store(&stored)
@@ -119,7 +108,6 @@ func TestAckTimeoutReadLive(t *testing.T) {
 	t.Cleanup(cancel)
 	go c.Run(ctx)
 
-	// Acquire the lock.
 	c.Send(coordCmd{kind: cmdUpsert, sessionKey: "a/b/w", priorState: "running", newState: "waiting"})
 	time.Sleep(50 * time.Millisecond)
 
@@ -130,12 +118,10 @@ func TestAckTimeoutReadLive(t *testing.T) {
 	}
 	c.stateMu.RUnlock()
 
-	// Shorten the timeout to 5s at runtime (still within the current lock).
 	newCfg := *cfgPtr.Load()
 	newCfg.Display.AckTimeoutSeconds = 5
 	cfgPtr.Store(&newCfg)
 
-	// Advance 6s — past the NEW 5s timeout but well under the OLD 30s.
 	clk.Advance(6 * time.Second)
 	c.Send(coordCmd{kind: cmdTick})
 	time.Sleep(50 * time.Millisecond)

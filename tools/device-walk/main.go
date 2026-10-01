@@ -1,6 +1,5 @@
 // Command device-walk pushes throwaway preview frames of the Phase-1 display
-// rework to the physical clock so a human can judge legibility. Apps are named
-// ember-test-* with a short lifetime; run with -clear to remove them early.
+// rework to the physical clock so a human can judge legibility.
 package main
 
 import (
@@ -75,25 +74,22 @@ func main() {
 		return
 	}
 
-	const lifetime = 180 // seconds; expires on its own
+	const lifetime = 180
 	blue := "#3366FF"
 	orange := "#FF8800"
 	pct50, pct85 := 50, 85
 	now := time.Now()
 
-	// 1. Claude, running, source colour blue, source card "MBP", session bar.
 	s1 := render.Session{Source: "mbp", Tool: "claude", Session: "t1", State: "running",
 		SourceColor: &blue, ContextPct: &pct50, RateWindowPct: &pct85, UpdatedAt: now}
-	f1 := render.ComposeFrame(s1, 0 /* cardSource */, nil, []render.Session{s1}, now)
+	f1 := render.ComposeFrame(s1, 0, nil, []render.Session{s1}, now)
 	_ = push(*baseURL, "ember-test-claude", frameApp(&f1, lifetime))
 
-	// 2. Codex, error state (red cursor), source colour orange, source card.
 	s2 := render.Session{Source: "studio", Tool: "codex", Session: "t2", State: "error",
 		SourceColor: &orange, RateWindowPct: &pct50, UpdatedAt: now}
 	f2 := render.ComposeFrame(s2, 0, nil, []render.Session{s2}, now)
 	_ = push(*baseURL, "ember-test-codex", frameApp(&f2, lifetime))
 
-	// 3. Attention frame: waiting claude from "mbp" (blinking WAIT MBP).
 	s3 := render.Session{Source: "mbp", Tool: "claude", Session: "t3", State: "waiting",
 		SourceColor: &blue, UpdatedAt: now}
 	snap := render.Snapshot{Now: now, Sessions: []render.Session{s3}}
@@ -103,7 +99,6 @@ func main() {
 		_ = push(*baseURL, "ember-test-attn", p)
 	}
 
-	// 4. No source colour: neutral body + amber waiting eyes.
 	s4 := render.Session{Source: "nas", Tool: "claude", Session: "t4", State: "waiting",
 		ContextPct: &pct85, UpdatedAt: now}
 	f4 := render.ComposeFrame(s4, 0, nil, []render.Session{s4}, now)
@@ -112,8 +107,6 @@ func main() {
 	fmt.Println("\nApps rotate for ~3 min then expire; re-run with -clear to drop them now.")
 }
 
-// frameApp wraps a Frame the same way the coordinator publishes one, minus the
-// display hold so the test apps don't preempt the live rotation.
 func frameApp(f *render.Frame, lifetime int) map[string]any {
 	pixels := make([]int, 256)
 	for y := 0; y < 8; y++ {

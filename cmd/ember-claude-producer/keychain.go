@@ -13,7 +13,6 @@ type claudeCreds struct {
 	ExpiresAtMs int64
 }
 
-// parseClaudeCreds reads the claudeAiOauth blob (Keychain item or file).
 func parseClaudeCreds(b []byte) (claudeCreds, error) {
 	var doc struct {
 		OAuth struct {
@@ -27,9 +26,6 @@ func parseClaudeCreds(b []byte) (claudeCreds, error) {
 	return claudeCreds{AccessToken: doc.OAuth.AccessToken, ExpiresAtMs: doc.OAuth.ExpiresAt}, nil
 }
 
-// readClaudeCreds returns the OAuth creds: macOS login Keychain first
-// (item "Claude Code-credentials"), then ~/.claude/.credentials.json (Linux).
-// Read-only; never refreshes (rotation races the Claude Code daemon).
 func readClaudeCreds() (claudeCreds, error) {
 	acct := ""
 	if u, err := user.Current(); err == nil {

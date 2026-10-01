@@ -10,8 +10,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// fakeTileWriter is the test adapter at the tileSet seam: it records writes
-// and fails the next pushes/clears on demand.
 type fakeTileWriter struct {
 	failPush, failClear int
 	pushedApps, cleared []string
@@ -35,8 +33,6 @@ func (w *fakeTileWriter) clear(app string) error {
 	return nil
 }
 
-// airOnly is a fresh reading with only the air tile turned on, so a
-// reconcile touches exactly one app.
 func airOnly(now time.Time, aqi float64) tileInputs {
 	var cfg WeatherConfig
 	cfg.applyDefaults()
@@ -60,7 +56,6 @@ func TestTileSetDedupesAndRefreshes(t *testing.T) {
 	if got := len(w.pushedApps); got != 2 {
 		t.Fatalf("changed tile not re-pushed: %d pushes, want 2", got)
 	}
-	// Unchanged but due: re-pushed before the device lifetime evicts it.
 	s.reconcile(airOnly(now.Add(2*time.Minute+usageRefreshInterval), 90), w)
 	if got := len(w.pushedApps); got != 3 {
 		t.Fatalf("due tile not refreshed: %d pushes, want 3", got)
@@ -81,7 +76,6 @@ func TestTileSetFailedWritesRetry(t *testing.T) {
 		t.Fatalf("failed push not retried: %d successful pushes, want 1", got)
 	}
 
-	// Air turned off: the clear fails once, stays tracked, and retries.
 	off := airOnly(now, 40)
 	off.weather.AirTile = boolPtr(false)
 	w.failClear = 1
@@ -111,8 +105,6 @@ func TestTileSetAdoptAndForget(t *testing.T) {
 		t.Fatalf("adopted %v, want %v", got, want)
 	}
 
-	// Adopted entries have unknown content: a wanted tile is re-pushed, the
-	// rest (legacy usage, meet with no meeting) are cleared.
 	s.reconcile(airOnly(now, 40), w)
 	if !slices.Equal(w.pushedApps, []string{"ember-air"}) {
 		t.Errorf("pushed %v, want [ember-air]", w.pushedApps)
@@ -122,7 +114,6 @@ func TestTileSetAdoptAndForget(t *testing.T) {
 		t.Errorf("cleared %v, want %v", w.cleared, want)
 	}
 
-	// After a reboot the device holds nothing: forget re-pushes at once.
 	s.forget()
 	s.reconcile(airOnly(now.Add(time.Second), 40), w)
 	if got := len(w.pushedApps); got != 2 {
@@ -133,7 +124,7 @@ func TestTileSetAdoptAndForget(t *testing.T) {
 func TestPreviewTilesHonoursToggleNotLiveGate(t *testing.T) {
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	var cfg WeatherConfig
-	cfg.applyDefaults() // feature disabled, stale reading: the device shows nothing
+	cfg.applyDefaults()
 	cfg.ForecastTile = boolPtr(false)
 	in := tileInputs{now: now, weather: cfg,
 		obs:      weatherObservation{Condition: render.WeatherRain, TempC: 3, Hourly: arc(24), FetchedAt: now.Add(-24 * time.Hour)},

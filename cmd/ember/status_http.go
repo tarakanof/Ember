@@ -32,8 +32,6 @@ type StatusRequest struct {
 	SessionBar     *bool   `json:"session_bar,omitempty"`
 }
 
-// normalized is the Session a request describes. UpdatedAt is left zero: the
-// session registry stamps it with its own clock on Upsert.
 func (r StatusRequest) normalized() Session {
 	source := strings.TrimSpace(r.Source)
 	if source == "" {
@@ -109,10 +107,6 @@ func (r StatusRequest) validate() error {
 			return fmt.Errorf("rate_window_pct out of range %d (must be 0..100)", *r.RateWindowPct)
 		}
 	}
-	// Count runes, not bytes: producers truncate activity to 80 runes
-	// (internal/producer.Truncate), so a multibyte activity (Cyrillic, emoji)
-	// can exceed 80 bytes while still being ≤80 characters. A byte check here
-	// 400s the whole status POST for such activity.
 	if n := utf8.RuneCountInString(strings.TrimSpace(r.Activity)); n > 80 {
 		return fmt.Errorf("activity too long (%d chars, max 80)", n)
 	}
@@ -131,8 +125,6 @@ func validState(state string) bool {
 	}
 }
 
-// isHexColor reports whether s is a 7-char string of the form "#RRGGBB"
-// with lowercase or uppercase hex digits.
 func isHexColor(s string) bool {
 	if len(s) != 7 || s[0] != '#' {
 		return false
@@ -194,8 +186,6 @@ type NotifyRequest struct {
 	Color    string `json:"color"`
 	Duration int    `json:"duration"`
 	Hold     bool   `json:"hold"`
-	// TextCase is NG's textCase ("inherit", "upper", "asTyped"); empty means
-	// "upper", Ember's default for every text payload.
 	TextCase string `json:"text_case"`
 }
 
@@ -282,10 +272,6 @@ func (a *App) handleNotify(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// validationField extracts a field name from validation errors that
-// follow the convention "field-name <reason>" (e.g. "source is required").
-// Returns the first whitespace-delimited token. Best-effort; falls back
-// to the full message if the format doesn't match.
 func validationField(err error) string {
 	if err == nil {
 		return ""

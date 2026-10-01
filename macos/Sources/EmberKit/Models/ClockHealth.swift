@@ -31,7 +31,7 @@ public struct ClockHealth: Decodable, Sendable, Equatable {
     }
 
     /// Telemetry fields are nil when the clock is unreachable or its firmware
-    /// doesn't report them. No IP, SSID, UID or hostname is served.
+    /// doesn't report them.
     public struct Device: Decodable, Sendable, Equatable {
         public var reachable: Bool
         public var checkedAt: Date

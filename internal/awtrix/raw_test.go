@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// TestRawCalls pins each pass-through call's method, path, body and content
-// type, and that the device's reply comes back verbatim whatever its status.
 func TestRawCalls(t *testing.T) {
 	ctx := context.Background()
 	body := []byte(`{"k":1}`)

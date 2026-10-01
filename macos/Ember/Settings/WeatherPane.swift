@@ -2,8 +2,6 @@ import SwiftUI
 import CoreLocation
 import EmberKit
 
-/// Weather tiles and popups. Server-wide; the location can come from this
-/// Mac. The severe-weather sound is under Sounds & Alerts.
 struct WeatherPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var preview = PreviewModel()
@@ -69,7 +67,6 @@ struct WeatherPane: View {
         .reloads {
             env.location.refreshAuthorization()
             await model.load()
-            // First run: fill in this Mac's location when none is set.
             if model.isLoaded, model.draft.latitude == 0, model.draft.longitude == 0 {
                 await locate(quietly: true)
             }
@@ -206,7 +203,6 @@ struct WeatherPane: View {
         ("storm", "Storm", "11428"),
     ]
 
-    /// An empty ID removes the override, so the server uses its default.
     private func iconBinding(_ key: String) -> Binding<String> {
         Binding(
             get: { model.draft.iconIds[key] ?? "" },
@@ -218,8 +214,6 @@ struct WeatherPane: View {
 
     private func frame(_ card: String) -> CardFrame? { preview.frame(card) }
 
-    /// Always asks for every tile: the toggles dim the panels here instead of
-    /// removing them, so each option stays visible.
     private var previewDraft: WeatherPreviewDraft {
         var draft = WeatherPreviewDraft(model.draft)
         draft.rotateInApps = true
@@ -234,7 +228,6 @@ struct WeatherPane: View {
         defer { locating = false }
         do {
             let fix = try await env.location.current()
-            // The quiet first-run path must not overwrite coordinates typed meanwhile.
             if quietly, model.draft.latitude != 0 || model.draft.longitude != 0 { return }
             model.draft.latitude = (fix.latitude * 10000).rounded() / 10000
             model.draft.longitude = (fix.longitude * 10000).rounded() / 10000

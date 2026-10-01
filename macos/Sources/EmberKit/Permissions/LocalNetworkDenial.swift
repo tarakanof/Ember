@@ -3,21 +3,10 @@ import Network
 import os
 
 /// Recognises macOS Local Network privacy refusing this app a LAN connection.
-///
-/// The refusal doesn't look like one. Seen on-device with a rebuilt ad-hoc
-/// app: `NWBrowser` fails with DNS-SD `NoAuth` (-65555) or `PolicyDenied`
-/// (-65570); a URLSession request to the server fails with
-/// `NSURLErrorNotConnectedToInternet` (-1009) over POSIX `ENETDOWN` ("Network
-/// is down"), its path "unsatisfied (Local network prohibited)". Reported as
-/// is, that reads "Server unreachable" while the server is fine.
 public enum LocalNetworkDenial {
-    /// `kDNSServiceErr_NoAuth`, from a browse the app may not run.
     static let dnsNoAuth: Int32 = -65555
-    /// `kDNSServiceErr_PolicyDenied`.
     static let dnsPolicyDenied: Int32 = -65570
-    /// `ENETDOWN`: what a refused LAN connection reports.
     static let posixNetworkDown: Int = 50
-    /// `kCFStreamErrorDomainPOSIX`.
     static let posixStreamDomain: Int = 1
 
     /// What a failed connection's network path says, when it's known.
@@ -28,10 +17,7 @@ public enum LocalNetworkDenial {
         case other
     }
 
-    /// Whether a browse or connection error is a Local Network refusal. A DNS
-    /// `NoAuth`/`PolicyDenied` always is. `ENETDOWN` is only when the host is
-    /// on the LAN and this Mac's network path (`pathStatus`, from
-    /// `NetworkPathSnapshot`) is satisfied: Wi-Fi off gives it for any host.
+    /// Whether a browse or connection error is a Local Network refusal.
     public static func isDenied(_ error: NWError, host: String? = nil,
                                 pathStatus: NWPath.Status? = nil) -> Bool {
         switch error {
@@ -45,10 +31,7 @@ public enum LocalNetworkDenial {
     }
 
     /// Whether a URLSession (or Network) error from a request to `host` is a
-    /// Local Network refusal. The failed path's unsatisfied reason decides
-    /// when the error carries it; otherwise `ENETDOWN` to a LAN host does,
-    /// but only while `pathStatus` (this Mac's overall network path) is
-    /// satisfied, so Wi-Fi off or a pulled cable doesn't read as a refusal.
+    /// Local Network refusal.
     public static func isDenied(_ error: Error, host: String?, pathStatus: NWPath.Status?) -> Bool {
         if let e = error as? NWError { return isDenied(e, host: host, pathStatus: pathStatus) }
         let ns = error as NSError
@@ -61,7 +44,6 @@ public enum LocalNetworkDenial {
                         pathStatus: pathStatus)
     }
 
-    /// The pure rule under `isDenied(_:host:pathStatus:)`.
     static func isDenied(urlCode: Int, streamDomain: Int?, streamCode: Int?,
                          path: PathVerdict?, host: String?, pathStatus: NWPath.Status?) -> Bool {
         if let path { return path == .localNetworkDenied }
@@ -72,8 +54,6 @@ public enum LocalNetworkDenial {
         return host.map(isLANHost) ?? false
     }
 
-    /// Names only a local network resolves: mDNS, the home-network zone
-    /// (RFC 8375), ICANN's private-use TLD and the common router default.
     static let lanSuffixes = [".local", ".home.arpa", ".internal", ".lan"]
 
     /// Whether Local Network privacy covers connections to `host`: a
@@ -85,7 +65,6 @@ public enum LocalNetworkDenial {
         if let v4 = IPv4Address(h) { return isLANv4([UInt8](v4.rawValue)) }
         if let v6 = IPv6Address(h.split(separator: "%").first.map(String.init) ?? h) {
             let b = [UInt8](v6.rawValue)
-            // ::ffff:a.b.c.d
             if b[0..<10].allSatisfy({ $0 == 0 }), b[10] == 0xff, b[11] == 0xff {
                 return isLANv4(Array(b[12..<16]))
             }
@@ -96,7 +75,6 @@ public enum LocalNetworkDenial {
         return lanSuffixes.contains { h.hasSuffix($0) } || !h.contains(".")
     }
 
-    /// 10/8, 172.16/12, 192.168/16 and link-local 169.254/16.
     private static func isLANv4(_ b: [UInt8]) -> Bool {
         b[0] == 10
             || (b[0] == 172 && (16...31).contains(b[1]))
@@ -109,8 +87,6 @@ public enum LocalNetworkDenial {
         return (e.userInfo[NSUnderlyingErrorKey] as? NSError)?.userInfo[key] as? Int
     }
 
-    /// Reads the failed path CFNetwork attaches (`_NSURLErrorNWPathKey`,
-    /// private but stable), on the error or its underlying one.
     private static func pathVerdict(_ e: NSError) -> PathVerdict? {
         let key = "_NSURLErrorNWPathKey"
         let raw = e.userInfo[key] ?? (e.userInfo[NSUnderlyingErrorKey] as? NSError)?.userInfo[key]
@@ -121,9 +97,6 @@ public enum LocalNetworkDenial {
 }
 
 /// This Mac's overall network path, kept current by one `NWPathMonitor`.
-/// Unsatisfied means no usable interface (Wi-Fi off, cable out), which also
-/// fails LAN requests with `ENETDOWN`; Local Network privacy doesn't change
-/// it, since that refuses per connection.
 public final class NetworkPathSnapshot: Sendable {
     public static let shared = NetworkPathSnapshot()
 

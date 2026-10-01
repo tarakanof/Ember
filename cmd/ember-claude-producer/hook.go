@@ -12,9 +12,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// hookInput is the union of fields we read from any Claude Code hook's stdin.
-// Field-name pairs (e.g., "notification_message" vs "message") cover both
-// documented and disputed variants — handlers fall back gracefully.
 type hookInput struct {
 	HookEventName       string          `json:"hook_event_name"`
 	SessionID           string          `json:"session_id"`
@@ -34,8 +31,6 @@ type hookInput struct {
 	EndReason           string          `json:"end_reason,omitempty"`
 }
 
-// runHook is the entry point for `ember-claude-producer hook <event>`.
-// Always exits 0 — we never want to break the user's claude CLI.
 func runHook(args []string) {
 	if len(args) < 1 {
 		os.Exit(0)
@@ -52,16 +47,8 @@ func runHook(args []string) {
 	os.Exit(0)
 }
 
-// hookStdinMax bounds what a hook reads from stdin. PostToolUse carries the
-// tool's whole result in tool_response (a Read can be megabytes) and
-// tool_use_id comes after it, so the old 1 MiB cap cut those payloads off and
-// the hook did nothing. decodeHookInput streams past tool_response instead of
-// holding the payload in memory.
 const hookStdinMax = 64 << 20
 
-// decodeHookInput stream-decodes a hook's stdin object. tool_response is
-// skipped token by token and never stored: the producer must never forward a
-// tool's output. Every other top-level field is small and decoded as usual.
 func decodeHookInput(r io.Reader) (hookInput, error) {
 	var in hookInput
 	dec := json.NewDecoder(r)
@@ -95,7 +82,6 @@ func decodeHookInput(r io.Reader) (hookInput, error) {
 	return in, err
 }
 
-// skipJSONValue consumes one JSON value from dec without keeping it.
 func skipJSONValue(dec *json.Decoder) error {
 	depth := 0
 	for {
@@ -115,8 +101,6 @@ func skipJSONValue(dec *json.Decoder) error {
 	}
 }
 
-// dispatchHook is the testable seam: parses stdin JSON, performs marker mutation
-// + HTTP, swallows all errors.
 func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
 	dispatchHookFrom(ctx, event, bytes.NewReader(stdin), cfg)
 }
@@ -138,7 +122,6 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 	lockP := lockPath(dir, sessionID)
 	client := NewClient(cfg)
 	switch event {
-	// Tool-outcome hooks (#76): see posttool.go. No new states.
 	case "post-tool-use":
 		handleToolOutcome(ctx, cfg, client, in, "", markerP, lockP)
 	case "post-tool-use-failure":
@@ -166,16 +149,9 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 			pending: permissionFingerprint(in.ToolName, in.ToolInput),
 		})
 	case "notification":
-		// permission_prompt and agent_needs_input are both explicit "waiting for
-		// the user" signals (issue #75); agent_completed is an explicit "finished"
-		// signal that upserts "done" rather than deleting — the process-ancestry
-		// walk (owner.go) and SessionEnd remain the source of truth for clearing
-		// a session, this only adds a faster signal on top.
 		msg := pickFirstNonEmpty(in.Message, in.NotificationMessage)
 		switch in.NotificationType {
 		case "permission_prompt":
-			// The dialog's ~6 s notification can land after its call already
-			// ran (approved); lateResumedPrompt drops it then.
 			handleUpsertWith(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP, upsertExtra{
 				skip: func(prev marker) bool { return lateResumedPrompt(prev, msg, hookNow()) },
 			})
@@ -185,12 +161,6 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 			handleUpsert(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP)
 		}
 	case "stop":
-		// Intentionally a no-op: keep the session present until the window
-		// closes (SessionEnd). Deleting on every Stop dropped the display to the
-		// idle robot between turns and during text generation, when no hook
-		// fires. The marker keeps its last state ("running") and the heartbeat
-		// tick re-posts it; SessionEnd clears it (or the marker TTL, for a window
-		// that closed without a clean SessionEnd).
 	case "stop-failure":
 		msg := pickFirstNonEmpty(in.ErrorType, in.Error, in.ErrorMessage, "error")
 		handleUpsert(ctx, cfg, client, sessionID, "error", msg, "", markerP, lockP)
@@ -216,23 +186,12 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 	handleUpsertWith(ctx, cfg, client, sessionID, state, message, activity, markerP, lockP, upsertExtra{})
 }
 
-// upsertExtra carries the tool-outcome bookkeeping (#76) into an upsert.
 type upsertExtra struct {
-	// pending is a PermissionRequest's call fingerprint: the "waiting" this
-	// upsert starts is for that call.
-	pending string
-	// preToolUseID / preFP identify a PreToolUse's call.
+	pending             string
 	preToolUseID, preFP string
-	// skip, when it returns true for the existing marker, drops the upsert
-	// (no write, no POST).
-	skip func(prev marker) bool
+	skip                func(prev marker) bool
 }
 
-// handleUpsertWith is handleUpsert plus the ToolTrack rules: a PermissionRequest
-// records its pending call (and the PreToolUse id when the fingerprints
-// match) and clears the last resume; a later "waiting" without one (the same
-// dialog's Notification) keeps the pending call; any other state clears it.
-// The last PreToolUse and the last resume survive other upserts.
 func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string, x upsertExtra) {
 	req := StatusRequest{
 		Source:        cfg.Source,
@@ -252,9 +211,6 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
 	req.SourceCard, req.SessionBar = &sc, &sb
 	_ = withLockEx(lockP, func() error {
-		// Preserve statusline-owned fields (rate_window_pct, context_pct, and
-		// their weekly counterparts) that the hook path doesn't compute, so a
-		// hook event doesn't clobber the statusline's enrichment of this marker.
 		var ownerPID int
 		var ownerStart string
 		var track ToolTrack
@@ -293,8 +249,6 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 		if state != "waiting" {
 			track.PendingPermission, track.PendingToolUseID = "", ""
 		}
-		// Capture the owning Claude process once per session (preserved across
-		// later upserts), so the heartbeat can detect an ungraceful close.
 		if ownerPID == 0 {
 			ownerPID, ownerStart = detectOwner()
 		}
@@ -304,9 +258,6 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 			return nil
 		}
 		_ = writeMarker(markerP, body)
-		// The weekly fields are marker-only (relayed to POST /v1/usage by the
-		// heartbeat tick, see tick.go's postStatuslineUsage); wireRequest
-		// strips them so they never appear on this wire body.
 		_ = client.Post(ctx, wireRequest(cfg, req))
 		return nil
 	})
@@ -324,7 +275,6 @@ func handleDelete(ctx context.Context, cfg Config, client *Client, sessionID, ma
 	})
 }
 
-// truncate is rune-safe: see producer.Truncate.
 func truncate(s string, n int) string {
 	return producer.Truncate(s, n)
 }

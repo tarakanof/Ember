@@ -2,19 +2,14 @@ import AppKit
 import SwiftUI
 import EmberKit
 
-/// The Dashboard window (design §2): "what is my setup doing now, and how
-/// did my day and week go". A card grid over `LiveModel`; the feeds it
-/// needs are held only while the window is open and actually visible.
 struct DashboardWindow: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.openURL) private var openURL
     @Environment(\.openWindow) private var openWindow
 
     @State private var clockWebURL: URL?
-    /// False while the window is minimised or fully covered.
     @State private var isVisible = true
 
-    /// Everything the cards read beyond tiers A and B.
     static let heldFeeds: [Feed] = [.stats, .usage, .meetings, .clockHealth, .screen, .activity,
                                     .workhours, .heatmap, .weather]
 
@@ -29,9 +24,6 @@ struct DashboardWindow: View {
         }
         .frame(minWidth: 720, minHeight: 560)
         .background(WindowVisibilityReader(isVisible: $isVisible))
-        // Held only while on screen: a minimised or covered window stops the
-        // 1 s mirror reads, which cross the lossy server→clock link. The hold
-        // ends when the task is cancelled (hidden, or the window closed).
         .task(id: isVisible) {
             guard isVisible else { return }
             await env.live.track(Self.heldFeeds)
@@ -61,9 +53,6 @@ struct DashboardWindow: View {
         }
     }
 
-    /// The configs the cards read (focus length for the goal line, whether
-    /// meetings are on) and the clock's web address. Read-only; a config
-    /// with unsaved edits in Settings isn't reloaded over.
     private func loadConfigs() async {
         async let pomodoro: Void = env.settings.pomodoro.load()
         async let meetings: Void = env.settings.meetings.load()
@@ -109,21 +98,16 @@ struct DashboardWindow: View {
         }
     }
 
-    /// The server-rendered stats page, for what the cards don't cover.
     private func openStatsDashboard() {
         guard let base = env.serverURL else { return }
         openURL(base.appending(path: "v1/pomodoro/dashboard"))
     }
 }
 
-/// The window's source: every property forwards to `LiveModel` (and the
-/// few app services), so SwiftUI tracks exactly what each card reads.
 struct LiveDashboardSource: DashboardSource, Equatable {
     let env: AppEnvironment
     var clockWebURL: URL?
 
-    /// Same model, same address: SwiftUI can skip a card whose inputs are
-    /// equal and rely on observation for the rest.
     nonisolated static func == (a: Self, b: Self) -> Bool { a.env === b.env && a.clockWebURL == b.clockWebURL }
 
     var connection: ConnectionHealth { env.live.connection }
@@ -157,13 +141,9 @@ struct LiveDashboardSource: DashboardSource, Equatable {
 }
 
 extension Notification.Name {
-    /// ⌘R (Refresh in the app menu): views that load more than the live
-    /// feeds reload it too.
     static let emberRefreshRequested = Notification.Name("com.ember.refreshRequested")
 }
 
-/// The last failed clock action, until it clears itself (10 s). Its own view
-/// so the action state doesn't re-render the grid.
 private struct ActionErrorBanner: View {
     @Environment(AppEnvironment.self) private var env
 
@@ -182,9 +162,6 @@ private struct ActionErrorBanner: View {
     }
 }
 
-/// Tracks whether the hosting window is visible on screen: not minimised and
-/// not fully covered (`NSWindow.occlusionState`). SwiftUI's `scenePhase`
-/// stays `.active` for both on macOS.
 private struct WindowVisibilityReader: NSViewRepresentable {
     @Binding var isVisible: Bool
 
@@ -209,11 +186,8 @@ private struct WindowVisibilityReader: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
-            // Selector-based: removed automatically when the view goes away.
             NotificationCenter.default.addObserver(self, selector: #selector(occlusionChanged(_:)),
                                                    name: NSWindow.didChangeOcclusionStateNotification, object: window)
-            // Before the window is first ordered in it isn't visible yet; count it
-            // as visible so the first paint holds the feeds.
             onChange?(!window.isVisible || window.occlusionState.contains(.visible))
         }
 

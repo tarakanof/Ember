@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// stateSeed is one session in a /state golden case, aged relative to "now".
 type stateSeed struct {
 	s   Session
 	age time.Duration
@@ -18,9 +17,6 @@ type stateSeed struct {
 
 func ptr[T any](v T) *T { return &v }
 
-// stateGoldenCases pin the GET /state body byte for byte (timestamps masked):
-// session order, the legacy Render label, colours and counters, and which
-// sessions the per-state staleness policy (stale 25s, done TTL 30s) drops.
 var stateGoldenCases = []struct {
 	name  string
 	seeds []stateSeed
@@ -95,8 +91,6 @@ func TestStateGolden(t *testing.T) {
 	}
 }
 
-// seedState upserts each seed through the session registry on a fake clock,
-// seed.age before the clock's final "now".
 func seedState(t *testing.T, app *App, seeds []stateSeed) {
 	t.Helper()
 	clk := withSessionClock(app)

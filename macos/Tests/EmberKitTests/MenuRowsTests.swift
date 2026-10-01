@@ -4,11 +4,9 @@ import Foundation
 
 private let en = Locale(identifier: "en_US")
 private let utc = TimeZone(identifier: "UTC")!
-/// 2026-09-26 10:00:00 UTC, a Saturday.
 private let now = Date(timeIntervalSince1970: 1_790_416_800)
 
 extension String {
-    /// Date styles put a narrow no-break space before AM/PM.
     fileprivate var ns: String { replacingOccurrences(of: "\u{202F}", with: " ") }
 }
 
@@ -120,7 +118,6 @@ private func prefs(claude: String = "claude", codex: String = "codex",
     let shared = prefs(claude: "ember-e-pixel", codex: "ember-e-pixel")
     let before = MenuRows.label(connection: .online(since: now), winning: claude, prefs: shared)
     #expect(MenuRows.label(connection: .online(since: now), winning: claude, prefs: prefs()) != before)
-    // Same state and glyph; only the VoiceOver value names the other tool.
     let other = MenuRows.label(connection: .online(since: now), winning: codex, prefs: shared)
     #expect(other.glyph == before.glyph)
     #expect(other.state == before.state)
@@ -158,7 +155,6 @@ private func prefs(claude: String = "claude", codex: String = "codex",
 @Test func otherSessionsHiddenWithOneSession() throws {
     let only = try session(tool: "claude", state: "running")
     #expect(MenuRows.otherSessions([only], winning: only).rows.isEmpty)
-    // One idle session and no winner: still nothing to add.
     let idle = try session(tool: "claude", state: "idle")
     #expect(MenuRows.otherSessions([idle], winning: nil).rows.isEmpty)
 }
@@ -233,7 +229,6 @@ private func tool(_ name: String, pct: Double?, resetsIn: TimeInterval? = nil, l
 @Test func stateFallbackNeedsAFutureReset() throws {
     let future = Int64(now.addingTimeInterval(600).timeIntervalSince1970)
     let past = Int64(now.addingTimeInterval(-600).timeIntervalSince1970)
-    // The newest session has no reset: the server skips it, so the older one counts.
     let noReset = try session(tool: "claude", state: "running", id: "a", updated: 0, rate: 5)
     let full = try session(tool: "claude", state: "done", id: "b", updated: -60, rate: 100, rateResetAt: future)
     let over = try session(tool: "codex", state: "running", id: "c", rate: 100, rateResetAt: past)
@@ -257,7 +252,6 @@ private func tool(_ name: String, pct: Double?, resetsIn: TimeInterval? = nil, l
     #expect(MenuRows.liveSessions(.loaded(snap, at: now)).count == 2)
     #expect(MenuRows.liveSessions(.failed(.offline, last: snap, lastAt: now)).isEmpty)
     #expect(MenuRows.liveSessions(.loading).isEmpty)
-    // Offline: no other sessions and no /state usage from the leftovers.
     var rated = try session(tool: "codex", state: "running", id: "r", rate: 50,
                             rateResetAt: Int64(now.addingTimeInterval(600).timeIntervalSince1970))
     rated.source = "m5"
@@ -337,7 +331,6 @@ private func stats(done: Int, minutes: Int, goal: Int) -> PomoStats {
     #expect(MenuRows.today(nil) == nil)
     #expect(MenuRows.today(stats(done: 3, minutes: 75, goal: 8), locale: en)?.text == "Today 3 of 8 · 1h 15m")
     #expect(MenuRows.today(stats(done: 3, minutes: 75, goal: 0), locale: en)?.text == "Today 3 sessions · 1h 15m")
-    // "1 session" is the catalog's plural variation (MenuStringCatalogTests).
     #expect(MenuRows.today(stats(done: 1, minutes: 25, goal: 0), locale: en)?.key == "Today %lld sessions · %@")
     #expect(MenuRows.today(stats(done: 0, minutes: 0, goal: 0), locale: en)?.text == "Today 0 sessions · 0m")
 }
@@ -360,7 +353,6 @@ private func stats(done: Int, minutes: Int, goal: Int) -> PomoStats {
     let off = Loadable<UsageSnapshot>.failed(.featureOff, last: nil, lastAt: nil)
     let health = Loadable<ClockHealth>.loading
     #expect(MenuRows.displayPower(usage: off, clockHealth: health, matrixPower: nil).isEmpty)
-    // A 0.28 server answers GET /v1/usage, and ships the power route with it.
     let usage = Loadable<UsageSnapshot>.loaded(usageSnapshot([]), at: now)
     #expect(MenuRows.displayPower(usage: usage, clockHealth: health, matrixPower: nil).map(\.on) == [false, true])
     #expect(MenuRows.displayPower(usage: usage, clockHealth: health, matrixPower: true).map(\.on) == [false])

@@ -2,9 +2,7 @@ import Foundation
 
 extension ConnectionHealth {
     /// The Dashboard's window subtitle: "Connected to 192.168.0.2 · v0.29.0",
-    /// "Offline since 10:42", "Not set up". `serverVersion` (a release like
-    /// "0.29.0", see `VersionInfo.release`) is shown only while connected.
-    /// `offlineReason` (the snapshot's error) names a Local Network refusal.
+    /// "Offline since 10:42", "Not set up".
     public func subtitle(serverHost: String?, serverVersion: String? = nil, offlineReason: FeedError? = nil,
                          locale: Locale = .current, timeZone: TimeZone = .current) -> LocalizedStringResource {
         let host = serverHost.flatMap { $0.isEmpty ? nil : $0 }

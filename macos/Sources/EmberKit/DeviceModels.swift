@@ -1,9 +1,7 @@
 import Foundation
 
 /// The nested "scroll" object inside /v1/device/settings — NG's scrolling-text
-/// behavior for apps whose content doesn't fit the panel. mode/direction/entry/
-/// whenFits are device-defined string enums (validated device-side); speed is a
-/// percentage of the base scroll rate, not an absolute ms value.
+/// behavior for apps whose content doesn't fit the panel.
 public struct ScrollSettings: Codable, Equatable, Sendable {
     public var mode: String?
     public var direction: String?
@@ -21,9 +19,7 @@ public struct ScrollSettings: Codable, Equatable, Sendable {
 }
 
 /// The nested "weekdayBar" object inside /v1/device/settings — replaces
-/// AWTRIX3's flat SOM/WD/WDCA/WDCI keys. Only the subkeys the Device tab needs
-/// are modeled; the device also reports weekendDays/weekendActiveColor/
-/// weekendInactiveColor, deliberately left out (YAGNI).
+/// AWTRIX3's flat SOM/WD/WDCA/WDCI keys.
 public struct WeekdayBar: Codable, Equatable, Sendable {
     public var show: Bool?
     public var startOnMonday: Bool?
@@ -37,16 +33,11 @@ public struct WeekdayBar: Codable, Equatable, Sendable {
 }
 
 /// Mirror of the awtrix-ng /api/v1/settings keys Ember exposes through
-/// /v1/device/settings. Every field is optional so a partial PUT only encodes
-/// the values that are set, and a single unexpected type from the device (e.g. a
-/// colour returned as an array instead of a hex string) leaves just that field
-/// nil instead of failing the whole load. NG speaks camelCase natively, so the
-/// wire keys match the Swift property names one-to-one (see the #67 mapping).
+/// /v1/device/settings.
 public struct DeviceSettings: Codable, Equatable, Sendable {
-    // General
     public var brightness: Int?
     public var autoBrightness: Bool?
-    /// Device mute (NG 1.1.0). False silences every output, chimes included.
+    /// Device mute (NG 1.1.0).
     public var soundEnabled: Bool?
     /// Piezo volume, 0–100 (NG 1.1.0 replaced the 0–30 `volume`, which it now
     /// rejects with 422).
@@ -63,8 +54,6 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     public var uppercase: Bool?
     /// Pomodoro takeover key; coordinator.go writes this directly.
     public var blockNavigation: Bool?
-    // Time & Date — NG replaced the TFORMAT/DFORMAT strftime strings with
-    // discrete typed fields; there are no format strings anymore.
     public var timeMode: Int?
     public var time24h: Bool?
     public var timeLeadingZero: Bool?
@@ -79,15 +68,12 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     public var calendarHeaderColor: String?
     public var calendarBodyColor: String?
     public var calendarTextColor: String?
-    // Native Apps — per-builtin-app text color, plus a couple of app-adjacent
-    // toggles (issue #92).
     public var timeColor: String?
     public var dateColor: String?
     public var temperatureColor: String?
     public var humidityColor: String?
     public var batteryColor: String?
     public var useCelsius: Bool?
-    // Nested objects
     public var scroll: ScrollSettings?
     public var weekdayBar: WeekdayBar?
 
@@ -127,14 +113,9 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
         scroll = (try? c.decodeIfPresent(ScrollSettings.self, forKey: .scroll)) ?? nil
         weekdayBar = (try? c.decodeIfPresent(WeekdayBar.self, forKey: .weekdayBar)) ?? nil
     }
-    // The compiler-synthesised encode(to:) uses encodeIfPresent for each optional,
-    // so nil fields are omitted — exactly what a partial settings PUT wants.
 }
 
-/// The clock's Wi-Fi telemetry, nested inside GET /v1/device/stats. All fields
-/// optional-lenient — the exact set NG reports isn't part of any pinned
-/// contract, so an unrecognised shape degrades to "no Wi-Fi info" rather than
-/// failing the whole stats decode.
+/// The clock's Wi-Fi telemetry, nested inside GET /v1/device/stats.
 public struct WifiInfo: Codable, Equatable, Sendable {
     public var ssid: String?
     public var rssi: Int?
@@ -145,9 +126,7 @@ public struct WifiInfo: Codable, Equatable, Sendable {
     }
 }
 
-/// GET /v1/device/stats, proxying awtrix-ng's GET /api/v1/device. Every field
-/// is optional so a device firmware that omits/renames one doesn't break the
-/// rest of the header readout.
+/// GET /v1/device/stats, proxying awtrix-ng's GET /api/v1/device.
 public struct DeviceStats: Codable, Equatable, Sendable {
     public var version: String?
     public var uid: String?
@@ -187,9 +166,7 @@ public struct DeviceStats: Codable, Equatable, Sendable {
 
 /// The clock's sensor calibration offsets (GET/PUT /v1/device/sensors) — lives
 /// on the NG /api/v1/system object (tempOffset/humOffset), applied live with no
-/// reboot. nil = not set, the firmware default applies. encode(to:) writes
-/// explicit nulls — the server treats null as "reset to firmware default"
-/// (-9.0 / 0.0), while an absent key means "leave as is".
+/// reboot.
 public struct SensorCalibration: Codable, Equatable, Sendable {
     public var tempOffset: Double?
     public var humOffset: Double?
@@ -211,14 +188,7 @@ public struct SensorCalibration: Codable, Equatable, Sendable {
     }
 }
 
-/// GET/PUT /v1/device/display — NG's ambient-weather overlay control. There is
-/// no "clear" value in NG; clearing an overlay is an explicit `overlay: null`,
-/// so encode(to:) always writes the key (never omits it), mirroring
-/// SensorCalibration's explicit-null precedent.
-///
-/// `power` is read-only here: GET reports whether the matrix is lit, but the
-/// PUT rejects it. Toggle it with `DeviceService.setDisplayPower(_:)`, which
-/// has its own route so an overlay edit can never blank the panel.
+/// GET/PUT /v1/device/display — NG's ambient-weather overlay control.
 public struct DeviceDisplay: Codable, Equatable, Sendable {
     public var overlay: String?
     public var overlaySettings: OverlaySettings?
@@ -258,8 +228,7 @@ public struct OverlaySettings: Codable, Equatable, Sendable {
 }
 
 /// The valid awtrix-ng overlay names (PUT /v1/device/display), per the #67
-/// mapping. "None" (clearing the overlay) is represented as `overlay == nil`,
-/// not a member of this list.
+/// mapping.
 public enum OverlayEffect: String, CaseIterable, Identifiable, Sendable {
     case drizzle, frost, rain, snow, storm, thunder
 
@@ -269,14 +238,13 @@ public enum OverlayEffect: String, CaseIterable, Identifiable, Sendable {
 
 /// One entry of GET /v1/device/apps — a native app running on the clock
 /// (Time, Date, Temperature, Humidity, Battery, plus any pushed/scripted app).
-/// origin is "builtin", "pushed", or "script".
 public struct AppInfo: Codable, Equatable, Sendable, Identifiable {
     public var name: String
     public var enabled: Bool
     public var inLoop: Bool
     public var origin: String?
     /// Whether the app is on the clock right now; false for a name NG keeps a
-    /// place for while the app is away. nil on firmware that doesn't say.
+    /// place for while the app is away.
     public var present: Bool?
     /// 0-based place in the arranged order; nil when it has none.
     public var slot: Int?
@@ -294,7 +262,6 @@ public struct AppInfo: Codable, Equatable, Sendable, Identifiable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
-        // A module entry carries no enabled/inLoop.
         enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
         inLoop = (try? c.decodeIfPresent(Bool.self, forKey: .inLoop)) ?? true
         origin = (try? c.decodeIfPresent(String.self, forKey: .origin)) ?? nil
@@ -304,8 +271,6 @@ public struct AppInfo: Codable, Equatable, Sendable, Identifiable {
 }
 
 /// PUT /v1/device/apps body — replaces AWTRIX3's TIM/DAT/TEMP/HUM/BAT toggles.
-/// order is the full display order of native app names; disabled lists the
-/// ones to hide from the rotation.
 public struct AppsUpdate: Codable, Equatable, Sendable {
     public var order: [String]
     public var disabled: [String]
@@ -317,7 +282,7 @@ public struct AppsUpdate: Codable, Equatable, Sendable {
 }
 
 /// capabilities.audio — which sound outputs the clock has (NG 1.1.0 replaced
-/// the top-level `radio` flag with this object). A TC001 has only the buzzer.
+/// the top-level `radio` flag with this object).
 public struct DeviceAudioCapabilities: Codable, Equatable, Sendable {
     public var buzzer: Bool
     public var track: Bool
@@ -339,9 +304,6 @@ public struct DeviceAudioCapabilities: Codable, Equatable, Sendable {
 
 /// GET /v1/device/capabilities — the device's live effect/transition/overlay/
 /// palette catalogue, used to feed pickers instead of a hardcoded table.
-/// Pinned server contract (see issue #70); every field defaults to empty/false
-/// so a decode of a partial or future-shaped response degrades gracefully.
-/// `audio` is nil when the firmware predates NG 1.1.0 (no audio object).
 public struct DeviceCapabilities: Codable, Equatable, Sendable {
     public var effects: [String]
     public var paletteEffects: [String]
@@ -366,8 +328,7 @@ public struct DeviceCapabilities: Codable, Equatable, Sendable {
         audio = (try? c.decodeIfPresent(DeviceAudioCapabilities.self, forKey: .audio)) ?? nil
     }
 
-    /// Whether the clock has a buzzer. Unknown (no audio object) counts as
-    /// yes, so an older or unreachable clock still shows the sound controls.
+    /// Whether the clock has a buzzer.
     public var hasBuzzer: Bool { audio?.buzzer ?? true }
 }
 
@@ -394,9 +355,7 @@ public struct DeviceConfig: Codable, Equatable, Sendable {
     }
 
     /// The clock's own web UI, served at the root of the address the server is
-    /// driving. nil when no clock is configured, or when the address isn't a
-    /// plain http(s) URL — baseURL arrives over the network, so a scheme like
-    /// `file:` or `x-apple.systempreferences:` must never reach NSWorkspace.
+    /// driving.
     public var webURL: URL? {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -475,9 +434,7 @@ public struct AudioTestRequest: Codable, Equatable, Sendable {
 }
 
 /// One melody stored on the clock (GET /v1/device/audio/melodies, NG's own
-/// shape). `notes`/`durationMs` come from parsing `rtttl` and are 0 when it
-/// does not parse; an unparseable file is still listed with `valid == false`
-/// and the reason in `error` at byte offset `index`.
+/// shape).
 public struct DeviceMelody: Codable, Equatable, Sendable, Identifiable {
     public var name: String
     public var rtttl: String
@@ -497,8 +454,7 @@ public struct DeviceMelody: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// GET /v1/device/audio/melodies. `usedBytes`/`totalBytes` cover the clock's
-/// whole filesystem (icons and scripts share it), not just melodies.
+/// GET /v1/device/audio/melodies.
 public struct DeviceMelodyList: Codable, Equatable, Sendable {
     public var melodies: [DeviceMelody]
     public var usedBytes: Int

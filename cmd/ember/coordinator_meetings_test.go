@@ -8,9 +8,6 @@ import (
 	"github.com/tarakanof/ember/internal/meetings"
 )
 
-// meetingCoordFixture builds a coordinator + recordingPublisher + meetingsStore
-// with meetings enabled and a fresh store (lastFetchOK = now).
-// cfg.Meetings.TileLeadMinutes = leadMinutes.
 func meetingCoordFixture(t *testing.T, now time.Time, leadMinutes int) (*coordinator, *recordingPublisher, *meetingsStore) {
 	t.Helper()
 	pub := &recordingPublisher{}
@@ -21,7 +18,6 @@ func meetingCoordFixture(t *testing.T, now time.Time, leadMinutes int) (*coordin
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
 
-	// Seed the meetingsStore as fresh.
 	app.meetings.mu.Lock()
 	app.meetings.lastFetchOK = now
 	app.meetings.mu.Unlock()
@@ -29,15 +25,12 @@ func meetingCoordFixture(t *testing.T, now time.Time, leadMinutes int) (*coordin
 	return c, pub, app.meetings
 }
 
-// seedMeeting adds a single future occurrence to the store.
 func seedMeeting(s *meetingsStore, occ meetings.Occurrence) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.upcoming = []meetings.Occurrence{occ}
 }
 
-// TestMeetingTilePushedInsideWindow: meeting now+30m, lead 60, fresh store
-// → CustomApp("ember-meet") with text "30M STANDUP".
 func TestMeetingTilePushedInsideWindow(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c, pub, store := meetingCoordFixture(t, now, 60)
@@ -64,7 +57,6 @@ func TestMeetingTilePushedInsideWindow(t *testing.T) {
 	}
 }
 
-// TestMeetingTileAbsentOutsideWindow: meeting now+90m, lead 60 → no CustomApp call.
 func TestMeetingTileAbsentOutsideWindow(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c, pub, store := meetingCoordFixture(t, now, 60)
@@ -82,9 +74,6 @@ func TestMeetingTileAbsentOutsideWindow(t *testing.T) {
 	}
 }
 
-// TestMeetingTileCountdownRepush: reconcile at T (pushes "30m"), reconcile
-// again at T+1m → second CustomApp with "29m" (payload diff overrides the
-// refresh-interval skip).
 func TestMeetingTileCountdownRepush(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c, pub, store := meetingCoordFixture(t, now, 60)
@@ -105,8 +94,6 @@ func TestMeetingTileCountdownRepush(t *testing.T) {
 		t.Errorf("first push text = %q, want %q", text1, "30M STANDUP")
 	}
 
-	// Advance 1 minute — payload text changes → must re-push despite fresh push.
-	// Also update lastFetchOK to stay fresh.
 	now2 := now.Add(time.Minute)
 	store.mu.Lock()
 	store.lastFetchOK = now2
@@ -123,9 +110,6 @@ func TestMeetingTileCountdownRepush(t *testing.T) {
 	}
 }
 
-// TestMeetingTileClearsAtStart: pushed; then now > meeting start (no later
-// meeting) → ClearApp("ember-meet") once, dropped from the ledger; a further
-// reconcile does NOT ClearApp again.
 func TestMeetingTileClearsAtStart(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c, pub, store := meetingCoordFixture(t, now, 60)
@@ -142,7 +126,6 @@ func TestMeetingTileClearsAtStart(t *testing.T) {
 		t.Fatalf("setup: want 1 push, got %d", got)
 	}
 
-	// Move past meeting start; no upcoming meetings left.
 	nowPast := start.Add(time.Second)
 	store.mu.Lock()
 	store.upcoming = nil
@@ -158,24 +141,18 @@ func TestMeetingTileClearsAtStart(t *testing.T) {
 		t.Error("ember-meet should leave the ledger after clear")
 	}
 
-	// Second reconcile must not ClearApp again.
 	c.reconcileTiles(nowPast.Add(time.Minute))
 	if got := len(pub.ClearedAppsSnapshot()); got != 1 {
 		t.Errorf("second reconcile: want still 1 clear, got %d", got)
 	}
 }
 
-// TestMeetingTileClearsWhenStale: pushed at `now`; clock advances 61 min so
-// lastFetchOK is stale, BUT the meeting is still in the future and inside the
-// lead window at stalePast — the only reason want=false is fresh(stalePast)==false.
 func TestMeetingTileClearsWhenStale(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c, pub, store := meetingCoordFixture(t, now, 60)
 
-	// stalePast is the evaluation time: 61 minutes past now, beyond meetingsStaleTTL.
 	stalePast := now.Add(meetingsStaleTTL + time.Minute)
 
-	// Step 1: push the tile at `now` using a meeting inside the window at `now`.
 	seedMeeting(store, meetings.Occurrence{
 		UID:   "uid5",
 		Title: "STANDUP",
@@ -187,13 +164,6 @@ func TestMeetingTileClearsWhenStale(t *testing.T) {
 		t.Fatalf("setup: want 1 push, got %d", got)
 	}
 
-	// Step 2: replace the meeting with one at stalePast+30m so that at stalePast:
-	//   next(stalePast) → Start=stalePast+30m, still future → ok=true
-	//   Start.Sub(stalePast)=30m ≤ 60m lead → inside window
-	//   fresh(stalePast) → false (lastFetchOK=now, 61m old)
-	// want = Enabled && ok && fresh(stalePast) → false, so ClearApp must fire.
-	// (If fresh() were removed from meetTile.live, want would be true and
-	// the tile would be refreshed rather than cleared — the test would fail.)
 	meetingStart := stalePast.Add(30 * time.Minute)
 	seedMeeting(store, meetings.Occurrence{
 		UID:   "uid5",
@@ -201,7 +171,6 @@ func TestMeetingTileClearsWhenStale(t *testing.T) {
 		Start: meetingStart,
 		End:   meetingStart.Add(30 * time.Minute),
 	})
-	// lastFetchOK stays at `now`, so fresh(stalePast) = false.
 	c.reconcileTiles(stalePast)
 
 	if cleared := pub.ClearedAppsSnapshot(); len(cleared) != 1 || cleared[0] != "ember-meet" {
@@ -209,7 +178,6 @@ func TestMeetingTileClearsWhenStale(t *testing.T) {
 	}
 }
 
-// TestMeetingTileClearsWhenDisabled: pushed; cfg.Meetings.Enabled=false → ClearApp.
 func TestMeetingTileClearsWhenDisabled(t *testing.T) {
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c, pub, store := meetingCoordFixture(t, now, 60)
@@ -226,7 +194,6 @@ func TestMeetingTileClearsWhenDisabled(t *testing.T) {
 		t.Fatalf("setup: want 1 push, got %d", got)
 	}
 
-	// Disable meetings.
 	cfg := *c.loadCfg()
 	cfg.Meetings.Enabled = boolPtr(false)
 	c.loadCfg = func() *Config { return &cfg }
@@ -237,15 +204,13 @@ func TestMeetingTileClearsWhenDisabled(t *testing.T) {
 	}
 }
 
-// TestMeetingTileAdopted: device app loop contains "ember-meet" →
-// adoptDeviceManagedApps seeds ember-meet in the tile ledger.
 func TestMeetingTileAdopted(t *testing.T) {
 	pub := &recordingPublisher{loopApps: []string{
 		"Time", "ember", "ember-weather", "ember-meet",
 	}}
 	cfg := defaultConfig()
 	cfg.Meetings.applyDefaults()
-	cfg.Meetings.Enabled = boolPtr(false) // disable so the tile is cleared
+	cfg.Meetings.Enabled = boolPtr(false)
 	app := NewApp(cfg, pub, testLogger())
 	c := app.coord
 
@@ -256,7 +221,6 @@ func TestMeetingTileAdopted(t *testing.T) {
 		t.Fatal("ember-meet should be seeded in the ledger after adopt")
 	}
 
-	// With meetings disabled, reconcile should ClearApp.
 	now := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	c.reconcileTiles(now)
 	cleared := pub.ClearedAppsSnapshot()
@@ -271,7 +235,6 @@ func TestMeetingTileAdopted(t *testing.T) {
 	}
 }
 
-// TestMeetingMinutes: table tests for meetingMinutes ceil semantics.
 func TestMeetingMinutes(t *testing.T) {
 	base := time.Date(2026, 5, 12, 10, 0, 0, 0, time.UTC)
 	cases := []struct {

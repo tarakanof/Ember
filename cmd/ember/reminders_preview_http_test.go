@@ -21,7 +21,6 @@ func TestReminderPreview_BellFrame(t *testing.T) {
 	if len(px) != 256 {
 		t.Fatalf("pixels = %d, want 256", len(px))
 	}
-	// Bell row 5 is fully lit gold (#ffcc33) across cols 0-7.
 	if px[5*32] != "#ffcc33" {
 		t.Errorf("pixel (0,5) = %q, want bell gold #ffcc33", px[5*32])
 	}

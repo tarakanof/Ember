@@ -85,10 +85,6 @@ func TestParseConfigFile_MalformedJSON(t *testing.T) {
 	}
 }
 
-// TestParseConfigFile_LegacyPulseStyleStillParses asserts that configs
-// carrying the now-removed "pulse_style" field continue to load. Without
-// the deprecated struct shim, DisallowUnknownFields would break every
-// existing deployment that started from the G.1b config.example.json.
 func TestParseConfigFile_LegacyPulseStyleStillParses(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.json")
@@ -101,9 +97,6 @@ func TestParseConfigFile_LegacyPulseStyleStillParses(t *testing.T) {
 	}
 }
 
-// TestLoadConfig_DeadDisplayKeysLoadWithWarning asserts configs that still
-// carry the never-read display keys keep loading, and that each one is
-// flagged so the operator can drop it.
 func TestLoadConfig_DeadDisplayKeysLoadWithWarning(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "c.json")
 	body := `{"awtrix":{"http_base_url":"http://x"},"display":{"heartbeat_seconds":10,"refresh_seconds":5,"notify_on_waiting":false}}`
@@ -121,8 +114,6 @@ func TestLoadConfig_DeadDisplayKeysLoadWithWarning(t *testing.T) {
 	}
 }
 
-// TestDefaultConfigOmitsDeadDisplayKeys asserts the never-read keys no longer
-// appear in the effective config (e.g. --print-config output).
 func TestDefaultConfigOmitsDeadDisplayKeys(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -225,10 +216,6 @@ func TestApplyDefaults_RateLimitPreservesDisabled(t *testing.T) {
 	}
 }
 
-// TestLoadConfig_InvalidDeviceURLSchemeFallsBackToDefault covers the SSRF
-// guard on the config.json baseline: a hand-edited file:/gopher:/bare-path
-// base_url must not crash the server at startup — it's logged and replaced
-// with the safe default so the rest of the config still loads.
 func TestLoadConfig_InvalidDeviceURLSchemeFallsBackToDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.json")
@@ -250,9 +237,6 @@ func TestLoadConfig_InvalidDeviceURLSchemeFallsBackToDefault(t *testing.T) {
 	}
 }
 
-// TestLoadConfig_InvalidIconIDsDroppedWithWarn covers the icon-id SSRF-ish
-// guard (path traversal into /ICONS) at the config.json baseline: invalid
-// entries are dropped (logged), valid ones kept, load still succeeds.
 func TestLoadConfig_InvalidIconIDsDroppedWithWarn(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.json")
@@ -277,9 +261,6 @@ func TestLoadConfig_InvalidIconIDsDroppedWithWarn(t *testing.T) {
 	}
 }
 
-// TestSanitizeConfigBaseline_LogsThroughSuppliedLogger is a narrower unit
-// test on sanitizeConfigBaseline itself (independent of file loading),
-// proving both drop paths write to the logger passed in, not slog.Default().
 func TestSanitizeConfigBaseline_LogsThroughSuppliedLogger(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
@@ -312,7 +293,7 @@ func TestValidatePomodoroFocusMaxAndCapRanges(t *testing.T) {
 
 	ok := base
 	ok.FocusMinutes = 480
-	ok.MaxSessionMinutes = 0 // 0 = off is valid
+	ok.MaxSessionMinutes = 0
 	if err := validatePomodoro(ok); err != nil {
 		t.Fatalf("focus=480 cap=0 should be valid, got %v", err)
 	}
@@ -352,8 +333,6 @@ func TestDefaultConfig_NewDisplayFields(t *testing.T) {
 }
 
 func TestDefaultConfig_PublishTimeoutTenSeconds(t *testing.T) {
-	// Bumped 5→10 to tolerate slow-but-reachable ESP32 responses on flaky
-	// WiFi; the coordinator still retries on the next tick.
 	if got := defaultConfig().AWTRIX.TimeoutSeconds; got != 10 {
 		t.Errorf("defaultConfig timeout_seconds = %d, want 10", got)
 	}

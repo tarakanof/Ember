@@ -19,9 +19,9 @@ func TestBuildBootCallbackURL(t *testing.T) {
 	}{
 		{"192.168.0.2", ":3627", "http://192.168.0.2:3627/hooks/awtrix/boot"},
 		{"10.0.0.5", "0.0.0.0:3627", "http://10.0.0.5:3627/hooks/awtrix/boot"},
-		{"", ":3627", ""},           // no IP → no URL
-		{"192.168.0.2", "", ""},     // no addr → no URL
-		{"192.168.0.2", "junk", ""}, // unparseable addr → no URL
+		{"", ":3627", ""},
+		{"192.168.0.2", "", ""},
+		{"192.168.0.2", "junk", ""},
 	}
 	for _, c := range cases {
 		if got := buildBootCallbackURL(c.ip, c.addr); got != c.want {
@@ -30,8 +30,6 @@ func TestBuildBootCallbackURL(t *testing.T) {
 	}
 }
 
-// The device cannot send a bearer token, so the hook must answer an
-// unauthenticated POST even with EMBER_TOKEN set — and queue the republish.
 func TestBootHookRepublishesWithoutAuth(t *testing.T) {
 	a := newTestApp(t)
 	a.updateConfig(func(c *Config) { c.Auth.StatusToken = "s3cret" })
@@ -56,15 +54,12 @@ func TestBootHookRepublishesWithoutAuth(t *testing.T) {
 	}
 }
 
-// fakeScriptDevice emulates the clock's script resource: GET serves the stored
-// source (404 when absent), PUT replaces it, DELETE removes the app.
 type fakeScriptDevice struct {
-	mu      sync.Mutex
-	source  string // "" = not installed
-	present bool
-	puts    []string
-	deletes []string
-	// putReply overrides the PUT response body; "" sends the success shape.
+	mu       sync.Mutex
+	source   string
+	present  bool
+	puts     []string
+	deletes  []string
 	putReply string
 }
 
@@ -143,8 +138,6 @@ func TestEnsureBootPingScriptInstallsWithCallbackURL(t *testing.T) {
 	}
 }
 
-// Re-PUTting restarts the app on the device, so an unchanged source must not be
-// re-uploaded on every startup or reload.
 func TestEnsureBootPingScriptSkipsUnchangedSource(t *testing.T) {
 	dev := &fakeScriptDevice{}
 	srv := dev.server(t)
@@ -193,8 +186,6 @@ func TestEnsureBootPingScriptRemovesWhenToggledOff(t *testing.T) {
 	}
 }
 
-// Disabled and absent is the default state of every install: it must touch the
-// device no more than the one read it takes to find out.
 func TestEnsureBootPingScriptNoopWhenOffAndAbsent(t *testing.T) {
 	dev := &fakeScriptDevice{}
 	srv := dev.server(t)
@@ -208,8 +199,6 @@ func TestEnsureBootPingScriptNoopWhenOffAndAbsent(t *testing.T) {
 	}
 }
 
-// A script that fails to compile still installs, with 200 and the compiler
-// message in "error" — the reply body is the only signal that it is broken.
 func TestPutScriptSurfacesCompileError(t *testing.T) {
 	dev := &fakeScriptDevice{putReply: `{"ok":true,"name":"x","error":{"message":"syntax_error","line":12}}`}
 	srv := dev.server(t)
@@ -225,8 +214,7 @@ func TestPutScriptSurfacesCompileError(t *testing.T) {
 	}
 }
 
-// An unreachable clock must not stop the server: provisioning is best-effort.
 func TestEnsureBootPingScriptSurvivesUnreachableClock(t *testing.T) {
 	a := bootPingTestApp(t, "http://127.0.0.1:9", true)
-	a.ensureBootPingScript(context.Background()) // must not panic
+	a.ensureBootPingScript(context.Background())
 }

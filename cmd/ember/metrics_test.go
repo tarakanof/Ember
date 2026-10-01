@@ -17,13 +17,12 @@ import (
 )
 
 func TestMetrics_NilSafeIncrements(t *testing.T) {
-	var m *metrics // explicitly nil — proves bare &App{} can't panic
+	var m *metrics
 	m.incRequest("/x", 200)
 	m.incPublishOK()
 	m.incPublishFail()
 	m.incRateLimitDenied()
 	m.incSessionEvicted()
-	// no asserts — surviving the calls is the assertion
 }
 
 func TestMetrics_IncRequest_AggregatesPerKey(t *testing.T) {
@@ -36,7 +35,6 @@ func TestMetrics_IncRequest_AggregatesPerKey(t *testing.T) {
 	}
 	m.incRequest("GET /healthz", 200)
 
-	// Read back via the underlying sync.Map.
 	counts := map[requestKey]int64{}
 	m.requestsTotal.Range(func(k, v any) bool {
 		counts[k.(requestKey)] = loadAtomicInt(v)
@@ -83,8 +81,6 @@ func TestPromLabelValue_EscapesPerSpec(t *testing.T) {
 	}
 }
 
-// loadAtomicInt extracts the int64 from the *atomic.Int64 stored as the
-// sync.Map value. Helper kept here so the test file owns the type assertion.
 func loadAtomicInt(v any) int64 {
 	type loader interface{ Load() int64 }
 	return v.(loader).Load()
@@ -119,17 +115,13 @@ func TestMetrics_RateLimitAndSessionCounters(t *testing.T) {
 	}
 }
 
-// Sanity: confirm escaper doesn't %q-escape non-ASCII bytes.
 func TestPromLabelValue_NoSurprisingByteEscape(t *testing.T) {
-	got := promLabelValue("emoji is fine: \xe2\x98\x83") // ☃
+	got := promLabelValue("emoji is fine: \xe2\x98\x83")
 	if strings.Contains(got, `\x`) {
 		t.Errorf("promLabelValue should not %%q-escape non-printables: %q", got)
 	}
 }
 
-// newAppForMetrics returns an App constructed via NewApp (so metrics is
-// populated) with sane defaults. Callers can reach in to set lastPublish*
-// state and seed sessions before calling render.
 func newAppForMetrics(t *testing.T) *App {
 	t.Helper()
 	cfg := defaultConfig()
@@ -263,7 +255,7 @@ func TestObserveRequests_CountsByPattern(t *testing.T) {
 	}
 	resp, _ := srv.Client().Post(srv.URL+"/b", "application/json", strings.NewReader("{}"))
 	resp.Body.Close()
-	resp, _ = srv.Client().Get(srv.URL + "/unknown") // no handler — pattern stays ""
+	resp, _ = srv.Client().Get(srv.URL + "/unknown")
 	resp.Body.Close()
 
 	counts := map[requestKey]int64{}
@@ -287,8 +279,6 @@ func TestObserveRequests_DefaultsTo200WhenHandlerSkipsWriteHeader(t *testing.T) 
 	app := newAppForMetrics(t)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /implicit", func(w http.ResponseWriter, r *http.Request) {
-		// Don't call WriteHeader; just write a body. Go's contract says
-		// the implicit status is 200 — observeRequests must record that.
 		_, _ = w.Write([]byte("hi"))
 	})
 	srv := httptest.NewServer(observeRequests(app, mux))
@@ -365,7 +355,6 @@ func TestMetricsEndpoint_PublicAndPlainText(t *testing.T) {
 
 func TestMetricsEndpoint_NotRateLimited(t *testing.T) {
 	app := newAppForMetrics(t)
-	// Cripple the bucket so any rate-limited route would 429 immediately.
 	cfg := *app.cfg.Load()
 	cfg.RateLimit.Burst = 1
 	cfg.RateLimit.RefillPerSec = 0
@@ -391,13 +380,11 @@ func TestRoutes_RequestCountersWireUpEndToEnd(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	// healthz is a simple GET that exercises the parent mux directly.
 	for i := 0; i < 4; i++ {
 		resp, _ := srv.Client().Get(srv.URL + "/healthz")
 		resp.Body.Close()
 	}
 
-	// Now scrape /metrics and confirm /healthz shows up.
 	resp, err := srv.Client().Get(srv.URL + "/metrics")
 	if err != nil {
 		t.Fatalf("scrape /metrics: %v", err)
@@ -410,7 +397,6 @@ func TestRoutes_RequestCountersWireUpEndToEnd(t *testing.T) {
 	}
 }
 
-// fakePublisher returns whichever error is set; nil means success.
 type fakePublisher struct {
 	customAppErr error
 	indicatorErr error
@@ -444,7 +430,6 @@ func TestCoord_IncrementsOKCounter(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
 	app := NewApp(cfg, &fakePublisher{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	// Seed a running session so RenderForCoord returns a non-nil payload.
 	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s1", State: "running"})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -466,7 +451,6 @@ func TestCoord_IncrementsFailCounter_OnCustomAppErr(t *testing.T) {
 	cfg.AWTRIX.HTTPBaseURL = "http://x"
 	cfg.applyDefaults()
 	app := NewApp(cfg, &fakePublisher{customAppErr: errors.New("boom")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	// Seed a running session so RenderForCoord returns a non-nil payload and CustomApp is called.
 	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s1", State: "running"})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -490,7 +474,6 @@ func TestMetrics_SessionsActiveExcludesStale(t *testing.T) {
 	app.Upsert(StatusRequest{Source: "a", Tool: "claude", Session: "s1", State: "running"})
 	clk.Advance(time.Hour)
 
-	// Nothing renders /state in between: the gauge read itself reaps.
 	var buf bytes.Buffer
 	app.metrics.render(&buf, app)
 	body := buf.String()

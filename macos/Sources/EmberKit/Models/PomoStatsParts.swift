@@ -1,7 +1,7 @@
 import Foundation
 
 /// Focus-phase outcomes over a window (`PomoStats.completion`: the last 30
-/// days). Abandoned means stopped, skipped or cut by the session cap.
+/// days).
 public struct CompletionStat: Codable, Sendable, Equatable {
     public var completedFocus: Int
     public var abandonedFocus: Int
@@ -29,8 +29,7 @@ public struct CompletionStat: Codable, Sendable, Equatable {
     }
 }
 
-/// Progress toward the daily and weekly goals. A goal of 0 is off and the
-/// server reports it as met.
+/// Progress toward the daily and weekly goals.
 public struct GoalStatus: Codable, Sendable, Equatable {
     public var dailySessions: Int
     public var todayCompleted: Int

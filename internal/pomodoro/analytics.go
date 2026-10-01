@@ -6,12 +6,6 @@ import (
 	"time"
 )
 
-// This file is the analytics layer: pure functions over decoded phase rows plus
-// one Store fetch. It is deliberately separate from store.go/engine.go so the
-// richer stats can grow without touching the timer's hot path. All computation
-// is pure (no I/O, clock injected via the caller's `now`/`loc`), so the views
-// are deterministic and trivially testable.
-
 // PhaseRecord is one persisted phase row decoded for analysis.
 type PhaseRecord struct {
 	StartedAt  time.Time
@@ -24,9 +18,7 @@ type PhaseRecord struct {
 }
 
 // PhasesBetween returns the phase rows whose ended_at falls in [lo, hi), oldest
-// first. Times are reconstructed in the local location (Unix instants are
-// timezone-agnostic; callers pass a *time.Location to the pure functions for
-// day/hour bucketing).
+// first.
 func (s *Store) PhasesBetween(lo, hi time.Time) ([]PhaseRecord, error) {
 	rows, err := s.db.Query(
 		`SELECT started_at, ended_at, phase, planned_sec, actual_sec, completed, reason
@@ -131,8 +123,7 @@ func (s *Store) ActivityBetween(lo, hi time.Time) ([]ActivityRecord, error) {
 	return out, rows.Err()
 }
 
-// CompletionStat summarises focus-phase outcomes over a record set. Abandoned =
-// any non-completed focus phase (stopped / skipped / max_session).
+// CompletionStat summarises focus-phase outcomes over a record set.
 type CompletionStat struct {
 	CompletedFocus int     `json:"completed_focus"`
 	AbandonedFocus int     `json:"abandoned_focus"`
@@ -141,8 +132,7 @@ type CompletionStat struct {
 	FocusSec       int     `json:"focus_sec"`       // actual seconds across completed focus
 }
 
-// CompletionStats computes the focus completion summary. Non-focus phases are
-// ignored.
+// CompletionStats computes the focus completion summary.
 func CompletionStats(recs []PhaseRecord) CompletionStat {
 	var c CompletionStat
 	for _, r := range recs {
@@ -164,7 +154,7 @@ func CompletionStats(recs []PhaseRecord) CompletionStat {
 }
 
 // WorkSession is a run of focus blocks with no internal gap longer than the
-// sessionization threshold. It models "a stretch of work."
+// sessionization threshold.
 type WorkSession struct {
 	Start     time.Time `json:"start"`
 	End       time.Time `json:"end"`
@@ -184,8 +174,7 @@ func (w WorkSession) BreakSec() int {
 }
 
 // WorkSessions groups focus phases into work sessions, bridging any gap ≤ gap
-// into the current session and starting a new one otherwise. Input order does
-// not matter. Only focus phases participate (breaks are the gaps).
+// into the current session and starting a new one otherwise.
 func WorkSessions(recs []PhaseRecord, gap time.Duration) []WorkSession {
 	type iv struct{ s, e time.Time }
 	var ivs []iv
@@ -219,11 +208,6 @@ type Interval struct {
 	End   time.Time
 }
 
-// mergeIntervals returns the union of the given intervals, additionally bridging
-// any gap ≤ bridge into one interval. Input order is irrelevant. Overlaps are
-// de-duplicated (the union never double-counts), so totalSec of the result is
-// true wall-clock coverage. Zero-width intervals are kept (they can anchor a
-// session) but add no duration.
 func mergeIntervals(ivs []Interval, bridge time.Duration) []Interval {
 	if len(ivs) == 0 {
 		return nil
@@ -233,7 +217,7 @@ func mergeIntervals(ivs []Interval, bridge time.Duration) []Interval {
 	out := []Interval{sorted[0]}
 	for _, v := range sorted[1:] {
 		cur := &out[len(out)-1]
-		if !v.Start.After(cur.End.Add(bridge)) { // v.Start <= cur.End + bridge → merge
+		if !v.Start.After(cur.End.Add(bridge)) {
 			if v.End.After(cur.End) {
 				cur.End = v.End
 			}
@@ -244,7 +228,6 @@ func mergeIntervals(ivs []Interval, bridge time.Duration) []Interval {
 	return out
 }
 
-// totalSec sums interval durations (non-negative).
 func totalSec(ivs []Interval) int {
 	s := 0
 	for _, v := range ivs {
@@ -255,9 +238,6 @@ func totalSec(ivs []Interval) int {
 	return s
 }
 
-// activitySpans reconstructs continuous active spans from discrete activity
-// heartbeats: consecutive heartbeats no more than maxGap apart form one span
-// [first, last]. An isolated heartbeat yields a zero-width span.
 func activitySpans(acts []ActivityRecord, maxGap time.Duration) []Interval {
 	if len(acts) == 0 {
 		return nil
@@ -270,8 +250,6 @@ func activitySpans(acts []ActivityRecord, maxGap time.Duration) []Interval {
 }
 
 // DaySummary is the headline work-hours rollup for one calendar day.
-// WorkStart/WorkEnd are nil on a day with no work, so the wire carries null
-// instead of Go's zero time (0001-01-01), which clients would chart as a date.
 type DaySummary struct {
 	Date       string     `json:"date"`
 	WorkStart  *time.Time `json:"work_start"`
@@ -283,17 +261,12 @@ type DaySummary struct {
 	LongestSec int        `json:"longest_sec"` // longest single session's active time
 }
 
-// dayKey is the logical calendar day a timestamp belongs to, accounting for a
-// configurable day-start hour: with dayStartHour=4, anything before 04:00 local
-// counts toward the previous day (so a 01:00 night-owl session is still
-// "yesterday's work"). dayStartHour=0 is naive calendar midnight.
 func dayKey(t time.Time, dayStartHour int, loc *time.Location) string {
 	return t.In(loc).Add(-time.Duration(dayStartHour) * time.Hour).Format("2006-01-02")
 }
 
 // DayWork sessionizes the focus phases on the logical day of `day` (per
-// dayStartHour, in loc) and summarises them. WorkEnd reflects the last activity;
-// pass `now` as `day` for an in-progress day to anchor the window to the present.
+// dayStartHour, in loc) and summarises them.
 func DayWork(recs []PhaseRecord, day time.Time, gap time.Duration, dayStartHour int, loc *time.Location) DaySummary {
 	key := dayKey(day, dayStartHour, loc)
 	var inDay []PhaseRecord
@@ -324,10 +297,9 @@ func DayWork(recs []PhaseRecord, day time.Time, gap time.Duration, dayStartHour 
 }
 
 // DayWorkOverlay is DayWork extended with AI-coding-session activity: focus
-// blocks and reconstructed activity spans (heartbeats merged within activityGap)
-// are unioned — so overlap is never double-counted — then sessionized with gap.
-// ActiveSec is true active wall-clock (focus ∪ activity); span/break/longest are
-// derived as in DayWork.
+// blocks and reconstructed activity spans (heartbeats merged within
+// activityGap) are unioned — so overlap is never double-counted — then
+// sessionized with gap.
 func DayWorkOverlay(focus []PhaseRecord, acts []ActivityRecord, day time.Time, gap, activityGap time.Duration, dayStartHour int, loc *time.Location) DaySummary {
 	key := dayKey(day, dayStartHour, loc)
 
@@ -345,19 +317,18 @@ func DayWorkOverlay(focus []PhaseRecord, acts []ActivityRecord, day time.Time, g
 	}
 	ivs = append(ivs, activitySpans(dayActs, activityGap)...)
 
-	active := mergeIntervals(ivs, 0) // true union → real active time, no double count
+	active := mergeIntervals(ivs, 0)
 	d := DaySummary{Date: key}
 	if len(active) == 0 {
 		return d
 	}
-	sessions := mergeIntervals(active, gap) // bridge short idle gaps into work sessions
+	sessions := mergeIntervals(active, gap)
 	d.Sessions = len(sessions)
 	start, end := sessions[0].Start, sessions[len(sessions)-1].End
 	d.WorkStart, d.WorkEnd = &start, &end
 	d.SpanSec = int(end.Sub(start) / time.Second)
 	d.ActiveSec = totalSec(active)
 
-	// LongestSec: the most active wall-clock within a single session.
 	for _, s := range sessions {
 		secs := 0
 		for _, iv := range active {
@@ -376,9 +347,9 @@ func DayWorkOverlay(focus []PhaseRecord, acts []ActivityRecord, day time.Time, g
 	return d
 }
 
-// WeekdayHourHeatmap returns completed-focus minutes bucketed by [weekday][hour]
-// (weekday 0=Sunday..6=Saturday), attributed to the hour the phase started in
-// loc. Powers the "when am I most productive" grid heatmap.
+// WeekdayHourHeatmap returns completed-focus minutes bucketed by
+// [weekday][hour] (weekday 0=Sunday..6=Saturday), attributed to the hour the
+// phase started in loc.
 func WeekdayHourHeatmap(recs []PhaseRecord, loc *time.Location) [7][24]int {
 	var h [7][24]int
 	for _, r := range recs {
@@ -410,17 +381,14 @@ func ActiveFocusDays(recs []PhaseRecord, dayStartHour int, loc *time.Location) m
 }
 
 // Streaks computes the current and longest streak from a set of active days
-// (keyed YYYY-MM-DD, as produced by ActiveFocusDays with the same dayStartHour).
-// The current streak counts qualifying days ending at the logical day of
-// `today`, tolerating up to graceDays missed days within the look-back window
-// before it ends (graceDays=0 is the strict "miss-resets" rule). Missed days do
-// not themselves add to the count — only qualifying days do.
+// (keyed YYYY-MM-DD, as produced by ActiveFocusDays with the same
+// dayStartHour).
 func Streaks(active map[string]bool, today time.Time, dayStartHour, graceDays int) StreakInfo {
 	loc := today.Location()
 	d, _ := time.ParseInLocation("2006-01-02", dayKey(today, dayStartHour, loc), loc)
 
 	current, misses := 0, 0
-	for i := 0; i < 4000; i++ { // hard bound: ~11y look-back
+	for i := 0; i < 4000; i++ {
 		if active[d.Format("2006-01-02")] {
 			current++
 		} else {
@@ -434,7 +402,6 @@ func Streaks(active map[string]bool, today time.Time, dayStartHour, graceDays in
 	return StreakInfo{Current: current, Longest: longestRun(active)}
 }
 
-// longestRun is the longest run of consecutive calendar days in the set.
 func longestRun(active map[string]bool) int {
 	if len(active) == 0 {
 		return 0
@@ -479,7 +446,6 @@ type Bucket struct {
 
 // Rollup aggregates completed focus phases into chronologically-ordered buckets
 // at the requested granularity, honouring dayStartHour for the day boundary.
-// Abandoned and non-focus phases are excluded.
 func Rollup(recs []PhaseRecord, gran Granularity, dayStartHour int, loc *time.Location) []Bucket {
 	idx := make(map[string]*Bucket)
 	var order []string
@@ -498,7 +464,7 @@ func Rollup(recs []PhaseRecord, gran Granularity, dayStartHour int, loc *time.Lo
 		b.Sessions++
 		b.FocusMin += r.ActualSec / 60
 	}
-	sort.Strings(order) // keys are lexicographically chronological for all grains
+	sort.Strings(order)
 	out := make([]Bucket, 0, len(order))
 	for _, k := range order {
 		out = append(out, *idx[k])

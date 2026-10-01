@@ -1,8 +1,6 @@
 import Foundation
 
-/// The Agent pane's six producer.env toggles. Read uses the producer's default
-/// semantics (envTrue = default-on, envOn = default-off); apply writes "true"/"false".
-/// Ports the retired Go menu's form.go display half (rate-%/context-number/reset retired).
+/// The Agent pane's six producer.env toggles.
 public struct DisplaySettings: Equatable, Sendable {
     public var contextPct: Bool
     public var activityDetail: Bool
@@ -31,9 +29,7 @@ public struct DisplaySettings: Equatable, Sendable {
     }
 
     /// The six toggles that affect a single-session render (+ the connection's
-    /// source colour), for GET /v1/preview. activity_trail is intentionally absent.
-    /// usageCard is always true: the pane preview demonstrates the card regardless
-    /// of the threshold that gates the device.
+    /// source colour), for GET /v1/preview.
     public func draftDisplay(sourceColor: String) -> DraftDisplay {
         var d = DraftDisplay()
         d.contextPct = contextPct
@@ -46,8 +42,7 @@ public struct DisplaySettings: Equatable, Sendable {
     }
 }
 
-/// Three-way row-7 mode over the two env toggles. Rate wins in the renderer,
-/// so the setter keeps the pair unambiguous.
+/// Three-way row-7 mode over the two env toggles.
 public enum BottomBarMode: String, CaseIterable, Sendable, Identifiable {
     case session = "Session pixels"
     case rate = "Rate bar"

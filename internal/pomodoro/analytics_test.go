@@ -7,12 +7,10 @@ import (
 	"time"
 )
 
-// utc builds a UTC time for terse test fixtures.
 func utc(y int, mo time.Month, d, h, mi int) time.Time {
 	return time.Date(y, mo, d, h, mi, 0, 0, time.UTC)
 }
 
-// focus builds a completed/abandoned focus PhaseRecord spanning [start, start+dur).
 func focus(start time.Time, durMin int, completed bool, reason string) PhaseRecord {
 	return PhaseRecord{
 		StartedAt:  start,
@@ -31,7 +29,6 @@ func TestCompletionStats(t *testing.T) {
 		focus(utc(2026, 6, 10, 9, 30), 25, true, "completed"),
 		focus(utc(2026, 6, 10, 10, 0), 10, false, "stopped"),
 		focus(utc(2026, 6, 10, 10, 30), 5, false, "skipped"),
-		// a break phase must be ignored entirely
 		{StartedAt: utc(2026, 6, 10, 11, 0), EndedAt: utc(2026, 6, 10, 11, 5),
 			Phase: PhaseShort, PlannedSec: 300, ActualSec: 300, Completed: true, Reason: "completed"},
 	}
@@ -55,12 +52,10 @@ func TestCompletionStatsEmpty(t *testing.T) {
 }
 
 func TestWorkSessionsBridgesSmallGaps(t *testing.T) {
-	// Two 25-min focus blocks 5 min apart → one session; then a 40-min gap → a
-	// second session.
 	recs := []PhaseRecord{
-		focus(utc(2026, 6, 10, 9, 5), 25, true, "completed"),   // 9:05–9:30
-		focus(utc(2026, 6, 10, 9, 35), 25, true, "completed"),  // 9:35–10:00 (gap 5m → bridge)
-		focus(utc(2026, 6, 10, 10, 40), 80, true, "completed"), // 10:40–12:00 (gap 40m → split)
+		focus(utc(2026, 6, 10, 9, 5), 25, true, "completed"),
+		focus(utc(2026, 6, 10, 9, 35), 25, true, "completed"),
+		focus(utc(2026, 6, 10, 10, 40), 80, true, "completed"),
 	}
 	sessions := WorkSessions(recs, 15*time.Minute)
 	if len(sessions) != 2 {
@@ -82,7 +77,6 @@ func TestWorkSessionsBridgesSmallGaps(t *testing.T) {
 }
 
 func TestWorkSessionsUnordered(t *testing.T) {
-	// Out-of-order input must still sessionize correctly.
 	recs := []PhaseRecord{
 		focus(utc(2026, 6, 10, 9, 35), 25, true, "completed"),
 		focus(utc(2026, 6, 10, 9, 5), 25, true, "completed"),
@@ -98,7 +92,6 @@ func TestDayWorkSummary(t *testing.T) {
 		focus(utc(2026, 6, 10, 9, 5), 25, true, "completed"),
 		focus(utc(2026, 6, 10, 9, 35), 25, true, "completed"),
 		focus(utc(2026, 6, 10, 10, 40), 80, true, "completed"),
-		// previous day — must be excluded
 		focus(utc(2026, 6, 9, 14, 0), 25, true, "completed"),
 	}
 	d := DayWork(recs, utc(2026, 6, 10, 12, 0), 15*time.Minute, 0, time.UTC)
@@ -121,11 +114,10 @@ func TestDayWorkSummary(t *testing.T) {
 }
 
 func TestWeekdayHourHeatmap(t *testing.T) {
-	// 2026-06-10 is a Wednesday (weekday 3).
 	recs := []PhaseRecord{
 		focus(utc(2026, 6, 10, 9, 0), 25, true, "completed"),
-		focus(utc(2026, 6, 10, 9, 30), 25, true, "completed"), // same hour bucket
-		focus(utc(2026, 6, 10, 14, 0), 25, false, "stopped"),  // abandoned → ignored
+		focus(utc(2026, 6, 10, 9, 30), 25, true, "completed"),
+		focus(utc(2026, 6, 10, 14, 0), 25, false, "stopped"),
 	}
 	h := WeekdayHourHeatmap(recs, time.UTC)
 	if got := h[3][9]; got != 50 {
@@ -144,32 +136,27 @@ func TestStreaksWithGrace(t *testing.T) {
 		}
 		return m
 	}
-	today := utc(2026, 6, 10, 8, 0) // Wed
+	today := utc(2026, 6, 10, 8, 0)
 
-	// Strict: today + 2 prior days, then a gap.
 	active := mk("2026-06-10", "2026-06-09", "2026-06-08", "2026-06-06")
 	s := Streaks(active, today, 0, 0)
 	if s.Current != 3 {
 		t.Errorf("strict current = %d, want 3", s.Current)
 	}
 
-	// Grace 1: the 06-07 gap is forgiven, so 06-06 joins → current 4.
 	s = Streaks(active, today, 0, 1)
 	if s.Current != 4 {
 		t.Errorf("grace current = %d, want 4", s.Current)
 	}
 
-	// Longest run anywhere in the set (08,09,10 = 3).
 	if s.Longest != 3 {
 		t.Errorf("longest = %d, want 3", s.Longest)
 	}
 
-	// No activity today, grace 0 → current 0.
 	noToday := mk("2026-06-09", "2026-06-08")
 	if got := Streaks(noToday, today, 0, 0).Current; got != 0 {
 		t.Errorf("inactive today strict = %d, want 0", got)
 	}
-	// No activity today but grace 1 → yesterday's run counts.
 	if got := Streaks(noToday, today, 0, 1).Current; got != 2 {
 		t.Errorf("inactive today grace1 = %d, want 2", got)
 	}
@@ -177,8 +164,6 @@ func TestStreaksWithGrace(t *testing.T) {
 
 func TestDayStartHourShiftsBoundary(t *testing.T) {
 	loc := time.UTC
-	// A focus block at 01:30 on the 11th. With dayStartHour=4 it belongs to the
-	// logical day of the 10th (the night-owl session).
 	recs := []PhaseRecord{focus(utc(2026, 6, 11, 1, 30), 25, true, "completed")}
 
 	naive := ActiveFocusDays(recs, 0, loc)
@@ -190,8 +175,6 @@ func TestDayStartHourShiftsBoundary(t *testing.T) {
 		t.Errorf("dayStart=4 should bucket 01:30 to the 10th, got %v", shifted)
 	}
 
-	// And the streak anchored at 02:00 on the 11th still counts that block as
-	// "today" (the logical 10th).
 	if got := Streaks(shifted, utc(2026, 6, 11, 2, 0), 4, 0).Current; got != 1 {
 		t.Errorf("night-owl streak current = %d, want 1", got)
 	}
@@ -199,16 +182,15 @@ func TestDayStartHourShiftsBoundary(t *testing.T) {
 
 func TestRollup(t *testing.T) {
 	recs := []PhaseRecord{
-		focus(utc(2026, 6, 8, 9, 0), 25, true, "completed"),  // Mon, 2026-W24
-		focus(utc(2026, 6, 10, 9, 0), 25, true, "completed"), // Wed, 2026-W24
-		focus(utc(2026, 6, 15, 9, 0), 50, true, "completed"), // Mon, 2026-W25
-		focus(utc(2026, 6, 15, 10, 0), 25, false, "stopped"), // abandoned → ignored
+		focus(utc(2026, 6, 8, 9, 0), 25, true, "completed"),
+		focus(utc(2026, 6, 10, 9, 0), 25, true, "completed"),
+		focus(utc(2026, 6, 15, 9, 0), 50, true, "completed"),
+		focus(utc(2026, 6, 15, 10, 0), 25, false, "stopped"),
 	}
 	weekly := Rollup(recs, GranWeek, 0, time.UTC)
 	if len(weekly) != 2 {
 		t.Fatalf("weekly buckets = %d, want 2: %+v", len(weekly), weekly)
 	}
-	// Buckets are returned in chronological order.
 	if weekly[0].Key != "2026-W24" || weekly[0].Sessions != 2 || weekly[0].FocusMin != 50 {
 		t.Errorf("week0 = %+v", weekly[0])
 	}
@@ -226,16 +208,13 @@ func TestMergeIntervals(t *testing.T) {
 	iv := func(h1, m1, h2, m2 int) Interval {
 		return Interval{utc(2026, 6, 10, h1, m1), utc(2026, 6, 10, h2, m2)}
 	}
-	// Overlapping and touching intervals merge at bridge 0; order irrelevant.
 	got := mergeIntervals([]Interval{iv(9, 40, 9, 50), iv(9, 0, 9, 30), iv(9, 20, 9, 40)}, 0)
 	if len(got) != 1 || !got[0].Start.Equal(utc(2026, 6, 10, 9, 0)) || !got[0].End.Equal(utc(2026, 6, 10, 9, 50)) {
 		t.Fatalf("union = %+v", got)
 	}
-	// A real gap is not bridged at 0.
 	if got := mergeIntervals([]Interval{iv(9, 0, 9, 10), iv(9, 30, 9, 40)}, 0); len(got) != 2 {
 		t.Fatalf("want 2 separate, got %+v", got)
 	}
-	// ...but is at a 30-min bridge.
 	if got := mergeIntervals([]Interval{iv(9, 0, 9, 10), iv(9, 30, 9, 40)}, 30*time.Minute); len(got) != 1 {
 		t.Fatalf("want 1 bridged, got %+v", got)
 	}
@@ -249,7 +228,7 @@ func TestActivitySpans(t *testing.T) {
 	for tm := utc(2026, 6, 10, 9, 10); !tm.After(utc(2026, 6, 10, 9, 20)); tm = tm.Add(2 * time.Minute) {
 		hb = append(hb, ActivityRecord{At: tm})
 	}
-	hb = append(hb, ActivityRecord{At: utc(2026, 6, 10, 9, 40)}) // isolated, 20m later
+	hb = append(hb, ActivityRecord{At: utc(2026, 6, 10, 9, 40)})
 	spans := activitySpans(hb, 5*time.Minute)
 	if len(spans) != 2 {
 		t.Fatalf("want 2 spans, got %+v", spans)
@@ -261,31 +240,30 @@ func TestActivitySpans(t *testing.T) {
 
 func TestDayWorkOverlayDedupAndExtend(t *testing.T) {
 	loc := time.UTC
-	focus := []PhaseRecord{focus(utc(2026, 6, 10, 9, 0), 25, true, "completed")} // 9:00–9:25
+	focus := []PhaseRecord{focus(utc(2026, 6, 10, 9, 0), 25, true, "completed")}
 	var acts []ActivityRecord
 	add := func(from, to time.Time) {
 		for tm := from; !tm.After(to); tm = tm.Add(2 * time.Minute) {
 			acts = append(acts, ActivityRecord{At: tm, SessionKey: "Claude/claude/s1", State: "running"})
 		}
 	}
-	add(utc(2026, 6, 10, 9, 10), utc(2026, 6, 10, 9, 20)) // overlaps focus → adds nothing
-	add(utc(2026, 6, 10, 9, 35), utc(2026, 6, 10, 9, 45)) // after focus → adds 10m, 10m gap → same session
+	add(utc(2026, 6, 10, 9, 10), utc(2026, 6, 10, 9, 20))
+	add(utc(2026, 6, 10, 9, 35), utc(2026, 6, 10, 9, 45))
 
 	d := DayWorkOverlay(focus, acts, utc(2026, 6, 10, 12, 0), 15*time.Minute, 5*time.Minute, 0, loc)
 	if d.Sessions != 1 {
 		t.Fatalf("want 1 bridged session, got %d (%+v)", d.Sessions, d)
 	}
-	if d.ActiveSec != 35*60 { // 25m focus ∪ 10m post-focus activity (overlap deduped)
+	if d.ActiveSec != 35*60 {
 		t.Errorf("active = %d, want %d", d.ActiveSec, 35*60)
 	}
-	if d.SpanSec != 45*60 { // 9:00 → 9:45
+	if d.SpanSec != 45*60 {
 		t.Errorf("span = %d, want %d", d.SpanSec, 45*60)
 	}
 	if d.BreakSec != 10*60 {
 		t.Errorf("break = %d, want %d", d.BreakSec, 10*60)
 	}
 
-	// With the overlay's activity excluded (Pomodoro-only DayWork), only the focus counts.
 	base := DayWork(focus, utc(2026, 6, 10, 12, 0), 15*time.Minute, 0, loc)
 	if base.ActiveSec != 25*60 {
 		t.Errorf("pomodoro-only active = %d, want %d", base.ActiveSec, 25*60)
@@ -307,7 +285,7 @@ func TestActivityBetweenRoundTrip(t *testing.T) {
 	}
 	must(st.RecordActivity(base, "Claude", "claude", "Claude/claude/s1", "running"))
 	must(st.RecordActivity(base.Add(time.Minute), "Codex", "codex", "Codex/codex/s2", "waiting"))
-	must(st.RecordActivity(base.Add(48*time.Hour), "Claude", "claude", "Claude/claude/s1", "running")) // outside
+	must(st.RecordActivity(base.Add(48*time.Hour), "Claude", "claude", "Claude/claude/s1", "running"))
 
 	got, err := st.ActivityBetween(base.Add(-time.Hour), base.Add(time.Hour))
 	if err != nil {
@@ -369,7 +347,7 @@ func TestPhasesBetweenRoundTrip(t *testing.T) {
 	}
 	rec(utc(2026, 6, 10, 9, 0), 25)
 	rec(utc(2026, 6, 10, 10, 0), 25)
-	rec(utc(2026, 6, 11, 9, 0), 25) // outside the window below
+	rec(utc(2026, 6, 11, 9, 0), 25)
 
 	got, err := st.PhasesBetween(utc(2026, 6, 10, 0, 0), utc(2026, 6, 11, 0, 0))
 	if err != nil {
@@ -387,9 +365,6 @@ func TestPhasesBetweenRoundTrip(t *testing.T) {
 	}
 }
 
-// An empty day has no work span: work_start/work_end must serialise as JSON
-// null, not Go's zero time ("0001-01-01T00:00:00Z"), which clients would
-// otherwise render as a real (absurd) date.
 func TestDaySummaryEmptyDayHasNullWorkSpan(t *testing.T) {
 	day := utc(2026, 6, 10, 12, 0)
 	cases := []struct {

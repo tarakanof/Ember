@@ -5,10 +5,6 @@ import (
 	"path/filepath"
 )
 
-// activityString composes a short "Tool: detail" display string from a hook's
-// tool_name + tool_input. The whole composed string (prefix included) is
-// truncated to 80. Unknown tools, missing fields, and malformed JSON all fall
-// back to the bare tool name; an empty tool name yields "".
 func activityString(toolName string, toolInput json.RawMessage) string {
 	switch toolName {
 	case "":

@@ -23,8 +23,6 @@ func fakeInfo(procs map[int]fakeProc) func(int) (int, string, bool) {
 	}
 }
 
-// The hook process tree is: claude -> sh -> ember-claude-producer. Starting
-// from the shell parent, the walk must skip the shell and land on claude.
 func TestResolveOwner_SkipsShellToClaude(t *testing.T) {
 	procs := map[int]fakeProc{
 		90: {ppid: 80, comm: "/bin/sh"},
@@ -36,7 +34,6 @@ func TestResolveOwner_SkipsShellToClaude(t *testing.T) {
 	}
 }
 
-// Some installs run claude as `node`; node is not a shell, so it is returned.
 func TestResolveOwner_NodeIsOwner(t *testing.T) {
 	procs := map[int]fakeProc{
 		90: {ppid: 80, comm: "/bin/zsh"},
@@ -48,8 +45,6 @@ func TestResolveOwner_NodeIsOwner(t *testing.T) {
 	}
 }
 
-// If Claude execs the hook directly (no shell wrapper), the parent is already
-// the owner.
 func TestResolveOwner_DirectClaude(t *testing.T) {
 	procs := map[int]fakeProc{
 		80: {ppid: 70, comm: "claude"},
@@ -60,7 +55,6 @@ func TestResolveOwner_DirectClaude(t *testing.T) {
 	}
 }
 
-// Our own binary must be skipped if it appears in the chain.
 func TestResolveOwner_SkipsSelf(t *testing.T) {
 	procs := map[int]fakeProc{
 		100: {ppid: 80, comm: "/Users/joe/go/bin/ember-claude-producer"},
@@ -78,7 +72,6 @@ func TestResolveOwner_MissingAncestor(t *testing.T) {
 	}
 }
 
-// All ancestors are shells up to root: no Claude process found.
 func TestResolveOwner_NoOwnerAllShells(t *testing.T) {
 	procs := map[int]fakeProc{
 		90: {ppid: 80, comm: "/bin/sh"},
@@ -90,9 +83,6 @@ func TestResolveOwner_NoOwnerAllShells(t *testing.T) {
 	}
 }
 
-// A marker whose owning Claude process has exited must be reaped by the
-// heartbeat tick immediately (DELETE + marker removed), without waiting out the
-// 6h marker TTL.
 func TestProcessOneMarker_DeadOwner_Reaped(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -128,8 +118,6 @@ func TestProcessOneMarker_DeadOwner_Reaped(t *testing.T) {
 	}
 }
 
-// A marker whose owner is still alive must keep being re-POSTed (idle-but-open
-// Claude stays present), not reaped.
 func TestProcessOneMarker_LiveOwner_NotReaped(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()

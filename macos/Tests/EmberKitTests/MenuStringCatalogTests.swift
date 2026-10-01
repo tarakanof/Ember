@@ -2,9 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// Every string `MenuRows` hands the menu. Xcode doesn't extract EmberKit's
-/// literals, so these keys are added to the catalog by hand; this keeps the
-/// two in step (as `StringCatalogTests` does for the foundations).
 private func menuStrings() throws -> [LocalizedStringResource] {
     let now = Date(timeIntervalSince1970: 1_790_416_800)
     let utc = TimeZone(identifier: "UTC")!
@@ -43,7 +40,7 @@ private func menuStrings() throws -> [LocalizedStringResource] {
         let m = MeetingsState(upcoming: [MeetingsState.Item(title: "M", start: now.addingTimeInterval(offset))])
         out += [MenuRows.nextEvent(meetings: m, reminders: [], now: now, timeZone: utc)].compactMap { $0 }
     }
-    let lateNight = Date(timeIntervalSince1970: 1_790_416_800 + 13 * 3600) // 23:00 UTC
+    let lateNight = Date(timeIntervalSince1970: 1_790_416_800 + 13 * 3600)
     let dayAfter = MeetingsState(upcoming: [MeetingsState.Item(title: "M", start: lateNight.addingTimeInterval(34 * 3600))])
     out += [MenuRows.nextEvent(meetings: dayAfter, reminders: [], now: lateNight, timeZone: utc)].compactMap { $0 }
     out.append("Reminder: \("R")")

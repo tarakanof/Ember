@@ -18,46 +18,31 @@ import (
 )
 
 type recordingPublisher struct {
-	mu             sync.Mutex
-	customApps     []map[string]any
-	customNames    []string
-	clearedApps    []string
-	notify         []map[string]any
-	indicator      []map[string]any
-	indicatorCalls []indicatorCall
-	// indicatorErr, when non-nil, fails every Indicator write.
+	mu                sync.Mutex
+	customApps        []map[string]any
+	customNames       []string
+	clearedApps       []string
+	notify            []map[string]any
+	indicator         []map[string]any
+	indicatorCalls    []indicatorCall
 	indicatorErr      error
 	clearedIndicators []int
 	settings          []map[string]any
 	switches          []string
-	// deviceSettings is what ReadSettings answers (the clock's current
-	// settings); readSettingsErr, when non-nil, fails every read instead.
-	deviceSettings  map[string]any
-	readSettingsErr error
-	// settingsFails / switchFails fail that many upcoming Settings / Switch
-	// calls with a transport error (a write lost on the lossy link) before the
-	// device starts accepting them again.
-	settingsFails  int
-	switchFails    int
-	switchModes    []awtrix.SwitchMode
-	dismissedNames []string
-	// dismissByNameErr, when non-nil, is returned by every DismissNotifyByName
-	// call (the device answers 404 for a name it no longer holds).
-	dismissByNameErr error
-	rtttls           []string
-	loopApps         []string // app names returned by ListApps (device rotation)
-	// ops is the interleaved call order across the device-mutating methods
-	// ("push <name>", "switch <name>", "settings", "clear <name>"). The
-	// per-method slices above lose the relative ordering, and the display hold
-	// depends on it: a forced switch to an app the device has not been given yet
-	// answers 404.
-	ops      []string
-	icons    []string // filenames returned by ListIcons (/ICONS folder)
-	iconsErr error    // when non-nil, ListIcons fails with it
-	putIcons []string // filenames uploaded via PutIcon
+	deviceSettings    map[string]any
+	readSettingsErr   error
+	settingsFails     int
+	switchFails       int
+	switchModes       []awtrix.SwitchMode
+	dismissedNames    []string
+	dismissByNameErr  error
+	rtttls            []string
+	loopApps          []string
+	ops               []string
+	icons             []string
+	iconsErr          error
+	putIcons          []string
 
-	// failNotify, when non-nil, is called on each Notify call and returns an
-	// error to simulate a device-unreachable condition. Return nil to succeed.
 	failNotify func() error
 }
 
@@ -79,7 +64,6 @@ func (p *recordingPublisher) PutIcon(_ context.Context, filename string, _ []byt
 	return nil
 }
 
-// PutIconNamesSnapshot returns a copy of uploaded icon filenames under the lock.
 func (p *recordingPublisher) PutIconNamesSnapshot() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -113,7 +97,6 @@ func (p *recordingPublisher) ClearApp(_ context.Context, name string) error {
 	return nil
 }
 
-// ClearedAppsSnapshot returns a copy of cleared app names under the lock.
 func (p *recordingPublisher) ClearedAppsSnapshot() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -122,7 +105,6 @@ func (p *recordingPublisher) ClearedAppsSnapshot() []string {
 	return out
 }
 
-// CustomNamesSnapshot returns a copy of pushed app names under the lock.
 func (p *recordingPublisher) CustomNamesSnapshot() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -131,7 +113,6 @@ func (p *recordingPublisher) CustomNamesSnapshot() []string {
 	return out
 }
 
-// NotifySnapshot returns a copy of recorded Notify payloads under the lock.
 func (p *recordingPublisher) NotifySnapshot() []map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -162,7 +143,6 @@ func (p *recordingPublisher) DismissNotifyByName(_ context.Context, name string)
 	return p.dismissByNameErr
 }
 
-// DismissedNamesSnapshot returns a copy of dismissed notification names under the lock.
 func (p *recordingPublisher) DismissedNamesSnapshot() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -178,14 +158,11 @@ func (p *recordingPublisher) PlayRTTTL(_ context.Context, rtttl string) error {
 	return nil
 }
 
-// indicatorCall is one recorded Indicator write, index included — the payload
-// alone can't tell which of the three LEDs was addressed.
 type indicatorCall struct {
 	index   int
 	payload map[string]any
 }
 
-// errFakeDeviceDown stands in for an unreachable clock in fake-publisher tests.
 var errFakeDeviceDown = errors.New("fake device unreachable")
 
 func (p *recordingPublisher) Indicator(_ context.Context, index int, payload map[string]any) error {
@@ -193,13 +170,12 @@ func (p *recordingPublisher) Indicator(_ context.Context, index int, payload map
 	defer p.mu.Unlock()
 	p.indicatorCalls = append(p.indicatorCalls, indicatorCall{index: index, payload: payload})
 	if p.indicatorErr != nil {
-		return p.indicatorErr // the attempt is still recorded, so retries are visible
+		return p.indicatorErr
 	}
 	p.indicator = append(p.indicator, payload)
 	return nil
 }
 
-// IndicatorCallsSnapshot returns a copy of recorded indicator writes under the lock.
 func (p *recordingPublisher) IndicatorCallsSnapshot() []indicatorCall {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -249,7 +225,6 @@ func (p *recordingPublisher) Switch(_ context.Context, name string, mode awtrix.
 	return nil
 }
 
-// OpsSnapshot returns a copy of the interleaved device-call order under the lock.
 func (p *recordingPublisher) OpsSnapshot() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -258,7 +233,6 @@ func (p *recordingPublisher) OpsSnapshot() []string {
 	return out
 }
 
-// SettingsSnapshot returns a copy of recorded settings calls under the lock.
 func (p *recordingPublisher) SettingsSnapshot() []map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -267,8 +241,6 @@ func (p *recordingPublisher) SettingsSnapshot() []map[string]any {
 	return out
 }
 
-// SwitchModesSnapshot returns a copy of recorded switch modes under the lock,
-// index-aligned with SwitchesSnapshot.
 func (p *recordingPublisher) SwitchModesSnapshot() []awtrix.SwitchMode {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -277,7 +249,6 @@ func (p *recordingPublisher) SwitchModesSnapshot() []awtrix.SwitchMode {
 	return out
 }
 
-// SwitchesSnapshot returns a copy of recorded switch target names under the lock.
 func (p *recordingPublisher) SwitchesSnapshot() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -286,8 +257,6 @@ func (p *recordingPublisher) SwitchesSnapshot() []string {
 	return out
 }
 
-// CustomAppsSnapshot returns a copy of customApps under the lock, safe for
-// concurrent-test reads (race detector).
 func (p *recordingPublisher) CustomAppsSnapshot() []map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -296,8 +265,6 @@ func (p *recordingPublisher) CustomAppsSnapshot() []map[string]any {
 	return out
 }
 
-// IndicatorSnapshot returns a copy of indicator under the lock, safe for
-// concurrent-test reads (race detector).
 func (p *recordingPublisher) IndicatorSnapshot() []map[string]any {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -306,7 +273,6 @@ func (p *recordingPublisher) IndicatorSnapshot() []map[string]any {
 	return out
 }
 
-// RTTTLsSnapshot returns a copy of recorded PlayRTTTL calls under the lock.
 func (p *recordingPublisher) RTTTLsSnapshot() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -342,11 +308,6 @@ func TestCoord_PublishesDrawPayload_OnUpsert(t *testing.T) {
 	}
 }
 
-// TestCoord_IdleSession_EmitsIdleFrame replaces the pre-G.2 NoPublish
-// expectation. An "idle" session is excluded from sortedActiveKeys, so
-// the snapshot has zero active sessions — the coordinator enters the
-// idle countdown and emits a dimmed idle frame on the first tick
-// instead of ceding the slot immediately.
 func TestCoord_IdleSession_EmitsIdleFrame(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.applyDefaults()
@@ -364,7 +325,6 @@ func TestCoord_IdleSession_EmitsIdleFrame(t *testing.T) {
 	if got := len(customs); got != 1 {
 		t.Fatalf("custom app publishes on idle = %d, want 1 (idle countdown dim frame)", got)
 	}
-	// Idle frame must not carry a text key (robot-only dim frame).
 	if _, hasText := customs[0]["text"]; hasText {
 		t.Errorf("idle frame has text key; want robot-only dim frame")
 	}
@@ -374,9 +334,6 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-// testToken is the bearer token wired into the default test servers. Writes
-// fail closed on an empty token, so the shared HTTP test helpers always
-// configure a token and authenticate with it unless a test overrides it.
 const testToken = "test-token"
 
 func newTestServer(t *testing.T, cfg Config) (*App, *httptest.Server) {
@@ -401,10 +358,6 @@ func postJSON(t *testing.T, srv *httptest.Server, path string, body any, headers
 		t.Fatalf("new request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// nil headers means "don't care about auth" — inject the shared test token
-	// so fail-closed write endpoints are reachable. A test exercising auth
-	// passes an explicit (possibly empty) map to control the Authorization
-	// header itself.
 	if headers == nil {
 		req.Header.Set("Authorization", "Bearer "+testToken)
 	}
@@ -419,10 +372,6 @@ func postJSON(t *testing.T, srv *httptest.Server, path string, body any, headers
 	return resp
 }
 
-// newRawTestServer builds a test server backed by the real clock adapter (base URL
-// http://x) with the shared test token configured. It suits tests that assert
-// on decode/validation/logging behaviour and drive raw request bodies; logger
-// lets a test capture emitted log lines.
 func newRawTestServer(t *testing.T, logger *slog.Logger) *httptest.Server {
 	t.Helper()
 	cfg := defaultConfig()
@@ -435,8 +384,6 @@ func newRawTestServer(t *testing.T, logger *slog.Logger) *httptest.Server {
 	return srv
 }
 
-// authedRequest builds a JSON request to a test server carrying the shared
-// bearer token, so it clears the fail-closed write auth.
 func authedRequest(t *testing.T, method, url, body string) *http.Request {
 	t.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
@@ -448,7 +395,6 @@ func authedRequest(t *testing.T, method, url, body string) *http.Request {
 	return req
 }
 
-// helper
 func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
 }
@@ -479,8 +425,6 @@ func (noopPublisher) Settings(context.Context, map[string]any) error          { 
 func (noopPublisher) Switch(context.Context, string, awtrix.SwitchMode) error { return nil }
 func (noopPublisher) ReadSettings(context.Context) (map[string]any, error)    { return nil, nil }
 
-// captureLogger returns a logger that writes JSON-formatted entries to
-// the provided buffer at Debug level (so all Info entries are captured).
 func captureLogger(buf *bytes.Buffer) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }

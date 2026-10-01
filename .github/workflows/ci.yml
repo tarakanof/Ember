@@ -1,8 +1,5 @@
 name: CI
 
-# Gate the Go server on every push to main and every PR: formatting, vet, and
-# the race-enabled test suite — the same checks AGENTS.md requires before a
-# commit. Pure-Go (modernc.org/sqlite, no CGO), so a plain ubuntu runner suffices.
 on:
   push:
     branches: [main]
@@ -19,8 +16,6 @@ jobs:
   changes:
     name: Detect changed paths
     runs-on: ubuntu-latest
-    # pull-requests: read lets paths-filter list changed files via the API
-    # (needed if the repo ever goes private).
     permissions:
       contents: read
       pull-requests: read
@@ -73,10 +68,6 @@ jobs:
     name: macOS (swift test, unsigned app build)
     needs: changes
     if: needs.changes.outputs.macos == 'true'
-    # The Ember app target's deployment target is macOS 26 (macos/project.yml);
-    # EmberKit itself (the SPM package swift test exercises) only needs macOS
-    # 14 (macos/Package.swift). macos-latest tracks macOS 26/Xcode 26 as of
-    # 2026-06, so it's the newest runner able to build the app target.
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -98,16 +89,10 @@ jobs:
         run: xcodegen generate --spec macos/project.yml --project macos
 
       - name: xcodebuild (unsigned Debug)
-        # No Developer ID in CI: CODE_SIGNING_ALLOWED=NO builds unsigned, and
-        # build-producers.sh (the postCompileScripts sign phase) falls back to
-        # ad-hoc signing when it finds no usable identity — see that script.
         run: |
           xcodebuild -project macos/Ember.xcodeproj -scheme Ember \
             -configuration Debug -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO build
 
       - name: String catalog is complete
-        # Every string the build extracted (and every EmberKit string) must
-        # be in Localizable.xcstrings, with a comment on format strings.
-        # Fix a failure with scripts/strings.sh sync.
         run: scripts/strings.sh check build/DerivedData

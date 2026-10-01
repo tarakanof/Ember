@@ -13,10 +13,6 @@ import (
 
 const launchAgentLabel = "com.ember.heartbeat"
 
-// producerName is this binary's name; legacyProducerName is the pre-Ember
-// rebrand name. install/uninstall recognize hook + statusLine entries left by
-// EITHER, so upgrading from awtrix-claude-producer replaces them cleanly instead
-// of leaving the old entries to double-fire alongside the new ones.
 const (
 	producerName       = "ember-claude-producer"
 	legacyProducerName = "awtrix-claude-producer"
@@ -45,7 +41,6 @@ func install() error {
 	}
 	uid := os.Getuid()
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	// Before configure() touches settings.json: Ember.app may own the label (#142).
 	if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, uid, launchAgentLabel, plistPath); err != nil {
 		return err
 	}
@@ -66,10 +61,6 @@ func install() error {
 	return reloadLaunchAgent(producer.ExecLaunchctl, uid, plistPath)
 }
 
-// configureAt performs the daemon-independent install work: dirs, producer.env,
-// and the ~/.claude/settings.json hook + statusLine merge. It intentionally does
-// NOT touch LaunchAgents — daemon activation is launchctl (CLI) or SMAppService
-// (app). binPath is baked into the hook commands (self-healing, Task 2).
 func configureAt(home, binPath string) error {
 	if err := createInstallDirs(home); err != nil {
 		return err
@@ -87,14 +78,10 @@ func configureAt(home, binPath string) error {
 	return nil
 }
 
-// spikeLogPath is where the #76 log-only spike (v0.25.1–v0.29.0) appended
-// PostToolUse/PostToolUseFailure/PermissionDenied lines. Its "error" values
-// hold full failed-command output, so configure and deconfigure delete it.
 func spikeLogPath(home string) string {
 	return filepath.Join(home, ".local", "state", "ember", "spike-hooks.jsonl")
 }
 
-// removeSpikeLog deletes the spike log; best-effort (absent is fine).
 func removeSpikeLog(home string) {
 	_ = os.Remove(spikeLogPath(home))
 }
@@ -189,8 +176,6 @@ func producerEnvExampleContent() string {
 func reloadLaunchAgent(lc producer.Launchctl, uid int, plistPath string) error {
 	domain := fmt.Sprintf("gui/%d", uid)
 	target := fmt.Sprintf("%s/%s", domain, launchAgentLabel)
-	// Only a CLI-loaded job is booted out; install() already refused when
-	// Ember.app owns the label.
 	producer.BootoutCLIAgent(lc, target, plistPath)
 	out, err := lc("bootstrap", domain, plistPath)
 	if err != nil {
@@ -258,9 +243,6 @@ func mergeSettingsJSON(home, binPath string) error {
 	}
 	root["hooks"] = hooksRoot
 
-	// Capture any existing (non-ours) statusLine so the user's keeps working,
-	// then claim the slot. Idempotent: if the slot is already ours we don't
-	// re-capture (which would store our own command).
 	if sl, ok := root["statusLine"]; ok && !statusLineIsOurs(sl) {
 		if raw, err := json.Marshal(sl); err == nil {
 			_ = os.WriteFile(wrappedStatuslinePath(home), raw, 0o600)
@@ -301,19 +283,12 @@ type producerHookEntry struct {
 	event   string
 	matcher string
 	command string
-	// async runs the hook in the background (Claude Code's `"async": true`):
-	// Claude doesn't wait for it. Only for hooks that never answer Claude
-	// and whose ordering against the next hook doesn't matter.
-	async bool
+	async   bool
 }
 
 func producerHookEntries(binPath string) []producerHookEntry {
 	logRedirect := ` >>$HOME/Library/Logs/ember-claude-producer.log 2>&1`
 	cmd := func(eventName string) string {
-		// Self-healing: if the bundled binary is gone (app deleted/moved),
-		// `[ -x BIN ]` is false and `|| true` yields exit 0 — Claude Code sees
-		// success, never a hook error. entryMatchesProducer still matches on the
-		// producer-name substring below.
 		inner := `"` + binPath + `" hook ` + eventName + logRedirect
 		return `[ -x "` + binPath + `" ] && ` + inner + ` || true`
 	}
@@ -322,10 +297,6 @@ func producerHookEntries(binPath string) []producerHookEntry {
 		{event: "UserPromptSubmit", matcher: "", command: cmd("user-prompt-submit")},
 		{event: "PreToolUse", matcher: "", command: cmd("pre-tool-use")},
 		{event: "PermissionRequest", matcher: "", command: cmd("permission-request")},
-		// Tool outcomes (#76, posttool.go). PostToolUse fires on every tool
-		// call, so these run async: no added latency per call. Order doesn't
-		// matter to them: a trail item is found by value, and a wait ends only
-		// for the call it was recorded for.
 		{event: "PostToolUse", matcher: "", command: cmd("post-tool-use"), async: true},
 		{event: "PostToolUseFailure", matcher: "", command: cmd("post-tool-use-failure"), async: true},
 		{event: "PermissionDenied", matcher: "", command: cmd("permission-denied"), async: true},

@@ -2,13 +2,11 @@ import Foundation
 import Observation
 
 /// The server this Mac talks to: producer.env's URL and token as one
-/// `APIClient`. Everything that calls the server derives its requests from
-/// `client`; `reload()` is the one place a Connection save is picked up.
+/// `APIClient`.
 @MainActor
 @Observable
 public final class ServerConnection {
-    /// The current client. A nil `baseURL` means unconfigured: requests throw
-    /// `APIError.notConfigured`.
+    /// The current client.
     public private(set) var client: APIClient
     /// The configured server, nil when producer.env has none.
     public var serverURL: URL? { client.baseURL }
@@ -25,17 +23,12 @@ public final class ServerConnection {
         })
     }
 
-    /// Tests supply the "file".
     init(read: @escaping () -> APIClient) {
         self.read = read
         client = read()
     }
 
-    /// Re-reads producer.env. The authoritative identity check: consumers'
-    /// own `configure` guards are only defensive. Returns true when the URL or
-    /// token changed; a
-    /// save that keeps both (the source name or colour) keeps the client, so
-    /// nothing downstream resets.
+    /// Re-reads producer.env.
     @discardableResult
     public func reload() -> Bool {
         let next = read()

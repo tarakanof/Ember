@@ -28,34 +28,22 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /version", handleVersion(a.versionInfo))
 	mux.Handle("GET /metrics", handleMetrics(a))
 
-	// Pomodoro reads are open like /state. The button hook is unauthenticated
-	// because the AWTRIX device's button_callback cannot send a bearer token;
-	// it only maps presses to timer actions, so LAN blast radius is minimal.
 	mux.HandleFunc("GET /v1/pomodoro/state", a.handlePomodoroState)
 	mux.HandleFunc("GET /v1/pomodoro/stats", a.handlePomodoroStats)
 	mux.HandleFunc("GET /v1/pomodoro/heatmap", a.handlePomodoroHeatmap)
 	mux.HandleFunc("GET /v1/pomodoro/workhours", a.handlePomodoroWorkHours)
 	mux.HandleFunc("GET /v1/pomodoro/dashboard", a.handlePomodoroDashboard)
-	// Open, read-only render preview for the menu app's Display tab. The
-	// specific GET pattern wins over the "/v1/" requireAuth catch-all below.
 	mux.HandleFunc("GET /v1/preview", a.handlePreview)
 	mux.HandleFunc("GET /v1/weather/preview", a.handleWeatherPreview)
 	mux.HandleFunc("GET /v1/pomodoro/preview", a.handlePomodoroPreview)
 	mux.HandleFunc("GET /v1/reminders/preview", a.handleReminderPreview)
 	mux.HandleFunc("GET /v1/meetings/preview", a.handleMeetingsPreview)
 	mux.HandleFunc("GET /v1/meetings/state", a.handleMeetingsState)
-	// Dashboard reads (dashboard_http.go). GET /v1/usage shares its path with
-	// the authed POST, which still falls through to the /v1/ write mux.
 	mux.HandleFunc("GET /v1/usage", a.handleUsageSnapshot)
-	// The two that do I/O (a DB scan; a clock probe and release lookup) are
-	// per-IP rate-limited like the device hooks.
 	mux.Handle("GET /v1/activity/summary", rateLimit(a, http.HandlerFunc(a.handleActivitySummary)))
 	mux.HandleFunc("GET /v1/weather/state", a.handleWeatherState)
 	mux.Handle("GET /v1/clock/health", rateLimit(a, http.HandlerFunc(a.handleClockHealth)))
-	// Unauthenticated (the device can't hold a token) but per-IP rate-limited.
 	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
-	// Same trust model as the button hook, and the same reason: a Berry script
-	// on the clock has nowhere to keep a token. See handleAwtrixBoot.
 	mux.Handle("POST "+bootHookPath, rateLimit(a, http.HandlerFunc(a.handleAwtrixBoot)))
 
 	writeMux := http.NewServeMux()
@@ -108,28 +96,16 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("POST /v1/device/app/previous", http.HandlerFunc(a.handleDevicePrevApp))
 	writeMux.Handle("GET /v1/device/buttons", http.HandlerFunc(a.handleDeviceButtons))
 	writeMux.Handle("PUT /v1/device/buttons", http.HandlerFunc(a.handleDeviceButtonsPut))
-	// Limiter outermost, auth inside: requests rejected by auth (401) still
-	// consume rate-limit budget, so an attacker hammering wrong tokens gets
-	// throttled to 429 instead of probing at full speed.
 	mux.Handle("/v1/", rateLimit(a, requireAuth(a, a.logger, writeMux)))
 
 	adminMux := http.NewServeMux()
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))
 	adminMux.Handle("POST /admin/reload", handleAdminReload(a))
-	// Same limiter-outside-auth ordering as /v1/: admin endpoints authenticate
-	// with the same token, so their 401s must consume rate-limit budget too —
-	// otherwise an attacker throttled on /v1/ could probe the token at full
-	// speed via /admin/ 401s.
 	mux.Handle("/admin/", rateLimit(a, adminRequireAuth(a, a.logger, adminMux)))
 
-	// Order: logging outermost so the access log sees the original
-	// response status; observeRequests inside so it can read the same.
 	return loggingMiddleware(a.logger, observeRequests(a, mux))
 }
 
-// decodeOrReject decodes r's JSON body into dst (see decodeJSON) and, when
-// that fails, answers the request itself via rejectBody. It reports whether
-// the handler should go on.
 func (a *App) decodeOrReject(w http.ResponseWriter, r *http.Request, dst any, strict bool) bool {
 	if err := decodeJSON(w, r, dst, strict); err != nil {
 		a.rejectBody(w, r, err)
@@ -138,8 +114,6 @@ func (a *App) decodeOrReject(w http.ResponseWriter, r *http.Request, dst any, st
 	return true
 }
 
-// decodeOptionalOrReject is decodeOrReject for endpoints whose body is
-// optional: an empty body leaves dst untouched and succeeds.
 func (a *App) decodeOptionalOrReject(w http.ResponseWriter, r *http.Request, dst any, strict bool) bool {
 	if err := decodeJSON(w, r, dst, strict); err != nil && !errors.Is(err, io.EOF) {
 		a.rejectBody(w, r, err)
@@ -148,9 +122,6 @@ func (a *App) decodeOptionalOrReject(w http.ResponseWriter, r *http.Request, dst
 	return true
 }
 
-// rejectBody answers a request whose body could not be read or decoded: 413
-// when it ran past the http.MaxBytesReader cap, 400 otherwise, with one
-// "request rejected" line so the reason survives beyond the access log.
 func (a *App) rejectBody(w http.ResponseWriter, r *http.Request, err error) {
 	reason, status := "parse", http.StatusBadRequest
 	var maxBytes *http.MaxBytesError
@@ -165,9 +136,6 @@ func (a *App) rejectBody(w http.ResponseWriter, r *http.Request, err error) {
 	writeError(w, status, err)
 }
 
-// decodeJSON reads one JSON value from r's body, capped at 1 MB, and rejects
-// trailing data. strict also rejects unknown fields. Handlers normally go
-// through decodeOrReject, which maps the error to a response.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any, strict bool) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	dec := json.NewDecoder(r.Body)
@@ -177,12 +145,6 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any, strict bool) er
 	if err := dec.Decode(dst); err != nil {
 		return err
 	}
-	// Trailing-tokens detection: a second Decode must return io.EOF.
-	// dec.More() (the prior implementation) only reports true for nested
-	// continuations (mid-array/mid-object), not for trailing top-level
-	// values like {...}{...}.
-	// Padding past the size cap surfaces here too; keep it a MaxBytesError so
-	// the caller still answers 413.
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		var maxBytes *http.MaxBytesError
 		if errors.As(err, &maxBytes) {
@@ -203,12 +165,6 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-// requireAuth wraps next with bearer-token auth. Reads the token from
-// app.cfg.Load() per request so token rotation via container restart
-// (or future /admin/reload) takes effect for the next request after the
-// swap. Fails closed: an empty configured token rejects every write, so a
-// misconfigured deploy never silently exposes /v1 writes to the LAN.
-// (Admin endpoints use the identical policy via adminRequireAuth.)
 func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := app.cfg.Load().Auth.StatusToken
@@ -235,11 +191,6 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 	})
 }
 
-// loggingMiddleware writes one access-log line per request. Successful
-// requests log at Debug (STYLE §7): the menu polls several GETs every few
-// seconds and producers heartbeat POST /v1/status every 2-10s, which at Info
-// would bury the transitions the log exists for. Handlers log their own
-// decisions (reload outcome, rejections). Any status >= 400 stays at Info.
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

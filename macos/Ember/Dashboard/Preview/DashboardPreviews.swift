@@ -2,9 +2,6 @@
 import SwiftUI
 import EmberKit
 
-// One preview per card on fixture data (the Go goldens plus synthetic
-// history, see DashboardFixtures), and the whole grid per scenario.
-
 private let f = DashboardFixtures.self
 
 private struct CardPreview<Content: View>: View {

@@ -7,11 +7,6 @@ import (
 	"testing"
 )
 
-// TestConfigureDeconfigure_RoundTripRestoresSettings characterizes the
-// existing configure/deconfigure restore behavior after the configure/
-// deconfigure split (Task 1/3): a user's pre-existing statusLine survives a
-// configure -> deconfigure round-trip verbatim, and the producer's hooks are
-// fully removed by deconfigure.
 func TestConfigureDeconfigure_RoundTripRestoresSettings(t *testing.T) {
 	home := t.TempDir()
 	orig := []byte(`{"statusLine":{"type":"command","command":"my-own-status"}}` + "\n")

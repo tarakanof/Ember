@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// row7FromFrame returns which cols of row 7 a drawn frame lights.
 func row7FromFrame(f *Frame) [panelW]bool {
 	var row [panelW]bool
 	for x := 0; x < panelW; x++ {
@@ -14,9 +13,6 @@ func row7FromFrame(f *Frame) [panelW]bool {
 	return row
 }
 
-// row7FromPayload composites row 7 of a pushed-app payload the way NG does:
-// the native progress bar (from x=8 with an icon, else x=0), then draw ops on
-// top, zeros included.
 func row7FromPayload(t *testing.T, p map[string]any) [panelW]bool {
 	t.Helper()
 	var row [panelW]bool
@@ -26,7 +22,7 @@ func row7FromPayload(t *testing.T, p map[string]any) [panelW]bool {
 			x0 = iconW
 		}
 		for x := x0; x < panelW; x++ {
-			row[x] = true // track or fill: both light the row
+			row[x] = true
 		}
 	}
 	ops, _ := p["draw"].([]any)
@@ -46,8 +42,6 @@ func row7FromPayload(t *testing.T, p map[string]any) [panelW]bool {
 	return row
 }
 
-// firstBarCol is the leftmost lit row-7 column right of the icon sprite, or -1.
-// Cols 0-7 are skipped: some icons (the sun, the calendar) reach row 7.
 func firstBarCol(row [panelW]bool) int {
 	for x := iconW; x < panelW; x++ {
 		if row[x] {
@@ -57,7 +51,6 @@ func firstBarCol(row [panelW]bool) int {
 	return -1
 }
 
-// hourly returns n rising sample values, usable as both °C and AQI.
 func hourly(n int) []float64 {
 	out := make([]float64, n)
 	for i := range out {
@@ -66,10 +59,6 @@ func hourly(n int) []float64 {
 	return out
 }
 
-// TestEveryBottomBarStartsAtBarX0 pins the shared grid: whatever an app puts
-// on row 7 (session bar, rate bar, usage bar, forecast/AQI strip, Pomodoro
-// progress) starts in the same column, right after the icon, so the bar does
-// not jump sideways as the device rotates between apps.
 func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 	now := time.Unix(1_790_380_000, 0)
 	ctx, rate := 47, 72
@@ -108,10 +97,6 @@ func TestEveryBottomBarStartsAtBarX0(t *testing.T) {
 	}
 }
 
-// TestTextPayloadsMaskTheIconGap pins the drawn-icon op of every payload that
-// carries native text to cols 0-8 with col 8 blank. Without a native icon NG
-// scrolls text across the whole panel and paints draw ops over it, so an 8-wide
-// op leaves the gap column exposed and glyphs touch the icon mid-scroll.
 func TestTextPayloadsMaskTheIconGap(t *testing.T) {
 	now := time.Unix(1_790_380_000, 0)
 	s := Session{Source: "m4", Tool: "claude", Session: "a", State: "running", Activity: "Bash: go test ./..."}
@@ -154,11 +139,6 @@ func TestTextPayloadsMaskTheIconGap(t *testing.T) {
 	}
 }
 
-// TestHourlyStripsUseEvenHourSlots pins the weather and air strips to the
-// bottom-bar grid: every hour gets the same barW/n columns from col 8, so a
-// 24 h window is one column per hour (none dropped), windows that divide 24
-// fill the bar, and any other window (22 h) leaves an even dark tail instead
-// of doubling some hours.
 func TestHourlyStripsUseEvenHourSlots(t *testing.T) {
 	for _, tc := range []struct{ n, w, lastX int }{
 		{6, 4, 31}, {12, 2, 31}, {24, 1, 31}, {22, 1, 29}, {16, 1, 23},
@@ -186,10 +166,6 @@ func TestHourlyStripsUseEvenHourSlots(t *testing.T) {
 	}
 }
 
-// TestTileDigitsSitOnTheTextRow pins the weather and air readouts to rows
-// 1-5, the rows every other app (agent digits, NG's native text) uses, so the
-// digits do not jump a row as the rotation moves between apps. Row 6 stays a
-// blank spacer above the bottom bar.
 func TestTileDigitsSitOnTheTextRow(t *testing.T) {
 	frames := map[string]Frame{
 		"weather": WeatherTileFrame(WeatherClouds, "21°", 21, hourly(24), nil),

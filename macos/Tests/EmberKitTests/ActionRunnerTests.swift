@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// Lock-guarded state the stub handler (URLProtocol thread) reads and writes.
 private final class Server: @unchecked Sendable {
     private let lock = NSLock()
     private var _status = 200
@@ -53,7 +52,6 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     #expect(runner.lastError == nil)
     #expect(server.requests.contains("POST /v1/pomodoro/start"))
     #expect(server.requests.contains("GET /v1/pomodoro/state"))
-    // Stats follow a phase change (LiveModelTests), not every action.
     #expect(!server.requests.contains("GET /v1/pomodoro/stats"))
     #expect(live.pomodoro.value?.phaseEnum == .focus)
     #expect(runner.running.isEmpty)
@@ -67,7 +65,6 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     #expect(!ok)
     #expect(runner.lastError == ActionRunner.Failure(
         action: .setApp("claude", enabled: false), error: .unauthorized, at: Date(timeIntervalSince1970: 50)))
-    // The toggle's feed is refreshed either way, so it snaps back.
     #expect(server.requests.contains("GET /v1/apps"))
 
     server.status = 200
@@ -102,7 +99,6 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     ])
 }
 
-// #149: the one power value follows every surface's writes.
 @MainActor @Test func powerAndRebootReportTheDisplayState() async {
     let server = Server()
     let (runner, live) = setup(server)
@@ -110,13 +106,11 @@ private func setup(_ server: Server, clock: ManualClock = ManualClock()) -> (Act
     await runner.run(.clock(.power(false)))
     #expect(live.displayPower == false)
     #expect(runner.pendingDisplayPower == nil)
-    // A reboot relights the matrix.
     await runner.run(.clock(.reboot))
     #expect(live.displayPower == true)
     #expect(server.requests.contains("POST /v1/device/reboot"))
 }
 
-/// Holds the stub's answer until released, from the handler's own thread.
 private final class Gate: @unchecked Sendable {
     let sema = DispatchSemaphore(value: 0)
     func wait() { sema.wait() }
@@ -139,7 +133,6 @@ private final class Gate: @unchecked Sendable {
     #expect(runner.pendingDisplayPower == false)
     #expect(live.displayPower == nil)
 
-    // The user switches servers while the write is still out.
     live.configure(client: stubbedClient { req in (okResponse(req.url!), Data()) })
     gate.open()
     #expect(await write.value)

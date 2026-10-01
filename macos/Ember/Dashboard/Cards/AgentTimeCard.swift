@@ -2,7 +2,6 @@ import Charts
 import SwiftUI
 import EmberKit
 
-/// Card 10: how long agents worked each day, stacked by the Mac they ran on.
 struct AgentTimeCard: View {
     let activity: Loadable<ActivitySummary>
     var calendar = Calendar.current
@@ -23,20 +22,14 @@ struct AgentTimeCard: View {
         }
     }
 
-    /// The hovered day's key ("2026-09-26").
     @State private var selected: String?
 
-    /// Dates in the card's calendar: the day keys are that calendar's days.
     private var dayStyle: Date.FormatStyle {
         var style = Date.FormatStyle(date: .omitted, time: .omitted).locale(calendar.locale ?? .current)
         style.timeZone = calendar.timeZone
         return style
     }
 
-    /// Days are categories (their "2026-09-26" keys), not dates: a band
-    /// scale centres every label under its bar by construction. A date
-    /// axis centred its labels between ticks, and the last day, whose
-    /// closing tick sits on the plot edge, drew its label off-centre.
     private func chart(_ c: AgentTimeChart, redacted: Bool) -> some View {
         let top = WeekBars.axisTop(Int((c.dailyTotals.map(\.minutes).max() ?? 0).rounded(.up)))
         let dates = Dictionary(c.segments.map { ($0.key, $0.date) }, uniquingKeysWith: { a, _ in a })
@@ -47,7 +40,6 @@ struct AgentTimeCard: View {
                         width: .ratio(0.62))
                     .foregroundStyle(by: .value("Source", s.source))
                     .opacity(selected == nil || selected == s.key ? 1 : 0.5)
-                    // The x value is the ISO day key; speak the date.
                     .accessibilityLabel(Text(s.date, format: dayStyle.weekday(.wide).day()))
             }
             if let key = selected, let day = c.detail(forKey: key) {

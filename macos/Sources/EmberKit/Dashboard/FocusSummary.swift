@@ -52,7 +52,7 @@ public struct FocusSummary: Equatable, Sendable {
     }
 
     /// The gauge's value and range: sessions out of the goal, or elapsed
-    /// seconds out of the phase. The range is never empty.
+    /// seconds out of the phase.
     public var gauge: (value: Double, total: Double) {
         switch ring {
         case .goal(let done, let goal):

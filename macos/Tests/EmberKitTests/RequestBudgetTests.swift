@@ -5,15 +5,10 @@ import Network
 
 // MARK: Budgets against the server's own (cmd/ember/clock_access.go, main.go)
 
-/// `menuCallTimeout`: one menu-class clock call.
 private let serverMenuCallBudget: TimeInterval = 8
-/// Discovery: mDNS browse 3s, UDP fallback 3s, candidate probes 2s.
 private let serverDiscoverBudget: TimeInterval = 8
-/// The reminder fire's publish context.
 private let serverReminderFireBudget: TimeInterval = 10
-/// `http.Server.WriteTimeout`: past it the server drops the connection.
 private let serverWriteTimeout: TimeInterval = 30
-/// `clockWriteBudget`: sensors/buttons/settings PUT answer 504 by then.
 private let serverClockWriteBudget: TimeInterval = 25
 
 @Test func serverBudgetStaysShortSoADeadServerShowsFast() {
@@ -59,7 +54,6 @@ func defaultClientRunsEachBudgetOnItsSession(budget: RequestBudget) {
 
 private let budgetHeader = "X-Test-Budget"
 
-/// Records, per "METHOD /path", the budget of the session that sent it.
 private final class BudgetLog: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [String: String] = [:]
@@ -71,8 +65,6 @@ private final class BudgetLog: @unchecked Sendable {
     subscript(_ key: String) -> String? { lock.withLock { entries[key] } }
 }
 
-/// A client whose per-budget sessions each tag their requests with their
-/// budget, so the stub sees which session `perform` picked.
 private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> String = { _ in "{}" })
     -> (APIClient, BudgetLog) {
     let log = BudgetLog()
@@ -103,7 +95,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
         }
     }
     let device = DeviceService(client: client)
-    // Decoding may fail on the stub's empty bodies; only the request matters.
     _ = try? await device.settings()
     _ = try? await device.update(patch: [:])
     _ = try? await device.display()
@@ -129,7 +120,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
     _ = try? await device.setConfig(baseURL: "http://192.168.0.66")
 
     let expected: [String: RequestBudget] = [
-        // The server reads the takeover snapshot under its lock first.
         "GET /v1/device/settings": .clockLong,
         "PUT /v1/device/settings": .clockLong,
         "GET /v1/device/display": .clock,
@@ -152,7 +142,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
         "GET /v1/device/discover": .clock,
         "PUT /v1/device/buttons": .clockLong,
         "GET /v1/device/buttons": .clock,
-        // The clock URL lives on the server; setting it never calls the clock.
         "GET /v1/device/config": .server,
         "PUT /v1/device/config": .server,
     ]
@@ -182,8 +171,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
     await #expect(throws: APIError.timedOut) { try await client.send("GET", "/v1/device/stats", budget: .clock) }
 }
 
-// A timeout is ambiguous (the server may have acted), so an idempotent POST
-// must not claim it was never sent.
 @Test func timedOutIdempotentPostIsNotNotSent() async {
     let client = stubbedClient { _ in throw URLError(.timedOut) }
     await #expect(throws: APIError.timedOut) {
@@ -191,8 +178,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
     }
 }
 
-// Past the server's WriteTimeout the handler keeps running but the server
-// drops the connection: under .clockLong that is a slow server, not a gone one.
 @Test func droppedConnectionIsATimeoutOnlyForTheLongClockBudget() {
     let lost = URLError(.networkConnectionLost)
     #expect(APIClient.classify(lost, budget: .clockLong, host: "192.168.0.2", pathStatus: .satisfied) == .timedOut)
@@ -239,8 +224,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
 
 // MARK: Local Network precedence
 
-// A request macOS refused is reported as the refusal under a clock budget too,
-// never as a timeout or "unreachable".
 @Test func refusalUnderAClockBudgetIsStillDenied() async {
     let refused = URLError(.notConnectedToInternet,
                            userInfo: ["_kCFStreamErrorDomainKey": 1, "_kCFStreamErrorCodeKey": 50])
@@ -253,8 +236,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
     }
 }
 
-// The classifier asks about a refusal before it looks at the code, so a
-// refusal wins over a timeout and over a dropped long-clock connection.
 @Test(arguments: RequestBudget.allCases)
 func classifierPutsTheRefusalFirst(budget: RequestBudget) {
     let noAuth = NWError.dns(LocalNetworkDenial.dnsNoAuth)

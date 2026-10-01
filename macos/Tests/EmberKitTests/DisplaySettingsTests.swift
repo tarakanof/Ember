@@ -56,7 +56,7 @@ EMBER_RATE_BOTTOM_BAR=on
 
 @Test func sourceCardAndSessionBarDefaults() {
     let s = DisplaySettings(reading: EnvFile(parsing: ""))
-    #expect(s.sourceCard)   // envTrue: default on
+    #expect(s.sourceCard)
     #expect(s.sessionBar)
     let off = DisplaySettings(reading: EnvFile(parsing: "EMBER_SOURCE_CARD=false\nEMBER_SESSION_BAR=false"))
     #expect(!off.sourceCard)

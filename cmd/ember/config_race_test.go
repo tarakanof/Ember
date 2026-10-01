@@ -8,21 +8,11 @@ import (
 	"time"
 )
 
-// TestUpdateConfigConcurrentPUTsBothSurvive drives two goroutines that each
-// repeatedly PUT a different config section (display, quiet hours) via the
-// settings overlay, while a third goroutine polls the live config. Each applier
-// does an unsynchronized read-copy-write on the shared atomic.Pointer[Config]
-// (cur := *a.cfg.Load(); cur.X = ...; a.cfg.Store(&cur)): if goroutine B reads
-// its copy before goroutine A's store lands, B's own store can silently
-// revert A's change back to the pre-PUT default. Once a section's live value
-// has been observed at its PUT target, it must never again be observed back
-// at its startup default — that reversion is the lost-update bug this test
-// targets. Run with -race.
 func TestUpdateConfigConcurrentPUTsBothSurvive(t *testing.T) {
 	a := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 
 	const iterations = 20000
-	const defaultIdleRestoreSeconds = 120 // from defaultConfig(); differs from the target below
+	const defaultIdleRestoreSeconds = 120
 
 	displayTarget := displayConfigDTO{IdleHideMinutes: 5, AttentionHoldSeconds: 45, AttentionChime: true}
 	quietTarget := quietConfigDTO{Enabled: true, Start: "23:00", End: "07:00"}
@@ -72,7 +62,6 @@ func TestUpdateConfigConcurrentPUTsBothSurvive(t *testing.T) {
 
 	wg.Wait()
 	close(stop)
-	// Give the poller a moment to observe the final settled state too.
 	time.Sleep(time.Millisecond)
 
 	if displayReverted.Load() {

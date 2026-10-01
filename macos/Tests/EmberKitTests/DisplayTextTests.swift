@@ -3,7 +3,6 @@ import Foundation
 @testable import EmberKit
 
 @Test(arguments: [
-    // Seen on device: a producer cut a tag off mid-way.
     ("<task-notifica…2e1aa3e6c1</", nil),
     ("<task-notification><task-id>b9r</task-id></task-notification> Bash: go test", "Bash: go test"),
     ("Bash: sed -n 1,237p\n\n   cmd/ember/device.go", "Bash: sed -n 1,237p cmd/ember/device.go"),

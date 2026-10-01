@@ -1,7 +1,6 @@
 import Foundation
 
-/// Parsed producer.env preserving original lines/comments/order. get/set use
-/// last-write-wins to match the producer's map parser.
+/// Parsed producer.env preserving original lines/comments/order.
 public struct EnvFile: Sendable {
     private struct Line { var raw: String; var key: String?; var value: String }
     private var lines: [Line]
@@ -21,8 +20,6 @@ public struct EnvFile: Sendable {
             }
             out.append(Line(raw: raw, key: key, value: val))
         }
-        // A trailing newline produces a final empty element from split; drop it so
-        // serialize() round-trips without growing blank lines.
         if let last = out.last, last.key == nil, last.raw.isEmpty { out.removeLast() }
         lines = out
     }
@@ -51,8 +48,7 @@ public struct EnvFile: Sendable {
         }.joined(separator: "\n") + "\n"
     }
 
-    /// Atomic 0600 write via temp file + rename. Refuses if the dir is wider than
-    /// 0700 (prevents same-machine non-owner reads of the token), matching envfile.go.
+    /// Atomic 0600 write via temp file + rename.
     public func write(to path: URL) throws {
         let dir = path.deletingLastPathComponent()
         let fm = FileManager.default
@@ -67,14 +63,11 @@ public struct EnvFile: Sendable {
         let tmp = dir.appendingPathComponent(".tmp-\(UUID().uuidString).env")
         try serialize().write(to: tmp, atomically: false, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tmp.path)
-        // Atomic replace when the file exists; plain move on first write
-        // (replaceItemAt fails if the destination doesn't exist yet).
         if fm.fileExists(atPath: path.path) {
             _ = try fm.replaceItemAt(path, withItemAt: tmp)
         } else {
             try fm.moveItem(at: tmp, to: path)
         }
-        // Guarantee 0600 on the final path regardless of replace semantics.
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
     }
 }

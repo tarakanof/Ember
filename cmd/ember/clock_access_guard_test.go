@@ -23,19 +23,11 @@ const (
 	discoveryPkg = "github.com/tarakanof/ember/internal/discovery"
 )
 
-// nonClockHTTPFiles build an http.Client for a host that is not the clock
-// (weather and air providers, ICS feeds, the LaMetric icon gallery, GitHub
-// releases, this server's own /healthz and /admin/doctor). Anything else that
-// needs HTTP to the clock goes through clockAccess.
 var nonClockHTTPFiles = []string{
 	"clock_access.go", "weather.go", "meetings_poll.go", "icon_provision.go",
 	"clock_health_http.go", "healthcheck.go", "doctor.go",
 }
 
-// The clock-access rules are structural, so they are checked on the type-
-// checked package, not by name: an aliased import, a function value
-// (mk := awtrix.NewClient) or a hand-built http.Client handed to
-// discovery.Reachable all resolve to the same objects here.
 func TestClockAccessIsTheOnlyWayToTheClock(t *testing.T) {
 	fset, files, info := typeCheckPackage(t)
 	for _, f := range files {
@@ -58,28 +50,20 @@ func TestClockAccessIsTheOnlyWayToTheClock(t *testing.T) {
 				pkg = fn.Pkg().Path()
 			}
 			switch {
-			// Only clockAccess.client constructs an awtrix client: one URL
-			// rule, one timeout table.
 			case pkg == awtrixPkg && recv == "" && fn.Name() == "NewClient" && name != "clock_access.go":
 				t.Errorf("%s: awtrix.NewClient outside clock_access.go; use clockAccess.client/do/fetch", pos)
-			// Reachability probes get the probe budget from clockAccess.reachable.
 			case pkg == discoveryPkg && fn.Name() == "Reachable" && name != "clock_access.go":
 				t.Errorf("%s: discovery.Reachable outside clock_access.go; use clockAccess.reachable", pos)
-			// The coordinator is the only writer of pushed apps.
 			case (recv != "" && slices.Contains([]string{"CustomApp", "ClearApp"}, fn.Name()) && pkg == info.pkg.Path() ||
 				recv == "Client" && pkg == awtrixPkg && slices.Contains([]string{"PushApp", "DeleteApp"}, fn.Name())) &&
 				!strings.HasPrefix(name, "coordinator") && name != "publisher.go" && name != "quiet_publisher.go":
 				t.Errorf("%s: %s outside the coordinator; pushed apps have one writer", pos, fn.Name())
-			// Sound on the raw client skips the quiet-hours gate. Only the
-			// Publisher adapter and the menu's explicit test chime may.
 			case recv == "Client" && pkg == awtrixPkg &&
 				slices.Contains([]string{"Notify", "PlayRTTTL", "PlayMelody", "PlaySound"}, fn.Name()) &&
 				name != "publisher.go" && name != "device_audio.go":
 				t.Errorf("%s: awtrix %s outside publisher.go/device_audio.go bypasses the quiet-hours gate", pos, fn.Name())
 			}
 		}
-		// A hand-built http.Client is how a new clock path would dodge the
-		// timeout table.
 		ast.Inspect(f, func(n ast.Node) bool {
 			var typ types.Type
 			switch n := n.(type) {
@@ -118,8 +102,6 @@ type checkedInfo struct {
 	pkg *types.Package
 }
 
-// typeCheckPackage parses this package's non-test files and type-checks them
-// against the build cache's export data (go list -export).
 func typeCheckPackage(t *testing.T) (*token.FileSet, []*ast.File, checkedInfo) {
 	t.Helper()
 	out, err := exec.Command("go", "list", "-export", "-deps", "-f", "{{.ImportPath}}\t{{.Export}}", ".").Output()

@@ -2,7 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// Stand-in for producer.env: the test rewrites it between reloads.
 @MainActor
 private final class EnvText {
     var text = ""
@@ -27,7 +26,6 @@ private final class EnvText {
     env.text = "EMBER_SERVER_URL=http://a.test:3627\nEMBER_TOKEN=t\n"
     let c = ServerConnection(read: env.client)
 
-    // A source-name save: same URL and token, nothing to re-point.
     env.text += "EMBER_SOURCE=mbp\n"
     #expect(!c.reload())
 

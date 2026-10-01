@@ -7,7 +7,7 @@ import (
 )
 
 func TestWriteAndRemoveMarker(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "sessions") // not yet created — writeMarker must mkdir
+	dir := filepath.Join(t.TempDir(), "sessions")
 	body := []byte(`{"source":"mbp","tool":"codex","session":"u-1","state":"running"}`)
 	if err := writeMarker(dir, "u-1", body); err != nil {
 		t.Fatalf("writeMarker: %v", err)

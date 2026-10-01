@@ -1,14 +1,9 @@
 package render
 
-// offBG is the colour shown for unlit cells — matches the menu preview's
-// "matrix dark" so the LED grid reads as a panel rather than pure black.
 var offBG = RGB{0x0d, 0x0d, 0x0d}
 
 // RenderRGBA returns a (32*scale)×(8*scale) 8-bit RGBA buffer for f, scaled
-// nearest-neighbour (each matrix pixel becomes a scale×scale block). Lit
-// cells use their painted colour; unlit cells use offBG. Alpha is always 255.
-// The buffer is row-major, top row first, 4 bytes per pixel — ready for an
-// NSBitmapImageRep with bytesPerRow = w*4.
+// nearest-neighbour (each matrix pixel becomes a scale×scale block).
 func RenderRGBA(f Frame, scale int) (pix []byte, w, h int) {
 	if scale < 1 {
 		scale = 1
@@ -39,9 +34,7 @@ func RenderRGBA(f Frame, scale int) (pix []byte, w, h int) {
 }
 
 // MaskFrameToRegion returns a copy of f keeping only the cols [x0,x1) × rows
-// [y0,y1) sub-rectangle; every cell outside it is cleared to unlit. Rendered
-// full-size, the result is a dark 32×8 display showing one element in its true
-// position. Bounds are clamped to the 32×8 matrix.
+// [y0,y1) sub-rectangle; every cell outside it is cleared to unlit.
 func MaskFrameToRegion(f Frame, x0, y0, x1, y1 int) Frame {
 	if x0 < 0 {
 		x0 = 0

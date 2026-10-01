@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// fakeClock is a manually-advanced clock for deterministic engine tests.
 type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.t }
@@ -108,12 +107,10 @@ func TestPauseFreezesAndResumeContinues(t *testing.T) {
 	if !e.Status(clk.Now()).Paused {
 		t.Fatal("expected paused")
 	}
-	// Time passes while paused — remaining must not move.
 	clk.advance(10 * time.Minute)
 	if got := e.Status(clk.Now()).RemainingSec; got != 24*60 {
 		t.Fatalf("paused remaining = %d, want %d (frozen)", got, 24*60)
 	}
-	// Ticking while paused never ends the phase.
 	if ended := e.Tick(clk.Now()); ended != nil {
 		t.Fatalf("paused tick must not end phase, got %+v", ended)
 	}
@@ -157,7 +154,6 @@ func TestFourthBreakIsLongAndRoundResets(t *testing.T) {
 	if r := e.Status(clk.Now()).Round; r != 4 {
 		t.Fatalf("round at long break = %d, want 4", r)
 	}
-	// After the long break completes, the cycle resets to a fresh focus.
 	completeBreak()
 	st := e.Status(clk.Now())
 	if st.Phase != PhaseFocus {
@@ -204,12 +200,12 @@ func TestStopReturnsToIdle(t *testing.T) {
 
 func TestResumeStartsParkedPhase(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1000, 0)}
-	e := newTestEngine(clk) // AutoStartNext false
+	e := newTestEngine(clk)
 	e.Start(PhaseFocus)
 	clk.advance(25 * time.Minute)
-	e.Tick(clk.Now()) // parks at short_break, not running
+	e.Tick(clk.Now())
 
-	e.Resume(clk.Now()) // resume should start the parked break
+	e.Resume(clk.Now())
 	st := e.Status(clk.Now())
 	if st.Phase != PhaseShort || !st.Running || st.Paused {
 		t.Fatalf("resume parked = %+v, want short_break running", st)
@@ -233,11 +229,11 @@ func TestMaxSessionCapStopsCycle(t *testing.T) {
 		AutoStartNext: true, MaxSessionMin: 30}, clk)
 	e.Start(PhaseFocus)
 
-	clk.advance(25 * time.Minute) // focus completes → break auto-starts
+	clk.advance(25 * time.Minute)
 	if ended := e.Tick(clk.Now()); ended == nil || ended.Phase != PhaseFocus {
 		t.Fatalf("focus completion = %+v, want focus completed", ended)
 	}
-	clk.advance(5 * time.Minute) // total 30m == cap
+	clk.advance(5 * time.Minute)
 	ended := e.Tick(clk.Now())
 	if ended == nil || ended.Completed || ended.Reason != "max_session" || ended.Phase != PhaseShort {
 		t.Fatalf("cap result = %+v, want not-completed max_session on short_break", ended)
@@ -252,7 +248,7 @@ func TestMaxSessionZeroNeverCaps(t *testing.T) {
 	e := New(Settings{FocusMin: 25, ShortMin: 5, LongMin: 15, RoundsBeforeLong: 4,
 		AutoStartNext: true, MaxSessionMin: 0}, clk)
 	e.Start(PhaseFocus)
-	for i := 0; i < 20; i++ { // run well past any plausible cap
+	for i := 0; i < 20; i++ {
 		clk.advance(25 * time.Minute)
 		e.Tick(clk.Now())
 	}
@@ -267,7 +263,7 @@ func TestMaxSessionResetsAfterStop(t *testing.T) {
 		AutoStartNext: true, MaxSessionMin: 30}, clk)
 	e.Start(PhaseFocus)
 	clk.advance(10 * time.Minute)
-	e.Stop(clk.Now()) // ends the cycle; cap clock must reset
+	e.Stop(clk.Now())
 	e.Start(PhaseFocus)
 	clk.advance(25 * time.Minute)
 	if ended := e.Tick(clk.Now()); ended == nil || ended.Reason != "completed" {

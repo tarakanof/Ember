@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// Save status for writes that aren't a config model: app visibility and
-/// order, clock buttons. Feeds the Settings window's one status.
+/// order, clock buttons.
 @MainActor
 @Observable
 public final class WriteStatus: SaveStatusReporting {
@@ -16,7 +16,6 @@ public final class WriteStatus: SaveStatusReporting {
         self.sleep = sleep
     }
 
-    /// Runs one write, reporting saving → saved (for 2 s) or the error.
     func run(_ write: () async throws -> Void) async -> FeedError? {
         reset?.cancel()
         status = .saving
@@ -55,8 +54,6 @@ public enum AudioAvailability: Equatable, Sendable {
 }
 
 /// One-off Settings writes whose failure is shown next to their button.
-/// Restart and display power are clock actions (`ActionRunner`), shared with
-/// the menu and the Dashboard.
 public enum DeviceAction: Hashable, Sendable {
     case testChime, stopAudio, useClock, discover, buttons, apps
 }
@@ -64,8 +61,7 @@ public enum DeviceAction: Hashable, Sendable {
 /// Everything the Clock and Sounds panes edit on the clock, proxied through
 /// the server's `/v1/device/*`: the settings (saved as a patch of the keys
 /// that changed), the overlay, sensor offsets, native apps, buttons, and the
-/// read-only catalogue (capabilities, melodies, address). Loads sequentially:
-/// fanning these requests out used to empty the server's per-IP token bucket.
+/// read-only catalogue (capabilities, melodies, address).
 @MainActor
 @Observable
 public final class DeviceSettingsModel {
@@ -99,8 +95,7 @@ public final class DeviceSettingsModel {
     /// sound controls.
     public var hasBuzzer: Bool { capabilities?.hasBuzzer ?? true }
     /// The server has the NG 1.1 control routes (display power, audio): the
-    /// audio route answered, with or without a buzzer. 0.27.x has neither,
-    /// though its display GET relays NG's `power`.
+    /// audio route answered, with or without a buzzer.
     public var supportsControlRoutes: Bool { audio == .available || audio == .noOutput }
     /// The server is new enough but the clock's firmware predates NG 1.1.
     public var firmwareTooOld: Bool { isLoaded && supportsControlRoutes && !supportsNG11 }
@@ -116,17 +111,12 @@ public final class DeviceSettingsModel {
     }
 
     @ObservationIgnored public private(set) var service: DeviceService
-    /// Holds the one display-power value; each overlay read reports the
-    /// `power` NG's display GET carries to it.
     @ObservationIgnored private weak var live: LiveModel?
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private var lastFullLoad: Date?
-    /// A forced load asked for while another was running; it runs next.
     @ObservationIgnored private var forcedLoadQueued = false
-    /// Secondary data (apps, buttons, catalogue) is refetched at most this often
-    /// when the window regains focus; ⌘R (`load(force: true)`) forces it.
     static let secondaryRefresh: TimeInterval = 30
 
     /// `live` receives the display power each overlay read sees.
@@ -147,9 +137,7 @@ public final class DeviceSettingsModel {
         (settings, display, sensors) = Self.models(service, live: live, debounce: debounce, sleep: sleep)
     }
 
-    /// Points the model at another server. A no-op for the same server and
-    /// token (defensive: `ServerConnection.reload` is the authoritative
-    /// check); otherwise pending edits are dropped and everything reloads.
+    /// Points the model at another server.
     public func configure(service next: DeviceService) {
         guard next != service else { return }
         for m in [settings as any PendingSaveCancelling, display, sensors] { m.cancelPendingSave() }
@@ -163,8 +151,7 @@ public final class DeviceSettingsModel {
     }
 
     /// Loads the settings, then (when they loaded) the rest one request at a
-    /// time. `force` refetches the secondary data even if it's fresh; a
-    /// forced load asked for while another runs is queued, never dropped.
+    /// time.
     public func load(force: Bool = false) async {
         guard !isLoading else {
             if force { forcedLoadQueued = true }
@@ -175,7 +162,6 @@ public final class DeviceSettingsModel {
         isLoading = false
         if forcedLoadQueued {
             forcedLoadQueued = false
-            // Its own task: the caller's may be the cancelled one.
             Task { await self.load(force: true) }
         }
     }
@@ -183,7 +169,6 @@ public final class DeviceSettingsModel {
     private func loadOnce(force: Bool) async {
         await settings.load()
         guard settings.isLoaded, settings.loadError == nil else {
-            // The address is what you need when the clock can't be reached.
             if config == nil { config = try? await service.config() }
             return
         }
@@ -197,8 +182,6 @@ public final class DeviceSettingsModel {
         buttons = (try? await svc.buttons()) ?? buttons
         stats = (try? await svc.stats()) ?? stats
         await loadMelodies()
-        // A load cut short (pane switched) fetched nothing useful; don't let
-        // it hold off the next one.
         if !Task.isCancelled { lastFullLoad = now() }
     }
 
@@ -300,10 +283,6 @@ public final class DeviceSettingsModel {
                                sleep: @escaping @Sendable (Duration) async throws -> Void) -> (
         ServerConfigModel<DeviceSettings>, ServerConfigModel<DeviceDisplay>, ServerConfigModel<SensorCalibration>
     ) {
-        // A save diffs against what the model last accepted (`applied`), not
-        // against the last response: a load that arrives while an edit is
-        // pending is discarded, and diffing against it would send its values
-        // (the Pomodoro takeover's) back as stale edits.
         let base = AppliedRef()
         let settings = ServerConfigModel<DeviceSettings>(
             initial: DeviceSettings(),
@@ -317,8 +296,6 @@ public final class DeviceSettingsModel {
         let display = ServerConfigModel<DeviceDisplay>(
             initial: DeviceDisplay(),
             load: {
-                // Ticketed before the request: a read from a previous server,
-                // or one a power write overtook, can't win.
                 let ticket = await live?.displayPowerTicket()
                 let d = try await svc.display()
                 if let on = d.power, let ticket { await live?.reportDisplayPower(on, read: ticket) }
@@ -335,7 +312,6 @@ public final class DeviceSettingsModel {
     }
 }
 
-/// The settings model's accepted value, for the patch diff.
 @MainActor
 private final class AppliedRef {
     weak var model: ServerConfigModel<DeviceSettings>?

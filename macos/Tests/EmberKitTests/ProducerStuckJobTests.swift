@@ -2,13 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-// A changed ad-hoc helper leaves its launchd job loaded but unable to spawn
-// ("spawn failed", exit 78, "needs LWCR update"). The probe must call that
-// not running, and repair must boot the job out before registering again.
-// Fixtures are trimmed `launchctl print gui/501/com.ember.heartbeat` output
-// captured on macOS 27.0 (26A428).
-
-/// Stuck: the job points at a Background Items item that no longer exists.
 private let stuckPrint = """
 gui/501/com.ember.heartbeat = {
 \tactive count = 0
@@ -42,7 +35,6 @@ gui/501/com.ember.heartbeat = {
 }
 """
 
-/// Healthy: the same job after bootout and re-registering.
 private let runningPrint = """
 gui/501/com.ember.heartbeat = {
 \tactive count = 1
@@ -65,8 +57,6 @@ gui/501/com.ember.heartbeat = {
 }
 """
 
-/// A helper that simply exits 1 between KeepAlive respawns: launchd keeps
-/// retrying it, so re-registering wouldn't help.
 private let crashLoopPrint = """
 gui/501/com.ember.heartbeat = {
 \tstate = spawn scheduled
@@ -93,7 +83,6 @@ private func ok(_ stdout: String) -> CommandResult { CommandResult(exitCode: 0, 
 }
 
 @Test func oneSignalAloneIsNotStuck() {
-    // Mid-repair: launchd flagged the constraint but hasn't given up yet.
     let lwcrOnly = "x = {\n\tstate = spawn scheduled\n\tproperties = keepalive | needs LWCR update | has LWCR\n}"
     let spawnFailedOnly = "x = {\n\tstate = not running\n\tjob state = spawn failed\n\tlast exit code = 1\n}"
     let exit78Only = "x = {\n\tstate = spawn scheduled\n\tjob state = exited\n\tlast exit code = 78: EX_CONFIG\n}"
@@ -108,13 +97,12 @@ private func ok(_ stdout: String) -> CommandResult { CommandResult(exitCode: 0, 
     #expect(launchdJobIsStuck(withLWCR))
     #expect(launchdJobIsStuck(withExit78))
     #expect(!launchdJobIsStuck("x = {\n\tjob state = spawn failed\n\tlast exit code = 780\n}"))
-    // A job that is running right now is never stuck, whatever its history.
     #expect(!launchdJobIsStuck("x = {\n\tstate = running\n\tjob state = spawn failed\n\tproperties = needs LWCR update\n}"))
 }
 
 @Test func printFieldsReadOnlyTheJobsOwnLines() {
     let fields = launchctlPrintFields(stuckPrint)
-    #expect(fields["state"] == "spawn scheduled")   // not the coalition's "active"
+    #expect(fields["state"] == "spawn scheduled")
     #expect(fields["job state"] == "spawn failed")
     #expect(fields["last exit code"] == "78: EX_CONFIG")
     #expect(fields["ID"] == nil)
@@ -131,8 +119,6 @@ private func service(_ sm: FakeSMAppService, _ runner: FakeRunner) -> ProducerIn
         fileExists: { _ in true }, uid: 501)
 }
 
-/// `launchctl print` shows the stuck fixture for `stuck` labels and the
-/// running one for everything else.
 private func runner(stuck labels: Set<String>) -> FakeRunner {
     let r = FakeRunner()
     r.stdoutFor = { args in
@@ -193,7 +179,7 @@ private func runner(stuck labels: Set<String>) -> FakeRunner {
 @MainActor @Test func bootingOutAJobThatIsAlreadyGoneIsFine() async {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled]
     let r = runner(stuck: ["com.ember.heartbeat"])
-    r.exitFor = { args in args.first == "bootout" ? 3 : 0 }   // "No such process"
+    r.exitFor = { args in args.first == "bootout" ? 3 : 0 }
     let outcomes = await service(sm, r).repairAll()
     #expect(outcomes.allSatisfy { $0.error == nil })
 }
@@ -206,9 +192,6 @@ private func runner(stuck labels: Set<String>) -> FakeRunner {
     #expect(!bootoutSucceeded(CommandResult(exitCode: 1, stdout: "", stderr: "Operation not permitted")))
 }
 
-/// A runner whose `launchctl print` shows the stuck job until the first
-/// bootout, then the running one; each bootout takes a little while, so two
-/// overlapping reconciles would both boot the job out.
 private final class HealingRunner: ProducerCommandRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var healed = false
@@ -230,11 +213,11 @@ private final class HealingRunner: ProducerCommandRunning, @unchecked Sendable {
     let svc = ProducerInstallService(sm: sm, runner: r,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true }, uid: 501)
-    async let a = svc.repairAll()   // e.g. the launch recheck
-    async let b = svc.repairAll()   // and a Repair click
+    async let a = svc.repairAll()
+    async let b = svc.repairAll()
     let (first, second) = await (a, b)
     #expect(r.bootouts == 1)
-    #expect(first.count + second.count == 1)   // the second probe sees it healed
+    #expect(first.count + second.count == 1)
 }
 
 // MARK: - Local Network
@@ -261,7 +244,6 @@ private final class HealingRunner: ProducerCommandRunning, @unchecked Sendable {
 }
 
 @MainActor @Test func aStoppedAgentIsNotReportedAsBlocked() async {
-    // The file outlives the helper; only a running agent's state matters.
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .notRegistered]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),

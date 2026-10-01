@@ -13,8 +13,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// seedMeetingsStore injects future occurrences directly into a meetingsStore.
-// lastOK, if non-zero, marks the store as freshly fetched.
 func seedMeetingsStore(s *meetingsStore, occs []meetings.Occurrence, lastOK time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -23,9 +21,6 @@ func seedMeetingsStore(s *meetingsStore, occs []meetings.Occurrence, lastOK time
 }
 
 func TestMeetingsPreviewFallback(t *testing.T) {
-	// An app with an empty store (no meetings) must always return a
-	// valid Preview with exactly 1 frame, card "meeting", and non-empty
-	// pixels that contain at least one non-"000000" entry.
 	a := newTestAppWithStore(t)
 
 	w := httptest.NewRecorder()
@@ -65,12 +60,9 @@ func TestMeetingsPreviewFallback(t *testing.T) {
 }
 
 func TestMeetingsPreviewLive(t *testing.T) {
-	// A store with a future meeting and a fresh lastFetchOK must produce
-	// a different frame than the fallback (all-empty-store) path.
 	now := time.Now()
 	a := newTestAppWithStore(t)
 
-	// First capture fallback pixels.
 	wFallback := httptest.NewRecorder()
 	a.handleMeetingsPreview(wFallback, httptest.NewRequest("GET", "/v1/meetings/preview", nil))
 	var fallback render.Preview
@@ -78,7 +70,6 @@ func TestMeetingsPreviewLive(t *testing.T) {
 		t.Fatalf("decode fallback: %v", err)
 	}
 
-	// Seed the store with a future meeting and mark as freshly fetched.
 	seedMeetingsStore(a.meetings, []meetings.Occurrence{
 		{UID: "live@test", Title: "TEAM SYNC", Start: now.Add(5 * time.Minute)},
 	}, now)
@@ -97,7 +88,6 @@ func TestMeetingsPreviewLive(t *testing.T) {
 		t.Fatalf("live frames: got %d, want 1", len(live.Frames))
 	}
 
-	// The pixel arrays must differ (different title renders differently).
 	if slicesEqual(live.Frames[0].Pixels, fallback.Frames[0].Pixels) {
 		t.Error("live and fallback frames must differ — live path should render TEAM SYNC, not 12M STANDUP")
 	}
@@ -116,8 +106,6 @@ func slicesEqual(a, b []string) bool {
 }
 
 func TestMeetingsPreviewOpen(t *testing.T) {
-	// Both /v1/meetings/preview and /v1/meetings/state must be reachable
-	// without a Bearer token (open mux).
 	_, srv := newTestServer(t, defaultConfig())
 
 	for _, path := range []string{"/v1/meetings/preview", "/v1/meetings/state"} {
@@ -133,20 +121,15 @@ func TestMeetingsPreviewOpen(t *testing.T) {
 }
 
 func TestMeetingsState(t *testing.T) {
-	// A store with 7 future + 1 past occurrence must return exactly 5
-	// upcoming entries (capped), first entry matches, timestamps are
-	// RFC3339 truncated to whole seconds (no fractional part).
 	now := time.Now().UTC().Truncate(time.Second)
 
 	a := newTestAppWithStore(t)
 
 	var occs []meetings.Occurrence
-	// 1 past occurrence (must be excluded).
 	occs = append(occs, meetings.Occurrence{
 		UID: "past@test", Title: "PAST MEETING",
 		Start: now.Add(-1 * time.Hour),
 	})
-	// 7 future occurrences.
 	for i := 0; i < 7; i++ {
 		occs = append(occs, meetings.Occurrence{
 			UID:   "future@test",
@@ -194,7 +177,6 @@ func TestMeetingsState(t *testing.T) {
 	} else if strings.Contains(*got.FetchedAt, ".") {
 		t.Errorf("fetched_at %q contains fractional seconds", *got.FetchedAt)
 	}
-	// Past occurrence must not appear.
 	for _, item := range got.Upcoming {
 		if item.Title == "PAST MEETING" {
 			t.Error("past occurrence must not appear in upcoming")
@@ -203,9 +185,6 @@ func TestMeetingsState(t *testing.T) {
 }
 
 func TestMeetingsStateUID(t *testing.T) {
-	// Two occurrences with the SAME title and SAME start but DIFFERENT UIDs must
-	// both appear in the response and each must carry its distinct uid field.
-	// This guards against the same-title/same-start aliasing bug.
 	now := time.Now().UTC().Truncate(time.Second)
 
 	a := newTestAppWithStore(t)
@@ -249,7 +228,6 @@ func TestMeetingsStateUID(t *testing.T) {
 		if strings.Contains(item.Start, ".") {
 			t.Errorf("upcoming[%d].start %q contains fractional seconds", i, item.Start)
 		}
-		// No ICS URL must appear — uid is an event ID, not a feed URL.
 		if strings.Contains(item.UID, "://") {
 			t.Errorf("upcoming[%d].uid %q looks like a URL — must not expose feed URLs", i, item.UID)
 		}
@@ -264,7 +242,6 @@ func TestMeetingsStateUID(t *testing.T) {
 }
 
 func TestMeetingsStateEmpty(t *testing.T) {
-	// An empty store must return {"upcoming":[]} (NOT null) and no fetched_at.
 	a := newTestAppWithStore(t)
 
 	w := httptest.NewRecorder()
@@ -277,11 +254,9 @@ func TestMeetingsStateEmpty(t *testing.T) {
 	body, _ := io.ReadAll(w.Body)
 	bodyStr := string(body)
 
-	// upcoming must be [] not null.
 	if !strings.Contains(bodyStr, `"upcoming":[]`) {
 		t.Errorf("empty store must marshal upcoming as [], got: %s", bodyStr)
 	}
-	// fetched_at must be absent (zero time → omitempty).
 	if strings.Contains(bodyStr, "fetched_at") {
 		t.Errorf("empty store must not include fetched_at, got: %s", bodyStr)
 	}
@@ -305,12 +280,11 @@ func TestDoctorMeetingsCheck(t *testing.T) {
 		a := newTestAppWithStore(t)
 		a.meetingsURLs = []string{"https://secret.example.com/feed.ics"}
 		cfg := a.cfg.Load()
-		cfg.Meetings.Enabled = boolPtr(true) // poller is active; never fetched is genuinely broken
+		cfg.Meetings.Enabled = boolPtr(true)
 		res := checkMeetings(a, cfg)
 		if res.Status != StatusWarn {
 			t.Errorf("status: got %q, want WARN", res.Status)
 		}
-		// URL must never appear in detail.
 		if strings.Contains(res.Detail, "secret.example.com") {
 			t.Errorf("detail must not contain the URL: %q", res.Detail)
 		}
@@ -328,17 +302,14 @@ func TestDoctorMeetingsCheck(t *testing.T) {
 		if res.Status != StatusOK {
 			t.Errorf("status: got %q, want OK; detail: %s", res.Status, res.Detail)
 		}
-		// Must mention feed count.
 		if !strings.Contains(res.Detail, "2 feed") {
 			t.Errorf("detail must mention feed count '2 feed': %q", res.Detail)
 		}
-		// Must not contain any URL.
 		for _, url := range a.meetingsURLs {
 			if strings.Contains(res.Detail, url) {
 				t.Errorf("detail must not contain URL %q: got %q", url, res.Detail)
 			}
 		}
-		// Must not contain URL substrings.
 		if strings.Contains(res.Detail, "a.example") || strings.Contains(res.Detail, "b.example") {
 			t.Errorf("detail must not contain URL hostnames: %q", res.Detail)
 		}

@@ -3,7 +3,6 @@ import Foundation
 @testable import EmberKit
 
 @Test func deviceSettingsDecodesNGKeys() throws {
-    // Real shape from the #67 mapping's live device dump.
     let json = ##"{"brightness":128,"buzzerVolume":80,"soundEnabled":true,"autoBrightness":true,"transitionEffect":"Rain","textColor":"#FF8800","timeMode":2}"##
     let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
     #expect(s.brightness == 128)
@@ -16,8 +15,6 @@ import Foundation
 }
 
 @Test func deviceSettingsDecodesNativeAppColorsAndToggles() throws {
-    // Issue #92 — confirmed present in the live device's GET /api/v1/settings
-    // on firmware 1.0.13.
     let json = #"""
     {"timeColor":"#FFFFFF","dateColor":"#FFFFFF","temperatureColor":"#FF0000",
      "humidityColor":"#00FF00","batteryColor":"#0000FF","useCelsius":true}
@@ -69,15 +66,11 @@ import Foundation
     let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     #expect(obj["brightness"] as? Int == 200)
     #expect(obj["uppercase"] as? Bool == false)
-    // Unset fields are omitted, so a partial PUT can't clobber other settings.
     #expect(obj["buzzerVolume"] == nil)
     #expect(obj.count == 2)
 }
 
 @Test func deviceSettingsNeverEncodesKeysNGRejects() throws {
-    // NG 1.1.x answers 422 to `volume` and `smoothScroll`, failing the whole
-    // PATCH; the model must not be able to send them even if the device or an
-    // old server echoes them back.
     let json = #"{"volume":10,"smoothScroll":true,"buzzerVolume":40,"soundEnabled":false}"#
     let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
     let obj = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(s)) as! [String: Any]
@@ -88,8 +81,6 @@ import Foundation
 }
 
 @Test func deviceSettingsToleratesUnexpectedColorType() throws {
-    // The device may return a colour as an [r,g,b] array; that must not break the
-    // whole decode — the offending field just becomes nil.
     let json = #"{"brightness":100,"textColor":[255,136,0]}"#
     let s = try JSONDecoder().decode(DeviceSettings.self, from: Data(json.utf8))
     #expect(s.brightness == 100)
@@ -113,7 +104,6 @@ import Foundation
 }
 
 @Test func deviceStatsDecodesNGDeviceFields() throws {
-    // Real shape from GET /api/v1/device (task's pinned field list).
     let json = #"""
     {"version":"1.0.13","uid":"e868e705ffb8","hostname":"awtrix","batteryPercent":100,
      "batteryVoltage":4.1,"temperature":24,"humidity":41.5,"lightLevel":230,"brightness":120,
@@ -155,8 +145,6 @@ import Foundation
 }
 
 @Test func sensorCalibrationEncodesExplicitNulls() throws {
-    // The server treats null as "reset to firmware default" and an absent key
-    // as "leave unchanged" — reset-to-default needs the explicit null.
     let data = try JSONEncoder().encode(SensorCalibration(tempOffset: -4))
     let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     #expect(obj["temp_offset"] as? Double == -4)
@@ -165,7 +153,6 @@ import Foundation
 }
 
 @Test func deviceDisplayDecodesOverlayAndSettings() throws {
-    // Real shape from device_display_test.go's fake clock response.
     let json = #"{"overlay":null,"overlaySettings":{"speed":1,"palette":null,"blend":true}}"#
     let d = try JSONDecoder().decode(DeviceDisplay.self, from: Data(json.utf8))
     #expect(d.overlay == nil)
@@ -175,8 +162,6 @@ import Foundation
 }
 
 @Test func deviceDisplayEncodesExplicitNullOverlay() throws {
-    // NG has no "clear" value — clearing an overlay is an explicit null, not
-    // an omitted key.
     let data = try JSONEncoder().encode(DeviceDisplay(overlay: nil))
     let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
     #expect(obj.index(forKey: "overlay") != nil)
@@ -190,7 +175,6 @@ import Foundation
 }
 
 @Test func appInfoDecodesNGAppsArray() throws {
-    // Real shape from device_display_test.go's fake clock response.
     let json = #"[{"name":"Time","enabled":true,"inLoop":true}]"#
     let apps = try JSONDecoder().decode([AppInfo].self, from: Data(json.utf8))
     #expect(apps.count == 1)
@@ -233,7 +217,6 @@ import Foundation
 }
 
 @Test func screenFrameDecodesNGEnvelope() throws {
-    // Issue #71's live-verification finding: NG wraps the pixel array.
     var pixels = [Int](repeating: 0, count: 256)
     pixels[0] = 0xFF0000
     let data = try JSONEncoder().encode(ScreenFrame(width: 32, height: 8, pixels: pixels))

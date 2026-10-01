@@ -4,42 +4,24 @@ import OSLog
 import SwiftUI
 import EmberKit
 
-/// App-wide coordinator: owns the server connection and everything built on
-/// it: `live` (every polled feed), `actions` (user actions), `settings`
-/// (config models) and the clock's settings. `reloadConnection()` re-reads
-/// producer.env and, when the server or token changed, points all of it at
-/// the new server, so Connection saves apply without relaunch.
+/// App-wide coordinator: owns the server connection and the models built on it.
 @MainActor
 @Observable
 public final class AppEnvironment {
-    /// Every live feed; the menu, the Dashboard, the Dock menu and the bot
-    /// read it. Views hold tier C feeds with `.task { await live.track(…) }`.
     public let live = LiveModel()
-    /// Runs Pomodoro, clock and app-visibility actions and keeps the last error.
     public let actions: ActionRunner
-    /// One auto-saving config model per settings area.
     public let settings: SettingsModels
-    /// producer.env's server and token as one client.
     public let connection: ServerConnection
-    /// The configured server, nil when producer.env has none.
     public var serverURL: URL? { connection.serverURL }
-    /// The settings panes' preview renders, on the current server.
     public var preview: PreviewService { PreviewService(client: connection.client) }
-    /// The clock's settings for Settings › Clock and Sounds (⌘R reloads it).
     public let deviceSettings: DeviceSettingsModel
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
-    /// Finds clocks from this Mac for Settings › Clock's Discover sheet; the
-    /// sheet's task scopes each scan, and sleep stops one.
     public let clockDiscovery = ClockDiscovery()
     public let producers: ProducerInstallService
-    /// Every OS permission Ember uses, for Settings › Permissions and the
-    /// General pane's warning. Re-read when those appear and on activation.
     public let permissions: PermissionsModel
 
-    /// Menu-only prefs (icon palette + tray glyphs), persisted to UserDefaults.
-    /// Observed so the menu-bar label updates live when the App tab edits them.
     public var prefs: MenuPrefs {
         didSet {
             AppEnvironment.savePrefs(prefs)
@@ -48,9 +30,6 @@ public final class AppEnvironment {
         }
     }
 
-    /// What the menu-bar label draws. Set only when it changes, so the scene
-    /// body that reads it (unlike one reading `live.winningSession`) isn't
-    /// re-evaluated on every `/state` poll.
     public private(set) var menuBarLabel = MenuRows.label(connection: .connecting, winning: nil, prefs: .default)
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "app")
@@ -80,9 +59,6 @@ public final class AppEnvironment {
         d.set(p.trayTint, forKey: "trayTint")
     }
 
-    /// Pushes the winning session's state into the bot, re-arming on each change.
-    /// Done here rather than in `MenuBarLabel`: a MenuBarExtra label doesn't run
-    /// `onChange`/`onAppear`, and the Dock bot needs the state regardless.
     private func feedBot() {
         let state = withObservationTracking {
             live.winningSession?.state ?? "idle"
@@ -92,8 +68,6 @@ public final class AppEnvironment {
         BotAnimator.shared.setState(state)
     }
 
-    /// Recomputes `menuBarLabel` whenever the snapshot, connection or prefs
-    /// change, and stores it only when the result differs.
     private func feedMenuBarLabel() {
         let label = withObservationTracking {
             MenuRows.label(connection: live.connection, winning: live.winningSession, prefs: prefs)
@@ -103,8 +77,6 @@ public final class AppEnvironment {
         if label != menuBarLabel { menuBarLabel = label }
     }
 
-    /// Applies the chosen Ember icon as the runtime Dock icon (visible only while
-    /// a window is open — see AppDelegate). No-op if the asset is missing.
     static func applyAppIcon(_ palette: String) {
         if palette == "bot" {
             BotAnimator.shared.showInDock(true)
@@ -118,10 +90,7 @@ public final class AppEnvironment {
 
     let producerEnvPath: URL
 
-    /// The scene's `openWindow`, captured by the first window or menu that
-    /// appears, for AppKit callers (the Dock menu) that have no environment.
     @ObservationIgnored var openWindowAction: OpenWindowAction?
-    /// The one writer queue for producer.env.
     public let envStore: EnvFileStore
     @ObservationIgnored private var sleepObservers: [NSObjectProtocol] = []
 
@@ -147,8 +116,6 @@ public final class AppEnvironment {
             connection: connection, producers: producers, reminders: watcher, location: location))
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _ in self?.reloadConnection() }
-        // Polls tiers A and B from launch so the menu-bar label is live
-        // without opening the menu first.
         live.start()
         observeSleep()
         reminderWatcher.start()
@@ -159,15 +126,6 @@ public final class AppEnvironment {
         reconcileProducers()
     }
 
-    /// Best-effort launch check of the producer LaunchAgents (#142), off the
-    /// main thread. After an app update (a new bundle fingerprint: version,
-    /// build and a digest of the bundled helpers) every enabled agent is
-    /// re-registered so the new helpers take over; otherwise only an enabled
-    /// agent launchd has no job for, or can't start (a stuck job is booted out
-    /// first), is. The fingerprint is recorded only when every re-registration
-    /// succeeded, so a failure retries next launch. After an update it checks
-    /// again `producerRecheckDelay` later, since a changed ad-hoc helper only
-    /// gets stuck once launchd has tried to spawn it.
     private func reconcileProducers() {
         let bundle = Bundle.main
         let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -186,8 +144,6 @@ public final class AppEnvironment {
             if shouldRecordFingerprint(bundleChanged: changed, outcomes: outcomes) {
                 defaults.set(fingerprint, forKey: key)
             }
-            // A changed ad-hoc helper gets stuck only after its first spawn,
-            // so look again once that has happened and heal a stuck job.
             if shouldRecheckAfterReconcile(bundleChanged: changed, outcomes: outcomes) {
                 try? await Task.sleep(for: producerRecheckDelay)
                 Self.logReconcile(await producers.reconcile(bundleChanged: false), log: log)
@@ -205,8 +161,6 @@ public final class AppEnvironment {
         }
     }
 
-    /// Re-reads producer.env; on a new server or token, re-points everything
-    /// that keeps per-server state.
     public func reloadConnection() {
         guard connection.reload() else { return }
         let client = connection.client
@@ -216,8 +170,6 @@ public final class AppEnvironment {
         deviceSettings.configure(service: connection.device)
     }
 
-    /// Pauses polling (and stops a clock scan) while the Mac sleeps; wake
-    /// refetches everything at once.
     private func observeSleep() {
         let nc = NSWorkspace.shared.notificationCenter
         sleepObservers = [
@@ -233,14 +185,11 @@ public final class AppEnvironment {
         ]
     }
 
-    /// Opens a window by scene id in front of other apps. No-op until a
-    /// scene has captured `openWindowAction`.
     func openWindow(id: String) {
         guard let openWindowAction else { return }
         presentWindow(id: id, using: openWindowAction)
     }
 
-    /// Whether the Settings window is on screen (⌘R reloads settings only then).
     @ObservationIgnored var isSettingsOpen = false
 
     public static var defaultEnvPath: URL {

@@ -2,7 +2,6 @@ import Testing
 import CoreGraphics
 @testable import EmberKit
 
-/// Steps the behaviour at 60 fps from `from` for `seconds`, collecting poses.
 private func run(_ b: inout BotBehavior, from: Double = 0, seconds: Double) -> [(t: Double, pose: BotPose, animating: Bool)] {
     stride(from: from, to: from + seconds, by: 1.0 / 60).map { t in
         let p = b.pose(at: t)
@@ -32,7 +31,6 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
 @Test func idleBlinkRateIsHumanLike() {
     var b = BotBehavior(seed: 1, now: 0)
     let blinks = blinkCount(run(&b, seconds: 240))
-    // ~15–20/min for people; allow the double blinks and lognormal spread.
     #expect((40...100).contains(blinks), "blinks in 4 min: \(blinks)")
 }
 
@@ -82,7 +80,7 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     _ = b.pose(at: BotBehavior.sleepAfter + 1)
     #expect(b.mood == .sleepy)
     let drowsy = run(&b, from: BotBehavior.sleepAfter + 1, seconds: 3).last!.pose
-    #expect(drowsy.lidLeft > 0.4)                  // heavy lids
+    #expect(drowsy.lidLeft > 0.4)
 
     let t = BotBehavior.sleepAfter + 4
     b.setMood(.working, at: t)
@@ -101,7 +99,7 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     b.reduceMotion = true
     let frames = run(&b, seconds: 20)
     #expect(Set(frames.map { $0.pose.gazeX }).count == 1)
-    #expect(blinkCount(frames) > 0)                // still blinks
+    #expect(blinkCount(frames) > 0)
 }
 
 @Test func sameSeedSameAnimation() {
@@ -112,7 +110,7 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
 @Test func blinkClosesFasterThanItOpens() {
     let close = 0.075, openEnd = 0.26
     #expect(BotBehavior.lid(close, speed: 1) >= 0.99)
-    #expect(BotBehavior.lid(openEnd - 0.05, speed: 1) > 0)   // still opening
+    #expect(BotBehavior.lid(openEnd - 0.05, speed: 1) > 0)
     #expect(BotBehavior.lid(openEnd + 0.01, speed: 1) == 0)
 }
 
@@ -124,10 +122,9 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     BotRenderer.draw(BotPose(), in: ctx, rect: CGRect(x: 0, y: 0, width: size, height: size),
                      style: .menuBar(tint: CGColor(gray: 0, alpha: 1)))
     let px = ctx.data!.assumingMemoryBound(to: UInt8.self)
-    func alpha(_ x: Int, _ y: Int) -> UInt8 { px[((size - 1 - y) * size + x) * 4 + 3] }   // y-up
-    #expect(alpha(size / 2, size / 3) == 255)      // lower body is solid
-    #expect(alpha(1, 1) == 0)                      // corner is empty
-    // Somewhere in the upper-right quadrant the eyes punch through.
+    func alpha(_ x: Int, _ y: Int) -> UInt8 { px[((size - 1 - y) * size + x) * 4 + 3] }
+    #expect(alpha(size / 2, size / 3) == 255)
+    #expect(alpha(1, 1) == 0)
     let holes = (size / 2..<size * 7 / 8).flatMap { x in (size / 2..<size * 7 / 8).map { alpha(x, $0) } }
     #expect(holes.contains(0) && holes.contains(255))
 }
@@ -151,7 +148,6 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
             if airborne && !up { hops.append(f.t) }
             up = airborne
         }
-        // The first hop flags the new mood; later ones are an occasional nudge.
         #expect(hops.first.map { $0 < 1.5 } == true, "seed \(seed)")
         let gaps = zip(hops, hops.dropFirst()).map { $1 - $0 }
         #expect(hops.count >= 5, "seed \(seed): \(hops)")
@@ -164,7 +160,6 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     for seed in UInt64(0)..<50 {
         var b = BotBehavior(seed: seed, now: 0)
         b.setMood(.waiting, at: 0)
-        // 80 ms frames can step right over the ~46 ms closed window.
         let swapped = stride(from: 0.0, to: 0.8, by: 0.08).contains { b.pose(at: $0).eyes == .round }
         #expect(swapped, "seed \(seed)")
     }
@@ -189,7 +184,7 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         var style = BotStyle.menuBar(tint: CGColor(gray: 0, alpha: 1))
-        style.eyes = CGColor(gray: 0, alpha: 1)       // solid, so only the outline counts
+        style.eyes = CGColor(gray: 0, alpha: 1)
         BotRenderer.draw(pose, in: ctx, rect: CGRect(x: 0, y: 0, width: size, height: size), style: style)
         let px = ctx.data!.assumingMemoryBound(to: UInt8.self)
         var xs: [Int] = [], ys: [Int] = []
@@ -206,7 +201,6 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     for seed in UInt64(0)..<40 {
         var b = BotBehavior(seed: seed, now: 0)
         var prev: BotPose?
-        // Mood changes at awkward moments, including mid-blink.
         for (i, m) in [BotMood.working, .waiting, .done, .error, .idle].enumerated() {
             let t0 = 2.0 + Double(i) * 1.37
             for t in stride(from: t0 - 1.37, to: t0, by: 1.0 / 60) {

@@ -10,11 +10,6 @@ import (
 	"unicode/utf8"
 )
 
-// Fixtures shaped like the hooks reference's examples
-// (https://code.claude.com/docs/en/hooks#posttooluse-input and siblings),
-// extended with the fields we must ignore (tool_response, permission_mode,
-// tool_use_id, duration_ms, reason). The secrets are there to prove they never
-// reach a POST body or the marker.
 const (
 	fixturePreToolUse = `{"session_id":"s1","transcript_path":"/t.jsonl","cwd":"/repo","permission_mode":"default",
 		"hook_event_name":"PreToolUse","tool_name":"Bash",
@@ -140,8 +135,6 @@ func TestPermissionFingerprint_KeyOrderInsensitive(t *testing.T) {
 	}
 }
 
-// A successful call on a running session changes nothing: no POST, no marker
-// write. This is the PostToolUse common case (~97% of outcome events).
 func TestPostToolUse_RunningIsNoOp(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -160,7 +153,6 @@ func TestPostToolUse_RunningIsNoOp(t *testing.T) {
 	}
 }
 
-// Outcome hooks never create a session.
 func TestOutcomeHooks_NoMarkerDoesNothing(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -178,8 +170,6 @@ func TestOutcomeHooks_NoMarkerDoesNothing(t *testing.T) {
 	}
 }
 
-// The approved call's PostToolUse ends the wait. Before #76 the session kept
-// showing "approve Bash" until the next hook.
 func TestPermissionApproved_PostToolUseEndsWaiting(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -206,8 +196,6 @@ func TestPermissionApproved_PostToolUseEndsWaiting(t *testing.T) {
 	}
 }
 
-// The permission_prompt Notification (~6 s into the dialog) re-upserts
-// "waiting" without tool info; the recorded call must survive it.
 func TestPermissionApproved_AfterNotificationStillEndsWaiting(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -223,8 +211,6 @@ func TestPermissionApproved_AfterNotificationStillEndsWaiting(t *testing.T) {
 	}
 }
 
-// A parallel call finishing while another waits for approval must not end
-// that wait.
 func TestParallelCallDoesNotEndWaiting(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -239,8 +225,6 @@ func TestParallelCallDoesNotEndWaiting(t *testing.T) {
 	}
 }
 
-// A failure marks the call's trail item and rides the next POST instead of
-// sending its own. The heartbeat then carries it, with no tool output.
 func TestPostToolUseFailure_AnnotatesTrailWithoutPosting(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -270,8 +254,6 @@ func TestPostToolUseFailure_AnnotatesTrailWithoutPosting(t *testing.T) {
 	}
 }
 
-// Auto mode's PreToolUse → PermissionDenied: the item is marked denied, the
-// session stays running, nothing extra is sent and nothing blinks.
 func TestPermissionDenied_AutoModeMarksDenied(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -289,7 +271,6 @@ func TestPermissionDenied_AutoModeMarksDenied(t *testing.T) {
 	}
 }
 
-// If a PermissionRequest did precede the auto-denial, the denial ends that wait.
 func TestPermissionDenied_EndsItsOwnWait(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -326,7 +307,6 @@ func TestPostToolUseFailure_TrailDisabled(t *testing.T) {
 	if a := h.marker(t, "s1").Activity; a != "Bash: npm test (exit 1)" {
 		t.Errorf("single-item activity = %q", a)
 	}
-	// A late outcome for an older call must not overwrite the newer one.
 	dispatchHookForTest(t, "pre-tool-use", []byte(`{"session_id":"s1","cwd":"/repo","tool_name":"Read","tool_input":{"file_path":"/repo/a.go"}}`))
 	dispatchHookForTest(t, "post-tool-use-failure", []byte(`{"session_id":"s1","cwd":"/repo","tool_name":"Bash","tool_input":{"command":"old"},"error":"Exit code 3"}`))
 	if a := h.marker(t, "s1").Activity; a != "Read: a.go" {
@@ -334,8 +314,6 @@ func TestPostToolUseFailure_TrailDisabled(t *testing.T) {
 	}
 }
 
-// Privacy: tool_response and the failure's error text (the tool's output)
-// never reach a POST body or the marker, across hooks and the heartbeat.
 func TestOutcomeHooks_NoToolOutputLeaks(t *testing.T) {
 	stubOwner(t)
 	h := newHookHarness(t)
@@ -354,8 +332,6 @@ func TestOutcomeHooks_NoToolOutputLeaks(t *testing.T) {
 	}
 }
 
-// Server load: outcome hooks add no requests to a turn's tool calls. N tool
-// calls POST N times with PostToolUse/Failure/Denied as they did without.
 func TestOutcomeHooks_RequestsPerToolCallUnchanged(t *testing.T) {
 	const n = 100
 	run := func(withOutcomes bool) int32 {
@@ -400,10 +376,6 @@ func itoa(i int) string {
 	return string(b)
 }
 
-// Install: the outcome hooks are registered async, an install from the #76
-// spike (same commands, synchronous) is upgraded in place without
-// duplicates, a user's own hook on the same event survives, re-running is a
-// no-op, and uninstall removes ours.
 func TestMergeSettings_OutcomeHooksAsyncAndUpgradeFromSpike(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

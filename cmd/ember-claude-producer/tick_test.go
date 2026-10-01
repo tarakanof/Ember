@@ -74,10 +74,6 @@ func TestTick_StaleMarker_RemovedAndDeleted(t *testing.T) {
 	}
 }
 
-// TestTick_NoResurrectionUnderConcurrentStop is the canonical Ghost Heartbeat
-// acceptance test: a tick is enumerating a marker concurrently with a Stop
-// hook deleting it. Lock-based ordering must guarantee no POST is observed
-// after the DELETE.
 func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -94,7 +90,6 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	var sawPostAfterDelete atomic.Bool
 	var deleteSeen atomic.Bool
 
-	// Replace harness handler with one that detects POST-after-DELETE
 	h.srv.Close()
 	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -117,17 +112,10 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	}
 	cfg, _ = loadConfig()
 
-	// Concurrent goroutines: one running tick, one running Stop hook.
-	// Repeat several times to amplify any race window. The Ghost Heartbeat
-	// invariant is *per iteration* (a POST after Stop's DELETE in the same
-	// logical session lifetime), so deleteSeen is reset at the top of every
-	// iteration. Without the reset, a legitimate POST in iteration N would
-	// be flagged as a ghost just because Stop ran in iteration N-1.
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
 		deleteSeen.Store(false)
 
-		// Re-create marker for each iteration (Stop deletes it)
 		if err := os.WriteFile(markerP, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -150,8 +138,6 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	}
 }
 
-// heartbeatPass is the daemon's per-iteration body: it reloads config (so
-// producer.env edits apply without a restart) and runs one tick.
 func TestHeartbeatPass_RePostsMarker(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -171,7 +157,6 @@ func TestHeartbeatPass_RePostsMarker(t *testing.T) {
 
 func TestHeartbeatPass_NoConfig_NoOp(t *testing.T) {
 	h := newHookHarness(t)
-	// Blank out the config so Source/ServerURL are empty.
 	cfgPath := filepath.Join(h.home, ".config", "ember", "producer.env")
 	if err := os.WriteFile(cfgPath, []byte("\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -243,11 +228,6 @@ func TestProcessOneMarker_StripsContextPctWhenDisabled(t *testing.T) {
 	}
 }
 
-// TestTick_CodexMarker_SkippedEntirely is the Task-7 regression test: the
-// Claude daemon shares the marker dir with the Codex producer. A codex
-// marker — fresh or stale — must never be POSTed, reaped/DELETEd, or
-// rewritten by the Claude daemon; the Codex daemon owns its own markers'
-// full lifecycle.
 func TestTick_CodexMarker_SkippedEntirely(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -259,7 +239,6 @@ func TestTick_CodexMarker_SkippedEntirely(t *testing.T) {
 	if err := os.WriteFile(markerP, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Make it stale too, so we also exercise the reap path.
 	old := time.Now().Add(-7 * time.Hour)
 	if err := os.Chtimes(markerP, old, old); err != nil {
 		t.Fatal(err)
@@ -281,11 +260,6 @@ func TestTick_CodexMarker_SkippedEntirely(t *testing.T) {
 	}
 }
 
-// TestTick_LegacyMarkerNoToolField_TreatedAsClaude verifies the documented
-// backward-compat decision: a marker predating the "tool" field (missing or
-// empty) is treated as a claude marker, since both current producers always
-// write an explicit "tool" value — an empty Tool can only mean a pre-upgrade
-// marker written by the (older) Claude producer.
 func TestTick_LegacyMarkerNoToolField_TreatedAsClaude(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -304,9 +278,6 @@ func TestTick_LegacyMarkerNoToolField_TreatedAsClaude(t *testing.T) {
 	}
 }
 
-// TestDispatchTick_WarnsOnPostFailure is the Task-9 error-visibility
-// regression test: a failing status POST must produce a throttled slog Warn
-// instead of being silently discarded (previously `_ = client.Post(...)`).
 func TestDispatchTick_WarnsOnPostFailure(t *testing.T) {
 	tickFailLog.Reset()
 	h := newHookHarness(t)
@@ -343,8 +314,6 @@ func TestDispatchTick_WarnsOnPostFailure(t *testing.T) {
 	}
 }
 
-// TestDispatchTick_ThrottlesRepeatedPostFailures confirms a second failing
-// tick within the throttle period does not log a second warning.
 func TestDispatchTick_ThrottlesRepeatedPostFailures(t *testing.T) {
 	tickFailLog.Reset()
 	h := newHookHarness(t)
@@ -382,8 +351,6 @@ func TestDispatchTick_ThrottlesRepeatedPostFailures(t *testing.T) {
 	}
 }
 
-// usageRelayHarness is like newHookHarness but splits captured request bodies
-// by path, since dispatchTick now also POSTs to /v1/usage alongside /v1/status.
 type usageRelayHarness struct {
 	home         string
 	srv          *httptest.Server
@@ -507,7 +474,6 @@ func TestDispatchTick_RelaysFiveHourAndWeeklyTogether(t *testing.T) {
 	}
 }
 
-// producerWindow mirrors producer.UsageWindow's wire shape for test decoding.
 type producerWindow struct {
 	UsedPercent float64 `json:"used_percent"`
 	ResetsAt    int64   `json:"resets_at"`
@@ -544,12 +510,6 @@ func TestDispatchTick_PicksFreshestMarkerAcrossSessions(t *testing.T) {
 	}
 }
 
-// TestDispatchTick_UsagePost_MergesModelsCache is the key precedence
-// regression test: Claude Code's statusline JSON carries no per-model
-// breakdown, so the statusline-driven /v1/usage POST must carry forward the
-// last per-model snapshot the OAuth poller cached — otherwise the server's
-// last-write-wins UsageStore.Put would blank the per-model breakdown on every
-// heartbeat between OAuth-endpoint polls.
 func TestDispatchTick_UsagePost_MergesModelsCache(t *testing.T) {
 	usageModels.reset()
 	t.Cleanup(usageModels.reset)
@@ -582,7 +542,6 @@ func TestDispatchTick_UsagePost_MergesModelsCache(t *testing.T) {
 func TestProcessOneMarker_ReGatesSourceCardAndSessionBarWhenDisabled(t *testing.T) {
 	h := newHookHarness(t)
 	cfgDir := filepath.Join(h.home, ".config", "ember")
-	// Config has both toggles disabled; marker was written when they were enabled.
 	env := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\nEMBER_SOURCE_CARD=false\nEMBER_SESSION_BAR=false\n"
 	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
 		t.Fatal(err)
@@ -593,7 +552,6 @@ func TestProcessOneMarker_ReGatesSourceCardAndSessionBarWhenDisabled(t *testing.
 		t.Fatal(err)
 	}
 	markerP := filepath.Join(dir, sessionID+".json")
-	// Marker carries source_card:true and session_bar:true (written when enabled).
 	if err := os.WriteFile(markerP,
 		[]byte(`{"source":"test-mbp","tool":"claude","session":"`+sessionID+`","state":"running","source_card":true,"session_bar":true}`), 0o600); err != nil {
 		t.Fatal(err)

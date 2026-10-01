@@ -10,16 +10,12 @@ import (
 	"time"
 )
 
-// Config-load sentinel errors. Wrap with fmt.Errorf("...: %w", ErrConfig*).
 var (
 	ErrConfigRead     = errors.New("config read")
 	ErrConfigParse    = errors.New("config parse")
 	ErrConfigValidate = errors.New("config validate")
 )
 
-// resolveConfigPath picks the config path the same way the running server does.
-// Precedence: -config flag value → CONFIG_PATH env → ./config.json (if it exists) → defaults-only ("").
-// The returned source string ∈ {"flag","env","cwd","defaults"} describes which arm matched.
 func resolveConfigPath(flagValue string) (path, source string) {
 	if flagValue != "" {
 		return flagValue, "flag"
@@ -33,10 +29,6 @@ func resolveConfigPath(flagValue string) (path, source string) {
 	return "", "defaults"
 }
 
-// parseConfigFile reads + decodes a config file. Returns:
-//   - ErrConfigRead-wrapped error if the file can't be read.
-//   - ErrConfigParse-wrapped error if the JSON is malformed (including unknown fields).
-//   - the parsed Config (without applyDefaults; the caller chooses when to apply).
 func parseConfigFile(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -51,8 +43,6 @@ func parseConfigFile(path string) (Config, error) {
 	return cfg, nil
 }
 
-// warnDeprecatedConfig logs one Warn per config.json key that still parses but
-// no longer does anything, so the operator can drop it.
 func warnDeprecatedConfig(cfg Config, logger *slog.Logger) {
 	d := cfg.Display
 	if d.PulseStyle != "" {
@@ -72,12 +62,6 @@ func warnDeprecatedConfig(cfg Config, logger *slog.Logger) {
 	}
 }
 
-// sanitizeConfigBaseline repairs config.json values that fail the SSRF-guard
-// validators (validDeviceURL, weatherIconIDPattern) but that we don't want to
-// treat as fatal load errors — a hand-edited config.json shouldn't crash the
-// server at startup. Invalid entries are logged to logger and replaced/dropped
-// in place; validateConfig runs afterward as a defense-in-depth check that
-// should now always pass for these two fields.
 func sanitizeConfigBaseline(cfg *Config, logger *slog.Logger) {
 	if err := validDeviceURL(cfg.AWTRIX.HTTPBaseURL); err != nil {
 		logger.Warn("config.json awtrix.http_base_url invalid, falling back to default",
@@ -92,9 +76,6 @@ func sanitizeConfigBaseline(cfg *Config, logger *slog.Logger) {
 	}
 }
 
-// validateConfig enforces required fields and well-formedness. Returns
-// ErrConfigValidate-wrapped on failure. Run AFTER applyDefaults so empty
-// optional fields don't trigger.
 func validateConfig(cfg Config) error {
 	if cfg.AWTRIX.HTTPBaseURL == "" {
 		return fmt.Errorf("%w: awtrix.http_base_url is required", ErrConfigValidate)
@@ -129,7 +110,6 @@ func validateConfig(cfg Config) error {
 	return nil
 }
 
-// validatePomodoro enforces sane Pomodoro durations and well-formed colours.
 func validatePomodoro(p PomodoroConfig) error {
 	if p.FocusMinutes < 1 || p.FocusMinutes > 480 {
 		return fmt.Errorf("%w: pomodoro.focus_minutes %d out of range [1, 480]", ErrConfigValidate, p.FocusMinutes)
@@ -198,33 +178,22 @@ type Config struct {
 	Pomodoro  PomodoroConfig  `json:"pomodoro"`
 	Weather   WeatherConfig   `json:"weather"`
 	Meetings  MeetingsConfig  `json:"meetings"`
-	// Usage-widget toggles. Pointers so the file can distinguish "unset"
-	// (nil → default on) from an explicit false; resolved via the helpers below.
+	// Usage-widget toggles.
 	UsageWidget   *bool `json:"usage_widget,omitempty"`
 	UsagePerModel *bool `json:"usage_per_model,omitempty"`
 	LimitAlarm    *bool `json:"limit_alarm,omitempty"`
-	// UsageThresholdPct gates the in-app usage card (and the idle usage
-	// frame): the card shows only when a tool's 5h window is >= this percent.
-	// nil → default 60; 0 = always show.
+	// UsageThresholdPct gates the in-app usage card (and the idle usage frame): the card shows only when a tool's 5h window is >= this percent.
 	UsageThresholdPct *int `json:"usage_threshold_pct,omitempty"`
 	// QuietHours mutes all device sounds during the window (server-local time).
 	QuietHours QuietHoursConfig `json:"quiet_hours"`
 }
 
-// usageWidgetEnabled reports whether the in-app usage card and the idle usage
-// frame are enabled. Default on (nil pointer).
 func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.UsageWidget }
 
-// usagePerModelEnabled reports whether the Claude per-model (Opus/Sonnet) usage
-// frames should be pushed. Default on (nil pointer).
 func (c Config) usagePerModelEnabled() bool { return c.UsagePerModel == nil || *c.UsagePerModel }
 
-// limitAlarmEnabled reports whether the 5h-limit reset popup+chime is armed.
-// Default on (nil pointer).
 func (c Config) limitAlarmEnabled() bool { return c.LimitAlarm == nil || *c.LimitAlarm }
 
-// usageThresholdPct returns the 5h-percent gate for the usage card, clamped
-// to 0..100. Default 60 (nil pointer); 0 means "always show".
 func (c Config) usageThresholdPct() int {
 	if c.UsageThresholdPct == nil {
 		return 60
@@ -239,10 +208,7 @@ func (c Config) usageThresholdPct() int {
 	return v
 }
 
-// PomodoroConfig holds the Pomodoro feature's static defaults. Runtime-editable
-// settings (durations, colours, toggles) are persisted in the stats store and
-// edited from the menu app; these values seed the engine at startup and provide
-// the fallbacks the store is initialised from.
+// PomodoroConfig holds the Pomodoro feature's static defaults.
 type PomodoroConfig struct {
 	Enabled               bool   `json:"enabled"`
 	FocusMinutes          int    `json:"focus_minutes"`
@@ -255,27 +221,20 @@ type PomodoroConfig struct {
 	FocusColor            string `json:"focus_color"`
 	BreakColor            string `json:"break_color"`
 	DBPath                string `json:"db_path"`
-	// ButtonCallback enables mapping device button presses (delivered to
-	// /hooks/awtrix/button) to timer actions.
+	// ButtonCallback enables mapping device button presses (delivered to /hooks/awtrix/button) to timer actions.
 	ButtonCallback    bool `json:"button_callback"`
-	MaxSessionMinutes int  `json:"max_session_minutes"` // 0 = no cap; whole cycle auto-stops after this many minutes
+	MaxSessionMinutes int  `json:"max_session_minutes"`
 
-	// Stats/dashboard knobs (read at request time by the stats handlers; not part
-	// of the runtime DTO). Zero values fall back to sensible defaults at use.
-	WorkHoursGapMinutes int `json:"work_hours_gap_minutes"` // gap (min) that splits one work session from the next (default 15)
-	DayStartHour        int `json:"day_start_hour"`         // logical day boundary 0-23; pre-this-hour activity counts to the previous day (default 4)
-	StreakGraceDays     int `json:"streak_grace_days"`      // missed days tolerated within the current streak (default 1; 0 = strict)
-	DailyGoalSessions   int `json:"daily_goal_sessions"`    // completed-focus target per day (default 8; 0 = disabled)
-	WeeklyGoalDays      int `json:"weekly_goal_days"`       // active-day target per week (default 5; 0 = disabled)
-	// WorkHoursIncludeActivity overlays AI-coding-session activity (from
-	// /v1/status) onto the work-hours view and enables persisting that activity
-	// timeline. When false, work-hours uses Pomodoro focus blocks only.
+	// Stats/dashboard knobs (read at request time by the stats handlers; not part of the runtime DTO).
+	WorkHoursGapMinutes int `json:"work_hours_gap_minutes"`
+	DayStartHour        int `json:"day_start_hour"`
+	StreakGraceDays     int `json:"streak_grace_days"`
+	DailyGoalSessions   int `json:"daily_goal_sessions"`
+	WeeklyGoalDays      int `json:"weekly_goal_days"`
+	// WorkHoursIncludeActivity overlays AI-coding-session activity (from /v1/status) onto the work-hours view and enables persisting that activity timeline.
 	WorkHoursIncludeActivity bool `json:"work_hours_include_activity"`
 }
 
-// Effective stats knobs, coercing zero/missing values (e.g. from an older config
-// file) to defaults. DayStartHour and the goals legitimately allow 0, so only
-// the gap is coerced.
 func (p PomodoroConfig) workHoursGap() time.Duration {
 	g := p.WorkHoursGapMinutes
 	if g <= 0 {
@@ -296,31 +255,20 @@ type HTTPConfig struct {
 }
 
 type AWTRIXConfig struct {
-	// HTTPBaseURL is the config.json baseline only. The URL to dial is
-	// Config.clockURL(), which also weighs the runtime tiers below.
-	HTTPBaseURL string `json:"http_base_url"`
-	// clockOverride (menu pick, via the settings overlay) and clockDiscovered
-	// (in-memory discovery swap) are the clock URL's runtime tiers; see
-	// clock_url.go. Unexported, so config.json and diffConfig never see them.
+	// HTTPBaseURL is the config.json baseline only.
+	HTTPBaseURL     string `json:"http_base_url"`
 	clockOverride   string
 	clockDiscovered string
 
 	AppName        string `json:"app_name"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
-	// AutoRediscover gates the periodic StartDeviceWatch probe loop (see
-	// device.go). nil/absent defaults to enabled, matching the *bool toggle
-	// pattern used elsewhere (usage_widget, meetings.enabled, weather.*).
+	// AutoRediscover gates the periodic StartDeviceWatch probe loop (see device.go).
 	AutoRediscover *bool `json:"auto_rediscover,omitempty"`
-	// BootPing installs the ember-boot-ping Berry script on the clock (see
-	// boot_ping.go): on reboot it POSTs /hooks/awtrix/boot so Ember re-pushes
-	// its tiles in seconds instead of waiting for StartDeviceWatch to notice.
-	// Off by default — it puts a script on a device the operator owns.
+	// BootPing installs the ember-boot-ping Berry script on the clock (see boot_ping.go): on reboot it POSTs /hooks/awtrix/boot so Ember re-pushes its tiles in seconds instead of waiting for StartDeviceWatch to notice.
 	BootPing bool `json:"boot_ping"`
 }
 
-// AutoRediscoverEnabled reports whether the periodic clock re-discovery probe
-// (StartDeviceWatch) should run. nil (field absent from config.json/store) ⇒
-// enabled, so old config blobs without the field keep self-healing on.
+// AutoRediscoverEnabled reports whether the periodic clock re-discovery probe (StartDeviceWatch) should run.
 func (c AWTRIXConfig) AutoRediscoverEnabled() bool {
 	return c.AutoRediscover == nil || *c.AutoRediscover
 }
@@ -335,19 +283,11 @@ type DisplayConfig struct {
 	FrameLifetimeSeconds int  `json:"frame_lifetime_seconds"`
 	IdleRestoreSeconds   int  `json:"idle_restore_seconds"`
 	AttentionChime       bool `json:"attention_chime"`
-	// Indicators turns on the three corner-LED ambient status lights (see
-	// coordinator_indicators.go). Opt-in: they are shared real estate on the
-	// panel, so a plain Ember install leaves them alone.
+	// Indicators turns on the three corner-LED ambient status lights (see coordinator_indicators.go).
 	Indicators bool `json:"indicators"`
-	// PulseStyle is parsed but ignored. Kept so configs from G.1b that
-	// still carry "pulse_style": "breathe" continue to parse under
-	// DisallowUnknownFields. AWTRIX firmware has no multi-frame draw
-	// mode; attention is animated via blinkText instead.
+	// PulseStyle is parsed but ignored.
 	PulseStyle string `json:"pulse_style,omitempty"`
-	// HeartbeatSeconds, RefreshSeconds and NotifyOnWaiting were parsed and
-	// defaulted but never read by anything. They stay decodable so existing
-	// config files still load under DisallowUnknownFields; nil means absent,
-	// and warnDeprecatedConfig flags any that are set.
+	// HeartbeatSeconds, RefreshSeconds and NotifyOnWaiting were parsed and defaulted but never read by anything.
 	HeartbeatSeconds *int  `json:"heartbeat_seconds,omitempty"`
 	RefreshSeconds   *int  `json:"refresh_seconds,omitempty"`
 	NotifyOnWaiting  *bool `json:"notify_on_waiting,omitempty"`
@@ -404,9 +344,6 @@ func defaultConfig() Config {
 	}
 }
 
-// loadConfig resolves and loads the server's config, logging any
-// SSRF/icon-id baseline repairs (see sanitizeConfigBaseline) through logger
-// rather than the unconfigured slog default handler.
 func loadConfig(path string, logger *slog.Logger) (Config, error) {
 	resolved, _ := resolveConfigPath(path)
 	if resolved == "" {
@@ -444,9 +381,6 @@ func (c *Config) applyDefaults() {
 		c.Display.IdleText = "AI idle"
 	}
 	if c.Display.StaleSeconds <= 0 {
-		// 300s tolerates a lapse in the producer heartbeat (and bridges quiet
-		// stretches within a session) so an active session isn't reaped to the
-		// idle robot mid-work. Matches the codex producer's activity window.
 		c.Display.StaleSeconds = 300
 	}
 	if c.Display.DoneTTLSeconds <= 0 {
@@ -479,7 +413,6 @@ func (c *Config) applyDefaults() {
 	if c.RateLimit.IdleEvictSeconds == 0 {
 		c.RateLimit.IdleEvictSeconds = 300
 	}
-	// Disabled is a bool — zero value is false, the right default.
 
 	if c.Pomodoro.FocusMinutes <= 0 {
 		c.Pomodoro.FocusMinutes = 25
@@ -502,8 +435,6 @@ func (c *Config) applyDefaults() {
 	if c.Pomodoro.DBPath == "" {
 		c.Pomodoro.DBPath = "/var/lib/ember/pomodoro.db"
 	}
-	// Sound and ButtonCallback are bools: their no-config defaults come from
-	// defaultConfig(); a config file controls them explicitly.
 
 	c.Weather.applyDefaults()
 	c.Meetings.applyDefaults()

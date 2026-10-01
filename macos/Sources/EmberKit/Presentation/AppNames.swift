@@ -31,7 +31,6 @@ public enum AppNames {
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
             .split(separator: " ")
-        // Unknown names aren't translatable; "%@" passes them through.
         let titled = words.map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
         return "\(words.isEmpty ? wireName : titled)"
     }

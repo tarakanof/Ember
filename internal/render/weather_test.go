@@ -10,8 +10,6 @@ func TestWeatherPayloadHasDrawAndTemp(t *testing.T) {
 	if draw, ok := p["draw"].([]any); !ok || len(draw) != 1 {
 		t.Fatalf("draw op missing: %v", p["draw"])
 	}
-	// The frame must light some pixels for both the icon (cols 0–7) and the
-	// temperature digits (from col 9), proving both regions drew.
 	pixels := bmpPixels(t, p)
 	if len(pixels) != 256 {
 		t.Fatalf("frame pixel count = %d, want 256", len(pixels))
@@ -62,8 +60,6 @@ func TestWeatherPopupDrawnVsNative(t *testing.T) {
 	}
 }
 
-// TestWeatherPopupRepeatsOnce: a label with a long location name is read to
-// the end before the popup leaves (repeat:1), drawn or native icon.
 func TestWeatherPopupRepeatsOnce(t *testing.T) {
 	for _, icon := range []string{"", "2422"} {
 		if p := WeatherPopupPayload(WeatherRain, "RAIN 12° AMSTERDAM", icon, 30); p["repeat"] != 1 {
@@ -73,17 +69,12 @@ func TestWeatherPopupRepeatsOnce(t *testing.T) {
 }
 
 func TestWeatherPopupNeverCarriesSound(t *testing.T) {
-	// The chime is played separately (firmware drops a notification's sound under
-	// an icon), so the popup payload must never carry a sound field.
 	p := WeatherPopupPayload(WeatherStorm, "STORM", "", 30)
 	if _, has := p["sound"]; has {
 		t.Error("weather popup must not carry a sound field")
 	}
 }
 
-// TestHexOf pins the one colour format Ember emits. NG also accepts bare
-// "RRGGBB", but a single canonical spelling keeps every payload comparable and
-// matches what the device echoes back on reads.
 func TestHexOf(t *testing.T) {
 	if got := hexOf(RGB{0x4f, 0xa9, 0xff}); got != "#4FA9FF" {
 		t.Errorf("hexOf = %q, want #4FA9FF", got)
@@ -93,9 +84,6 @@ func TestHexOf(t *testing.T) {
 	}
 }
 
-// TestEveryColorFieldIsCanonicalHex sweeps the colour-bearing builders and
-// insists each colour field is exactly "#RRGGBB" — the mix of "RRGGBB" and
-// "#RRGGBB" that AWTRIX3 tolerated is gone.
 func TestEveryColorFieldIsCanonicalHex(t *testing.T) {
 	colorFields := []string{"textColor", "progressColor", "progressTrackColor",
 		"backgroundColor", "chartColor"}
@@ -141,7 +129,6 @@ func TestDegreeGlyphRenders(t *testing.T) {
 }
 
 func TestWeatherColorDistinct(t *testing.T) {
-	// Each bucket should have a recognisably different colour from clouds.
 	base := WeatherColor(WeatherClouds)
 	for _, cond := range []string{WeatherClear, WeatherRain, WeatherSnow, WeatherStorm} {
 		if WeatherColor(cond) == base {
@@ -209,8 +196,6 @@ func slicesEqualInt(a, b []int) bool {
 	return true
 }
 
-// TestDegreeGlyphIsARing pins the degree sign to a 3×3 ring in the top rows:
-// a solid 2×2 block read as a blob, and its 2-px ink made centring off by one.
 func TestDegreeGlyphIsARing(t *testing.T) {
 	want := []string{"XXX", "X.X", "XXX", "...", "..."}
 	got := glyph('°')
@@ -224,9 +209,6 @@ func TestDegreeGlyphIsARing(t *testing.T) {
 	}
 }
 
-// TestWeatherTempDigitsTakeTempColor: the conditions tile colours its digits
-// by the same gradient as the strip (warm amber at 21 °C, blue below zero);
-// the degree sign stays white. Imperial text is coloured by the Celsius value.
 func TestWeatherTempDigitsTakeTempColor(t *testing.T) {
 	cases := []struct {
 		text  string
@@ -238,7 +220,7 @@ func TestWeatherTempDigitsTakeTempColor(t *testing.T) {
 		f := WeatherTileFrame(WeatherClouds, c.text, c.tempC, nil, nil)
 		x := centredX(c.text)
 		want := TempColor(c.tempC)
-		n := len([]rune(c.text)) - 1 // glyphs before the degree sign
+		n := len([]rune(c.text)) - 1
 		for i := 0; i < n; i++ {
 			if got := litColour(t, &f, x+4*i, x+4*i+2); got != want {
 				t.Errorf("%s glyph %d colour = %v, want TempColor(%v) = %v", c.text, i, got, c.tempC, want)
@@ -250,7 +232,6 @@ func TestWeatherTempDigitsTakeTempColor(t *testing.T) {
 	}
 }
 
-// litColour returns the one colour lit on the text rows in cols x0..x1.
 func litColour(t *testing.T, f *Frame, x0, x1 int) RGB {
 	t.Helper()
 	var c RGB
@@ -272,8 +253,6 @@ func litColour(t *testing.T, f *Frame, x0, x1 int) RGB {
 	return c
 }
 
-// TestWithOverlay: a named overlay lands on the payload's "overlay" key; an
-// empty name adds nothing, so the device's global overlay still applies.
 func TestWithOverlay(t *testing.T) {
 	p := WithOverlay(WeatherPayload(WeatherRain, "12°", 12, nil, 600), OverlayRain)
 	if p["overlay"] != "rain" {

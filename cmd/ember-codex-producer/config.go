@@ -12,13 +12,8 @@ import (
 )
 
 const (
-	defaultPollIntervalMs = 2000
-	minPollIntervalMs     = 250
-	// A codex session has no "window closed" signal (the daemon only tails
-	// rollout files), so it idles after this much rollout inactivity. 300s keeps
-	// it shown through long thinking/between-turn gaps — parity with the Claude
-	// producer staying present for the session — while clearing a finished
-	// session within ~5 min. Override with EMBER_CODEX_ACTIVITY_WINDOW_SECONDS.
+	defaultPollIntervalMs        = 2000
+	minPollIntervalMs            = 250
 	defaultActivityWindowSeconds = 300
 )
 
@@ -41,7 +36,7 @@ type Config struct {
 	StateDir              string
 }
 
-// LogValue redacts the token. Implements slog.LogValuer.
+// LogValue redacts the token.
 func (c Config) LogValue() slog.Value {
 	tok := "unset"
 	if c.Token != "" {

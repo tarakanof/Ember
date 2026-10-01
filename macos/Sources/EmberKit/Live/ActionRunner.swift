@@ -20,8 +20,6 @@ public enum EmberAction: Hashable, Sendable {
     /// The feeds whose values the action changes.
     var affectedFeeds: [Feed] {
         switch self {
-        // Stats follow from the timer: LiveModel refreshes them when the
-        // phase changes, so they aren't fetched twice per action.
         case .pomodoro: [.pomodoroState]
         case .setApp: [.apps]
         case .clock(.power): [.clockHealth]
@@ -33,9 +31,7 @@ public enum EmberAction: Hashable, Sendable {
 
 /// Runs user actions for the menu, the Dashboard, the Dock menu and Settings
 /// (the one path for clock actions), so none of them swallows a failure with
-/// `try?`. A display-power write or a reboot reports the new matrix state to
-/// `LiveModel.displayPower`. The last failure stays in `lastError`
-/// for 10 s, for a transient "Couldn't start: Unauthorized" row.
+/// `try?`.
 @MainActor
 @Observable
 public final class ActionRunner {
@@ -51,8 +47,6 @@ public final class ActionRunner {
     /// Actions currently running, so a view can disable a button meanwhile.
     public private(set) var running: Set<EmberAction> = []
     /// The state an in-flight display write is setting, nil when none is.
-    /// Switches show it at once (`pendingDisplayPower ?? live.displayPower`);
-    /// a failure simply ends it, and `displayPower` never moved.
     public var pendingDisplayPower: Bool? {
         if running.contains(.clock(.power(true))) { return true }
         if running.contains(.clock(.power(false))) { return false }
@@ -74,7 +68,6 @@ public final class ActionRunner {
                   sleep: { try await Task.sleep(for: $0) })
     }
 
-    /// Tests inject the clocks.
     init(live: LiveModel, connection: ServerConnection, clearAfter: Duration,
          now: @escaping @MainActor () -> Date,
          sleep: @escaping @Sendable (Duration) async throws -> Void) {
@@ -100,14 +93,12 @@ public final class ActionRunner {
     }
 
     /// Runs the action, records a failure, then refreshes the feeds it
-    /// touched. Returns whether it succeeded.
+    /// touched.
     @discardableResult
     public func run(_ action: EmberAction) async -> Bool {
         running.insert(action)
         defer { running.remove(action) }
         var ok = false
-        // Taken before the request: a write that returns after a reconnect
-        // says nothing about the new server's clock.
         let ticket = live.displayPowerTicket()
         do {
             try await Self.perform(action, on: connection)
@@ -115,7 +106,6 @@ public final class ActionRunner {
             if lastError?.action == action { lastError = nil }
             switch action {
             case .clock(.power(let on)): live.reportDisplayPower(on, written: ticket)
-            // A reboot relights the matrix.
             case .clock(.reboot): live.reportDisplayPower(true, written: ticket)
             default: break
             }

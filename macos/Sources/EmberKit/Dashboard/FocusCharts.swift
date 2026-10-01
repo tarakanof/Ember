@@ -86,10 +86,7 @@ public struct WeeklyTrend: Equatable, Sendable {
     public var isEmpty: Bool { points.allSatisfy { $0.focusMin == 0 } }
 
     /// A server before 0.28 sends no `weekly` at all, which decodes as empty;
-    /// a current one always has this week's focus in it. So focus in the
-    /// 7-day history with no weeks means the server is too old, not that
-    /// there's no data. (A 0.27 server with no focus in the last 7 days
-    /// can't be told apart and reads as "No data yet".)
+    /// a current one always has this week's focus in it.
     public static func serverLacksWeekly(_ stats: PomoStats) -> Bool {
         stats.weekly.isEmpty && stats.history.contains { $0.focusMin > 0 }
     }
@@ -97,9 +94,7 @@ public struct WeeklyTrend: Equatable, Sendable {
     public var last: Point? { points.last }
     public var yMax: Int { WeekBars.axisTop(points.map(\.focusMin).max() ?? 0) }
 
-    /// `weekly` is the server's list (only weeks with focus). Leading empty
-    /// weeks are dropped down to `minimumWeeks`; the window is at most
-    /// `weeks` long and ends with the week of `now`.
+    /// `weekly` is the server's list (only weeks with focus).
     public init(weekly: [FocusBucket], now: Date, calendar: Calendar, weeks: Int = 12) {
         let byKey = Dictionary(weekly.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let iso = DayKey.isoCalendar(like: calendar)
@@ -115,7 +110,6 @@ public struct WeeklyTrend: Equatable, Sendable {
         let firstData = all.firstIndex { $0.focusMin > 0 } ?? all.count
         let keep = max(Self.minimumWeeks, all.count - firstData)
         points = Array(all.suffix(keep))
-        // The current week is still filling up; it would drag the average down.
         let active = points.dropLast().filter { $0.focusMin > 0 }
         averageMinutes = active.count >= 2
             ? Int((Double(active.reduce(0) { $0 + $1.focusMin }) / Double(active.count)).rounded())

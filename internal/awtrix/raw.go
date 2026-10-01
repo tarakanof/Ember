@@ -11,24 +11,17 @@ import (
 )
 
 // Reply is a device response kept verbatim, for the server's pass-through
-// proxies (the menu's Device tab relays the clock's own JSON and status). A
-// non-2xx status is a Reply, not an error; the error return is for requests
-// that never got an answer.
+// proxies (the menu's Device tab relays the clock's own JSON and status).
 type Reply struct {
 	Status int
 	Body   []byte
 }
 
-// rawReplyLimit caps how much of a pass-through reply is read. The largest NG
-// document Ember relays is the 32×8 screen dump, well under this.
 const rawReplyLimit = 1 << 20
 
-// scriptReplyLimit caps a script upload's reply: it is a short JSON status,
-// or a compiler message on a failed compile.
 const scriptReplyLimit = 8 << 10
 
-// DevicePath is the device identity/telemetry resource. Exported only so
-// diagnostics can name the URL they probed.
+// DevicePath is the device identity/telemetry resource.
 const DevicePath = "/api/v1/device"
 
 // RawDevice is GET /api/v1/device.
@@ -57,8 +50,7 @@ func (c *Client) RawSystem(ctx context.Context) (Reply, error) {
 	return c.raw(ctx, http.MethodGet, "/api/v1/system", nil)
 }
 
-// RawPutSystem is PUT /api/v1/system. NG replaces the object, so body must be
-// a full read-merge of RawSystem, never a partial one.
+// RawPutSystem is PUT /api/v1/system.
 func (c *Client) RawPutSystem(ctx context.Context, body []byte) (Reply, error) {
 	return c.raw(ctx, http.MethodPut, "/api/v1/system", body)
 }
@@ -103,8 +95,7 @@ func (c *Client) RawPreviousApp(ctx context.Context) (Reply, error) {
 	return c.raw(ctx, http.MethodPost, "/api/v1/apps/previous", nil)
 }
 
-// RawDeleteApp is DELETE /api/v1/apps/{name}. It removes any app, a Berry
-// script included: to the firmware a script is an app.
+// RawDeleteApp is DELETE /api/v1/apps/{name}.
 func (c *Client) RawDeleteApp(ctx context.Context, name string) (Reply, error) {
 	return c.raw(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(name), nil)
 }
@@ -114,8 +105,6 @@ func (c *Client) RawDismissNotify(ctx context.Context) (Reply, error) {
 	return c.raw(ctx, http.MethodDelete, "/api/v1/notifications/active", nil)
 }
 
-// scriptPath is NG's Berry script resource: PUT installs or replaces raw
-// source, GET serves it back. Removal goes through RawDeleteApp.
 func scriptPath(name string) string { return "/api/v1/apps/script/" + url.PathEscape(name) }
 
 // RawScript is GET /api/v1/apps/script/{name}: the Berry source as stored.
@@ -123,14 +112,11 @@ func (c *Client) RawScript(ctx context.Context, name string) (Reply, error) {
 	return c.raw(ctx, http.MethodGet, scriptPath(name), nil)
 }
 
-// RawPutScript is PUT /api/v1/apps/script/{name} with the source as
-// text/plain. A script that fails to compile still installs with a 200; the
-// compiler message is in the reply body's "error".
+// RawPutScript is PUT /api/v1/apps/script/{name} with the source as text/plain.
 func (c *Client) RawPutScript(ctx context.Context, name, source string) (Reply, error) {
 	return c.do(ctx, http.MethodPut, scriptPath(name), strings.NewReader(source), "text/plain", scriptReplyLimit)
 }
 
-// raw sends body (nil for none) as JSON and returns the reply verbatim.
 func (c *Client) raw(ctx context.Context, method, path string, body []byte) (Reply, error) {
 	if body == nil {
 		return c.do(ctx, method, path, nil, "", rawReplyLimit)

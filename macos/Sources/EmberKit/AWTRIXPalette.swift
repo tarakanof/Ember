@@ -1,5 +1,4 @@
-/// A named color usable as a quick-pick swatch. `hex` is a canonical
-/// uppercase `"#RRGGBB"` string (the form `RGB.hex` emits).
+/// A named color usable as a quick-pick swatch.
 public struct PaletteColor: Sendable, Equatable {
     public let name: String
     public let hex: String
@@ -11,8 +10,7 @@ public struct PaletteColor: Sendable, Equatable {
 }
 
 /// Curated common colors for the AWTRIX LED matrix — pure-ish primaries that
-/// render cleanly on the 32x8 panel. Surfaced as quick-pick swatches in the
-/// color picker popover.
+/// render cleanly on the 32x8 panel.
 public enum AWTRIXPalette {
     public static let colors: [PaletteColor] = [
         PaletteColor(name: "White",  hex: "#FFFFFF"),

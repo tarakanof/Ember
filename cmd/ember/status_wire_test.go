@@ -17,7 +17,6 @@ func TestStatusCarriesSourceCardAndSessionBar(t *testing.T) {
 		t.Fatal("session_bar=false not preserved")
 	}
 
-	// Absent on the wire stays nil (= enabled) after a JSON round-trip.
 	var fromOld StatusRequest
 	if err := json.Unmarshal([]byte(`{"source":"mbp","tool":"claude","session":"s1","state":"running"}`), &fromOld); err != nil {
 		t.Fatal(err)
@@ -26,7 +25,6 @@ func TestStatusCarriesSourceCardAndSessionBar(t *testing.T) {
 		t.Fatal("absent wire fields must stay nil")
 	}
 
-	// Old producers may still post tokens_today — must parse, not 400.
 	var legacy StatusRequest
 	if err := json.Unmarshal([]byte(`{"source":"mbp","tool":"claude","session":"s1","state":"running","tokens_today":42}`), &legacy); err != nil {
 		t.Fatalf("legacy tokens_today must still parse: %v", err)

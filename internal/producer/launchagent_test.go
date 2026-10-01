@@ -8,7 +8,6 @@ import (
 
 const cliPlist = "/Users/x/Library/LaunchAgents/com.ember.heartbeat.plist"
 
-// fakeLaunchctl records calls and answers `print` / `print-disabled`.
 type fakeLaunchctl struct {
 	printOut    string
 	printErr    error
@@ -36,7 +35,6 @@ func (f *fakeLaunchctl) bootedOut() bool {
 	return false
 }
 
-// Fixtures: real `launchctl print` shapes from macOS 27.
 const (
 	appManagedPrint = `gui/501/com.ember.heartbeat = {
 	active count = 1
@@ -45,7 +43,6 @@ const (
 	managed_by = com.apple.xpc.ServiceManagement
 	state = running
 }`
-	// The same job if Apple dropped the managed_by line.
 	submittedNoManagedByPrint = `gui/501/com.ember.heartbeat = {
 	path = (submitted by smd.339)
 	type = Submitted

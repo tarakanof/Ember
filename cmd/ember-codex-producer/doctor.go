@@ -56,7 +56,6 @@ func runDoctor() {
 	}
 }
 
-// serverReachable reports whether GET <url>/healthz returns 2xx within timeout.
 func serverReachable(url string, timeout time.Duration) bool {
 	if url == "" {
 		return false

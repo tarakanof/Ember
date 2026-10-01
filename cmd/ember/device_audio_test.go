@@ -12,12 +12,10 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-// fakeClockCall is one request the fake clock received.
 type fakeClockCall struct {
 	method, path, body string
 }
 
-// fakeAudioClock serves reply for every request and records the calls.
 func fakeAudioClock(t *testing.T, status int, reply string) (*App, func() []fakeClockCall) {
 	t.Helper()
 	var mu sync.Mutex
@@ -84,8 +82,6 @@ func TestDevicePowerPutRejectsBadBodyWithoutCallingClock(t *testing.T) {
 	}
 }
 
-// A device refusal reaches the menu through the same envelope relay as every
-// other /v1/device proxy: status, code and field intact.
 func TestDevicePowerPutRelaysClockError(t *testing.T) {
 	a, _ := fakeAudioClock(t, http.StatusUnprocessableEntity,
 		`{"error":{"code":"validationFailed","message":"must be a boolean","field":"power"}}`)
@@ -155,9 +151,6 @@ func TestDeviceAudioTestRejectsBadMelodyName(t *testing.T) {
 	}
 }
 
-// A clock without a buzzer is refused up front with 503 unavailable (what
-// NG's audio/play gives for an absent output), so the menu can hide the
-// control on one signal.
 func TestDeviceAudioRoutesGatedOnBuzzer(t *testing.T) {
 	cases := []struct {
 		name string
@@ -207,8 +200,6 @@ func TestDeviceAudioStopGatedOnAnyOutput(t *testing.T) {
 	}
 }
 
-// With nothing cached (clock dark at boot) the request goes through and the
-// clock's own answer decides — a 503 from it is relayed as-is.
 func TestDeviceAudioColdCapsDefersToClock(t *testing.T) {
 	a, calls := fakeAudioClock(t, http.StatusServiceUnavailable,
 		`{"error":{"code":"unavailable","message":"no buzzer"}}`)
@@ -243,9 +234,6 @@ func TestDeviceAudioMelodiesColdCapsDefersToClock(t *testing.T) {
 	}
 }
 
-// Switching clocks from the menu must drop the previous clock's cached
-// capabilities: otherwise a move from a buzzer-less clock to one with a
-// buzzer answers 503 "no buzzer" until the server restarts.
 func TestDeviceConfigPutDropsStaleCapabilities(t *testing.T) {
 	a, calls := fakeAudioClock(t, http.StatusOK, `{"ok":true}`)
 	target := a.cfg.Load().effectiveClockURL()
@@ -267,8 +255,6 @@ func TestDeviceConfigPutDropsStaleCapabilities(t *testing.T) {
 	}
 }
 
-// A rediscovery swap whose capabilities fetch fails must not keep serving the
-// previous clock's lists.
 func TestRefreshCapabilitiesFailureDropsPreviousCache(t *testing.T) {
 	a, _ := fakeAudioClock(t, http.StatusInternalServerError, `boom`)
 	withAudioCaps(a, awtrix.AudioCaps{Buzzer: true})
@@ -314,8 +300,6 @@ func TestDeviceAudioMelodiesRelaysClockError(t *testing.T) {
 	}
 }
 
-// The new routes are writes to the clock and sit behind bearer auth, the
-// melody list included (it is part of the /v1/device group).
 func TestDevicePowerAudioRoutesRequireAuth(t *testing.T) {
 	a := newTestAppWithStore(t)
 	cur := *a.cfg.Load()

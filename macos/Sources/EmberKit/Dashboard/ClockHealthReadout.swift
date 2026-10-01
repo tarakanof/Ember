@@ -9,7 +9,6 @@ public enum ClockHealthReadout {
     /// Signal bars for an RSSI: `wifi` strength variable value 0...1 and
     /// whether it's weak.
     public static func wifi(rssi: Int) -> (strength: Double, weak: Bool) {
-        // -90 dBm and under is no signal, -50 and over full.
         let s = min(1, max(0, Double(rssi + 90) / 40))
         return (s, rssi < weakRSSI)
     }

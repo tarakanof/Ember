@@ -4,22 +4,17 @@ import Network
 public enum APIError: Error, Equatable, Sendable {
     case notConfigured
     case http(status: Int, body: String)
-    /// 429: the server's per-IP limiter throttled this Mac. Its own case because
-    /// it says nothing about the clock, the token, or the server's health — and
-    /// a caller that lumps it in with the rest reports the wrong cause.
+    /// 429: the server's per-IP limiter throttled this Mac.
     case rateLimited(retryAfter: Duration)
     case transport(String)
-    /// No answer came within the request's budget (`URLError.timedOut`). The
-    /// server may be up and waiting on the clock, so this is not reported as
-    /// "unreachable", which is for requests that never left.
+    /// No answer came within the request's budget (`URLError.timedOut`).
     case timedOut
     /// macOS Local Network privacy refused the connection to a LAN server
     /// (`LocalNetworkDenial`): the server may be fine.
     case localNetworkDenied
     /// 504 with code `clock_timeout`: the server answered, but its clock
     /// work ran out of the server's budget (`clockWriteBudget`, or
-    /// `clockReadBudget` for the settings read). Carries what the server knows
-    /// about the write; nil for a read, which has none.
+    /// `clockReadBudget` for the settings read).
     case clockTimedOut(ClockWriteOutcome?)
     case decoding(String)
 
@@ -52,10 +47,6 @@ public enum ClockWriteOutcome: String, Equatable, Sendable {
 }
 
 extension APIError {
-    /// The `clockTimedOut` a 504 body reports, or nil when it isn't a
-    /// `clock_timeout`. No `write` field means a read ran out
-    /// (`clockReadBudget`), so the outcome is nil; an unrecognised one reads
-    /// as `.unknown`.
     static func clockTimeout(status: Int, body: Data) -> APIError? {
         guard status == 504,
               let obj = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
@@ -72,8 +63,6 @@ public struct RequestNotSent: Error, LocalizedError, Equatable, Sendable {
     public var errorDescription: String? { underlying.errorDescription }
 }
 
-// Without this conformance, settings footers render the NSError bridge —
-// "EmberKit.APIError error 0." — instead of what the server actually said.
 extension APIError: LocalizedError {
     public var errorDescription: String? {
         switch self {
@@ -97,8 +86,6 @@ extension APIError: LocalizedError {
         }
     }
 
-    /// The server wraps errors as {"error":"…"}; show that field when present,
-    /// else fall back to the (trimmed) raw body snippet.
     private static func serverErrorText(_ body: String) -> String {
         if let data = body.data(using: .utf8),
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -110,25 +97,17 @@ extension APIError: LocalizedError {
 }
 
 /// How long a request may wait for the server, by what the server does before
-/// it answers. Each budget sits above the server's own for that work
-/// (`cmd/ember/clock_access.go`), so a slow clock normally reaches the app as
-/// the server's 502, not as a timeout of ours.
+/// it answers.
 public enum RequestBudget: Sendable, CaseIterable {
     /// Server-only work (`/healthz`, `/state`, settings): 5s, so a dead server
     /// shows promptly.
     case server
-    /// One clock call through the server: `menuCallTimeout` is 8s. Discovery
-    /// fits too (mDNS 3s, UDP fallback 3s, candidate probes 2s).
+    /// One clock call through the server: `menuCallTimeout` is 8s.
     case clock
     /// Work that chains clock calls or waits on a lock before one: a system
     /// read-merge-PUT queues behind another (two 8s calls each) and re-reads,
     /// a settings read or edit waits on the Pomodoro takeover snapshot and can
-    /// re-write over a restore, a reminder fire waits up to 10s. The server
-    /// bounds sensors/buttons/settings PUT at 25s (`clockWriteBudget`) and
-    /// answers 504 when that runs out. Set above that and the server's 30s
-    /// `WriteTimeout`, which doesn't stop a handler: one that still runs past
-    /// it (a settings read) has its connection dropped, which `classify`
-    /// reports as a timeout for this budget.
+    /// re-write over a restore, a reminder fire waits up to 10s.
     case clockLong
 
     /// Longest wait for the response to start (`timeoutIntervalForRequest`).
@@ -151,15 +130,11 @@ public enum RequestBudget: Sendable, CaseIterable {
 }
 
 /// Thin URLSession wrapper: injects the bearer token, encodes/decodes JSON, and
-/// maps non-2xx + transport + decode failures to APIError. Sendable so it can be
-/// captured by the Poller's tasks.
+/// maps non-2xx + transport + decode failures to APIError.
 public struct APIClient: Sendable {
     public let baseURL: URL?
     public let token: String?
-    /// The session for each budget: `session(for:)` unless a test injects one.
     let sessions: @Sendable (RequestBudget) -> URLSession
-    /// This Mac's network path status, read when a request fails to tell a
-    /// Local Network refusal from no network at all (`LocalNetworkDenial`).
     let pathStatus: @Sendable () -> NWPath.Status?
 
     public init(baseURL: URL?, token: String?, session: URLSession? = nil,
@@ -169,7 +144,6 @@ public struct APIClient: Sendable {
         self.init(baseURL: baseURL, token: token, sessions: pick, pathStatus: pathStatus)
     }
 
-    /// Picks a session per budget (tests record which budget a call used).
     init(baseURL: URL?, token: String?, sessions: @escaping @Sendable (RequestBudget) -> URLSession,
          pathStatus: (@Sendable () -> NWPath.Status?)? = nil) {
         self.baseURL = baseURL
@@ -183,9 +157,6 @@ public struct APIClient: Sendable {
         }
     }
 
-    /// The session a budget's requests run on: dedicated (not
-    /// `URLSession.shared`, whose 60s defaults would leave "Test Connection"
-    /// against a vanished host hanging), configured with the budget's timeouts.
     static func session(for budget: RequestBudget) -> URLSession {
         defaultSessions[budget]!
     }
@@ -195,13 +166,11 @@ public struct APIClient: Sendable {
             let config = URLSessionConfiguration.default
             config.timeoutIntervalForRequest = budget.requestTimeout
             config.timeoutIntervalForResource = budget.resourceTimeout
-            // No cache headers from the server; the default disk cache only rewrote Cache.db every request.
             config.urlCache = nil
             config.requestCachePolicy = .reloadIgnoringLocalCacheData
             return (budget, URLSession(configuration: config))
         })
 
-    /// URLError codes raised before the request left this Mac.
     private static let notSentCodes: Set<URLError.Code> = [
         .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .notConnectedToInternet,
     ]
@@ -218,8 +187,6 @@ public struct APIClient: Sendable {
                          headers: [String: String] = [:], budget: RequestBudget,
                          reportNotSent: Bool = false) async throws -> Data {
         guard let baseURL else { throw APIError.notConfigured }
-        // Match the Go client: trim a trailing slash off the base, then append the
-        // absolute path. Preserves any base path prefix and avoids double slashes.
         var base = baseURL.absoluteString
         if base.hasSuffix("/") { base.removeLast() }
         guard var comps = URLComponents(string: base + path) else { throw APIError.notConfigured }
@@ -265,13 +232,6 @@ public struct APIClient: Sendable {
         return data
     }
 
-    /// Maps a failed request to an APIError. A Local Network refusal wins over
-    /// everything: macOS can surface one as a timeout, and the fix is a
-    /// permission, not patience. Under `.clockLong` a dropped connection is a
-    /// timeout too: the server took the request and closed it when its
-    /// `WriteTimeout` passed, so the server was there, just slow. The budgeted
-    /// handlers (the device PUTs, the settings GET) answer 504 instead, but
-    /// other `.clockLong` requests can still drop.
     static func classify(_ error: Error, budget: RequestBudget, host: String?,
                          pathStatus: NWPath.Status?) -> APIError {
         if LocalNetworkDenial.isDenied(error, host: host, pathStatus: pathStatus) {
@@ -291,7 +251,7 @@ public struct APIClient: Sendable {
         catch { throw APIError.decoding(String(describing: error)) }
     }
 
-    /// POST/DELETE with no body (e.g. the pomodoro action endpoints).
+    /// POST/DELETE with no body.
     public func send(_ method: String, _ path: String, budget: RequestBudget = .server) async throws {
         _ = try await perform(method, path, query: [], body: nil, budget: budget)
     }
@@ -308,7 +268,6 @@ public struct APIClient: Sendable {
 
     /// POST carrying an `Idempotency-Key` so the server can drop a retry, with a
     /// timeout long enough to hear the server's answer instead of guessing.
-    /// Throws `RequestNotSent` when the connection failed before sending.
     public func postIdempotent<B: Encodable>(_ path: String, body: B, key: String) async throws {
         let data = try JSONEncoder().encode(body)
         _ = try await perform("POST", path, query: [], body: data,

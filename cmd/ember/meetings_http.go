@@ -6,8 +6,6 @@ import (
 
 type meetingsConfigDTO struct {
 	MeetingsConfig
-	// IcsUrlsConfigured tells the menu whether feeds exist server-side without
-	// ever echoing them (they're credentials).
 	IcsUrlsConfigured int `json:"ics_urls_configured"`
 }
 

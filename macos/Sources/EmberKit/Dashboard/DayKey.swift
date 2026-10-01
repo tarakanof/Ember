@@ -1,8 +1,6 @@
 import Foundation
 
-/// The server's bucket keys as dates. Days are "2026-09-26" (a logical day)
-/// and ISO weeks "2026-W39". Everything goes through `Calendar` arithmetic,
-/// never "+ 86 400 s", so a 23- or 25-hour DST day lands on the right key.
+/// The server's bucket keys as dates.
 public enum DayKey {
     /// Local midnight of a "yyyy-MM-dd" key in `calendar`'s time zone; nil
     /// when the key doesn't parse.

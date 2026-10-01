@@ -14,7 +14,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// statuslineInput is the subset of Claude Code's statusline JSON we read.
 type statuslineInput struct {
 	SessionID  string `json:"session_id"`
 	Cwd        string `json:"cwd"`
@@ -23,8 +22,6 @@ type statuslineInput struct {
 			UsedPercentage float64 `json:"used_percentage"`
 			ResetsAt       int64   `json:"resets_at"`
 		} `json:"five_hour"`
-		// SevenDay is the weekly rate-limit window Claude Code's statusline
-		// added alongside five_hour. Same shape, same lenient-optional parsing.
 		SevenDay *struct {
 			UsedPercentage float64 `json:"used_percentage"`
 			ResetsAt       int64   `json:"resets_at"`
@@ -43,8 +40,6 @@ func parseStatusline(b []byte) (statuslineInput, bool) {
 	return in, true
 }
 
-// extractRatePct returns the 5h rate-limit used-percentage as a clamped int
-// (0..100), or (nil,false) when rate_limits.five_hour is absent.
 func extractRatePct(in statuslineInput) (*int, bool) {
 	if in.RateLimits == nil || in.RateLimits.FiveHour == nil {
 		return nil, false
@@ -59,8 +54,6 @@ func extractRatePct(in statuslineInput) (*int, bool) {
 	return &pct, true
 }
 
-// extractRateResetAt returns the 5h window's reset time (unix epoch seconds),
-// or (0,false) when five_hour or a positive resets_at is absent.
 func extractRateResetAt(in statuslineInput) (int64, bool) {
 	if in.RateLimits == nil || in.RateLimits.FiveHour == nil || in.RateLimits.FiveHour.ResetsAt <= 0 {
 		return 0, false
@@ -68,9 +61,6 @@ func extractRateResetAt(in statuslineInput) (int64, bool) {
 	return in.RateLimits.FiveHour.ResetsAt, true
 }
 
-// extractRateResetLabel returns the 5h reset time as a host-local "HH:MM"
-// string. The statusline runs on the Mac, so this captures the user's local
-// timezone for the server (UTC container) to render verbatim in the 5h fallback.
 func extractRateResetLabel(in statuslineInput) (string, bool) {
 	at, ok := extractRateResetAt(in)
 	if !ok {
@@ -79,8 +69,6 @@ func extractRateResetLabel(in statuslineInput) (string, bool) {
 	return time.Unix(at, 0).Local().Format("15:04"), true
 }
 
-// extractWeekPct returns the 7-day rate-limit used-percentage as a clamped
-// int (0..100), or (nil,false) when rate_limits.seven_day is absent.
 func extractWeekPct(in statuslineInput) (*int, bool) {
 	if in.RateLimits == nil || in.RateLimits.SevenDay == nil {
 		return nil, false
@@ -95,8 +83,6 @@ func extractWeekPct(in statuslineInput) (*int, bool) {
 	return &pct, true
 }
 
-// extractWeekResetAt returns the 7-day window's reset time (unix epoch
-// seconds), or (0,false) when seven_day or a positive resets_at is absent.
 func extractWeekResetAt(in statuslineInput) (int64, bool) {
 	if in.RateLimits == nil || in.RateLimits.SevenDay == nil || in.RateLimits.SevenDay.ResetsAt <= 0 {
 		return 0, false
@@ -104,9 +90,6 @@ func extractWeekResetAt(in statuslineInput) (int64, bool) {
 	return in.RateLimits.SevenDay.ResetsAt, true
 }
 
-// extractWeekResetLabel returns the 7-day reset time as an uppercase
-// three-letter weekday ("MON"), matching the OAuth-poller's weekly label
-// convention (usage.go's dayLabel) so both sources render identically.
 func extractWeekResetLabel(in statuslineInput) (string, bool) {
 	at, ok := extractWeekResetAt(in)
 	if !ok {
@@ -115,8 +98,6 @@ func extractWeekResetLabel(in statuslineInput) (string, bool) {
 	return dayLabel(time.Unix(at, 0), time.Local), true
 }
 
-// extractContextPct returns context_window.used_percentage as a clamped int
-// (0..100), or (nil,false) when context_window is absent.
 func extractContextPct(in statuslineInput) (*int, bool) {
 	if in.ContextWindow == nil {
 		return nil, false
@@ -131,9 +112,6 @@ func extractContextPct(in statuslineInput) (*int, bool) {
 	return &pct, true
 }
 
-// contextPctEnabled reads EMBER_CONTEXT_PCT_ENABLED from producer.env (default
-// true). Flag-only read — no token, no full loadConfig — so the statusline keeps
-// its no-POST property while the menu glass toggle still gates the glass.
 func contextPctEnabled() bool {
 	path, err := envFilePath()
 	if err != nil {
@@ -154,8 +132,6 @@ func wrappedStatuslinePath(home string) string {
 	return filepath.Join(home, ".config", "ember", "wrapped-statusline.json")
 }
 
-// readWrappedCommand returns the shell command captured from the user's
-// original statusLine (string form, or {"command":...} object), or ("",false).
 func readWrappedCommand(path string) (string, bool) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -176,23 +152,16 @@ func readWrappedCommand(path string) (string, bool) {
 	return "", false
 }
 
-// runWrapped runs the captured statusline command via the shell with the
-// original statusline JSON on its stdin, returning its stdout.
 func runWrapped(command string, stdin []byte) ([]byte, error) {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Stdin = bytes.NewReader(stdin)
 	return cmd.Output()
 }
 
-// ourStatuslineCommand is the statusLine command the installer sets. Stdout is
-// NOT redirected (it's the rendered status bar Claude reads); only stderr goes
-// to the producer log.
 func ourStatuslineCommand(binPath string) string {
 	return binPath + ` statusline 2>>$HOME/Library/Logs/ember-claude-producer.log`
 }
 
-// statusLineIsOurs reports whether a settings.json statusLine value is the
-// command this producer installs (string or object form).
 func statusLineIsOurs(v any) bool {
 	raw, err := json.Marshal(v)
 	if err != nil {
@@ -203,10 +172,6 @@ func statusLineIsOurs(v any) bool {
 		strings.Contains(s, legacyProducerName+" statusline")
 }
 
-// runStatusline is the `statusline` subcommand: read the statusline JSON from
-// stdin, enrich the session marker with rate_window_pct (best-effort), then
-// delegate to the user's captured statusline (stdout passed through). It does
-// NOT call loadConfig and makes no network call — no token needed.
 func runStatusline() {
 	buf, _ := io.ReadAll(os.Stdin)
 	if in, ok := parseStatusline(buf); ok {
@@ -254,10 +219,6 @@ func runStatusline() {
 	os.Exit(0)
 }
 
-// enrichMarker merges statusline-owned fields (rate_window_pct, context_pct,
-// and their weekly counterparts) into an EXISTING session marker, preserving
-// hook-set fields. Each pointer/non-empty string is applied only when present;
-// never clears. Absent/unparseable marker → skip.
 func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
 	weekPct *int, weekResetAt *int64, weekResetLabel string) error {
 	mp := markerPath(stateDir, sessionID)

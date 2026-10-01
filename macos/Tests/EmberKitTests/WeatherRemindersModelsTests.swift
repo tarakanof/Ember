@@ -32,13 +32,11 @@ import Foundation
                 "popup_on_change", "severe_alert", "severe_sound", "use_native_icons"] {
         #expect(s.contains(key), "encoded weather config missing key \(key)")
     }
-    // Round-trips back to an equal value.
     let back = try JSONDecoder().decode(WeatherConfig.self, from: data)
     #expect(back == c)
 }
 
 @Test func weatherConfigForecastSkyFieldsDecodeAndDefault() throws {
-    // Explicit values decode.
     let json = #"""
     {"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2,
      "forecast_tile":false,"forecast_hours":12,"sun_popups":false,"moon_phase":false}
@@ -49,8 +47,6 @@ import Foundation
     #expect(c.sunPopups == false)
     #expect(c.moonPhase == false)
 
-    // Absent (older blobs) → on-by-default, 24h. Guards the upgrade path so the
-    // menu never silently drops the features when re-saving an old config.
     let old = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#
     let d = try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8))
     #expect(d.forecastTile)
@@ -63,8 +59,6 @@ import Foundation
     let off = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2,"overlay":false}"#
     #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(off.utf8)).overlay == false)
 
-    // Absent (older servers) → on, the server's default, so a re-save never
-    // turns it off.
     let old = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#
     #expect(try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8)).overlay)
 
@@ -75,7 +69,6 @@ import Foundation
 }
 
 @Test func weatherConfigAirFieldsDecodeAndDefault() throws {
-    // Explicit values decode.
     let json = #"""
     {"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2,
      "air_tile":false,"air_popup_threshold":0}
@@ -84,14 +77,11 @@ import Foundation
     #expect(c.airTile == false)
     #expect(c.airPopupThreshold == 0)
 
-    // Absent (older blobs/servers) → the server's own load defaults, so a
-    // re-save never silently turns the feature off.
     let old = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#
     let d = try JSONDecoder().decode(WeatherConfig.self, from: Data(old.utf8))
     #expect(d.airTile)
     #expect(d.airPopupThreshold == 80)
 
-    // Encodes the server keys and round-trips.
     var e = WeatherConfig(enabled: true, latitude: 1, longitude: 2)
     e.airTile = false
     e.airPopupThreshold = 120
@@ -104,13 +94,11 @@ import Foundation
 }
 
 @Test func weatherConfigIconIdsRoundTripAndTolerateAbsent() throws {
-    // Absent icon_ids decodes to an empty map (server omits it when empty).
     let noIcons = #"{"enabled":true,"provider":"open-meteo","latitude":1,"longitude":2}"#
     let a = try JSONDecoder().decode(WeatherConfig.self, from: Data(noIcons.utf8))
     #expect(a.iconIds.isEmpty)
-    #expect(a.rotateInApps)   // decodeIfPresent default holds
+    #expect(a.rotateInApps)
 
-    // Explicit overrides round-trip.
     var c = WeatherConfig(enabled: true, latitude: 1, longitude: 2, useNativeIcons: true)
     c.iconIds = ["rain": "999", "storm": "11428"]
     let data = try JSONEncoder().encode(c)

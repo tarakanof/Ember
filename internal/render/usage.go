@@ -1,6 +1,5 @@
 package render
 
-// 8x8 tool icons ('X' lit, painted in the tool colour). From the approved spec.
 var usageIconClaude = []string{
 	"..X..X..", ".XXXXXX.", ".X.XX.X.", "XX.XX.XX",
 	"XXXXXXXX", ".X....X.", ".XXXXXX.", "........",
@@ -19,17 +18,12 @@ var (
 	usageTrack       = RGB{0x2c, 0x2c, 0x2c}
 )
 
-// The usage threshold palette: the one set of colours for a usage percentage
-// (digits, bars, reset urgency), deliberately apart from the agent-state
-// colours so an amber 87 % never reads as a waiting agent.
 var (
 	usageOK   = RGB{0x39, 0xd3, 0x53}
 	usageWarn = RGB{0xe3, 0xa0, 0x08}
 	usageHot  = RGB{0xf0, 0x4e, 0x4e}
 )
 
-// usageThreshold colours a usage percentage, matching Claude Code's
-// statusline convention: <70 green, 70–89 amber, >=90 red.
 func usageThreshold(pct int) RGB {
 	switch {
 	case pct < 70:
@@ -41,14 +35,13 @@ func usageThreshold(pct int) RGB {
 	}
 }
 
-func dimThreshold(pct int) RGB { // ~55% of the threshold colour
+func dimThreshold(pct int) RGB {
 	c := usageThreshold(pct)
 	return RGB{uint8(int(c.R) * 55 / 100), uint8(int(c.G) * 55 / 100), uint8(int(c.B) * 55 / 100)}
 }
 
 func toInt(c RGB) int { return int(c.R)<<16 | int(c.G)<<8 | int(c.B) }
 
-// usageBarPixels returns the barW colours (cols barX0..31) of a dimmed 1px bar.
 func usageBarPixels(pct int) []RGB {
 	fill := (barW*pct + 50) / 100
 	if pct > 0 && fill < 1 {
@@ -65,8 +58,6 @@ func usageBarPixels(pct int) []RGB {
 	return out
 }
 
-// bitmap8 renders an 8x8 icon sprite to 64 row-major ints in colour c (for a
-// db [0,0,8,8] draw op).
 func bitmap8(icon []string, c RGB) []int {
 	px := make([]int, 64)
 	for y, row := range icon {
@@ -79,9 +70,6 @@ func bitmap8(icon []string, c RGB) []int {
 	return px
 }
 
-// drawClockInto paints HH:MM left-aligned at x, rows 1-5, with a tight, dimmed
-// colon (0-px kerning around ':'). Uses per-glyph advance (NOT drawDigits) so
-// the 1-wide ':' and 3-wide digits pack tightly.
 func drawClockInto(f *Frame, hhmm string, x int) {
 	runes := []rune(hhmm)
 	for i, ch := range runes {
@@ -105,7 +93,6 @@ func drawClockInto(f *Frame, hhmm string, x int) {
 	}
 }
 
-// drawBarInto paints the 1px dimmed bottom bar (row 7, cols barX0..31).
 func drawBarInto(f *Frame, pct int) {
 	for i, c := range usageBarPixels(pct) {
 		paintCell(f, barX0+i, barRow, c)
@@ -113,9 +100,7 @@ func drawBarInto(f *Frame, pct int) {
 }
 
 // LimitResetPopupPayload is the "5h limit reset — back to work" notification:
-// drawn 8×8 tool icon + brand-coloured text, auto-dismiss. The caller adds the
-// notification's name and its soundRtttl chime — awtrix-ng plays a
-// notification's melody alongside its draw commands.
+// drawn 8×8 tool icon + brand-coloured text, auto-dismiss.
 func LimitResetPopupPayload(tool string, durationSec int) map[string]any {
 	icon, color, label := usageIconClaude, usageColorClaude, "CLAUDE 5H RESET"
 	if tool == "codex" {

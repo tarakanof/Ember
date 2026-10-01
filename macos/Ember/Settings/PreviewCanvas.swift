@@ -1,10 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Renders the simulated /v1/preview card frames in the glowing-LED matrix
-/// design (via `MatrixScreenView`), cycling through the cards on a timer to
-/// mirror the device rotation. Each frame's "#rrggbb" pixels are converted to
-/// the 24-bit ints `MatrixScreenView` expects.
 struct PreviewCanvas: View {
     let frames: [CardFrame]
     var width: Int = 32
@@ -33,8 +29,6 @@ struct PreviewCanvas: View {
                         .padding(3)
                 }
             }
-            // A task, not a Combine timer in @State (a build warning under the
-            // @State macro, audit #48); restarts when the frame count changes.
             .task(id: frames.count) {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(2))

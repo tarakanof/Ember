@@ -44,8 +44,7 @@ extension Session {
             }
         }
 
-        /// Sort order for session lists, lowest first. Matches `pickWinning`:
-        /// what needs attention comes first.
+        /// Sort order for session lists, lowest first.
         public var sortRank: Int {
             switch self {
             case .waiting: 0

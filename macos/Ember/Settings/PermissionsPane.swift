@@ -2,11 +2,6 @@ import SwiftUI
 import AppKit
 import EmberKit
 
-/// Every OS permission Ember uses, with its live status and the fix. Status
-/// comes from `PermissionsModel`: Local Network by probing (macOS has no API
-/// for it), the rest from their frameworks and the producer installer.
-/// Re-checked when the pane appears and whenever Ember becomes active, e.g.
-/// back from System Settings, at most every few seconds.
 struct PermissionsPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var producers: ProducerInstallModel?
@@ -71,8 +66,6 @@ struct PermissionsPane: View {
     }
 }
 
-/// One permission: what it's for, its status (text and symbol, not colour
-/// alone) and the button that fixes or explains it.
 private struct PermissionRowView: View {
     let row: PermissionRow
     let perform: (PermissionAction) -> Void
@@ -143,7 +136,6 @@ private struct PermissionRowView: View {
     }
 }
 
-/// A permission status as text plus a symbol.
 struct PermissionBadge: View {
     let status: PermissionStatus
 
@@ -193,8 +185,6 @@ struct PermissionBadge: View {
     }
 }
 
-/// The General pane's (and others') one-line warning when a required
-/// permission is off, with a button to the Permissions pane.
 struct PermissionsWarning: View {
     let rows: [PermissionRow]
 

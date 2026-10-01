@@ -51,8 +51,6 @@ public enum FeedError: Error, Equatable, Sendable {
         case .clockTimedOut(let outcome): self = .clockTimedOut(outcome)
         case .rateLimited: self = .rateLimited
         case .http(401, _): self = .unauthorized
-        // 405: a server that has only the POST of a route this app reads
-        // (/v1/usage before 0.28) — the read is just as missing as a 404.
         case .http(404, _), .http(405, _): self = .featureOff
         case .http, .decoding: self = .server(api.localizedDescription)
         }

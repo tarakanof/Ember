@@ -1,11 +1,5 @@
 // Package awtrix is the HTTP client for the awtrix-ng firmware's API v1
-// (https://blueforcer.github.io/awtrix-ng/reference/http/). It is the single
-// place in Ember that knows NG endpoint paths and the NG error envelope.
-//
-// NG validates strictly: unknown payload keys are rejected with 422 and the
-// offending field name, and PUT/PATCH without Content-Type: application/json
-// are rejected with 415. Errors surface as *APIError so callers can log the
-// field.
+// (https://blueforcer.github.io/awtrix-ng/reference/http/).
 package awtrix
 
 import (
@@ -23,9 +17,7 @@ import (
 	"time"
 )
 
-// Client talks to one awtrix-ng device. Construct per call site with the
-// currently-resolved base URL; it holds no connection state beyond the
-// underlying http.Client.
+// Client talks to one awtrix-ng device.
 type Client struct {
 	base string
 	hc   *http.Client
@@ -64,8 +56,7 @@ func (e *APIError) Error() string {
 	return b.String()
 }
 
-// AppInfo is one entry of GET /api/v1/apps. Origin is "builtin", "pushed", or
-// "script" — "pushed" identifies apps Ember (or another API client) pushed.
+// AppInfo is one entry of GET /api/v1/apps.
 type AppInfo struct {
 	Name    string `json:"name"`
 	Enabled bool   `json:"enabled"`
@@ -85,13 +76,11 @@ type DeviceInfo struct {
 }
 
 // PushApp creates or replaces a pushed app (PUT /api/v1/apps/pushed/{name}).
-// Pushed apps are RAM-only in NG and vanish on reboot.
 func (c *Client) PushApp(ctx context.Context, name string, payload map[string]any) error {
 	return c.doJSON(ctx, http.MethodPut, "/api/v1/apps/pushed/"+url.PathEscape(name), payload, nil)
 }
 
-// DeleteApp removes a pushed app (DELETE /api/v1/apps/{name}). Replaces the
-// AWTRIX3 empty-object POST, which NG rejects.
+// DeleteApp removes a pushed app (DELETE /api/v1/apps/{name}).
 func (c *Client) DeleteApp(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(name), nil, nil)
 }
@@ -116,9 +105,8 @@ func (c *Client) DismissNotify(ctx context.Context) error {
 }
 
 // DismissNotifyByName clears the notification carrying name, wherever it sits
-// in the queue (DELETE /api/v1/notifications/{name}; names are matched exactly).
-// Unlike DismissNotify it can never clear a notification Ember did not push.
-// A name the device does not hold answers 404, surfaced as *APIError.
+// in the queue (DELETE /api/v1/notifications/{name}; names are matched
+// exactly).
 func (c *Client) DismissNotifyByName(ctx context.Context, name string) error {
 	if name == "" {
 		return errors.New("notification name is required")
@@ -127,10 +115,7 @@ func (c *Client) DismissNotifyByName(ctx context.Context, name string) error {
 }
 
 // Capabilities is GET /api/v1/capabilities: the name lists this firmware build
-// supports, to be read rather than hardcoded. The typed fields are what Ember
-// itself reads; the whole device document is kept in raw so a re-marshal
-// reproduces it verbatim (audio, scriptUpdates, gpio and any key a later
-// firmware adds), and pass-through consumers never lose a field.
+// supports, to be read rather than hardcoded.
 type Capabilities struct {
 	Effects        []string `json:"effects"`
 	PaletteEffects []string `json:"paletteEffects"`
@@ -146,8 +131,8 @@ type Capabilities struct {
 	raw json.RawMessage
 }
 
-// AudioCaps is capabilities.audio: which outputs answer POST /api/v1/audio/play.
-// A key for an absent output answers 503 unavailable.
+// AudioCaps is capabilities.audio: which outputs answer POST
+// /api/v1/audio/play.
 type AudioCaps struct {
 	Buzzer bool `json:"buzzer"`
 	Track  bool `json:"track"`
@@ -155,7 +140,6 @@ type AudioCaps struct {
 	Radio  bool `json:"radio"`
 }
 
-// capabilitiesFields breaks the MarshalJSON/UnmarshalJSON recursion.
 type capabilitiesFields Capabilities
 
 func (c *Capabilities) UnmarshalJSON(b []byte) error {
@@ -185,38 +169,31 @@ func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
 	return caps, err
 }
 
-// PlayRTTTL plays an inline RTTTL melody on the buzzer
-// (POST /api/v1/audio/play {"rtttl"}; NG 1.1.0 moved audio off /sounds/play).
-// A board with no buzzer answers 503 unavailable.
+// PlayRTTTL plays an inline RTTTL melody on the buzzer (POST /api/v1/audio/play
+// {"rtttl"}; NG 1.1.0 moved audio off /sounds/play).
 func (c *Client) PlayRTTTL(ctx context.Context, rtttl string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"rtttl": rtttl}, nil)
 }
 
-// PlaySound plays a sound stored on the device by name
-// (POST /api/v1/audio/play {"sound"}). The device picks the output: an MP3 of
-// that name, then a melody, then a numbered DFPlayer track.
+// PlaySound plays a sound stored on the device by name (POST /api/v1/audio/play
+// {"sound"}).
 func (c *Client) PlaySound(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"sound": name}, nil)
 }
 
-// PlayMelody plays a melody stored on the device by name
-// (POST /api/v1/audio/play {"melody"}). Unlike PlaySound it never falls back
-// to an MP3 of the same name: an unknown name answers 404 notFound, a board
-// with no buzzer 503 unavailable.
+// PlayMelody plays a melody stored on the device by name (POST
+// /api/v1/audio/play {"melody"}).
 func (c *Client) PlayMelody(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"melody": name}, nil)
 }
 
-// StopAudio silences every output, radio included (POST /api/v1/audio/stop
-// with no body, which is scope "all"). It works even while soundEnabled is off.
+// StopAudio silences every output, radio included (POST /api/v1/audio/stop with
+// no body, which is scope "all").
 func (c *Client) StopAudio(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/stop", nil, nil)
 }
 
-// Melody is one entry of GET /api/v1/audio/melodies. Notes and DurationMs come
-// from parsing RTTTL and are 0 when it does not parse; a file that does not
-// parse is still listed, with Valid false and the reason in Error at byte
-// offset Index.
+// Melody is one entry of GET /api/v1/audio/melodies.
 type Melody struct {
 	Name       string `json:"name"`
 	RTTTL      string `json:"rtttl"`
@@ -228,16 +205,15 @@ type Melody struct {
 	Index      *int   `json:"index,omitempty"`
 }
 
-// MelodyList is GET /api/v1/audio/melodies. UsedBytes/TotalBytes cover the
-// whole filesystem (icons, scripts and palettes share it), not just melodies.
+// MelodyList is GET /api/v1/audio/melodies.
 type MelodyList struct {
 	Melodies   []Melody `json:"melodies"`
 	UsedBytes  int64    `json:"usedBytes"`
 	TotalBytes int64    `json:"totalBytes"`
 }
 
-// Melodies lists the melody files stored on the device
-// (GET /api/v1/audio/melodies). Melodies is never nil on success.
+// Melodies lists the melody files stored on the device (GET
+// /api/v1/audio/melodies).
 func (c *Client) Melodies(ctx context.Context) (MelodyList, error) {
 	var out MelodyList
 	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/audio/melodies", nil, &out); err != nil {
@@ -249,9 +225,8 @@ func (c *Client) Melodies(ctx context.Context) (MelodyList, error) {
 	return out, nil
 }
 
-// SetDisplayPower blanks (false) or relights (true) the LED matrix
-// (PATCH /api/v1/display {"power"}). The board, Wi-Fi and apps keep running;
-// the state is runtime-only and a reboot relights the panel.
+// SetDisplayPower blanks (false) or relights (true) the LED matrix (PATCH
+// /api/v1/display {"power"}).
 func (c *Client) SetDisplayPower(ctx context.Context, on bool) error {
 	return c.doJSON(ctx, http.MethodPatch, "/api/v1/display", map[string]any{"power": on}, nil)
 }
@@ -332,8 +307,8 @@ func (c *Client) ListIcons(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// PutIcon uploads an icon into /ICONS (multipart POST /api/v1/files?dir=/ICONS).
-// The device validates GIF/JPEG magic bytes.
+// PutIcon uploads an icon into /ICONS (multipart POST
+// /api/v1/files?dir=/ICONS).
 func (c *Client) PutIcon(ctx context.Context, filename string, data []byte) error {
 	if c.base == "" {
 		return errors.New("awtrix base URL is required")
@@ -375,8 +350,6 @@ func (c *Client) Reboot(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/device/reboot", nil, nil)
 }
 
-// doJSON performs one request. payload nil means no body; out nil means the
-// response body is discarded after the status check.
 func (c *Client) doJSON(ctx context.Context, method, path string, payload map[string]any, out any) error {
 	if c.base == "" {
 		return errors.New("awtrix base URL is required")
@@ -412,18 +385,11 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload map[st
 	return nil
 }
 
-// drainClose reads what is left of a response body before closing it. Go's
-// transport returns a connection to the keep-alive pool only when the body
-// was read to EOF; closing early forces a fresh TCP handshake on the next
-// request, which on the lossy Wi-Fi link to the clock is one more chance to
-// lose a packet. The limit bounds the work on an unexpectedly large reply.
 func drainClose(body io.ReadCloser) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(body, 64<<10))
 	_ = body.Close()
 }
 
-// checkStatus maps non-2xx responses to *APIError, decoding the NG error
-// envelope when present and falling back to the raw body otherwise.
 func checkStatus(resp *http.Response) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
@@ -432,10 +398,9 @@ func checkStatus(resp *http.Response) error {
 	return ParseAPIError(resp.StatusCode, raw)
 }
 
-// ParseAPIError builds the *APIError for a non-2xx device reply from its
-// status and body: the NG envelope ({"error":{code,message,field}}) when the
-// body carries one, the trimmed raw body as the message otherwise. Exported so
-// the server's raw device proxy reports errors the same way this client does.
+// ParseAPIError builds the *APIError for a non-2xx device reply from its status
+// and body: the NG envelope ({"error":{code,message,field}}) when the body
+// carries one, the trimmed raw body as the message otherwise.
 func ParseAPIError(status int, body []byte) *APIError {
 	apiErr := &APIError{StatusCode: status}
 	var envelope struct {

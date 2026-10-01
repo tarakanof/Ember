@@ -32,7 +32,7 @@ public struct BotStyle: Sendable {
     /// the size at which a circular extra matches the system icons' weight.
     public static func menuBar(tint: CGColor) -> BotStyle {
         var s = BotStyle(body: tint, eyes: nil, fill: 16.0 / 22, eyeScale: 1.25, hopScale: 0.5)
-        s.eyeGrow = CGSize(width: 0.5 / 8, height: 0.5 / 8)   // +1 Retina px on the 8 pt radius
+        s.eyeGrow = CGSize(width: 0.5 / 8, height: 0.5 / 8)
         return s
     }
 
@@ -42,7 +42,6 @@ public struct BotStyle: Sendable {
                          eyes: CGColor(gray: 1, alpha: 1),
                          badge: badge, shadow: true, fill: 0.62, hopScale: 0.6,
                          plate: CGColor(srgbRed: 0.98, green: 0.98, blue: 0.98, alpha: 1))
-        // ~2–3 Retina px bolder at a 64 pt Dock (ball radius ≈ 20 pt).
         s.eyeGrow = CGSize(width: 0.05, height: 0.07)
         return s
     }
@@ -50,13 +49,12 @@ public struct BotStyle: Sendable {
     /// The ball's radius, in the same units, on a square canvas `side` across.
     public func bodyRadius(side: Double) -> Double { side / 2 * fill }
 
-    /// Apple's macOS 26 icon template: 824 px plate on a 1024 px canvas.
     static let plateSize = 824.0 / 1024
     static let plateCorner = 0.225
 }
 
 /// Draws the bot in code — a 96-point body ring (so shapes morph point by point)
-/// plus capsule/oval/arc eyes. Coordinates are y-up.
+/// plus capsule/oval/arc eyes.
 public enum BotRenderer {
     public static func draw(_ pose: BotPose, in ctx: CGContext, rect: CGRect, style: BotStyle) {
         let half = min(rect.width, rect.height) / 2
@@ -76,7 +74,6 @@ public enum BotRenderer {
             ctx.setFillColor(plate)
             ctx.fillPath()
             ctx.restoreGState()
-            // Keep hops and squash inside the plate, like the reference tile.
             ctx.addPath(shape)
             ctx.clip()
         }
@@ -85,10 +82,8 @@ public enum BotRenderer {
             ctx.setShadow(offset: CGSize(width: 0, height: -0.04 * r), blur: 0.1 * r,
                           color: CGColor(gray: 0, alpha: 0.22))
         }
-        // Bare ball: sit low to leave hop headroom. On a plate: dead centre.
         ctx.translateBy(x: rect.midX, y: rect.midY - (style.plate == nil ? 0.12 * r : 0))
         ctx.scaleBy(x: r, y: r)
-        // Squash pivots on the ground, not the centre.
         ctx.translateBy(x: pose.offsetX, y: pose.offsetY * style.hopScale - (1 - pose.scaleY))
         ctx.scaleBy(x: pose.scaleX, y: pose.scaleY)
 
@@ -109,7 +104,7 @@ public enum BotRenderer {
         }
         ctx.saveGState()
         ctx.addPath(body)
-        ctx.clip()                                 // eyes never spill off the triangle
+        ctx.clip()
         drawEyes(pose, in: ctx, scale: style.eyeScale, grow: style.eyeGrow)
         ctx.restoreGState()
         ctx.setBlendMode(.normal)
@@ -117,7 +112,6 @@ public enum BotRenderer {
         let badgeAt = CGPoint(x: cos(.pi / 4) * 0.98, y: sin(.pi / 4) * 0.98)
         let showBadge = style.badge != nil && pose.badge > 0.01
         if showBadge {
-            // Gap ring: cut from the body so the badge reads as sitting on top.
             ctx.setBlendMode(.clear)
             ctx.fillEllipse(in: circle(badgeAt, 0.3 * pose.badge))
             ctx.setBlendMode(.normal)
@@ -134,8 +128,6 @@ public enum BotRenderer {
 
     static let ringPoints = 96
 
-    /// Sphere ↔ rounded triangle, blended per ring point. Sleepiness shows in the
-    /// eyes only: a sagging body read as a squashed, broken icon.
     static func bodyPath(triangle k: Double) -> CGPath {
         let pts: [CGPoint] = (0..<ringPoints).map { i in
             let a = Double(i) / Double(ringPoints) * 2 * .pi
@@ -145,8 +137,6 @@ public enum BotRenderer {
         return smoothClosedPath(pts)
     }
 
-    /// Polar radius of an upward-pointing triangle whose corners are rounded by
-    /// a smooth-min against a circle.
     static func triangleRadius(_ a: Double) -> Double {
         let sector = 2 * Double.pi / 3
         var local = (a - .pi / 2).truncatingRemainder(dividingBy: sector)
@@ -160,7 +150,6 @@ public enum BotRenderer {
         return min(a, b) - h * h * k * 0.25
     }
 
-    /// Catmull-Rom through the ring → cubic Béziers.
     static func smoothClosedPath(_ p: [CGPoint]) -> CGPath {
         let path = CGMutablePath()
         let n = p.count
@@ -178,20 +167,15 @@ public enum BotRenderer {
     // MARK: - Eyes
 
     static func drawEyes(_ pose: BotPose, in ctx: CGContext, scale: Double, grow: CGSize = .zero) {
-        // Tighter reach on the triangle, whose inscribed circle is smaller.
         let reach = 0.6 - 0.2 * pose.triangle
         var cx = pose.gazeX * reach
         var cy = pose.gazeY * reach - 0.12 * pose.triangle - 0.1 * pose.slump
         let limit = 0.52 - 0.15 * pose.triangle
         let d = hypot(cx, cy)
         if d > limit { cx *= limit / d; cy *= limit / d }
-        // Foreshortening: eyes near the rim of the sphere narrow and huddle.
         let fx = (1 - 0.45 * cx * cx).squareRoot()
         let fy = (1 - 0.45 * cy * cy).squareRoot()
 
-        // Upright and level facing the viewer; the reference's 27° "\" lean and
-        // raised right eye grow back in as the gaze turns either way.
-        // Dead zone: glances "at the viewer" jitter a little and should stay level.
         let straight = 0.06
         let lean = min(max(abs(cx) - straight, 0) / (BotBehavior.rest.x * 0.6 - straight), 1)
         let sep = (pose.eyes == .round ? 0.5 : 0.44) * fx * (1 + (scale - 1) * 0.5)
@@ -204,7 +188,7 @@ public enum BotRenderer {
 
     static func eye(_ kind: BotEyes, side: Double, lid: Double, lean: Double = 1, at c: CGPoint,
                     fx: Double, fy: Double, grow: CGSize = .zero, in ctx: CGContext) {
-        let gw = grow.width, gh = grow.height * (1 - lid)   // shut lids stay thin
+        let gw = grow.width, gh = grow.height * (1 - lid)
         func lerp(_ a: Double, _ b: Double) -> Double { a + (b - a) * lid }
         let deg = Double.pi / 180
         switch kind {

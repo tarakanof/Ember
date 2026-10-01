@@ -35,7 +35,6 @@ func TestGeneratePlist_StructureAndPaths(t *testing.T) {
 	if strings.Contains(s, "StandardOutPath") || strings.Contains(s, "StandardErrorPath") {
 		t.Errorf("plist must not set StandardOutPath/StandardErrorPath; the daemon opens its own log via producer.OpenDaemonLog:\n%s", s)
 	}
-	// XML well-formed (skip the DOCTYPE which encoding/xml doesn't parse)
 	idx := strings.Index(s, "<plist")
 	if idx < 0 {
 		t.Fatal("missing <plist>")
@@ -158,7 +157,6 @@ func TestProducerHookEntries_SelfHealingGuard(t *testing.T) {
 	}
 }
 
-// The guarded command must still be recognized as ours for upgrade/uninstall.
 func TestEntryMatchesProducer_GuardedCommand(t *testing.T) {
 	bin := "/Applications/Ember.app/Contents/MacOS/ember-claude-producer"
 	entry := producerHookEntries(bin)[0]
@@ -175,9 +173,6 @@ func mustMkdir(t *testing.T, p string) {
 	}
 }
 
-// TestMergeSettings_SessionEndMatcherIncludesClear is the Task-9 /clear-ghost
-// regression test: the installed SessionEnd matcher must include "clear" so
-// the hook fires for it (see hook.go's session-end EndReason switch).
 func TestMergeSettings_SessionEndMatcherIncludesClear(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -193,13 +188,6 @@ func TestMergeSettings_SessionEndMatcherIncludesClear(t *testing.T) {
 	}
 }
 
-// TestMergeSettings_UpgradeReplacesOldSessionEndMatcher confirms that
-// installing over a settings.json written by a pre-clear-fix binary (matcher
-// without "clear") replaces the stale matcher rather than leaving it to
-// double-fire alongside a new entry. mergeSettingsJSON identifies "ours" by
-// command substring (entryMatchesProducer), not by matcher value, so a
-// plain re-install already self-heals this — no separate migration path
-// needed.
 func TestMergeSettings_UpgradeReplacesOldSessionEndMatcher(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -224,17 +212,11 @@ func TestMergeSettings_UpgradeReplacesOldSessionEndMatcher(t *testing.T) {
 	if !strings.Contains(string(body), `logout|prompt_input_exit|bypass_permissions_disabled|other|clear`) {
 		t.Errorf("upgrade did not install the new matcher with clear:\n%s", body)
 	}
-	// Exactly one SessionEnd entry — the old one was replaced, not duplicated.
 	if strings.Count(string(body), `"SessionEnd"`) != 1 {
 		t.Errorf("expected exactly one SessionEnd key, got: %s", body)
 	}
 }
 
-// TestMergeSettings_NotificationMatcherIncludesNewSignals is the #75
-// regression: the installed Notification matcher must include
-// agent_needs_input and agent_completed alongside the existing
-// permission_prompt, following the same "|"-alternation pattern SessionEnd
-// already uses for its multi-matcher entry.
 func TestMergeSettings_NotificationMatcherIncludesNewSignals(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -250,11 +232,6 @@ func TestMergeSettings_NotificationMatcherIncludesNewSignals(t *testing.T) {
 	}
 }
 
-// TestMergeSettings_UpgradeReplacesOldNotificationMatcher confirms that
-// installing over a settings.json written by a pre-#75 binary (matcher
-// "permission_prompt" only) replaces the stale matcher rather than leaving it
-// to double-fire alongside a new entry. Mirrors
-// TestMergeSettings_UpgradeReplacesOldSessionEndMatcher.
 func TestMergeSettings_UpgradeReplacesOldNotificationMatcher(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -276,15 +253,11 @@ func TestMergeSettings_UpgradeReplacesOldNotificationMatcher(t *testing.T) {
 	if !strings.Contains(string(body), `permission_prompt|agent_needs_input|agent_completed`) {
 		t.Errorf("upgrade did not install the new Notification matcher:\n%s", body)
 	}
-	// Exactly one Notification entry — the old one was replaced, not duplicated.
 	if strings.Count(string(body), `"Notification"`) != 1 {
 		t.Errorf("expected exactly one Notification key, got: %s", body)
 	}
 }
 
-// TestMergeSettings_RegistersOutcomeHooks is the #76 regression: PostToolUse,
-// PostToolUseFailure, and PermissionDenied must be registered pointing at the
-// same hook binary as the rest of the producer's entries.
 func TestMergeSettings_RegistersOutcomeHooks(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
@@ -326,7 +299,6 @@ func TestMergeSettingsJSON_StatusLineCaptureAndSet(t *testing.T) {
 	if !strings.Contains(string(sb), "ember-claude-producer statusline") {
 		t.Errorf("statusLine not set to ours: %s", sb)
 	}
-	// Idempotent re-install must NOT capture our own command as wrapped.
 	if err := mergeSettingsJSON(home, "/x/ember-claude-producer"); err != nil {
 		t.Fatal(err)
 	}

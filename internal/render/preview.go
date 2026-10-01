@@ -5,17 +5,13 @@ import (
 	"time"
 )
 
-// Sample values used when a draft toggle is enabled but the live base session
-// has no value to show (service unreachable, or the producer wasn't sending
-// that field yet). Chosen to look representative on the preview.
 const (
 	samplePct      = 47
 	sampleActivity = "Bash: npm test"
 )
 
 // SampleBaseSession is the placeholder shown when /state is unreachable or
-// empty. Lifted from the old menu's state_fetch.go so /v1/preview reproduces
-// the previous offline preview.
+// empty.
 func SampleBaseSession() Session {
 	return Session{Source: "mbp", Tool: "claude", Session: "sample", State: "running"}
 }
@@ -27,13 +23,10 @@ func SampleUsageView() *UsageView {
 	return &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p}
 }
 
-// ptrInt returns a pointer to v, for Session optional-int fields.
 func ptrInt(v int) *int { return &v }
 
 // DraftDisplay is the set of display toggles the Settings "Agent" pane edits
-// that affect a single-session render. (Activity trail is intentionally
-// absent: it affects the multi-session bar, not one session. The usage card
-// is driven separately — the handler passes a sample UsageView.)
+// that affect a single-session render.
 type DraftDisplay struct {
 	ContextPct     bool
 	RateBottomBar  bool
@@ -44,9 +37,7 @@ type DraftDisplay struct {
 }
 
 // PreviewSession applies draft toggles to a base session and returns the
-// Session the renderer should draw. Live values are preferred; sample fallbacks
-// ensure an enabled element is never blank. Ported from the old menu's
-// previewSession.
+// Session the renderer should draw.
 func PreviewSession(d DraftDisplay, base Session) Session {
 	s := base
 
@@ -88,8 +79,8 @@ func PreviewSession(d DraftDisplay, base Session) Session {
 	return s
 }
 
-// CardFrame is one rendered rotation card as a 32x8 grid of row-major
-// "#rrggbb" strings (256 entries). Undirty (off) pixels are "#000000".
+// CardFrame is one rendered rotation card as a 32x8 grid of row-major "#rrggbb"
+// strings (256 entries).
 type CardFrame struct {
 	Card   string   `json:"card"`
 	Pixels []string `json:"pixels"`
@@ -106,18 +97,15 @@ type Preview struct {
 }
 
 // HexPixels exports a frame as the row-major "#rrggbb" strings preview JSON
-// consumers expect (see CardFrame.Pixels). It renders a frame to "#rrggbb" strings, with any firmware-rendered
-// text approximated in the bitmap font (see withNativeApproximated) — a preview
-// can only show pixels, and an empty slot would misrepresent the card.
+// consumers expect (see CardFrame.Pixels).
 func HexPixels(f *Frame) []string {
 	approx := withNativeApproximated(f)
 	return hexPixels(&approx)
 }
 
-// PreviewFrames renders each card in AvailableCards(s, u) except the
-// scrolling tool card, using the robot colour from state and the single
-// session as the bottom-bar source. Pass a non-nil UsageView to include
-// usage faces in the preview.
+// PreviewFrames renders each card in AvailableCards(s, u) except the scrolling
+// tool card, using the robot colour from state and the single session as the
+// bottom-bar source.
 func PreviewFrames(s Session, u *UsageView, now time.Time) Preview {
 	p := Preview{Width: 32, Height: 8, Frames: []CardFrame{}}
 	for _, c := range AvailableCards(s, u) {
@@ -152,11 +140,6 @@ func cardName(c int) string {
 	}
 }
 
-// withNativeApproximated returns a copy of f with any firmware-rendered text
-// painted in the 3×5 bitmap font. The preview can only show pixels, so a card
-// whose text is native would otherwise render as an empty slot — a lie about a
-// card that reads fine on the device. The letterforms differ slightly (that is
-// the whole point of handing them to the firmware); the content does not.
 func withNativeApproximated(f *Frame) Frame {
 	out := *f
 	if n := f.Native; n != nil && n.Text != "" {

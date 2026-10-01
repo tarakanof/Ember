@@ -1,10 +1,6 @@
 package producer
 
-// EnvExample returns the canonical body seeded into ~/.config/ember/producer.env
-// on first install. Both the Claude and Codex producers share this file, so this
-// is the single source of truth for its contents — carries the required keys
-// (EMBER_SOURCE, EMBER_SERVER_URL, EMBER_TOKEN) plus every documented optional
-// key from either producer.
+// EnvExample returns the canonical body seeded into ~/.config/ember/producer.env on first install.
 func EnvExample() string {
 	return `# ember producer configuration (shared by Claude + Codex producers)
 # Required:

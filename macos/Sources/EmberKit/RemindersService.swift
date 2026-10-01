@@ -5,8 +5,7 @@ public struct RemindersService: Sendable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
 
-    /// Fires one reminder occurrence. `key` (see `reminderDedupeKey`) lets the
-    /// server ignore a retry of an occurrence it already pushed to the clock.
+    /// Fires one reminder occurrence.
     public func fire(text: String, sound: Bool, duration: Int, nativeIconId: String, hold: Bool,
                      repeatSound: Bool = false, key: String) async throws {
         try await client.postIdempotent("/v1/reminders/fire",

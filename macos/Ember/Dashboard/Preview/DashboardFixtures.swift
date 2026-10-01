@@ -2,11 +2,7 @@
 import Foundation
 import EmberKit
 
-/// Fixture data for the Dashboard's previews and snapshot renders. The
-/// server-shaped payloads are the Go golden files
-/// (cmd/ember/testdata/dashboard, the same ones EmberKit's decode tests
-/// read); Pomodoro history, sessions and the LED frame are built here. All of
-/// it is pinned to 2026-09-26 10:30 in Amsterdam, the goldens' clock.
+/// Fixture data for the Dashboard's previews and snapshot renders.
 @MainActor
 enum DashboardFixtures {
     static let calendar: Calendar = {
@@ -22,7 +18,6 @@ enum DashboardFixtures {
 
     // MARK: Scenarios
 
-    /// A few months of use against a current server.
     static var established: DashboardData {
         var d = DashboardData()
         d.snapshot = .loaded(snapshot, at: loadedAt)
@@ -47,8 +42,6 @@ enum DashboardFixtures {
         return d
     }
 
-    /// Day three of using Ember: two days of focus, the goldens' two days of
-    /// agent activity, idle timer.
     static var newUser: DashboardData {
         var d = established
         d.pomodoro = .loaded(pomo(phase: "idle", running: false, remaining: 0, planned: 0, round: 0), at: loadedAt)
@@ -61,8 +54,6 @@ enum DashboardFixtures {
         return d
     }
 
-    /// A 0.27 server: none of the 0.28 dashboard routes, stats without the
-    /// new fields, usage only from sessions.
     static var oldServer: DashboardData {
         var d = established
         d.usage = .failed(.featureOff, last: nil, lastAt: nil)
@@ -78,7 +69,6 @@ enum DashboardFixtures {
         return d
     }
 
-    /// Pomodoro turned off on the server.
     static var pomodoroOff: DashboardData {
         var d = established
         d.pomodoro = .failed(.featureOff, last: nil, lastAt: nil)
@@ -88,7 +78,6 @@ enum DashboardFixtures {
         return d
     }
 
-    /// The server went away a few minutes ago: every card keeps its last value.
     static var stale: DashboardData {
         var d = established
         d.connection = .offline(since: now.addingTimeInterval(-180))
@@ -100,7 +89,6 @@ enum DashboardFixtures {
         return d
     }
 
-    /// Unreachable from launch: nothing ever loaded.
     static var offline: DashboardData {
         var d = DashboardData()
         d.connection = .offline(since: now.addingTimeInterval(-600))
@@ -120,7 +108,6 @@ enum DashboardFixtures {
         return d
     }
 
-    /// First paint: nothing has answered yet.
     static var loading: DashboardData {
         var d = DashboardData()
         d.now = now
@@ -140,25 +127,22 @@ enum DashboardFixtures {
         }
     }
 
-    /// cmd/ember/testdata/dashboard/<name>.json, found from this source file,
-    /// or under $EMBER_REPO_ROOT for tools that compile a copy of it.
     private static func goldenURL(_ name: String) -> URL {
         let rel = "cmd/ember/testdata/dashboard/\(name).json"
         if let root = ProcessInfo.processInfo.environment["EMBER_REPO_ROOT"] {
             return URL(fileURLWithPath: root).appendingPathComponent(rel)
         }
         return URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()   // Preview
-            .deletingLastPathComponent()   // Dashboard
-            .deletingLastPathComponent()   // Ember
-            .deletingLastPathComponent()   // macos
-            .deletingLastPathComponent()   // repo
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
             .appendingPathComponent(rel)
     }
 
     static var weather: WeatherState {
         var w: WeatherState = golden("weather_state")
-        // The golden has three hours; the card's line wants a morning's worth.
         let temps = [11.5, 12, 12.5, 13.5, 14.5, 15, 15.5, 15, 14, 13, 12, 11.5]
         let f = ISO8601DateFormatter()
         let points = temps.enumerated().map { i, t in
@@ -198,14 +182,12 @@ enum DashboardFixtures {
 
     // MARK: Synthetic history
 
-    /// Deterministic "random" in 0..<1 per seed, so renders don't change.
     private static func noise(_ seed: Int) -> Double {
         var x = UInt64(truncatingIfNeeded: seed &* 2_654_435_761 &+ 97)
         x ^= x >> 13; x = x &* 0x5bd1e995; x ^= x >> 15
         return Double(x % 10_000) / 10_000
     }
 
-    /// Focus minutes on day `back` (0 = today): weekdays busier, a few gaps.
     private static func focusMinutes(back: Int) -> Int {
         guard let d = calendar.date(byAdding: .day, value: -back, to: now) else { return 0 }
         let weekday = calendar.component(.weekday, from: d)
@@ -290,7 +272,6 @@ enum DashboardFixtures {
         return try! decoder.decode(WorkHours.self, from: Data(json.utf8))
     }
 
-    /// A week of agent time on two Macs, in the golden's shape.
     static func activity(days: Int) -> ActivitySummary {
         var a: ActivitySummary = golden("activity_summary")
         var rows: [ActivitySummary.SourceDay] = []
@@ -315,7 +296,6 @@ enum DashboardFixtures {
 
     // MARK: LED frame
 
-    /// "10:30" in teal on the 32×8 matrix, with a weekday bar underneath.
     static var ledFrame: [Int] {
         let font: [Character: [String]] = [
             "1": ["010", "110", "010", "010", "010", "010", "111"],

@@ -1,7 +1,6 @@
 import Foundation
 
-/// A value the user typed that can't be saved. `message` is shown as is
-/// (the Connection pane's token footer, a save error), so it's a sentence.
+/// A value the user typed that can't be saved.
 public struct ValidationError: Error, Equatable, LocalizedError {
     public let message: LocalizedStringResource
 
@@ -16,7 +15,7 @@ private func rejectControlChars(_ v: String) throws {
     }
 }
 
-/// http(s) URL with a host and no embedded credentials. Returns the trimmed value.
+/// http(s) URL with a host and no embedded credentials.
 public func validateServerURL(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)
@@ -34,7 +33,7 @@ public func validateServerURL(_ value: String) throws -> String {
 
 private let hexColor = try! NSRegularExpression(pattern: "^#[0-9a-fA-F]{6}$")
 
-/// #RRGGBB hex, or "" (unset = no tint). Returns the trimmed value.
+/// #RRGGBB hex, or "" (unset = no tint).
 public func validateSourceColor(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)

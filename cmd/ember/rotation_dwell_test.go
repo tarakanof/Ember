@@ -6,9 +6,6 @@ import (
 	"time"
 )
 
-// TestRetuneDwellTickerAppliesReloadedDwell asserts a changed
-// rotation_dwell_seconds retunes the running ticker instead of leaving it on
-// the startup period.
 func TestRetuneDwellTickerAppliesReloadedDwell(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg := defaultConfig()
@@ -31,8 +28,6 @@ func TestRetuneDwellTickerAppliesReloadedDwell(t *testing.T) {
 	})
 }
 
-// TestRetuneDwellTickerDefaultsNonPositive asserts a zero dwell falls back
-// to the 3s default rather than resetting the ticker to an invalid period.
 func TestRetuneDwellTickerDefaultsNonPositive(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg := defaultConfig()

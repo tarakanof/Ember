@@ -2,10 +2,8 @@ import Charts
 import SwiftUI
 import EmberKit
 
-/// Minutes on a chart axis: "30m", "1h", "1h 30m".
 func minutesAxisLabel(_ minutes: Int) -> String { DurationText.minutes(minutes) }
 
-/// Axis stride for a minutes axis topping out at `top`.
 func minutesStride(_ top: Int) -> Int {
     switch top {
     case ...90: 30
@@ -15,7 +13,6 @@ func minutesStride(_ top: Int) -> Int {
     }
 }
 
-/// A time of day as the user's clock writes it: "11:00" or "11:00 AM".
 func timeOfDayLabel(_ hour: Int, calendar: Calendar) -> Text {
     let date = calendar.date(bySettingHour: ((hour % 24) + 24) % 24, minute: 0, second: 0,
                              of: DashboardReference.day) ?? DashboardReference.day
@@ -24,7 +21,6 @@ func timeOfDayLabel(_ hour: Int, calendar: Calendar) -> Text {
     return Text(date, format: style.locale(calendar.locale ?? .current))
 }
 
-/// An hour of the day as the locale writes it on an axis: "09" or "9 AM".
 func hourLabel(_ hour: Int, calendar: Calendar) -> Text {
     let h = ((hour % 24) + 24) % 24
     let date = calendar.date(bySettingHour: h, minute: 0, second: 0, of: DashboardReference.day) ?? DashboardReference.day
@@ -34,13 +30,9 @@ func hourLabel(_ hour: Int, calendar: Calendar) -> Text {
 }
 
 enum DashboardReference {
-    /// A fixed day to hang hour-of-day labels on.
     static let day = Date(timeIntervalSinceReferenceDate: 800_000_000)
 }
 
-/// The focus charts' colours: the accent for today, a lighter accent for
-/// past days (lighter still in light mode, where it has more contrast to
-/// spare), grey while a placeholder is redacted.
 struct FocusTint {
     let scheme: ColorScheme
     let redacted: Bool
@@ -49,7 +41,6 @@ struct FocusTint {
     var past: Color {
         redacted ? .secondary.opacity(0.2) : .accentColor.opacity(scheme == .dark ? 0.62 : 0.45)
     }
-    /// The heatmap's sequential ramp, in the same accent family.
     func heat(_ minutes: Int, max: Int) -> Color {
         guard max > 0, minutes > 0 else { return Color.secondary.opacity(0.12) }
         if redacted { return .secondary.opacity(0.3) }
@@ -65,8 +56,6 @@ struct FocusTintReader<Content: View>: View {
     var body: some View { content(FocusTint(scheme: scheme, redacted: !redaction.isEmpty)) }
 }
 
-/// The Pomodoro statistics cards share one off copy: both endpoints are 404
-/// when Pomodoro is off.
 @MainActor
 private func focusStatsState<T, C: View>(_ feed: Loadable<T>, placeholder: T?, isEmpty: @escaping (T) -> Bool,
                                          @ViewBuilder content: @escaping (T) -> C) -> some View {
@@ -131,8 +120,6 @@ struct LastSevenDaysCard: View {
         .chartYScale(domain: 0...w.yMax)
         .chartXScale(domain: DayRange.domain(w.bars.map(\.date), calendar: calendar))
         .chartXAxis {
-            // The day after the last is listed too: a centred label needs
-            // the next tick to span to, or the last day's is dropped.
             AxisMarks(values: DayRange.ticks(w.bars.map(\.date), calendar: calendar)) { value in
                 if let d = value.as(Date.self), d < DayRange.domain(w.bars.map(\.date), calendar: calendar).upperBound {
                     AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
@@ -174,7 +161,6 @@ struct TwelveWeeksCard: View {
             if stats.error == .featureOff {
                 focusStatsState(feed, placeholder: placeholder, isEmpty: \.isEmpty) { t in chart(t) }
             } else {
-                // featureOff here means the server predates weekly totals.
                 FeedStateView(feed: feed, placeholder: placeholder, isEmpty: \.isEmpty,
                               emptyTitle: "No data yet", emptySymbol: "chart.bar",
                               offTitle: ServerRequirement.title, offSymbol: ServerRequirement.symbol) { t in chart(t) }
@@ -208,7 +194,6 @@ struct TwelveWeeksCard: View {
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 }
                 if let last = t.last {
-                    // This week, still in progress: a hollow point.
                     PointMark(x: .value("Week", last.weekStart, unit: .weekOfYear),
                               y: .value("Focus minutes", last.focusMin))
                         .symbol(.circle.strokeBorder(lineWidth: 2))
@@ -286,8 +271,6 @@ struct WorkHoursCard: View {
         return String(AttributedString(localized: "\(DurationText.minutes(r.activeSec / 60)) active, ^[\(r.sessions) session](inflect: true)").characters)
     }
 
-    /// Rows are numeric bands (row 0, the oldest, on top) so bars get a
-    /// real height; a categorical axis would size them from its band.
     private func chart(_ c: WorkHoursChart, tint: FocusTint) -> some View {
         let n = c.rows.count
         let top = { (i: Int) in Double(n - i) }
@@ -394,8 +377,6 @@ struct WhenYouFocusCard: View {
         }
     }
 
-    /// Cells are numeric unit squares (row 0 on top): exact gaps and
-    /// heights at any card size.
     private func hourGrid(_ g: HeatmapGrid, tint: FocusTint) -> some View {
         let hovered: HeatmapGrid.Cell? = {
             guard let x = hoverX, let y = hoverY else { return nil }
@@ -477,7 +458,6 @@ struct WhenYouFocusCard: View {
         .accessibilityLabel("Focus per day, last 12 weeks")
     }
 
-    /// Columns where a month starts, for the strip's axis labels.
     private func monthStarts(_ s: CalendarStrip) -> [Int] {
         var out: [Int] = []
         var lastMonth = -1
@@ -490,7 +470,6 @@ struct WhenYouFocusCard: View {
     }
 }
 
-/// The hover/selection bubble on charts.
 struct ChartCallout<Content: View>: View {
     @ViewBuilder let content: Content
 
@@ -506,8 +485,6 @@ struct ChartCallout<Content: View>: View {
     }
 }
 
-/// An x domain covering whole days, so the last day's bar and centred
-/// label aren't clipped at the plot edge.
 enum DayRange {
     static func domain(_ days: [Date], calendar: Calendar) -> ClosedRange<Date> {
         guard let first = days.first, let last = days.last,

@@ -2,14 +2,12 @@ import Testing
 import CoreGraphics
 @testable import EmberKit
 
-/// Width-only containers, as a Form row or card offers: pitch is the whole
-/// points that fit, capped at the maximum, and the panel is centred.
 @Test(arguments: [
-    (CGFloat(300), CGFloat(9), CGFloat(6)), // 288 wide
-    (520, 16, 4),          // 512 wide
-    (700, 20, 30),         // capped: 640 wide
+    (CGFloat(300), CGFloat(9), CGFloat(6)),
+    (520, 16, 4),
+    (700, 20, 30),
     (1100, 20, 230),
-    (256, 8, 0),           // exact fit
+    (256, 8, 0),
 ])
 func widthOnlyContainer(width: CGFloat, pitch: CGFloat, originX: CGFloat) {
     let l = LEDMatrixLayout(width: width, height: nil)
@@ -28,7 +26,6 @@ func widthOnlyContainer(width: CGFloat, pitch: CGFloat, originX: CGFloat) {
 }
 
 @Test func tighterAxisWins() {
-    // 700×100: height allows 12, width 21 → 12, centred both ways.
     let l = LEDMatrixLayout(width: 700, height: 100)
     #expect(l.pitch == 12)
     #expect(l.size == CGSize(width: 384, height: 96))
@@ -48,7 +45,7 @@ func widthOnlyContainer(width: CGFloat, pitch: CGFloat, originX: CGFloat) {
     let l = LEDMatrixLayout(width: 40, height: 5)
     #expect(l.pitch == LEDMatrixLayout.minPitch)
     #expect(l.size == CGSize(width: 96, height: 24))
-    #expect(l.origin.x < 0) // overflows, still centred
+    #expect(l.origin.x < 0)
     #expect(!l.showsGlow)
 }
 
@@ -74,7 +71,6 @@ func widthOnlyContainer(width: CGFloat, pitch: CGFloat, originX: CGFloat) {
     for pitch: CGFloat in [3, 6, 9, 16, 20] {
         let l = LEDMatrixLayout(width: pitch * 32, height: nil)
         let led = l.led(x: 5, y: 3)
-        // On whole Retina pixels; whole points once the pitch allows a 1 pt gap.
         #expect((led.minX * 2).rounded() == led.minX * 2 && (led.width * 2).rounded() == led.width * 2,
                 "pitch \(pitch)")
         if pitch >= 4 { #expect(led.minX == led.minX.rounded() && l.gap >= 1, "pitch \(pitch)") }

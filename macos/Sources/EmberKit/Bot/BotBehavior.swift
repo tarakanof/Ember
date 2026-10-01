@@ -1,7 +1,6 @@
 import Foundation
 
-/// The bot's high-level expression. `sleepy` is never requested directly: the
-/// behaviour drifts into it after a long idle stretch.
+/// The bot's high-level expression.
 public enum BotMood: String, Sendable, CaseIterable {
     case idle, sleepy, working, waiting, error, done
 
@@ -28,7 +27,7 @@ public enum BotMood: String, Sendable, CaseIterable {
 
 public enum BotEyes: Sendable, Equatable { case dash, round, happy, angry }
 
-/// One rendered frame's worth of animation state. Distances are in body radii.
+/// One rendered frame's worth of animation state.
 public struct BotPose: Equatable, Sendable {
     public var mood: BotMood = .idle
     public var eyes: BotEyes = .dash
@@ -49,15 +48,8 @@ public struct BotPose: Equatable, Sendable {
 
     /// This pose with every continuous field rounded to half a pixel's worth
     /// for a body `radius` pixels across, so two poses that would rasterise
-    /// the same (sub-pixel gaze or lid drift) compare equal. Mood and eyes are
-    /// kept as is. Only for deciding whether to redraw: draw the raw pose.
-    ///
-    /// Per `BotRenderer`, a unit of any field moves an edge by at most about
-    /// one body radius (gaze × 0.6 reach plus lean, lids × 0.4, triangle
-    /// × 0.5, offsets × 1), except scale, which reaches ~2 radii: the 1.1
-    /// triangle corner plus the ground pivot. So scale gets half the step.
+    /// the same (sub-pixel gaze or lid drift) compare equal.
     public func quantized(toPixels radius: Double) -> BotPose {
-        // Half a pixel, in body radii.
         let step = 0.5 / max(radius, 1)
         func q(_ v: Double, _ s: Double) -> Double { (v / s).rounded() * s }
         var p = self
@@ -72,10 +64,6 @@ public struct BotPose: Equatable, Sendable {
 
 /// Procedural "alive" behaviour for the bot icon: blinks, gaze shifts, hops and
 /// mood morphs, timed after human eye-movement data so it never looks looped.
-///
-/// Deterministic for a given seed and sequence of `pose(at:)` times, so it is
-/// unit-testable; the app drives it from a frame loop that runs at full rate
-/// only while `isAnimating` and otherwise sleeps until `nextEventAt`.
 public struct BotBehavior: Sendable {
     /// Resting gaze: up and to the right, like the reference character.
     public static let rest = (x: 0.67, y: 0.77)
@@ -135,9 +123,7 @@ public struct BotBehavior: Sendable {
         nextBlinkAt = now + 0.8
     }
 
-    /// Switches expression. The eye shape swaps at the moment the lids are shut
-    /// (a forced blink), the classic trick that hides the change.
-    /// Returns false when nothing changed (same mood, or idle while sleepy).
+    /// Switches expression.
     @discardableResult
     public mutating func setMood(_ m: BotMood, at t: Double) -> Bool {
         if m == mood || (m == .idle && mood == .sleepy) { return false }
@@ -152,7 +138,6 @@ public struct BotBehavior: Sendable {
         if t >= nextSaccadeAt { startSaccade(at: t) }
         if t >= nextHopAt {
             hopStart = t
-            // An occasional nudge: hopping every few seconds read as restless.
             nextHopAt = t + lognormal(median: 15, sigma: 0.4, in: 8...40)
         }
 
@@ -169,9 +154,6 @@ public struct BotBehavior: Sendable {
                 swapEyesOnClose = false
             }
             if u - blinkLag >= Self.blinkLength(speed: blinkSpeed) {
-                // A stalled frame can skip the shut-lid window; don't leave the
-                // old eyes up until the next natural blink.
-                // (Unless another blink is already queued to do it properly.)
                 if swapEyesOnClose && !doubleBlinkPending { eyes = mood.eyes; swapEyesOnClose = false }
                 blinkStart = nil
                 if doubleBlinkPending {
@@ -233,9 +215,6 @@ public struct BotBehavior: Sendable {
         mood = m
         moodSince = t
         swapEyesOnClose = true
-        // Already past the closed frame of a running blink? Queue another so the
-        // swap still happens behind shut lids.
-        // A slower, softer blink than the everyday one: it's part of the morph.
         if blinkStart == nil { startBlink(at: t); blinkSpeed = max(blinkSpeed, 1.6) }
         else { doubleBlinkPending = true }
         if waking { doubleBlinkPending = true }
@@ -249,7 +228,6 @@ public struct BotBehavior: Sendable {
                       dur: reduceMotion ? 0 : 0.35, ease: badged ? .outBack : .inOut)
         popStart = reduceMotion || m == .sleepy ? nil : t
         readX = -0.6
-        // Glide (not dart) to the new mood's gaze, in step with the body morph.
         if !reduceMotion { startSaccade(at: t, glide: true) }
         nextHopAt = m == .waiting && !reduceMotion ? t + 0.6 : .infinity
     }
@@ -271,15 +249,12 @@ public struct BotBehavior: Sendable {
         gazeFrom = from
         gazeTo = target
         gazeStart = t
-        gazeDur = glide ? 0.42 : 0.025 + 0.045 * amp    // saccade "main sequence"
+        gazeDur = glide ? 0.42 : 0.025 + 0.045 * amp
         gazeEase = glide ? .inOut : .outBack
-        // Big gaze shifts often carry a blink, like a head turn does. It replaces
-        // the scheduled one rather than adding to it.
         if !glide && amp > 0.8 && blinkStart == nil && t - lastBlinkAt > 1.2
             && Double.random(in: 0..<1, using: &rng) < 0.6 {
             startBlink(at: t)
         }
-        // Follow-through: the body leans after the eyes, a beat late.
         let leanDur = glide ? 0.5 : 0.2
         leanX = Tween(from: leanX.value(t), to: target.x * 0.045, start: t + 0.03, dur: leanDur, ease: .inOut)
         leanY = Tween(from: leanY.value(t), to: target.y * 0.03, start: t + 0.03, dur: leanDur, ease: .inOut)
@@ -304,7 +279,6 @@ public struct BotBehavior: Sendable {
             return (j(0.9), Double.random(in: -0.6...0.8, using: &rng))
         case .working:
             if r < 0.1 { return (Self.viewer.x + j(0.05), Self.viewer.y) }
-            // Reading: small left-to-right steps, then a long return sweep.
             readX += Double.random(in: 0.28...0.45, using: &rng)
             if readX > 0.7 { readX = -0.7 }
             return (readX, -0.15 + j(0.04))
@@ -332,7 +306,6 @@ public struct BotBehavior: Sendable {
         }
     }
 
-    /// People blink ~15–20×/min at rest, less when concentrating.
     private mutating func blinkInterval() -> Double {
         let median: Double
         switch mood {
@@ -355,7 +328,6 @@ public struct BotBehavior: Sendable {
 
     // MARK: - Curves
 
-    /// A blink closes fast (accelerating), holds briefly, opens slower.
     static func lid(_ u: Double, speed: Double) -> Double {
         let close = 0.075 * speed, hold = 0.035 * speed, open = 0.15 * speed
         if u <= 0 { return 0 }
@@ -369,8 +341,6 @@ public struct BotBehavior: Sendable {
 
     static let hopLength = 0.62
 
-    /// Anticipation squash → stretched rise → fall → landing squash.
-    /// Returns (scaleX, scaleY, offsetY in radii).
     static func hop(_ u: Double) -> (Double, Double, Double) {
         func lerp(_ a: Double, _ b: Double, _ k: Double) -> Double { a + (b - a) * min(max(k, 0), 1) }
         switch u {

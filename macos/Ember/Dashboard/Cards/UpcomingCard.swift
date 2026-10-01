@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Card 4: the next meetings and reminders over 36 hours.
 struct UpcomingCard: View {
     let meetings: Loadable<MeetingsState>
     let reminders: [UpcomingItem]
@@ -22,9 +21,6 @@ struct UpcomingCard: View {
         }
     }
 
-    /// Reminders are local, so a meetings failure only matters when there's
-    /// nothing else to show. The card is hidden while both sources are off,
-    /// so meetings being off just leaves the reminders.
     private func model() -> Loadable<[UpcomingItem]> {
         let merge = { (m: MeetingsState?) in
             UpcomingItem.merge(meetings: m?.upcoming ?? [], reminders: reminders, now: now)

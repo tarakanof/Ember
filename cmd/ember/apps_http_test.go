@@ -41,7 +41,7 @@ func TestAppsPutHidesAndPersists(t *testing.T) {
 		t.Fatalf("codex not in hidden set after PUT: %+v", hidden)
 	}
 	app.appsMu.Lock()
-	app.hiddenApps = map[string]bool{} // clear in-memory set under the mutex, like production paths
+	app.hiddenApps = map[string]bool{}
 	app.appsMu.Unlock()
 	app.loadHiddenApps()
 	if !app.hiddenAppsSet()["codex"] {

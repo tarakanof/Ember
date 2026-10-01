@@ -60,7 +60,6 @@ func appDisplayNames(wire: String, name: String) {
     #expect(Percent.text(47, locale: en) == "47%")
     #expect(Percent.text(0, locale: en) == "0%")
     #expect(Percent.text(ratio: 0.8333, locale: en) == "83%")
-    // German puts a (non-breaking) space before the sign: the locale is honoured.
     #expect(Percent.text(47, locale: Locale(identifier: "de_DE")) != "47%")
 }
 
@@ -74,7 +73,6 @@ private func pomo(_ phase: String, running: Bool = false, paused: Bool = false) 
     #expect(actions(pomo("idle")) == [.start])
     #expect(actions(pomo("focus", running: true)) == [.pause, .skip, .stop])
     #expect(actions(pomo("focus", running: true, paused: true)) == [.resume, .skip, .stop])
-    // Parked: the menu offered Start while the Dashboard offered Resume (audit #3).
     #expect(actions(pomo("short_break")) == [.resume, .stop])
 }
 
@@ -109,7 +107,6 @@ private func pomo(_ phase: String, running: Bool = false, paused: Bool = false) 
     #expect(subtitle(.online(since: since), "192.168.0.2", nil) == "Connected to 192.168.0.2")
     #expect(subtitle(.online(since: since), "192.168.0.2", "") == "Connected to 192.168.0.2")
     #expect(subtitle(.online(since: since), nil, nil) == "Connected")
-    // Not while connecting, offline or unconfigured.
     #expect(subtitle(.connecting, "192.168.0.2", "0.29.0") == "Connecting to 192.168.0.2…")
     #expect(subtitle(.offline(since: since), "192.168.0.2", "0.29.0").hasPrefix("Offline since 10:42"))
     #expect(subtitle(.unconfigured, nil, "0.29.0") == "Not set up")

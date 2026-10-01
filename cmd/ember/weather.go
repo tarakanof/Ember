@@ -18,70 +18,39 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// WeatherConfig holds the weather widget's settings. Everything except the
-// secret-free defaults is runtime-editable from the menu (persisted to the
-// store, layered over the file config like Pomodoro). The widget fetches current
-// conditions server-side from a free, keyless provider and renders them as a
-// rotating tile + optional popups.
-// The default-on toggles (and PopupIntervalMinutes, where 0 is the documented
-// "off") are pointers so JSON can distinguish "absent" (nil → default) from an
-// explicit false/0 — the usage_widget convention. fillAbsent resolves nil to
-// the concrete default at every entry point (file load, PUT, store blob), so
-// marshalled config always carries concrete values, never nulls, and readers
-// use the *Enabled()/*Mins() accessors.
+// WeatherConfig holds the weather widget's settings.
 type WeatherConfig struct {
-	Enabled              bool    `json:"enabled"`
-	Provider             string  `json:"provider"` // "open-meteo" | "met-no"
-	Latitude             float64 `json:"latitude"`
-	Longitude            float64 `json:"longitude"`
-	LocationName         string  `json:"location_name"`
-	Units                string  `json:"units"`                  // "metric" | "imperial"
-	RefreshMinutes       int     `json:"refresh_minutes"`        // poll cadence
-	RotateInApps         *bool   `json:"rotate_in_apps"`         // show the rotating tile
-	ForecastTile         *bool   `json:"forecast_tile"`          // show the separate hourly-forecast bar tile
-	ForecastHours        int     `json:"forecast_hours"`         // hours shown in the strip/tile (1..24)
-	SunPopups            *bool   `json:"sun_popups"`             // popup at sunrise/sunset
-	MoonPhase            *bool   `json:"moon_phase"`             // show the moon phase on clear nights
-	PopupIntervalMinutes *int    `json:"popup_interval_minutes"` // 0 = no interval popups
-	PopupDurationSeconds int     `json:"popup_duration_seconds"`
-	PopupOnChange        *bool   `json:"popup_on_change"` // popup when the condition changes
-	SevereAlert          *bool   `json:"severe_alert"`    // popup + sound on severe weather
-	SevereSound          string  `json:"severe_sound"`    // RTTTL or device sound name; empty = default
-	UseNativeIcons       bool    `json:"use_native_icons"`
-	// IconIDs optionally overrides the per-condition native AWTRIX/LaMetric icon
-	// ID used for popups (when UseNativeIcons is on). Keyed by condition bucket
-	// ("clear"/"clouds"/"fog"/"rain"/"snow"/"storm"); an empty/absent entry falls
-	// back to defaultWeatherIconIDs. Lets the user curate icons from the LaMetric
-	// gallery (developer.lametric.com/icons) without a code change.
-	IconIDs map[string]string `json:"icon_ids,omitempty"`
-	// TileNativeIcons swaps the drawn 8×8 condition sprite on the rotating
-	// weather/forecast tiles for the native animated icon (same IconIDs
-	// mapping as popups). Digits/strip/bars stay drawn. Independent of
-	// UseNativeIcons, which is popup-only.
-	TileNativeIcons bool `json:"tile_native_icons"`
-	// AirTile shows the rotating air-quality tile (European AQI from the
-	// Open-Meteo air-quality API — always Open-Meteo regardless of Provider;
-	// MET Norway has no AQ product). Shares the weather location + refresh.
-	AirTile *bool `json:"air_tile"`
-	// AirPopupThreshold fires a popup when the European AQI rises across this
-	// value (edge-triggered, re-arms below it). 0 disables the popup.
-	AirPopupThreshold int `json:"air_popup_threshold"`
-	// Overlay lets NG animate the current precipitation (rain, snow, storm...)
-	// over the conditions tile and weather popups, via the payload's per-app
-	// overlay. Default on; it adds a few bytes only while it is precipitating.
-	Overlay *bool `json:"overlay"`
+	Enabled              bool              `json:"enabled"`
+	Provider             string            `json:"provider"`
+	Latitude             float64           `json:"latitude"`
+	Longitude            float64           `json:"longitude"`
+	LocationName         string            `json:"location_name"`
+	Units                string            `json:"units"`
+	RefreshMinutes       int               `json:"refresh_minutes"`
+	RotateInApps         *bool             `json:"rotate_in_apps"`
+	ForecastTile         *bool             `json:"forecast_tile"`
+	ForecastHours        int               `json:"forecast_hours"`
+	SunPopups            *bool             `json:"sun_popups"`
+	MoonPhase            *bool             `json:"moon_phase"`
+	PopupIntervalMinutes *int              `json:"popup_interval_minutes"`
+	PopupDurationSeconds int               `json:"popup_duration_seconds"`
+	PopupOnChange        *bool             `json:"popup_on_change"`
+	SevereAlert          *bool             `json:"severe_alert"`
+	SevereSound          string            `json:"severe_sound"`
+	UseNativeIcons       bool              `json:"use_native_icons"`
+	IconIDs              map[string]string `json:"icon_ids,omitempty"`
+	TileNativeIcons      bool              `json:"tile_native_icons"`
+	AirTile              *bool             `json:"air_tile"`
+	AirPopupThreshold    int               `json:"air_popup_threshold"`
+	Overlay              *bool             `json:"overlay"`
 }
 
-// boolPtr / intPtr build pointer literals for the optional config fields.
 func boolPtr(b bool) *bool { return &b }
 func intPtr(v int) *int    { return &v }
 
-// defaultWeatherPopupIntervalMinutes is the interval-popup cadence used when
-// popup_interval_minutes is absent; an explicit 0 means "no interval popups".
 const defaultWeatherPopupIntervalMinutes = 120
 
-// Accessors for the optional toggles: nil (absent from JSON) means the
-// friendly default (on); an explicit false is respected.
+// RotateInAppsEnabled reports the rotate_in_apps toggle, defaulting to on when absent.
 func (c WeatherConfig) RotateInAppsEnabled() bool  { return c.RotateInApps == nil || *c.RotateInApps }
 func (c WeatherConfig) ForecastTileEnabled() bool  { return c.ForecastTile == nil || *c.ForecastTile }
 func (c WeatherConfig) SunPopupsEnabled() bool     { return c.SunPopups == nil || *c.SunPopups }
@@ -91,8 +60,7 @@ func (c WeatherConfig) SevereAlertEnabled() bool   { return c.SevereAlert == nil
 func (c WeatherConfig) AirTileEnabled() bool       { return c.AirTile == nil || *c.AirTile }
 func (c WeatherConfig) OverlayEnabled() bool       { return c.Overlay == nil || *c.Overlay }
 
-// PopupIntervalMins resolves the interval-popup cadence: nil → default 120,
-// explicit 0 → off, negatives clamp to 0.
+// PopupIntervalMins resolves the interval-popup cadence: nil → default 120, explicit 0 → off, negatives clamp to 0.
 func (c WeatherConfig) PopupIntervalMins() int {
 	if c.PopupIntervalMinutes == nil {
 		return defaultWeatherPopupIntervalMinutes
@@ -103,13 +71,6 @@ func (c WeatherConfig) PopupIntervalMins() int {
 	return 0
 }
 
-// fillAbsent resolves every nil optional field to its concrete default (via
-// the accessors), WITHOUT touching explicit values — unlike the old bool
-// coercion, an explicit false/0 always sticks. Runs on every entry point
-// (file load via applyDefaults, menu PUT, persisted store blob) so the config
-// snapshot — and therefore every marshalled GET response — always carries
-// concrete booleans/ints, never nulls, keeping the menu app's JSON shape
-// unchanged.
 func (c *WeatherConfig) fillAbsent() {
 	if c.RotateInApps == nil {
 		c.RotateInApps = boolPtr(true)
@@ -140,8 +101,6 @@ func (c *WeatherConfig) fillAbsent() {
 	}
 }
 
-// weatherIconID resolves the native icon ID for a condition: the per-config
-// override if set, else the built-in default.
 func (c WeatherConfig) weatherIconID(cond string) string {
 	if id := c.IconIDs[cond]; id != "" {
 		return id
@@ -149,22 +108,15 @@ func (c WeatherConfig) weatherIconID(cond string) string {
 	return defaultWeatherIconIDs[cond]
 }
 
-// defaultWeatherSevereSound is a short urgent RTTTL chime for severe-weather
-// popups when no custom sound is configured (TC001 piezo is RTTTL-only).
 const defaultWeatherSevereSound = "storm:d=4,o=5,b=160:8c6,8a,8c6,8a,8c6"
 
-// defaultWeatherIconIDs maps a condition to an AWTRIX/LaMetric weather icon ID,
-// used for popups (UseNativeIcons) and the rotating tiles (TileNativeIcons).
-// These are widely-used gallery IDs (developer.lametric.com/icons); the device
-// downloads one on first reference (briefly blank until cached), and the user
-// can override any of them via WeatherConfig.IconIDs.
 var defaultWeatherIconIDs = map[string]string{
-	render.WeatherClear:  "1338",  // sunny
-	render.WeatherClouds: "2286",  // partly cloudy
-	render.WeatherFog:    "17056", // fog
-	render.WeatherRain:   "72",    // rain
-	render.WeatherSnow:   "2289",  // snow
-	render.WeatherStorm:  "11428", // thunderstorm
+	render.WeatherClear:  "1338",
+	render.WeatherClouds: "2286",
+	render.WeatherFog:    "17056",
+	render.WeatherRain:   "72",
+	render.WeatherSnow:   "2289",
+	render.WeatherStorm:  "11428",
 }
 
 func (c *WeatherConfig) applyDefaults() {
@@ -180,30 +132,20 @@ func (c *WeatherConfig) applyDefaults() {
 	if c.PopupDurationSeconds <= 0 {
 		c.PopupDurationSeconds = 30
 	}
-	// Friendly defaults for the optional toggles: fillAbsent resolves only nil
-	// (absent-from-JSON) fields, so a config.json that explicitly sets false —
-	// or popup_interval_minutes: 0 (documented "off") — keeps those values.
 	c.fillAbsent()
 	if *c.PopupIntervalMinutes < 0 {
 		c.PopupIntervalMinutes = intPtr(0)
 	}
-	// 1..24, the range forecastWindow draws; absent/0 means the full day.
 	if c.ForecastHours <= 0 || c.ForecastHours > 24 {
 		c.ForecastHours = 24
 	}
 	if c.AirPopupThreshold < 0 {
 		c.AirPopupThreshold = 0
 	} else if c.AirPopupThreshold == 0 {
-		c.AirPopupThreshold = 80 // EAQI "very poor"
+		c.AirPopupThreshold = 80
 	}
 }
 
-// weatherIconIDPattern matches a LaMetric gallery icon ID: 1-10 ASCII digits.
-// IconIDs values flow unvalidated into a device file path (/ICONS/<id>.<ext>)
-// and the LaMetric gallery fetch URL (fetchLaMetricIcon in icon_provision.go),
-// so a non-numeric value such as "../dev" could escape /ICONS or reach an
-// arbitrary gallery path. Enforced both in validateWeather (PUT path) and at
-// config.json baseline load (sanitizeConfigBaseline in config.go).
 var weatherIconIDPattern = regexp.MustCompile(`^[0-9]{1,10}$`)
 
 func validateWeather(c WeatherConfig) error {
@@ -232,13 +174,9 @@ func validateWeather(c WeatherConfig) error {
 	if c.AirPopupThreshold < 0 || c.AirPopupThreshold > 200 {
 		return errors.New("weather.air_popup_threshold must be 0..200")
 	}
-	// 0 is "unset" (the full day, filled in by applyDefaults / the settings
-	// apply); otherwise the 1..24 hours forecastWindow draws.
 	if c.ForecastHours < 0 || c.ForecastHours > 24 {
 		return errors.New("weather.forecast_hours must be 1..24")
 	}
-	// Sort keys so a config with multiple invalid entries always names the
-	// same (lowest) offending key, keeping the 400 message deterministic.
 	keys := make([]string, 0, len(c.IconIDs))
 	for k := range c.IconIDs {
 		keys = append(keys, k)
@@ -253,80 +191,46 @@ func validateWeather(c WeatherConfig) error {
 	return nil
 }
 
-// weatherObservation is one resolved reading: a render condition bucket, the
-// temperature in Celsius (converted per-units at render time), and whether the
-// condition counts as severe (drives the alert popup).
 type weatherObservation struct {
-	Condition string
-	// ConditionCode is the provider's raw code: the WMO weather code for
-	// Open-Meteo ("61"), the symbol_code for MET Norway ("rain_showers_day").
-	ConditionCode string
-	TempC         float64
-	Severe        bool
-	FetchedAt     time.Time
-	// HourlyStart is the time of Hourly[0] as the provider stamped it; zero
-	// when the provider didn't say.
-	HourlyStart time.Time
-	// Hourly holds the next ~24 hourly temperatures (°C), ordered from the
-	// current hour. Drives the compact strip and the forecast tile; nil when the
-	// provider returned none (everything else still works).
-	Hourly []float64
-	// Overlay is the NG weather overlay matching the current conditions
-	// (render.Overlay*), "" when nothing is falling.
-	Overlay string
-	// TZOffsetSeconds is the location's UTC offset (from Open-Meteo's timezone=auto);
-	// TZKnown is false when the provider didn't supply one (e.g. MET Norway), in
-	// which case sun labels fall back to the longitude approximation.
+	Condition       string
+	ConditionCode   string
+	TempC           float64
+	Severe          bool
+	FetchedAt       time.Time
+	HourlyStart     time.Time
+	Hourly          []float64
+	Overlay         string
 	TZOffsetSeconds int
 	TZKnown         bool
 }
 
-// forecastFetchHours is how many hourly temps we ask providers for. The render
-// layer slices to the configured ForecastHours; we over-fetch a fixed window so
-// a config change doesn't require a refetch.
 const forecastFetchHours = 24
 
-// airFetchHours is the hourly-AQI window we request: the tile strip spans the
-// 24-column bottom bar, so 24 values fill it one column per hour, the current
-// hour included.
 const airFetchHours = 24
 
-// airObservation is one air-quality reading: the current European AQI (EAQI),
-// the headline particulates (logged/labelled only — not rendered), and the
-// hourly AQI forecast that drives the tile's trend strip.
 type airObservation struct {
-	AQI       float64
-	PM25      float64
-	PM10      float64
-	HourlyAQI []float64
-	// HourlyStart is the time of HourlyAQI[0]; zero when unknown.
+	AQI         float64
+	PM25        float64
+	PM10        float64
+	HourlyAQI   []float64
 	HourlyStart time.Time
 	FetchedAt   time.Time
 }
 
-// weatherStore holds the latest observation plus popup bookkeeping. All access
-// goes through the mutex; the poller writes, the coordinator reads for the tile.
 type weatherStore struct {
 	mu        sync.RWMutex
 	obs       weatherObservation
 	have      bool
 	lastFetch time.Time
 
-	// Popup bookkeeping (poller-owned).
-	prevCondition string
-	prevSevere    bool
-	lastPopupAt   time.Time
-	// Sunrise/sunset popup dedupe: the UTC date ("2006-01-02") each last fired, so
-	// a given day's event fires at most once.
+	prevCondition  string
+	prevSevere     bool
+	lastPopupAt    time.Time
 	sunriseDoneDay string
 	sunsetDoneDay  string
 
-	// Air quality (poller-owned writes, coordinator reads for the tile).
-	air     airObservation
-	haveAir bool
-	// prevAQI is the popup edge state: the threshold popup fires only when a
-	// reading crosses up over the threshold from below (or on the very first
-	// reading — a restart mid-episode should still alert).
+	air         airObservation
+	haveAir     bool
 	prevAQI     float64
 	havePrevAQI bool
 }
@@ -345,10 +249,6 @@ func (s *weatherStore) currentAir() (airObservation, bool) {
 	return s.air, s.haveAir
 }
 
-// ---- provider fetch ----
-
-// weatherFetcher performs provider HTTP calls. Base URLs are fields so tests can
-// point them at httptest servers.
 type weatherFetcher struct {
 	client         *http.Client
 	openMeteoBase  string
@@ -381,7 +281,7 @@ func (wf *weatherFetcher) getJSON(ctx context.Context, url string, out any) erro
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", wf.userAgent) // required by api.met.no; harmless elsewhere
+	req.Header.Set("User-Agent", wf.userAgent)
 	req.Header.Set("Accept", "application/json")
 	resp, err := wf.client.Do(req)
 	if err != nil {
@@ -459,8 +359,6 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (we
 	}
 	first := body.Properties.Timeseries[0]
 	cond, severe := metSymbolCondition(first.Data.Next1Hours.Summary.SymbolCode)
-	// The near-term timeseries entries are hourly (they widen to 6-hourly further
-	// out); take the next forecastFetchHours as the hourly window.
 	n := len(body.Properties.Timeseries)
 	if n > forecastFetchHours {
 		n = forecastFetchHours
@@ -477,9 +375,6 @@ func (wf *weatherFetcher) fetchMetNo(ctx context.Context, cfg WeatherConfig) (we
 	}, nil
 }
 
-// fetchAirQuality reads the current + hourly European AQI from the Open-Meteo
-// air-quality API. Always Open-Meteo regardless of cfg.Provider — MET Norway
-// has no air-quality product. Free and keyless, same terms as the forecast API.
 func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig) (airObservation, error) {
 	url := fmt.Sprintf("%s/v1/air-quality?latitude=%.4f&longitude=%.4f&current=european_aqi,pm2_5,pm10&hourly=european_aqi&forecast_hours=%d&timezone=auto&timeformat=unixtime",
 		strings.TrimRight(wf.airQualityBase, "/"), cfg.Latitude, cfg.Longitude, airFetchHours)
@@ -508,8 +403,6 @@ func (wf *weatherFetcher) fetchAirQuality(ctx context.Context, cfg WeatherConfig
 	return airObservation{AQI: body.Current.AQI, PM25: body.Current.PM25, PM10: body.Current.PM10, HourlyAQI: hourly, HourlyStart: start}, nil
 }
 
-// wmoCondition maps an Open-Meteo WMO weather code to a render condition bucket
-// and a severe flag. https://open-meteo.com/en/docs (WMO Weather interpretation).
 func wmoCondition(code int) (string, bool) {
 	switch {
 	case code == 0:
@@ -519,24 +412,22 @@ func wmoCondition(code int) (string, bool) {
 	case code == 45 || code == 48:
 		return render.WeatherFog, false
 	case code >= 51 && code <= 57:
-		return render.WeatherRain, false // drizzle
+		return render.WeatherRain, false
 	case code >= 61 && code <= 67:
-		return render.WeatherRain, code == 65 || code == 67 // heavy / freezing
+		return render.WeatherRain, code == 65 || code == 67
 	case code >= 71 && code <= 77:
-		return render.WeatherSnow, code == 75 // heavy snowfall
+		return render.WeatherSnow, code == 75
 	case code >= 80 && code <= 82:
-		return render.WeatherRain, code == 82 // violent showers
+		return render.WeatherRain, code == 82
 	case code == 85 || code == 86:
 		return render.WeatherSnow, code == 86
 	case code >= 95:
-		return render.WeatherStorm, true // thunderstorm
+		return render.WeatherStorm, true
 	default:
 		return render.WeatherClouds, false
 	}
 }
 
-// metSymbolCondition maps a MET Norway symbol_code (e.g. "heavyrainandthunder",
-// "partlycloudy_day") to a render condition bucket + severe flag.
 func metSymbolCondition(sym string) (string, bool) {
 	s := strings.ToLower(sym)
 	switch {
@@ -557,23 +448,13 @@ func metSymbolCondition(sym string) (string, bool) {
 	}
 }
 
-// wmoOverlay maps a WMO weather code to the NG overlay that animates it, or ""
-// for dry conditions. Both providers follow one rule, so the same weather
-// animates the same way whichever is configured:
-//
-//   - rain of any kind, freezing rain and sleet: "rain", or "storm" when heavy
-//     (WMO 65/67/82, MET heavy…rain/sleet);
-//   - snow: "snow"; thunder in any combination: "thunder";
-//   - drizzle (WMO 51-57 only; MET has no drizzle symbol, and its light rain is
-//     WMO's slight rain, 61/80): "drizzle";
-//   - rime fog (WMO 48): "frost"; plain fog has no NG overlay.
 func wmoOverlay(code int) string {
 	switch {
 	case code == 48:
 		return render.OverlayFrost
 	case code >= 51 && code <= 57:
 		return render.OverlayDrizzle
-	case code == 65 || code == 67 || code == 82: // heavy / violent
+	case code == 65 || code == 67 || code == 82:
 		return render.OverlayStorm
 	case (code >= 61 && code <= 67) || (code >= 80 && code <= 82):
 		return render.OverlayRain
@@ -586,9 +467,6 @@ func wmoOverlay(code int) string {
 	}
 }
 
-// metSymbolOverlay is wmoOverlay's rule for a MET Norway symbol_code. Sleet
-// animates as rain, like WMO's freezing rain, although its icon bucket is
-// snow.
 func metSymbolOverlay(sym string) string {
 	s := strings.ToLower(sym)
 	switch {
@@ -606,16 +484,12 @@ func metSymbolOverlay(sym string) string {
 	}
 }
 
-// weatherOverlay is the overlay the weather tile and popups carry for obs:
-// the observation's own, or none when the user turned overlays off.
 func weatherOverlay(obs weatherObservation, cfg WeatherConfig) string {
 	if !cfg.OverlayEnabled() {
 		return ""
 	}
 	return obs.Overlay
 }
-
-// ---- display helpers ----
 
 func weatherTempText(tempC float64, units string) string {
 	t := tempC
@@ -642,19 +516,15 @@ func weatherLabel(obs weatherObservation, cfg WeatherConfig) string {
 	return word + " " + weatherTempText(obs.TempC, cfg.Units)
 }
 
-// ---- poller ----
-
-// StartWeather runs the weather poll loop until ctx is done. It ticks every
-// minute, fetches no more often than RefreshMinutes, stores the observation, and
-// fires change/interval/severe popups. A no-op while the feature is disabled.
+// StartWeather runs the weather poll loop until ctx is done.
 func (a *App) StartWeather(ctx context.Context) {
 	if a.weather == nil {
 		return
 	}
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	a.ensureNativeIcons(ctx)       // device icons before the first tile push
-	a.pollWeather(ctx, time.Now()) // initial attempt so the tile appears promptly
+	a.ensureNativeIcons(ctx)
+	a.pollWeather(ctx, time.Now())
 	for {
 		select {
 		case <-ctx.Done():
@@ -665,35 +535,24 @@ func (a *App) StartWeather(ctx context.Context) {
 	}
 }
 
-// pollWeather fetches when due and evaluates popups. Exported-for-tests via the
-// (now) parameter so a fake clock can drive it deterministically.
 func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	cfg := a.cfg.Load().Weather
 	if !cfg.Enabled {
 		return
 	}
-	// Sunrise/sunset popups are time-driven, not fetch-driven: check every tick
-	// (this runs each minute) so they fire near the actual event, independent of
-	// the provider refresh interval.
 	a.checkSunPopups(ctx, now, cfg)
-	// "Due" is gated on lastFetch (set on BOTH success and failure), not on
-	// `have`: a provider that keeps failing at startup must still back off a full
-	// refresh interval between attempts rather than retry every tick (api.met.no
-	// throttles aggressive clients). lastFetch zero = never attempted → fetch now.
 	a.weather.mu.RLock()
 	due := a.weather.lastFetch.IsZero() || now.Sub(a.weather.lastFetch) >= time.Duration(cfg.RefreshMinutes)*time.Minute
 	a.weather.mu.RUnlock()
 	if !due {
 		return
 	}
-	// Air quality rides the same due-gate but fetches independently: one
-	// provider failing must not starve the other.
 	a.pollAir(ctx, now, cfg)
 	obs, err := a.weatherFetcher.fetch(ctx, cfg)
 	if err != nil {
 		a.logger.Warn("weather fetch failed", "provider", cfg.Provider, "err", err)
 		a.weather.mu.Lock()
-		a.weather.lastFetch = now // back off a full interval on failure
+		a.weather.lastFetch = now
 		a.weather.mu.Unlock()
 		return
 	}
@@ -705,9 +564,6 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 	prevCond := a.weather.prevCondition
 	prevSevere := a.weather.prevSevere
 	lastPopup := a.weather.lastPopupAt
-	// Seed the interval clock on the first-ever observation so a non-severe
-	// startup doesn't immediately fire an interval popup — the first interval
-	// popup then lands one full interval after launch, not at launch.
 	if lastPopup.IsZero() {
 		lastPopup = now
 		a.weather.lastPopupAt = now
@@ -723,12 +579,9 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		a.weather.lastPopupAt = now
 	}
 	a.weather.mu.Unlock()
-	a.nudgePomo() // prompt the coordinator to reconcile the tile promptly
+	a.nudgePomo()
 }
 
-// pollAir fetches the air-quality observation when anything consumes it (tile
-// or popup), stores it, and fires the edge-triggered threshold popup. Failures
-// log and keep the last observation; the tile clears via the stale TTL.
 func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	if !cfg.AirTileEnabled() && cfg.AirPopupThreshold <= 0 {
 		return
@@ -759,9 +612,6 @@ func (a *App) pollAir(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	}
 }
 
-// evaluateWeatherPopup decides whether to fire a popup and does so. Returns true
-// when a popup was sent (so the caller can record lastPopupAt). Priority: severe
-// transition (with sound) > condition change > interval elapsed.
 func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weatherObservation, prevCond string, prevSevere bool, lastPopup time.Time, cfg WeatherConfig) bool {
 	conditionChanged := prevCond != "" && prevCond != obs.Condition
 
@@ -785,26 +635,19 @@ func (a *App) evaluateWeatherPopup(ctx context.Context, now time.Time, obs weath
 	return false
 }
 
-// sunPopupGrace is how soon after a sunrise/sunset instant we still fire the
-// popup. The poll runs each minute, so a ~2-min window reliably catches the
-// event without firing for an event that already passed (e.g. at startup).
 const sunPopupGrace = 2 * time.Minute
 
-// checkSunPopups fires a sunrise/sunset popup when `now` has just crossed the
-// event for the configured location, at most once per UTC day per event.
 func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConfig) {
 	if !cfg.SunPopupsEnabled() {
 		return
 	}
 	if cfg.Latitude == 0 && cfg.Longitude == 0 {
-		return // no location set
+		return
 	}
 	sunrise, sunset, ok := sunTimes(cfg.Latitude, cfg.Longitude, now)
 	if !ok {
-		return // polar day/night — no event today
+		return
 	}
-	// Prefer the location's real UTC offset (from the last Open-Meteo fetch) for the
-	// label; fall back to the longitude approximation when unknown (e.g. MET Norway).
 	a.weather.mu.RLock()
 	tzKnown, tzOff := a.weather.obs.TZKnown, a.weather.obs.TZOffsetSeconds
 	a.weather.mu.RUnlock()
@@ -814,8 +657,6 @@ func (a *App) checkSunPopups(ctx context.Context, now time.Time, cfg WeatherConf
 	a.maybeFireSun(ctx, now, sunset, false, today, cfg, tzKnown, tzOff)
 }
 
-// sunClock formats an event instant for the popup label, using the known UTC
-// offset when available, else the longitude approximation.
 func sunClock(event time.Time, cfg WeatherConfig, tzKnown bool, tzOff int) string {
 	if tzKnown {
 		return event.UTC().Add(time.Duration(tzOff) * time.Second).Format("15:04")
@@ -825,7 +666,7 @@ func sunClock(event time.Time, cfg WeatherConfig, tzKnown bool, tzOff int) strin
 
 func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising bool, today string, cfg WeatherConfig, tzKnown bool, tzOff int) {
 	if now.Before(event) || now.Sub(event) >= sunPopupGrace {
-		return // not in the firing window
+		return
 	}
 	a.weather.mu.Lock()
 	done := &a.weather.sunsetDoneDay
@@ -834,7 +675,7 @@ func (a *App) maybeFireSun(ctx context.Context, now, event time.Time, rising boo
 	}
 	if *done == today {
 		a.weather.mu.Unlock()
-		return // already fired today
+		return
 	}
 	*done = today
 	a.weather.mu.Unlock()
@@ -861,8 +702,6 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	payload := render.WithOverlay(render.WeatherPopupPayload(obs.Condition, weatherLabel(obs, cfg), iconID, durationSec),
 		weatherOverlay(obs, cfg))
 	payload["name"] = notifyNameWeatherPopup
-	// The severe-alert chime rides on the notification: an inline RTTTL melody
-	// (detected by its ':' separators) or the name of a melody file on the device.
 	if sound != "" {
 		if strings.Contains(sound, ":") {
 			payload["soundRtttl"] = sound
@@ -877,15 +716,8 @@ func (a *App) sendWeatherPopup(ctx context.Context, obs weatherObservation, cfg 
 	}
 }
 
-// ---- runtime settings (see settings_overlay.go) ----
-
 const weatherSettingsKey = "weather_json"
 
-// weatherSettingSpec registers the weather config with the settings overlay.
-// apply's fillAbsent resolves only fields still absent after the merge (JSON
-// null) to their defaults; explicit false / popup_interval=0 always stick, so
-// the toggles stay disableable. Filling before the swap also keeps the stored
-// blob and the GET response free of JSON nulls.
 func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 	return settingSpec[WeatherConfig]{
 		key:  weatherSettingsKey,
@@ -893,7 +725,7 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 		apply: func(c *Config, w WeatherConfig) error {
 			w.fillAbsent()
 			if w.ForecastHours == 0 {
-				w.ForecastHours = 24 // unset means the full day, as at file load
+				w.ForecastHours = 24
 			}
 			if err := validateWeather(w); err != nil {
 				return err
@@ -903,8 +735,6 @@ func (a *App) weatherSettingSpec() settingSpec[WeatherConfig] {
 		},
 		after: func(Config) {
 			a.nudgePomo()
-			// Provision any native icons the new config needs onto the device,
-			// off the request path (it does device + gallery HTTP).
 			go a.ensureNativeIcons(context.Background())
 		},
 	}

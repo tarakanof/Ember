@@ -13,7 +13,6 @@ cd "$REPO_ROOT"
 IMG="ember:smoke"
 NAME="ember-smoke-$$"
 
-# Use the same buildx engine as the documented production build path.
 docker buildx build --load -t "$IMG" .
 trap '
   docker rm -f "$NAME" >/dev/null 2>&1 || true
@@ -26,9 +25,6 @@ docker run -d --rm --name "$NAME" \
   -v "$REPO_ROOT/config.example.json":/etc/ember/config.json:ro \
   "$IMG"
 
-# Wait up to 10s for the in-image healthcheck. Track success explicitly so
-# a never-ready container fails the script — falling through to the host
-# probe could mask a broken `healthcheck` subcommand.
 ready=0
 deadline=$(( $(date +%s) + 10 ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -45,12 +41,9 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-# Probe /healthz from the host as well (verifies port mapping + handler).
 curl -fsS http://localhost:13627/healthz >/dev/null
 echo "smoke: /healthz from host OK"
 
-# Verify the version subcommand surfaces a real VCS revision (not "unknown"),
-# proving .git made it into the builder context.
 ver="$(docker exec "$NAME" /ember version)"
 echo "smoke: version output: $ver"
 if echo "$ver" | grep -q "unknown"; then
@@ -58,7 +51,6 @@ if echo "$ver" | grep -q "unknown"; then
   exit 1
 fi
 
-# Extra E.2a probes:
 # - /version HTTP endpoint should return JSON with our binary name.
 ver_http="$(curl -fsS http://localhost:13627/version)"
 echo "smoke: /version output: $ver_http"
@@ -67,7 +59,6 @@ if ! echo "$ver_http" | grep -q '"binary":"ember"'; then
   exit 1
 fi
 
-# - --print-config should produce parseable JSON with redacted secrets.
 docker exec -e CONFIG_PATH=/etc/ember/config.json "$NAME" \
   /ember --print-config -config /etc/ember/config.json > /tmp/printcfg.json
 if ! jq -e '.awtrix.http_base_url' /tmp/printcfg.json >/dev/null; then
@@ -78,8 +69,6 @@ fi
 rm -f /tmp/printcfg.json
 echo "smoke: --print-config OK"
 
-# - /metrics endpoint should return a Prometheus exposition body that
-#   includes ember_build_info (always present, regardless of activity).
 metrics_body="$(curl -fsS http://localhost:13627/metrics)"
 if ! echo "$metrics_body" | grep -q "ember_build_info"; then
   echo "smoke: FAIL — /metrics body missing ember_build_info" >&2
@@ -88,14 +77,6 @@ if ! echo "$metrics_body" | grep -q "ember_build_info"; then
 fi
 echo "smoke: /metrics OK"
 
-# - POST /v1/status accepts the G.1a protocol shape (context_pct + source_color).
-#   Exercises the JSON decoder against the new optional fields end-to-end
-#   inside the container. We use state=idle so Publish takes the "cede the
-#   slot" path (no upstream AWTRIX HTTP call), keeping this probe free of
-#   the unreachable-device flakiness that would otherwise turn 200 into 502.
-#   The outbound CustomApp draw-vs-text shape is covered by unit tests
-#   (TestPublish_EmitsDrawPayload_NoIndicators in main_test.go); the visual
-#   output is the manual device-verification step in the G.1a plan.
 status_resp_code="$(curl -fsS -o /tmp/smoke_status.json -w '%{http_code}' \
   -X POST http://localhost:13627/v1/status \
   -H 'Authorization: Bearer smoke-token' \

@@ -7,9 +7,6 @@ import (
 	"os"
 )
 
-// redactConfig returns a copy of c with secrets stripped.
-//   - Auth.StatusToken: "<redacted>" if non-empty (so reader knows it was set), "" otherwise.
-//   - AWTRIX.HTTPBaseURL: userinfo (e.g. http://user:pass@host) stripped via url.Parse.
 func redactConfig(c Config) Config {
 	if c.Auth.StatusToken != "" {
 		c.Auth.StatusToken = "<redacted>"
@@ -21,8 +18,6 @@ func redactConfig(c Config) Config {
 	return c
 }
 
-// runPrintConfig loads + applyDefaults + validates the config at path,
-// redacts secrets, prints JSON to stdout. Exits the process on any error.
 func runPrintConfig(path string) {
 	resolved, _ := resolveConfigPath(path)
 	if resolved == "" {

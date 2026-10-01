@@ -7,20 +7,7 @@ public protocol SaveStatusReporting: AnyObject {
     var status: SaveState { get }
 }
 
-/// One editable configuration with auto-apply. Views bind controls to
-/// `draft` and call `scheduleSave()` from `onChange(of: draft)`; the model
-/// writes 600 ms after the last edit, retries 429s, and keeps the outcome in
-/// `status` ("Saved" for 2 s, then idle). It never writes before a load has
-/// succeeded, so a control can't overwrite the server with the placeholder:
-/// **views must disable their controls until `isLoaded`**, or an edit made
-/// before the first load is silently discarded.
-///
-/// A failed save is retried by the next `load()` (pane appear, window focus,
-/// ⌘R); a `.featureOff` save is not retried but reverted to the server's
-/// value, since the server doesn't have the setting.
-///
-/// Server configs use it as `ServerConfigModel<T>`, producer.env settings as
-/// `EnvConfigModel<T>` (see `init(envAt:…)`); the interface is the same.
+/// One editable configuration with auto-apply.
 @MainActor
 @Observable
 public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
@@ -32,8 +19,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     public private(set) var status: SaveState = .idle
     /// Why the last load failed; nil after a success.
     public private(set) var loadError: FeedError?
-    /// Why the last save failed; nil after a success. `.featureOff` means the
-    /// server doesn't have this setting: disable its controls.
+    /// Why the last save failed; nil after a success.
     public private(set) var saveError: FeedError?
 
     public var isLoaded: Bool { applied != nil }
@@ -52,7 +38,6 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     @ObservationIgnored private var savedReset: Task<Void, Never>?
     @ObservationIgnored private var saving = false
 
-    /// Attempts per load or save while the server answers 429.
     static var rateLimitAttempts: Int { 3 }
 
     public convenience init(initial: T,
@@ -63,7 +48,6 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                   savedHold: .seconds(2), sleep: { try await Task.sleep(for: $0) })
     }
 
-    /// Tests inject the sleep so the debounce and retries run on a manual clock.
     init(initial: T,
          load: @escaping @Sendable () async throws -> T,
          save: @escaping @Sendable (T) async throws -> Void,
@@ -78,10 +62,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         self.sleep = sleep
     }
 
-    /// Reads the stored value into `draft` and `applied`. Skipped while an
-    /// edit is waiting to be saved, so a reload (window focus, ⌘R) can't
-    /// throw away what the user just typed. After a failed save it retries
-    /// that save instead (or reverts, for `.featureOff`).
+    /// Reads the stored value into `draft` and `applied`.
     public func load() async {
         if let e = saveError, hasUnsavedChanges, pending == nil, !saving {
             if e == .featureOff { revert() } else { await saveNow(); return }
@@ -107,8 +88,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         }
     }
 
-    /// Saves `draft` after the debounce, restarting it on every call. Does
-    /// nothing before the first load or when nothing changed.
+    /// Saves `draft` after the debounce, restarting it on every call.
     public func scheduleSave() {
         pending?.cancel()
         pending = nil
@@ -152,12 +132,10 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                 return
             }
         }
-        // Edits made while the request was in flight get their own save.
         if hasUnsavedChanges { scheduleSave() }
     }
 
-    /// Replaces the draft and applied value without saving (e.g. after a
-    /// write made elsewhere).
+    /// Replaces the draft and applied value without saving.
     public func reset(to value: T) {
         cancelPendingSave()
         applied = value
@@ -168,7 +146,7 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     public func retry() async { await saveNow() }
 
     /// Drops unsaved edits and a save error: the draft goes back to the last
-    /// stored value. Call `load()` afterwards to refetch.
+    /// stored value.
     public func revert() {
         cancelPendingSave()
         if let applied { draft = applied }
@@ -201,8 +179,7 @@ public typealias EnvConfigModel<T: Equatable & Sendable> = ConfigModel<T>
 extension ConfigModel {
     /// A model over producer.env: `read` parses the settings out of the file;
     /// `apply` writes them into it (validating first, so a throw writes
-    /// nothing). The rest of the file is kept. Writes go through `store`, so
-    /// they can't interleave with other writers of the same file.
+    /// nothing).
     public convenience init(env store: EnvFileStore,
                             initial: T,
                             read: @escaping @Sendable (EnvFile) -> T,

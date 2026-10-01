@@ -40,7 +40,6 @@ func TestUninstallSettings_RemovesStatusLineWhenNoSidecar(t *testing.T) {
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, ".claude"), 0o700)
 	settings := filepath.Join(home, ".claude", "settings.json")
-	// No hooks at all — exercises the no-early-return fix.
 	os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/ember-claude-producer statusline 2>>y"}}`), 0o600)
 
 	if err := uninstallSettings(home); err != nil {
@@ -69,8 +68,6 @@ func TestUninstall_StripsHooksAndRemovesPlist(t *testing.T) {
 	if err := uninstallSettings(tmp); err != nil {
 		t.Fatal(err)
 	}
-	// Never the real launchctl: the uid is this user's, and a real bootout
-	// here removed Ember.app's heartbeat job on a dev Mac (#142).
 	lc := func(args ...string) ([]byte, error) {
 		if args[0] == "print" {
 			return []byte("\tmanaged_by = com.apple.xpc.ServiceManagement\n"), nil

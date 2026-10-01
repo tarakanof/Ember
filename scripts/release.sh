@@ -2,12 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# Cut a release: bump the macOS app version, tag, and publish a GitHub Release —
-# which triggers .github/workflows/docker-publish.yml to build + push the server
-# image to Docker Hub. Keeps the app's MARKETING_VERSION and the release tag in
-# lockstep so they can't drift (the only version that isn't already tag-derived),
-# and bumps CURRENT_PROJECT_VERSION (CFBundleVersion) by one so every release
-# has a new build number.
+# Cut a release: bump the macOS app version, tag, and publish a GitHub Release.
 #
 # Usage:
 #   scripts/release.sh <X.Y.Z> [release title]
@@ -20,7 +15,7 @@ IFS=$'\n\t'
 # Preconditions: run from a clean `main` in sync with origin, with the `gh` CLI
 # authenticated. The tag must not already exist.
 
-usage() { sed -n '6,22p' "$0" >&2; exit 2; }
+usage() { sed -n '5,16p' "$0" >&2; exit 2; }
 
 ASSUME_YES=0
 ARGS=()
@@ -38,8 +33,6 @@ VERSION="${1:-}"
 TITLE="${2:-}"
 [ -n "$VERSION" ] || usage
 
-# Strict semver vX.Y.Z, matching the gate in docker-publish.yml. Accept an
-# optional leading "v" for convenience but normalise it away.
 VERSION="${VERSION#v}"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "error: '$VERSION' is not strict semver X.Y.Z" >&2
@@ -51,8 +44,6 @@ TAG="v$VERSION"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 PROJECT_YML="macos/project.yml"
-
-# --- Preconditions -----------------------------------------------------------
 
 command -v gh >/dev/null 2>&1 || { echo "error: gh CLI not installed" >&2; exit 1; }
 gh auth status >/dev/null 2>&1 || { echo "error: gh not authenticated (run: gh auth login)" >&2; exit 1; }
@@ -95,15 +86,10 @@ if [ "$ASSUME_YES" -ne 1 ]; then
   case "$reply" in y|Y|yes|YES) ;; *) echo "aborted."; exit 1 ;; esac
 fi
 
-# --- Bump, tag, publish ------------------------------------------------------
-
-# -i.bak is portable across BSD (macOS) and GNU sed; drop the backup after.
 sed -i.bak "s/^\([[:space:]]*MARKETING_VERSION:[[:space:]]*\"\)[^\"]*\(\".*\)/\1$VERSION\2/" "$PROJECT_YML"
 sed -i.bak "s/^\([[:space:]]*CURRENT_PROJECT_VERSION:[[:space:]]*\"\)[^\"]*\(\".*\)/\1$next_build\2/" "$PROJECT_YML"
 rm -f "$PROJECT_YML.bak"
 
-# Keep the generated Xcode project in sync for local builds (it's gitignored, so
-# this never affects the commit — purely a convenience). Best-effort.
 if command -v xcodegen >/dev/null 2>&1; then
   ( cd macos && xcodegen generate >/dev/null ) || echo "warn: xcodegen generate failed; regenerate manually" >&2
 fi
@@ -115,9 +101,6 @@ git tag -a "$TAG" -m "$TITLE"
 git push origin main
 git push origin "$TAG"
 
-# --verify-tag: refuse to publish if the pushed tag somehow doesn't exist.
-# --generate-notes: auto-build the body from merged PRs/commits since the last
-# tag; edit the release afterwards if you want curated notes.
 gh release create "$TAG" --verify-tag --title "$TITLE" --generate-notes
 
 echo

@@ -7,7 +7,6 @@ func dashboardColumnsFollowWidth(width: Double, columns: Int) {
     #expect(DashboardLayout.columns(forWidth: width) == columns)
 }
 
-/// The §2.3 card list: W = wide, S = standard.
 private let specCards: [(id: String, size: CardSize)] = [
     ("clock", .wide), ("focus", .standard), ("usage", .standard), ("upcoming", .standard),
     ("agents", .wide), ("last7", .standard), ("weeks", .standard), ("workhours", .wide),
@@ -44,7 +43,6 @@ private let specCards: [(id: String, size: CardSize)] = [
 }
 
 @Test func hiddenCardsReflowAndTrailingWideCardsAreKept() {
-    // Usage, Upcoming and Weather hidden; a wide card waiting at the end still renders.
     let cards: [(id: String, size: CardSize)] = [
         ("clock", .wide), ("focus", .standard), ("agents", .wide), ("heatmap", .wide),
     ]

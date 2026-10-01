@@ -19,7 +19,6 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
-// putClockOverride pins url the way the menu does: PUT /v1/device/config.
 func putClockOverride(a *App, url string) error {
 	body, _ := json.Marshal(map[string]string{"base_url": url})
 	w := putDeviceConfig(a, string(body))
@@ -35,7 +34,6 @@ func putDeviceConfig(a *App, body string) *httptest.ResponseRecorder {
 	return w
 }
 
-// getDeviceConfig is GET /v1/device/config's body.
 func getDeviceConfig(t *testing.T, a *App) (url, source string) {
 	t.Helper()
 	w := httptest.NewRecorder()
@@ -82,8 +80,6 @@ func TestClockURL_Precedence(t *testing.T) {
 	}
 }
 
-// The override persists; a discovery swap is in memory only, so a restart
-// comes back on the override.
 func TestClockOverride_SurvivesRestartSwapDoesNot(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "s.db")
 	a := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
@@ -114,8 +110,6 @@ func TestClockOverride_SurvivesRestartSwapDoesNot(t *testing.T) {
 	}
 }
 
-// A store written before the clock URL joined the overlay holds the raw URL;
-// it must still apply, and a PUT keeps writing that format.
 func TestClockOverride_RawStoreFormat(t *testing.T) {
 	a := newTestAppWithStore(t)
 	if err := a.store.PutSetting(deviceBaseURLKey, "http://10.0.0.8"); err != nil {
@@ -133,7 +127,6 @@ func TestClockOverride_RawStoreFormat(t *testing.T) {
 	}
 }
 
-// An invalid stored value (hand-edited DB) is ignored, leaving the baseline.
 func TestClockOverride_InvalidStoredValueIgnored(t *testing.T) {
 	a := newTestAppWithStore(t)
 	if err := a.store.PutSetting(deviceBaseURLKey, "file:///etc/passwd"); err != nil {
@@ -148,7 +141,6 @@ func TestClockOverride_InvalidStoredValueIgnored(t *testing.T) {
 func TestDeviceConfigPut_MergeSemantics(t *testing.T) {
 	a := newTestAppWithStore(t)
 
-	// No override yet: {} changes nothing.
 	if w := putDeviceConfig(a, `{}`); w.Code != http.StatusOK {
 		t.Fatalf("{} without override: %d %s", w.Code, w.Body)
 	}
@@ -165,7 +157,6 @@ func TestDeviceConfigPut_MergeSemantics(t *testing.T) {
 			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
 		}
 	}
-	// An explicit empty or bad URL is still a 400 and changes nothing.
 	for _, body := range []string{`{"base_url":""}`, `{"base_url":"ftp://x"}`, `{"base_url":5}`, `"http://x"`, `[]`} {
 		if w := putDeviceConfig(a, body); w.Code != http.StatusBadRequest {
 			t.Fatalf("%s: status %d, want 400", body, w.Code)
@@ -179,8 +170,6 @@ func TestDeviceConfigPut_MergeSemantics(t *testing.T) {
 	}
 }
 
-// A PUT naming base_url re-pins it over a discovery swap, even when it is the
-// very override discovery swapped away from; {} leaves the swap alone.
 func TestDeviceConfigPut_RepinsOverDiscoverySwap(t *testing.T) {
 	a := newTestAppWithStore(t)
 	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
@@ -202,7 +191,6 @@ func TestDeviceConfigPut_RepinsOverDiscoverySwap(t *testing.T) {
 	}
 }
 
-// A swap computed against a URL the menu has since replaced must not land.
 func TestSwapDiscoveredClock_LosesToConcurrentPin(t *testing.T) {
 	a := newTestAppWithStore(t)
 	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
@@ -216,8 +204,6 @@ func TestSwapDiscoveredClock_LosesToConcurrentPin(t *testing.T) {
 	}
 }
 
-// A reload that changes the file URL re-pins: a swap is dropped, and a store
-// override still wins over the new baseline.
 func TestAdminReload_FileURLChangeDropsSwapOverrideWins(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
 	if err := app.ensureStore(filepath.Join(t.TempDir(), "s.db")); err != nil {
@@ -238,7 +224,6 @@ func TestAdminReload_FileURLChangeDropsSwapOverrideWins(t *testing.T) {
 	}
 }
 
-// Without a store the override lives in memory; a reload must keep it.
 func TestAdminReload_KeepsInMemoryOverride(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
 	if err := putClockOverride(app, "http://10.0.0.1"); err != nil {
@@ -250,8 +235,6 @@ func TestAdminReload_KeepsInMemoryOverride(t *testing.T) {
 	}
 }
 
-// changed_fields names awtrix.http_base_url exactly when the file changed it,
-// whatever the running URL is.
 func TestAdminReload_ChangedFieldsTrackFileURL(t *testing.T) {
 	app, path := newAppForReload(t, `{"awtrix":{"http_base_url":"http://1.2.3.4"}}`)
 	app.swapDiscoveredClock("http://1.2.3.4", "http://5.6.7.8")
@@ -278,8 +261,6 @@ func TestAdminReload_ChangedFieldsTrackFileURL(t *testing.T) {
 	}
 }
 
-// A menu PUT racing the watch loop's discovery swap: no data race, the store
-// only ever holds what a PUT wrote, and every GET is a consistent pair.
 func TestDeviceConfigPut_ConcurrentWithDiscoverySwap(t *testing.T) {
 	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"uid":"awtrix_test","boardType":"awtrixng"}`))
@@ -289,7 +270,7 @@ func TestDeviceConfigPut_ConcurrentWithDiscoverySwap(t *testing.T) {
 	a.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
 		return []discovery.Candidate{{BaseURL: clock.URL, UID: "awtrix_test"}}, nil
 	}
-	pins := []string{"http://127.0.0.1:9", "http://127.0.0.1:7"} // both dead
+	pins := []string{"http://127.0.0.1:9", "http://127.0.0.1:7"}
 	if err := putClockOverride(a, pins[0]); err != nil {
 		t.Fatal(err)
 	}
@@ -342,9 +323,6 @@ func TestDeviceConfigPut_ConcurrentWithDiscoverySwap(t *testing.T) {
 	}
 }
 
-// clockURLBaselineFuncs are the functions that may read
-// AWTRIXConfig.HTTPBaseURL: it is the file baseline, and everything else must
-// ask Config.clockURL for the URL to use.
 var clockURLBaselineFuncs = map[string][]string{
 	"config.go":      {"sanitizeConfigBaseline", "validateConfig", "applyDefaults"},
 	"printconfig.go": {"redactConfig"},
@@ -375,8 +353,6 @@ func TestHTTPBaseURLOnlyReadAsBaseline(t *testing.T) {
 	}
 }
 
-// Pin A dies, discovery swaps to B, B dies, discovery finds A again: A is the
-// pin, live again, so the source is the store's.
 func TestRediscoverClock_BackOnThePinReportsStore(t *testing.T) {
 	a := newTestAppWithStore(t)
 	if err := putClockOverride(a, "http://10.0.0.5"); err != nil {
@@ -391,7 +367,6 @@ func TestRediscoverClock_BackOnThePinReportsStore(t *testing.T) {
 	}
 }
 
-// PUT {} with no override stores nothing.
 func TestDeviceConfigPut_EmptyObjectWritesNoRow(t *testing.T) {
 	a := newTestAppWithStore(t)
 	if w := putDeviceConfig(a, `{}`); w.Code != http.StatusOK {

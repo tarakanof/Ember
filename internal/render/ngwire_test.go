@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// bmp returns the i-th draw command of p, asserting it is NG's array-form
-// ["bitmap", x, y, w, h, data] (AWTRIX3's {"db":[…]} object form is a 422 on NG).
 func bmp(t *testing.T, p map[string]any, i int) []any {
 	t.Helper()
 	draw, ok := p["draw"].([]any)
@@ -21,11 +19,6 @@ func bmp(t *testing.T, p map[string]any, i int) []any {
 	return op
 }
 
-// bmpPixels returns the packed-int pixel data of p's first bitmap draw command.
-// panelPixels composites EVERY bitmap op in a payload back into one 32×8 panel,
-// so pixel assertions keep working for frames whose bitmap is split into blocks
-// around a native-text box (see drawOpsAround). Text the firmware renders is,
-// by definition, not in the bitmap and so not here.
 func panelPixels(t *testing.T, p map[string]any) []int {
 	t.Helper()
 	ops, ok := p["draw"].([]any)
@@ -62,8 +55,6 @@ func bmpPixels(t *testing.T, p map[string]any) []int {
 	return px
 }
 
-// legacyKeys are the AWTRIX3 spellings awtrix-ng rejects with 422
-// (validationFailed, field = the key). No builder may emit any of them.
 var legacyKeys = []string{
 	"duration", "lifetime", "lifetimeMode", "color", "center", "textOffset",
 	"noScroll", "blinkText", "progressC", "progressBC", "pushIcon", "rtttl",
@@ -72,8 +63,6 @@ var legacyKeys = []string{
 	"clients", "barBC", "effectSettings",
 }
 
-// assertNGPayload fails when a builder's payload carries an AWTRIX3 key or an
-// object-form draw command, and enforces NG's 8192-byte body limit.
 func assertNGPayload(t *testing.T, name string, p map[string]any) {
 	t.Helper()
 	for _, k := range legacyKeys {
@@ -97,9 +86,6 @@ func assertNGPayload(t *testing.T, name string, p map[string]any) {
 	}
 }
 
-// TestAllBuildersEmitNGSchema is the cross-builder guard: every payload builder
-// in this package must survive assertNGPayload. A new builder that reaches for
-// an AWTRIX3 key fails here even if its own test forgets to check.
 func TestAllBuildersEmitNGSchema(t *testing.T) {
 	var f Frame
 	paintCell(&f, 0, 0, RGB{0xff, 0x00, 0x00})
@@ -148,14 +134,10 @@ func TestAllBuildersEmitNGSchema(t *testing.T) {
 	}
 }
 
-// TestFullFrameBitmapFitsPayloadBudget pins the largest builder output — a 32×8
-// full-frame bitmap where every pixel is a distinct 6-digit colour, the
-// worst-case serialisation — under NG's 8192-byte body limit.
 func TestFullFrameBitmapFitsPayloadBudget(t *testing.T) {
 	var f Frame
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 32; x++ {
-			// 0xFFxxxx keeps every packed int at its 8-decimal-digit maximum.
 			paintCell(&f, x, y, RGB{0xff, uint8(y*32 + x), uint8(255 - x)})
 		}
 	}

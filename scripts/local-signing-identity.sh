@@ -3,37 +3,6 @@ set -euo pipefail
 
 # A stable code-signing identity for local (non-Developer-ID) builds.
 #
-# Why: macOS Local Network privacy (and Little Snitch) key their grants to the
-# code's designated requirement. For ad-hoc code that is the cdhash, so every
-# rebuild is a new program: NWBrowser fails with NoAuth (-65555) and LAN
-# connections fail with "Network is down" until the user re-approves it. Code
-# signed with one self-signed certificate gets the requirement
-#   identifier "com.ember.Ember" and certificate leaf = H"<sha1>"
-# which stays the same across rebuilds, so the grant survives.
-#
-# The certificate is self-signed and NOT trusted: no admin rights and no trust
-# settings change. codesign signs with an untrusted identity fine; only
-# Gatekeeper would object, and a locally built app never goes through it.
-#
-# A certificate Apple issued you (an "Apple Development" identity from Xcode)
-# is the better choice when you have one: its requirement is
-#   identifier "com.ember.Ember" and anchor apple generic and
-#   certificate leaf[subject.CN] = "Apple Development: <name> (<id>)" and
-#   certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */
-# which names the certificate's subject, not its hash, so it also holds for a
-# renewed certificate with the same name. Select it with
-# EMBER_SIGNING_IDENTITY, or once for good in ~/.config/ember/signing-identity
-# ($XDG_CONFIG_HOME/ember/signing-identity when XDG_CONFIG_HOME is set; the
-# first non-blank line after stripping # comments and whitespace). Either holds
-# a SHA-1 or an exact identity name of a valid identity (find-identity -v); a
-# name that matches more than one is an error, so prefer the SHA-1.
-# EMBER_SIGNING_IDENTITY=- forces ad-hoc for one build, ignoring the file.
-#
-# Which identity signs (--hash, --sign, --check): that override, else the
-# self-signed "Ember Local Signing" identity, else none (the caller leaves the
-# build ad-hoc). An override that names no valid identity, or a config file
-# that can't be read, is an error, not a silent fallback.
-#
 # Usage:
 #   local-signing-identity.sh            create "Ember Local Signing" if missing (idempotent), print its SHA-1
 #   local-signing-identity.sh --check    report the identity local builds sign with (exit 1 if none)
@@ -49,17 +18,11 @@ NAME="Ember Local Signing"
 KEYCHAIN="${EMBER_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
 IDENTITY_FILE="${EMBER_SIGNING_IDENTITY_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/ember/signing-identity}"
 
-# identity_hash prints the SHA-1 of the first code-signing identity called
-# $NAME, valid or not (untrusted self-signed identities are listed only
-# without -v, flagged CSSMERR_TP_NOT_TRUSTED).
 identity_hash() {
   security find-identity -p codesigning "$KEYCHAIN" 2>/dev/null |
     awk -v n="\"$NAME\"" 'index($0, n) { print $2; exit }'
 }
 
-# override prints the configured identity (SHA-1 or name):
-# EMBER_SIGNING_IDENTITY, else the first non-blank line of $IDENTITY_FILE
-# (# starts a comment), else nothing.
 override() {
   if [ -n "${EMBER_SIGNING_IDENTITY:-}" ]; then
     echo "$EMBER_SIGNING_IDENTITY"
@@ -69,11 +32,6 @@ override() {
   fi
 }
 
-# matching prints the SHA-1 of every code-signing identity in $KEYCHAIN whose
-# SHA-1 ($1 = sha) or exact name ($1 = name) is $2, deduped. With $3 = -v, only
-# valid ones (not expired, revoked or untrusted); otherwise any, so an invalid
-# match can be told apart from no match. Invalid identities carry a trailing
-# "(CSSMERR_...)" after the quoted name.
 matching() {
   local by="$1" want="$2" valid="${3:-}"
   security find-identity ${valid:+"$valid"} -p codesigning "$KEYCHAIN" 2>/dev/null |
@@ -84,9 +42,6 @@ matching() {
       }' | sort -u
 }
 
-# override_hash resolves the override (a SHA-1 or an exact name) to the SHA-1
-# of exactly one valid identity in $KEYCHAIN, or fails with a message on
-# stderr: no such identity, only invalid ones, or several valid ones.
 override_hash() {
   local want="$1" by=name hashes n what
   what="\"$want\""
@@ -110,11 +65,6 @@ override_hash() {
   esac
 }
 
-# resolve sets HASH and LABEL to the identity local builds sign with: the
-# override, else "Ember Local Signing". Returns 0 when found, 1 when there is
-# neither or the override is "-" (ad-hoc), 2 when the override is set but
-# unusable or the config file can't be read (message on stderr). Callers run
-# it under || where errexit is off, so every failure is checked explicitly.
 resolve() {
   local want
   HASH="" LABEL=""
@@ -141,7 +91,7 @@ create() {
     echo "$NAME already exists: $hash"
     return 0
   fi
-  tmp="$(mktemp -d)" # global: the EXIT trap runs after create() returns
+  tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
   chmod 700 "$tmp"
   cat >"$tmp/cert.cnf" <<EOF
@@ -157,16 +107,11 @@ keyUsage = critical,digitalSignature
 extendedKeyUsage = critical,codeSigning
 subjectKeyIdentifier = hash
 EOF
-  # /usr/bin/openssl (LibreSSL) on purpose: its PKCS#12 defaults (3DES/SHA-1)
-  # are what `security import` reads on every macOS; OpenSSL 3's AES
-  # defaults are not.
   /usr/bin/openssl req -new -x509 -newkey rsa:2048 -nodes -days 3650 \
     -config "$tmp/cert.cnf" -keyout "$tmp/key.pem" -out "$tmp/cert.pem" 2>/dev/null
   pass="$(/usr/bin/openssl rand -hex 16)"
   /usr/bin/openssl pkcs12 -export -name "$NAME" -inkey "$tmp/key.pem" -in "$tmp/cert.pem" \
     -out "$tmp/id.p12" -passout "pass:$pass"
-  # -x: the private key can't be exported again. -T: codesign may use it
-  # without a keychain prompt.
   security import "$tmp/id.p12" -k "$KEYCHAIN" -f pkcs12 -P "$pass" -x -T /usr/bin/codesign >/dev/null
   hash="$(identity_hash)"
   [ -n "$hash" ] || { echo "error: imported, but no '$NAME' code-signing identity in $KEYCHAIN" >&2; exit 1; }
@@ -189,7 +134,6 @@ check() {
   esac
 }
 
-# print_hash exits 1 when there is no identity, 2 when the override is unusable.
 print_hash() {
   local rc=0
   resolve || rc=$?
@@ -207,11 +151,6 @@ remove() {
   echo "removed $n '$NAME' identit$([ "$n" = 1 ] && echo y || echo ies) from $KEYCHAIN"
 }
 
-# sign_app re-signs a built Ember.app with the identity, inside-out: nested
-# frameworks, then the helper executables under Contents/MacOS (keeping the
-# com.ember.* identifiers build-producers.sh gave them), then the app.
-# Hardened runtime and the entitlements are kept, except get-task-allow,
-# which Xcode injects into ad-hoc builds and a Release install must not have.
 sign_app() {
   local app="$1" hash main f name ents rc=0
   [ -d "$app" ] || { echo "error: no such app bundle: $app" >&2; exit 2; }

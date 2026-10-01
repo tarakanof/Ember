@@ -2,10 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-// Issue #142: an enabled agent whose launchd job is gone (booted out, or never
-// resubmitted after an update) must be re-registered, and an app update must
-// be detected even when CFBundleVersion stays "1".
-
 private let heartbeat = "com.ember.heartbeat.plist"
 private let codex = "com.ember.codex.plist"
 
@@ -15,8 +11,6 @@ private func service(_ sm: FakeSMAppService, _ runner: FakeRunner) -> ProducerIn
         fileExists: { _ in true }, uid: 501)
 }
 
-/// A runner whose `launchctl print` fails (exit 113, "Could not find service")
-/// for the given labels.
 private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     let r = FakeRunner()
     r.exitFor = { args in
@@ -32,7 +26,6 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     #expect(reconcileReason(registration: .enabled, liveness: .stuck, bundleChanged: false) == .stuck)
     #expect(reconcileReason(registration: .enabled, liveness: .running, bundleChanged: true) == .bundleChanged)
     #expect(reconcileReason(registration: .enabled, liveness: .notLoaded, bundleChanged: true) == .bundleChanged)
-    // The user's choice wins: never register an agent that isn't enabled.
     for reg in [AgentRegistration.notRegistered, .requiresApproval, .notFound] {
         #expect(reconcileReason(registration: reg, liveness: .notLoaded, bundleChanged: true) == nil)
         #expect(reconcileReason(registration: reg, liveness: .stuck, bundleChanged: false) == nil)
@@ -52,7 +45,6 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     let svc = service(sm, runner(notLoaded: ["com.ember.heartbeat"]))
     #expect(svc.agentState(.claude) == .notRunning)
     #expect(svc.agentState(.codex) == .on)
-    // Reporting is still on (the user's intent); the row carries the problem.
     #expect(svc.toggleState() == .on)
 }
 
@@ -66,7 +58,6 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
 }
 
 @MainActor @Test func aFailingProbeCountsAsLoaded() {
-    // launchctl missing or not runnable: don't churn registrations on a guess.
     final class ThrowingRunner: ProducerCommandRunning {
         func run(executable: String, arguments: [String]) throws -> CommandResult {
             throw NSError(domain: "x", code: 1)
@@ -101,10 +92,10 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codex: .notRegistered]
     let r = FakeRunner()
     let outcomes = await service(sm, r).reconcile(bundleChanged: true)
-    #expect(sm.unregistered == [heartbeat])   // codex is off: left alone
+    #expect(sm.unregistered == [heartbeat])
     #expect(sm.registered == [heartbeat])
     #expect(outcomes.map(\.reason) == [.bundleChanged])
-    #expect(r.calls.isEmpty)                   // no probe needed when re-registering anyway
+    #expect(r.calls.isEmpty)
 }
 
 @MainActor @Test func reconcileWithEverythingHealthyDoesNothing() async {
@@ -123,8 +114,6 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
 }
 
 @MainActor @Test func repairStillRegistersWhenUnregisterThrows() async {
-    // The #142 state: Background Items says enabled, launchd dropped the job,
-    // and unregistering the stale registration may fail.
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codex: .enabled]
     sm.unregisterError = NSError(domain: "x", code: 1)
     let outcomes = await service(sm, runner(notLoaded: ["com.ember.heartbeat"])).repairAll()
@@ -145,7 +134,7 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
 @MainActor @Test func anUnknownProbeFailureNeverReRegisters() async {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codex: .enabled]
     let r = FakeRunner()
-    r.exitFor = { args in args.first == "print" ? 1 : 0 }   // launchctl broken, not "not found"
+    r.exitFor = { args in args.first == "print" ? 1 : 0 }
     let svc = service(sm, r)
     #expect(svc.agentState(.claude) == .on)
     #expect(await svc.reconcile(bundleChanged: false).isEmpty)
@@ -156,7 +145,7 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     let ok = ReconcileOutcome(agent: .claude, reason: .bundleChanged, error: nil)
     let failed = ReconcileOutcome(agent: .codex, reason: .bundleChanged, error: NSError(domain: "x", code: 1))
     #expect(shouldRecordFingerprint(bundleChanged: true, outcomes: [ok]))
-    #expect(shouldRecordFingerprint(bundleChanged: true, outcomes: []))   // nothing enabled
+    #expect(shouldRecordFingerprint(bundleChanged: true, outcomes: []))
     #expect(!shouldRecordFingerprint(bundleChanged: true, outcomes: [ok, failed]))
     #expect(!shouldRecordFingerprint(bundleChanged: false, outcomes: [ok]))
 }
@@ -181,8 +170,6 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     let base = producerBundleFingerprint(version: "0.28.0", build: "1", helperDigests: ["aa"])
     #expect(base != producerBundleFingerprint(version: "0.28.1", build: "1", helperDigests: ["aa"]))
     #expect(base != producerBundleFingerprint(version: "0.28.0", build: "2", helperDigests: ["aa"]))
-    // The old key was the bare CFBundleVersion "1": the new one never equals
-    // it, so the first launch of this build reconciles once.
     #expect(shouldReconcileAfterUpdate(currentVersion: base, lastReconciledVersion: "1"))
 }
 
@@ -200,7 +187,6 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     let first = bundleFingerprint(appURL: app, version: "0.28.0", build: "1")
     #expect(first == bundleFingerprint(appURL: app, version: "0.28.0", build: "1"))
 
-    // Same version and build, rebuilt helper (a new ad-hoc signature): a new key.
     try Data("bin-rebuilt".utf8).write(to: macos.appendingPathComponent(ProducerAgent.claude.binaryName))
     #expect(first != bundleFingerprint(appURL: app, version: "0.28.0", build: "1"))
 }

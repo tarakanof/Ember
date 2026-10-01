@@ -94,9 +94,7 @@ public struct PermissionRow: Identifiable, Equatable, Sendable {
     }
 }
 
-/// The reads behind the Permissions pane. The app implements them over
-/// EventKit, CoreLocation, `ProducerInstallService` and `LocalNetworkProbe`;
-/// tests fake them.
+/// The reads behind the Permissions pane.
 @MainActor
 public protocol PermissionSources: AnyObject, Sendable {
     /// Probes this app's Local Network access (a few seconds at most).
@@ -119,14 +117,11 @@ public final class PermissionsModel {
     public private(set) var checkedAt: Date?
 
     /// How soon after one check the pane appearing or the app becoming
-    /// active checks again. A check runs a Bonjour browse and a request to
-    /// the server, and opening Settings from the menu bar does both at once.
+    /// active checks again.
     public static let activationInterval: TimeInterval = 5
 
     @ObservationIgnored private let sources: any PermissionSources
     @ObservationIgnored private let now: @MainActor () -> Date
-    /// The check running now; later callers wait for it instead of starting
-    /// another.
     @ObservationIgnored private var inFlight: Task<Void, Never>?
     @ObservationIgnored private var startedAt: Date?
 
@@ -143,12 +138,7 @@ public final class PermissionsModel {
 
     public func row(_ id: PermissionID) -> PermissionRow? { rows.first { $0.id == id } }
 
-    /// Re-reads everything. With `minInterval` (the pane appearing, the app
-    /// becoming active) it joins a check already running, and skips when the
-    /// last one started less than that long ago. Without it (Check Again, or
-    /// after Repair or Allow Access) it waits out a running check, which may
-    /// predate the change, then runs a fresh one, or joins a newer one
-    /// another caller started meanwhile.
+    /// Re-reads everything.
     public func refresh(ifOlderThan minInterval: TimeInterval? = nil) async {
         if let running = inFlight {
             await running.value
@@ -168,14 +158,11 @@ public final class PermissionsModel {
         await task.value
     }
 
-    /// The quick reads land at once; the Local Network probe and the
-    /// producer read follow.
     private func check() async {
         isChecking = true
         let reminders = sources.reminders()
         let location = sources.location()
         let previous = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
-        // Keep what the slow reads showed last time until they answer again.
         let lastNetwork = previous[.localNetwork].flatMap { Self.networkStatus(of: $0.status) }
         rows = Self.rows(localNetwork: lastNetwork, producers: nil, keepingProducerRowsFrom: previous,
                          reminders: reminders.status, remindersInUse: reminders.inUse, location: location)
@@ -200,9 +187,6 @@ public final class PermissionsModel {
 
     // MARK: Rules (pure)
 
-    /// The rows for a set of reads. nil `localNetwork` or `producers` means
-    /// "not read yet": the Local Network row shows `.checking`, the producer
-    /// rows keep `keepingProducerRowsFrom`'s (or `.checking`).
     nonisolated static func rows(localNetwork: LocalNetworkStatus?, producers: ProducerSnapshot?,
                      keepingProducerRowsFrom previous: [PermissionID: PermissionRow] = [:],
                      reminders: AccessStatus, remindersInUse: Bool,
@@ -233,8 +217,6 @@ public final class PermissionsModel {
                              action: .openSystemSettings(.localNetwork))
     }
 
-    /// The producer LaunchAgents: not in use unless reporting is on for some
-    /// agent; approval or Repair when macOS isn't running one.
     nonisolated static func backgroundItemsRow(_ snapshot: ProducerSnapshot) -> PermissionRow {
         let states = snapshot.agents.map(\.state)
         let inUse = states.contains { $0 != .off }
@@ -259,8 +241,6 @@ public final class PermissionsModel {
         return PermissionRow(id: .backgroundItems, status: status, required: inUse, action: action)
     }
 
-    /// The helpers' own Local Network grant, from what each running helper
-    /// last recorded (`no_route`).
     nonisolated static func helperLocalNetworkRow(_ snapshot: ProducerSnapshot) -> PermissionRow {
         let running = snapshot.agents.contains { $0.state == .on }
         guard running else {
@@ -273,8 +253,6 @@ public final class PermissionsModel {
                              blockedHelpers: blocked)
     }
 
-    /// Reminders only matter while reminder alarms are on; otherwise the row
-    /// points at Calendar, where they're turned on.
     nonisolated static func remindersRow(_ access: AccessStatus, inUse: Bool) -> PermissionRow {
         guard inUse else {
             return PermissionRow(id: .reminders, status: .notInUse, required: false, action: .openPane(.calendar))
@@ -283,8 +261,6 @@ public final class PermissionsModel {
                              action: access == .notDetermined ? .requestAccess : .openSystemSettings(.reminders))
     }
 
-    /// Location is only asked for by Weather's Detect button, so it's never
-    /// required, and "not asked yet" sends the user there.
     nonisolated static func locationRow(_ access: AccessStatus) -> PermissionRow {
         PermissionRow(id: .location, status: status(access), required: false,
                       action: access == .notDetermined ? .openPane(.weather) : .openSystemSettings(.location))

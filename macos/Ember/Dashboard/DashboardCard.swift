@@ -1,9 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// One Dashboard card: a stock `GroupBox` with a symbol title, an optional
-/// trailing header (a count, a total), and a fixed height so a row's cards
-/// line up and charts fill them.
 struct DashboardCard<Content: View, Accessory: View>: View {
     let title: LocalizedStringKey
     let systemImage: String
@@ -39,7 +36,6 @@ extension DashboardCard where Accessory == EmptyView {
     }
 }
 
-/// Card heights (§2.2): fixed so rows line up.
 enum DashboardCardHeight {
     static let standard: CGFloat = 220
     static let wide: CGFloat = 260

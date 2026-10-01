@@ -43,13 +43,6 @@ public struct UsageRow: Equatable, Sendable, Identifiable {
     /// The Usage card's rows: the snapshot's fresh tools, and for every
     /// other tool the `/state` session fallback the menu uses
     /// (`MenuRows.sessionFiveHour`: a known reset that hasn't passed yet).
-    /// A snapshot 5-hour window whose reset has passed is over and counts as
-    /// none (as in the menu). An entry without a 5-hour window, or a stale
-    /// one, takes the session's; with the session live the row is no longer
-    /// flagged stale, but its 7-day window and models are kept as they were
-    /// (they move slowly). A stale entry with no session window stays,
-    /// flagged. `snapshot` is nil on a server without `GET /v1/usage`. Pass
-    /// only live sessions (`MenuRows.liveSessions`).
     public static func rows(from snapshot: UsageSnapshot?, sessions: [Session], now: Date) -> [UsageRow] {
         var byTool: [String: UsageRow] = [:]
         for row in snapshot.map(rows(from:)) ?? [] {

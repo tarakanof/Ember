@@ -59,7 +59,6 @@ func TestPomodoroValidationRejectsBadWeeklyGoal(t *testing.T) {
 	}
 }
 
-// Goals are allowed down to 0 ("off"), unlike the duration fields.
 func TestPomodoroValidationAcceptsGoalsOff(t *testing.T) {
 	c := defaultConfig()
 	c.applyDefaults()

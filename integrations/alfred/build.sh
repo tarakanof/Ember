@@ -9,7 +9,6 @@ cd "$(dirname "$0")"
 out=ember-pomodoro.alfredworkflow
 rm -f "$out"
 
-# An .alfredworkflow is just a zip of info.plist + the bundled scripts/icon.
 files="info.plist pomo-filter.sh"
 [ -f icon.png ] && files="$files icon.png"
 

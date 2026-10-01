@@ -12,7 +12,7 @@ func TestRotateLogIfLarge_RotatesOverThreshold(t *testing.T) {
 	if err := os.WriteFile(path, []byte("0123456789"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	RotateLogIfLarge(path, 5) // 10 bytes > 5
+	RotateLogIfLarge(path, 5)
 	if _, err := os.Stat(path + ".1"); err != nil {
 		t.Errorf("expected rotated file x.log.1, got %v", err)
 	}

@@ -29,8 +29,7 @@ public enum AggregateSaveStatus: Equatable, Sendable {
     }
 }
 
-/// One config model per settings area, rebuilt when the server changes. Panes
-/// bind to these instead of loading and saving by hand.
+/// One config model per settings area, rebuilt when the server changes.
 @MainActor
 @Observable
 public final class SettingsModels {
@@ -43,9 +42,7 @@ public final class SettingsModels {
     public private(set) var display: ServerConfigModel<DisplayConfig>
     /// The Agents pane's producer.env card toggles.
     public let agentsEnv: EnvConfigModel<DisplaySettings>
-    /// Source, server URL and source colour in producer.env. The token is
-    /// saved explicitly by the Connection pane, never through this model.
-    /// Validation runs on save; a rejected value shows as the save error.
+    /// Source, server URL and source colour in producer.env.
     public let connectionEnv: EnvConfigModel<ConnectionSettings>
 
     /// Every model, for the aggregate status.
@@ -72,14 +69,10 @@ public final class SettingsModels {
             apply: { value, env in try value.applyTolerant(to: &env, token: nil) })
     }
 
-    /// Points the server-backed models at a new client. A no-op when the URL
-    /// and token are unchanged (a source name or colour save). Otherwise
-    /// pending server edits are dropped (they were meant for the previous
-    /// server) and the fresh models load at once. Returns whether it swapped.
+    /// Points the server-backed models at a new client.
     @discardableResult
     public func configure(client: APIClient) -> Bool {
         let next = ServerIdentity(client)
-        // Defensive: `ServerConnection.reload` already decides when to call.
         guard next != server else { return false }
         server = next
         for m in [pomodoro, weather, meetings, usage, quiet, display] as [any PendingSaveCancelling] {
@@ -130,7 +123,6 @@ public final class SettingsModels {
         )
     }
 
-    /// A config the server serves as `GET` and replaces as `PUT` on one path.
     private static func remote<T: Codable & Equatable & Sendable>(
         _ client: APIClient, _ path: String, initial: T
     ) -> ServerConfigModel<T> {
@@ -140,7 +132,6 @@ public final class SettingsModels {
     }
 }
 
-/// Which server a client talks to, as far as settings and feeds care.
 struct ServerIdentity: Equatable, Sendable {
     let baseURL: URL?
     let token: String?

@@ -17,8 +17,6 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite testdata/dashboard golden files")
 
-// getOpen issues an unauthenticated GET: the dashboard read endpoints must
-// answer without the bearer token, like /state and the preview endpoints.
 func getOpen(t *testing.T, srv *httptest.Server, path string) (int, map[string]any) {
 	t.Helper()
 	resp, err := srv.Client().Get(srv.URL + path)
@@ -33,8 +31,6 @@ func getOpen(t *testing.T, srv *httptest.Server, path string) (int, map[string]a
 	return resp.StatusCode, body
 }
 
-// assertISOSeconds fails unless v is an RFC 3339 timestamp without fractional
-// seconds: Swift's JSONDecoder .iso8601 strategy rejects "…:05.123+02:00".
 func assertISOSeconds(t *testing.T, field string, v any) {
 	t.Helper()
 	s, ok := v.(string)
@@ -46,7 +42,6 @@ func assertISOSeconds(t *testing.T, field string, v any) {
 	}
 }
 
-// ngHealthClock serves GET /api/v1/device like awtrix-ng 1.1.2 and counts hits.
 func ngHealthClock(t *testing.T, hits *atomic.Int32) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -65,8 +60,6 @@ func ngHealthClock(t *testing.T, hits *atomic.Int32) *httptest.Server {
 	return srv
 }
 
-// closedURL is a URL nothing listens on. Tests point the clock at it so a
-// health probe never reaches defaultDeviceBaseURL on the developer's LAN.
 func closedURL(t *testing.T) string {
 	t.Helper()
 	srv := httptest.NewServer(http.NotFoundHandler())
@@ -74,7 +67,6 @@ func closedURL(t *testing.T) string {
 	return srv.URL
 }
 
-// ngReleases serves GitHub's latest-release payload for awtrix-ng.
 func ngReleases(t *testing.T, tag string, hits *atomic.Int32) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -89,17 +81,11 @@ func ngReleases(t *testing.T, tag string, hits *atomic.Int32) *httptest.Server {
 	return srv
 }
 
-// ---- golden files: the wire contract EmberKit's decode tests read too ----
-
-// goldenZone and goldenNow pin every builder input so the files are stable on
-// any machine: 2026-09-26 10:30:00 +02:00.
 var (
 	goldenZone = time.FixedZone("CEST", 2*3600)
 	goldenNow  = time.Date(2026, 9, 26, 10, 30, 0, 0, goldenZone)
 )
 
-// assertGolden compares v, marshalled as indented JSON, with
-// testdata/dashboard/<name>.json; -update rewrites the file instead.
 func assertGolden(t *testing.T, name string, v any) {
 	t.Helper()
 	got, err := json.MarshalIndent(v, "", "  ")
@@ -126,7 +112,6 @@ func assertGolden(t *testing.T, name string, v any) {
 	}
 }
 
-// goldenApp is a Pomodoro-enabled app populated with fixed dashboard data.
 func goldenApp(t *testing.T) *App {
 	t.Helper()
 	app := newPomodoroApp(t)
@@ -154,8 +139,6 @@ func goldenApp(t *testing.T) *App {
 		UpdatedAt: goldenNow.Add(-20 * time.Minute),
 	})
 
-	// Today (logical day from 04:00): claude on m4 08:00-08:12, waiting
-	// 08:04-08:08; codex on m5 09:00-09:10. Yesterday: claude on m5 for 30 min.
 	record := func(at time.Time, source, tool, session, state string) {
 		t.Helper()
 		if err := app.store.RecordActivity(at, source, tool, session, state); err != nil {
@@ -198,14 +181,14 @@ func TestDashboardGolden(t *testing.T) {
 	clock := ngHealthClock(t, &clockHits)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
 	app.firmware.url = ngReleases(t, "v1.1.2", &releaseHits).URL
-	app.firmware.cached(goldenNow, nil) // prime the background lookup
+	app.firmware.cached(goldenNow, nil)
 	app.firmware.wg.Wait()
 	for range 3 {
 		app.metrics.incPublishOK()
 	}
 	app.metrics.incPublishFail()
 	app.metrics.incPublishRetry()
-	app.publishWindow.add(goldenNow.Add(-30*time.Hour), false) // outside the 24h window
+	app.publishWindow.add(goldenNow.Add(-30*time.Hour), false)
 	app.publishWindow.add(goldenNow.Add(-2*time.Hour), true)
 	app.publishWindow.add(goldenNow.Add(-2*time.Hour), true)
 	app.publishWindow.add(goldenNow.Add(-1*time.Hour), false)
@@ -230,8 +213,6 @@ func TestDashboardGolden(t *testing.T) {
 	empty.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = dead })
 	assertGolden(t, "clock_health_unreachable", empty.buildClockHealth(t.Context(), goldenNow))
 }
-
-// ---- behaviour through the real routes ----
 
 func TestDashboardEndpointsAreOpenAndWholeSecond(t *testing.T) {
 	app := goldenApp(t)
@@ -272,9 +253,6 @@ func TestActivitySummaryExcludesWaitingFromActiveTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// claude on m4 runs 08:00-08:02, waits 08:04-08:08, runs 08:10-08:12. With
-	// the waiting rows out, the running rows are 8 min apart (> the 5-min span
-	// gap): two 2-minute spans and one attention episode.
 	var claude activityTotalsOut
 	for _, g := range out.Today.ByTool {
 		if g.Key == "claude" {
@@ -292,8 +270,6 @@ func TestActivitySummaryExcludesWaitingFromActiveTime(t *testing.T) {
 	}
 }
 
-// A source with no remembered colour reads source_color: null in both
-// by_source and daily_by_source, so clients handle one convention.
 func TestActivitySummaryUnknownSourceColorIsExplicitNull(t *testing.T) {
 	app := newPomodoroApp(t)
 	start := logicalDayStart(goldenNow, app.cfg.Load().Pomodoro.DayStartHour, goldenZone).Add(time.Hour)
@@ -426,8 +402,6 @@ func TestClockHealthDropsIdentifyingFields(t *testing.T) {
 	}
 }
 
-// The endpoint is open and the clock sits on lossy Wi-Fi, so polling must not
-// turn into a probe per request.
 func TestClockHealthCachesTheDeviceProbe(t *testing.T) {
 	var hits, releases atomic.Int32
 	clock := ngHealthClock(t, &hits)
@@ -449,8 +423,6 @@ func TestClockHealthCachesTheDeviceProbe(t *testing.T) {
 	}
 }
 
-// A viewer that disconnects mid-probe must not cache "unreachable" for
-// everyone else for the next 30s.
 func TestClockHealthProbeIgnoresCallerCancellation(t *testing.T) {
 	var hits atomic.Int32
 	clock := ngHealthClock(t, &hits)
@@ -488,8 +460,6 @@ func TestClockHealthFirmwareLookupFailsSoft(t *testing.T) {
 	}
 }
 
-// The GitHub lookup runs off the request path: a slow or hung API must not
-// delay /v1/clock/health, which serves the cached answer meanwhile.
 func TestClockHealthNeverWaitsOnTheReleaseLookup(t *testing.T) {
 	release := make(chan struct{})
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -517,7 +487,6 @@ func TestClockHealthFirmwareCheckDisabledMakesNoCall(t *testing.T) {
 	app := newPomodoroApp(t)
 	dead := closedURL(t)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = dead })
-	// app.firmware.url stays "", as main leaves it when EMBER_FIRMWARE_CHECK=0.
 	out := app.buildClockHealth(t.Context(), goldenNow)
 	app.firmware.wg.Wait()
 	if out.LatestFirmware != nil || out.UpdateAvailable != nil || app.firmware.inFlight || !app.firmware.at.IsZero() {

@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// quietTestPub returns a decorator over rec whose window is 22:00-08:00 and
-// whose clock reads the given wall-clock hour.
 func quietTestPub(rec *recordingPublisher, enabled bool, hour int) *quietPublisher {
 	cfg := Config{QuietHours: QuietHoursConfig{Enabled: enabled, Start: "22:00", End: "08:00"}}
 	return &quietPublisher{
@@ -19,7 +17,7 @@ func quietTestPub(rec *recordingPublisher, enabled bool, hour int) *quietPublish
 
 func TestQuietPublisherMutesDuringWindow(t *testing.T) {
 	rec := &recordingPublisher{}
-	q := quietTestPub(rec, true, 23) // 23:00, inside 22:00-08:00
+	q := quietTestPub(rec, true, 23)
 
 	orig := map[string]any{"text": "PING", "sound": "bell", "soundRtttl": "x:d=4:c", "soundLoop": true}
 	if err := q.Notify(context.Background(), orig); err != nil {

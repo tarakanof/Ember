@@ -11,26 +11,22 @@ import (
 	"time"
 )
 
-// Test budgets, scaled down from clockWriteBudget (25s) under the server's
-// WriteTimeout (30s). The gap is wide so a slow -race run can't flake it.
 const (
 	testWriteBudget  = 200 * time.Millisecond
 	testReadBudget   = 200 * time.Millisecond
 	testWriteTimeout = 2 * time.Second
 )
 
-// stallClock is a fake awtrix-ng clock whose system and settings calls can
-// stall until the caller gives up, and which records what reached it.
 type stallClock struct {
 	mu            sync.Mutex
 	system        map[string]any
-	stallGets     map[int]bool // stall the nth GET /api/v1/system (1-based)
-	stallPut      bool         // stall PUT /api/v1/system and PATCH /api/v1/settings
-	stallSettings bool         // stall GET /api/v1/settings
-	onWrite       func()       // runs before a write is answered
-	onSettingsGet func()       // runs before GET /api/v1/settings is answered
-	gets          int          // GET /api/v1/system
-	settingsGets  int          // GET /api/v1/settings
+	stallGets     map[int]bool
+	stallPut      bool
+	stallSettings bool
+	onWrite       func()
+	onSettingsGet func()
+	gets          int
+	settingsGets  int
 	writes        int
 	release       chan struct{}
 }
@@ -44,7 +40,7 @@ func newStallClock(t *testing.T) (*stallClock, *httptest.Server) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(srv.Close)
-	t.Cleanup(func() { close(f.release) }) // runs first: frees stalled handlers
+	t.Cleanup(func() { close(f.release) })
 	return f, srv
 }
 
@@ -117,7 +113,6 @@ func (f *stallClock) writeCount() int {
 	return f.writes
 }
 
-// budgetTestApp is an App on clock with the write budget shortened.
 func budgetTestApp(t *testing.T, clock string) *App {
 	t.Helper()
 	a := sensorTestApp(t, clock)
@@ -126,9 +121,6 @@ func budgetTestApp(t *testing.T, clock string) *App {
 	return a
 }
 
-// serveOnce sends one request to h behind a real http.Server with a
-// WriteTimeout, the way main.go serves it, and returns the answer. A handler
-// that ran past the WriteTimeout would fail here with a transport error.
 func serveOnce(t *testing.T, h http.HandlerFunc, method, path, body string) (int, map[string]any, time.Duration) {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(h)
@@ -153,8 +145,6 @@ func serveOnce(t *testing.T, h http.HandlerFunc, method, path, body string) (int
 	return resp.StatusCode, out, elapsed
 }
 
-// A chained clock write that runs out of its budget answers 504 in time, in
-// the clock error shape, saying whether the write may have landed.
 func TestClockWriteBudgetAnswers504BeforeWriteTimeout(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -162,7 +152,7 @@ func TestClockWriteBudgetAnswers504BeforeWriteTimeout(t *testing.T) {
 		handler    func(a *App) http.HandlerFunc
 		path, body string
 		wantWrite  string
-		wantWrites int // requests that reached the clock's write endpoint
+		wantWrites int
 	}{
 		{
 			name:    "sensors behind a stuck systemLock",
@@ -210,8 +200,6 @@ func TestClockWriteBudgetAnswers504BeforeWriteTimeout(t *testing.T) {
 			wantWrite: "not_sent",
 		},
 		{
-			// A takeover edge takes priorMu while the unlocked edit's PATCH
-			// is in flight and keeps it past the budget.
 			name:    "settings PATCH landed, reconcile behind a stuck priorMu",
 			setup:   func(a *App, f *stallClock) { f.onWrite = func() { a.coord.priorMu.Lock() } },
 			handler: func(a *App) http.HandlerFunc { return a.handleDeviceSettingsPut },
@@ -245,11 +233,8 @@ func TestClockWriteBudgetAnswers504BeforeWriteTimeout(t *testing.T) {
 	}
 }
 
-// A system write that landed but whose re-read ran out of budget answers
-// from the object it wrote, not with an error.
 func TestClockWriteBudgetAfterLandedPutAnswersWrittenObject(t *testing.T) {
 	f, clock := newStallClock(t)
-	// Each PUT reads (GETs 1 and 3), writes, then re-reads (GETs 2 and 4).
 	f.stallGets[2], f.stallGets[4] = true, true
 	a := budgetTestApp(t, clock.URL)
 
@@ -264,14 +249,11 @@ func TestClockWriteBudgetAfterLandedPutAnswersWrittenObject(t *testing.T) {
 	}
 }
 
-// GET /v1/device/settings waits on priorMu around its clock read. Behind a
-// stalled holder, or with the read itself stalled, it answers 504 in time in
-// the clock error shape, with no "write" field: a read changes nothing.
 func TestClockReadBudgetSettingsGetAnswers504BeforeWriteTimeout(t *testing.T) {
 	cases := []struct {
 		name  string
 		setup func(a *App, f *stallClock)
-		reads int // GET /api/v1/settings that reached the clock
+		reads int
 	}{
 		{
 			name: "first priorMu wait behind a stalled holder",
@@ -286,8 +268,6 @@ func TestClockReadBudgetSettingsGetAnswers504BeforeWriteTimeout(t *testing.T) {
 			reads: 1,
 		},
 		{
-			// A takeover edge or menu edit takes priorMu while the read is
-			// in flight and keeps it past the budget.
 			name: "second priorMu wait behind a stalled holder",
 			setup: func(a *App, f *stallClock) {
 				startTestTakeover(a, takeoverPrior{AutoTransition: true})

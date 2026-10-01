@@ -3,25 +3,20 @@ package render
 import "testing"
 
 func TestTempColorClampsAndInterpolates(t *testing.T) {
-	// Below the coldest stop clamps to it; above the warmest clamps to it.
 	if got := TempColor(-50); got != tempGradient[0].c {
 		t.Errorf("cold clamp = %v, want %v", got, tempGradient[0].c)
 	}
 	if got := TempColor(100); got != tempGradient[len(tempGradient)-1].c {
 		t.Errorf("warm clamp = %v, want %v", got, tempGradient[len(tempGradient)-1].c)
 	}
-	// An exact stop returns that stop's colour.
 	if got := TempColor(20); got != (RGB{0xF2, 0xC4, 0x4D}) {
 		t.Errorf("TempColor(20) = %v, want amber stop", got)
 	}
-	// The midpoint between 0°C (#4FA9FF) and 10°C (#3DD68C) interpolates each
-	// channel halfway.
 	mid := TempColor(5)
-	wantR := uint8((0x4F + 0x3D + 1) / 2) // rounded
+	wantR := uint8((0x4F + 0x3D + 1) / 2)
 	if mid.R != wantR {
 		t.Errorf("TempColor(5).R = %d, want ~%d (halfway 4F→3D)", mid.R, wantR)
 	}
-	// Warmer should be redder than colder across the range.
 	if TempColor(35).R <= TempColor(-5).R {
 		t.Errorf("warm temp should have a higher red channel than cold")
 	}
@@ -40,7 +35,6 @@ func TestForecastStripLightsOneColumnPerHourFor24h(t *testing.T) {
 			t.Errorf("strip col %d colour = %v, want hour %d %v", x, f.Pixels[barRow][x], i, TempColor(hourly[i]))
 		}
 	}
-	// The icon cols and the rows above the bar are untouched by the strip.
 	for y := 0; y < barRow; y++ {
 		for x := 0; x < panelW; x++ {
 			if f.Dirty[y][x] {
@@ -57,7 +51,7 @@ func TestForecastStripLightsOneColumnPerHourFor24h(t *testing.T) {
 
 func TestForecastStripStretchesShortWindows(t *testing.T) {
 	var f Frame
-	hourly := []float64{-5, 0, 10, 20, 30, 35} // 6 h → 4 columns each
+	hourly := []float64{-5, 0, 10, 20, 30, 35}
 	drawForecastStrip(&f, hourly)
 	for x := barX0; x < panelW; x++ {
 		i := (x - barX0) / 4
@@ -69,7 +63,7 @@ func TestForecastStripStretchesShortWindows(t *testing.T) {
 
 func TestForecastBarsHeightAndColour(t *testing.T) {
 	var f Frame
-	hourly := []float64{0, 10, 20} // increasing → taller bars rightward
+	hourly := []float64{0, 10, 20}
 	drawForecastBars(&f, hourly, 0, 31)
 	height := func(x int) int {
 		h := 0
@@ -121,14 +115,12 @@ func TestForecastPayloadFullWidthBars(t *testing.T) {
 		t.Error("forecast tile must not carry a native icon (bars own the matrix)")
 	}
 	pixels := bmpPixels(t, p)
-	// Six 4-px bars on the bottom-bar grid: cols 8-31, cols 0-7 blank.
 	if pixels[7*32+barX0] == 0 || pixels[7*32+31] == 0 {
 		t.Error("bars must span cols 8-31 (six 4-px bars)")
 	}
 	if pixels[7*32+barX0-1] != 0 {
 		t.Error("cols 0-7 must stay blank, in line with every other app")
 	}
-	// No white temp digits anywhere (the temp lives on the conditions tile).
 	white := (0xff << 16) | (0xff << 8) | 0xff
 	for i, v := range pixels {
 		if v == white {
@@ -137,10 +129,6 @@ func TestForecastPayloadFullWidthBars(t *testing.T) {
 	}
 }
 
-// TestForecastBarsHaveEvenWidths pins every bar of a window to the same
-// width on the bottom-bar grid. Spreading 24 hours over 32 columns made every
-// third bar 2 px and the rest 1 px, so the chart looked jagged; bars now take
-// barW/n columns each from col 8, in line with the weather strip.
 func TestForecastBarsHaveEvenWidths(t *testing.T) {
 	for _, n := range []int{6, 12, 16, 20, 22, 24} {
 		temps := make([]float64, n)
@@ -168,19 +156,16 @@ func TestForecastBarsHaveEvenWidths(t *testing.T) {
 
 func TestForecastBarsOnGridDistributesWidth(t *testing.T) {
 	var f Frame
-	// 4 bars over the 24-col grid → each bar 6 cols wide; warmest bar tallest.
 	drawForecastBarsOnGrid(&f, []float64{0, 10, 20, 30})
 	for x := barX0; x < panelW; x++ {
 		if !f.Dirty[7][x] {
 			t.Fatalf("bottom row col %d not lit — bars must fill the grid", x)
 		}
 	}
-	// First bar (coldest) colour at col 8, last bar (warmest) at col 31.
 	if f.Pixels[7][barX0] != TempColor(0) || f.Pixels[7][31] != TempColor(30) {
 		t.Errorf("edge bar colours = %v/%v, want %v/%v",
 			f.Pixels[7][barX0], f.Pixels[7][31], TempColor(0), TempColor(30))
 	}
-	// Warmest bar reaches the top row; coldest does not.
 	if !f.Dirty[0][31] {
 		t.Error("warmest bar should reach the top row")
 	}
@@ -193,7 +178,6 @@ func TestWeatherPayloadIncludesBottomBarStrip(t *testing.T) {
 	hourly := []float64{-5, 25}
 	p := WeatherPayload(WeatherClear, "21°", 21, hourly, 600)
 	pixels := bmpPixels(t, p)
-	// The strip is the 1px bottom bar (row 7, cols 8-31); row 6 is a spacer.
 	if pixels[barRow*32+barX0] == 0 || pixels[barRow*32+31] == 0 {
 		t.Error("weather tile strip not drawn across the bottom bar")
 	}
@@ -205,7 +189,6 @@ func TestWeatherPayloadIncludesBottomBarStrip(t *testing.T) {
 }
 
 func TestWeatherTileCentersTemp(t *testing.T) {
-	// "21°" = 3 glyphs = 11px wide; centred in cols 9-31 → starts at col 15.
 	f := WeatherTileFrame(WeatherClear, "21°", 21, nil, nil)
 	for y := 0; y < 6; y++ {
 		for x := 9; x < 15; x++ {

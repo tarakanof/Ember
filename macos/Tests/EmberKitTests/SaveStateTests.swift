@@ -14,7 +14,6 @@ private final class Counter {
     func bump() { value += 1 }
 }
 
-// On a manual clock: real sleeps made these flaky under CI load.
 @MainActor @Test func debouncedWriterCoalescesRapidSchedules() async {
     let clock = ManualClock()
     let writer = DebouncedWriter(delay: .milliseconds(40), sleep: clock.sleepFn)
@@ -25,7 +24,7 @@ private final class Counter {
     }
     #expect(counter.value == 0)
     await clock.advance(by: .milliseconds(40))
-    #expect(counter.value == 1)   // only the last schedule survives
+    #expect(counter.value == 1)
 }
 
 @MainActor @Test func debouncedWriterRunsAfterQuietPeriod() async {

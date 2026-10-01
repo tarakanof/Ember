@@ -16,7 +16,6 @@ import (
 	"time"
 )
 
-// recorded captures the one request a test server saw.
 type recorded struct {
 	method      string
 	path        string
@@ -25,8 +24,6 @@ type recorded struct {
 	body        []byte
 }
 
-// serve starts a test server that records the request and replies with status
-// and body. Returns the client pointed at it and the recording.
 func serve(t *testing.T, status int, respBody string) (*Client, *recorded) {
 	t.Helper()
 	rec := &recorded{}
@@ -126,7 +123,6 @@ func TestPlayRTTTL(t *testing.T) {
 	if err := c.PlayRTTTL(context.Background(), "beep:d=16,o=6,b=140:c"); err != nil {
 		t.Fatalf("PlayRTTTL: %v", err)
 	}
-	// NG 1.1.0 moved audio to /api/v1/audio/*; the old /sounds/play is a 404.
 	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
 		t.Fatalf("got %s %s", rec.method, rec.path)
 	}
@@ -143,8 +139,6 @@ func TestPlaySound(t *testing.T) {
 	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
 		t.Fatalf("got %s %s", rec.method, rec.path)
 	}
-	// "sound" lets the device resolve the name across its outputs (MP3,
-	// melody, DFPlayer track) — the same resolution a notification's sound uses.
 	if m := decodeBody(t, rec); m["sound"] != "alarm" || len(m) != 1 {
 		t.Fatalf("body = %v", m)
 	}
@@ -224,7 +218,6 @@ func TestSwitchApp(t *testing.T) {
 	}
 }
 
-// TestSwitchAppInstantSendsFast: NG's fast:true skips the transition.
 func TestSwitchAppInstantSendsFast(t *testing.T) {
 	c, rec := serve(t, http.StatusOK, `{"ok":true}`)
 	if err := c.SwitchApp(context.Background(), "ember", SwitchInstant); err != nil {
@@ -299,8 +292,6 @@ func TestReboot(t *testing.T) {
 	}
 }
 
-// The NG error envelope ({"error":{code,message,field}}) must surface as a
-// typed *APIError so callers can log the offending field on 422s.
 func TestErrorEnvelopeDecoding(t *testing.T) {
 	c, _ := serve(t, http.StatusUnprocessableEntity,
 		`{"error":{"code":"validationFailed","message":"unknown key \"noScroll\"","field":"noScroll"}}`)
@@ -362,7 +353,6 @@ func TestDismissNotifyByNameRejectsEmptyName(t *testing.T) {
 }
 
 func TestCapabilities(t *testing.T) {
-	// Shape of a live NG 1.1.2 clock: radio moved into audio{} in 1.1.0.
 	body := `{"effects":["Fade","Matrix"],"paletteEffects":["Fade"],
 	  "transitions":["Slide","Dim","Zoom"],"overlays":["rain"],
 	  "palettes":["Ocean","Lava"],
@@ -383,8 +373,6 @@ func TestCapabilities(t *testing.T) {
 	if !caps.Audio.Buzzer || caps.Audio.Track || caps.Audio.MP3 || caps.Audio.Radio || !caps.ScriptUpdates {
 		t.Fatalf("audio/scriptUpdates = %+v / %v", caps.Audio, caps.ScriptUpdates)
 	}
-	// A re-marshal reproduces the device document verbatim, keys Ember does
-	// not model included, so /v1/device/capabilities never drops a field.
 	out, err := json.Marshal(caps)
 	if err != nil {
 		t.Fatalf("re-marshal: %v", err)
@@ -428,17 +416,11 @@ func TestTrailingSlashTrimmed(t *testing.T) {
 	}
 }
 
-// TestKeepAliveReusesConnection pins the fix for the undrained-body leak: Go's
-// transport only pools a connection whose response body was read to EOF, so a
-// write that ignores the reply must still drain it. On the lossy clock link
-// every avoided handshake is one less packet to lose.
 func TestKeepAliveReusesConnection(t *testing.T) {
 	var conns atomic.Int32
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		// Larger than the transport's read-ahead, so it cannot be consumed
-		// by accident: only an explicit drain reaches EOF.
 		_, _ = io.WriteString(w, `{"ok":true,"pad":"`+strings.Repeat("x", 8<<10)+`"}`)
 	}))
 	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
@@ -485,8 +467,6 @@ func TestSetDisplayPower(t *testing.T) {
 		if rec.method != http.MethodPatch || rec.path != "/api/v1/display" {
 			t.Fatalf("got %s %s", rec.method, rec.path)
 		}
-		// Only power: an overlay key in the same PATCH would clear the
-		// ambient weather overlay.
 		if m := decodeBody(t, rec); m["power"] != on || len(m) != 1 {
 			t.Fatalf("body = %v", m)
 		}
@@ -501,7 +481,6 @@ func TestPlayMelody(t *testing.T) {
 	if rec.method != http.MethodPost || rec.path != "/api/v1/audio/play" {
 		t.Fatalf("got %s %s", rec.method, rec.path)
 	}
-	// "melody" never falls back to an MP3 of the same name, unlike "sound".
 	if m := decodeBody(t, rec); m["melody"] != "doorbell" || len(m) != 1 {
 		t.Fatalf("body = %v", m)
 	}
@@ -546,7 +525,6 @@ func TestMelodies(t *testing.T) {
 	}
 }
 
-// An empty flash lists no melodies; the menu must see [] rather than null.
 func TestMelodiesEmptyListIsNotNull(t *testing.T) {
 	c, _ := serve(t, http.StatusOK, `{"melodies":[],"usedBytes":1,"totalBytes":2}`)
 	got, err := c.Melodies(context.Background())

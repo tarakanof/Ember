@@ -1,10 +1,5 @@
 name: Publish Docker image
 
-# Builds + pushes to Docker Hub when a GitHub Release on a strict-semver vX.Y.Z
-# tag is published. Manual `workflow_dispatch` works too, but must target a
-# vX.Y.Z tag ref — the semver gate below rejects branch dispatches (e.g. main).
-# Required repo secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN.
-# Image: docker.io/<USERNAME>/ember
 on:
   release:
     types: [published]
@@ -68,9 +63,6 @@ jobs:
           sbom: true
           provenance: mode=max
 
-      # Render a job summary on the run page (Actions → run → Summary).
-      # The Docker Hub namespace shows as *** because DOCKERHUB_USERNAME is a
-      # secret; store it as a repo variable (vars.) instead if you want it shown.
       - name: Job summary
         if: ${{ steps.build.outcome == 'success' }}
         run: |

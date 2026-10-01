@@ -3,8 +3,6 @@ import Foundation
 import Network
 @testable import EmberKit
 
-/// The error URLSession gave the rebuilt ad-hoc app on-device: -1009 over
-/// POSIX ENETDOWN (`HTTP load failed … error code: -1009 [1:50]`).
 private func networkDown(_ code: URLError.Code = .notConnectedToInternet) -> URLError {
     URLError(code, userInfo: ["_kCFStreamErrorDomainKey": 1, "_kCFStreamErrorCodeKey": 50])
 }
@@ -18,7 +16,6 @@ private func networkDown(_ code: URLError.Code = .notConnectedToInternet) -> URL
     #expect(!LocalNetworkDenial.isDenied(NWError.posix(.ECONNREFUSED), host: "192.168.0.2"))
 }
 
-// Only a LAN host means a refusal: macOS doesn't gate the internet.
 @Test func networkDownCountsOnlyForALANHost() {
     #expect(LocalNetworkDenial.isDenied(NWError.posix(.ENETDOWN), host: "192.168.0.2", pathStatus: .satisfied))
     #expect(!LocalNetworkDenial.isDenied(NWError.posix(.ENETDOWN), host: "example.com", pathStatus: .satisfied))
@@ -30,13 +27,10 @@ private func networkDown(_ code: URLError.Code = .notConnectedToInternet) -> URL
     #expect(!LocalNetworkDenial.isDenied(networkDown(), host: nil, pathStatus: .satisfied))
 }
 
-// Wi-Fi off (or the cable out) gives the same ENETDOWN to a LAN host, but
-// the Mac's own path is unsatisfied then: that's no network, not a refusal.
 @Test(arguments: [NWPath.Status.unsatisfied, .requiresConnection, nil])
 func networkDownWithoutANetworkIsNotARefusal(status: NWPath.Status?) {
     #expect(!LocalNetworkDenial.isDenied(networkDown(), host: "192.168.0.2", pathStatus: status))
     #expect(!LocalNetworkDenial.isDenied(NWError.posix(.ENETDOWN), host: "192.168.0.2", pathStatus: status))
-    // A DNS-SD refusal doesn't depend on the path.
     #expect(LocalNetworkDenial.isDenied(NWError.dns(-65555), pathStatus: status))
 }
 
@@ -50,7 +44,6 @@ func networkDownWithoutANetworkIsNotARefusal(status: NWPath.Status?) {
     #expect(!LocalNetworkDenial.isDenied(APIError.transport("x"), host: "192.168.0.2", pathStatus: .satisfied))
 }
 
-// The stream keys can sit on the underlying CFNetwork error only.
 @Test func streamKeysAreReadFromTheUnderlyingError() {
     let underlying = NSError(domain: "kCFErrorDomainCFNetwork", code: -1009,
                              userInfo: ["_kCFStreamErrorDomainKey": 1, "_kCFStreamErrorCodeKey": 50])
@@ -58,8 +51,6 @@ func networkDownWithoutANetworkIsNotARefusal(status: NWPath.Status?) {
     #expect(LocalNetworkDenial.isDenied(e, host: "10.0.0.5", pathStatus: .satisfied))
 }
 
-// The failed path's reason, when known, decides over the ENETDOWN guess
-// and the Mac's path status.
 @Test func pathVerdictDecides() {
     let rule = { (path: LocalNetworkDenial.PathVerdict?, status: NWPath.Status?) in
         LocalNetworkDenial.isDenied(urlCode: NSURLErrorNotConnectedToInternet, streamDomain: 1, streamCode: 50,
@@ -94,7 +85,6 @@ func lanHosts(host: String, lan: Bool) {
     await #expect(throws: APIError.localNetworkDenied) { try await client.send("GET", "/state") }
 }
 
-// Same error with Wi-Fi off: reported as the transport failure it is.
 @Test func apiClientWithoutANetworkKeepsTransport() async {
     let client = stubbedClient(pathStatus: .unsatisfied) { _ in throw networkDown() }
     do {
@@ -119,7 +109,6 @@ func lanHosts(host: String, lan: Bool) {
     }
 }
 
-// A refused request never left the Mac: a reminder fire can be retried.
 @Test func refusedIdempotentPostIsNotSent() async {
     let client = stubbedClient { _ in throw networkDown() }
     await #expect(throws: RequestNotSent(underlying: .localNetworkDenied)) {
@@ -148,7 +137,6 @@ func lanHosts(host: String, lan: Bool) {
     let subtitle = ConnectionHealth.offline(since: since).subtitle(serverHost: "192.168.0.2",
                                                                    offlineReason: .localNetworkDenied)
     #expect(String(localized: subtitle) == "Offline: Local Network access is off")
-    // Online, a stale reason is ignored.
     let online = ConnectionHealth.online(since: since).subtitle(serverHost: "h", offlineReason: .localNetworkDenied)
     #expect(String(localized: online) == "Connected to h")
 }

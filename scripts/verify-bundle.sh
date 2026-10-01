@@ -1,15 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Gate asserting the whole producer-bundling contract for a built Ember.app:
-# both producers present + universal, both LaunchAgent plists valid and
-# resolvable, and codesign verification inside-out (each producer, then the
-# whole app). Reusable in CI/release, and for a quick local sanity check
-# after `build-producers.sh`.
-#
-# NOT run here (ad-hoc dev limitation — need a Developer ID):
-#   spctl -a -vv "$APP"   (Gatekeeper assessment)
-#   notarization
+# Asserts the producer-bundling contract for a built Ember.app: producers
+# present and universal, LaunchAgent plists valid, codesign verified inside-out.
 
 APP="${1:-}"
 [ -n "$APP" ] || { echo "usage: verify-bundle.sh <Ember.app>"; exit 2; }
@@ -43,7 +36,6 @@ check_producer() {
 
   check "codesign --verify --strict: $name" codesign --verify --strict "$bin"
 
-  # Stable signing identifier (build-producers.sh -i), not "<name>-<LC_UUID>".
   local ident
   ident="$(codesign -dv "$bin" 2>&1 | sed -n 's/^Identifier=//p')"
   if [ "$ident" = "com.ember.${name#ember-}" ]; then
@@ -81,9 +73,6 @@ check_plist() {
     exit 1
   fi
 
-  # With BundleProgram set, launchd uses ProgramArguments[0] as argv[0]. It MUST be
-  # the program's basename (not the subcommand) or the daemon launches as argv=["run"]
-  # with no subcommand, prints usage, and exits 2. Guard against that regression.
   local argv0 argv1
   argv0="$(plutil -extract ProgramArguments.0 raw "$plist" 2>/dev/null)"
   argv1="$(plutil -extract ProgramArguments.1 raw "$plist" 2>/dev/null)"
@@ -103,9 +92,6 @@ check_plist "$LA_DIR/com.ember.codex.plist"
 
 check "codesign --verify --deep --strict: $(basename "$APP")" codesign --verify --deep --strict "$APP"
 
-# Which identity signed the app, and the designated requirement macOS keys
-# Local Network grants on: ad-hoc means a cdhash, i.e. re-approval after
-# every rebuild; a certificate leaf/anchor requirement survives rebuilds.
 signer="$(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
 if codesign -dv "$APP" 2>&1 | grep -q '^Signature=adhoc'; then
   signer="ad-hoc (Local Network access must be re-approved after every rebuild)"

@@ -36,7 +36,6 @@ func TestClockPublisher_BaseURLReloadable(t *testing.T) {
 		t.Errorf("after publish 1: hits1=%d hits2=%d, want 1/0", hits1, hits2)
 	}
 
-	// Swap cfg to point at srv2.
 	newCfg := *app.cfg.Load()
 	newCfg.AWTRIX.HTTPBaseURL = srv2.URL
 	app.cfg.Store(&newCfg)

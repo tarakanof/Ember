@@ -41,8 +41,7 @@ public struct PomoStats: Codable, Sendable, Equatable {
     public var history: [PomoDayStat]
     public var streak: Int
     /// Fields below arrived after the original three; each decodes if present
-    /// so an older server still yields a usable value. Types are in
-    /// `Models/PomoStatsParts.swift`.
+    /// so an older server still yields a usable value.
     public var longestStreak: Int
     /// Focus-phase outcomes over the last 30 days.
     public var completion: CompletionStat
@@ -91,11 +90,9 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     public var focusColor: String
     public var breakColor: String
     public var maxSessionMinutes: Int
-    /// Completed focus sessions per day; 0 turns the goal off. Servers before
-    /// 0.28 don't send it (and ignore it on PUT), so it decodes to the
-    /// server's own default.
+    /// Completed focus sessions per day; 0 turns the goal off.
     public var dailyGoalSessions: Int
-    /// Active days per week; 0 turns the goal off. Same compatibility as above.
+    /// Active days per week; 0 turns the goal off.
     public var weeklyGoalDays: Int
 
     public init(focusMinutes: Int, shortBreakMinutes: Int, longBreakMinutes: Int,
@@ -178,7 +175,6 @@ public struct UsageConfig: Codable, Sendable, Equatable {
         usageWidget = try c.decode(Bool.self, forKey: .usageWidget)
         usagePerModel = try c.decode(Bool.self, forKey: .usagePerModel)
         limitAlarm = try c.decodeIfPresent(Bool.self, forKey: .limitAlarm) ?? true
-        // Older servers (pre single-app display) omit the threshold.
         usageThresholdPct = try c.decodeIfPresent(Int.self, forKey: .usageThresholdPct) ?? 60
     }
 }
@@ -187,8 +183,8 @@ public struct UsageConfig: Codable, Sendable, Equatable {
 /// sounds during the window (server-local time); visuals are unaffected.
 public struct QuietConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
-    public var start: String // "HH:MM"
-    public var end: String   // "HH:MM"
+    public var start: String
+    public var end: String
     public init(enabled: Bool = false, start: String = "22:00", end: String = "08:00") {
         self.enabled = enabled
         self.start = start
@@ -216,18 +212,18 @@ public struct DisplayConfig: Codable, Sendable, Equatable {
 /// Mirrors the server's WeatherConfig (GET/PUT /v1/weather/config).
 public struct WeatherConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
-    public var provider: String           // "open-meteo" | "met-no"
+    public var provider: String
     public var latitude: Double
     public var longitude: Double
     public var locationName: String
-    public var units: String              // "metric" | "imperial"
+    public var units: String
     public var refreshMinutes: Int
     public var rotateInApps: Bool
-    public var forecastTile: Bool         // separate hourly-forecast bar tile
-    public var forecastHours: Int         // hours shown in the strip/tile (1..24; the server reads 0 as 24)
-    public var sunPopups: Bool            // popup at sunrise/sunset
-    public var moonPhase: Bool            // moon phase on clear nights
-    public var popupIntervalMinutes: Int  // 0 = no interval popups
+    public var forecastTile: Bool
+    public var forecastHours: Int
+    public var sunPopups: Bool
+    public var moonPhase: Bool
+    public var popupIntervalMinutes: Int
     public var popupDurationSeconds: Int
     public var popupOnChange: Bool
     public var severeAlert: Bool
@@ -237,7 +233,7 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     /// "rain"/"snow"/"storm"); empty falls back to the server's built-in IDs.
     public var iconIds: [String: String]
     /// Native animated icon on the rotating weather/forecast tiles (digits and
-    /// strip/bars stay drawn). Independent of `useNativeIcons` (popups).
+    /// strip/bars stay drawn).
     public var tileNativeIcons: Bool
     /// Rotating air-quality tile (current European AQI + hourly trend strip).
     public var airTile: Bool
@@ -329,23 +325,19 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         useNativeIcons = try c.decodeIfPresent(Bool.self, forKey: .useNativeIcons) ?? false
         iconIds = try c.decodeIfPresent([String: String].self, forKey: .iconIds) ?? [:]
         tileNativeIcons = try c.decodeIfPresent(Bool.self, forKey: .tileNativeIcons) ?? false
-        // Absent on older blobs/servers → the server's own load defaults, so a
-        // re-save never silently turns the feature off (forecast convention).
         airTile = try c.decodeIfPresent(Bool.self, forKey: .airTile) ?? true
         airPopupThreshold = try c.decodeIfPresent(Int.self, forKey: .airPopupThreshold) ?? 80
         overlay = try c.decodeIfPresent(Bool.self, forKey: .overlay) ?? true
     }
 }
 
-/// Mirrors the server's MeetingsConfig (GET/PUT /v1/meetings/config). The ICS
-/// feed URLs are env-only server-side secrets; the server reports only their
-/// count via `icsUrlsConfigured` (read-only — ignored on PUT).
+/// Mirrors the server's MeetingsConfig (GET/PUT /v1/meetings/config).
 public struct MeetingsConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var tileLeadMinutes: Int
-    public var popupLeadMinutes: Int   // 0 = popup off
+    public var popupLeadMinutes: Int
     public var chime: Bool
-    public var icsUrlsConfigured: Int  // server-reported, read-only
+    public var icsUrlsConfigured: Int
 
     public init(enabled: Bool = true, tileLeadMinutes: Int = 60,
                 popupLeadMinutes: Int = 2, chime: Bool = true, icsUrlsConfigured: Int = 0) {
@@ -363,7 +355,7 @@ public struct MeetingsConfig: Codable, Sendable, Equatable {
         case icsUrlsConfigured = "ics_urls_configured"
     }
 
-    /// Older-server tolerance: every field decodeIfPresent ?? its default (WeatherConfig convention).
+    /// Older-server tolerance: every field decodeIfPresent ??
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
@@ -380,14 +372,10 @@ public struct MeetingsState: Codable, Sendable, Equatable {
         public var uid: String
         public var title: String
         public var start: Date
-        // Identity uses uid+start so two distinct events with the same title and
-        // same whole-second start (possible across feeds) keep separate rows.
-        // When uid is absent (older server), falls back to title|start.
         public var id: String {
             uid.isEmpty ? "\(title)|\(start.timeIntervalSince1970)"
                         : "\(uid)|\(start.timeIntervalSince1970)"
         }
-        // uid defaults to "" for older-server payloads that omit it.
         public init(uid: String = "", title: String, start: Date) {
             self.uid = uid
             self.title = title
@@ -413,8 +401,7 @@ public struct MeetingsState: Codable, Sendable, Equatable {
     }
 }
 
-/// Mirrors internal/render.Session. context_pct/source_color/rate_window_pct are
-/// the only semantically-optional (pointer) fields; the rest default on absence.
+/// Mirrors internal/render.Session.
 public struct Session: Codable, Sendable, Equatable {
     public var source: String
     public var tool: String

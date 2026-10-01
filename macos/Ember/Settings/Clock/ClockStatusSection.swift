@@ -2,10 +2,6 @@ import SwiftUI
 import AppKit
 import EmberKit
 
-/// Where the clock is and how it's doing: address, firmware (with an update
-/// badge), battery, climate, Wi-Fi, uptime. Health comes from
-/// `/v1/clock/health` while the pane is open; an older server falls back to
-/// the raw device stats. Restart sits at the bottom, behind a confirmation.
 struct ClockStatusSection: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
@@ -110,8 +106,6 @@ struct ClockStatusSection: View {
         .sheet(isPresented: $showDiscover, onDismiss: { env.clockDiscovery.stop() }) { DiscoverClocksSheet() }
     }
 
-    /// Opens the sheet without the last scan's rows: they may be stale, and
-    /// the sheet starts a new scan anyway.
     private func openDiscover() {
         env.clockDiscovery.stop()
         showDiscover = true
@@ -132,14 +126,10 @@ struct ClockStatusSection: View {
     }
 }
 
-/// Lists the clocks the server and this Mac can see; Use pins one on the
-/// server (`PUT /v1/device/config`). Both searches run in the sheet's task,
-/// so dismissing the sheet (or leaving the pane) cancels this Mac's browse.
 struct DiscoverClocksSheet: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
     @Environment(\.dismiss) private var dismiss
-    /// Bumped by Search Again: restarts the task, cancelling the old search.
     @State private var search = 0
 
     private var local: ClockDiscovery { env.clockDiscovery }
@@ -206,8 +196,6 @@ struct DiscoverClocksSheet: View {
         }
     }
 
-    /// This Mac's browse can't run: say why and offer the fix, but only when
-    /// it found nothing (results can still arrive while the browse waits).
     @ViewBuilder private var accessRow: some View {
         if local.clocks.isEmpty {
             switch local.access {
@@ -241,7 +229,6 @@ struct DiscoverClocksSheet: View {
 }
 
 extension String {
-    /// nil for an empty or blank string.
     var nonEmpty: String? {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
     }

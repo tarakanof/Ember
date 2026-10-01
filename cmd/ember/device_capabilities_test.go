@@ -14,7 +14,6 @@ const testCapabilitiesJSON = `{"effects":["Fade","Matrix","Snake"],"paletteEffec
 	"audio":{"buzzer":true,"track":false,"mp3":false,"radio":false},"scriptUpdates":true,
 	"gpio":{"soc":"esp32","label":"ESP32","max":39}}`
 
-// fakeClockDevice serves the two endpoints refreshCapabilities reads, counting hits.
 func fakeClockDevice(t *testing.T, capsStatus int) (*httptest.Server, *int) {
 	t.Helper()
 	hits := 0
@@ -37,7 +36,6 @@ func fakeClockDevice(t *testing.T, capsStatus int) (*httptest.Server, *int) {
 	return srv, &hits
 }
 
-// capsApp points an app at a fake clock.
 func capsApp(t *testing.T, baseURL string) *App {
 	t.Helper()
 	cfg := defaultConfig()
@@ -115,7 +113,6 @@ func TestDeviceCapabilitiesEndpointFallsBackToLiveFetch(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"paletteEffects"`) {
 		t.Errorf("body = %s", w.Body.String())
 	}
-	// The live fetch also warms the cache, so the next read is free.
 	w2 := httptest.NewRecorder()
 	app.handleDeviceCapabilities(w2, httptest.NewRequest(http.MethodGet, "/v1/device/capabilities", nil))
 	if *hits != 1 {

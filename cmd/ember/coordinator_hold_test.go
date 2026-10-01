@@ -11,8 +11,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// holdFixture builds a coordinator whose snapshot holds one claude session in
-// the given state, with the Pomodoro view wired to a caller-controlled flag.
 func holdFixture(t *testing.T, state string) (*coordinator, *recordingPublisher, *Snapshot, *bool) {
 	t.Helper()
 	pub := &recordingPublisher{}
@@ -34,8 +32,6 @@ func holdFixture(t *testing.T, state string) (*coordinator, *recordingPublisher,
 	return c, pub, snap, &pomo
 }
 
-// failingCustomAppPublisher fails CustomApp while fail is set; every other
-// Publisher method delegates to the embedded recorder.
 type failingCustomAppPublisher struct {
 	*recordingPublisher
 	fail bool
@@ -50,8 +46,6 @@ func (p *failingCustomAppPublisher) CustomApp(ctx context.Context, name string, 
 
 var errUnreachableDevice = errors.New("device unreachable")
 
-// A rotating (merely-running) frame must never pin the device: it shares the
-// loop with the clock's own apps.
 func TestCoordinatorRotatingFrameDoesNotSwitch(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "running")
 	c.pointer = "mbp/claude/a"
@@ -67,45 +61,35 @@ func TestCoordinatorRotatingFrameDoesNotSwitch(t *testing.T) {
 	}
 }
 
-// The attention hold is a forced PUT /api/v1/apps/active, issued once on the
-// lock edge and released without a device call.
 func TestCoordinatorAttentionHoldSwitchesOnceOnTheEdge(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "waiting")
 	appName := c.loadCfg().AWTRIX.AppName
 
-	// Not locked yet: the waiting session still just rotates.
 	c.pointer = "mbp/claude/a"
 	c.publish(*snap)
 	if sw := pub.SwitchesSnapshot(); len(sw) != 0 {
 		t.Fatalf("switches before the lock = %v, want none", sw)
 	}
 
-	// Lock edge → exactly one switch to the ember app.
 	c.locked, c.lockedKey = true, "mbp/claude/a"
 	c.publish(*snap)
 	if sw := pub.SwitchesSnapshot(); len(sw) != 1 || sw[0] != appName {
 		t.Fatalf("switches on the lock edge = %v, want [%s]", sw, appName)
 	}
-	// Attention jumps at once (NG fast:true) instead of playing the ~1 s
-	// transition: the point is to be seen now.
 	if m := pub.SwitchModesSnapshot(); m[0] != awtrix.SwitchInstant {
 		t.Fatalf("attention switch mode = %v, want SwitchInstant", m[0])
 	}
 
-	// Still locked → no per-tick switch spam.
 	c.publish(*snap)
 	c.publish(*snap)
 	if sw := pub.SwitchesSnapshot(); len(sw) != 1 {
 		t.Fatalf("switches while still locked = %d, want 1 (edge only)", len(sw))
 	}
 
-	// An attention hold is short and self-expiring: it must not touch the
-	// device's rotation or button-navigation settings at all.
 	if s := pub.SettingsSnapshot(); len(s) != 0 {
 		t.Fatalf("settings during an attention hold = %+v, want none", s)
 	}
 
-	// Release → nothing to undo device-side; a later re-lock switches again.
 	c.locked, c.lockedKey = false, ""
 	c.publish(*snap)
 	if s := pub.SettingsSnapshot(); len(s) != 0 {
@@ -118,9 +102,6 @@ func TestCoordinatorAttentionHoldSwitchesOnceOnTheEdge(t *testing.T) {
 	}
 }
 
-// The forced switch must follow the push that creates the app: NG answers 404
-// for an app that is not in the loop, so switch-then-push would lose the pin
-// on the first hold after a reboot.
 func TestCoordinatorHoldSwitchesAfterThePush(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "waiting")
 	appName := c.loadCfg().AWTRIX.AppName
@@ -135,8 +116,6 @@ func TestCoordinatorHoldSwitchesAfterThePush(t *testing.T) {
 	}
 }
 
-// A failed push must not flip the hold state: the next tick has to retry the
-// whole edge (push + switch), not just the switch.
 func TestCoordinatorHoldNotAppliedWhenPushFails(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "waiting")
 	fail := &failingCustomAppPublisher{recordingPublisher: pub, fail: true}
@@ -155,9 +134,6 @@ func TestCoordinatorHoldNotAppliedWhenPushFails(t *testing.T) {
 	}
 }
 
-// Pomodoro outranks the attention hold: while a timer runs the device stays
-// under the full takeover (rotation + native nav off), and when the timer ends
-// with the attention lock still up, the frame hold takes over.
 func TestCoordinatorPomodoroOutranksAttentionHold(t *testing.T) {
 	c, pub, snap, pomo := holdFixture(t, "waiting")
 	c.locked, c.lockedKey, c.pointer = true, "mbp/claude/a", "mbp/claude/a"
@@ -175,8 +151,6 @@ func TestCoordinatorPomodoroOutranksAttentionHold(t *testing.T) {
 		t.Fatalf("pomodoro switch mode = %v, want SwitchAnimated", m[0])
 	}
 
-	// Timer ends, attention lock survives → rotation restored, and the frame
-	// hold re-pins the app.
 	*pomo = false
 	c.publish(*snap)
 	s = pub.SettingsSnapshot()
@@ -188,12 +162,10 @@ func TestCoordinatorPomodoroOutranksAttentionHold(t *testing.T) {
 	}
 }
 
-// A reboot arrives as cmdRepublish: pushed apps are gone from RAM, so the hold
-// has to be re-asserted even though Ember's own hold state never changed.
 func TestCoordinatorRepublishReassertsAttentionHold(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "waiting")
 	c.locked, c.lockedKey, c.pointer = true, "mbp/claude/a", "mbp/claude/a"
-	c.lockEnteredAt = time.Now() // onRepublish runs a tick; keep the lock alive
+	c.lockEnteredAt = time.Now()
 
 	c.publish(*snap)
 	if sw := pub.SwitchesSnapshot(); len(sw) != 1 {
@@ -206,8 +178,6 @@ func TestCoordinatorRepublishReassertsAttentionHold(t *testing.T) {
 	}
 }
 
-// The idle frames ask for a long dwell but nothing about them is urgent, so
-// they must not shove the clock's own apps off the screen.
 func TestCoordinatorIdleFrameDoesNotPin(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "running")
 	snap.Sessions = nil
@@ -218,13 +188,11 @@ func TestCoordinatorIdleFrameDoesNotPin(t *testing.T) {
 	}
 }
 
-// Reaching the "publish nothing at all" state must still release a Pomodoro
-// takeover, or the clock stays frozen on a stale frame with rotation disabled.
 func TestCoordinatorReleasesHoldWhenNothingToPublish(t *testing.T) {
 	c, pub, snap, _ := holdFixture(t, "running")
 	snap.Sessions = nil
 	c.idleSince = time.Now().Add(-time.Duration(c.loadCfg().Display.IdleRestoreSeconds+1) * time.Second)
-	c.hold = holdPomodoro // pretend a takeover was in force
+	c.hold = holdPomodoro
 
 	c.publish(*snap)
 

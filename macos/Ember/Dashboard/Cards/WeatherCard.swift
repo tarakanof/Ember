@@ -2,7 +2,6 @@ import Charts
 import SwiftUI
 import EmberKit
 
-/// Card 12: the server's cached weather: what the clock shows, bigger.
 struct WeatherCard: View {
     let weather: Loadable<WeatherState>
     var now = Date()

@@ -2,14 +2,11 @@ import Foundation
 
 /// GET /v1/activity/summary — agent activity per tool and per source.
 public struct ActivitySummary: Decodable, Sendable, Equatable {
-    /// One rollup row. `key` is the tool or source name, nil on a window total.
-    /// `sourceColor` ("#RRGGBB") only exists on by-source rows, where the server
-    /// sends null until the source posts a colour; it is always nil elsewhere.
+    /// One rollup row.
     public struct Totals: Decodable, Sendable, Equatable, Identifiable {
         public var key: String?
         public var sourceColor: String?
         /// Wall-clock working time (running/error only; waiting never counts).
-        /// Concurrent sessions of one group count once.
         public var activeSec: Int
         public var sessions: Int
         /// Waiting episodes: how often an agent stopped to ask for input.
@@ -39,8 +36,7 @@ public struct ActivitySummary: Decodable, Sendable, Equatable {
         }
     }
 
-    /// One (day, tool) bar. Zero-filled and oldest first, so a stacked
-    /// `BarMark(x: .value("Day", $0.date, unit: .day), y: …)` works as is.
+    /// One (day, tool) bar.
     public struct ToolDay: Decodable, Sendable, Equatable, Identifiable {
         /// Logical day ("2026-09-26"), honouring the server's day-start hour.
         public var day: String
@@ -58,7 +54,7 @@ public struct ActivitySummary: Decodable, Sendable, Equatable {
         }
     }
 
-    /// One (day, source) bar, coloured by the source. Zero-filled, oldest first.
+    /// One (day, source) bar, coloured by the source.
     public struct SourceDay: Decodable, Sendable, Equatable, Identifiable {
         public var day: String
         public var date: Date

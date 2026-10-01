@@ -35,8 +35,6 @@ func runDeconfigure() {
 	fmt.Println("Deconfigure complete.")
 }
 
-// deconfigureAt reverses configureAt's settings.json changes for the given
-// home. It intentionally does NOT touch LaunchAgents.
 func deconfigureAt(home string) error {
 	removeSpikeLog(home)
 	return uninstallSettings(home)
@@ -88,7 +86,6 @@ func uninstallSettings(home string) error {
 		}
 	}
 
-	// Restore the user's statusLine verbatim if the slot is currently ours.
 	if sl, ok := root["statusLine"]; ok && statusLineIsOurs(sl) {
 		wrappedPath := wrappedStatuslinePath(home)
 		if raw, err := os.ReadFile(wrappedPath); err == nil {
@@ -132,9 +129,6 @@ func uninstallSettings(home string) error {
 	return os.Rename(tmp.Name(), settingsPath)
 }
 
-// uninstallPlist unloads and removes the CLI-installed LaunchAgent. A job
-// Ember.app registered under the same label, or any job it can't identify as
-// its own, is left running (#142).
 func uninstallPlist(lc producer.Launchctl, home string, uid int) error {
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
