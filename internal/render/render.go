@@ -62,6 +62,7 @@ func (s Session) Key() string {
 // UsageView is the per-tool account-usage data the usage card renders.
 type UsageView struct {
 	FiveHourPct int
+	// ResetLabel is the host-local "HH:MM"; empty falls back to an hourglass from ResetAt.
 	ResetLabel  string
 	ResetAt     int64 // unix; used only when ResetLabel is ""
 	SevenDayPct *int  // nil when the 7d window is unknown

@@ -13,25 +13,27 @@ import (
 
 // StatusRequest is the POST /v1/status body.
 type StatusRequest struct {
-	Source             string  `json:"source"`
-	Tool               string  `json:"tool"`
-	Session            string  `json:"session"`
-	State              string  `json:"state"`
-	Message            string  `json:"message,omitempty"`
-	ContextPct         *int    `json:"context_pct,omitempty"`
-	SourceColor        *string `json:"source_color,omitempty"`
-	RateWindowPct      *int    `json:"rate_window_pct,omitempty"`
-	Activity           string  `json:"activity,omitempty"`
-	ContextNumber      bool    `json:"context_number,omitempty"`
-	RateBottomBar      bool    `json:"rate_bottom_bar,omitempty"`
-	RateResetAt        int64   `json:"rate_reset_at,omitempty"`
-	RateReset          bool    `json:"rate_reset,omitempty"`
-	RateResetLabel     string  `json:"rate_reset_label,omitempty"`
-	SourceCard         *bool   `json:"source_card,omitempty"`
-	SessionBar         *bool   `json:"session_bar,omitempty"`
-	RateWeekPct        *int    `json:"rate_week_pct,omitempty"`
-	RateWeekResetAt    int64   `json:"rate_week_reset_at,omitempty"`
-	RateWeekResetLabel string  `json:"rate_week_reset_label,omitempty"`
+	Source        string  `json:"source"`
+	Tool          string  `json:"tool"`
+	Session       string  `json:"session"`
+	State         string  `json:"state"`
+	Message       string  `json:"message,omitempty"`
+	ContextPct    *int    `json:"context_pct,omitempty"`
+	SourceColor   *string `json:"source_color,omitempty"`
+	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
+	Activity      string  `json:"activity,omitempty"`
+	ContextNumber bool    `json:"context_number,omitempty"`
+	RateBottomBar bool    `json:"rate_bottom_bar,omitempty"`
+	RateResetAt   int64   `json:"rate_reset_at,omitempty"`
+	RateReset     bool    `json:"rate_reset,omitempty"`
+	// RateResetLabel is the host-local "HH:MM" 5h-reset label set by the Claude statusline path, so the UTC server needs no timezone math.
+	RateResetLabel string `json:"rate_reset_label,omitempty"`
+	SourceCard     *bool  `json:"source_card,omitempty"`
+	SessionBar     *bool  `json:"session_bar,omitempty"`
+	// RateWeekPct, RateWeekResetAt and RateWeekResetLabel carry the statusline's weekly window from the statusline process to the heartbeat daemon for POST /v1/usage; they never reach POST /v1/status.
+	RateWeekPct        *int   `json:"rate_week_pct,omitempty"`
+	RateWeekResetAt    int64  `json:"rate_week_reset_at,omitempty"`
+	RateWeekResetLabel string `json:"rate_week_reset_label,omitempty"`
 }
 
 // DeleteRequest is the DELETE /v1/status body.
@@ -93,11 +95,12 @@ type UsageWindow struct {
 
 // UsageRequest is the POST /v1/usage body.
 type UsageRequest struct {
-	Tool     string                  `json:"tool"`
-	Source   string                  `json:"source"`
-	FiveHour *UsageWindow            `json:"five_hour,omitempty"`
-	SevenDay *UsageWindow            `json:"seven_day,omitempty"`
-	Models   map[string]*UsageWindow `json:"models,omitempty"`
+	Tool     string       `json:"tool"`
+	Source   string       `json:"source"`
+	FiveHour *UsageWindow `json:"five_hour,omitempty"`
+	SevenDay *UsageWindow `json:"seven_day,omitempty"`
+	// Models is the per-model usage, keyed by name such as "opus" or "sonnet".
+	Models map[string]*UsageWindow `json:"models,omitempty"`
 }
 
 func (c *Client) Usage(ctx context.Context, req UsageRequest) error {

@@ -222,15 +222,20 @@ type PomodoroConfig struct {
 	BreakColor            string `json:"break_color"`
 	DBPath                string `json:"db_path"`
 	// ButtonCallback enables mapping device button presses (delivered to /hooks/awtrix/button) to timer actions.
-	ButtonCallback    bool `json:"button_callback"`
-	MaxSessionMinutes int  `json:"max_session_minutes"`
+	ButtonCallback bool `json:"button_callback"`
+	// MaxSessionMinutes auto-stops the whole cycle after this many minutes (0 = no cap).
+	MaxSessionMinutes int `json:"max_session_minutes"`
 
 	// Stats/dashboard knobs (read at request time by the stats handlers; not part of the runtime DTO).
 	WorkHoursGapMinutes int `json:"work_hours_gap_minutes"`
-	DayStartHour        int `json:"day_start_hour"`
-	StreakGraceDays     int `json:"streak_grace_days"`
-	DailyGoalSessions   int `json:"daily_goal_sessions"`
-	WeeklyGoalDays      int `json:"weekly_goal_days"`
+	// DayStartHour is the logical day boundary (0-23); earlier activity counts to the previous day (default 4).
+	DayStartHour int `json:"day_start_hour"`
+	// StreakGraceDays is the number of missed days tolerated within the current streak (default 1; 0 is strict).
+	StreakGraceDays int `json:"streak_grace_days"`
+	// DailyGoalSessions is the completed-focus target per day (default 8; 0 disables it).
+	DailyGoalSessions int `json:"daily_goal_sessions"`
+	// WeeklyGoalDays is the active-day target per week (default 5; 0 disables it).
+	WeeklyGoalDays int `json:"weekly_goal_days"`
 	// WorkHoursIncludeActivity overlays AI-coding-session activity (from /v1/status) onto the work-hours view and enables persisting that activity timeline.
 	WorkHoursIncludeActivity bool `json:"work_hours_include_activity"`
 }

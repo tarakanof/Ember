@@ -13,10 +13,14 @@ import (
 
 // LinkState is what a LinkStatus file holds: whether the daemon's last request reached the server.
 type LinkState struct {
-	OK      bool      `json:"ok"`
-	NoRoute bool      `json:"no_route"`
-	Error   string    `json:"error,omitempty"`
-	At      time.Time `json:"at"`
+	// OK means the last request got an HTTP response of any status.
+	OK bool `json:"ok"`
+	// NoRoute means the last request failed with EHOSTUNREACH, which is how Local Network privacy denies a LAN connection.
+	NoRoute bool `json:"no_route"`
+	// Error is the last transport error, empty when OK.
+	Error string `json:"error,omitempty"`
+	// At is when this state began.
+	At time.Time `json:"at"`
 }
 
 // LinkStatus persists a daemon's link state to a JSON file.

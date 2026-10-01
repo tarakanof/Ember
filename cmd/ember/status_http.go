@@ -186,6 +186,7 @@ type NotifyRequest struct {
 	Color    string `json:"color"`
 	Duration int    `json:"duration"`
 	Hold     bool   `json:"hold"`
+	// TextCase is the clock's textCase ("inherit", "upper", "asTyped"); empty means "upper".
 	TextCase string `json:"text_case"`
 }
 

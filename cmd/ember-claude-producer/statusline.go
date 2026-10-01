@@ -22,6 +22,7 @@ type statuslineInput struct {
 			UsedPercentage float64 `json:"used_percentage"`
 			ResetsAt       int64   `json:"resets_at"`
 		} `json:"five_hour"`
+		// SevenDay is the weekly rate-limit window, shaped like five_hour and parsed leniently.
 		SevenDay *struct {
 			UsedPercentage float64 `json:"used_percentage"`
 			ResetsAt       int64   `json:"resets_at"`

@@ -7,8 +7,10 @@ import (
 
 // MeetingsConfig holds the next-meeting widget's runtime-editable settings.
 type MeetingsConfig struct {
-	Enabled          *bool `json:"enabled"`
-	TileLeadMinutes  int   `json:"tile_lead_minutes"`
+	Enabled *bool `json:"enabled"`
+	// TileLeadMinutes is the window in which a meeting joins the tile rotation.
+	TileLeadMinutes int `json:"tile_lead_minutes"`
+	// PopupLeadMinutes is the popup lead time (0 = no popup).
 	PopupLeadMinutes *int  `json:"popup_lead_minutes"`
 	Chime            *bool `json:"chime"`
 }
