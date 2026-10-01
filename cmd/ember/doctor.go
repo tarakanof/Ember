@@ -41,7 +41,8 @@ type CheckResult struct {
 
 // DoctorResult is the full diagnostic.
 type DoctorResult struct {
-	OK     bool                   `json:"ok"`
+	OK bool `json:"ok"`
+	// Mode is "online" or "offline".
 	Mode   string                 `json:"mode"`
 	Checks map[string]CheckResult `json:"checks"`
 }

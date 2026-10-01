@@ -24,7 +24,8 @@ type Settings struct {
 	LongMin          int
 	RoundsBeforeLong int
 	AutoStartNext    bool
-	MaxSessionMin    int
+	// MaxSessionMin auto-stops the whole cycle after this many wall-clock minutes, pauses included (0 = no cap).
+	MaxSessionMin int
 }
 
 // Status is a point-in-time snapshot of the engine, computed for a given now.

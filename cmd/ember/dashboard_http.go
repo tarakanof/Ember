@@ -30,19 +30,22 @@ type usageWindowOut struct {
 }
 
 type usageToolOut struct {
-	Tool      string                    `json:"tool"`
-	Source    *string                   `json:"source"`
-	UpdatedAt time.Time                 `json:"updated_at"`
-	Stale     bool                      `json:"stale"`
-	FiveHour  *usageWindowOut           `json:"five_hour"`
-	SevenDay  *usageWindowOut           `json:"seven_day"`
-	Models    map[string]usageWindowOut `json:"models"`
+	Tool      string    `json:"tool"`
+	Source    *string   `json:"source"`
+	UpdatedAt time.Time `json:"updated_at"`
+	// Stale is true when older than stale_after_sec; the clock hides it too.
+	Stale    bool            `json:"stale"`
+	FiveHour *usageWindowOut `json:"five_hour"`
+	SevenDay *usageWindowOut `json:"seven_day"`
+	// Models is keyed by model name, e.g. "opus".
+	Models map[string]usageWindowOut `json:"models"`
 }
 
 type usageSnapshotOut struct {
-	GeneratedAt   time.Time      `json:"generated_at"`
-	StaleAfterSec int            `json:"stale_after_sec"`
-	Tools         []usageToolOut `json:"tools"`
+	GeneratedAt   time.Time `json:"generated_at"`
+	StaleAfterSec int       `json:"stale_after_sec"`
+	// Tools is sorted by tool name.
+	Tools []usageToolOut `json:"tools"`
 }
 
 func optString(s string) *string {
@@ -131,7 +134,8 @@ type activityTotalsOut struct {
 	Key       string `json:"key,omitempty"`
 	ActiveSec int    `json:"active_sec"`
 	Sessions  int    `json:"sessions"`
-	Attention int    `json:"attention"`
+	// Attention counts waiting episodes (the agent asked for input).
+	Attention int `json:"attention"`
 }
 
 type activitySourceTotalsOut struct {
@@ -140,15 +144,19 @@ type activitySourceTotalsOut struct {
 }
 
 type activityWindowOut struct {
-	From     time.Time                 `json:"from"`
-	To       time.Time                 `json:"to"`
-	Total    activityTotalsOut         `json:"total"`
-	ByTool   []activityTotalsOut       `json:"by_tool"`
+	From  time.Time         `json:"from"`
+	To    time.Time         `json:"to"`
+	Total activityTotalsOut `json:"total"`
+	// ByTool is ordered most active first.
+	ByTool []activityTotalsOut `json:"by_tool"`
+	// BySource is ordered most active first.
 	BySource []activitySourceTotalsOut `json:"by_source"`
 }
 
 type activityToolDay struct {
-	Day       string    `json:"day"`
+	// Day is the logical day, "2006-01-02".
+	Day string `json:"day"`
+	// Date is local midnight of Day, for a chart's date axis.
 	Date      time.Time `json:"date"`
 	Tool      string    `json:"tool"`
 	ActiveSec int       `json:"active_sec"`
@@ -157,13 +165,14 @@ type activityToolDay struct {
 }
 
 type activitySourceDay struct {
-	Day         string    `json:"day"`
-	Date        time.Time `json:"date"`
-	Source      string    `json:"source"`
-	SourceColor *string   `json:"source_color"`
-	ActiveSec   int       `json:"active_sec"`
-	Sessions    int       `json:"sessions"`
-	Attention   int       `json:"attention"`
+	Day    string    `json:"day"`
+	Date   time.Time `json:"date"`
+	Source string    `json:"source"`
+	// SourceColor is "#RRGGBB", null until the source posts one.
+	SourceColor *string `json:"source_color"`
+	ActiveSec   int     `json:"active_sec"`
+	Sessions    int     `json:"sessions"`
+	Attention   int     `json:"attention"`
 }
 
 type activitySummaryOut struct {
@@ -172,10 +181,13 @@ type activitySummaryOut struct {
 	Recording bool `json:"recording"`
 	Days      int  `json:"days"`
 	// SpanGapSec: running heartbeats of one session no more than this apart form one active span.
-	SpanGapSec    int                 `json:"span_gap_sec"`
-	Today         activityWindowOut   `json:"today"`
-	Period        activityWindowOut   `json:"period"`
-	Daily         []activityToolDay   `json:"daily"`
+	SpanGapSec int               `json:"span_gap_sec"`
+	Today      activityWindowOut `json:"today"`
+	// Period is the last Days logical days, today included.
+	Period activityWindowOut `json:"period"`
+	// Daily is oldest first, zero-filled per tool.
+	Daily []activityToolDay `json:"daily"`
+	// DailyBySource is oldest first, zero-filled per source.
 	DailyBySource []activitySourceDay `json:"daily_by_source"`
 }
 
@@ -309,8 +321,9 @@ type aqiPoint struct {
 
 type weatherCurrentOut struct {
 	FetchedAt time.Time `json:"fetched_at"`
-	Stale     bool      `json:"stale"`
-	Condition string    `json:"condition"`
+	// Stale is true when older than the tile TTL; the clock has dropped the tile.
+	Stale     bool   `json:"stale"`
+	Condition string `json:"condition"`
 	// ConditionCode is the provider's raw code (WMO code for open-meteo, symbol_code for met-no); Provider says which.
 	ConditionCode *string `json:"condition_code"`
 	Severe        bool    `json:"severe"`
@@ -339,10 +352,13 @@ type weatherStateOut struct {
 	Provider    string    `json:"provider"`
 	Units       string    `json:"units"`
 	// LocationName is the label the user typed for the location (never the coordinates); null when unset.
-	LocationName *string            `json:"location_name"`
-	Current      *weatherCurrentOut `json:"current"`
-	Air          *airOut            `json:"air"`
-	Sun          *sunOut            `json:"sun"`
+	LocationName *string `json:"location_name"`
+	// Current is null until the first successful fetch.
+	Current *weatherCurrentOut `json:"current"`
+	// Air is null until the first air-quality fetch.
+	Air *airOut `json:"air"`
+	// Sun is null without a location, or in polar day/night.
+	Sun *sunOut `json:"sun"`
 }
 
 func (a *App) buildWeatherState(now time.Time) weatherStateOut {

@@ -8,18 +8,30 @@ import (
 
 // Publisher is the seam for every server-initiated write to the clock: the coordinator's frames, tiles, indicators and display hold, and the one-shot notifications.
 type Publisher interface {
+	// CustomApp creates or replaces a pushed app, which is RAM-only on the device and vanishes on reboot.
 	CustomApp(ctx context.Context, name string, payload map[string]any) error
+	// ClearApp removes a pushed app.
 	ClearApp(ctx context.Context, name string) error
+	// ListApps returns the names of every app on the device, builtin and pushed alike.
 	ListApps(ctx context.Context) ([]string, error)
 	Notify(ctx context.Context, payload map[string]any) error
+	// DismissNotifyByName clears the notification carrying name; a name the device no longer holds answers 404 (*awtrix.APIError), which callers treat as success.
 	DismissNotifyByName(ctx context.Context, name string) error
+	// PlayRTTTL plays an inline RTTTL melody and answers 503 when the clock has no buzzer.
 	PlayRTTTL(ctx context.Context, rtttl string) error
+	// Indicator lights one of the three corner LEDs.
 	Indicator(ctx context.Context, index int, payload map[string]any) error
+	// ClearIndicator turns a corner LED off.
 	ClearIndicator(ctx context.Context, index int) error
+	// Settings partially updates device settings, e.g. app rotation and native button navigation.
 	Settings(ctx context.Context, payload map[string]any) error
+	// ReadSettings returns the device settings resource, so a Pomodoro takeover can snapshot and later restore the user's own values.
 	ReadSettings(ctx context.Context) (map[string]any, error)
+	// Switch forces the device to the named app, with or without its transition animation.
 	Switch(ctx context.Context, name string, mode awtrix.SwitchMode) error
+	// ListIcons returns the filenames in the device's /ICONS folder.
 	ListIcons(ctx context.Context) ([]string, error)
+	// PutIcon uploads an icon file into the device's /ICONS folder.
 	PutIcon(ctx context.Context, filename string, data []byte) error
 }
 

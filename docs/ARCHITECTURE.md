@@ -316,8 +316,9 @@ The aggregator and the only writer to the device.
     that answers well under a second when healthy (0.04 s small, 0.55-0.68 s at
     3 KB), so a push silent for 2.5 s is almost certainly dropped;
     `awtrix.timeout_seconds` (10 s) is the ceiling for any call and the wrong
-    budget here. A `pushApp` also stops at once on an `*awtrix.APIError` (a 422
-    won't become a 200) or a cancelled coordinator context.
+    budget here. A `pushApp` retries 5xx and 429 `*awtrix.APIError`s
+    (`retryableClockErr`) but stops at once on any other API error (a 422 won't
+    become a 200) or a cancelled coordinator context.
   - **Retry inside the tick.** The device evicts a pushed app on *wallclock*
     lifetime, not on attempts, so a lost push is retried immediately instead of
     a dwell later. A retried-then-successful push is still one `ok` in
@@ -958,8 +959,9 @@ Weather constraints:
   that passed before startup. The AQI threshold popup is edge-triggered and also
   fires on the very first reading, so a restart mid-episode still alerts.
 - **Astro.** Moon phase and sun times are computed locally (no API or key) at low
-  precision (a minute or two). The "local" label time derives from longitude
-  (15° per hour) with no tz database, so it can differ from civil time at
+  precision (a minute or two). The "local" label time uses the UTC offset Open-Meteo
+  supplies (`TZKnown`/`TZOffsetSeconds`); only without it (MET) does it fall back
+  to longitude (15° per hour, no tz database), which can differ from civil time at
   DST/zone boundaries. At polar day/night `isNight` defaults to day (the sun
   icon), since declination versus latitude isn't cheaply distinguished.
 
@@ -1466,7 +1468,7 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   `attention` counts waiting episodes. `source_color` is remembered in memory
   from status posts, so it is null for a source that hasn't posted since
   restart. `recording` mirrors `work_hours_include_activity`: rows are only
-  stored while it is on. Rows are throttled to one per session per 2 min,
+  stored while it is on, but already-stored rows are still summarised when it is off. Rows are throttled to one per session per 2 min,
   **except a transition into waiting**, which is written once at least 10 s
   have passed since the session's last row, so a short prompt isn't lost.
 - **`GET /v1/weather/state`** — the poller's cached observation (condition,
@@ -1500,7 +1502,8 @@ connection. Active-span reconstruction: heartbeats of one session no more than
 `SpanGapSec` apart form a span, a span ends at its last heartbeat and a lone
 heartbeat is zero-width, so short bursts under-count by up to one recording
 interval (2 min); spans are cut at the day start, and `recording` is false while
-`work_hours_include_activity` is off (recent windows read zero). Source colours
+`work_hours_include_activity` is off, which stops new rows only: stored rows stay
+readable and still count, so windows read zero only once they hold no stored rows. Source colours
 are remembered in memory per source (`sourceColorMemo`) so charts can colour
 sources with no live session. Row writes use `activityThrottle` (2 min) with the
 10 s `activityWaitFloor` for a transition into waiting, as above; the stats
@@ -1576,8 +1579,10 @@ values that fail the SSRF and path validators (`validDeviceURL`, the weather
 icon-id pattern, e.g. a hand-edited path-traversal id) rather than crashing
 startup, and reload runs the same repair so a hand-edited file cannot bypass the
 guard by arriving through reload; `validateConfig` stays as defence in depth. The
-required-field check runs on the raw parsed config because `applyDefaults` would
-fill an explicit empty value with the fallback URL and hide the misconfiguration.
+required-field check is reload-specific: it runs on the raw parsed config, because
+`applyDefaults` would fill an explicit empty `awtrix.http_base_url` with the
+fallback URL and hide the misconfiguration, so reload answers 422. At startup
+`loadConfig` fills that default first, so an empty value starts on the fallback.
 
 Reload answers: 412 when the server started from defaults (no file), 500 on a
 read error, 400 on parse, 422 on validation, 409 when a non-reloadable leaf
@@ -1586,8 +1591,10 @@ long-lived structures; the operator must restart), else 200
 `{reloaded, changed_fields}`. `diffConfig` walks `Config` by reflection using
 json tags, so a new field is diffed automatically; struct fields recurse and
 others compare with `reflect.DeepEqual`, which distinguishes nil from non-nil
-pointers (the "unset vs explicit false" case). `auth.status_token` is env-only
-and absent from the file, so it is copied from the running config before
+pointers (the "unset vs explicit false" case). The effective `auth.status_token`
+is the file's value when set, else the env var named by `auth.status_token_env`
+(default `EMBER_TOKEN`); repo policy keeps it env-only and out of committed JSON.
+Reload keeps the running token, so it is copied from the running config before
 diffing (else every reload 409s), and `formatLeafValue` redacts it in the 409
 message anyway. Loading the old config and storing the new one is one `cfgMu`
 critical section, so a concurrent settings PUT is not lost. Reload re-syncs the
@@ -1713,8 +1720,10 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (reject unknown fields / trailing tokens). Every JSON handler decodes through
   `decodeOrReject` (`server.go`): a body past the 1 MB cap answers **413**, any
   other decode failure 400, both with a `request rejected` log line.
-- **Auth:** bearer token on write endpoints, via `EMBER_TOKEN` env only —
-  never argv/URL/logs. `slog.LogValuer` redaction throughout. **Fails closed:**
+- **Auth:** bearer token on write endpoints. The effective token is
+  `auth.status_token` from the config file when set, else the env var named by
+  `auth.status_token_env` (default `EMBER_TOKEN`, which therefore loses to a file
+  token); policy is env only, never in committed JSON, argv, URL or logs. `slog.LogValuer` redaction throughout. **Fails closed:**
   an unset `EMBER_TOKEN` rejects every `/v1` write with 401 (same policy as the
   `/admin` surface); the token is compared in constant time, and the per-IP
   rate limiter sits *outside* auth so rejected 401s still consume budget (a
@@ -2023,7 +2032,8 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   once a minute so repeated opens can't push stats past one request a minute.
 - **Location.** For a menu-bar (accessory) app macOS often never presents the
   "Allow location" prompt, so a pending authorization times out as
-  `.authorizationUnavailable` and the UI points at System Settings.
+  `.authorizationUnavailable` and the UI points at System Settings;
+  that error means the user must enable Location for the app there.
   `requestLocation()` is deferred until the user answers the prompt, because
   issuing it while `.notDetermined` doesn't reliably deliver a callback.
 - **Launch at login** uses `SMAppService.mainApp` (System Settings › General ›

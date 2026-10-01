@@ -23,8 +23,11 @@ var ErrAppManaged = errors.New("managed by Ember.app")
 type Owner int
 
 const (
+	// NotLoaded means launchd has no job with the label.
 	NotLoaded Owner = iota
+	// OwnedByCLI means the job is loaded from the CLI's own plist in ~/Library/LaunchAgents.
 	OwnedByCLI
+	// OwnedByOther means the job is Ember.app's, or anything the CLI cannot identify.
 	OwnedByOther
 )
 

@@ -20,29 +20,46 @@ import (
 
 // WeatherConfig holds the weather widget's settings.
 type WeatherConfig struct {
-	Enabled              bool              `json:"enabled"`
-	Provider             string            `json:"provider"`
-	Latitude             float64           `json:"latitude"`
-	Longitude            float64           `json:"longitude"`
-	LocationName         string            `json:"location_name"`
-	Units                string            `json:"units"`
-	RefreshMinutes       int               `json:"refresh_minutes"`
-	RotateInApps         *bool             `json:"rotate_in_apps"`
-	ForecastTile         *bool             `json:"forecast_tile"`
-	ForecastHours        int               `json:"forecast_hours"`
-	SunPopups            *bool             `json:"sun_popups"`
-	MoonPhase            *bool             `json:"moon_phase"`
-	PopupIntervalMinutes *int              `json:"popup_interval_minutes"`
-	PopupDurationSeconds int               `json:"popup_duration_seconds"`
-	PopupOnChange        *bool             `json:"popup_on_change"`
-	SevereAlert          *bool             `json:"severe_alert"`
-	SevereSound          string            `json:"severe_sound"`
-	UseNativeIcons       bool              `json:"use_native_icons"`
-	IconIDs              map[string]string `json:"icon_ids,omitempty"`
-	TileNativeIcons      bool              `json:"tile_native_icons"`
-	AirTile              *bool             `json:"air_tile"`
-	AirPopupThreshold    int               `json:"air_popup_threshold"`
-	Overlay              *bool             `json:"overlay"`
+	Enabled bool `json:"enabled"`
+	// Provider is "open-meteo" or "met-no".
+	Provider     string  `json:"provider"`
+	Latitude     float64 `json:"latitude"`
+	Longitude    float64 `json:"longitude"`
+	LocationName string  `json:"location_name"`
+	// Units is "metric" or "imperial".
+	Units string `json:"units"`
+	// RefreshMinutes is the poll cadence.
+	RefreshMinutes int `json:"refresh_minutes"`
+	// RotateInApps shows the rotating tile.
+	RotateInApps *bool `json:"rotate_in_apps"`
+	// ForecastTile shows the separate hourly-forecast bar tile.
+	ForecastTile *bool `json:"forecast_tile"`
+	// ForecastHours is the number of hours shown in the strip and tile (1..24).
+	ForecastHours int `json:"forecast_hours"`
+	// SunPopups pops up at sunrise and sunset.
+	SunPopups *bool `json:"sun_popups"`
+	// MoonPhase shows the moon phase on clear nights.
+	MoonPhase *bool `json:"moon_phase"`
+	// PopupIntervalMinutes is the interval-popup cadence (0 = none).
+	PopupIntervalMinutes *int `json:"popup_interval_minutes"`
+	PopupDurationSeconds int  `json:"popup_duration_seconds"`
+	// PopupOnChange pops up when the condition changes.
+	PopupOnChange *bool `json:"popup_on_change"`
+	// SevereAlert pops up with a sound on severe weather.
+	SevereAlert *bool `json:"severe_alert"`
+	// SevereSound is an RTTTL or device sound name; empty means the default.
+	SevereSound    string `json:"severe_sound"`
+	UseNativeIcons bool   `json:"use_native_icons"`
+	// IconIDs overrides the per-condition native icon ID used for popups, keyed by condition bucket; an empty entry falls back to the default.
+	IconIDs map[string]string `json:"icon_ids,omitempty"`
+	// TileNativeIcons swaps the drawn condition sprite on the rotating tiles for the native animated icon; independent of the popup-only UseNativeIcons.
+	TileNativeIcons bool `json:"tile_native_icons"`
+	// AirTile shows the rotating air-quality tile, always sourced from Open-Meteo regardless of Provider.
+	AirTile *bool `json:"air_tile"`
+	// AirPopupThreshold fires a popup when the European AQI rises across this value (edge-triggered); 0 disables it.
+	AirPopupThreshold int `json:"air_popup_threshold"`
+	// Overlay lets the clock animate current precipitation over the conditions tile and popups (default on).
+	Overlay *bool `json:"overlay"`
 }
 
 func boolPtr(b bool) *bool { return &b }
@@ -192,14 +209,19 @@ func validateWeather(c WeatherConfig) error {
 }
 
 type weatherObservation struct {
-	Condition       string
-	ConditionCode   string
-	TempC           float64
-	Severe          bool
-	FetchedAt       time.Time
-	HourlyStart     time.Time
-	Hourly          []float64
-	Overlay         string
+	Condition string
+	// ConditionCode is the provider's raw code: the WMO code for Open-Meteo, the symbol_code for MET Norway.
+	ConditionCode string
+	TempC         float64
+	Severe        bool
+	FetchedAt     time.Time
+	// HourlyStart is the time of Hourly[0] as the provider stamped it; zero when unsaid.
+	HourlyStart time.Time
+	// Hourly holds the next ~24 hourly temperatures (°C) from the current hour; nil when the provider returned none.
+	Hourly []float64
+	// Overlay is the clock weather overlay matching current conditions, empty when nothing is falling.
+	Overlay string
+	// TZOffsetSeconds is the location's UTC offset from Open-Meteo; TZKnown is false when the provider supplied none, and sun labels then fall back to longitude.
 	TZOffsetSeconds int
 	TZKnown         bool
 }
@@ -209,10 +231,11 @@ const forecastFetchHours = 24
 const airFetchHours = 24
 
 type airObservation struct {
-	AQI         float64
-	PM25        float64
-	PM10        float64
-	HourlyAQI   []float64
+	AQI       float64
+	PM25      float64
+	PM10      float64
+	HourlyAQI []float64
+	// HourlyStart is the time of HourlyAQI[0]; zero when unknown.
 	HourlyStart time.Time
 	FetchedAt   time.Time
 }

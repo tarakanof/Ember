@@ -20,12 +20,15 @@ type marker struct {
 
 // ToolTrack is marker-only bookkeeping for the tool-outcome hooks; none of it goes on the wire.
 type ToolTrack struct {
+	// PendingPermission fingerprints the call a PermissionRequest put the session in waiting for; only that call's outcome ends the wait.
 	PendingPermission string `json:"pending_permission,omitempty"`
 	PendingToolUseID  string `json:"pending_tool_use_id,omitempty"`
-	LastToolUseID     string `json:"last_tool_use_id,omitempty"`
-	LastToolFP        string `json:"last_tool_fp,omitempty"`
-	ResumedTool       string `json:"resumed_tool,omitempty"`
-	ResumedAt         int64  `json:"resumed_at,omitempty"`
+	// LastToolUseID and LastToolFP are the latest PreToolUse's tool_use_id and fingerprint, used to recover the id for a PermissionRequest that has none.
+	LastToolUseID string `json:"last_tool_use_id,omitempty"`
+	LastToolFP    string `json:"last_tool_fp,omitempty"`
+	// ResumedTool and ResumedAt record the last wait an outcome ended, so that dialog's late permission_prompt Notification cannot re-enter waiting.
+	ResumedTool string `json:"resumed_tool,omitempty"`
+	ResumedAt   int64  `json:"resumed_at,omitempty"`
 }
 
 var shellComms = map[string]bool{

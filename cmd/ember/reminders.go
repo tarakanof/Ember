@@ -25,8 +25,10 @@ type reminderFireRequest struct {
 	Sound        bool   `json:"sound"`
 	Duration     int    `json:"duration"`
 	NativeIconID string `json:"native_icon_id"`
-	Hold         bool   `json:"hold"`
-	RepeatSound  bool   `json:"repeat_sound"`
+	// Hold makes the alarm take over the display until the user dismisses it, rather than auto-dismissing after Duration.
+	Hold bool `json:"hold"`
+	// RepeatSound (opt-in) replays the chime of a held alarm until it is dismissed or the hold window or quiet hours end it.
+	RepeatSound bool `json:"repeat_sound"`
 }
 
 func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {

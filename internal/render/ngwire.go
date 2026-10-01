@@ -24,9 +24,12 @@ const (
 	OverlayRain    = "rain"
 	OverlayDrizzle = "drizzle"
 	OverlaySnow    = "snow"
-	OverlayStorm   = "storm"
+	// OverlayStorm is dense wind-slanted streaks.
+	OverlayStorm = "storm"
+	// OverlayThunder is a storm plus irregular white flashes.
 	OverlayThunder = "thunder"
-	OverlayFrost   = "frost"
+	// OverlayFrost is a static icy crust along the top and bottom edges.
+	OverlayFrost = "frost"
 )
 
 // WithOverlay sets p's per-app weather overlay and returns p.
