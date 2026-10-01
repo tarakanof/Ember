@@ -156,6 +156,15 @@ These cost real debugging time.
   `LSUIElement` agent and only becomes `.regular` while Settings or the
   Dashboard is open. The loop skips Dock drawing otherwise, and `AppDelegate`
   re-applies the icon on each promotion.
+- **With two displays the menu bar you see may be a copy.** The status item
+  lives on one display's menu bar; AppKit mirrors it to the others as a
+  snapshot (`NSStatusItemReplicantView`), refreshed from a timer
+  (`_updateReplicants`). Each refresh briefly sets the button's `appearance`,
+  SwiftUI's `MenuBarExtraController` observes that and re-applies the label's
+  image, and the copy is drawn from what is on the button then. When the label
+  held a one-off snapshot, the copy froze on the frame of the last label
+  re-render and jumped every few seconds, while one display looked fine. The
+  label now shares the loop's live image (see Performance).
 - **Template eyes are cut out.** In the menu bar the eyes are cleared from the
   body (`.clear` blend inside a transparency layer), so they show the menu bar
   through them in both the template and coloured looks.
@@ -194,20 +203,22 @@ two costs, both measured on a running app:
 Now the loop draws into the status button itself, and only when the pose
 changed or a colour fade is running. The label reads the animator without
 observing it, so it re-renders only when the winning session's state or tool
-glyph, the tray prefs, or the VoiceOver value change, and then shows its own
-snapshot of the current frame. Each such change can overwrite the button
-image; prefs changes restart the loop, which always pushes its first frame. If
-the button doesn't exist yet at launch, the loop retries every 0.25 s.
+glyph, the tray prefs, or the VoiceOver value change. It hands SwiftUI the
+animator's live image (`liveMenuBarImage(colored:)`), never a snapshot, so
+whenever SwiftUI puts the label's image back on the button it is the same
+object the loop animates. Prefs changes restart the loop, which always pushes
+its first frame. If the button doesn't exist yet at launch, the loop retries
+every 0.25 s.
 
-The button keeps one `NSImage` for the life of the loop. A push draws the
+The button keeps one `NSImage` for the life of the app. A push draws the
 frame into a 44 px `CGContext` kept by the animator, swaps the image's only
 representation for one over a `makeImage()` snapshot of it (a copy, since the
 old rep still holds the previous one), and marks the button for display. Setting
 `button.image` per frame instead made AppKit re-measure the item
 (`-[NSStatusItem _adjustLength]`), which was about half the cost of a push
-although the size never changes. `button.image` is set only when the image
-object changes: a loop restart, a switch between template and colour, or a
-label re-render that put its own snapshot on the button.
+although the size never changes. `button.image` is set only when the button
+holds another image or the template flag flipped (the cell re-reads it only on
+a fresh `setImage:`).
 
 Rewriting the pixels of one `NSBitmapImageRep` in place does not work, even
 after `recache()`: the menu bar kept showing the first frame. The button's
