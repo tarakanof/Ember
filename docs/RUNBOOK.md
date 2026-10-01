@@ -56,6 +56,13 @@ docker run -d --name ember --restart unless-stopped -p 3627:3627 \
   Also in `-p` bridge mode every client arrives from the Docker gateway IP, so
   the clock's `/hooks/awtrix/*` calls share one rate-limit bucket with the Macs'
   `/v1` traffic (60 burst, 5/s).
+- **TLS (optional).** `EMBER_TLS_CERT_FILE` and `EMBER_TLS_KEY_FILE` must both
+  be set (HTTPS) or neither (HTTP); exactly one is a startup error. The pair is
+  parsed eagerly, so a malformed PEM, unreadable file or key/cert mismatch fails
+  startup with a clear error. Expiry, SAN coverage and the trust chain are not
+  validated; that is the operator's responsibility. The container healthcheck
+  switches to https when the cert is set (`EMBER_HEALTHCHECK_CA_FILE` adds a
+  trust bundle, `EMBER_HEALTHCHECK_INSECURE=1` skips verification).
 - **When recreating the container, `docker inspect` it first** to replicate
   exact mount destinations / env names rather than reconstructing from memory.
 - **After any render-side change, rebuild + redeploy from current `main`** —
@@ -136,7 +143,11 @@ login keychain, then build the same way. The requirement is
 `identifier "com.ember.Ember" and certificate leaf = H"<sha1>"`, stable until
 you recreate the certificate. It is untrusted on purpose: no admin password
 and no trust-settings change; `codesign` signs with it anyway and a locally
-built app never meets Gatekeeper.
+built app never meets Gatekeeper. The script generates it with
+`/usr/bin/openssl` (LibreSSL) on purpose: its PKCS#12 defaults (3DES/SHA-1) are
+what `security import` reads on every macOS, while OpenSSL 3's AES defaults are
+not. The key is imported non-exportable (`-x`) with `-T codesign`, so `codesign`
+can use it without a keychain prompt.
 
 Which identity signs: `EMBER_SIGNING_IDENTITY` (a SHA-1 or an exact identity
 name), else the first non-blank, non-`#` line of

@@ -87,6 +87,46 @@ The aggregator and the only writer to the device.
   pattern (config.json baseline; SQLite `display_json` override wins, survives
   restarts and `/admin/reload`) — one of the settings-overlay registrations
   (see "Runtime settings overlay" below).
+- **Coordinator ownership and locking.** The coordinator goroutine owns every
+  write to the rotation: the session app, tiles, corner LEDs and the display
+  hold. One-shot notifications (`/v1/notify`, reminders, weather and meeting
+  popups, the Pomodoro phase-end alert) call the `Publisher` directly, and the
+  menu's `/v1/device` proxy uses `clockAccess`.
+  - **Channels.** State-change commands (upsert/delete/clear/shutdown) use a
+    64-slot channel; ticks use a 1-slot channel that drops on full, because a
+    stale tick carries no information. `Send` never blocks: the goroutine can
+    sit tens of seconds inside `onTick` against an unreachable clock, and a
+    blocking `Send` would wedge the producer HTTP handlers. A dropped command
+    self-heals except a fresh attention upsert, because lock acquisition is
+    edge-triggered and lives only in `onUpsert` (a heartbeat re-POST of a
+    waiting session is waiting→waiting, no transition); that edge's preempt and
+    chime are lost until the session's next transition. The drop warning is
+    throttled to about one a minute. `Run` drains the command channel before
+    ticks (Go's `select` is random when both are ready) so preempt latency
+    beats rotation jitter.
+  - **`stateMu`** guards the pointer, `cardCursor`, the lock fields and
+    `idleSince`. Only the coordinator goroutine writes them, taking `stateMu`
+    for each write, so its own reads skip the lock; every other goroutine must
+    `RLock`. The idle usage-face cursor shares `cardCursor`.
+  - **Attention lock release.** A lock ends on ack timeout (`ackTimeoutDur`,
+    read live), on drain (the locked session left the attention state;
+    released at once, not at the next dwell), or on reap (the locked key is no
+    longer active). A waiting↔error shift on the locked session resets the ack
+    timer without re-targeting the pointer or re-chiming. `lockReleaseTimer` is
+    a wallclock safety net that fires a tick after the hold, so release still
+    happens when dwell is configured longer than the hold; it is armed with the
+    value at arm time, so after a config PUT shortening the hold the tick-driven
+    check releases promptly and the timer may fire later. The corner-LED
+    attention indicator follows the lock, not any waiting session.
+  - **Republish.** `onRepublish` forgets everything believed to be on the
+    device: push dedupe, the tiles ledger, corner LEDs and `c.hold`, because
+    pushed apps are RAM-only. Resetting `c.hold` makes the next
+    `applyDisplayHold` a fresh edge, so an in-flight focus block or attention
+    hold re-asserts its forced switch and settings.
+  - **Shutdown.** `Run` undoes an active Pomodoro takeover with a fresh context
+    (the run context is already cancelled), and `StartCoordinator` returns only
+    after that restore finishes so `main` can wait for it. If the clock is
+    unreachable the snapshot stays in the store and the next start restores it.
 - **Rotating tiles — one module** (`cmd/ember/coordinator_tiles.go`, #145).
   The standalone apps Ember owns (`ember-weather`, `ember-forecast`,
   `ember-air`, `ember-meet`) are one `tile` value each in `tiles`: app name,
@@ -107,7 +147,21 @@ The aggregator and the only writer to the device.
   can't animate them: the NG overlay and a native gallery icon. A tile over
   existing inputs is one `tile` value; one with a new data source also adds
   its fields to `tileInputs` and fills them in `coordinator.tileInputs` (and
-  in its preview handler).
+  in its preview handler). A zero-value `pushedApp` means "on device, content
+  unknown" (adopted after a restart): it is never current, so it is re-pushed
+  or cleared. `forget` runs after a reboot so a stale ledger cannot suppress a
+  re-push for a whole refresh interval. Freshness: `usageAppLifetime` outlives
+  the ~5 min producer refresh so a reconcile gap never blanks the usage app;
+  `usageStaleTTL` (about twice the poll) clears a silent tool's apps;
+  `usageRefreshInterval` (below the lifetime) re-pushes an unchanged usage app
+  so the device doesn't evict it. `usageViews` prefers endpoint usage and
+  falls back to the statusline with the same precedence as the limit alarm;
+  hidden and below-threshold tools are absent. Weather tiles clear after
+  `weatherTileStaleTTL` (30 min) so a wedged poller leaves no stale
+  temperature. The meeting countdown is the ceiling of the remaining time (at
+  least 1) and needs no timer: the text changes each minute, so the bytes diff
+  re-pushes. The device renders that text natively while the preview draws
+  `font3x5`.
 - **Clock access — one module** (`cmd/ember/clock_access.go`, #146). Every
   server→clock call goes through `clockAccess`. It resolves the clock from the
   live config on every call (`Config.clockURL()`, see "Runtime settings
@@ -182,6 +236,62 @@ The aggregator and the only writer to the device.
   `clock_access_guard_test.go` checks these rules on the type-checked
   package.
 
+  The `Publisher` is the seam for every server-initiated clock write.
+  `clockPublisher` builds a fresh client per call, so a rediscovery URL swap
+  applies to the next write. Pushed apps are RAM-only on NG; on startup
+  `ListApps` adopts Ember-managed apps left from a prior run so they can be
+  reconciled or cleared although the in-memory push trackers start empty.
+  `PlayRTTTL` is only for chimes with no notification of their own (the
+  attention lock); popups carry their melody in `soundRtttl`. Every
+  notification Ember pushes carries a `name` (NG's queue holds 32), so
+  `DELETE /api/v1/notifications/{name}` retracts Ember's own popup rather than
+  whatever is showing; a 404 on dismiss-by-name means it is already gone
+  (the firmware's button handling often clears it first) and is the expected
+  outcome (`isAPINotFound`).
+
+  Further `clockAccess` constraints:
+  - **Clients and classes.** Each call builds a fresh `awtrix` client; clients
+    share `http.DefaultTransport`, so the keep-alive pool survives. Besides
+    `callPublish` and `callMenu`, `callProbe` serves the watch loop,
+    rediscovery and doctor's clock check (it must not outlive its watch tick),
+    `callCapabilities` the startup/rediscovery fetch (a dark clock must not
+    delay boot) and `callDoctor` also runs offline against a bare config. A
+    caller's context can only shorten a class timeout. `reachable(base)` takes
+    an explicit base because rediscovery probes the URL it is about to judge.
+  - **`systemLock`.** `/api/v1/system` holds Wi-Fi credentials, sensor offsets
+    and the button callback, and NG only offers a full replace, so two
+    unserialised writers lose a write. The lock is a `ctxLock` (a channel-of-1
+    mutex whose waiters can give up; `Unlock` on an unheld lock panics like
+    `sync.Mutex`) so a stuck clock cannot trap cancelled requests; a holder can
+    take two menu calls (16 s). `updateSystem` is always a full
+    read-merge-write, never a partial PUT: a partial PUT that the firmware
+    treated as a replace would drop the stored Wi-Fi password, whatever the
+    docs say about partial support.
+  - **Write fate.** A write that failed after sending is wrapped as
+    `sentWriteError` ("may have landed"); one that never went out (context
+    already ended) returns `ctx.Err()` unsent. In `writeBudgetError` an
+    unanswered write wins over an earlier landed one: a settings edit whose
+    first PATCH landed and whose reconcile re-write went unanswered does not
+    know the clock's value. `readBudgetError` is the same 504 without `write`.
+  - **Error map.** Only `*awtrix.APIError` is relayed (`writeDeviceAPIError`).
+    Request errors (bad value, unknown key, missing app, wrong media type) and
+    a busy or absent-hardware 503 pass through so the caller can tell "refused"
+    from "broken"; everything else is 502, and a device 401/403 must never read
+    as the menu's own bearer token being wrong. NG's envelope
+    `{"error":{code,message,field}}` is flattened to the server shape (`error`
+    stays a string) with `code`/`field` beside it; a raw non-envelope body is
+    capped at 200 runes without splitting a rune.
+  - **Retry rule.** 5xx and 429 are transient because this clock watchdog-resets
+    and runs its HTTP server on the task that drives the panel (a 503 while busy
+    is transient); other 4xx (422, 413) answer identically forever. `retryDevice`
+    uses the smaller of `publishAttemptTimeout` and `awtrix.timeout_seconds`.
+  - **Helpers.** `raw` returns non-2xx verbatim for callers that give a status
+    meaning (a 404 script is "absent"); `fetch` turns non-2xx into
+    `*awtrix.APIError`. The `awtrix` client drains response bodies to EOF before
+    closing: Go's transport only returns a connection to the keep-alive pool
+    when the body was read to EOF, and on the lossy link every avoided TCP
+    handshake is one less packet to lose (`TestKeepAliveReusesConnection`).
+
   `clock_parity_test.go` replays a scripted run against a fake clock. The
   fake drops 0/44/60 % of requests and answers one request per call class
   past the short budgets. It also scripts coordinator-push faults: 1.8 s
@@ -202,6 +312,12 @@ The aggregator and the only writer to the device.
     second it waits is a tick it doesn't serve — and missed ticks become
     dropped commands. Only a transport failure or a 5xx/429 is retried: any
     other 4xx is the device's verdict on the payload and will not change.
+    2.5 s is chosen because a frame push is a ~2.4 KB PUT to a same-LAN device
+    that answers well under a second when healthy (0.04 s small, 0.55-0.68 s at
+    3 KB), so a push silent for 2.5 s is almost certainly dropped;
+    `awtrix.timeout_seconds` (10 s) is the ceiling for any call and the wrong
+    budget here. A `pushApp` also stops at once on an `*awtrix.APIError` (a 422
+    won't become a 200) or a cancelled coordinator context.
   - **Retry inside the tick.** The device evicts a pushed app on *wallclock*
     lifetime, not on attempts, so a lost push is retried immediately instead of
     a dwell later. A retried-then-successful push is still one `ok` in
@@ -213,13 +329,29 @@ The aggregator and the only writer to the device.
     `lifetime − max(lifetime/3, dwell + retry budget + 1)`. The last tick before
     the window opens can land a full dwell early, so the wallclock slack before
     eviction is `margin − dwell` — the floor is what guarantees one whole
-    pushApp budget fits in it. The old one-dwell margin bought exactly one
+    pushApp budget fits in it. The target is a third of the lifetime, with a
+    floor that fits one full `pushApp` budget plus dwell jitter; if even the
+    floor doesn't fit the window, it bottoms out at 1 s and every tick
+    re-pushes (the dedupe is thrift, keeping the app alive is correctness). The old one-dwell margin bought exactly one
     attempt, and a single lost push took `ember` out of the rotation until the
     frame changed.
   - **Not** a lever here: `frame_lifetime_seconds`. It is also `durationMs` on
     every held frame (see "Display hold"), so raising it to buy eviction
     headroom silently triples how long an attention lock or the idle-dim frame
     monopolises the panel. Widen the margin instead.
+  - **Dedupe is for cost only.** On AWTRIX3 a re-POST reset render state (a
+    blinking label restarted); on awtrix-ng it does not (20 re-pushes of a
+    byte-identical `textBlinkMs:1000` payload in 6 s left the blink on its
+    original phase, and the slot kept the same ~8.7 s dwell). The dedupe stays
+    because an unchanged frame otherwise costs a ~2.4 KB JSON parse on the same
+    ESP32 task that drives the panel, every tick.
+  - **Corner LEDs** (`applyIndicators`) write only LEDs whose desired state
+    changed; a failed write is not recorded as applied, so the next publish
+    retries. The zero state is `DELETE /api/v1/indicators/{id}`, because NG
+    keeps `blinkMs` and the stored colour on a `PUT`. Indicators run on every
+    publish path, including the dedupe skip and the nothing-to-show return, and
+    turning the opt-in flag off turns the LEDs off through the same change
+    detection. A reboot also drops LEDs, so `onRepublish` forgets them.
 - **Display hold.** awtrix-ng has no per-payload priority — the AWTRIX3
   `prio:true`/`force:true`/`duration=lifetime` combination 422s on NG entirely.
   Reserved for attention: only the **locked** waiting/error frame triggers a
@@ -244,6 +376,63 @@ The aggregator and the only writer to the device.
   by a re-push, measured on firmware 1.0.13), so the coordinator's publish
   dedupe survives only as device/network thrift, not as a correctness
   requirement.
+  - **Why the hold is edge-triggered.** `holdNone` lets the Ember app take its
+    turn in the clock's loop like any tile; idle frames ask for a long dwell so
+    they linger once reached but are not urgent enough to push native apps off
+    screen. `holdAttention` force-switches via `PUT /api/v1/apps/active` and the
+    app's own long `durationMs` sustains it (measured on 1.0.13: switch plus
+    `durationMs=30000` held 31 s, `6000` held 6.7 s, so the switch supplies the
+    jump and `durationMs` the length). That covers 30 s but not a 25-minute
+    focus block, so `holdPomodoro` also sets `autoTransition:false` and
+    `blockNavigation:true`. `holdAttention` touches no settings, which keeps it
+    crash-safe: a dead server leaves the clock to expire the dwell. Writes
+    happen only on the edge (a per-tick re-assert spams `apps/active` and
+    retriggers the transition animation).
+  - **`c.hold` moves only after every write of the edge landed**, because
+    about 44 % of writes to this clock are lost and a hold marked done after a
+    lost write is never retried (attention frame not forced, timer rotates
+    away, or rotation left off with no timer). Writes are idempotent, so replay
+    is safe. A restore is pending whenever a snapshot exists, which covers
+    settings landed but switch not, and a snapshot left by a previous process.
+    A write counts as settled when it succeeded or got an error a retry cannot
+    change; a transport failure or 5xx is left for the next tick. The switch
+    happens only after a successful push, and an identical (deduped) frame can
+    still carry a new hold edge (a paused Pomodoro with a byte-identical
+    payload).
+  - **Snapshot rules.** A settings read that equals the takeover itself is
+    treated as unknown (the clock is probably still in an un-restored takeover;
+    recording it would make every later restore turn rotation off for good).
+    The restore writes the user's values, not firmware defaults, which would
+    clobber a Device-tab choice. `restoreBackoffTicks` exists because the
+    restore is owed even when the frame is nil or deduped, so an offline clock
+    would otherwise block the single coordinator goroutine for a full retry
+    budget every tick and delay attention upserts. `exitRestoreBudget` (5 s)
+    fits both retry attempts and stays inside `main`'s shutdown wait. A store
+    failure in `persistPrior` only costs crash recovery.
+  - **Menu edits during a takeover.** `priorMu` is a leaf lock held across a
+    device call: the store write and one device exchange are the only work done
+    under it. A menu edit holds it for one menu-class PATCH (8 s); the snapshot
+    read and the restore hold it for one `retryDevice` (2 attempts × 2.5 s).
+    An edit's waits give up at its `clockWriteBudget`; every other taker
+    blocks (it is a `ctxLock`). `GET /v1/device/settings` takes it on both sides
+    of its clock read and uses the earlier snapshot if a restore completed
+    during the read (the device then answers with takeover values and no
+    snapshot remains). Edits made with no snapshot write unlocked and relock to
+    reconcile: `priorGen` (bumped by every `setPrior`) tells the edit a
+    takeover edge ran during its write, and per-edit sequence numbers (`editSeq`,
+    `keySeq`/`keyVal`, `claimKeys`) stop a slow older edit from overwriting a
+    newer one. `reconcileRacedEdit`: if a snapshot now exists, the edit's read
+    may predate it, so the newer keys go into the snapshot and the takeover
+    values are written back for the edited keys; if none exists, a whole
+    takeover and restore ran during the write, so each edited key is written
+    again with its newest value. An error from `applyMenuSettings` means
+    "possibly partly applied" (a raced edit whose first write landed but whose
+    re-write over a restore was lost answers 502 although the clock briefly
+    held it); the menu shows failure and re-reads. If the second `priorMu`
+    wait gives up, the reconcile and `claimKeys` are skipped, so a takeover
+    edge that raced the write can leave the edit showing mid-focus or undone by
+    the restore; the handler answers 504 with `write` `applied`, and the app
+    saves again on its next load (`ServerConfigModel`), which heals it.
 
 ### Producers
 
@@ -303,6 +492,33 @@ markers still get reaped.
   also reads `rate_limits.primary` (5h) **and `secondary`** (weekly) from the
   rollout `token_count` events and posts both to `POST /v1/usage` alongside each
   status post (host-local reset labels formatted producer-side).
+
+Claude producer constraints:
+- **Hook timeout.** The hook path uses the short `HookTimeoutMs` (default
+  500 ms) because the hook blocks the `claude` CLI. The daemon uses a separate,
+  longer `daemonHTTPTimeout` (5 s) so a slow link doesn't flap heartbeat
+  re-POSTs and reap DELETEs.
+- **Stop is a no-op** because deleting on every Stop dropped the display to the
+  idle robot between turns and during text generation, when no hook fires. The
+  marker keeps its last state and the heartbeat re-posts it until SessionEnd,
+  owner-liveness reap, or the marker TTL clears it.
+- **Hook commands self-heal.** They are wrapped as `[ -x BIN ] && BIN … || true`
+  so they exit 0 when the bundled binary is gone, and Claude Code never
+  reports a hook error after the app is moved or deleted. Tool-outcome hooks run
+  `async` because PostToolUse fires on every call and their order doesn't
+  matter.
+- **Statusline.** The `statusline` subcommand never calls `loadConfig` and
+  makes no network call, so it needs no token. Its stdout is the status bar
+  Claude renders and must not be redirected; only stderr goes to the producer
+  log.
+- **Usage relay.** The statusline-driven `/v1/usage` POST has no per-model
+  figures, so the daemon forwards the last OAuth-poller per-model snapshot
+  (`usageModels`); without it the server's last-write-wins `UsageStore.Put`
+  would blank the per-model breakdown on the next 10 s heartbeat. The
+  statusline relay (freshest live session wins) is the primary weekly/5h
+  source; the OAuth endpoint is the flaky fallback.
+- **Session lock file.** The per-session lock file is never deleted: removing
+  it would break the POSIX flock-on-inode guarantee between concurrent holders.
 
 ### Menu-bar app — `macos/` (native SwiftUI)
 
@@ -391,6 +607,120 @@ is in flight the switches show its target (`ActionRunner.pendingDisplayPower`). 
 meetings and apps (the old poller made about 4,800, 1,200 of them stats).
 `APIClient`'s sessions and the direct screen mirror skip the on-disk `URLCache`,
 which, with no cache headers from the server, only rewrote `Cache.db` every poll.
+
+**Model and networking constraints.**
+- **Config models.** Panes bind controls to `ConfigModel.draft` and call
+  `scheduleSave()`; the model writes 600 ms after the last edit and never writes
+  before a successful load, so views must disable their controls until
+  `isLoaded` or an early edit is silently discarded. A failed save is retried by
+  the next `load()`; a `.featureOff` save is reverted to the server's value, not
+  retried. A pending edit blocks a reload from overwriting what the user just
+  typed. Models decode absent fields to the server's own defaults so re-saving
+  an old config never turns a feature off.
+- **Env file.** Every in-app writer of `producer.env` (settings panes, the
+  Connection pane's token save) goes through one `EnvFileStore` per path; without
+  that serial queue two concurrent saves read the same old file and the second
+  drops the first's change. `EnvFile` serialisation drops the empty element a
+  trailing newline produces so it round-trips without growing blank lines;
+  writes are atomic (replace when the file exists, plain move on first write,
+  because `replaceItemAt` fails on a missing destination), directory 0700 and
+  file 0600, matching `envfile.go`; duplicate keys are last-write-wins like the
+  producer's parser. The producer-install command runner drains stderr on a
+  separate thread: reading two pipes in turn deadlocks once the child fills the
+  unread one.
+- **Connection saves.** Empty required fields are tolerated on first run, so URL,
+  token and source can be filled in any order, but each non-empty field is
+  validated and clearing a required field that has a committed value is
+  rejected: skipping that write would leave the UI blank while `producer.env`
+  keeps the old value, which reappears on relaunch. The pane commits Source and
+  Server URL on Return or focus loss (and on teardown), since saving a
+  half-typed URL would repoint every model at the wrong server; the token is
+  saved only by Save Token or Return, so a partly typed secret never reaches
+  `producer.env`.
+- **Device settings.** `DeviceSettingsModel` loads its clock reads
+  sequentially: fanning them out empties the server's per-IP token bucket and
+  causes 429s. A save diffs against `applied` (what the model last accepted),
+  not the last response, because a load that lands during a pending edit is
+  discarded and diffing against it would send the Pomodoro takeover's values
+  back as stale edits. `DisplayOverlay` always encodes `overlay: null`
+  explicitly (NG's way to clear it); `power` is read-only on
+  `/v1/device/display`, and the matrix is blanked only through
+  `DeviceService.setDisplayPower`.
+- **Latest wins.** Every `LiveModel` feed carries a request counter (bumped by
+  `configure` and each request) and only the newest request's answer lands, so
+  a slow poll cannot overwrite a newer `refreshNow` and a response from the
+  previous server is dropped after a Connection change. A value is published
+  only when it differs from what is shown, and the last-fetched timestamps are
+  not observed, so an unchanged 3 s poll invalidates no view. `ActionRunner`
+  takes its server token before the request: a write that returns after a
+  reconnect says nothing about the new server's clock. `PreviewModel` uses a
+  generation counter bumped by every `request`/`cancel` instead of task
+  cancellation: a cancelled fetch can still return, and its outcome is dropped
+  unless its generation is current.
+- **Refresh coordinator.** A fetch task does its own bookkeeping (recording the
+  result, clearing "running") before it completes, so starter and joiners all
+  resume to a recorded, finished fetch; leaving it to the starter let a joiner
+  that resumed first re-join the finished task without suspending and spin the
+  main actor. After a server switch `forgetInFlight()`/`restart()` drop
+  in-flight fetches, and their late answers must not stamp the new server's
+  timing or backoff.
+- **429 pacing.** `RateLimitBackoff` doubles from the previous backoff, not the
+  base, so a sustained squeeze converges instead of re-probing every
+  `retryAfter`, and applies the server's `Retry-After` floor after the doubling
+  cap (waiting less than asked only earns another 429). A missing, zero,
+  negative, HTTP-date or junk `Retry-After` lands on the fallback, never
+  "retry immediately". A 429 says nothing about server health, so it leaves the
+  failure ladder untouched. A poll loop that keeps its cadence through a 429
+  keeps getting 429s because the bucket cannot refill while drained.
+- **Mirror.** The proxy-versus-direct decision for the clock mirror lives in
+  `MirrorPoller`, not a SwiftUI `.task` loop: it must not treat a 429 as "the
+  proxy route is missing", and it keeps the direct clock read going while
+  throttled (that read never touches the server, so it costs no rate-limit
+  budget; skipping it left the panel black).
+- **Errors.** `APIClient` runs on dedicated `URLSession`s (one per
+  `RequestBudget`) with no URL cache. `APIError` conforms to `LocalizedError`;
+  without it settings footers render the NSError bridge text instead of the
+  server's `{"error":"…"}`. Local Network refusal is detected from the failed
+  path CFNetwork attaches (`_NSURLErrorNWPathKey`, private but stable) on the
+  error or its underlying error. A 405 on a read route means a server that has
+  only the POST of that route (`/v1/usage` before 0.28), so it is `.featureOff`
+  like a 404. Dashboard fields an old server sends as Go's zero time
+  (`0001-01-01T00:00:00Z`) are read as "no value" (anything before 1971).
+- **Discovery.** `ServerDiscovery` puts IPv6 hosts in brackets and
+  percent-encodes a link-local zone id's `%` as `%25` (RFC 6874:
+  `fe80::1%en0` becomes `[fe80::1%25en0]`). Browse callbacks hop to the main
+  actor, so one queued just before `stop()` can land after it; only the current
+  browser's callbacks are applied. `ClockDiscovery` probes each address once
+  per scan (`NWBrowser` replays the whole result set on every change; an
+  unclaimed address is retried on the next set) and leaves a resolve stuck in
+  `.waiting` alone, since `NWConnection` retries by itself and the scan window
+  bounds it, whereas `ServerDiscovery` fails a `.waiting` resolution fast and
+  reclaims it. The Settings "clock unreachable" prompt needs a failed proxied
+  settings read (502), not merely a failed health probe: the clock's Wi-Fi drops
+  requests and the server caches a probe for 30 s; an unreachable server or a
+  rejected token is not something clock discovery can fix.
+- **Permissions.** Permission refreshes are coalesced: the pane's `.task` and
+  `didBecomeActive` both fire when Settings opens, so a non-forced refresh joins
+  the running check and skips if one started recently, while an explicit one
+  (Check Again, after Repair) waits out the running check, which may predate the
+  fix, and runs fresh. During a re-check the last Local Network verdict stays up
+  so the row doesn't flicker.
+- **Presentation.** The menu-bar label is driven by a small value (icon plus
+  VoiceOver text) instead of the winning `Session` or `ConnectionHealth`, so it
+  re-renders only when what it shows changes. The clock-health reading is dated
+  on this Mac's clock (arrival time minus the probe's age,
+  `generatedAt − checkedAt`, both from the server's clock) so the two clocks
+  never mix; dating is good to about a second, so a health reading must be
+  clearly newer than a power-write report to replace it. Session activity text
+  is sanitised before display: a whole tagged element is machine content and is
+  dropped; a tag cut off by the producer's truncation (`<task-notifica…`) is
+  markup from its `<` on, but `a < b` is not a tag; only control characters
+  (Cc) are stripped, since format characters (Cf) include the joiner inside
+  emoji. Dashboard day and ISO-week keys use `Calendar` arithmetic, never
+  "+ 86 400 s", so a 23- or 25-hour DST day lands on the right key. When
+  opening a clock's web page, only plain http(s) URLs may reach `NSWorkspace`
+  (`baseURL` arrives over the network; never `file:` or
+  `x-apple.systempreferences:`).
 
 This replaced the retired Go menu (`fyne.io/systray` + DarwinKit). The Agents pane's
 preview is **pixel-accurate** because it renders the server's `/v1/preview` grids
@@ -555,7 +885,9 @@ Pomodoro config apply it lists the clock's `/ICONS` folder (`GET
 LaMetric gallery (`.gif`→`.jpg` fallback, then the extensionless URL as a
 last resort — some IDs, e.g. the Pomodoro tomato `29802`, exist only as a
 PNG there, which is decoded and re-encoded as GIF locally since awtrix-ng's
-upload only accepts GIF/JPEG magic bytes), and uploads it (`multipart
+upload only accepts GIF/JPEG magic bytes, answering PNG with 415; `pngToGIF`
+refuses anything that isn't a PNG of at most 16×16, such as an HTML error page),
+and uploads it (`multipart
 POST /edit`, `Publisher.ListIcons`/`PutIcon`). List failures abort the run;
 per-icon failures log and retry on the next apply/restart. Covers both the
 weather condition icons and the Pomodoro tomato/coffee icons (`29802`/`6396`)
@@ -609,6 +941,28 @@ severe-alert chime rides directly on the popup payload. Config is
 fully runtime-editable (`GET/PUT /v1/weather/config`, persisted to store key
 `weather_json`), including `enabled` — so the menu can turn the whole widget on/off.
 
+Weather constraints:
+- **Icon ids are validated.** `WeatherConfig.IconIDs` values flow into a device
+  file path (`/ICONS/<id>.<ext>`) and the LaMetric fetch URL, so they must be
+  1-10 ASCII digits (`weatherIconIDPattern`); this is enforced in
+  `validateWeather` and when the `config.json` baseline loads
+  (`sanitizeConfigBaseline`). Optional toggles are pointers so absent (default
+  on) differs from an explicit false/0; `fillAbsent` resolves nil at every entry
+  point so marshalled config never contains nulls.
+- **Poller timing.** The attempt time is recorded before fetching, so a provider
+  failing at startup backs off a full refresh interval (api.met.no throttles
+  aggressive clients). Failed fetches keep the last observation; the tile clears
+  through the stale TTL. The interval-popup clock is seeded on the first
+  observation so startup doesn't fire an interval popup at once. `sunPopupGrace`
+  (2 min) with the 1-minute poll catches a sunrise/sunset without firing for one
+  that passed before startup. The AQI threshold popup is edge-triggered and also
+  fires on the very first reading, so a restart mid-episode still alerts.
+- **Astro.** Moon phase and sun times are computed locally (no API or key) at low
+  precision (a minute or two). The "local" label time derives from longitude
+  (15° per hour) with no tz database, so it can differ from civil time at
+  DST/zone boundaries. At polar day/night `isNight` defaults to day (the sun
+  icon), since declination versus latitude isn't cheaply distinguished.
+
 ### Reminders — Apple Reminders + `POST /v1/reminders/fire`
 
 Reminders are sourced from the user's **Apple Reminders** (macOS), not an
@@ -641,7 +995,16 @@ holds the request while it pushes to the clock, up to 10s) and retries on the
 next poll, inside the grace
 window, only when the failure proves nothing was sent: connection refused/no
 route, 429, or another 4xx. A timeout or 5xx (e.g. 502 after a lost clock ack)
-may have rung the clock, so it is not retried. The scheduler logs through
+may have rung the clock, so it is not retried; a catch-up fire past the grace
+window is final on failure, as it is already outside the window. The server
+caps reminder text on a rune boundary, since slicing bytes can split a
+multi-byte rune and AWTRIX 0.98 rejects the invalid UTF-8. The loop guard bumps
+a loop id per arm so a stale stop cannot clear a newer loop, and a retried
+`fire` is checked against its idempotency key before the hold window is armed,
+so a duplicate changes nothing. While a held reminder is armed
+(`reminderHeldUntil`), a device button press counts as acknowledging it instead
+of a Pomodoro action (the firmware dismisses on the middle button), and the
+middle press disarms it. The scheduler logs through
 `os.Logger` (subsystem `com.ember.Ember`, category `reminders`) with reminder
 titles marked `.private`.
 
@@ -686,7 +1049,11 @@ The overlay owns the rest, identically for all of them:
   (objects/maps included).
 - **Validate + swap + persist atomically** under `cfgMu` (`tryUpdateConfig`):
   an invalid result is a 400 and changes nothing; the persisted blob is the
-  normalised view, never the raw body.
+  normalised view, never the raw body, and persisting inside the lock stops a
+  racing PUT from overwriting the store with a stale merge. A bare
+  load-copy-store of the config loses updates when two appliers race, which is
+  why all writers use `updateConfig`/`tryUpdateConfig`. A corrupt or invalid
+  stored blob is logged and ignored, leaving the file baseline.
 - **Re-apply** (`settings.reapply()`): at startup right after the store opens,
   and after `/admin/reload` swaps in the new file baseline, every stored
   override is laid over the baseline through the same merge — so a blob written
@@ -719,6 +1086,22 @@ A PUT naming `base_url` clears the swap in the same critical section
 while the file URL is unchanged. A changed file URL is the operator pinning a
 clock, but a store override still beats it.
 
+The tiers sit in one `Config` value so a reader gets URL and source from one
+load. `HTTPBaseURL` is written only by config load and `/admin/reload`;
+`clockOverride` is stored in the settings KV under `deviceBaseURLKey` as a raw
+URL string; `clockDiscovered` is in-memory, never persisted and never written
+over the override. The unexported runtime tiers are invisible to `config.json`
+and `diffConfig`. `swapDiscoveredClock` swaps only if the effective URL is still
+the one that failed, so a menu PUT or reload that landed while discovery probed
+wins; if discovery finds the pinned clock again it is reported as the store's
+tier, not a swap. `sameDeviceURL` normalises because discovery builds
+`http://<ip>:<port>` while `config.json` usually omits the default port. A swap
+to a different clock clears the cached capabilities (they described the previous
+clock and the audio gate would refuse on their word), and a PUT naming
+`base_url` clears a swap even when the URL equals the override discovery swapped
+away from. `rediscoverClock` is single-flighted by `deviceRediscoverMu` so the
+boot check and the periodic probe never browse mDNS concurrently.
+
 Hidden apps (`display_hidden_apps`) are a set toggle, not a config overlay.
 
 ### Meetings — next-meeting countdown (`internal/meetings`, `cmd/ember/meetings*.go`)
@@ -737,7 +1120,11 @@ expansion are not hand-rollable safely — a weekly 09:00 meeting must stay at
 All-day events (`VALUE=DATE`) and `STATUS:CANCELLED` events are actively skipped;
 EXDATE exclusions and `RECURRENCE-ID` overrides are applied. Floating-time values
 (no TZID, no trailing `Z`) fall back to server-local (UTC in the container) — a
-documented limitation. The binary imports `time/tzdata` so the distroless image
+documented limitation. A `RECURRENCE-ID` override is the event's latest truth: it
+is applied even when its original instant was EXDATE'd or lies outside the poll
+window. ICS text unescaping maps `\n` to a single space (one-line clock display)
+and processes escapes left to right in one pass, so `\\n` yields a backslash
+and the letter n. The binary imports `time/tzdata` so the distroless image
 carries the embedded tz database needed for `TZID` resolution.
 
 **Feed URLs — env only.** ICS feed URLs are **credentials** (possession = calendar
@@ -761,6 +1148,16 @@ the SQLite store, logs, or any API response. `GET /v1/meetings/config` returns a
 - **Per-URL failure isolation**: if one feed fails to fetch or parse, the others
   still contribute to the upcoming list; `lastFetchOK` advances only when at
   least one feed succeeds.
+- **Fetch ordering and popups.** The popup check runs every tick, after the
+  fetch on due ticks, so a cancelled or moved meeting in the just-arriving ICS
+  cannot fire from the previous snapshot. Popups are marked before firing under
+  the store lock to avoid doubles. The check scans up to 10 future occurrences,
+  not just the next, so back-to-back meetings or overlapping lead windows are
+  each notified. An empty successful fetch replaces `upcoming` wholesale, so a
+  genuinely empty calendar clears the store.
+- **Credentials in logs.** ICS URLs are logged by index only, and never log a
+  `*url.Error` (it embeds the URL). A literal comma in a URL is unsupported in
+  `EMBER_MEETINGS_ICS_URLS`.
 
 **Coordinator (`meetTile`).** One entry in the tile module (see "Rotating
 tiles" under the server), which owns the clear/dedupe/re-push state machine
@@ -865,7 +1262,10 @@ The server finds the clock on the LAN by mDNS (browse the awtrix-ng-specific
 sweeps every web server on the LAN like the old generic `_http._tcp` browse
 did) with a `FIND_AWTRIXNG` UDP broadcast fallback (broadcast to `:4210`, reply
 collected on a fixed `:4211`; directed broadcasts are needed in practice on
-some networks) for when multicast doesn't make it through. A resolved host is
+some networks) for when multicast doesn't make it through. In a UDP reply the
+packet's source IP is the device address; the hostname it reports may not
+resolve (NG lets the device be renamed without its mDNS record following), so it
+is kept only as the display host. A resolved host is
 fingerprinted via `GET /api/v1/device`: it counts as the clock only when it
 reports both a non-empty `uid` **and** `boardType == "awtrixng"` — the AWTRIX3
 `/api/stats` fingerprint doesn't exist on NG. The effective clock URL is the
@@ -886,14 +1286,19 @@ worst-case recovery latency didn't regress; the Berry boot-ping hook (#73)
 for the next tick, making recovery near-instant with the 30s watch as
 fallback. Only the uptime counter decides a reboot: it went backwards, or it
 fell more than 10s behind wall time since the last answered probe (a reboot
-during a long gap). A missed probe on its own is **not** a reboot — the
+during a long gap); `rebootUptimeSlack` absorbs whole-second truncation on the
+device plus up to one probe timeout of latency on each of two readings, and a
+zero previous probe is never a reboot (nothing has been pushed yet). A missed probe on its own is **not** a reboot — the
 server→clock link drops a large share of requests, and the old "unreachable,
 then answering" rule republished (and re-switched the screen) every few ticks.
 For the same reason the reachability check retries once before it falls back
 to an mDNS browse, and a browse that finds the clock at the URL already in use
 is not a swap. A real swap to a new URL does republish. `RepublishAll`
 coalesces calls less than 10s apart into one immediate plus one deferred
-republish, and both `/hooks/awtrix/*` routes sit behind the per-IP rate
+republish (the gate has a leading and a trailing edge: deferred, not dropped, so
+a clock that reboots twice in quick succession gets its second boot state; 10 s
+is shorter than any real reboot cycle, as the boot ping lands about 12 s after
+reboot), and both `/hooks/awtrix/*` routes sit behind the per-IP rate
 limiter (the button hook also caps its body at 1 KB), so an unauthenticated
 flood can't turn into a republish storm. Swaps are **in-memory
 only** — `config.json` and the writable store are never rewritten, so a
@@ -978,6 +1383,50 @@ applies. These handlers (and display power) go through `internal/awtrix`
 client methods rather than the raw proxy; a client `*APIError` is relayed by
 the same envelope mapping.
 
+The settings whitelist (`deviceSettingRules`) rejects unknown keys so the proxy
+cannot poke arbitrary firmware settings. `transitionEffect` is bounded to an
+identifier shape only (the device 422s unknown names); `appDurationMs` is
+milliseconds on NG (bounded 1 s-1 h); `scroll.speed` is a percentage of the
+base rate; `weekdayBar` whitelists only the subkeys the Device tab needs; the
+TC001 volume rules cover only the piezo. Button status is best-effort: an
+unreachable clock still reports press tracking, just without
+`configured`/`configured_callback`. `handleAwtrixButton` records receipt before
+any early return, since a POST arriving at all proves the clock's
+`buttonCallback` is configured and reaching the server (surfaced in
+doctor/health output). While a `hold:true` reminder is on the clock, a button
+edge acknowledges it rather than acting on the Pomodoro: NG's callback doesn't
+consume the press, so the firmware already dismisses the popup and the server's
+`DELETE` usually 404s, which is not a failure. The `DELETE` stays as
+belt-and-braces (a stuck hold alarm is the worse failure) and dismisses by name
+so a foreign popup is never the one cleared. The capabilities refresh empties
+the cache on failure and the endpoint then falls back to a live fetch, which
+also warms the cache.
+
+**Boot-ping hook and script.** `POST /hooks/awtrix/boot` is unauthenticated for
+the reason the button hook is: a script on the clock has nowhere to keep a
+bearer token that the device's own `GET /api/v1/apps/script/{name}` wouldn't
+hand to any LAN client. The blast radius is a republish of state the server
+already owns, bounded twice (per-IP rate limiter; `RepublishAll` coalescing
+under `republishMinGap`); the body is never read and the reply is 204 at once,
+the republish running on the coordinator goroutine. `ensureBootPingScript` is
+best-effort (an unreachable clock at startup is normal; the feature only speeds
+up the watch loop), idempotent (re-PUTting restarts the app on the device and
+would re-ping, so a current script is left alone) and serialised by
+`bootPingMu` so a PUT cannot race a DELETE. A Berry script that fails to
+compile still installs: the device answers 200 with the compiler message in the
+reply's `error` and shows `ERR:<name>` on the panel, so the body, not the
+status, says whether install worked. Deleting an already-absent script is
+success. `buildBootCallbackURL` mirrors `buildCallbackURL` deliberately (two
+hooks, two paths); both use `outboundIP` (a UDP dial that sends nothing, just
+resolves the route to the clock host, falling back to a public address). The
+script itself is fire-and-forget: a 404 from an Ember that predates the hook
+still proves the server heard it, so only a transport failure (status 0: no
+Wi-Fi yet, server down) retries; it waits about 5 s for Wi-Fi/DHCP before the
+first POST and about 20 s between retries. Keep it under 8 KB: NG ≥1.1.1 dropped
+its fixed 8 KB cap, but compile still draws on the shared ~96 KB Berry heap.
+The `url` baked into the script header must be a bare http(s) URL (no quote or
+newline), since it is interpolated into a double-quoted header field.
+
 Sensor calibration (`GET/PUT /v1/device/sensors`) targets `tempOffset`/
 `humOffset` on `/api/v1/system` — NG has no dedicated settings-API key for
 them, and the old AWTRIX3 `dev.json`-on-LittleFS contract is gone entirely. The
@@ -1038,7 +1487,26 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   serves the cached answer and never waits. It runs at most every 6 h, 30 min
   after a failure (logged at Warn), fails soft to `null`, and is off with
   `EMBER_FIRMWARE_CHECK=0`.
-  The clock's IP, SSID host, UID, hostname and button presses are not served.
+  The clock's IP, SSID host, UID, hostname and button presses are not served:
+  the wire struct decodes only a subset of `GET /api/v1/device`. The device
+  probe uses a short timeout (lossy Wi-Fi; dashboards prefer "unreachable" to
+  hanging); a failed firmware lookup keeps the previous answer.
+
+These reads are unauthenticated, so none may carry a secret: no clock or ICS
+URL, Wi-Fi SSID/IP, device UID, button presses or coordinates. Internal errors
+answer a generic 500 body (cause logged only). `?days` is capped (1..90) because
+each request walks every heartbeat in the window on the store's single
+connection. Active-span reconstruction: heartbeats of one session no more than
+`SpanGapSec` apart form a span, a span ends at its last heartbeat and a lone
+heartbeat is zero-width, so short bursts under-count by up to one recording
+interval (2 min); spans are cut at the day start, and `recording` is false while
+`work_hours_include_activity` is off (recent windows read zero). Source colours
+are remembered in memory per source (`sourceColorMemo`) so charts can colour
+sources with no live session. Row writes use `activityThrottle` (2 min) with the
+10 s `activityWaitFloor` for a transition into waiting, as above; the stats
+cache is invalidated on phase rollover and otherwise expires by `statsCacheTTL`
+(1 min). Sun times are rounded to 5 min because to the second they'd pin the
+coordinates to a few hundred metres; the location is the user-typed label only.
 
 Wire conventions (for Swift's `JSONDecoder` `.iso8601` and Swift Charts):
 RFC 3339 timestamps with **whole seconds** (`.iso8601` rejects fractions),
@@ -1066,6 +1534,151 @@ day keys, wall-clock work spans, locale week order) live in
 `Sources/EmberKit/Dashboard/` with unit tests. A pre-0.28 server shows
 "Needs server 0.28" on the cards whose routes 404; Usage falls back to the
 sessions' 5-hour percentages.
+
+Dashboard rendering constraints:
+- **Feed states.** `FeedStateView` applies one rule to every card. Never loaded
+  shows the redacted placeholder (else a spinner); loaded shows content or the
+  empty message. A 404/405 (feature off or old server) shows the off message
+  with a Settings button even if an old value exists. Offline, server error or
+  429 with a value shows the content plus a stale chip (none for 429). With no
+  value: offline reads "Server unreachable", a timeout "Server not responding",
+  Local Network denied "Local Network access is off", a server error "Server
+  error" with its message, 429 a spinner (retry scheduled), and 401 "Needs
+  token" with a Connection button.
+- **Clock card.** It has no "Showing <app>" label, and Clock Health has no such
+  cell: the only source is clock health's `current_app` (cached up to 30 s on
+  the server, polled every 15 s) while the clock rotates apps every few seconds
+  and the mirror updates each second, so it would be wrong most of the time.
+  NG's screen endpoint carries no app name, and a per-second extra request is
+  too much for the lossy link.
+- **Visibility.** SwiftUI's `scenePhase` stays `.active` for a minimised or fully
+  covered window on macOS, so the Dashboard tracks `NSWindow.occlusionState`; its
+  extra feeds (notably the 1 s clock mirror) are held only while the window is
+  visible.
+- **Charts.** The agent-time chart uses day keys as categories (a date axis
+  centred labels between ticks and drew the last day's label off-centre); the
+  focus bar chart and heatmap use numeric band/unit-square rows so bars and gaps
+  have real heights at any card size; a day-based x domain extends one day past
+  the last so centred labels aren't clipped.
+- **LED mirror.** The glow is a radial gradient confined to each pixel's own cell
+  (a blurred layer bled into neighbours), and the panel's global brightness is
+  not simulated because multiplying pixel opacity flattens per-pixel contrast.
+
+### Config load and `/admin/reload`
+
+Resolve order: the `-config` flag, `CONFIG_PATH`, `./config.json` if present,
+else defaults only. Failures wrap the sentinels `ErrConfigRead`, `ErrConfigParse`
+and `ErrConfigValidate`. Unknown JSON fields are a parse error
+(`DisallowUnknownFields`), so deprecated keys (`pulse_style`,
+`heartbeat_seconds`, `refresh_seconds`, `notify_on_waiting`) stay decodable and
+`warnDeprecatedConfig` logs them. `sanitizeConfigBaseline` drops or replaces
+values that fail the SSRF and path validators (`validDeviceURL`, the weather
+icon-id pattern, e.g. a hand-edited path-traversal id) rather than crashing
+startup, and reload runs the same repair so a hand-edited file cannot bypass the
+guard by arriving through reload; `validateConfig` stays as defence in depth. The
+required-field check runs on the raw parsed config because `applyDefaults` would
+fill an explicit empty value with the fallback URL and hide the misconfiguration.
+
+Reload answers: 412 when the server started from defaults (no file), 500 on a
+read error, 400 on parse, 422 on validation, 409 when a non-reloadable leaf
+changed (the HTTP listener is bound once and admin auth tokens are wired into
+long-lived structures; the operator must restart), else 200
+`{reloaded, changed_fields}`. `diffConfig` walks `Config` by reflection using
+json tags, so a new field is diffed automatically; struct fields recurse and
+others compare with `reflect.DeepEqual`, which distinguishes nil from non-nil
+pointers (the "unset vs explicit false" case). `auth.status_token` is env-only
+and absent from the file, so it is copied from the running config before
+diffing (else every reload 409s), and `formatLeafValue` redacts it in the 409
+message anyway. Loading the old config and storing the new one is one `cfgMu`
+critical section, so a concurrent settings PUT is not lost. Reload re-syncs the
+Pomodoro engine and re-applies persisted overlay settings, and starts
+`ensureBootPingScript` off the request path because it does device HTTP and the
+reply must not wait on an unreachable clock. `adminRequireAuth` is stricter than
+`requireAuth`: an empty `EMBER_TOKEN` closes the admin endpoints (they expose
+mutation and runtime detail) rather than opening them.
+
+Defaults that encode a decision: toggles that are `*bool` (usage widget,
+per-model usage, limit alarm, `AutoRediscover`, meetings and weather flags) mean
+nil = default on, so old config blobs keep working. `awtrix.indicators` is
+opt-in because the LEDs are shared panel real estate; `awtrix.boot_ping` is off
+by default because it puts a script on a device the operator owns. The 300 s
+session timeout default tolerates producer heartbeat lapses so an active session
+isn't reaped to the idle robot mid-work (it matches the Codex producer's
+activity window). `IdleRestoreSeconds` is integer-divided by 60 for the display
+DTO (a 90 s file baseline reads as 1 minute; the DTO only allows whole minutes),
+and the coordinator reads display knobs live so a change applies on the next
+tick. After a reload the coordinator also retunes its dwell ticker to
+`display.rotation_dwell_seconds`, because `publish()` reads the live dwell for
+its dedupe window and a ticker left on the startup period would drift from it; a
+non-positive dwell falls back to 3 s.
+
+TLS: `EMBER_TLS_CERT_FILE` and `EMBER_TLS_KEY_FILE` must both be set (HTTPS) or
+neither (HTTP); exactly one is a startup error. The pair is parsed eagerly, so a
+malformed or mismatched pair fails startup with a clear error. Expiry, SAN
+coverage and trust chain are not validated and are the operator's job.
+
+### Doctor and container healthcheck
+
+`DoctorResult.OK` is false for any Fail or Skipped check; Warn does not flip it,
+so a stale meetings feed or the startup window before the first ICS poll cannot
+make `/admin/doctor` 503 or `ember doctor` exit 1. Skipped is non-OK because
+offline mode is partial by design: automation must treat `OK == false` as failed
+or partial and inspect the mode and per-check status. The `clock` check only
+warns on a transient miss (the watch loop recovers), and a missing
+`capabilities` entry is a Warn (clock dark at startup; the endpoint still
+live-fetches). The meetings check never prints feed URLs. Offline, failures of
+static checks are real failures. The standalone doctor builds a bare stderr
+logger so baseline-repair warnings aren't dropped.
+
+`ember healthcheck` defaults to the container loopback URL and flips to https
+when `EMBER_TLS_CERT_FILE` is set. Its 2 s client timeout sits 1 s under the
+Dockerfile's `HEALTHCHECK --timeout=3s`, so the binary can print a diagnostic
+before the daemon kills it. For https targets `EMBER_HEALTHCHECK_CA_FILE` adds a
+PEM bundle and `EMBER_HEALTHCHECK_INSECURE=1|true` skips verification (fine on a
+trusted LAN).
+
+### Observability and rate limiting
+
+`/metrics` request counters are keyed by the matched mux pattern; an unmatched
+route collapses to one `<unmatched>` series so a 404 spammer cannot blow up label
+cardinality, and scrapes are not self-counted. Requests rejected by
+`requireAuth`/`adminRequireAuth` keep the outer prefix (`/v1/` or `/admin/`), so
+per-route 401 counts are a non-feature. Label values escape only backslash,
+double quote and newline per the exposition spec (not Go's `%q`, which
+Prometheus parsers reject). `ember_publish_retries_total` exists because a push
+that succeeds on its second attempt still counts as one ok publish, hiding link
+degradation until both attempts fail. The increment helpers are nil-safe so bare
+`&App{}` test literals cannot mask failures with a panic.
+
+`IPLimiter` lives on `App` (sweeper lifetime, construction in tests without
+goroutine leaks) and re-reads `RateLimitConfig` on every `Allow`, so
+`/admin/reload` changes apply coherently. `Retry-After` is
+`ceil((1 − tokens)/refill)`, at least 1 s; the sweeper evicts idle buckets every
+`IdleEvictSeconds/5`, clamped to 5-60 s. The limiter sits outside auth on both
+`/v1/` and `/admin/`.
+
+### Misc server invariants
+
+- **Hidden apps** filter only the device display (rotation and attention lock);
+  `/state` is unaffected. `baselineApps` always appear in the menu toggle list so
+  a tool can be hidden before it first reports. A persistence failure of the
+  hidden set is logged and non-fatal.
+- **Activity heartbeats** persist at most one row per session per
+  `activityThrottle` window, since producers post every 2-10 s, finer than
+  work-hours sessionization needs; a transition into waiting bypasses the
+  throttle (subject to a floor) so short prompts still count.
+- **Credentials.** `meetingsURLs` (`EMBER_MEETINGS_ICS_URLS`) are never
+  serialised, logged or stored; only the count is exposed.
+- **Previews** never publish or store state. Boolean query params are explicit
+  truthy strings (the menu always sends resolved values); `source_card` and
+  `session_bar` default on when absent (`queryBoolDefault`).
+- **Env toggles.** `envEnabled` default-on toggles accept `0/false/no/off` (any
+  case) to disable.
+- **Shutdown.** `main` waits for all workers, including the coordinator's exit
+  restore PATCH, bounded by `exitRestoreBudget`, which stays under Docker's
+  default 10 s stop grace so the container is never SIGKILLed mid-restore.
+  Returning from `main` kills goroutines at once, so without the wait the
+  restore never reaches the clock and a last `pomoTick` can write to a closed DB.
 
 ## The "spine" — how display widgets are added
 
@@ -1106,7 +1719,18 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `/admin` surface); the token is compared in constant time, and the per-IP
   rate limiter sits *outside* auth so rejected 401s still consume budget (a
   wrong-token flood is throttled to 429). The unauthenticated device hooks
-  (`/hooks/awtrix/{button,boot}`) share the same per-IP limiter.
+  (`/hooks/awtrix/{button,boot}`) share the same per-IP limiter; they are
+  unauthenticated because the device's callbacks cannot send a bearer token, and
+  they only map presses to timer actions or trigger a republish, so the LAN
+  blast radius is minimal.
+- **Text limits are in characters.** `activity` length is validated in
+  characters, not bytes: producer truncation is rune-based, so a multibyte
+  activity (Cyrillic, emoji) can exceed 80 bytes while being at most 80
+  characters. `compactText` caps labels at 80 runes and backs the cut off so it
+  never strands a combining mark, variation selector or skin-tone modifier
+  (no U+FFFD in `/state`). Session `Upsert` reads the prior state and writes
+  under one lock, so concurrent POSTs for one session never misclassify the
+  transition.
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
   ignores it — never in the `StatusRequest` body.
@@ -1170,7 +1794,12 @@ passes (+60 s grace, never early) it fires **one** auto-dismiss notification
 Drifted reset estimates re-arm instead of firing; an unreachable device retries
 next tick (armed state preserved); fired alarms dedupe per `(tool, resets_at)`.
 State is in-memory by design — a restart mid-window re-arms from the next
-snapshot. Gated only by `limit_alarm` (usage config, default on); deliberately
+snapshot. The endpoint percent is rounded, hence the 99.5 % threshold, and the
+alarm fires a minute after the estimated reset because reset estimates drift.
+Disabling the alarm drops armed state so re-enabling hours later cannot fire a
+stale "reset" popup, while fired entries are kept so a past `resets_at` cannot
+re-fire. `UsageStore` is not persisted: entries refresh at most every 5 min and
+a restart self-heals within one interval. Gated only by `limit_alarm` (usage config, default on); deliberately
 independent of the usage card threshold (the alarm is about resuming work, not
 tiles).
 
@@ -1184,6 +1813,11 @@ notification sound fields; AWTRIX3 spelled the latter two `rtttl`/`loopSound`)
 and `PlayRTTTL` no-ops, so every sound source is covered at one choke point.
 Visual output is untouched — an attention hold still takes the screen at
 night, just silently — and sounds resume on the first event after the window.
+`clockPublisher` is ungated and only `NewApp` builds it, wrapped at once
+(`clock_access_guard_test.go` enforces this), so a new sound source needs no
+per-feature check. The menu's explicit `/v1/device/audio/test` bypasses the gate
+on purpose. The gate's `now` func must return wall-clock local time, because
+`quietActive` reads `Hour()`/`Minute()` with no zone conversion.
 
 ## Display layout (32×8 matrix)
 
@@ -1338,6 +1972,23 @@ rather than doubling some hours.
   firmware likely already cleared it). The AWTRIX3 left+right chord is
   removed (#81): left=stop, right=skip, middle=start/pause/resume, all on
   press only.
+- **`scroll.whenFits` is a string enum, not a bool** (a bool is rejected with
+  422 on `scroll.whenFits`; verified on 1.0.13). `"static"` leaves text at rest
+  when it fits and scrolls it when it overflows. Set it explicitly, because every
+  scroll field inherits individually from the device's global scroll setting.
+- **`durationMs`/`lifetimeMs` are milliseconds on NG** (AWTRIX3 used seconds).
+  Forgetting the ×1000 is a silent 1000× shortening, not an error, so every
+  conversion goes through `msOf`.
+- **The source-name card cannot scroll.** The bitmap ops around the native-text
+  box would clip a scroll, so longer names are cut to what fits in cols 9-23 by
+  NG's small-font glyph widths ("STUD" is 15 px; "MWMW" would be 23 px and
+  becomes "MW"). Runes outside printable ASCII count as wide because their
+  widths are unknown.
+- **Berry.** Open-Meteo emits `"current_weather_units":{…,"temperature":"°C",…}`
+  before the real reading, so a `find` on `"temperature":` lands on the units
+  block; anchor on the enclosing object instead (one 128-byte window then holds
+  both values). The API reference's worked example has this bug. `matchall`'s
+  first hit is the "2" of `temperature_2m` in the needle itself.
 - **Verify on-device** by reading `GET /api/v1/display/screen`, which wraps
   the framebuffer as `{"width":32,"height":8,"pixels":[256 ints]}` (AWTRIX3
   returned the bare 256-int array — consumers must unwrap the new shape) — see
@@ -1353,6 +2004,31 @@ The retired Go menu was replaced by the native SwiftUI app (`macos/`), so its
 hard-won DarwinKit/AppKit retention crashes (weak `NSWindow.delegate`, libffi
 `NSTimer`-block frees, `NSBitmapImageRep planes`, bundle-less activation policy,
 uncommitted `NSTextField` edits) are no longer live constraints.
+
+### macOS menu app (SwiftUI)
+- **Opening a window from an `LSUIElement` app on macOS 26+ takes four steps.**
+  Promote to `.regular` first, because an accessory app cannot own the key window
+  of the frontmost app and the Dock icon must exist before activation is
+  requested. Defer the raise to a later runloop turn: from a `MenuBarExtra(.menu)`
+  item the action runs inside the menu's tracking loop, and activating there is
+  undone when the menu closes (window in front but inactive, grey traffic
+  lights). Use cooperative `NSApp.activate()` plus
+  `makeKeyAndOrderFront`/`orderFrontRegardless`, retried while SwiftUI builds the
+  window. If the system still refuses, fall back to the deprecated
+  `activate(ignoringOtherApps:)`, called through a protocol to avoid the
+  deprecation warning. SwiftUI names a `Window` scene's `NSWindow` identifier
+  `"<id>-AppWindow-<n>"`, and the raise helper finds the window by that prefix.
+- **`.task` and timers don't run in a `.menu`-style `MenuBarExtra`**, so the menu
+  never polls; it catches up overdue glance feeds in `onAppear`, throttled to
+  once a minute so repeated opens can't push stats past one request a minute.
+- **Location.** For a menu-bar (accessory) app macOS often never presents the
+  "Allow location" prompt, so a pending authorization times out as
+  `.authorizationUnavailable` and the UI points at System Settings.
+  `requestLocation()` is deferred until the user answers the prompt, because
+  issuing it while `.notDetermined` doesn't reliably deliver a callback.
+- **Launch at login** uses `SMAppService.mainApp` (System Settings › General ›
+  Login Items). It needs the app signed and in `/Applications` to register fully,
+  and a first registration may report `.requiresApproval`.
 
 ### Producer / deploy
 - **Process-liveness, not file-existence, detects session close.** A heartbeat
@@ -1406,6 +2082,10 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   while `NetworkPathSnapshot` (one `NWPathMonitor`) says the Mac's path is
   satisfied. Sign local builds with
   `scripts/local-signing-identity.sh` to keep the grant across rebuilds.
+- **`BundleProgram` and argv[0].** With `BundleProgram` set in a LaunchAgent
+  plist, launchd uses `ProgramArguments[0]` as argv[0]. It must be the program's
+  basename, not the subcommand; otherwise the daemon starts with `argv=["run"]`,
+  prints usage and exits 2. `verify-bundle.sh` guards against this.
 - **Syntactically-valid-but-wrong config defeats validation.** A
   `EMBER_SERVER_URL` typo (`:800` for `:3627`) passed the URL validator but
   dropped every POST. When "nothing shows," check the producer→server path first:
@@ -1419,6 +2099,11 @@ uncommitted `NSTextField` edits) are no longer live constraints.
 - **`/admin/reload` reverts runtime-persisted settings** unless the feature
   re-applies them after the config `Store` (Pomodoro durations live in SQLite,
   not the file).
+- **The Docker build pre-creates the Pomodoro data dir** (`/var/lib/ember`)
+  because the distroless runtime image has no shell to `mkdir`; it ships a
+  writable, nonroot-owned location for the SQLite stats DB. The
+  `-X main.version` ldflags path is pinned by `version_ldflags_test.go`; change
+  both together.
 - **Building inside a git *worktree* hides the VCS revision** from Docker
   `buildvcs` (the worktree `.git` is a file) → `version: unknown`. Build from a
   normal checkout / CI.
