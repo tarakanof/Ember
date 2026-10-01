@@ -83,9 +83,9 @@ Configuration loading happens once, at startup. After that, the rest of the prog
 
 Two distinct cases:
 
-**Inline comments** (inside function bodies): default to zero. Only add one when the WHY is non-obvious — a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise a reader. One short line max. Don't restate what the code does, and don't reference the current task or PR (that belongs in the commit message).
+**Inline comments** (inside function bodies): none. Code that needs one should be clearer code. A hidden constraint, a subtle invariant, a workaround for a specific bug, or behavior that would surprise a reader goes in the docs (`ARCHITECTURE.md` gotchas, `MENU-BOT.md`, `RUNBOOK.md`); its history and rationale go in the commit message and PR description. Don't restate what the code does, and don't reference the current task or PR.
 
-**Godoc on exported APIs**: required, not optional. Every exported type, function, method, and variable gets a doc comment that starts with the identifier name and forms a complete sentence. Doc the *contract* (preconditions, postconditions, error cases), not the implementation. A package gets a `// Package foo …` comment in one file.
+**Doc comments on exported APIs** (Go, and `public` Swift in EmberKit): required, one sentence. It starts with the identifier name (Go) and states the *contract* (what it returns or guarantees, error cases), not the implementation or its history. A package gets a one-line `// Package foo …` comment in one file. Unexported and app-target code gets a doc comment only when its role can't be read from its name and signature.
 
 `TODO` markers are acceptable when they include a concrete reference (issue number, spec path, or a sentence with a deadline): `// TODO: drop after sub-project E ships`. Floating `// TODO: handle this` with no anchor is not — that's how dead code accumulates.
 
