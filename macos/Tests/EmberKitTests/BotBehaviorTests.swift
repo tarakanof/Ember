@@ -141,6 +141,23 @@ private func blinkCount(_ frames: [(t: Double, pose: BotPose, animating: Bool)])
     #expect(frames.allSatisfy { $0.pose.offsetY < 0.1 })
 }
 
+@Test func waitingHopsOnceSoonThenOnlyNowAndThen() {
+    for seed in UInt64(0)..<20 {
+        var b = BotBehavior(seed: seed, now: 0)
+        b.setMood(.waiting, at: 0)
+        var hops: [Double] = [], up = false
+        for f in run(&b, seconds: 180) {
+            let airborne = f.pose.offsetY > 0.1
+            if airborne && !up { hops.append(f.t) }
+            up = airborne
+        }
+        // The first hop flags the new mood; later ones are an occasional nudge.
+        #expect(hops.first.map { $0 < 1.5 } == true, "seed \(seed)")
+        let gaps = zip(hops, hops.dropFirst()).map { $1 - $0 }
+        #expect(gaps.allSatisfy { $0 >= 7.9 }, "seed \(seed): \(gaps)")
+    }
+}
+
 @Test func eyesSwapEvenWhenFramesSkipTheShutLids() {
     for seed in UInt64(0)..<50 {
         var b = BotBehavior(seed: seed, now: 0)

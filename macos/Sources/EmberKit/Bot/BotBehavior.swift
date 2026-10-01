@@ -152,7 +152,8 @@ public struct BotBehavior: Sendable {
         if t >= nextSaccadeAt { startSaccade(at: t) }
         if t >= nextHopAt {
             hopStart = t
-            nextHopAt = t + lognormal(median: 4.5, sigma: 0.35, in: 2.5...9)
+            // An occasional nudge: hopping every few seconds read as restless.
+            nextHopAt = t + lognormal(median: 15, sigma: 0.4, in: 8...40)
         }
 
         var p = BotPose()
