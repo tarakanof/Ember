@@ -75,6 +75,15 @@ func pluginEnabledAt(home string) bool {
 // registered. double is true when both the plugin and settings.json register
 // them, which makes every hook POST twice.
 func hookRegistrationReport(home string) (line string, double bool) {
+	line, double = hookRegistrationSources(home)
+	if !hooksEnabledAt(home) {
+		line = "DISABLED by deconfigure/uninstall (" + hooksDisabledPath(home) +
+			"); run `ember-claude-producer configure` to re-enable. Registered: " + line
+	}
+	return line, double
+}
+
+func hookRegistrationSources(home string) (line string, double bool) {
 	root := readUserSettings(home)
 	plugin := pluginEnabled(root)
 	n := countSettingsProducerHooks(root)
@@ -89,7 +98,8 @@ func hookRegistrationReport(home string) (line string, double bool) {
 		return fmt.Sprintf("~/.claude/settings.json (%d events)", n), false
 	default:
 		return "NONE in ~/.claude/settings.json (plugin " + pluginID + " not enabled there; " +
-			"a project-scoped enable isn't checked)", false
+			"a project-scoped enable isn't checked). If you uninstalled or disabled the plugin, " +
+			"run `ember-claude-producer configure` to re-register settings.json hooks", false
 	}
 }
 

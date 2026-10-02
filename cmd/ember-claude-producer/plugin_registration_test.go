@@ -83,6 +83,7 @@ func TestHookRegistrationReport(t *testing.T) {
 		wantSub       string
 	}{
 		{"none", false, false, false, "NONE"},
+		{"none hint", false, false, false, "run `ember-claude-producer configure`"},
 		{"settings only", false, true, false, "settings.json"},
 		{"plugin only", true, false, false, "plugin " + pluginID},
 		{"both", true, true, true, "TWICE"},
@@ -113,5 +114,18 @@ func TestHookRegistrationReport(t *testing.T) {
 				t.Errorf("line %q missing %q", line, c.wantSub)
 			}
 		})
+	}
+}
+
+func TestHookRegistrationReport_FlagsKillSwitch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeSettings(t, home, map[string]any{"enabledPlugins": map[string]any{pluginID: true}})
+	if err := disableHooks(home); err != nil {
+		t.Fatal(err)
+	}
+	line, _ := hookRegistrationReport(home)
+	if !strings.Contains(line, "DISABLED") || !strings.Contains(line, "configure") {
+		t.Errorf("line %q should say hooks are disabled and how to re-enable", line)
 	}
 }
