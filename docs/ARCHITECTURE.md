@@ -501,18 +501,29 @@ markers still get reaped.
   2 s (`mode=ro` + `query_only`, so the live WAL is still read) and keeps
   sessions alive with the Codex-style 15 s keepalive. Session id = T3 thread
   id, activity = thread title, tool `t3` ("T3" glyph, the 3 in the state
-  colour). Mapping: a pending runtime request → `waiting` (even on a settled
-  thread: Codex `user_input` requests outlive the turn); preparing / queued /
-  starting / running → `running`; failed → `error` with the provider
+  colour). Mapping, aligned with T3's own `agentAwareness`: a pending runtime
+  request other than `auth_refresh` → `waiting` (even on a settled thread:
+  Codex `user_input` requests outlive the turn); run status preparing /
+  queued / starting / running / **waiting** → `running` (a run "waiting" is
+  post-turn drain such as checkpoint capture, not the user); failed → `error`
+  with the failed root error item's message, else the newest bound provider
   session's `lastError`; completed → `done`; idle / interrupted / cancelled /
-  rolled_back / archived / deleted / unknown → DELETE. done and error stay for
-  the activity window (5 min). Two schemas: `userdata/statev2.sqlite`
-  (`orchestration_v2_projection_*`, T3 ≥ 0.0.46, wins when present) and
-  `userdata/state.sqlite` (`projection_threads` + `projection_thread_sessions`,
-  T3 ≤ 0.0.45, session status idle/starting/running/ready/interrupted/
-  stopped/error, `ready` = done). T3 liveness is `userdata/server-runtime.json`
-  plus a `kill(pid, 0)` probe: without it a thread caught `running` when T3
-  quit would stay on the clock, since nothing updates the database again.
+  rolled_back / archived / deleted / unknown → DELETE. Subagent child threads
+  (`lineage.relationshipToParent = 'subagent'`) are skipped, as T3's sidebar
+  does. done and error stay for the activity window (5 min), timed from the
+  run's completion (v2) or session update (v1), never from the thread's
+  `updated_at`, which auto-settle, rename and archive bump days later. Two
+  schemas: `userdata/statev2.sqlite` (`orchestration_v2_projection_*`, T3 ≥
+  0.0.46) and `userdata/state.sqlite` (`projection_threads` +
+  `projection_thread_sessions`, T3 ≤ 0.0.45, session status idle/starting/
+  running/ready/interrupted/stopped/error, `ready` = done); when both exist
+  the one whose file or `-wal` was written last wins, so a downgrade does not
+  pin a stale v2 file. T3 liveness is `userdata/server-runtime.json` plus a
+  `kill(pid, 0)` probe and, on darwin, the process start time
+  (`sysctl kern.proc.pid`) against the recorded `startedAt` + 1 s, so a crash
+  followed by pid reuse is not taken for a live T3: without liveness a thread
+  caught `running` when T3 quit would stay on the clock, since nothing
+  updates the database again.
 
   *Transport decision: SQLite poll, not the WebSocket RPC.* T3's server does
   expose `orchestration.subscribeShell` (snapshot, then thread upserts) over

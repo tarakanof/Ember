@@ -126,7 +126,8 @@ default loads them in v0.0.46), so the Ember Claude hooks in
 `claude` session. To avoid it, point T3's Claude provider at its own config dir
 (the Claude provider instance's home path in T3's provider settings, which
 T3 exports as `CLAUDE_CONFIG_DIR`; it needs its own `claude` login)
-without Ember's hooks, or untick one of the two tools in the menu's Show on Clock list.
+without Ember's hooks, or untick one of the two tools in the menu's Show on Clock list (`t3` is
+listed there even before a T3 session exists).
 Codex threads should not be doubled: T3 drives `codex app-server`, and the
 Codex producer only follows rollouts with `session_meta.source == "cli"`
 (confirm in the live check below).
@@ -137,7 +138,9 @@ Codex producer only follows rollouts with `session_meta.source == "cli"`
 2. `ember-t3-producer install`, start a Codex thread in T3 → `GET /state` shows
    `tool: "t3"`, `state: "running"`, `activity` = the thread title.
 3. Ask for something that needs approval (or a Codex `request_user_input`) →
-   `waiting`; answer → `running`; finish → `done`, gone after 5 min.
+   `waiting`; answer → `running`; finish → `done` (no WAIT flash while T3
+   captures the checkpoint), gone after 5 min. A subagent fan-out must not
+   add extra `t3` sessions.
 4. Archive the thread → DELETE at the next poll; quit T3 → every `t3` session
    is deleted within one poll.
 5. With a Codex thread running in T3, `GET /state` must show no extra
