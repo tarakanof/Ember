@@ -3,7 +3,9 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 )
 
 func writeRuntime(t *testing.T, home, body string) {
@@ -25,17 +27,21 @@ func TestServerAliveFromRecordedRuntimeFile(t *testing.T) {
 	}
 	writeRuntime(t, home, string(body))
 	var asked int
-	alive := func(pid int) bool { asked = pid; return true }
+	var askedStart time.Time
+	alive := func(pid int, startedAt time.Time) bool { asked, askedStart = pid, startedAt; return true }
 	if !serverAlive(home, alive) || asked != 4242 {
 		t.Fatalf("serverAlive asked pid %d, want 4242", asked)
 	}
-	if serverAlive(home, func(int) bool { return false }) {
+	if want := time.Date(2026, 10, 2, 18, 20, 0, 0, time.UTC); !askedStart.Equal(want) {
+		t.Fatalf("startedAt = %v, want %v", askedStart, want)
+	}
+	if serverAlive(home, func(int, time.Time) bool { return false }) {
 		t.Fatal("dead pid reported alive")
 	}
 }
 
 func TestServerAliveMissingOrBadFile(t *testing.T) {
-	yes := func(int) bool { return true }
+	yes := func(int, time.Time) bool { return true }
 	if serverAlive(t.TempDir(), yes) {
 		t.Fatal("missing runtime file reported alive")
 	}
@@ -49,10 +55,24 @@ func TestServerAliveMissingOrBadFile(t *testing.T) {
 }
 
 func TestPidAliveSelf(t *testing.T) {
-	if !pidAlive(os.Getpid()) {
+	if !pidAlive(os.Getpid(), time.Now()) {
 		t.Fatal("own pid not alive")
 	}
-	if pidAlive(-1) || pidAlive(0) {
+	if !pidAlive(os.Getpid(), time.Time{}) {
+		t.Fatal("own pid not alive without a recorded start")
+	}
+	if pidAlive(-1, time.Now()) || pidAlive(0, time.Now()) {
 		t.Fatal("invalid pid alive")
+	}
+}
+
+// A crash leaves server-runtime.json behind; after a reboot its pid can
+// belong to an unrelated process that started after T3 did.
+func TestPidAliveRejectsReusedPid(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("process start time is checked on darwin only")
+	}
+	if pidAlive(os.Getpid(), time.Now().Add(-24*time.Hour)) {
+		t.Fatal("a process that started after the recorded startedAt was accepted")
 	}
 }

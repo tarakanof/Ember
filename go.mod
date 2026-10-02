@@ -6,6 +6,7 @@ require (
 	github.com/arran4/golang-ical v0.3.5
 	github.com/brutella/dnssd v1.2.14
 	github.com/teambition/rrule-go v1.8.2
+	golang.org/x/sys v0.42.0
 	modernc.org/sqlite v1.51.0
 )
 
@@ -21,7 +22,6 @@ require (
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
