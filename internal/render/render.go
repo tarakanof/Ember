@@ -92,6 +92,10 @@ type Render struct {
 	Done        int    `json:"done"`
 	ActiveTotal int    `json:"active_total"`
 	Message     string `json:"message,omitempty"`
+	// Source and Tool identify the winning session (empty when none), so thin
+	// clients need not re-run PickWinning over sessions[] to learn the host.
+	Source string `json:"source"`
+	Tool   string `json:"tool"`
 }
 
 func paintCell(f *Frame, x, y int, c RGB) {

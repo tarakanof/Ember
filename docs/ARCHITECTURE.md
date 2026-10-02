@@ -439,6 +439,11 @@ The aggregator and the only writer to the device.
 
 All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
 `RotateLogIfLarge`) and are configured via `~/.config/ember/producer.env`.
+**Source default (#208):** when `EMBER_SOURCE` is empty or the template
+placeholder `set-me-to-this-laptop-id`, both producers use the short host name
+(`scutil --get LocalHostName`, else `os.Hostname`; lowercased, first label,
+`[a-z0-9_-]`, max 24 chars) via `producer.ResolveSource`; the installer seeds
+`producer.env` with that value.
 **Shared marker directory contract:** producers write session markers into the
 same `~/.local/state/ember/sessions/` directory, but each daemon only owns
 markers whose `tool` field matches its own (e.g. the Claude daemon skips a
@@ -1740,6 +1745,10 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (no U+FFFD in `/state`). Session `Upsert` reads the prior state and writes
   under one lock, so concurrent POSTs for one session never misclassify the
   transition.
+- **`/state` `render` names the winner (#208):** `render.source` and
+  `render.tool` carry the priority-winning session's host and tool (empty
+  strings when no session is active), so thin clients (cinder knob, ESP32)
+  need not re-run PickWinning over `sessions[]`.
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
   ignores it — never in the `StatusRequest` body.

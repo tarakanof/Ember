@@ -84,6 +84,8 @@ func (a *App) legacyRender(v sessions.View) Render {
 		Done:        done,
 		ActiveTotal: activeTotal,
 		Message:     win.Message,
+		Source:      win.Source,
+		Tool:        win.Tool,
 	}
 }
 
