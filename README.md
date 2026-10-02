@@ -331,7 +331,10 @@ laptops and POST to `http://<unraid-ip>:3627/v1/status` with the
 bearer token. See:
 
 - `macos/` — native macOS menu-bar app (Ember.app, built with Xcode)
-- `cmd/ember-claude-producer/` — claude-code session producer
+- `cmd/ember-claude-producer/` — claude-code session producer (its hooks
+  also ship as a Claude Code plugin: `claude plugin marketplace add
+  tarakanof/Ember`, then `claude plugin install ember@ember`; see
+  `producers/claude-code/README.md`)
 
 Both honour `EMBER_SERVER_URL` and `EMBER_TOKEN` env vars; configure
 them to point at your Unraid IP and the same token you set above.

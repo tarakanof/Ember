@@ -508,6 +508,16 @@ Claude producer constraints:
   reports a hook error after the app is moved or deleted. Tool-outcome hooks run
   `async` because PostToolUse fires on every call and their order doesn't
   matter.
+- **Two hook registrations, one list.** `producerHookSpecs` (`install.go`)
+  is what `configure` merges into `~/.claude/settings.json`; the `ember`
+  plugin (`producers/claude-code/plugin/hooks/hooks.json`, listed by the repo's
+  `.claude-plugin/marketplace.json`) registers the same set through a
+  `/bin/sh scripts/ember-hook <event>` shim that finds the binary and always
+  exits 0. `plugin_test.go` fails when they drift. Claude Code doesn't dedupe a
+  plugin's hook against a settings one, so `configure` skips (and strips) the
+  settings.json hooks when `enabledPlugins["ember@ember"]` is true, and
+  `doctor` flags both at once. Config stays in `producer.env`; the plugin has no
+  `userConfig`.
 - **Statusline.** The `statusline` subcommand never calls `loadConfig` and
   makes no network call, so it needs no token. Its stdout is the status bar
   Claude renders and must not be redirected; only stderr goes to the producer

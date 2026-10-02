@@ -82,6 +82,17 @@ ember-claude-producer install            # registers hooks + LaunchAgent
 ember-claude-producer uninstall
 ```
 
+**Claude hooks via the plugin** (alternative to the settings.json hooks):
+`claude plugin marketplace add tarakanof/Ember`, `claude plugin install ember@ember`,
+then `ember-claude-producer configure` (or `install`). With `ember@ember`
+enabled in `~/.claude/settings.json`, configure/install write only the
+statusLine (plugins can't set one) and strip any producer hooks already there;
+`doctor`'s `claude hooks:` line warns `registered TWICE` if both are present.
+Update: `claude plugin marketplace update ember && claude plugin update
+ember@ember`. Uninstall: `claude plugin
+uninstall ember@ember`, then `configure` to get the settings.json hooks back.
+Details: [`producers/claude-code/README.md`](../producers/claude-code/README.md).
+
 `producer.env` (`~/.config/ember/producer.env`) holds: `source`,
 `EMBER_SERVER_URL`, token, `EMBER_SOURCE_COLOR`, and the `EMBER_*` toggles
 (below). The producer re-reads it each tick — no restart needed.
