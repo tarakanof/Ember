@@ -84,8 +84,7 @@ var modelAbbrev = map[string]string{
 }
 
 var (
-	modelRe      = regexp.MustCompile(`(?:^|-)(macbook-pro|macbook-air|macbook|mac-mini|mac-studio|mac-pro|imac)(?:-(.+))?$`)
-	possessiveRe = regexp.MustCompile(`^[a-z0-9]+s-(.+)$`)
+	modelRe = regexp.MustCompile(`(?:^|-)(macbook-pro|macbook-air|macbook|mac-mini|mac-studio|mac-pro|imac|mbp|mba)(?:-(.+))?$`)
 )
 
 // shortHostID shortens a macOS default name ("dmitrys-macbook-pro") to a
@@ -97,10 +96,9 @@ func shortHostID(h string) string {
 		if m[2] != "" {
 			id += "-" + m[2]
 		}
-		return id
-	}
-	if m := possessiveRe.FindStringSubmatch(h); m != nil {
-		return m[1]
+		if id != "" && !allDigits(id) {
+			return id
+		}
 	}
 	return h
 }
@@ -181,4 +179,13 @@ func SetHostNameForTest(name string) (restore func()) {
 	orig := hostNameFuncs
 	hostNameFuncs = []func() (string, error){func() (string, error) { return name, nil }}
 	return func() { hostNameFuncs = orig }
+}
+
+func allDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }

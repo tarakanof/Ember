@@ -27,7 +27,7 @@ func TestIsPlaceholderSource(t *testing.T) {
 func TestNormalizeHostName(t *testing.T) {
 	long := strings.Repeat("a", 40)
 	for in, want := range map[string]string{
-		"  Dmitrys-M4\n":        "m4",
+		"  Dmitrys-M4\n":        "dmitrys-m4",
 		"MacBook Pro":           "mbp",
 		"m4.local":              "m4",
 		"dmitrys-macbook-pro":   "mbp",
@@ -35,7 +35,10 @@ func TestNormalizeHostName(t *testing.T) {
 		"dmitrys-mac-mini":      "mini",
 		"Dmitrys-iMac":          "imac",
 		"dmitrys-macbook-pro-2": "mbp-2",
-		"dmitrys-laptop":        "laptop",
+		"dmitrys-laptop":        "dmitrys-laptop",
+		"ops-1":                 "ops-1",
+		"Akitaka-mbp-14":        "mbp-14",
+		"akitaka-mbp":           "mbp",
 		"build-box":             "build-box",
 		long:                    strings.Repeat("a", 24),
 		"":                      "",

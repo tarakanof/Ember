@@ -300,3 +300,26 @@ func TestLoadConfig_SourceDefaultsFromHostOnPlaceholder(t *testing.T) {
 		t.Errorf("Source = %q, want m5", cfg.Source)
 	}
 }
+
+func TestConfigureAt_RewritesPlaceholderSource(t *testing.T) {
+	defer producer.SetHostNameForTest("Dmitrys-Mac-mini")()
+	home := t.TempDir()
+	envDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(envDir, "producer.env")
+	if err := os.WriteFile(envPath, []byte("EMBER_SOURCE=\nEMBER_TOKEN=t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := configureAt(home); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(envPath)
+	if string(b) != "EMBER_SOURCE=mini\nEMBER_TOKEN=t\n" {
+		t.Errorf("env = %q", b)
+	}
+	if st, _ := os.Stat(envPath); st.Mode().Perm() != 0o600 {
+		t.Errorf("perm = %v", st.Mode().Perm())
+	}
+}
