@@ -28,7 +28,7 @@ type hookInput struct {
 	Error               string          `json:"error,omitempty"`
 	IsInterrupt         bool            `json:"is_interrupt,omitempty"`
 	ToolUseID           string          `json:"tool_use_id,omitempty"`
-	EndReason           string          `json:"end_reason,omitempty"`
+	EndReason           string          `json:"reason,omitempty"`
 }
 
 func runHook(args []string) {
@@ -166,7 +166,7 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 		handleUpsert(ctx, cfg, client, sessionID, "error", msg, "", markerP, lockP)
 	case "session-end":
 		switch in.EndReason {
-		case "logout", "prompt_input_exit", "bypass_permissions_disabled", "other", "clear":
+		case "logout", "prompt_input_exit", "other", "clear", "resume":
 			handleDelete(ctx, cfg, client, sessionID, markerP, lockP)
 		}
 	}

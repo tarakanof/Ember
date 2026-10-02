@@ -314,7 +314,7 @@ var producerHookSpecs = []producerHookSpec{
 	{event: "Notification", subcommand: "notification", matcher: "permission_prompt|agent_needs_input|agent_completed"},
 	{event: "Stop", subcommand: "stop"},
 	{event: "StopFailure", subcommand: "stop-failure"},
-	{event: "SessionEnd", subcommand: "session-end", matcher: "logout|prompt_input_exit|bypass_permissions_disabled|other|clear"},
+	{event: "SessionEnd", subcommand: "session-end", matcher: "logout|prompt_input_exit|other|clear|resume"},
 }
 
 func producerHookEntries(binPath string) []producerHookEntry {
