@@ -1,0 +1,39 @@
+#!/bin/sh
+# Claude Code plugin hook shim: runs `ember-claude-producer hook <event>`.
+#
+# It must never block, slow or fail a session, so it exits 0 whatever happens
+# and writes nothing to stdout (Claude reads hook stdout). Connection settings
+# come from ~/.config/ember/producer.env, read by the producer itself.
+#
+# Binary lookup, first match wins:
+#   1. $EMBER_CLAUDE_PRODUCER (if set, used alone: no fallback)
+#   2. ember-claude-producer on PATH
+#   3. ~/go/bin/ember-claude-producer (go install)
+#   4. Ember.app's bundled helper under $EMBER_APP_DIRS
+#      (default: /Applications ~/Applications)
+
+event=$1
+[ -n "$event" ] || exit 0
+
+name=ember-claude-producer
+bin=
+if [ -n "${EMBER_CLAUDE_PRODUCER+x}" ]; then
+  bin=$EMBER_CLAUDE_PRODUCER
+else
+  bin=$(command -v "$name" 2>/dev/null) || bin=
+  [ -n "$bin" ] && [ -x "$bin" ] || bin=$HOME/go/bin/$name
+  if [ ! -x "$bin" ]; then
+    for dir in ${EMBER_APP_DIRS:-/Applications $HOME/Applications}; do
+      if [ -x "$dir/Ember.app/Contents/MacOS/$name" ]; then
+        bin=$dir/Ember.app/Contents/MacOS/$name
+        break
+      fi
+    done
+  fi
+fi
+[ -x "$bin" ] || exit 0
+
+log=$HOME/Library/Logs/$name.log
+[ -d "${log%/*}" ] && [ -w "${log%/*}" ] || log=/dev/null
+"$bin" hook "$event" >>"$log" 2>&1
+exit 0

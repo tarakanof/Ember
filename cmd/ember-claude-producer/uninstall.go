@@ -62,27 +62,9 @@ func uninstallSettings(home string) error {
 		return fmt.Errorf("settings.json invalid JSON: %w", err)
 	}
 	if hooksRoot, ok := root["hooks"].(map[string]any); ok && hooksRoot != nil {
-		for ev, entries := range hooksRoot {
-			list, ok := entries.([]any)
-			if !ok {
-				continue
-			}
-			filtered := []any{}
-			for _, e := range list {
-				if !entryMatchesProducer(e) {
-					filtered = append(filtered, e)
-				}
-			}
-			if len(filtered) == 0 {
-				delete(hooksRoot, ev)
-			} else {
-				hooksRoot[ev] = filtered
-			}
-		}
+		stripProducerHooks(hooksRoot)
 		if len(hooksRoot) == 0 {
 			delete(root, "hooks")
-		} else {
-			root["hooks"] = hooksRoot
 		}
 	}
 

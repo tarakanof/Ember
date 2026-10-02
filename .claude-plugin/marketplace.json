@@ -1,0 +1,16 @@
+{
+  "name": "ember",
+  "description": "Ember: Claude Code activity on an Ulanzi TC001 clock",
+  "owner": {
+    "name": "tarakanof",
+    "url": "https://github.com/tarakanof"
+  },
+  "plugins": [
+    {
+      "name": "ember",
+      "source": "./producers/claude-code/plugin",
+      "description": "Claude Code hooks that report session state to an Ember server",
+      "category": "productivity"
+    }
+  ]
+}

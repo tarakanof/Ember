@@ -1,0 +1,172 @@
+{
+  "description": "Report Claude Code session state to an Ember server via ember-claude-producer",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "session-start"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "user-prompt-submit"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "pre-tool-use"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "permission-request"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "post-tool-use"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "post-tool-use-failure"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "permission-denied"
+            ],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|agent_needs_input|agent_completed",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "notification"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "stop"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "stop-failure"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "logout|prompt_input_exit|bypass_permissions_disabled|other|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh",
+            "args": [
+              "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
+              "session-end"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
