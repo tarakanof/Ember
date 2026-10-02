@@ -43,6 +43,10 @@ var stateGoldenCases = []struct {
 		{Session{Source: "c", Tool: "claude", Session: "3", State: "done"}, 6 * time.Second},
 		{Session{Source: "d", Tool: "claude", Session: "4", State: "idle"}, 7 * time.Second},
 	}},
+	{"aggregate-same-host", []stateSeed{
+		{Session{Source: "m4", Tool: "claude", Session: "1", State: "running"}, 1 * time.Second},
+		{Session{Source: "m4", Tool: "codex", Session: "2", State: "running"}, 4 * time.Second},
+	}},
 	{"done-alone", []stateSeed{
 		{Session{Source: "a", Tool: "claude", Session: "1", State: "done", Message: "build green"}, 10 * time.Second},
 	}},

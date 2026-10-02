@@ -1,0 +1,1 @@
+{"now":"<T>","sessions":[{"source":"m4","tool":"claude","session":"1","state":"running","message":"","updated_at":"<T>"},{"source":"m4","tool":"codex","session":"2","state":"running","message":"","updated_at":"<T>"}],"render":{"text":"AI R2","color":"#00A3FF","waiting":0,"running":2,"errors":0,"done":0,"active_total":2,"source":"m4","tool":""}}

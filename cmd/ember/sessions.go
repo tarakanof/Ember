@@ -75,6 +75,21 @@ func (a *App) legacyRender(v sessions.View) Render {
 		text = aggregateLabel(waiting, running, errored, done)
 	}
 
+	// An aggregate (several sessions in the winning state) names no single
+	// host or tool unless they all agree.
+	src, tool := win.Source, win.Tool
+	for _, o := range v.Sessions {
+		if o.State != win.State {
+			continue
+		}
+		if o.Source != src {
+			src = ""
+		}
+		if o.Tool != tool {
+			tool = ""
+		}
+	}
+
 	return Render{
 		Text:        compactText(text),
 		Color:       legacyStateColor(win.State),
@@ -84,8 +99,8 @@ func (a *App) legacyRender(v sessions.View) Render {
 		Done:        done,
 		ActiveTotal: activeTotal,
 		Message:     win.Message,
-		Source:      win.Source,
-		Tool:        win.Tool,
+		Source:      src,
+		Tool:        tool,
 	}
 }
 
