@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Display brightness policy (#211). GET /v1/display/brightness answers one
+// Display brightness policy. GET /v1/display/brightness answers one
 // 0-255 level for devices with no light sensor of their own (the cinder knob),
 // so they need no Home Assistant token. Two inputs, in order:
 //
@@ -25,20 +25,23 @@ import (
 
 const brightnessSettingsKey = "brightness_json"
 
-// BrightnessConfig is the brightness policy. In config.json zero fields take
-// the defaults in resolved(); the settings overlay always works on the
-// resolved form.
+const minStaleSeconds = int(2 * clockProbeTTL / time.Second)
+
+// BrightnessConfig is the brightness policy. Zero fields take the defaults in
+// resolved(), so every field's valid range excludes 0 and a stored 0 can never
+// disagree with validate. Hysteresis is the smallest level change that moves a
+// held level.
 type BrightnessConfig struct {
-	Floor           int     `json:"floor"`            // lowest level the lux path emits
-	Ceiling         int     `json:"ceiling"`          // highest level the lux path emits
-	NightLevel      int     `json:"night_level"`      // sun fallback, after dusk
-	DayLevel        int     `json:"day_level"`        // sun fallback, by day
-	LuxDark         float64 `json:"lux_dark"`         // at or below: floor
-	LuxBright       float64 `json:"lux_bright"`       // at or above: ceiling
-	EMAAlpha        float64 `json:"ema_alpha"`        // weight of the newest sample, (0,1]
-	Hysteresis      int     `json:"hysteresis"`       // level units a change must exceed
-	StaleSeconds    int     `json:"stale_seconds"`    // older clock readings are ignored
-	TwilightMinutes int     `json:"twilight_minutes"` // ramp length at dawn and dusk
+	Floor           int     `json:"floor"`
+	Ceiling         int     `json:"ceiling"`
+	NightLevel      int     `json:"night_level"`
+	DayLevel        int     `json:"day_level"`
+	LuxDark         float64 `json:"lux_dark"`
+	LuxBright       float64 `json:"lux_bright"`
+	EMAAlpha        float64 `json:"ema_alpha"`
+	Hysteresis      int     `json:"hysteresis"`
+	StaleSeconds    int     `json:"stale_seconds"`
+	TwilightMinutes int     `json:"twilight_minutes"`
 }
 
 func (c BrightnessConfig) resolved() BrightnessConfig {
@@ -55,10 +58,10 @@ func (c BrightnessConfig) resolved() BrightnessConfig {
 		c.DayLevel = 255
 	}
 	if c.LuxDark == 0 {
-		c.LuxDark = 5
+		c.LuxDark = 1
 	}
 	if c.LuxBright == 0 {
-		c.LuxBright = 300
+		c.LuxBright = 200
 	}
 	if c.EMAAlpha == 0 {
 		c.EMAAlpha = 0.3
@@ -89,12 +92,12 @@ func (c BrightnessConfig) validate() error {
 		return fmt.Errorf("lux_dark %v and lux_bright %v must satisfy 0 < dark < bright", c.LuxDark, c.LuxBright)
 	case c.EMAAlpha <= 0 || c.EMAAlpha > 1:
 		return fmt.Errorf("ema_alpha %v out of range (0, 1]", c.EMAAlpha)
-	case c.Hysteresis < 0 || c.Hysteresis > 50:
-		return fmt.Errorf("hysteresis %d out of range [0, 50]", c.Hysteresis)
-	case c.StaleSeconds < 10 || c.StaleSeconds > 3600:
-		return fmt.Errorf("stale_seconds %d out of range [10, 3600]", c.StaleSeconds)
-	case c.TwilightMinutes < 0 || c.TwilightMinutes > 180:
-		return fmt.Errorf("twilight_minutes %d out of range [0, 180]", c.TwilightMinutes)
+	case c.Hysteresis < 1 || c.Hysteresis > 50:
+		return fmt.Errorf("hysteresis %d out of range [1, 50]", c.Hysteresis)
+	case c.StaleSeconds < minStaleSeconds || c.StaleSeconds > 3600:
+		return fmt.Errorf("stale_seconds %d out of range [%d, 3600]", c.StaleSeconds, minStaleSeconds)
+	case c.TwilightMinutes < 1 || c.TwilightMinutes > 180:
+		return fmt.Errorf("twilight_minutes %d out of range [1, 180]", c.TwilightMinutes)
 	}
 	return nil
 }
@@ -128,19 +131,23 @@ type brightnessGeo struct {
 	Set      bool
 }
 
-// brightnessState is what survives between requests.
+// brightnessState is what survives between requests. Last is the newest clock
+// sample seen, kept across failed probes until it goes stale; SampleAt is the
+// newest sample already fed to the EMA.
 type brightnessState struct {
 	EMA      float64
 	HasEMA   bool
 	Level    int
 	HasLevel bool
 	SampleAt time.Time
+	Last     luxSample
+	HasLast  bool
 }
 
 // brightnessOut is the GET /v1/display/brightness body.
 type brightnessOut struct {
 	Level  int    `json:"level"`
-	Source string `json:"source"` // "lux", "sun" or "default"
+	Source string `json:"source"`
 	Night  bool   `json:"night"`
 }
 
@@ -163,6 +170,7 @@ func holdWithinBand(prev int, hasPrev bool, target, band, floor, ceiling int) in
 	if !hasPrev || target == floor || target == ceiling {
 		return target
 	}
+	prev = min(max(prev, floor), ceiling)
 	d := target - prev
 	if d < 0 {
 		d = -d
@@ -175,10 +183,10 @@ func holdWithinBand(prev int, hasPrev bool, target, band, floor, ceiling int) in
 
 // sunLevel is the fallback schedule: DayLevel from sunrise to sunset, then a
 // linear ramp down to NightLevel over TwilightMinutes, and the mirror ramp up
-// ending at sunrise. night is true between sunset and sunrise (the same call
-// as isNight). Events from the neighbouring UTC dates are included because
-// sunTimes works per UTC date and a western evening falls on the next one.
-// Polar day or night (no events) reads as day.
+// ending at sunrise. night is true between sunset and sunrise. Events from the
+// neighbouring UTC dates are included because sunTimes works per UTC date and a
+// western evening falls on the next one. Without a sunrise or sunset (polar
+// day or night) it follows the sun's altitude at noon.
 func sunLevel(c BrightnessConfig, lat, lon float64, now time.Time) (level int, night bool) {
 	type event struct {
 		at   time.Time
@@ -201,45 +209,62 @@ func sunLevel(c BrightnessConfig, lat, lon float64, now time.Time) (level int, n
 		}
 	}
 	if last == nil || next == nil {
+		if polarNight(lat, now) {
+			return c.NightLevel, true
+		}
 		return c.DayLevel, false
 	}
 	night = !last.rise
 	tw := time.Duration(c.TwilightMinutes) * time.Minute
-	frac := 1.0 // 0 = night level, 1 = day level
+	frac := 1.0
 	if night {
 		frac = 0
 		if since := now.Sub(last.at); since < tw {
-			frac = 1 - float64(since)/float64(tw) // dusk ramp
+			frac = 1 - float64(since)/float64(tw)
 		} else if until := next.at.Sub(now); next.rise && until < tw {
-			frac = 1 - float64(until)/float64(tw) // dawn ramp
+			frac = 1 - float64(until)/float64(tw)
 		}
 	}
 	return c.NightLevel + int(math.Round(frac*float64(c.DayLevel-c.NightLevel))), night
 }
 
-// decideBrightness is the whole policy. A fresh clock reading feeds the EMA
-// once per distinct sample; a missing or stale one resets the filter and falls
-// back to the sun schedule, then to DayLevel when no location is set.
+// polarNight reports whether the sun stays below the horizon at noon on now's
+// date at lat, using the solar declination for the day of the year.
+func polarNight(lat float64, now time.Time) bool {
+	decl := -23.44 * math.Cos(2*math.Pi*float64(now.UTC().YearDay()+10)/365)
+	noonAltitude := 90 - math.Abs(lat-decl)
+	return noonAltitude < -0.833
+}
+
+// decideBrightness is the whole policy. The newest clock sample is remembered
+// across failed probes and used until it is StaleSeconds old, then the filter
+// resets and the sun schedule answers, then DayLevel when no location is set.
+// Each sample feeds the EMA once and only if newer than the last; a gap longer
+// than StaleSeconds reseeds it.
 func decideBrightness(c BrightnessConfig, st brightnessState, s *luxSample, geo brightnessGeo, now time.Time) (brightnessOut, brightnessState) {
 	night := false
 	var sunNow int
 	if geo.Set {
 		sunNow, night = sunLevel(c, geo.Lat, geo.Lon, now)
 	}
-	if s != nil && now.Sub(s.At) <= time.Duration(c.StaleSeconds)*time.Second {
-		if !s.At.Equal(st.SampleAt) {
-			if st.HasEMA {
-				st.EMA = c.EMAAlpha*s.Lux + (1-c.EMAAlpha)*st.EMA
+	stale := time.Duration(c.StaleSeconds) * time.Second
+	if s != nil && (!st.HasLast || s.At.After(st.Last.At)) {
+		st.Last, st.HasLast = *s, true
+	}
+	if st.HasLast && now.Sub(st.Last.At) <= stale {
+		if st.Last.At.After(st.SampleAt) {
+			if st.HasEMA && st.Last.At.Sub(st.SampleAt) <= stale {
+				st.EMA = c.EMAAlpha*st.Last.Lux + (1-c.EMAAlpha)*st.EMA
 			} else {
-				st.EMA, st.HasEMA = s.Lux, true
+				st.EMA, st.HasEMA = st.Last.Lux, true
 			}
-			st.SampleAt = s.At
+			st.SampleAt = st.Last.At
 		}
 		st.Level = holdWithinBand(st.Level, st.HasLevel, luxToLevel(c, st.EMA), c.Hysteresis, c.Floor, c.Ceiling)
 		st.HasLevel = true
 		return brightnessOut{Level: st.Level, Source: "lux", Night: night}, st
 	}
-	st = brightnessState{}
+	st.HasEMA, st.HasLevel = false, false
 	if geo.Set {
 		return brightnessOut{Level: sunNow, Source: "sun", Night: night}, st
 	}

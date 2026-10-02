@@ -1510,27 +1510,36 @@ sources with no live session. Row writes use `activityThrottle` (2 min) with the
 cache is invalidated on phase rollover and otherwise expires by `statsCacheTTL`
 (1 min). Sun times are rounded to 5 min because to the second they'd pin the
 coordinates to a few hundred metres; the location is the user-typed label only.
-- **`GET /v1/display/brightness`** (per-IP rate-limited, #211) —
+
+- **`GET /v1/display/brightness`** (per-IP rate-limited) —
   `{"level":0-255,"source":"lux|sun|default","night":bool}`: one brightness for
   displays with no light sensor (the cinder knob), so they hold no Home
   Assistant token. `lux`: the clock's `lightLevel` from the same 30 s device
   probe `/v1/clock/health` uses (no extra poller), log-mapped between
-  `lux_dark` and `lux_bright` onto `floor..ceiling`, smoothed by an EMA fed once
-  per distinct probe (re-polling never re-feeds it) and held inside a
-  `hysteresis` band (floor and ceiling always snap). A reading older than
-  `stale_seconds`, an unreachable clock, or a firmware without `lightLevel`
-  falls to `sun`: `day_level` by day, ramping to `night_level` over
-  `twilight_minutes` after sunset and back up ending at sunrise
-  (`sunTimes` for the weather lat/lon, neighbouring UTC dates included). That
-  fallback also resets the filter. No weather location either: `default`
-  (`day_level`). `night` is `isNight`'s call whenever a location is set, in
-  every source. Policy is pure (`decideBrightness` in `brightness.go`); the
-  clock's own brightness is untouched. Knobs (defaults): `floor` 10, `ceiling`
-  255, `night_level` 20, `day_level` 255, `lux_dark` 5, `lux_bright` 300,
-  `ema_alpha` 0.3, `hysteresis` 8, `stale_seconds` 120, `twilight_minutes` 45;
-  config.json `brightness`, editable via `GET/PUT /v1/brightness/config` (merge
-  semantics, 400 on an invalid merge, e.g. `night_level` below `floor`).
-  The clock's IP, SSID host, UID, hostname and button presses are not served.
+  `lux_dark` and `lux_bright` onto `floor..ceiling`, smoothed by an EMA and held
+  while the target stays within `hysteresis` of it (a change of `hysteresis` or
+  more moves it; floor and ceiling always snap; the held level is clamped to the
+  current floor and ceiling). The newest sample is kept across failed probes and
+  fed to the EMA once, only if newer than the last; a gap over `stale_seconds`
+  reseeds it. `stale_seconds` must be at least two probe intervals (60) so one
+  lost probe never flips the source. Once the sample is older than
+  `stale_seconds`, or the clock never reported `lightLevel`, the answer is
+  `sun`: `day_level` by day, ramping to `night_level` over `twilight_minutes`
+  after sunset and back up ending at sunrise (`sunTimes` for the weather
+  lat/lon, neighbouring UTC dates included; with no sunrise or sunset it
+  follows noon sun altitude, so polar winter reads night). That fallback resets
+  the filter. No weather location either: `default` (`day_level`). `night` is
+  the schedule's own call (after sunset, before sunrise) whenever a location is
+  set, in every source, and can differ from `isNight` across a UTC date change.
+  `lightLevel` reads 0 in a dark room (observed overnight, `ldrRaw` 0); the
+  defaults assume lux and want a daytime check. Policy is pure
+  (`decideBrightness` in `brightness.go`); the clock's own brightness is
+  untouched. Knobs (defaults): `floor` 10, `ceiling` 255, `night_level` 20,
+  `day_level` 255, `lux_dark` 1, `lux_bright` 200, `ema_alpha` 0.3, `hysteresis`
+  8, `stale_seconds` 120, `twilight_minutes` 45; config.json `brightness`,
+  editable via `GET/PUT /v1/brightness/config` (merge semantics, 400 on an
+  invalid merge, e.g. `night_level` below `floor`; 0 is not a valid value for
+  any knob).
 
 Wire conventions (for Swift's `JSONDecoder` `.iso8601` and Swift Charts):
 RFC 3339 timestamps with **whole seconds** (`.iso8601` rejects fractions),

@@ -35,7 +35,10 @@ func TestBrightnessValidate(t *testing.T) {
 		{"alpha zero", func(c *BrightnessConfig) { c.EMAAlpha = 0 }, false},
 		{"alpha over 1", func(c *BrightnessConfig) { c.EMAAlpha = 1.5 }, false},
 		{"hysteresis negative", func(c *BrightnessConfig) { c.Hysteresis = -1 }, false},
-		{"stale too small", func(c *BrightnessConfig) { c.StaleSeconds = 1 }, false},
+		{"stale under two probes", func(c *BrightnessConfig) { c.StaleSeconds = 59 }, false},
+		{"stale at two probes", func(c *BrightnessConfig) { c.StaleSeconds = 60 }, true},
+		{"hysteresis zero", func(c *BrightnessConfig) { c.Hysteresis = 0 }, false},
+		{"twilight zero", func(c *BrightnessConfig) { c.TwilightMinutes = 0 }, false},
 		{"twilight too long", func(c *BrightnessConfig) { c.TwilightMinutes = 500 }, false},
 	}
 	for _, tc := range cases {
@@ -50,13 +53,13 @@ func TestBrightnessValidate(t *testing.T) {
 }
 
 func TestLuxToLevel(t *testing.T) {
-	c := BrightnessConfig{}.resolved() // dark 5 lux, bright 300 lux, 10..255
+	c := BrightnessConfig{}.resolved() // dark 1 lux, bright 200 lux, 10..255
 	cases := []struct {
 		lux  float64
 		want int
 	}{
-		{-3, 10}, {0, 10}, {5, 10}, {300, 255}, {5000, 255},
-		{39, 133}, // geometric midpoint of 5 and 300 is ~38.7 lux: halfway up
+		{-3, 10}, {0, 10}, {1, 10}, {200, 255}, {5000, 255},
+		{14, 132}, // geometric midpoint of 1 and 200 is ~14.1 lux: halfway up
 	}
 	for _, tc := range cases {
 		if got := luxToLevel(c, tc.lux); got != tc.want {
@@ -89,7 +92,9 @@ func TestHoldWithinBand(t *testing.T) {
 		{"outside band moves", 100, true, 160, 8, 10, 255, 160},
 		{"snaps to ceiling inside band", 250, true, 255, 8, 10, 255, 255},
 		{"snaps to floor inside band", 14, true, 10, 8, 10, 255, 10},
-		{"zero band follows", 100, true, 101, 0, 10, 255, 101},
+		{"band of one follows", 100, true, 101, 1, 10, 255, 101},
+		{"held level clamps up to a raised floor", 12, true, 16, 8, 15, 255, 15},
+		{"held level clamps down to a lowered ceiling", 250, true, 200, 80, 10, 220, 220},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -141,15 +146,6 @@ func TestSunLevel(t *testing.T) {
 	}
 }
 
-func TestSunLevelZeroTwilightIsAStep(t *testing.T) {
-	c := BrightnessConfig{}.resolved()
-	c.TwilightMinutes = 0
-	_, set, _ := sunTimes(lonLat, lonLon, jun21)
-	if got, _ := sunLevel(c, lonLat, lonLon, set.Add(time.Minute)); got != 20 {
-		t.Errorf("after sunset = %d, want night level 20", got)
-	}
-}
-
 // Western longitudes cross the UTC date line between sunrise and sunset;
 // the level must still be right in the local evening (next UTC day).
 func TestSunLevelAcrossUTCDate(t *testing.T) {
@@ -161,6 +157,14 @@ func TestSunLevelAcrossUTCDate(t *testing.T) {
 	// 19:00 local = 02:00Z the 22nd: sun is still up.
 	if got, night := sunLevel(c, 34.05, -118.24, time.Date(2026, 6, 22, 2, 0, 0, 0, time.UTC)); night || got != 255 {
 		t.Errorf("LA evening = %d,%v", got, night)
+	}
+}
+
+func TestSunLevelPolarNight(t *testing.T) {
+	c := BrightnessConfig{}.resolved()
+	dec21 := time.Date(2026, 12, 21, 12, 0, 0, 0, time.UTC)
+	if got, night := sunLevel(c, 78.2, 15.6, dec21); !night || got != 20 {
+		t.Errorf("polar night = %d,%v, want 20,true", got, night)
 	}
 }
 
@@ -187,11 +191,11 @@ func TestDecideSources(t *testing.T) {
 		wantSource string
 		wantNight  bool
 	}{
-		{"fresh lux wins over sun", luxAt(5, noon), geo, noon, 10, "lux", false},
+		{"fresh lux wins over sun", luxAt(0.5, noon), geo, noon, 10, "lux", false},
 		{"fresh lux bright", luxAt(1000, noon), geo, noon, 255, "lux", false},
 		{"lux at night keeps night flag from sun", luxAt(1000, jun21), geo, jun21, 255, "lux", true},
-		{"lux without location", luxAt(5, noon), brightnessGeo{}, noon, 10, "lux", false},
-		{"stale sample falls back to sun day", luxAt(5, noon.Add(-time.Hour)), geo, noon, 255, "sun", false},
+		{"lux without location", luxAt(0.5, noon), brightnessGeo{}, noon, 10, "lux", false},
+		{"stale sample falls back to sun day", luxAt(0.5, noon.Add(-time.Hour)), geo, noon, 255, "sun", false},
 		{"stale sample falls back to sun night", luxAt(500, jun21.Add(-time.Hour)), geo, jun21, 20, "sun", true},
 		{"no clock falls back to sun", nil, geo, jun21, 20, "sun", true},
 		{"no clock, no location", nil, brightnessGeo{}, noon, 255, "default", false},
@@ -220,24 +224,24 @@ func TestDecideSmoothsAndHolds(t *testing.T) {
 		return out
 	}
 
-	first := step(300, t0)
+	first := step(200, t0)
 	if first.Level != 255 {
 		t.Fatalf("first = %d, want 255 (seeded from first sample)", first.Level)
 	}
-	// One dark reading is halved by the EMA (300 -> 152.5 lux), not obeyed.
-	second := step(5, t0.Add(30*time.Second))
+	// One dark reading is halved by the EMA (200 -> 100 lux), not obeyed.
+	second := step(0.5, t0.Add(30*time.Second))
 	if second.Level < 200 {
 		t.Errorf("EMA should damp a single dim sample: level %d", second.Level)
 	}
 	// Re-asking with the same sample timestamp must not feed the EMA twice.
-	again, st2 := decideBrightness(c, st, luxAt(5, t0.Add(30*time.Second)), geo, t0.Add(31*time.Second))
+	again, st2 := decideBrightness(c, st, luxAt(0.5, t0.Add(30*time.Second)), geo, t0.Add(31*time.Second))
 	if again.Level != second.Level || st2.EMA != st.EMA {
 		t.Errorf("same sample re-applied: %d vs %d, ema %v vs %v", again.Level, second.Level, st2.EMA, st.EMA)
 	}
 	// Sustained dark converges to the floor.
 	var last brightnessOut
 	for i := 2; i < 30; i++ {
-		last = step(5, t0.Add(time.Duration(i)*30*time.Second))
+		last = step(0.5, t0.Add(time.Duration(i)*30*time.Second))
 	}
 	if last.Level != 10 {
 		t.Errorf("sustained dark = %d, want floor 10", last.Level)
@@ -257,7 +261,7 @@ func TestDecideStaleResetsEMA(t *testing.T) {
 	c := BrightnessConfig{}.resolved()
 	geo := brightnessGeo{Lat: lonLat, Lon: lonLon, Set: true}
 	noon := jun21.Add(12 * time.Hour)
-	_, st := decideBrightness(c, brightnessState{}, luxAt(300, noon), geo, noon)
+	_, st := decideBrightness(c, brightnessState{}, luxAt(200, noon), geo, noon)
 	if !st.HasEMA {
 		t.Fatal("ema not seeded")
 	}
@@ -266,7 +270,7 @@ func TestDecideStaleResetsEMA(t *testing.T) {
 		t.Errorf("state should reset when clock is gone: %+v", st)
 	}
 	// Coming back dark starts from the new reading, not the old bright EMA.
-	out, _ := decideBrightness(c, st, luxAt(5, noon.Add(2*time.Hour)), geo, noon.Add(2*time.Hour))
+	out, _ := decideBrightness(c, st, luxAt(0.5, noon.Add(2*time.Hour)), geo, noon.Add(2*time.Hour))
 	if out.Level != 10 {
 		t.Errorf("after reset level = %d, want 10", out.Level)
 	}
@@ -352,30 +356,36 @@ func TestBrightnessEndpointClockWithoutSensor(t *testing.T) {
 
 func TestBrightnessConfigMergePut(t *testing.T) {
 	app := newPomodoroApp(t)
-	var d BrightnessConfig
-	rec := httptest.NewRecorder()
-	app.handleBrightnessConfigGet(rec, httptest.NewRequest("GET", "/v1/brightness/config", nil))
-	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil || d.Floor != 10 || d.Ceiling != 255 {
-		t.Fatalf("GET = %s (%v)", rec.Body, err)
+	app.updateConfig(func(c *Config) { c.Auth.StatusToken = testToken })
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+	put := func(body string, authed bool) (int, BrightnessConfig) {
+		req, _ := http.NewRequest("PUT", srv.URL+"/v1/brightness/config", strings.NewReader(body))
+		if authed {
+			req = authedRequest(t, "PUT", srv.URL+"/v1/brightness/config", body)
+		}
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var d BrightnessConfig
+		_ = json.NewDecoder(resp.Body).Decode(&d)
+		return resp.StatusCode, d
 	}
 
-	rec = httptest.NewRecorder()
-	app.handleBrightnessConfigPut(rec, httptest.NewRequest("PUT", "/v1/brightness/config", strings.NewReader(`{"floor":30,"night_level":40}`)))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT = %d %s", rec.Code, rec.Body)
+	if code, _ := put(`{"floor":30}`, false); code != http.StatusUnauthorized {
+		t.Fatalf("PUT without token = %d, want 401", code)
 	}
-	got := app.cfg.Load().Brightness.resolved()
-	if got.Floor != 30 || got.Ceiling != 255 || got.NightLevel != 40 || got.DayLevel != 255 {
-		t.Errorf("after merge = %+v", got)
+	code, d := put(`{"floor":30,"night_level":40}`, true)
+	if code != http.StatusOK || d.Floor != 30 || d.NightLevel != 40 || d.Ceiling != 255 || d.DayLevel != 255 {
+		t.Fatalf("merge PUT = %d %+v", code, d)
 	}
-
 	// Raising the floor above the stored night level is rejected, not clamped.
-	rec = httptest.NewRecorder()
-	app.handleBrightnessConfigPut(rec, httptest.NewRequest("PUT", "/v1/brightness/config", strings.NewReader(`{"floor":50}`)))
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("invalid PUT = %d, want 400", rec.Code)
+	if code, _ := put(`{"floor":50}`, true); code != http.StatusBadRequest {
+		t.Errorf("invalid PUT = %d, want 400", code)
 	}
-	if app.cfg.Load().Brightness.resolved().Floor != 30 {
-		t.Error("invalid PUT changed the config")
+	if got := app.cfg.Load().Brightness.resolved().Floor; got != 30 {
+		t.Errorf("invalid PUT changed floor to %d", got)
 	}
 }
