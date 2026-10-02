@@ -494,6 +494,54 @@ markers still get reaped.
   rollout `token_count` events and posts both to `POST /v1/usage` alongside each
   status post (host-local reset labels formatted producer-side).
 
+- **T3 Code producer — `cmd/ember-t3-producer`** (#210). T3 Code is a GUI
+  over Codex / Claude / Cursor / OpenCode; its threads never reach the other
+  producers (Codex runs as `codex app-server`, filtered out by `source`).
+  A LaunchAgent (`com.ember.t3`) **polls T3's SQLite state read-only** every
+  2 s (`mode=ro` + `query_only`, so the live WAL is still read) and keeps
+  sessions alive with the Codex-style 15 s keepalive. Session id = T3 thread
+  id, activity = thread title, tool `t3` ("T3" glyph, the 3 in the state
+  colour). Mapping: a pending runtime request → `waiting` (even on a settled
+  thread: Codex `user_input` requests outlive the turn); preparing / queued /
+  starting / running → `running`; failed → `error` with the provider
+  session's `lastError`; completed → `done`; idle / interrupted / cancelled /
+  rolled_back / archived / deleted / unknown → DELETE. done and error stay for
+  the activity window (5 min). Two schemas: `userdata/statev2.sqlite`
+  (`orchestration_v2_projection_*`, T3 ≥ 0.0.46, wins when present) and
+  `userdata/state.sqlite` (`projection_threads` + `projection_thread_sessions`,
+  T3 ≤ 0.0.45, session status idle/starting/running/ready/interrupted/
+  stopped/error, `ready` = done). T3 liveness is `userdata/server-runtime.json`
+  plus a `kill(pid, 0)` probe: without it a thread caught `running` when T3
+  quit would stay on the clock, since nothing updates the database again.
+
+  *Transport decision: SQLite poll, not the WebSocket RPC.* T3's server does
+  expose `orchestration.subscribeShell` (snapshot, then thread upserts) over
+  Effect RPC (`RpcSerialization.layerJson` over a WebSocket). Using it would
+  need (a) a WebSocket client — Go's stdlib has none, so a new dependency or a
+  hand-rolled RFC 6455 client; (b) T3's pairing flow: a pairing credential
+  exchanged for a bearer token, then a short-lived WS ticket per connect, with
+  the bearer stored on disk as a second secret next to `EMBER_TOKEN`; (c)
+  tracking Effect RPC's internal framing (Request / Chunk / Ack / Exit / Ping)
+  and two incompatible shell contracts (v1 `OrchestrationThreadShell` vs
+  `OrchestrationV2ThreadShell`, both on the same method name). The SQLite read
+  reuses `modernc.org/sqlite` (already the server's only dependency), needs no
+  credentials, works whether T3 runs as the desktop app or `t3 serve`, and is
+  testable with synthesised fixtures. Its cost is coupling to internal
+  projection tables that churn (56 migrations): the queries are reduced copies
+  of T3's own shell queries, the newest verified migration per schema is
+  pinned (`pinnedMigrations`: v1 54, v2 56) and a newer one is logged once and
+  still read, and a missing table or column is a soft failure (log once a
+  minute, back off to 60 s, never post or delete on a bad read).
+
+  *Double sessions.* T3's Claude provider loads the user's Claude settings, so
+  the Ember Claude hooks fire for T3 Claude threads too and the same work shows
+  as a `t3` and a `claude` session. The hook payload carries no T3 marker
+  (T3 sets neither `CLAUDE_AGENT_SDK_CLIENT_APP` nor any T3 env var), so the
+  producer cannot tell them apart cheaply; the RUNBOOK documents the
+  separate-`CLAUDE_CONFIG_DIR` workaround. A dedupe in the Claude hook (walk
+  the ancestry to the pid in T3's `server-runtime.json`) is possible but adds
+  `ps` calls to the 500 ms hook budget; left for after a live check.
+
 Claude producer constraints:
 - **Hook timeout.** The hook path uses the short `HookTimeoutMs` (default
   500 ms) because the hook blocks the `claude` CLI. The daemon uses a separate,
@@ -1748,7 +1796,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
 
 | Signal | Claude | Codex | Notes |
 |---|---|---|---|
-| state / tool / session | hooks | rollout JSONL | |
+| state / tool / session | hooks | rollout JSONL | T3 Code: SQLite poll of `~/.t3/userdata` (no context, rate or usage) |
 | `context_pct` | statusline `context_window.used_percentage` | rollout token_count | transcript heuristic was removed (over-read) |
 | `rate_window_pct` (5h) | statusline `five_hour.used_percentage` | rollout `rate_limits.primary.used_percent` | |
 | `rate_reset_at` | statusline `…five_hour.resets_at` | rollout `…primary.resets_at` | epoch secs; countdown computed at render time (TZ-independent) |
