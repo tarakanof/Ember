@@ -389,3 +389,56 @@ func TestBrightnessConfigMergePut(t *testing.T) {
 		t.Errorf("invalid PUT changed floor to %d", got)
 	}
 }
+
+func TestDecideLastGoodSampleStaleBoundary(t *testing.T) {
+	c := BrightnessConfig{}.resolved()
+	geo := brightnessGeo{Lat: lonLat, Lon: lonLon, Set: true}
+	noon := jun21.Add(12 * time.Hour)
+	stale := time.Duration(c.StaleSeconds) * time.Second
+	_, st := decideBrightness(c, brightnessState{}, luxAt(0.5, noon), geo, noon)
+
+	out, st2 := decideBrightness(c, st, nil, geo, noon.Add(stale))
+	if out.Source != "lux" || out.Level != 10 || st2.EMA != st.EMA || !st2.HasEMA {
+		t.Errorf("exactly stale_seconds old: %+v ema %v, want lux 10 with the EMA kept", out, st2.EMA)
+	}
+	out, _ = decideBrightness(c, st, nil, geo, noon.Add(stale+time.Nanosecond))
+	if out.Source != "sun" {
+		t.Errorf("just past stale_seconds: %+v, want sun", out)
+	}
+}
+
+func TestDecideOlderSampleDoesNotReplaceLastGood(t *testing.T) {
+	c := BrightnessConfig{}.resolved()
+	geo := brightnessGeo{Lat: lonLat, Lon: lonLon, Set: true}
+	stale := time.Duration(c.StaleSeconds) * time.Second
+	t0 := jun21.Add(12 * time.Hour)
+	newer := t0.Add(stale)
+	_, st := decideBrightness(c, brightnessState{}, luxAt(0.5, newer), geo, newer)
+	_, st = decideBrightness(c, st, luxAt(0.5, t0), geo, newer)
+
+	now := newer.Add(stale - time.Second)
+	out, _ := decideBrightness(c, st, nil, geo, now)
+	if out.Source != "lux" {
+		t.Errorf("older sample displaced the newer one: %+v, want lux (newer is %s old)", out, stale-time.Second)
+	}
+}
+
+func TestDecideEMAGapBoundary(t *testing.T) {
+	c := BrightnessConfig{}.resolved()
+	geo := brightnessGeo{}
+	stale := time.Duration(c.StaleSeconds) * time.Second
+	t0 := jun21.Add(12 * time.Hour)
+	_, st := decideBrightness(c, brightnessState{}, luxAt(100, t0), geo, t0)
+
+	at := t0.Add(stale)
+	_, blended := decideBrightness(c, st, luxAt(10, at), geo, at)
+	want := c.EMAAlpha*10 + (1-c.EMAAlpha)*100
+	if blended.EMA != want {
+		t.Errorf("gap == stale_seconds: ema %v, want blended %v", blended.EMA, want)
+	}
+	at = t0.Add(stale + time.Nanosecond)
+	_, reseeded := decideBrightness(c, st, luxAt(10, at), geo, at)
+	if reseeded.EMA != 10 {
+		t.Errorf("gap > stale_seconds: ema %v, want reseed 10", reseeded.EMA)
+	}
+}
