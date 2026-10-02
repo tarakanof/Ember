@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func TestLoadConfig_TokenEnvFallback(t *testing.T) {
@@ -351,5 +353,29 @@ func TestLoadConfig_SessionBarDisabled(t *testing.T) {
 	cfg, _ := loadConfig()
 	if cfg.SessionBarEnabled {
 		t.Error("EMBER_SESSION_BAR=false should disable SessionBarEnabled")
+	}
+}
+
+func TestLoadConfig_SourceDefaultsFromHostOnPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	envDir := filepath.Join(dir, ".config", "ember")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(body string) {
+		if err := os.WriteFile(filepath.Join(envDir, "producer.env"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("EMBER_SOURCE=set-me-to-this-laptop-id\n")
+	cfg, _ := loadConfig()
+	if want := producer.DefaultSource(); cfg.Source != want {
+		t.Errorf("placeholder: Source = %q, want host default %q", cfg.Source, want)
+	}
+	write("EMBER_SOURCE=m5\n")
+	cfg, _ = loadConfig()
+	if cfg.Source != "m5" {
+		t.Errorf("explicit: Source = %q, want m5", cfg.Source)
 	}
 }

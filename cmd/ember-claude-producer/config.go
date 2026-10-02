@@ -145,6 +145,7 @@ func loadConfig() (Config, error) {
 			}
 		}
 	}
+	cfg.Source = producer.ResolveSource(cfg.Source)
 	if cfg.Token == "" {
 		cfg.Token = os.Getenv("EMBER_TOKEN")
 	}

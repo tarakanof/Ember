@@ -24,7 +24,7 @@ Then edit the env file:
 $EDITOR ~/.config/ember/producer.env
 ```
 
-Set `EMBER_SOURCE`, `EMBER_SERVER_URL`, and `EMBER_TOKEN`. Restart
+`EMBER_SOURCE` defaults to the short host name when empty. Set `EMBER_SOURCE`, `EMBER_SERVER_URL`, and `EMBER_TOKEN`. Restart
 `claude` (exit and re-run) to pick up the new hooks.
 
 ## Verify
