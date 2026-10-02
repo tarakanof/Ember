@@ -368,9 +368,10 @@ func TestLoadConfig_SourceDefaultsFromHostOnPlaceholder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	defer producer.SetHostNameForTest("Dmitrys-MacBook-Pro")()
 	write("EMBER_SOURCE=set-me-to-this-laptop-id\n")
 	cfg, _ := loadConfig()
-	if want := producer.DefaultSource(); cfg.Source != want {
+	if want := "mbp"; cfg.Source != want {
 		t.Errorf("placeholder: Source = %q, want host default %q", cfg.Source, want)
 	}
 	write("EMBER_SOURCE=m5\n")

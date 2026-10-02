@@ -5,7 +5,8 @@ import "strings"
 // EnvExample returns the canonical body seeded into ~/.config/ember/producer.env on first install.
 func EnvExample() string {
 	return strings.Replace(`# ember producer configuration (shared by Claude + Codex producers)
-# Required (EMBER_SOURCE defaults to this Mac's short host name when empty):
+# EMBER_SOURCE: machine label on the clock card (~4 glyphs); empty = short host id.
+# Required:
 EMBER_SOURCE=@SOURCE@
 EMBER_SERVER_URL=http://192.168.0.36:3627
 EMBER_TOKEN=set-me-to-the-server-bearer-token

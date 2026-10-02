@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func writeEnv(t *testing.T, content string) string {
@@ -282,5 +284,19 @@ func TestLoadConfig_CodexSessionBarDisabled(t *testing.T) {
 	cfg, _ := loadConfig()
 	if cfg.SessionBarEnabled {
 		t.Error("EMBER_SESSION_BAR=false should disable SessionBarEnabled")
+	}
+}
+
+func TestLoadConfig_SourceDefaultsFromHostOnPlaceholder(t *testing.T) {
+	defer producer.SetHostNameForTest("Dmitrys-MacBook-Pro")()
+	writeEnv(t, "EMBER_SOURCE=set-me-to-this-laptop-id\n")
+	cfg, _ := loadConfig()
+	if want := "mbp"; cfg.Source != want {
+		t.Errorf("Source = %q, want %q", cfg.Source, want)
+	}
+	writeEnv(t, "EMBER_SOURCE=m5\n")
+	cfg, _ = loadConfig()
+	if cfg.Source != "m5" {
+		t.Errorf("Source = %q, want m5", cfg.Source)
 	}
 }

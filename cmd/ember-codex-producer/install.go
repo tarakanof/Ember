@@ -20,6 +20,7 @@ func runInstall() {
 	}
 	fmt.Println("Install complete. The Codex producer daemon is now running.")
 	fmt.Println("Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
+	printSourceHint()
 }
 
 func runConfigure() {
@@ -28,6 +29,7 @@ func runConfigure() {
 		os.Exit(1)
 	}
 	fmt.Println("Configure complete. Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
+	printSourceHint()
 }
 
 func install() error {
@@ -70,6 +72,9 @@ func configureAt(home string) error {
 		if err := os.WriteFile(envPath, []byte(envExample()), 0o600); err != nil {
 			return err
 		}
+	}
+	if _, _, err := producer.EnsureSourceInEnv(envPath); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not default EMBER_SOURCE:", err)
 	}
 	return nil
 }
@@ -152,4 +157,10 @@ func reloadLaunchAgent(lc producer.Launchctl, uid int, plistPath string) error {
 
 func envExample() string {
 	return producer.EnvExample()
+}
+
+func printSourceHint() {
+	if cfg, err := loadConfig(); err == nil {
+		fmt.Println(producer.SourceHint(cfg.Source))
+	}
 }

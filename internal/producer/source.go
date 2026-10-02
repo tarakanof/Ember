@@ -1,8 +1,11 @@
 package producer
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -63,8 +66,119 @@ func normalizeHostName(h string) string {
 		return -1
 	}, h)
 	h = strings.Trim(h, "-_")
+	h = shortHostID(h)
 	if len(h) > maxSourceLen {
 		h = strings.Trim(h[:maxSourceLen], "-_")
 	}
 	return h
+}
+
+var modelAbbrev = map[string]string{
+	"macbook-pro": "mbp",
+	"macbook-air": "mba",
+	"macbook":     "mb",
+	"mac-mini":    "mini",
+	"mac-studio":  "studio",
+	"mac-pro":     "macpro",
+	"imac":        "imac",
+}
+
+var (
+	modelRe      = regexp.MustCompile(`(?:^|-)(macbook-pro|macbook-air|macbook|mac-mini|mac-studio|mac-pro|imac)(?:-(.+))?$`)
+	possessiveRe = regexp.MustCompile(`^[a-z0-9]+s-(.+)$`)
+)
+
+// shortHostID shortens a macOS default name ("dmitrys-macbook-pro") to a
+// model id ("mbp") so different Macs stay distinct on the 4-glyph clock card.
+// A trailing disambiguator ("-2") is kept.
+func shortHostID(h string) string {
+	if m := modelRe.FindStringSubmatch(h); m != nil {
+		id := modelAbbrev[m[1]]
+		if m[2] != "" {
+			id += "-" + m[2]
+		}
+		return id
+	}
+	if m := possessiveRe.FindStringSubmatch(h); m != nil {
+		return m[1]
+	}
+	return h
+}
+
+// EnsureSourceInEnv rewrites an empty or placeholder EMBER_SOURCE in the env
+// file at path to the host default (appending the key when absent), so hot
+// paths read an explicit value instead of forking scutil. It returns the
+// effective source and whether the file changed. A missing file is a no-op;
+// the file must pass the same 0600/ownership checks as ReadEnvFile.
+func EnsureSourceInEnv(path string) (string, bool, error) {
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		return "", false, nil
+	}
+	vals, err := ReadEnvFile(path)
+	if err != nil {
+		return "", false, err
+	}
+	cur := vals["EMBER_SOURCE"]
+	if !IsPlaceholderSource(cur) {
+		return strings.TrimSpace(cur), false, nil
+	}
+	def := DefaultSource()
+	if def == "" {
+		return "", false, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, err
+	}
+	lines := strings.Split(string(raw), "\n")
+	found := false
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "#") {
+			continue
+		}
+		if k, _, ok := strings.Cut(t, "="); ok && strings.TrimSpace(k) == "EMBER_SOURCE" {
+			lines[i] = "EMBER_SOURCE=" + def
+			found = true
+		}
+	}
+	out := strings.Join(lines, "\n")
+	if !found {
+		if out != "" && !strings.HasSuffix(out, "\n") {
+			out += "\n"
+		}
+		out += "EMBER_SOURCE=" + def + "\n"
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".producer.env.*")
+	if err != nil {
+		return "", false, err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return "", false, err
+	}
+	if _, err := tmp.WriteString(out); err != nil {
+		tmp.Close()
+		return "", false, err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", false, err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return "", false, err
+	}
+	return def, true, nil
+}
+
+// SourceHint is the install/doctor line naming the resolved source.
+func SourceHint(src string) string {
+	return fmt.Sprintf("EMBER_SOURCE = %q (shown on the clock card, ~4 glyphs); set EMBER_SOURCE in ~/.config/ember/producer.env to choose a different short id", src)
+}
+
+// SetHostNameForTest replaces the host name lookup and returns a restore func.
+func SetHostNameForTest(name string) (restore func()) {
+	orig := hostNameFuncs
+	hostNameFuncs = []func() (string, error){func() (string, error) { return name, nil }}
+	return func() { hostNameFuncs = orig }
 }
