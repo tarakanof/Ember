@@ -52,9 +52,15 @@ ember-claude-producer doctor                    # "claude hooks: plugin ember@em
   `~/go/bin/ember-claude-producer`, else
   `/Applications/Ember.app/Contents/MacOS/ember-claude-producer` (or
   `~/Applications/...`). No binary: the hook exits 0 silently.
-- **Never in the way.** Every hook exits 0 and prints nothing. Blocking hooks
-  have a 5 s timeout (the producer's own HTTP timeout is 500 ms); the three
-  tool-outcome hooks run `async`, as in the installer.
+- **Never in the way.** Every hook exits 0 and prints nothing. The three
+  tool-outcome hooks run `async`, as in the installer. The other hooks block,
+  and Claude Code kills them after 5 s. The exception is SessionEnd, which runs
+  inside Claude Code's shared 1.5 s SessionEnd budget; a plugin hook's
+  `timeout` can't raise that budget. The producer's own HTTP timeout
+  (`EMBER_HOOK_TIMEOUT_MS`, default 500 ms) stays well inside both. If you
+  raise it above ~1500 ms, SessionEnd's DELETE can be cut off (the heartbeat
+  then reaps the session later); above 5000 ms, the blocking hooks can be cut
+  off too.
 - **statusLine.** Plugins can't set `statusLine`, so `install`/`configure`
   still writes it to `~/.claude/settings.json`. When `enabledPlugins` there
   has `ember@ember: true`, they skip the hooks and remove any producer hooks
@@ -63,9 +69,19 @@ ember-claude-producer doctor                    # "claude hooks: plugin ember@em
   latest commit: `claude plugin marketplace update ember && claude plugin update
   ember@ember`, or turn on
   auto-update for the marketplace in `/plugin`.
-- **Uninstall.** `claude plugin uninstall ember@ember` (and
-  `claude plugin marketplace remove ember`). Run `ember-claude-producer configure`
-  afterwards if you want the settings.json hooks back.
+- **Uninstall or disable.** `claude plugin uninstall ember@ember` (and
+  `claude plugin marketplace remove ember`), or `claude plugin disable
+  ember@ember`. Either one leaves no hooks at all, because configure already
+  removed the settings.json copies. Run `ember-claude-producer configure`
+  afterwards to register them in settings.json again. `doctor` shows `NONE`
+  until you do.
+- **Turning Ember off.** `deconfigure`/`uninstall` (and Ember.app's Agents
+  toggle) can't unregister a plugin's hooks. Instead they write
+  `~/.config/ember/claude-hooks.disabled`, a kill switch that makes every hook
+  exit before it reads config or touches the network. They also print a
+  reminder to run `claude plugin disable ember@ember`. `configure` (and
+  `install`, and the app's toggle) removes the file. `doctor` reports
+  `DISABLED` while it's present.
 
 **Migrating from settings.json hooks:** install the plugin, then run
 `ember-claude-producer configure`. It sees the enabled plugin and drops the

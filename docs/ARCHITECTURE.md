@@ -517,7 +517,9 @@ Claude producer constraints:
   plugin's hook against a settings one, so `configure` skips (and strips) the
   settings.json hooks when `enabledPlugins["ember@ember"]` is true, and
   `doctor` flags both at once. Config stays in `producer.env`; the plugin has no
-  `userConfig`.
+  `userConfig`. Since deconfigure can't unregister plugin hooks, it writes the
+  kill switch `~/.config/ember/claude-hooks.disabled`, which `runHook` checks
+  before `loadConfig`; configure removes it.
 - **Statusline.** The `statusline` subcommand never calls `loadConfig` and
   makes no network call, so it needs no token. Its stdout is the status bar
   Claude renders and must not be redirected; only stderr goes to the producer

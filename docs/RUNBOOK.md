@@ -89,8 +89,12 @@ enabled in `~/.claude/settings.json`, configure/install write only the
 statusLine (plugins can't set one) and strip any producer hooks already there;
 `doctor`'s `claude hooks:` line warns `registered TWICE` if both are present.
 Update: `claude plugin marketplace update ember && claude plugin update
-ember@ember`. Uninstall: `claude plugin
-uninstall ember@ember`, then `configure` to get the settings.json hooks back.
+ember@ember`. Uninstalling or disabling the plugin leaves no hooks (`doctor`:
+`NONE`); run `configure` to put the settings.json hooks back. `deconfigure`/
+`uninstall` write the kill switch `~/.config/ember/claude-hooks.disabled`, so
+plugin hooks go silent (`doctor`: `DISABLED`). `configure` removes it. Hook
+timeouts: blocking plugin hooks 5 s, but SessionEnd shares Claude Code's 1.5 s
+budget, so keep `EMBER_HOOK_TIMEOUT_MS` (default 500) under ~1500.
 Details: [`producers/claude-code/README.md`](../producers/claude-code/README.md).
 
 `producer.env` (`~/.config/ember/producer.env`) holds: `source`,
