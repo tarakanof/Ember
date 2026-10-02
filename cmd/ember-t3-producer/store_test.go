@@ -140,9 +140,11 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('q4', 't-auth', 'n', 'auth_refresh', 'pending', '2026-10-02T10:03:20.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, node_id, ordinal, type, status, updated_at, payload_json) VALUES
 		 ('i-child', 't-fail', 'r5', 'child', 1, 'error', 'failed', '2026-10-02T10:03:59.000Z', '{"failure":{"message":"subagent failed"}}'),
-		 ('i-root', 't-fail', 'r5', 'root-5', 2, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"usage limit reached"}}')`,
+		 ('i-root', 't-fail', 'r5', 'root-5', 2, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"usage limit reached"}}'),
+		 -- T3 shows sessionError ?? failure.message: the session's text must win here.
+		 ('i-root-b', 't-fail-sess', 'r5b', 'root-5b', 1, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"item loses"}}')`,
 		`INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, provider, status, updated_at, payload_json, provider_instance_id) VALUES
-		 ('s-fail', 't-fail', 'codex', 'error', '2026-10-02T10:04:00.000Z', '{"lastError":"session says so"}', 'codex'),
+		 ('s-fail', 't-fail', 'codex', 'error', '2026-10-02T10:04:00.000Z', '{}', 'codex'),
 		 ('s-old', 't-fail-sess', 'codex', 'error', '2026-10-02T10:00:00.000Z', '{"lastError":"stale"}', 'codex'),
 		 ('s-new', 't-fail-sess', 'codex', 'error', '2026-10-02T10:04:00.000Z', '{"lastError":"rate limited"}', 'codex'),
 		 ('s-other-instance', 't-fail-sess', 'claudeAgent', 'error', '2026-10-02T10:05:00.000Z', '{"lastError":"other provider"}', 'claudeAgent'),

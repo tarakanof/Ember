@@ -177,8 +177,9 @@ WHERE t.deleted_at IS NULL`
 // user_input requests outlive the turn). auth_refresh requests are skipped
 // as T3's awareness does, so one cannot hide an older approval. Subagent
 // child threads are rows of their own here but not threads in T3's UI. The
-// error text prefers the failed run's root error item, then the newest
-// bound provider session of the thread's provider instance.
+// error text prefers the newest bound provider session of the thread's
+// provider instance, then the failed run's root error item (T3 shows
+// sessionError ?? failure.message).
 const queryV2 = `
 SELECT
   t.thread_id,
@@ -188,16 +189,16 @@ SELECT
     WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'
     ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1),
   COALESCE(
-    (SELECT json_extract(i.payload_json, '$.failure.message') FROM orchestration_v2_projection_turn_items i
-      WHERE presented.status = 'failed' AND i.run_id = presented.run_id AND i.thread_id = t.thread_id
-        AND i.type = 'error' AND i.status = 'failed'
-        AND i.node_id IS json_extract(presented.payload_json, '$.rootNodeId')
-      ORDER BY i.updated_at DESC, i.ordinal DESC, i.turn_item_id DESC LIMIT 1),
     (SELECT json_extract(ps.payload_json, '$.lastError') FROM orchestration_v2_projection_provider_sessions ps
       INNER JOIN orchestration_v2_projection_provider_session_bindings b
         ON b.provider_session_id = ps.provider_session_id
       WHERE b.thread_id = t.thread_id AND ps.provider_instance_id = t.provider_instance_id
-      ORDER BY ps.updated_at DESC, ps.provider_session_id DESC LIMIT 1)),
+      ORDER BY ps.updated_at DESC, ps.provider_session_id DESC LIMIT 1),
+    (SELECT json_extract(i.payload_json, '$.failure.message') FROM orchestration_v2_projection_turn_items i
+      WHERE presented.status = 'failed' AND i.run_id = presented.run_id AND i.thread_id = t.thread_id
+        AND i.type = 'error' AND i.status = 'failed'
+        AND i.node_id IS json_extract(presented.payload_json, '$.rootNodeId')
+      ORDER BY i.updated_at DESC, i.ordinal DESC, i.turn_item_id DESC LIMIT 1)),
   COALESCE(t.archived_at, json_extract(t.payload_json, '$.archivedAt')),
   presented.requested_at,
   presented.completed_at,
