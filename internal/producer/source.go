@@ -77,6 +77,8 @@ var modelAbbrev = map[string]string{
 	"macbook-pro": "mbp",
 	"macbook-air": "mba",
 	"macbook":     "mb",
+	"mbp":         "mbp",
+	"mba":         "mba",
 	"mac-mini":    "mini",
 	"mac-studio":  "studio",
 	"mac-pro":     "macpro",
