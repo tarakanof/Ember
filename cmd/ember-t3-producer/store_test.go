@@ -53,7 +53,7 @@ func TestReadSnapshotV1(t *testing.T) {
 	makeDB(t, home, "state.sqlite", "schema_v1.sql",
 		`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (53, 'PullRequestFilesViewed'), (54, 'ProjectionThreadsAutoSettleDisabledAt')`,
 		`INSERT INTO projection_threads (thread_id, project_id, title, model, created_at, updated_at, pending_approval_count, pending_user_input_count, archived_at, deleted_at) VALUES
-		 ('th-run', 'p', 'Fix login bug', 'gpt-5', '2026-10-02T10:00:00.000Z', '2026-10-02T10:05:00.000Z', 0, 0, NULL, NULL),
+		 ('th-run', 'p', 'Fix login bug', 'gpt-5', '2026-10-02T10:00:00.000Z', '2026-10-05T09:00:00.000Z', 0, 0, NULL, NULL),
 		 ('th-ask', 'p', 'Refactor', 'gpt-5', '2026-10-02T10:00:00.000Z', '2026-10-02T10:06:00.000Z', 1, 0, NULL, NULL),
 		 ('th-input', 'p', 'Plan', 'gpt-5', '2026-10-02T10:00:00.000Z', '2026-10-02T10:06:00.000Z', 0, 2, NULL, NULL),
 		 ('th-arch', 'p', 'Old', 'gpt-5', '2026-10-02T10:00:00.000Z', '2026-10-02T10:06:00.000Z', 0, 0, '2026-10-02T10:07:00.000Z', NULL),
@@ -84,7 +84,7 @@ func TestReadSnapshotV1(t *testing.T) {
 		t.Fatalf("th-run = %+v", run)
 	}
 	if want := time.Date(2026, 10, 2, 10, 5, 30, 0, time.UTC); !run.ChangedAt.Equal(want) {
-		t.Fatalf("th-run ChangedAt = %v, want %v (latest of thread/session)", run.ChangedAt, want)
+		t.Fatalf("th-run ChangedAt = %v, want %v (session time, not the settle-bumped thread time)", run.ChangedAt, want)
 	}
 	if got["th-ask"].PendingKind != "approval" {
 		t.Fatalf("th-ask pending = %q, want approval", got["th-ask"].PendingKind)
@@ -102,34 +102,55 @@ func TestReadSnapshotV1(t *testing.T) {
 
 func TestReadSnapshotV2(t *testing.T) {
 	home := t.TempDir()
-	// A leftover v1 file must be ignored once statev2.sqlite exists.
+	// A leftover v1 file must be ignored while statev2.sqlite is the newer one.
 	makeDB(t, home, "state.sqlite", "schema_v1.sql")
 	makeDB(t, home, "statev2.sqlite", "schema_v2.sql",
 		`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (55, 'OrchestrationV2'), (56, 'RemoveRedundantProjectionIndexes')`,
-		`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, archived_at, deleted_at, payload_json) VALUES
-		 ('t-run', 'p', 'Add dark mode', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}'),
-		 ('t-wait', 'p', 'Ship it', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}'),
-		 ('t-done-ask', 'p', 'Question', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}'),
-		 ('t-fail', 'p', 'Broken', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}'),
-		 ('t-held', 'p', 'Queued behind', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}'),
-		 ('t-arch', 'p', 'Archived', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"archivedAt":"2026-10-02T11:00:00.000Z"}'),
-		 ('t-idle', 'p', 'Empty', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}'),
-		 ('t-del', 'p', 'Deleted', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, '2026-10-02T10:00:00.000Z', '{}')`,
+		// updated_at is deliberately late (settle, rename, archive bump it): it must not drive ChangedAt.
+		`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, archived_at, deleted_at, payload_json, provider_instance_id) VALUES
+		 ('t-run', 'p', 'Add dark mode', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-05T09:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-wait', 'p', 'Ship it', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
+		 ('t-done-ask', 'p', 'Question', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-fail', 'p', 'Broken', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-fail-sess', 'p', 'Broken too', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-held', 'p', 'Queued behind', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-arch', 'p', 'Archived', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"archivedAt":"2026-10-02T11:00:00.000Z"}', 'codex'),
+		 ('t-idle', 'p', 'Empty', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-auth', 'p', 'Needs approval', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-settled', 'p', 'Settled days later', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-05T09:00:00.000Z', NULL, NULL, '{"settledAt":"2026-10-05T09:00:00.000Z"}', 'codex'),
+		 ('t-sub', 'p', 'Subagent: explore', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"lineage":{"relationshipToParent":"subagent"}}', 'codex'),
+		 ('t-fork', 'p', 'Forked', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"lineage":{"relationshipToParent":"fork"}}', 'codex'),
+		 ('t-del', 'p', 'Deleted', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, '2026-10-02T10:00:00.000Z', '{}', 'codex')`,
 		`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json) VALUES
 		 ('r1', 't-run', 1, 'codex', 'completed', '2026-10-02T10:01:00.000Z', '2026-10-02T10:02:00.000Z', '{}'),
 		 ('r2', 't-run', 2, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
 		 ('r3', 't-wait', 1, 'claudeAgent', 'waiting', '2026-10-02T10:03:00.000Z', NULL, '{}'),
 		 ('r4', 't-done-ask', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
-		 ('r5', 't-fail', 1, 'codex', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r5', 't-fail', 1, 'codex', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{"rootNodeId":"root-5"}'),
+		 ('r5b', 't-fail-sess', 1, 'codex', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{"rootNodeId":"root-5b"}'),
 		 ('r6', 't-held', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
-		 ('r7', 't-held', 2, 'codex', 'queued', '2026-10-02T10:05:00.000Z', NULL, '{"queueHeld":true}')`,
+		 ('r7', 't-held', 2, 'codex', 'queued', '2026-10-02T10:05:00.000Z', NULL, '{"queueHeld":true}'),
+		 ('r8', 't-auth', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r9', 't-settled', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r10', 't-sub', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}')`,
 		`INSERT INTO orchestration_v2_projection_runtime_requests (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json) VALUES
 		 ('q1', 't-done-ask', 'n', 'user_input', 'pending', '2026-10-02T10:04:30.000Z', '{}'),
-		 ('q2', 't-run', 'n', 'command', 'resolved', '2026-10-02T10:03:30.000Z', '{}')`,
-		`INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, provider, status, updated_at, payload_json) VALUES
-		 ('s-old', 't-fail', 'codex', 'error', '2026-10-02T10:00:00.000Z', '{"lastError":"stale"}'),
-		 ('s-new', 't-fail', 'codex', 'error', '2026-10-02T10:04:00.000Z', '{"lastError":"rate limited"}')`,
+		 ('q2', 't-run', 'n', 'command', 'resolved', '2026-10-02T10:03:30.000Z', '{}'),
+		 ('q3', 't-auth', 'n', 'command', 'pending', '2026-10-02T10:03:10.000Z', '{}'),
+		 ('q4', 't-auth', 'n', 'auth_refresh', 'pending', '2026-10-02T10:03:20.000Z', '{}')`,
+		`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, node_id, ordinal, type, status, updated_at, payload_json) VALUES
+		 ('i-child', 't-fail', 'r5', 'child', 1, 'error', 'failed', '2026-10-02T10:03:59.000Z', '{"failure":{"message":"subagent failed"}}'),
+		 ('i-root', 't-fail', 'r5', 'root-5', 2, 'error', 'failed', '2026-10-02T10:03:58.000Z', '{"failure":{"message":"usage limit reached"}}')`,
+		`INSERT INTO orchestration_v2_projection_provider_sessions (provider_session_id, thread_id, provider, status, updated_at, payload_json, provider_instance_id) VALUES
+		 ('s-fail', 't-fail', 'codex', 'error', '2026-10-02T10:04:00.000Z', '{"lastError":"session says so"}', 'codex'),
+		 ('s-old', 't-fail-sess', 'codex', 'error', '2026-10-02T10:00:00.000Z', '{"lastError":"stale"}', 'codex'),
+		 ('s-new', 't-fail-sess', 'codex', 'error', '2026-10-02T10:04:00.000Z', '{"lastError":"rate limited"}', 'codex'),
+		 ('s-other-instance', 't-fail-sess', 'claudeAgent', 'error', '2026-10-02T10:05:00.000Z', '{"lastError":"other provider"}', 'claudeAgent'),
+		 ('s-unbound', 't-fail-sess', 'codex', 'error', '2026-10-02T10:06:00.000Z', '{"lastError":"not bound"}', 'codex')`,
+		`INSERT INTO orchestration_v2_projection_provider_session_bindings (provider_session_id, thread_id) VALUES
+		 ('s-fail', 't-fail'), ('s-old', 't-fail-sess'), ('s-new', 't-fail-sess'), ('s-other-instance', 't-fail-sess')`,
 	)
+	setMtime(t, filepath.Join(home, "userdata", "state.sqlite"), time.Now().Add(-time.Hour))
 	snap, err := readSnapshot(context.Background(), home)
 	if err != nil {
 		t.Fatal(err)
@@ -138,35 +159,114 @@ func TestReadSnapshotV2(t *testing.T) {
 		t.Fatalf("schema/migration = %d/%d, want 2/56", snap.Schema, snap.Migration)
 	}
 	got := byID(snap.Threads)
-	if _, ok := got["t-del"]; ok {
-		t.Fatal("deleted thread must not be read")
+	for _, id := range []string{"t-del", "t-sub"} {
+		if _, ok := got[id]; ok {
+			t.Errorf("%s must not be read", id)
+		}
+	}
+	at := func(hms string) time.Time {
+		v, err := time.Parse(time.RFC3339, "2026-10-02T"+hms+"Z")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
 	}
 	cases := map[string]struct {
 		status, pending, lastErr string
 		archived                 bool
+		changed                  time.Time
 	}{
-		"t-run":      {status: "running"},
-		"t-wait":     {status: "waiting"},
-		"t-done-ask": {status: "completed", pending: "user_input"},
-		"t-fail":     {status: "failed", lastErr: "rate limited"},
-		"t-held":     {status: "completed"},
-		"t-arch":     {archived: true},
-		"t-idle":     {},
+		"t-run":       {status: "running", changed: at("10:03:00")},
+		"t-wait":      {status: "waiting", changed: at("10:03:00")},
+		"t-done-ask":  {status: "completed", pending: "user_input", changed: at("10:04:30")},
+		"t-fail":      {status: "failed", lastErr: "usage limit reached", changed: at("10:04:00")},
+		"t-fail-sess": {status: "failed", lastErr: "rate limited", changed: at("10:04:00")},
+		"t-held":      {status: "completed", changed: at("10:04:00")},
+		"t-arch":      {archived: true},
+		"t-idle":      {},
+		"t-auth":      {status: "running", pending: "command", changed: at("10:03:10")},
+		"t-settled":   {status: "completed", changed: at("10:04:00")},
+		"t-fork":      {},
 	}
 	for id, want := range cases {
 		th, ok := got[id]
 		if !ok {
-			t.Fatalf("%s missing", id)
+			t.Errorf("%s missing", id)
+			continue
 		}
-		if th.Status != want.status || th.PendingKind != want.pending || th.LastError != want.lastErr || th.Archived != want.archived {
+		if th.Status != want.status || th.PendingKind != want.pending || th.LastError != want.lastErr || th.Archived != want.archived || !th.ChangedAt.Equal(want.changed) {
 			t.Errorf("%s = %+v, want %+v", id, th, want)
 		}
 	}
-	if want := time.Date(2026, 10, 2, 10, 4, 30, 0, time.UTC); !got["t-done-ask"].ChangedAt.Equal(want) {
-		t.Fatalf("t-done-ask ChangedAt = %v, want %v (pending request time)", got["t-done-ask"].ChangedAt, want)
-	}
 	if got["t-run"].Title != "Add dark mode" {
 		t.Fatalf("title = %q", got["t-run"].Title)
+	}
+}
+
+func setMtime(t *testing.T, path string, at time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, at, at); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadSnapshotPrefersNewerDatabase(t *testing.T) {
+	// Downgrade from the 0.0.46 preview to 0.0.45: statev2.sqlite is left
+	// behind and only state.sqlite is still written.
+	home := t.TempDir()
+	makeDB(t, home, "statev2.sqlite", "schema_v2.sql")
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	setMtime(t, filepath.Join(home, "userdata", "statev2.sqlite"), time.Now().Add(-48*time.Hour))
+	snap, err := readSnapshot(context.Background(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Schema != 1 {
+		t.Fatalf("schema = %d, want 1 (state.sqlite is newer)", snap.Schema)
+	}
+	// A fresh WAL counts as a write even when the main file is old.
+	wal := filepath.Join(home, "userdata", "statev2.sqlite-wal")
+	if err := os.WriteFile(wal, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setMtime(t, filepath.Join(home, "userdata", "state.sqlite"), time.Now().Add(-time.Hour))
+	if snap, err = readSnapshot(context.Background(), home); err != nil || snap.Schema != 2 {
+		t.Fatalf("schema = %d err = %v, want 2 (statev2 WAL is newest)", snap.Schema, err)
+	}
+}
+
+func TestReadSnapshotWALWithConcurrentWriter(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	w, err := sql.Open("sqlite", filepath.Join(home, "userdata", "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	w.SetMaxOpenConns(1)
+	for _, s := range []string{
+		`PRAGMA journal_mode=WAL`,
+		`INSERT INTO projection_threads (thread_id, project_id, title, model, created_at, updated_at) VALUES ('committed', 'p', 'Seen', 'm', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z')`,
+		`BEGIN IMMEDIATE`,
+		`INSERT INTO projection_threads (thread_id, project_id, title, model, created_at, updated_at) VALUES ('uncommitted', 'p', 'Hidden', 'm', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z')`,
+	} {
+		if _, err := w.Exec(s); err != nil {
+			t.Fatalf("%s: %v", s, err)
+		}
+	}
+	snap, err := readSnapshot(context.Background(), home)
+	if err != nil {
+		t.Fatalf("read while a writer holds the lock: %v", err)
+	}
+	got := byID(snap.Threads)
+	if _, ok := got["committed"]; !ok {
+		t.Fatal("committed WAL row not read")
+	}
+	if _, ok := got["uncommitted"]; ok {
+		t.Fatal("uncommitted row read")
+	}
+	if _, err := w.Exec(`COMMIT`); err != nil {
+		t.Fatalf("writer blocked by the reader: %v", err)
 	}
 }
 

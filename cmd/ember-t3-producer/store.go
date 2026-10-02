@@ -32,7 +32,10 @@ type thread struct {
 	PendingKind string
 	LastError   string
 	Archived    bool
-	// ChangedAt is the newest timestamp among the thread, its session/run and its pending request.
+	// ChangedAt is when the thread last reached its current state: the v1
+	// session update, or the v2 presented run's completion (else request)
+	// and the pending request. The thread's own updated_at is left out:
+	// settling (also automatic, days later), renaming and archiving bump it.
 	ChangedAt time.Time
 }
 
@@ -43,22 +46,44 @@ type snapshot struct {
 }
 
 // readSnapshot reads every non-deleted thread from the T3 database under home.
-// statev2.sqlite (T3 >= 0.0.46) wins over state.sqlite (T3 <= 0.0.45): the
-// v2 server imports and then ignores the v1 file, which stays on disk.
+// When both files exist the most recently written one wins: the v2 server
+// (T3 >= 0.0.46) imports state.sqlite and then leaves it untouched, and after
+// a downgrade to 0.0.45 statev2.sqlite is the stale one.
 func readSnapshot(ctx context.Context, home string) (snapshot, error) {
 	dir := filepath.Join(home, "userdata")
-	if p := filepath.Join(dir, "statev2.sqlite"); fileExists(p) {
-		return readWith(ctx, p, 2, v2Tables, queryV2)
-	}
-	if p := filepath.Join(dir, "state.sqlite"); fileExists(p) {
-		return readWith(ctx, p, 1, v1Tables, queryV1)
+	v1, v2 := filepath.Join(dir, "state.sqlite"), filepath.Join(dir, "statev2.sqlite")
+	m1, ok1 := dbModTime(v1)
+	m2, ok2 := dbModTime(v2)
+	switch {
+	case ok2 && (!ok1 || !m1.After(m2)):
+		return readWith(ctx, v2, 2, v2Tables, queryV2)
+	case ok1:
+		return readWith(ctx, v1, 1, v1Tables, queryV1)
 	}
 	return snapshot{}, errNoDatabase
 }
 
+// dbModTime is the newer mtime of a database and its WAL; in WAL mode
+// commits land in the -wal file and the main file changes only at checkpoint.
+func dbModTime(path string) (time.Time, bool) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return time.Time{}, false
+	}
+	m := info.ModTime()
+	if wal, err := os.Stat(path + "-wal"); err == nil && wal.ModTime().After(m) {
+		m = wal.ModTime()
+	}
+	return m, true
+}
+
 var (
 	v1Tables = []string{"projection_threads", "projection_thread_sessions"}
-	v2Tables = []string{"orchestration_v2_projection_threads", "orchestration_v2_projection_runs", "orchestration_v2_projection_runtime_requests", "orchestration_v2_projection_provider_sessions"}
+	v2Tables = []string{
+		"orchestration_v2_projection_threads", "orchestration_v2_projection_runs",
+		"orchestration_v2_projection_runtime_requests", "orchestration_v2_projection_provider_sessions",
+		"orchestration_v2_projection_provider_session_bindings", "orchestration_v2_projection_turn_items",
+	}
 )
 
 func readWith(ctx context.Context, path string, schema int, tables []string, query string) (snapshot, error) {
@@ -93,9 +118,9 @@ func readWith(ctx context.Context, path string, schema int, tables []string, que
 		var (
 			id, title                          string
 			status, pending, lastErr, archived sql.NullString
-			stamps                             [4]sql.NullString
+			stamps                             [3]sql.NullString
 		)
-		if err := rows.Scan(&id, &title, &status, &pending, &lastErr, &archived, &stamps[0], &stamps[1], &stamps[2], &stamps[3]); err != nil {
+		if err := rows.Scan(&id, &title, &status, &pending, &lastErr, &archived, &stamps[0], &stamps[1], &stamps[2]); err != nil {
 			return snapshot{}, fmt.Errorf("scan %s: %w", filepath.Base(path), err)
 		}
 		th := thread{
@@ -139,7 +164,6 @@ SELECT
   END,
   s.last_error,
   t.archived_at,
-  t.updated_at,
   s.updated_at,
   NULL,
   NULL
@@ -150,31 +174,43 @@ WHERE t.deleted_at IS NULL`
 // queryV2 is a reduced copy of ProjectionStore.selectShellThreadRows in T3
 // 0.0.46: the presented run is the newest one not held in the queue, and a
 // pending runtime request counts even after its run settled (Codex
-// user_input requests outlive the turn).
+// user_input requests outlive the turn). auth_refresh requests are skipped
+// as T3's awareness does, so one cannot hide an older approval. Subagent
+// child threads are rows of their own here but not threads in T3's UI. The
+// error text prefers the failed run's root error item, then the newest
+// bound provider session of the thread's provider instance.
 const queryV2 = `
 SELECT
   t.thread_id,
   t.title,
   presented.status,
   (SELECT q.kind FROM orchestration_v2_projection_runtime_requests q
-    WHERE q.thread_id = t.thread_id AND q.status = 'pending'
+    WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'
     ORDER BY q.created_at DESC, q.runtime_request_id DESC LIMIT 1),
-  (SELECT json_extract(ps.payload_json, '$.lastError') FROM orchestration_v2_projection_provider_sessions ps
-    WHERE ps.thread_id = t.thread_id
-    ORDER BY ps.updated_at DESC, ps.provider_session_id DESC LIMIT 1),
+  COALESCE(
+    (SELECT json_extract(i.payload_json, '$.failure.message') FROM orchestration_v2_projection_turn_items i
+      WHERE presented.status = 'failed' AND i.run_id = presented.run_id AND i.thread_id = t.thread_id
+        AND i.type = 'error' AND i.status = 'failed'
+        AND i.node_id IS json_extract(presented.payload_json, '$.rootNodeId')
+      ORDER BY i.updated_at DESC, i.ordinal DESC, i.turn_item_id DESC LIMIT 1),
+    (SELECT json_extract(ps.payload_json, '$.lastError') FROM orchestration_v2_projection_provider_sessions ps
+      INNER JOIN orchestration_v2_projection_provider_session_bindings b
+        ON b.provider_session_id = ps.provider_session_id
+      WHERE b.thread_id = t.thread_id AND ps.provider_instance_id = t.provider_instance_id
+      ORDER BY ps.updated_at DESC, ps.provider_session_id DESC LIMIT 1)),
   COALESCE(t.archived_at, json_extract(t.payload_json, '$.archivedAt')),
-  t.updated_at,
   presented.requested_at,
   presented.completed_at,
   (SELECT max(q.created_at) FROM orchestration_v2_projection_runtime_requests q
-    WHERE q.thread_id = t.thread_id AND q.status = 'pending')
+    WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh')
 FROM orchestration_v2_projection_threads t
 LEFT JOIN orchestration_v2_projection_runs presented ON presented.run_id = (
   SELECT c.run_id FROM orchestration_v2_projection_runs c
   WHERE c.thread_id = t.thread_id
     AND NOT (c.status = 'queued' AND json_extract(c.payload_json, '$.queueHeld') IS 1)
   ORDER BY c.ordinal DESC, c.run_id DESC LIMIT 1)
-WHERE t.deleted_at IS NULL`
+WHERE t.deleted_at IS NULL
+  AND json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'`
 
 func parseStamp(s string) (time.Time, bool) {
 	if s == "" {
@@ -185,9 +221,4 @@ func parseStamp(s string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return t.UTC(), true
-}
-
-func fileExists(p string) bool {
-	info, err := os.Stat(p)
-	return err == nil && !info.IsDir()
 }

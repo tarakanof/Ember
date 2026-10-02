@@ -14,17 +14,19 @@ func mapThread(th thread) (state, message string, reportable bool) {
 	if th.Archived {
 		return "", "", false
 	}
-	if th.PendingKind != "" {
+	// auth_refresh is T3-internal: its UI never asks the user about it.
+	if th.PendingKind != "" && th.PendingKind != "auth_refresh" {
 		return "waiting", pendingMessage(th.PendingKind), true
 	}
 	if th.Schema == 1 {
 		return mapV1(th)
 	}
 	switch th.Status {
-	case "preparing", "queued", "starting", "running":
+	// A run "waiting" is post-turn drain (checkpoint capture, background
+	// work), not the user: T3's own awareness shows it as running. Requests
+	// that do block on the user are runtime requests (PendingKind).
+	case "preparing", "queued", "starting", "running", "waiting":
 		return "running", "", true
-	case "waiting":
-		return "waiting", pendingMessage(""), true
 	case "failed":
 		return "error", errorMessage(th.LastError), true
 	case "completed":
@@ -53,8 +55,6 @@ func pendingMessage(kind string) string {
 		return "approve"
 	case "command", "file-read", "file-change", "permission", "mcp-elicitation":
 		return "approve " + kind
-	case "auth_refresh":
-		return "sign in"
 	default: // user_input, dynamic_tool_call, unknown
 		return "needs input"
 	}

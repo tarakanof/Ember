@@ -1,6 +1,6 @@
 -- Subset of T3 Code v0.0.46-preview <T3CODE_HOME>/userdata/statev2.sqlite,
 -- transcribed from apps/server/src/persistence/Migrations/055_OrchestrationV2.ts
--- and OrchestrationV2/Foundation.ts. Only what ember-t3-producer reads.
+-- OrchestrationV2/Foundation.ts and OrchestrationV2/ProviderSessionBindings.ts. Only what ember-t3-producer reads.
 CREATE TABLE effect_sql_migrations (
   migration_id INTEGER PRIMARY KEY NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -39,6 +39,27 @@ CREATE TABLE orchestration_v2_projection_provider_sessions (
   provider TEXT NOT NULL,
   status TEXT NOT NULL,
   model TEXT,
+  updated_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  driver TEXT,
+  provider_instance_id TEXT
+);
+CREATE TABLE orchestration_v2_projection_provider_session_bindings (
+  provider_session_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  PRIMARY KEY (provider_session_id, thread_id)
+);
+CREATE TABLE orchestration_v2_projection_turn_items (
+  turn_item_id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  run_id TEXT,
+  node_id TEXT,
+  provider_thread_id TEXT,
+  provider_turn_id TEXT,
+  parent_item_id TEXT,
+  ordinal INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   payload_json TEXT NOT NULL
 );
