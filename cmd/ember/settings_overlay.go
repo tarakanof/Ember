@@ -33,13 +33,14 @@ type settingsOverlay struct {
 
 type appSettings struct {
 	*settingsOverlay
-	pomodoro *setting[pomodoroSettingsDTO]
-	weather  *setting[WeatherConfig]
-	meetings *setting[MeetingsConfig]
-	usage    *setting[usageConfigDTO]
-	display  *setting[displayConfigDTO]
-	quiet    *setting[quietConfigDTO]
-	clock    *setting[clockConfigDTO]
+	pomodoro   *setting[pomodoroSettingsDTO]
+	weather    *setting[WeatherConfig]
+	meetings   *setting[MeetingsConfig]
+	usage      *setting[usageConfigDTO]
+	display    *setting[displayConfigDTO]
+	quiet      *setting[quietConfigDTO]
+	brightness *setting[BrightnessConfig]
+	clock      *setting[clockConfigDTO]
 }
 
 func newAppSettings(a *App) appSettings {
@@ -62,6 +63,7 @@ func newAppSettings(a *App) appSettings {
 		usage:           register(o, a.usageSettingSpec()),
 		display:         register(o, displaySettingSpec()),
 		quiet:           register(o, quietSettingSpec()),
+		brightness:      register(o, brightnessSettingSpec()),
 		clock:           register(o, clockSettingSpec()),
 	}
 }

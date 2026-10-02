@@ -107,6 +107,9 @@ func validateConfig(cfg Config) error {
 	if err := validateQuietHours(cfg.QuietHours); err != nil {
 		return err
 	}
+	if err := cfg.Brightness.resolved().validate(); err != nil {
+		return fmt.Errorf("%w: brightness.%v", ErrConfigValidate, err)
+	}
 	return nil
 }
 
@@ -186,6 +189,8 @@ type Config struct {
 	UsageThresholdPct *int `json:"usage_threshold_pct,omitempty"`
 	// QuietHours mutes all device sounds during the window (server-local time).
 	QuietHours QuietHoursConfig `json:"quiet_hours"`
+	// Brightness is the display-brightness policy behind GET /v1/display/brightness.
+	Brightness BrightnessConfig `json:"brightness"`
 }
 
 func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.UsageWidget }

@@ -207,6 +207,8 @@ type clockDeviceOut struct {
 	LowBattery      *bool    `json:"low_battery"`
 	TemperatureC    *float64 `json:"temperature_c"`
 	HumidityPercent *float64 `json:"humidity_percent"`
+
+	lightLevel *float64
 }
 
 type publishHealthOut struct {
@@ -249,6 +251,7 @@ type clockDeviceWire struct {
 	LowBattery  *bool    `json:"lowBattery"`
 	Temperature *float64 `json:"temperature"`
 	Humidity    *float64 `json:"humidity"`
+	LightLevel  *float64 `json:"lightLevel"`
 	WiFi        struct {
 		Connects *int `json:"connects"`
 	} `json:"wifi"`
@@ -289,6 +292,7 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 			dev.LowBattery = raw.LowBattery
 			dev.TemperatureC = raw.Temperature
 			dev.HumidityPercent = raw.Humidity
+			dev.lightLevel = raw.LightLevel
 		}
 	}
 	c.at, c.base, c.dev = now, base, dev
