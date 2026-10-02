@@ -35,6 +35,9 @@ func runHook(args []string) {
 	if len(args) < 1 {
 		os.Exit(0)
 	}
+	if home, err := os.UserHomeDir(); err != nil || !hooksEnabledAt(home) {
+		os.Exit(0)
+	}
 	rotateProducerLogs()
 	event := args[0]
 	cfg, err := loadConfig()

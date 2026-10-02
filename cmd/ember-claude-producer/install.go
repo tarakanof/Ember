@@ -77,7 +77,7 @@ func configureAt(home, binPath string) error {
 		return err
 	}
 	removeSpikeLog(home)
-	return nil
+	return enableHooks(home)
 }
 
 func spikeLogPath(home string) string {

@@ -99,3 +99,51 @@ func printPluginNote() {
 		fmt.Println("Plugin " + pluginID + " is enabled: it registers the hooks, so settings.json gets only the statusLine.")
 	}
 }
+
+// hooksDisabledPath is the hook kill switch. deconfigure/uninstall write it
+// and configure removes it, because they can't unregister the plugin's hooks:
+// without it, turning Ember off would leave an enabled plugin reporting.
+func hooksDisabledPath(home string) string {
+	return filepath.Join(home, ".config", "ember", "claude-hooks.disabled")
+}
+
+func hooksEnabledAt(home string) bool {
+	_, err := os.Stat(hooksDisabledPath(home))
+	return os.IsNotExist(err)
+}
+
+const hooksDisabledNote = "Written by `ember-claude-producer deconfigure`/`uninstall`: Claude hooks exit without reporting.\n" +
+	"`ember-claude-producer configure` (or install, or Ember.app's Agents toggle) removes it.\n"
+
+func disableHooks(home string) error {
+	p := hooksDisabledPath(home)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte(hooksDisabledNote), 0o600)
+}
+
+func enableHooks(home string) error {
+	if err := os.Remove(hooksDisabledPath(home)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func pluginStillEnabledWarning(home string) string {
+	if !pluginEnabledAt(home) {
+		return ""
+	}
+	return "plugin " + pluginID + " is still enabled: its hooks stay registered but exit silently until the next configure. " +
+		"To remove them, run: claude plugin disable " + pluginID
+}
+
+func warnPluginStillEnabled() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	if w := pluginStillEnabledWarning(home); w != "" {
+		fmt.Fprintln(os.Stderr, "note:", w)
+	}
+}

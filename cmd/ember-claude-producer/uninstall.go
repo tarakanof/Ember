@@ -22,6 +22,7 @@ func runUninstall() {
 	if err := uninstallPlist(producer.ExecLaunchctl, home, uid); err != nil {
 		fmt.Fprintln(os.Stderr, "uninstall: plist:", err)
 	}
+	warnPluginStillEnabled()
 	fmt.Println("Uninstall complete.")
 	fmt.Println("Note: ~/.config/ember/producer.env and")
 	fmt.Println("~/.local/state/ember/ were left in place. rm them yourself if desired.")
@@ -32,11 +33,15 @@ func runDeconfigure() {
 		fmt.Fprintln(os.Stderr, "deconfigure failed:", err)
 		os.Exit(1)
 	}
+	warnPluginStillEnabled()
 	fmt.Println("Deconfigure complete.")
 }
 
 func deconfigureAt(home string) error {
 	removeSpikeLog(home)
+	if err := disableHooks(home); err != nil {
+		return err
+	}
 	return uninstallSettings(home)
 }
 
