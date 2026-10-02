@@ -183,6 +183,12 @@ func TestWaitingRenderKeepsMultibyteMessageValid(t *testing.T) {
 	}
 }
 
+func TestLabelForT3(t *testing.T) {
+	if got := labelFor(Session{Tool: "t3"}); got != "T3" {
+		t.Fatalf("labelFor = %q, want T3", got)
+	}
+}
+
 func TestLabelForCapitalisesMultibyteTool(t *testing.T) {
 	if got := labelFor(Session{Tool: "ёж"}); got != "Ёж" {
 		t.Fatalf("labelFor = %q, want %q", got, "Ёж")

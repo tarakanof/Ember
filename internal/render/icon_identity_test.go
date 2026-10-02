@@ -85,3 +85,38 @@ func TestCodexCursorStateColored(t *testing.T) {
 		t.Fatalf("cursor = %v, want %v", f.Pixels[6][3], colorError)
 	}
 }
+
+func TestT3IconIsDistinctAndStateColored(t *testing.T) {
+	if got := toolIcon8(Session{Tool: "t3"}); sameSprite(got, usageIconClaude) || sameSprite(got, usageIconCodex) {
+		t.Fatal("t3 must have its own icon, not Claude's or Codex's")
+	}
+	lit := func(sprite []string, x, y int) bool { return sprite[y][x] == 'X' }
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			if lit(t3Three8, x, y) && !lit(usageIconT3, x, y) {
+				t.Errorf("t3Three8 (%d,%d) must be LIT in usageIconT3", x, y)
+			}
+		}
+	}
+	col := "#3366FF"
+	s := Session{Source: "mbp", Tool: "t3", Session: "th-1", State: "waiting", SourceColor: &col}
+	f := ComposeFrame(s, cardSource, nil, []Session{s}, time.Now())
+	if f.Pixels[1][0] != (RGB{0x33, 0x66, 0xFF}) {
+		t.Fatalf("T bar = %v, want source colour", f.Pixels[1][0])
+	}
+	if f.Pixels[1][4] != colorWaiting {
+		t.Fatalf("3 = %v, want state colour %v", f.Pixels[1][4], colorWaiting)
+	}
+}
+
+func sameSprite(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

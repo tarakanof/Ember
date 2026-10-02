@@ -6,6 +6,7 @@ public enum AppNames {
     private static let known: [String: LocalizedStringResource] = [
         "claude": "Claude",
         "codex": "Codex",
+        "t3": "T3 Code",
         "weather": "Weather",
         "weather-popup": "Weather Alert",
         "forecast": "Forecast",

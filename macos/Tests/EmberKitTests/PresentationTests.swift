@@ -28,7 +28,7 @@ private func session(_ json: String) throws -> Session {
 }
 
 @Test(arguments: [
-    ("claude", "Claude"), ("codex", "Codex"), ("ember-weather", "Weather"),
+    ("claude", "Claude"), ("codex", "Codex"), ("t3", "T3 Code"), ("ember-weather", "Weather"),
     ("pomodoro", "Pomodoro"), ("ember-pomodoro", "Pomodoro"), ("ember-air", "Air Quality"),
     ("ember-usage-claude", "Usage"), ("my_app", "My App"), ("Time", "Time"), ("", ""),
 ])

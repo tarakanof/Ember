@@ -883,8 +883,11 @@ func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Ti
 }
 
 func toolIcon8(s Session) []string {
-	if s.Tool == "codex" {
+	switch s.Tool {
+	case "codex":
 		return usageIconCodex
+	case "t3":
+		return usageIconT3
 	}
 	return usageIconClaude
 }
@@ -913,6 +916,17 @@ var codexCursor8 = []string{
 	"........",
 }
 
+var t3Three8 = []string{
+	"........",
+	"....XXX.",
+	"......X.",
+	".....XX.",
+	"......X.",
+	"....XXX.",
+	"........",
+	"........",
+}
+
 func sourceColorOr(s Session, fallback RGB) RGB {
 	if s.SourceColor != nil {
 		if c, ok := parseHex(*s.SourceColor); ok {
@@ -927,8 +941,11 @@ func iconBodyColor(s Session) RGB {
 }
 
 func iconOverlay8(s Session) []string {
-	if s.Tool == "codex" {
+	switch s.Tool {
+	case "codex":
 		return codexCursor8
+	case "t3":
+		return t3Three8
 	}
 	return claudeEyes8
 }
