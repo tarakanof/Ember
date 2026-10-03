@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func writeEnv(t *testing.T, content string) string {
@@ -75,5 +77,48 @@ func TestConfigLogValueRedactsToken(t *testing.T) {
 	cfg := Config{Token: "super-secret"}
 	if s := cfg.LogValue().String(); s == "" || strings.Contains(s, "super-secret") {
 		t.Fatalf("LogValue leaks token: %s", s)
+	}
+}
+
+func TestLoadConfigSourceDefaultsFromHostOnPlaceholder(t *testing.T) {
+	defer producer.SetHostNameForTest("Dmitrys-MacBook-Pro")()
+	writeEnv(t, "EMBER_SOURCE=set-me-to-this-laptop-id\n")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "mbp"; cfg.Source != want {
+		t.Errorf("Source = %q, want %q", cfg.Source, want)
+	}
+	writeEnv(t, "EMBER_SOURCE=\n")
+	if cfg, _ = loadConfig(); cfg.Source != "mbp" {
+		t.Errorf("empty Source = %q, want mbp", cfg.Source)
+	}
+	writeEnv(t, "EMBER_SOURCE=m5\n")
+	if cfg, _ = loadConfig(); cfg.Source != "m5" {
+		t.Errorf("Source = %q, want m5", cfg.Source)
+	}
+}
+
+func TestConfigureAtRewritesPlaceholderSource(t *testing.T) {
+	defer producer.SetHostNameForTest("Dmitrys-Mac-mini")()
+	home := t.TempDir()
+	envDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(envDir, "producer.env")
+	if err := os.WriteFile(envPath, []byte("EMBER_SOURCE=\nEMBER_TOKEN=t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := configureAt(home); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(envPath)
+	if string(b) != "EMBER_SOURCE=mini\nEMBER_TOKEN=t\n" {
+		t.Errorf("env = %q", b)
+	}
+	if st, _ := os.Stat(envPath); st.Mode().Perm() != 0o600 {
+		t.Errorf("perm = %v", st.Mode().Perm())
 	}
 }

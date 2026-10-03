@@ -7,13 +7,19 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func runDoctor() {
 	home, _ := os.UserHomeDir()
+	if home != "" {
+		_, _, _ = producer.EnsureSourceInEnv(filepath.Join(home, ".config", "ember", "producer.env"))
+	}
 	cfg, _ := loadConfig()
 	fmt.Println("ember-t3-producer doctor:")
 	fmt.Printf("  source      = %q\n", cfg.Source)
+	fmt.Printf("  hint: %s\n", producer.SourceHint(cfg.Source))
 	fmt.Printf("  server_url  = %q\n", cfg.ServerURL)
 	if cfg.Token == "" {
 		fmt.Println("  token       = (unset)")

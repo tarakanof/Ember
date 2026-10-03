@@ -20,6 +20,7 @@ func runInstall() {
 	}
 	fmt.Println("Install complete. The T3 Code producer daemon is now running.")
 	fmt.Println("Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
+	printSourceHint()
 }
 
 func runConfigure() {
@@ -28,6 +29,7 @@ func runConfigure() {
 		os.Exit(1)
 	}
 	fmt.Println("Configure complete. Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
+	printSourceHint()
 }
 
 func install() error {
@@ -83,6 +85,9 @@ func configureAt(home string) error {
 			return err
 		}
 	}
+	if _, _, err := producer.EnsureSourceInEnv(envPath); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not default EMBER_SOURCE:", err)
+	}
 	return nil
 }
 
@@ -118,4 +123,10 @@ func xmlEscape(s string) string {
 	var b strings.Builder
 	_ = xml.EscapeText(&b, []byte(s))
 	return b.String()
+}
+
+func printSourceHint() {
+	if cfg, err := loadConfig(); err == nil {
+		fmt.Println(producer.SourceHint(cfg.Source))
+	}
 }
