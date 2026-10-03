@@ -83,6 +83,9 @@ func configureAt(home string) error {
 			return err
 		}
 	}
+	if _, _, err := producer.EnsureSourceInEnv(envPath); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not default EMBER_SOURCE:", err)
+	}
 	return nil
 }
 

@@ -107,6 +107,7 @@ func loadConfig() (Config, error) {
 	if cfg.Token == "" {
 		cfg.Token = os.Getenv("EMBER_TOKEN")
 	}
+	cfg.Source = producer.ResolveSource(cfg.Source)
 	if cfg.PollIntervalMs < minPollIntervalMs {
 		cfg.PollIntervalMs = minPollIntervalMs
 	}
