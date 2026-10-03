@@ -83,7 +83,10 @@ func TestConfigLogValueRedactsToken(t *testing.T) {
 func TestLoadConfigSourceDefaultsFromHostOnPlaceholder(t *testing.T) {
 	defer producer.SetHostNameForTest("Dmitrys-MacBook-Pro")()
 	writeEnv(t, "EMBER_SOURCE=set-me-to-this-laptop-id\n")
-	cfg, _ := loadConfig()
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if want := "mbp"; cfg.Source != want {
 		t.Errorf("Source = %q, want %q", cfg.Source, want)
 	}
