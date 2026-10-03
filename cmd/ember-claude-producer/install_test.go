@@ -185,8 +185,8 @@ func TestMergeSettings_SessionEndMatcherIncludesClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), `logout|prompt_input_exit|bypass_permissions_disabled|other|clear`) {
-		t.Errorf("SessionEnd matcher missing clear: %s", body)
+	if !strings.Contains(string(body), `"logout|prompt_input_exit|other|clear|resume"`) {
+		t.Errorf("SessionEnd matcher should be the current reason set (clear, resume; not the removed bypass_permissions_disabled): %s", body)
 	}
 }
 
@@ -211,8 +211,8 @@ func TestMergeSettings_UpgradeReplacesOldSessionEndMatcher(t *testing.T) {
 	if strings.Contains(string(body), `"logout|prompt_input_exit|bypass_permissions_disabled|other"`) {
 		t.Errorf("upgrade left the old matcher without clear (would ship without the /clear fix):\n%s", body)
 	}
-	if !strings.Contains(string(body), `logout|prompt_input_exit|bypass_permissions_disabled|other|clear`) {
-		t.Errorf("upgrade did not install the new matcher with clear:\n%s", body)
+	if !strings.Contains(string(body), `"logout|prompt_input_exit|other|clear|resume"`) {
+		t.Errorf("upgrade did not install the current matcher:\n%s", body)
 	}
 	if strings.Count(string(body), `"SessionEnd"`) != 1 {
 		t.Errorf("expected exactly one SessionEnd key, got: %s", body)

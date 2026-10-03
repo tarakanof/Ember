@@ -101,28 +101,33 @@ func TestHook_Stop_KeepsMarkerForHeartbeat(t *testing.T) {
 	}
 }
 
+// Bodies are raw JSON in Claude Code's wire shape (SessionEnd sends "reason"),
+// not a marshalled hookInput, so a wrong struct tag can't round-trip and pass.
 func TestHook_SessionEnd_DeletesMarker(t *testing.T) {
-	h := newHookHarness(t)
-	dir := h.sessionsDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	markerP := filepath.Join(dir, "abc.json")
-	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	in := hookInput{HookEventName: "SessionEnd", SessionID: "abc", CWD: "/repo", EndReason: "prompt_input_exit"}
-	body, _ := json.Marshal(in)
-	dispatchHookForTest(t, "session-end", body)
-	if h.deletes.Load() != 1 {
-		t.Errorf("session-end should delete; deletes = %d, want 1", h.deletes.Load())
-	}
-	if _, err := os.Stat(markerP); !os.IsNotExist(err) {
-		t.Errorf("marker should be removed after session-end")
+	for _, reason := range []string{"prompt_input_exit", "clear", "resume", "logout", "other"} {
+		t.Run(reason, func(t *testing.T) {
+			h := newHookHarness(t)
+			dir := h.sessionsDir()
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			markerP := filepath.Join(dir, "abc.json")
+			if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			body := `{"hook_event_name":"SessionEnd","session_id":"abc","cwd":"/repo","reason":"` + reason + `"}`
+			dispatchHookForTest(t, "session-end", []byte(body))
+			if h.deletes.Load() != 1 {
+				t.Errorf("session-end reason=%s should delete; deletes = %d, want 1", reason, h.deletes.Load())
+			}
+			if _, err := os.Stat(markerP); !os.IsNotExist(err) {
+				t.Errorf("marker should be removed after session-end reason=%s", reason)
+			}
+		})
 	}
 }
 
-func TestHook_SessionEnd_Clear_DeletesMarker(t *testing.T) {
+func TestHook_SessionEnd_UnknownReasonKeepsMarker(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -132,14 +137,9 @@ func TestHook_SessionEnd_Clear_DeletesMarker(t *testing.T) {
 	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in := hookInput{HookEventName: "SessionEnd", SessionID: "abc", CWD: "/repo", EndReason: "clear"}
-	body, _ := json.Marshal(in)
-	dispatchHookForTest(t, "session-end", body)
-	if h.deletes.Load() != 1 {
-		t.Errorf("session-end reason=clear should delete; deletes = %d, want 1", h.deletes.Load())
-	}
-	if _, err := os.Stat(markerP); !os.IsNotExist(err) {
-		t.Errorf("marker should be removed after session-end reason=clear")
+	dispatchHookForTest(t, "session-end", []byte(`{"hook_event_name":"SessionEnd","session_id":"abc","cwd":"/repo","reason":"bypass_permissions_disabled"}`))
+	if h.deletes.Load() != 0 {
+		t.Errorf("unknown reason must not delete; deletes = %d", h.deletes.Load())
 	}
 }
 

@@ -1,0 +1,13 @@
+{
+  "name": "ember",
+  "displayName": "Ember",
+  "description": "Shows Claude Code session state (running, waiting, done, error) on an Ember clock. Registers the ember-claude-producer hooks; needs the producer binary and ~/.config/ember/producer.env.",
+  "author": {
+    "name": "tarakanof",
+    "url": "https://github.com/tarakanof"
+  },
+  "homepage": "https://github.com/tarakanof/Ember/tree/main/producers/claude-code",
+  "repository": "https://github.com/tarakanof/Ember",
+  "license": "MIT",
+  "keywords": ["ember", "awtrix", "status", "hooks"]
+}

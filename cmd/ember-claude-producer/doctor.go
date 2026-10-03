@@ -36,6 +36,9 @@ func runDoctor() {
 		fmt.Printf("  producer.env: MISSING at %s\n", envPath)
 	}
 
+	hooksLine, _ := hookRegistrationReport(home)
+	fmt.Printf("  claude hooks: %s\n", hooksLine)
+
 	stateD, _ := stateDir()
 	if entries, err := os.ReadDir(stateD); err == nil {
 		count := 0

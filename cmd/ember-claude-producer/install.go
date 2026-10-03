@@ -23,6 +23,7 @@ func runInstall() {
 		fmt.Fprintln(os.Stderr, "install failed:", err)
 		os.Exit(1)
 	}
+	printPluginNote()
 	fmt.Println("Install complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
 	printSourceHint()
 }
@@ -32,6 +33,7 @@ func runConfigure() {
 		fmt.Fprintln(os.Stderr, "configure failed:", err)
 		os.Exit(1)
 	}
+	printPluginNote()
 	fmt.Println("Configure complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
 }
 
@@ -79,7 +81,7 @@ func configureAt(home, binPath string) error {
 		return err
 	}
 	removeSpikeLog(home)
-	return nil
+	return enableHooks(home)
 }
 
 func spikeLogPath(home string) string {
@@ -224,14 +226,15 @@ func mergeSettingsJSON(home, binPath string) error {
 		hooksRoot = map[string]any{}
 	}
 
-	for _, ev := range producerHookEntries(binPath) {
-		entries, _ := hooksRoot[ev.event].([]any)
-		filtered := []any{}
-		for _, e := range entries {
-			if !entryMatchesProducer(e) {
-				filtered = append(filtered, e)
-			}
-		}
+	// With the Ember plugin enabled the plugin owns the hooks; registering them
+	// here too would run each one twice (one POST per copy).
+	stripProducerHooks(hooksRoot)
+	var entries []producerHookEntry
+	if !pluginEnabled(root) {
+		entries = producerHookEntries(binPath)
+	}
+	for _, ev := range entries {
+		filtered, _ := hooksRoot[ev.event].([]any)
 		marshalled, _ := json.Marshal(hookEvent{
 			Matcher: ev.matcher,
 			Hooks: []hookCommand{{
@@ -245,7 +248,11 @@ func mergeSettingsJSON(home, binPath string) error {
 		filtered = append(filtered, asAny)
 		hooksRoot[ev.event] = filtered
 	}
-	root["hooks"] = hooksRoot
+	if len(hooksRoot) == 0 {
+		delete(root, "hooks")
+	} else {
+		root["hooks"] = hooksRoot
+	}
 
 	if sl, ok := root["statusLine"]; ok && !statusLineIsOurs(sl) {
 		if raw, err := json.Marshal(sl); err == nil {
@@ -290,25 +297,41 @@ type producerHookEntry struct {
 	async   bool
 }
 
+// producerHookSpec is one hook the producer registers. The settings.json
+// installer and the Claude Code plugin (producers/claude-code/plugin) both
+// register exactly this list; plugin_test.go keeps hooks.json in sync.
+type producerHookSpec struct {
+	event      string
+	subcommand string
+	matcher    string
+	async      bool
+}
+
+var producerHookSpecs = []producerHookSpec{
+	{event: "SessionStart", subcommand: "session-start"},
+	{event: "UserPromptSubmit", subcommand: "user-prompt-submit"},
+	{event: "PreToolUse", subcommand: "pre-tool-use"},
+	{event: "PermissionRequest", subcommand: "permission-request"},
+	{event: "PostToolUse", subcommand: "post-tool-use", async: true},
+	{event: "PostToolUseFailure", subcommand: "post-tool-use-failure", async: true},
+	{event: "PermissionDenied", subcommand: "permission-denied", async: true},
+	{event: "Notification", subcommand: "notification", matcher: "permission_prompt|agent_needs_input|agent_completed"},
+	{event: "Stop", subcommand: "stop"},
+	{event: "StopFailure", subcommand: "stop-failure"},
+	{event: "SessionEnd", subcommand: "session-end", matcher: "logout|prompt_input_exit|other|clear|resume"},
+}
+
 func producerHookEntries(binPath string) []producerHookEntry {
 	logRedirect := ` >>$HOME/Library/Logs/ember-claude-producer.log 2>&1`
 	cmd := func(eventName string) string {
 		inner := `"` + binPath + `" hook ` + eventName + logRedirect
 		return `[ -x "` + binPath + `" ] && ` + inner + ` || true`
 	}
-	return []producerHookEntry{
-		{event: "SessionStart", matcher: "", command: cmd("session-start")},
-		{event: "UserPromptSubmit", matcher: "", command: cmd("user-prompt-submit")},
-		{event: "PreToolUse", matcher: "", command: cmd("pre-tool-use")},
-		{event: "PermissionRequest", matcher: "", command: cmd("permission-request")},
-		{event: "PostToolUse", matcher: "", command: cmd("post-tool-use"), async: true},
-		{event: "PostToolUseFailure", matcher: "", command: cmd("post-tool-use-failure"), async: true},
-		{event: "PermissionDenied", matcher: "", command: cmd("permission-denied"), async: true},
-		{event: "Notification", matcher: "permission_prompt|agent_needs_input|agent_completed", command: cmd("notification")},
-		{event: "Stop", matcher: "", command: cmd("stop")},
-		{event: "StopFailure", matcher: "", command: cmd("stop-failure")},
-		{event: "SessionEnd", matcher: "logout|prompt_input_exit|bypass_permissions_disabled|other|clear", command: cmd("session-end")},
+	out := make([]producerHookEntry, 0, len(producerHookSpecs))
+	for _, s := range producerHookSpecs {
+		out = append(out, producerHookEntry{event: s.event, matcher: s.matcher, command: cmd(s.subcommand), async: s.async})
 	}
+	return out
 }
 
 func entryMatchesProducer(e any) bool {
