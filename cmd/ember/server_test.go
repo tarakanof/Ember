@@ -153,6 +153,7 @@ func TestOversizedJSONBodyIs413(t *testing.T) {
 		{"PUT", "/v1/apps"},
 		{"PUT", "/v1/display/config"},
 		{"PUT", "/v1/quiet/config"},
+		{"PUT", "/v1/brightness/config"},
 		{"PUT", "/v1/weather/config"},
 		{"PUT", "/v1/meetings/config"},
 		{"PUT", "/v1/pomodoro/config"},

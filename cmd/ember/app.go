@@ -52,6 +52,8 @@ type App struct {
 	activityLast    map[string]activityMark
 	activitySweptAt time.Time
 
+	brightness brightnessTracker
+
 	statsCache statsCache
 
 	settings appSettings

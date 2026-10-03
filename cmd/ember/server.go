@@ -42,6 +42,9 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/usage", a.handleUsageSnapshot)
 	mux.Handle("GET /v1/activity/summary", rateLimit(a, http.HandlerFunc(a.handleActivitySummary)))
 	mux.HandleFunc("GET /v1/weather/state", a.handleWeatherState)
+	// Brightness for sensorless displays; the clock probe is the shared 30s cache,
+	// but it can still reach the clock, so rate-limit like the health read.
+	mux.Handle("GET /v1/display/brightness", rateLimit(a, http.HandlerFunc(a.handleDisplayBrightness)))
 	mux.Handle("GET /v1/clock/health", rateLimit(a, http.HandlerFunc(a.handleClockHealth)))
 	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
 	mux.Handle("POST "+bootHookPath, rateLimit(a, http.HandlerFunc(a.handleAwtrixBoot)))
@@ -65,6 +68,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("PUT /v1/usage/config", http.HandlerFunc(a.handleUsageConfigPut))
 	writeMux.Handle("GET /v1/display/config", http.HandlerFunc(a.handleDisplayConfigGet))
 	writeMux.Handle("PUT /v1/display/config", http.HandlerFunc(a.handleDisplayConfigPut))
+	writeMux.Handle("GET /v1/brightness/config", http.HandlerFunc(a.handleBrightnessConfigGet))
+	writeMux.Handle("PUT /v1/brightness/config", http.HandlerFunc(a.handleBrightnessConfigPut))
 	writeMux.Handle("GET /v1/quiet/config", http.HandlerFunc(a.handleQuietConfigGet))
 	writeMux.Handle("PUT /v1/quiet/config", http.HandlerFunc(a.handleQuietConfigPut))
 	writeMux.Handle("GET /v1/weather/config", http.HandlerFunc(a.handleWeatherConfigGet))

@@ -70,7 +70,7 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 `POST /v1/usage`, `GET/PUT /v1/usage/config`, `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),
-`GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config` (every `…/config`
+`GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config`, `GET/PUT /v1/brightness/config` (every `…/config`
 settings PUT above is merge semantics: the body is a JSON object whose omitted
 keys keep their current value; an invalid merged result is a 400 and changes
 nothing — see `settings_overlay.go`), `GET/PUT /v1/device/config`
@@ -97,7 +97,7 @@ of `/api/v1/system.buttonCallback`),
 `GET /v1/device/capabilities` (cached `GET /api/v1/capabilities` — the firmware's
 effect/transition/overlay/palette lists; live proxy when the cache is cold),
 `POST /v1/device/{reboot,notify/dismiss,app/next,app/previous}`. Read (no auth):
-`GET /state`, `GET /healthz`, `GET /v1/preview`,
+`GET /state`, `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule), `GET /v1/preview`,
 `GET /v1/{weather,pomodoro,reminders}/preview`, `GET /v1/meetings/{preview,state}`,
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
 `GET /v1/pomodoro/dashboard` (HTML), and the native-dashboard reads
