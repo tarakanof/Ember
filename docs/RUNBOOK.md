@@ -110,6 +110,60 @@ Details: [`producers/claude-code/README.md`](../producers/claude-code/README.md)
 **Codex** daemon: installed as LaunchAgent `com.ember.codex`
 (`KeepAlive=true`). Restart with `launchctl kickstart -k gui/$UID/com.ember.codex`.
 
+**T3 Code** daemon (`cmd/ember-t3-producer`, tool `t3`): polls T3 Code's local
+SQLite state read-only and reports each thread (session = T3 thread id,
+activity = thread title). Verified against T3 Code **v0.0.45** (`state.sqlite`,
+migration 54) and **v0.0.46-preview.20261002.2598** (`statev2.sqlite`,
+migration 56). No pairing or token for T3 is needed: it reads files the T3
+server writes under `~/.t3/userdata/`.
+
+```sh
+go install ./cmd/ember-t3-producer
+ember-t3-producer install     # LaunchAgent com.ember.t3 (KeepAlive)
+ember-t3-producer doctor      # T3 server running? schema/migration? thread count?
+ember-t3-producer uninstall
+```
+
+It is not bundled in Ember.app yet (Settings › Agents does not manage it), so
+install it from the CLI. Restart with `launchctl kickstart -k gui/$UID/com.ember.t3`; log at
+`~/Library/Logs/ember-t3-producer.log`. `producer.env` keys (all optional):
+`EMBER_T3_HOME` (default `~/.t3`; set it if you run T3 with `T3CODE_HOME` /
+`--base-dir`), `EMBER_T3_POLL_INTERVAL_MS` (default 2000, floor 250),
+`EMBER_T3_ACTIVITY_WINDOW_SECONDS` (default 300: how long a done/error thread
+stays). `EMBER_ACTIVITY_TRAIL_ENABLED=false` hides thread titles. A T3 dev
+server (`--dev-url`) keeps its state under `dev/`, not `userdata/`, and is not
+read.
+
+*Double sessions with Claude.* T3's Claude provider runs the Agent SDK with
+the user's settings (`settingSources` includes `"user"` in v0.0.45; the SDK
+default loads them in v0.0.46), so the Ember Claude hooks in
+`~/.claude/settings.json` fire too: one T3 Claude thread shows as a `t3` and a
+`claude` session. To avoid it, point T3's Claude provider at its own config dir
+(the Claude provider instance's home path in T3's provider settings, which
+T3 exports as `CLAUDE_CONFIG_DIR`; it needs its own `claude` login)
+without Ember's hooks, or untick one of the two tools in the menu's Show on Clock list (`t3` is
+listed there even before a T3 session exists).
+Codex threads should not be doubled: T3 drives `codex app-server`, and the
+Codex producer only follows rollouts with `session_meta.source == "cli"`
+(confirm in the live check below).
+
+*Live check once T3 is installed* (not yet run on the dev Mac):
+1. Start T3, open a project, `ember-t3-producer doctor` → "T3 server:
+   running", schema v1 or v2, the thread count.
+2. `ember-t3-producer install`, start a Codex thread in T3 → `GET /state` shows
+   `tool: "t3"`, `state: "running"`, `activity` = the thread title.
+3. Ask for something that needs approval (or a Codex `request_user_input`) →
+   `waiting`; answer → `running`; finish → `done` (no WAIT flash while T3
+   captures the checkpoint), gone after 5 min. A subagent fan-out must not
+   add extra `t3` sessions.
+4. Archive the thread → DELETE at the next poll; quit T3 → every `t3` session
+   is deleted within one poll.
+5. With a Codex thread running in T3, `GET /state` must show no extra
+   `codex` session for it; with a Claude thread, expect the `claude` double
+   described above unless T3's Claude home path is separate.
+6. Check the log for `T3 Code schema is newer than the verified one` after T3
+   updates; bump `pinnedMigrations` once the mapping is re-verified.
+
 **Menu app** (native SwiftUI, `macos/` — replaces the retired Go menu): generate the Xcode project and run it.
 
 ```sh

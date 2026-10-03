@@ -14,7 +14,7 @@ private func emberKitStrings() -> [LocalizedStringResource] {
         }
     }
     out += timers.flatMap { PomodoroControls.items(for: $0).map(\.title) }
-    out += ["claude", "codex", "weather", "ember-weather-popup", "ember-forecast", "ember-air", "ember-air-popup",
+    out += ["claude", "codex", "t3", "weather", "ember-weather-popup", "ember-forecast", "ember-air", "ember-air-popup",
             "ember-sun-popup", "pomodoro", "ember-meet", "ember-meeting", "ember-reminder", "ember-notify",
             "ember-usage-alarm", "ember-usage-claude", "mystery"].map(AppNames.display)
     let session = try! JSONDecoder().decode(Session.self, from: Data(#"{"tool":"claude","state":"running","context_pct":5}"#.utf8))

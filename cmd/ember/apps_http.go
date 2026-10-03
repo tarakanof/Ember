@@ -9,7 +9,7 @@ import (
 
 const hiddenAppsKey = "display_hidden_apps"
 
-var baselineApps = []string{"claude", "codex"}
+var baselineApps = []string{"claude", "codex", "t3"}
 
 var errEmptyAppName = errors.New("app name is required")
 

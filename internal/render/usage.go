@@ -10,6 +10,12 @@ var usageIconCodex = []string{
 	"..X.....", ".X......", "X..XXXX.", "........",
 }
 
+// usageIconT3 is "T3" for T3 Code; the "3" (t3Three8) takes the state colour.
+var usageIconT3 = []string{
+	"........", "XXX.XXX.", ".X....X.", ".X...XX.",
+	".X....X.", ".X..XXX.", "........", "........",
+}
+
 var (
 	usageColorClaude = RGB{0xff, 0x7a, 0x18}
 	usageColorCodex  = RGB{0x22, 0xd3, 0xee}

@@ -27,6 +27,10 @@ func TestAppsListReturnsBaselineEnabled(t *testing.T) {
 	if v, ok := seen["codex"]; !ok || !v {
 		t.Fatalf("codex not enabled by default: %+v", seen)
 	}
+	// Listed before any T3 session exists, so a Claude/T3 double can be hidden up front.
+	if v, ok := seen["t3"]; !ok || !v {
+		t.Fatalf("t3 not listed by default: %+v", seen)
+	}
 }
 
 func TestAppsPutHidesAndPersists(t *testing.T) {

@@ -981,6 +981,11 @@
     },
     "Sunrise and sunset" : {},
     "Switch apps automatically" : {},
+    "T3 Code" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual",
+      "shouldTranslate" : false
+    },
     "Temperature" : {},
     "Temperature offset" : {},
     "Temperature unit" : {},
