@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func TestGeneratePlist_StructureAndPaths(t *testing.T) {
@@ -305,5 +307,28 @@ func TestMergeSettingsJSON_StatusLineCaptureAndSet(t *testing.T) {
 	raw2, _ := os.ReadFile(sidecar)
 	if !strings.Contains(string(raw2), "mine.sh") || strings.Contains(string(raw2), "ember-claude-producer statusline") {
 		t.Errorf("re-install corrupted sidecar: %s", raw2)
+	}
+}
+
+func TestConfigureAt_RewritesPlaceholderSource(t *testing.T) {
+	defer producer.SetHostNameForTest("Dmitrys-MacBook-Air")()
+	home := t.TempDir()
+	envDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(envDir, "producer.env")
+	if err := os.WriteFile(envPath, []byte("EMBER_SOURCE=set-me-to-this-laptop-id\nEMBER_TOKEN=t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := configureAt(home, "/bin/true"); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(envPath)
+	if !strings.Contains(string(b), "EMBER_SOURCE=mba\n") || !strings.Contains(string(b), "EMBER_TOKEN=t") {
+		t.Errorf("env = %q", b)
+	}
+	if st, _ := os.Stat(envPath); st.Mode().Perm() != 0o600 {
+		t.Errorf("perm = %v", st.Mode().Perm())
 	}
 }

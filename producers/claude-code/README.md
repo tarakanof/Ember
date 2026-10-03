@@ -24,7 +24,7 @@ Then edit the env file:
 $EDITOR ~/.config/ember/producer.env
 ```
 
-Set `EMBER_SOURCE`, `EMBER_SERVER_URL`, and `EMBER_TOKEN`. Restart
+Set `EMBER_SERVER_URL` and `EMBER_TOKEN`. `EMBER_SOURCE` is optional: empty or the old placeholder becomes a short host id (`mbp`, `mba`, `mini`) that install writes into the file; set it yourself for a different label. Restart
 `claude` (exit and re-run) to pick up the new hooks.
 
 ## Verify

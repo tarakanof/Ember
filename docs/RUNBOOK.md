@@ -398,6 +398,7 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 | `EMBER_RATE_RESET` | **no-op since 2026-06** (single-app display rework); safe to delete from `producer.env` |
 | `EMBER_ACTIVITY_DETAIL_ENABLED` | scrolling `Tool: detail` + `cardTool` |
 | `EMBER_ACTIVITY_TRAIL_ENABLED` | last-N actions ticker (extends detail) |
+| `EMBER_SOURCE` | machine label; empty or the old `set-me-to-this-laptop-id` placeholder defaults to a short id from the macOS `LocalHostName` (`Dmitrys-MacBook-Pro` -> `mbp`, `-Air` -> `mba`, `Mac-mini` -> `mini`; the clock card fits ~4 glyphs); install/configure/doctor write it into producer.env once and print it |
 | `EMBER_SOURCE_COLOR` | hex body colour for the 8×8 icon + source-name card digits |
 | `EMBER_SOURCE_CARD` (default true) | source-name card (uppercased, 4 glyphs) in the number slot; set false to hide |
 | `EMBER_SESSION_BAR` (default true) | session-pixel bar on row 7 (1 px per non-idle session); set false to hide |

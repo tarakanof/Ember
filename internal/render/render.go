@@ -92,6 +92,10 @@ type Render struct {
 	Done        int    `json:"done"`
 	ActiveTotal int    `json:"active_total"`
 	Message     string `json:"message,omitempty"`
+	// Source and Tool identify the winning session (empty when none), so thin
+	// clients need not re-run PickWinning over sessions[] to learn the host.
+	Source string `json:"source"`
+	Tool   string `json:"tool"`
 }
 
 func paintCell(f *Frame, x, y int, c RGB) {
@@ -407,7 +411,8 @@ func ngGlyphW(r rune) int {
 	return ngWideGlyphW
 }
 
-func sourceCardText(source string) string {
+// SourceCardText is the uppercased prefix of source that fits the clock card.
+func SourceCardText(source string) string {
 	var out []rune
 	w := 0
 	for _, r := range strings.ToUpper(source) {
@@ -772,7 +777,7 @@ func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now tim
 		drawUnitPctFace(&f, u.Models[1].Marker, u.Models[1].Pct)
 	case card == cardSource && s.Source != "":
 		f.Native = &NativeText{
-			Text:  sourceCardText(s.Source),
+			Text:  SourceCardText(s.Source),
 			X:     contentX,
 			W:     glassLeft - contentX,
 			Color: sourceColorOr(s, colorWhite),

@@ -24,6 +24,7 @@ func runInstall() {
 		os.Exit(1)
 	}
 	fmt.Println("Install complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
+	printSourceHint()
 }
 
 func runConfigure() {
@@ -70,6 +71,9 @@ func configureAt(home, binPath string) error {
 		if err := os.WriteFile(envPath, []byte(producerEnvExampleContent()), 0o600); err != nil {
 			return err
 		}
+	}
+	if _, _, err := producer.EnsureSourceInEnv(envPath); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not default EMBER_SOURCE:", err)
 	}
 	if err := mergeSettingsJSON(home, binPath); err != nil {
 		return err
@@ -327,4 +331,10 @@ func entryMatchesProducer(e any) bool {
 		}
 	}
 	return false
+}
+
+func printSourceHint() {
+	if cfg, err := loadConfig(); err == nil {
+		fmt.Println(producer.SourceHint(cfg.Source))
+	}
 }

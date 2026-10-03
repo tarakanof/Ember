@@ -1,10 +1,13 @@
 package producer
 
+import "strings"
+
 // EnvExample returns the canonical body seeded into ~/.config/ember/producer.env on first install.
 func EnvExample() string {
-	return `# ember producer configuration (shared by Claude + Codex producers)
+	return strings.Replace(`# ember producer configuration (shared by Claude + Codex producers)
+# EMBER_SOURCE: machine label on the clock card (~4 glyphs); empty = short host id.
 # Required:
-EMBER_SOURCE=set-me-to-this-laptop-id
+EMBER_SOURCE=@SOURCE@
 EMBER_SERVER_URL=http://192.168.0.36:3627
 EMBER_TOKEN=set-me-to-the-server-bearer-token
 
@@ -16,5 +19,5 @@ EMBER_TOKEN=set-me-to-the-server-bearer-token
 # EMBER_CODEX_POLL_INTERVAL_MS=2000
 # EMBER_CODEX_ACTIVITY_WINDOW_SECONDS=300
 # EMBER_CODEX_SESSIONS_DIR=~/.codex/sessions
-`
+`, "@SOURCE@", DefaultSource(), 1)
 }

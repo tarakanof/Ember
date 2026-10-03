@@ -58,8 +58,8 @@ func TestSourceCardText(t *testing.T) {
 		"iiiiiii": "IIIIIII", "mini-pc": "MINI",
 		"ñandú": "ÑAN",
 	} {
-		if got := sourceCardText(in); got != want {
-			t.Fatalf("sourceCardText(%q) = %q, want %q", in, got, want)
+		if got := SourceCardText(in); got != want {
+			t.Fatalf("SourceCardText(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

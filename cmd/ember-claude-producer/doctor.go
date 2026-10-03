@@ -12,10 +12,14 @@ import (
 
 func runDoctor() {
 	home, _ := os.UserHomeDir()
+	if home != "" {
+		_, _, _ = producer.EnsureSourceInEnv(filepath.Join(home, ".config", "ember", "producer.env"))
+	}
 	cfg, _ := loadConfig()
 	fmt.Println("ember-claude-producer doctor:")
 	fmt.Printf("  config:\n")
 	fmt.Printf("    source     = %q\n", cfg.Source)
+	fmt.Printf("    hint: %s\n", producer.SourceHint(cfg.Source))
 	fmt.Printf("    server_url = %q\n", cfg.ServerURL)
 	if cfg.Token == "" {
 		fmt.Printf("    token      = (unset)\n")
