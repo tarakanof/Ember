@@ -2,10 +2,12 @@
 /ember
 /ember-claude-producer
 /ember-codex-producer
+/ember-t3-producer
 # `go build` run inside a cmd/ directory drops the binary next to the source.
 /cmd/*/ember
 /cmd/*/ember-claude-producer
 /cmd/*/ember-codex-producer
+/cmd/*/ember-t3-producer
 /config.json
 /dist/
 
