@@ -284,6 +284,17 @@ func (e *Engine) Status(now time.Time) Status {
 	}
 }
 
+// EndsAt returns when the current phase reaches zero; ok is false unless a
+// phase is counting down (idle, parked and paused have no end time).
+func (e *Engine) EndsAt() (end time.Time, ok bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.running || e.paused || e.phase == PhaseIdle {
+		return time.Time{}, false
+	}
+	return e.startedAt.Add(e.accumPaused + time.Duration(e.plannedSec(e.phase))*time.Second), true
+}
+
 // Active reports whether the engine currently owns the display (any non-idle
 // phase, running or parked).
 func (e *Engine) Active() bool {

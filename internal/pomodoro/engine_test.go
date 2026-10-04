@@ -270,3 +270,26 @@ func TestMaxSessionResetsAfterStop(t *testing.T) {
 		t.Fatalf("post-restart focus = %+v, want completed (cap clock reset)", ended)
 	}
 }
+
+func TestEndsAtIsStableWhileCountingAndUnsetOtherwise(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	e := newTestEngine(clk)
+	if _, ok := e.EndsAt(); ok {
+		t.Fatal("idle engine has an end time")
+	}
+	e.Start(PhaseFocus)
+	want := time.Unix(1000+25*60, 0)
+	clk.advance(90 * time.Second)
+	if got, ok := e.EndsAt(); !ok || !got.Equal(want) {
+		t.Fatalf("ends at = %v %v, want %v", got, ok, want)
+	}
+	e.Pause(clk.Now())
+	if _, ok := e.EndsAt(); ok {
+		t.Fatal("paused engine has an end time")
+	}
+	clk.advance(time.Minute)
+	e.Resume(clk.Now())
+	if got, ok := e.EndsAt(); !ok || !got.Equal(want.Add(time.Minute)) {
+		t.Fatalf("ends at after a 1 min pause = %v %v, want %v", got, ok, want.Add(time.Minute))
+	}
+}
