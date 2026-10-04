@@ -52,6 +52,9 @@ public struct KnobStats: Codable, Equatable, Sendable {
         public var renderFPS: Double?
         public var frameAvgMS: Double?
         public var frameMaxMS: Int?
+        /// Ember's brightness (0–255) at the checkin: the level a knob
+        /// following Ember shows.
+        public var brightnessLevel: Int?
 
         public var id: Date { t }
 
@@ -74,9 +77,13 @@ public struct KnobStats: Codable, Equatable, Sendable {
             case renderFPS = "render_fps"
             case frameAvgMS = "frame_avg_ms"
             case frameMaxMS = "frame_max_ms"
+            case brightnessLevel = "brightness_level"
         }
 
         public init(t: Date) { self.t = t }
+
+        /// Ember's brightness as 0–100 %.
+        public var brightnessPercent: Double? { brightnessLevel.map { Double($0) / 255 * 100 } }
 
         /// The mean across cores, nil without a CPU reading.
         public var cpuAverage: Double? {

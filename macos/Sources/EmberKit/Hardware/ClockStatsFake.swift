@@ -37,7 +37,6 @@ public enum ClockStatsFake {
         s.humidityPercent = ((38 + 4 * wave(3_000, 1)) * 10).rounded() / 10
         let lux = max(0, 60 + 70 * wave(1_500, 0.3))
         s.lightLux = (lux * 10).rounded() / 10
-        s.brightnessLevel = Int(min(255, 10 + lux * 1.6))
         s.batteryPercent = (96 - 4 * max(0, wave(5_000))).rounded()
         s.publishOK = Int((3 + 2 * wave(170)).rounded())
         s.publishFail = wave(1_900, 1) > 0.95 ? 1 : 0

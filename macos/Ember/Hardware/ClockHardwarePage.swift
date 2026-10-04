@@ -14,7 +14,7 @@ struct ClockHardwareInput {
 }
 
 enum ClockCardID: Hashable, Sendable {
-    case overview, wifi, memory, temperature, humidity, light, brightness, publishing
+    case overview, wifi, memory, temperature, humidity, light, publishing
 }
 
 /// Settings › Devices › Clock › Hardware: the range picker, then gauges and
@@ -108,7 +108,6 @@ struct ClockHardwareContent: View {
         if s.has(\.temperatureC) { out.append((.temperature, .standard)) }
         if s.has(\.humidityPercent) { out.append((.humidity, .standard)) }
         if s.has(\.lightLux) { out.append((.light, .standard)) }
-        if s.has(\.brightnessPercent) { out.append((.brightness, .standard)) }
         out.append((.publishing, .wide))
         return out
     }
@@ -159,12 +158,8 @@ struct ClockHardwareContent: View {
                   format: HardwareFormat.percent)
         case .light:
             chart("Light level", ax: String(localized: "Light level"), systemImage: "light.max", s,
-                  [(HardwareLine(name: String(localized: "Light"), color: HardwarePalette.second), { $0.lightLux })],
+                  [(HardwareLine(name: String(localized: "Light"), color: HardwarePalette.first), { $0.lightLux })],
                   zeroBaseline: true, format: HardwareFormat.lux)
-        case .brightness:
-            chart("Brightness", ax: String(localized: "Ember brightness"), systemImage: "sun.max", s,
-                  [(HardwareLine(name: String(localized: "Brightness"), color: HardwarePalette.first), { $0.brightnessPercent })],
-                  fixedDomain: 0...100, interpolation: stepped, format: HardwareFormat.percent)
         case .publishing:
             publishing(s)
         }
@@ -179,16 +174,19 @@ struct ClockHardwareContent: View {
         let raw = s.series([(delivered.name, { Double($0.publishOK) }), (failed.name, { Double($0.publishFail) })],
                            range: input.range)
         let points = HardwareSeries.summed(raw.filter { $0.value > 0 }, per: unit)
-        let ok = s.points.reduce(0) { $0 + $1.publishOK }, fail = s.points.reduce(0) { $0 + $1.publishFail }
-        let ratio = ok + fail > 0 ? Double(ok) / Double(ok + fail) : nil
-        let text = ratio.map {
-            String(localized: "\(Percent.text(ratio: $0)) delivered",
-                   comment: "Clock Hardware publishing chart: share of publishes that reached the clock in the range (\"98 % delivered\").")
-        }
+        let (ok, fail) = Self.publishes(s)
+        let text = fail > 0 ? String(localized: "\(fail) failed",
+                                     comment: "Clock Hardware publishing chart: publishes that didn't reach the clock in the selected range (\"12 failed\").") : nil
+        let poor = ok + fail > 0 && ClockHealthReadout.publishIsPoor(Double(ok) / Double(ok + fail))
         return HardwareChartCard(title: "Publishing", axTitle: String(localized: "Publishes"),
                                  systemImage: "paperplane", points: points, lines: [delivered, failed],
                                  range: input.range, now: now, headlineText: text, style: .bars(unit),
-                                 warn: ratio.map(ClockHealthReadout.publishIsPoor) ?? false, format: HardwareFormat.count)
+                                 warn: poor, format: HardwareFormat.count)
+    }
+
+    /// Publishes delivered and failed over the selected range.
+    static func publishes(_ s: ClockStats) -> (ok: Int, fail: Int) {
+        (s.points.reduce(0) { $0 + $1.publishOK }, s.points.reduce(0) { $0 + $1.publishFail })
     }
 
     // MARK: Now card
@@ -232,7 +230,7 @@ struct ClockHardwareContent: View {
     private func facts(_ s: ClockStats) -> [HardwareFact] {
         let h = input.health
         let d = h?.device
-        let ratio = h.flatMap { ClockHealthReadout.publishRatio($0.publish) }
+        let (ok, fail) = Self.publishes(s)
         return [
             HardwareFact(id: "uptime", title: "Uptime", value: d?.uptimeSec.map { DurationText.uptime($0) }),
             HardwareFact(id: "firmware", title: "Firmware", value: d?.firmware,
@@ -242,9 +240,10 @@ struct ClockHardwareContent: View {
             HardwareFact(id: "app", title: "Current app", value: d?.currentApp),
             HardwareFact(id: "ip", title: "IP address", value: s.ipAddress),
             HardwareFact(id: "reset", title: "Last restart", value: d?.resetReason),
-            HardwareFact(id: "delivered", title: "Delivered (24 h)", value: ratio.map { Percent.text(ratio: $0) },
-                         note: h.flatMap { p in ratio == nil ? nil : String(localized: "\(p.publish.ok24h) of \(p.publish.ok24h + p.publish.fail24h)") },
-                         warn: ratio.map(ClockHealthReadout.publishIsPoor) ?? false),
+            // Over the selected range, like the Publishing chart.
+            HardwareFact(id: "delivered", title: "Delivered", value: ClockReadout.delivered(ok: ok, fail: fail),
+                         note: ok + fail > 0 ? String(localized: "\(ok) of \(ok + fail)") : nil,
+                         warn: ok + fail > 0 && ClockHealthReadout.publishIsPoor(Double(ok) / Double(ok + fail))),
         ]
     }
 }

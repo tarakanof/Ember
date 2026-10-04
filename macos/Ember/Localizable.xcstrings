@@ -57,9 +57,6 @@
       "comment" : "Share of an agent session's context window in use (\"41% context\"). The argument is a percent.",
       "extractionState" : "manual"
     },
-    "%@ delivered" : {
-      "comment" : "Clock Hardware publishing chart: share of publishes that reached the clock in the range (\"98 % delivered\")."
-    },
     "%@ fps" : {
       "comment" : "Frames per second (\"29.5 fps\")."
     },
@@ -291,6 +288,9 @@
     },
     "%lld dBm" : {
       "comment" : "Wi-Fi signal strength in decibel-milliwatts (\"-62 dBm\")."
+    },
+    "%lld failed" : {
+      "comment" : "Clock Hardware publishing chart: publishes that didn't reach the clock in the selected range (\"12 failed\")."
     },
     "%lld h" : {
       "comment" : "A number of hours, abbreviated (\"12 h\")."
@@ -641,7 +641,6 @@
     "Day number" : {},
     "Day, month, year" : {},
     "Delivered" : {},
-    "Delivered (24 h)" : {},
     "Desk knob" : {},
     "Devices" : {},
     "Diagnostics" : {},

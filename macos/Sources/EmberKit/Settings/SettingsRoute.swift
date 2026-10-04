@@ -100,9 +100,6 @@ public enum SettingsRoute: Hashable, Sendable {
         case "sounds": .app(.sounds)
         case "clock", "device": .device(DeviceKind.clock.placeholderID, .hardware(.status))
         case "knob": .device(DeviceKind.knob.placeholderID, .hardware(.status))
-        // The Dashboard sections hardware health moved out of (#246).
-        case "clock-health": .device(DeviceKind.clock.placeholderID, .hardware(.health))
-        case "knob-dashboard": .device(DeviceKind.knob.placeholderID, .hardware(.health))
         case "agents", "display": .source(.agents)
         case "focus", "pomodoro": .source(.focus)
         case "weather": .source(.weather)

@@ -15,8 +15,6 @@ public struct ClockStats: Codable, Equatable, Sendable {
         public var humidityPercent: Double?
         public var lightLux: Double?
         public var batteryPercent: Double?
-        /// Ember's brightness (0–255) at the probe.
-        public var brightnessLevel: Int?
         /// Publishes to the clock since the previous sample.
         public var publishOK: Int
         public var publishFail: Int
@@ -32,7 +30,6 @@ public struct ClockStats: Codable, Equatable, Sendable {
             case humidityPercent = "humidity_percent"
             case lightLux = "light_lux"
             case batteryPercent = "battery_percent"
-            case brightnessLevel = "brightness_level"
             case publishOK = "publish_ok"
             case publishFail = "publish_fail"
         }
@@ -40,9 +37,6 @@ public struct ClockStats: Codable, Equatable, Sendable {
         public init(t: Date, reachable: Bool = true) {
             self.t = t; self.reachable = reachable; publishOK = 0; publishFail = 0
         }
-
-        /// Ember's brightness as 0–100 %.
-        public var brightnessPercent: Double? { brightnessLevel.map { Double($0) / 255 * 100 } }
     }
 
     public var range: String
@@ -97,4 +91,17 @@ public enum ClockReadout {
     public static let hotC = 40.0
     /// Below this battery level (%) it reads low when the clock doesn't say.
     public static let lowBattery = 20.0
+
+    /// The share of `ok + fail` publishes delivered, never rounded up to
+    /// 100 % while any failed ("99.6 %"); nil without publishes.
+    public static func delivered(ok: Int, fail: Int, locale: Locale = .current) -> String? {
+        let n = ok + fail
+        guard n > 0 else { return nil }
+        let ratio = Double(ok) / Double(n)
+        if fail > 0, ratio >= 0.995 {
+            let floored = (ratio * 1000).rounded(.down) / 1000
+            return floored.formatted(.percent.precision(.fractionLength(1)).locale(locale))
+        }
+        return Percent.text(ratio: ratio, locale: locale)
+    }
 }

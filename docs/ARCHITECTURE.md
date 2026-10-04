@@ -1947,7 +1947,8 @@ buckets folded into 5-minute buckets (≤ 288 points). A point:
 `heap_internal_min_bytes`, `heap_internal_largest_bytes`, `psram_free_bytes`,
 `psram_min_bytes`, `psram_largest_bytes`, `temp_c`, `requests_per_min`,
 `request_failures_per_min`, `request_latency_avg_ms`, `request_latency_max_ms`,
-`render_fps`, `frame_avg_ms`, `frame_max_ms`. Goldens: `knob_stats.json`,
+`render_fps`, `frame_avg_ms`, `frame_max_ms`, `brightness_level` (Ember's
+0–255 brightness at the checkin). Goldens: `knob_stats.json`,
 `knob_stats_empty.json` in `cmd/ember/testdata/dashboard` (EmberKit decodes
 them too).
 
@@ -1964,9 +1965,13 @@ to now + N (not extended: each call replaces it) and answers
 
 The clock's history for Settings › Devices › Clock › Hardware. Every fresh
 probe of the clock (`probeClockHealth`, the 30 s-cached `GET /api/v1/device`
-behind `/v1/clock/health` and the brightness tick) becomes a sample;
-`StartClockSampler` probes every 30 s so samples arrive without a client
-asking (others in between hit the cache). Memory only, nothing written to
+behind `/v1/clock/health` and the brightness tick) becomes a sample. The
+device watch reads the clock through the same probe (`probeDevice`, cache
+up to 15 s old; reboot detection uses its `uptime_sec` and `checked_at`), so
+the clock sees one `GET /api/v1/device` per 30 s; with
+`awtrix.auto_rediscover` off, `StartClockSampler` takes the watch's place.
+Samples and the IP belong to one clock URL: when the effective URL changes
+the store starts over, so two devices never share a chart. Memory only, nothing written to
 the database; a restart loses them. Storage is the knob's: `sampleSeries`
 (`stats_series.go`), a live ring of 20 samples (10 min at 30 s) and a
 minute ring of 1440 buckets. A bucket keeps the newest reading of each
@@ -1982,8 +1987,7 @@ that reached the clock, so an offline page still shows the last readings)
 and `points` (ascending; `15m` = minute buckets before the oldest live
 sample, then 30 s samples; `1h` minute buckets; `24h` 5-minute buckets). A
 point: `t`, `reachable`, `rssi_dbm`, `free_heap_bytes`, `min_free_heap_bytes`,
-`temperature_c`, `humidity_percent`, `light_lux`, `battery_percent`,
-`brightness_level` (Ember's 0–255 brightness at the probe), `publish_ok`,
+`temperature_c`, `humidity_percent`, `light_lux`, `battery_percent`, `publish_ok`,
 `publish_fail` (publishes since the previous sample). An unreachable probe is
 a point with `reachable:false` and null readings. Goldens: `clock_stats.json`,
 `clock_stats_empty.json`.
@@ -1992,19 +1996,21 @@ a point with `reachable:false` and null readings. Goldens: `clock_stats.json`,
 
 Device health lives in Settings, not the Dashboard: Settings › Devices ›
 {Clock, Knob} › Hardware (`HardwarePage.health`, stored
-`device/<id>/hardware/health`, between Status and Display; the old in-memory
-Dashboard anchors `clock-health` and `knob-dashboard` map to it as legacy
-route names). Both pages share one system: a header with the device's status
+`device/<id>/hardware/health`, between Status and Display). Both pages share one system: a header with the device's status
 (Online / Live / Offline, last report …) and a segmented 15 Minutes / 1 Hour
 / 24 Hours picker (`HardwareRange`); a wide "Now" card (`HardwareNowCard`) of
 270° ring gauges over a grid of facts; `HardwareChartCard`s in two columns.
 Clock: gauges Wi-Fi, memory, temperature, humidity, light, battery (sensors
 the clock never reported are left out); facts uptime, firmware (+ update),
-current app, IP address, last restart, delivered (24 h, from
-`/v1/clock/health`); charts Wi-Fi, memory, temperature, humidity, light
-level, Ember brightness, and publishing as stacked bars per minute (per hour
-over 24 h). Knob: as in #241 (CPU per core on a fixed 0–100 % axis, memory,
-PSRAM, temperature, Wi-Fi, requests, latency, rendering), plus IP address;
+current app, IP address, last restart, delivered over the selected range
+(never rounded up to 100 % while any failed: "99.6 %"); charts Wi-Fi, memory,
+temperature, humidity, light level, and publishing as stacked bars per
+minute (per hour over 24 h) headed by the failure count. Only the clock's own
+readings: the clock doesn't report its display brightness. Knob: as in #241
+(CPU per core on a fixed 0–100 % axis, memory, PSRAM, temperature, Wi-Fi,
+requests, latency, rendering), plus IP address and Ember brightness (the
+`/v1/display/brightness` level at each checkin, `brightness_level` in its
+stats, which the knob shows while it follows Ember);
 a button opens Behavior, where the diagnostics picker stays. States: loading
 (redacted fake), server too old, no clock / diagnostics off, waiting for the
 first reading, offline (last data, Now card muted and captioned "As of

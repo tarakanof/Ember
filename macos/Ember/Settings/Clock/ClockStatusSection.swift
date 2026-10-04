@@ -67,9 +67,9 @@ struct ClockStatusSection: View {
             if let up = probe?.uptimeSec ?? device.stats?.uptimeSeconds {
                 LabeledContent("Uptime") { Text(DurationText.uptime(up)) }
             }
-            if let ratio = health?.publish.successRatio24h {
+            if let p = health?.publish, let delivered = ClockReadout.delivered(ok: p.ok24h, fail: p.fail24h) {
                 LabeledContent("Updates delivered") {
-                    Text("\(Percent.text(ratio: ratio)) in 24 h")
+                    Text("\(delivered) in 24 h")
                 }
                 .help("How many of the server's pushes reached the clock in the last 24 hours.")
             }

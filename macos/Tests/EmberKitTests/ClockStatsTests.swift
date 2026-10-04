@@ -28,8 +28,6 @@ private func golden(_ name: String) throws -> Data {
     #expect(p.humidityPercent == 21.4)
     #expect(p.lightLux == 42.5)
     #expect(p.batteryPercent == 97)
-    #expect(p.brightnessLevel == 255)
-    #expect(p.brightnessPercent == 100)
     #expect(p.publishOK == 1 && p.publishFail == 0)
     #expect(s.latest?.publishFail == 1)
 }
@@ -109,4 +107,13 @@ private actor FakeClockStatsService: ClockStatsService {
     #expect(minute.map(\.series) == ["OK", "Failed", "OK"])
     #expect(minute[0].t == cal.dateInterval(of: .minute, for: t0)!.start)
     #expect(HardwareSeries.summed(points, per: .hour, calendar: cal).map(\.value) == [9, 1])
+}
+
+@Test func deliveredNeverRoundsFailuresUpTo100() {
+    let en = Locale(identifier: "en_US")
+    #expect(ClockReadout.delivered(ok: 0, fail: 0, locale: en) == nil)
+    #expect(ClockReadout.delivered(ok: 50, fail: 0, locale: en) == "100%")
+    #expect(ClockReadout.delivered(ok: 2871, fail: 12, locale: en) == "99.5%")
+    #expect(ClockReadout.delivered(ok: 9999, fail: 1, locale: en) == "99.9%")
+    #expect(ClockReadout.delivered(ok: 96, fail: 4, locale: en) == "96%")
 }

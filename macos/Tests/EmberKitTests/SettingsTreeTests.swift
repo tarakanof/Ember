@@ -39,8 +39,6 @@ func routeRoundTripsThroughItsPath(route: SettingsRoute, path: String) {
     ("clock", .device("clock", .hardware(.status))),
     ("device", .device("clock", .hardware(.status))),
     ("knob", .device("knob", .hardware(.status))),
-    ("clock-health", .device("clock", .hardware(.health))),
-    ("knob-dashboard", .device("knob", .hardware(.health))),
     ("agents", .source(.agents)),
     ("display", .source(.agents)),
     ("focus", .source(.focus)),
@@ -136,10 +134,9 @@ func unknownStoredValueFallsBackToConnection(name: String) {
     #expect(tree.resolve(SettingsRoute(stored: "knob")) == .device("knob-61fc8c", .hardware(.status)))
 }
 
-@Test func oldDashboardAnchorsOpenTheHardwarePages() {
+@Test func hardwarePageIsRevealedUnderItsDevice() {
     let tree = SettingsTree(devices: [clock, knob])
-    #expect(tree.resolve(SettingsRoute(stored: "knob-dashboard")) == .device("knob-61fc8c", .hardware(.health)))
-    #expect(tree.resolve(SettingsRoute(stored: "clock-health")) == .device("clock", .hardware(.health)))
+    #expect(tree.resolve(.device("knob", .hardware(.health))) == .device("knob-61fc8c", .hardware(.health)))
     #expect(tree.expansionIDs(revealing: .device("knob-61fc8c", .hardware(.health))) == ["knob-61fc8c"])
 }
 

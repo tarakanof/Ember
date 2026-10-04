@@ -51,6 +51,7 @@ public enum KnobStatsFake {
             s.psramMinBytes = 6_450_000
         }
         s.tempC = ((43 + 4 * wave(1_800) + busy / 10) * 10).rounded() / 10
+        s.brightnessLevel = Int(min(255, max(10, 150 + 100 * wave(1_500, 0.3))))
         guard diagnostics == .full else { return s }
         s.requestsPerMin = (31 + 4 * wave(300)).rounded()
         s.requestFailuresPerMin = wave(2_400, 1) > 0.93 ? 2 : 0

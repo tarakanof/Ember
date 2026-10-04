@@ -17,7 +17,7 @@ struct KnobHardwareInput {
 }
 
 enum KnobCardID: Hashable, Sendable {
-    case overview, cpu, memory, psram, temperature, wifi, requests, latency, rendering
+    case overview, cpu, memory, psram, temperature, wifi, brightness, requests, latency, rendering
 }
 
 /// Settings › Devices › Knob › Hardware: the range picker, then gauges and
@@ -124,6 +124,7 @@ struct KnobHardwareContent: View {
         var out: [(id: KnobCardID, size: CardSize)] = [(.overview, .wide), (.cpu, .standard), (.memory, .standard)]
         if s.hasPSRAM { out.append((.psram, .standard)) }
         out += [(.temperature, .standard), (.wifi, .standard)]
+        if s.points.contains(where: { $0.brightnessLevel != nil }) { out.append((.brightness, .standard)) }
         if level == .full { out += [(.requests, .standard), (.latency, .standard), (.rendering, .standard)] }
         return out
     }
@@ -198,6 +199,12 @@ struct KnobHardwareContent: View {
                   [(HardwareLine(name: String(localized: "Signal"), color: HardwarePalette.first), { $0.rssiDBm.map(Double.init) })],
                   interpolation: input.range == .day ? .linear : .stepEnd,
                   warn: l?.rssiDBm.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false, format: HardwareFormat.dbm)
+        case .brightness:
+            // Ember's level from the clock's light sensor; the knob shows it
+            // while it follows Ember (Display settings).
+            chart("Ember brightness", ax: String(localized: "Ember brightness"), systemImage: "sun.max", s,
+                  [(HardwareLine(name: String(localized: "Brightness"), color: HardwarePalette.first), { $0.brightnessPercent })],
+                  fixedDomain: 0...100, interpolation: input.range == .day ? .linear : .stepEnd, format: HardwareFormat.percent)
         case .requests:
             chart("Requests", ax: String(localized: "Requests per minute"), systemImage: "arrow.up.arrow.down", s, [
                 (HardwareLine(name: String(localized: "Requests"), color: HardwarePalette.first), { $0.requestsPerMin }),
