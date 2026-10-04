@@ -54,7 +54,10 @@ struct KnobSetupSheet: View {
         HStack {
             if case .failed(let e) = model.stage {
                 if e == .emberUnauthorized {
-                    Button("Re-mint Token") { model.remint { await didSetUp($0) } }
+                    Button("Re-mint Token") {
+                        let old = replaces
+                        model.remint { await env.knob.didSetUp($0, replacing: old) }
+                    }
                 }
                 Button("Back") { model.edit() }
             }
@@ -78,12 +81,11 @@ struct KnobSetupSheet: View {
         }
     }
 
+    /// Captures the knob being replaced now: once the mint lands, the new
+    /// record is the newest and `replaces` would read nil.
     private func send() {
-        model?.send { await didSetUp($0) }
-    }
-
-    private func didSetUp(_ device: KnobDevice) async {
-        await env.knob.didSetUp(device, replacing: replaces)
+        let old = replaces
+        model?.send { await env.knob.didSetUp($0, replacing: old) }
     }
 
     private func start() async {
@@ -93,6 +95,8 @@ struct KnobSetupSheet: View {
         let m = KnobSetupModel(mode: mode, provisioner: provisioner, emberURL: nil,
                                name: mode == .setup ? "" : (knob.knob?.name ?? ""), preferredSSID: nil)
         model = m
+        // A probe from the pane may hold the port: wait, then take it.
+        await knob.waitForProbe()
         m.attach(knob.connectedPort)
         let server = env.serverURL
         let suggestion = await Task.detached {
@@ -111,7 +115,7 @@ struct KnobSetupSheet: View {
         if let port = model.port, let id = model.identity { knob.record(.cinder(id), for: port) }
         Task {
             await knob.load()
-            await knob.probeNewPorts()
+            await knob.probePorts()
         }
     }
 }
@@ -198,6 +202,10 @@ private struct KnobSetupContent: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                     }
                     .foregroundStyle(.red)
+                    if model.oldTokenRevoked {
+                        Text("The knob's old token no longer works. Run the setup again to finish.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 fields
             default:
@@ -224,6 +232,9 @@ private struct KnobSetupContent: View {
                 }
             }
             SecureField("Password", text: $model.password)
+            if model.passwordInvalid {
+                Text("Wi-Fi passwords are 8 to 63 characters.").foregroundStyle(.red)
+            }
             HStack {
                 if model.isScanning {
                     ProgressView().controlSize(.small)
@@ -270,6 +281,8 @@ private struct KnobSetupContent: View {
         return Section("Progress") {
             ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
                 if model.mode == .setup || !same(step, .reachingEmber) {
+                    let state: LocalizedStringKey = i < current || phase == .done ? "done"
+                        : i == current ? "in progress" : "pending"
                     HStack(spacing: 8) {
                         Group {
                             if i < current || phase == .done {
@@ -284,6 +297,9 @@ private struct KnobSetupContent: View {
                         stepTitle(step)
                             .foregroundStyle(i <= current ? .primary : .secondary)
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(stepTitle(step))
+                    .accessibilityValue(Text(state))
                 }
             }
         }

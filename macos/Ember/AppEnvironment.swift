@@ -17,7 +17,6 @@ public final class AppEnvironment {
     public let deviceSettings: DeviceSettingsModel
     /// Settings › Knob: the registered knob and the boards on USB.
     public let knob: KnobModel
-    @ObservationIgnored let knobNotifier = KnobNotifier()
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
@@ -132,27 +131,11 @@ public final class AppEnvironment {
         watchKnobPorts()
     }
 
-    /// Watches USB for the knob; a plugged-in knob that isn't set up gets a
-    /// notification that opens Settings › Knob.
+    /// Watches USB for the knob passively (IOKit: VID:PID and serial
+    /// number). Nothing opens the port until the user opens Settings › Knob
+    /// or starts a setup: idf.py monitor and esptool share it.
     private func watchKnobPorts() {
-        knobNotifier.onOpen = { [weak self] in
-            showSettingsPane(.knob)
-            self?.openWindow(id: WindowID.settings)
-        }
-        knob.onUnprovisionedKnob = { [weak self] _, identity in
-            self?.knobNotifier.post(identity)
-        }
         knob.ports.start()
-        feedKnobPorts()
-    }
-
-    private func feedKnobPorts() {
-        _ = withObservationTracking {
-            knob.ports.ports
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.feedKnobPorts() }
-        }
-        Task { await knob.probeNewPorts() }
     }
 
     private func reconcileProducers() {

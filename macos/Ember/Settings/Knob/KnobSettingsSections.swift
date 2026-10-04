@@ -107,7 +107,8 @@ struct KnobBehaviorSection: View {
                 set: { v in knob.edit { $0.pollMS = Int((v * 1000).rounded()) } }),
                 range: Double(KnobSettings.pollRange.lowerBound) / 1000...Double(KnobSettings.pollRange.upperBound) / 1000,
                 step: 0.5) { v in
-                Text(v, format: .number.precision(.fractionLength(0...1))) + Text(verbatim: " s")
+                Text("\(Text(v, format: .number.precision(.fractionLength(0...1)))) s",
+                     comment: "Settings › Knob: how often the knob polls Ember, in seconds (\"2.5 s\").")
             }
             StepperRow(title: "Bot gets sleepy after", value: Binding(
                 get: { s.bot.sleepyAfterS / 60 },

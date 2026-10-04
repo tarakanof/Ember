@@ -39,6 +39,10 @@ struct KnobPane: View {
                 await knob.load()
             }
         }
+        // The only automatic port opens: while this pane is on screen, once
+        // on appear (retrying boards that weren't cinder) and for new boards.
+        .onAppear { Task { await knob.probePorts(retryFailed: true) } }
+        .onChange(of: knob.ports.ports) { _, _ in Task { await knob.probePorts() } }
         .sheet(item: $setup) { mode in
             KnobSetupSheet(mode: mode)
         }

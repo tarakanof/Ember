@@ -1770,13 +1770,23 @@ the same board finds its record.
   reuse. `KnobStreamDemuxer` splits the port's bytes into frames, `CINDER1`
   lines and log lines. `KnobLink`/`KnobLinkOpener` is the transport seam (USB
   serial now, BLE later); `SerialPortLink` opens `/dev/cu.*` raw
-  (`O_NONBLOCK`, `cfmakeraw`, `HUPCL` cleared) and **never touches DTR/RTS**:
-  toggling RTS resets the ESP32-S3. `KnobSerialPorts` watches IOKit for
-  `303a:1001` and keys a port by its USB serial number (the MAC = `hw_id`).
+  (`O_NONBLOCK`, `cfmakeraw`, `HUPCL` cleared first) and **never touches
+  DTR/RTS**: toggling RTS resets the ESP32-S3. It takes the port exclusively
+  (`TIOCEXCL` + `flock`, like pyserial's `exclusive=True`); a busy port shows as
+  "couldn't open". `KnobSerialPorts` watches IOKit for `303a:1001` and keys a
+  port by its USB serial number (the MAC = `hw_id`) **without opening it**: the
+  port is shared with `idf.py monitor` and esptool (ROM download mode is
+  `303a:1001` too), so Ember opens it only while Settings › Knob is on screen
+  (one probe on appear and per new board, 3 device-info tries, a `CINDER1`
+  boot event also counts) or when the user starts a setup or a USB action. No
+  plug-in notification for that reason.
   `KnobProvisioner` runs Improv device info (no answer in 2 s = not cinder),
   the knob's own scan, `POST /v1/devices` (token), `set_ember`, the Wi-Fi RPC,
-  follows the reboot (reopens by serial number) and waits for `ember: ok` or a
-  server checkin. `KnobModel` shows the newest `cinder-knob` record only (one
+  follows the reboot (reopens by serial number, handing the new session to the
+  caller so a failed step can still re-mint on it) and waits for `ember: ok` or
+  a server checkin strictly newer than the record's checkin at mint time (the
+  server's clock, never the Mac's). If a step after the mint fails and the
+  record never checked in, it deletes the record. `KnobModel` shows the newest `cinder-knob` record only (one
   knob; a setup on another board replaces it after a confirm and deletes the
   old record) and autosaves `ConfigModel<KnobSettings>` as a merge PUT of the
   changed fields only. Tests use a fake link and a pty pair; nothing opens a

@@ -84,6 +84,9 @@
     "%@ over 7 days." : {
       "comment" : "VoiceOver chart summary: total agent time over the last 7 days (\"12h 40m\")."
     },
+    "%@ s" : {
+      "comment" : "Settings › Knob: how often the knob polls Ember, in seconds (\"2.5 s\")."
+    },
     "%@ so far" : {
       "comment" : "12-week chart: focus time this week, which is still in progress (\"2h 30m\")."
     },
@@ -665,7 +668,6 @@
     },
     "Keep on screen until dismissed" : {},
     "Knob" : {},
-    "Knob connected" : {},
     "Knob name" : {},
     "LED matrix" : {},
     "Last 7 days" : {},
@@ -1054,9 +1056,6 @@
     "Set Up Ember…" : {},
     "Set Up Knob" : {},
     "Set Up Knob…" : {},
-    "Set up %@ in Settings › Knob." : {
-      "comment" : "Notification body when an unconfigured knob is plugged in; the argument is the knob's name (\"Knob 61FC8C\")."
-    },
     "Settings" : {},
     "Settings…" : {},
     "Severe weather" : {},
@@ -1206,6 +1205,7 @@
     "The knob stays at this brightness. It never goes below the minimum." : {},
     "The knob stopped answering. Check that it's plugged in and try again." : {},
     "The knob was disconnected. Plug it back in and try again." : {},
+    "The knob's old token no longer works. Run the setup again to finish." : {},
     "The menu bar shows the glyph of the tool that's most active." : {},
     "The overlay draws rain, snow or storms over whatever is showing." : {},
     "The reminder shows for the time above, then the clock carries on." : {},
@@ -1401,6 +1401,7 @@
     "When due" : {},
     "When you focus" : {},
     "Wi-Fi" : {},
+    "Wi-Fi passwords are 8 to 63 characters." : {},
     "Work hours" : {},
     "Work hours per day" : {},
     "Wrap around" : {},
@@ -1428,6 +1429,7 @@
       "comment" : "Short reason after a failed menu action: the clock was too slow to finish it.",
       "extractionState" : "manual"
     },
+    "done" : {},
     "extremely poor" : {},
     "fair" : {},
     "found by the server" : {},
@@ -1437,6 +1439,7 @@
     "in %lld min" : {
       "comment" : "Upcoming card: minutes until an event starts."
     },
+    "in progress" : {},
     "just now" : {},
     "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
     "macOS gives Local Network access to one build of an app, so a copy of Ember you build yourself can need approval again after every rebuild. If Ember is already on in Local Network settings but still blocked, turn it off and on again." : {},
@@ -1459,6 +1462,7 @@
     "of %lld" : {
       "comment" : "Inside the Focus ring, under the sessions done: the daily goal (\"of 8\")."
     },
+    "pending" : {},
     "poor" : {},
     "rate-limited" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
