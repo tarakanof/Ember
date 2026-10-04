@@ -474,6 +474,34 @@ curl -X PUT http://<hostname>.local/api/v1/system \
   `curl -X POST -H 'Content-Type: application/json' -d '{"button":"middle","state":true}' http://localhost:3627/hooks/awtrix/button`
   (should start a focus).
 
+## Knob device registry (`/v1/devices`)
+
+The cinder knob authenticates with its own **device token** (`ekd_…`), never
+`EMBER_TOKEN`. Ember.app's knob setup mints it; to do it by hand (the token
+is printed once; only its SHA-256 is stored):
+
+```sh
+H="Authorization: Bearer $EMBER_TOKEN"
+curl -s -XPOST localhost:3627/v1/devices -H "$H" \
+  -d '{"kind":"cinder-knob","hw_id":"3cdc7561fc8c","name":"Desk knob"}'
+curl -s localhost:3627/v1/devices -H "$H"                 # status, no secrets
+curl -s -XPUT localhost:3627/v1/devices/knob-61fc8c/config -H "$H" -d '{"poll_ms":3000}'
+curl -s -XPOST localhost:3627/v1/devices/knob-61fc8c/rotate -H "$H"
+curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
+```
+
+- **Lost token / reflashed knob:** POST the same `hw_id` again. It answers
+  200 with a new token, revokes the old one and keeps the knob's config.
+- **Rotation:** the next checkin carries `new_token`; the old token keeps
+  working until the knob first uses the new one, or 24 h after the rotate. A
+  knob offline for longer than that needs re-provisioning over USB.
+- **Knob gets 401:** it was deleted, re-provisioned elsewhere, or missed a
+  rotation; `/admin/doctor` → `devices` lists each knob's last checkin
+  (warns when one never checked in or is silent > 5 min).
+- The registry lives in the SQLite store (key `devices_json`, next to
+  `pomodoro.db`), so the same writable volume is needed; without it, minted
+  tokens are lost on restart.
+
 ## `EMBER_*` toggle reference (the "spine" flags)
 
 Each is a render-opt-in boolean (default off unless noted). They gate the wire

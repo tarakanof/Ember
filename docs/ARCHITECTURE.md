@@ -43,7 +43,8 @@ The aggregator and the only writer to the device.
   `GET /v1/preview` (per-card 32×8 grids for the menu preview — see below), and
   the dashboard reads `GET /v1/usage`, `/v1/activity/summary`,
   `/v1/weather/state`, `/v1/clock/health` (see "Dashboard read API").
-  Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
+  Knob device registry (`/v1/devices`, own device tokens — see "Device
+  registry" below). Operator/introspection: `/admin/doctor`, `/admin/reload`, `/version`,
   `/metrics` (hand-rolled Prometheus, no client lib). Pomodoro, Weather
   (`GET/PUT /v1/weather/config`), and Reminders (`POST /v1/reminders/fire`)
   endpoints — see below.
@@ -1701,6 +1702,58 @@ Dashboard rendering constraints:
   (a blurred layer bled into neighbours), and the panel's global brightness is
   not simulated because multiplying pixel opacity flattens per-pixel contrast.
 
+### Device registry — `cmd/ember/devices*.go`, `knob_settings.go` (#221)
+
+Per-device tokens so the master `EMBER_TOKEN` never leaves the Mac/server.
+Today the only kind is `cinder-knob` (the ESP32-S3 knob in the cinder repo);
+the menu app shows one knob, but the registry keys by `hw_id` so re-provisioning
+the same board finds its record. Design: Obsidian `Superpowers
+Specs/cinder/2026-10-04-knob-provisioning-design.md`.
+
+- **Record** (`deviceRecord`): `id` (`knob-` + last 6 hex of `hw_id`; the full
+  `hw_id` on a collision), `kind`, `hw_id` (12 hex, `:`/`-` stripped,
+  lower-cased), `name` (≤64 chars, default `Knob 61FC8C`), `token_sha256`,
+  `pending_token_sha256` + `rotated_at` during a rotation, `config`
+  (`knobSettings`), `config_version` (starts at 1), `created_at`, and
+  `last_checkin` (`seen_at`, `fw`, `ip`, `rssi`, `heap_internal_free`,
+  `heap_internal_largest`, `uptime_s`, `applied_version`).
+- **Persistence:** the whole registry plus the epoch is one JSON blob in the
+  SQLite settings KV (key `devices_json`), the same store as the overlay
+  settings. Every mutation clones the state, persists, then swaps under
+  `deviceRegistry.mu`, so a failed write (500) changes nothing. No store
+  (tests, unwritable volume) = in-memory only. Plaintext tokens are never
+  stored or logged; only the response that mints one carries it
+  (`Cache-Control: no-store`).
+- **Tokens:** `ekd_` + 32 random bytes, base64url (47 chars). Lookup hashes
+  the bearer and compares against every record's hashes with
+  `subtle.ConstantTimeCompare` (no early exit). `POST /v1/devices` with a known
+  `hw_id` re-provisions: new token, old one and any rotation revoked, config
+  and version kept, 200 instead of 201.
+- **Rotation:** `POST /v1/devices/{id}/rotate` (202) only marks the record.
+  Each checkin made with the old token while the rotation is open mints a fresh
+  pending token (replacing any undelivered one, so a lost response costs
+  nothing) and returns it as `new_token`. The first request made with the
+  pending token promotes it and retires the old hash. The old token also stops
+  working 24 h (`deviceRotationGrace`) after the rotate; the pending one stays
+  valid. The server never has to remember a plaintext token across requests.
+- **Config** (`knobSettings`, schema v1): `brightness{follow_ember, level
+  0-255, floor 1-255 ≤ level, startup 0-255}`, `pages[{id,on}]` (ids `bot`,
+  `pomodoro`, `weather`; order = page order; no duplicates; unknown ids are a
+  400), `home` (must name a page that is on), `poll_ms` 1000-10000,
+  `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600}`. The owner PUT
+  is the overlay's `mergeSetting` (top-level keys replace whole fields, so a
+  partial `brightness` object is a 400 when its omitted fields fail
+  validation). `config_version` and the epoch move only when the merged config
+  differs, so `{}` is a no-op. GET/PUT answer the version in
+  `X-Ember-Config-Version`.
+- **Epoch:** `/state` carries `X-Ember-Devices-Epoch`, an opaque counter
+  (compare for inequality) persisted with the registry and bumped on mint,
+  config change, rotate and delete; checkins don't move it. The knob checks in
+  when it changes, else every 60 s, so a settings edit lands in about one
+  `/state` poll without putting per-device data in a public response.
+- **Doctor:** `devices` check lists each record's last-checkin age; warns
+  when one never checked in or is silent for more than 5 min.
+
 ### Config load and `/admin/reload`
 
 Resolve order: the `-config` flag, `CONFIG_PATH`, `./config.json` if present,
@@ -1866,6 +1919,20 @@ draws-if-present in `internal/render`, add a menu checkbox.
   unauthenticated because the device's callbacks cannot send a bearer token, and
   they only map presses to timer actions or trigger a republish, so the LAN
   blast radius is minimal.
+- **Auth surfaces.** Three credentials, each route accepts exactly the ones
+  listed (`server_test.go` `TestDeviceTokenScope` is the table):
+
+  | Route | Credential |
+  |---|---|
+  | `GET /state`, `/healthz`, previews, dashboard reads | none |
+  | `POST /hooks/awtrix/{button,boot}` | none (clock callbacks; rate-limited) |
+  | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | `EMBER_TOKEN` **or** a device token |
+  | `POST /v1/devices/self/checkin`, `GET /v1/devices/self/config` | device token only |
+  | every other `/v1/*` (incl. `/v1/devices` admin) | `EMBER_TOKEN` only |
+  | `/admin/*` | `EMBER_TOKEN` only |
+
+  Device tokens fail closed with the rest: an unset `EMBER_TOKEN` rejects them
+  too. All three authed groups sit behind the same per-IP limiter.
 - **Text limits are in characters.** `activity` length is validated in
   characters, not bytes: producer truncation is rune-based, so a multibyte
   activity (Cyrillic, emoji) can exceed 80 bytes while being at most 80
@@ -1880,6 +1947,14 @@ draws-if-present in `internal/render`, add a menu checkbox.
   sessions come from different hosts, `tool` when their tools differ, matching the
   aggregate `text`), so thin clients (cinder knob, ESP32)
   need not re-run PickWinning over `sessions[]`.
+- **Knob checkin (device token).** `POST /v1/devices/self/checkin` decodes
+  non-strict like `/v1/status`:
+  `{"fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"config_version":6}`
+  (every field optional; `ip` must parse when present, else the remote address
+  is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
+  reported version is current, plus `"config":{…}` when it isn't, plus
+  `"new_token":"ekd_…"` while a rotation is open. `GET
+  /v1/devices/self/config` answers `{"config_version":7,"config":{…}}`.
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
   ignores it — never in the `StatusRequest` body.
