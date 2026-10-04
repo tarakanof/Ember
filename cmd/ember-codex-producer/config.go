@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -34,6 +35,54 @@ type Config struct {
 	ActivityWindowSeconds int
 	SessionsDir           string
 	StateDir              string
+	// Sources is the set of session_meta.source kinds shown
+	// (EMBER_CODEX_SOURCES); nil means defaultSources.
+	Sources map[string]bool
+	// IncludeClaude shows sessions Claude Code's Codex plugin starts
+	// (EMBER_CODEX_INCLUDE_CLAUDE), marked "via Claude".
+	IncludeClaude bool
+}
+
+// defaultSources are the interactive Codex front ends: the TUI and the
+// IDE/desktop app. exec and mcp are driven by scripts or other agents.
+var defaultSources = map[string]bool{"cli": true, "vscode": true}
+
+// tracks reports whether a session with this source and originator is shown.
+func (c Config) tracks(meta sessionMeta) bool {
+	if meta.originator == claudeOriginator && !c.IncludeClaude {
+		return false
+	}
+	set := c.Sources
+	if set == nil {
+		set = defaultSources
+	}
+	return set[meta.source]
+}
+
+// parseSources reads a comma-separated source list; empty yields nil (the default).
+func parseSources(v string) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range strings.Split(v, ",") {
+		if f = strings.ToLower(strings.TrimSpace(f)); f != "" {
+			out[f] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sourceList(set map[string]bool) string {
+	if set == nil {
+		set = defaultSources
+	}
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ",")
 }
 
 // LogValue redacts the token.
@@ -59,6 +108,8 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("activity_window_seconds", c.ActivityWindowSeconds),
 		slog.String("sessions_dir", c.SessionsDir),
 		slog.String("state_dir", c.StateDir),
+		slog.String("sources", sourceList(c.Sources)),
+		slog.Bool("include_claude", c.IncludeClaude),
 	)
 }
 
@@ -150,6 +201,13 @@ func loadConfig() (Config, error) {
 		case "EMBER_CODEX_ACTIVITY_WINDOW_SECONDS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				cfg.ActivityWindowSeconds = n
+			}
+		case "EMBER_CODEX_SOURCES":
+			cfg.Sources = parseSources(v)
+		case "EMBER_CODEX_INCLUDE_CLAUDE":
+			switch strings.ToLower(v) {
+			case "true", "1", "yes", "on":
+				cfg.IncludeClaude = true
 			}
 		case "EMBER_CODEX_SESSIONS_DIR":
 			if v != "" {

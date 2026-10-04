@@ -6,13 +6,16 @@ import (
 )
 
 const (
-	metaCLI   = `{"type":"session_meta","payload":{"id":"u-123","source":"cli","originator":"codex-tui"}}`
-	metaExec  = `{"type":"session_meta","payload":{"id":"u-9","source":"exec","originator":"codex_exec"}}`
-	evStarted = `{"type":"event_msg","payload":{"type":"task_started","model_context_window":258400}}`
-	evAgent   = `{"type":"event_msg","payload":{"type":"agent_message","message":"Doing the thing","phase":"commentary"}}`
-	evToken   = `{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":129200},"model_context_window":258400},"rate_limits":{"primary":{"used_percent":42.0,"window_minutes":300}}}}`
-	evDone    = `{"type":"event_msg","payload":{"type":"task_complete"}}`
-	evExecEnd = `{"type":"event_msg","payload":{"type":"exec_command_end"}}`
+	metaCLI    = `{"type":"session_meta","payload":{"id":"u-123","source":"cli","originator":"codex-tui"}}`
+	metaExec   = `{"type":"session_meta","payload":{"id":"u-9","source":"exec","originator":"codex_exec"}}`
+	metaVSCode = `{"type":"session_meta","payload":{"id":"u-vs","source":"vscode","originator":"Codex Desktop"}}`
+	metaClaude = `{"type":"session_meta","payload":{"id":"u-cc","source":"vscode","originator":"Claude Code"}}`
+	metaSub    = `{"type":"session_meta","payload":{"id":"u-sub","source":{"subagent":{"thread_spawn":{"parent_thread_id":"u-123","depth":1}}},"originator":"codex-tui"}}`
+	evStarted  = `{"type":"event_msg","payload":{"type":"task_started","model_context_window":258400}}`
+	evAgent    = `{"type":"event_msg","payload":{"type":"agent_message","message":"Doing the thing","phase":"commentary"}}`
+	evToken    = `{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":129200},"model_context_window":258400},"rate_limits":{"primary":{"used_percent":42.0,"window_minutes":300}}}}`
+	evDone     = `{"type":"event_msg","payload":{"type":"task_complete"}}`
+	evExecEnd  = `{"type":"event_msg","payload":{"type":"exec_command_end"}}`
 )
 
 func TestParseSessionMeta(t *testing.T) {
@@ -89,9 +92,9 @@ func TestFold_ApprovalAndError(t *testing.T) {
 	if d.state != "waiting" {
 		t.Errorf("approval → state %q, want waiting", d.state)
 	}
-	d = foldAll([]string{`{"type":"event_msg","payload":{"type":"stream_error"}}`}, true)
+	d = foldAll([]string{`{"type":"event_msg","payload":{"type":"error","message":"boom"}}`}, true)
 	if d.state != "error" {
-		t.Errorf("stream_error → state %q, want error", d.state)
+		t.Errorf("error → state %q, want error", d.state)
 	}
 }
 

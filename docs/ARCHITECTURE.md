@@ -495,8 +495,29 @@ markers still get reaped.
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop
   (2 s), live-session map keyed by rollout UUID, byte-offset tailing, keepalive
-  re-POST (15 s) to stay under the server staleness reap. Filters to interactive
-  `session_meta.source == "cli"`. It also writes
+  re-POST (15 s) to stay under the server staleness reap. Day dirs are named in
+  **local** time (scanned yesterday/today/tomorrow); a 30 s walk of the whole
+  tree also picks up resumed sessions, which Codex appends to their original,
+  older day dir. A rollout already idle past the activity window when found
+  is cached by (mtime, size) and not opened until it changes; only sessions
+  this producer posted get a DELETE. Shows `session_meta.source` kinds from
+  `EMBER_CODEX_SOURCES` (default `cli,vscode`; `exec`/`mcp` opt-in;
+  object-valued sources such as `subagent` decode to their key) and skips
+  originator `Claude Code` (the Claude Code Codex plugin, already shown as
+  the Claude session) unless `EMBER_CODEX_INCLUDE_CLAUDE=1`, which marks them
+  `via Claude`. Codex ≥ 0.153 writes **paginated** rollouts (`history_mode`)
+  that persist only `task_started`/`task_complete`/`turn_aborted`/`token_count`
+  and **`item_completed`** TurnItems: an item → running (but not after
+  `task_complete` until the next `task_started`; `SubAgentActivity` never
+  changes state), `AgentMessage` → message, `CommandExecution`/`FileChange`/
+  `McpToolCall`/`Extension` `web.search` (`web:`) and `clock.sleep`/
+  `CollabAgentToolCall`/`ContextCompaction` → trail. Approvals and errors are never persisted there,
+  so `waiting` cannot come from a paginated rollout (#254). `turn_aborted`
+  `interrupted`/`replaced` → done (only `budget_limited` → error);
+  `stream_error` is a retry → running. Rate limits only from `limit_id`
+  `codex` (or none); a null window keeps its last value until its
+  `resets_at` passes. `POST /v1/usage` carries the newest snapshot across
+  sessions (by rollout line timestamp), on change or every 15 s. It also writes
   `~/.local/state/ember/sessions/<uuid>.json` markers so Codex shows
   in the menu app. Codex gets a distinct **chevron+underscore** 8×8 icon vs
   Claude's robot-face (the `_` cursor overlaid in the state colour). It
