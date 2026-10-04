@@ -103,3 +103,30 @@ private final class PtyKnob: @unchecked Sendable {
     #expect(!KnobSerialPort(path: "/dev/cu.usbserial", vendorID: 0x10C4, productID: 0xEA60, serialNumber: "0001").isKnobCandidate)
     #expect(KnobSerialPort(path: "/dev/cu.x", vendorID: 0x303A, productID: 0x1001, serialNumber: "0001").hwID == nil)
 }
+
+@Test func serialLinkTakesThePortExclusively() throws {
+    let knob = try PtyKnob()
+    defer { knob.stop() }
+    let first = try SerialPortLink(path: knob.path)
+    #expect(throws: KnobLinkError.busy) { _ = try SerialPortLink(path: knob.path) }
+    first.close()
+    let again = try SerialPortLink(path: knob.path)
+    again.close()
+}
+
+@Test func droppedSerialLinkClosesItsDescriptor() async throws {
+    let knob = try PtyKnob()
+    defer { knob.stop() }
+    do {
+        let link = try SerialPortLink(path: knob.path)
+        _ = link.path
+    }
+    // The port's exclusive lock goes away only when the fd is closed.
+    var reopened: SerialPortLink?
+    for _ in 0..<100 where reopened == nil {
+        reopened = try? SerialPortLink(path: knob.path)
+        if reopened == nil { try await Task.sleep(for: .milliseconds(10)) }
+    }
+    #expect(reopened != nil)
+    reopened?.close()
+}

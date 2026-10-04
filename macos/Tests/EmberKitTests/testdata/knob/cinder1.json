@@ -1,5 +1,5 @@
 {
-  "about": "CINDER1 JSON lines. host lines: exact bytes the Ember app sends for request/id (sorted keys, newline-terminated). device lines: what the knob sends and how the host parses them. Shared with cinder's firmware tests.",
+  "about": "CINDER1 JSON lines. host lines: exact bytes the Ember app sends for request/id (sorted keys, newline-terminated). device lines: what the knob sends and how the host parses them. Shared with cinder's firmware tests. Copy to cinder's firmware/test/vectors/ unchanged; change both sides together.",
   "host": [
     {
       "name": "info",

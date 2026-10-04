@@ -20,7 +20,16 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
 
     public init(path: String) throws {
         let fd = Darwin.open(path, O_RDWR | O_NOCTTY | O_NONBLOCK)
-        guard fd >= 0 else { throw KnobLinkError.openFailed(String(cString: strerror(errno))) }
+        guard fd >= 0 else {
+            throw errno == EBUSY ? KnobLinkError.busy : KnobLinkError.openFailed(String(cString: strerror(errno)))
+        }
+        // Exclusive, so Ember never splits the byte stream with idf.py
+        // monitor or esptool (pyserial's exclusive=True takes the same flock).
+        guard ioctl(fd, TIOCEXCL) == 0, flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            Self.clearHangup(fd)
+            Darwin.close(fd)
+            throw KnobLinkError.busy
+        }
         do {
             try Self.configure(fd)
         } catch {
@@ -41,6 +50,8 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
     /// Raw 8N1, no flow control, no hang-up on close. The baud rate is
     /// ignored by USB-Serial/JTAG but set for real UART bridges.
     static func configure(_ fd: Int32) throws {
+        // HUPCL goes first, so a failure below can't drop DTR/RTS on close.
+        guard clearHangup(fd) else { throw KnobLinkError.openFailed(String(cString: strerror(errno))) }
         var t = termios()
         guard tcgetattr(fd, &t) == 0 else { throw KnobLinkError.openFailed(String(cString: strerror(errno))) }
         cfmakeraw(&t)
@@ -49,6 +60,17 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
         cfsetspeed(&t, speed_t(B115200))
         guard tcsetattr(fd, TCSANOW, &t) == 0 else { throw KnobLinkError.openFailed(String(cString: strerror(errno))) }
     }
+
+    @discardableResult
+    static func clearHangup(_ fd: Int32) -> Bool {
+        var t = termios()
+        guard tcgetattr(fd, &t) == 0 else { return false }
+        if t.c_cflag & tcflag_t(HUPCL) == 0 { return true }
+        t.c_cflag &= ~tcflag_t(HUPCL)
+        return tcsetattr(fd, TCSANOW, &t) == 0
+    }
+
+    deinit { close() }
 
     private func readAvailable() {
         var buf = [UInt8](repeating: 0, count: 1024)

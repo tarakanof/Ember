@@ -40,11 +40,11 @@ public final class KnobModel {
     @ObservationIgnored public let opener: any KnobLinkOpener
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
-    @ObservationIgnored private var probing: Set<String> = []
-    /// Called when a cinder knob without Wi-Fi or Ember settings is plugged in.
-    @ObservationIgnored public var onUnprovisionedKnob: (@MainActor (KnobSerialPort, KnobIdentity) -> Void)?
+    /// The probe running now; at most one, so two opens never race.
+    @ObservationIgnored private var probeTask: Task<Void, Never>?
     /// Set while the setup sheet owns the port, so probes don't open it.
     @ObservationIgnored public var portBusy = false
+    @ObservationIgnored var probeTimeouts = KnobProvisioner.Timeouts()
 
     public var all: [any SaveStatusReporting] { [settings] }
 
@@ -173,19 +173,42 @@ public final class KnobModel {
         return p.hwID
     }
 
-    /// Asks each newly plugged-in board who it is (Improv device info, then
-    /// closes). Call when `ports.ports` changes.
-    public func probeNewPorts() async {
+    /// Asks the plugged-in boards who they are (Improv device info, then
+    /// closes). Only call it while Settings › Knob is on screen or the user
+    /// acts: the port is shared with idf.py monitor and esptool (download
+    /// mode is `303a:1001` too), so Ember never opens it on its own.
+    /// `retryFailed` probes again boards that weren't cinder or were busy.
+    public func probePorts(retryFailed: Bool = false) async {
+        await waitForProbe()
+        guard !portBusy else { return }
         let current = Set(ports.ports.map(\.path))
         portStatus = portStatus.filter { current.contains($0.key) }
-        for port in ports.ports where portStatus[port.path] == nil && !probing.contains(port.path) && !portBusy {
-            probing.insert(port.path)
-            portStatus[port.path] = .probing
-            let status = await probe(port)
-            probing.remove(port.path)
-            guard ports.ports.contains(port) else { continue }
-            portStatus[port.path] = status
-            if case .cinder(let id) = status, !id.isProvisioned { onUnprovisionedKnob?(port, id) }
+        let todo = ports.ports.filter { p in
+            switch portStatus[p.path] {
+            case nil, .probing?: true
+            case .cinder?: false
+            case .notCinder?, .unavailable?: retryFailed
+            }
+        }
+        guard !todo.isEmpty else { return }
+        let task = Task { @MainActor in
+            for port in todo where !self.portBusy && !Task.isCancelled {
+                self.portStatus[port.path] = .probing
+                let status = await self.probe(port)
+                if self.ports.ports.contains(port) { self.portStatus[port.path] = status }
+            }
+        }
+        probeTask = task
+        await task.value
+        if probeTask == task { probeTask = nil }
+    }
+
+    /// Waits for a probe in flight (the setup sheet calls this before it
+    /// opens the port).
+    public func waitForProbe() async {
+        while let t = probeTask {
+            await t.value
+            if probeTask == t { probeTask = nil }
         }
     }
 
@@ -194,6 +217,7 @@ public final class KnobModel {
     @discardableResult
     public func factoryReset(port: KnobSerialPort) async -> Bool {
         let provisioner = KnobProvisioner(opener: opener, service: service)
+        await waitForProbe()
         portBusy = true
         defer { portBusy = false }
         let ok = await perform(.factoryReset) {
@@ -216,7 +240,7 @@ public final class KnobModel {
     }
 
     private func probe(_ port: KnobSerialPort) async -> KnobPortStatus {
-        let provisioner = KnobProvisioner(opener: opener, service: service)
+        let provisioner = KnobProvisioner(opener: opener, service: service, timeouts: probeTimeouts)
         do {
             let (session, identity) = try await provisioner.connect(path: port.path, usbHwID: port.hwID)
             await session.close()

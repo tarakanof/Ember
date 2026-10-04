@@ -27,6 +27,8 @@ public enum ImprovCodec {
     }
 
     public enum State: UInt8, Sendable {
+        case stopped = 0x00
+        /// BLE only.
         case authorizationRequired = 0x01
         case ready = 0x02
         case provisioning = 0x03
@@ -38,6 +40,7 @@ public enum ImprovCodec {
         case invalidRPC = 0x01
         case unknownCommand = 0x02
         case unableToConnect = 0x03
+        /// BLE only.
         case notAuthorized = 0x04
         case badHostname = 0x05
         case unknown = 0xFF

@@ -84,29 +84,40 @@ public struct KnobProvisioner: Sendable {
 
     let opener: any KnobLinkOpener
     let mint: @Sendable (_ hwID: String, _ name: String) async throws -> MintedKnob
-    /// Whether the server has seen a checkin from `id` since `since`.
-    let checkedIn: @Sendable (_ id: String, _ since: Date) async -> Bool
+    /// Whether the server has a checkin from `id` strictly after `baseline`
+    /// (the record's last checkin when it was minted, by the server's own
+    /// clock; nil = any checkin).
+    let checkedIn: @Sendable (_ id: String, _ baseline: Date?) async -> Bool
+    /// Deletes a record this setup created and never got working.
+    let forget: @Sendable (_ id: String) async -> Void
     let timeouts: Timeouts
-    let now: @Sendable () -> Date
 
     public init(opener: any KnobLinkOpener,
                 mint: @escaping @Sendable (String, String) async throws -> MintedKnob,
-                checkedIn: @escaping @Sendable (String, Date) async -> Bool,
-                timeouts: Timeouts = Timeouts(),
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                checkedIn: @escaping @Sendable (String, Date?) async -> Bool,
+                forget: @escaping @Sendable (String) async -> Void = { _ in },
+                timeouts: Timeouts = Timeouts()) {
         self.opener = opener; self.mint = mint; self.checkedIn = checkedIn
-        self.timeouts = timeouts; self.now = now
+        self.forget = forget; self.timeouts = timeouts
     }
 
     /// A provisioner over `/v1/devices`.
     public init(opener: any KnobLinkOpener, service: KnobService, timeouts: Timeouts = Timeouts()) {
         self.init(opener: opener,
                   mint: { try await service.mint(hwID: $0, name: $1) },
-                  checkedIn: { id, since in
+                  checkedIn: { id, baseline in
                       let d = try? await service.devices().first { $0.id == id }
-                      return (d?.lastCheckin?.seenAt).map { $0 >= since } ?? false
+                      return Self.checkedIn(d?.lastCheckin?.seenAt, after: baseline)
                   },
+                  forget: { try? await service.forget(id: $0) },
                   timeouts: timeouts)
+    }
+
+    /// A checkin newer than the one the record had at mint time.
+    static func checkedIn(_ seen: Date?, after baseline: Date?) -> Bool {
+        guard let seen else { return false }
+        guard let baseline else { return true }
+        return seen > baseline
     }
 
     // MARK: Connect
@@ -124,22 +135,48 @@ public struct KnobProvisioner: Sendable {
         }
     }
 
-    func identify(_ session: KnobSession, usbHwID: String?) async throws -> KnobIdentity {
-        try await session.send(ImprovCodec.rpc(.deviceInfo))
-        let info: ImprovDeviceInfo
-        do {
-            info = try await session.expect(timeout: timeouts.info) { e in
-                if case .improv(.result(ImprovCodec.Command.deviceInfo.rawValue, let s)) = e {
-                    return ImprovDeviceInfo(strings: s)
+    private enum Hello: Sendable {
+        case info(ImprovDeviceInfo)
+        case boot(fw: String?)
+    }
+
+    /// Asks for Improv device info up to `attempts` times: USB enumerates in
+    /// ROM, before cinder's listener runs, so a knob that is still booting
+    /// answers late. A `CINDER1` boot event also counts as cinder.
+    func identify(_ session: KnobSession, usbHwID: String?, attempts: Int = 3) async throws -> KnobIdentity {
+        var info: ImprovDeviceInfo?
+        var bootFW: String?
+        for _ in 0..<attempts where info == nil {
+            try Task.checkCancellation()
+            do {
+                try await session.send(ImprovCodec.rpc(.deviceInfo))
+                let hello = try await session.expect(timeout: timeouts.info) { e -> Hello? in
+                    switch e {
+                    case .improv(.result(ImprovCodec.Command.deviceInfo.rawValue, let s)):
+                        return ImprovDeviceInfo(strings: s).map(Hello.info)
+                    case .cinder(.event(let ev)) where ev.ev == "boot":
+                        return .boot(fw: ev.fw)
+                    default:
+                        return nil
+                    }
                 }
-                return nil
+                switch hello {
+                case .info(let i): info = i
+                case .boot(let fw): bootFW = fw ?? ""
+                }
+            } catch is KnobTimeout {
+                continue
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw KnobSetupError.disconnected
             }
-        } catch is KnobTimeout {
-            throw KnobSetupError.notCinder
-        } catch {
-            throw KnobSetupError.disconnected
         }
-        guard info.isCinder else { throw KnobSetupError.notCinder }
+        if info == nil, let fw = bootFW {
+            let short = usbHwID.map { String($0.suffix(6)).uppercased() } ?? ""
+            info = ImprovDeviceInfo(firmware: "cinder", version: fw, chip: "ESP32-S3", name: "Knob \(short)")
+        }
+        guard let info, info.isCinder else { throw KnobSetupError.notCinder }
         var id = KnobIdentity(info: info, hwID: usbHwID)
         if let r = try? await session.call(.info, timeout: timeouts.reply), r.ok {
             id.hwID = r.hwID.flatMap(Self.normalizeHwID) ?? usbHwID
@@ -178,45 +215,70 @@ public struct KnobProvisioner: Sendable {
     /// Mints a token, hands the knob its Ember settings and Wi-Fi, follows
     /// the reboot and waits for the first good checkin. Returns the session
     /// (a new one after a reconnect) and the registered device.
+    /// `onSession` gets every session opened after a reboot, so the caller
+    /// owns (and closes) the live one even when a later step fails.
     public func provision(_ session: KnobSession, identity: KnobIdentity, serialNumber: String?,
                           request: KnobSetupRequest,
-                          progress: @escaping @Sendable (KnobSetupPhase) -> Void) async throws -> (KnobSession, KnobDevice) {
+                          progress: @escaping @Sendable (KnobSetupPhase) -> Void,
+                          onSession: @escaping @Sendable (KnobSession) -> Void = { _ in })
+        async throws -> (KnobSession, KnobDevice) {
         progress(.saving)
         guard CinderLineCodec.isValidEmberURL(request.emberURL) else { throw KnobSetupError.invalid(request.emberURL) }
         guard let hwID = identity.hwID else { throw KnobSetupError.noHardwareID }
-        let started = now()
         let minted = try await mintToken(hwID: hwID, name: request.name)
-        try await setEmber(session, minted: minted, request: request)
-        var s = try await join(session, ssid: request.ssid, password: request.password,
-                               serialNumber: serialNumber, progress: progress)
-        progress(.reachingEmber)
-        s = try await waitForEmber(s, deviceID: minted.device.id, since: started,
-                                   url: request.emberURL, serialNumber: serialNumber)
+        let s = try await cleaningUp(minted) {
+            try await setEmber(session, minted: minted, request: request)
+            let joined = try await join(session, ssid: request.ssid, password: request.password,
+                                        serialNumber: serialNumber, progress: progress, onSession: onSession)
+            progress(.reachingEmber)
+            return try await waitForEmber(joined, deviceID: minted.device.id, baseline: minted.device.lastCheckin?.seenAt,
+                                          url: request.emberURL, serialNumber: serialNumber, onSession: onSession)
+        }
         progress(.done)
         return (s, minted.device)
+    }
+
+    /// Runs the steps after a mint; if they fail and the record never had a
+    /// working token (no checkin yet), deletes it so it can't become "the
+    /// knob".
+    private func cleaningUp(_ minted: MintedKnob, _ body: () async throws -> KnobSession) async throws -> KnobSession {
+        do {
+            return try await body()
+        } catch {
+            if minted.device.lastCheckin == nil { await forget(minted.device.id) }
+            throw error
+        }
     }
 
     /// After "Ember rejected the knob's token": a new token, no Wi-Fi change.
     public func remint(_ session: KnobSession, identity: KnobIdentity, serialNumber: String?,
                        request: KnobSetupRequest,
-                       progress: @escaping @Sendable (KnobSetupPhase) -> Void) async throws -> (KnobSession, KnobDevice) {
+                       progress: @escaping @Sendable (KnobSetupPhase) -> Void,
+                       onSession: @escaping @Sendable (KnobSession) -> Void = { _ in })
+        async throws -> (KnobSession, KnobDevice) {
         progress(.saving)
         guard let hwID = identity.hwID else { throw KnobSetupError.noHardwareID }
-        let started = now()
         let minted = try await mintToken(hwID: hwID, name: request.name)
-        try await setEmber(session, minted: minted, request: request)
-        progress(.reachingEmber)
-        let s = try await waitForEmber(session, deviceID: minted.device.id, since: started,
-                                       url: request.emberURL, serialNumber: serialNumber)
+        let s = try await cleaningUp(minted) {
+            // Stale "unauthorized" events from the old token mustn't answer.
+            await session.drain()
+            try await setEmber(session, minted: minted, request: request)
+            await session.drain()
+            progress(.reachingEmber)
+            return try await waitForEmber(session, deviceID: minted.device.id, baseline: minted.device.lastCheckin?.seenAt,
+                                          url: request.emberURL, serialNumber: serialNumber, onSession: onSession)
+        }
         progress(.done)
         return (s, minted.device)
     }
 
     /// New Wi-Fi only (Advanced › Change Wi-Fi).
     public func changeWiFi(_ session: KnobSession, ssid: String, password: String, serialNumber: String?,
-                           progress: @escaping @Sendable (KnobSetupPhase) -> Void) async throws -> KnobSession {
+                           progress: @escaping @Sendable (KnobSetupPhase) -> Void,
+                           onSession: @escaping @Sendable (KnobSession) -> Void = { _ in }) async throws -> KnobSession {
         progress(.saving)
-        let s = try await join(session, ssid: ssid, password: password, serialNumber: serialNumber, progress: progress)
+        let s = try await join(session, ssid: ssid, password: password, serialNumber: serialNumber,
+                               progress: progress, onSession: onSession)
         progress(.done)
         return s
     }
@@ -241,6 +303,8 @@ public struct KnobProvisioner: Sendable {
             throw KnobSetupError.rejected(e == .badURL ? "bad_url" : "too_long")
         } catch is KnobTimeout {
             throw KnobSetupError.timedOut(.saving)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw KnobSetupError.disconnected
         }
@@ -253,7 +317,8 @@ public struct KnobProvisioner: Sendable {
 
     /// Sends the Wi-Fi RPC and follows the knob until it reports provisioned.
     func join(_ session: KnobSession, ssid: String, password: String, serialNumber: String?,
-              progress: @escaping @Sendable (KnobSetupPhase) -> Void) async throws -> KnobSession {
+              progress: @escaping @Sendable (KnobSetupPhase) -> Void,
+              onSession: @escaping @Sendable (KnobSession) -> Void) async throws -> KnobSession {
         await session.drain()
         do {
             try await session.send(ImprovCodec.wifiSettings(ssid: ssid, password: password))
@@ -264,6 +329,7 @@ public struct KnobProvisioner: Sendable {
         var phase = KnobSetupPhase.saving
         func set(_ p: KnobSetupPhase) { if p != phase { phase = p; progress(p) } }
         while true {
+            try Task.checkCancellation()
             let ev: JoinEvent
             do {
                 ev = try await s.expect(timeout: timeouts.join) { e -> JoinEvent? in
@@ -276,9 +342,11 @@ public struct KnobProvisioner: Sendable {
                 }
             } catch is KnobTimeout {
                 throw KnobSetupError.timedOut(phase)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 set(.restarting)
-                s = try await reconnect(serialNumber)
+                s = try await reconnect(serialNumber, onSession: onSession)
                 set(.joining(ssid: ssid))
                 try? await s.send(ImprovCodec.rpc(.currentState))
                 continue
@@ -300,7 +368,9 @@ public struct KnobProvisioner: Sendable {
         }
     }
 
-    private func reconnect(_ serialNumber: String?) async throws -> KnobSession {
+    private func reconnect(_ serialNumber: String?,
+                           onSession: @Sendable (KnobSession) -> Void) async throws -> KnobSession {
+        try Task.checkCancellation()
         guard let serialNumber else { throw KnobSetupError.disconnected }
         let link: any KnobLink
         do {
@@ -310,6 +380,7 @@ public struct KnobProvisioner: Sendable {
         }
         let s = KnobSession(link: link)
         await s.start()
+        onSession(s)
         return s
     }
 
@@ -319,8 +390,9 @@ public struct KnobProvisioner: Sendable {
 
     /// Waits for `ember: ok` from the knob (event or `status`) or a checkin
     /// on the server.
-    func waitForEmber(_ session: KnobSession, deviceID: String, since: Date, url: String,
-                      serialNumber: String?) async throws -> KnobSession {
+    func waitForEmber(_ session: KnobSession, deviceID: String, baseline: Date?, url: String,
+                      serialNumber: String?,
+                      onSession: @escaping @Sendable (KnobSession) -> Void) async throws -> KnobSession {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeouts.ember)
         var s = session
@@ -328,14 +400,15 @@ public struct KnobProvisioner: Sendable {
         var ip: String?
         var reconnected = false
         while clock.now < deadline {
-            if await checkedIn(deviceID, since.addingTimeInterval(-5)) { return s }
+            try Task.checkCancellation()
+            if await checkedIn(deviceID, baseline) { return s }
             var statusID: Int?
             do {
                 statusID = try await s.send(.status)
             } catch {
                 guard !reconnected else { throw KnobSetupError.disconnected }
                 reconnected = true
-                s = try await reconnect(serialNumber)
+                s = try await reconnect(serialNumber, onSession: onSession)
                 continue
             }
             let id = statusID

@@ -99,6 +99,9 @@ private final class Calls: @unchecked Sendable {
     private var _mints: [(String, String)] = []
     var mints: [(String, String)] { lock.withLock { _mints } }
     func mint(_ hw: String, _ name: String) { lock.withLock { _mints.append((hw, name)) } }
+    private var _forgets: [String] = []
+    var forgets: [String] { lock.withLock { _forgets } }
+    func forget(_ id: String) { lock.withLock { _forgets.append(id) } }
 }
 
 private final class Phases: @unchecked Sendable {
@@ -120,13 +123,13 @@ private let minted = MintedKnob(device: KnobDevice(id: "knob-61fc8c", hwID: "3cd
                                                    createdAt: Date(timeIntervalSince1970: 0)),
                                 token: "ekd_" + String(repeating: "A", count: 43))
 
-private func provisioner(_ opener: FakeOpener, calls: Calls = Calls(),
+private func provisioner(_ opener: FakeOpener, calls: Calls = Calls(), minted: MintedKnob = minted,
                          mintError: Error? = nil, checkedIn: Bool = false) -> KnobProvisioner {
     KnobProvisioner(opener: opener, mint: { hw, name in
         calls.mint(hw, name)
         if let mintError { throw mintError }
         return minted
-    }, checkedIn: { _, _ in checkedIn }, timeouts: fast)
+    }, checkedIn: { _, _ in checkedIn }, forget: { calls.forget($0) }, timeouts: fast)
 }
 
 /// A knob before setup: answers device info, `info`, scan and `set_ember`.
@@ -163,22 +166,51 @@ private func freshKnob(wifi: @escaping (FakeKnob) -> [FakeKnob.Out]) -> FakeKnob
 }
 
 /// The knob after its reboot: joined, answers `status` with `ember`.
-private func rebootedKnob(ember: String) -> FakeKnob {
+/// `okAfterSetEmber`: a new token (re-mint) makes Ember answer ok; the
+/// knob also announces the old token's failure unprompted.
+private func rebootedKnob(ember: String, okAfterSetEmber: Bool = false) -> FakeKnob {
     let k = FakeKnob()
+    let state = StateBox(ember)
     k.onImprov = { m in
         if case .rpc(ImprovCodec.Command.currentState.rawValue, _) = m {
             return [.bytes(Array("I (40) wifi: connected\n".utf8)),
                     .bytes(CinderLineCodec.line(CinderLineCodec.Event(ev: "boot", fw: "0.5.0", provisioned: true))),
-                    .bytes(ImprovCodec.state(.provisioned))]
+                    .bytes(ImprovCodec.state(.provisioned)),
+                    .bytes(CinderLineCodec.line(CinderLineCodec.Event(ev: "ember", state: state.value)))]
         }
         return []
     }
     k.onCinder = { obj in
-        guard obj["op"] as? String == "status" else { return [] }
-        return [FakeKnob.reply(["id": obj["id"] as? Int ?? 0, "ok": true,
-                                "wifi": ["state": "connected", "ip": "192.168.0.39"], "ember": ["state": ember]])]
+        let id = obj["id"] as? Int ?? 0
+        switch obj["op"] as? String {
+        case "set_ember":
+            if okAfterSetEmber { state.value = "ok" }
+            return [FakeKnob.reply(["id": id, "ok": true])]
+        case "status":
+            return [FakeKnob.reply(["id": id, "ok": true,
+                                    "wifi": ["state": "connected", "ip": "192.168.0.39"], "ember": ["state": state.value]])]
+        default:
+            return []
+        }
     }
     return k
+}
+
+final class StateBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _v: String
+    init(_ v: String) { _v = v }
+    var value: String {
+        get { lock.withLock { _v } }
+        set { lock.withLock { _v = newValue } }
+    }
+}
+
+final class SessionSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _all: [KnobSession] = []
+    var all: [KnobSession] { lock.withLock { _all } }
+    func add(_ s: KnobSession) { lock.withLock { _all.append(s) } }
 }
 
 private let request = KnobSetupRequest(ssid: "home", password: "hunter22", emberURL: "http://192.168.0.2:3627", name: "Desk knob")
@@ -297,4 +329,172 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
     let (session, _) = try await p.connect(path: "/dev/cu.fake", usbHwID: "3cdc7561fc8c")
     try await p.factoryReset(session)
     #expect(knob.received.contains("cinder reset"))
+}
+
+// MARK: Review fixes
+
+@Test func remintAfterRebootUsesTheLiveSessionAndIgnoresStaleEvents() async throws {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
+    let calls = Calls()
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unauthorized", okAfterSetEmber: true)]), calls: calls)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    let sink = SessionSink()
+    await #expect(throws: KnobSetupError.emberUnauthorized) {
+        _ = try await p.provision(session, identity: id, serialNumber: "x", request: request,
+                                  progress: { _ in }, onSession: { sink.add($0) })
+    }
+    let live = try #require(sink.all.last)
+    #expect(await !live.isClosed)
+    // The rebooted knob already sent "unauthorized" for the old token; the
+    // re-mint must wait for a fresh answer.
+    let (_, device) = try await p.remint(live, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    #expect(device.id == "knob-61fc8c")
+    #expect(calls.mints.count == 2)
+}
+
+@Test func failedSetupDeletesARecordThatNeverWorked() async throws {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.error(.unableToConnect))] }
+    let calls = Calls()
+    let p = provisioner(FakeOpener(knob), calls: calls)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    await #expect(throws: KnobSetupError.wifi(ssid: "home")) {
+        _ = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+    #expect(calls.forgets == ["knob-61fc8c"])
+}
+
+@Test func failedResetupKeepsAWorkingRecord() async throws {
+    var known = minted.device
+    known.lastCheckin = KnobCheckin(seenAt: Date(timeIntervalSince1970: 100), fw: "0.5.0", ip: "192.168.0.39", rssi: -58,
+                                    heapInternalFree: 1, heapInternalLargest: 1, uptimeS: 1, appliedVersion: 1)
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.error(.unableToConnect))] }
+    let calls = Calls()
+    let p = provisioner(FakeOpener(knob), calls: calls, minted: MintedKnob(device: known, token: minted.token))
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    await #expect(throws: KnobSetupError.wifi(ssid: "home")) {
+        _ = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+    #expect(calls.forgets.isEmpty)
+}
+
+@Test func checkinMustBeNewerThanTheMintBaseline() {
+    let base = Date(timeIntervalSince1970: 1000)
+    #expect(!KnobProvisioner.checkedIn(nil, after: nil))
+    #expect(KnobProvisioner.checkedIn(base, after: nil))
+    #expect(!KnobProvisioner.checkedIn(base, after: base))
+    #expect(!KnobProvisioner.checkedIn(base.addingTimeInterval(-1), after: base))
+    #expect(KnobProvisioner.checkedIn(base.addingTimeInterval(1), after: base))
+}
+
+@Test func provisionPassesTheMintBaselineToTheCheckinTest() async throws {
+    var known = minted.device
+    let seen = Date(timeIntervalSince1970: 100)
+    known.lastCheckin = KnobCheckin(seenAt: seen, fw: "", ip: "", rssi: 0, heapInternalFree: 0,
+                                    heapInternalLargest: 0, uptimeS: 0, appliedVersion: 0)
+    let box = StateBox("")
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioned))] }
+    let mintedKnown = MintedKnob(device: known, token: "ekd_x")
+    let p = KnobProvisioner(opener: FakeOpener(knob), mint: { _, _ in mintedKnown },
+                            checkedIn: { _, baseline in
+                                box.value = baseline.map { "\($0.timeIntervalSince1970)" } ?? "nil"
+                                return true
+                            }, timeouts: fast)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    _ = try await p.provision(session, identity: id, serialNumber: nil, request: request, progress: { _ in })
+    #expect(box.value == "100.0")
+}
+
+@Test func identifyRetriesAKnobThatIsStillBooting() async throws {
+    let k = FakeKnob()
+    let asks = StateBox("0")
+    k.onImprov = { m in
+        guard case .rpc(ImprovCodec.Command.deviceInfo.rawValue, _) = m else { return [] }
+        let n = Int(asks.value)! + 1
+        asks.value = "\(n)"
+        return n < 2 ? [] : [.bytes(FakeKnob.info)]
+    }
+    let (_, id) = try await provisioner(FakeOpener(k)).connect(path: "/dev/cu.fake", usbHwID: nil)
+    #expect(id.info.isCinder)
+    #expect(asks.value == "2")
+}
+
+@Test func bootEventCountsAsCinder() async throws {
+    let k = FakeKnob()
+    k.onImprov = { _ in [.bytes(CinderLineCodec.line(CinderLineCodec.Event(ev: "boot", fw: "0.5.0", provisioned: false)))] }
+    let (_, id) = try await provisioner(FakeOpener(k)).connect(path: "/dev/cu.fake", usbHwID: "3cdc7561fc8c")
+    #expect(id.info.isCinder)
+    #expect(id.info.version == "0.5.0")
+}
+
+@Test func expectStopsWhenCancelled() async throws {
+    let session = KnobSession(link: FakeKnob())
+    await session.start()
+    let started = ContinuousClock.now
+    let t = Task { try await session.expect(timeout: .seconds(30)) { _ in Optional(1) } }
+    try await Task.sleep(for: .milliseconds(20))
+    t.cancel()
+    await #expect(throws: CancellationError.self) { _ = try await t.value }
+    #expect(ContinuousClock.now - started < .seconds(5))
+}
+
+@Test func cancelledSetupDoesNotReconnect() async throws {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
+    let opener = FakeOpener(knob, later: [rebootedKnob(ember: "ok")])
+    let p = provisioner(opener)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    let t = Task {
+        withUnsafeCurrentTask { $0?.cancel() }
+        return try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+    _ = try? await t.value
+    #expect(opener.reopenedWith.isEmpty)
+}
+
+@Test func wpaPasswordRules() {
+    #expect(KnobSetupModel.isValidWPAPassword("hunter22"))
+    #expect(!KnobSetupModel.isValidWPAPassword("short"))
+    #expect(!KnobSetupModel.isValidWPAPassword(String(repeating: "g", count: 64)))
+    #expect(KnobSetupModel.isValidWPAPassword(String(repeating: "a1", count: 32)))
+    #expect(try! ImprovCodec.decode(ImprovCodec.state(.stopped)) == .state(.stopped))
+}
+
+// MARK: Setup model
+
+@MainActor
+private func waitFor(_ model: KnobSetupModel, _ done: (KnobSetupModel.Stage) -> Bool) async {
+    for _ in 0..<300 where !done(model.stage) { try? await Task.sleep(for: .milliseconds(10)) }
+}
+
+@MainActor
+@Test func setupModelAdoptsTheRebootedSessionSoReMintWorks() async throws {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
+    knob.onCinder = { obj in
+        let id = obj["id"] as? Int ?? 0
+        switch obj["op"] as? String {
+        case "info":
+            return [FakeKnob.reply(["id": id, "ok": true, "hw_id": "3cdc7561fc8c",
+                                    "wifi": ["configured": true], "ember": ["configured": true]])]
+        default:
+            return [FakeKnob.reply(["id": id, "ok": true])]
+        }
+    }
+    let p = provisioner(FakeOpener(knob, later: [rebootedKnob(ember: "unauthorized", okAfterSetEmber: true)]))
+    let port = KnobSerialPort(path: "/dev/cu.fake", vendorID: 0x303A, productID: 0x1001, serialNumber: "3C:DC:75:61:FC:8C")
+    let m = KnobSetupModel(mode: .setup, provisioner: p, emberURL: .init(url: "http://192.168.0.2:3627", replacedHost: nil),
+                           name: "Desk knob", preferredSSID: "home")
+    m.attach(port)
+    await waitFor(m) { $0 == .ready }
+    await waitFor(m) { _ in !m.networks.isEmpty }
+    m.password = "hunter22"
+    #expect(m.canSend)
+    m.send { _ in }
+    await waitFor(m) { if case .failed = $0 { true } else { false } }
+    #expect(m.stage == .failed(.emberUnauthorized))
+    #expect(m.oldTokenRevoked)
+    var got: KnobDevice?
+    m.remint { got = $0 }
+    await waitFor(m) { $0 == .done }
+    #expect(m.stage == .done)
+    #expect(got?.id == "knob-61fc8c")
+    m.close()
 }

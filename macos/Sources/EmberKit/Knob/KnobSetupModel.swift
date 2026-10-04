@@ -75,8 +75,12 @@ public final class KnobSetupModel {
 
     public var canSend: Bool {
         guard stage == .ready, !ssid.isEmpty else { return false }
-        let secured = networks.first { $0.ssid == ssid }?.secured ?? true
-        if secured && password.isEmpty { return false }
+        switch networks.first(where: { $0.ssid == ssid })?.secured {
+        case true?: if !Self.isValidWPAPassword(password) { return false }
+        case false?: break
+        // Typed by hand: open (no password) or a valid WPA one.
+        case nil: if !password.isEmpty && !Self.isValidWPAPassword(password) { return false }
+        }
         if mode == .setup {
             return CinderLineCodec.isValidEmberURL(emberURL)
                 && !name.trimmingCharacters(in: .whitespaces).isEmpty
@@ -94,6 +98,9 @@ public final class KnobSetupModel {
     /// The host the suggested URL replaced, while the URL is still the
     /// suggestion.
     public var replacedHostNote: String? { emberURL == suggestedURL ? replacedHost : nil }
+
+    /// A password is typed but can't be a WPA one (8–63 characters).
+    public var passwordInvalid: Bool { !password.isEmpty && !Self.isValidWPAPassword(password) }
 
     public var emberURLValid: Bool { CinderLineCodec.isValidEmberURL(emberURL) }
 
@@ -154,14 +161,16 @@ public final class KnobSetupModel {
         guard canSend, let session, let identity else { return }
         let request = KnobSetupRequest(ssid: ssid, password: password, emberURL: emberURL,
                                        name: name.trimmingCharacters(in: .whitespaces))
-        run(session: session) { p, s, progress in
-            switch self.mode {
+        let mode = self.mode
+        let serial = port?.serialNumber
+        run(session: session, mints: mode == .setup) { p, s, progress, onSession in
+            switch mode {
             case .setup:
-                return try await p.provision(s, identity: identity, serialNumber: self.port?.serialNumber,
-                                             request: request, progress: progress)
+                return try await p.provision(s, identity: identity, serialNumber: serial,
+                                             request: request, progress: progress, onSession: onSession)
             case .changeWiFi:
                 let next = try await p.changeWiFi(s, ssid: request.ssid, password: request.password,
-                                                  serialNumber: self.port?.serialNumber, progress: progress)
+                                                  serialNumber: serial, progress: progress, onSession: onSession)
                 return (next, nil)
             }
         } finished: { device in
@@ -174,13 +183,18 @@ public final class KnobSetupModel {
         guard let session, let identity else { return }
         let request = KnobSetupRequest(ssid: ssid, password: password, emberURL: emberURL,
                                        name: name.trimmingCharacters(in: .whitespaces))
-        run(session: session) { p, s, progress in
-            try await p.remint(s, identity: identity, serialNumber: self.port?.serialNumber,
-                               request: request, progress: progress)
+        let serial = port?.serialNumber
+        run(session: session, mints: true) { p, s, progress, onSession in
+            try await p.remint(s, identity: identity, serialNumber: serial,
+                               request: request, progress: progress, onSession: onSession)
         } finished: { device in
             if let device { await finished(device) }
         }
     }
+
+    /// The failed setup minted a new token after the knob already had one:
+    /// the old token no longer works, so the knob needs this setup to finish.
+    public private(set) var oldTokenRevoked = false
 
     /// Back to the form after a failure.
     public func edit() {
@@ -190,24 +204,29 @@ public final class KnobSetupModel {
         }
     }
 
-    private func run(session: KnobSession,
+    private func run(session: KnobSession, mints: Bool,
                      _ body: @escaping @MainActor (KnobProvisioner, KnobSession,
-                                                   @escaping @Sendable (KnobSetupPhase) -> Void) async throws
+                                                   @escaping @Sendable (KnobSetupPhase) -> Void,
+                                                   @escaping @Sendable (KnobSession) -> Void) async throws
                         -> (KnobSession, KnobDevice?),
                      finished: @escaping @MainActor (KnobDevice?) async -> Void) {
         work?.cancel()
         stage = .sending(.saving)
+        oldTokenRevoked = false
+        let hadToken = identity?.emberConfigured ?? false
         let p = provisioner
-        work = Task {
-            let progress: @Sendable (KnobSetupPhase) -> Void = { phase in
-                Task { @MainActor [weak self] in
-                    guard let self, case .sending = self.stage else { return }
-                    self.stage = .sending(phase)
-                }
+        let latest = LatestSession()
+        let progress: @Sendable (KnobSetupPhase) -> Void = { [weak self] phase in
+            Task { @MainActor in
+                guard let self, case .sending = self.stage else { return }
+                self.stage = .sending(phase)
             }
+        }
+        work = Task {
             do {
-                let (next, device) = try await body(p, session, progress)
-                self.session = next
+                let (next, device) = try await body(p, session, progress, { latest.set($0) })
+                try Task.checkCancellation()
+                adopt(next)
                 self.device = device
                 if var id = identity {
                     id.wifiConfigured = true
@@ -216,12 +235,32 @@ public final class KnobSetupModel {
                 }
                 await finished(device)
                 stage = .done
-            } catch let e as KnobSetupError {
-                stage = .failed(e)
+            } catch is CancellationError {
+                // Closed mid-setup: nothing may keep the port open.
+                await latest.value?.close()
             } catch {
-                stage = .failed(.disconnected)
+                // The knob may have rebooted onto a new session: keep it, so
+                // Re-mint and Back talk to the live port.
+                if let s = latest.value {
+                    if Task.isCancelled { await s.close() } else { adopt(s) }
+                }
+                let e = error as? KnobSetupError ?? .disconnected
+                if mints, hadToken {
+                    switch e {
+                    case .mint, .invalid, .noHardwareID: break
+                    default: oldTokenRevoked = true
+                    }
+                }
+                stage = .failed(e)
             }
         }
+    }
+
+    private func adopt(_ next: KnobSession) {
+        guard next !== session else { return }
+        let old = session
+        session = next
+        Task { await old?.close() }
     }
 
     /// Closes the port; call when the sheet goes away.
@@ -232,4 +271,21 @@ public final class KnobSetupModel {
         session = nil
         Task { await s?.close() }
     }
+}
+
+extension KnobSetupModel {
+    /// WPA/WPA2: 8–63 characters, or 64 hex digits. Open networks take none.
+    public nonisolated static func isValidWPAPassword(_ p: String) -> Bool {
+        let n = p.utf8.count
+        if (8...63).contains(n) { return true }
+        return n == 64 && p.allSatisfy(\.isHexDigit)
+    }
+}
+
+/// The newest session the provisioner opened (after a reboot).
+private final class LatestSession: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: KnobSession?
+    var value: KnobSession? { lock.withLock { _value } }
+    func set(_ s: KnobSession) { lock.withLock { _value = s } }
 }

@@ -1,5 +1,5 @@
 {
-  "about": "Improv Serial frames (https://www.improv-wifi.com/serial/). hex = one frame, no trailing newline; the host encoder appends 0x0a after each frame it sends (not in the checksum). Shared with cinder's firmware tests.",
+  "about": "Improv Serial frames (https://www.improv-wifi.com/serial/). hex = one frame, no trailing newline; the host encoder appends 0x0a after each frame it sends (not in the checksum). Shared with cinder's firmware tests. Copy to cinder's firmware/test/vectors/ unchanged; change both sides together.",
   "frames": [
     {
       "name": "rpc device info",

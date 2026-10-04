@@ -194,7 +194,10 @@ private func model(_ fake: FakeRegistry) -> KnobModel {
     let ports = KnobSerialPorts(scanner: { [port] })
     ports.rescan()
     let m = KnobModel(service: svc, ports: ports, opener: FakeOpener(silent), debounce: .zero, sleep: { _ in })
-    await m.probeNewPorts()
+    var t = KnobProvisioner.Timeouts()
+    t.info = .milliseconds(50)
+    m.probeTimeouts = t
+    await m.probePorts()
     #expect(m.portStatus[port.path] == .notCinder)
     #expect(m.connectedPort == port)
 }
@@ -212,4 +215,52 @@ private func model(_ fake: FakeRegistry) -> KnobModel {
     let none = KnobEmberURL.suggest(server: URL(string: "http://127.0.0.1:3627"), thisMac: nil, resolve: { _ in nil })
     #expect(none == .init(url: "http://127.0.0.1:3627", replacedHost: nil))
     #expect(KnobEmberURL.isPrivateIPv4("10.0.0.1") && KnobEmberURL.isPrivateIPv4("172.20.1.1") && !KnobEmberURL.isPrivateIPv4("8.8.8.8"))
+}
+
+final class CountingOpener: KnobLinkOpener, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _opens = 0
+    var opens: Int { lock.withLock { _opens } }
+    func open(path: String) async throws -> any KnobLink {
+        lock.withLock { _opens += 1 }
+        throw KnobLinkError.busy
+    }
+    func reopen(serialNumber: String, timeout: Duration) async throws -> any KnobLink { throw KnobLinkError.notFound }
+}
+
+@MainActor
+@Test func knobPortsAreDetectedWithoutOpeningThem() async {
+    let port = KnobSerialPort(path: "/dev/cu.fake", vendorID: 0x303A, productID: 0x1001, serialNumber: "3C:DC:75:61:FC:8C")
+    let fake = FakeRegistry()
+    let opener = CountingOpener()
+    let ports = KnobSerialPorts(scanner: { [port] })
+    ports.rescan()
+    let m = KnobModel(service: KnobService(client: stubbedClient(token: "t") { fake.handle($0) }),
+                      ports: ports, opener: opener, debounce: .zero, sleep: { _ in })
+    await m.load()
+    // Passive: the registered knob is on USB by its serial number alone.
+    #expect(m.registeredKnobOnUSB)
+    #expect(m.connectedPort == port)
+    #expect(opener.opens == 0)
+    // A busy port (idf.py monitor) is reported, and only opened on request.
+    await m.probePorts()
+    #expect(opener.opens == 1)
+    #expect(m.portStatus[port.path] == .unavailable)
+    await m.probePorts()
+    #expect(opener.opens == 1)
+    await m.probePorts(retryFailed: true)
+    #expect(opener.opens == 2)
+    m.portBusy = true
+    await m.probePorts(retryFailed: true)
+    #expect(opener.opens == 2)
+}
+
+@MainActor
+@Test func setUpReplacingForgetsTheOldKnob() async {
+    let fake = FakeRegistry()
+    let m = model(fake)
+    await m.load()
+    let old = KnobDevice(id: "knob-old", hwID: "000000000001", name: "Old", createdAt: .distantPast)
+    await m.didSetUp(m.knob!, replacing: old)
+    #expect(fake.log.contains { $0.0 == "DELETE" && $0.1 == "/v1/devices/knob-old" })
 }

@@ -22,6 +22,8 @@ public enum KnobLinkError: Error, Equatable, Sendable {
     case writeFailed(String)
     case closed
     case notFound
+    /// Another program (idf.py monitor, esptool) has the port.
+    case busy
 }
 
 /// Waits for events on one link: buffers what arrives so a reply that
@@ -92,17 +94,25 @@ public actor KnobSession {
             return match(e)!
         }
         guard !closed else { throw KnobLinkError.closed }
+        try Task.checkCancellation()
         let key = nextWaiter
         nextWaiter += 1
         let timer = Task { [weak self] in
             try? await Task.sleep(for: timeout)
             await self?.expire(key)
         }
-        let event = await withCheckedContinuation { (c: CheckedContinuation<KnobEvent?, Never>) in
-            waiters[key] = Waiter(match: { match($0) != nil }, continuation: c)
+        let event = await withTaskCancellationHandler {
+            await withCheckedContinuation { (c: CheckedContinuation<KnobEvent?, Never>) in
+                waiters[key] = Waiter(match: { match($0) != nil }, continuation: c)
+            }
+        } onCancel: {
+            Task { [weak self] in await self?.expire(key) }
         }
         timer.cancel()
-        guard let event else { throw closed ? KnobLinkError.closed : KnobTimeout() }
+        guard let event else {
+            if Task.isCancelled { throw CancellationError() }
+            throw closed ? KnobLinkError.closed : KnobTimeout()
+        }
         return match(event)!
     }
 
