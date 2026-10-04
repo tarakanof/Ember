@@ -544,8 +544,12 @@ markers still get reaped.
   (`backgroundWorkHoldsCompletion`: roster task of the active provider
   thread with kind other than `command`, or an active subagent /
   non-persistent dynamic_tool turn item outside a rolled-back run; dev-server
-  commands do not hold). That hold is a SQL approximation (it does not dedupe
-  roster vs item by task id). Deliberate difference: the `auth_refresh` filter
+  commands do not hold). That hold is a single-query SQL equivalent of T3's shell read plus
+  in-memory decode, not a copy of its code; the only known difference is that
+  it does not dedupe roster vs item by task id. The turn-item lookup repeats
+  the type/status lists of T3's partial `turn_items_recovery_idx` verbatim so
+  SQLite uses it. When a hold ends after the activity window, the watcher
+  times `done` from the moment it saw running → done, so it still shows. Deliberate difference: the `auth_refresh` filter
   runs in the request query, so such a request never hides an older approval.
   failed → `error`
   with the failed root error item's message, else the newest bound provider

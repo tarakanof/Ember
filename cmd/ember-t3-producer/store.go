@@ -229,6 +229,8 @@ SELECT
   CASE WHEN presented.status = 'completed' AND (
     EXISTS (SELECT 1 FROM orchestration_v2_projection_provider_threads pt,
         json_each(pt.payload_json, '$.pendingBackgroundTasks') task
+      -- The payload's activeProviderThreadId, as T3 decodes it (the
+      -- active_provider_thread_id column is not what T3's shell reads).
       WHERE pt.thread_id = t.thread_id
         AND (json_extract(t.payload_json, '$.activeProviderThreadId') IS NULL
           OR pt.provider_thread_id = json_extract(t.payload_json, '$.activeProviderThreadId'))
@@ -236,7 +238,12 @@ SELECT
         AND json_extract(task.value, '$.kind') IS NOT 'command')
     OR EXISTS (SELECT 1 FROM orchestration_v2_projection_turn_items i
       LEFT JOIN orchestration_v2_projection_runs ir ON ir.run_id = i.run_id
-      WHERE i.thread_id = t.thread_id AND i.type IN ('subagent', 'dynamic_tool')
+      -- T3's turn_items_recovery_idx is partial on exactly this type list and
+      -- status list; SQLite only uses it when the WHERE repeats them verbatim,
+      -- else it scans every item of every completed thread (~0.5 s per poll
+      -- on 600k items). command_execution never holds, so exclude it after.
+      WHERE i.thread_id = t.thread_id
+        AND i.type IN ('command_execution', 'dynamic_tool', 'subagent') AND i.type <> 'command_execution'
         AND i.status IN ('pending', 'running', 'waiting')
         AND NOT (i.type = 'dynamic_tool' AND json_type(i.payload_json, '$.input.persistent') = 'true')
         AND (i.run_id IS NULL OR ir.status <> 'rolled_back'))

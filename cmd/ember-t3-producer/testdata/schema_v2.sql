@@ -86,3 +86,7 @@ CREATE TABLE orchestration_v2_projection_runtime_requests (
   resolved_at TEXT,
   payload_json TEXT NOT NULL
 );
+CREATE INDEX orchestration_v2_projection_turn_items_recovery_idx
+  ON orchestration_v2_projection_turn_items(thread_id)
+  WHERE type IN ('command_execution', 'dynamic_tool', 'subagent')
+    AND status IN ('pending', 'running', 'waiting');

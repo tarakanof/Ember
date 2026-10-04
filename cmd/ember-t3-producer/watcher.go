@@ -12,6 +12,11 @@ const keepaliveInterval = 15 * time.Second
 type liveThread struct {
 	fingerprint  string
 	lastPostedAt time.Time
+	state        string
+	// settledAt is when this watcher saw the thread go running/waiting ->
+	// done/error. The run's own completion time can be long past (a hold on
+	// background work outlasts the activity window), and done must still show.
+	settledAt time.Time
 }
 
 // watcher diffs successive thread snapshots into status POSTs and DELETEs.
@@ -39,17 +44,29 @@ func (w *watcher) tick(threads []thread, now time.Time) (posts []producer.Status
 		if !ok {
 			continue
 		}
-		if (state == "done" || state == "error") && now.Sub(th.ChangedAt) > w.activityWindow {
-			continue
+		lt := w.live[th.ID]
+		if state == "done" || state == "error" {
+			changed := th.ChangedAt
+			if lt != nil {
+				if lt.state == "running" || lt.state == "waiting" {
+					lt.settledAt = now
+				}
+				if lt.settledAt.After(changed) {
+					changed = lt.settledAt
+				}
+			}
+			if now.Sub(changed) > w.activityWindow {
+				continue
+			}
 		}
 		seen[th.ID] = true
 		req := w.buildStatusRequest(th, state, message)
 		fp := req.State + "\x00" + req.Message + "\x00" + req.Activity
-		lt := w.live[th.ID]
 		if lt == nil {
 			lt = &liveThread{}
 			w.live[th.ID] = lt
 		}
+		lt.state = state
 		if fp != lt.fingerprint || now.Sub(lt.lastPostedAt) >= keepaliveInterval {
 			posts = append(posts, req)
 			lt.fingerprint, lt.lastPostedAt = fp, now

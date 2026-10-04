@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -127,6 +128,10 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('t-bg-sub', 'p', 'Subagent item', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-bg-persist', 'p', 'Persistent monitor', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-bg-rolled', 'p', 'Rolled back subagent', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-bg-nokind', 'p', 'Roster no kind', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
+		 ('t-bg-unk', 'p', 'Roster unknown kind', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
+		 ('t-bg-noid', 'p', 'Roster empty id', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
+		 ('t-bg-failed', 'p', 'Failed with open work', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
 		 ('t-del', 'p', 'Deleted', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, '2026-10-02T10:00:00.000Z', '{}', 'codex')`,
 		`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json) VALUES
 		 ('r1', 't-run', 1, 'codex', 'completed', '2026-10-02T10:01:00.000Z', '2026-10-02T10:02:00.000Z', '{}'),
@@ -148,16 +153,25 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('r16', 't-bg-sub', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
 		 ('r17', 't-bg-persist', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
 		 ('r18', 't-bg-rolled', 1, 'codex', 'rolled_back', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
-		 ('r19', 't-bg-rolled', 2, 'codex', 'completed', '2026-10-02T10:05:00.000Z', '2026-10-02T10:06:00.000Z', '{}')`,
+		 ('r19', 't-bg-rolled', 2, 'codex', 'completed', '2026-10-02T10:05:00.000Z', '2026-10-02T10:06:00.000Z', '{}'),
+		 ('r20', 't-bg-nokind', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r21', 't-bg-unk', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r22', 't-bg-noid', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r23', 't-bg-failed', 1, 'claudeAgent', 'failed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_provider_threads (provider_thread_id, thread_id, provider, status, updated_at, payload_json) VALUES
 		 ('pt-a', 't-bg-roster', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"m1","kind":"monitor"}]}'),
 		 ('pt-b', 't-bg-other', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[]}'),
 		 ('pt-old', 't-bg-other', 'claudeAgent', 'stale', '2026-10-02T10:03:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"old","kind":"subagent"}]}'),
+		 ('pt-d', 't-bg-nokind', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"x"}]}'),
+		 ('pt-e', 't-bg-unk', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"y","kind":"weird"}]}'),
+		 ('pt-f', 't-bg-noid', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"","kind":"monitor"}]}'),
+		 ('pt-g', 't-bg-failed', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"z","kind":"monitor"}]}'),
 		 ('pt-c', 't-bg-cmd', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"dev","kind":"command"}]}')`,
 		`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, ordinal, type, status, updated_at, payload_json) VALUES
 		 ('b-sub', 't-bg-sub', 'r16', 1, 'subagent', 'running', '2026-10-02T10:03:30.000Z', '{}'),
 		 ('b-cmd', 't-bg-cmd', 'r15', 1, 'command_execution', 'running', '2026-10-02T10:03:30.000Z', '{}'),
 		 ('b-persist', 't-bg-persist', 'r17', 1, 'dynamic_tool', 'running', '2026-10-02T10:03:30.000Z', '{"input":{"persistent":true}}'),
+		 ('b-failed', 't-bg-failed', 'r23', 1, 'subagent', 'running', '2026-10-02T10:03:30.000Z', '{}'),
 		 ('b-rolled', 't-bg-rolled', 'r18', 1, 'subagent', 'running', '2026-10-02T10:03:30.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_runtime_requests (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json) VALUES
 		 ('q1', 't-done-ask', 'n', 'user_input', 'pending', '2026-10-02T10:04:30.000Z', '{}'),
@@ -222,6 +236,10 @@ func TestReadSnapshotV2(t *testing.T) {
 		"t-bg-cmd":     {status: "completed", changed: at("10:04:00")},
 		"t-bg-sub":     {status: "completed", holds: true, changed: at("10:04:00")},
 		"t-bg-persist": {status: "completed", changed: at("10:04:00")},
+		"t-bg-nokind":  {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-unk":     {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-noid":    {status: "completed", changed: at("10:04:00")},
+		"t-bg-failed":  {status: "failed", changed: at("10:04:00")},
 		"t-bg-rolled":  {status: "completed", changed: at("10:06:00")},
 	}
 	for id, want := range cases {
@@ -344,5 +362,34 @@ func TestReadSnapshotIsReadOnly(t *testing.T) {
 	after, _ := os.Stat(path)
 	if after.Size() != before.Size() {
 		t.Fatal("database file changed")
+	}
+}
+
+// The turn-item EXISTS must use T3's partial recovery index, not scan every
+// item of every completed thread (~0.5 s per poll at 600k items).
+func TestQueryV2UsesRecoveryIndex(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "statev2.sqlite", "schema_v2.sql")
+	db, err := openReadOnly(filepath.Join(home, "userdata", "statev2.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	rows, err := db.Query("EXPLAIN QUERY PLAN " + queryV2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(detail + "\n")
+	}
+	if !strings.Contains(plan.String(), "orchestration_v2_projection_turn_items_recovery_idx") {
+		t.Fatalf("turn-item lookup no longer uses the recovery index:\n%s", plan.String())
 	}
 }
