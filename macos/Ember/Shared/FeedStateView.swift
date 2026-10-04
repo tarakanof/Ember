@@ -11,7 +11,7 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
     var offTitle: LocalizedStringKey = "Needs a newer server"
     var offDescription: LocalizedStringKey? = nil
     var offSymbol: String = "power"
-    var offSettingsPane: String? = nil
+    var offSettingsPane: SettingsRoute? = nil
     var showsStaleChip = true
     @ViewBuilder let content: (T) -> Content
 
@@ -35,7 +35,7 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
             } description: {
                 Text("Add the server's token in Connection settings.")
             } actions: {
-                Button("Open Connection Settings") { openSettings(pane: "connection", using: openWindow) }
+                Button("Open Connection Settings") { openSettings(.app(.connection), using: openWindow) }
             }
         case .failed(.featureOff, _, _):
             ContentUnavailableView {
@@ -44,7 +44,7 @@ struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
                 if let offDescription { Text(offDescription) }
             } actions: {
                 if let pane = offSettingsPane {
-                    Button("Open Settings") { openSettings(pane: pane, using: openWindow) }
+                    Button("Open Settings") { openSettings(pane, using: openWindow) }
                 }
             }
         case .failed(let error, let last?, let lastAt):

@@ -199,7 +199,7 @@ struct DiscoverClocksSheet: View {
                 LabeledContent {
                     Button("Review Permissions…") {
                         dismiss()
-                        showSettingsPane(.permissions)
+                        showSettings(.app(.permissions))
                     }
                 } label: {
                     Label("This Mac can't search: Local Network access is off",

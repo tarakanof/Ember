@@ -62,8 +62,8 @@ private func confirmActivation(of window: NSWindow?) {
 extension NSApplication: @MainActor LegacyActivation {}
 
 @MainActor
-func openSettings(pane: String? = nil, using openWindow: OpenWindowAction) {
-    if let pane { UserDefaults.standard.set(pane, forKey: "settings.pane") }
+func openSettings(_ route: SettingsRoute? = nil, using openWindow: OpenWindowAction) {
+    if let route { showSettings(route) }
     presentWindow(id: WindowID.settings, using: openWindow)
 }
 

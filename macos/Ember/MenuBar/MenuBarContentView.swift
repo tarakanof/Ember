@@ -19,7 +19,7 @@ struct MenuBarContentView: View {
 		let now = Date()
 
 		if live.connection == .unconfigured {
-			Button("Set Up Ember…") { openSettings(pane: "connection", using: openWindow) }
+			Button("Set Up Ember…") { openSettings(.app(.connection), using: openWindow) }
 			Divider()
 		}
 
@@ -129,6 +129,10 @@ struct MenuBarContentView: View {
 						)) {
 							Text(app.title)
 						}
+					}
+					Divider()
+					Button("Clock Agent Settings…") {
+						openSettings(.device(clockDeviceID, .app(.agents)), using: openWindow)
 					}
 				}
 			}

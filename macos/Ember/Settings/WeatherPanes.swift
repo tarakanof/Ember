@@ -2,12 +2,11 @@ import SwiftUI
 import CoreLocation
 import EmberKit
 
-struct WeatherPane: View {
+/// Sources › Weather: where and how often the server fetches conditions.
+struct WeatherSourcePane: View {
     @Environment(AppEnvironment.self) private var env
-    @State private var preview = PreviewModel()
     @State private var locating = false
     @State private var locateError: LocalizedStringKey?
-    @AppStorage("weatherFold.icons") private var iconsExpanded = false
 
     private var model: ServerConfigModel<WeatherConfig> { env.settings.weather }
 
@@ -15,23 +14,6 @@ struct WeatherPane: View {
         @Bindable var model = model
         let c = model.draft
         Form {
-            Section {
-                VStack(alignment: .leading, spacing: 14) {
-                    PanelPreview(title: "Current conditions",
-                                 caption: "Condition icon, temperature and a strip for the next ^[\(c.forecastHours) hour](inflect: true), blue for cold to red for warm.",
-                                 enabled: c.enabled && c.rotateInApps, frame: frame("weather"))
-                    PanelPreview(title: "Hourly forecast",
-                                 caption: "Bars whose height and color follow the temperature.",
-                                 enabled: c.enabled && c.forecastTile, frame: frame("forecast"))
-                    PanelPreview(title: "Air quality",
-                                 caption: "European AQI in its scale color, with the next 24 hours below.",
-                                 enabled: c.enabled && c.airTile, frame: frame("air"))
-                }
-                .settingsPreviewRow()
-            } footer: {
-                Text("Animated icons and rain or snow overlays appear on the clock only.")
-            }
-
             LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
                              offMessage: "Weather is off on the server, or the server is too old.",
                              retry: { await model.load() })
@@ -45,25 +27,16 @@ struct WeatherPane: View {
 
                 Group {
                     locationSection(model)
-                    tilesSection(model)
-                    popupsSection(model)
-                    if c.useNativeIcons || c.tileNativeIcons {
-                        Section(isExpanded: $iconsExpanded) {
-                            ForEach(Self.iconConditions, id: \.key) { row in
-                                TextField(row.label, text: iconBinding(row.key), prompt: Text(verbatim: row.placeholder))
-                            }
-                        } header: {
-                            Text("Native Icon IDs")
-                        }
-                    }
+                    alertsSection(model)
                 }
                 .disabled(!c.enabled)
             }
             .disabled(!model.isLoaded)
+
+            ShownOnSection(source: .weather)
         }
         .formStyle(.grouped)
         .autosaves(model)
-        .previews(previewDraft, into: preview) { try await env.preview.fetchWeatherPreview($0) }
         .reloads {
             env.location.refreshAuthorization()
             await model.load()
@@ -145,6 +118,106 @@ struct WeatherPane: View {
         }
     }
 
+    private func alertsSection(_ model: ServerConfigModel<WeatherConfig>) -> some View {
+        @Bindable var model = model
+        let c = model.draft
+        return Section {
+            StepperRow(title: "Refresh every", value: $model.draft.refreshMinutes,
+                       range: (5...60).including(c.refreshMinutes), step: 5) { Text("\($0) min") }
+            Toggle("Severe weather alert", isOn: $model.draft.severeAlert)
+            StepperRow(title: "Air quality alert from", value: $model.draft.airPopupThreshold,
+                       range: 0...200, step: 10) { n in n == 0 ? Text("Off") : Text("AQI \(n)") }
+        } header: {
+            Text("Updates and Alerts")
+        } footer: {
+            Text("European AQI: up to 20 good, 40 fair, 60 moderate, 80 poor, 100 very poor, above that extreme. The alert pops up once as the AQI crosses the level.")
+        }
+    }
+
+    // MARK: Helpers
+
+    private func locate(quietly: Bool = false) async {
+        locating = true
+        locateError = nil
+        defer { locating = false }
+        do {
+            let fix = try await env.location.current()
+            if quietly, model.draft.latitude != 0 || model.draft.longitude != 0 { return }
+            model.draft.latitude = (fix.latitude * 10000).rounded() / 10000
+            model.draft.longitude = (fix.longitude * 10000).rounded() / 10000
+            if let name = fix.name, !quietly || model.draft.locationName.isEmpty { model.draft.locationName = name }
+        } catch where quietly {
+            return
+        } catch LocationService.LocationError.denied {
+            locateError = "Location is off for Ember. Turn it on in System Settings › Privacy & Security › Location Services."
+        } catch LocationService.LocationError.authorizationUnavailable {
+            locateError = "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services."
+        } catch {
+            locateError = "Couldn't find your location. Enter the coordinates instead."
+        }
+    }
+
+    private func openLocationSettings() {
+        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")
+    }
+}
+
+/// Clock › Apps › Weather: the TC001's weather tiles and popups.
+struct ClockWeatherAppPane: View {
+    @Environment(AppEnvironment.self) private var env
+    @State private var preview = PreviewModel()
+    @AppStorage("weatherFold.icons") private var iconsExpanded = false
+
+    private var model: ServerConfigModel<WeatherConfig> { env.settings.weather }
+
+    var body: some View {
+        @Bindable var model = model
+        let c = model.draft
+        Form {
+            SourceLinkSection(source: .weather, isOff: model.isLoaded && !c.enabled)
+
+            Section {
+                VStack(alignment: .leading, spacing: 14) {
+                    PanelPreview(title: "Current conditions",
+                                 caption: "Condition icon, temperature and a strip for the next ^[\(c.forecastHours) hour](inflect: true), blue for cold to red for warm.",
+                                 enabled: c.enabled && c.rotateInApps, frame: frame("weather"))
+                    PanelPreview(title: "Hourly forecast",
+                                 caption: "Bars whose height and color follow the temperature.",
+                                 enabled: c.enabled && c.forecastTile, frame: frame("forecast"))
+                    PanelPreview(title: "Air quality",
+                                 caption: "European AQI in its scale color, with the next 24 hours below.",
+                                 enabled: c.enabled && c.airTile, frame: frame("air"))
+                }
+                .settingsPreviewRow()
+            } footer: {
+                Text("Animated icons and rain or snow overlays appear on the clock only.")
+            }
+
+            LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
+                             offMessage: "Weather is off on the server, or the server is too old.",
+                             retry: { await model.load() })
+
+            Group {
+                tilesSection(model)
+                popupsSection(model)
+                if c.useNativeIcons || c.tileNativeIcons {
+                    Section(isExpanded: $iconsExpanded) {
+                        ForEach(Self.iconConditions, id: \.key) { row in
+                            TextField(row.label, text: iconBinding(row.key), prompt: Text(verbatim: row.placeholder))
+                        }
+                    } header: {
+                        Text("Native Icon IDs")
+                    }
+                }
+            }
+            .disabled(!model.isLoaded || !c.enabled)
+        }
+        .formStyle(.grouped)
+        .autosaves(model)
+        .previews(previewDraft, into: preview) { try await env.preview.fetchWeatherPreview($0) }
+        .reloads { await model.load() }
+    }
+
     private func tilesSection(_ model: ServerConfigModel<WeatherConfig>) -> some View {
         @Bindable var model = model
         let c = model.draft
@@ -161,14 +234,10 @@ struct WeatherPane: View {
                        range: 1...24) { Text("\($0) h") }
                 .disabled(!c.rotateInApps && !c.forecastTile)
             Toggle("Air quality", isOn: $model.draft.airTile)
-            StepperRow(title: "Air quality alert from", value: $model.draft.airPopupThreshold,
-                       range: 0...200, step: 10) { n in n == 0 ? Text("Off") : Text("AQI \(n)") }
-            StepperRow(title: "Refresh every", value: $model.draft.refreshMinutes,
-                       range: (5...60).including(c.refreshMinutes), step: 5) { Text("\($0) min") }
         } header: {
             Text("Tiles")
         } footer: {
-            Text("European AQI: up to 20 good, 40 fair, 60 moderate, 80 poor, 100 very poor, above that extreme. The alert pops up once as the AQI crosses the level.")
+            SaveErrorFooter(error: model.saveError)
         }
     }
 
@@ -183,16 +252,13 @@ struct WeatherPane: View {
             }
             StepperRow(title: "Show for", value: $model.draft.popupDurationSeconds,
                        range: (5...120).including(model.draft.popupDurationSeconds), step: 5) { Text("\($0) s") }
-            Toggle("Severe weather alert", isOn: $model.draft.severeAlert)
             Toggle("Native icons in popups", isOn: $model.draft.useNativeIcons)
         } header: {
             Text("Popups")
         } footer: {
-            Text("The severe weather alert plays a sound; choose it in Sounds & Alerts.")
+            Text("Severe weather and air quality alerts are set in Sources › Weather; the severe weather sound in Clock › Sounds.")
         }
     }
-
-    // MARK: Helpers
 
     static let iconConditions: [(key: String, label: LocalizedStringKey, placeholder: String)] = [
         ("clear", "Clear", "1338"),
@@ -220,30 +286,5 @@ struct WeatherPane: View {
         draft.forecastTile = true
         draft.airTile = true
         return draft
-    }
-
-    private func locate(quietly: Bool = false) async {
-        locating = true
-        locateError = nil
-        defer { locating = false }
-        do {
-            let fix = try await env.location.current()
-            if quietly, model.draft.latitude != 0 || model.draft.longitude != 0 { return }
-            model.draft.latitude = (fix.latitude * 10000).rounded() / 10000
-            model.draft.longitude = (fix.longitude * 10000).rounded() / 10000
-            if let name = fix.name, !quietly || model.draft.locationName.isEmpty { model.draft.locationName = name }
-        } catch where quietly {
-            return
-        } catch LocationService.LocationError.denied {
-            locateError = "Location is off for Ember. Turn it on in System Settings › Privacy & Security › Location Services."
-        } catch LocationService.LocationError.authorizationUnavailable {
-            locateError = "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services."
-        } catch {
-            locateError = "Couldn't find your location. Enter the coordinates instead."
-        }
-    }
-
-    private func openLocationSettings() {
-        openSystemSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")
     }
 }

@@ -633,8 +633,10 @@ without relaunch. Hybrid layout:
   and `Presentation/` (display names, formatters, and `MenuRows`, the menu's
   row rules), plus `Device/` (`DeviceSettingsModel`: the clock's settings
   saved as a patch of the keys that changed, overlay, sensors, apps, buttons,
-  audio), `Settings/` (pane ids with the pre-restructure names mapped,
-  melody choices, the Connection probe) and `Reminders/`
+  audio), `Settings/` (`SettingsRoute`, the selection stored as a path
+  such as `device/clock/app/weather` with every older pane name mapped;
+  `SettingsTree`, the sidebar built from the devices and `AppCatalog`, the
+  per-kind hardware pages and apps; melody choices, the Connection probe) and `Reminders/`
   (`ReminderScheduler` behind a `ReminderSource` seam, plus the pure fire
   rules). Headless `swift test`.
 - **`Ember` (`macos/Ember/`, thin Xcode app)** — an `LSUIElement` agent
@@ -645,8 +647,14 @@ without relaunch. Hybrid layout:
   server lacks are hidden, e.g. usage falls back to `/state` and display
   power needs 0.28+), the animated bot or tool glyph as its icon, a
   fixed-width sidebar `Settings` window (height resizable only, like System
-  Settings; **General / Connection / Clock / Knob / Agents / Focus /
-  Weather / Calendar / Sounds & Alerts / Permissions**; the title follows the pane, the
+  Settings; three groups: **App** (General, Connection, Permissions,
+  Sounds & Alerts), **Sources** (Agents, Focus, Weather, Calendar: where
+  data comes from, set once) and **Devices** (Clock and Knob, each with its
+  hardware pages and an Apps subtree holding that device's presentation of
+  each source; a source pane and its device apps bind the same config model,
+  so a pending edit shows in both; the selection and expanded nodes persist
+  in `UserDefaults`, and a route under a device still loading is held, not
+  replaced by the fallback); the title follows the pane, the
   subtitle is the one save status of every config model, controls stay
   disabled until their model has loaded), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
   menu while a window is open. `Ember/Shared/` holds the views all three

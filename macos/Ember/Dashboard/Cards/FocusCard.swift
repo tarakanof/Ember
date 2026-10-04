@@ -15,8 +15,8 @@ struct FocusCard: View {
                           emptyTitle: "No focus sessions yet — click Start Focus to begin",
                           emptySymbol: "timer",
                           offTitle: "Pomodoro is off",
-                          offDescription: "Turn it on in Settings › Focus.",
-                          offSettingsPane: "focus") { summary in
+                          offDescription: "Turn it on in Settings › Sources › Focus.",
+                          offSettingsPane: .source(.focus)) { summary in
                 content(summary)
             }
         }

@@ -145,7 +145,7 @@ struct ProducersToggleSection: View {
             Label("macOS is blocking \(helpers) from the local network, so its reports don't reach the server. Allow it under Local Network.",
                   systemImage: "wifi.exclamationmark")
                 .foregroundStyle(.orange)
-            Button("Review Permissions…") { showSettingsPane(.permissions) }
+            Button("Review Permissions…") { showSettings(.app(.permissions)) }
         }
     }
 
