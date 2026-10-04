@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -132,12 +133,14 @@ type deviceRegistry struct {
 	kv  func() settingsKV
 	now func() time.Time
 
-	mu    sync.Mutex // protects state
-	state deviceState
+	mu           sync.Mutex // protects state, pendingPlain, loadErr
+	state        deviceState
+	pendingPlain map[string]string
+	loadErr      error
 }
 
 func newDeviceRegistry(kv func() settingsKV) *deviceRegistry {
-	return &deviceRegistry{kv: kv, now: time.Now}
+	return &deviceRegistry{kv: kv, now: time.Now, pendingPlain: map[string]string{}}
 }
 
 func (r *deviceRegistry) load() error {
@@ -145,26 +148,43 @@ func (r *deviceRegistry) load() error {
 	if kv == nil {
 		return nil
 	}
+	st, err := readDeviceState(kv)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loadErr = err
+	if err == nil {
+		r.state = st
+	}
+	return err
+}
+
+func readDeviceState(kv settingsKV) (deviceState, error) {
+	var st deviceState
 	blob, ok, err := kv.GetSetting(devicesKey)
 	if err != nil {
-		return fmt.Errorf("read devices: %w", err)
+		return st, fmt.Errorf("read devices: %w", err)
 	}
 	if !ok {
-		return nil
+		return st, nil
 	}
-	var st deviceState
 	if err := json.Unmarshal([]byte(blob), &st); err != nil {
-		return fmt.Errorf("decode devices: %w", err)
+		return st, fmt.Errorf("decode devices: %w", err)
 	}
+	return st, nil
+}
+
+func (r *deviceRegistry) loadError() error {
 	r.mu.Lock()
-	r.state = st
-	r.mu.Unlock()
-	return nil
+	defer r.mu.Unlock()
+	return r.loadErr
 }
 
 func (r *deviceRegistry) mutate(fn func(*deviceState) error) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.loadErr != nil {
+		return fmt.Errorf("device registry load failed, writes refused until restart: %w", r.loadErr)
+	}
 	next := r.state.clone()
 	if err := fn(&next); err != nil {
 		if errors.Is(err, errNoChange) {
@@ -303,14 +323,15 @@ func (r *deviceRegistry) remove(id string) error {
 			return errDeviceNotFound
 		}
 		st.Devices = slices.Delete(st.Devices, i, i+1)
+		delete(r.pendingPlain, id)
 		st.Epoch++
 		return nil
 	})
 }
 
-// putConfig merges patch over the device's config like every other …/config
-// PUT; an invalid result wraps errSettingBody and changes nothing. The version
-// and epoch move only when the effective config changes.
+// putConfig deep-merges patch over the device's config (nested objects merge
+// field by field, arrays replace); an invalid result wraps errSettingBody and
+// changes nothing. The version and epoch move only when the config changes.
 func (r *deviceRegistry) putConfig(id string, patch []byte) (knobSettings, int, bool, error) {
 	var out knobSettings
 	var version int
@@ -320,7 +341,7 @@ func (r *deviceRegistry) putConfig(id string, patch []byte) (knobSettings, int, 
 		if d == nil {
 			return errDeviceNotFound
 		}
-		merged, err := mergeSetting(d.Config, patch)
+		merged, err := mergeKnobSettings(d.clone().Config, patch)
 		if err != nil {
 			return err
 		}
@@ -377,6 +398,8 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 		d.TokenSHA256 = d.PendingTokenSHA256
 		d.PendingTokenSHA256 = ""
 		d.RotatedAt = nil
+		delete(r.pendingPlain, d.ID)
+		st.Epoch++
 		return nil
 	})
 	if err != nil {
@@ -393,7 +416,9 @@ type checkinResult struct {
 
 // checkin records the device's status report. The result carries the config
 // when the device's applied version is stale and, while a rotation is pending,
-// a freshly minted token that supersedes any earlier undelivered one.
+// the pending token: minted on first delivery, then redelivered unchanged. Its
+// plaintext lives only in memory, so after a restart the next delivery mints
+// a replacement.
 func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult, error) {
 	var res checkinResult
 	err := r.mutate(func(st *deviceState) error {
@@ -409,12 +434,34 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 			res.Config = &c
 		}
 		if d.RotatedAt != nil {
-			res.NewToken = newDeviceToken()
-			d.PendingTokenSHA256 = tokenHash(res.NewToken)
+			res.NewToken = r.pendingPlain[id]
+			if res.NewToken == "" || tokenHash(res.NewToken) != d.PendingTokenSHA256 {
+				res.NewToken = newDeviceToken()
+				d.PendingTokenSHA256 = tokenHash(res.NewToken)
+				r.pendingPlain[id] = res.NewToken
+			}
 		}
 		return nil
 	})
 	return res, err
+}
+
+func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(patch, &keys); err != nil || keys == nil {
+		return cur, errSettingNotObject
+	}
+	for k := range keys {
+		if strings.EqualFold(k, "pages") {
+			cur.Pages = nil
+		}
+	}
+	dec := json.NewDecoder(bytes.NewReader(patch))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cur); err != nil {
+		return cur, fmt.Errorf("%w: %w", errSettingBody, err)
+	}
+	return cur, nil
 }
 
 func newDeviceToken() string {

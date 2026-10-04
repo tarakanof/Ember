@@ -3,10 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
-	"slices"
+	"regexp"
 )
 
 var knobPageIDs = []string{"bot", "pomodoro", "weather"}
+
+var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
 
 type knobSettings struct {
 	Brightness knobBrightness `json:"brightness"`
@@ -77,8 +79,8 @@ func (s knobSettings) validatePages() error {
 	seen := make(map[string]bool, len(s.Pages))
 	homeOn := false
 	for _, p := range s.Pages {
-		if !slices.Contains(knobPageIDs, p.ID) {
-			return fmt.Errorf("unknown page %q (known: %v)", p.ID, knobPageIDs)
+		if !knobPageIDPattern.MatchString(p.ID) {
+			return fmt.Errorf("page id %q must match %s", p.ID, knobPageIDPattern)
 		}
 		if seen[p.ID] {
 			return fmt.Errorf("page %q listed twice", p.ID)

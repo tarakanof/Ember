@@ -191,6 +191,9 @@ func checkCapabilities(app *App) CheckResult {
 const deviceStaleAfter = 5 * time.Minute
 
 func checkDevices(app *App) CheckResult {
+	if err := app.devices.loadError(); err != nil {
+		return CheckResult{Status: StatusFail, Detail: "registry load failed (writes refused until restart): " + err.Error()}
+	}
 	devices := app.devices.list()
 	now := app.devices.now()
 	status := StatusOK

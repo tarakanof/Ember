@@ -326,7 +326,7 @@ func TestDeviceConfigPutRejectsInvalidMergedResult(t *testing.T) {
 		`{"poll_ms":50}`,
 		`{"pages":[{"id":"bot","on":false}]}`,
 		`{"home":"nope"}`,
-		`{"brightness":{"level":100}}`,
+		`{"brightness":{"floor":200}}`,
 		`[]`,
 		`{"poll_ms":"fast"}`,
 	} {
@@ -399,7 +399,7 @@ func TestDeviceRotateDeliversNewTokenAndRetiresOldOnFirstUse(t *testing.T) {
 	}
 }
 
-func TestDeviceRotateReissuesUntilNewTokenUsed(t *testing.T) {
+func TestDeviceRotateRedeliversSamePendingToken(t *testing.T) {
 	_, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
 	devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
@@ -407,14 +407,107 @@ func TestDeviceRotateReissuesUntilNewTokenUsed(t *testing.T) {
 	_, out2 := checkin(t, srv, m.Token, 1)
 	t1, _ := out1["new_token"].(string)
 	t2, _ := out2["new_token"].(string)
-	if t1 == "" || t2 == "" || t1 == t2 {
-		t.Fatalf("reissue: %q then %q", t1, t2)
+	if t1 == "" || t1 != t2 {
+		t.Fatalf("redelivery: %q then %q, want the same token", t1, t2)
 	}
-	if resp, _ := checkin(t, srv, t1, 1); resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("superseded pending token = %d, want 401", resp.StatusCode)
+	if resp, _ := checkin(t, srv, t1, 1); resp.StatusCode != http.StatusOK {
+		t.Fatalf("pending token = %d, want 200", resp.StatusCode)
 	}
-	if resp, _ := checkin(t, srv, t2, 1); resp.StatusCode != http.StatusOK {
-		t.Fatalf("latest pending token = %d, want 200", resp.StatusCode)
+}
+
+func TestDeviceRotateRemintsPendingTokenAfterRestart(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app1, srv1 := newDevicesApp(t, db)
+	m := mintKnob(t, srv1, http.StatusCreated)
+	devReq(t, srv1, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
+	_, out := checkin(t, srv1, m.Token, 1)
+	t1 := out["new_token"].(string)
+	srv1.Close()
+	_ = app1.store.Close()
+
+	_, srv2 := newDevicesApp(t, db)
+	_, out = checkin(t, srv2, m.Token, 1)
+	t2, _ := out["new_token"].(string)
+	if t2 == "" || t2 == t1 {
+		t.Fatalf("after restart new_token = %q, want a fresh one", t2)
+	}
+	if resp, _ := checkin(t, srv2, t1, 1); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("pre-restart pending token = %d, want 401", resp.StatusCode)
+	}
+	if resp, _ := checkin(t, srv2, t2, 1); resp.StatusCode != http.StatusOK {
+		t.Fatalf("re-minted pending token = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestDeviceRotationPromotionBumpsEpoch(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
+	_, out := checkin(t, srv, m.Token, 1)
+	e0 := app.devices.epochValue()
+	checkin(t, srv, out["new_token"].(string), 1)
+	if app.devices.epochValue() == e0 {
+		t.Fatal("epoch did not move on rotation promotion")
+	}
+}
+
+func TestDeviceConfigPutMergesNestedObjects(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	path := "/v1/devices/" + m.ID + "/config"
+	resp, b := devReq(t, srv, "PUT", path, testToken, `{"brightness":{"level":100,"floor":5}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("put = %d: %s", resp.StatusCode, b)
+	}
+	var got knobSettings
+	_ = json.Unmarshal(b, &got)
+	want := knobBrightness{FollowEmber: true, Level: 100, Floor: 5, Startup: 153}
+	if got.Brightness != want || got.Bot.SleepyAfterS != 300 {
+		t.Fatalf("nested merge = %+v, want %+v", got, want)
+	}
+	resp, b = devReq(t, srv, "PUT", path, testToken, `{"pages":[{"id":"weather","on":true},{"id":"bot"}],"home":"weather"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("pages put = %d: %s", resp.StatusCode, b)
+	}
+	_ = json.Unmarshal(b, &got)
+	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}}
+	if len(got.Pages) != 2 || got.Pages[0] != wantPages[0] || got.Pages[1] != wantPages[1] {
+		t.Fatalf("pages replaced = %+v, want %+v", got.Pages, wantPages)
+	}
+	for _, body := range []string{`{"brightness":{"lvl":1}}`, `{"colour":"red"}`} {
+		if resp, _ := devReq(t, srv, "PUT", path, testToken, body); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("put %s = %d, want 400 (unknown field)", body, resp.StatusCode)
+		}
+	}
+}
+
+func TestDeviceConfigKeepsUnknownWellFormedPageIDs(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	resp, b := devReq(t, srv, "PUT", "/v1/devices/"+m.ID+"/config", testToken,
+		`{"pages":[{"id":"bot","on":true},{"id":"clock_v2","on":true}],"home":"clock_v2"}`)
+	if resp.StatusCode != http.StatusOK || !bytes.Contains(b, []byte(`{"id":"clock_v2","on":true}`)) {
+		t.Fatalf("put = %d: %s", resp.StatusCode, b)
+	}
+}
+
+func TestDeviceRegistryLoadFailureRefusesWrites(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	const bad = `{"devices":[{"id":`
+	if err := app.store.PutSetting(devicesKey, bad); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.devices.load(); err == nil {
+		t.Fatal("load of a corrupt blob succeeded")
+	}
+	if resp, _ := devReq(t, srv, "POST", "/v1/devices", testToken, `{"kind":"cinder-knob","hw_id":"`+testHwID+`"}`); resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("mint after failed load = %d, want 500", resp.StatusCode)
+	}
+	if blob, _, _ := app.store.GetSetting(devicesKey); blob != bad {
+		t.Fatalf("stored blob overwritten: %q", blob)
+	}
+	if got := checkDevices(app); got.Status != StatusFail || !strings.Contains(got.Detail, "load failed") {
+		t.Fatalf("doctor = %+v, want fail", got)
 	}
 }
 

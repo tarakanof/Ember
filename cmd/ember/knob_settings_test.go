@@ -31,13 +31,16 @@ func TestKnobSettingsValidate(t *testing.T) {
 				s.Pages[i].On = false
 			}
 		}, false},
-		{"unknown page", func(s *knobSettings) { s.Pages = append(s.Pages, knobPage{ID: "clock", On: true}) }, false},
+		{"new page id", func(s *knobSettings) { s.Pages = append(s.Pages, knobPage{ID: "clock_2", On: true}) }, true},
+		{"malformed page id", func(s *knobSettings) { s.Pages = append(s.Pages, knobPage{ID: "Clock", On: true}) }, false},
+		{"empty page id", func(s *knobSettings) { s.Pages = append(s.Pages, knobPage{ID: "", On: true}) }, false},
+		{"long page id", func(s *knobSettings) { s.Pages = append(s.Pages, knobPage{ID: "a234567890123456x", On: true}) }, false},
 		{"duplicate page", func(s *knobSettings) { s.Pages = append(s.Pages, knobPage{ID: "bot", On: true}) }, false},
 		{"subset of pages", func(s *knobSettings) { s.Pages = []knobPage{{ID: "pomodoro", On: true}}; s.Home = "pomodoro" }, true},
 		{"reordered pages", func(s *knobSettings) {
 			s.Pages = []knobPage{{ID: "weather", On: true}, {ID: "bot", On: true}, {ID: "pomodoro", On: false}}
 		}, true},
-		{"home unknown", func(s *knobSettings) { s.Home = "clock" }, false},
+		{"home not listed", func(s *knobSettings) { s.Home = "clock" }, false},
 		{"home page off", func(s *knobSettings) { s.Pages[0].On = false }, false},
 		{"poll too fast", func(s *knobSettings) { s.PollMS = 999 }, false},
 		{"poll too slow", func(s *knobSettings) { s.PollMS = 10001 }, false},
