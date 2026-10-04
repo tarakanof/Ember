@@ -179,49 +179,14 @@
         }
       }
     },
-    "%@, %@, not set up" : {
-      "comment" : "VoiceOver label of a device in the Settings sidebar that isn't set up: its name, then its kind (\"Knob\").",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@, %2$@, not set up"
-          }
-        }
-      }
+    "%@, not set up" : {
+      "comment" : "VoiceOver label of a Settings sidebar device that isn't set up: its name (and kind, \"Desk knob, Knob\")."
     },
-    "%@, %@, offline" : {
-      "comment" : "VoiceOver label of a device in the Settings sidebar: its name, then its kind (\"Clock\").",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@, %2$@, offline"
-          }
-        }
-      }
+    "%@, offline" : {
+      "comment" : "VoiceOver label of a Settings sidebar device: its name (and kind, \"Desk knob, Knob\")."
     },
-    "%@, %@, online" : {
-      "comment" : "VoiceOver label of a device in the Settings sidebar: its name, then its kind (\"Clock\").",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@, %2$@, online"
-          }
-        }
-      }
-    },
-    "%@, %@, status unknown" : {
-      "comment" : "VoiceOver label of a device in the Settings sidebar whose reachability isn't known yet: its name, then its kind (\"Clock\").",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@, %2$@, status unknown"
-          }
-        }
-      }
+    "%@, online" : {
+      "comment" : "VoiceOver label of a Settings sidebar device: its name (and kind, \"Desk knob, Knob\")."
     },
     "%@, resets %@" : {
       "comment" : "VoiceOver, Usage card row: percent used, then the reset time as the agent reported it.",
@@ -244,6 +209,12 @@
           }
         }
       }
+    },
+    "%@, status unknown" : {
+      "comment" : "VoiceOver label of a Settings sidebar device whose reachability isn't known yet: its name (and kind, \"Desk knob, Knob\")."
+    },
+    "%@, unreachable" : {
+      "comment" : "VoiceOver label of a Settings sidebar device whose server didn't answer: its name (and kind, \"Desk knob, Knob\")."
     },
     "%lld" : {
       "comment" : "A bare count next to a stepper (rounds before a long break)."
@@ -315,7 +286,6 @@
     },
     "A board is connected, but Ember couldn't open its port" : {},
     "A hidden tool's sessions still report; the clock skips them. Changes apply at once." : {},
-    "A meeting chimes with its popup, so it needs a popup time in Calendar. The severe weather sound plays with its alert, set in Weather." : {},
     "A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours, in Sounds & Alerts, mute all of these." : {},
     "A permission Ember needs is off." : {},
     "A shorter check interval shows changes sooner and uses a little more power." : {},
@@ -1070,7 +1040,6 @@
     "Removes the command-line LaunchAgent with the same name, then lets Ember run the bundled helper." : {},
     "Repair" : {},
     "Repeat until dismissed" : {},
-    "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Calendar, and stops after 15 minutes or when quiet hours start." : {},
     "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start." : {},
     "Replace" : {},
     "Replace “%@”?" : {
@@ -1341,7 +1310,6 @@
       "extractionState" : "manual"
     },
     "The server's activity overlay is off, so new agent time isn't stored." : {},
-    "The severe weather alert plays a sound; choose it in Sounds & Alerts." : {},
     "The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN." : {},
     "The value can't contain control characters." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1424,7 +1392,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
-    "Turn it on in Settings › Focus." : {},
+    "Turn it on in Settings › Sources › Focus." : {},
     "Turn the knob to move between pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
     "USB" : {},

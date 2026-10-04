@@ -61,7 +61,7 @@ private func focusStatsState<T, C: View>(_ feed: Loadable<T>, placeholder: T?, i
                                          @ViewBuilder content: @escaping (T) -> C) -> some View {
     FeedStateView(feed: feed, placeholder: placeholder, isEmpty: isEmpty, emptyTitle: "No data yet",
                   emptySymbol: "chart.bar",
-                  offTitle: "Pomodoro is off", offDescription: "Turn it on in Settings › Focus.",
+                  offTitle: "Pomodoro is off", offDescription: "Turn it on in Settings › Sources › Focus.",
                   offSettingsPane: .source(.focus), content: content)
 }
 
