@@ -16,7 +16,16 @@ type knobSettings struct {
 	Home       string         `json:"home"`
 	PollMS     int            `json:"poll_ms"`
 	Bot        knobBot        `json:"bot"`
+	// Diagnostics is what the knob reports in a checkin's stats object:
+	// off (nothing), basic or full. See ARCHITECTURE "Knob diagnostics".
+	Diagnostics string `json:"diagnostics"`
 }
+
+const (
+	knobDiagOff   = "off"
+	knobDiagBasic = "basic"
+	knobDiagFull  = "full"
+)
 
 type knobBrightness struct {
 	FollowEmber bool `json:"follow_ember"`
@@ -41,11 +50,12 @@ func defaultKnobSettings() knobSettings {
 		pages = append(pages, knobPage{ID: id, On: true})
 	}
 	return knobSettings{
-		Brightness: knobBrightness{FollowEmber: true, Level: 153, Floor: 10, Startup: 153},
-		Pages:      pages,
-		Home:       "bot",
-		PollMS:     2000,
-		Bot:        knobBot{SleepyAfterS: 300, DemoHoldS: 20},
+		Brightness:  knobBrightness{FollowEmber: true, Level: 153, Floor: 10, Startup: 153},
+		Pages:       pages,
+		Home:        "bot",
+		PollMS:      2000,
+		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20},
+		Diagnostics: knobDiagOff,
 	}
 }
 
@@ -68,6 +78,11 @@ func (s knobSettings) validate() error {
 	}
 	if err := inRange("poll_ms", s.PollMS, 1000, 10000); err != nil {
 		return err
+	}
+	switch s.Diagnostics {
+	case knobDiagOff, knobDiagBasic, knobDiagFull:
+	default:
+		return fmt.Errorf("diagnostics %q must be off, basic or full", s.Diagnostics)
 	}
 	if err := inRange("bot.sleepy_after_s", s.Bot.SleepyAfterS, 0, 86400); err != nil {
 		return err

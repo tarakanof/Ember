@@ -29,6 +29,7 @@ type knobView struct {
 	Pomo          *knobPomo    `json:"pomo"`
 	Weather       *knobWeather `json:"weather"`
 	Brightness    knobLight    `json:"brightness"`
+	DiagLiveUntil *int64       `json:"diag_live_until,omitempty"`
 }
 
 type knobMood struct {
@@ -73,6 +74,10 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	diag, _, err := a.devices.diagnostics(id)
+	if err != nil {
+		return nil, "", err
+	}
 	r := a.legacyRender(a.sessions.View())
 	b := a.currentBrightness(now)
 	v := knobView{
@@ -83,6 +88,7 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 		Pomo:          a.knobPomo(now),
 		Weather:       a.knobWeather(now),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
+		DiagLiveUntil: a.knobLiveUnix(id, diag, now),
 	}
 	body, err := json.Marshal(v)
 	if err != nil {

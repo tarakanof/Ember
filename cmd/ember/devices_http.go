@@ -185,19 +185,21 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 		a.writeDeviceError(w, r, err)
 		return
 	}
+	a.knobStats.forget(id)
 	a.logger.InfoContext(r.Context(), "device deleted", "device_id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		FW                  string `json:"fw"`
-		IP                  string `json:"ip"`
-		RSSI                int    `json:"rssi"`
-		HeapInternalFree    int    `json:"heap_internal_free"`
-		HeapInternalLargest int    `json:"heap_internal_largest"`
-		UptimeS             int64  `json:"uptime_s"`
-		ConfigVersion       int    `json:"config_version"`
+		FW                  string          `json:"fw"`
+		IP                  string          `json:"ip"`
+		RSSI                int             `json:"rssi"`
+		HeapInternalFree    int             `json:"heap_internal_free"`
+		HeapInternalLargest int             `json:"heap_internal_largest"`
+		UptimeS             int64           `json:"uptime_s"`
+		ConfigVersion       int             `json:"config_version"`
+		Stats               json.RawMessage `json:"stats"`
 	}
 	if !a.decodeOptionalOrReject(w, r, &req, false) {
 		return
@@ -216,7 +218,8 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		ip = addr.String()
 	}
 	id := deviceIDFrom(r.Context())
-	res, err := a.devices.checkin(id, deviceCheckin{
+	stats := a.decodeKnobStats(r, req.Stats)
+	report := deviceCheckin{
 		FW:                  req.FW,
 		IP:                  ip,
 		RSSI:                req.RSSI,
@@ -224,7 +227,8 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		HeapInternalLargest: req.HeapInternalLargest,
 		UptimeS:             req.UptimeS,
 		AppliedVersion:      req.ConfigVersion,
-	})
+	}
+	res, err := a.devices.checkin(id, report)
 	if errors.Is(err, errCheckinNotStored) {
 		a.logger.WarnContext(r.Context(), "device checkin not persisted", "device_id", id, "err", err)
 		err = nil
@@ -233,10 +237,18 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		a.writeDeviceError(w, r, err)
 		return
 	}
+	now := a.knobStats.now()
+	if stats != nil {
+		a.knobStats.record(id, now, knobSampleFromReport(report, stats))
+	}
+	if diag, _, err := a.devices.diagnostics(id); err == nil {
+		res.DiagLiveUntil = a.knobLiveUnix(id, diag, now)
+	}
 	if res.NewToken != "" {
 		a.logger.InfoContext(r.Context(), "device rotation token issued", "device_id", id)
 		w.Header().Set("Cache-Control", "no-store")
 	}
+	w.Header().Set(knobNowHeader, unixHeader(now))
 	writeJSON(w, http.StatusOK, res)
 }
 

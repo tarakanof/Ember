@@ -59,6 +59,8 @@ type App struct {
 	settings appSettings
 
 	devices *deviceRegistry
+	// knobStats holds knob diagnostics samples and live mode, memory only.
+	knobStats *knobStatsStore
 
 	appsMu     sync.Mutex
 	hiddenApps map[string]bool
@@ -122,6 +124,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		}
 		return a.store
 	})
+	a.knobStats = newKnobStatsStore()
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	if publisher == nil {
