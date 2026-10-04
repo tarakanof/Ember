@@ -79,7 +79,7 @@ func TestKnobViewBodyIsCompactAndOrdered(t *testing.T) {
 	want := fmt.Sprintf(`{"v":1,"epoch":1,"config_version":1,`+
 		`"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4"},`+
 		`"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":%d,"planned_sec":1500,"round":0},`+
-		`"weather":{"provider":"open-meteo","cond":"rain","code":"61","temp_c":12.5,"stale":false,"severe":false,"sunrise":%d,"sunset":%d},`+
+		`"weather":{"provider":"open-meteo","cond":"rain","code":"61","temp_c":12.5,"stale":false,"severe":false,"night":false,"sunrise":%d,"sunset":%d},`+
 		`"brightness":{"level":255,"night":false}}`,
 		now.Add(25*time.Minute).Unix(), rise.Round(sunRounding).Unix(), set.Round(sunRounding).Unix())
 	if string(body) != want {
@@ -185,5 +185,38 @@ func TestKnobViewNeverWritesStore(t *testing.T) {
 	}
 	if seen := f.app.devices.list()[0].LastCheckin; seen != nil {
 		t.Fatalf("view recorded a checkin: %+v", seen)
+	}
+}
+
+func TestKnobViewWeatherNightWestOfGreenwich(t *testing.T) {
+	f := newViewFixture(t)
+	const sfLat, sfLon = 37.77, -122.42
+	f.app.updateConfig(func(c *Config) {
+		c.Weather.Enabled = true
+		c.Weather.Latitude, c.Weather.Longitude = sfLat, sfLon
+	})
+	f.app.weather.have = true
+	cases := []struct {
+		name      string
+		now       time.Time
+		wantNight bool
+	}{
+		{"18:00 PDT, after UTC midnight, before sunset", time.Date(2026, 10, 5, 1, 0, 0, 0, time.UTC), false},
+		{"19:30 PDT, after sunset", time.Date(2026, 10, 5, 2, 30, 0, 0, time.UTC), true},
+		{"06:00 PDT, before sunrise", time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f.app.weather.obs = weatherObservation{Condition: "clear", FetchedAt: tc.now, TZKnown: true, TZOffsetSeconds: -7 * 3600}
+			w := f.app.knobWeather(tc.now)
+			if w == nil || w.Night != tc.wantNight {
+				t.Fatalf("weather = %+v, want night %v", w, tc.wantNight)
+			}
+			local := tc.now.Add(-7 * time.Hour)
+			rise, set := time.Unix(*w.Sunrise, 0).Add(-7*time.Hour), time.Unix(*w.Sunset, 0).Add(-7*time.Hour)
+			if rise.UTC().YearDay() != local.UTC().YearDay() || set.UTC().YearDay() != local.UTC().YearDay() {
+				t.Fatalf("sun times %v / %v are not on the local date of %v", rise.UTC(), set.UTC(), local.UTC())
+			}
+		})
 	}
 }

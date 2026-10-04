@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,7 +19,8 @@ const knobNowHeader = "X-Ember-Now"
 // Field order is the wire order. Nothing in it moves with the clock alone
 // (a counting Pomodoro has an absolute ends_at instead of remaining_sec), so
 // an unchanged view keeps its ETag. pomo is null with the Pomodoro off,
-// weather null when disabled or never fetched.
+// weather null when disabled or never fetched. weather.night is the sun
+// schedule's call; sunrise/sunset are the location's local day, informational.
 type knobView struct {
 	V             int          `json:"v"`
 	Epoch         uint64       `json:"epoch"`
@@ -54,6 +56,7 @@ type knobWeather struct {
 	TempC    float64 `json:"temp_c"`
 	Stale    bool    `json:"stale"`
 	Severe   bool    `json:"severe"`
+	Night    bool    `json:"night"`
 	Sunrise  *int64  `json:"sunrise"`
 	Sunset   *int64  `json:"sunset"`
 }
@@ -127,12 +130,25 @@ func (a *App) knobWeather(now time.Time) *knobWeather {
 		Severe:   obs.Severe,
 	}
 	if cfg.Latitude != 0 || cfg.Longitude != 0 {
-		if rise, set, ok := sunTimes(cfg.Latitude, cfg.Longitude, now); ok {
+		_, w.Night = sunLevel(a.cfg.Load().Brightness.resolved(), cfg.Latitude, cfg.Longitude, now)
+		if rise, set, ok := sunTimes(cfg.Latitude, cfg.Longitude, localNoon(now, obs, cfg.Longitude)); ok {
 			r, s := rise.Round(sunRounding).Unix(), set.Round(sunRounding).Unix()
 			w.Sunrise, w.Sunset = &r, &s
 		}
 	}
 	return w
+}
+
+// localNoon is noon on the location's own date at now, as an instant, so
+// sunTimes (which works per UTC date) yields that local day's events. The
+// offset is the observation's, else the longitude's hour.
+func localNoon(now time.Time, obs weatherObservation, lon float64) time.Time {
+	off := time.Duration(math.Round(lon/15)) * time.Hour
+	if obs.TZKnown {
+		off = time.Duration(obs.TZOffsetSeconds) * time.Second
+	}
+	y, m, d := now.UTC().Add(off).Date()
+	return time.Date(y, m, d, 12, 0, 0, 0, time.UTC).Add(-off)
 }
 
 func (a *App) handleDeviceSelfView(w http.ResponseWriter, r *http.Request) {

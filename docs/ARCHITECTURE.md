@@ -2018,19 +2018,24 @@ draws-if-present in `internal/render`, add a menu checkbox.
   /v1/devices/self/config` answers `{"config_version":7,"config":{…}}`.
 - **Knob view (device token, #234).** `GET /v1/devices/self/view` is the
   knob's one poll (`devices_view.go`): everything it shows, about 400 B with
-  weather, versus four endpoints and ~4 KB before. Typical body (395 B, field
+  weather, versus four endpoints and ~4 KB before. Typical body (409 B, field
   order fixed):
-  `{"v":1,"epoch":1,"config_version":1,"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4"},"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":1782044100,"planned_sec":1500,"round":0},"weather":{"provider":"open-meteo","cond":"rain","code":"61","temp_c":12.5,"stale":false,"severe":false,"sunrise":1782013200,"sunset":1782072900},"brightness":{"level":255,"night":false}}`.
+  `{"v":1,"epoch":1,"config_version":1,"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4"},"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":1782044100,"planned_sec":1500,"round":0},"weather":{"provider":"open-meteo","cond":"rain","code":"61","temp_c":12.5,"stale":false,"severe":false,"night":false,"sunrise":1782013200,"sunset":1782072900},"brightness":{"level":255,"night":false}}`.
   `mood` is `/state`'s `render` counters and `source` (the winning host);
   `pomo` is null with the Pomodoro off, and carries `ends_at` (server Unix
   seconds) while counting down, `remaining_sec` otherwise (paused, parked,
   idle), never both; `weather` is null when disabled or never fetched,
-  `sunrise`/`sunset` are Unix seconds rounded to 5 min (null without a
-  location or in polar day/night), `stale` as in `/v1/weather/state`;
+  `night` is the sun schedule's call (`sunLevel`, neighbouring UTC dates
+  merged, so a western evening after UTC midnight is still day until its
+  sunset; false without a location) and is what the knob should use;
+  `sunrise`/`sunset` are informational Unix seconds rounded to 5 min for the
+  location's own date (the observation's UTC offset, else the longitude's
+  hour; null without a location or in polar day/night), `stale` as in
+  `/v1/weather/state`;
   `brightness` is the read-only `/v1/display/brightness` level and `night`.
   `epoch` and `config_version` replace the `/state` epoch header: the knob
   checks in when either moves. Every answer carries `X-Ember-Now` (server
-  Unix seconds, also on 304), the anchor for `ends_at` and the sun times, so
+  Unix seconds, also on 304), the anchor for `ends_at`, so
   nothing in the body moves with the clock alone and an unchanged view keeps
   its ETag. `ETag` is a strong FNV-64a of the body; `If-None-Match` (weak
   comparison, lists and `*` accepted) answers **304** with no body. The view
