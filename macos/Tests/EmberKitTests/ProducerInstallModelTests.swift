@@ -6,11 +6,11 @@ import Foundation
     let sm = FakeSMAppService()
     let svc = ProducerInstallService(sm: sm, runner: FailingForCodexRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     let m = ProducerInstallModel(service: svc)
     #expect(m.snapshot == nil)
     await m.refresh()
-    #expect(m.snapshot?.agents.count == 2)
+    #expect(m.snapshot?.agents.count == 3)
     #expect(!m.isOn)
     await m.setEnabled(true)
     #expect(!m.isWorking)

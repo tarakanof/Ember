@@ -70,7 +70,7 @@ final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
     let sm = FakeSMAppService(); let runner = FakeRunner()
     let svc = ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     try svc.install(.claude)
     #expect(runner.calls.first?.1 == ["configure"])
     #expect(runner.calls.first?.0.hasSuffix("ember-claude-producer") == true)
@@ -82,7 +82,7 @@ final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
     let runner = FakeRunner()
     let svc = ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     #expect(throws: (any Error).self) { try svc.install(.claude) }
     #expect(runner.calls.map(\.1) == [["configure"], ["deconfigure"]])
     #expect(sm.registered.isEmpty)
@@ -93,7 +93,7 @@ final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
     runner.exitFor = { _ in 1 }
     let svc = ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     #expect(throws: (any Error).self) { try svc.install(.claude) }
     #expect(runner.calls.count == 1)
     #expect(sm.registered.isEmpty)
@@ -103,7 +103,7 @@ final class FakeRunner: ProducerCommandRunning, @unchecked Sendable {
     let sm = FakeSMAppService(); let runner = FakeRunner()
     let svc = ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     try svc.uninstall(.codex)
     #expect(sm.unregistered == ["com.ember.codex.plist"])
     #expect(runner.calls.first?.1 == ["deconfigure"])

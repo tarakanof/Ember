@@ -338,6 +338,8 @@
       "shouldTranslate" : false
     },
     "Claude Code" : {},
+    "Claude hooks are paused (~/.config/ember/claude-hooks.disabled), so Claude Code sessions don't report." : {},
+    "Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice." : {},
     "Clear" : {},
     "Clock" : {},
     "Clock Web UI" : {},
@@ -408,6 +410,10 @@
     },
     "Couldn't pause: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
+      "extractionState" : "manual"
+    },
+    "Couldn't remove the command-line agent (exit %d: %@); it's still reporting." : {
+      "comment" : "Settings › Agents failure when Move to Ember can't uninstall the CLI agent; exit code, then the helper's message.",
       "extractionState" : "manual"
     },
     "Couldn't restart the clock: %@" : {
@@ -483,6 +489,14 @@
     "Ember E (pixel)" : {},
     "Ember can open at login only when it runs from the Applications folder." : {},
     "Ember can't reach the server. Check that it's running, or change its address in Connection settings." : {},
+    "Ember couldn't take over (%@) and the command-line agent is gone, so this agent isn't reporting. Turn it on again here, or run %@ install in Terminal." : {
+      "comment" : "Settings › Agents failure after Move to Ember when neither the app's copy nor the CLI agent is installed; the failure, then the helper's name.",
+      "extractionState" : "manual"
+    },
+    "Ember couldn't take over (%@), so the command-line agent was reinstalled and keeps reporting." : {
+      "comment" : "Settings › Agents failure after Move to Ember when the app's copy failed and the CLI agent was restored; the failure.",
+      "extractionState" : "manual"
+    },
     "Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server; this Mac searches too, for when the server can't." : {},
     "Ember flame" : {},
     "Ember isn't connected to a server" : {},
@@ -511,6 +525,7 @@
     "Find Clock from This Mac…" : {},
     "Firmware" : {},
     "First model" : {},
+    "Fix Hooks" : {},
     "Focus" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -555,6 +570,10 @@
     "Header" : {},
     "Hidden" : {},
     "Hide when idle" : {},
+    "Hooks: none registered" : {},
+    "Hooks: the ember@ember plugin" : {},
+    "Hooks: the ember@ember plugin and ~/.claude/settings.json" : {},
+    "Hooks: ~/.claude/settings.json" : {},
     "Hour" : {},
     "Hour of day" : {},
     "Hourly forecast" : {},
@@ -570,6 +589,11 @@
     "Idle or other" : {},
     "Imperial (°F)" : {},
     "In use" : {},
+    "Installed from the CLI" : {},
+    "It's installed from the command line. Use Move to Ember first." : {
+      "comment" : "Settings › Agents failure when turning on an agent whose CLI LaunchAgent is loaded.",
+      "extractionState" : "manual"
+    },
     "Keep on screen until dismissed" : {},
     "LED matrix" : {},
     "Last 7 days" : {},
@@ -633,6 +657,7 @@
     },
     "Move Down" : {},
     "Move Up" : {},
+    "Move to Ember" : {},
     "Mute sounds at night" : {},
     "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show." : {},
     "Name" : {},
@@ -672,7 +697,8 @@
       "comment" : "Menu next-event row: event title, then a time tomorrow.",
       "extractionState" : "manual"
     },
-    "No Claude Code or Codex found on this Mac." : {},
+    "No Claude Code, Codex or T3 Code found on this Mac." : {},
+    "No Claude hooks are registered in ~/.claude/settings.json (a plugin enabled only for a project isn't checked), so Claude Code sessions may not report." : {},
     "No active sessions" : {},
     "No agent activity this week" : {},
     "No calendar feeds. Set EMBER_MEETINGS_ICS_URLS on the server; the URLs are secrets and never leave it." : {},
@@ -695,6 +721,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Not found on this Mac. You can turn it on now; it reports once the app runs." : {},
     "Not in use" : {},
     "Not installed: the app is missing its launch agent." : {
       "comment" : "A producer helper's state in Settings › Agents when its LaunchAgent plist isn't in the app bundle.",
@@ -784,6 +811,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Paused by claude-hooks.disabled" : {},
+    "Paused while reporting is off (claude-hooks.disabled)" : {},
     "Paused · round %lld" : {
       "comment" : "Focus card: the timer is paused; the argument is the Pomodoro round number."
     },
@@ -843,6 +872,7 @@
     "Reminders" : {},
     "Reminders access off" : {},
     "Reminders access on" : {},
+    "Removes the command-line LaunchAgent with the same name, then lets Ember run the bundled helper." : {},
     "Repair" : {},
     "Repeat until dismissed" : {},
     "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Calendar, and stops after 15 minutes or when quiet hours start." : {},
@@ -875,6 +905,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Runs ember-claude-producer configure: removes the pause and keeps one set of hooks, the plugin's when it's enabled." : {},
     "Runs the timer on the clock and lets the clock's buttons control it." : {},
     "Same as text" : {},
     "Save Token" : {},
@@ -1019,6 +1050,10 @@
     "The clock shows animated icons; the preview shows the drawn ones." : {},
     "The color must be a hex value like #FF8800." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The helper's setup failed (exit %d)." : {
+      "comment" : "Settings › Agents failure when a producer helper's configure exits non-zero without a message; the exit code.",
       "extractionState" : "manual"
     },
     "The helpers run as background items, so reporting keeps going after you quit Ember." : {},
@@ -1279,6 +1314,11 @@
       "comment" : "Weather card header: how long ago the weather was fetched (\"5 min\", or \"just now\")."
     },
     "very poor" : {},
+    "~/.claude/settings.json isn't valid JSON, so Ember can't read or fix the hooks. Fix the file by hand." : {},
+    "~/.claude/settings.json isn't valid JSON. Fix the file by hand first." : {
+      "comment" : "Settings › Agents failure when moving Claude while its settings file can't be parsed.",
+      "extractionState" : "manual"
+    },
     "· ^[%lld session](inflect: true)" : {
       "comment" : "Work hours chart label after the active time: the number of focus sessions."
     }

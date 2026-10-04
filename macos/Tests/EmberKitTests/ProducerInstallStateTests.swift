@@ -8,7 +8,7 @@ import Foundation
     sm.statuses["com.ember.codex.plist"] = .notRegistered
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/App/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     #expect(svc.toggleState() == .partial)
 }
 
@@ -18,17 +18,18 @@ import Foundation
     sm.statuses["com.ember.codex.plist"] = .enabled
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     #expect(svc.agentState(.claude) == .needsApproval)
     #expect(svc.toggleState() == .needsApproval)
 }
 
 @MainActor @Test func allOnWhenBothEnabled() {
     let sm = FakeSMAppService()
-    sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.codex.plist": .enabled]
+    sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.codex.plist": .enabled,
+                   "com.ember.t3.plist": .enabled]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     #expect(svc.toggleState() == .on)
 }
 
@@ -37,17 +38,24 @@ import Foundation
     sm.statuses = ["com.ember.heartbeat.plist": .notRegistered, "com.ember.codex.plist": .notRegistered]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     #expect(svc.toggleState() == .off)
 }
 
-@MainActor @Test func noDetectedAgentsYieldsOff() {
+@MainActor @Test func noDetectedOrRegisteredAgentsYieldsOff() {
+    let svc = ProducerInstallService(sm: FakeSMAppService(), runner: FakeRunner(),
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { _ in false })
+    #expect(svc.toggleState() == .off)
+}
+
+@MainActor @Test func registeredAgentsCountEvenWithoutTheirTool() {
     let sm = FakeSMAppService()
     sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.codex.plist": .enabled]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in false })
-    #expect(svc.toggleState() == .off)
+    #expect(svc.toggleState() == .on)
 }
 
 @MainActor @Test func errorTakesPriorityOverNeedsApprovalAndOn() {
@@ -56,7 +64,7 @@ import Foundation
     sm.statuses["com.ember.codex.plist"] = .requiresApproval
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     #expect(svc.agentState(.claude) == .error("Not installed: the app is missing its launch agent."))
     #expect(svc.toggleState() == .error)
 }

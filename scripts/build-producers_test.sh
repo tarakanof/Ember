@@ -19,7 +19,7 @@ CODE_SIGN_IDENTITY=- "$BUILD_SCRIPT" "$APP"
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 
-for bin in ember-claude-producer ember-codex-producer; do
+for bin in ember-claude-producer ember-codex-producer ember-t3-producer; do
   path="$APP/Contents/MacOS/$bin"
   [ -f "$path" ] || fail "$bin missing at $path"
 
@@ -35,7 +35,7 @@ for bin in ember-claude-producer ember-codex-producer; do
   echo "ok: $bin ($info)"
 done
 
-for label in com.ember.heartbeat com.ember.codex; do
+for label in com.ember.heartbeat com.ember.codex com.ember.t3; do
   plist="$APP/Contents/Library/LaunchAgents/$label.plist"
   [ -f "$plist" ] || fail "$label.plist missing at $plist"
 

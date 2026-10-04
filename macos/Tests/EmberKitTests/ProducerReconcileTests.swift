@@ -8,7 +8,7 @@ private let codex = "com.ember.codex.plist"
 private func service(_ sm: FakeSMAppService, _ runner: FakeRunner) -> ProducerInstallService {
     ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true }, uid: 501)
+        fileExists: { !$0.hasSuffix("/.t3") && !$0.contains("/Library/LaunchAgents/") }, uid: 501)
 }
 
 private func runner(notLoaded labels: Set<String>) -> FakeRunner {
@@ -66,7 +66,7 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled]
     let svc = ProducerInstallService(sm: sm, runner: ThrowingRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true }, uid: 501)
+        fileExists: { !$0.contains("/Library/LaunchAgents/") }, uid: 501)
     #expect(svc.agentState(.claude) == .on)
 }
 
@@ -75,7 +75,7 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     let svc = service(sm, runner(notLoaded: ["com.ember.codex"]))
     let snap = await svc.snapshot()
     #expect(snap.needsRepair)
-    #expect(snap.agents.map(\.state) == [.on, .notRunning])
+    #expect(snap.agents.map(\.state) == [.on, .notRunning, .off])
 }
 
 @MainActor @Test func reconcileReRegistersOnlyTheUnloadedEnabledAgent() async {

@@ -1,0 +1,1 @@
+{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"/usr/local/bin/awtrix-claude-producer hook PreToolUse"}]}],"Notification":[{"hooks":["ember-claude-producer"]}]}}

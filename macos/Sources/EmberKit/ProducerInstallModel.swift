@@ -40,6 +40,21 @@ public final class ProducerInstallModel {
         await run { on ? await $0.installAll() : await $0.uninstallAll() }
     }
 
+    /// Installs (on) or uninstalls (off) one agent, detected or not.
+    public func setEnabled(_ agent: ProducerAgent, _ on: Bool) async {
+        await run { await $0.setEnabled(agent, on) }
+    }
+
+    /// Replaces a CLI-installed agent with the app's copy.
+    public func moveToEmber(_ agent: ProducerAgent) async {
+        await run { await $0.moveToEmber(agent) }
+    }
+
+    /// Runs the Claude helper's `configure` to fix the hook registration.
+    public func configureClaudeHooks() async {
+        await run { await $0.configureClaudeHooks() }
+    }
+
     /// Re-registers every agent that's on but not running.
     public func repair() async {
         await run { await $0.repairAll() }

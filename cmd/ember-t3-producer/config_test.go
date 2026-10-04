@@ -122,3 +122,14 @@ func TestConfigureAtRewritesPlaceholderSource(t *testing.T) {
 		t.Errorf("perm = %v", st.Mode().Perm())
 	}
 }
+
+func TestLoadConfigExpandsTildeInT3Home(t *testing.T) {
+	home := writeEnv(t, "EMBER_T3_HOME=~/Work/t3\n")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, "Work", "t3"); cfg.T3Home != want {
+		t.Errorf("T3Home = %q, want %q", cfg.T3Home, want)
+	}
+}

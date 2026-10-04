@@ -116,7 +116,7 @@ private let codex = "com.ember.codex.plist"
 private func service(_ sm: FakeSMAppService, _ runner: FakeRunner) -> ProducerInstallService {
     ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true }, uid: 501)
+        fileExists: { !$0.contains("/Library/LaunchAgents/") }, uid: 501)
 }
 
 private func runner(stuck labels: Set<String>) -> FakeRunner {
@@ -212,7 +212,7 @@ private final class HealingRunner: ProducerCommandRunning, @unchecked Sendable {
     let r = HealingRunner()
     let svc = ProducerInstallService(sm: sm, runner: r,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true }, uid: 501)
+        fileExists: { !$0.contains("/Library/LaunchAgents/") }, uid: 501)
     async let a = svc.repairAll()
     async let b = svc.repairAll()
     let (first, second) = await (a, b)
@@ -238,7 +238,7 @@ private final class HealingRunner: ProducerCommandRunning, @unchecked Sendable {
     ]
     let svc = ProducerInstallService(sm: sm, runner: runner(stuck: []),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true }, readFile: { files[$0].map { Data($0.utf8) } }, uid: 501)
+        fileExists: { !$0.contains("/Library/LaunchAgents/") }, readFile: { files[$0].map { Data($0.utf8) } }, uid: 501)
     let snap = await svc.snapshot()
     #expect(snap.localNetworkBlocked == [.claude])
 }
@@ -247,7 +247,7 @@ private final class HealingRunner: ProducerCommandRunning, @unchecked Sendable {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .notRegistered]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true }, readFile: { _ in Data(#"{"ok":false,"no_route":true}"#.utf8) }, uid: 501)
+        fileExists: { !$0.contains("/Library/LaunchAgents/") }, readFile: { _ in Data(#"{"ok":false,"no_route":true}"#.utf8) }, uid: 501)
     let snap = await svc.snapshot()
     #expect(snap.localNetworkBlocked.isEmpty)
 }

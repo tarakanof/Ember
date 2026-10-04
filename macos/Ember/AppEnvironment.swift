@@ -110,7 +110,8 @@ public final class AppEnvironment {
             runner: ProcessCommandRunner(),
             bundleMacOSDir: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS"),
             home: FileManager.default.homeDirectoryForCurrentUser,
-            fileExists: { FileManager.default.fileExists(atPath: $0) }
+            fileExists: { FileManager.default.fileExists(atPath: $0) },
+            prefs: UserDefaultsProducerPrefs()
         )
         permissions = PermissionsModel(sources: AppPermissionSources(
             connection: connection, producers: producers, reminders: watcher, location: location))
@@ -136,6 +137,7 @@ public final class AppEnvironment {
         let log = Self.log
         Task.detached(priority: .utility) {
             let defaults = UserDefaults.standard
+            await producers.seedOptOutForNewAgents()
             let fingerprint = bundleFingerprint(appURL: appURL, version: version, build: build)
             let changed = shouldReconcileAfterUpdate(currentVersion: fingerprint,
                                                      lastReconciledVersion: defaults.string(forKey: key))

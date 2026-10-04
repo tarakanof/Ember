@@ -102,8 +102,20 @@ public func reconcileReason(registration: AgentRegistration, liveness: AgentLive
 
 /// Errors thrown by `ProducerInstallService` during install/uninstall.
 public enum ProducerInstallError: Error, Equatable, Sendable {
-    /// The producer binary's `configure` subcommand exited non-zero.
-    case configureFailed(exit: Int32)
+    /// The producer binary's `configure` subcommand exited non-zero; `detail`
+    /// is its trimmed stderr.
+    case configureFailed(exit: Int32, detail: String)
+    /// The agent's CLI-installed LaunchAgent (same label) is in
+    /// `~/Library/LaunchAgents`, so registering the app's copy would clash.
+    case cliInstalled
+    /// Move to Ember: the bundled helper's `uninstall` of the CLI agent
+    /// exited non-zero (`detail` is its stderr), so nothing changed.
+    case cliUninstallFailed(exit: Int32, detail: String)
+    /// Move to Ember removed the CLI agent but couldn't install the app's
+    /// copy; `restored` says whether the CLI agent was put back.
+    case moveFailed(helper: String, reason: String, restored: Bool)
+    /// Claude's settings.json isn't valid JSON, so its helper can't be set up.
+    case settingsUnreadable
     /// `launchctl bootout` of a stuck job failed (exit -1: it didn't run).
     case bootoutFailed(exit: Int32, detail: String)
 }
@@ -111,8 +123,26 @@ public enum ProducerInstallError: Error, Equatable, Sendable {
 extension ProducerInstallError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .configureFailed:
-            nil
+        case .configureFailed(let exit, let detail):
+            detail.isEmpty
+                ? String(localized: "The helper's setup failed (exit \(exit)).",
+                         comment: "Settings › Agents failure when a producer helper's configure exits non-zero without a message; the exit code.")
+                : detail
+        case .cliInstalled:
+            String(localized: "It's installed from the command line. Use Move to Ember first.",
+                   comment: "Settings › Agents failure when turning on an agent whose CLI LaunchAgent is loaded.")
+        case .cliUninstallFailed(let exit, let detail):
+            String(localized: "Couldn't remove the command-line agent (exit \(exit): \(detail)); it's still reporting.",
+                   comment: "Settings › Agents failure when Move to Ember can't uninstall the CLI agent; exit code, then the helper's message.")
+        case .moveFailed(_, let reason, true):
+            String(localized: "Ember couldn't take over (\(reason)), so the command-line agent was reinstalled and keeps reporting.",
+                   comment: "Settings › Agents failure after Move to Ember when the app's copy failed and the CLI agent was restored; the failure.")
+        case .moveFailed(let helper, let reason, false):
+            String(localized: "Ember couldn't take over (\(reason)) and the command-line agent is gone, so this agent isn't reporting. Turn it on again here, or run \(helper) install in Terminal.",
+                   comment: "Settings › Agents failure after Move to Ember when neither the app's copy nor the CLI agent is installed; the failure, then the helper's name.")
+        case .settingsUnreadable:
+            String(localized: "~/.claude/settings.json isn't valid JSON. Fix the file by hand first.",
+                   comment: "Settings › Agents failure when moving Claude while its settings file can't be parsed.")
         case .bootoutFailed(let exit, let detail):
             String(localized: "macOS wouldn't stop the stuck background helper (launchctl exit \(exit): \(detail)).",
                    comment: "Settings › Agents failure after Repair when launchctl bootout fails; exit code, then launchctl's message.")
@@ -129,11 +159,14 @@ public enum AgentState: Sendable, Equatable {
     /// Registered and enabled, but launchd has no job for it or can't start
     /// it, so nothing is reporting.
     case notRunning
+    /// Not registered by the app, but the CLI's own LaunchAgent plist (same
+    /// label) is in `~/Library/LaunchAgents`.
+    case cliInstalled
     case error(String)
 }
 
-/// The aggregate toggle state shown in the UI, derived across all
-/// *detected* agents (see `ProducerInstallService.detectedAgents()`).
+/// The aggregate toggle state shown in the UI, derived across
+/// `ProducerInstallService.managedAgents()`.
 public enum ToggleState: Sendable, Equatable {
     case off
     case needsApproval
@@ -157,7 +190,8 @@ public struct ReconcileOutcome: Sendable {
 }
 
 /// Orchestrates detection, install, and uninstall of the unified installer's
-/// producer agents (Claude heartbeat producer, Codex producer).
+/// producer agents (Claude heartbeat producer, Codex producer, T3 Code
+/// producer).
 public final class ProducerInstallService: Sendable {
     private let sm: SMAppServiceControlling
     private let runner: ProducerCommandRunning
@@ -165,6 +199,7 @@ public final class ProducerInstallService: Sendable {
     private let home: URL
     private let fileExists: @Sendable (String) -> Bool
     private let readFile: @Sendable (String) -> Data?
+    private let prefs: ProducerPrefsStoring
     private let uid: uid_t
     private let probeWarned = OSAllocatedUnfairLock(initialState: false)
     private let serial = SerialGate()
@@ -177,6 +212,7 @@ public final class ProducerInstallService: Sendable {
         home: URL,
         fileExists: @escaping @Sendable (String) -> Bool,
         readFile: @escaping @Sendable (String) -> Data? = { FileManager.default.contents(atPath: $0) },
+        prefs: ProducerPrefsStoring = InMemoryProducerPrefs(),
         uid: uid_t = getuid()
     ) {
         self.sm = sm
@@ -185,31 +221,92 @@ public final class ProducerInstallService: Sendable {
         self.home = home
         self.fileExists = fileExists
         self.readFile = readFile
+        self.prefs = prefs
         self.uid = uid
     }
 
-    /// Returns the subset of `ProducerAgent` cases whose detection marker
-    /// (`$HOME/<detectRelPath>`) exists on disk, in `ProducerAgent`'s
-    /// declaration order.
+    /// Returns the subset of `ProducerAgent` cases whose tool is on this Mac,
+    /// in `ProducerAgent`'s declaration order: `$HOME/<detectRelPath>`
+    /// exists, or for T3 Code the directory producer.env's `EMBER_T3_HOME`
+    /// names (where the helper looks; a leading `~/` is the home folder).
     public func detectedAgents() -> [ProducerAgent] {
-        ProducerAgent.allCases.filter { agent in
-            fileExists(home.appendingPathComponent(agent.detectRelPath).path)
+        ProducerAgent.allCases.filter(isDetected)
+    }
+
+    private func isDetected(_ agent: ProducerAgent) -> Bool {
+        var candidates = [home.appendingPathComponent(agent.detectRelPath).path]
+        if agent == .t3, let custom = producerEnvValue("EMBER_T3_HOME"), !custom.isEmpty {
+            candidates.append(custom.hasPrefix("~/")
+                ? home.appendingPathComponent(String(custom.dropFirst(2))).path : custom)
         }
+        return candidates.contains(where: fileExists)
+    }
+
+    private func producerEnvValue(_ key: String) -> String? {
+        guard let data = readFile(home.appendingPathComponent(".config/ember/producer.env").path) else { return nil }
+        return EnvFile(parsing: String(decoding: data, as: UTF8.self)).get(key)
+    }
+
+    /// The agents the master switch reports on and turns off: every agent
+    /// registered with macOS, plus every detected one the user hasn't turned
+    /// off with its own switch; a CLI-installed agent is never one.
+    public func managedAgents() -> [ProducerAgent] {
+        ProducerAgent.allCases.filter { isRegistered($0) || (isWanted($0) && !isCLIInstalled($0)) }
+    }
+
+    private func isWanted(_ agent: ProducerAgent) -> Bool {
+        isDetected(agent) && !prefs.optOut.contains(agent.rawValue)
+    }
+
+    private func cliPlistPath(_ agent: ProducerAgent) -> String {
+        home.appendingPathComponent("Library/LaunchAgents/\(agent.plistName)").path
+    }
+
+    private func isCLIInstalled(_ agent: ProducerAgent) -> Bool {
+        sm.status(plistName: agent.plistName) == .notRegistered && fileExists(cliPlistPath(agent))
+    }
+
+    /// At launch: when a new `ProducerAgent` case appears (T3 Code after the
+    /// update that added it) while reporting is already on for some agent,
+    /// marks it turned off so the master switch doesn't read "partial" or turn
+    /// it on uninvited. Records the cases it has seen.
+    @concurrent
+    public func seedOptOutForNewAgents() async {
+        await serial.run { seedNow() }
+    }
+
+    private func seedNow() {
+        let known = Set(prefs.knownAgents ?? [ProducerAgent.claude.rawValue, ProducerAgent.codex.rawValue])
+        let added = ProducerAgent.allCases.filter { !known.contains($0.rawValue) }
+        if !added.isEmpty, ProducerAgent.allCases.contains(where: isRegistered) {
+            prefs.optOut.formUnion(added.map(\.rawValue))
+        }
+        prefs.knownAgents = ProducerAgent.allCases.map(\.rawValue)
+    }
+
+    private func isRegistered(_ agent: ProducerAgent) -> Bool {
+        [.enabled, .requiresApproval].contains(sm.status(plistName: agent.plistName))
     }
 
     /// Runs the producer binary's `configure` subcommand, then registers its
     /// LaunchAgent.
     public func install(_ agent: ProducerAgent) throws {
-        let result = try runner.run(executable: executablePath(for: agent), arguments: ["configure"])
-        guard result.exitCode == 0 else {
-            throw ProducerInstallError.configureFailed(exit: result.exitCode)
-        }
+        guard !isCLIInstalled(agent) else { throw ProducerInstallError.cliInstalled }
+        try configure(agent)
 
         do {
             try sm.register(plistName: agent.plistName)
         } catch {
             _ = try? runner.run(executable: executablePath(for: agent), arguments: ["deconfigure"])
             throw error
+        }
+    }
+
+    private func configure(_ agent: ProducerAgent) throws {
+        let result = try runner.run(executable: executablePath(for: agent), arguments: ["configure"])
+        guard result.exitCode == 0 else {
+            throw ProducerInstallError.configureFailed(
+                exit: result.exitCode, detail: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
     }
 
@@ -264,20 +361,20 @@ public final class ProducerInstallService: Sendable {
         case .requiresApproval:
             return .needsApproval
         case .notRegistered:
-            return .off
+            return fileExists(cliPlistPath(agent)) ? .cliInstalled : .off
         case .notFound:
             return .error(String(localized: "Not installed: the app is missing its launch agent.",
                                   comment: "A producer helper's state in Settings › Agents when its LaunchAgent plist isn't in the app bundle."))
         }
     }
 
-    /// Aggregates `agentState(_:)` across `detectedAgents()` into a single
+    /// Aggregates `agentState(_:)` across `managedAgents()` into a single
     /// toggle state (`.notRunning` counts as `.on`: reporting is on, and the
     /// agent's row shows the problem): all `.on` → `.on`; any `.error` → `.error`; else any
     /// `.needsApproval` → `.needsApproval`; a mix of `.on`/`.off` →
     /// `.partial`; all `.off` (or no detected agents) → `.off`.
     public func toggleState() -> ToggleState {
-        Self.toggle(for: detectedAgents().map(agentState))
+        Self.toggle(for: managedAgents().map(agentState))
     }
 
     static func toggle(for agentStates: [AgentState]) -> ToggleState {
@@ -299,13 +396,23 @@ public final class ProducerInstallService: Sendable {
         return .off
     }
 
-    /// Installs every detected agent off the calling actor, catching
-    /// per-agent failures so one agent's error never prevents the others from
-    /// being attempted.
+    /// Installs every detected agent the user hasn't turned off (all detected
+    /// ones when that leaves none) off the calling actor, skipping
+    /// CLI-installed ones and catching per-agent failures so one agent's error
+    /// never prevents the others from being attempted.
     @concurrent
     public func installAll() async -> [AgentOutcome] {
         await serial.run {
-            detectedAgents().map { agent in
+            var wanted = ProducerAgent.allCases.filter(isWanted)
+            if wanted.isEmpty {
+                prefs.optOut.subtract(detectedAgents().map(\.rawValue))
+                wanted = ProducerAgent.allCases.filter(isWanted)
+            }
+            let installable = wanted.filter { !isCLIInstalled($0) }
+            if installable.isEmpty {
+                return wanted.map { AgentOutcome(agent: $0, error: ProducerInstallError.cliInstalled) }
+            }
+            return installable.map { agent in
                 do {
                     try install(agent)
                     return AgentOutcome(agent: agent, error: nil)
@@ -316,13 +423,13 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Uninstalls every detected agent off the calling actor, catching
-    /// per-agent failures so one agent's error never prevents the others from
-    /// being attempted.
+    /// Uninstalls every detected or registered agent off the calling actor,
+    /// catching per-agent failures so one agent's error never prevents the
+    /// others from being attempted.
     @concurrent
     public func uninstallAll() async -> [AgentOutcome] {
         await serial.run {
-            detectedAgents().map { agent in
+            managedAgents().map { agent in
                 do {
                     try uninstall(agent)
                     return AgentOutcome(agent: agent, error: nil)
@@ -331,6 +438,92 @@ public final class ProducerInstallService: Sendable {
                 }
             }
         }
+    }
+
+    /// Installs (on) or uninstalls (off) one agent off the calling actor,
+    /// whether or not its tool is detected, and records the choice so the
+    /// master switch leaves an agent turned off alone.
+    @concurrent
+    public func setEnabled(_ agent: ProducerAgent, _ on: Bool) async -> [AgentOutcome] {
+        await serial.run {
+            if on { prefs.optOut.remove(agent.rawValue) } else { prefs.optOut.insert(agent.rawValue) }
+            do {
+                try on ? install(agent) : uninstall(agent)
+                return [AgentOutcome(agent: agent, error: nil)]
+            } catch {
+                return [AgentOutcome(agent: agent, error: error)]
+            }
+        }
+    }
+
+    /// Moves a CLI-installed agent to the app off the calling actor: runs the
+    /// bundled helper's `uninstall` (which boots out and removes only the
+    /// CLI's own LaunchAgent), then installs the app's copy. A failed
+    /// uninstall aborts (`.cliUninstallFailed`); a failed install re-runs the
+    /// CLI binary's `install` and reports `.moveFailed`. Claude is refused
+    /// while its settings.json is unreadable.
+    @concurrent
+    public func moveToEmber(_ agent: ProducerAgent) async -> [AgentOutcome] {
+        await serial.run {
+            do {
+                try moveNow(agent)
+                return [AgentOutcome(agent: agent, error: nil)]
+            } catch {
+                return [AgentOutcome(agent: agent, error: error)]
+            }
+        }
+    }
+
+    private func moveNow(_ agent: ProducerAgent) throws {
+        if agent == .claude, claudeHookRegistration().settingsUnreadable {
+            throw ProducerInstallError.settingsUnreadable
+        }
+        let cliBinary = cliProgram(agent)
+        let result = try runner.run(executable: executablePath(for: agent), arguments: ["uninstall"])
+        guard result.exitCode == 0 else {
+            throw ProducerInstallError.cliUninstallFailed(
+                exit: result.exitCode, detail: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        do {
+            try install(agent)
+            prefs.optOut.remove(agent.rawValue)
+        } catch ProducerInstallError.cliInstalled {
+            throw ProducerInstallError.cliInstalled
+        } catch {
+            let restored = cliBinary.map { bin in
+                fileExists(bin) && ((try? runner.run(executable: bin, arguments: ["install"]))?.exitCode == 0)
+            } ?? false
+            throw ProducerInstallError.moveFailed(helper: agent.binaryName, reason: error.localizedDescription,
+                                                  restored: restored)
+        }
+    }
+
+    private func cliProgram(_ agent: ProducerAgent) -> String? {
+        guard let data = readFile(cliPlistPath(agent)),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let args = plist["ProgramArguments"] as? [String] else { return nil }
+        return args.first
+    }
+
+    /// Runs the Claude helper's `configure` off the calling actor: it removes
+    /// the kill switch and registers the settings.json hooks, or drops them
+    /// while the `ember@ember` plugin is enabled.
+    @concurrent
+    public func configureClaudeHooks() async -> [AgentOutcome] {
+        await serial.run {
+            do {
+                try configure(.claude)
+                return [AgentOutcome(agent: .claude, error: nil)]
+            } catch {
+                return [AgentOutcome(agent: .claude, error: error)]
+            }
+        }
+    }
+
+    /// Where the Claude producer's hooks are registered, and whether the kill
+    /// switch silences them.
+    public func claudeHookRegistration() -> ClaudeHookRegistration {
+        ClaudeHookRegistration.read(home: home, readFile: readFile, fileExists: fileExists)
     }
 
     /// Re-registers (unregister then register) each enabled agent that
@@ -383,15 +576,26 @@ public final class ProducerInstallService: Sendable {
         await reconcile(bundleChanged: false).map { AgentOutcome(agent: $0.agent, error: $0.error) }
     }
 
-    /// Reads detection and registration state for every agent off the calling
-    /// actor, for a UI that must not do filesystem and `SMAppService` reads
-    /// while rendering.
+    /// Reads detection and registration state for every listed agent off the
+    /// calling actor, for a UI that must not do filesystem and `SMAppService`
+    /// reads while rendering. An agent is listed when it's detected, not off,
+    /// or `listedWhenUndetected`; the toggle aggregates `managedAgents()`.
     @concurrent
     public func snapshot() async -> ProducerSnapshot {
-        let agents = detectedAgents().map { (agent: $0, state: agentState($0)) }
+        let managedSet = Set(managedAgents())
+        let rows = ProducerAgent.allCases.compactMap { agent -> (agent: ProducerAgent, state: AgentState, detected: Bool, managed: Bool)? in
+            let detected = isDetected(agent)
+            let state = agentState(agent)
+            guard detected || state != .off || agent.listedWhenUndetected else { return nil }
+            return (agent, state, detected, managedSet.contains(agent))
+        }
+        let agents = rows.map { (agent: $0.agent, state: $0.state) }
+        let managed = rows.filter(\.managed).map(\.state)
         let blocked = agents.filter { $0.state == .on && localNetworkBlocked($0.agent) }.map(\.agent)
-        return ProducerSnapshot(agents: agents, toggle: Self.toggle(for: agents.map(\.state)),
-                                localNetworkBlocked: blocked)
+        let undetected = Set(rows.filter { !$0.detected }.map(\.agent))
+        let hooks = agents.contains { $0.agent == .claude } ? claudeHookRegistration() : nil
+        return ProducerSnapshot(agents: agents, toggle: Self.toggle(for: managed),
+                                localNetworkBlocked: blocked, undetected: undetected, claudeHooks: hooks)
     }
 
     /// Whether the agent's helper last failed to reach the server with "no
@@ -485,12 +689,29 @@ public struct ProducerSnapshot: Sendable {
     /// Running agents whose helper can't reach the server because macOS
     /// hasn't given it Local Network access.
     public let localNetworkBlocked: [ProducerAgent]
+    /// Listed agents whose tool isn't found on this Mac.
+    public let undetected: Set<ProducerAgent>
+    /// The Claude hooks' registration, when the Claude row is listed.
+    public let claudeHooks: ClaudeHookRegistration?
 
     public init(agents: [(agent: ProducerAgent, state: AgentState)], toggle: ToggleState,
-                localNetworkBlocked: [ProducerAgent] = []) {
+                localNetworkBlocked: [ProducerAgent] = [], undetected: Set<ProducerAgent> = [],
+                claudeHooks: ClaudeHookRegistration? = nil) {
         self.agents = agents
         self.toggle = toggle
         self.localNetworkBlocked = localNetworkBlocked
+        self.undetected = undetected
+        self.claudeHooks = claudeHooks
+    }
+
+    /// Whether every listed agent's tool is missing from this Mac.
+    public var noToolDetected: Bool { agents.allSatisfy { undetected.contains($0.agent) } }
+
+    /// The Claude hooks notice for the Claude row, `.fine` without one.
+    public var claudeHooksNotice: ClaudeHooksNotice {
+        guard let hooks = claudeHooks,
+              let claude = agents.first(where: { $0.agent == .claude }) else { return .fine }
+        return ClaudeHooksNotice.notice(for: hooks, reportingOn: claude.state != .off)
     }
 
     /// Whether an agent is on but not running, so Settings offers Repair.

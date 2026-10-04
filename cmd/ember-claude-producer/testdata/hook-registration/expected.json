@@ -1,0 +1,11 @@
+{
+  "none.json":             {"plugin": false, "settings_events": 0, "unreadable": false},
+  "settings.json":         {"plugin": false, "settings_events": 3, "unreadable": false},
+  "plugin.json":           {"plugin": true,  "settings_events": 0, "unreadable": false},
+  "both.json":             {"plugin": true,  "settings_events": 2, "unreadable": false},
+  "plugin-disabled.json":  {"plugin": false, "settings_events": 1, "unreadable": false},
+  "plugin-not-bool.json":  {"plugin": false, "settings_events": 0, "unreadable": false},
+  "legacy.json":           {"plugin": false, "settings_events": 1, "unreadable": false},
+  "malformed.json":        {"plugin": false, "settings_events": 0, "unreadable": true},
+  "bom.json":              {"plugin": false, "settings_events": 0, "unreadable": true}
+}

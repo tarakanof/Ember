@@ -587,7 +587,14 @@ Claude producer constraints:
   `doctor` flags both at once. Config stays in `producer.env`; the plugin has no
   `userConfig`. Since deconfigure can't unregister plugin hooks, it writes the
   kill switch `~/.config/ember/claude-hooks.disabled`, which `runHook` checks
-  before `loadConfig`; configure removes it.
+  before `loadConfig`; configure removes it. Ember.app reads the same state
+  itself (`ClaudeHookRegistration`, EmberKit) rather than running `doctor`:
+  doctor rewrites `producer.env`'s `EMBER_SOURCE` and probes the server, too
+  much for a pane refresh. The two parsers are held together by shared
+  fixtures in `cmd/ember-claude-producer/testdata/hook-registration`, which
+  both test suites read. Known divergence: with a duplicate key Go keeps the
+  last value and `JSONSerialization` the first; a UTF-8 BOM is rejected on both
+  sides (Swift checks for it, since `JSONSerialization` accepts it).
 - **Statusline.** The `statusline` subcommand never calls `loadConfig` and
   makes no network call, so it needs no token. Its stdout is the status bar
   Claude renders and must not be redirected; only stderr goes to the producer
@@ -810,6 +817,23 @@ The Agents, Focus, Weather and Calendar panes all fetch their previews the same
 way: a `PreviewModel` per preview, driven by the `previews(_:into:fetch:)`
 modifier (`PanelPreview.swift`), which requests on appear, on a draft change and
 on window reactivation, and cancels on disappear.
+
+The Agents pane's **Reporting** section manages the bundled helpers through
+`ProducerInstallService` (`SMAppService` + the helper's `configure` /
+`deconfigure`). One row per agent: Claude Code, Codex and T3 Code, each with its
+state (on / off / needs approval / not running with Repair) and its own switch.
+A row shows when its tool is detected (`~/.claude`, `~/.codex`, `~/.t3` or
+`T3CODE_HOME` / `EMBER_T3_HOME`) or its agent is registered; T3 Code's row
+always shows (`listedWhenUndetected`), so it can be turned on before T3's
+first run. A per-agent off is remembered (`producers.optOut`), so the master
+switch neither counts that agent as "partial" nor turns it back on; with every
+detected agent opted out, master on clears the opt-outs. On launch an agent
+case new since the last launch (`producers.knownAgents`) starts opted out when
+some agent is already registered. An agent whose CLI LaunchAgent plist (same
+label) is in `~/Library/LaunchAgents` shows as installed from the CLI and is
+never registered alongside it; Move to Ember runs the helper's `uninstall`
+first. The master switch turns off every registered agent. The Claude row also says how its hooks are
+registered and whether the kill switch pauses them.
 
 ### Render core — `internal/render`
 
@@ -2193,7 +2217,7 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   26A428). The app treats that state as **Not running** (Repair boots out,
   then registers) and checks again 30 s after an update reconcile. The
   helpers are signed with a fixed identifier (`com.ember.claude-producer`,
-  `com.ember.codex-producer`): the ad-hoc default `<name>-<LC_UUID>` changes
+  `com.ember.codex-producer`, `com.ember.t3-producer`): the ad-hoc default `<name>-<LC_UUID>` changes
   every build, and Local Network privacy keys on it, so a rebuilt helper got
   `connect: no route to host` until the user allowed it again.
 - **A Local Network refusal looks like an outage.** An ad-hoc app's grant is

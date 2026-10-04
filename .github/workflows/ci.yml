@@ -34,6 +34,7 @@ jobs:
               - 'macos/**'
               - 'scripts/**'
               - 'cmd/ember/testdata/**'
+              - 'cmd/ember-claude-producer/testdata/**'
               - '.github/workflows/ci.yml'
 
   go:
