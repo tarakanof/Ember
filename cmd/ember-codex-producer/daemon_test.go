@@ -177,3 +177,46 @@ func TestCycle_UsageTakesTheNewerAppServerSnapshot(t *testing.T) {
 		t.Errorf("premium meter leaked into the codex windows: %+v", tk.rate)
 	}
 }
+
+// The watcher posted a session before the app-server connected and owned it.
+func TestCycle_HandoverFromWatcherLeavesNoGhost(t *testing.T) {
+	cases := []struct {
+		name       string
+		status     wireStatus
+		preview    string
+		updatedAt  int64
+		wantDelete bool
+	}{
+		{"active: app-server posts it", wireStatus{Type: "active"}, "", 0, false},
+		{"no turn yet: nobody posts it", wireStatus{Type: "idle"}, "", 0, true},
+		{"idle past the window", wireStatus{Type: "idle"}, "hi", time.Now().Add(-time.Hour).Unix(), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			now := time.Now()
+			writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted)
+			w := newTestWatcher(dir, now)
+			if posts, _, _ := cycle(w, nil); len(posts) != 1 {
+				t.Fatalf("watcher did not post first: %+v", posts)
+			}
+			as := newAppServer(w.cfg)
+			as.mu.Lock()
+			as.connected = true
+			as.addThreadLocked(wireThread{ID: "u-123", Source: json.RawMessage(`"cli"`), Status: c.status, Preview: c.preview, UpdatedAt: c.updatedAt})
+			as.mu.Unlock()
+			posts, deletes, _ := cycle(w, as)
+			deleted := false
+			for _, d := range deletes {
+				deleted = deleted || d.Session == "u-123"
+			}
+			_, posted := postFor(posts, "u-123")
+			if deleted != c.wantDelete || posted == c.wantDelete {
+				t.Fatalf("posted=%v deleted=%v, want deleted=%v", posted, deleted, c.wantDelete)
+			}
+			if _, deletes, _ := cycle(w, as); len(deletes) != 0 {
+				t.Errorf("repeat DELETE: %+v", deletes)
+			}
+		})
+	}
+}

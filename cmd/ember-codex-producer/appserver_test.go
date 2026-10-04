@@ -31,6 +31,11 @@ type fakeAppServer struct {
 	resumeFailures int
 	received       []map[string]any // every message from the client
 	conns          []*wsConn
+	// beforeRead runs before a thread/read is answered (notifications sent
+	// from it reach the client first).
+	beforeRead func(id string)
+	// hang drops every request: a daemon that holds the socket but stalls.
+	hang bool
 }
 
 func shortSockDir(t *testing.T) string {
@@ -109,6 +114,16 @@ func (f *fakeAppServer) serve(c net.Conn) {
 
 func (f *fakeAppServer) answer(ws *wsConn, id any, method string, params any) {
 	p, _ := params.(map[string]any)
+	f.mu.Lock()
+	hook := f.beforeRead
+	if f.hang {
+		f.mu.Unlock()
+		return
+	}
+	f.mu.Unlock()
+	if method == "thread/read" && hook != nil {
+		hook(p["threadId"].(string))
+	}
 	f.mu.Lock()
 	var result any
 	var rpcErr any
@@ -318,6 +333,7 @@ func TestAppServer_BootstrapsLoadedThreadsAndMapsStatus(t *testing.T) {
 		{active(), "running"},
 		{idle, "done"},
 		{map[string]any{"type": "systemError"}, "error"},
+		{idle, "error"}, // a system error holds until the next turn
 		{active(), "running"},
 	}
 	for _, c := range cases {
@@ -472,6 +488,9 @@ func TestAppServer_NeverAnswersServerRequests(t *testing.T) {
 		{"id": 5, "method": "execCommandApproval", "params": map[string]any{"conversationId": "t1"}},
 		{"id": 6, "method": "applyPatchApproval", "params": map[string]any{"conversationId": "t1"}},
 		{"id": 7, "method": "account/chatgptAuthTokens/refresh", "params": map[string]any{}},
+		{"id": 8, "method": "item/tool/call", "params": map[string]any{"threadId": "t1", "tool": "x"}},
+		{"id": 9, "method": "currentTime/read", "params": map[string]any{}},
+		{"id": 10, "method": "attestation/generate", "params": map[string]any{}},
 	}
 	for _, r := range requests {
 		f.send(r)
@@ -546,10 +565,72 @@ func TestAppServer_ReconnectsAfterDaemonRestart(t *testing.T) {
 	f2 := newFakeAppServer(t, sock)
 	f2.addThread("t2", "cli", active(), nil)
 	f2.loaded = []string{"t2"}
-	waitState(t, as, "t2", "running")
+	// The restart killed t1's TUI: the new daemon does not load it, so it
+	// gets a DELETE and stays owned (the watcher must not revive it).
+	var del, posted bool
+	waitFor(t, "t2 posted and t1 deleted", func() bool {
+		tk := as.tick()
+		for _, d := range tk.deletes {
+			del = del || d.Session == "t1"
+		}
+		_, ok := postFor(tk.posts, "t2")
+		posted = posted || ok
+		return del && posted && tk.owned["t1"]
+	})
 	if len(f2.calls("initialize")) != 1 {
 		t.Error("no initialize on reconnect")
 	}
+}
+
+func TestAppServer_StatusDuringInFlightReadWins(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", idle, map[string]any{"preview": "hi"}) // stale snapshot
+	f.loaded = []string{"t1"}
+	f.beforeRead = func(id string) {
+		f.notify("thread/status/changed", map[string]any{"threadId": id, "status": active()})
+	}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitState(t, as, "t1", "running")
+	waitFor(t, "resume", func() bool { return len(f.calls("thread/resume")) == 1 })
+}
+
+func TestAppServer_CloseDuringInFlightReadWins(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active(), nil)
+	f.loaded = []string{"t1"}
+	f.beforeRead = func(id string) {
+		f.notify("thread/closed", map[string]any{"threadId": id})
+	}
+	as := startAppServer(t, testAppServerConfig(sock))
+	waitFor(t, "read", func() bool { return len(f.calls("thread/read")) == 1 })
+	waitFor(t, "read applied", func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		return len(as.unread) == 0
+	})
+	tk := as.tick()
+	if len(tk.posts) != 0 || tk.owned["t1"] {
+		t.Fatalf("closed thread resurrected by its read: %+v", tk)
+	}
+}
+
+func TestAppServer_ReconnectsWhenTheDaemonStopsAnswering(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	as := newAppServer(testAppServerConfig(sock))
+	as.pollEvery, as.backoffMin, as.backoffMax = 10*time.Millisecond, 10*time.Millisecond, 20*time.Millisecond
+	as.liveEvery, as.liveTimeout = 30*time.Millisecond, 30*time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { as.run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	waitFor(t, "connect", connected(as))
+	f.mu.Lock()
+	f.hang = true
+	f.mu.Unlock()
+	waitFor(t, "reconnect attempt", func() bool { return len(f.calls("initialize")) >= 2 })
 }
 
 func TestAppServerReport_ShowsSocketDaemonAndUpdater(t *testing.T) {

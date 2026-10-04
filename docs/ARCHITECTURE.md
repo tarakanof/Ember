@@ -560,7 +560,11 @@ markers still get reaped.
   `$CODEX_HOME/app-server-control/app-server-control.sock` every 2 s and, when
   it exists, connects (WebSocket over the Unix socket, `GET /rpc`, one
   JSON-RPC message per text frame, stdlib) with 1–30 s backoff and reconnects
-  after a daemon restart or update. It **never starts the daemon**. It
+  after a daemon restart or update. Frame writes have a 10 s deadline. After
+  a minute with no inbound message, a `thread/loaded/list {limit:1}` must be
+  answered within 10 s, so a hung daemon that keeps the socket open still
+  triggers a reconnect. A message over 16 MiB is drained and skipped and the
+  connection stays up. It **never starts the daemon**. It
   initializes as `codex_app_server_daemon`: the first client name outside
   the server's non-originating list becomes the daemon-wide originator, which
   Codex records in every TUI rollout. It opts out of the delta notifications.
@@ -569,8 +573,8 @@ markers still get reaped.
   `EMBER_CODEX_SOURCES` / `EMBER_CODEX_INCLUDE_CLAUDE` filter (TUI-via-daemon
   threads report `source: "vscode"`). State comes from the broadcast
   `thread/status/changed`: `active` → running, `waitingOnApproval` /
-  `waitingOnUserInput` → waiting, `idle` → done (error after a failed turn),
-  `systemError` → error, `thread/closed` / `notLoaded` → DELETE. A thread
+  `waitingOnUserInput` → waiting, `idle` → done (error after a failed turn or
+  a `systemError`, until the next `active`), `systemError` → error, `thread/closed` / `notLoaded` → DELETE. A thread
   subscribes (`thread/resume {excludeTurns}`) **only while active** and
   unsubscribes on idle, because a subscriber keeps a thread loaded forever.
   Unsubscribed, the daemon unloads an exited TUI's thread after 60 s and
@@ -588,8 +592,14 @@ markers still get reaped.
   thread id (= rollout `session_meta.id`): while connected, the app-server
   owns every loaded thread, and recently closed ones for one activity window
   more. The watcher still folds those rollouts but posts or DELETEs nothing
-  for them. On disconnect, sessions it posted go back to the watcher, or get
-  a DELETE when the watcher has no live rollout for them. **Hard
+  for them. A session the watcher had posted is DELETEd at takeover unless
+  the app-server posts it. A status change or close that arrives while a
+  `thread/read` is in flight overrides the read's snapshot. On disconnect,
+  sessions it posted go back to the watcher, or get a DELETE when the
+  watcher has no live rollout for them. After the reconnect, released ids
+  the new daemon no longer loads (the restart killed their TUI) get a
+  DELETE. `CODEX_HOME` (in `producer.env`, else the process env, else
+  `~/.codex`) moves both the sessions dir and the socket. **Hard
   invariant**: the client never answers a server request. On the shared
   daemon, approvals fan out to every subscriber and are replayed to late
   joiners, and any response counts as the user's decision. The only

@@ -90,7 +90,22 @@ func cycle(w *watcher, as *appServer) (posts []producer.StatusRequest, deletes [
 			deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: id})
 		}
 	}
-	return posts, deletes, usages
+	// A session the watcher posted and the app-server now owns but does not
+	// post (no turn yet, or idle past the window) would linger on the server.
+	for _, id := range w.handedOver {
+		if !ap.held[id] {
+			deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: id})
+		}
+	}
+	seen := map[string]bool{}
+	uniq := deletes[:0]
+	for _, d := range deletes {
+		if !seen[d.Session] {
+			seen[d.Session] = true
+			uniq = append(uniq, d)
+		}
+	}
+	return posts, uniq, usages
 }
 
 func runOnce(ctx context.Context, w *watcher, as *appServer, client *producer.Client) {

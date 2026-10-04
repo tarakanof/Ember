@@ -644,6 +644,7 @@ field the producer sets, not the data capture. See ARCHITECTURE → "spine".
 | `EMBER_CODEX_SOURCES` (default `cli,vscode`) | Codex producer only: comma-separated `session_meta.source` kinds shown; add `exec` / `mcp` for headless or agent-driven Codex runs |
 | `EMBER_CODEX_INCLUDE_CLAUDE` | Codex producer only: also show sessions Claude Code's Codex plugin starts (originator `Claude Code`), messages prefixed `via Claude`; off because the parent Claude session already shows that work |
 | `EMBER_CODEX_APPSERVER` (default true) | Codex producer only: observe TUI sessions through the Codex app-server daemon socket (`$CODEX_HOME/app-server-control/app-server-control.sock`) when it exists; a no-op without the daemon. Ember never starts the daemon. `doctor` shows the socket, a probe connection (daemon user agent, loaded threads) and the daemon's updater setting |
+| `CODEX_HOME` | Codex producer only: Codex's home when it is not `~/.codex`; set it in `producer.env` (a LaunchAgent does not see shell exports). Moves the sessions dir (unless `EMBER_CODEX_SESSIONS_DIR`) and the app-server socket |
 
 ## Meetings calendar widget
 

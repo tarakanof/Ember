@@ -141,9 +141,9 @@ func loadConfig() (Config, error) {
 		CodexHome:             filepath.Join(home, ".codex"),
 		PollIntervalMs:        defaultPollIntervalMs,
 		ActivityWindowSeconds: defaultActivityWindowSeconds,
-		SessionsDir:           filepath.Join(home, ".codex", "sessions"),
 		StateDir:              filepath.Join(home, ".local", "state", "ember", "sessions"),
 	}
+	var sessionsDir, envCodexHome string
 	envPath := filepath.Join(home, ".config", "ember", "producer.env")
 	data, err := producer.ReadEnvFile(envPath)
 	if err != nil {
@@ -235,12 +235,25 @@ func loadConfig() (Config, error) {
 			}
 		case "EMBER_CODEX_SESSIONS_DIR":
 			if v != "" {
-				cfg.SessionsDir = v
+				sessionsDir = v
+			}
+		case "CODEX_HOME":
+			// A LaunchAgent does not see a CODEX_HOME exported in the shell.
+			if v != "" {
+				envCodexHome = v
 			}
 		}
 	}
-	if ch := os.Getenv("CODEX_HOME"); ch != "" {
+	// CODEX_HOME: producer.env, else the process env, else ~/.codex. Both
+	// the sessions dir and the daemon socket follow it.
+	if envCodexHome != "" {
+		cfg.CodexHome = envCodexHome
+	} else if ch := os.Getenv("CODEX_HOME"); ch != "" {
 		cfg.CodexHome = ch
+	}
+	cfg.SessionsDir = filepath.Join(cfg.CodexHome, "sessions")
+	if sessionsDir != "" {
+		cfg.SessionsDir = sessionsDir
 	}
 	cfg.AppServerSocket = appServerSocket(cfg.CodexHome)
 	cfg.Source = producer.ResolveSource(cfg.Source)

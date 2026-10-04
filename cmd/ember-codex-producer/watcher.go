@@ -62,6 +62,9 @@ type watcher struct {
 	// rateExtra is the app-server's account rate snapshot, a candidate for
 	// the newest /v1/usage snapshot (set before tick; nil when absent).
 	rateExtra *derived
+	// handedOver are ids the watcher had posted when the app-server took
+	// them over (reset each tick); cycle DELETEs those it does not post.
+	handedOver []string
 	// reads counts rollout opens, for tests.
 	reads int
 }
@@ -160,6 +163,7 @@ func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 
 func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
 	now := w.now()
+	w.handedOver = nil
 	candidates := map[string]bool{}
 	for _, path := range w.candidateFiles(now) {
 		candidates[path] = true
@@ -220,6 +224,9 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		ss.derived.expireWindows(now)
 		ss.lastModified = info.ModTime()
 		if w.owned[ss.uuid] {
+			if !ss.lastPostedAt.IsZero() {
+				w.handedOver = append(w.handedOver, ss.uuid)
+			}
 			// The app-server source posts this session. Forget the watcher's
 			// post so it neither DELETEs it nor waits to post on release.
 			ss.lastPostedAt, ss.fingerprint = time.Time{}, ""

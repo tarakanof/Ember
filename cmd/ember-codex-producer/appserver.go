@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"math"
 	"os"
@@ -56,6 +57,18 @@ type apThread struct {
 	posted     bool // the server holds this session
 }
 
+// apPending is a thread/read in waiting. Notifications that arrive while the
+// read is in flight may be newer than its snapshot: the last status is
+// applied after it, and a close wins.
+type apPending struct {
+	inflight bool
+	status   *wireStatus
+	closed   bool
+}
+
+// ephemeralTTL bounds how long a helper thread id is remembered.
+const ephemeralTTL = 10 * time.Minute
+
 type appServer struct {
 	cfg  Config
 	sock string
@@ -66,6 +79,10 @@ type appServer struct {
 	backoffMax  time.Duration
 	retryEvery  time.Duration // thread/resume retry ("no rollout found")
 	callTimeout time.Duration
+	// liveEvery: with no inbound message for this long, a cheap request
+	// checks the daemon still answers within liveTimeout; else reconnect.
+	liveEvery   time.Duration
+	liveTimeout time.Duration
 	failLog     *producer.FailureLogger
 
 	kick chan struct{} // wakes the worker; capacity 1
@@ -74,13 +91,17 @@ type appServer struct {
 	connected bool
 	userAgent string
 	threads   map[string]*apThread
-	unread    map[string]bool      // ids seen in notifications, thread/read pending
-	ephemeral map[string]bool      // helper threads, never shown
-	gone      map[string]time.Time // closed thread ids, kept from the rollout watcher a while
-	deletes   []string             // closed threads the server still holds
-	released  []string             // posted threads handed to the watcher on disconnect
-	rate      derived              // account rate limits (rate fields only)
-	hasRate   bool
+	unread    map[string]*apPending // ids awaiting thread/read
+	ephemeral map[string]time.Time  // helper threads, never shown; pruned after ephemeralTTL
+	gone      map[string]time.Time  // closed thread ids, kept from the rollout watcher a while
+	// lastReleased are the ids released at the last disconnect; after the
+	// next bootstrap, those the daemon no longer loads (a restart killed
+	// their TUI) get a DELETE.
+	lastReleased map[string]bool
+	deletes      []string // closed threads the server still holds
+	released     []string // posted threads handed to the watcher on disconnect
+	rate         derived  // account rate limits (rate fields only)
+	hasRate      bool
 }
 
 func newAppServer(cfg Config) *appServer {
@@ -93,11 +114,13 @@ func newAppServer(cfg Config) *appServer {
 		backoffMax:  30 * time.Second,
 		retryEvery:  time.Second,
 		callTimeout: 30 * time.Second,
+		liveEvery:   time.Minute,
+		liveTimeout: 10 * time.Second,
 		failLog:     producer.NewFailureLogger(10 * time.Minute),
 		kick:        make(chan struct{}, 1),
 		threads:     map[string]*apThread{},
-		unread:      map[string]bool{},
-		ephemeral:   map[string]bool{},
+		unread:      map[string]*apPending{},
+		ephemeral:   map[string]time.Time{},
 		gone:        map[string]time.Time{},
 	}
 }
@@ -190,6 +213,7 @@ func (as *appServer) session(ctx context.Context) error {
 	as.mu.Unlock()
 	slog.Info("codex app-server connected", "socket", as.sock, "user_agent", init.UserAgent)
 
+	loaded := map[string]bool{}
 	cursor := ""
 	for page := 0; page < 50; page++ {
 		params := map[string]any{}
@@ -205,8 +229,9 @@ func (as *appServer) session(ctx context.Context) error {
 		}
 		as.mu.Lock()
 		for _, id := range ll.Data {
-			if as.threads[id] == nil {
-				as.unread[id] = true
+			loaded[id] = true
+			if as.threads[id] == nil && as.unread[id] == nil {
+				as.unread[id] = &apPending{}
 			}
 		}
 		as.mu.Unlock()
@@ -215,9 +240,18 @@ func (as *appServer) session(ctx context.Context) error {
 		}
 		cursor = *ll.NextCursor
 	}
-	as.worker(sctx, c)
-	slog.Info("codex app-server disconnected", "socket", as.sock)
-	return c.closeErr()
+	as.mu.Lock()
+	for id := range as.lastReleased {
+		if !loaded[id] {
+			as.deletes = append(as.deletes, id)
+			as.gone[id] = as.now()
+		}
+	}
+	as.lastReleased = nil
+	as.mu.Unlock()
+	err = as.worker(sctx, c)
+	slog.Info("codex app-server disconnected", "socket", as.sock, "err", err)
+	return err
 }
 
 func (as *appServer) call(ctx context.Context, c *rpcConn, method string, params, out any) error {
@@ -230,22 +264,28 @@ func (as *appServer) call(ctx context.Context, c *rpcConn, method string, params
 func (as *appServer) disconnect() {
 	as.mu.Lock()
 	defer as.mu.Unlock()
+	as.lastReleased = map[string]bool{}
 	for id, t := range as.threads {
 		if t.posted {
 			as.released = append(as.released, id)
+			as.lastReleased[id] = true
 		}
 	}
 	as.connected, as.userAgent = false, ""
 	as.threads = map[string]*apThread{}
-	as.unread = map[string]bool{}
-	as.ephemeral = map[string]bool{}
+	as.unread = map[string]*apPending{}
+	as.ephemeral = map[string]time.Time{}
 	as.hasRate, as.rate = false, derived{}
 }
 
 // worker runs every request after the bootstrap, one at a time, so the read
 // loop never blocks on a call: thread/read for new ids, then the lazy
 // subscriptions (thread/resume while busy, thread/unsubscribe once idle).
-func (as *appServer) worker(ctx context.Context, c *rpcConn) {
+// It returns when the connection ends, or with an error when the daemon
+// stops answering (a hung daemon still holds the socket open).
+func (as *appServer) worker(ctx context.Context, c *rpcConn) error {
+	live := time.NewTicker(as.liveEvery)
+	defer live.Stop()
 	for {
 		next := as.reconcile(ctx, c)
 		var retry <-chan time.Time
@@ -254,22 +294,33 @@ func (as *appServer) worker(ctx context.Context, c *rpcConn) {
 			timer = time.NewTimer(time.Until(next))
 			retry = timer.C
 		}
+		check := false
 		select {
 		case <-ctx.Done():
 		case <-c.done:
 		case <-as.kick:
 		case <-retry:
+		case <-live.C:
+			check = time.Since(c.lastReadAt()) >= as.liveEvery
 		}
 		if timer != nil {
 			timer.Stop()
 		}
 		if ctx.Err() != nil {
-			return
+			return ctx.Err()
 		}
 		select {
 		case <-c.done:
-			return
+			return c.closeErr()
 		default:
+		}
+		if check {
+			lctx, cancel := context.WithTimeout(ctx, as.liveTimeout)
+			err := c.call(lctx, "thread/loaded/list", map[string]any{"limit": 1}, nil)
+			cancel()
+			if err != nil {
+				return fmt.Errorf("daemon not answering: %w", err)
+			}
 		}
 	}
 }
@@ -283,8 +334,11 @@ type apAction struct {
 func (as *appServer) nextAction(now time.Time) (a apAction, retryAt time.Time) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
-	for id := range as.unread {
-		return apAction{"read", id}, time.Time{}
+	for id, p := range as.unread {
+		if !p.inflight {
+			p.inflight = true
+			return apAction{"read", id}, time.Time{}
+		}
 	}
 	for id, t := range as.threads {
 		switch {
@@ -316,9 +370,13 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) time.Time {
 			}
 			err := as.call(ctx, c, "thread/read", map[string]any{"threadId": a.id}, &res)
 			as.mu.Lock()
+			p := as.unread[a.id]
 			delete(as.unread, a.id)
-			if err == nil {
+			if err == nil && p != nil && !p.closed {
 				as.addThreadLocked(res.Thread)
+				if t := as.threads[a.id]; t != nil && p.status != nil {
+					as.applyStatusLocked(t, *p.status)
+				}
 			}
 			as.mu.Unlock()
 		case "resume":
@@ -369,7 +427,7 @@ func (as *appServer) addThreadLocked(th wireThread) {
 		return
 	}
 	if th.Ephemeral {
-		as.ephemeral[th.ID] = true // per-turn helper threads have no rollout
+		as.ephemeral[th.ID] = as.now() // per-turn helper threads have no rollout
 		return
 	}
 	if th.Status.Type == "notLoaded" {
@@ -425,7 +483,10 @@ func (as *appServer) applyStatusLocked(t *apThread, st wireStatus) {
 		}
 		t.busy = false
 	case "systemError":
+		// Stays error through a following idle, like a failed turn, until
+		// the next active.
 		t.busy = false
+		t.failed = true
 		t.d.state = "error"
 	}
 	t.lastChange = as.now()
@@ -434,7 +495,11 @@ func (as *appServer) applyStatusLocked(t *apThread, st wireStatus) {
 func (as *appServer) closeLocked(id string) {
 	t := as.threads[id]
 	delete(as.threads, id)
-	delete(as.unread, id)
+	if p := as.unread[id]; p != nil && p.inflight {
+		p.closed = true // the in-flight read must not resurrect it
+	} else {
+		delete(as.unread, id)
+	}
 	delete(as.ephemeral, id)
 	if t == nil {
 		return
@@ -495,7 +560,10 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 			ThreadID string     `json:"threadId"`
 			Status   wireStatus `json:"status"`
 		}
-		if json.Unmarshal(params, &p) != nil || p.ThreadID == "" || as.ephemeral[p.ThreadID] {
+		if json.Unmarshal(params, &p) != nil || p.ThreadID == "" {
+			return
+		}
+		if _, eph := as.ephemeral[p.ThreadID]; eph {
 			return
 		}
 		if p.Status.Type == "notLoaded" {
@@ -504,7 +572,15 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 		}
 		t := as.threads[p.ThreadID]
 		if t == nil {
-			as.unread[p.ThreadID] = true // thread/read carries the status too
+			pend := as.unread[p.ThreadID]
+			if pend == nil {
+				pend = &apPending{}
+				as.unread[p.ThreadID] = pend
+			}
+			if pend.inflight {
+				st := p.Status
+				pend.status = &st
+			}
 			as.wake()
 			return
 		}
@@ -681,7 +757,10 @@ type apTick struct {
 	// released are threads this source posted before a disconnect; the
 	// watcher takes them over, or they get a DELETE.
 	released []string
-	rate     *derived // the account rate snapshot while connected
+	// held are threads whose session this source has posted and not
+	// deleted; a watcher session handed over without one gets a DELETE.
+	held map[string]bool
+	rate *derived // the account rate snapshot while connected
 }
 
 func (as *appServer) tick() apTick {
@@ -719,9 +798,17 @@ func (as *appServer) tick() apTick {
 	}
 	as.deletes = nil
 	out.released, as.released = as.released, nil
-	out.owned = map[string]bool{}
-	for id := range as.threads {
+	out.owned, out.held = map[string]bool{}, map[string]bool{}
+	for id, t := range as.threads {
 		out.owned[id] = true
+		if t.posted {
+			out.held[id] = true
+		}
+	}
+	for id, at := range as.ephemeral {
+		if now.Sub(at) > ephemeralTTL {
+			delete(as.ephemeral, id)
+		}
 	}
 	for id, at := range as.gone {
 		// The watcher drops a rollout one activity window after its last write.

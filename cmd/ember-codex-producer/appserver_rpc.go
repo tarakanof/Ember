@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // inbound is any message the app-server sends: a response (id, no method), a
@@ -42,7 +43,9 @@ type outbound struct {
 type rpcConn struct {
 	ws   *wsConn
 	next atomic.Int64
-	done chan struct{} // closed when readLoop exits
+	// lastRead is the UnixNano of the last inbound message.
+	lastRead atomic.Int64
+	done     chan struct{} // closed when readLoop exits
 
 	mu      sync.Mutex // protects pending and err
 	pending map[int64]chan inbound
@@ -96,6 +99,8 @@ func (c *rpcConn) call(ctx context.Context, method string, params, out any) erro
 	}
 }
 
+func (c *rpcConn) lastReadAt() time.Time { return time.Unix(0, c.lastRead.Load()) }
+
 func (c *rpcConn) closeErr() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -117,6 +122,7 @@ func (c *rpcConn) readLoop(onNotify func(method string, params json.RawMessage))
 			c.mu.Unlock()
 			return
 		}
+		c.lastRead.Store(time.Now().UnixNano())
 		var m inbound
 		if json.Unmarshal(raw, &m) != nil {
 			continue

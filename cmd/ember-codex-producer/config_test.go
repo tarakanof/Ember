@@ -12,6 +12,7 @@ func writeEnv(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("CODEX_HOME", "")
 	envDir := filepath.Join(dir, ".config", "ember")
 	if err := os.MkdirAll(envDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -373,5 +374,20 @@ func TestLoadConfig_AppServerDisabled(t *testing.T) {
 	cfg, _ := loadConfig()
 	if cfg.AppServerEnabled {
 		t.Error("EMBER_CODEX_APPSERVER=0 should disable the app-server source")
+	}
+}
+
+func TestLoadConfig_CodexHomeFromProducerEnvMovesSessionsAndSocket(t *testing.T) {
+	t.Setenv("CODEX_HOME", "/from/shell")
+	writeEnv(t, "EMBER_SOURCE=mbp\nCODEX_HOME=/from/env\n")
+	t.Setenv("CODEX_HOME", "/from/shell")
+	cfg, _ := loadConfig()
+	if cfg.SessionsDir != "/from/env/sessions" || cfg.AppServerSocket != "/from/env/app-server-control/app-server-control.sock" {
+		t.Errorf("producer.env CODEX_HOME: sessions=%q socket=%q", cfg.SessionsDir, cfg.AppServerSocket)
+	}
+	writeEnv(t, "EMBER_SOURCE=mbp\nCODEX_HOME=/from/env\nEMBER_CODEX_SESSIONS_DIR=/s\n")
+	cfg, _ = loadConfig()
+	if cfg.SessionsDir != "/s" {
+		t.Errorf("EMBER_CODEX_SESSIONS_DIR should win, got %q", cfg.SessionsDir)
 	}
 }

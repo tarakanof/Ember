@@ -26,19 +26,25 @@ const (
 	// without turns are a few KB.
 	wsMaxMessage = 16 << 20
 
+	opCont  = 0
 	opText  = 1
 	opClose = 8
 	opPing  = 9
 	opPong  = 10
 )
 
-var errWSTooLarge = errors.New("websocket message too large")
+// wsWriteTimeout bounds one frame write, so a daemon that stops reading
+// fails the session instead of blocking it.
+const wsWriteTimeout = 10 * time.Second
 
 type wsConn struct {
 	c      net.Conn
 	br     *bufio.Reader
-	client bool       // a client masks its frames; a server must not
-	mu     sync.Mutex // serializes frame writes
+	client bool   // a client masks its frames; a server must not
+	max    uint64 // message size limit; 0 means wsMaxMessage
+	// writeTimeout bounds one frame write; 0 means wsWriteTimeout.
+	writeTimeout time.Duration
+	mu           sync.Mutex // serializes frame writes
 }
 
 func wsAccept(key string) string {
@@ -53,7 +59,11 @@ func dialWS(ctx context.Context, path string) (*wsConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	deadline := time.Now().Add(10 * time.Second)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	_ = c.SetDeadline(deadline)
 	kb := make([]byte, 16)
 	_, _ = rand.Read(kb)
 	key := base64.StdEncoding.EncodeToString(kb)
@@ -108,6 +118,11 @@ func (w *wsConn) writeFrame(op byte, p []byte) error {
 	} else {
 		buf = append(buf, p...)
 	}
+	wt := w.writeTimeout
+	if wt == 0 {
+		wt = wsWriteTimeout
+	}
+	_ = w.c.SetWriteDeadline(time.Now().Add(wt))
 	_, err := w.c.Write(buf)
 	return err
 }
@@ -116,10 +131,16 @@ func (w *wsConn) writeFrame(op byte, p []byte) error {
 func (w *wsConn) WriteText(p []byte) error { return w.writeFrame(opText, p) }
 
 // ReadMessage returns the next complete data message. It answers pings with a
-// pong (a WebSocket control frame, not a JSON-RPC message) and reports a
-// close frame as io.EOF.
+// pong (a WebSocket control frame, not a JSON-RPC message), echoes a close
+// frame and reports it as io.EOF, and drains and skips a message larger than
+// wsMaxMessage instead of failing the connection.
 func (w *wsConn) ReadMessage() ([]byte, error) {
+	limit := w.max
+	if limit == 0 {
+		limit = wsMaxMessage
+	}
 	var msg []byte
+	inMessage, skipping := false, false
 	for {
 		var h [2]byte
 		if _, err := io.ReadFull(w.br, h[:]); err != nil {
@@ -145,14 +166,27 @@ func (w *wsConn) ReadMessage() ([]byte, error) {
 		if masked == w.client {
 			return nil, errors.New("websocket: bad frame masking")
 		}
-		if n > wsMaxMessage || uint64(len(msg))+n > wsMaxMessage {
-			return nil, errWSTooLarge
+		control := op >= 8
+		switch {
+		case control && (!fin || n > 125):
+			return nil, errors.New("websocket: fragmented or oversized control frame")
+		case !control && inMessage && op != opCont:
+			return nil, errors.New("websocket: new data frame inside a fragmented message")
+		case !control && !inMessage && op == opCont:
+			return nil, errors.New("websocket: continuation without a message")
 		}
 		var mask [4]byte
 		if masked {
 			if _, err := io.ReadFull(w.br, mask[:]); err != nil {
 				return nil, err
 			}
+		}
+		if !control && (skipping || n > limit || uint64(len(msg))+n > limit) {
+			if _, err := io.CopyN(io.Discard, w.br, int64(n)); err != nil {
+				return nil, err
+			}
+			msg, inMessage, skipping = nil, !fin, !fin
+			continue
 		}
 		p := make([]byte, n)
 		if _, err := io.ReadFull(w.br, p); err != nil {
@@ -172,9 +206,14 @@ func (w *wsConn) ReadMessage() ([]byte, error) {
 		case opPong:
 			continue
 		case opClose:
+			_ = w.writeFrame(opClose, nil)
 			return nil, io.EOF
 		}
+		if !control && op != opCont && op != opText && op != 2 {
+			return nil, errors.New("websocket: unknown opcode")
+		}
 		msg = append(msg, p...)
+		inMessage = !fin
 		if fin {
 			return msg, nil
 		}
