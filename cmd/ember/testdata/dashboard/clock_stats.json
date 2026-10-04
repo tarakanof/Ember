@@ -1,0 +1,52 @@
+{
+  "range": "15m",
+  "configured": true,
+  "reachable": true,
+  "checked_at": "2026-10-04T12:00:30Z",
+  "ip_address": "192.0.2.66",
+  "sample_interval_sec": 30,
+  "latest": {
+    "t": "2026-10-04T12:00:30Z",
+    "reachable": true,
+    "rssi_dbm": -71,
+    "free_heap_bytes": 103032,
+    "min_free_heap_bytes": 76544,
+    "temperature_c": 33.4,
+    "humidity_percent": 21.4,
+    "light_lux": 42.5,
+    "battery_percent": 97,
+    "brightness_level": 255,
+    "publish_ok": 0,
+    "publish_fail": 1
+  },
+  "points": [
+    {
+      "t": "2026-10-04T12:00:00Z",
+      "reachable": true,
+      "rssi_dbm": -71,
+      "free_heap_bytes": 103032,
+      "min_free_heap_bytes": 76544,
+      "temperature_c": 33.4,
+      "humidity_percent": 21.4,
+      "light_lux": 42.5,
+      "battery_percent": 97,
+      "brightness_level": 255,
+      "publish_ok": 1,
+      "publish_fail": 0
+    },
+    {
+      "t": "2026-10-04T12:00:30Z",
+      "reachable": true,
+      "rssi_dbm": -71,
+      "free_heap_bytes": 103032,
+      "min_free_heap_bytes": 76544,
+      "temperature_c": 33.4,
+      "humidity_percent": 21.4,
+      "light_lux": 42.5,
+      "battery_percent": 97,
+      "brightness_level": 255,
+      "publish_ok": 0,
+      "publish_fail": 1
+    }
+  ]
+}

@@ -61,6 +61,8 @@ type App struct {
 	devices *deviceRegistry
 	// knobStats holds knob diagnostics samples and live mode, memory only.
 	knobStats *knobStatsStore
+	// clockStats holds the clock's probe samples, memory only.
+	clockStats *clockStatsStore
 
 	appsMu     sync.Mutex
 	hiddenApps map[string]bool
@@ -125,6 +127,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		return a.store
 	})
 	a.knobStats = newKnobStatsStore()
+	a.clockStats = newClockStatsStore()
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	if publisher == nil {

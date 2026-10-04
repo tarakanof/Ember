@@ -341,8 +341,8 @@ func TestKnobStatsMinuteRingKeepsOnly24Hours(t *testing.T) {
 	if first.Before(f.clk.Now().Add(-24*time.Hour - 5*time.Minute)) {
 		t.Fatalf("oldest point %v older than 24 h (start %v)", first, start)
 	}
-	if n := f.app.knobStats.minuteLen(f.m.ID); n > knobStatsMinuteCap {
-		t.Fatalf("minute ring holds %d, cap %d", n, knobStatsMinuteCap)
+	if n := f.app.knobStats.minuteLen(f.m.ID); n > statsMinuteCap {
+		t.Fatalf("minute ring holds %d, cap %d", n, statsMinuteCap)
 	}
 }
 

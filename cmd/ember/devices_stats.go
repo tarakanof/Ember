@@ -13,11 +13,8 @@ import (
 )
 
 const (
-	// knobStatsMinuteCap holds 24 h of one-minute buckets.
-	knobStatsMinuteCap = 24 * 60
 	// knobStatsLiveCap holds 10 min of 5 s live samples.
-	knobStatsLiveCap    = 120
-	knobStatsLiveWindow = 10 * time.Minute
+	knobStatsLiveCap = int(statsLiveWindow / (5 * time.Second))
 	// knobLiveMax caps one POST /stats/live; the app extends it while its
 	// dashboard is open.
 	knobLiveMax     = 10 * time.Minute
@@ -28,16 +25,6 @@ const (
 )
 
 var knobResetReasonPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,15}$`)
-
-// knobStatsRanges maps GET /v1/devices/{id}/stats?range= to its window and
-// point spacing (0 = as stored).
-var knobStatsRanges = map[string]struct {
-	window, bucket time.Duration
-}{
-	"15m": {15 * time.Minute, 0},
-	"1h":  {time.Hour, 0},
-	"24h": {24 * time.Hour, 5 * time.Minute},
-}
 
 // knobStatsReport is a checkin's optional "stats" object: deltas and
 // averages over period_ms, plus gauges. Every field is optional; see
@@ -247,47 +234,10 @@ func (a knobSample) merge(b knobSample) knobSample {
 	return out
 }
 
-// sampleRing is a fixed-capacity FIFO of samples, oldest first.
-type sampleRing struct {
-	buf        []knobSample
-	start, len int
-}
-
-func newSampleRing(capacity int) sampleRing { return sampleRing{buf: make([]knobSample, capacity)} }
-
-func (r *sampleRing) at(i int) *knobSample { return &r.buf[(r.start+i)%len(r.buf)] }
-
-func (r *sampleRing) push(s knobSample) {
-	if r.len < len(r.buf) {
-		*r.at(r.len) = s
-		r.len++
-		return
-	}
-	r.buf[r.start] = s
-	r.start = (r.start + 1) % len(r.buf)
-}
-
-func (r *sampleRing) last() *knobSample {
-	if r.len == 0 {
-		return nil
-	}
-	return r.at(r.len - 1)
-}
-
-// since returns copies of the samples at or after from, oldest first.
-func (r *sampleRing) since(from time.Time) []knobSample {
-	var out []knobSample
-	for i := range r.len {
-		if s := r.at(i); !s.T.Before(from) {
-			out = append(out, *s)
-		}
-	}
-	return out
-}
+func (s knobSample) stamp() time.Time { return s.T }
 
 type knobSeries struct {
-	minutes   sampleRing
-	live      sampleRing
+	sampleSeries[knobSample]
 	liveUntil time.Time
 }
 
@@ -308,7 +258,7 @@ func newKnobStatsStore() *knobStatsStore {
 func (k *knobStatsStore) seriesLocked(id string) *knobSeries {
 	s := k.series[id]
 	if s == nil {
-		s = &knobSeries{minutes: newSampleRing(knobStatsMinuteCap), live: newSampleRing(knobStatsLiveCap)}
+		s = &knobSeries{sampleSeries: newSampleSeries[knobSample](knobStatsLiveCap)}
 		k.series[id] = s
 	}
 	return s
@@ -320,13 +270,7 @@ func (k *knobStatsStore) record(id string, now time.Time, s knobSample) {
 	s.T = now.UTC().Truncate(time.Second)
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	ser := k.seriesLocked(id)
-	ser.live.push(s)
-	if last := ser.minutes.last(); last != nil && last.T.Truncate(time.Minute).Equal(s.T.Truncate(time.Minute)) {
-		*last = last.merge(s)
-		return
-	}
-	ser.minutes.push(s)
+	k.seriesLocked(id).record(s)
 }
 
 // setLive sets id's live-mode deadline; a zero time stops it.
@@ -363,12 +307,9 @@ func (k *knobStatsStore) minuteLen(id string) int {
 	return 0
 }
 
-// points returns id's samples in the window ending at now, oldest first,
-// and the newest sample. 15m uses live samples where it has them; 24h is
-// folded into 5-minute buckets.
+// points returns id's samples in rng's window ending at now, oldest
+// first, and the newest sample.
 func (k *knobStatsStore) points(id, rng string, now time.Time) ([]knobSample, *knobSample) {
-	r := knobStatsRanges[rng]
-	from := now.Add(-r.window)
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	s := k.series[id]
@@ -380,39 +321,7 @@ func (k *knobStatsStore) points(id, rng string, now time.Time) ([]knobSample, *k
 		c := *l
 		latest = &c
 	}
-	minutes := s.minutes.since(from)
-	out := make([]knobSample, 0, len(minutes))
-	if rng == "15m" {
-		live := s.live.since(maxTime(from, now.Add(-knobStatsLiveWindow)))
-		cut := now
-		if len(live) > 0 {
-			cut = live[0].T
-		}
-		for _, m := range minutes {
-			if m.T.Before(cut) {
-				out = append(out, m)
-			}
-		}
-		return append(out, live...), latest
-	}
-	if r.bucket == 0 {
-		return append(out, minutes...), latest
-	}
-	for _, m := range minutes {
-		if n := len(out); n > 0 && out[n-1].T.Truncate(r.bucket).Equal(m.T.Truncate(r.bucket)) {
-			out[n-1] = out[n-1].merge(m)
-			continue
-		}
-		out = append(out, m)
-	}
-	return out, latest
-}
-
-func maxTime(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
+	return s.points(rng, now), latest
 }
 
 // knobStatsView is GET /v1/devices/{id}/stats.
@@ -433,7 +342,7 @@ func (a *App) handleKnobStats(w http.ResponseWriter, r *http.Request) {
 	if rng == "" {
 		rng = "1h"
 	}
-	if _, ok := knobStatsRanges[rng]; !ok {
+	if _, ok := statsRanges[rng]; !ok {
 		a.writeDeviceError(w, r, fmt.Errorf("%w: range must be 15m, 1h or 24h", errDeviceBody))
 		return
 	}
@@ -446,7 +355,7 @@ func (a *App) handleKnobStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-// buildKnobStats is device id's stats over rng (a knobStatsRanges key) at now.
+// buildKnobStats is device id's stats over rng (a statsRanges key) at now.
 func (a *App) buildKnobStats(id, rng string, now time.Time) (knobStatsView, error) {
 	diag, last, err := a.devices.diagnostics(id)
 	if err != nil {

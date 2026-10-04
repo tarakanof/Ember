@@ -210,6 +210,8 @@ type clockDeviceOut struct {
 	HumidityPercent *float64 `json:"humidity_percent"`
 
 	lightLevel *float64
+	// ip stays out of the open health read; GET /v1/clock/stats has it.
+	ip string
 }
 
 type publishHealthOut struct {
@@ -253,6 +255,7 @@ type clockDeviceWire struct {
 	Temperature *float64 `json:"temperature"`
 	Humidity    *float64 `json:"humidity"`
 	LightLevel  *float64 `json:"lightLevel"`
+	IPAddress   string   `json:"ipAddress"`
 	WiFi        struct {
 		Connects *int `json:"connects"`
 	} `json:"wifi"`
@@ -312,11 +315,13 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 			dev.TemperatureC = raw.Temperature
 			dev.HumidityPercent = raw.Humidity
 			dev.lightLevel = raw.LightLevel
+			dev.ip = raw.IPAddress
 		}
 	}
 	c.mu.Lock()
 	c.at, c.base, c.dev, c.inflight = now, base, dev, nil
 	c.mu.Unlock()
+	a.recordClockProbe(now, dev)
 	return &dev
 }
 
