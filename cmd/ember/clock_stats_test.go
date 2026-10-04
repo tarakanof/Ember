@@ -166,7 +166,7 @@ func TestClockStats24hDownsamplesToFiveMinutes(t *testing.T) {
 func TestClockStatsMinuteRingKeepsOnly24Hours(t *testing.T) {
 	f := newClockStatsFixture(t)
 	for i := range 25 * 60 {
-		f.app.clockStats.record(f.t0.Add(time.Duration(i)*time.Minute), clockSample{Reachable: true})
+		f.app.clockStats.record(f.t0.Add(time.Duration(i)*time.Minute), f.clock.URL, clockSample{Reachable: true})
 	}
 	if n := f.app.clockStats.minuteLen(); n != statsMinuteCap {
 		t.Fatalf("minute ring = %d, want %d", n, statsMinuteCap)
@@ -201,7 +201,7 @@ func TestClockStatsCountsPublishesBetweenProbes(t *testing.T) {
 func TestClockStatsUnreachableKeepsTheLastReading(t *testing.T) {
 	f := newClockStatsFixture(t)
 	f.probe(0)
-	f.app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = closedURL(t) })
+	f.clock.Close()
 	f.probe(30 * time.Second)
 	got := f.stats(t, "15m", 40*time.Second)
 	if got.Reachable == nil || *got.Reachable {
@@ -269,4 +269,40 @@ func TestClockStatsGolden(t *testing.T) {
 	empty := newPomodoroApp(t)
 	empty.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = closedURL(t) })
 	assertGolden(t, "clock_stats_empty", empty.buildClockStats("1h", f.t0))
+}
+
+func TestDeviceWatchProbeSharesTheHealthProbe(t *testing.T) {
+	f := newClockStatsFixture(t)
+	now := time.Now()
+	f.app.probeClockHealth(context.Background(), now)
+	p := f.app.probeDevice(context.Background(), 15*time.Second)
+	if n := f.hits.Load(); n != 1 {
+		t.Fatalf("clock GETs = %d after a health probe and a watch probe within maxAge, want 1", n)
+	}
+	if !p.reachable || p.uptimeSec != 268719 || !p.at.Equal(now) {
+		t.Fatalf("watch probe = %+v, want the health probe's uptime and time", p)
+	}
+	f.app.probeDevice(context.Background(), 0)
+	if n := f.hits.Load(); n != 2 {
+		t.Fatalf("clock GETs = %d after a maxAge-0 watch probe, want 2", n)
+	}
+	if got := f.app.buildClockStats("15m", time.Now()); len(got.Points) != 2 {
+		t.Fatalf("points = %d, want the watch probe recorded as a sample too", len(got.Points))
+	}
+}
+
+func TestClockStatsResetWhenTheClockChanges(t *testing.T) {
+	f := newClockStatsFixture(t)
+	f.probe(0)
+	var otherHits atomic.Int32
+	other := ngHealthClock(t, &otherHits)
+	f.app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = other.URL })
+	got := f.app.buildClockStats("15m", f.t0.Add(10*time.Second))
+	if len(got.Points) != 0 || got.Latest != nil || got.IPAddress != nil || got.Reachable != nil {
+		t.Fatalf("after a clock change = %+v, want the old clock's data gone", got)
+	}
+	f.probe(30 * time.Second)
+	if got := f.app.buildClockStats("15m", f.t0.Add(40*time.Second)); len(got.Points) != 1 || got.Latest == nil {
+		t.Fatalf("points = %d, want only the new clock's sample", len(got.Points))
+	}
 }

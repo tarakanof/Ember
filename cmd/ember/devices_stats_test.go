@@ -506,3 +506,13 @@ func TestKnobStatsBasicDropsFullOnlyFields(t *testing.T) {
 		}
 	}
 }
+
+func TestKnobStatsRecordEmberBrightness(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "basic")
+	f.checkinStats(t, basicStats)
+	want := f.app.currentBrightness(f.clk.Now()).Level
+	if got := num(t, f.stats(t, "15m").Latest, "brightness_level"); got != float64(want) {
+		t.Fatalf("brightness_level = %v, want Ember's level %d at the checkin", got, want)
+	}
+}

@@ -117,19 +117,20 @@ func rebootDetected(last, cur deviceProbe) bool {
 	return cur.uptimeSec+int64(rebootUptimeSlack/time.Second) < expected
 }
 
-func (a *App) probeDevice(ctx context.Context) deviceProbe {
-	cl, err := a.clock.client(callProbe)
-	if err != nil {
+// probeDevice reads the clock through the shared health probe (a cached
+// answer younger than maxAge will do), so the watch, the health endpoint,
+// brightness and clock stats cost the clock one GET /api/v1/device.
+func (a *App) probeDevice(ctx context.Context, maxAge time.Duration) deviceProbe {
+	dev := a.probeClockHealthWithin(ctx, time.Now(), maxAge)
+	if dev == nil || !dev.Reachable || dev.UptimeSec == nil {
 		return deviceProbe{}
 	}
-	info, err := cl.DeviceInfo(ctx)
-	if err != nil {
-		return deviceProbe{}
-	}
-	return deviceProbe{reachable: true, uptimeSec: info.UptimeSeconds, at: time.Now()}
+	return deviceProbe{reachable: true, uptimeSec: *dev.UptimeSec, at: dev.CheckedAt}
 }
 
-// StartDeviceWatch runs the periodic self-healing probe loop until ctx is done.
+// StartDeviceWatch runs the periodic self-healing probe loop until ctx is
+// done. Its probe is also the clock stats sampler (StartClockSampler runs
+// only when the watch is off).
 func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -143,7 +144,7 @@ func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 				last = deviceProbe{}
 				a.RepublishAll("clock_rediscovered")
 			}
-			cur := a.probeDevice(ctx)
+			cur := a.probeDevice(ctx, interval/2)
 			if !cur.reachable {
 				continue
 			}

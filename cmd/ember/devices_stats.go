@@ -119,6 +119,9 @@ type knobSample struct {
 	RenderFPS             *float64  `json:"render_fps"`
 	FrameAvgMS            *float64  `json:"frame_avg_ms"`
 	FrameMaxMS            *int64    `json:"frame_max_ms"`
+	// BrightnessLevel is Ember's brightness (0–255, /v1/display/brightness)
+	// at the checkin: the level a knob following Ember shows.
+	BrightnessLevel *int `json:"brightness_level"`
 
 	periodMS    int64
 	resetReason string
@@ -216,6 +219,9 @@ func (a knobSample) merge(b knobSample) knobSample {
 	}
 	if b.TempC == nil {
 		out.TempC = a.TempC
+	}
+	if b.BrightnessLevel == nil {
+		out.BrightnessLevel = a.BrightnessLevel
 	}
 	out.UptimeSec = latest(a.UptimeSec, b.UptimeSec)
 	out.HeapInternalFreeBytes = latest(a.HeapInternalFreeBytes, b.HeapInternalFreeBytes)

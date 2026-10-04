@@ -123,7 +123,6 @@ func main() {
 	workers.Go(func() { app.StartCoordinator(ctx) })
 	workers.Go(func() { app.StartWeather(ctx) })
 	workers.Go(func() { app.StartBrightness(ctx) })
-	workers.Go(func() { app.StartClockSampler(ctx, clockProbeTTL) })
 	workers.Go(func() { app.StartMeetings(ctx) })
 	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
 	workers.Go(func() { app.ensureBootPingScript(ctx) })
@@ -133,6 +132,7 @@ func main() {
 		workers.Go(func() { app.StartDeviceWatch(ctx, deviceWatchInterval) })
 	} else {
 		logger.Info("clock auto-rediscover disabled (awtrix.auto_rediscover)")
+		workers.Go(func() { app.StartClockSampler(ctx, clockProbeTTL) })
 	}
 
 	server := &http.Server{

@@ -25,9 +25,6 @@ type clockSample struct {
 	HumidityPercent  *float64 `json:"humidity_percent"`
 	LightLux         *float64 `json:"light_lux"`
 	BatteryPercent   *float64 `json:"battery_percent"`
-	// BrightnessLevel is Ember's brightness (0–255, /v1/display/brightness)
-	// at the probe: what the clock's light reading turns into for the knob.
-	BrightnessLevel *int `json:"brightness_level"`
 	// PublishOK and PublishFail count publishes to the clock since the
 	// previous sample.
 	PublishOK   int64 `json:"publish_ok"`
@@ -59,9 +56,6 @@ func (a clockSample) merge(b clockSample) clockSample {
 			*f.dst = *f.old
 		}
 	}
-	if b.BrightnessLevel == nil {
-		out.BrightnessLevel = a.BrightnessLevel
-	}
 	return out
 }
 
@@ -75,6 +69,7 @@ type clockStatsStore struct {
 	latest    *clockSample // newest reachable sample
 	last      *clockSample // newest sample
 	ip        string
+	base      string // the clock URL the samples are from
 	okTotal   int64
 	failTotal int64
 }
@@ -83,11 +78,25 @@ func newClockStatsStore() *clockStatsStore {
 	return &clockStatsStore{now: time.Now, series: newSampleSeries[clockSample](clockStatsLiveCap)}
 }
 
-// record adds a sample at now.
-func (c *clockStatsStore) record(now time.Time, s clockSample) {
+// resetLocked drops every sample when base is another clock than the
+// samples came from, so two devices never share a chart.
+func (c *clockStatsStore) resetLocked(base string) {
+	if c.base == base {
+		return
+	}
+	if c.base != "" {
+		c.series = newSampleSeries[clockSample](clockStatsLiveCap)
+		c.latest, c.last, c.ip = nil, nil, ""
+	}
+	c.base = base
+}
+
+// record adds a sample at now from the clock at base.
+func (c *clockStatsStore) record(now time.Time, base string, s clockSample) {
 	s.T = now.UTC().Truncate(time.Second)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.resetLocked(base)
 	c.series.record(s)
 	c.last = &s
 	if s.Reachable {
@@ -105,37 +114,33 @@ func (c *clockStatsStore) publishDeltas(okTotal, failTotal int64) (ok, fail int6
 	return ok, fail
 }
 
-func (c *clockStatsStore) setIP(ip string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.ip = ip
-}
-
 func (c *clockStatsStore) minuteLen() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.series.minutes.len
 }
 
-// recordClockProbe stores a fresh probe of the clock as a sample.
-func (a *App) recordClockProbe(now time.Time, dev clockDeviceOut) {
+// recordClockProbe stores a fresh probe of the clock at base as a sample.
+func (a *App) recordClockProbe(now time.Time, base string, dev clockDeviceOut) {
 	ok, fail := a.clockStats.publishDeltas(a.metrics.publishTotalOK.Load(), a.metrics.publishTotalFail.Load())
 	s := clockSample{Reachable: dev.Reachable, PublishOK: ok, PublishFail: fail}
 	if dev.Reachable {
 		s.RSSIDBm, s.FreeHeapBytes, s.MinFreeHeapBytes = dev.WifiRSSIDbm, dev.FreeHeapBytes, dev.MinFreeHeapBytes
 		s.TemperatureC, s.HumidityPercent, s.BatteryPercent = dev.TemperatureC, dev.HumidityPercent, dev.BatteryPercent
 		s.LightLux = dev.lightLevel
-		if dev.ip != "" {
-			a.clockStats.setIP(dev.ip)
-		}
 	}
-	s.BrightnessLevel = refOf(a.currentBrightness(now).Level)
-	a.clockStats.record(now, s)
+	a.clockStats.record(now, base, s)
+	if dev.Reachable && dev.ip != "" {
+		a.clockStats.mu.Lock()
+		a.clockStats.ip = dev.ip
+		a.clockStats.mu.Unlock()
+	}
 }
 
 // StartClockSampler probes the clock at once and then every interval until
-// ctx is done, so its stats fill in without a client asking. The probe
-// cache serves anyone else asking in between.
+// ctx is done, so its stats fill in without a client asking. It runs only
+// when the device watch (whose probe samples too) is off; the probe cache
+// serves anyone else asking in between.
 func (a *App) StartClockSampler(ctx context.Context, interval time.Duration) {
 	a.probeClockHealth(ctx, time.Now())
 	t := time.NewTicker(interval)
@@ -176,6 +181,9 @@ func (a *App) buildClockStats(rng string, now time.Time) clockStatsView {
 	c := a.clockStats
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if base := a.cfg.Load().effectiveClockURL(); base != "" {
+		c.resetLocked(base)
+	}
 	v.Points = c.series.points(rng, now)
 	if c.last != nil {
 		v.Reachable = refOf(c.last.Reachable)

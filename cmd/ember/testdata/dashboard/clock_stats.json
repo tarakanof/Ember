@@ -15,7 +15,6 @@
     "humidity_percent": 21.4,
     "light_lux": 42.5,
     "battery_percent": 97,
-    "brightness_level": 255,
     "publish_ok": 0,
     "publish_fail": 1
   },
@@ -30,7 +29,6 @@
       "humidity_percent": 21.4,
       "light_lux": 42.5,
       "battery_percent": 97,
-      "brightness_level": 255,
       "publish_ok": 1,
       "publish_fail": 0
     },
@@ -44,7 +42,6 @@
       "humidity_percent": 21.4,
       "light_lux": 42.5,
       "battery_percent": 97,
-      "brightness_level": 255,
       "publish_ok": 0,
       "publish_fail": 1
     }
