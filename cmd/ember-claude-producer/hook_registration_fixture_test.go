@@ -18,6 +18,7 @@ func TestHookRegistrationFixturesMatchExpected(t *testing.T) {
 	var want map[string]struct {
 		Plugin         bool `json:"plugin"`
 		SettingsEvents int  `json:"settings_events"`
+		Unreadable     bool `json:"unreadable"`
 	}
 	if err := json.Unmarshal(raw, &want); err != nil {
 		t.Fatal(err)
@@ -42,6 +43,10 @@ func TestHookRegistrationFixturesMatchExpected(t *testing.T) {
 			}
 			if got := countSettingsProducerHooks(root); got != w.SettingsEvents {
 				t.Errorf("countSettingsProducerHooks = %d, want %d", got, w.SettingsEvents)
+			}
+			var parsed map[string]any
+			if got := json.Unmarshal(body, &parsed) != nil; got != w.Unreadable {
+				t.Errorf("unreadable = %v, want %v", got, w.Unreadable)
 			}
 		})
 	}

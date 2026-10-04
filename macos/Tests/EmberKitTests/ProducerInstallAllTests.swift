@@ -8,7 +8,7 @@ import Foundation
     sm.registerError = nil
     let svc = ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     let outcomes = await svc.installAll()
     #expect(outcomes.count == 3)
     #expect(outcomes.allSatisfy { $0.error == nil })
@@ -23,7 +23,7 @@ import Foundation
     let failingRunner = FailingForCodexRunner()
     let svc = ProducerInstallService(sm: sm, runner: failingRunner,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     let outcomes = await svc.installAll()
     #expect(outcomes.count == 3)
     let errored = outcomes.filter { $0.error != nil }
@@ -47,7 +47,7 @@ final class FailingForCodexRunner: ProducerCommandRunning {
     let sm = FakeSMAppService(); let runner = FakeRunner()
     let svc = ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     let outcomes = await svc.uninstallAll()
     #expect(outcomes.count == 3)
     #expect(outcomes.allSatisfy { $0.error == nil })
@@ -59,7 +59,7 @@ final class FailingForCodexRunner: ProducerCommandRunning {
     sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.codex.plist": .notRegistered]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     _ = await svc.reconcile(bundleChanged: true)
     #expect(sm.unregistered == ["com.ember.heartbeat.plist"])
     #expect(sm.registered == ["com.ember.heartbeat.plist"])
@@ -69,7 +69,7 @@ final class FailingForCodexRunner: ProducerCommandRunning {
     let runner = FakeRunner()
     let svc = ProducerInstallService(sm: FakeSMAppService(), runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
-        fileExists: { _ in true })
+        fileExists: { !$0.contains("/Library/LaunchAgents/") })
     _ = await svc.installAll()
     _ = await svc.uninstallAll()
     #expect(runner.ranOnMainThread.count == 6)

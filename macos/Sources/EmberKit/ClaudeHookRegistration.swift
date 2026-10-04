@@ -26,11 +26,15 @@ public struct ClaudeHookRegistration: Sendable, Equatable {
     /// Whether the kill switch `~/.config/ember/claude-hooks.disabled` exists,
     /// which makes every registered hook exit without reporting.
     public let killSwitch: Bool
+    /// Whether settings.json exists but isn't a JSON object Go's
+    /// `encoding/json` accepts (so `configure` would fail on it too).
+    public let settingsUnreadable: Bool
 
-    public init(pluginEnabled: Bool, settingsEvents: Int, killSwitch: Bool) {
+    public init(pluginEnabled: Bool, settingsEvents: Int, killSwitch: Bool, settingsUnreadable: Bool = false) {
         self.pluginEnabled = pluginEnabled
         self.settingsEvents = settingsEvents
         self.killSwitch = killSwitch
+        self.settingsUnreadable = settingsUnreadable
     }
 
     /// The registration derived from the plugin flag and the settings events.
@@ -43,13 +47,18 @@ public struct ClaudeHookRegistration: Sendable, Equatable {
         }
     }
 
-    /// Parses `~/.claude/settings.json` (nil or unparsable reads as empty,
-    /// like the Go side) plus the kill switch's presence.
+    /// Parses `~/.claude/settings.json` plus the kill switch's presence. A
+    /// missing file reads as empty; an unparsable one (a UTF-8 BOM included,
+    /// which Go rejects) reads as empty and `settingsUnreadable`.
     public static func read(settingsJSON: Data?, killSwitch: Bool) -> ClaudeHookRegistration {
-        let root = settingsJSON.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any] ?? [:]
-        return ClaudeHookRegistration(pluginEnabled: pluginEnabled(root),
-                                      settingsEvents: producerHookEvents(root),
-                                      killSwitch: killSwitch)
+        guard let data = settingsJSON else {
+            return ClaudeHookRegistration(pluginEnabled: false, settingsEvents: 0, killSwitch: killSwitch)
+        }
+        let root = data.starts(with: [0xEF, 0xBB, 0xBF]) ? nil
+            : (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return ClaudeHookRegistration(pluginEnabled: pluginEnabled(root ?? [:]),
+                                      settingsEvents: producerHookEvents(root ?? [:]),
+                                      killSwitch: killSwitch, settingsUnreadable: root == nil)
     }
 
     /// Reads the registration under `home` through the given file accessors.
@@ -93,17 +102,22 @@ public enum ClaudeHooksNotice: Sendable, Equatable {
     case paused
     /// The plugin and settings.json both register the hooks: double POSTs.
     case registeredTwice
-    /// Reporting is on, but no hooks are registered.
+    /// Reporting is on, but no hooks are registered in the user settings (a
+    /// project-scoped plugin enable isn't checked, as in Go's doctor).
     case missing
+    /// settings.json isn't valid JSON, so neither the app nor `configure` can
+    /// read it; the user fixes it by hand.
+    case settingsUnreadable
 
     /// Whether running the helper's `configure` fixes it.
-    public var offersConfigure: Bool { self != .fine }
+    public var offersConfigure: Bool { self != .fine && self != .settingsUnreadable }
 
     /// The notice for a registration, given whether Claude reporting is on.
     /// With reporting off nothing is offered: configure removes the kill
     /// switch, which would turn the hooks back on.
     public static func notice(for registration: ClaudeHookRegistration, reportingOn: Bool) -> ClaudeHooksNotice {
         guard reportingOn else { return .fine }
+        if registration.settingsUnreadable { return .settingsUnreadable }
         if registration.killSwitch { return .paused }
         switch registration.source {
         case .both: return .registeredTwice

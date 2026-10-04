@@ -98,8 +98,11 @@ budget, so keep `EMBER_HOOK_TIMEOUT_MS` (default 500) under ~1500.
 Settings › Agents shows the same thing under the Claude Code row ("Hooks: the
 ember@ember plugin", "~/.claude/settings.json", both, or none, plus "Paused"
 when the kill switch exists), reading the same files as `doctor`. With Claude
-reporting on, registered twice, none, or paused gets an orange warning and
-**Fix Hooks**, which runs the bundled `ember-claude-producer configure`.
+reporting on, registered twice, none (a plugin enabled only for a project
+isn't checked, as in `doctor`), or paused gets an orange warning and
+**Fix Hooks**, which runs the bundled `ember-claude-producer configure`; a
+settings.json that isn't valid JSON gets a warning to fix it by hand and no
+button.
 Details: [`producers/claude-code/README.md`](../producers/claude-code/README.md).
 
 `producer.env` (`~/.config/ember/producer.env`) holds: `source`,
@@ -130,15 +133,20 @@ ember-t3-producer uninstall
 ```
 
 Ember.app bundles it like Codex: Settings › Agents lists **T3 Code** with its
-own switch (the master switch includes it once T3 is detected: `~/.t3`, the
-app's `T3CODE_HOME`, or producer.env's `EMBER_T3_HOME`). The row shows even
-before T3 is installed, marked "Not found on this Mac", and can be turned on
-anyway; the first time it runs, macOS asks once for the helper's Local
-Network access. Run `ember-t3-producer uninstall` first if you installed it
-from the CLI: the CLI and the app share the `com.ember.t3` label. The CLI
-`install` stays for dev builds. Restart with `launchctl kickstart -k gui/$UID/com.ember.t3`; log at
+own switch (the master switch includes it once T3 is detected: `~/.t3` or
+producer.env's `EMBER_T3_HOME`, the same place the helper reads). The row shows
+even before T3 is installed, marked "Not found on this Mac", and can be turned
+on anyway; the first time it runs, macOS asks once for the helper's Local
+Network access. An agent turned off with its own switch stays off when the
+master switch is turned on (the choice is kept in `producers.optOut`); on the
+first launch of this version, T3 starts turned off if reporting was already on.
+If `~/Library/LaunchAgents/<label>.plist` exists (installed with the CLI,
+same label as the app's copy) the row says **Installed from the CLI** and the
+app never registers its own; **Move to Ember** runs the bundled helper's
+`uninstall` (it boots out and removes only the CLI's agent), then turns the
+app's copy on. The CLI `install` stays for dev builds. Restart with `launchctl kickstart -k gui/$UID/com.ember.t3`; log at
 `~/Library/Logs/ember-t3-producer.log`. `producer.env` keys (all optional):
-`EMBER_T3_HOME` (default `~/.t3`; set it if you run T3 with `T3CODE_HOME` /
+`EMBER_T3_HOME` (default `~/.t3`, a leading `~/` is expanded; set it if you run T3 with `T3CODE_HOME` /
 `--base-dir`), `EMBER_T3_POLL_INTERVAL_MS` (default 2000, floor 250),
 `EMBER_T3_ACTIVITY_WINDOW_SECONDS` (default 300: how long a done/error thread
 stays). `EMBER_ACTIVITY_TRAIL_ENABLED=false` hides thread titles. A T3 dev

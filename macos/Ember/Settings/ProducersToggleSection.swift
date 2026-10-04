@@ -57,14 +57,16 @@ struct ProducersToggleSection: View {
     private func agentRow(_ agent: ProducerAgent, state: AgentState, snapshot: ProducerSnapshot) -> some View {
         LabeledContent {
             HStack(spacing: 8) {
-                stateView(state)
-                Toggle(agentName(agent), isOn: Binding(
-                    get: { state != .off },
-                    set: { on in Task { await model.setEnabled(agent, on) } }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(model.isWorking || isError(state))
+                stateView(state, agent: agent)
+                if state != .cliInstalled {
+                    Toggle(agentName(agent), isOn: Binding(
+                        get: { state != .off },
+                        set: { on in Task { await model.setEnabled(agent, on) } }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .disabled(model.isWorking || isError(state))
+                }
             }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
@@ -118,7 +120,10 @@ struct ProducersToggleSection: View {
                     Label("Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice.",
                           systemImage: "exclamationmark.triangle.fill")
                 case .missing:
-                    Label("No Claude hooks are registered, so Claude Code sessions don't report.",
+                    Label("No Claude hooks are registered in ~/.claude/settings.json (a plugin enabled only for a project isn't checked), so Claude Code sessions may not report.",
+                          systemImage: "exclamationmark.triangle.fill")
+                case .settingsUnreadable:
+                    Label("~/.claude/settings.json isn't valid JSON, so Ember can't read or fix the hooks. Fix the file by hand.",
                           systemImage: "exclamationmark.triangle.fill")
                 case .paused, .fine:
                     Label("Claude hooks are paused (~/.config/ember/claude-hooks.disabled), so Claude Code sessions don't report.",
@@ -126,9 +131,11 @@ struct ProducersToggleSection: View {
                 }
             }
             .foregroundStyle(.orange)
-            Button("Fix Hooks") { Task { await model.configureClaudeHooks() } }
-                .disabled(model.isWorking)
-                .help("Runs ember-claude-producer configure: removes the pause and keeps one set of hooks, the plugin's when it's enabled.")
+            if notice.offersConfigure {
+                Button("Fix Hooks") { Task { await model.configureClaudeHooks() } }
+                    .disabled(model.isWorking)
+                    .help("Runs ember-claude-producer configure: removes the pause and keeps one set of hooks, the plugin's when it's enabled.")
+            }
         }
     }
 
@@ -143,7 +150,7 @@ struct ProducersToggleSection: View {
     }
 
     @ViewBuilder
-    private func stateView(_ state: AgentState) -> some View {
+    private func stateView(_ state: AgentState, agent: ProducerAgent) -> some View {
         switch state {
         case .off:
             Text("Off").foregroundStyle(.secondary)
@@ -159,6 +166,13 @@ struct ProducersToggleSection: View {
                 Button("Repair") { Task { await model.repair() } }
                     .disabled(model.isWorking)
                     .help("Registers the background helper with macOS again so it starts reporting.")
+            }
+        case .cliInstalled:
+            HStack(spacing: 8) {
+                Text("Installed from the CLI").foregroundStyle(.secondary)
+                Button("Move to Ember") { Task { await model.moveToEmber(agent) } }
+                    .disabled(model.isWorking)
+                    .help("Removes the command-line LaunchAgent with the same name, then lets Ember run the bundled helper.")
             }
         case .error(let message):
             Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)

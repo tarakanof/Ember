@@ -6,12 +6,12 @@ private let home = URL(fileURLWithPath: "/Users/x")
 
 private func service(_ sm: FakeSMAppService = FakeSMAppService(), runner: ProducerCommandRunning = FakeRunner(),
                      files: [String: String] = [:], dirs: Set<String> = [],
-                     environment: [String: String] = [:]) -> ProducerInstallService {
+                     prefs: InMemoryProducerPrefs = InMemoryProducerPrefs()) -> ProducerInstallService {
     ProducerInstallService(sm: sm, runner: runner,
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: home,
         fileExists: { dirs.contains($0) || files[$0] != nil },
         readFile: { files[$0].map { Data($0.utf8) } },
-        environment: environment, uid: 501)
+        prefs: prefs, uid: 501)
 }
 
 private func hookFixtures() -> URL {
@@ -25,6 +25,7 @@ private func hookFixtures() -> URL {
     struct Expected: Decodable {
         let plugin: Bool
         let settings_events: Int
+        let unreadable: Bool
     }
     let dir = hookFixtures()
     let expected = try JSONDecoder().decode([String: Expected].self,
@@ -35,6 +36,7 @@ private func hookFixtures() -> URL {
                                               killSwitch: false)
         #expect(got.pluginEnabled == want.plugin, "\(name)")
         #expect(got.settingsEvents == want.settings_events, "\(name)")
+        #expect(got.settingsUnreadable == want.unreadable, "\(name)")
     }
 }
 
@@ -62,6 +64,11 @@ private func hookFixtures() -> URL {
     #expect(notice(true, 8, kill: true, on: false) == .fine)
     #expect(notice(false, 0, kill: false, on: false) == .fine)
     #expect(!ClaudeHooksNotice.fine.offersConfigure)
+    let unreadable = ClaudeHookRegistration.read(settingsJSON: Data("{,".utf8), killSwitch: false)
+    #expect(unreadable.settingsUnreadable)
+    #expect(ClaudeHookRegistration.read(settingsJSON: nil, killSwitch: false).settingsUnreadable == false)
+    #expect(ClaudeHooksNotice.notice(for: unreadable, reportingOn: true) == .settingsUnreadable)
+    #expect(!ClaudeHooksNotice.settingsUnreadable.offersConfigure)
     #expect(ClaudeHooksNotice.registeredTwice.offersConfigure)
 }
 
@@ -70,14 +77,16 @@ private func hookFixtures() -> URL {
         "/Users/x/.claude/settings.json": #"{"enabledPlugins":{"ember@ember":true}}"#,
         "/Users/x/.config/ember/claude-hooks.disabled": "x",
     ])
-    #expect(svc.claudeHookRegistration() == ClaudeHookRegistration(pluginEnabled: true, settingsEvents: 0, killSwitch: true))
+    #expect(svc.claudeHookRegistration() == ClaudeHookRegistration(pluginEnabled: true, settingsEvents: 0, killSwitch: true,
+                                                                   settingsUnreadable: false))
 }
 
-@Test func t3IsDetectedFromItsDefaultHomeT3CodeHomeOrProducerEnv() {
+@Test func t3IsDetectedWhereTheHelperLooks() {
     #expect(service(dirs: ["/Users/x/.t3"]).detectedAgents() == [.t3])
-    #expect(service(dirs: ["/opt/t3"], environment: ["T3CODE_HOME": "/opt/t3"]).detectedAgents() == [.t3])
     #expect(service(files: ["/Users/x/.config/ember/producer.env": "EMBER_T3_HOME=~/Work/t3\n"],
-                    dirs: [NSString(string: "~/Work/t3").expandingTildeInPath]).detectedAgents() == [.t3])
+                    dirs: ["/Users/x/Work/t3"]).detectedAgents() == [.t3])
+    #expect(service(files: ["/Users/x/.config/ember/producer.env": "EMBER_T3_HOME=/opt/t3\n"],
+                    dirs: ["/opt/t3"]).detectedAgents() == [.t3])
     #expect(service(dirs: ["/opt/t3"]).detectedAgents().isEmpty)
 }
 

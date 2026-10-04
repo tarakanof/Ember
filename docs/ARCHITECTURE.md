@@ -592,7 +592,9 @@ Claude producer constraints:
   doctor rewrites `producer.env`'s `EMBER_SOURCE` and probes the server, too
   much for a pane refresh. The two parsers are held together by shared
   fixtures in `cmd/ember-claude-producer/testdata/hook-registration`, which
-  both test suites read.
+  both test suites read. Known divergence: with a duplicate key Go keeps the
+  last value and `JSONSerialization` the first; a UTF-8 BOM is rejected on both
+  sides (Swift checks for it, since `JSONSerialization` accepts it).
 - **Statusline.** The `statusline` subcommand never calls `loadConfig` and
   makes no network call, so it needs no token. Its stdout is the status bar
   Claude renders and must not be redirected; only stderr goes to the producer
@@ -823,8 +825,14 @@ state (on / off / needs approval / not running with Repair) and its own switch.
 A row shows when its tool is detected (`~/.claude`, `~/.codex`, `~/.t3` or
 `T3CODE_HOME` / `EMBER_T3_HOME`) or its agent is registered; T3 Code's row
 always shows (`listedWhenUndetected`), so it can be turned on before T3's
-first run. The master switch installs the detected agents and turns off every
-detected or registered one. The Claude row also says how its hooks are
+first run. A per-agent off is remembered (`producers.optOut`), so the master
+switch neither counts that agent as "partial" nor turns it back on; with every
+detected agent opted out, master on clears the opt-outs. On launch an agent
+case new since the last launch (`producers.knownAgents`) starts opted out when
+some agent is already registered. An agent whose CLI LaunchAgent plist (same
+label) is in `~/Library/LaunchAgents` shows as installed from the CLI and is
+never registered alongside it; Move to Ember runs the helper's `uninstall`
+first. The master switch turns off every registered agent. The Claude row also says how its hooks are
 registered and whether the kill switch pauses them.
 
 ### Render core — `internal/render`

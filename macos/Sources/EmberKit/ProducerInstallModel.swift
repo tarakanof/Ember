@@ -45,6 +45,11 @@ public final class ProducerInstallModel {
         await run { await $0.setEnabled(agent, on) }
     }
 
+    /// Replaces a CLI-installed agent with the app's copy.
+    public func moveToEmber(_ agent: ProducerAgent) async {
+        await run { await $0.moveToEmber(agent) }
+    }
+
     /// Runs the Claude helper's `configure` to fix the hook registration.
     public func configureClaudeHooks() async {
         await run { await $0.configureClaudeHooks() }
