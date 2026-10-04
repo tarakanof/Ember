@@ -29,7 +29,8 @@ type statuslineInput struct {
 		} `json:"seven_day"`
 	} `json:"rate_limits"`
 	ContextWindow *struct {
-		UsedPercentage float64 `json:"used_percentage"`
+		// UsedPercentage is null early in a session: unknown, not 0 %.
+		UsedPercentage *float64 `json:"used_percentage"`
 	} `json:"context_window"`
 }
 
@@ -100,10 +101,10 @@ func extractWeekResetLabel(in statuslineInput) (string, bool) {
 }
 
 func extractContextPct(in statuslineInput) (*int, bool) {
-	if in.ContextWindow == nil {
+	if in.ContextWindow == nil || in.ContextWindow.UsedPercentage == nil {
 		return nil, false
 	}
-	pct := int(math.Round(in.ContextWindow.UsedPercentage))
+	pct := int(math.Round(*in.ContextWindow.UsedPercentage))
 	if pct < 0 {
 		pct = 0
 	}
@@ -220,11 +221,15 @@ func runStatusline() {
 	os.Exit(0)
 }
 
+const statuslineLockWait = 250 * time.Millisecond
+
 func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
 	weekPct *int, weekResetAt *int64, weekResetLabel string) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
-	return withLockEx(lp, func() error {
+	// The status line renders synchronously: drop this sample rather than
+	// wait behind a hook's in-flight POST; the next refresh carries it.
+	return withLockExWait(lp, statuslineLockWait, func() error {
 		body, err := readMarker(mp)
 		if err != nil {
 			return nil

@@ -3,10 +3,12 @@ package main
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"syscall"
+	"time"
 )
 
 const maxSessionIDLen = 64
@@ -79,6 +81,25 @@ func withLockSh(lockPath string, fn func() error) error {
 }
 
 func withLock(lockPath string, op int, fn func() error) error {
+	return withLockWait(lockPath, op, -1, fn)
+}
+
+// errLockBusy reports that a bounded lock wait ran out; the caller drops its update.
+var errLockBusy = errors.New("session lock busy")
+
+// withLockExWait is withLockEx for the hook path: it gives up after wait
+// rather than blocking the claude CLI behind another holder.
+func withLockExWait(lockPath string, wait time.Duration, fn func() error) error {
+	return withLockWait(lockPath, syscall.LOCK_EX, wait, fn)
+}
+
+func withLockShWait(lockPath string, wait time.Duration, fn func() error) error {
+	return withLockWait(lockPath, syscall.LOCK_SH, wait, fn)
+}
+
+// withLockWait takes the flock, retrying LOCK_NB until wait elapses; a
+// negative wait blocks.
+func withLockWait(lockPath string, op int, wait time.Duration, fn func() error) error {
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 		return err
 	}
@@ -87,9 +108,32 @@ func withLock(lockPath string, op int, fn func() error) error {
 		return err
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), op); err != nil {
+	if err := flockWait(int(f.Fd()), op, wait); err != nil {
 		return err
 	}
 	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
 	return fn()
+}
+
+func flockWait(fd, op int, wait time.Duration) error {
+	if wait < 0 {
+		return syscall.Flock(fd, op)
+	}
+	deadline := time.Now().Add(wait)
+	backoff := 2 * time.Millisecond
+	for {
+		err := syscall.Flock(fd, op|syscall.LOCK_NB)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+			return err
+		}
+		left := time.Until(deadline)
+		if left <= 0 {
+			return errLockBusy
+		}
+		time.Sleep(min(backoff, left))
+		backoff = min(backoff*2, 20*time.Millisecond)
+	}
 }

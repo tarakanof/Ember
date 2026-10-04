@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -135,29 +136,24 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	if err != nil {
 		return nil
 	}
+	// Network calls never run under the session lock: hooks take it on the
+	// claude CLI's hot path, and a POST to an unreachable server would stall
+	// every one of them for the full daemon timeout (#258).
 	if pid, start, ok := markerOwner(markerP); ok && !ownerAlive(pid, start) {
+		var gone *StatusRequest
 		_ = withLockEx(lockP, func() error {
 			pid2, start2, ok2 := markerOwner(markerP)
 			if ok2 && ownerAlive(pid2, start2) {
 				return nil
 			}
-			body, err := os.ReadFile(markerP)
-			if err == nil {
-				var req StatusRequest
-				if json.Unmarshal(body, &req) == nil {
-					if err := client.Delete(ctx, DeleteRequest{
-						Source: req.Source, Tool: req.Tool, Session: req.Session,
-					}); err != nil {
-						tickFailLog.Warn(slog.Default(), "claude_delete", "status DELETE failed", "err", err)
-					}
-				}
-			}
-			_ = os.Remove(markerP)
+			gone = removeMarker(markerP)
 			return nil
 		})
+		deleteSession(ctx, client, gone)
 		return nil
 	}
 	if info.ModTime().Before(staleThreshold) {
+		var gone *StatusRequest
 		_ = withLockEx(lockP, func() error {
 			info2, err := os.Stat(markerP)
 			if err != nil {
@@ -166,47 +162,123 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			if !info2.ModTime().Before(staleThreshold) {
 				return nil
 			}
-			body, err := os.ReadFile(markerP)
-			if err == nil {
-				var req StatusRequest
-				if json.Unmarshal(body, &req) == nil {
-					if err := client.Delete(ctx, DeleteRequest{
-						Source: req.Source, Tool: req.Tool, Session: req.Session,
-					}); err != nil {
-						tickFailLog.Warn(slog.Default(), "claude_delete", "status DELETE failed", "err", err)
-					}
-				}
-			}
-			_ = os.Remove(markerP)
+			gone = removeMarker(markerP)
 			return nil
 		})
+		deleteSession(ctx, client, gone)
 		return nil
 	}
+	body, ok := snapshotMarker(markerP, lockP, -1)
+	if !ok {
+		return nil
+	}
+	var m marker
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil
+	}
+	req := m.StatusRequest
 	var snap *statuslineUsageSnapshot
-	_ = withLockSh(lockP, func() error {
-		body, err := os.ReadFile(markerP)
-		if err != nil {
-			return nil
+	if req.RateWindowPct != nil || req.RateWeekPct != nil {
+		snap = &statuslineUsageSnapshot{
+			fiveHourPct:        req.RateWindowPct,
+			fiveHourResetAt:    req.RateResetAt,
+			fiveHourResetLabel: req.RateResetLabel,
+			sevenDayPct:        req.RateWeekPct,
+			sevenDayResetAt:    req.RateWeekResetAt,
+			sevenDayResetLabel: req.RateWeekResetLabel,
+			updatedAt:          info.ModTime(),
 		}
-		var req StatusRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			return nil
+	}
+	if !heartbeatDue(cfg, m, info.ModTime(), time.Now()) {
+		return snap
+	}
+	if err := postReconciled(ctx, cfg, client, markerP, lockP, body, -1); err != nil {
+		tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
+	}
+	return snap
+}
+
+// heartbeatDue reports whether the heartbeat should re-post the marker.
+// done and error are re-posted only until DoneTTLSeconds after the state
+// changed (covering a lost hook POST), so the server's done_ttl linger can
+// expire and the idle screen return; running and waiting always are.
+func heartbeatDue(cfg Config, m marker, mtime, now time.Time) bool {
+	if m.State != "done" && m.State != "error" {
+		return true
+	}
+	changed := mtime
+	if m.StateChangedAt != 0 {
+		changed = time.Unix(m.StateChangedAt, 0)
+	}
+	return now.Sub(changed) < time.Duration(cfg.DoneTTLSeconds)*time.Second
+}
+
+// postReconciled POSTs the marker body, then re-reads the marker (lockWait
+// bounds the shared lock; negative blocks). The POST ran outside the lock, so
+// a hook may have changed or removed the marker, and told the server, while
+// it was in flight: a changed marker is re-sent once (a later change racing
+// that re-send heals at the next heartbeat), and a vanished one means
+// SessionEnd deleted the session, so it is DELETEd again rather than left as
+// a ghost. The check runs even when the POST failed: a timed-out POST may
+// still have been applied.
+func postReconciled(ctx context.Context, cfg Config, client *Client, markerP, lockP string, body []byte, lockWait time.Duration) error {
+	var req StatusRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return err
+	}
+	postErr := client.Post(ctx, wireRequest(cfg, req))
+	now, ok := snapshotMarker(markerP, lockP, lockWait)
+	switch {
+	case !ok:
+		if _, err := os.Stat(markerP); os.IsNotExist(err) {
+			deleteSession(ctx, client, &req)
 		}
-		if req.RateWindowPct != nil || req.RateWeekPct != nil {
-			snap = &statuslineUsageSnapshot{
-				fiveHourPct:        req.RateWindowPct,
-				fiveHourResetAt:    req.RateResetAt,
-				fiveHourResetLabel: req.RateResetLabel,
-				sevenDayPct:        req.RateWeekPct,
-				sevenDayResetAt:    req.RateWeekResetAt,
-				sevenDayResetLabel: req.RateWeekResetLabel,
-				updatedAt:          info.ModTime(),
+	case !bytes.Equal(now, body):
+		var cur marker
+		if json.Unmarshal(now, &cur) == nil && heartbeatDue(cfg, cur, time.Now(), time.Now()) {
+			if err := client.Post(ctx, wireRequest(cfg, cur.StatusRequest)); err != nil && postErr == nil {
+				postErr = err
 			}
 		}
-		if err := client.Post(ctx, wireRequest(cfg, req)); err != nil {
-			tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
+	}
+	return postErr
+}
+
+// snapshotMarker reads the marker under a shared lock; ok is false when it is
+// gone or the lock stayed busy for wait (negative blocks).
+func snapshotMarker(markerP, lockP string, wait time.Duration) (body []byte, ok bool) {
+	_ = withLockShWait(lockP, wait, func() error {
+		b, err := os.ReadFile(markerP)
+		if err == nil {
+			body, ok = b, true
 		}
 		return nil
 	})
-	return snap
+	return body, ok
+}
+
+// removeMarker deletes the marker (caller holds the lock) and returns the
+// session it described, for a DELETE after the lock is released.
+func removeMarker(markerP string) *StatusRequest {
+	body, err := os.ReadFile(markerP)
+	_ = os.Remove(markerP)
+	if err != nil {
+		return nil
+	}
+	var req StatusRequest
+	if json.Unmarshal(body, &req) != nil {
+		return nil
+	}
+	return &req
+}
+
+func deleteSession(ctx context.Context, client *Client, req *StatusRequest) {
+	if req == nil {
+		return
+	}
+	if err := client.Delete(ctx, DeleteRequest{
+		Source: req.Source, Tool: req.Tool, Session: req.Session,
+	}); err != nil {
+		tickFailLog.Warn(slog.Default(), "claude_delete", "status DELETE failed", "err", err)
+	}
 }

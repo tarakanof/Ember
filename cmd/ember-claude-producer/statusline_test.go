@@ -56,6 +56,9 @@ func TestExtractContextPct(t *testing.T) {
 		{"clamp high", `{"context_window":{"used_percentage":250}}`, ratePtr(100)},
 		{"zero", `{"context_window":{"used_percentage":0}}`, ratePtr(0)},
 		{"absent", `{"session_id":"x"}`, nil},
+		// Claude Code sends null early in a session: unknown, never 0 %.
+		{"null", `{"context_window":{"used_percentage":null}}`, nil},
+		{"null object", `{"context_window":null}`, nil},
 	}
 	for _, c := range cases {
 		in, ok := parseStatusline([]byte(c.json))
@@ -161,7 +164,7 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	dir := t.TempDir()
 	markerP := markerPath(dir, "sess1")
 	lockP := lockPath(dir, "sess1")
-	cfg := Config{Source: "mbp", ServerURL: "http://x"}
+	cfg := Config{Source: "mbp", ServerURL: "http://127.0.0.1:1", HookTimeoutMs: 500}
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "sess1", "running", "m", "", markerP, lockP)
 	ra := int64(1778614633)
 	wra := int64(1778700000)

@@ -459,8 +459,8 @@ markers still get reaped.
 - **Claude Code producer — `cmd/ember-claude-producer`.** Hook-based: Claude
   fires hooks per invocation; the producer maps 8 events to states
   (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, Notification,
-  Stop (no-op: the session stays until SessionEnd), StopFailure→error,
-  SessionEnd→DELETE). Three **tool-outcome hooks** (#76, `posttool.go`,
+  Stop→done (kept `running` while `background_tasks` is non-empty),
+  StopFailure→error, SessionEnd→DELETE). Three **tool-outcome hooks** (#76, `posttool.go`,
   registered `async: true` so Claude never waits on them) add no states:
   PostToolUse / PostToolUseFailure / PermissionDenied end a `waiting` only
   when they belong to the call its PermissionRequest recorded (a hashed
@@ -589,10 +589,46 @@ Claude producer constraints:
   500 ms) because the hook blocks the `claude` CLI. The daemon uses a separate,
   longer `daemonHTTPTimeout` (5 s) so a slow link doesn't flap heartbeat
   re-POSTs and reap DELETEs.
-- **Stop is a no-op** because deleting on every Stop dropped the display to the
-  idle robot between turns and during text generation, when no hook fires. The
-  marker keeps its last state and the heartbeat re-posts it until SessionEnd,
-  owner-liveness reap, or the marker TTL clears it.
+- **Stop upserts `done`, never deletes**, because deleting on every Stop
+  dropped the display to the idle robot between turns. The marker keeps
+  `done` (the reply's first line as message) until the next prompt,
+  SessionEnd, owner-liveness reap or the marker TTL, but the server only
+  shows it for its `done_ttl_seconds` linger: the marker stamps
+  `state_changed_at`, and the heartbeat re-posts `done`/`error` only until
+  `EMBER_DONE_TTL_SECONDS` (default 30, keep it equal to the server's) after
+  the state changed (that covers a lost hook POST), then lets the server
+  reap it, so the idle screen returns ~30-40 s after a turn. `running` and
+  `waiting` are always re-posted. A Stop whose `background_tasks` include a
+  `subagent`, `workflow`, `teammate` or `cloud session` changes nothing (that
+  work wakes the session with a new turn); a background `shell` or `monitor`
+  (a dev server, `tail -f`) doesn't hold the session in `running`.
+  `session_crons` are ignored: a scheduled prompt fires UserPromptSubmit.
+- **Notification types:**
+
+  | `notification_type` | State |
+  | --- | --- |
+  | `permission_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`, `quota_auto_resume_stale` | waiting |
+  | `elicitation_complete`, `elicitation_response` | running, only out of a non-permission `waiting` |
+  | `quota_auto_resume_fired` | running |
+  | `quota_auto_resume_disabled` | error |
+  | `agent_completed` | done |
+  | `idle_prompt` | done, unless already `done`/`error` (keeps the reply line and any error) |
+
+  StopFailure shows a label for its `error` enum plus `error_details`.
+- **No network under the session lock.** Hooks and the heartbeat hold the
+  flock only for marker file I/O and send after releasing it. Every POST is
+  then reconciled: the marker is re-read and, if it changed meanwhile, re-sent
+  once (a change racing that re-send heals at the next heartbeat); if it
+  vanished (SessionEnd), the session is DELETEd again, also when the POST
+  errored, since a timed-out POST may still have landed. So a POST can't leave
+  a stale or ghost session. Hooks wait for the lock at most
+  `HookTimeoutMs`+100 ms and the status line 250 ms; running out means a
+  wedged holder, and the whole update (marker write included) is dropped
+  until the next hook. SessionEnd (1.5 s shared budget, which plugin hook
+  timeouts don't raise) and non-startup SessionStart wait at most 200 ms /
+  the hook wait and remove the marker regardless; SessionEnd caps its DELETE
+  at 800 ms. settings.json hooks carry `timeout` 5 s (SessionEnd 2 s), same
+  as the plugin.
 - **Hook commands self-heal.** They are wrapped as `[ -x BIN ] && BIN … || true`
   so they exit 0 when the bundled binary is gone, and Claude Code never
   reports a hook error after the app is moved or deleted. Tool-outcome hooks run

@@ -71,6 +71,9 @@ func TestPluginHooksMatchInstaller(t *testing.T) {
 		if h.Async != spec.async {
 			t.Errorf("%s: plugin async=%v, installer async=%v", spec.event, h.Async, spec.async)
 		}
+		if h.Timeout != float64(spec.timeout) {
+			t.Errorf("%s: plugin timeout %vs, installer %ds", spec.event, h.Timeout, spec.timeout)
+		}
 		if !h.Async && (h.Timeout <= 0 || h.Timeout > 5) {
 			t.Errorf("%s: blocking hook timeout %vs, want 0 < t <= 5 so a hung hook can't stall a session", spec.event, h.Timeout)
 		}

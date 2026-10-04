@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,5 +159,37 @@ func TestWithLockEx_CreatesLockFile(t *testing.T) {
 	}
 	if _, err := os.Stat(lock); err != nil {
 		t.Errorf("lock file not created: %v", err)
+	}
+}
+
+func TestWithLockExWait_GivesUpWhenHeld(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "x.lock")
+	held, release := make(chan struct{}), make(chan struct{})
+	go func() {
+		_ = withLockEx(lock, func() error { close(held); <-release; return nil })
+	}()
+	<-held
+	defer close(release)
+	start := time.Now()
+	ran := false
+	err := withLockExWait(lock, 50*time.Millisecond, func() error { ran = true; return nil })
+	if !errors.Is(err, errLockBusy) || ran {
+		t.Errorf("err = %v, ran = %v; want errLockBusy and fn not run", err, ran)
+	}
+	if took := time.Since(start); took < 50*time.Millisecond || took > 500*time.Millisecond {
+		t.Errorf("waited %v, want ~50ms", took)
+	}
+}
+
+func TestWithLockExWait_AcquiresOnceReleased(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "x.lock")
+	held := make(chan struct{})
+	go func() {
+		_ = withLockEx(lock, func() error { close(held); time.Sleep(30 * time.Millisecond); return nil })
+	}()
+	<-held
+	ran := false
+	if err := withLockExWait(lock, time.Second, func() error { ran = true; return nil }); err != nil || !ran {
+		t.Errorf("err = %v, ran = %v; want the lock once the holder releases", err, ran)
 	}
 }
