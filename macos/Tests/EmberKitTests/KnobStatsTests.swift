@@ -73,6 +73,18 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(next.patch(from: s) == ["stats_interval_s": .int(300), "live_interval_s": .int(2)])
 }
 
+@Test func knobStatsLinesSpanTheStatsInterval() throws {
+    let t0 = iso("2026-10-04T12:00:00Z")
+    let pts = (0..<4).map { i in
+        { var p = KnobStats.Sample(t: t0.addingTimeInterval(Double(i) * 300)); p.cpuPercent = [10, 1]; return p }()
+    }
+    var s = KnobStats(deviceID: "k", diagnostics: .basic, range: .hour, online: true, lastSeen: t0,
+                      latest: pts.last, points: pts)
+    #expect(Set(s.cpuSeries(range: .hour) { "c\($0)" }.map(\.segment)).count == 4, "older server: 60 s spacing")
+    s.statsIntervalS = 300
+    #expect(Set(s.cpuSeries(range: .hour) { "c\($0)" }.map(\.segment)) == [0], "5 min reports: one line")
+}
+
 @Test func knobServiceStatsAndLiveRoutes() async throws {
     let seen = LockedBox()
     let client = stubbedClient { req in
