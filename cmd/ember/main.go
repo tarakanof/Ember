@@ -122,6 +122,7 @@ func main() {
 	workers.Go(func() { app.limiter.runSweeper(ctx) })
 	workers.Go(func() { app.StartCoordinator(ctx) })
 	workers.Go(func() { app.StartWeather(ctx) })
+	workers.Go(func() { app.StartBrightness(ctx) })
 	workers.Go(func() { app.StartMeetings(ctx) })
 	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
 	workers.Go(func() { app.ensureBootPingScript(ctx) })
@@ -191,6 +192,9 @@ func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.W
 	case <-done:
 	case <-ctx.Done():
 		a.logger.Warn("background workers still running at the shutdown deadline; closing the store anyway")
+	}
+	if err := a.devices.flush(); err != nil {
+		a.logger.Warn("device registry flush failed", "err", err)
 	}
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {

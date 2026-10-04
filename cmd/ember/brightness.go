@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -20,7 +21,9 @@ import (
 //     from the weather lat/lon with a twilight ramp.
 //
 // The policy below is pure (config + state + sample + time in, level out) so
-// the table tests own every branch. This never touches the clock's own
+// the table tests own every branch. A server ticker feeds the filter
+// (tickBrightness); requests only read it (brightnessAt), so the answer does
+// not depend on how many clients poll. This never touches the clock's own
 // brightness.
 
 const brightnessSettingsKey = "brightness_json"
@@ -271,32 +274,84 @@ func decideBrightness(c BrightnessConfig, st brightnessState, s *luxSample, geo 
 	return brightnessOut{Level: c.DayLevel, Source: "default"}, st
 }
 
-// brightnessTracker holds the filter state between requests.
+// brightnessAt answers the policy at now from the filter state without
+// changing it: the held lux level while the newest sample is fresh (re-held
+// against the current config), else the sun schedule, else DayLevel. A read
+// allows one tick plus one probe of extra age, since the filter only moves
+// on the tick.
+func brightnessAt(c BrightnessConfig, st brightnessState, geo brightnessGeo, now time.Time) brightnessOut {
+	night := false
+	var sunNow int
+	if geo.Set {
+		sunNow, night = sunLevel(c, geo.Lat, geo.Lon, now)
+	}
+	fresh := time.Duration(c.StaleSeconds)*time.Second + brightnessTickInterval + clockProbeTimeout
+	if st.HasLevel && st.HasLast && now.Sub(st.Last.At) <= fresh {
+		level := holdWithinBand(st.Level, true, luxToLevel(c, st.EMA), c.Hysteresis, c.Floor, c.Ceiling)
+		return brightnessOut{Level: level, Source: "lux", Night: night}
+	}
+	if geo.Set {
+		return brightnessOut{Level: sunNow, Source: "sun", Night: night}
+	}
+	return brightnessOut{Level: c.DayLevel, Source: "default"}
+}
+
+// brightnessTickInterval is how often the server feeds the clock's light
+// reading to the filter; reads never advance it.
+const brightnessTickInterval = time.Minute
+
+// brightnessTracker holds the filter state between ticks.
 type brightnessTracker struct {
 	mu sync.Mutex // guards st
 	st brightnessState
 }
 
-// currentBrightness reads the clock's cached probe and applies the policy.
-func (a *App) currentBrightness(r *http.Request, now time.Time) brightnessOut {
-	cfg := a.cfg.Load()
+func (a *App) brightnessGeo() brightnessGeo {
+	w := a.cfg.Load().Weather
+	return brightnessGeo{Lat: w.Latitude, Lon: w.Longitude, Set: w.Latitude != 0 || w.Longitude != 0}
+}
+
+// tickBrightness reads the clock's cached probe and advances the filter once.
+func (a *App) tickBrightness(ctx context.Context, now time.Time) {
 	var sample *luxSample
-	if dev := a.probeClockHealth(r.Context(), now); dev != nil && dev.Reachable && dev.lightLevel != nil {
+	if dev := a.probeClockHealth(ctx, now); dev != nil && dev.Reachable && dev.lightLevel != nil {
 		sample = &luxSample{Lux: *dev.lightLevel, At: dev.CheckedAt}
 	}
-	geo := brightnessGeo{
-		Lat: cfg.Weather.Latitude, Lon: cfg.Weather.Longitude,
-		Set: cfg.Weather.Latitude != 0 || cfg.Weather.Longitude != 0,
-	}
+	c := a.cfg.Load().Brightness.resolved()
+	geo := a.brightnessGeo()
 	a.brightness.mu.Lock()
 	defer a.brightness.mu.Unlock()
-	out, st := decideBrightness(cfg.Brightness.resolved(), a.brightness.st, sample, geo, now)
-	a.brightness.st = st
-	return out
+	_, a.brightness.st = decideBrightness(c, a.brightness.st, sample, geo, now)
+}
+
+// StartBrightness ticks the filter at once and then every
+// brightnessTickInterval until ctx is done.
+func (a *App) StartBrightness(ctx context.Context) {
+	a.tickBrightness(ctx, time.Now())
+	t := time.NewTicker(brightnessTickInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			a.tickBrightness(ctx, now)
+		}
+	}
+}
+
+// currentBrightness is the read-only answer for now.
+func (a *App) currentBrightness(now time.Time) brightnessOut {
+	c := a.cfg.Load().Brightness.resolved()
+	geo := a.brightnessGeo()
+	a.brightness.mu.Lock()
+	st := a.brightness.st
+	a.brightness.mu.Unlock()
+	return brightnessAt(c, st, geo, now)
 }
 
 func (a *App) handleDisplayBrightness(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, a.currentBrightness(r, time.Now()))
+	writeJSON(w, http.StatusOK, a.currentBrightness(time.Now()))
 }
 
 func (a *App) handleBrightnessConfigGet(w http.ResponseWriter, r *http.Request) {

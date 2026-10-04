@@ -28,10 +28,11 @@ const (
 )
 
 type clockProbeCache struct {
-	mu   sync.Mutex
-	at   time.Time
-	base string
-	dev  clockDeviceOut
+	mu       sync.Mutex // protects at, base, dev, inflight; never held across the probe
+	at       time.Time
+	base     string
+	dev      clockDeviceOut
+	inflight chan struct{}
 }
 
 type publishWindow struct {
@@ -264,11 +265,29 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 	}
 	c := &a.clockProbe
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.base == base && !c.at.IsZero() && now.Sub(c.at) < clockProbeTTL {
-		dev := c.dev
-		return &dev
+	for {
+		if c.base == base && !c.at.IsZero() && now.Sub(c.at) < clockProbeTTL {
+			dev := c.dev
+			c.mu.Unlock()
+			return &dev
+		}
+		if c.inflight == nil {
+			break
+		}
+		if c.base == base && !c.at.IsZero() {
+			dev := c.dev
+			c.mu.Unlock()
+			return &dev
+		}
+		wait := c.inflight
+		c.mu.Unlock()
+		<-wait
+		c.mu.Lock()
 	}
+	done := make(chan struct{})
+	c.inflight = done
+	c.mu.Unlock()
+	defer close(done)
 
 	pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), clockProbeTimeout)
 	defer cancel()
@@ -295,7 +314,9 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 			dev.lightLevel = raw.LightLevel
 		}
 	}
-	c.at, c.base, c.dev = now, base, dev
+	c.mu.Lock()
+	c.at, c.base, c.dev, c.inflight = now, base, dev, nil
+	c.mu.Unlock()
 	return &dev
 }
 

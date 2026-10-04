@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -276,6 +278,52 @@ func TestDecideStaleResetsEMA(t *testing.T) {
 	}
 }
 
+func TestBrightnessAtMatchesTickWithoutChangingState(t *testing.T) {
+	c := BrightnessConfig{}.resolved()
+	geo := brightnessGeo{Lat: lonLat, Lon: lonLon, Set: true}
+	t0 := jun21.Add(12 * time.Hour)
+	st := brightnessState{}
+	for i, lux := range []float64{200, 0.5, 0.5, 40, 42, 1000} {
+		at := t0.Add(time.Duration(i) * time.Minute)
+		var out brightnessOut
+		out, st = decideBrightness(c, st, luxAt(lux, at), geo, at)
+		before := st
+		if got := brightnessAt(c, st, geo, at.Add(30*time.Second)); got != out {
+			t.Errorf("step %d: read %+v, tick %+v", i, got, out)
+		}
+		if st != before {
+			t.Fatalf("step %d: read changed the state", i)
+		}
+	}
+	late := t0.Add(time.Hour)
+	if got, want := brightnessAt(c, st, geo, late), (brightnessOut{Level: c.DayLevel, Source: "sun"}); got != want {
+		t.Errorf("read past stale_seconds = %+v, want %+v", got, want)
+	}
+}
+
+func TestBrightnessAtHoldsLuxUntilTheNextTick(t *testing.T) {
+	c := BrightnessConfig{}.resolved()
+	c.StaleSeconds = minStaleSeconds
+	geo := brightnessGeo{Lat: lonLat, Lon: lonLon, Set: true}
+	tick := jun21
+	_, st := decideBrightness(c, brightnessState{}, luxAt(1000, tick.Add(-(clockProbeTTL-time.Second))), geo, tick)
+	for _, d := range []time.Duration{31 * time.Second, 45 * time.Second, brightnessTickInterval + clockProbeTimeout} {
+		if got := brightnessAt(c, st, geo, tick.Add(d)); got.Source != "lux" || got.Level != c.Ceiling {
+			t.Errorf("read %v after a tick on a cached sample = %+v, want lux %d", d, got, c.Ceiling)
+		}
+	}
+}
+
+func TestBrightnessAtFollowsConfigWithoutATick(t *testing.T) {
+	c := BrightnessConfig{}.resolved()
+	at := jun21.Add(12 * time.Hour)
+	_, st := decideBrightness(c, brightnessState{}, luxAt(1000, at), brightnessGeo{}, at)
+	c.Ceiling = 200
+	if got := brightnessAt(c, st, brightnessGeo{}, at); got.Level != 200 {
+		t.Errorf("level after lowering the ceiling = %d, want 200", got.Level)
+	}
+}
+
 func abs(a int) int {
 	if a < 0 {
 		return -a
@@ -302,6 +350,7 @@ func TestBrightnessEndpointLuxFromClock(t *testing.T) {
 	app := newPomodoroApp(t)
 	clock := lightClock(t, `{"version":"1.1.1","lightLevel":1000}`)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
+	app.tickBrightness(t.Context(), time.Now())
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
@@ -311,6 +360,66 @@ func TestBrightnessEndpointLuxFromClock(t *testing.T) {
 	}
 	if body["source"] != "lux" || body["level"] != float64(255) || body["night"] != false || len(body) != 3 {
 		t.Errorf("body = %v", body)
+	}
+}
+
+func TestBrightnessEndpointNeitherProbesNorAdvancesFilter(t *testing.T) {
+	app := newPomodoroApp(t)
+	var hits atomic.Int64
+	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{"version":"1.1.1","lightLevel":40}`))
+	}))
+	t.Cleanup(clock.Close)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
+	app.tickBrightness(t.Context(), time.Now())
+	app.clockProbe.mu.Lock()
+	app.clockProbe.at = time.Time{}
+	app.clockProbe.mu.Unlock()
+	app.brightness.mu.Lock()
+	st := app.brightness.st
+	app.brightness.mu.Unlock()
+	srv := httptest.NewServer(app.routes())
+	defer srv.Close()
+
+	for range 3 {
+		if _, body := getOpen(t, srv, "/v1/display/brightness"); body["source"] != "lux" {
+			t.Fatalf("body = %v", body)
+		}
+	}
+	if got := hits.Load(); got != 1 {
+		t.Errorf("clock probes = %d, want only the tick's 1", got)
+	}
+	app.brightness.mu.Lock()
+	defer app.brightness.mu.Unlock()
+	if app.brightness.st != st {
+		t.Errorf("GET changed the filter state: %+v -> %+v", st, app.brightness.st)
+	}
+}
+
+func TestClockProbeReleasesLockDuringRequest(t *testing.T) {
+	app := newPomodoroApp(t)
+	arrived, release := make(chan struct{}), make(chan struct{})
+	clock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(arrived)
+		<-release
+		_, _ = w.Write([]byte(`{"version":"1.1.1","lightLevel":40}`))
+	}))
+	t.Cleanup(clock.Close)
+	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
+	done := make(chan *clockDeviceOut)
+	go func() { done <- app.probeClockHealth(context.Background(), time.Now()) }()
+	<-arrived
+	locked := app.clockProbe.mu.TryLock()
+	if locked {
+		app.clockProbe.mu.Unlock()
+	}
+	close(release)
+	if dev := <-done; dev == nil || !dev.Reachable {
+		t.Fatalf("probe = %+v, want reachable", dev)
+	}
+	if !locked {
+		t.Fatal("clockProbe.mu held across the clock request")
 	}
 }
 
@@ -345,6 +454,7 @@ func TestBrightnessEndpointClockWithoutSensor(t *testing.T) {
 	app := newPomodoroApp(t)
 	clock := lightClock(t, `{"version":"1.1.1"}`)
 	app.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = clock.URL })
+	app.tickBrightness(t.Context(), time.Now())
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 

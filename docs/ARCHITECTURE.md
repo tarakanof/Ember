@@ -1647,7 +1647,14 @@ coordinates to a few hundred metres; the location is the user-typed label only.
   `lightLevel` reads 0 in a dark room (observed overnight, `ldrRaw` 0); the
   defaults assume lux and want a daytime check. Policy is pure
   (`decideBrightness` in `brightness.go`); the clock's own brightness is
-  untouched. Knobs (defaults): `floor` 10, `ceiling` 255, `night_level` 20,
+  untouched. The filter advances only on a server tick (`StartBrightness`, at
+  boot and every 60 s, through the same probe cache); a GET reads it
+  (`brightnessAt`, re-held against the current config) and never probes the
+  clock or moves the EMA, so the answer does not depend on how many clients
+  poll. A read allows the sample `stale_seconds` + one tick + one probe
+  timeout of age (the tick's sample may come from a cache up to 30 s old), so
+  `stale_seconds` near its 60 s minimum does not flap to `sun` between ticks. The probe cache's mutex is never held across the clock request: one
+  caller probes, others get the previous result (or wait for the first one). Knobs (defaults): `floor` 10, `ceiling` 255, `night_level` 20,
   `day_level` 255, `lux_dark` 1, `lux_bright` 200, `ema_alpha` 0.3, `hysteresis`
   8, `stale_seconds` 120, `twilight_minutes` 45; config.json `brightness`,
   editable via `GET/PUT /v1/brightness/config` (merge semantics, 400 on an
@@ -1727,7 +1734,16 @@ the same board finds its record.
 - **Persistence:** the whole registry plus the epoch is one JSON blob in the
   SQLite settings KV (key `devices_json`), the same store as the overlay
   settings. Every mutation clones the state, persists, then swaps under
-  `deviceRegistry.mu`, so a failed write (500) changes nothing. No store
+  `deviceRegistry.mu`, so a failed write (500) changes nothing. Two hot paths
+  skip that (#233): device auth is a locked scan with no clone or write (only
+  a rotation promotion writes), and a checkin updates `last_checkin` in place
+  and writes the blob only when the last write is `deviceCheckinPersistInterval`
+  (10 min) old; a checkin that mints a pending rotation token writes at once.
+  If that periodic write fails, the checkin still answers 200 (logged
+  `device checkin not persisted`) and the next checkin or the flush retries.
+  Any other registry write carries the in-memory checkins along, and graceful
+  shutdown flushes them, so a restart shows a recent `last_checkin` (at most
+  10 min old after a crash). No store
   (tests, unwritable volume) = in-memory only. If the stored blob fails to
   read or decode at boot, the registry stays empty and refuses every write
   and device auth with 500 until restart, so the blob is never overwritten and
