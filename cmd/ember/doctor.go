@@ -105,6 +105,12 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	}
 
 	if app == nil {
+		res.Checks["devices"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
+	} else {
+		res.Checks["devices"] = checkDevices(app)
+	}
+
+	if app == nil {
 		res.Checks["last_publish"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["last_publish"] = checkLastPublish(app)
@@ -180,6 +186,31 @@ func checkCapabilities(app *App) CheckResult {
 		"effects=%d palette_effects=%d transitions=%d overlays=%d palettes=%d buzzer=%t firmware=%s",
 		len(caps.Effects), len(caps.PaletteEffects), len(caps.Transitions),
 		len(caps.Overlays), len(caps.Palettes), caps.Audio.Buzzer, fw)}
+}
+
+const deviceStaleAfter = 5 * time.Minute
+
+func checkDevices(app *App) CheckResult {
+	if err := app.devices.loadError(); err != nil {
+		return CheckResult{Status: StatusFail, Detail: "registry load failed (writes refused until restart): " + err.Error()}
+	}
+	devices := app.devices.list()
+	now := app.devices.now()
+	status := StatusOK
+	detail := fmt.Sprintf("registered=%d", len(devices))
+	for _, d := range devices {
+		if d.LastCheckin == nil {
+			status = StatusWarn
+			detail += fmt.Sprintf(" %s never checked in", d.ID)
+			continue
+		}
+		age := now.Sub(d.LastCheckin.SeenAt).Truncate(time.Second)
+		if age > deviceStaleAfter {
+			status = StatusWarn
+		}
+		detail += fmt.Sprintf(" %s seen=%v ago", d.ID, age)
+	}
+	return CheckResult{Status: status, Detail: detail}
 }
 
 func checkSessionsSummary(app *App) CheckResult {

@@ -65,7 +65,11 @@ The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
 ## Endpoints (quick reference)
 
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
-`POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}`,
+`POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` (also
+accept a knob device token), `GET/POST /v1/devices`, `GET/PUT
+/v1/devices/{id}/config` (same merge), `PATCH`/`DELETE /v1/devices/{id}`,
+`POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
+registry"),
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage`, `GET/PUT /v1/usage/config`, `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
@@ -111,7 +115,9 @@ background every 6h — `EMBER_FIRMWARE_CHECK=0` disables it). Dashboard
 JSON: RFC 3339 whole-second times, `null` not zero sentinels, arrays of points,
 units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
-`/version`, `/metrics`. Device-only (unauthenticated): `POST /hooks/awtrix/button`
+`/version`, `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
+`GET /v1/devices/self/config` (`/state` carries `X-Ember-Devices-Epoch`, bumped
+on any knob config change or rotation). Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
 the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an
 alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,
