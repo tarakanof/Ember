@@ -5,12 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -24,9 +29,11 @@ import (
 //   - a wait that ended without a hook: an approved dialog stays "waiting"
 //     until the tool finishes, a dialog dismissed with Esc forever;
 //   - a turn interrupted with Esc, which fires no Stop and stays "running";
-//   - a session whose process died, reaped sooner than the heartbeat.
+//   - an active session whose owner died, when the list no longer has it
+//     (mostly the heartbeat's 10 s owner check gets there first: a killed
+//     process can't rewrite its sessions file, so no trigger fires).
 //
-// Each call costs ~80 ms CPU and a ~75 MB transient process, so the CLI runs
+// Each call costs ~0.1 s CPU and a ~75 MB transient process, so the CLI runs
 // only while a marker is running or waiting, and then only when a file under
 // ~/.claude/sessions changes (Claude rewrites its <pid>.json on every status
 // change) or agentsFallbackEvery has passed. A disagreement is applied only
@@ -41,8 +48,13 @@ const (
 	agentsCallTimeout   = 5 * time.Second
 	agentsFailBackoff   = 5 * time.Minute
 	agentsConfigEvery   = 10 * time.Second
+	agentsKillGrace     = time.Second
 	interruptedMessage  = "interrupted"
 )
+
+// minAgentsVersion is the first Claude Code release this was verified on;
+// an older CLI could take "agents" for a prompt.
+var minAgentsVersion = [3]int{2, 1, 288}
 
 type agentRow struct {
 	PID        int    `json:"pid"`
@@ -85,34 +97,134 @@ func agentsPollEnabled() bool {
 	return true
 }
 
-// claudeBinary finds the claude CLI; the LaunchAgent's PATH is minimal.
-func claudeBinary() string {
-	if p, err := exec.LookPath("claude"); err == nil {
-		return p
+// claudeCandidates lists where the claude CLI may be, best first. The
+// native installer's ~/.local/bin/claude is what the user runs; the
+// LaunchAgent PATH puts /opt/homebrew/bin first, where a stale copy may sit.
+// nvm/npm-global installs aren't on a daemon PATH and aren't found.
+func claudeCandidates() []string {
+	var out []string
+	if home, err := os.UserHomeDir(); err == nil {
+		out = append(out, filepath.Join(home, ".local", "bin", "claude"))
 	}
-	home, _ := os.UserHomeDir()
-	for _, p := range []string{
-		filepath.Join(home, ".local", "bin", "claude"),
-		"/opt/homebrew/bin/claude",
-		"/usr/local/bin/claude",
-	} {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
-			return p
+	if p, err := exec.LookPath("claude"); err == nil {
+		out = append(out, p)
+	}
+	return append(out, "/opt/homebrew/bin/claude", "/usr/local/bin/claude")
+}
+
+var claudeVersionRe = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
+
+// parseClaudeVersion reads "2.1.289 (Claude Code)".
+func parseClaudeVersion(out string) ([3]int, bool) {
+	m := claudeVersionRe.FindStringSubmatch(out)
+	if m == nil {
+		return [3]int{}, false
+	}
+	var v [3]int
+	for i := range v {
+		v[i], _ = strconv.Atoi(m[i+1])
+	}
+	return v, true
+}
+
+func versionAtLeast(v, min [3]int) bool {
+	for i := range v {
+		if v[i] != min[i] {
+			return v[i] > min[i]
 		}
 	}
-	return ""
+	return true
+}
+
+type claudeCLI struct {
+	path    string
+	version string
+	ok      bool
+	reason  string
+}
+
+// claudeVersionCache keeps one `claude --version` per binary path and mtime.
+var claudeVersionCache = struct {
+	sync.Mutex
+	m map[string]claudeCLI
+}{m: map[string]claudeCLI{}}
+
+var runCLI = runBounded
+
+// resolveClaudeCLI picks the first executable candidate and gates it on
+// minAgentsVersion.
+func resolveClaudeCLI(ctx context.Context) claudeCLI {
+	for _, p := range claudeCandidates() {
+		fi, err := os.Stat(p)
+		if err != nil || fi.IsDir() || fi.Mode()&0o111 == 0 {
+			continue
+		}
+		key := p + "@" + strconv.FormatInt(fi.ModTime().UnixNano(), 10)
+		claudeVersionCache.Lock()
+		c, hit := claudeVersionCache.m[key]
+		claudeVersionCache.Unlock()
+		if hit {
+			return c
+		}
+		c = claudeCLI{path: p}
+		out, err := runCLI(ctx, agentsCallTimeout, p, "--version")
+		v, parsed := parseClaudeVersion(string(out))
+		switch {
+		case err != nil || !parsed:
+			c.reason = "claude --version failed"
+		case !versionAtLeast(v, minAgentsVersion):
+			c.version = fmt.Sprintf("%d.%d.%d", v[0], v[1], v[2])
+			c.reason = fmt.Sprintf("claude %s is older than %d.%d.%d", c.version, minAgentsVersion[0], minAgentsVersion[1], minAgentsVersion[2])
+		default:
+			c.version = fmt.Sprintf("%d.%d.%d", v[0], v[1], v[2])
+			c.ok = true
+		}
+		claudeVersionCache.Lock()
+		claudeVersionCache.m[key] = c
+		claudeVersionCache.Unlock()
+		return c
+	}
+	return claudeCLI{reason: "no claude CLI in ~/.local/bin, PATH, /opt/homebrew/bin or /usr/local/bin"}
+}
+
+// runBounded runs bin in its own process group and returns its stdout. The
+// timeout kills the whole group, and WaitDelay stops a grandchild that holds
+// stdout open from blocking the call past the timeout.
+func runBounded(ctx context.Context, timeout time.Duration, bin string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = agentsKillGrace
+	out, err := cmd.Output()
+	if err != nil && cmd.Process != nil {
+		// Reap anything the call left behind (pgid == leader pid).
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	return out, err
 }
 
 var runClaudeAgents = func(ctx context.Context) ([]byte, error) {
-	bin := claudeBinary()
-	if bin == "" {
-		return nil, errors.New("claude CLI not found")
+	c := resolveClaudeCLI(ctx)
+	if !c.ok {
+		return nil, errors.New(c.reason)
 	}
-	ctx, cancel := context.WithTimeout(ctx, agentsCallTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "agents", "--json")
-	cmd.Stdin = nil
-	return cmd.Output()
+	return runCLI(ctx, agentsCallTimeout, c.path, "agents", "--json")
+}
+
+// agentsDoctorLine reports the cross-check for `doctor`.
+func agentsDoctorLine(ctx context.Context) string {
+	if !agentsPollEnabled() {
+		return "off (EMBER_CLAUDE_AGENTS_POLL)"
+	}
+	c := resolveClaudeCLI(ctx)
+	if !c.ok {
+		return "on, but inactive: " + c.reason
+	}
+	return fmt.Sprintf("on (claude %s at %s)", c.version, c.path)
 }
 
 // claudeSessionsDir is where Claude Code keeps one <pid>.json per live
@@ -198,9 +310,22 @@ type correction struct {
 	state, message string
 }
 
+// correctableWait reports a wait whose end the agents status can tell: a
+// permission dialog (PendingPermission survives the permission_prompt
+// Notification that follows it) or a wait this watcher opened. Waits that
+// come only from a Notification (quota_auto_resume_stale, agent_needs_input
+// for another session, MCP elicitation) are left to the hooks.
+func correctableWait(m marker) bool {
+	return m.PendingPermission != "" || m.AgentsWait
+}
+
 // wantFor compares a marker with its session's agents row; ok is false when
-// they agree or the row says nothing the hooks don't.
+// they agree, the row says nothing the hooks don't, or the marker's state
+// came from something the status can't speak for.
 func wantFor(m marker, row agentRow) (correction, bool) {
+	if m.State == "waiting" && !correctableWait(m) {
+		return correction{}, false
+	}
 	switch row.Status {
 	case "busy":
 		if m.State == "waiting" {
@@ -211,6 +336,12 @@ func wantFor(m marker, row agentRow) (correction, bool) {
 			return correction{"waiting", pickFirstNonEmpty(row.WaitingFor, "waiting")}, true
 		}
 	case "idle":
+		// Stop kept the session running for a background subagent,
+		// workflow, teammate or cloud session that will wake it; the
+		// process may well be idle meanwhile.
+		if m.BackgroundWake {
+			return correction{}, false
+		}
 		return correction{"done", interruptedMessage}, true
 	}
 	return correction{}, false
@@ -231,12 +362,16 @@ type pendingCorrection struct {
 }
 
 type agentsWatcher struct {
-	now          func() time.Time
-	run          func(context.Context) ([]byte, error)
-	stateDir     string
-	sessionsDir  string
-	lastPrint    uint64
-	wasActive    bool
+	now         func() time.Time
+	run         func(context.Context) ([]byte, error)
+	stateDir    string
+	sessionsDir string
+	lastPrint   uint64
+	wasActive   bool
+	// unlisted holds active sessions the last call didn't list while their
+	// owner lived (headless, SDK, nested): the fallback skips a pass that
+	// has nothing else to check.
+	unlisted     map[string]bool
 	lastCall     time.Time
 	backoffUntil time.Time
 	pending      map[string]pendingCorrection
@@ -250,6 +385,7 @@ func newAgentsWatcher(stateDir, sessionsDir string) *agentsWatcher {
 		stateDir:    stateDir,
 		sessionsDir: sessionsDir,
 		pending:     map[string]pendingCorrection{},
+		unlisted:    map[string]bool{},
 		failLog:     producer.NewFailureLogger(10 * time.Minute),
 	}
 }
@@ -269,9 +405,20 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 	if !w.wasActive {
 		// A turn just started: the hook that marked it is fresh, so take
 		// the current sessions state as the baseline and wait for a change.
+		// A turn interrupted within this same 1 s tick is swallowed by the
+		// baseline and caught by the fallback instead. A marker that was
+		// already stale (daemon restart) is checked now.
 		w.wasActive = true
 		changed = false
-		if w.lastCall.IsZero() || now.Sub(w.lastCall) >= agentsFallbackEvery {
+		stale := false
+		for _, a := range active {
+			if a.m.StateChangedAt != 0 && now.Sub(time.Unix(a.m.StateChangedAt, 0)) >= agentsFallbackEvery {
+				stale = true
+			}
+		}
+		if stale {
+			w.lastCall = time.Time{}
+		} else {
 			w.lastCall = now
 		}
 	}
@@ -284,7 +431,17 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 			confirmDue = true
 		}
 	}
-	if !changed && !confirmDue && now.Sub(w.lastCall) < agentsFallbackEvery {
+	fallbackDue := now.Sub(w.lastCall) >= agentsFallbackEvery
+	if fallbackDue && !changed && !confirmDue {
+		onlyUnlisted := true
+		for _, a := range active {
+			if !w.unlisted[a.sessionID] {
+				onlyUnlisted = false
+			}
+		}
+		fallbackDue = !onlyUnlisted
+	}
+	if !changed && !confirmDue && !fallbackDue {
 		return false
 	}
 	w.lastCall = now
@@ -304,13 +461,16 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 
 func (w *agentsWatcher) reconcile(ctx context.Context, cfg Config, client *Client, active []activeMarker, rows map[string]agentRow, now time.Time) {
 	next := map[string]pendingCorrection{}
+	clear(w.unlisted)
 	for _, a := range active {
 		row, listed := rows[a.sessionID]
 		if !listed {
-			// Headless, SDK and nested sessions are never listed, so absence
-			// alone proves nothing: check the owner process.
+			// Nested and SDK sessions aren't listed, so absence alone
+			// proves nothing: check the owner process.
 			if pid, start, ok := markerOwner(a.markerP); ok && !ownerAlive(pid, start) {
 				reapMarker(ctx, client, a.markerP, a.lockP)
+			} else {
+				w.unlisted[a.sessionID] = true
 			}
 			continue
 		}
@@ -353,6 +513,7 @@ func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMa
 		m.State = want.state
 		m.Message = truncate(want.message, 80)
 		m.StateChangedAt = hookNow().Unix()
+		m.AgentsWait = want.state == "waiting"
 		if want.state != "waiting" {
 			m.PendingPermission, m.PendingToolUseID = "", ""
 		}
@@ -371,29 +532,42 @@ func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMa
 	}
 }
 
+// agentsLoop holds the daemon loop's config gate, re-read every
+// agentsConfigEvery like the heartbeat's.
+type agentsLoop struct {
+	w       *agentsWatcher
+	enabled func() bool
+	load    func() (Config, error)
+	cfg     Config
+	ok      bool
+	cfgAt   time.Time
+}
+
+func (l *agentsLoop) pass(ctx context.Context) bool {
+	now := l.w.now()
+	if l.cfgAt.IsZero() || now.Sub(l.cfgAt) >= agentsConfigEvery {
+		l.cfgAt = now
+		c, err := l.load()
+		l.cfg = c
+		l.ok = l.enabled() && err == nil && c.Source != "" && c.ServerURL != ""
+	}
+	if !l.ok {
+		return false
+	}
+	return l.w.step(ctx, l.cfg, NewDaemonClient(l.cfg))
+}
+
 // agentsWatchLoop runs beside the heartbeat in the daemon.
 func agentsWatchLoop(ctx context.Context) {
 	dir, err := stateDir()
 	if err != nil {
 		return
 	}
-	w := newAgentsWatcher(dir, claudeSessionsDir())
+	l := &agentsLoop{w: newAgentsWatcher(dir, claudeSessionsDir()), enabled: agentsPollEnabled, load: loadDaemonConfig}
 	ticker := time.NewTicker(agentsWatchEvery)
 	defer ticker.Stop()
-	var cfg Config
-	var cfgOK, enabled bool
-	var cfgAt time.Time
 	for {
-		if time.Since(cfgAt) >= agentsConfigEvery {
-			cfgAt = time.Now()
-			enabled = agentsPollEnabled()
-			c, err := loadConfig()
-			cfgOK = err == nil && c.Source != "" && c.ServerURL != ""
-			cfg = c
-		}
-		if enabled && cfgOK {
-			w.step(ctx, cfg, NewDaemonClient(cfg))
-		}
+		l.pass(ctx)
 		select {
 		case <-ctx.Done():
 			return

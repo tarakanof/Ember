@@ -137,7 +137,7 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 	case "session-start":
 		handleSessionStart(cfg, in, markerP, lockP)
 	case "user-prompt-submit":
-		handleUpsert(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), "", markerP, lockP)
+		handleUpsertWith(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), "", markerP, lockP, upsertExtra{newTurn: true})
 	case "pre-tool-use":
 		act := ""
 		if cfg.ActivityDetailEnabled {
@@ -163,6 +163,7 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 		// period. session_crons are ignored: a scheduled prompt fires
 		// UserPromptSubmit, which marks the session running again.
 		if hasWakingBackgroundTasks(in.BackgroundTasks) {
+			markBackgroundWake(cfg, markerP, lockP)
 			return
 		}
 		handleUpsert(ctx, cfg, client, sessionID, "done", firstLine(in.LastAssistantMessage), "", markerP, lockP)
@@ -195,6 +196,8 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 }
 
 type upsertExtra struct {
+	// newTurn (UserPromptSubmit) ends any background-wake hold.
+	newTurn             bool
 	pending             string
 	preToolUseID, preFP string
 	skip                func(prev marker) bool
@@ -262,6 +265,10 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 		if state != "waiting" {
 			track.PendingPermission, track.PendingToolUseID = "", ""
 		}
+		track.AgentsWait = false
+		if x.newTurn || state == "done" || state == "error" {
+			track.BackgroundWake = false
+		}
 		if ownerPID == 0 {
 			ownerPID, ownerStart = detectOwner()
 		}
@@ -276,6 +283,27 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	if body != nil {
 		_ = postReconciled(ctx, cfg, client, markerP, lockP, body, hookLockWait(cfg))
 	}
+}
+
+// markBackgroundWake records on the marker, without a POST (nothing visible
+// changes), that Stop kept the session running for waking background work.
+func markBackgroundWake(cfg Config, markerP, lockP string) {
+	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
+		old, err := readMarker(markerP)
+		if err != nil {
+			return nil
+		}
+		var m marker
+		if json.Unmarshal(old, &m) != nil || m.BackgroundWake {
+			return nil
+		}
+		m.BackgroundWake = true
+		b, err := json.Marshal(m)
+		if err != nil {
+			return nil
+		}
+		return writeMarker(markerP, b)
+	})
 }
 
 // SessionEnd hooks share a 1.5 s budget (plugin hook timeouts don't raise
