@@ -104,6 +104,18 @@ public final class KnobModel {
         settings.draft = d.normalized()
     }
 
+    /// Sets the knob's diagnostics level and saves at once (the Dashboard
+    /// has no autosave); false when there is no knob or the save failed.
+    @discardableResult
+    public func setDiagnostics(_ level: KnobDiagnostics) async -> Bool {
+        guard knob != nil else { return false }
+        if !settings.isLoaded { await settings.load() }
+        guard settings.isLoaded else { return false }
+        edit { $0.diagnostics = level }
+        await settings.saveNow()
+        return settings.saveError == nil && settings.applied?.diagnostics == level
+    }
+
     // MARK: Actions
 
     @discardableResult

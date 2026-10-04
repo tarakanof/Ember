@@ -139,14 +139,29 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public var home: String
     public var pollMS: Int
     public var bot: Bot
+    /// What the knob reports for the Dashboard; a pre-#239 server has no
+    /// such field and reads as off.
+    public var diagnostics: KnobDiagnostics
 
     enum CodingKeys: String, CodingKey {
-        case brightness, pages, home, bot
+        case brightness, pages, home, bot, diagnostics
         case pollMS = "poll_ms"
     }
 
-    public init(brightness: Brightness, pages: [Page], home: String, pollMS: Int, bot: Bot) {
+    public init(brightness: Brightness, pages: [Page], home: String, pollMS: Int, bot: Bot,
+                diagnostics: KnobDiagnostics = .off) {
         self.brightness = brightness; self.pages = pages; self.home = home; self.pollMS = pollMS; self.bot = bot
+        self.diagnostics = diagnostics
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        brightness = try c.decode(Brightness.self, forKey: .brightness)
+        pages = try c.decode([Page].self, forKey: .pages)
+        home = try c.decode(String.self, forKey: .home)
+        pollMS = try c.decode(Int.self, forKey: .pollMS)
+        bot = try c.decode(Bot.self, forKey: .bot)
+        diagnostics = try c.decodeIfPresent(KnobDiagnostics.self, forKey: .diagnostics) ?? .off
     }
 
     /// The server's defaults (`defaultKnobSettings`).
