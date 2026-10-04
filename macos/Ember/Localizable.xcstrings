@@ -60,6 +60,9 @@
     "%@ in 24 h" : {
       "comment" : "Settings › Clock: share of the server's pushes that reached the clock over the last 24 hours (\"98% in 24 h\")."
     },
+    "%@ is next. Push the knob to start it." : {
+      "comment" : "Knob Pomodoro preview: the phase waiting to start (\"Break is next…\")."
+    },
     "%@ left" : {
       "comment" : "VoiceOver, Focus ring: time left in the current phase (\"18:42\")."
     },
@@ -97,6 +100,17 @@
     },
     "%@ over 7 days." : {
       "comment" : "VoiceOver chart summary: total agent time over the last 7 days (\"12h 40m\")."
+    },
+    "%@ paused, %@ left." : {
+      "comment" : "Knob Pomodoro preview: phase and time left while paused (\"Focus paused, 12:20 left.\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ paused, %2$@ left."
+          }
+        }
+      }
     },
     "%@ s" : {
       "comment" : "Settings › Knob: how often the knob polls Ember, in seconds (\"2.5 s\")."
@@ -175,6 +189,39 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "%@, %@ left." : {
+      "comment" : "Knob Pomodoro preview: phase and time left (\"Focus, 12:20 left.\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@ left."
+          }
+        }
+      }
+    },
+    "%@, %@." : {
+      "comment" : "Knob weather preview: condition and temperature (\"Rain, 14°.\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@."
+          }
+        }
+      }
+    },
+    "%@, %@. Out of date, so the knob shows it in grey." : {
+      "comment" : "Knob weather preview: condition and temperature (\"Rain, 14°\") of a stale observation.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@. Out of date, so the knob shows it in grey."
           }
         }
       }
@@ -413,6 +460,7 @@
     "Claude hooks are paused (~/.config/ember/claude-hooks.disabled), so Claude Code sessions don't report." : {},
     "Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice." : {},
     "Clear" : {},
+    "Clear night" : {},
     "Clock" : {},
     "Clock Agent Settings…" : {},
     "Clock Settings" : {},
@@ -565,7 +613,9 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Done: an agent finished." : {},
     "Drag to reorder, or Control-click an app. Changes apply at once." : {},
+    "Drawn by Ember from the same data the knob shows." : {},
     "Drawn by the calendar clock styles; the header only in the styles that have one." : {},
     "Durations" : {},
     "Each device has its own look for this source." : {},
@@ -625,6 +675,10 @@
     "Error" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "Error: an agent hit a problem." : {},
+    "Error: an agent on %@ hit a problem." : {
+      "comment" : "Knob bot preview: the host whose agent failed (\"DT-MBP\")."
     },
     "European AQI in its scale color, with the next 24 hours below." : {},
     "European AQI: up to 20 good, 40 fair, 60 moderate, 80 poor, 100 very poor, above that extreme. The alert pops up once as the AQI crosses the level." : {},
@@ -708,6 +762,8 @@
       "extractionState" : "manual"
     },
     "Idle or other" : {},
+    "Idle. Push the knob to start a focus round." : {},
+    "Idle: no agent is working." : {},
     "Imperial (°F)" : {},
     "In use" : {},
     "Installed from the CLI" : {},
@@ -836,7 +892,7 @@
     },
     "No Claude Code, Codex or T3 Code found on this Mac." : {},
     "No Claude hooks are registered in ~/.claude/settings.json (a plugin enabled only for a project isn't checked), so Claude Code sessions may not report." : {},
-    "No Claude hooks are registered, so Claude Code sessions don't report." : {},
+    "No Pomodoro data from Ember." : {},
     "No active sessions" : {},
     "No agent activity this week" : {},
     "No calendar feeds. Set EMBER_MEETINGS_ICS_URLS on the server; the URLs are secrets and never leave it." : {},
@@ -852,6 +908,7 @@
     "No server URL" : {},
     "No server found?" : {},
     "No usage reported yet — agents report it as they run" : {},
+    "No weather from Ember yet." : {},
     "No work" : {},
     "None" : {},
     "None yet" : {},
@@ -963,6 +1020,7 @@
       }
     },
     "Pages" : {},
+    "Partly cloudy" : {},
     "Password" : {},
     "Pause" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1213,6 +1271,7 @@
     "Text color" : {},
     "The Claude and Codex helpers send session status to the server. macOS asks for each helper separately." : {},
     "The Dashboard tracks these." : {},
+    "The Pomodoro is off in Ember." : {},
     "The activity card scrolls the current tool call next to the icon. These apply to this Mac's sessions." : {},
     "The clock adds these offsets to its sensor's readings; the temperature one makes up for the clock warming itself. Compare Measured now with a thermometer you trust and change the offset by the difference." : {},
     "The clock didn't finish in time." : {
@@ -1460,6 +1519,10 @@
         }
       }
     },
+    "Waiting: an agent needs you." : {},
+    "Waiting: an agent on %@ needs you." : {
+      "comment" : "Knob bot preview: the host whose agent is waiting (\"DT-MBP\")."
+    },
     "Weak" : {},
     "Weather" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1486,6 +1549,7 @@
     "Wi-Fi passwords are 8 to 63 characters." : {},
     "Work hours" : {},
     "Work hours per day" : {},
+    "Working: an agent is running." : {},
     "Wrap around" : {},
     "Year" : {},
     "Year, month, day" : {},

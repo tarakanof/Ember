@@ -79,3 +79,10 @@ SwiftUI app is the live menu (the Go menu is long retired). Latest additions:
 the Device tab (clock control + mDNS clock picker), Connection server discovery
 with a Local Network grant prompt, and an App→About version readout. App
 `MARKETING_VERSION` 0.4.0.
+
+## Third-party assets
+
+- **Montserrat Medium** (`Sources/EmberKit/Resources/Montserrat-Medium.ttf`),
+  © The Montserrat Project Authors, under the SIL Open Font License 1.1
+  (`Sources/EmberKit/Resources/Montserrat-OFL.txt`). The knob page previews use
+  it because the knob's LVGL fonts are built from it.

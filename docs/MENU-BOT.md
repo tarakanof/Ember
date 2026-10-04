@@ -21,6 +21,7 @@ per-tool glyphs, "Menu-bar colour" switches between Colored and Monochrome, and
 | `macos/Ember/MenuBar/StatusItemAccessibility.swift` | Puts that value on the `NSStatusBarButton` by hand: `MenuBarExtra` forwards the label (as AXTitle) but drops `accessibilityValue`. `StatusItemButton.find()` locates the button for this and for the animator. |
 | `macos/Ember/AppEnvironment.swift` | `feedBot()` pushes the winning session's state into the animator. `feedMenuBarLabel()` keeps `menuBarLabel` (a `MenuRows.LabelState`) current and sets it only when it changes, so the label skips polls that only move a timestamp or activity text. `applyAppIcon` switches the Dock tile. |
 | `macos/Tests/EmberKitTests/BotBehaviorTests.swift` | Behavior and renderer tests. |
+| `macos/Sources/EmberKit/KnobFace/` | The knob's bot (and its other pages) for Settings' previews: the same `BotBehavior` with `Tuning` from `knob-theme.json` (1 s hop at 75 % squash, every 4.5 s median), drawn in the knob's Head style: a plain 6 px outline whose squash variant is picked by sy/sx, so the pop pulses only the eyes. See ARCHITECTURE "Knob page previews". |
 
 ## Moods
 

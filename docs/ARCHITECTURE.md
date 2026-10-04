@@ -1822,6 +1822,39 @@ the same board finds its record.
   old record) and autosaves `ConfigModel<KnobSettings>` as a merge PUT of the
   changed fields only. Tests use a fake link and a pty pair; nothing opens a
   real serial port.
+- **Knob page previews (#240):** Settings › Knob › Apps draws each page's
+  466 px round face in SwiftUI (EmberKit `KnobFace/`), the way `PanelPreview`
+  shows the clock's frames, but drawn locally: the knob renders on-device and
+  its view endpoint takes a device token only. The app composes the same
+  inputs from what it already polls: `/state` sessions (mood and host label,
+  `KnobMood`, the firmware's render priority and #213 host rule; the last
+  good mood stays while `/state` fails, as on the knob),
+  `/v1/pomodoro/state`, `/v1/weather/state` (tracked while a preview is up)
+  and `/v1/display/brightness` (read at once when "Follow Ember brightness"
+  turns on, then every 60 s), plus the draft knob settings, so toggling a
+  page or a bot timing shows at once. The renderers port cinder's firmware
+  (`bot_shape.c`, `bot_view.c` Head style with its plain 6 px outline and
+  squash variants picked by sy/sx so the pop only pulses the eyes,
+  `pomo_view.c`, `weather_face.c`, `weather_scene.c`); `BotBehavior.Tuning`
+  carries the knob's slower, flatter hop. `knob-theme.json`
+  (`macos/Sources/EmberKit/Resources/`) holds the numbers the renderers
+  share with the firmware: geometry, palette, label layout and LVGL font
+  metrics, eye geometry, and the weather scene's sprite sizes, layout,
+  particles and timing. The sprite outlines themselves (cloud, moon, rays…)
+  and the hop squash curve stay in code on both sides. `KnobThemeTests` pins
+  every key; with a cinder checkout next to this repo (or `CINDER_DIR`) it
+  also parses the firmware source and checks each key against the constant
+  it mirrors. tarakanof/cinder#34 tracks generating the C side from a copy.
+  Labels use the bundled Montserrat Medium (SIL OFL 1.1,
+  `Montserrat-OFL.txt` next to it), the font LVGL's built-in sizes are made
+  from, placed by LVGL's line box (top, line height, baseline). The bot
+  redraws only when its pose changes: 20 fps while `BotBehavior.isAnimating`,
+  otherwise the next frame is scheduled at `nextEventAt`. Weather runs at the
+  firmware's frame rate, the Pomodoro ticks once a second, and only while
+  the pane is on screen; Reduce Motion keeps blinks only and holds the sky
+  still. The Pages overview has no timers: it redraws when the polled data
+  changes. `KNOB_SNAPSHOT_DIR=… swift test --filter knobFaces` writes PNGs
+  of every face.
 
 ### Config load and `/admin/reload`
 

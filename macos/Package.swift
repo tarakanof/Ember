@@ -8,7 +8,7 @@ let package = Package(
         .library(name: "EmberKit", targets: ["EmberKit"]),
     ],
     targets: [
-        .target(name: "EmberKit"),
+        .target(name: "EmberKit", resources: [.process("Resources")]),
         // testdata/knob: the knob protocol vectors, read by path; keep in
         // sync with cinder's firmware/test/vectors.
         .testTarget(name: "EmberKitTests", dependencies: ["EmberKit"], exclude: ["testdata"]),
