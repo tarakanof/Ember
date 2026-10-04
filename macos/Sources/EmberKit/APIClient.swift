@@ -266,6 +266,15 @@ public struct APIClient: Sendable {
         _ = try await perform("POST", path, query: [], body: data, budget: budget)
     }
 
+    /// Any method with a JSON body, decoding the JSON answer.
+    public func request<B: Encodable, T: Decodable>(_ method: String, _ path: String, body: B,
+                                                    budget: RequestBudget = .server) async throws -> T {
+        let sent = try JSONEncoder().encode(body)
+        let data = try await perform(method, path, query: [], body: sent, budget: budget)
+        do { return try Self.makeDecoder().decode(T.self, from: data) }
+        catch { throw APIError.decoding(String(describing: error)) }
+    }
+
     /// POST carrying an `Idempotency-Key` so the server can drop a retry, with a
     /// timeout long enough to hear the server's answer instead of guessing.
     public func postIdempotent<B: Encodable>(_ path: String, body: B, key: String) async throws {

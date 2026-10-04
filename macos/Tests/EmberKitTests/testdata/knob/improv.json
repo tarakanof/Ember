@@ -1,0 +1,184 @@
+{
+  "about": "Improv Serial frames (https://www.improv-wifi.com/serial/). hex = one frame, no trailing newline; the host encoder appends 0x0a after each frame it sends (not in the checksum). Shared with cinder's firmware tests.",
+  "frames": [
+    {
+      "name": "rpc device info",
+      "direction": "host",
+      "hex": "494d50524f560103020300e6",
+      "message": {
+        "type": "rpc",
+        "command": 3,
+        "strings": []
+      }
+    },
+    {
+      "name": "rpc scan networks",
+      "direction": "host",
+      "hex": "494d50524f560103020400e7",
+      "message": {
+        "type": "rpc",
+        "command": 4,
+        "strings": []
+      }
+    },
+    {
+      "name": "rpc current state",
+      "direction": "host",
+      "hex": "494d50524f560103020200e5",
+      "message": {
+        "type": "rpc",
+        "command": 2,
+        "strings": []
+      }
+    },
+    {
+      "name": "rpc wifi settings",
+      "direction": "host",
+      "hex": "494d50524f56010310010e04686f6d650868756e7465723232af",
+      "message": {
+        "type": "rpc",
+        "command": 1,
+        "strings": [
+          "home",
+          "hunter22"
+        ]
+      }
+    },
+    {
+      "name": "rpc wifi settings utf8 ssid",
+      "direction": "host",
+      "hex": "494d50524f56010316011409436166c3a920322e340970c3a47373776f7264c1",
+      "message": {
+        "type": "rpc",
+        "command": 1,
+        "strings": [
+          "Café 2.4",
+          "pässword"
+        ]
+      }
+    },
+    {
+      "name": "state ready",
+      "direction": "device",
+      "hex": "494d50524f5601010102e2",
+      "message": {
+        "type": "state",
+        "state": 2
+      }
+    },
+    {
+      "name": "state provisioning",
+      "direction": "device",
+      "hex": "494d50524f5601010103e3",
+      "message": {
+        "type": "state",
+        "state": 3
+      }
+    },
+    {
+      "name": "state provisioned",
+      "direction": "device",
+      "hex": "494d50524f5601010104e4",
+      "message": {
+        "type": "state",
+        "state": 4
+      }
+    },
+    {
+      "name": "error unable to connect",
+      "direction": "device",
+      "hex": "494d50524f5601020103e4",
+      "message": {
+        "type": "error",
+        "error": 3
+      }
+    },
+    {
+      "name": "error unknown",
+      "direction": "device",
+      "hex": "494d50524f56010201ffe0",
+      "message": {
+        "type": "error",
+        "error": 255
+      }
+    },
+    {
+      "name": "result device info",
+      "direction": "device",
+      "hex": "494d50524f5601042403220663696e64657205302e352e300845535033322d53330b4b6e6f6220363146433843c4",
+      "message": {
+        "type": "result",
+        "command": 3,
+        "strings": [
+          "cinder",
+          "0.5.0",
+          "ESP32-S3",
+          "Knob 61FC8C"
+        ]
+      }
+    },
+    {
+      "name": "result scan entry",
+      "direction": "device",
+      "hex": "494d50524f5601040f040d04686f6d65032d35380359455340",
+      "message": {
+        "type": "result",
+        "command": 4,
+        "strings": [
+          "home",
+          "-58",
+          "YES"
+        ]
+      }
+    },
+    {
+      "name": "result scan end",
+      "direction": "device",
+      "hex": "494d50524f560104020400e8",
+      "message": {
+        "type": "result",
+        "command": 4,
+        "strings": []
+      }
+    },
+    {
+      "name": "result wifi url",
+      "direction": "device",
+      "hex": "494d50524f56010417011514687474703a2f2f3139322e3136382e302e33392f0b",
+      "message": {
+        "type": "result",
+        "command": 1,
+        "strings": [
+          "http://192.168.0.39/"
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "bad checksum",
+      "hex": "494d50524f5601010104e5",
+      "error": "badChecksum"
+    },
+    {
+      "name": "truncated",
+      "hex": "494d50524f5601010104",
+      "error": "badLength"
+    },
+    {
+      "name": "too short",
+      "hex": "494d50524f5601",
+      "error": "tooShort"
+    },
+    {
+      "name": "bad version",
+      "hex": "494d50524f5602010104e5",
+      "error": "badVersion"
+    },
+    {
+      "name": "string length past end",
+      "hex": "494d50524f56010407030509610000005b",
+      "error": "badStrings"
+    }
+  ]
+}

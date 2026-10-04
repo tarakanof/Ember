@@ -1,0 +1,215 @@
+import Testing
+import Foundation
+@testable import EmberKit
+
+// MARK: Settings
+
+@Test func knobPatchMergesNestedFields() {
+    let old = KnobSettings.defaults
+    var new = old
+    new.brightness.level = 100
+    new.bot.demoHoldS = 30
+    #expect(new.patch(from: old) == [
+        "brightness": .object(["level": .int(100)]),
+        "bot": .object(["demo_hold_s": .int(30)]),
+    ])
+}
+
+@Test func knobPatchSendsPagesWhole() {
+    let old = KnobSettings.defaults
+    var new = old
+    new.pages.swapAt(0, 2)
+    let patch = new.patch(from: old)
+    #expect(patch.keys.sorted() == ["pages"])
+    guard case .array(let pages)? = patch["pages"] else { Issue.record("pages"); return }
+    #expect(pages.count == 3)
+    #expect(KnobSettings.defaults.patch(from: .defaults).isEmpty)
+}
+
+@Test func knobNormalizeKeepsServerRules() {
+    var s = KnobSettings.defaults
+    s.brightness.floor = 200
+    s.brightness.level = 100
+    #expect(s.normalized().brightness.level == 200)
+    s = .defaults
+    s.pages[0].on = false
+    #expect(s.normalized().home == "pomodoro")
+    s.pages = s.pages.map { KnobSettings.Page(id: $0.id, on: false) }
+    let n = s.normalized()
+    #expect(n.pages.filter(\.on).count == 1)
+    #expect(n.home == n.pages.first(where: \.on)?.id)
+    #expect(KnobSettings.defaults.isLastPageOn("bot") == false)
+}
+
+@Test func knobSettingsDecodeServerJSON() throws {
+    let json = #"{"brightness":{"follow_ember":false,"level":200,"floor":5,"startup":120},"pages":[{"id":"weather","on":true},{"id":"bot","on":false}],"home":"weather","poll_ms":3000,"bot":{"sleepy_after_s":0,"demo_hold_s":15}}"#
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data(json.utf8))
+    #expect(s.brightness.followEmber == false)
+    #expect(s.pages.map(\.id) == ["weather", "bot"])
+    #expect(s.pollMS == 3000)
+    #expect(s.bot.sleepyAfterS == 0)
+}
+
+// MARK: Device
+
+private let deviceJSON = #"""
+{"id":"knob-61fc8c","kind":"cinder-knob","hw_id":"3cdc7561fc8c","name":"Desk knob","created_at":"2026-10-04T10:00:00Z","config_version":3,"rotation_pending":false,"rotated_at":null,"last_checkin":{"seen_at":"2026-10-04T10:05:00Z","fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"applied_version":2}}
+"""#
+
+@Test func knobDeviceDecodes() throws {
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let k = try d.decode(KnobDevice.self, from: Data(deviceJSON.utf8))
+    #expect(k.shortID == "61FC8C")
+    #expect(k.lastCheckin?.rssi == -58)
+    #expect(!k.configApplied)
+    let seen = k.lastCheckin!.seenAt
+    #expect(k.isOnline(now: seen.addingTimeInterval(60)))
+    #expect(!k.isOnline(now: seen.addingTimeInterval(600)))
+}
+
+@Test func currentKnobIsTheNewest() {
+    let a = KnobDevice(id: "a", hwID: "000000000001", name: "A", createdAt: Date(timeIntervalSince1970: 10))
+    let b = KnobDevice(id: "b", hwID: "000000000002", name: "B", createdAt: Date(timeIntervalSince1970: 20))
+    let other = KnobDevice(id: "c", kind: "other", hwID: "000000000003", name: "C", createdAt: Date(timeIntervalSince1970: 30))
+    #expect(KnobDevice.current(in: [b, a, other])?.id == "b")
+    #expect(KnobDevice.current(in: []) == nil)
+}
+
+// MARK: Service + model against a fake server
+
+private final class FakeRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    var devices: [String] = [deviceJSON]
+    private(set) var requests: [(String, String, String)] = []
+    var config = #"{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true}],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20}}"#
+
+    var log: [(String, String, String)] { lock.withLock { requests } }
+
+    func handle(_ req: URLRequest) -> (HTTPURLResponse, Data) {
+        let body = String(decoding: req.httpBody ?? req.httpBodyStreamData() ?? Data(), as: UTF8.self)
+        let method = req.httpMethod ?? "GET"
+        let path = req.url!.path
+        lock.withLock { requests.append((method, path, body)) }
+        #expect(req.value(forHTTPHeaderField: "Authorization") == "Bearer t")
+        switch (method, path) {
+        case ("GET", "/v1/devices"):
+            let list = lock.withLock { devices.joined(separator: ",") }
+            return (okResponse(req.url!), Data(#"{"devices":[\#(list)]}"#.utf8))
+        case ("GET", "/v1/devices/knob-61fc8c/config"), ("PUT", "/v1/devices/knob-61fc8c/config"):
+            return (okResponse(req.url!), Data(config.utf8))
+        case ("POST", "/v1/devices"):
+            let minted = deviceJSON.dropLast() + #","token":"ekd_x"}"#
+            return (okResponse(req.url!, status: 201), Data(minted.utf8))
+        case ("PATCH", "/v1/devices/knob-61fc8c"):
+            return (okResponse(req.url!), Data(deviceJSON.replacingOccurrences(of: "Desk knob", with: "Shelf knob").utf8))
+        case ("POST", "/v1/devices/knob-61fc8c/rotate"):
+            return (okResponse(req.url!, status: 202), Data(deviceJSON.utf8))
+        case ("DELETE", "/v1/devices/knob-61fc8c"):
+            lock.withLock { devices = [] }
+            return (okResponse(req.url!, status: 204), Data())
+        default:
+            return (okResponse(req.url!, status: 404), Data(#"{"error":"not found"}"#.utf8))
+        }
+    }
+}
+
+@MainActor
+private func model(_ fake: FakeRegistry) -> KnobModel {
+    let svc = KnobService(client: stubbedClient(token: "t") { fake.handle($0) })
+    return KnobModel(service: svc, ports: KnobSerialPorts(scanner: { [] }),
+                     opener: FakeOpener(FakeKnob()), debounce: .zero, sleep: { _ in })
+}
+
+@Test func knobServiceMintsWithKindAndHwID() async throws {
+    let fake = FakeRegistry()
+    let svc = KnobService(client: stubbedClient(token: "t") { fake.handle($0) })
+    let minted = try await svc.mint(hwID: "3cdc7561fc8c", name: "Desk knob")
+    #expect(minted.token == "ekd_x")
+    #expect(minted.device.id == "knob-61fc8c")
+    let body = try #require(fake.log.last?.2)
+    let obj = try #require(try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: String])
+    #expect(obj == ["kind": "cinder-knob", "hw_id": "3cdc7561fc8c", "name": "Desk knob"])
+}
+
+@MainActor
+@Test func knobModelLoadsAndSavesAMergePatch() async throws {
+    let fake = FakeRegistry()
+    let m = model(fake)
+    await m.load()
+    #expect(m.isLoaded)
+    #expect(m.knob?.name == "Desk knob")
+    #expect(m.settings.isLoaded)
+    m.edit { $0.brightness.followEmber = false }
+    await m.settings.saveNow()
+    let put = try #require(fake.log.last { $0.0 == "PUT" })
+    #expect(put.1 == "/v1/devices/knob-61fc8c/config")
+    #expect(put.2 == #"{"brightness":{"follow_ember":false}}"#)
+}
+
+@MainActor
+@Test func knobModelEmptyWhenNothingRegistered() async {
+    let fake = FakeRegistry()
+    fake.devices = []
+    let m = model(fake)
+    await m.load()
+    #expect(m.isLoaded)
+    #expect(m.knob == nil)
+    #expect(!fake.log.contains { $0.1.hasSuffix("/config") })
+}
+
+@MainActor
+@Test func knobModelRenameRotateForget() async {
+    let fake = FakeRegistry()
+    let m = model(fake)
+    await m.load()
+    await m.rename("  Shelf knob ")
+    #expect(m.knob?.name == "Shelf knob")
+    #expect(fake.log.contains { $0.0 == "PATCH" && $0.2 == #"{"name":"Shelf knob"}"# })
+    await m.rotate()
+    #expect(m.actionErrors[.rotate] == nil)
+    #expect(fake.log.contains { $0.0 == "POST" && $0.1.hasSuffix("/rotate") })
+    #expect(await m.forget())
+    #expect(m.knob == nil)
+}
+
+@MainActor
+@Test func knobModelReportsUnauthorized() async {
+    let svc = KnobService(client: stubbedClient(token: "bad") { req in
+        (okResponse(req.url!, status: 401), Data(#"{"error":"unauthorized"}"#.utf8))
+    })
+    let m = KnobModel(service: svc, ports: KnobSerialPorts(scanner: { [] }), opener: FakeOpener(FakeKnob()),
+                      debounce: .zero, sleep: { _ in })
+    await m.load()
+    #expect(m.loadError == .unauthorized)
+    #expect(!m.isLoaded)
+}
+
+@MainActor
+@Test func knobModelProbesPluggedInBoards() async {
+    let port = KnobSerialPort(path: "/dev/cu.fake", vendorID: 0x303A, productID: 0x1001, serialNumber: "3C:DC:75:61:FC:8C")
+    let silent = FakeKnob()
+    let fake = FakeRegistry()
+    let svc = KnobService(client: stubbedClient(token: "t") { fake.handle($0) })
+    let ports = KnobSerialPorts(scanner: { [port] })
+    ports.rescan()
+    let m = KnobModel(service: svc, ports: ports, opener: FakeOpener(silent), debounce: .zero, sleep: { _ in })
+    await m.probeNewPorts()
+    #expect(m.portStatus[port.path] == .notCinder)
+    #expect(m.connectedPort == port)
+}
+
+// MARK: Ember URL for the knob
+
+@Test func emberURLSwapsLoopbackAndMDNSForLANAddresses() {
+    let local = KnobEmberURL.suggest(server: URL(string: "http://localhost:3627/"), thisMac: "192.168.0.2", resolve: { _ in nil })
+    #expect(local == .init(url: "http://192.168.0.2:3627", replacedHost: "localhost"))
+    let mdns = KnobEmberURL.suggest(server: URL(string: "http://mini.local:3627"), thisMac: "192.168.0.2",
+                                    resolve: { $0 == "mini.local" ? "192.168.0.5" : nil })
+    #expect(mdns == .init(url: "http://192.168.0.5:3627", replacedHost: "mini.local"))
+    let lan = KnobEmberURL.suggest(server: URL(string: "http://192.168.0.9:3627/x"), thisMac: "192.168.0.2", resolve: { _ in nil })
+    #expect(lan == .init(url: "http://192.168.0.9:3627", replacedHost: nil))
+    let none = KnobEmberURL.suggest(server: URL(string: "http://127.0.0.1:3627"), thisMac: nil, resolve: { _ in nil })
+    #expect(none == .init(url: "http://127.0.0.1:3627", replacedHost: nil))
+    #expect(KnobEmberURL.isPrivateIPv4("10.0.0.1") && KnobEmberURL.isPrivateIPv4("172.20.1.1") && !KnobEmberURL.isPrivateIPv4("8.8.8.8"))
+}
