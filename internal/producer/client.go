@@ -48,6 +48,7 @@ type Client struct {
 	serverURL  string
 	token      string
 	link       *LinkStatus
+	auto       *AutoServer
 }
 
 // NewClient builds a Client.
@@ -62,6 +63,13 @@ func NewClient(serverURL, token string, timeout time.Duration) *Client {
 // WithLinkStatus makes c record each request's reachability into link and returns c.
 func (c *Client) WithLinkStatus(link *LinkStatus) *Client {
 	c.link = link
+	return c
+}
+
+// WithAutoServer makes c send to a's discovered URL (re-browsed after
+// repeated transport failures) instead of the fixed serverURL, and returns c.
+func (c *Client) WithAutoServer(a *AutoServer) *Client {
+	c.auto = a
 	return c
 }
 
@@ -112,10 +120,14 @@ func (c *Client) Usage(ctx context.Context, req UsageRequest) error {
 }
 
 func (c *Client) send(ctx context.Context, method, path string, body []byte) error {
-	if c.serverURL == "" {
+	serverURL := c.serverURL
+	if c.auto != nil {
+		serverURL = c.auto.URL()
+	}
+	if serverURL == "" {
 		return errors.New("server URL not configured")
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.serverURL+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, serverURL+path, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -125,6 +137,7 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte) err
 	}
 	resp, err := c.httpClient.Do(req)
 	c.link.Record(err)
+	c.auto.Report(err)
 	if err != nil {
 		return err
 	}
