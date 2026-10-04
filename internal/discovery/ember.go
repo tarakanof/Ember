@@ -26,8 +26,10 @@ const emberBrowseName = emberServiceType + ".local."
 
 var mdnsGroup = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
-// BrowseEmber looks for Ember servers for timeout and returns one per
-// instance name. It runs two browses side by side: an RFC 6762 §6.7 "legacy
+// BrowseEmber looks for Ember servers for timeout and returns one entry per
+// (instance name, URL): two hosts answering as "Ember" come back as two
+// servers, so a spoofed answer surfaces as an ambiguity instead of silently
+// replacing the real server. It runs two browses side by side: an RFC 6762 §6.7 "legacy
 // unicast" query from an ephemeral port, answered straight to that port, which
 // works where a process can't receive multicast (macOS without Local Network
 // multicast access, sandboxes), and the regular dnssd multicast browse.
@@ -43,10 +45,11 @@ func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, err
 	add := func(s EmberServer) {
 		mu.Lock()
 		defer mu.Unlock()
-		if _, dup := seen[s.Name]; !dup {
-			order = append(order, s.Name)
+		key := s.Name + "\x00" + s.URL
+		if _, dup := seen[key]; !dup {
+			order = append(order, key)
+			seen[key] = s
 		}
-		seen[s.Name] = s
 	}
 
 	var wg sync.WaitGroup
@@ -107,10 +110,12 @@ func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 	pc := ipv4.NewPacketConn(conn)
 	ifaces := multicastInterfaces()
 
+	ids := map[uint16]bool{}
 	send := func(name string, qtype uint16) {
 		m := new(dns.Msg)
 		m.SetQuestion(name, qtype)
 		m.RecursionDesired = false
+		ids[m.Id] = true
 		b, err := m.Pack()
 		if err != nil {
 			return
@@ -154,7 +159,7 @@ func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 			return parseEmberAnswers(msgs), err
 		}
 		var m dns.Msg
-		if m.Unpack(buf[:n]) != nil {
+		if m.Unpack(buf[:n]) != nil || !acceptReply(&m, ids) {
 			continue
 		}
 		msgs = append(msgs, &m)
@@ -166,6 +171,12 @@ func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 		}
 	}
 	return parseEmberAnswers(msgs), nil
+}
+
+// acceptReply keeps only responses (QR set) to a query this browse sent
+// (legacy unicast replies echo the query ID).
+func acceptReply(m *dns.Msg, ids map[uint16]bool) bool {
+	return m.Response && ids[m.Id]
 }
 
 func multicastInterfaces() []net.Interface {
@@ -194,13 +205,13 @@ func multicastInterfaces() []net.Interface {
 
 type emberRecords struct {
 	instances []string
-	srv       map[string]*dns.SRV
+	srv       map[string][]*dns.SRV
 	txt       map[string][]string
-	a         map[string]net.IP
+	a         map[string][]net.IP
 }
 
 func collectEmberRecords(msgs []*dns.Msg) emberRecords {
-	r := emberRecords{srv: map[string]*dns.SRV{}, txt: map[string][]string{}, a: map[string]net.IP{}}
+	r := emberRecords{srv: map[string][]*dns.SRV{}, txt: map[string][]string{}, a: map[string][]net.IP{}}
 	seen := map[string]bool{}
 	for _, m := range msgs {
 		for _, rr := range append(append(append([]dns.RR{}, m.Answer...), m.Ns...), m.Extra...) {
@@ -212,11 +223,23 @@ func collectEmberRecords(msgs []*dns.Msg) emberRecords {
 					r.instances = append(r.instances, v.Ptr)
 				}
 			case *dns.SRV:
-				r.srv[name] = v
+				dup := false
+				for _, o := range r.srv[name] {
+					dup = dup || (strings.EqualFold(o.Target, v.Target) && o.Port == v.Port)
+				}
+				if !dup {
+					r.srv[name] = append(r.srv[name], v)
+				}
 			case *dns.TXT:
 				r.txt[name] = v.Txt
 			case *dns.A:
-				r.a[name] = v.A
+				dup := false
+				for _, ip := range r.a[name] {
+					dup = dup || ip.Equal(v.A)
+				}
+				if !dup {
+					r.a[name] = append(r.a[name], v.A)
+				}
 			}
 		}
 	}
@@ -227,39 +250,48 @@ func srvTargetsWithoutA(msgs []*dns.Msg) []string {
 	r := collectEmberRecords(msgs)
 	var out []string
 	for _, inst := range r.instances {
-		if s := r.srv[strings.ToLower(inst)]; s != nil && r.a[strings.ToLower(s.Target)] == nil {
-			out = append(out, s.Target)
+		for _, s := range r.srv[strings.ToLower(inst)] {
+			if len(r.a[strings.ToLower(s.Target)]) == 0 {
+				out = append(out, s.Target)
+			}
 		}
 	}
 	return out
 }
 
-// parseEmberAnswers turns legacy-unicast replies into servers; instances
-// missing an SRV or an A record are skipped.
+// parseEmberAnswers turns legacy-unicast replies into servers, one per
+// (instance, target, address): conflicting answers for one instance name all
+// come back so the caller sees the ambiguity. Instances missing an SRV or an
+// A record are skipped.
 func parseEmberAnswers(msgs []*dns.Msg) []EmberServer {
 	r := collectEmberRecords(msgs)
 	var out []EmberServer
+	seen := map[string]bool{}
 	for _, inst := range r.instances {
 		key := strings.ToLower(inst)
-		s := r.srv[key]
-		if s == nil || s.Port == 0 {
-			continue
-		}
-		ip := r.a[strings.ToLower(s.Target)]
-		if ip == nil {
-			continue
-		}
-		es := EmberServer{
-			Name: instanceLabel(inst),
-			Host: s.Target,
-			URL:  fmt.Sprintf("http://%s", net.JoinHostPort(ip.String(), fmt.Sprint(s.Port))),
-		}
+		version := ""
 		for _, kv := range r.txt[key] {
 			if v, ok := strings.CutPrefix(kv, "version="); ok {
-				es.Version = v
+				version = v
 			}
 		}
-		out = append(out, es)
+		for _, s := range r.srv[key] {
+			if s.Port == 0 {
+				continue
+			}
+			for _, ip := range r.a[strings.ToLower(s.Target)] {
+				es := EmberServer{
+					Name:    instanceLabel(inst),
+					Host:    s.Target,
+					URL:     fmt.Sprintf("http://%s", net.JoinHostPort(ip.String(), fmt.Sprint(s.Port))),
+					Version: version,
+				}
+				if k := es.Name + "\x00" + es.URL; !seen[k] {
+					seen[k] = true
+					out = append(out, es)
+				}
+			}
+		}
 	}
 	return out
 }

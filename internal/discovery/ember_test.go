@@ -96,3 +96,33 @@ func TestInstanceLabelUnescapes(t *testing.T) {
 		}
 	}
 }
+
+func TestParseEmberAnswersKeepsConflictingAnswersForOneName(t *testing.T) {
+	real := &dns.Msg{Answer: []dns.RR{
+		mustRR(t, `_ember._tcp.local. 450 IN PTR Ember._ember._tcp.local.`),
+		mustRR(t, `Ember._ember._tcp.local. 120 IN SRV 0 0 3627 unraid.local.`),
+		mustRR(t, `unraid.local. 120 IN A 192.168.0.36`),
+	}}
+	spoof := &dns.Msg{Answer: []dns.RR{
+		mustRR(t, `_ember._tcp.local. 450 IN PTR Ember._ember._tcp.local.`),
+		mustRR(t, `Ember._ember._tcp.local. 120 IN SRV 0 0 3627 evil.local.`),
+		mustRR(t, `evil.local. 120 IN A 192.168.0.66`),
+	}}
+	got := parseEmberAnswers([]*dns.Msg{real, spoof})
+	if len(got) != 2 || got[0].URL == got[1].URL {
+		t.Fatalf("spoofed answer must surface as a second server, got %+v", got)
+	}
+}
+
+func TestAcceptReplyNeedsResponseBitAndOurID(t *testing.T) {
+	ids := map[uint16]bool{42: true}
+	if !acceptReply(&dns.Msg{MsgHdr: dns.MsgHdr{Id: 42, Response: true}}, ids) {
+		t.Error("valid reply rejected")
+	}
+	if acceptReply(&dns.Msg{MsgHdr: dns.MsgHdr{Id: 42}}, ids) {
+		t.Error("query (QR unset) accepted")
+	}
+	if acceptReply(&dns.Msg{MsgHdr: dns.MsgHdr{Id: 7, Response: true}}, ids) {
+		t.Error("reply to someone else's query accepted")
+	}
+}
