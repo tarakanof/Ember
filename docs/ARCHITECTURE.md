@@ -706,6 +706,24 @@ Claude producer constraints:
   would blank the per-model breakdown on the next 10 s heartbeat. The
   statusline relay (freshest live session wins) is the primary weekly/5h
   source; the OAuth endpoint is the flaky fallback.
+- **`claude agents --json` cross-check** (#266, `agents.go`,
+  `EMBER_CLAUDE_AGENTS_POLL`, default on). Hooks miss three transitions: an
+  approved permission dialog stays `waiting` until the tool finishes (no hook
+  fires on approval), a dialog dismissed with Esc and an Esc-interrupted turn
+  fire nothing at all (no Stop), so the marker stays `waiting`/`running` until
+  the next prompt. The daemon reads the documented `claude agents --json`
+  (`status busy|waiting|idle`, `waitingFor`, `sessionId`) and corrects a
+  `running`/`waiting` marker: busy ends a wait, waiting starts one, idle →
+  `done` "interrupted". Each call costs ~100 ms CPU and a ~75 MB transient
+  process (no disk writes), so it runs only while some marker is
+  running/waiting, and then only when a file in `~/.claude/sessions` changes
+  (Claude rewrites `<pid>.json` in place on every status change; the layout is
+  internal, used only as a trigger) or 60 s have passed. A correction needs two
+  snapshots ≥1.5 s apart that agree on an unchanged marker, so a hook that is
+  merely late (Stop lands ~0.5 s before the status goes idle) wins. A session
+  missing from the list is reaped only if its owner pid is gone: headless,
+  SDK and nested (`CLAUDE_CODE_CHILD_SESSION`) sessions aren't listed. A failed
+  call (no CLI, older CLI) backs off 5 min.
 - **Session lock file.** The per-session lock file is never deleted: removing
   it would break the POSIX flock-on-inode guarantee between concurrent holders.
 
