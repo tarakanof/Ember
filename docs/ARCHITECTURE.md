@@ -495,8 +495,20 @@ markers still get reaped.
   system**, so this is a long-lived **daemon that tails rollout JSONL**
   (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`). Single-goroutine poll loop
   (2 s), live-session map keyed by rollout UUID, byte-offset tailing, keepalive
-  re-POST (15 s) to stay under the server staleness reap. Filters to interactive
-  `session_meta.source == "cli"`. It also writes
+  re-POST (15 s) to stay under the server staleness reap. Day dirs are named in
+  **local** time (scanned yesterday/today/tomorrow); a 30 s walk of the whole
+  tree also picks up resumed sessions, which Codex appends to their original,
+  older day dir. Tracks `session_meta.source` `cli`, `vscode` (IDE/desktop),
+  `exec`, `mcp` and `custom`; skips `subagent` (object-valued source), internal
+  and unknown. Codex ≥ 0.153 writes **paginated** rollouts (`history_mode`)
+  that persist only `task_started`/`task_complete`/`turn_aborted`/`token_count`
+  and **`item_completed`** TurnItems: any item → running, `AgentMessage` →
+  message, `CommandExecution`/`FileChange`/`McpToolCall`/`WebSearch`/
+  `ContextCompaction` → trail. Approvals and errors are never persisted there,
+  so `waiting` cannot come from a paginated rollout (#254). `turn_aborted`
+  `interrupted`/`replaced` → done (only `budget_limited` → error);
+  `stream_error` is a retry → running. Rate limits only from `limit_id`
+  `codex` (or none); a null window keeps its last value. It also writes
   `~/.local/state/ember/sessions/<uuid>.json` markers so Codex shows
   in the menu app. Codex gets a distinct **chevron+underscore** 8×8 icon vs
   Claude's robot-face (the `_` cursor overlaid in the state colour). It
