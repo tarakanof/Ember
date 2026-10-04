@@ -50,6 +50,7 @@ func runDaemon() {
 	}
 	daemonServer = auto
 	go usagePollLoop(ctx)
+	go agentsWatchLoop(ctx)
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 	for {
@@ -159,16 +160,7 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	// claude CLI's hot path, and a POST to an unreachable server would stall
 	// every one of them for the full daemon timeout (#258).
 	if pid, start, ok := markerOwner(markerP); ok && !ownerAlive(pid, start) {
-		var gone *StatusRequest
-		_ = withLockEx(lockP, func() error {
-			pid2, start2, ok2 := markerOwner(markerP)
-			if ok2 && ownerAlive(pid2, start2) {
-				return nil
-			}
-			gone = removeMarker(markerP)
-			return nil
-		})
-		deleteSession(ctx, client, gone)
+		reapMarker(ctx, client, markerP, lockP)
 		return nil
 	}
 	if info.ModTime().Before(staleThreshold) {
@@ -274,6 +266,21 @@ func snapshotMarker(markerP, lockP string, wait time.Duration) (body []byte, ok 
 		return nil
 	})
 	return body, ok
+}
+
+// reapMarker removes a marker whose owner process is gone, re-checking the
+// owner under the lock, and DELETEs the session after releasing it.
+func reapMarker(ctx context.Context, client *Client, markerP, lockP string) {
+	var gone *StatusRequest
+	_ = withLockEx(lockP, func() error {
+		pid, start, ok := markerOwner(markerP)
+		if ok && ownerAlive(pid, start) {
+			return nil
+		}
+		gone = removeMarker(markerP)
+		return nil
+	})
+	deleteSession(ctx, client, gone)
 }
 
 // removeMarker deletes the marker (caller holds the lock) and returns the
