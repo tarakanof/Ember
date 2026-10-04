@@ -276,14 +276,17 @@ func decideBrightness(c BrightnessConfig, st brightnessState, s *luxSample, geo 
 
 // brightnessAt answers the policy at now from the filter state without
 // changing it: the held lux level while the newest sample is fresh (re-held
-// against the current config), else the sun schedule, else DayLevel.
+// against the current config), else the sun schedule, else DayLevel. A read
+// allows one tick plus one probe of extra age, since the filter only moves
+// on the tick.
 func brightnessAt(c BrightnessConfig, st brightnessState, geo brightnessGeo, now time.Time) brightnessOut {
 	night := false
 	var sunNow int
 	if geo.Set {
 		sunNow, night = sunLevel(c, geo.Lat, geo.Lon, now)
 	}
-	if st.HasLevel && st.HasLast && now.Sub(st.Last.At) <= time.Duration(c.StaleSeconds)*time.Second {
+	fresh := time.Duration(c.StaleSeconds)*time.Second + brightnessTickInterval + clockProbeTimeout
+	if st.HasLevel && st.HasLast && now.Sub(st.Last.At) <= fresh {
 		level := holdWithinBand(st.Level, true, luxToLevel(c, st.EMA), c.Hysteresis, c.Floor, c.Ceiling)
 		return brightnessOut{Level: level, Source: "lux", Night: night}
 	}

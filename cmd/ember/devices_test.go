@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +22,18 @@ func (c *countingKV) PutSetting(key, value string) error {
 		c.puts.Add(1)
 	}
 	return c.settingsKV.PutSetting(key, value)
+}
+
+type failingKV struct {
+	settingsKV
+	fail atomic.Bool
+}
+
+func (f *failingKV) PutSetting(key, value string) error {
+	if f.fail.Load() {
+		return errors.New("disk full")
+	}
+	return f.settingsKV.PutSetting(key, value)
 }
 
 type stepClock struct {
@@ -120,5 +134,29 @@ func TestDeviceLastCheckinSurvivesShutdown(t *testing.T) {
 	app2, _ := newDevicesApp(t, db)
 	if seen := app2.devices.list()[0].LastCheckin; seen == nil || seen.FW != "0.5.0" {
 		t.Fatalf("last checkin after restart = %+v, want the pre-shutdown one", seen)
+	}
+}
+
+func TestDeviceCheckinSucceedsWhenThePeriodicWriteFails(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	_, clk := countDeviceWrites(t, app)
+	kv := &failingKV{settingsKV: app.store}
+	app.devices.kv = func() settingsKV { return kv }
+	m := mintKnob(t, srv, http.StatusCreated)
+	kv.fail.Store(true)
+	clk.advance(deviceCheckinPersistInterval)
+	resp, out := checkin(t, srv, m.Token, 0)
+	if resp.StatusCode != http.StatusOK || out["config_version"] != float64(1) || out["config"] == nil {
+		t.Fatalf("checkin with a failing store = %d %v, want 200 with the config", resp.StatusCode, out)
+	}
+	if err := app.devices.flush(); err == nil {
+		t.Fatal("flush after a failed write found nothing dirty")
+	}
+	kv.fail.Store(false)
+	if err := app.devices.flush(); err != nil {
+		t.Fatalf("flush once the store recovers = %v", err)
+	}
+	if blob, _, _ := app.store.GetSetting(devicesKey); !strings.Contains(blob, `"last_checkin"`) {
+		t.Fatalf("stored registry lacks the checkin: %s", blob)
 	}
 }

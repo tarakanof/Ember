@@ -1643,7 +1643,9 @@ coordinates to a few hundred metres; the location is the user-typed label only.
   boot and every 60 s, through the same probe cache); a GET reads it
   (`brightnessAt`, re-held against the current config) and never probes the
   clock or moves the EMA, so the answer does not depend on how many clients
-  poll. The probe cache's mutex is never held across the clock request: one
+  poll. A read allows the sample `stale_seconds` + one tick + one probe
+  timeout of age (the tick's sample may come from a cache up to 30 s old), so
+  `stale_seconds` near its 60 s minimum does not flap to `sun` between ticks. The probe cache's mutex is never held across the clock request: one
   caller probes, others get the previous result (or wait for the first one). Knobs (defaults): `floor` 10, `ceiling` 255, `night_level` 20,
   `day_level` 255, `lux_dark` 1, `lux_bright` 200, `ema_alpha` 0.3, `hysteresis`
   8, `stale_seconds` 120, `twilight_minutes` 45; config.json `brightness`,
@@ -1729,6 +1731,8 @@ the same board finds its record.
   a rotation promotion writes), and a checkin updates `last_checkin` in place
   and writes the blob only when the last write is `deviceCheckinPersistInterval`
   (10 min) old; a checkin that mints a pending rotation token writes at once.
+  If that periodic write fails, the checkin still answers 200 (logged
+  `device checkin not persisted`) and the next checkin or the flush retries.
   Any other registry write carries the in-memory checkins along, and graceful
   shutdown flushes them, so a restart shows a recent `last_checkin` (at most
   10 min old after a crash). No store

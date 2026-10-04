@@ -225,6 +225,10 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		UptimeS:             req.UptimeS,
 		AppliedVersion:      req.ConfigVersion,
 	})
+	if errors.Is(err, errCheckinNotStored) {
+		a.logger.WarnContext(r.Context(), "device checkin not persisted", "device_id", id, "err", err)
+		err = nil
+	}
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return

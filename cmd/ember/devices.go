@@ -34,6 +34,9 @@ var (
 	errDeviceNotFound = errors.New("device not found")
 	errDeviceBody     = errors.New("invalid device body")
 	errNoChange       = errors.New("no change")
+	// errCheckinNotStored marks a checkin that succeeded in memory but whose
+	// periodic write failed; the result is still valid.
+	errCheckinNotStored = errors.New("checkin kept in memory, store write failed")
 )
 
 type deviceCheckin struct {
@@ -463,7 +466,8 @@ type checkinResult struct {
 // plaintext lives only in memory, so after a restart the next delivery mints
 // a replacement. A mint is written at once; the report itself stays in memory
 // and reaches the store at most every deviceCheckinPersistInterval, with any
-// other registry write, or on flush.
+// other registry write, or on flush. A failed periodic write returns the
+// valid result with an errCheckinNotStored error and stays pending.
 func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -501,7 +505,7 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 	r.dirty = true
 	if r.now().Sub(r.persistedAt) >= deviceCheckinPersistInterval {
 		if err := r.persistLocked(r.state); err != nil {
-			return checkinResult{}, err
+			return res, fmt.Errorf("%w: %w", errCheckinNotStored, err)
 		}
 	}
 	return res, nil

@@ -301,6 +301,19 @@ func TestBrightnessAtMatchesTickWithoutChangingState(t *testing.T) {
 	}
 }
 
+func TestBrightnessAtHoldsLuxUntilTheNextTick(t *testing.T) {
+	c := BrightnessConfig{}.resolved()
+	c.StaleSeconds = minStaleSeconds
+	geo := brightnessGeo{Lat: lonLat, Lon: lonLon, Set: true}
+	tick := jun21
+	_, st := decideBrightness(c, brightnessState{}, luxAt(1000, tick.Add(-(clockProbeTTL-time.Second))), geo, tick)
+	for _, d := range []time.Duration{31 * time.Second, 45 * time.Second, brightnessTickInterval + clockProbeTimeout} {
+		if got := brightnessAt(c, st, geo, tick.Add(d)); got.Source != "lux" || got.Level != c.Ceiling {
+			t.Errorf("read %v after a tick on a cached sample = %+v, want lux %d", d, got, c.Ceiling)
+		}
+	}
+}
+
 func TestBrightnessAtFollowsConfigWithoutATick(t *testing.T) {
 	c := BrightnessConfig{}.resolved()
 	at := jun21.Add(12 * time.Hour)
