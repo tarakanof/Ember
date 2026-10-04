@@ -12,7 +12,10 @@ public enum SourceID: String, CaseIterable, Sendable {
 
 /// A device's own pages that aren't apps (hardware and identity).
 public enum HardwarePage: String, CaseIterable, Sendable {
-    case status, display
+    case status
+    /// The device's hardware health: gauges and charts (sidebar "Hardware").
+    case health
+    case display
     case timeDate = "time-date"
     case buttons, sensors, sounds, behavior
 }

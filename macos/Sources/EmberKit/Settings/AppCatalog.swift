@@ -32,8 +32,8 @@ public enum AppCatalog {
     /// The kind's hardware pages, in sidebar order.
     public static func hardware(_ kind: DeviceKind) -> [HardwarePage] {
         switch kind {
-        case .clock: [.status, .display, .timeDate, .buttons, .sensors, .sounds]
-        case .knob: [.status, .display, .behavior]
+        case .clock: [.status, .health, .display, .timeDate, .buttons, .sensors, .sounds]
+        case .knob: [.status, .health, .display, .behavior]
         }
     }
 

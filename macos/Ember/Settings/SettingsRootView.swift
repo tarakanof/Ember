@@ -220,6 +220,7 @@ private struct ClockDetail: View {
 
     var body: some View {
         switch page {
+        case .hardware(.health):   ClockHardwarePane()
         case .hardware(.display):  ClockPage { DisplaySection() }
         case .hardware(.timeDate): ClockPage { TimeDateSection() }
         case .hardware(.buttons):  ClockPage { ButtonsSection() }

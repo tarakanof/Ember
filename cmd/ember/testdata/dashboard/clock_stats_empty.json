@@ -1,0 +1,10 @@
+{
+  "range": "1h",
+  "configured": true,
+  "reachable": null,
+  "checked_at": null,
+  "ip_address": null,
+  "sample_interval_sec": 30,
+  "latest": null,
+  "points": []
+}

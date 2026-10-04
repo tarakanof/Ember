@@ -53,7 +53,7 @@ func ngHealthClock(t *testing.T, hits *atomic.Int32) *httptest.Server {
 		_, _ = w.Write([]byte(`{"version":"1.1.1","ipAddress":"192.0.2.66","uid":"e868e705ffb8","hostname":"Awtrix",
 		  "wifiRssi":-71,"uptimeSeconds":268719,"freeHeapBytes":103032,"minFreeHeapBytes":76544,
 		  "resetReason":"software","fps":42,"matrixPower":true,"batteryPercent":97,"lowBattery":false,
-		  "temperature":33.4,"humidity":21.4,"currentApp":"Time",
+		  "temperature":33.4,"humidity":21.4,"lightLevel":42.5,"currentApp":"Time",
 		  "wifi":{"state":"connected","host":"HomeNet","connects":3}}`))
 	}))
 	t.Cleanup(srv.Close)

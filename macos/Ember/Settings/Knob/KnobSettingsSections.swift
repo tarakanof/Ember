@@ -102,11 +102,10 @@ struct KnobPageDrag: Codable, Transferable {
     }
 }
 
-/// Opens the Dashboard scrolled to the knob section.
+/// Selects the knob's Hardware page in Settings.
 @MainActor
-func showKnobDashboard(openWindow: OpenWindowAction, env: AppEnvironment) {
-    env.dashboardScrollTarget = KnobDashboardSection.anchor
-    presentWindow(id: WindowID.dashboard, using: openWindow)
+func showKnobHardware(_ knobID: String) {
+    showSettings(.device(knobID, .hardware(.health)))
 }
 
 func knobPageTitle(_ id: String) -> LocalizedStringKey {
@@ -120,7 +119,6 @@ func knobPageTitle(_ id: String) -> LocalizedStringKey {
 
 struct KnobPollSection: View {
     @Environment(AppEnvironment.self) private var env
-    @Environment(\.openWindow) private var openWindow
 
     private func diagnosticsHelp(_ level: KnobDiagnostics) -> LocalizedStringKey {
         switch level {
@@ -148,7 +146,7 @@ struct KnobPollSection: View {
                 Text("Full").tag(KnobDiagnostics.full)
             }
             LabeledContent {
-                Button("Show in Dashboard") { showKnobDashboard(openWindow: openWindow, env: env) }
+                Button("Show Hardware") { if let id = knob.knob?.id { showKnobHardware(id) } }
                     .disabled(s.diagnostics == .off)
             } label: {
                 Text(diagnosticsHelp(s.diagnostics)).foregroundStyle(.secondary).font(.callout)

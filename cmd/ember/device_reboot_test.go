@@ -57,13 +57,13 @@ func TestProbeDevice_ReadsUptimeFromNGDeviceInfo(t *testing.T) {
 
 	a := newTestApp(t)
 	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = srv.URL })
-	got := a.probeDevice(context.Background())
+	got := a.probeDevice(context.Background(), 0)
 	if !got.reachable || got.uptimeSec != 3874 || got.at.IsZero() {
 		t.Fatalf("probeDevice = %+v, want reachable with uptime 3874 and a timestamp", got)
 	}
 
 	a.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = "http://127.0.0.1:9" })
-	if got := a.probeDevice(context.Background()); got.reachable {
+	if got := a.probeDevice(context.Background(), 0); got.reachable {
 		t.Fatalf("probeDevice(unreachable) = %+v, want !reachable", got)
 	}
 }

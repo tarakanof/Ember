@@ -240,7 +240,9 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	now := a.knobStats.now()
 	if diag, _, err := a.devices.diagnostics(id); err == nil {
 		if stats = stats.forLevel(diag); stats != nil {
-			a.knobStats.record(id, now, knobSampleFromReport(report, stats))
+			sample := knobSampleFromReport(report, stats)
+			sample.BrightnessLevel = refOf(a.currentBrightness(now).Level)
+			a.knobStats.record(id, now, sample)
 		}
 		res.DiagLiveUntil = a.knobLiveUnix(id, diag, now)
 	}

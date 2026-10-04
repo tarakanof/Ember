@@ -132,6 +132,7 @@ func main() {
 		workers.Go(func() { app.StartDeviceWatch(ctx, deviceWatchInterval) })
 	} else {
 		logger.Info("clock auto-rediscover disabled (awtrix.auto_rediscover)")
+		workers.Go(func() { app.StartClockSampler(ctx, clockProbeTTL) })
 	}
 
 	server := &http.Server{

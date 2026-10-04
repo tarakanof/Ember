@@ -88,6 +88,7 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/device/apps", http.HandlerFunc(a.handleDeviceAppsGet))
 	writeMux.Handle("PUT /v1/device/apps", http.HandlerFunc(a.handleDeviceAppsPut))
 	writeMux.Handle("GET /v1/device/stats", http.HandlerFunc(a.handleDeviceStats))
+	writeMux.Handle("GET /v1/clock/stats", http.HandlerFunc(a.handleClockStats))
 	writeMux.Handle("GET /v1/device/capabilities", http.HandlerFunc(a.handleDeviceCapabilities))
 	writeMux.Handle("GET /v1/device/sensors", http.HandlerFunc(a.handleDeviceSensorsGet))
 	writeMux.Handle("PUT /v1/device/sensors", http.HandlerFunc(a.handleDeviceSensorsPut))

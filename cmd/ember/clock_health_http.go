@@ -17,7 +17,10 @@ import (
 
 const clockProbeTTL = 30 * time.Second
 
-const clockProbeTimeout = 3 * time.Second
+// clockProbeTimeout bounds the shared clock probe (health, brightness,
+// clock stats and the device watch's reboot check): long enough for a busy
+// ESP32, short enough that a hung clock can't stall the 30 s cadence.
+const clockProbeTimeout = 2500 * time.Millisecond
 
 const ngReleasesURL = "https://api.github.com/repos/Blueforcer/awtrix-ng/releases/latest"
 
@@ -210,6 +213,8 @@ type clockDeviceOut struct {
 	HumidityPercent *float64 `json:"humidity_percent"`
 
 	lightLevel *float64
+	// ip stays out of the open health read; GET /v1/clock/stats has it.
+	ip string
 }
 
 type publishHealthOut struct {
@@ -253,12 +258,20 @@ type clockDeviceWire struct {
 	Temperature *float64 `json:"temperature"`
 	Humidity    *float64 `json:"humidity"`
 	LightLevel  *float64 `json:"lightLevel"`
+	IPAddress   string   `json:"ipAddress"`
 	WiFi        struct {
 		Connects *int `json:"connects"`
 	} `json:"wifi"`
 }
 
 func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceOut {
+	return a.probeClockHealthWithin(ctx, now, clockProbeTTL)
+}
+
+// probeClockHealthWithin answers from the probe cache when it is younger
+// than maxAge, else probes the clock (one probe at a time; see
+// ARCHITECTURE). Every fresh probe is also a clock stats sample.
+func (a *App) probeClockHealthWithin(ctx context.Context, now time.Time, maxAge time.Duration) *clockDeviceOut {
 	base := a.cfg.Load().effectiveClockURL()
 	if base == "" {
 		return nil
@@ -266,7 +279,7 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 	c := &a.clockProbe
 	c.mu.Lock()
 	for {
-		if c.base == base && !c.at.IsZero() && now.Sub(c.at) < clockProbeTTL {
+		if c.base == base && !c.at.IsZero() && now.Sub(c.at) < maxAge {
 			dev := c.dev
 			c.mu.Unlock()
 			return &dev
@@ -312,11 +325,13 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 			dev.TemperatureC = raw.Temperature
 			dev.HumidityPercent = raw.Humidity
 			dev.lightLevel = raw.LightLevel
+			dev.ip = raw.IPAddress
 		}
 	}
 	c.mu.Lock()
 	c.at, c.base, c.dev, c.inflight = now, base, dev, nil
 	c.mu.Unlock()
+	a.recordClockProbe(now, base, dev)
 	return &dev
 }
 

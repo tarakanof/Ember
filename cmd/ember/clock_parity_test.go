@@ -444,7 +444,7 @@ func runClockParity(t *testing.T, pat []bool) string {
 	app.handleDeviceStats(sw, httptest.NewRequest(http.MethodGet, "/v1/device/stats", nil))
 	step("slow menu stats → %d", sw.Code)
 	slow()
-	step("slow probe reachable=%v", app.probeDevice(context.Background()).reachable)
+	step("slow probe reachable=%v", app.probeDevice(context.Background(), 0).reachable)
 	slow()
 	app.refreshCapabilities(context.Background())
 	_, capsOK := app.capabilities()
@@ -458,7 +458,7 @@ func runClockParity(t *testing.T, pat []bool) string {
 	step("slow rediscover swapped=%v", app.rediscoverClock(context.Background()))
 
 	for i := 0; i < 4; i++ {
-		p := app.probeDevice(context.Background())
+		p := app.probeDevice(context.Background(), 0)
 		step("probe #%d reachable=%v uptime=%d", i, p.reachable, p.uptimeSec)
 	}
 	for i := 0; i < 3; i++ {

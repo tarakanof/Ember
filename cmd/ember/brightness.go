@@ -14,8 +14,8 @@ import (
 // 0-255 level for devices with no light sensor of their own (the cinder knob),
 // so they need no Home Assistant token. Two inputs, in order:
 //
-//  1. the TC001's light sensor, read through the clock probe the health
-//     endpoint already keeps fresh (no new poller), smoothed with an EMA and
+//  1. the TC001's light sensor, read through the shared clock probe (the
+//     device watch or clock stats sampler keeps it fresh), smoothed with an EMA and
 //     held steady inside a hysteresis band;
 //  2. when the clock is unreachable or its reading is stale, the sun schedule
 //     from the weather lat/lon with a twilight ramp.

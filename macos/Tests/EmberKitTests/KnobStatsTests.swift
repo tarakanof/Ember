@@ -31,6 +31,8 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(p.requestsPerMin == 30)
     #expect(p.requestLatencyMaxMS == 120)
     #expect(p.frameAvgMS == 12.25)
+    #expect(p.brightnessLevel == 255)
+    #expect(p.brightnessPercent == 100)
     #expect(s.latest?.psramFreeBytes == nil)
     #expect(s.latest?.cpuAverage == 37.75)
     #expect(s.hasPSRAM)

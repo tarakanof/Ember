@@ -16,36 +16,16 @@ public enum KnobDiagnostics: String, Codable, CaseIterable, Sendable, Identifiab
     }
 }
 
-/// The dashboard's time ranges (`GET /v1/devices/{id}/stats?range=`).
-public enum KnobStatsRange: String, CaseIterable, Sendable, Identifiable {
-    case fifteenMinutes = "15m"
-    case hour = "1h"
-    case day = "24h"
+/// The knob's ranges are the Hardware pages' ranges.
+public typealias KnobStatsRange = HardwareRange
 
-    public var id: Self { self }
-
-    public var duration: TimeInterval {
-        switch self {
-        case .fifteenMinutes: 15 * 60
-        case .hour: 3600
-        case .day: 86400
-        }
-    }
-
-    /// How often the dashboard asks while this range is shown.
+extension HardwareRange {
+    /// How often the knob page asks while this range is shown.
     public var pollInterval: Duration {
         switch self {
         case .fifteenMinutes: .seconds(5)
         case .hour: .seconds(15)
         case .day: .seconds(60)
-        }
-    }
-
-    /// Spacing of the server's points when the knob reports normally.
-    public var spacing: TimeInterval {
-        switch self {
-        case .fifteenMinutes, .hour: 60
-        case .day: 300
         }
     }
 }
@@ -72,6 +52,9 @@ public struct KnobStats: Codable, Equatable, Sendable {
         public var renderFPS: Double?
         public var frameAvgMS: Double?
         public var frameMaxMS: Int?
+        /// Ember's brightness (0–255) at the checkin: the level a knob
+        /// following Ember shows.
+        public var brightnessLevel: Int?
 
         public var id: Date { t }
 
@@ -94,9 +77,13 @@ public struct KnobStats: Codable, Equatable, Sendable {
             case renderFPS = "render_fps"
             case frameAvgMS = "frame_avg_ms"
             case frameMaxMS = "frame_max_ms"
+            case brightnessLevel = "brightness_level"
         }
 
         public init(t: Date) { self.t = t }
+
+        /// Ember's brightness as 0–100 %.
+        public var brightnessPercent: Double? { brightnessLevel.map { Double($0) / 255 * 100 } }
 
         /// The mean across cores, nil without a CPU reading.
         public var cpuAverage: Double? {
@@ -144,43 +131,19 @@ public struct KnobStats: Codable, Equatable, Sendable {
     public func isLive(now: Date) -> Bool { liveUntil.map { $0 > now } ?? false }
 }
 
-/// A point of one named line; `segment` changes across a reporting gap so
-/// the chart doesn't draw a line through time the knob was silent.
-public struct KnobSeriesPoint: Equatable, Sendable, Identifiable {
-    public var t: Date
-    public var series: String
-    public var segment: Int
-    public var value: Double
-    public var id: String { "\(series)|\(t.timeIntervalSinceReferenceDate)" }
-    /// The key that keeps segments of one series apart.
-    public var lineKey: String { "\(series)#\(segment)" }
-}
-
 extension KnobStats {
     /// Gap after which a line breaks: three missed reports at the range's
     /// normal spacing.
-    public static func gap(for range: KnobStatsRange) -> TimeInterval { range.spacing * 3 }
+    public static func gap(for range: KnobStatsRange) -> TimeInterval { range.gap }
 
     /// One series per named value, broken at reporting gaps.
     public func series(_ values: [(name: String, value: (Sample) -> Double?)],
-                       range: KnobStatsRange) -> [KnobSeriesPoint] {
-        var out: [KnobSeriesPoint] = []
-        let gap = Self.gap(for: range)
-        for (name, value) in values {
-            var segment = 0
-            var previous: Date?
-            for p in points {
-                guard let v = value(p) else { continue }
-                if let prev = previous, p.t.timeIntervalSince(prev) > gap { segment += 1 }
-                previous = p.t
-                out.append(KnobSeriesPoint(t: p.t, series: name, segment: segment, value: v))
-            }
-        }
-        return out
+                       range: KnobStatsRange) -> [HardwareSeriesPoint] {
+        HardwareSeries.build(points, time: \.t, values: values, gap: range.gap)
     }
 
     /// Per-core CPU lines named by `name(core)`.
-    public func cpuSeries(range: KnobStatsRange, name: (Int) -> String) -> [KnobSeriesPoint] {
+    public func cpuSeries(range: KnobStatsRange, name: (Int) -> String) -> [HardwareSeriesPoint] {
         let cores = points.map { $0.cpuPercent?.count ?? 0 }.max() ?? 0
         return series((0..<cores).map { core in
             (name(core), { s in s.cpuPercent.flatMap { $0.indices.contains(core) ? $0[core] : nil } })

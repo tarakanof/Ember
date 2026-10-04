@@ -341,8 +341,8 @@ func TestKnobStatsMinuteRingKeepsOnly24Hours(t *testing.T) {
 	if first.Before(f.clk.Now().Add(-24*time.Hour - 5*time.Minute)) {
 		t.Fatalf("oldest point %v older than 24 h (start %v)", first, start)
 	}
-	if n := f.app.knobStats.minuteLen(f.m.ID); n > knobStatsMinuteCap {
-		t.Fatalf("minute ring holds %d, cap %d", n, knobStatsMinuteCap)
+	if n := f.app.knobStats.minuteLen(f.m.ID); n > statsMinuteCap {
+		t.Fatalf("minute ring holds %d, cap %d", n, statsMinuteCap)
 	}
 }
 
@@ -504,5 +504,15 @@ func TestKnobStatsBasicDropsFullOnlyFields(t *testing.T) {
 		if s[k] != nil {
 			t.Errorf("%s = %v at basic, want null", k, s[k])
 		}
+	}
+}
+
+func TestKnobStatsRecordEmberBrightness(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "basic")
+	f.checkinStats(t, basicStats)
+	want := f.app.currentBrightness(f.clk.Now()).Level
+	if got := num(t, f.stats(t, "15m").Latest, "brightness_level"); got != float64(want) {
+		t.Fatalf("brightness_level = %v, want Ember's level %d at the checkin", got, want)
 	}
 }

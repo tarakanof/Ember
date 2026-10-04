@@ -45,7 +45,7 @@
       }
     },
     "%@ available" : {
-      "comment" : "Clock health: a newer clock firmware version is available. The argument is the version (\"1.2.0\")."
+      "comment" : "Clock firmware fact: a newer release (\"1.1.2 available\")."
     },
     "%@ connected" : {
       "comment" : "Settings › Knob USB row: the knob's name (\"Knob 61FC8C\")."
@@ -71,6 +71,9 @@
     },
     "%@ loading…" : {
       "comment" : "Settings sidebar: a device's row while the device list loads (\"Knob loading…\")."
+    },
+    "%@ lx" : {
+      "comment" : "A light level in lux (\"42 lx\")."
     },
     "%@ now, %@ high" : {
       "comment" : "VoiceOver, weather forecast strip: the current temperature, then the highest over the next hours.",
@@ -270,7 +273,7 @@
       "comment" : "A rate per minute (\"31/min\")."
     },
     "%@: now %@, range %@ to %@." : {
-      "comment" : "Knob chart VoiceOver summary: series name, latest value, lowest and highest values.",
+      "comment" : "Hardware chart VoiceOver summary: series name, latest value, lowest and highest values.",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -285,6 +288,9 @@
     },
     "%lld dBm" : {
       "comment" : "Wi-Fi signal strength in decibel-milliwatts (\"-62 dBm\")."
+    },
+    "%lld failed" : {
+      "comment" : "Clock Hardware publishing chart: publishes that didn't reach the clock in the selected range (\"12 failed\")."
     },
     "%lld h" : {
       "comment" : "A number of hours, abbreviated (\"12 h\")."
@@ -421,7 +427,7 @@
       "comment" : "VoiceOver label of a device's Apps row in the Settings sidebar; the argument is the device's name (\"Clock\")."
     },
     "As of %@" : {
-      "comment" : "Dashboard knob Now card while offline: the time of the readings shown (\"As of 21:43\")."
+      "comment" : "Hardware page Now card while the device is offline: the time of the readings shown (\"As of 21:43\")."
     },
     "At once" : {},
     "Attention hold" : {},
@@ -470,6 +476,7 @@
     "Change Knob Wi-Fi" : {},
     "Change Wi-Fi" : {},
     "Change Wi-Fi…" : {},
+    "Change what the knob reports in Behavior" : {},
     "Check Again" : {},
     "Check Ember every" : {},
     "Checked %@" : {
@@ -493,12 +500,11 @@
     "Clear night" : {},
     "Clock" : {},
     "Clock Agent Settings…" : {},
-    "Clock Settings" : {},
     "Clock Sounds…" : {},
     "Clock Web UI" : {},
     "Clock buttons control Pomodoro" : {},
     "Clock display" : {},
-    "Clock health" : {},
+    "Clock stats unavailable" : {},
     "Clock style" : {},
     "Clock unreachable" : {},
     "Clocks on Your Network" : {},
@@ -553,7 +559,7 @@
     "Continuous" : {},
     "Coordinates" : {},
     "Core %lld" : {
-      "comment" : "Dashboard knob CPU chart: a processor core (\"Core 1\")."
+      "comment" : "Knob Hardware CPU chart: a processor core (\"Core 1\")."
     },
     "Couldn't change the knob's diagnostics." : {},
     "Couldn't check" : {},
@@ -624,6 +630,7 @@
     "Crescent moon, after ^[%lld round](inflect: true)." : {
       "comment" : "Settings › Focus preview caption for the long break; the argument is the number of rounds before it."
     },
+    "Current app" : {},
     "Current conditions" : {},
     "Custom" : {},
     "Custom focus" : {},
@@ -633,10 +640,11 @@
     "Day" : {},
     "Day number" : {},
     "Day, month, year" : {},
-    "Delivered (24 h)" : {},
+    "Delivered" : {},
     "Desk knob" : {},
     "Devices" : {},
     "Diagnostics" : {},
+    "Diagnostics Settings" : {},
     "Diagnostics are off" : {},
     "Discover Clocks…" : {},
     "Discovered Servers" : {},
@@ -675,6 +683,7 @@
     "Ember E" : {},
     "Ember E (pixel)" : {},
     "Ember address" : {},
+    "Ember brightness" : {},
     "Ember can open at login only when it runs from the Applications folder." : {},
     "Ember can't reach the server. Check that it's running, or change its address in Connection settings." : {},
     "Ember couldn't register the knob: %@" : {
@@ -694,6 +703,7 @@
     "Ember isn't connected to a server" : {},
     "Ember needs access to Reminders" : {},
     "Ember needs your approval in System Settings › General › Login Items." : {},
+    "Ember reads the clock every 30 seconds and keeps the last 24 hours while the server runs." : {},
     "Ember rejected the knob's token." : {},
     "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
     "Ember shows one knob. After this setup it forgets the other knob and revokes its token." : {},
@@ -724,6 +734,7 @@
     "Factory Reset" : {},
     "Factory Reset…" : {},
     "Fahrenheit" : {},
+    "Failed" : {},
     "Failures" : {},
     "Find Clock from This Mac…" : {},
     "Firmware" : {},
@@ -763,6 +774,7 @@
     "From" : {},
     "Full" : {},
     "General" : {},
+    "Give Ember the clock's address, or discover it, under Status." : {},
     "Goal" : {},
     "Goal %@ a day, met on ^[%lld day](inflect: true)." : {
       "comment" : "VoiceOver chart summary: the daily focus goal as a time (\"2h 30m\"), then on how many of the 7 days it was met.",
@@ -781,6 +793,7 @@
     "Goals" : {},
     "Good" : {},
     "Green under 70%, amber, red from 90%." : {},
+    "Hardware" : {},
     "Hardware stats" : {},
     "Header" : {},
     "Hidden" : {},
@@ -800,6 +813,7 @@
     "Humidity" : {},
     "Humidity offset" : {},
     "ID" : {},
+    "IP address" : {},
     "Icon ID" : {},
     "Idle" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -817,6 +831,7 @@
       "comment" : "Settings › Agents failure when turning on an agent whose CLI LaunchAgent is loaded.",
       "extractionState" : "manual"
     },
+    "Its readings appear here once Ember reaches it again." : {},
     "Its screen says “Connect me to your Mac” when it isn't set up yet." : {},
     "Its stats appear here once it checks in with Ember again." : {},
     "Joining %@" : {
@@ -824,16 +839,13 @@
     },
     "Keep on screen until dismissed" : {},
     "Knob" : {},
-    "Knob Settings" : {},
     "Knob name" : {},
-    "Knob settings" : {},
     "Knob stats unavailable" : {},
     "LED matrix" : {},
     "Largest block" : {},
     "Last 7 days" : {},
     "Last check-in" : {},
     "Last press" : {},
-    "Last publish" : {},
     "Last reminder didn't reach the clock: %@" : {
       "comment" : "Settings › Calendar: why the last reminder failed (a short error message)."
     },
@@ -842,6 +854,8 @@
     "Latitude runs from −90 to 90 and longitude from −180 to 180." : {},
     "Launch at login" : {},
     "Leading zero" : {},
+    "Light" : {},
+    "Light level" : {},
     "Line" : {},
     "Live" : {},
     "Loading" : {},
@@ -876,6 +890,7 @@
     "Meetings" : {},
     "Melody" : {},
     "Melody name or RTTTL" : {},
+    "Memory" : {},
     "Menu Bar" : {},
     "Menu bar color" : {},
     "Menu bar icon" : {},
@@ -1026,7 +1041,7 @@
       "extractionState" : "manual"
     },
     "Offline, last report %@" : {
-      "comment" : "Dashboard knob status; the argument is a relative time (\"5 minutes ago\")."
+      "comment" : "Hardware page status; the argument is a relative time (\"5 minutes ago\")."
     },
     "Offline: Local Network access is off" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1051,8 +1066,10 @@
     "Open Privacy Settings…" : {},
     "Open Reminders Settings…" : {},
     "Open Settings" : {},
+    "Open Status" : {},
     "Open Web UI" : {},
     "Open in Browser" : {},
+    "Open the clock's own web page" : {},
     "Open the server's statistics page" : {},
     "Opens System Settings, where you can turn it on for Ember." : {},
     "Opens the clock's web page, which installs firmware updates." : {},
@@ -1132,6 +1149,8 @@
     "Processor, memory, temperature and Wi-Fi, every minute." : {},
     "Progress" : {},
     "Provider" : {},
+    "Publishes" : {},
+    "Publishing" : {},
     "Pulsing" : {},
     "Quiet Hours" : {},
     "Quit Ember" : {},
@@ -1271,8 +1290,8 @@
       "comment" : "Button that opens a Settings pane, e.g. Show Weather"
     },
     "Show AM/PM" : {},
+    "Show Hardware" : {},
     "Show for" : {},
-    "Show in Dashboard" : {},
     "Show next meeting" : {},
     "Show on Clock" : {},
     "Show on the knob" : {},
@@ -1367,6 +1386,7 @@
     },
     "The clock hasn't reported its apps yet." : {},
     "The clock is unavailable for a few seconds while it restarts." : {},
+    "The clock is unreachable" : {},
     "The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state." : {},
     "The clock shows animated icons; the preview shows the drawn ones." : {},
     "The color must be a hex value like #FF8800." : {
@@ -1415,8 +1435,8 @@
     "The knob reported Wi-Fi error %lld." : {
       "comment" : "Knob setup error; the argument is the Improv error code number."
     },
-    "The knob reports every 5 seconds while this window is open." : {},
-    "The knob sends hardware stats every minute, and every 5 seconds while this window is open. It needs firmware with diagnostics." : {},
+    "The knob reports every 5 seconds while this page is open." : {},
+    "The knob sends hardware stats every minute, and every 5 seconds while this page is open. It needs firmware with diagnostics." : {},
     "The knob sends no hardware stats." : {},
     "The knob stays at this brightness. It never goes below the minimum." : {},
     "The knob stopped answering. Check that it's plugged in and try again." : {},
@@ -1559,6 +1579,7 @@
     },
     "Update the Ember server to let an app follow the text color again." : {},
     "Update the Ember server to mute the clock or set its volume here." : {},
+    "Update the Ember server to see the clock's hardware stats." : {},
     "Update the Ember server to see the knob's hardware stats." : {},
     "Update the clock's firmware to NG 1.1 or later to let an app follow the text color again." : {},
     "Update the clock's firmware to NG 1.1 or later to mute it or set its volume here." : {},
@@ -1592,6 +1613,7 @@
       "extractionState" : "manual"
     },
     "Waiting for its first check-in" : {},
+    "Waiting for the clock's first reading" : {},
     "Waiting for the knob (has %lld, latest %lld)" : {
       "comment" : "Settings › Knob: the knob hasn't picked up the latest settings; the settings version it runs, then the latest.",
       "localizations" : {
