@@ -492,9 +492,17 @@ curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
 
 - **Lost token / reflashed knob:** POST the same `hw_id` again. It answers
   200 with a new token, revokes the old one and keeps the knob's config.
-- **Rotation:** the next checkin carries `new_token`; the old token keeps
-  working until the knob first uses the new one, or 24 h after the rotate. A
-  knob offline for longer than that needs re-provisioning over USB.
+- **Rotation:** the next checkin carries `new_token` (repeated unchanged until
+  used); the old token keeps working until the knob first uses the new one, or
+  24 h after the rotate. A knob offline for longer than that needs
+  re-provisioning over USB.
+- **Suspected token leak: don't rotate.** Rotation is routine hygiene only:
+  anyone holding the old token can collect the new one. `DELETE` the knob or
+  re-POST its `hw_id` (USB setup) instead; both revoke immediately.
+- **`/admin/doctor` `devices` fails with "registry load failed":** the stored
+  `devices_json` row didn't decode. Device writes and knob auth answer 500
+  until restart so the row isn't overwritten; fix or delete the row in
+  `pomodoro.db`, then restart.
 - **Knob gets 401:** it was deleted, re-provisioned elsewhere, or missed a
   rotation; `/admin/doctor` → `devices` lists each knob's last checkin
   (warns when one never checked in or is silent > 5 min).
