@@ -1719,7 +1719,14 @@ the same board finds its record.
 - **Persistence:** the whole registry plus the epoch is one JSON blob in the
   SQLite settings KV (key `devices_json`), the same store as the overlay
   settings. Every mutation clones the state, persists, then swaps under
-  `deviceRegistry.mu`, so a failed write (500) changes nothing. No store
+  `deviceRegistry.mu`, so a failed write (500) changes nothing. Two hot paths
+  skip that (#233): device auth is a locked scan with no clone or write (only
+  a rotation promotion writes), and a checkin updates `last_checkin` in place
+  and writes the blob only when the last write is `deviceCheckinPersistInterval`
+  (10 min) old; a checkin that mints a pending rotation token writes at once.
+  Any other registry write carries the in-memory checkins along, and graceful
+  shutdown flushes them, so a restart shows a recent `last_checkin` (at most
+  10 min old after a crash). No store
   (tests, unwritable volume) = in-memory only. If the stored blob fails to
   read or decode at boot, the registry stays empty and refuses every write
   and device auth with 500 until restart, so the blob is never overwritten and

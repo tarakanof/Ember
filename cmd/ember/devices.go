@@ -22,9 +22,12 @@ const (
 	deviceKindKnob      = "cinder-knob"
 	deviceTokenPrefix   = "ekd_"
 	deviceRotationGrace = 24 * time.Hour
-	deviceNameMaxRunes  = 64
-	devicesEpochHeader  = "X-Ember-Devices-Epoch"
-	deviceConfigVersion = "X-Ember-Config-Version"
+	// deviceCheckinPersistInterval bounds how often checkins alone rewrite the
+	// stored registry; other changes are written at once.
+	deviceCheckinPersistInterval = 10 * time.Minute
+	deviceNameMaxRunes           = 64
+	devicesEpochHeader           = "X-Ember-Devices-Epoch"
+	deviceConfigVersion          = "X-Ember-Config-Version"
 )
 
 var (
@@ -133,10 +136,12 @@ type deviceRegistry struct {
 	kv  func() settingsKV
 	now func() time.Time
 
-	mu           sync.Mutex // protects state, pendingPlain, loadErr
+	mu           sync.Mutex // protects state, pendingPlain, loadErr, persistedAt, dirty
 	state        deviceState
 	pendingPlain map[string]string
 	loadErr      error
+	persistedAt  time.Time
+	dirty        bool
 }
 
 func newDeviceRegistry(kv func() settingsKV) *deviceRegistry {
@@ -154,6 +159,7 @@ func (r *deviceRegistry) load() error {
 	r.loadErr = err
 	if err == nil {
 		r.state = st
+		r.persistedAt, r.dirty = r.now(), false
 	}
 	return err
 }
@@ -182,8 +188,12 @@ func (r *deviceRegistry) loadError() error {
 func (r *deviceRegistry) mutate(fn func(*deviceState) error) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.loadErr != nil {
-		return fmt.Errorf("device registry load failed, writes refused until restart: %w", r.loadErr)
+	return r.mutateLocked(fn)
+}
+
+func (r *deviceRegistry) mutateLocked(fn func(*deviceState) error) error {
+	if err := r.writableLocked(); err != nil {
+		return err
 	}
 	next := r.state.clone()
 	if err := fn(&next); err != nil {
@@ -192,17 +202,45 @@ func (r *deviceRegistry) mutate(fn func(*deviceState) error) error {
 		}
 		return err
 	}
-	if kv := r.kv(); kv != nil {
-		blob, err := json.Marshal(next)
-		if err != nil {
-			return fmt.Errorf("encode devices: %w", err)
-		}
-		if err := kv.PutSetting(devicesKey, string(blob)); err != nil {
-			return fmt.Errorf("persist devices: %w", err)
-		}
+	if err := r.persistLocked(next); err != nil {
+		return err
 	}
 	r.state = next
 	return nil
+}
+
+func (r *deviceRegistry) writableLocked() error {
+	if r.loadErr != nil {
+		return fmt.Errorf("device registry load failed, writes refused until restart: %w", r.loadErr)
+	}
+	return nil
+}
+
+func (r *deviceRegistry) persistLocked(st deviceState) error {
+	kv := r.kv()
+	if kv == nil {
+		return nil
+	}
+	blob, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("encode devices: %w", err)
+	}
+	if err := kv.PutSetting(devicesKey, string(blob)); err != nil {
+		return fmt.Errorf("persist devices: %w", err)
+	}
+	r.persistedAt, r.dirty = r.now(), false
+	return nil
+}
+
+// flush writes checkins still held only in memory; it is a no-op when the
+// stored registry is current.
+func (r *deviceRegistry) flush() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.dirty || r.loadErr != nil {
+		return nil
+	}
+	return r.persistLocked(r.state)
 }
 
 func (r *deviceRegistry) epochValue() uint64 {
@@ -368,34 +406,38 @@ func (r *deviceRegistry) putConfig(id string, patch []byte) (knobSettings, int, 
 // authenticate maps a device bearer token to its device id in constant time
 // over all devices. The first use of a pending rotation token promotes it and
 // retires the old one; the old token also stops working deviceRotationGrace
-// after the rotation began.
+// after the rotation began. Only a promotion writes the store.
 func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	if !strings.HasPrefix(token, deviceTokenPrefix) {
 		return "", false, nil
 	}
 	h := []byte(tokenHash(token))
-	var id string
-	err := r.mutate(func(st *deviceState) error {
-		now := r.now()
-		match, pending := -1, false
-		for i, d := range st.Devices {
-			cur := subtle.ConstantTimeCompare(h, []byte(d.TokenSHA256)) == 1
-			if cur && d.RotatedAt != nil && now.Sub(*d.RotatedAt) > deviceRotationGrace {
-				cur = false
-			}
-			pend := d.PendingTokenSHA256 != "" && subtle.ConstantTimeCompare(h, []byte(d.PendingTokenSHA256)) == 1
-			if cur || pend {
-				match, pending = i, pend
-			}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return "", false, err
+	}
+	now := r.now()
+	match, pending := -1, false
+	for i, d := range r.state.Devices {
+		cur := subtle.ConstantTimeCompare(h, []byte(d.TokenSHA256)) == 1
+		if cur && d.RotatedAt != nil && now.Sub(*d.RotatedAt) > deviceRotationGrace {
+			cur = false
 		}
-		if match < 0 {
-			return errNoChange
+		pend := d.PendingTokenSHA256 != "" && subtle.ConstantTimeCompare(h, []byte(d.PendingTokenSHA256)) == 1
+		if cur || pend {
+			match, pending = i, pend
 		}
-		d := &st.Devices[match]
-		id = d.ID
-		if !pending {
-			return errNoChange
-		}
+	}
+	if match < 0 {
+		return "", false, nil
+	}
+	id := r.state.Devices[match].ID
+	if !pending {
+		return id, true, nil
+	}
+	err := r.mutateLocked(func(st *deviceState) error {
+		d := st.find(id)
 		d.TokenSHA256 = d.PendingTokenSHA256
 		d.PendingTokenSHA256 = ""
 		d.RotatedAt = nil
@@ -406,7 +448,7 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	return id, id != "", nil
+	return id, true, nil
 }
 
 type checkinResult struct {
@@ -419,32 +461,50 @@ type checkinResult struct {
 // when the device's applied version is stale and, while a rotation is pending,
 // the pending token: minted on first delivery, then redelivered unchanged. Its
 // plaintext lives only in memory, so after a restart the next delivery mints
-// a replacement.
+// a replacement. A mint is written at once; the report itself stays in memory
+// and reaches the store at most every deviceCheckinPersistInterval, with any
+// other registry write, or on flush.
 func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult, error) {
-	var res checkinResult
-	err := r.mutate(func(st *deviceState) error {
-		d := st.find(id)
-		if d == nil {
-			return errDeviceNotFound
-		}
-		report.SeenAt = r.now().UTC()
-		d.LastCheckin = &report
-		res.ConfigVersion = d.ConfigVersion
-		if report.AppliedVersion != d.ConfigVersion {
-			c := d.clone().Config
-			res.Config = &c
-		}
-		if d.RotatedAt != nil {
-			res.NewToken = r.pendingPlain[id]
-			if res.NewToken == "" || tokenHash(res.NewToken) != d.PendingTokenSHA256 {
-				res.NewToken = newDeviceToken()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return checkinResult{}, err
+	}
+	d := r.state.find(id)
+	if d == nil {
+		return checkinResult{}, errDeviceNotFound
+	}
+	report.SeenAt = r.now().UTC()
+	res := checkinResult{ConfigVersion: d.ConfigVersion}
+	if report.AppliedVersion != d.ConfigVersion {
+		c := d.clone().Config
+		res.Config = &c
+	}
+	if d.RotatedAt != nil {
+		res.NewToken = r.pendingPlain[id]
+		if res.NewToken == "" || tokenHash(res.NewToken) != d.PendingTokenSHA256 {
+			res.NewToken = newDeviceToken()
+			err := r.mutateLocked(func(st *deviceState) error {
+				d := st.find(id)
+				d.LastCheckin = &report
 				d.PendingTokenSHA256 = tokenHash(res.NewToken)
-				r.pendingPlain[id] = res.NewToken
+				return nil
+			})
+			if err != nil {
+				return checkinResult{}, err
 			}
+			r.pendingPlain[id] = res.NewToken
+			return res, nil
 		}
-		return nil
-	})
-	return res, err
+	}
+	d.LastCheckin = &report
+	r.dirty = true
+	if r.now().Sub(r.persistedAt) >= deviceCheckinPersistInterval {
+		if err := r.persistLocked(r.state); err != nil {
+			return checkinResult{}, err
+		}
+	}
+	return res, nil
 }
 
 func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
