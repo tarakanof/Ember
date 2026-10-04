@@ -1639,7 +1639,12 @@ coordinates to a few hundred metres; the location is the user-typed label only.
   `lightLevel` reads 0 in a dark room (observed overnight, `ldrRaw` 0); the
   defaults assume lux and want a daytime check. Policy is pure
   (`decideBrightness` in `brightness.go`); the clock's own brightness is
-  untouched. Knobs (defaults): `floor` 10, `ceiling` 255, `night_level` 20,
+  untouched. The filter advances only on a server tick (`StartBrightness`, at
+  boot and every 60 s, through the same probe cache); a GET reads it
+  (`brightnessAt`, re-held against the current config) and never probes the
+  clock or moves the EMA, so the answer does not depend on how many clients
+  poll. The probe cache's mutex is never held across the clock request: one
+  caller probes, others get the previous result (or wait for the first one). Knobs (defaults): `floor` 10, `ceiling` 255, `night_level` 20,
   `day_level` 255, `lux_dark` 1, `lux_bright` 200, `ema_alpha` 0.3, `hysteresis`
   8, `stale_seconds` 120, `twilight_minutes` 45; config.json `brightness`,
   editable via `GET/PUT /v1/brightness/config` (merge semantics, 400 on an

@@ -122,6 +122,7 @@ func main() {
 	workers.Go(func() { app.limiter.runSweeper(ctx) })
 	workers.Go(func() { app.StartCoordinator(ctx) })
 	workers.Go(func() { app.StartWeather(ctx) })
+	workers.Go(func() { app.StartBrightness(ctx) })
 	workers.Go(func() { app.StartMeetings(ctx) })
 	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
 	workers.Go(func() { app.ensureBootPingScript(ctx) })
