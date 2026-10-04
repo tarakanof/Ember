@@ -68,10 +68,13 @@ public struct KnobBotLive: View {
 
     public var body: some View {
         Group {
-            if animated {
-                TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !visible)) { tl in
-                    KnobFaceView(.bot(pose: driver.pose(at: tl.date, mood: mood.mood, config: config), mood: mood),
+            if animated && visible {
+                TimelineView(KnobBotSchedule(clock: driver.clock, mood: mood.mood)) { _ in
+                    KnobFaceView(.bot(pose: driver.pose(at: Date(), mood: mood.mood, config: config)
+                                        .quantized(toPixels: theme.screen.diameterPx / 2 * theme.bot.fill),
+                                      mood: mood),
                                  theme: theme, brightness: brightness)
+                    .equatable()
                 }
             } else {
                 KnobFaceView(.bot(pose: KnobBotDriver.restingPose(mood.mood, theme: theme), mood: mood),
@@ -89,9 +92,42 @@ public struct KnobBotLive: View {
     }
 }
 
+/// When the bot next needs a frame: every 1/20 s while something moves,
+/// else at its next scheduled event (blink, glance, hop), like the firmware
+/// redrawing only when the pose changes.
+struct KnobBotSchedule: TimelineSchedule {
+    static let frame = 1.0 / 20
+    let clock: KnobBotClock
+    /// A new mood restarts the schedule so its transition frames run at once.
+    let mood: BotMood
+
+    func entries(from start: Date, mode: Mode) -> AnyIterator<Date> {
+        var last = start
+        var first = true
+        return AnyIterator {
+            if first { first = false; return start }
+            let (moving, next) = clock.read()
+            let step = last.addingTimeInterval(Self.frame)
+            last = moving ? step : max(step, next)
+            return last
+        }
+    }
+}
+
+/// The bot's motion state, shared with the schedule (read off the main actor).
+final class KnobBotClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var moving = true
+    private var next = Date.distantPast
+
+    func read() -> (Bool, Date) { lock.withLock { (moving, next) } }
+    func write(moving m: Bool, next n: Date) { lock.withLock { moving = m; next = n } }
+}
+
 /// Owns the knob bot's `BotBehavior` across frames.
 @MainActor
 final class KnobBotDriver {
+    let clock = KnobBotClock()
     struct Config: Equatable {
         var tuning: BotBehavior.Tuning
         var reduceMotion: Bool
@@ -111,7 +147,12 @@ final class KnobBotDriver {
         }
         config = c
         behavior?.setMood(mood, at: t)
-        return behavior?.pose(at: t) ?? BotPose()
+        let p = behavior?.pose(at: t) ?? BotPose()
+        if let b = behavior {
+            clock.write(moving: b.isAnimating || b.isTransitioning,
+                        next: start.addingTimeInterval(min(b.nextEventAt, t + 10)))
+        }
+        return p
     }
 
     /// A settled, eyes-open frame for `mood`, looking where that mood looks.
@@ -133,7 +174,8 @@ final class KnobBotDriver {
     }
 }
 
-/// The Pomodoro page, ticking once a second while `animated`.
+/// The Pomodoro page, ticking once a second while `animated`; otherwise
+/// redrawn only when its inputs change.
 public struct KnobPomoLive: View {
     let state: PomoState?
     let fetchedAt: Date?
@@ -150,11 +192,18 @@ public struct KnobPomoLive: View {
     }
 
     public var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { tl in
-            KnobFaceView(.pomodoro(KnobPomoFace(state: state, fetchedAt: fetchedAt, now: animated ? tl.date : .now,
-                                                note: note, theme: theme.pomodoro)),
-                         theme: theme, brightness: brightness)
+        if animated {
+            TimelineView(.periodic(from: .now, by: 1)) { tl in face(at: tl.date) }
+        } else {
+            face(at: fetchedAt ?? .now)
         }
+    }
+
+    private func face(at now: Date) -> some View {
+        KnobFaceView(.pomodoro(KnobPomoFace(state: state, fetchedAt: fetchedAt, now: now, note: note,
+                                            theme: theme.pomodoro)),
+                     theme: theme, brightness: brightness)
+        .equatable()
     }
 }
 
