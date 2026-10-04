@@ -16,19 +16,19 @@ struct KnobOverviewCard: View {
             HStack(alignment: .center, spacing: 20) {
                 HStack(alignment: .top, spacing: 0) {
                     gauge("Processor", value: l?.cpuAverage, in: 0...100, text: l?.cpuAverage.map(KnobFormat.percent),
-                          tint: Gradient(colors: [.green, .yellow, .orange]),
+                          tint: Self.level(l?.cpuAverage, good: { $0 < 70 }, fair: { $0 < KnobReadout.busyCPU }),
                           warn: (l?.cpuAverage ?? 0) > KnobReadout.busyCPU)
                     gauge("Temperature", value: l?.tempC, in: 20...85, text: l?.tempC.map(KnobFormat.celsius),
-                          tint: Gradient(colors: [.teal, .yellow, .orange, .red]),
+                          tint: Self.level(l?.tempC, good: { $0 < 60 }, fair: { $0 < KnobReadout.hotC }),
                           warn: (l?.tempC ?? 0) > KnobReadout.hotC)
                     gauge("Wi-Fi", value: l?.rssiDBm.map(Double.init), in: -90 ... -30,
                           text: l?.rssiDBm.map { KnobFormat.dbm(Double($0)) },
-                          tint: Gradient(colors: [.red, .orange, .yellow, .green]),
+                          tint: Self.level(l?.rssiDBm.map(Double.init), good: { $0 >= -67 }, fair: { $0 >= Double(ClockHealthReadout.weakRSSI) }),
                           warn: l?.rssiDBm.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false)
                     if stats.diagnostics == .full {
                         gauge("Frame rate", value: l?.renderFPS, in: 0...KnobReadout.targetFPS,
                               text: l?.renderFPS.map(KnobFormat.fps),
-                              tint: Gradient(colors: [.red, .orange, .green]), warn: false)
+                              tint: Self.level(l?.renderFPS, good: { $0 >= 24 }, fair: { $0 >= 15 }), warn: false)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -46,7 +46,7 @@ struct KnobOverviewCard: View {
     }
 
     private func gauge(_ title: LocalizedStringKey, value: Double?, in range: ClosedRange<Double>, text: String?,
-                       tint: Gradient, warn: Bool) -> some View {
+                       tint: Color, warn: Bool) -> some View {
         VStack(spacing: 8) {
             Gauge(value: min(max(value ?? range.lowerBound, range.lowerBound), range.upperBound), in: range) {
                 Text(title)
@@ -111,6 +111,14 @@ struct KnobOverviewCard: View {
                                      .joined(separator: ", ")))
     }
 
+    /// The arc colour for a reading: green when normal, yellow when fair,
+    /// orange past that; a fuller arc always means more of the quantity.
+    static func level(_ v: Double?, good: (Double) -> Bool, fair: (Double) -> Bool) -> Color {
+        guard let v else { return .secondary }
+        if good(v) { return .green }
+        return fair(v) ? .yellow : .orange
+    }
+
     /// The ESP-IDF reset reason the knob reported, in words.
     static func resetReason(_ raw: String) -> String {
         switch raw {
@@ -129,7 +137,7 @@ struct KnobOverviewCard: View {
 /// A 270° ring gauge at a real size (the system's accessory style is fixed
 /// at watch-complication size): track, tinted value arc, value in the middle.
 struct KnobRingGaugeStyle: GaugeStyle {
-    let tint: Gradient
+    let tint: Color
     var diameter: CGFloat = 76
 
     func makeBody(configuration: Configuration) -> some View {
@@ -142,8 +150,7 @@ struct KnobRingGaugeStyle: GaugeStyle {
                 .rotationEffect(.degrees(135))
             Circle()
                 .trim(from: 0, to: span * configuration.value)
-                .stroke(AngularGradient(gradient: tint, center: .center, startAngle: .degrees(0), endAngle: .degrees(360 * span)),
-                        style: StrokeStyle(lineWidth: line, lineCap: .round))
+                .stroke(tint, style: StrokeStyle(lineWidth: line, lineCap: .round))
                 .rotationEffect(.degrees(135))
             configuration.currentValueLabel
                 .font(.system(.callout, design: .rounded).weight(.semibold))
