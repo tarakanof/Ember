@@ -59,6 +59,20 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(next.patch(from: s) == ["diagnostics": .string("basic")])
 }
 
+@Test func knobSettingsIntervalsDecodeAndPatch() throws {
+    let base = #"{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"diagnostics":"full""#
+    let old = try JSONDecoder().decode(KnobSettings.self, from: Data((base + "}").utf8))
+    #expect(old.statsIntervalS == nil && old.liveIntervalS == nil)
+    #expect(old.patch(from: old).isEmpty)
+    #expect(try JSONValue.object(encoding: old)?["stats_interval_s"] == nil, "an older server never sees the keys")
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data((base + #","stats_interval_s":60,"live_interval_s":5}"#).utf8))
+    #expect(s.statsIntervalS == 60 && s.liveIntervalS == 5)
+    var next = s
+    next.statsIntervalS = 300
+    next.liveIntervalS = 2
+    #expect(next.patch(from: s) == ["stats_interval_s": .int(300), "live_interval_s": .int(2)])
+}
+
 @Test func knobServiceStatsAndLiveRoutes() async throws {
     let seen = LockedBox()
     let client = stubbedClient { req in

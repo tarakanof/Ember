@@ -142,16 +142,23 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     /// What the knob reports for the Dashboard; a pre-#239 server has no
     /// such field and reads as off.
     public var diagnostics: KnobDiagnostics
+    /// How often the knob sends stats, and its checkin period in live mode
+    /// (#249); nil from a server that has no such setting.
+    public var statsIntervalS: Int?
+    public var liveIntervalS: Int?
 
     enum CodingKeys: String, CodingKey {
         case brightness, pages, home, bot, diagnostics
         case pollMS = "poll_ms"
+        case statsIntervalS = "stats_interval_s"
+        case liveIntervalS = "live_interval_s"
     }
 
     public init(brightness: Brightness, pages: [Page], home: String, pollMS: Int, bot: Bot,
-                diagnostics: KnobDiagnostics = .off) {
+                diagnostics: KnobDiagnostics = .off, statsIntervalS: Int? = nil, liveIntervalS: Int? = nil) {
         self.brightness = brightness; self.pages = pages; self.home = home; self.pollMS = pollMS; self.bot = bot
         self.diagnostics = diagnostics
+        self.statsIntervalS = statsIntervalS; self.liveIntervalS = liveIntervalS
     }
 
     public init(from decoder: Decoder) throws {
@@ -162,6 +169,8 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         pollMS = try c.decode(Int.self, forKey: .pollMS)
         bot = try c.decode(Bot.self, forKey: .bot)
         diagnostics = try c.decodeIfPresent(KnobDiagnostics.self, forKey: .diagnostics) ?? .off
+        statsIntervalS = try c.decodeIfPresent(Int.self, forKey: .statsIntervalS)
+        liveIntervalS = try c.decodeIfPresent(Int.self, forKey: .liveIntervalS)
     }
 
     /// The server's defaults (`defaultKnobSettings`).
@@ -175,6 +184,9 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public static let pollRange = 1000...10000
     public static let sleepyRange = 0...86400
     public static let demoHoldRange = 1...600
+    /// The server's allowed `stats_interval_s` and `live_interval_s` values.
+    public static let statsIntervals = [30, 60, 120, 300]
+    public static let liveIntervals = [2, 5, 10]
 
     /// The changed fields as a merge-PUT body: nested objects carry only
     /// their changed fields, `pages` goes whole.

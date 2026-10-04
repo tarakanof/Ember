@@ -15,6 +15,12 @@ public enum DurationText {
             Duration.UnitsFormatStyle(allowedUnits: [.hours, .minutes], width: .narrow).locale(locale))
     }
 
+    /// A reporting interval: "2 sec", "30 sec", "5 min".
+    public static func interval(_ seconds: Int, locale: Locale = .current) -> String {
+        Duration.seconds(max(0, seconds)).formatted(
+            Duration.UnitsFormatStyle(allowedUnits: [.minutes, .seconds], width: .abbreviated).locale(locale))
+    }
+
     /// An uptime: the two largest units, "6h 40m", "3d 4h", "12m".
     public static func uptime(_ seconds: Int, locale: Locale = .current) -> String {
         Duration.seconds(max(0, seconds)).formatted(

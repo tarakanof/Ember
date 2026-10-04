@@ -365,6 +365,7 @@
     "A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours, in Sounds & Alerts, mute all of these." : {},
     "A permission Ember needs is off." : {},
     "A shorter check interval shows changes sooner and uses a little more power." : {},
+    "A shorter check interval shows changes sooner and uses a little more power. Live stats are sent only while the knob's stats are open in Ember. Shorter stats intervals mean more requests from the knob and more memory on the server." : {},
     "AQI %lld" : {
       "comment" : "Settings › Weather: an air quality index threshold (European AQI)."
     },
@@ -858,6 +859,7 @@
     "Light level" : {},
     "Line" : {},
     "Live" : {},
+    "Live stats every" : {},
     "Loading" : {},
     "Loading…" : {},
     "Local Network" : {},
@@ -1251,6 +1253,7 @@
     "Searching the local network…" : {},
     "Searching…" : {},
     "Second model" : {},
+    "Send stats every" : {},
     "Sensor Calibration" : {},
     "Sensors" : {},
     "Separator" : {},
