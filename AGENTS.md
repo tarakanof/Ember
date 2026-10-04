@@ -74,6 +74,9 @@ Agent rules:
 - **Knob on USB** (`/dev/cu.usbmodem*`, 303a:1001, shared with esptool/idf.py
   monitor): open it only on an explicit user action; never toggle DTR/RTS (RTS
   resets the board).
+- **The knob is live and paired** (device `knob-61fc8c` on the live server): never
+  repoint it to a scratch server or token, or re-mint it, without asking the user;
+  if allowed, restore it and confirm a live checkin before reporting.
 - **Scratch files**: unique names per task (parallel agents share one scratchpad);
   the PR comment, not a scratch file, is the source of truth for review findings.
 
