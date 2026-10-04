@@ -41,7 +41,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `ember-codex-producer
 
 Usage:
-  ember-codex-producer [run]      # daemon: tail Codex rollout files, POST status (default)
+  ember-codex-producer [run]      # daemon: tail Codex rollouts + watch the app-server daemon, POST status (default)
   ember-codex-producer install [--headless]  # install + start the service (LaunchAgent / systemd --user)
   ember-codex-producer uninstall  # stop + remove the service
   ember-codex-producer configure  # file-only setup (no service)
@@ -54,5 +54,6 @@ Usage:
 Configuration:
   ~/.config/ember/producer.env (shared with the Claude producer)
   EMBER_SERVER_URL empty or "auto" finds the server over mDNS (_ember._tcp).
+  EMBER_CODEX_APPSERVER=0 stops watching the Codex app-server daemon socket.
   --headless: no Ember.app on this Mac (auto-detected; always so on Linux).`)
 }

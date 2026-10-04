@@ -56,6 +56,12 @@ type watcher struct {
 	// newest rate-limit snapshot across all sessions.
 	usageFP       string
 	usagePostedAt time.Time
+	// owned are session ids the app-server source covers; the watcher keeps
+	// folding their rollouts but posts nothing for them (set before tick).
+	owned map[string]bool
+	// rateExtra is the app-server's account rate snapshot, a candidate for
+	// the newest /v1/usage snapshot (set before tick; nil when absent).
+	rateExtra *derived
 	// reads counts rollout opens, for tests.
 	reads int
 }
@@ -213,6 +219,12 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 		ss.derived.expireWindows(now)
 		ss.lastModified = info.ModTime()
+		if w.owned[ss.uuid] {
+			// The app-server source posts this session. Forget the watcher's
+			// post so it neither DELETEs it nor waits to post on release.
+			ss.lastPostedAt, ss.fingerprint = time.Time{}, ""
+			continue
+		}
 		if ss.derived.state == "" {
 			continue
 		}
@@ -272,6 +284,9 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 			newest = d
 		}
 	}
+	if x := w.rateExtra; x != nil && (newest == nil || x.rateAt.After(newest.rateAt)) {
+		newest = x
+	}
 	if newest == nil {
 		return producer.UsageRequest{}, false
 	}
@@ -285,6 +300,16 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 	}
 	w.usageFP, w.usagePostedAt = fp, now
 	return u, true
+}
+
+// posted reports whether the watcher holds a posted session with this id.
+func (w *watcher) posted(id string) bool {
+	for _, ss := range w.sessions {
+		if ss.uuid == id && !ss.lastPostedAt.IsZero() {
+			return true
+		}
+	}
+	return false
 }
 
 func viaClaudeMessage(msg string) string {

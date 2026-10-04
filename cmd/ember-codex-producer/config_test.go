@@ -350,3 +350,28 @@ func TestLoadConfig_CodexSourcesAndClaude(t *testing.T) {
 		t.Errorf("got sources %q include_claude %v", sourceList(cfg.Sources), cfg.IncludeClaude)
 	}
 }
+
+func TestLoadConfig_AppServerDefaultsOnAtCodexHomeSocket(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
+	home := writeEnv(t, "EMBER_SOURCE=mbp\n")
+	cfg, _ := loadConfig()
+	if !cfg.AppServerEnabled {
+		t.Error("AppServerEnabled should default true (a no-op without the socket)")
+	}
+	if want := filepath.Join(home, ".codex", "app-server-control", "app-server-control.sock"); cfg.AppServerSocket != want {
+		t.Errorf("AppServerSocket = %q, want %q", cfg.AppServerSocket, want)
+	}
+	t.Setenv("CODEX_HOME", "/opt/ch")
+	cfg, _ = loadConfig()
+	if cfg.AppServerSocket != "/opt/ch/app-server-control/app-server-control.sock" {
+		t.Errorf("CODEX_HOME ignored: %q", cfg.AppServerSocket)
+	}
+}
+
+func TestLoadConfig_AppServerDisabled(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_CODEX_APPSERVER=0\n")
+	cfg, _ := loadConfig()
+	if cfg.AppServerEnabled {
+		t.Error("EMBER_CODEX_APPSERVER=0 should disable the app-server source")
+	}
+}

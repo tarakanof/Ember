@@ -44,6 +44,13 @@ type Config struct {
 	// IncludeClaude shows sessions Claude Code's Codex plugin starts
 	// (EMBER_CODEX_INCLUDE_CLAUDE), marked "via Claude".
 	IncludeClaude bool
+	// AppServerEnabled observes TUI sessions through the Codex app-server
+	// daemon socket when it exists (EMBER_CODEX_APPSERVER, default on).
+	AppServerEnabled bool
+	// AppServerSocket is $CODEX_HOME/app-server-control/app-server-control.sock.
+	AppServerSocket string
+	// CodexHome is $CODEX_HOME, else ~/.codex.
+	CodexHome string
 }
 
 // defaultSources are the interactive Codex front ends: the TUI and the
@@ -114,6 +121,8 @@ func (c Config) LogValue() slog.Value {
 		slog.String("state_dir", c.StateDir),
 		slog.String("sources", sourceList(c.Sources)),
 		slog.Bool("include_claude", c.IncludeClaude),
+		slog.Bool("appserver_enabled", c.AppServerEnabled),
+		slog.String("appserver_socket", c.AppServerSocket),
 	)
 }
 
@@ -128,6 +137,8 @@ func loadConfig() (Config, error) {
 		ActivityTrailEnabled:  true,
 		SourceCardEnabled:     true,
 		SessionBarEnabled:     true,
+		AppServerEnabled:      true,
+		CodexHome:             filepath.Join(home, ".codex"),
 		PollIntervalMs:        defaultPollIntervalMs,
 		ActivityWindowSeconds: defaultActivityWindowSeconds,
 		SessionsDir:           filepath.Join(home, ".codex", "sessions"),
@@ -215,12 +226,23 @@ func loadConfig() (Config, error) {
 			case "true", "1", "yes", "on":
 				cfg.IncludeClaude = true
 			}
+		case "EMBER_CODEX_APPSERVER":
+			switch strings.ToLower(v) {
+			case "false", "0", "no", "off":
+				cfg.AppServerEnabled = false
+			case "true", "1", "yes", "on", "":
+				cfg.AppServerEnabled = true
+			}
 		case "EMBER_CODEX_SESSIONS_DIR":
 			if v != "" {
 				cfg.SessionsDir = v
 			}
 		}
 	}
+	if ch := os.Getenv("CODEX_HOME"); ch != "" {
+		cfg.CodexHome = ch
+	}
+	cfg.AppServerSocket = appServerSocket(cfg.CodexHome)
 	cfg.Source = producer.ResolveSource(cfg.Source)
 	cfg.ServerConfigured = cfg.ServerURL
 	cfg.ServerURL, cfg.ServerAuto = producer.ResolveServerURL(home, cfg.ServerURL, cfg.ServerInstance)

@@ -51,6 +51,11 @@ func runDoctor() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	actx, acancel := context.WithTimeout(ctx, 3*time.Second)
+	for _, l := range appServerReport(actx, cfg) {
+		fmt.Println("  " + l)
+	}
+	acancel()
 	for _, l := range producer.ServerReport(ctx, producer.ServerReportInput{Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance, Home: home}) {
 		fmt.Println("  " + l)
 	}
