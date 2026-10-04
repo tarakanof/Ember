@@ -1,6 +1,8 @@
 {
   "device_id": "knob-61fc8c",
   "diagnostics": "off",
+  "stats_interval_s": 60,
+  "live_interval_s": 5,
   "range": "1h",
   "online": false,
   "last_seen": null,

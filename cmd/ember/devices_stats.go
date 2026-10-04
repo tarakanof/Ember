@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	// knobStatsLiveCap holds 10 min of 5 s live samples.
-	knobStatsLiveCap = int(statsLiveWindow / (5 * time.Second))
+	// knobStatsLiveCap holds 10 min of samples at the shortest live
+	// interval (2 s, #249).
+	knobStatsLiveCap = int(statsLiveWindow / (2 * time.Second))
 	// knobLiveMax caps one POST /stats/live; the app extends it while its
 	// dashboard is open.
 	knobLiveMax     = 10 * time.Minute
@@ -332,15 +333,19 @@ func (k *knobStatsStore) points(id, rng string, now time.Time) ([]knobSample, *k
 
 // knobStatsView is GET /v1/devices/{id}/stats.
 type knobStatsView struct {
-	DeviceID    string       `json:"device_id"`
-	Diagnostics string       `json:"diagnostics"`
-	Range       string       `json:"range"`
-	Online      bool         `json:"online"`
-	LastSeen    *time.Time   `json:"last_seen"`
-	LiveUntil   *time.Time   `json:"live_until"`
-	ResetReason *string      `json:"reset_reason"`
-	Latest      *knobSample  `json:"latest"`
-	Points      []knobSample `json:"points"`
+	DeviceID    string `json:"device_id"`
+	Diagnostics string `json:"diagnostics"`
+	// The knob's configured intervals, so a client can poll and break its
+	// lines at the cadence the samples arrive.
+	StatsIntervalS int          `json:"stats_interval_s"`
+	LiveIntervalS  int          `json:"live_interval_s"`
+	Range          string       `json:"range"`
+	Online         bool         `json:"online"`
+	LastSeen       *time.Time   `json:"last_seen"`
+	LiveUntil      *time.Time   `json:"live_until"`
+	ResetReason    *string      `json:"reset_reason"`
+	Latest         *knobSample  `json:"latest"`
+	Points         []knobSample `json:"points"`
 }
 
 func (a *App) handleKnobStats(w http.ResponseWriter, r *http.Request) {
@@ -367,13 +372,19 @@ func (a *App) buildKnobStats(id, rng string, now time.Time) (knobStatsView, erro
 	if err != nil {
 		return knobStatsView{}, err
 	}
+	cfg, _, err := a.devices.config(id)
+	if err != nil {
+		return knobStatsView{}, err
+	}
 	points, latest := a.knobStats.points(id, rng, now)
 	v := knobStatsView{
-		DeviceID:    id,
-		Diagnostics: diag,
-		Range:       rng,
-		Points:      points,
-		Latest:      latest,
+		DeviceID:       id,
+		Diagnostics:    diag,
+		StatsIntervalS: cfg.StatsIntervalS,
+		LiveIntervalS:  cfg.LiveIntervalS,
+		Range:          rng,
+		Points:         points,
+		Latest:         latest,
 	}
 	if diag != knobDiagOff {
 		v.LiveUntil = a.knobStats.liveUntil(id, now)

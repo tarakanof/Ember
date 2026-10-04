@@ -5,6 +5,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -51,15 +53,17 @@ func (f *statsFixture) checkinStats(t *testing.T, stats string) (*http.Response,
 }
 
 type statsResp struct {
-	DeviceID    string           `json:"device_id"`
-	Diagnostics string           `json:"diagnostics"`
-	Range       string           `json:"range"`
-	Online      bool             `json:"online"`
-	LastSeen    *time.Time       `json:"last_seen"`
-	LiveUntil   *time.Time       `json:"live_until"`
-	ResetReason *string          `json:"reset_reason"`
-	Latest      map[string]any   `json:"latest"`
-	Points      []map[string]any `json:"points"`
+	DeviceID       string           `json:"device_id"`
+	Diagnostics    string           `json:"diagnostics"`
+	StatsIntervalS int              `json:"stats_interval_s"`
+	LiveIntervalS  int              `json:"live_interval_s"`
+	Range          string           `json:"range"`
+	Online         bool             `json:"online"`
+	LastSeen       *time.Time       `json:"last_seen"`
+	LiveUntil      *time.Time       `json:"live_until"`
+	ResetReason    *string          `json:"reset_reason"`
+	Latest         map[string]any   `json:"latest"`
+	Points         []map[string]any `json:"points"`
 }
 
 func (f *statsFixture) stats(t *testing.T, rng string) statsResp {
@@ -514,5 +518,135 @@ func TestKnobStatsRecordEmberBrightness(t *testing.T) {
 	want := f.app.currentBrightness(f.clk.Now()).Level
 	if got := num(t, f.stats(t, "15m").Latest, "brightness_level"); got != float64(want) {
 		t.Fatalf("brightness_level = %v, want Ember's level %d at the checkin", got, want)
+	}
+}
+
+func TestKnobSettingsIntervalDefaults(t *testing.T) {
+	d := defaultKnobSettings()
+	if d.StatsIntervalS != knobStatsIntervalDefault || d.LiveIntervalS != knobLiveIntervalDefault {
+		t.Fatalf("defaults = %d/%d, want %d/%d", d.StatsIntervalS, d.LiveIntervalS, knobStatsIntervalDefault, knobLiveIntervalDefault)
+	}
+	if !slices.Contains(knobStatsIntervals, d.StatsIntervalS) || !slices.Contains(knobLiveIntervals, d.LiveIntervalS) {
+		t.Fatalf("defaults %d/%d not in the allowed sets", d.StatsIntervalS, d.LiveIntervalS)
+	}
+	if err := d.validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDeviceConfigPutIntervalsMergeAndValidate(t *testing.T) {
+	f := newStatsFixture(t)
+	resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"stats_interval_s":120,"live_interval_s":2}`)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"stats_interval_s":120`) || !strings.Contains(string(b), `"live_interval_s":2`) {
+		t.Fatalf("put = %d: %s", resp.StatusCode, b)
+	}
+	for _, body := range []string{`{"stats_interval_s":45}`, `{"stats_interval_s":0}`, `{"live_interval_s":3}`, `{"live_interval_s":"5"}`} {
+		if resp, b := devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, body); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("put %s = %d, want 400: %s", body, resp.StatusCode, b)
+		}
+	}
+	resp, b = devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"poll_ms":3000}`)
+	if !strings.Contains(string(b), `"stats_interval_s":120`) || !strings.Contains(string(b), `"live_interval_s":2`) {
+		t.Fatalf("unrelated put dropped the intervals: %d %s", resp.StatusCode, b)
+	}
+}
+
+func TestDevicesLoadFillsMissingIntervals(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	blob, _, _ := app.store.GetSetting(devicesKey)
+	legacy := regexp.MustCompile(`,"(stats|live)_interval_s":\d+`).ReplaceAllString(blob, "")
+	if legacy == blob {
+		t.Fatalf("stored blob lacks the intervals: %s", blob)
+	}
+	if err := app.store.PutSetting(devicesKey, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.devices.load(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := app.devices.config(m.ID)
+	if err != nil || cfg.StatsIntervalS != knobStatsIntervalDefault || cfg.LiveIntervalS != knobLiveIntervalDefault {
+		t.Fatalf("intervals after legacy load = %d/%d (%v)", cfg.StatsIntervalS, cfg.LiveIntervalS, err)
+	}
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("legacy config invalid after load: %v", err)
+	}
+}
+
+func TestKnobCheckinDeliversIntervals(t *testing.T) {
+	f := newStatsFixture(t)
+	devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken, `{"stats_interval_s":300,"live_interval_s":10}`)
+	_, out := f.checkinStats(t, "")
+	cfg, _ := out["config"].(map[string]any)
+	if cfg["stats_interval_s"] != float64(300) || cfg["live_interval_s"] != float64(10) {
+		t.Fatalf("checkin config = %v, want the intervals", out)
+	}
+	resp, b := devReq(t, f.srv, "GET", "/v1/devices/self/view", f.m.Token, "")
+	var v map[string]any
+	_ = json.Unmarshal(b, &v)
+	if resp.StatusCode != http.StatusOK || v["config_version"] != float64(2) {
+		t.Fatalf("view = %d %s, want config_version 2 so the knob fetches the change", resp.StatusCode, b)
+	}
+	st := f.stats(t, "1h")
+	if st.StatsIntervalS != 300 || st.LiveIntervalS != 10 {
+		t.Fatalf("stats view intervals = %d/%d, want 300/10", st.StatsIntervalS, st.LiveIntervalS)
+	}
+}
+
+func TestKnobStatsLiveRingHoldsTenMinutesAtTwoSeconds(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "basic")
+	for range 330 { // 11 min at 2 s
+		f.clk.advance(2 * time.Second)
+		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(deviceCheckin{RSSI: -60}, &knobStatsReport{PeriodMS: 2000}))
+	}
+	pts := f.stats(t, "15m").Points
+	var live int
+	cut := f.clk.Now().Add(-statsLiveWindow)
+	for _, p := range pts {
+		if ts, _ := time.Parse(time.RFC3339, p["t"].(string)); !ts.Before(cut) {
+			live++
+		}
+	}
+	if live < 300 {
+		t.Fatalf("15m has %d samples in the last 10 min, want 300 (2 s live interval)", live)
+	}
+}
+
+func TestKnobStatsMinuteRingDropsOlderThanADay(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "basic")
+	for range 2 * 24 * 12 { // two days at 5 min
+		f.clk.advance(5 * time.Minute)
+		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(deviceCheckin{RSSI: -60}, &knobStatsReport{PeriodMS: 300000}))
+	}
+	if n := f.app.knobStats.minuteLen(f.m.ID); n > 24*12+1 {
+		t.Fatalf("minute ring holds %d buckets at a 5 min interval, want <= %d (24 h)", n, 24*12+1)
+	}
+	if n := len(f.stats(t, "24h").Points); n < 24*12-1 {
+		t.Fatalf("24h points = %d, want a day of 5 min buckets", n)
+	}
+}
+
+func TestSampleRingKeepsOrderWhenGrowingAfterDrops(t *testing.T) {
+	r := newSampleRing[knobSample](8)
+	t0 := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	at := func(i int) knobSample { return knobSample{T: t0.Add(time.Duration(i) * time.Minute)} }
+	for i := range 4 {
+		r.push(at(i))
+	}
+	r.dropBefore(at(2).T) // start 2, len 2
+	for i := 4; i < 11; i++ {
+		r.push(at(i))
+	}
+	got := r.since(time.Time{})
+	if len(got) != 8 {
+		t.Fatalf("len = %d, want 8", len(got))
+	}
+	for i, s := range got {
+		if want := at(i + 3).T; !s.T.Equal(want) {
+			t.Fatalf("[%d] = %v, want %v (order lost)", i, s.T, want)
+		}
 	}
 }

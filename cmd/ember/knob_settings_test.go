@@ -76,7 +76,8 @@ func TestKnobSettingsWireShape(t *testing.T) {
 	}
 	want := `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
 		`"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true}],` +
-		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"diagnostics":"off"}`
+		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"diagnostics":"off",` +
+		`"stats_interval_s":60,"live_interval_s":5}`
 	if string(b) != want {
 		t.Fatalf("wire shape\n got %s\nwant %s", b, want)
 	}

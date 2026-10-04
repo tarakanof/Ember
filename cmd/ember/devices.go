@@ -180,9 +180,7 @@ func readDeviceState(kv settingsKV) (deviceState, error) {
 		return st, fmt.Errorf("decode devices: %w", err)
 	}
 	for i := range st.Devices {
-		if st.Devices[i].Config.Diagnostics == "" {
-			st.Devices[i].Config.Diagnostics = knobDiagOff
-		}
+		st.Devices[i].Config.fillDefaults()
 	}
 	return st, nil
 }
