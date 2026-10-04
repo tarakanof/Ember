@@ -14,8 +14,9 @@ locally) and `claude` CLI.
 
 The script `go install`s `ember-claude-producer` to `$GOBIN`
 (usually `~/go/bin`), installs a LaunchAgent at
-`~/Library/LaunchAgents/com.ember.heartbeat.plist`,
-creates `~/.config/ember/producer.env` from the example,
+`~/Library/LaunchAgents/com.ember.heartbeat.plist` (on Linux a systemd user
+unit `ember-claude-producer.service`; see docs/RUNBOOK.md "Headless / Linux
+producers" and the release archives), creates `~/.config/ember/producer.env` from the example,
 and merges hook entries into `~/.claude/settings.json`.
 
 Then edit the env file:
@@ -122,7 +123,7 @@ can intercept it. HTTPS is future work (sub-project E).
 
 ## Troubleshooting
 
-- **No marker shows up:** `ember-claude-producer doctor` to check config; check `~/Library/Logs/ember-claude-producer.log` for hook errors.
+- **No marker shows up:** `ember-claude-producer doctor` to check config; check `~/Library/Logs/ember-claude-producer.log` (Linux: `~/.local/state/ember/logs/`) for hook errors.
 - **`launchctl bootstrap` fails on install:** an existing LaunchAgent may be loaded under a different name. `launchctl list | grep awtrix` to inspect, then bootout the conflicting one.
 - **`claude` reports "hook command failed"**: hooks always exit 0 by design. If you see this, the binary may not be at the path the install captured. Re-run `install.sh`.
 

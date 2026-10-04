@@ -202,6 +202,8 @@ func TestEmberHook_ForwardsEventAndStdin_NeverFails(t *testing.T) {
 			}},
 		{"go bin", func(h string) string { return filepath.Join(h, "go", "bin", "ember-claude-producer") },
 			func(h, b string) []string { return hermeticEnv(h) }},
+		{"local bin", func(h string) string { return filepath.Join(h, ".local", "bin", "ember-claude-producer") },
+			func(h, b string) []string { return hermeticEnv(h) }},
 		{"app bundle", func(h string) string {
 			return filepath.Join(h, "Apps", "Ember.app", "Contents", "MacOS", "ember-claude-producer")
 		}, func(h, b string) []string { return hermeticEnv(h) }},
@@ -226,5 +228,27 @@ func TestEmberHook_ForwardsEventAndStdin_NeverFails(t *testing.T) {
 				t.Fatalf("producer saw %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestEmberHook_LogsToXDGStateDirWithoutLibraryLogs(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "go", "bin", "ember-claude-producer")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho to-the-log\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logDir := filepath.Join(home, ".local", "state", "ember", "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if r := runEmberHook(t, hermeticEnv(home, "XDG_STATE_HOME="), `{}`, "stop"); r.err != nil || r.stdout != "" {
+		t.Fatalf("err=%v stdout=%q", r.err, r.stdout)
+	}
+	got, _ := os.ReadFile(filepath.Join(logDir, "ember-claude-producer.log"))
+	if !strings.Contains(string(got), "to-the-log") {
+		t.Fatalf("producer output not logged under ~/.local/state/ember/logs: %q", got)
 	}
 }

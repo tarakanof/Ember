@@ -109,7 +109,8 @@ button.
 Details: [`producers/claude-code/README.md`](../producers/claude-code/README.md).
 
 `producer.env` (`~/.config/ember/producer.env`) holds: `source`,
-`EMBER_SERVER_URL`, token, `EMBER_SOURCE_COLOR`, and the `EMBER_*` toggles
+`EMBER_SERVER_URL` (empty or `auto` = mDNS discovery, see "Headless / Linux
+producers"), token, `EMBER_SOURCE_COLOR`, and the `EMBER_*` toggles
 (below). The producer re-reads it each tick — no restart needed.
 
 > **Gotcha:** the auto-mode classifier blocks a chained `go install + install`
@@ -427,6 +428,106 @@ sound). Both persist server-side (`/v1/{weather,reminders}/config` → the SQLit
 store) and survive `/admin/reload`. Weather/reminders run regardless of whether
 Pomodoro is enabled — but they still write to the Pomodoro `db_path` store, so a
 deploy that wants them persisted needs that writable volume mounted.
+
+## Headless / Linux producers
+
+The three Go producers run without Ember.app: on a Linux box running Claude
+Code, Codex or T3 Code (amd64/arm64), or on a Mac where the CLI should own the
+background services (#255).
+
+**Headless mode** means the CLI owns the service and the producer finds the
+server itself. It is automatic on Linux, and on macOS when no `Ember.app` is in
+`/Applications` or `~/Applications`; `install --headless` forces it on a Mac
+with the app (the Ember.app ownership check still refuses a label the app has
+registered). It changes only who manages the service and the hints printed;
+config, hooks, statusline and the wire protocol are the same everywhere.
+
+**Install** from a release (archives `ember-producers_{linux_amd64,linux_arm64,
+darwin_universal}.tar.gz` + `SHA256SUMS`, see "Docker Hub release"):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tarakanof/Ember/main/scripts/install-producers.sh \
+  | sh -s -- --producers "claude codex"     # --version vX.Y.Z, --bin-dir DIR, --no-install
+$EDITOR ~/.config/ember/producer.env        # EMBER_TOKEN=<server bearer token>
+ember-claude-producer doctor
+```
+
+The script detects OS/arch, verifies the archive against `SHA256SUMS`, copies
+the binaries to `~/.local/bin` (put it on `PATH`) and runs
+`<producer> install --headless` for each selected producer. It refuses to run
+as root (per-user services) and, on a Mac with Ember.app, unless `--force`.
+The script runs from `main()` on its last line, so a truncated download does
+nothing. `ember-*-producer discover` finds and caches the server on demand. From source instead:
+`go install ./cmd/ember-claude-producer` then `ember-claude-producer install
+--headless` (run them as separate commands, see the gotcha above).
+
+**Service.** On Linux `install` writes a systemd **user** unit
+`~/.config/systemd/user/ember-{claude,codex,t3}-producer.service`
+(`ExecStart=<binary> run`, `Restart=always`, `Nice=10`), then
+`systemctl --user daemon-reload`, `enable`, `restart` (so a rebuilt binary takes
+over). `uninstall` runs `disable --now`, removes the unit and reloads. `doctor`
+shows `is-active`/`is-enabled` and the linger state. User units stop when your
+last session ends: on a box you SSH into, run `sudo loginctl enable-linger
+$USER` once so they start at boot and keep running. No user bus (a container,
+`su` without a login session) makes `install` fail with that hint; run
+`<producer> run` under your own supervisor then. macOS keeps the LaunchAgents
+(`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`).
+
+**Server discovery.** `EMBER_SERVER_URL` empty (the new template default) or
+`auto` browses `_ember._tcp` for ~3 s: an RFC 6762 legacy unicast query from
+an ephemeral port (answered straight to it, so it works for a plain CLI on
+macOS without multicast access; only replies with the QR bit and our query ID
+count) alongside the regular multicast browse. One server answers → it is
+used and cached in `$XDG_STATE_HOME/ember/server.json` (default
+`~/.local/state`), together with the `EMBER_SERVER_INSTANCE` it was picked
+under (a cache from another preference is ignored). Answers are kept per
+(instance name, URL), so a second host answering as `Ember`, or one server
+with two IPv4 addresses, shows up as several servers: set `EMBER_SERVER_URL`,
+or `EMBER_SERVER_INSTANCE` to one's instance name (`Ember`, `Ember (2)`), host
+name (`unraid`) or IP; `doctor`/`discover` list what was found and say which
+to set. Discovery runs only in `discover`, `doctor`, a headless `install`
+and the daemons; `configure` (what Ember.app runs) stays offline. Hooks and
+the statusline never browse: they use the cache (no cache yet → they stay
+silent until one of those fills it). Daemons wait for a first server with
+backoff (5 s → 5 min) and re-browse in the background after 3 transport
+failures in a row (at most once a minute), so a server that moved to a new IP
+is picked up. The server must advertise (`EMBER_MDNS_ADVERTISE` on) and its
+container must use host networking (see "Discovery & mDNS"); across VLANs or
+where multicast is filtered, set the URL.
+
+> **Trust:** `auto` trusts the LAN. Any host on it can answer `_ember._tcp`,
+> and the producers send `EMBER_TOKEN` to the picked server over plain HTTP.
+> A conflicting answer is reported as ambiguous rather than followed, but a
+> spoofer that is the only answer wins. On shared, guest or otherwise
+> untrusted networks set an explicit `EMBER_SERVER_URL` (ideally https behind
+> a reverse proxy).
+
+Ember.app accepts `auto` in Settings › Connection (it keeps the value and,
+having no URL to call, shows the server as not configured); on a Mac with the
+app, prefer a real URL there.
+
+**Source**: empty `EMBER_SOURCE` defaults to the short host name from
+`os.Hostname` on Linux (`build-1.example.com` → `build-1`,
+`ip-10-0-1-5.ec2.internal` → `ip-10-0-1-5`), max 24 chars.
+
+**Claude Code on Linux**: hooks come from the `ember@ember` plugin
+(`claude plugin marketplace add tarakanof/Ember`, `claude plugin install
+ember@ember`, then `ember-claude-producer configure`) or from `settings.json`
+as `install` writes them; the statusline is the same. The plugin shim finds
+the binary on `PATH`, `~/go/bin` or `~/.local/bin`. Usage polling reads the
+OAuth token from `~/.claude/.credentials.json` (no Keychain on Linux).
+
+**Paths**: config `~/.config/ember/producer.env` (0600); session markers
+`~/.local/state/ember/sessions/` (fixed: shared with Ember.app); the server
+cache and Linux logs follow an absolute `$XDG_STATE_HOME`
+(`$XDG_STATE_HOME/ember/server.json`, `…/ember/logs/<producer>.log`, default
+`~/.local/state`; macOS logs stay in `~/Library/Logs`). `install` copies
+`XDG_STATE_HOME` into the systemd unit so the daemon and the hooks agree.
+`uninstall` leaves `producer.env`, the cache and the logs in place.
+
+**Liveness on Linux** reads `/proc/<pid>/stat` instead of `ps` (BusyBox `ps`
+on Alpine has no `-p`/`lstart`): the Claude session owner walk and its start
+check, and T3's server start time.
 
 ## Device button → Pomodoro control
 
@@ -790,7 +891,15 @@ auto-build** — you cut a Release, the workflow builds + pushes the image, then
 repoint the container. The release workflow
 (`.github/workflows/docker-publish.yml`) fires when a strict-semver `vX.Y.Z`
 GitHub Release is published (or a `workflow_dispatch` on a `vX.Y.Z` tag ref) →
-multi-arch Docker Hub push (SBOM + provenance).
+multi-arch Docker Hub push (SBOM + provenance). The same release event runs
+`.github/workflows/release-producers.yml`: `scripts/package-producers.sh` on a
+macOS runner builds the producers for linux/amd64, linux/arm64 and darwin
+(universal, ad-hoc signed, not notarized) and uploads one `tar.gz` per OS/arch
+plus `SHA256SUMS` to the release (`workflow_dispatch` with `tag` re-attaches
+them; pre-releases are skipped). Archives are reproducible (entries stamped
+with `SOURCE_DATE_EPOCH` or the commit time, sorted, root-owned, `gzip -n`).
+Try it locally with `scripts/package-producers.sh 0.0.0 /tmp/out` (the out dir
+must be empty or hold only earlier archives).
 Requires repo var `DOCKERHUB_USERNAME` + secret `DOCKERHUB_TOKEN` — **set the
 token newline-safe** (`printf '%s' val | gh secret set DOCKERHUB_TOKEN`); a
 trailing newline causes a `malformed HTTP Authorization header` login failure.

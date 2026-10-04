@@ -37,11 +37,18 @@ func runDaemon() {
 	if path, err := producer.LinkStatusPath("claude-producer"); err == nil {
 		daemonLink = producer.NewLinkStatus(path)
 	}
-	if cfg, err := loadConfig(); err != nil || cfg.Source == "" || cfg.ServerURL == "" {
+	cfg, err := loadConfig()
+	if err != nil || cfg.Source == "" || (cfg.ServerURL == "" && !cfg.ServerAuto) {
 		os.Exit(0)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	home, _ := os.UserHomeDir()
+	auto, ok := producer.DaemonServer(ctx, home, cfg.ServerURL, cfg.ServerAuto, cfg.ServerInstance)
+	if !ok {
+		return
+	}
+	daemonServer = auto
 	go usagePollLoop(ctx)
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
@@ -55,8 +62,20 @@ func runDaemon() {
 	}
 }
 
-func heartbeatPass(parent context.Context) {
+// loadDaemonConfig is loadConfig with the daemon's discovered server URL
+// (fresher than the cache file when a re-browse just moved it).
+func loadDaemonConfig() (Config, error) {
 	cfg, err := loadConfig()
+	if err == nil && cfg.ServerAuto && daemonServer != nil {
+		if u := daemonServer.URL(); u != "" {
+			cfg.ServerURL = u
+		}
+	}
+	return cfg, err
+}
+
+func heartbeatPass(parent context.Context) {
+	cfg, err := loadDaemonConfig()
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
 		return
 	}

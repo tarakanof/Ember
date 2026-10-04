@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -50,20 +49,25 @@ func runDaemon() {
 	rotateLog()
 	openDaemonLog()
 	cfg, err := loadConfig()
-	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
+	if err != nil || cfg.Source == "" || (cfg.ServerURL == "" && !cfg.ServerAuto) {
 		fmt.Fprintln(os.Stderr, "t3 producer: EMBER_SOURCE/EMBER_SERVER_URL not set; nothing to do")
 		os.Exit(0)
 	}
 	slog.Info("t3 producer starting", "config", cfg)
-	client := producer.NewClient(cfg.ServerURL, cfg.Token, httpTimeout)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	home, _ := os.UserHomeDir()
+	auto, ok := producer.DaemonServer(ctx, home, cfg.ServerURL, cfg.ServerAuto, cfg.ServerInstance)
+	if !ok {
+		return
+	}
+	client := producer.NewClient(cfg.ServerURL, cfg.Token, httpTimeout).WithAutoServer(auto)
 	if path, err := producer.LinkStatusPath("t3-producer"); err == nil {
 		client.WithLinkStatus(producer.NewLinkStatus(path))
 	}
 	sweepMarkers(cfg.StateDir)
 	d := newDaemon(cfg, client)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	base := time.Duration(cfg.PollIntervalMs) * time.Millisecond
 	failures := 0
 	for {
@@ -159,5 +163,5 @@ func rotateLog() {
 	if err != nil {
 		return
 	}
-	producer.RotateLogIfLarge(filepath.Join(home, "Library", "Logs", "ember-t3-producer.log"), producer.DefaultLogThreshold)
+	producer.RotateLogIfLarge(producer.LogPath(home, "ember-t3-producer"), producer.DefaultLogThreshold)
 }

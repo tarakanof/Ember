@@ -3,9 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -39,6 +37,10 @@ var shellComms = map[string]bool{
 	"ksh": true, "csh": true, "tcsh": true, "login": true, "env": true,
 }
 
+// producerCommLinux is how Linux /proc and ps show this binary: the task
+// name is cut to 15 bytes.
+const producerCommLinux = "ember-claude-pr"
+
 var detectOwner = func() (int, string) {
 	pid := resolveOwner(os.Getppid(), procParentComm)
 	if pid <= 0 {
@@ -56,40 +58,12 @@ func resolveOwner(startPID int, info func(int) (ppid int, comm string, ok bool))
 			return 0
 		}
 		base := filepath.Base(strings.TrimPrefix(comm, "-"))
-		if !shellComms[base] && base != "ember-claude-producer" {
+		if !shellComms[base] && base != "ember-claude-producer" && base != producerCommLinux {
 			return cur
 		}
 		cur = ppid
 	}
 	return 0
-}
-
-func procParentComm(pid int) (int, string, bool) {
-	out, err := exec.Command("ps", "-o", "ppid=,comm=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return 0, "", false
-	}
-	fields := strings.Fields(string(out))
-	if len(fields) < 2 {
-		return 0, "", false
-	}
-	ppid, err := strconv.Atoi(fields[0])
-	if err != nil {
-		return 0, "", false
-	}
-	return ppid, strings.Join(fields[1:], " "), true
-}
-
-func procStart(pid int) (string, bool) {
-	out, err := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return "", false
-	}
-	s := strings.TrimSpace(string(out))
-	if s == "" {
-		return "", false
-	}
-	return s, true
 }
 
 var ownerAlive = func(pid int, start string) bool {

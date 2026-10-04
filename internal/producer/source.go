@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -15,12 +16,22 @@ const SourcePlaceholder = "set-me-to-this-laptop-id"
 const maxSourceLen = 24
 
 // hostNameFuncs are tried in order; tests replace them.
-var hostNameFuncs = []func() (string, error){
-	func() (string, error) {
-		out, err := exec.Command("scutil", "--get", "LocalHostName").Output()
-		return string(out), err
-	},
-	os.Hostname,
+var hostNameFuncs = hostNameFuncsFor(runtime.GOOS)
+
+// hostNameFuncsFor asks scutil for the macOS LocalHostName (the Bonjour name,
+// stable across networks) and falls back to os.Hostname; off macOS (Linux)
+// os.Hostname is the only source.
+func hostNameFuncsFor(goos string) []func() (string, error) {
+	if goos != "darwin" {
+		return []func() (string, error){os.Hostname}
+	}
+	return []func() (string, error){
+		func() (string, error) {
+			out, err := exec.Command("scutil", "--get", "LocalHostName").Output()
+			return string(out), err
+		},
+		os.Hostname,
+	}
 }
 
 // IsPlaceholderSource reports whether v is unset or the template placeholder.

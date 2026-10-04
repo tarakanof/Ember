@@ -161,7 +161,7 @@ func runWrapped(command string, stdin []byte) ([]byte, error) {
 }
 
 func ourStatuslineCommand(binPath string) string {
-	return binPath + ` statusline 2>>$HOME/Library/Logs/ember-claude-producer.log`
+	return binPath + ` statusline 2>>` + producer.LogDirShell() + `/ember-claude-producer.log`
 }
 
 func statusLineIsOurs(v any) bool {

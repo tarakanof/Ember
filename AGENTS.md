@@ -40,8 +40,10 @@ supplied via the `EMBER_TOKEN` environment variable.
   for build, test and local app install: `docs/RUNBOOK.md`. Local app builds sign
   with the identity in `~/.config/ember/signing-identity` (`scripts/build-local.sh`).
 - Producers read `~/.config/ember/producer.env` (0600: `EMBER_SOURCE`,
-  `EMBER_SERVER_URL`, `EMBER_TOKEN`). Claude Code hooks ship as the `ember@ember`
-  plugin from this repo's marketplace; run `ember-claude-producer configure` after
+  `EMBER_SERVER_URL` — empty/`auto` = mDNS discovery, `EMBER_TOKEN`). They also
+  run headless on Linux (systemd `--user` units): RUNBOOK "Headless / Linux
+  producers". Claude Code hooks ship as the `ember@ember` plugin from this
+  repo's marketplace; run `ember-claude-producer configure` after
   installing it so `settings.json` keeps no duplicate hooks.
 - **Git over SSH** can fail inside agent sandboxes (the 1Password agent refuses):
   use `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS
@@ -94,7 +96,9 @@ in-sync `main`. It bumps the macOS app `MARKETING_VERSION` in `macos/project.yml
 `CURRENT_PROJECT_VERSION`, commits, tags `vX.Y.Z`,
 and publishes a GitHub Release — which triggers
 [`docker-publish.yml`](.github/workflows/docker-publish.yml) to build and push the
-server image to Docker Hub (`:X.Y.Z`, `:latest`). It prompts before pushing (`-y`
+server image to Docker Hub (`:X.Y.Z`, `:latest`), and
+[`release-producers.yml`](.github/workflows/release-producers.yml) to attach the
+headless producer archives (linux amd64/arm64, darwin universal) + `SHA256SUMS`. It prompts before pushing (`-y`
 to skip). Afterwards, update the Unraid container to pull the new image.
 
 ## Coding Guidelines
@@ -189,7 +193,9 @@ falling `uptimeSeconds`) to trigger a republish of every pushed app — issue
 #73's Berry boot-ping hook (`POST /hooks/awtrix/boot`, config toggle
 `awtrix.boot_ping`) is the fast path that republishes instantly instead of
 waiting on the 30s watch. The server also advertises itself as `_ember._tcp`
-(default on; `EMBER_MDNS_ADVERTISE=0` to disable). **mDNS in both directions
+(default on; `EMBER_MDNS_ADVERTISE=0` to disable; TXT `version`, `path`); the
+macOS app and headless producers with an empty/`auto` `EMBER_SERVER_URL` find
+it that way (RUNBOOK "Headless / Linux producers"). **mDNS in both directions
 needs the container on host (or macvlan) networking** — multicast doesn't
 cross the default Docker bridge.
 

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -20,7 +23,7 @@ func runDoctor() {
 	fmt.Printf("  config:\n")
 	fmt.Printf("    source     = %q\n", cfg.Source)
 	fmt.Printf("    hint: %s\n", producer.SourceHint(cfg.Source))
-	fmt.Printf("    server_url = %q\n", cfg.ServerURL)
+	fmt.Printf("    server_url = %q\n", cfg.ServerConfigured)
 	if cfg.Token == "" {
 		fmt.Printf("    token      = (unset)\n")
 	} else {
@@ -28,12 +31,22 @@ func runDoctor() {
 	}
 	fmt.Printf("    heartbeat_ttl_hours = %d\n", cfg.HeartbeatTTLHours)
 	fmt.Printf("    hook_timeout_ms     = %d\n", cfg.HookTimeoutMs)
+	fmt.Printf("    done_ttl_seconds    = %d\n", cfg.DoneTTLSeconds)
 
 	envPath := filepath.Join(home, ".config", "ember", "producer.env")
 	if info, err := os.Stat(envPath); err == nil {
 		fmt.Printf("  producer.env: %s mode=%#o\n", envPath, info.Mode().Perm())
 	} else {
 		fmt.Printf("  producer.env: MISSING at %s\n", envPath)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, l := range producer.ServerReport(ctx, producer.ServerReportInput{Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance, Home: home}) {
+		fmt.Println("  " + l)
+	}
+	if h := producer.TokenHint(cfg.Token); h != "" {
+		fmt.Println("  WARNING: " + h)
 	}
 
 	hooksLine, _ := hookRegistrationReport(home)
@@ -52,6 +65,12 @@ func runDoctor() {
 		fmt.Printf("  state dir: not present (%s)\n", stateD)
 	}
 
+	if runtime.GOOS == "linux" {
+		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, producer.CurrentUser()) {
+			fmt.Println("  heartbeat " + l)
+		}
+		return
+	}
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	if _, err := os.Stat(plistPath); err == nil {
 		fmt.Printf("  LaunchAgent: installed at %s\n", plistPath)

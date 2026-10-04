@@ -13,3 +13,9 @@ func TestEnvExample_HasRequiredKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvExample_DefaultsToServerDiscovery(t *testing.T) {
+	if !strings.Contains(EnvExample(), "\nEMBER_SERVER_URL=\n") {
+		t.Errorf("EnvExample() should seed an empty (discovered) EMBER_SERVER_URL:\n%s", EnvExample())
+	}
+}

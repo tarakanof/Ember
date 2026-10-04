@@ -65,6 +65,52 @@ jobs:
       - name: go test -race
         run: go test ./... -race
 
+  producers-cross:
+    name: Producers (cross-compile, install script)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build + vet producers for every release target
+        run: |
+          pkgs="./internal/producer/... ./internal/discovery/... ./cmd/ember-claude-producer/... ./cmd/ember-codex-producer/... ./cmd/ember-t3-producer/..."
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0
+            echo "::group::$target"
+            for p in claude codex t3; do
+              go build -o /dev/null "./cmd/ember-$p-producer"
+            done
+            # shellcheck disable=SC2086 # word-split the package list
+            go vet $pkgs
+            echo "::endgroup::"
+          done
+
+      - name: install-producers.sh test
+        run: scripts/install-producers_test.sh
+
+  producers-arm64:
+    name: Producers (linux/arm64 test -race)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test -race (producers)
+        run: go test -race ./internal/producer/... ./internal/discovery/... ./cmd/ember-claude-producer/... ./cmd/ember-codex-producer/... ./cmd/ember-t3-producer/...
+
   macos:
     name: macOS (swift test, unsigned app build)
     needs: changes

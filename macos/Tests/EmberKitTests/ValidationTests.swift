@@ -37,3 +37,19 @@ import Testing
     #expect((try? validateToken("")) == "")
     #expect((try? validateToken("bad\u{01}ctrl")) == nil)
 }
+
+@Test func serverURLAcceptsProducerAutoDiscovery() {
+    #expect((try? validateServerURL("auto")) == "auto")
+    #expect((try? validateServerURL(" AUTO ")) == "auto")
+    #expect((try? validateServerURL("autox")) == nil)
+}
+
+@Test func connectionPaneSavesWithAutoServerURL() throws {
+    var env = EnvFile(parsing: "EMBER_SOURCE=build-1\nEMBER_SERVER_URL=auto\nEMBER_TOKEN=t\n")
+    let s = ConnectionSettings(reading: env)
+    var edited = s
+    edited.sourceColor = "#112233"
+    try edited.applyTolerant(to: &env, token: nil)
+    #expect(env.get("EMBER_SERVER_URL") == "auto")
+    #expect(env.get("EMBER_SOURCE_COLOR") == "#112233")
+}
