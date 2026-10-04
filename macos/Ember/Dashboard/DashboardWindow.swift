@@ -28,6 +28,10 @@ struct DashboardWindow: View {
             guard isVisible else { return }
             await env.live.track(Self.heldFeeds)
         }
+        .task(id: KnobPoll(visible: isVisible, knobID: env.knob.knob?.id)) {
+            guard isVisible, let id = env.knob.knob?.id else { return }
+            await env.knobStats.run(deviceID: id)
+        }
         .task(id: env.serverURL) { await loadConfigs() }
         .onReceive(NotificationCenter.default.publisher(for: .emberRefreshRequested)) { _ in
             Task { await loadConfigs() }
@@ -45,18 +49,31 @@ struct DashboardWindow: View {
                 Button("Open Connection Settings") { openSettings(.app(.connection), using: openWindow) }
             }
         } else {
-            ScrollView {
-                DashboardContent(source: LiveDashboardSource(env: env, clockWebURL: clockWebURL),
-                                 onRetry: refresh)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    DashboardContent(source: LiveDashboardSource(env: env, clockWebURL: clockWebURL),
+                                     onRetry: refresh)
+                }
+                .onChange(of: env.dashboardScrollTarget, initial: true) { _, target in
+                    scroll(to: target, with: proxy)
+                }
+                .onChange(of: env.knob.knob?.id) { _, _ in scroll(to: env.dashboardScrollTarget, with: proxy) }
             }
             .overlay(alignment: .bottom) { ActionErrorBanner() }
         }
     }
 
+    private func scroll(to target: String?, with proxy: ScrollViewProxy) {
+        guard let target, target != KnobDashboardSection.anchor || env.knob.knob != nil else { return }
+        withAnimation { proxy.scrollTo(target, anchor: .top) }
+        env.dashboardScrollTarget = nil
+    }
+
     private func loadConfigs() async {
         async let pomodoro: Void = env.settings.pomodoro.load()
         async let meetings: Void = env.settings.meetings.load()
-        _ = await (pomodoro, meetings)
+        async let knob: Void = env.knob.load()
+        _ = await (pomodoro, meetings, knob)
         clockWebURL = try? await env.connection.device.config().webURL
     }
 
@@ -132,12 +149,31 @@ struct LiveDashboardSource: DashboardSource, Equatable {
     var meetingsEnabled: Bool? { env.settings.meetings.applied?.enabled }
     var calendar: Calendar { .current }
     var fixedNow: Date? { nil }
+    var knob: KnobDashboardInput? {
+        guard let k = env.knob.knob else { return nil }
+        let env = env
+        return KnobDashboardInput(
+            knobID: k.id, name: k.name, firmware: k.lastCheckin?.fw.nonEmpty,
+            stats: env.knobStats.stats, range: env.knobStats.range,
+            setRange: { r in
+                env.knobStats.range = r
+                Task { await env.knobStats.refresh(deviceID: k.id) }
+            },
+            setDiagnostics: { level in Task { await env.setKnobDiagnostics(level) } },
+            savingDiagnostics: env.knobDiagnosticsSaving,
+            diagnosticsError: env.knobDiagnosticsError)
+    }
     var actions: DashboardActions {
         let runner = env.actions
         return DashboardActions(clock: { action in Task { await runner.run(.clock(action)) } },
                                 running: runner.running, displayPower: env.live.displayPower,
                                 pendingDisplayPower: runner.pendingDisplayPower)
     }
+}
+
+private struct KnobPoll: Hashable {
+    let visible: Bool
+    let knobID: String?
 }
 
 extension Notification.Name {

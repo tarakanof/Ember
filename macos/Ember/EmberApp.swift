@@ -88,6 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let env = AppEnvironment()
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        #if DEBUG
+        KnobSnapshotRenderer.runIfRequested()
+        #endif
         NSApp.setActivationPolicy(.accessory)
         BotAnimator.shared.activationPolicyDidChange(.accessory)
         let nc = NotificationCenter.default

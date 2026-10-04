@@ -25,6 +25,8 @@ protocol DashboardSource {
     var calendar: Calendar { get }
     var fixedNow: Date? { get }
     var actions: DashboardActions { get }
+    /// The knob section; nil when no knob is registered.
+    var knob: KnobDashboardInput? { get }
 }
 
 extension DashboardSource {
@@ -71,6 +73,7 @@ struct DashboardData: DashboardSource {
     var now = Date()
     var calendar = Calendar.current
     var actions = DashboardActions()
+    var knob: KnobDashboardInput?
     var fixedNow: Date? { now }
 }
 

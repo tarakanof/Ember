@@ -83,6 +83,10 @@ struct DashboardContent<Source: DashboardSource>: View {
                     }
                 }
             }
+            if let knob = source.knob {
+                KnobDashboardSection(input: knob, columns: columns, now: source.fixedNow ?? Date())
+                    .padding(.top, 12)
+            }
         }
         .padding(20)
         .onGeometryChange(for: Int.self) { DashboardLayout.columns(forWidth: $0.size.width) } action: { columns = $0 }

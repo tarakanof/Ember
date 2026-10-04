@@ -23,15 +23,18 @@ public enum KnobStatsFake {
             let step: TimeInterval = range == .fifteenMinutes && live && back <= 600 ? 5 : range.spacing
             t = t.addingTimeInterval(step)
         }
-        let points = times.map { sample(at: $0, diagnostics: diagnostics, psram: psram) }
+        let slow = range == .day ? 24.0 : 1
+        let points = times.map { sample(at: $0, diagnostics: diagnostics, psram: psram, slow: slow) }
         return KnobStats(deviceID: "knob-61fc8c", diagnostics: diagnostics, range: range, online: online,
                          lastSeen: times.last, liveUntil: live && online ? now.addingTimeInterval(150) : nil,
                          resetReason: "poweron", latest: points.last, points: points)
     }
 
-    static func sample(at t: Date, diagnostics: KnobDiagnostics, psram: Bool) -> KnobStats.Sample {
+    /// `slow` stretches every wave, standing in for the server's 5-minute
+    /// buckets smoothing a day's worth of reports.
+    static func sample(at t: Date, diagnostics: KnobDiagnostics, psram: Bool, slow: Double = 1) -> KnobStats.Sample {
         let x = t.timeIntervalSinceReferenceDate
-        func wave(_ p: Double, _ phase: Double = 0) -> Double { sin(x / p + phase) }
+        func wave(_ p: Double, _ phase: Double = 0) -> Double { sin(x / (p * slow) + phase) }
         var s = KnobStats.Sample(t: t)
         s.uptimeSec = Int(x.truncatingRemainder(dividingBy: 400_000))
         s.rssiDBm = Int((-62 + 6 * wave(900) + 2 * wave(97, 1)).rounded())
