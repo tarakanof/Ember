@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -54,7 +53,7 @@ func runDoctor() {
 		fmt.Println("  WARNING: " + h)
 	}
 	if runtime.GOOS == "linux" {
-		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, currentUser()) {
+		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, producer.CurrentUser()) {
 			fmt.Println("  " + l)
 		}
 		return
@@ -65,11 +64,4 @@ func runDoctor() {
 	} else {
 		fmt.Println("  LaunchAgent: NOT installed")
 	}
-}
-
-func currentUser() string {
-	if u, err := user.Current(); err == nil {
-		return u.Username
-	}
-	return os.Getenv("USER")
 }

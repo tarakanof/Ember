@@ -97,7 +97,7 @@ func TestLocatorDiscoverCachesResult(t *testing.T) {
 		t.Fatalf("got %+v, %v", got, err)
 	}
 	c, ok := ReadServerCache(cache)
-	if !ok || c.URL != srvA.URL || c.Name != "Ember" || !c.DiscoveredAt.Equal(now) {
+	if !ok || c.URL != srvA.URL || c.Name != "Ember" || !c.DiscoveredAt.Equal(now) || c.Prefer != "" {
 		t.Fatalf("cache = %+v, %v", c, ok)
 	}
 }
@@ -117,18 +117,22 @@ func TestLocatorDiscoverFailureKeepsCache(t *testing.T) {
 }
 
 func TestResolveServerURL(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "")
 	home := t.TempDir()
-	if got, auto := ResolveServerURL(home, "http://explicit:1"); got != "http://explicit:1" || auto {
+	if got, auto := ResolveServerURL(home, "http://explicit:1", ""); got != "http://explicit:1" || auto {
 		t.Errorf("explicit: %q %v", got, auto)
 	}
-	if got, auto := ResolveServerURL(home, "auto"); got != "" || !auto {
+	if got, auto := ResolveServerURL(home, "auto", ""); got != "" || !auto {
 		t.Errorf("auto, no cache: %q %v", got, auto)
 	}
 	if err := WriteServerCache(ServerCachePath(home), ServerCache{DiscoveredServer: srvA}); err != nil {
 		t.Fatal(err)
 	}
-	if got, auto := ResolveServerURL(home, ""); got != srvA.URL || !auto {
+	if got, auto := ResolveServerURL(home, "", ""); got != srvA.URL || !auto {
 		t.Errorf("empty, cached: %q %v", got, auto)
+	}
+	if got, _ := ResolveServerURL(home, "", "nas"); got != "" {
+		t.Errorf("cache made without EMBER_SERVER_INSTANCE used for prefer=nas: %q", got)
 	}
 	if got := ServerCachePath(home); got != filepath.Join(home, ".local", "state", "ember", "server.json") {
 		t.Errorf("cache path %q", got)

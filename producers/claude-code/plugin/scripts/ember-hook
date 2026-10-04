@@ -13,7 +13,7 @@
 #   5. Ember.app's bundled helper under $EMBER_APP_DIRS
 #      (default: /Applications ~/Applications)
 #
-# Log: ~/Library/Logs on macOS, else ~/.local/state/ember/logs (XDG state).
+# Log: ~/Library/Logs on macOS, else $XDG_STATE_HOME/ember/logs (default ~/.local/state).
 
 event=$1
 [ -n "$event" ] || exit 0
@@ -38,7 +38,7 @@ fi
 [ -x "$bin" ] || exit 0
 
 log=$HOME/Library/Logs/$name.log
-[ -d "${log%/*}" ] || log=$HOME/.local/state/ember/logs/$name.log
+[ -d "${log%/*}" ] || log=${XDG_STATE_HOME:-$HOME/.local/state}/ember/logs/$name.log
 [ -d "${log%/*}" ] && [ -w "${log%/*}" ] || log=/dev/null
 "$bin" hook "$event" >>"$log" 2>&1
 exit 0

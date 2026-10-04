@@ -77,16 +77,31 @@ func TestRedirectStandardIO_CatchesRuntimePanic(t *testing.T) {
 }
 
 func TestLogDirPerOS(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "")
 	if got := logDirFor("darwin", "/h"); got != "/h/Library/Logs" {
 		t.Errorf("darwin: %q", got)
 	}
 	if got := logDirFor("linux", "/h"); got != "/h/.local/state/ember/logs" {
 		t.Errorf("linux: %q", got)
 	}
-	if got := logDirShellFor("linux"); got != "$HOME/.local/state/ember/logs" {
+	if got := logDirShellFor("linux"); got != "${XDG_STATE_HOME:-$HOME/.local/state}/ember/logs" {
 		t.Errorf("linux shell: %q", got)
 	}
 	if got := logDirShellFor("darwin"); got != "$HOME/Library/Logs" {
 		t.Errorf("darwin shell: %q", got)
+	}
+}
+
+func TestStateHomeHonorsAbsoluteXDGStateHome(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/x/state")
+	if got := StateHome("/h"); got != "/x/state" {
+		t.Errorf("absolute: %q", got)
+	}
+	if got := logDirFor("linux", "/h"); got != "/x/state/ember/logs" {
+		t.Errorf("linux log dir: %q", got)
+	}
+	t.Setenv("XDG_STATE_HOME", "relative/state")
+	if got := StateHome("/h"); got != "/h/.local/state" {
+		t.Errorf("relative must be ignored: %q", got)
 	}
 }

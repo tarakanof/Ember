@@ -25,6 +25,8 @@ func main() {
 		runDeconfigure()
 	case "doctor":
 		runDoctor()
+	case "discover":
+		runDiscover()
 	case "version", "-v", "--version":
 		fmt.Println("ember-codex-producer", version)
 	case "help", "-h", "--help":
@@ -45,6 +47,7 @@ Usage:
   ember-codex-producer configure  # file-only setup (no service)
   ember-codex-producer deconfigure # reverse configure
   ember-codex-producer doctor     # show config + reachability
+  ember-codex-producer discover   # find the server over mDNS, cache + probe it
   ember-codex-producer version    # print version
   ember-codex-producer help       # this help
 

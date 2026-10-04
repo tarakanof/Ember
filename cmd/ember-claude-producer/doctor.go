@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -67,7 +66,7 @@ func runDoctor() {
 	}
 
 	if runtime.GOOS == "linux" {
-		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, currentUser()) {
+		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, producer.CurrentUser()) {
 			fmt.Println("  heartbeat " + l)
 		}
 		return
@@ -84,13 +83,6 @@ func runDoctor() {
 	out, err := exec.Command("launchctl", "print", target).CombinedOutput()
 	hint := heartbeatFixHint(producer.ExecLaunchctl, uid, plistPath)
 	fmt.Printf("  heartbeat agent: %s\n", heartbeatStatusLine(err == nil, string(out), hint))
-}
-
-func currentUser() string {
-	if u, err := user.Current(); err == nil {
-		return u.Username
-	}
-	return os.Getenv("USER")
 }
 
 const appRepairHint = "open Ember › Settings › Agents and click Repair"

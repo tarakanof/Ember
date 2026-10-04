@@ -20,7 +20,7 @@ func runInstall(args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("Install complete. The T3 Code producer daemon is now running.")
-	printSetupHints(args)
+	printSetupHints(args, true)
 }
 
 func runConfigure(args []string) {
@@ -29,7 +29,7 @@ func runConfigure(args []string) {
 		os.Exit(1)
 	}
 	fmt.Println("Configure complete.")
-	printSetupHints(args)
+	printSetupHints(args, false)
 }
 
 func install() error {
@@ -73,7 +73,7 @@ const systemdUnitName = "ember-t3-producer"
 
 // userUnit is the systemd --user counterpart of the com.ember.t3 LaunchAgent.
 func userUnit(binPath string) producer.UserUnit {
-	return producer.UserUnit{Name: systemdUnitName, Description: "Ember T3 Code producer (polls T3 thread state, reports status)", ExecStart: []string{binPath, "run"}}
+	return producer.NewUserUnit(systemdUnitName, "Ember T3 Code producer (polls T3 thread state, reports status)", binPath, "run")
 }
 
 func configure() error {
@@ -145,14 +145,21 @@ func xmlEscape(s string) string {
 	return b.String()
 }
 
-func printSetupHints(args []string) {
+// printSetupHints prints the post-setup checklist; only a headless install
+// touches the network (configure is what Ember.app runs: keep it offline).
+func printSetupHints(args []string, installing bool) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return
 	}
 	home, _ := os.UserHomeDir()
+	headless := producer.Headless(args, home)
+	lingerUser := ""
+	if installing {
+		lingerUser = producer.CurrentUser()
+	}
 	producer.PrintSetupHints(os.Stdout, producer.SetupHintsInput{
 		Source: cfg.Source, Token: cfg.Token, Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance,
-		Home: home, Headless: producer.Headless(args, home),
+		Home: home, Headless: headless, Discover: installing && headless, LingerUser: lingerUser,
 	})
 }

@@ -244,7 +244,7 @@ func TestEmberHook_LogsToXDGStateDirWithoutLibraryLogs(t *testing.T) {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if r := runEmberHook(t, hermeticEnv(home), `{}`, "stop"); r.err != nil || r.stdout != "" {
+	if r := runEmberHook(t, hermeticEnv(home, "XDG_STATE_HOME="), `{}`, "stop"); r.err != nil || r.stdout != "" {
 		t.Fatalf("err=%v stdout=%q", r.err, r.stdout)
 	}
 	got, _ := os.ReadFile(filepath.Join(logDir, "ember-claude-producer.log"))

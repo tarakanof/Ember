@@ -140,11 +140,14 @@ func serverMatches(s DiscoveredServer, prefer string) bool {
 type ServerCache struct {
 	DiscoveredServer
 	DiscoveredAt time.Time `json:"discovered_at"`
+	// Prefer is the EMBER_SERVER_INSTANCE the pick was made under; a cache
+	// made under another preference is ignored.
+	Prefer string `json:"prefer,omitempty"`
 }
 
-// ServerCachePath is ~/.local/state/ember/server.json.
+// ServerCachePath is $XDG_STATE_HOME/ember/server.json (default ~/.local/state).
 func ServerCachePath(home string) string {
-	return filepath.Join(home, ".local", "state", "ember", "server.json")
+	return filepath.Join(StateHome(home), "ember", "server.json")
 }
 
 // ReadServerCache reads the cache; ok is false when missing or unreadable.
@@ -185,13 +188,14 @@ func WriteServerCache(path string, c ServerCache) error {
 }
 
 // ResolveServerURL maps a configured EMBER_SERVER_URL to the URL to use now:
-// an explicit URL as is, else the cached discovery ("" when none). auto
-// reports whether discovery applies. It never browses, so hooks can call it.
-func ResolveServerURL(home, configured string) (serverURL string, auto bool) {
+// an explicit URL as is, else the cached discovery made under the same
+// EMBER_SERVER_INSTANCE ("" when none). auto reports whether discovery
+// applies. It never browses, so hooks can call it.
+func ResolveServerURL(home, configured, prefer string) (serverURL string, auto bool) {
 	if !IsAutoServerURL(configured) {
 		return strings.TrimSpace(configured), false
 	}
-	if c, ok := ReadServerCache(ServerCachePath(home)); ok {
+	if c, ok := ReadServerCache(ServerCachePath(home)); ok && c.Prefer == strings.TrimSpace(prefer) {
 		return c.URL, true
 	}
 	return "", true
@@ -236,7 +240,7 @@ func (l *ServerLocator) browseAndPick(ctx context.Context) ([]DiscoveredServer, 
 		if l.Now != nil {
 			now = l.Now
 		}
-		_ = WriteServerCache(l.CachePath, ServerCache{DiscoveredServer: s, DiscoveredAt: now().UTC()})
+		_ = WriteServerCache(l.CachePath, ServerCache{DiscoveredServer: s, DiscoveredAt: now().UTC(), Prefer: strings.TrimSpace(l.Prefer)})
 	}
 	return found, s, nil
 }

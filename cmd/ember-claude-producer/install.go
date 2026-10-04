@@ -26,7 +26,7 @@ func runInstall(args []string) {
 	}
 	printPluginNote()
 	fmt.Println("Install complete. Edit ~/.config/ember/producer.env if needed, then restart `claude`.")
-	printSetupHints(args)
+	printSetupHints(args, true)
 }
 
 func runConfigure(args []string) {
@@ -36,7 +36,7 @@ func runConfigure(args []string) {
 	}
 	printPluginNote()
 	fmt.Println("Configure complete. Edit ~/.config/ember/producer.env if needed, then restart `claude`.")
-	printSetupHints(args)
+	printSetupHints(args, false)
 }
 
 func install() error {
@@ -79,18 +79,25 @@ const systemdUnitName = "ember-claude-producer"
 
 // userUnit is the systemd --user counterpart of the com.ember.heartbeat LaunchAgent.
 func userUnit(binPath string) producer.UserUnit {
-	return producer.UserUnit{Name: systemdUnitName, Description: "Ember Claude Code heartbeat producer (session heartbeats + usage)", ExecStart: []string{binPath, "run"}}
+	return producer.NewUserUnit(systemdUnitName, "Ember Claude Code heartbeat producer (session heartbeats + usage)", binPath, "run")
 }
 
-func printSetupHints(args []string) {
+// printSetupHints prints the post-setup checklist; only a headless install
+// touches the network (configure is what Ember.app runs: keep it offline).
+func printSetupHints(args []string, installing bool) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return
 	}
 	home, _ := os.UserHomeDir()
+	headless := producer.Headless(args, home)
+	lingerUser := ""
+	if installing {
+		lingerUser = producer.CurrentUser()
+	}
 	producer.PrintSetupHints(os.Stdout, producer.SetupHintsInput{
 		Source: cfg.Source, Token: cfg.Token, Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance,
-		Home: home, Headless: producer.Headless(args, home),
+		Home: home, Headless: headless, Discover: installing && headless, LingerUser: lingerUser,
 	})
 }
 

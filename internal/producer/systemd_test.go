@@ -50,14 +50,40 @@ func TestUserUnitRendersRestartingService(t *testing.T) {
 	}
 }
 
-func TestUserUnitEscapesPercentAndQuotes(t *testing.T) {
-	u := UserUnit{Name: "x", Description: "50% \"x\"", ExecStart: []string{`/a b/c%d"e`}}
+func TestUserUnitEscapesSpecifiersVariablesQuotesAndNewlines(t *testing.T) {
+	u := UserUnit{Name: "x", Description: "50% \"x\"\nInjected=1", ExecStart: []string{"/a b/c%d\"e$HOME\nf"}}
 	got := string(u.Render())
-	if !strings.Contains(got, `ExecStart="/a b/c%%d\"e"`) {
+	if !strings.Contains(got, `ExecStart="/a b/c%%d\"e$$HOME\nf"`) {
 		t.Errorf("ExecStart not escaped:\n%s", got)
 	}
-	if !strings.Contains(got, "Description=50%% \"x\"") {
+	if !strings.Contains(got, "Description=50%% \"x\" Injected=1\n") {
 		t.Errorf("Description not escaped:\n%s", got)
+	}
+	if strings.Contains(got, "\nInjected=1") {
+		t.Errorf("newline let a directive through:\n%s", got)
+	}
+}
+
+func TestNewUserUnitCarriesXDGStateHome(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/srv/u/state")
+	got := string(NewUserUnit("x", "d", "/bin/x", "run").Render())
+	if !strings.Contains(got, `Environment="XDG_STATE_HOME=/srv/u/state"`+"\n") {
+		t.Errorf("unit missing XDG_STATE_HOME:\n%s", got)
+	}
+	t.Setenv("XDG_STATE_HOME", "")
+	if strings.Contains(string(NewUserUnit("x", "d", "/bin/x").Render()), "Environment=") {
+		t.Error("Environment= without XDG_STATE_HOME")
+	}
+}
+
+func TestLingerHint(t *testing.T) {
+	off := &fakeRunner{out: map[string]string{"loginctl show-user joe --property=Linger": "Linger=no\n"}}
+	if h := LingerHint(off.run, "joe"); !strings.Contains(h, "sudo loginctl enable-linger joe") {
+		t.Errorf("off: %q", h)
+	}
+	on := &fakeRunner{out: map[string]string{"loginctl show-user joe --property=Linger": "Linger=yes\n"}}
+	if h := LingerHint(on.run, "joe"); h != "" {
+		t.Errorf("on: %q", h)
 	}
 }
 

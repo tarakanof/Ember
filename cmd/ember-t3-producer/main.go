@@ -28,6 +28,8 @@ func main() {
 		fmt.Println("Deconfigure complete (nothing to undo).")
 	case "doctor":
 		runDoctor()
+	case "discover":
+		runDiscover()
 	case "version", "-v", "--version":
 		fmt.Println("ember-t3-producer", version)
 	case "help", "-h", "--help":
@@ -48,6 +50,7 @@ Usage:
   ember-t3-producer configure   # file-only setup (no service)
   ember-t3-producer deconfigure # reverse configure
   ember-t3-producer doctor      # show config, T3 state + reachability
+  ember-t3-producer discover   # find the server over mDNS, cache + probe it
   ember-t3-producer version     # print version
   ember-t3-producer help        # this help
 

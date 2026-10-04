@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -65,18 +64,11 @@ func runDoctor() {
 
 func serviceStatus(home string) []string {
 	if runtime.GOOS == "linux" {
-		return producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, currentUser())
+		return producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, producer.CurrentUser())
 	}
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	if _, err := os.Stat(plistPath); err == nil {
 		return []string{"LaunchAgent: installed at " + plistPath}
 	}
 	return []string{"LaunchAgent: NOT installed"}
-}
-
-func currentUser() string {
-	if u, err := user.Current(); err == nil {
-		return u.Username
-	}
-	return os.Getenv("USER")
 }

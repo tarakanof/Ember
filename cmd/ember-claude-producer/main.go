@@ -31,6 +31,8 @@ func main() {
 		runDeconfigure()
 	case "doctor":
 		runDoctor()
+	case "discover":
+		runDiscover()
 	case "version", "-v", "--version":
 		fmt.Println("ember-claude-producer", version)
 	case "help", "-h", "--help":
@@ -54,6 +56,7 @@ Usage:
   ember-claude-producer configure             # file-only setup (no service)
   ember-claude-producer deconfigure           # reverse configure
   ember-claude-producer doctor                # show config + state health
+  ember-claude-producer discover   # find the server over mDNS, cache + probe it
   ember-claude-producer version               # print version
   ember-claude-producer help                  # this help
 

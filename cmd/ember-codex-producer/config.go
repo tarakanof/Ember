@@ -223,7 +223,7 @@ func loadConfig() (Config, error) {
 	}
 	cfg.Source = producer.ResolveSource(cfg.Source)
 	cfg.ServerConfigured = cfg.ServerURL
-	cfg.ServerURL, cfg.ServerAuto = producer.ResolveServerURL(home, cfg.ServerURL)
+	cfg.ServerURL, cfg.ServerAuto = producer.ResolveServerURL(home, cfg.ServerURL, cfg.ServerInstance)
 	if cfg.Token == "" {
 		cfg.Token = os.Getenv("EMBER_TOKEN")
 	}
