@@ -73,6 +73,18 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(next.patch(from: s) == ["stats_interval_s": .int(300), "live_interval_s": .int(2)])
 }
 
+@Test func knobIntervalPickersNeedFirmwareAndKeepOffListValues() {
+    #expect(KnobDevice.firmware("0.7.0", atLeast: [0, 7, 0]))
+    #expect(KnobDevice.firmware("0.10.1-dirty", atLeast: [0, 7, 0]))
+    #expect(KnobDevice.firmware("1.0", atLeast: [0, 7, 0]))
+    #expect(!KnobDevice.firmware("0.6.0", atLeast: [0, 7, 0]))
+    #expect(!KnobDevice.firmware("dev", atLeast: [0, 7, 0]))
+    #expect(!KnobDevice.firmware(nil, atLeast: [0, 7, 0]))
+    #expect(KnobSettings.choices([30, 60, 120, 300], current: 60) == [30, 60, 120, 300])
+    #expect(KnobSettings.choices([30, 60, 120, 300], current: 90) == [30, 60, 90, 120, 300])
+    #expect(KnobSettings.choices([2, 5, 10], current: nil) == [2, 5, 10])
+}
+
 @Test func knobStatsLinesSpanTheStatsInterval() throws {
     let t0 = iso("2026-10-04T12:00:00Z")
     let pts = (0..<4).map { i in

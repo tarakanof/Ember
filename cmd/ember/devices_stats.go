@@ -368,14 +368,11 @@ func (a *App) handleKnobStats(w http.ResponseWriter, r *http.Request) {
 
 // buildKnobStats is device id's stats over rng (a statsRanges key) at now.
 func (a *App) buildKnobStats(id, rng string, now time.Time) (knobStatsView, error) {
-	diag, last, err := a.devices.diagnostics(id)
+	cfg, last, err := a.devices.settingsAndCheckin(id)
 	if err != nil {
 		return knobStatsView{}, err
 	}
-	cfg, _, err := a.devices.config(id)
-	if err != nil {
-		return knobStatsView{}, err
-	}
+	diag := cfg.Diagnostics
 	points, latest := a.knobStats.points(id, rng, now)
 	v := knobStatsView{
 		DeviceID:       id,

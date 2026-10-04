@@ -1914,8 +1914,8 @@ bytes or counts, CPU outside 0..100, more than 8 cores, temperature outside
 firmware bug never costs config or token delivery.
 
 **Cadence and live mode.** Normally the knob sends `stats` once per
-`stats_interval_s` (default 60 s). It checks in every 60 s, or every stats
-interval when that is shorter (30 s), so a 120 or 300 s interval still keeps
+`stats_interval_s` (default 60 s). It checks in every 60 s, or, while
+diagnostics are on, every stats interval when that is shorter (30 s), so a 120 or 300 s interval still keeps
 the 150 s `online` window and carries `stats` only on every 2nd or 5th
 checkin; the first report after boot or after diagnostics are turned on goes
 out at once. A checkin brought forward by an epoch change carries `stats`
@@ -1958,9 +1958,10 @@ samples of one wall-clock minute fold into one bucket: gauges take the
 newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
 `period_ms`-weighted mean; a bucket's `t` is its newest report. Counts become
 rates on arrival (`(req_ok+req_fail)·60000/period_ms`). Both rings grow as
-samples arrive (never past their cap), so a device costs what it reports:
-about 380 KB for a day at 30-60 s, 245 KB at 120 s, 125 KB at 300 s, plus
-20/37/87 KB while live at 10/5/2 s. Deleting the device drops its series.
+samples arrive (never past their cap) and give their buffer back when it
+falls under a quarter full, so a device costs what it reports: about 380 KB
+for a day at 30-60 s, 245 KB at 120 s, 125 KB at 300 s, plus 20/37/87 KB at
+10/5/2 s while a live session is in the window (released as it ages out). Deleting the device drops its series.
 
 **`GET /v1/devices/{id}/stats?range=15m|1h|24h`** (owner token; default
 `1h`, anything else 400, unknown id 404). Answer (dashboard wire
@@ -1995,7 +1996,9 @@ to now + N (not extended: each call replaces it) and answers
 diagnostics are off, with a footnote on the trade-off (#249); Status has
 "Show Hardware". See "Hardware pages" below. The knob page's lines break
 after three missed reports at the range's spacing or the knob's
-`stats_interval_s`, whichever is longer.
+`stats_interval_s`, whichever is longer. The gap uses the current interval
+for every point, so after a change from 300 s to 30 s the older 5-minute
+points draw as dots until they leave the range.
 
 ### Clock stats — `cmd/ember/clock_stats.go` (#246)
 

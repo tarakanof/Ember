@@ -288,6 +288,19 @@ func (r *deviceRegistry) diagnostics(id string) (string, *deviceCheckin, error) 
 	return c.Config.Diagnostics, c.LastCheckin, nil
 }
 
+// settingsAndCheckin returns device id's config and last checkin from one
+// read, so a concurrent PUT can't mix old and new settings.
+func (r *deviceRegistry) settingsAndCheckin(id string) (knobSettings, *deviceCheckin, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.state.find(id)
+	if d == nil {
+		return knobSettings{}, nil, errDeviceNotFound
+	}
+	c := d.clone()
+	return c.Config, c.LastCheckin, nil
+}
+
 func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

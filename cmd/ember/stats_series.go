@@ -54,11 +54,7 @@ func (r *sampleRing[T]) push(s T) {
 		if r.start != 0 || len(r.buf) == cap(r.buf) {
 			// Grow (doubling, never past capacity) and put the samples in
 			// order: after a dropBefore they may wrap.
-			grown := make([]T, r.len, min(r.capacity, max(16, 2*r.len)))
-			for i := range r.len {
-				grown[i] = *r.at(i)
-			}
-			r.buf, r.start = grown, 0
+			r.resize(min(r.capacity, max(16, 2*r.len)))
 		}
 		r.buf = append(r.buf, s)
 		r.len++
@@ -68,7 +64,8 @@ func (r *sampleRing[T]) push(s T) {
 	r.start = (r.start + 1) % len(r.buf)
 }
 
-// dropBefore removes samples older than from at the oldest end.
+// dropBefore removes samples older than from at the oldest end, and gives
+// the buffer back when it is under a quarter full (a live session ended).
 func (r *sampleRing[T]) dropBefore(from time.Time) {
 	var zero T
 	for r.len > 0 && (*r.at(0)).stamp().Before(from) {
@@ -76,6 +73,18 @@ func (r *sampleRing[T]) dropBefore(from time.Time) {
 		r.start = (r.start + 1) % len(r.buf)
 		r.len--
 	}
+	if len(r.buf) > 32 && r.len < len(r.buf)/4 {
+		r.resize(max(16, 2*r.len))
+	}
+}
+
+// resize moves the samples, in order, into a buffer of capacity n >= len.
+func (r *sampleRing[T]) resize(n int) {
+	grown := make([]T, r.len, n)
+	for i := range r.len {
+		grown[i] = *r.at(i)
+	}
+	r.buf, r.start = grown, 0
 }
 
 func (r *sampleRing[T]) last() *T {

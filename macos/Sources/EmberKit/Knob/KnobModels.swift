@@ -70,6 +70,24 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
         return now.timeIntervalSince(seen) <= window
     }
 
+    /// Firmware that applies `stats_interval_s` / `live_interval_s`
+    /// (cinder 0.7.0, tarakanof/cinder#40); false before its first checkin.
+    public var supportsStatsIntervals: Bool { Self.firmware(lastCheckin?.fw, atLeast: [0, 7, 0]) }
+
+    /// `fw` ("0.7.0", "0.7.1-dirty") at or past `min`, compared numerically
+    /// by its leading dotted numbers; false when it has none.
+    static func firmware(_ fw: String?, atLeast min: [Int]) -> Bool {
+        guard let fw else { return false }
+        let core = fw.prefix { $0.isNumber || $0 == "." }
+        let parts = core.split(separator: ".").compactMap { Int($0) }
+        guard !parts.isEmpty else { return false }
+        for i in 0..<Swift.max(parts.count, min.count) {
+            let a = i < parts.count ? parts[i] : 0, b = i < min.count ? min[i] : 0
+            if a != b { return a > b }
+        }
+        return true
+    }
+
     /// The knob runs the latest config.
     public var configApplied: Bool { (lastCheckin?.appliedVersion ?? 0) >= configVersion }
 
@@ -187,6 +205,13 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     /// The server's allowed `stats_interval_s` and `live_interval_s` values.
     public static let statsIntervals = [30, 60, 120, 300]
     public static let liveIntervals = [2, 5, 10]
+
+    /// Picker choices: `allowed`, plus `current` when the server holds a
+    /// value outside it (a newer server), so the picker keeps a selection.
+    public static func choices(_ allowed: [Int], current: Int?) -> [Int] {
+        guard let current, !allowed.contains(current) else { return allowed }
+        return (allowed + [current]).sorted()
+    }
 
     /// The changed fields as a merge-PUT body: nested objects carry only
     /// their changed fields, `pages` goes whole.

@@ -650,3 +650,23 @@ func TestSampleRingKeepsOrderWhenGrowingAfterDrops(t *testing.T) {
 		}
 	}
 }
+
+func TestSampleRingGivesBackItsBufferAfterALiveSession(t *testing.T) {
+	r := newSampleRing[knobSample](300)
+	t0 := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	for i := range 300 { // 10 min at 2 s
+		r.push(knobSample{T: t0.Add(time.Duration(i) * 2 * time.Second)})
+	}
+	if cap(r.buf) < 300 {
+		t.Fatalf("cap = %d, want the full live window", cap(r.buf))
+	}
+	end := t0.Add(600 * time.Second)
+	r.push(knobSample{T: end.Add(5 * time.Minute)}) // back to 5 min reports
+	r.dropBefore(end.Add(time.Second))              // the session is older than the live window now
+	if r.len != 1 || cap(r.buf) > 32 {
+		t.Fatalf("len %d cap %d after the session aged out, want 1 sample in a small buffer", r.len, cap(r.buf))
+	}
+	if got := r.since(time.Time{}); len(got) != 1 || !got[0].T.Equal(end.Add(5*time.Minute)) {
+		t.Fatalf("kept %v, want the newest sample", got)
+	}
+}

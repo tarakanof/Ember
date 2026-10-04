@@ -145,16 +145,16 @@ struct KnobPollSection: View {
                 Text("Basic").tag(KnobDiagnostics.basic)
                 Text("Full").tag(KnobDiagnostics.full)
             }
-            if s.statsIntervalS != nil, s.liveIntervalS != nil {
+            if s.statsIntervalS != nil, s.liveIntervalS != nil, knob.knob?.supportsStatsIntervals == true {
                 Picker("Send stats every", selection: knob.binding(\.statsIntervalS)) {
-                    ForEach(KnobSettings.statsIntervals, id: \.self) { sec in
+                    ForEach(KnobSettings.choices(KnobSettings.statsIntervals, current: s.statsIntervalS), id: \.self) { sec in
                         Text(verbatim: DurationText.interval(sec))
                             .tag(Int?.some(sec))
                     }
                 }
                 .disabled(s.diagnostics == .off)
                 Picker("Live stats every", selection: knob.binding(\.liveIntervalS)) {
-                    ForEach(KnobSettings.liveIntervals, id: \.self) { sec in
+                    ForEach(KnobSettings.choices(KnobSettings.liveIntervals, current: s.liveIntervalS), id: \.self) { sec in
                         Text(verbatim: DurationText.interval(sec)).tag(Int?.some(sec))
                     }
                 }
@@ -169,7 +169,7 @@ struct KnobPollSection: View {
         } header: {
             Text("Behavior")
         } footer: {
-            SectionFooter(text: s.statsIntervalS == nil
+            SectionFooter(text: s.statsIntervalS == nil || knob.knob?.supportsStatsIntervals != true
                           ? "A shorter check interval shows changes sooner and uses a little more power."
                           : "A shorter check interval shows changes sooner and uses a little more power. Live stats are sent only while the knob's stats are open in Ember. Shorter stats intervals mean more requests from the knob and more memory on the server.",
                           error: knob.settings.saveError)
