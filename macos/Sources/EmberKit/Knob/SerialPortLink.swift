@@ -121,6 +121,11 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
             return !isClosed
         }
         guard first else { return }
+        // Release the port now, not when the cancel handler closes the fd on
+        // its queue: TIOCEXCL lives on the tty and outlasts this fd while
+        // anything else holds it open, and the next opener mustn't race us.
+        _ = ioctl(fd, TIOCNXCL)
+        _ = flock(fd, LOCK_UN)
         source.cancel()
         continuation.finish()
     }
