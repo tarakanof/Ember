@@ -51,6 +51,7 @@ func runDoctor() {
 
 	hooksLine, _ := hookRegistrationReport(home)
 	fmt.Printf("  claude hooks: %s\n", hooksLine)
+	fmt.Printf("  claude agents cross-check: %s\n", agentsDoctorLine(ctx))
 
 	stateD, _ := stateDir()
 	if entries, err := os.ReadDir(stateD); err == nil {

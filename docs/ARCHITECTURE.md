@@ -706,6 +706,36 @@ Claude producer constraints:
   would blank the per-model breakdown on the next 10 s heartbeat. The
   statusline relay (freshest live session wins) is the primary weekly/5h
   source; the OAuth endpoint is the flaky fallback.
+- **`claude agents --json` cross-check** (#266, `agents.go`,
+  `EMBER_CLAUDE_AGENTS_POLL`, default on). Hooks miss three transitions: an
+  approved permission dialog stays `waiting` until the tool finishes (no hook
+  fires on approval), a dialog dismissed with Esc and an Esc-interrupted turn
+  fire nothing at all (no Stop), so the marker stays `waiting`/`running` until
+  the next prompt. The daemon reads the documented `claude agents --json`
+  (`status busy|waiting|idle`, `waitingFor`, `sessionId`) and corrects a
+  marker: busy ends a wait, waiting starts one (flagged `agents_wait` so the
+  watcher may end it; any hook write clears the flag), idle → `done`
+  "interrupted". It only ends waits it understands: a permission dialog
+  (`pending_permission`) or its own; Notification-only waits
+  (`quota_auto_resume_stale`, `agent_needs_input`, elicitation) stay with the
+  hooks. A Stop skipped for waking background work sets `bg_wake`, which
+  blocks idle → done until the next prompt or done/error.
+  Each call costs ~0.1 s CPU and a ~75 MB transient process (no disk writes),
+  so it runs only while some marker is running/waiting, and then only when a
+  file in `~/.claude/sessions` changes (Claude rewrites `<pid>.json` in place
+  on status flips; the layout is internal, used only as a trigger) or 60 s
+  have passed. The fallback is skipped while every active session was
+  unlisted with a live owner. A correction needs two snapshots ≥1.5 s apart
+  that agree on an unchanged marker, re-checked under the lock, so a hook that
+  is merely late (Stop lands ~0.5 s before the status goes idle) wins. A
+  session missing from the list is reaped only if its owner pid is gone
+  (nested `CLAUDE_CODE_CHILD_SESSION` and SDK sessions aren't listed); a
+  killed process can't rewrite its sessions file, so the heartbeat's owner
+  check usually reaps it first. The CLI runs in its own process group with a
+  5 s timeout that kills the group and a 1 s `WaitDelay`, so a helper holding
+  stdout can't wedge the watcher. The binary is `~/.local/bin/claude`, then
+  PATH, then Homebrew paths, gated once per path+mtime on `claude --version` ≥
+  2.1.288; a failed call backs off 5 min. `doctor` prints the state.
 - **Session lock file.** The per-session lock file is never deleted: removing
   it would break the POSIX flock-on-inode guarantee between concurrent holders.
 

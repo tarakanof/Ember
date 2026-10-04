@@ -30,6 +30,10 @@ type ToolTrack struct {
 	// ResumedTool and ResumedAt record the last wait an outcome ended, so that dialog's late permission_prompt Notification cannot re-enter waiting.
 	ResumedTool string `json:"resumed_tool,omitempty"`
 	ResumedAt   int64  `json:"resumed_at,omitempty"`
+	// BackgroundWake is set when Stop left the session running for a background subagent, workflow, teammate or cloud session; the agents cross-check then never turns an idle status into done.
+	BackgroundWake bool `json:"bg_wake,omitempty"`
+	// AgentsWait marks a wait the agents cross-check opened, so it may also close it; any hook write clears it.
+	AgentsWait bool `json:"agents_wait,omitempty"`
 }
 
 var shellComms = map[string]bool{
