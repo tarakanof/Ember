@@ -651,6 +651,7 @@
       "extractionState" : "manual"
     },
     "Done: an agent finished." : {},
+    "Drag to reorder" : {},
     "Drag to reorder, or Control-click an app. Changes apply at once." : {},
     "Drawn by Ember from the same data the knob shows." : {},
     "Drawn by the calendar clock styles; the header only in the styles that have one." : {},
@@ -785,6 +786,7 @@
     "Hidden" : {},
     "Hide when idle" : {},
     "Hold demo mood for" : {},
+    "Hold the knob down and turn it to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
     "Home page" : {},
     "Hooks: none registered" : {},
     "Hooks: the ember@ember plugin" : {},
@@ -1533,7 +1535,6 @@
     "Turn On Full Diagnostics" : {},
     "Turn it on in Settings › Sources › Focus." : {},
     "Turn on diagnostics to have the knob report its processor, memory, temperature and Wi-Fi. Full diagnostics add network requests and rendering." : {},
-    "Turn the knob to move between pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
     "USB" : {},
     "Unauthorized — check the token in Connection settings." : {
