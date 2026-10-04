@@ -69,9 +69,11 @@ Agent rules:
 - **Smoke runs**: scratch port and temp DB, `EMBER_MDNS_ADVERTISE=0` (unset is
   *on*: the scratch server would advertise itself on the LAN). Never `:3627`.
   A scratch server must never reach the real TC001: it discovers clocks over
-  mDNS/UDP and pushes apps to them. Point its config at a fake local clock (a
-  stub on 127.0.0.1 that answers `GET /api/v1/device`): an unreachable URL makes
-  the server fall back to mDNS discovery and find the real one.
+  mDNS/UDP and pushes apps to them. In the scratch config set
+  `awtrix.auto_rediscover: false` **and** point the clock URL at a local stub that
+  answers `GET /api/v1/device` with an awtrix-ng fingerprint: an unreachable URL
+  or a failed fingerprint makes the server rediscover and find the real one.
+  Prefer measuring against the live server over running a scratch one.
 - **Never touch the user's live state** from tests or reviews: `~/.config/ember`,
   `~/.claude`, `~/Library/LaunchAgents`, `/Applications/Ember.app`. Don't launch a
   build with the installed bundle id (it re-registers producer agents).
