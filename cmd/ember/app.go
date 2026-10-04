@@ -58,6 +58,8 @@ type App struct {
 
 	settings appSettings
 
+	devices *deviceRegistry
+
 	appsMu     sync.Mutex
 	hiddenApps map[string]bool
 
@@ -114,6 +116,12 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.clock = newClockAccess(a.cfg.Load)
 	a.sessions = a.newSessionRegistry(realClock{}.Now)
 	a.settings = newAppSettings(a)
+	a.devices = newDeviceRegistry(func() settingsKV {
+		if a.store == nil {
+			return nil
+		}
+		return a.store
+	})
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	if publisher == nil {

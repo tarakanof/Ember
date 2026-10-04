@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -23,6 +24,7 @@ func (a *App) routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /state", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(devicesEpochHeader, strconv.FormatUint(a.devices.epochValue(), 10))
 		writeJSON(w, http.StatusOK, a.Snapshot())
 	})
 	mux.Handle("GET /version", handleVersion(a.versionInfo))
@@ -54,11 +56,6 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("DELETE /v1/status", http.HandlerFunc(a.handleDeleteStatus))
 	writeMux.Handle("POST /v1/clear", http.HandlerFunc(a.handleClear))
 	writeMux.Handle("POST /v1/notify", http.HandlerFunc(a.handleNotify))
-	writeMux.Handle("POST /v1/pomodoro/start", http.HandlerFunc(a.handlePomodoroStart))
-	writeMux.Handle("POST /v1/pomodoro/pause", http.HandlerFunc(a.handlePomodoroPause))
-	writeMux.Handle("POST /v1/pomodoro/resume", http.HandlerFunc(a.handlePomodoroResume))
-	writeMux.Handle("POST /v1/pomodoro/stop", http.HandlerFunc(a.handlePomodoroStop))
-	writeMux.Handle("POST /v1/pomodoro/skip", http.HandlerFunc(a.handlePomodoroSkip))
 	writeMux.Handle("GET /v1/pomodoro/config", http.HandlerFunc(a.handlePomodoroConfigGet))
 	writeMux.Handle("PUT /v1/pomodoro/config", http.HandlerFunc(a.handlePomodoroConfigPut))
 	writeMux.Handle("GET /v1/apps", http.HandlerFunc(a.handleAppsGet))
@@ -101,7 +98,22 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("POST /v1/device/app/previous", http.HandlerFunc(a.handleDevicePrevApp))
 	writeMux.Handle("GET /v1/device/buttons", http.HandlerFunc(a.handleDeviceButtons))
 	writeMux.Handle("PUT /v1/device/buttons", http.HandlerFunc(a.handleDeviceButtonsPut))
+	writeMux.Handle("GET /v1/devices", http.HandlerFunc(a.handleDevicesList))
+	writeMux.Handle("POST /v1/devices", http.HandlerFunc(a.handleDevicesCreate))
+	writeMux.Handle("PATCH /v1/devices/{id}", http.HandlerFunc(a.handleDevicePatch))
+	writeMux.Handle("DELETE /v1/devices/{id}", http.HandlerFunc(a.handleDeviceDelete))
+	writeMux.Handle("GET /v1/devices/{id}/config", http.HandlerFunc(a.handleDeviceConfigGetOwner))
+	writeMux.Handle("PUT /v1/devices/{id}/config", http.HandlerFunc(a.handleDeviceConfigPutOwner))
+	writeMux.Handle("POST /v1/devices/{id}/rotate", http.HandlerFunc(a.handleDeviceRotate))
 	mux.Handle("/v1/", rateLimit(a, requireAuth(a, a.logger, writeMux)))
+
+	mux.Handle("POST /v1/devices/self/checkin", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceCheckin))))
+	mux.Handle("GET /v1/devices/self/config", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceSelfConfig))))
+	mux.Handle("POST /v1/pomodoro/start", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroStart))))
+	mux.Handle("POST /v1/pomodoro/pause", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroPause))))
+	mux.Handle("POST /v1/pomodoro/resume", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroResume))))
+	mux.Handle("POST /v1/pomodoro/stop", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroStop))))
+	mux.Handle("POST /v1/pomodoro/skip", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroSkip))))
 
 	adminMux := http.NewServeMux()
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))
