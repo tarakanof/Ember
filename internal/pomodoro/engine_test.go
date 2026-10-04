@@ -270,3 +270,55 @@ func TestMaxSessionResetsAfterStop(t *testing.T) {
 		t.Fatalf("post-restart focus = %+v, want completed (cap clock reset)", ended)
 	}
 }
+
+func TestSnapshotEndIsStableWhileCountingAndUnsetOtherwise(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	e := newTestEngine(clk)
+	if _, _, ok := e.Snapshot(clk.Now()); ok {
+		t.Fatal("idle engine has an end time")
+	}
+	e.Start(PhaseFocus)
+	want := time.Unix(1000+25*60, 0)
+	clk.advance(90 * time.Second)
+	st, end, ok := e.Snapshot(clk.Now())
+	if !ok || !end.Equal(want) || st != e.Status(clk.Now()) {
+		t.Fatalf("snapshot = %+v %v %v, want status %+v ending %v", st, end, ok, e.Status(clk.Now()), want)
+	}
+	e.Pause(clk.Now())
+	if _, _, ok := e.Snapshot(clk.Now()); ok {
+		t.Fatal("paused engine has an end time")
+	}
+	clk.advance(time.Minute)
+	e.Resume(clk.Now())
+	if _, end, ok := e.Snapshot(clk.Now()); !ok || !end.Equal(want.Add(time.Minute)) {
+		t.Fatalf("ends at after a 1 min pause = %v %v, want %v", end, ok, want.Add(time.Minute))
+	}
+}
+
+func TestSnapshotNeverPairsAStateWithAStaleEnd(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	e := newTestEngine(clk)
+	e.Start(PhaseFocus)
+	now := clk.Now()
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			e.Pause(now)
+			e.Resume(now)
+		}
+	}()
+	for range 5000 {
+		st, _, ok := e.Snapshot(now)
+		if ok != (st.Running && !st.Paused) {
+			t.Fatalf("end ok=%v with status %+v", ok, st)
+		}
+	}
+	close(stop)
+	<-done
+}

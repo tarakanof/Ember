@@ -266,6 +266,10 @@ func (e *Engine) advanceLocked(ended Phase) Phase {
 func (e *Engine) Status(now time.Time) Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.statusLocked(now)
+}
+
+func (e *Engine) statusLocked(now time.Time) Status {
 	planned := e.plannedSec(e.phase)
 	remaining := planned
 	if e.running {
@@ -282,6 +286,19 @@ func (e *Engine) Status(now time.Time) Status {
 		PlannedSec:   planned,
 		Round:        e.focusCount,
 	}
+}
+
+// Snapshot returns Status(now) and, read under the same lock, when the
+// current phase reaches zero; ok is false unless a phase is counting down
+// (idle, parked and paused have no end time).
+func (e *Engine) Snapshot(now time.Time) (st Status, end time.Time, ok bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	st = e.statusLocked(now)
+	if !e.running || e.paused || e.phase == PhaseIdle {
+		return st, time.Time{}, false
+	}
+	return st, e.startedAt.Add(e.accumPaused + time.Duration(st.PlannedSec)*time.Second), true
 }
 
 // Active reports whether the engine currently owns the display (any non-idle
