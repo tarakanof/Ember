@@ -442,13 +442,35 @@ All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
 `RotateLogIfLarge`) and are configured via `~/.config/ember/producer.env`.
 **Source default (#208):** when `EMBER_SOURCE` is empty or the template
 placeholder `set-me-to-this-laptop-id`, producers use a short host id via
-`producer.ResolveSource`: `scutil --get LocalHostName` (else `os.Hostname`),
+`producer.ResolveSource`: `scutil --get LocalHostName` on macOS (else, and on
+Linux only, `os.Hostname`),
 lowercased, first label, `[a-z0-9_-]`; the `<owner>s-` prefix is dropped and
 model words abbreviated (`dmitrys-macbook-pro` -> `mbp`, `-air` -> `mba`,
 `mac-mini` -> `mini`, trailing `-2` kept) so Macs stay distinct on the ~4-glyph
 clock card; max 24 chars. `install`/`configure`/`doctor` rewrite an empty or
 placeholder `EMBER_SOURCE` in `producer.env` once (`EnsureSourceInEnv`, 0600
 kept) so hook hot paths never fork `scutil`, and print the resolved value.
+**Headless mode and server discovery (#255):** the producers build for
+linux/amd64, linux/arm64 and darwin and run without Ember.app. Service
+management is per OS: LaunchAgent on macOS, a generated systemd `--user` unit
+on Linux (`internal/producer/systemd.go`: write unit, `daemon-reload`,
+`enable`, `restart`; `doctor` reports active/enabled/linger). Logs go to
+`producer.LogDir` (`~/Library/Logs`, else `~/.local/state/ember/logs`), also in
+the hook/statusline redirects written to `settings.json` and in the plugin
+shim. `EMBER_SERVER_URL` empty or `auto` turns on discovery
+(`internal/producer/serverurl.go`): `discovery.BrowseEmber` sends an RFC 6762
+legacy-unicast PTR query for `_ember._tcp` from an ephemeral port next to the
+dnssd multicast browse (a CLI on macOS gets no multicast replies without Local
+Network multicast access, but the server's dnssd responder answers legacy
+queries by unicast); `PickServer` dedupes by URL and needs exactly one, or an
+`EMBER_SERVER_INSTANCE` matching instance name, host or IP. The pick is cached
+in `~/.local/state/ember/server.json`; `loadConfig` resolves auto to the
+cached URL without browsing (hooks stay fast), and daemons hold an
+`AutoServer` the client consults per request: it waits for a first server
+with backoff and re-browses after 3 consecutive transport errors (context
+errors excluded), at most once per minute. Headless mode (no Ember.app, or
+`--headless`) only changes service ownership and hints; see RUNBOOK
+"Headless / Linux producers".
 **Shared marker directory contract:** producers write session markers into the
 same `~/.local/state/ember/sessions/` directory, but each daemon only owns
 markers whose `tool` field matches its own (e.g. the Claude daemon skips a
