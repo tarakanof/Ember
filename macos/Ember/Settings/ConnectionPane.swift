@@ -144,7 +144,7 @@ struct ConnectionPane: View {
                     Label { Text("Local Network access off") } icon: {
                         Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
                     }
-                    Button("Review Permissions…") { showSettingsPane(.permissions) }
+                    Button("Review Permissions…") { showSettings(.app(.permissions)) }
                 }
             case .serverError(let status):
                 Label { Text("Server error (HTTP \(status))") } icon: {
@@ -183,7 +183,7 @@ struct ConnectionPane: View {
                     }
                 }
                 LabeledContent {
-                    Button("Review Permissions…") { showSettingsPane(.permissions) }
+                    Button("Review Permissions…") { showSettings(.app(.permissions)) }
                 } label: {
                     Text("No server found?")
                 }

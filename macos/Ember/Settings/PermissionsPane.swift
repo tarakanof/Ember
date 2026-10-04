@@ -61,12 +61,13 @@ struct PermissionsPane: View {
                 await model.refresh()
             }
         case .openPane(let pane):
-            showSettingsPane(pane)
+            showSettings(pane)
         }
     }
 }
 
 private struct PermissionRowView: View {
+    @Environment(\.settingsTree) private var tree
     let row: PermissionRow
     let perform: (PermissionAction) -> Void
 
@@ -122,7 +123,7 @@ private struct PermissionRowView: View {
         case .openSystemSettings(.loginItems): Text("Open Login Items…")
         case .requestAccess: Text("Allow Access…")
         case .repair: Text("Repair")
-        case .openPane(let pane): Text("Show \(Text(pane.title))", comment: "Button that opens a Settings pane, e.g. Show Weather")
+        case .openPane(let pane): Text("Show \(Text(tree.title(for: pane)))", comment: "Button that opens a Settings pane, e.g. Show Weather")
         }
     }
 
@@ -191,7 +192,7 @@ struct PermissionsWarning: View {
     var body: some View {
         if !rows.isEmpty {
             LabeledContent {
-                Button("Review Permissions…") { showSettingsPane(.permissions) }
+                Button("Review Permissions…") { showSettings(.app(.permissions)) }
             } label: {
                 Label { Text(message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                     .foregroundStyle(.orange)

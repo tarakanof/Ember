@@ -6,6 +6,7 @@ struct ClockHealthCard: View {
     var webURL: URL?
     var now = Date()
     @Environment(\.openURL) private var openURL
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
     var body: some View {
@@ -16,13 +17,21 @@ struct ClockHealthCard: View {
                 content(h)
             }
         } accessory: {
-            if let d = health.value?.device, !d.reachable {
-                Label("Unreachable", systemImage: "wifi.slash").foregroundStyle(.orange)
-            } else if let url = webURL {
-                Button("Clock Web UI", systemImage: "arrow.up.right.square") { openURL(url) }
-                    .buttonStyle(.link)
-                    .labelStyle(.titleOnly)
-                    .font(.callout)
+            HStack(spacing: 12) {
+                if let d = health.value?.device, !d.reachable {
+                    Label("Unreachable", systemImage: "wifi.slash").foregroundStyle(.orange)
+                } else if let url = webURL {
+                    Button("Clock Web UI", systemImage: "arrow.up.right.square") { openURL(url) }
+                        .buttonStyle(.link)
+                        .labelStyle(.titleOnly)
+                        .font(.callout)
+                }
+                Button("Clock Settings", systemImage: "gearshape") {
+                    openSettings(.device(clockDeviceID, .hardware(.status)), using: openWindow)
+                }
+                .buttonStyle(.link)
+                .labelStyle(.titleOnly)
+                .font(.callout)
             }
         }
     }

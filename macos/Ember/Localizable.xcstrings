@@ -63,6 +63,9 @@
     "%@ left" : {
       "comment" : "VoiceOver, Focus ring: time left in the current phase (\"18:42\")."
     },
+    "%@ loading…" : {
+      "comment" : "Settings sidebar: a device's row while the device list loads (\"Knob loading…\")."
+    },
     "%@ now, %@ high" : {
       "comment" : "VoiceOver, weather forecast strip: the current temperature, then the highest over the next hours.",
       "localizations" : {
@@ -76,6 +79,17 @@
     },
     "%@ of focus over 7 days." : {
       "comment" : "VoiceOver chart summary: total focus time over the last 7 days (\"6h 15m\")."
+    },
+    "%@ on %@" : {
+      "comment" : "VoiceOver label of a Settings sidebar row under a device: the page (\"Weather\"), then the device's name (\"Clock\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ on %2$@"
+          }
+        }
+      }
     },
     "%@ on %@ — %@" : {
       "comment" : "An agent session: tool name, the Mac it runs on, then its state (\"Claude on m4 — Running\").",
@@ -161,6 +175,50 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "%@, %@, not set up" : {
+      "comment" : "VoiceOver label of a device in the Settings sidebar that isn't set up: its name, then its kind (\"Knob\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@, not set up"
+          }
+        }
+      }
+    },
+    "%@, %@, offline" : {
+      "comment" : "VoiceOver label of a device in the Settings sidebar: its name, then its kind (\"Clock\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@, offline"
+          }
+        }
+      }
+    },
+    "%@, %@, online" : {
+      "comment" : "VoiceOver label of a device in the Settings sidebar: its name, then its kind (\"Clock\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@, online"
+          }
+        }
+      }
+    },
+    "%@, %@, status unknown" : {
+      "comment" : "VoiceOver label of a device in the Settings sidebar whose reachability isn't known yet: its name, then its kind (\"Clock\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$@, status unknown"
           }
         }
       }
@@ -256,9 +314,11 @@
       "comment" : "Abbreviation for the 7-day usage window (Usage card row). Keep it very short."
     },
     "A board is connected, but Ember couldn't open its port" : {},
+    "A hidden tool's sessions still report; the clock skips them. Changes apply at once." : {},
     "A meeting chimes with its popup, so it needs a popup time in Calendar. The severe weather sound plays with its alert, set in Weather." : {},
+    "A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours, in Sounds & Alerts, mute all of these." : {},
     "A permission Ember needs is off." : {},
-    "A shorter check interval shows changes sooner and uses a little more power. Long-press the knob to try a mood; it holds for the time set here." : {},
+    "A shorter check interval shows changes sooner and uses a little more power." : {},
     "AQI %lld" : {
       "comment" : "Settings › Weather: an air quality index threshold (European AQI)."
     },
@@ -306,6 +366,7 @@
     "An idle session dims, then leaves the rotation until it's active again. A session that needs you holds the clock this long. Server-wide." : {},
     "Animated bot" : {},
     "Animated icons and rain or snow overlays appear on the clock only." : {},
+    "App" : {},
     "App Colors" : {},
     "App Rotation" : {},
     "Apple Reminders" : {},
@@ -314,6 +375,10 @@
     },
     "Applying…" : {},
     "Approve in Login Items…" : {},
+    "Apps" : {},
+    "Apps, %@" : {
+      "comment" : "VoiceOver label of a device's Apps row in the Settings sidebar; the argument is the device's name (\"Clock\")."
+    },
     "At once" : {},
     "Attention hold" : {},
     "Automatic brightness" : {},
@@ -379,6 +444,9 @@
     "Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice." : {},
     "Clear" : {},
     "Clock" : {},
+    "Clock Agent Settings…" : {},
+    "Clock Settings" : {},
+    "Clock Sounds…" : {},
     "Clock Web UI" : {},
     "Clock buttons control Pomodoro" : {},
     "Clock display" : {},
@@ -514,6 +582,7 @@
     "Day, month, year" : {},
     "Delivered (24 h)" : {},
     "Desk knob" : {},
+    "Devices" : {},
     "Discover Clocks…" : {},
     "Discovered Servers" : {},
     "Dismiss Notification" : {},
@@ -529,6 +598,21 @@
     "Drag to reorder, or Control-click an app. Changes apply at once." : {},
     "Drawn by the calendar clock styles; the header only in the styles that have one." : {},
     "Durations" : {},
+    "Each device has its own look for this source." : {},
+    "Each device with a speaker sets its own sounds. Quiet hours apply to all of them." : {},
+    "Edit %@ on %@" : {
+      "comment" : "VoiceOver label of a Shown On link: the app (\"Weather\"), then the device's name (\"Clock\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Edit %1$@ on %2$@"
+          }
+        }
+      }
+    },
+    "Edit Pages…" : {},
+    "Edit…" : {},
     "Ember" : {},
     "Ember E" : {},
     "Ember E (pixel)" : {},
@@ -699,6 +783,7 @@
       "extractionState" : "manual"
     },
     "Long break" : {},
+    "Long-press the knob to try a mood; it holds for the time set here." : {},
     "Longitude" : {},
     "Low" : {},
     "Measured now" : {},
@@ -887,6 +972,7 @@
     "Opens the clock's web page, which installs firmware updates." : {},
     "Opens the pane that uses it." : {},
     "Order" : {},
+    "Order and home page are set in Pages." : {},
     "Other Sessions" : {},
     "Other days" : {},
     "Other users can read %@. Run chmod 700 on that folder and try again." : {
@@ -894,6 +980,18 @@
       "extractionState" : "manual"
     },
     "Overlay" : {},
+    "Page" : {},
+    "Page %lld of %lld" : {
+      "comment" : "Settings › Knob › Apps: where an app's page sits in the knob's page order (\"Page 2 of 3\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Page %1$lld of %2$lld"
+          }
+        }
+      }
+    },
     "Pages" : {},
     "Password" : {},
     "Pause" : {
@@ -935,6 +1033,7 @@
     "Pomodoro is off on the server, or the server is too old. Turn it on in the server's config." : {},
     "Popup" : {},
     "Popups" : {},
+    "Position" : {},
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
@@ -972,6 +1071,7 @@
     "Repair" : {},
     "Repeat until dismissed" : {},
     "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Calendar, and stops after 15 minutes or when quiet hours start." : {},
+    "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start." : {},
     "Replace" : {},
     "Replace “%@”?" : {
       "comment" : "Knob setup confirm title; the argument is the name of the knob already set up (\"Desk knob\")."
@@ -1001,6 +1101,7 @@
     "Rotate Token…" : {},
     "Rotate the knob's token?" : {},
     "Rotating the token is routine hygiene, not a fix for a leak: the knob collects the new token on its next check-in, and so could anyone holding the old one. If the token may have leaked, forget the knob and set it up again over USB." : {},
+    "Rotation" : {},
     "Round %lld" : {
       "comment" : "Focus card: the current Pomodoro round number."
     },
@@ -1033,6 +1134,7 @@
     "Searching…" : {},
     "Second model" : {},
     "Sensor Calibration" : {},
+    "Sensors" : {},
     "Separator" : {},
     "Server" : {},
     "Server URL" : {},
@@ -1060,6 +1162,7 @@
     "Settings…" : {},
     "Severe weather" : {},
     "Severe weather alert" : {},
+    "Severe weather and air quality alerts are set in Sources › Weather; the severe weather sound in Clock › Sounds." : {},
     "Short Break" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1072,11 +1175,13 @@
     "Show for" : {},
     "Show next meeting" : {},
     "Show on Clock" : {},
+    "Show on the knob" : {},
     "Show seconds" : {},
     "Show tile from" : {},
     "Show usage from" : {},
     "Show weekday" : {},
     "Show weekday bar" : {},
+    "Shown On" : {},
     "Shown in popups" : {},
     "Shows the macOS prompt." : {},
     "Skip Phase" : {
@@ -1085,10 +1190,13 @@
     },
     "Snow" : {},
     "Sound" : {},
+    "Sounds" : {},
     "Sounds & Alerts" : {},
     "Source" : {},
+    "Source Settings…" : {},
     "Source card" : {},
     "Source color" : {},
+    "Sources" : {},
     "Spark" : {},
     "Stale" : {},
     "Stale · %@" : {
@@ -1258,9 +1366,11 @@
       "extractionState" : "manual"
     },
     "This server has no knob registry. Update the Ember server." : {},
+    "This source is off, so this app shows nothing. Turn it on in the source's settings." : {},
     "Thunderstorm" : {},
     "Tiles" : {},
     "Time" : {},
+    "Time & Date" : {},
     "Time per app" : {},
     "Time until the 5-hour window resets." : {},
     "Today" : {},
@@ -1346,6 +1456,7 @@
     "Updated %@." : {
       "comment" : "Settings › Calendar: when the server last fetched the calendar, relative (\"5 minutes ago\")."
     },
+    "Updates and Alerts" : {},
     "Updates delivered" : {},
     "Uppercase text" : {},
     "Uptime" : {},
@@ -1398,8 +1509,10 @@
     "Weekday Bar" : {},
     "Weekly goal" : {},
     "Weekly window usage." : {},
+    "What's shown comes from the source, set once for every device. This page sets only how this device shows it." : {},
     "When conditions change" : {},
     "When due" : {},
+    "When usage cards join the rotation is set in Sources › Agents. Server-wide." : {},
     "When you focus" : {},
     "Wi-Fi" : {},
     "Wi-Fi passwords are 8 to 63 characters." : {},
@@ -1408,6 +1521,7 @@
     "Wrap around" : {},
     "Year" : {},
     "Year, month, day" : {},
+    "Yes" : {},
     "^[%lld active day](inflect: true)" : {
       "comment" : "Focus settings goal and \"When you focus\" card: a number of days with any focus."
     },

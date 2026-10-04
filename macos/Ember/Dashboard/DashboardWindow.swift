@@ -42,7 +42,7 @@ struct DashboardWindow: View {
             } description: {
                 Text("Enter the server's address in Connection settings, or pick one Ember found on your network.")
             } actions: {
-                Button("Open Connection Settings") { openSettings(pane: "connection", using: openWindow) }
+                Button("Open Connection Settings") { openSettings(.app(.connection), using: openWindow) }
             }
         } else {
             ScrollView {

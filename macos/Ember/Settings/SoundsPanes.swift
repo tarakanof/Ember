@@ -1,13 +1,13 @@
 import SwiftUI
 import EmberKit
 
-struct SoundsPane: View {
+/// Clock › Sounds: the clock's buzzer and every chime it plays.
+struct ClockSoundsPane: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
 
     var body: some View {
         let s = env.settings
-        @Bindable var quiet = s.quiet
         @Bindable var pomodoro = s.pomodoro
         @Bindable var display = s.display
         @Bindable var usage = s.usage
@@ -17,21 +17,6 @@ struct SoundsPane: View {
         let names = device.melodies.map(\.name)
         Form {
             clockSection
-
-            Section {
-                Toggle("Mute sounds at night", isOn: $quiet.draft.enabled)
-                Group {
-                    DatePicker("From", selection: hourMinuteBinding($quiet.draft.start), displayedComponents: .hourAndMinute)
-                    DatePicker("Until", selection: hourMinuteBinding($quiet.draft.end), displayedComponents: .hourAndMinute)
-                }
-                .disabled(!quiet.draft.enabled)
-            } header: {
-                Text("Quiet Hours")
-            } footer: {
-                SectionFooter(text: "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show.",
-                              error: quiet.saveError ?? (quiet.isLoaded ? nil : quiet.loadError))
-            }
-            .disabled(!quiet.isLoaded)
 
             Section {
                 Group {
@@ -56,7 +41,7 @@ struct SoundsPane: View {
                 Text("Chimes")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("A meeting chimes with its popup, so it needs a popup time in Calendar. The severe weather sound plays with its alert, set in Weather.")
+                    Text("A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours, in Sounds & Alerts, mute all of these.")
                     SaveErrorFooter(error: pomodoro.saveError ?? display.saveError ?? usage.saveError
                                     ?? meetings.saveError ?? weather.saveError)
                 }
@@ -69,12 +54,11 @@ struct SoundsPane: View {
             } header: {
                 Text("This Mac")
             } footer: {
-                Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Calendar, and stops after 15 minutes or when quiet hours start.")
+                Text("Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start.")
             }
             .disabled(!watcher.prefs.enabled)
         }
         .formStyle(.grouped)
-        .autosaves(quiet)
         .autosaves(pomodoro)
         .autosaves(display)
         .autosaves(usage)
@@ -83,13 +67,12 @@ struct SoundsPane: View {
         .autosaves(device.settings)
         .reloads {
             let s = env.settings
-            async let a: Void = s.quiet.load()
             async let b: Void = s.pomodoro.load()
             async let c: Void = s.display.load()
             async let d: Void = s.usage.load()
             async let e: Void = s.meetings.load()
             async let f: Void = s.weather.load()
-            _ = await (a, b, c, d, e, f)
+            _ = await (b, c, d, e, f)
             await device.load()
         }
     }
@@ -143,6 +126,46 @@ struct SoundsPane: View {
             }
         }
         .disabled(!device.isLoaded)
+    }
+}
+
+/// App › Sounds & Alerts: quiet hours, which mute every device.
+struct QuietHoursPane: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        @Bindable var quiet = env.settings.quiet
+        Form {
+            Section {
+                Toggle("Mute sounds at night", isOn: $quiet.draft.enabled)
+                Group {
+                    DatePicker("From", selection: hourMinuteBinding($quiet.draft.start), displayedComponents: .hourAndMinute)
+                    DatePicker("Until", selection: hourMinuteBinding($quiet.draft.end), displayedComponents: .hourAndMinute)
+                }
+                .disabled(!quiet.draft.enabled)
+            } header: {
+                Text("Quiet Hours")
+            } footer: {
+                SectionFooter(text: "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show.",
+                              error: quiet.saveError ?? (quiet.isLoaded ? nil : quiet.loadError))
+            }
+            .disabled(!quiet.isLoaded)
+
+            Section {
+                LabeledContent {
+                    Button("Clock Sounds…") { showSettings(.device(clockDeviceID, .hardware(.sounds))) }
+                } label: {
+                    Label { Text(DeviceKind.clock.title) } icon: { Image(systemName: DeviceKind.clock.systemImage) }
+                }
+            } header: {
+                Text("Devices")
+            } footer: {
+                Text("Each device with a speaker sets its own sounds. Quiet hours apply to all of them.")
+            }
+        }
+        .formStyle(.grouped)
+        .autosaves(quiet)
+        .reloads { await env.settings.quiet.load() }
     }
 }
 

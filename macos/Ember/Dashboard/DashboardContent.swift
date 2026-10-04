@@ -39,7 +39,7 @@ struct DashboardContent<Source: DashboardSource>: View {
                 Text("macOS is blocking Ember from the server on your local network. Allow Ember under Local Network in System Settings.")
             } actions: {
                 Button("Try Again", action: onRetry)
-                Button("Review Permissions…") { openSettings(pane: SettingsPaneID.permissions.rawValue, using: openWindow) }
+                Button("Review Permissions…") { openSettings(.app(.permissions), using: openWindow) }
             }
             .frame(maxWidth: .infinity, minHeight: 480)
         } else if source.isOfflineWithNothingLoaded, source.snapshot.error == .timedOut {
@@ -51,7 +51,7 @@ struct DashboardContent<Source: DashboardSource>: View {
                      comment: "Explains a server that didn't answer in time.")
             } actions: {
                 Button("Try Again", action: onRetry)
-                Button("Open Connection Settings") { openSettings(pane: "connection", using: openWindow) }
+                Button("Open Connection Settings") { openSettings(.app(.connection), using: openWindow) }
             }
             .frame(maxWidth: .infinity, minHeight: 480)
         } else if source.isOfflineWithNothingLoaded {
@@ -61,7 +61,7 @@ struct DashboardContent<Source: DashboardSource>: View {
                 Text("Ember can't reach the server. Check that it's running, or change its address in Connection settings.")
             } actions: {
                 Button("Try Again", action: onRetry)
-                Button("Open Connection Settings") { openSettings(pane: "connection", using: openWindow) }
+                Button("Open Connection Settings") { openSettings(.app(.connection), using: openWindow) }
             }
             .frame(maxWidth: .infinity, minHeight: 480)
         } else {

@@ -1,9 +1,9 @@
 import SwiftUI
 import EmberKit
 
-struct FocusPane: View {
+/// Sources › Focus: the Pomodoro engine every device shows.
+struct FocusSourcePane: View {
     @Environment(AppEnvironment.self) private var env
-    @State private var preview = PreviewModel()
     @State private var customFocus = false
 
     private var model: ServerConfigModel<PomoConfig> { env.settings.pomodoro }
@@ -12,20 +12,6 @@ struct FocusPane: View {
         @Bindable var model = model
         let c = model.draft
         Form {
-            Section {
-                VStack(alignment: .leading, spacing: 14) {
-                    PanelPreview(title: "Focus", caption: "Tomato and time left in the focus color; the bottom bar shows the phase's progress.",
-                                 enabled: c.enabled, frame: frame("focus"))
-                    PanelPreview(title: "Short break", caption: "Coffee mug and time left in the break color.",
-                                 enabled: c.enabled, frame: frame("short_break"))
-                    PanelPreview(title: "Long break", caption: "Crescent moon, after ^[\(c.roundsBeforeLongBreak) round](inflect: true).",
-                                 enabled: c.enabled, frame: frame("long_break"))
-                }
-                .settingsPreviewRow()
-            } footer: {
-                Text("The clock shows animated icons; the preview shows the drawn ones.")
-            }
-
             LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
                              offMessage: "Pomodoro is off on the server, or the server is too old. Turn it on in the server's config.",
                              retry: { await model.load() })
@@ -75,22 +61,66 @@ struct FocusPane: View {
                     Text("The Dashboard tracks these.")
                 }
 
-                Section("Behavior") {
+                Section {
                     Toggle("Start the next phase automatically", isOn: $model.draft.autoStartNext)
                     StepperRow(title: "Stop after", value: $model.draft.maxSessionMinutes,
                                range: (0...480).including(c.maxSessionMinutes), step: 30) { m in
                         m == 0 ? Text("Never") : Text(verbatim: DurationText.minutes(m))
                     }
-                }
-
-                Section {
-                    HexColorRow(title: "Focus", hex: $model.draft.focusColor, fallback: "#3AA0FF")
-                    HexColorRow(title: "Break", hex: $model.draft.breakColor, fallback: "#2EE85E")
                 } header: {
-                    Text("Colors")
+                    Text("Behavior")
                 } footer: {
                     SaveErrorFooter(error: model.saveError)
                 }
+            }
+            .disabled(!model.isLoaded)
+
+            ShownOnSection(source: .focus)
+        }
+        .formStyle(.grouped)
+        .autosaves(model)
+        .reloads { await model.load() }
+    }
+}
+
+/// Clock › Apps › Focus: how the TC001 draws the Pomodoro.
+struct ClockFocusAppPane: View {
+    @Environment(AppEnvironment.self) private var env
+    @State private var preview = PreviewModel()
+
+    private var model: ServerConfigModel<PomoConfig> { env.settings.pomodoro }
+
+    var body: some View {
+        @Bindable var model = model
+        let c = model.draft
+        Form {
+            SourceLinkSection(source: .focus, isOff: model.isLoaded && !c.enabled)
+
+            Section {
+                VStack(alignment: .leading, spacing: 14) {
+                    PanelPreview(title: "Focus", caption: "Tomato and time left in the focus color; the bottom bar shows the phase's progress.",
+                                 enabled: c.enabled, frame: frame("focus"))
+                    PanelPreview(title: "Short break", caption: "Coffee mug and time left in the break color.",
+                                 enabled: c.enabled, frame: frame("short_break"))
+                    PanelPreview(title: "Long break", caption: "Crescent moon, after ^[\(c.roundsBeforeLongBreak) round](inflect: true).",
+                                 enabled: c.enabled, frame: frame("long_break"))
+                }
+                .settingsPreviewRow()
+            } footer: {
+                Text("The clock shows animated icons; the preview shows the drawn ones.")
+            }
+
+            LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
+                             offMessage: "Pomodoro is off on the server, or the server is too old. Turn it on in the server's config.",
+                             retry: { await model.load() })
+
+            Section {
+                HexColorRow(title: "Focus", hex: $model.draft.focusColor, fallback: "#3AA0FF")
+                HexColorRow(title: "Break", hex: $model.draft.breakColor, fallback: "#2EE85E")
+            } header: {
+                Text("Colors")
+            } footer: {
+                SaveErrorFooter(error: model.saveError)
             }
             .disabled(!model.isLoaded)
         }

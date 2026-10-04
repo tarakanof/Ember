@@ -1,10 +1,12 @@
 import SwiftUI
 import EmberKit
 
-/// Settings › Knob: the one knob registered on the server (cinder, the
-/// ESP32-S3 round display), set up over USB.
-struct KnobPane: View {
+/// A page under the Knob node: the one knob registered on the server
+/// (cinder, the ESP32-S3 round display), set up over USB. With no knob
+/// every page shows the setup state.
+struct KnobDetail: View {
     @Environment(AppEnvironment.self) private var env
+    let page: DevicePage
     @State private var setup: KnobSetupModel.Mode?
 
     private var knob: KnobModel { env.knob }
@@ -18,14 +20,7 @@ struct KnobPane: View {
                 if knob.knob == nil {
                     KnobEmptySection(setUp: { setup = .setup })
                 } else {
-                    KnobStatusSection(setUp: { setup = .setup })
-                    Group {
-                        KnobDisplaySection()
-                        KnobPagesSection()
-                        KnobBehaviorSection()
-                    }
-                    .disabled(!knob.settings.isLoaded)
-                    KnobAdvancedSection(changeWiFi: { setup = .changeWiFi })
+                    content
                 }
             }
         }
@@ -39,12 +34,33 @@ struct KnobPane: View {
                 await knob.load()
             }
         }
-        // The only automatic port opens: while this pane is on screen, once
+        // The only automatic port opens: while a knob page is on screen, once
         // on appear (retrying boards that weren't cinder) and for new boards.
         .onAppear { Task { await knob.probePorts(retryFailed: true) } }
         .onChange(of: knob.ports.ports) { _, _ in Task { await knob.probePorts() } }
         .sheet(item: $setup) { mode in
             KnobSetupSheet(mode: mode)
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch page {
+        case .hardware(.display):
+            KnobDisplaySection().disabled(!knob.settings.isLoaded)
+        case .hardware(.behavior):
+            KnobPollSection().disabled(!knob.settings.isLoaded)
+            KnobAdvancedSection(changeWiFi: { setup = .changeWiFi })
+        case .hardware:
+            KnobStatusSection(setUp: { setup = .setup })
+        case .apps:
+            KnobPagesSection().disabled(!knob.settings.isLoaded)
+        case .app(let app):
+            if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source) }
+            Group {
+                KnobPageSection(app: app)
+                if app == .bot { KnobBotSection() }
+            }
+            .disabled(!knob.settings.isLoaded)
         }
     }
 }

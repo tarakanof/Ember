@@ -2,10 +2,9 @@ import SwiftUI
 import EventKit
 import EmberKit
 
-struct CalendarPane: View {
+/// Sources › Calendar: the server's meeting feeds and this Mac's Reminders.
+struct CalendarSourcePane: View {
     @Environment(AppEnvironment.self) private var env
-    @State private var meetingPreview = PreviewModel()
-    @State private var reminderPreview = PreviewModel()
 
     private var model: ServerConfigModel<MeetingsConfig> { env.settings.meetings }
 
@@ -14,32 +13,12 @@ struct CalendarPane: View {
         @Bindable var watcher = env.reminderWatcher
         let c = model.draft
         Form {
-            Section {
-                VStack(alignment: .leading, spacing: 14) {
-                    PanelPreview(title: "Next meeting", caption: "Calendar icon, title and minutes to go.",
-                                 enabled: c.enabled, frame: meetingPreview.frame("meeting"))
-                    PanelPreview(title: "Reminder", caption: "Bell and the reminder's title when it comes due.",
-                                 enabled: watcher.prefs.enabled,
-                                 frame: reminderPreview.frame("reminder"))
-                }
-                .settingsPreviewRow()
-            }
-
             LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
                              offMessage: "This server doesn't support meetings. Update the Ember server.",
                              retry: { await model.load() })
 
             Section {
                 Toggle("Show next meeting", isOn: $model.draft.enabled)
-                Group {
-                    StepperRow(title: "Show tile from", value: $model.draft.tileLeadMinutes,
-                               range: (5...240).including(c.tileLeadMinutes), step: 5) { Text("\($0) min before") }
-                    StepperRow(title: "Popup", value: $model.draft.popupLeadMinutes,
-                               range: (0...30).including(c.popupLeadMinutes)) { m in
-                        m == 0 ? Text("Off") : Text("\(m) min before")
-                    }
-                }
-                .disabled(!c.enabled)
             } header: {
                 Text("Meetings")
             } footer: {
@@ -82,27 +61,15 @@ struct CalendarPane: View {
                 remindersAccess(watcher.authStatus)
                 Toggle("Ring the clock for due reminders", isOn: $watcher.prefs.enabled)
                     .disabled(watcher.authStatus != .fullAccess)
-                Group {
-                    StepperRow(title: "Ring", value: $watcher.prefs.leadMinutes,
-                               range: (0...30).including(watcher.prefs.leadMinutes)) { m in
-                        m == 0 ? Text("When due") : Text("\(m) min early")
-                    }
-                    Toggle("Keep on screen until dismissed", isOn: $watcher.prefs.hold)
-                    StepperRow(title: "Show for", value: $watcher.prefs.popupDuration,
-                               range: (5...120).including(watcher.prefs.popupDuration), step: 5) { Text("\($0) s") }
-                        .disabled(watcher.prefs.hold)
-                    Toggle("Native icon", isOn: $watcher.prefs.useNativeIcon)
-                    TextField("Icon ID", text: $watcher.prefs.nativeIconId, prompt: Text(verbatim: "1234"))
-                        .disabled(!watcher.prefs.useNativeIcon)
+                StepperRow(title: "Ring", value: $watcher.prefs.leadMinutes,
+                           range: (0...30).including(watcher.prefs.leadMinutes)) { m in
+                    m == 0 ? Text("When due") : Text("\(m) min early")
                 }
                 .disabled(!watcher.prefs.enabled)
             } header: {
                 Text("Apple Reminders")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(watcher.prefs.hold
-                         ? "The reminder stays on the clock until you press its middle button."
-                         : "The reminder shows for the time above, then the clock carries on.")
                     Text("These settings apply only to this Mac, while it's awake and Ember is running.")
                     if let error = watcher.lastFireError {
                         Label("Last reminder didn't reach the clock: \(error)", systemImage: "exclamationmark.triangle.fill")
@@ -122,11 +89,11 @@ struct CalendarPane: View {
                     }
                 }
             }
+
+            ShownOnSection(source: .calendar)
         }
         .formStyle(.grouped)
         .autosaves(model)
-        .previews(into: meetingPreview) { try await env.preview.fetchMeetingsPreview() }
-        .previews(into: reminderPreview) { try await env.preview.fetchReminderPreview() }
         .reloads {
             env.reminderWatcher.refreshAuthorization()
             await model.load()
@@ -153,5 +120,77 @@ struct CalendarPane: View {
                 Label("Ember needs access to Reminders", systemImage: "checklist")
             }
         }
+    }
+}
+
+/// Clock › Apps › Calendar: the TC001's meeting tile and reminder popup.
+struct ClockCalendarAppPane: View {
+    @Environment(AppEnvironment.self) private var env
+    @State private var meetingPreview = PreviewModel()
+    @State private var reminderPreview = PreviewModel()
+
+    private var model: ServerConfigModel<MeetingsConfig> { env.settings.meetings }
+
+    var body: some View {
+        @Bindable var model = model
+        @Bindable var watcher = env.reminderWatcher
+        let c = model.draft
+        Form {
+            SourceLinkSection(source: .calendar, isOff: model.isLoaded && !c.enabled && !watcher.prefs.enabled)
+
+            Section {
+                VStack(alignment: .leading, spacing: 14) {
+                    PanelPreview(title: "Next meeting", caption: "Calendar icon, title and minutes to go.",
+                                 enabled: c.enabled, frame: meetingPreview.frame("meeting"))
+                    PanelPreview(title: "Reminder", caption: "Bell and the reminder's title when it comes due.",
+                                 enabled: watcher.prefs.enabled,
+                                 frame: reminderPreview.frame("reminder"))
+                }
+                .settingsPreviewRow()
+            }
+
+            LoadStateSection(isLoaded: model.isLoaded, error: model.loadError,
+                             offMessage: "This server doesn't support meetings. Update the Ember server.",
+                             retry: { await model.load() })
+
+            Section {
+                StepperRow(title: "Show tile from", value: $model.draft.tileLeadMinutes,
+                           range: (5...240).including(c.tileLeadMinutes), step: 5) { Text("\($0) min before") }
+                StepperRow(title: "Popup", value: $model.draft.popupLeadMinutes,
+                           range: (0...30).including(c.popupLeadMinutes)) { m in
+                    m == 0 ? Text("Off") : Text("\(m) min before")
+                }
+            } header: {
+                Text("Meetings")
+            } footer: {
+                SaveErrorFooter(error: model.saveError)
+            }
+            .disabled(!model.isLoaded || !c.enabled)
+
+            Section {
+                Toggle("Keep on screen until dismissed", isOn: $watcher.prefs.hold)
+                StepperRow(title: "Show for", value: $watcher.prefs.popupDuration,
+                           range: (5...120).including(watcher.prefs.popupDuration), step: 5) { Text("\($0) s") }
+                    .disabled(watcher.prefs.hold)
+                Toggle("Native icon", isOn: $watcher.prefs.useNativeIcon)
+                TextField("Icon ID", text: $watcher.prefs.nativeIconId, prompt: Text(verbatim: "1234"))
+                    .disabled(!watcher.prefs.useNativeIcon)
+            } header: {
+                Text("Apple Reminders")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(watcher.prefs.hold
+                         ? "The reminder stays on the clock until you press its middle button."
+                         : "The reminder shows for the time above, then the clock carries on.")
+                    Text("These settings apply only to this Mac, while it's awake and Ember is running.")
+                }
+            }
+            .disabled(!watcher.prefs.enabled)
+        }
+        .formStyle(.grouped)
+        .autosaves(model)
+        .previews(into: meetingPreview) { try await env.preview.fetchMeetingsPreview() }
+        .previews(into: reminderPreview) { try await env.preview.fetchReminderPreview() }
+        .reloads { await model.load() }
     }
 }

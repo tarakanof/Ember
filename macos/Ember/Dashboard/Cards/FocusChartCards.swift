@@ -62,7 +62,7 @@ private func focusStatsState<T, C: View>(_ feed: Loadable<T>, placeholder: T?, i
     FeedStateView(feed: feed, placeholder: placeholder, isEmpty: isEmpty, emptyTitle: "No data yet",
                   emptySymbol: "chart.bar",
                   offTitle: "Pomodoro is off", offDescription: "Turn it on in Settings › Focus.",
-                  offSettingsPane: "focus", content: content)
+                  offSettingsPane: .source(.focus), content: content)
 }
 
 // MARK: Card 6 — Last 7 days

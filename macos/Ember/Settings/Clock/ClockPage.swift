@@ -1,7 +1,31 @@
 import SwiftUI
 import EmberKit
 
-struct ClockPane: View {
+/// A Clock page: the clock's load state over its sections, which stay
+/// disabled until the clock's settings have loaded.
+struct ClockPage<Content: View>: View {
+    @Environment(DeviceSettingsModel.self) private var device
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Form {
+            LoadStateSection(isLoaded: device.isLoaded, error: device.loadError,
+                             offMessage: "This server can't reach a clock. Check the clock's address below or discover one.",
+                             retry: { await device.load(force: true) })
+            Group { content }
+                .disabled(!device.isLoaded)
+        }
+        .formStyle(.grouped)
+        .autosaves(device.settings)
+        .autosaves(device.display)
+        .autosaves(device.sensors)
+        .reloads { await device.load() }
+    }
+}
+
+/// Clock › Status: address, firmware, health and discovery, usable while
+/// the clock is unreachable.
+struct ClockStatusPane: View {
     @Environment(DeviceSettingsModel.self) private var device
 
     var body: some View {
@@ -10,20 +34,8 @@ struct ClockPane: View {
                              offMessage: "This server can't reach a clock. Check the clock's address below or discover one.",
                              retry: { await device.load(force: true) })
             ClockStatusSection()
-            Group {
-                DisplaySection()
-                RotationSection()
-                NativeAppsSection()
-                TimeDateSection()
-                SensorsSection()
-                ButtonsSection()
-            }
-            .disabled(!device.isLoaded)
         }
         .formStyle(.grouped)
-        .autosaves(device.settings)
-        .autosaves(device.display)
-        .autosaves(device.sensors)
         .reloads { await device.load() }
     }
 }

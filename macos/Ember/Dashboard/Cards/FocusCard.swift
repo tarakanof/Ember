@@ -16,7 +16,7 @@ struct FocusCard: View {
                           emptySymbol: "timer",
                           offTitle: "Pomodoro is off",
                           offDescription: "Turn it on in Settings › Focus.",
-                          offSettingsPane: "focus") { summary in
+                          offSettingsPane: .source(.focus)) { summary in
                 content(summary)
             }
         }

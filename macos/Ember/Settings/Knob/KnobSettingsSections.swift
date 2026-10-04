@@ -95,7 +95,7 @@ func knobPageTitle(_ id: String) -> LocalizedStringKey {
     }
 }
 
-struct KnobBehaviorSection: View {
+struct KnobPollSection: View {
     @Environment(AppEnvironment.self) private var env
 
     var body: some View {
@@ -110,6 +110,22 @@ struct KnobBehaviorSection: View {
                 Text("\(Text(v, format: .number.precision(.fractionLength(0...1)))) s",
                      comment: "Settings › Knob: how often the knob polls Ember, in seconds (\"2.5 s\").")
             }
+        } header: {
+            Text("Behavior")
+        } footer: {
+            SectionFooter(text: "A shorter check interval shows changes sooner and uses a little more power.",
+                          error: knob.settings.saveError)
+        }
+    }
+}
+
+struct KnobBotSection: View {
+    @Environment(AppEnvironment.self) private var env
+
+    var body: some View {
+        let knob = env.knob
+        let s = knob.settings.draft
+        Section {
             StepperRow(title: "Bot gets sleepy after", value: Binding(
                 get: { s.bot.sleepyAfterS / 60 },
                 set: { m in knob.edit { $0.bot.sleepyAfterS = m * 60 } }),
@@ -119,10 +135,48 @@ struct KnobBehaviorSection: View {
             StepperRow(title: "Hold demo mood for", value: knob.binding(\.bot.demoHoldS),
                        range: KnobSettings.demoHoldRange, step: 5) { Text("\($0) s") }
         } header: {
-            Text("Behavior")
+            Text("Bot")
         } footer: {
-            SectionFooter(text: "A shorter check interval shows changes sooner and uses a little more power. Long-press the knob to try a mood; it holds for the time set here.",
+            SectionFooter(text: "Long-press the knob to try a mood; it holds for the time set here.",
                           error: knob.settings.saveError)
+        }
+    }
+}
+
+/// An app's page on the knob: on or off, and where it sits in the order.
+struct KnobPageSection: View {
+    @Environment(AppEnvironment.self) private var env
+    let app: AppID
+
+    var body: some View {
+        let knob = env.knob
+        let pages = knob.settings.draft.pages
+        if let id = AppCatalog.knobPage(app), let index = pages.firstIndex(where: { $0.id == id }) {
+            let page = pages[index]
+            Section {
+                Toggle("Show on the knob", isOn: Binding(
+                    get: { page.on },
+                    set: { on in knob.edit { $0.pages[index].on = on } }))
+                    .disabled(page.on && knob.settings.draft.isLastPageOn(page.id))
+                LabeledContent("Position") {
+                    Text("Page \(index + 1) of \(pages.count)",
+                         comment: "Settings › Knob › Apps: where an app's page sits in the knob's page order (\"Page 2 of 3\").")
+                }
+                if knob.settings.draft.home == id {
+                    LabeledContent("Home page") { Image(systemName: "checkmark").accessibilityLabel(Text("Yes")) }
+                }
+            } header: {
+                Text("Page")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Text("Order and home page are set in Pages.")
+                        Button("Edit Pages…") { showSettings(.device(knob.knob?.id ?? DeviceKind.knob.placeholderID, .apps)) }
+                            .buttonStyle(.link)
+                    }
+                    SaveErrorFooter(error: knob.settings.saveError)
+                }
+            }
         }
     }
 }
