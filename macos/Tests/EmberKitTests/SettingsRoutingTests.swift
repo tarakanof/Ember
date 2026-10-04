@@ -4,7 +4,7 @@ import Foundation
 
 @Test func paneNamesAreTheContract() {
     #expect(SettingsPaneID.allCases.map(\.rawValue) ==
-            ["general", "connection", "clock", "agents", "focus", "weather", "calendar", "sounds", "permissions"])
+            ["general", "connection", "clock", "knob", "agents", "focus", "weather", "calendar", "sounds", "permissions"])
     #expect(SettingsPaneID.storageKey == "settings.pane")
 }
 

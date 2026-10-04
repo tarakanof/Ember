@@ -2,7 +2,7 @@ import Foundation
 
 /// The Settings panes by their stored name.
 public enum SettingsPaneID: String, CaseIterable, Identifiable, Sendable {
-    case general, connection, clock, agents, focus, weather, calendar, sounds, permissions
+    case general, connection, clock, knob, agents, focus, weather, calendar, sounds, permissions
 
     public var id: String { rawValue }
 

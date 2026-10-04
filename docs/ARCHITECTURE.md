@@ -645,7 +645,7 @@ without relaunch. Hybrid layout:
   server lacks are hidden, e.g. usage falls back to `/state` and display
   power needs 0.28+), the animated bot or tool glyph as its icon, a
   fixed-width sidebar `Settings` window (height resizable only, like System
-  Settings; **General / Connection / Clock / Agents / Focus /
+  Settings; **General / Connection / Clock / Knob / Agents / Focus /
   Weather / Calendar / Sounds & Alerts / Permissions**; the title follows the pane, the
   subtitle is the one save status of every config model, controls stay
   disabled until their model has loaded), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
@@ -1762,6 +1762,25 @@ the same board finds its record.
   `/state` poll without putting per-device data in a public response.
 - **Doctor:** `devices` check lists each record's last-checkin age; warns
   when one never checked in or is silent for more than 5 min.
+- **App (Settings › Knob, #222/#223):** EmberKit `Knob/` holds the protocol
+  and models, no UI. `ImprovCodec` (Improv Serial frames + checksum; the host
+  appends `\n` after each frame) and `CinderLineCodec` (`CINDER1 {json}` lines,
+  sorted keys) are pinned by the shared vectors in
+  `macos/Tests/EmberKitTests/testdata/knob/` that cinder's firmware tests can
+  reuse. `KnobStreamDemuxer` splits the port's bytes into frames, `CINDER1`
+  lines and log lines. `KnobLink`/`KnobLinkOpener` is the transport seam (USB
+  serial now, BLE later); `SerialPortLink` opens `/dev/cu.*` raw
+  (`O_NONBLOCK`, `cfmakeraw`, `HUPCL` cleared) and **never touches DTR/RTS**:
+  toggling RTS resets the ESP32-S3. `KnobSerialPorts` watches IOKit for
+  `303a:1001` and keys a port by its USB serial number (the MAC = `hw_id`).
+  `KnobProvisioner` runs Improv device info (no answer in 2 s = not cinder),
+  the knob's own scan, `POST /v1/devices` (token), `set_ember`, the Wi-Fi RPC,
+  follows the reboot (reopens by serial number) and waits for `ember: ok` or a
+  server checkin. `KnobModel` shows the newest `cinder-knob` record only (one
+  knob; a setup on another board replaces it after a confirm and deletes the
+  old record) and autosaves `ConfigModel<KnobSettings>` as a merge PUT of the
+  changed fields only. Tests use a fake link and a pty pair; nothing opens a
+  real serial port.
 
 ### Config load and `/admin/reload`
 

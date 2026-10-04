@@ -62,7 +62,7 @@ struct ClockStatusSection: View {
                 LabeledContent("Humidity") { Text(Percent.text(h)) }
             }
             if let rssi = probe?.wifiRssiDbm {
-                LabeledContent("Wi-Fi") { Text("\(Text(wifiQuality(rssi))) · \(rssi) dBm") }
+                LabeledContent("Wi-Fi") { wifiSignalText(rssi) }
             }
             if let up = probe?.uptimeSec ?? device.stats?.uptimeSeconds {
                 LabeledContent("Uptime") { Text(DurationText.uptime(up)) }
@@ -118,12 +118,6 @@ struct ClockStatusSection: View {
                                             numberFormatStyle: .number.precision(.fractionLength(1))))
     }
 
-    private func wifiQuality(_ rssi: Int) -> LocalizedStringKey {
-        if rssi >= -60 { return "Strong" }
-        if rssi >= -70 { return "Good" }
-        if rssi >= -80 { return "Weak" }
-        return "Very weak"
-    }
 }
 
 struct DiscoverClocksSheet: View {
