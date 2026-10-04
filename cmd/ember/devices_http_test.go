@@ -322,6 +322,7 @@ func TestDeviceConfigPutRejectsInvalidMergedResult(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
 	path := "/v1/devices/" + m.ID + "/config"
+	_, before := devReq(t, srv, "GET", path, testToken, "")
 	for _, body := range []string{
 		`{"poll_ms":50}`,
 		`{"pages":[{"id":"bot","on":false}]}`,
@@ -334,6 +335,9 @@ func TestDeviceConfigPutRejectsInvalidMergedResult(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("put %s = %d, want 400: %s", body, resp.StatusCode, b)
 		}
+	}
+	if _, after := devReq(t, srv, "GET", path, testToken, ""); !bytes.Equal(before, after) {
+		t.Fatalf("config changed by rejected puts:\n before %s\n after  %s", before, after)
 	}
 	if v := app.devices.list()[0].ConfigVersion; v != 1 {
 		t.Fatalf("version after rejected puts = %d, want 1", v)
@@ -412,6 +416,23 @@ func TestDeviceRotateRedeliversSamePendingToken(t *testing.T) {
 	}
 	if resp, _ := checkin(t, srv, t1, 1); resp.StatusCode != http.StatusOK {
 		t.Fatalf("pending token = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestDeviceRerotateMintsFreshPendingToken(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
+	_, out := checkin(t, srv, m.Token, 1)
+	t1 := out["new_token"].(string)
+	devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
+	_, out = checkin(t, srv, m.Token, 1)
+	t2, _ := out["new_token"].(string)
+	if t2 == "" || t2 == t1 {
+		t.Fatalf("second rotation new_token = %q, want fresh (first %q)", t2, t1)
+	}
+	if resp, _ := checkin(t, srv, t2, 1); resp.StatusCode != http.StatusOK {
+		t.Fatalf("second rotation token = %d, want 200", resp.StatusCode)
 	}
 }
 

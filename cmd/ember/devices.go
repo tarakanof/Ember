@@ -249,6 +249,7 @@ func (r *deviceRegistry) provision(hwID, name string) (deviceView, string, bool,
 			d.TokenSHA256 = tokenHash(token)
 			d.PendingTokenSHA256 = ""
 			d.RotatedAt = nil
+			delete(r.pendingPlain, d.ID)
 			if name != "" {
 				d.Name = name
 			}
