@@ -102,8 +102,11 @@ re-posting a finished (`done`/`error`) session.
 overrides `producer.env`) lets the `run` daemon cross-check running/waiting
 sessions with `claude agents --json`: it ends a wait the hooks can't see end
 (approved dialog, Esc on a dialog), marks an Esc-interrupted turn `done`
-("interrupted") and reaps a dead session early. The daemon log
-(`ember-tick.log`) records each correction.
+("interrupted"). It needs Claude Code ≥ 2.1.288 at `~/.local/bin/claude`
+(native installer), on the daemon's PATH, or in `/opt/homebrew/bin` /
+`/usr/local/bin`; nvm/npm-global installs aren't found and the check stays
+off. `doctor` prints `claude agents cross-check: on (claude X at PATH)` or why
+it is inactive. The daemon log (`ember-tick.log`) records each correction.
 Settings › Agents shows the same thing under the Claude Code row ("Hooks: the
 ember@ember plugin", "~/.claude/settings.json", both, or none, plus "Paused"
 when the kill switch exists), reading the same files as `doctor`. With Claude
