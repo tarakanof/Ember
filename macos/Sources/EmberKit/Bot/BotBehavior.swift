@@ -71,6 +71,31 @@ public struct BotBehavior: Sendable {
     /// Idle this long (seconds) and the bot gets drowsy.
     public static let sleepAfter = 300.0
 
+    /// Timings that differ between the Mac bot and the knob's port of it.
+    public struct Tuning: Sendable, Equatable {
+        /// Idle seconds before sleepy; `.infinity` never.
+        public var sleepAfter: Double
+        /// Hop length in seconds; the hop curve's phases stretch to fit.
+        public var hopLength: Double
+        /// 1 keeps the full squash and stretch; less flattens it toward 1.
+        public var hopSquash: Double
+        public var hopIntervalMedian: Double
+        public var hopIntervalSigma: Double
+        public var hopIntervalRange: ClosedRange<Double>
+
+        public init(sleepAfter: Double, hopLength: Double, hopSquash: Double, hopIntervalMedian: Double,
+                    hopIntervalSigma: Double, hopIntervalRange: ClosedRange<Double>) {
+            self.sleepAfter = sleepAfter; self.hopLength = hopLength; self.hopSquash = hopSquash
+            self.hopIntervalMedian = hopIntervalMedian; self.hopIntervalSigma = hopIntervalSigma
+            self.hopIntervalRange = hopIntervalRange
+        }
+
+        /// The menu-bar and Dock bot.
+        public static let mac = Tuning(sleepAfter: BotBehavior.sleepAfter, hopLength: BotBehavior.hopLength,
+                                       hopSquash: 1, hopIntervalMedian: 15, hopIntervalSigma: 0.4,
+                                       hopIntervalRange: 8...40)
+    }
+
     /// Accessibility "Reduce motion": keep blinks, drop gaze darts, hops and pops.
     public var reduceMotion = false {
         didSet {
@@ -116,7 +141,10 @@ public struct BotBehavior: Sendable {
     private var hopStart: Double?
     private var nextHopAt = Double.infinity
 
-    public init(seed: UInt64, now: Double) {
+    private let tuning: Tuning
+
+    public init(seed: UInt64, now: Double, tuning: Tuning = .mac) {
+        self.tuning = tuning
         rng = SplitMix64(state: seed)
         moodSince = now
         nextSaccadeAt = now + 1
@@ -133,12 +161,13 @@ public struct BotBehavior: Sendable {
 
     /// Advances the schedules to `t` (monotonic seconds) and returns the frame.
     public mutating func pose(at t: Double) -> BotPose {
-        if mood == .idle && t - moodSince >= Self.sleepAfter { enter(.sleepy, at: t) }
+        if mood == .idle && t - moodSince >= tuning.sleepAfter { enter(.sleepy, at: t) }
         if blinkStart == nil && t >= nextBlinkAt { startBlink(at: t) }
         if t >= nextSaccadeAt { startSaccade(at: t) }
         if t >= nextHopAt {
             hopStart = t
-            nextHopAt = t + lognormal(median: 15, sigma: 0.4, in: 8...40)
+            nextHopAt = t + lognormal(median: tuning.hopIntervalMedian, sigma: tuning.hopIntervalSigma,
+                                      in: tuning.hopIntervalRange)
         }
 
         var p = BotPose()
@@ -179,8 +208,9 @@ public struct BotBehavior: Sendable {
         var hopping = false
         if let h = hopStart {
             let u = t - h
-            if u < Self.hopLength {
-                let (sx, sy, dy) = Self.hop(u)
+            if u < tuning.hopLength {
+                let cu = tuning.hopLength == Self.hopLength ? u : u * Self.hopLength / tuning.hopLength
+                let (sx, sy, dy) = Self.hop(cu, squash: tuning.hopSquash)
                 p.scaleX *= sx; p.scaleY *= sy; p.offsetY += dy
                 hopping = true
             } else {
@@ -203,7 +233,7 @@ public struct BotBehavior: Sendable {
         isAnimating = blinkStart != nil || sacActive || hopping || popping
             || [triangle, slump, badge, leanX, leanY].contains { $0.isActive(at: t) }
         var next = min(nextBlinkAt, nextSaccadeAt, nextHopAt)
-        if mood == .idle { next = min(next, moodSince + Self.sleepAfter) }
+        if mood == .idle { next = min(next, moodSince + tuning.sleepAfter) }
         nextEventAt = next
         return p
     }
@@ -340,6 +370,12 @@ public struct BotBehavior: Sendable {
     static func blinkLength(speed: Double) -> Double { (0.075 + 0.035 + 0.15) * speed }
 
     static let hopLength = 0.62
+
+    static func hop(_ u: Double, squash: Double) -> (Double, Double, Double) {
+        let (sx, sy, dy) = hop(u)
+        guard squash != 1 else { return (sx, sy, dy) }
+        return (1 + (sx - 1) * squash, 1 + (sy - 1) * squash, dy)
+    }
 
     static func hop(_ u: Double) -> (Double, Double, Double) {
         func lerp(_ a: Double, _ b: Double, _ k: Double) -> Double { a + (b - a) * min(max(k, 0), 1) }
