@@ -86,9 +86,11 @@ check_plist() {
 
 check_producer ember-claude-producer
 check_producer ember-codex-producer
+check_producer ember-t3-producer
 
 check_plist "$LA_DIR/com.ember.heartbeat.plist"
 check_plist "$LA_DIR/com.ember.codex.plist"
+check_plist "$LA_DIR/com.ember.t3.plist"
 
 check "codesign --verify --deep --strict: $(basename "$APP")" codesign --verify --deep --strict "$APP"
 

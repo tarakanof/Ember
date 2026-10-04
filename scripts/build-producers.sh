@@ -48,9 +48,11 @@ build_universal() {
 
 build_universal ember-claude-producer ember-claude-producer com.ember.claude-producer
 build_universal ember-codex-producer  ember-codex-producer  com.ember.codex-producer
+build_universal ember-t3-producer     ember-t3-producer     com.ember.t3-producer
 
 LA_DIR="$APP/Contents/Library/LaunchAgents"
 mkdir -p "$LA_DIR"
 cp "$REPO/macos/Ember/LaunchAgents/com.ember.heartbeat.plist" "$LA_DIR/"
 cp "$REPO/macos/Ember/LaunchAgents/com.ember.codex.plist"     "$LA_DIR/"
+cp "$REPO/macos/Ember/LaunchAgents/com.ember.t3.plist"        "$LA_DIR/"
 for p in "$LA_DIR"/com.ember.*.plist; do plutil -lint "$p" >/dev/null; done
