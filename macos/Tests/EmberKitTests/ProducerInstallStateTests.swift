@@ -25,7 +25,8 @@ import Foundation
 
 @MainActor @Test func allOnWhenBothEnabled() {
     let sm = FakeSMAppService()
-    sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.codex.plist": .enabled]
+    sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.codex.plist": .enabled,
+                   "com.ember.t3.plist": .enabled]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
@@ -41,13 +42,20 @@ import Foundation
     #expect(svc.toggleState() == .off)
 }
 
-@MainActor @Test func noDetectedAgentsYieldsOff() {
+@MainActor @Test func noDetectedOrRegisteredAgentsYieldsOff() {
+    let svc = ProducerInstallService(sm: FakeSMAppService(), runner: FakeRunner(),
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { _ in false })
+    #expect(svc.toggleState() == .off)
+}
+
+@MainActor @Test func registeredAgentsCountEvenWithoutTheirTool() {
     let sm = FakeSMAppService()
     sm.statuses = ["com.ember.heartbeat.plist": .enabled, "com.ember.codex.plist": .enabled]
     let svc = ProducerInstallService(sm: sm, runner: FakeRunner(),
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in false })
-    #expect(svc.toggleState() == .off)
+    #expect(svc.toggleState() == .on)
 }
 
 @MainActor @Test func errorTakesPriorityOverNeedsApprovalAndOn() {

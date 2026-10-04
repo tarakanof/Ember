@@ -95,6 +95,11 @@ ember@ember`. Uninstalling or disabling the plugin leaves no hooks (`doctor`:
 plugin hooks go silent (`doctor`: `DISABLED`). `configure` removes it. Hook
 timeouts: blocking plugin hooks 5 s, but SessionEnd shares Claude Code's 1.5 s
 budget, so keep `EMBER_HOOK_TIMEOUT_MS` (default 500) under ~1500.
+Settings › Agents shows the same thing under the Claude Code row ("Hooks: the
+ember@ember plugin", "~/.claude/settings.json", both, or none, plus "Paused"
+when the kill switch exists), reading the same files as `doctor`. With Claude
+reporting on, registered twice, none, or paused gets an orange warning and
+**Fix Hooks**, which runs the bundled `ember-claude-producer configure`.
 Details: [`producers/claude-code/README.md`](../producers/claude-code/README.md).
 
 `producer.env` (`~/.config/ember/producer.env`) holds: `source`,
@@ -124,8 +129,14 @@ ember-t3-producer doctor      # T3 server running? schema/migration? thread coun
 ember-t3-producer uninstall
 ```
 
-It is not bundled in Ember.app yet (Settings › Agents does not manage it), so
-install it from the CLI. Restart with `launchctl kickstart -k gui/$UID/com.ember.t3`; log at
+Ember.app bundles it like Codex: Settings › Agents lists **T3 Code** with its
+own switch (the master switch includes it once T3 is detected: `~/.t3`, the
+app's `T3CODE_HOME`, or producer.env's `EMBER_T3_HOME`). The row shows even
+before T3 is installed, marked "Not found on this Mac", and can be turned on
+anyway; the first time it runs, macOS asks once for the helper's Local
+Network access. Run `ember-t3-producer uninstall` first if you installed it
+from the CLI: the CLI and the app share the `com.ember.t3` label. The CLI
+`install` stays for dev builds. Restart with `launchctl kickstart -k gui/$UID/com.ember.t3`; log at
 `~/Library/Logs/ember-t3-producer.log`. `producer.env` keys (all optional):
 `EMBER_T3_HOME` (default `~/.t3`; set it if you run T3 with `T3CODE_HOME` /
 `--base-dir`), `EMBER_T3_POLL_INTERVAL_MS` (default 2000, floor 250),
@@ -272,7 +283,8 @@ adds them as manual entries. `scripts/strings.sh check` is what CI runs; it also
 warns about keys no code uses any more (delete those by hand).
 
 **CI**: [`ci.yml`](../.github/workflows/ci.yml) runs the Go job on every push/PR,
-plus a `macos` job (path-filtered to `macos/**`, `cmd/ember/testdata/**`, and
+plus a `macos` job (path-filtered to `macos/**`, `scripts/**`, `cmd/ember/testdata/**`,
+`cmd/ember-claude-producer/testdata/**` and
 the workflow file itself) that installs `xcodegen`, runs `swift test
 --package-path macos`, regenerates the Xcode project, and does an unsigned
 `xcodebuild ... CODE_SIGNING_ALLOWED=NO build` — there's no Developer ID on the
@@ -283,8 +295,9 @@ Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The a
 reads `producer.env` for connection config and needs a server on a build that
 includes `GET /v1/preview` (added 2026-05; older servers 401 that route).
 
-The app bundle now builds + signs the two producer helpers (`ember-claude-producer`,
-`ember-codex-producer`) and their LaunchAgent plists into `Contents/MacOS` and
+The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
+`ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists
+(`com.ember.heartbeat`, `com.ember.codex`, `com.ember.t3`) into `Contents/MacOS` and
 `Contents/Library/LaunchAgents` via a `postCompileScripts` phase
 (`scripts/build-producers.sh`) that runs before Xcode's own app-level codesign, so
 signing happens inside-out. `CODE_SIGN_IDENTITY` picks Developer ID for release
@@ -305,7 +318,7 @@ one at a time. Settings › Agents shows such an agent as **Not running** with
 a **Repair** button. By hand: `launchctl bootout gui/$UID/com.ember.heartbeat`
 (and `com.ember.codex`), then quit and reopen Ember. Each helper's LaunchAgent
 records whether it last reached the server in
-`~/.config/ember/{claude,codex}-producer.link.json`; when that says
+`~/.config/ember/{claude,codex,t3}-producer.link.json`; when that says
 `"no_route": true` (macOS denied it Local Network access, `connect: no route
 to host` in `~/Library/Logs/ember-tick.log`), Settings › Agents shows a hint
 with **Review Permissions…**.

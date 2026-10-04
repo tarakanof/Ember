@@ -10,9 +10,9 @@ import Foundation
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
     let outcomes = await svc.installAll()
-    #expect(outcomes.count == 2)
+    #expect(outcomes.count == 3)
     #expect(outcomes.allSatisfy { $0.error == nil })
-    #expect(Set(sm.registered) == ["com.ember.heartbeat.plist", "com.ember.codex.plist"])
+    #expect(Set(sm.registered) == ["com.ember.heartbeat.plist", "com.ember.codex.plist", "com.ember.t3.plist"])
 }
 
 @MainActor @Test func installAllRecordsPerAgentErrorWithoutStoppingOthers() async {
@@ -25,14 +25,13 @@ import Foundation
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
     let outcomes = await svc.installAll()
-    #expect(outcomes.count == 2)
+    #expect(outcomes.count == 3)
     let errored = outcomes.filter { $0.error != nil }
     let clean = outcomes.filter { $0.error == nil }
     #expect(errored.count == 1)
     #expect(errored.first?.agent == .codex)
-    #expect(clean.count == 1)
-    #expect(clean.first?.agent == .claude)
-    #expect(sm.registered == ["com.ember.heartbeat.plist"])
+    #expect(clean.map(\.agent) == [.claude, .t3])
+    #expect(sm.registered == ["com.ember.heartbeat.plist", "com.ember.t3.plist"])
 }
 
 final class FailingForCodexRunner: ProducerCommandRunning {
@@ -50,9 +49,9 @@ final class FailingForCodexRunner: ProducerCommandRunning {
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { _ in true })
     let outcomes = await svc.uninstallAll()
-    #expect(outcomes.count == 2)
+    #expect(outcomes.count == 3)
     #expect(outcomes.allSatisfy { $0.error == nil })
-    #expect(Set(sm.unregistered) == ["com.ember.heartbeat.plist", "com.ember.codex.plist"])
+    #expect(Set(sm.unregistered) == ["com.ember.heartbeat.plist", "com.ember.codex.plist", "com.ember.t3.plist"])
 }
 
 @MainActor @Test func reconcileReRegistersEnabledOnly() async throws {
@@ -73,7 +72,7 @@ final class FailingForCodexRunner: ProducerCommandRunning {
         fileExists: { _ in true })
     _ = await svc.installAll()
     _ = await svc.uninstallAll()
-    #expect(runner.ranOnMainThread.count == 4)
+    #expect(runner.ranOnMainThread.count == 6)
     #expect(!runner.ranOnMainThread.contains(true))
 }
 
@@ -84,7 +83,8 @@ final class FailingForCodexRunner: ProducerCommandRunning {
         bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
         fileExists: { $0.hasSuffix("/.claude") })
     let snap = await svc.snapshot()
-    #expect(snap.agents.map(\.agent) == [.claude])
-    #expect(snap.agents.map(\.state) == [.on])
+    #expect(snap.agents.map(\.agent) == [.claude, .t3])
+    #expect(snap.agents.map(\.state) == [.on, .off])
+    #expect(snap.undetected == [.t3])
     #expect(snap.toggle == .on)
 }

@@ -338,6 +338,8 @@
       "shouldTranslate" : false
     },
     "Claude Code" : {},
+    "Claude hooks are paused (~/.config/ember/claude-hooks.disabled), so Claude Code sessions don't report." : {},
+    "Claude hooks are registered twice, by the ember@ember plugin and in settings.json, so every event is sent twice." : {},
     "Clear" : {},
     "Clock" : {},
     "Clock Web UI" : {},
@@ -511,6 +513,7 @@
     "Find Clock from This Mac…" : {},
     "Firmware" : {},
     "First model" : {},
+    "Fix Hooks" : {},
     "Focus" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -555,6 +558,10 @@
     "Header" : {},
     "Hidden" : {},
     "Hide when idle" : {},
+    "Hooks: none registered" : {},
+    "Hooks: the ember@ember plugin" : {},
+    "Hooks: the ember@ember plugin and ~/.claude/settings.json" : {},
+    "Hooks: ~/.claude/settings.json" : {},
     "Hour" : {},
     "Hour of day" : {},
     "Hourly forecast" : {},
@@ -672,7 +679,8 @@
       "comment" : "Menu next-event row: event title, then a time tomorrow.",
       "extractionState" : "manual"
     },
-    "No Claude Code or Codex found on this Mac." : {},
+    "No Claude Code, Codex or T3 Code found on this Mac." : {},
+    "No Claude hooks are registered, so Claude Code sessions don't report." : {},
     "No active sessions" : {},
     "No agent activity this week" : {},
     "No calendar feeds. Set EMBER_MEETINGS_ICS_URLS on the server; the URLs are secrets and never leave it." : {},
@@ -695,6 +703,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Not found on this Mac. You can turn it on now; it reports once the app runs." : {},
     "Not in use" : {},
     "Not installed: the app is missing its launch agent." : {
       "comment" : "A producer helper's state in Settings › Agents when its LaunchAgent plist isn't in the app bundle.",
@@ -784,6 +793,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Paused by claude-hooks.disabled" : {},
+    "Paused while reporting is off (claude-hooks.disabled)" : {},
     "Paused · round %lld" : {
       "comment" : "Focus card: the timer is paused; the argument is the Pomodoro round number."
     },
@@ -875,6 +886,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Runs ember-claude-producer configure: removes the pause and keeps one set of hooks, the plugin's when it's enabled." : {},
     "Runs the timer on the clock and lets the clock's buttons control it." : {},
     "Same as text" : {},
     "Save Token" : {},

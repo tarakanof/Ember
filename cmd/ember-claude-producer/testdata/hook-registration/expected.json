@@ -1,0 +1,10 @@
+{
+  "none.json":             {"plugin": false, "settings_events": 0},
+  "settings.json":         {"plugin": false, "settings_events": 3},
+  "plugin.json":           {"plugin": true,  "settings_events": 0},
+  "both.json":             {"plugin": true,  "settings_events": 2},
+  "plugin-disabled.json":  {"plugin": false, "settings_events": 1},
+  "plugin-not-bool.json":  {"plugin": false, "settings_events": 0},
+  "legacy.json":           {"plugin": false, "settings_events": 1},
+  "malformed.json":        {"plugin": false, "settings_events": 0}
+}

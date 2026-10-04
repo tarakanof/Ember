@@ -157,7 +157,8 @@ public struct ReconcileOutcome: Sendable {
 }
 
 /// Orchestrates detection, install, and uninstall of the unified installer's
-/// producer agents (Claude heartbeat producer, Codex producer).
+/// producer agents (Claude heartbeat producer, Codex producer, T3 Code
+/// producer).
 public final class ProducerInstallService: Sendable {
     private let sm: SMAppServiceControlling
     private let runner: ProducerCommandRunning
@@ -165,6 +166,7 @@ public final class ProducerInstallService: Sendable {
     private let home: URL
     private let fileExists: @Sendable (String) -> Bool
     private let readFile: @Sendable (String) -> Data?
+    private let environment: [String: String]
     private let uid: uid_t
     private let probeWarned = OSAllocatedUnfairLock(initialState: false)
     private let serial = SerialGate()
@@ -177,6 +179,7 @@ public final class ProducerInstallService: Sendable {
         home: URL,
         fileExists: @escaping @Sendable (String) -> Bool,
         readFile: @escaping @Sendable (String) -> Data? = { FileManager.default.contents(atPath: $0) },
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         uid: uid_t = getuid()
     ) {
         self.sm = sm
@@ -185,16 +188,41 @@ public final class ProducerInstallService: Sendable {
         self.home = home
         self.fileExists = fileExists
         self.readFile = readFile
+        self.environment = environment
         self.uid = uid
     }
 
-    /// Returns the subset of `ProducerAgent` cases whose detection marker
-    /// (`$HOME/<detectRelPath>`) exists on disk, in `ProducerAgent`'s
-    /// declaration order.
+    /// Returns the subset of `ProducerAgent` cases whose tool is on this Mac,
+    /// in `ProducerAgent`'s declaration order: `$HOME/<detectRelPath>`
+    /// exists, or for T3 Code the directory `T3CODE_HOME` or producer.env's
+    /// `EMBER_T3_HOME` names.
     public func detectedAgents() -> [ProducerAgent] {
-        ProducerAgent.allCases.filter { agent in
-            fileExists(home.appendingPathComponent(agent.detectRelPath).path)
+        ProducerAgent.allCases.filter(isDetected)
+    }
+
+    private func isDetected(_ agent: ProducerAgent) -> Bool {
+        var candidates = [home.appendingPathComponent(agent.detectRelPath).path]
+        if agent == .t3 {
+            candidates += [environment["T3CODE_HOME"], producerEnvValue("EMBER_T3_HOME")]
+                .compactMap { $0 }.filter { !$0.isEmpty }.map { ($0 as NSString).expandingTildeInPath }
         }
+        return candidates.contains(where: fileExists)
+    }
+
+    private func producerEnvValue(_ key: String) -> String? {
+        guard let data = readFile(home.appendingPathComponent(".config/ember/producer.env").path) else { return nil }
+        return EnvFile(parsing: String(decoding: data, as: UTF8.self)).get(key)
+    }
+
+    /// The agents the master switch reports on and turns off: every detected
+    /// agent plus any registered with macOS, so an agent turned on before its
+    /// tool was installed counts too.
+    public func managedAgents() -> [ProducerAgent] {
+        ProducerAgent.allCases.filter { isDetected($0) || isRegistered($0) }
+    }
+
+    private func isRegistered(_ agent: ProducerAgent) -> Bool {
+        [.enabled, .requiresApproval].contains(sm.status(plistName: agent.plistName))
     }
 
     /// Runs the producer binary's `configure` subcommand, then registers its
@@ -271,13 +299,13 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Aggregates `agentState(_:)` across `detectedAgents()` into a single
+    /// Aggregates `agentState(_:)` across `managedAgents()` into a single
     /// toggle state (`.notRunning` counts as `.on`: reporting is on, and the
     /// agent's row shows the problem): all `.on` → `.on`; any `.error` → `.error`; else any
     /// `.needsApproval` → `.needsApproval`; a mix of `.on`/`.off` →
     /// `.partial`; all `.off` (or no detected agents) → `.off`.
     public func toggleState() -> ToggleState {
-        Self.toggle(for: detectedAgents().map(agentState))
+        Self.toggle(for: managedAgents().map(agentState))
     }
 
     static func toggle(for agentStates: [AgentState]) -> ToggleState {
@@ -316,13 +344,13 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Uninstalls every detected agent off the calling actor, catching
-    /// per-agent failures so one agent's error never prevents the others from
-    /// being attempted.
+    /// Uninstalls every detected or registered agent off the calling actor,
+    /// catching per-agent failures so one agent's error never prevents the
+    /// others from being attempted.
     @concurrent
     public func uninstallAll() async -> [AgentOutcome] {
         await serial.run {
-            detectedAgents().map { agent in
+            managedAgents().map { agent in
                 do {
                     try uninstall(agent)
                     return AgentOutcome(agent: agent, error: nil)
@@ -331,6 +359,42 @@ public final class ProducerInstallService: Sendable {
                 }
             }
         }
+    }
+
+    /// Installs (on) or uninstalls (off) one agent off the calling actor,
+    /// whether or not its tool is detected.
+    @concurrent
+    public func setEnabled(_ agent: ProducerAgent, _ on: Bool) async -> [AgentOutcome] {
+        await serial.run {
+            do {
+                try on ? install(agent) : uninstall(agent)
+                return [AgentOutcome(agent: agent, error: nil)]
+            } catch {
+                return [AgentOutcome(agent: agent, error: error)]
+            }
+        }
+    }
+
+    /// Runs the Claude helper's `configure` off the calling actor: it removes
+    /// the kill switch and registers the settings.json hooks, or drops them
+    /// while the `ember@ember` plugin is enabled.
+    @concurrent
+    public func configureClaudeHooks() async -> [AgentOutcome] {
+        await serial.run {
+            do {
+                let result = try runner.run(executable: executablePath(for: .claude), arguments: ["configure"])
+                let error = result.exitCode == 0 ? nil : ProducerInstallError.configureFailed(exit: result.exitCode)
+                return [AgentOutcome(agent: .claude, error: error)]
+            } catch {
+                return [AgentOutcome(agent: .claude, error: error)]
+            }
+        }
+    }
+
+    /// Where the Claude producer's hooks are registered, and whether the kill
+    /// switch silences them.
+    public func claudeHookRegistration() -> ClaudeHookRegistration {
+        ClaudeHookRegistration.read(home: home, readFile: readFile, fileExists: fileExists)
     }
 
     /// Re-registers (unregister then register) each enabled agent that
@@ -383,15 +447,26 @@ public final class ProducerInstallService: Sendable {
         await reconcile(bundleChanged: false).map { AgentOutcome(agent: $0.agent, error: $0.error) }
     }
 
-    /// Reads detection and registration state for every agent off the calling
-    /// actor, for a UI that must not do filesystem and `SMAppService` reads
-    /// while rendering.
+    /// Reads detection and registration state for every listed agent off the
+    /// calling actor, for a UI that must not do filesystem and `SMAppService`
+    /// reads while rendering. An agent is listed when it's one of
+    /// `managedAgents()` or `listedWhenUndetected`; the toggle aggregates the
+    /// managed ones.
     @concurrent
     public func snapshot() async -> ProducerSnapshot {
-        let agents = detectedAgents().map { (agent: $0, state: agentState($0)) }
+        let rows = ProducerAgent.allCases.compactMap { agent -> (agent: ProducerAgent, state: AgentState, detected: Bool, managed: Bool)? in
+            let detected = isDetected(agent)
+            let managed = detected || isRegistered(agent)
+            guard managed || agent.listedWhenUndetected else { return nil }
+            return (agent, agentState(agent), detected, managed)
+        }
+        let agents = rows.map { (agent: $0.agent, state: $0.state) }
+        let managed = rows.filter(\.managed).map(\.state)
         let blocked = agents.filter { $0.state == .on && localNetworkBlocked($0.agent) }.map(\.agent)
-        return ProducerSnapshot(agents: agents, toggle: Self.toggle(for: agents.map(\.state)),
-                                localNetworkBlocked: blocked)
+        let undetected = Set(rows.filter { !$0.detected }.map(\.agent))
+        let hooks = agents.contains { $0.agent == .claude } ? claudeHookRegistration() : nil
+        return ProducerSnapshot(agents: agents, toggle: Self.toggle(for: managed),
+                                localNetworkBlocked: blocked, undetected: undetected, claudeHooks: hooks)
     }
 
     /// Whether the agent's helper last failed to reach the server with "no
@@ -485,12 +560,29 @@ public struct ProducerSnapshot: Sendable {
     /// Running agents whose helper can't reach the server because macOS
     /// hasn't given it Local Network access.
     public let localNetworkBlocked: [ProducerAgent]
+    /// Listed agents whose tool isn't found on this Mac.
+    public let undetected: Set<ProducerAgent>
+    /// The Claude hooks' registration, when the Claude row is listed.
+    public let claudeHooks: ClaudeHookRegistration?
 
     public init(agents: [(agent: ProducerAgent, state: AgentState)], toggle: ToggleState,
-                localNetworkBlocked: [ProducerAgent] = []) {
+                localNetworkBlocked: [ProducerAgent] = [], undetected: Set<ProducerAgent> = [],
+                claudeHooks: ClaudeHookRegistration? = nil) {
         self.agents = agents
         self.toggle = toggle
         self.localNetworkBlocked = localNetworkBlocked
+        self.undetected = undetected
+        self.claudeHooks = claudeHooks
+    }
+
+    /// Whether every listed agent's tool is missing from this Mac.
+    public var noToolDetected: Bool { agents.allSatisfy { undetected.contains($0.agent) } }
+
+    /// The Claude hooks notice for the Claude row, `.fine` without one.
+    public var claudeHooksNotice: ClaudeHooksNotice {
+        guard let hooks = claudeHooks,
+              let claude = agents.first(where: { $0.agent == .claude }) else { return .fine }
+        return ClaudeHooksNotice.notice(for: hooks, reportingOn: claude.state != .off)
     }
 
     /// Whether an agent is on but not running, so Settings offers Repair.

@@ -10,7 +10,7 @@ import Foundation
     let m = ProducerInstallModel(service: svc)
     #expect(m.snapshot == nil)
     await m.refresh()
-    #expect(m.snapshot?.agents.count == 2)
+    #expect(m.snapshot?.agents.count == 3)
     #expect(!m.isOn)
     await m.setEnabled(true)
     #expect(!m.isWorking)
