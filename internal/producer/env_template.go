@@ -8,7 +8,8 @@ func EnvExample() string {
 # EMBER_SOURCE: machine label on the clock card (~4 glyphs); empty = short host id.
 # EMBER_SERVER_URL: empty or "auto" = find the server over mDNS (_ember._tcp);
 # set http://host:3627 when several servers answer or multicast can't reach it.
-# (Ember.app shows an empty URL as "not configured"; "auto" is CLI-only.)
+# Discovery trusts the LAN (the token goes over plain HTTP): on untrusted
+# networks set an explicit URL.
 EMBER_SOURCE=@SOURCE@
 EMBER_SERVER_URL=
 # Required: the server's bearer token.

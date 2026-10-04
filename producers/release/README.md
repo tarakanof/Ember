@@ -38,7 +38,9 @@ ember-claude-producer doctor               # server found? token set? service ru
 
 `EMBER_SERVER_URL` empty (the default) or `auto` finds the server over mDNS
 (`_ember._tcp`); set `http://host:3627` when several servers answer or
-multicast doesn't reach it. On Linux the service is a systemd **user** unit;
+multicast doesn't reach it, and on any network you don't trust: discovery
+believes whoever answers, and the token travels over plain HTTP.
+`ember-claude-producer discover` finds and caches the server on demand. On Linux the service is a systemd **user** unit;
 on a box you don't stay logged into, run `sudo loginctl enable-linger $USER`
 so it keeps running. Logs: `~/.local/state/ember/logs/` (Linux),
 `~/Library/Logs/` (macOS).

@@ -462,15 +462,20 @@ shim. `EMBER_SERVER_URL` empty or `auto` turns on discovery
 legacy-unicast PTR query for `_ember._tcp` from an ephemeral port next to the
 dnssd multicast browse (a CLI on macOS gets no multicast replies without Local
 Network multicast access, but the server's dnssd responder answers legacy
-queries by unicast); `PickServer` dedupes by URL and needs exactly one, or an
+queries by unicast; replies must carry QR and one of our query IDs). Answers
+are kept per (instance name, URL), so a host spoofing the name surfaces as a
+second server; `PickServer` dedupes by URL and needs exactly one, or an
 `EMBER_SERVER_INSTANCE` matching instance name, host or IP. The pick is cached
-in `~/.local/state/ember/server.json`; `loadConfig` resolves auto to the
+in `$XDG_STATE_HOME/ember/server.json` with the preference it was made under; `loadConfig` resolves auto to the
 cached URL without browsing (hooks stay fast), and daemons hold an
 `AutoServer` the client consults per request: it waits for a first server
 with backoff and re-browses after 3 consecutive transport errors (context
 errors excluded), at most once per minute, in the background so a POST made under a
-marker lock never waits on it (#258). Headless mode (no Ember.app, or
-`--headless`) only changes service ownership and hints; see RUNBOOK
+marker lock never waits on it (#258). Discovery never runs in `configure` (Ember.app calls it per agent), only in
+`discover`, `doctor`, a headless `install` and the daemons. Ember.app's
+`validateServerURL` keeps `auto` and builds no client from it. Linux liveness
+reads `/proc/<pid>/stat` (BusyBox has no `ps -p`). Headless mode (no Ember.app,
+or `--headless`) only changes service ownership and hints; see RUNBOOK
 "Headless / Linux producers".
 **Shared marker directory contract:** producers write session markers into the
 same `~/.local/state/ember/sessions/` directory, but each daemon only owns
