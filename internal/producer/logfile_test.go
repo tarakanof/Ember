@@ -3,7 +3,6 @@ package producer
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -19,9 +18,9 @@ func TestOpenDaemonLog_CreatesAppendableFile(t *testing.T) {
 	if _, err := f.WriteString("hello\n"); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	got, _ := os.ReadFile(filepath.Join(home, "Library", "Logs", "ember-tick.log"))
+	got, _ := os.ReadFile(LogPath(home, "ember-tick"))
 	if !strings.Contains(string(got), "hello") {
-		t.Fatalf("log not written to ~/Library/Logs/ember-tick.log")
+		t.Fatalf("log not written to %s", LogPath(home, "ember-tick"))
 	}
 }
 
@@ -45,7 +44,7 @@ func TestOpenDaemonLog_AppendsAcrossCalls(t *testing.T) {
 	if _, err := f2.WriteString("second\n"); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	got, _ := os.ReadFile(filepath.Join(home, "Library", "Logs", "ember-codex-producer.log"))
+	got, _ := os.ReadFile(LogPath(home, "ember-codex-producer"))
 	if !strings.Contains(string(got), "first") || !strings.Contains(string(got), "second") {
 		t.Fatalf("expected both writes appended, got: %q", got)
 	}
@@ -68,11 +67,26 @@ func TestRedirectStandardIO_CatchesRuntimePanic(t *testing.T) {
 		t.Fatalf("expected subprocess to exit non-zero from the panic")
 	}
 
-	got, err := os.ReadFile(filepath.Join(home, "Library", "Logs", "crash-test.log"))
+	got, err := os.ReadFile(LogPath(home, "crash-test"))
 	if err != nil {
 		t.Fatalf("reading crash log: %v", err)
 	}
 	if !strings.Contains(string(got), "panic: boom") {
 		t.Fatalf("expected panic output redirected into log file, got: %q", got)
+	}
+}
+
+func TestLogDirPerOS(t *testing.T) {
+	if got := logDirFor("darwin", "/h"); got != "/h/Library/Logs" {
+		t.Errorf("darwin: %q", got)
+	}
+	if got := logDirFor("linux", "/h"); got != "/h/.local/state/ember/logs" {
+		t.Errorf("linux: %q", got)
+	}
+	if got := logDirShellFor("linux"); got != "$HOME/.local/state/ember/logs" {
+		t.Errorf("linux shell: %q", got)
+	}
+	if got := logDirShellFor("darwin"); got != "$HOME/Library/Logs" {
+		t.Errorf("darwin shell: %q", got)
 	}
 }

@@ -40,8 +40,14 @@ func TestNormalizeHostName(t *testing.T) {
 		"Akitaka-mbp-14":        "mbp-14",
 		"akitaka-mbp":           "mbp",
 		"build-box":             "build-box",
-		long:                    strings.Repeat("a", 24),
-		"":                      "",
+		// Linux hostnames (os.Hostname): plain, FQDN, cloud, Raspberry Pi.
+		"build-1":                    "build-1",
+		"build-1.example.com":        "build-1",
+		"ip-10-0-1-5.ec2.internal":   "ip-10-0-1-5",
+		"raspberrypi":                "raspberrypi",
+		"ubuntu-s-1vcpu-1gb-fra1-01": "ubuntu-s-1vcpu-1gb-fra1",
+		long:                         strings.Repeat("a", 24),
+		"":                           "",
 	} {
 		if got := normalizeHostName(in); got != want {
 			t.Errorf("normalizeHostName(%q)=%q want %q", in, got, want)
@@ -149,5 +155,14 @@ func TestEnsureSourceInEnv(t *testing.T) {
 	// missing file: no-op
 	if _, changed, err = EnsureSourceInEnv(filepath.Join(t.TempDir(), "nope")); err != nil || changed {
 		t.Errorf("missing: %v %v", changed, err)
+	}
+}
+
+func TestHostNameFuncsForLinuxSkipsScutil(t *testing.T) {
+	if n := len(hostNameFuncsFor("linux")); n != 1 {
+		t.Fatalf("linux: %d lookups, want only os.Hostname", n)
+	}
+	if n := len(hostNameFuncsFor("darwin")); n != 2 {
+		t.Fatalf("darwin: %d lookups, want scutil then os.Hostname", n)
 	}
 }
