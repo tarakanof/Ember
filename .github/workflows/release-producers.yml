@@ -1,0 +1,78 @@
+name: Release producer binaries
+
+# Attaches headless producer archives (linux amd64/arm64, darwin universal)
+# plus SHA256SUMS to a published GitHub Release, next to docker-publish.yml's
+# server image. Re-run for an existing tag with workflow_dispatch.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (vX.Y.Z) to attach the archives to
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-producers-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Build, package, upload
+    # macOS for lipo (darwin universal); linux targets cross-compile with CGO off.
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Validate strict semver tag (refuse pre-releases / odd tags)
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '$TAG' is not strict semver vX.Y.Z; refusing to publish."
+            exit 1
+          fi
+
+      - name: Checkout the tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build and package
+        run: scripts/package-producers.sh "$TAG" dist/producers
+
+      - name: Smoke-test the darwin archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/smoke"
+          tar -xzf dist/producers/ember-producers_darwin_universal.tar.gz -C "$RUNNER_TEMP/smoke"
+          for b in "$RUNNER_TEMP"/smoke/ember-producers_darwin_universal/ember-*-producer; do
+            lipo -info "$b"
+            "$b" version | grep -qx "$(basename "$b") ${TAG#v}"
+          done
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/producers/*.tar.gz dist/producers/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Job summary
+        run: |
+          {
+            echo "## Producer archives for \`$TAG\`"
+            echo ""
+            echo '```'
+            cat dist/producers/SHA256SUMS
+            echo '```'
+            echo ""
+            echo "Install: \`curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/scripts/install-producers.sh | sh -s -- --version $TAG\`"
+          } >> "$GITHUB_STEP_SUMMARY"

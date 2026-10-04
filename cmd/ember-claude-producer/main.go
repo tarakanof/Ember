@@ -5,6 +5,8 @@ import (
 	"os"
 )
 
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -29,6 +31,8 @@ func main() {
 		runDeconfigure()
 	case "doctor":
 		runDoctor()
+	case "version", "-v", "--version":
+		fmt.Println("ember-claude-producer", version)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -50,6 +54,7 @@ Usage:
   ember-claude-producer configure             # file-only setup (no service)
   ember-claude-producer deconfigure           # reverse configure
   ember-claude-producer doctor                # show config + state health
+  ember-claude-producer version               # print version
   ember-claude-producer help                  # this help
 
 Configuration:
