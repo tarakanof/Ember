@@ -1676,8 +1676,9 @@ feed's route is in `LiveModel`'s fetch switch.
 **The Dashboard window (#111)** is a card grid (`macos/Ember/Dashboard/`):
 Clock (live mirror + next/previous/dismiss/power), Focus, Usage, Upcoming,
 Agents, Last 7 days, 12 weeks, Work hours, When you focus (weekday × hour
-heatmap + 12-week strip), Agent time, Clock health, Weather, then the Knob
-section when a knob is registered (see "Knob diagnostics"). 3/2/1 columns
+heatmap + 12-week strip), Agent time, Weather. Device hardware health is not
+here: it lives in Settings › Devices › {Clock, Knob} › Hardware (see
+"Hardware pages", #246). 3/2/1 columns
 at ≥1040/≥700 pt; a wide card waits for a half-filled row to fill. Every
 card reads plain values (`DashboardData`, built from `LiveModel` by
 `DashboardWindow`) and renders through `FeedStateView`, so previews and
@@ -1699,8 +1700,8 @@ Dashboard rendering constraints:
   Local Network denied "Local Network access is off", a server error "Server
   error" with its message, 429 a spinner (retry scheduled), and 401 "Needs
   token" with a Connection button.
-- **Clock card.** It has no "Showing <app>" label, and Clock Health has no such
-  cell: the only source is clock health's `current_app` (cached up to 30 s on
+- **Clock card.** It has no "Showing <app>" label (the Clock › Hardware page's
+  "Current app" fact is a probe snapshot, up to 30 s old): the only source is clock health's `current_app` (cached up to 30 s on
   the server, polled every 15 s) while the clock rotates apps every few seconds
   and the mirror updates each second, so it would be wrong most of the time.
   NG's screen endpoint carries no app name, and a per-second extra request is
@@ -1861,7 +1862,7 @@ the same board finds its record.
 
 ### Knob diagnostics — `cmd/ember/devices_stats.go` (#239)
 
-Hardware stats for the Dashboard's Knob section. The knob's
+Hardware stats for Settings › Devices › Knob › Hardware. The knob's
 `config.diagnostics` decides what it sends; the server keeps the samples in
 memory only (a restart loses them; a checkin never writes the store for
 them, see #233); the owner reads them per range and can ask for faster
@@ -1957,30 +1958,75 @@ to now + N (not extended: each call replaces it) and answers
 `off`. In memory only.
 
 **App.** Settings › Devices › Knob › Behavior has the Diagnostics picker
-(Off/Basic/Full); Status has "Show in Dashboard". The Dashboard's Knob section
-(`Ember/Dashboard/Knob/`) sits below the cards when a knob is registered:
-a segmented 15 Minutes / 1 Hour / 24 Hours picker, a "Now" card of
-`Gauge`s (`.accessoryCircular`: CPU, temperature, Wi-Fi, frame rate) and
-facts, and Swift Charts cards (CPU per core on a fixed 0–100 % axis; memory,
-PSRAM, temperature, Wi-Fi, requests, latency, rendering on fitted axes;
-`.monotone` lines broken at gaps of 3 missed reports, hover callout,
-`AXChartDescriptor` audio graphs). States: diagnostics off (buttons to turn on
-Basic or Full), waiting for the first report, offline (last data with an
-"Offline, last report …" header), basic level (full-only cards offer Full),
-server too old. At basic level one row offers full diagnostics instead of
-the three full-only cards. Charts use a categorical palette (blue, orange,
-purple, grey; no good/bad colours), dashed lines for low-water marks,
-slowest and failures, with a legend that draws each stroke; `.linear`
-lines (`.stepEnd` for integer dBm); an area only on charts with a zero
-baseline; bytes in decimal units fixed per chart. Offline, the Now card is
-muted and captioned "As of <time>". `KnobStatsModel` polls only while the
-window is visible (occlusion, as above) every 5 s / 15 s / 60 s per range;
-at 15 min it POSTs live mode for 180 s and renews it every 60 s, and it
-POSTs `seconds:0` on leaving that range or when its task ends (window hidden
-or closed), so a crash leaves at most 3 min of live mode.
-`KnobStatsFake` drives previews and the snapshot render (Debug build:
-`EMBER_KNOB_SNAPSHOTS=<dir> Ember.app/Contents/MacOS/Ember` writes PNGs and
-quits; it skips server, producers and USB).
+(Off/Basic/Full); Status has "Show Hardware". See "Hardware pages" below.
+
+### Clock stats — `cmd/ember/clock_stats.go` (#246)
+
+The clock's history for Settings › Devices › Clock › Hardware. Every fresh
+probe of the clock (`probeClockHealth`, the 30 s-cached `GET /api/v1/device`
+behind `/v1/clock/health` and the brightness tick) becomes a sample;
+`StartClockSampler` probes every 30 s so samples arrive without a client
+asking (others in between hit the cache). Memory only, nothing written to
+the database; a restart loses them. Storage is the knob's: `sampleSeries`
+(`stats_series.go`), a live ring of 20 samples (10 min at 30 s) and a
+minute ring of 1440 buckets. A bucket keeps the newest reading of each
+gauge, the lowest `min_free_heap_bytes`, the summed publish counts, and is
+`reachable` if any probe in it was.
+
+**`GET /v1/clock/stats?range=15m|1h|24h`** (owner token; default `1h`,
+anything else 400; `Cache-Control: no-store`): `range`, `configured` (a clock
+address is set), `reachable` (newest probe; null before the first),
+`checked_at`, `ip_address` (the clock's own report; deliberately not in the
+open `/v1/clock/health`), `sample_interval_sec` (30), `latest` (newest sample
+that reached the clock, so an offline page still shows the last readings)
+and `points` (ascending; `15m` = minute buckets before the oldest live
+sample, then 30 s samples; `1h` minute buckets; `24h` 5-minute buckets). A
+point: `t`, `reachable`, `rssi_dbm`, `free_heap_bytes`, `min_free_heap_bytes`,
+`temperature_c`, `humidity_percent`, `light_lux`, `battery_percent`,
+`brightness_level` (Ember's 0–255 brightness at the probe), `publish_ok`,
+`publish_fail` (publishes since the previous sample). An unreachable probe is
+a point with `reachable:false` and null readings. Goldens: `clock_stats.json`,
+`clock_stats_empty.json`.
+
+### Hardware pages — `macos/Ember/Hardware/` (#246)
+
+Device health lives in Settings, not the Dashboard: Settings › Devices ›
+{Clock, Knob} › Hardware (`HardwarePage.health`, stored
+`device/<id>/hardware/health`, between Status and Display; the old in-memory
+Dashboard anchors `clock-health` and `knob-dashboard` map to it as legacy
+route names). Both pages share one system: a header with the device's status
+(Online / Live / Offline, last report …) and a segmented 15 Minutes / 1 Hour
+/ 24 Hours picker (`HardwareRange`); a wide "Now" card (`HardwareNowCard`) of
+270° ring gauges over a grid of facts; `HardwareChartCard`s in two columns.
+Clock: gauges Wi-Fi, memory, temperature, humidity, light, battery (sensors
+the clock never reported are left out); facts uptime, firmware (+ update),
+current app, IP address, last restart, delivered (24 h, from
+`/v1/clock/health`); charts Wi-Fi, memory, temperature, humidity, light
+level, Ember brightness, and publishing as stacked bars per minute (per hour
+over 24 h). Knob: as in #241 (CPU per core on a fixed 0–100 % axis, memory,
+PSRAM, temperature, Wi-Fi, requests, latency, rendering), plus IP address;
+a button opens Behavior, where the diagnostics picker stays. States: loading
+(redacted fake), server too old, no clock / diagnostics off, waiting for the
+first reading, offline (last data, Now card muted and captioned "As of
+<time>"), stale chip.
+
+HIG rules (from the #241 review): a gauge's arc is one colour picked by the
+reading's thresholds (green / yellow / orange; light has none and stays
+neutral), a fuller arc means more of the quantity; warnings add a triangle
+icon, never colour alone. Charts use a categorical palette with no good/bad
+meaning (blue, orange, purple, grey), dashed lines for low-water marks,
+slowest and failures, a legend that draws each mark; `.linear` lines
+(`.stepEnd` for integer dBm and brightness below 24 h), broken at gaps of 3
+missed points; an area fill only on charts with a zero baseline; bytes in
+decimal units fixed per chart; hover callout; `AXChartDescriptor` audio
+graphs on every chart. Polling runs only while the page is on screen and its
+window visible (occlusion): `KnobStatsModel` every 5 s / 15 s / 60 s with
+live mode at 15 min (180 s, renewed every 60 s, `seconds:0` on leaving the
+range or the page), `ClockStatsModel` every 15 s / 30 s / 60 s.
+`KnobStatsFake` and `ClockStatsFake` drive previews and the snapshot render
+(Debug build: `EMBER_HARDWARE_SNAPSHOTS=<dir> Ember.app/Contents/MacOS/Ember`
+writes PNGs of both pages, light and dark, and quits; it skips server,
+producers and USB; build it with another `PRODUCT_BUNDLE_IDENTIFIER`).
 
 ### Config load and `/admin/reload`
 
