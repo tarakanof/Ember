@@ -156,6 +156,7 @@ func TestAutoServerRebrowsesAfterRepeatedTransportFailures(t *testing.T) {
 	for i := 0; i < autoServerFailureThreshold; i++ {
 		a.Report(transport)
 	}
+	a.browsing.Wait()
 	if calls != 1 || a.URL() != moved.URL {
 		t.Fatalf("after %d failures: calls=%d url=%s", autoServerFailureThreshold, calls, a.URL())
 	}
@@ -167,6 +168,7 @@ func TestAutoServerRebrowsesAfterRepeatedTransportFailures(t *testing.T) {
 	for i := 0; i < 2*autoServerFailureThreshold; i++ {
 		a.Report(transport)
 	}
+	a.browsing.Wait()
 	if calls != 1 {
 		t.Fatalf("re-browsed within the interval: calls=%d", calls)
 	}
@@ -174,6 +176,7 @@ func TestAutoServerRebrowsesAfterRepeatedTransportFailures(t *testing.T) {
 	for i := 0; i < autoServerFailureThreshold; i++ {
 		a.Report(transport)
 	}
+	a.browsing.Wait()
 	if calls != 2 {
 		t.Fatalf("no re-browse after the interval: calls=%d", calls)
 	}
@@ -219,6 +222,7 @@ func TestClientWithAutoServerFollowsRediscovery(t *testing.T) {
 			t.Fatalf("post %d to a dead server succeeded", i)
 		}
 	}
+	a.browsing.Wait()
 	if err := c.Post(ctx, StatusRequest{Source: "s", Tool: "codex", Session: "x", State: "running"}); err != nil {
 		t.Fatalf("post after rediscovery: %v", err)
 	}
@@ -310,5 +314,34 @@ func TestDaemonServerAutoWithCacheStartsFromIt(t *testing.T) {
 	a, ok := DaemonServer(context.Background(), t.TempDir(), srvA.URL, true, "")
 	if !ok || a == nil || a.URL() != srvA.URL {
 		t.Fatalf("got %v, %v", a, ok)
+	}
+}
+
+func TestAutoServerReportDoesNotBlockOnBrowse(t *testing.T) {
+	release := make(chan struct{})
+	slow := func(ctx context.Context, timeout time.Duration) ([]DiscoveredServer, error) {
+		<-release
+		return []DiscoveredServer{srvB}, nil
+	}
+	a := NewAutoServer(&ServerLocator{Browse: slow}, srvA.URL)
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < autoServerFailureThreshold; i++ {
+			a.Report(errors.New("connection refused"))
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Report blocked on the re-browse")
+	}
+	if a.URL() != srvA.URL {
+		t.Fatal("URL changed before the browse finished")
+	}
+	close(release)
+	a.browsing.Wait()
+	if a.URL() != srvB.URL {
+		t.Fatalf("URL = %s after the browse, want %s", a.URL(), srvB.URL)
 	}
 }

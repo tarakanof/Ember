@@ -468,7 +468,8 @@ in `~/.local/state/ember/server.json`; `loadConfig` resolves auto to the
 cached URL without browsing (hooks stay fast), and daemons hold an
 `AutoServer` the client consults per request: it waits for a first server
 with backoff and re-browses after 3 consecutive transport errors (context
-errors excluded), at most once per minute. Headless mode (no Ember.app, or
+errors excluded), at most once per minute, in the background so a POST made under a
+marker lock never waits on it (#258). Headless mode (no Ember.app, or
 `--headless`) only changes service ownership and hints; see RUNBOOK
 "Headless / Linux producers".
 **Shared marker directory contract:** producers write session markers into the

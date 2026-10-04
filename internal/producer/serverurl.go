@@ -251,6 +251,7 @@ type AutoServer struct {
 	url        string
 	failures   int
 	lastBrowse time.Time
+	browsing   sync.WaitGroup // in-flight background re-browse (tests wait on it)
 }
 
 // NewAutoServer starts from initial (the cached URL, possibly "").
@@ -282,36 +283,38 @@ func (a *AutoServer) Ensure(ctx context.Context) (string, error) {
 }
 
 // Report records one request's transport result (nil for any HTTP response).
-// Context cancellation is not the server's fault and is ignored.
+// Context cancellation is not the server's fault and is ignored. A due
+// re-browse runs in the background so the caller (possibly holding a marker
+// lock a hook waits on) is never held up by it; later requests use its pick.
 func (a *AutoServer) Report(err error) {
 	if a == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return
 	}
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	if err == nil {
 		a.failures = 0
-		a.mu.Unlock()
 		return
 	}
 	a.failures++
-	due := a.failures >= autoServerFailureThreshold &&
-		(a.lastBrowse.IsZero() || a.now().Sub(a.lastBrowse) >= autoServerMinInterval)
-	if due {
-		a.lastBrowse = a.now()
-	}
-	a.mu.Unlock()
-	if !due {
+	if a.failures < autoServerFailureThreshold ||
+		(!a.lastBrowse.IsZero() && a.now().Sub(a.lastBrowse) < autoServerMinInterval) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*DefaultBrowseTimeout)
-	defer cancel()
-	s, berr := a.loc.Discover(ctx)
-	if berr != nil {
-		return
-	}
-	a.mu.Lock()
-	a.url, a.failures = s.URL, 0
-	a.mu.Unlock()
+	a.lastBrowse = a.now()
+	a.browsing.Add(1)
+	go func() {
+		defer a.browsing.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*DefaultBrowseTimeout)
+		defer cancel()
+		s, berr := a.loc.Discover(ctx)
+		if berr != nil {
+			return
+		}
+		a.mu.Lock()
+		a.url, a.failures = s.URL, 0
+		a.mu.Unlock()
+	}()
 }
 
 // WaitForServer discovers the server for a daemon whose URL is auto and
