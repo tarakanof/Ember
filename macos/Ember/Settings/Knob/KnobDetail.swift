@@ -68,9 +68,11 @@ struct KnobDetail: View {
         case .hardware:
             KnobStatusSection(setUp: { setup = .setup })
         case .apps:
+            KnobPagesPreviewSection()
             KnobPagesSection().disabled(!knob.settings.isLoaded)
         case .app(let app):
             if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source, isOff: isOff(source)) }
+            if let page = AppCatalog.knobPage(app) { KnobAppPreviewSection(page: page) }
             Group {
                 KnobPageSection(app: app)
                 if app == .bot { KnobBotSection() }

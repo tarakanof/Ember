@@ -1822,6 +1822,25 @@ the same board finds its record.
   old record) and autosaves `ConfigModel<KnobSettings>` as a merge PUT of the
   changed fields only. Tests use a fake link and a pty pair; nothing opens a
   real serial port.
+- **Knob page previews (#240):** Settings › Knob › Apps draws each page's
+  466 px round face in SwiftUI (EmberKit `KnobFace/`), the way `PanelPreview`
+  shows the clock's frames, but drawn locally: the knob renders on-device and
+  its view endpoint takes a device token only. The app composes the same
+  inputs from what it already polls: `/state` sessions (mood and host label,
+  `KnobMood`, the firmware's render priority and #213 host rule),
+  `/v1/pomodoro/state`, `/v1/weather/state` (tracked while a preview is up)
+  and `/v1/display/brightness`, plus the draft knob settings, so toggling a
+  page or a bot timing shows at once. The renderers port cinder's firmware
+  (`bot_shape.c`, `bot_view.c` Head style, `pomo_view.c`, `weather_face.c`,
+  `weather_scene.c`); `BotBehavior.Tuning` carries the knob's slower, flatter
+  hop. Every number they share with the firmware (geometry, palette, layout,
+  font sizes) lives in `macos/Sources/EmberKit/Resources/knob-theme.json`,
+  pinned by `KnobFaceTests`; cinder is to generate its C constants from a
+  copy with a parity check. Montserrat isn't bundled, so labels use the
+  system font at the firmware's pixel sizes. Only the single-page preview
+  animates (bot at 20 fps, weather at the firmware's rate, while on screen;
+  Reduce Motion keeps blinks only); the Pages overview is static.
+  `KNOB_SNAPSHOT_DIR=… swift test --filter knobFaces` writes PNGs of every face.
 
 ### Config load and `/admin/reload`
 
