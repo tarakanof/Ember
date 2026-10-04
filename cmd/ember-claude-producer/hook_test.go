@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type hookHarness struct {
@@ -80,7 +82,9 @@ func TestHook_UserPromptSubmit_UpsertsRunning(t *testing.T) {
 	}
 }
 
-func TestHook_Stop_KeepsMarkerForHeartbeat(t *testing.T) {
+// A normal turn end must leave `running`: agent_completed fires only for
+// background sessions under agent view (#257).
+func TestHook_Stop_UpsertsDoneAndKeepsMarker(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -90,14 +94,203 @@ func TestHook_Stop_KeepsMarkerForHeartbeat(t *testing.T) {
 	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in := hookInput{HookEventName: "Stop", SessionID: "abc", CWD: "/repo"}
-	body, _ := json.Marshal(in)
-	dispatchHookForTest(t, "stop", body)
+	body := `{"hook_event_name":"Stop","session_id":"abc","cwd":"/repo","stop_hook_active":false,` +
+		`"last_assistant_message":"\n\nRefactor done.\nDetails follow.","background_tasks":[],"session_crons":[]}`
+	dispatchHookForTest(t, "stop", []byte(body))
 	if h.deletes.Load() != 0 {
 		t.Errorf("stop should not delete; deletes = %d, want 0", h.deletes.Load())
 	}
-	if _, err := os.Stat(markerP); err != nil {
-		t.Errorf("marker should be preserved after stop (heartbeat keeps it present until SessionEnd): %v", err)
+	if h.posts.Load() != 1 {
+		t.Fatalf("posts = %d, want 1", h.posts.Load())
+	}
+	got := (*h.bodies)[0]
+	if !strings.Contains(got, `"state":"done"`) || !strings.Contains(got, `"message":"Refactor done."`) {
+		t.Errorf("stop POST = %s, want state done with the reply's first line", got)
+	}
+	m, err := os.ReadFile(markerP)
+	if err != nil {
+		t.Fatalf("marker should be kept for the heartbeat until SessionEnd: %v", err)
+	}
+	if !strings.Contains(string(m), `"state":"done"`) {
+		t.Errorf("marker = %s, want state done so the heartbeat re-posts done", m)
+	}
+}
+
+func TestHook_Stop_WithBackgroundTasksStaysRunning(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"hook_event_name":"Stop","session_id":"abc","cwd":"/repo","last_assistant_message":"waiting on tests",` +
+		`"background_tasks":[{"id":"t1","type":"shell","status":"running","command":"go test ./..."}]}`
+	dispatchHookForTest(t, "stop", []byte(body))
+	if h.posts.Load() != 0 {
+		t.Errorf("stop with background work should not POST; posts = %d", h.posts.Load())
+	}
+	if m, _ := os.ReadFile(markerP); !strings.Contains(string(m), `"state":"running"`) {
+		t.Errorf("marker = %s, want state still running", m)
+	}
+}
+
+func TestHook_Notification_TypeMapping(t *testing.T) {
+	cases := []struct {
+		typ, prev, want string // want "" = no POST
+	}{
+		{"idle_prompt", "running", "done"},
+		{"elicitation_dialog", "running", "waiting"},
+		{"elicitation_url_dialog", "running", "waiting"},
+		{"elicitation_complete", "waiting", "running"},
+		{"elicitation_response", "waiting", "running"},
+		{"elicitation_response", "done", ""}, // only ends a wait
+		{"quota_auto_resume_fired", "error", "running"},
+		{"quota_auto_resume_stale", "error", "waiting"},
+		{"quota_auto_resume_disabled", "error", "error"},
+		{"auth_success", "running", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.typ+"/"+c.prev, func(t *testing.T) {
+			h := newHookHarness(t)
+			if err := os.MkdirAll(h.sessionsDir(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			prev := `{"source":"test-mbp","tool":"claude","session":"abc","state":"` + c.prev + `"}`
+			if err := os.WriteFile(filepath.Join(h.sessionsDir(), "abc.json"), []byte(prev), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			body := `{"hook_event_name":"Notification","session_id":"abc","cwd":"/repo","message":"m","title":"t","notification_type":"` + c.typ + `"}`
+			dispatchHookForTest(t, "notification", []byte(body))
+			if c.want == "" {
+				if h.posts.Load() != 0 {
+					t.Errorf("posts = %d, want 0", h.posts.Load())
+				}
+				return
+			}
+			if h.posts.Load() != 1 {
+				t.Fatalf("posts = %d, want 1", h.posts.Load())
+			}
+			if !strings.Contains((*h.bodies)[0], `"state":"`+c.want+`"`) {
+				t.Errorf("POST = %s, want state %s", (*h.bodies)[0], c.want)
+			}
+		})
+	}
+}
+
+// Claude Code's StopFailure input is error / error_details /
+// last_assistant_message; error_type and error_message don't exist.
+func TestHook_StopFailure_Message(t *testing.T) {
+	cases := []struct{ body, want string }{
+		{`"error":"rate_limit","error_details":"429 Too Many Requests","last_assistant_message":"API Error: Rate limit reached"`, "rate limited: 429 Too Many Requests"},
+		{`"error":"overloaded"`, "API overloaded"},
+		{`"error":"unknown","last_assistant_message":"API Error: boom"`, "API Error: boom"},
+		{`"error":"some_new_kind"`, "some new kind"},
+		{``, "error"},
+	}
+	for _, c := range cases {
+		h := newHookHarness(t)
+		body := `{"hook_event_name":"StopFailure","session_id":"abc","cwd":"/repo"`
+		if c.body != "" {
+			body += "," + c.body
+		}
+		dispatchHookForTest(t, "stop-failure", []byte(body+"}"))
+		if h.posts.Load() != 1 {
+			t.Fatalf("%s: posts = %d, want 1", c.body, h.posts.Load())
+		}
+		got := (*h.bodies)[0]
+		if !strings.Contains(got, `"state":"error"`) || !strings.Contains(got, `"message":"`+c.want+`"`) {
+			t.Errorf("%s: POST = %s, want message %q", c.body, got, c.want)
+		}
+	}
+}
+
+// holdLock takes the session lock from another open file description (as a
+// separate hook process would) until the returned func is called.
+func holdLock(t *testing.T, lockP string) func() {
+	t.Helper()
+	held := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_ = withLockEx(lockP, func() error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	var once sync.Once
+	stop := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(stop)
+	return stop
+}
+
+// A hook must not queue behind a wedged lock holder for seconds (#258): it
+// gives up after hookLockWait and drops the update.
+func TestHook_LockWaitIsBounded(t *testing.T) {
+	h := newHookHarness(t)
+	if err := os.MkdirAll(h.sessionsDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	holdLock(t, filepath.Join(h.sessionsDir(), "abc.lock"))
+	cfg, _ := loadConfig()
+	start := time.Now()
+	dispatchHook(context.Background(), "user-prompt-submit", []byte(`{"session_id":"abc","cwd":"/repo","prompt":"hi"}`), cfg)
+	if took := time.Since(start); took > hookLockWait(cfg)+300*time.Millisecond {
+		t.Errorf("hook took %v behind a held lock, want <= %v", took, hookLockWait(cfg))
+	}
+	if h.posts.Load() != 0 {
+		t.Errorf("posts = %d, want 0 (update dropped on contention)", h.posts.Load())
+	}
+}
+
+// SessionEnd shares a 1.5 s budget: it never waits out the lock and still
+// sends its DELETE.
+func TestHook_SessionEnd_DoesNotBlockOnLock(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	holdLock(t, filepath.Join(dir, "abc.lock"))
+	start := time.Now()
+	dispatchHookForTest(t, "session-end", []byte(`{"session_id":"abc","cwd":"/repo","reason":"prompt_input_exit"}`))
+	if took := time.Since(start); took > sessionEndLockWait+300*time.Millisecond {
+		t.Errorf("session-end took %v behind a held lock", took)
+	}
+	if h.deletes.Load() != 1 {
+		t.Errorf("deletes = %d, want 1", h.deletes.Load())
+	}
+	if _, err := os.Stat(markerP); !os.IsNotExist(err) {
+		t.Errorf("marker should be removed even when the lock is busy: %v", err)
+	}
+}
+
+// The DELETE gets at most sessionEndHTTPBudget even with a long HookTimeoutMs.
+func TestHook_SessionEnd_CapsDeleteTimeout(t *testing.T) {
+	h := newHookHarness(t)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	h.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	})
+	env := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\nEMBER_HOOK_TIMEOUT_MS=5000\n"
+	if err := os.WriteFile(filepath.Join(h.home, ".config", "ember", "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	dispatchHookForTest(t, "session-end", []byte(`{"session_id":"abc","cwd":"/repo","reason":"other"}`))
+	if took := time.Since(start); took > sessionEndHTTPBudget+400*time.Millisecond {
+		t.Errorf("session-end took %v against a hung server, want <= ~%v", took, sessionEndHTTPBudget)
 	}
 }
 
@@ -162,11 +355,11 @@ func TestHook_PermissionRequest_UpsertsWaiting(t *testing.T) {
 func TestHook_Notification_FiltersByType(t *testing.T) {
 	h := newHookHarness(t)
 	in := hookInput{HookEventName: "Notification", SessionID: "abc", CWD: "/repo",
-		NotificationType: "idle_prompt", NotificationMessage: "just chilling"}
+		NotificationType: "auth_success", Message: "logged in"}
 	body, _ := json.Marshal(in)
 	dispatchHookForTest(t, "notification", body)
 	if h.posts.Load() != 0 {
-		t.Errorf("idle_prompt should not POST; posts = %d", h.posts.Load())
+		t.Errorf("auth_success should not POST; posts = %d", h.posts.Load())
 	}
 }
 
@@ -190,7 +383,7 @@ func TestHook_Notification_AgentNeedsInput_UpsertsWaiting(t *testing.T) {
 func TestHook_Notification_AgentCompleted_UpsertsDone(t *testing.T) {
 	h := newHookHarness(t)
 	in := hookInput{HookEventName: "Notification", SessionID: "abc", CWD: "/repo",
-		NotificationType: "agent_completed", NotificationMessage: "all done"}
+		NotificationType: "agent_completed", Message: "all done"}
 	body, _ := json.Marshal(in)
 	dispatchHookForTest(t, "notification", body)
 	if h.posts.Load() != 1 {

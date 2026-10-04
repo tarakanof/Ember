@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"os"
 	"path/filepath"
@@ -229,7 +230,7 @@ func TestMergeSettings_NotificationMatcherIncludesNewSignals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), `permission_prompt|agent_needs_input|agent_completed`) {
+	if !strings.Contains(string(body), `"matcher": "`+notificationMatcher+`"`) {
 		t.Errorf("Notification matcher missing new signals: %s", body)
 	}
 }
@@ -252,7 +253,7 @@ func TestMergeSettings_UpgradeReplacesOldNotificationMatcher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), `permission_prompt|agent_needs_input|agent_completed`) {
+	if !strings.Contains(string(body), `"matcher": "`+notificationMatcher+`"`) {
 		t.Errorf("upgrade did not install the new Notification matcher:\n%s", body)
 	}
 	if strings.Count(string(body), `"Notification"`) != 1 {
@@ -330,5 +331,42 @@ func TestConfigureAt_RewritesPlaceholderSource(t *testing.T) {
 	}
 	if st, _ := os.Stat(envPath); st.Mode().Perm() != 0o600 {
 		t.Errorf("perm = %v", st.Mode().Perm())
+	}
+}
+
+// Without a timeout Claude Code allows a settings hook 600 s, so a wedged
+// producer would stall the session (#258).
+func TestMergeSettings_BlockingHooksHaveTimeouts(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	if err := mergeSettingsJSON(tmp, "/usr/local/bin/ember-claude-producer"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Async   bool    `json:"async"`
+				Timeout float64 `json:"timeout"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatal(err)
+	}
+	for ev, groups := range root.Hooks {
+		for _, g := range groups {
+			for _, h := range g.Hooks {
+				if !h.Async && (h.Timeout <= 0 || h.Timeout > 5) {
+					t.Errorf("%s: timeout %v, want 0 < t <= 5", ev, h.Timeout)
+				}
+			}
+		}
+	}
+	if got := root.Hooks["SessionEnd"][0].Hooks[0].Timeout; got > 2 {
+		t.Errorf("SessionEnd timeout %v raises the 1.5 s exit budget too far", got)
 	}
 }

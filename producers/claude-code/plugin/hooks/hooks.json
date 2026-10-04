@@ -108,7 +108,7 @@
     ],
     "Notification": [
       {
-        "matcher": "permission_prompt|agent_needs_input|agent_completed",
+        "matcher": "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|elicitation_complete|elicitation_response|agent_needs_input|agent_completed|quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled",
         "hooks": [
           {
             "type": "command",
@@ -163,7 +163,7 @@
               "${CLAUDE_PLUGIN_ROOT}/scripts/ember-hook",
               "session-end"
             ],
-            "timeout": 5
+            "timeout": 2
           }
         ]
       }

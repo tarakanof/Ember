@@ -459,8 +459,8 @@ markers still get reaped.
 - **Claude Code producer — `cmd/ember-claude-producer`.** Hook-based: Claude
   fires hooks per invocation; the producer maps 8 events to states
   (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, Notification,
-  Stop (no-op: the session stays until SessionEnd), StopFailure→error,
-  SessionEnd→DELETE). Three **tool-outcome hooks** (#76, `posttool.go`,
+  Stop→done (kept `running` while `background_tasks` is non-empty),
+  StopFailure→error, SessionEnd→DELETE). Three **tool-outcome hooks** (#76, `posttool.go`,
   registered `async: true` so Claude never waits on them) add no states:
   PostToolUse / PostToolUseFailure / PermissionDenied end a `waiting` only
   when they belong to the call its PermissionRequest recorded (a hashed
@@ -568,10 +568,28 @@ Claude producer constraints:
   500 ms) because the hook blocks the `claude` CLI. The daemon uses a separate,
   longer `daemonHTTPTimeout` (5 s) so a slow link doesn't flap heartbeat
   re-POSTs and reap DELETEs.
-- **Stop is a no-op** because deleting on every Stop dropped the display to the
-  idle robot between turns and during text generation, when no hook fires. The
-  marker keeps its last state and the heartbeat re-posts it until SessionEnd,
-  owner-liveness reap, or the marker TTL clears it.
+- **Stop upserts `done`, never deletes**, because deleting on every Stop
+  dropped the display to the idle robot between turns. The marker keeps `done`
+  (the reply's first line as message) and the heartbeat re-posts it until the
+  next prompt, SessionEnd, owner-liveness reap, or the marker TTL. A Stop with
+  `background_tasks` in flight changes nothing: that work wakes the session.
+  Notification maps `idle_prompt`/`agent_completed`→done,
+  `permission_prompt`/`agent_needs_input`/`elicitation_*dialog`/
+  `quota_auto_resume_stale`→waiting, `elicitation_complete|response`→running
+  (only out of `waiting`), `quota_auto_resume_fired`→running,
+  `quota_auto_resume_disabled`→error. StopFailure shows a label for its
+  `error` enum plus `error_details`.
+- **No network under the session lock (daemon).** The heartbeat snapshots the
+  marker under a shared flock and POSTs after releasing it; reaps remove the
+  marker under the lock and DELETE after. If the marker changed during the
+  POST it re-sends it, and if it vanished (SessionEnd) it DELETEs, so a
+  heartbeat can't leave a stale or ghost session. Hooks still POST under the
+  lock (keeps hook order on the wire) but wait for it at most
+  `HookTimeoutMs`+100 ms, then drop the update; the status line waits 250 ms.
+  SessionEnd (1.5 s shared budget, which plugin hook timeouts don't raise)
+  waits 200 ms for the lock, removes the marker regardless, and caps its
+  DELETE at 800 ms. settings.json hooks carry `timeout` 5 s (SessionEnd 2 s),
+  same as the plugin.
 - **Hook commands self-heal.** They are wrapped as `[ -x BIN ] && BIN … || true`
   so they exit 0 when the bundled binary is gone, and Claude Code never
   reports a hook error after the app is moved or deleted. Tool-outcome hooks run

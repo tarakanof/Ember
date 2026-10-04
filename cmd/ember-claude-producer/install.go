@@ -199,6 +199,7 @@ type hookCommand struct {
 	Type    string `json:"type"`
 	Command string `json:"command"`
 	Async   bool   `json:"async,omitempty"`
+	Timeout int    `json:"timeout,omitempty"`
 }
 
 func mergeSettingsJSON(home, binPath string) error {
@@ -241,6 +242,7 @@ func mergeSettingsJSON(home, binPath string) error {
 				Type:    "command",
 				Command: ev.command,
 				Async:   ev.async,
+				Timeout: ev.timeout,
 			}},
 		})
 		var asAny any
@@ -295,6 +297,7 @@ type producerHookEntry struct {
 	matcher string
 	command string
 	async   bool
+	timeout int
 }
 
 // producerHookSpec is one hook the producer registers. The settings.json
@@ -305,20 +308,32 @@ type producerHookSpec struct {
 	subcommand string
 	matcher    string
 	async      bool
+	// timeout (seconds) caps a blocking hook so a wedged producer can't
+	// stall a session for Claude Code's 600 s default. Async hooks get none:
+	// Claude Code doesn't enforce it on them.
+	timeout int
 }
 
+// notificationMatcher lists the Notification types the producer maps to a state.
+const notificationMatcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|" +
+	"elicitation_complete|elicitation_response|agent_needs_input|agent_completed|" +
+	"quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled"
+
 var producerHookSpecs = []producerHookSpec{
-	{event: "SessionStart", subcommand: "session-start"},
-	{event: "UserPromptSubmit", subcommand: "user-prompt-submit"},
-	{event: "PreToolUse", subcommand: "pre-tool-use"},
-	{event: "PermissionRequest", subcommand: "permission-request"},
+	{event: "SessionStart", subcommand: "session-start", timeout: 5},
+	{event: "UserPromptSubmit", subcommand: "user-prompt-submit", timeout: 5},
+	{event: "PreToolUse", subcommand: "pre-tool-use", timeout: 5},
+	{event: "PermissionRequest", subcommand: "permission-request", timeout: 5},
 	{event: "PostToolUse", subcommand: "post-tool-use", async: true},
 	{event: "PostToolUseFailure", subcommand: "post-tool-use-failure", async: true},
 	{event: "PermissionDenied", subcommand: "permission-denied", async: true},
-	{event: "Notification", subcommand: "notification", matcher: "permission_prompt|agent_needs_input|agent_completed"},
-	{event: "Stop", subcommand: "stop"},
-	{event: "StopFailure", subcommand: "stop-failure"},
-	{event: "SessionEnd", subcommand: "session-end", matcher: "logout|prompt_input_exit|other|clear|resume"},
+	{event: "Notification", subcommand: "notification", matcher: notificationMatcher, timeout: 5},
+	{event: "Stop", subcommand: "stop", timeout: 5},
+	{event: "StopFailure", subcommand: "stop-failure", timeout: 5},
+	// SessionEnd hooks share a 1.5 s budget, which a settings-hook timeout
+	// raises to match; 2 s covers the producer's own ~1 s cap without making
+	// exit wait long on a wedged hook.
+	{event: "SessionEnd", subcommand: "session-end", matcher: "logout|prompt_input_exit|other|clear|resume", timeout: 2},
 }
 
 func producerHookEntries(binPath string) []producerHookEntry {
@@ -329,7 +344,7 @@ func producerHookEntries(binPath string) []producerHookEntry {
 	}
 	out := make([]producerHookEntry, 0, len(producerHookSpecs))
 	for _, s := range producerHookSpecs {
-		out = append(out, producerHookEntry{event: s.event, matcher: s.matcher, command: cmd(s.subcommand), async: s.async})
+		out = append(out, producerHookEntry{event: s.event, matcher: s.matcher, command: cmd(s.subcommand), async: s.async, timeout: s.timeout})
 	}
 	return out
 }

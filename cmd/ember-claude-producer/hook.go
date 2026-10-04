@@ -7,28 +7,29 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
 
 type hookInput struct {
-	HookEventName       string          `json:"hook_event_name"`
-	SessionID           string          `json:"session_id"`
-	CWD                 string          `json:"cwd"`
-	Source              string          `json:"source,omitempty"`
-	Prompt              string          `json:"prompt,omitempty"`
-	ToolName            string          `json:"tool_name,omitempty"`
-	ToolInput           json.RawMessage `json:"tool_input"`
-	NotificationType    string          `json:"notification_type,omitempty"`
-	NotificationMessage string          `json:"notification_message,omitempty"`
-	Message             string          `json:"message,omitempty"`
-	ErrorType           string          `json:"error_type,omitempty"`
-	ErrorMessage        string          `json:"error_message,omitempty"`
-	Error               string          `json:"error,omitempty"`
-	IsInterrupt         bool            `json:"is_interrupt,omitempty"`
-	ToolUseID           string          `json:"tool_use_id,omitempty"`
-	EndReason           string          `json:"reason,omitempty"`
+	HookEventName        string          `json:"hook_event_name"`
+	SessionID            string          `json:"session_id"`
+	CWD                  string          `json:"cwd"`
+	Source               string          `json:"source,omitempty"`
+	Prompt               string          `json:"prompt,omitempty"`
+	ToolName             string          `json:"tool_name,omitempty"`
+	ToolInput            json.RawMessage `json:"tool_input"`
+	NotificationType     string          `json:"notification_type,omitempty"`
+	Message              string          `json:"message,omitempty"`
+	Error                string          `json:"error,omitempty"`
+	ErrorDetails         string          `json:"error_details,omitempty"`
+	LastAssistantMessage string          `json:"last_assistant_message,omitempty"`
+	BackgroundTasks      json.RawMessage `json:"background_tasks,omitempty"`
+	IsInterrupt          bool            `json:"is_interrupt,omitempty"`
+	ToolUseID            string          `json:"tool_use_id,omitempty"`
+	EndReason            string          `json:"reason,omitempty"`
 }
 
 func runHook(args []string) {
@@ -44,7 +45,9 @@ func runHook(args []string) {
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
 		os.Exit(0)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.HookTimeoutMs)*time.Millisecond)
+	// The HTTP client caps the request at HookTimeoutMs; the context also
+	// covers a bounded wait for the session lock.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.HookTimeoutMs)*time.Millisecond+hookLockWait(cfg))
 	defer cancel()
 	dispatchHookFrom(ctx, event, io.LimitReader(os.Stdin, hookStdinMax), cfg)
 	os.Exit(0)
@@ -132,7 +135,7 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 	case "permission-denied":
 		handleToolOutcome(ctx, cfg, client, in, "denied", markerP, lockP)
 	case "session-start":
-		handleSessionStart(in, markerP, lockP)
+		handleSessionStart(cfg, in, markerP, lockP)
 	case "user-prompt-submit":
 		handleUpsert(ctx, cfg, client, sessionID, "running", truncate(in.Prompt, 80), "", markerP, lockP)
 	case "pre-tool-use":
@@ -152,34 +155,29 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 			pending: permissionFingerprint(in.ToolName, in.ToolInput),
 		})
 	case "notification":
-		msg := pickFirstNonEmpty(in.Message, in.NotificationMessage)
-		switch in.NotificationType {
-		case "permission_prompt":
-			handleUpsertWith(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP, upsertExtra{
-				skip: func(prev marker) bool { return lateResumedPrompt(prev, msg, hookNow()) },
-			})
-		case "agent_needs_input":
-			handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
-		case "agent_completed":
-			handleUpsert(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP)
-		}
+		handleNotification(ctx, cfg, client, sessionID, in, markerP, lockP)
 	case "stop":
+		// A turn ended. Background work (a shell, subagent, monitor…) wakes
+		// the session again, so it keeps its running state until then.
+		if hasBackgroundTasks(in.BackgroundTasks) {
+			return
+		}
+		handleUpsert(ctx, cfg, client, sessionID, "done", firstLine(in.LastAssistantMessage), "", markerP, lockP)
 	case "stop-failure":
-		msg := pickFirstNonEmpty(in.ErrorType, in.Error, in.ErrorMessage, "error")
-		handleUpsert(ctx, cfg, client, sessionID, "error", msg, "", markerP, lockP)
+		handleUpsert(ctx, cfg, client, sessionID, "error", stopFailureMessage(in), "", markerP, lockP)
 	case "session-end":
 		switch in.EndReason {
 		case "logout", "prompt_input_exit", "other", "clear", "resume":
-			handleDelete(ctx, cfg, client, sessionID, markerP, lockP)
+			handleDelete(ctx, cfg, sessionID, markerP, lockP)
 		}
 	}
 }
 
-func handleSessionStart(in hookInput, markerP, lockP string) {
+func handleSessionStart(cfg Config, in hookInput, markerP, lockP string) {
 	if in.Source == "startup" {
 		return
 	}
-	_ = withLockEx(lockP, func() error {
+	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		_ = os.Remove(markerP)
 		return nil
 	})
@@ -213,7 +211,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	}
 	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
 	req.SourceCard, req.SessionBar = &sc, &sb
-	_ = withLockEx(lockP, func() error {
+	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		var ownerPID int
 		var ownerStart string
 		var track ToolTrack
@@ -266,16 +264,110 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	})
 }
 
-func handleDelete(ctx context.Context, cfg Config, client *Client, sessionID, markerP, lockP string) {
-	_ = withLockEx(lockP, func() error {
+// SessionEnd hooks share a 1.5 s budget (plugin hook timeouts don't raise
+// it), so the shim, the lock and the DELETE must all fit well inside it.
+const (
+	sessionEndLockWait   = 200 * time.Millisecond
+	sessionEndHTTPBudget = 800 * time.Millisecond
+)
+
+func handleDelete(ctx context.Context, cfg Config, sessionID, markerP, lockP string) {
+	// Never wait out another holder: the marker goes either way, and the
+	// DELETE runs outside the lock so nothing else stalls behind it.
+	if err := withLockExWait(lockP, sessionEndLockWait, func() error {
 		_ = os.Remove(markerP)
-		_ = client.Delete(ctx, DeleteRequest{
-			Source:  cfg.Source,
-			Tool:    "claude",
-			Session: sessionID,
-		})
 		return nil
+	}); err != nil {
+		_ = os.Remove(markerP)
+	}
+	budget := min(time.Duration(cfg.HookTimeoutMs)*time.Millisecond, sessionEndHTTPBudget)
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	client := producer.NewClient(cfg.ServerURL, cfg.Token, budget)
+	_ = client.Delete(ctx, DeleteRequest{
+		Source:  cfg.Source,
+		Tool:    "claude",
+		Session: sessionID,
 	})
+}
+
+// hookLockWait bounds how long a hook waits for the session lock. Every other
+// holder keeps it for file I/O plus at most one hook-path request
+// (HookTimeoutMs), so a longer wait only means the server is unreachable and
+// the update is dropped; the next hook or heartbeat carries the state.
+func hookLockWait(cfg Config) time.Duration {
+	return time.Duration(cfg.HookTimeoutMs)*time.Millisecond + 100*time.Millisecond
+}
+
+func handleNotification(ctx context.Context, cfg Config, client *Client, sessionID string, in hookInput, markerP, lockP string) {
+	msg := in.Message
+	switch in.NotificationType {
+	case "permission_prompt":
+		handleUpsertWith(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP, upsertExtra{
+			skip: func(prev marker) bool { return lateResumedPrompt(prev, msg, hookNow()) },
+		})
+	case "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog", "quota_auto_resume_stale":
+		handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
+	case "elicitation_complete", "elicitation_response":
+		// The MCP dialog was answered: end the wait it opened, nothing else.
+		handleUpsertWith(ctx, cfg, client, sessionID, "running", msg, "", markerP, lockP, upsertExtra{
+			skip: func(prev marker) bool { return prev.State != "waiting" },
+		})
+	case "quota_auto_resume_fired":
+		handleUpsert(ctx, cfg, client, sessionID, "running", pickFirstNonEmpty(msg, "resumed"), "", markerP, lockP)
+	case "quota_auto_resume_disabled":
+		handleUpsert(ctx, cfg, client, sessionID, "error", pickFirstNonEmpty(msg, "usage limit"), "", markerP, lockP)
+	case "agent_completed", "idle_prompt":
+		handleUpsert(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP)
+	}
+}
+
+// stopFailureLabels names StopFailure's `error` values for a small display.
+var stopFailureLabels = map[string]string{
+	"rate_limit":             "rate limited",
+	"overloaded":             "API overloaded",
+	"authentication_failed":  "auth failed",
+	"billing_error":          "billing error",
+	"server_error":           "API error",
+	"max_output_tokens":      "output limit",
+	"invalid_request":        "bad request",
+	"oauth_org_not_allowed":  "org not allowed",
+	"account_on_hold":        "account on hold",
+	"model_not_found":        "model not found",
+	"cloud_credential_error": "cloud credentials",
+}
+
+func stopFailureMessage(in hookInput) string {
+	label := stopFailureLabels[in.Error]
+	if label == "" && in.Error != "" && in.Error != "unknown" {
+		label = strings.ReplaceAll(in.Error, "_", " ")
+	}
+	details := pickFirstNonEmpty(firstLine(in.ErrorDetails), firstLine(in.LastAssistantMessage))
+	switch {
+	case label != "" && details != "":
+		return label + ": " + details
+	case label != "":
+		return label
+	case details != "":
+		return details
+	}
+	return "error"
+}
+
+// hasBackgroundTasks reports a non-empty background_tasks array; it's kept
+// raw so an unexpected shape can't fail the whole hook decode.
+func hasBackgroundTasks(raw json.RawMessage) bool {
+	var tasks []json.RawMessage
+	return json.Unmarshal(raw, &tasks) == nil && len(tasks) > 0
+}
+
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func truncate(s string, n int) string {

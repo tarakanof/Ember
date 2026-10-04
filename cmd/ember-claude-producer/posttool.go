@@ -68,7 +68,7 @@ func lateResumedPrompt(prev marker, msg string, now time.Time) bool {
 }
 
 func handleToolOutcome(ctx context.Context, cfg Config, client *Client, in hookInput, outcome, markerP, lockP string) {
-	_ = withLockEx(lockP, func() error {
+	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		old, err := readMarker(markerP)
 		if err != nil {
 			return nil

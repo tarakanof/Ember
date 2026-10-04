@@ -74,7 +74,9 @@ func TestTick_StaleMarker_RemovedAndDeleted(t *testing.T) {
 	}
 }
 
-func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
+// A heartbeat racing SessionEnd must not leave a ghost session on the server:
+// whatever the interleaving, the last request it sees is a DELETE.
+func TestTick_NoResurrectionUnderConcurrentSessionEnd(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -82,26 +84,14 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	}
 	markerP := filepath.Join(dir, "abc.json")
 	body := []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running","message":"Bash"}`)
-	if err := os.WriteFile(markerP, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
 
-	cfg, _ := loadConfig()
-	var sawPostAfterDelete atomic.Bool
-	var deleteSeen atomic.Bool
-
+	var mu sync.Mutex
+	var last string
 	h.srv.Close()
 	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodDelete:
-			deleteSeen.Store(true)
-			h.deletes.Add(1)
-		case http.MethodPost:
-			h.posts.Add(1)
-			if deleteSeen.Load() {
-				sawPostAfterDelete.Store(true)
-			}
-		}
+		mu.Lock()
+		last = r.Method
+		mu.Unlock()
 		w.WriteHeader(204)
 	}))
 	defer h.srv.Close()
@@ -110,12 +100,10 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(envContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, _ = loadConfig()
+	cfg, _ := loadConfig()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
-		deleteSeen.Store(false)
-
 		if err := os.WriteFile(markerP, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -126,15 +114,79 @@ func TestTick_NoResurrectionUnderConcurrentStop(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			in := hookInput{HookEventName: "Stop", SessionID: "abc", CWD: "/repo"}
-			b, _ := json.Marshal(in)
-			dispatchHook(context.Background(), "stop", b, cfg)
+			dispatchHook(context.Background(), "session-end", []byte(`{"session_id":"abc","cwd":"/repo","reason":"other"}`), cfg)
 		}()
 		wg.Wait()
-
-		if sawPostAfterDelete.Load() {
-			t.Fatalf("Ghost Heartbeat: POST observed after DELETE in iteration %d", i)
+		mu.Lock()
+		got := last
+		mu.Unlock()
+		if got != http.MethodDelete {
+			t.Fatalf("iteration %d: last request %s, want DELETE (ghost session)", i, got)
 		}
+	}
+}
+
+// The daemon must not hold the session lock across its POST (#258), or every
+// hook stalls for the daemon's HTTP timeout when the server is unreachable.
+func TestProcessOneMarker_PostsOutsideLock(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	lockP := filepath.Join(dir, "abc.lock")
+	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var lockFree atomic.Bool
+	var calls atomic.Int32
+	h.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			lockFree.Store(withLockExWait(lockP, 100*time.Millisecond, func() error { return nil }) == nil)
+		}
+		w.WriteHeader(204)
+	})
+	cfg, _ := loadConfig()
+	processOneMarker(context.Background(), cfg, NewDaemonClient(cfg), markerP, lockP, time.Now().Add(-time.Hour))
+	if !lockFree.Load() {
+		t.Error("session lock was held while the heartbeat POST was in flight")
+	}
+}
+
+// A hook that changes the marker while the heartbeat POST is in flight must
+// win: the daemon re-sends the newer marker rather than leave its stale copy.
+func TestProcessOneMarker_ResendsMarkerChangedDuringPost(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	lockP := filepath.Join(dir, "abc.lock")
+	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var states []string
+	var mu sync.Mutex
+	h.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req StatusRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		states = append(states, r.Method+" "+req.State)
+		first := len(states) == 1
+		mu.Unlock()
+		if first {
+			_ = os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"done"}`), 0o600)
+		}
+		w.WriteHeader(204)
+	})
+	cfg, _ := loadConfig()
+	processOneMarker(context.Background(), cfg, NewDaemonClient(cfg), markerP, lockP, time.Now().Add(-time.Hour))
+	mu.Lock()
+	defer mu.Unlock()
+	if len(states) != 2 || states[1] != "POST done" {
+		t.Errorf("requests = %v, want [POST running, POST done]", states)
 	}
 }
 
