@@ -12,7 +12,12 @@ func TestMapThread(t *testing.T) {
 	}{
 		{"v2 running", thread{Schema: 2, Status: "running"}, "running", "", true},
 		{"v2 preparing", thread{Schema: 2, Status: "preparing"}, "running", "", true},
-		{"v2 queued", thread{Schema: 2, Status: "queued"}, "running", "", true},
+		{"v2 queued is not activity", thread{Schema: 2, Status: "queued"}, "", "", false},
+		{"v2 active run beats queued presented", thread{Schema: 2, Status: "queued", Active: "running"}, "running", "", true},
+		{"v2 active run beats failed presented", thread{Schema: 2, Status: "failed", Active: "starting"}, "running", "", true},
+		{"v2 completed holds for background work", thread{Schema: 2, Status: "completed", HoldsCompletion: true}, "running", "", true},
+		{"v2 failed ignores background hold", thread{Schema: 2, Status: "failed", HoldsCompletion: true}, "error", "failed", true},
+		{"v2 pending request beats hold", thread{Schema: 2, Status: "completed", HoldsCompletion: true, PendingKind: "user_input"}, "waiting", "needs input", true},
 		{"v2 starting", thread{Schema: 2, Status: "starting"}, "running", "", true},
 		{"v2 waiting is post-turn drain", thread{Schema: 2, Status: "waiting"}, "running", "", true},
 		{"v2 auth refresh is not waiting", thread{Schema: 2, Status: "running", PendingKind: "auth_refresh"}, "running", "", true},

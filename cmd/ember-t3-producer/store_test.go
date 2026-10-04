@@ -120,6 +120,13 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('t-settled', 'p', 'Settled days later', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-05T09:00:00.000Z', NULL, NULL, '{"settledAt":"2026-10-05T09:00:00.000Z"}', 'codex'),
 		 ('t-sub', 'p', 'Subagent: explore', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"lineage":{"relationshipToParent":"subagent"}}', 'codex'),
 		 ('t-fork', 'p', 'Forked', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"lineage":{"relationshipToParent":"fork"}}', 'codex'),
+		 ('t-q', 'p', 'Queued behind active', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-bg-roster', 'p', 'Roster monitor', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"activeProviderThreadId":"pt-a"}', 'claudeAgent'),
+		 ('t-bg-other', 'p', 'Roster of inactive provider thread', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{"activeProviderThreadId":"pt-b"}', 'claudeAgent'),
+		 ('t-bg-cmd', 'p', 'Dev server only', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
+		 ('t-bg-sub', 'p', 'Subagent item', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-bg-persist', 'p', 'Persistent monitor', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
+		 ('t-bg-rolled', 'p', 'Rolled back subagent', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-del', 'p', 'Deleted', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, '2026-10-02T10:00:00.000Z', '{}', 'codex')`,
 		`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json) VALUES
 		 ('r1', 't-run', 1, 'codex', 'completed', '2026-10-02T10:01:00.000Z', '2026-10-02T10:02:00.000Z', '{}'),
@@ -132,7 +139,26 @@ func TestReadSnapshotV2(t *testing.T) {
 		 ('r7', 't-held', 2, 'codex', 'queued', '2026-10-02T10:05:00.000Z', NULL, '{"queueHeld":true}'),
 		 ('r8', 't-auth', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
 		 ('r9', 't-settled', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
-		 ('r10', 't-sub', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}')`,
+		 ('r10', 't-sub', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r11', 't-q', 1, 'codex', 'running', '2026-10-02T10:03:00.000Z', NULL, '{}'),
+		 ('r12', 't-q', 2, 'codex', 'queued', '2026-10-02T10:04:00.000Z', NULL, '{}'),
+		 ('r13', 't-bg-roster', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r14', 't-bg-other', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r15', 't-bg-cmd', 1, 'claudeAgent', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r16', 't-bg-sub', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r17', 't-bg-persist', 1, 'codex', 'completed', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r18', 't-bg-rolled', 1, 'codex', 'rolled_back', '2026-10-02T10:03:00.000Z', '2026-10-02T10:04:00.000Z', '{}'),
+		 ('r19', 't-bg-rolled', 2, 'codex', 'completed', '2026-10-02T10:05:00.000Z', '2026-10-02T10:06:00.000Z', '{}')`,
+		`INSERT INTO orchestration_v2_projection_provider_threads (provider_thread_id, thread_id, provider, status, updated_at, payload_json) VALUES
+		 ('pt-a', 't-bg-roster', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"m1","kind":"monitor"}]}'),
+		 ('pt-b', 't-bg-other', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[]}'),
+		 ('pt-old', 't-bg-other', 'claudeAgent', 'stale', '2026-10-02T10:03:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"old","kind":"subagent"}]}'),
+		 ('pt-c', 't-bg-cmd', 'claudeAgent', 'active', '2026-10-02T10:04:00.000Z', '{"pendingBackgroundTasks":[{"taskId":"dev","kind":"command"}]}')`,
+		`INSERT INTO orchestration_v2_projection_turn_items (turn_item_id, thread_id, run_id, ordinal, type, status, updated_at, payload_json) VALUES
+		 ('b-sub', 't-bg-sub', 'r16', 1, 'subagent', 'running', '2026-10-02T10:03:30.000Z', '{}'),
+		 ('b-cmd', 't-bg-cmd', 'r15', 1, 'command_execution', 'running', '2026-10-02T10:03:30.000Z', '{}'),
+		 ('b-persist', 't-bg-persist', 'r17', 1, 'dynamic_tool', 'running', '2026-10-02T10:03:30.000Z', '{"input":{"persistent":true}}'),
+		 ('b-rolled', 't-bg-rolled', 'r18', 1, 'subagent', 'running', '2026-10-02T10:03:30.000Z', '{}')`,
 		`INSERT INTO orchestration_v2_projection_runtime_requests (runtime_request_id, thread_id, node_id, kind, status, created_at, payload_json) VALUES
 		 ('q1', 't-done-ask', 'n', 'user_input', 'pending', '2026-10-02T10:04:30.000Z', '{}'),
 		 ('q2', 't-run', 'n', 'command', 'resolved', '2026-10-02T10:03:30.000Z', '{}'),
@@ -174,21 +200,29 @@ func TestReadSnapshotV2(t *testing.T) {
 		return v
 	}
 	cases := map[string]struct {
-		status, pending, lastErr string
-		archived                 bool
-		changed                  time.Time
+		status, pending, lastErr, active string
+		holds, archived                  bool
+		changed                          time.Time
 	}{
-		"t-run":       {status: "running", changed: at("10:03:00")},
-		"t-wait":      {status: "waiting", changed: at("10:03:00")},
+		"t-run":       {status: "running", active: "running", changed: at("10:03:00")},
+		"t-wait":      {status: "waiting", active: "waiting", changed: at("10:03:00")},
 		"t-done-ask":  {status: "completed", pending: "user_input", changed: at("10:04:30")},
 		"t-fail":      {status: "failed", lastErr: "usage limit reached", changed: at("10:04:00")},
 		"t-fail-sess": {status: "failed", lastErr: "rate limited", changed: at("10:04:00")},
 		"t-held":      {status: "completed", changed: at("10:04:00")},
 		"t-arch":      {archived: true},
 		"t-idle":      {},
-		"t-auth":      {status: "running", pending: "command", changed: at("10:03:10")},
+		"t-auth":      {status: "running", active: "running", pending: "command", changed: at("10:03:10")},
 		"t-settled":   {status: "completed", changed: at("10:04:00")},
 		"t-fork":      {},
+		// A queued run behind an active one: the active run is the activity.
+		"t-q":          {status: "queued", active: "running", changed: at("10:04:00")},
+		"t-bg-roster":  {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-other":   {status: "completed", changed: at("10:04:00")},
+		"t-bg-cmd":     {status: "completed", changed: at("10:04:00")},
+		"t-bg-sub":     {status: "completed", holds: true, changed: at("10:04:00")},
+		"t-bg-persist": {status: "completed", changed: at("10:04:00")},
+		"t-bg-rolled":  {status: "completed", changed: at("10:06:00")},
 	}
 	for id, want := range cases {
 		th, ok := got[id]
@@ -196,7 +230,7 @@ func TestReadSnapshotV2(t *testing.T) {
 			t.Errorf("%s missing", id)
 			continue
 		}
-		if th.Status != want.status || th.PendingKind != want.pending || th.LastError != want.lastErr || th.Archived != want.archived || !th.ChangedAt.Equal(want.changed) {
+		if th.Status != want.status || th.PendingKind != want.pending || th.LastError != want.lastErr || th.Archived != want.archived || th.Active != want.active || th.HoldsCompletion != want.holds || !th.ChangedAt.Equal(want.changed) {
 			t.Errorf("%s = %+v, want %+v", id, th, want)
 		}
 	}

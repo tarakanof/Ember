@@ -535,8 +535,19 @@ markers still get reaped.
   colour). Mapping, aligned with T3's own `agentAwareness`: a pending runtime
   request other than `auth_refresh` → `waiting` (even on a settled thread:
   Codex `user_input` requests outlive the turn); run status preparing /
-  queued / starting / running / **waiting** → `running` (a run "waiting" is
-  post-turn drain such as checkpoint capture, not the user); failed → `error`
+  starting / running / **waiting** → `running` (a run "waiting" is
+  post-turn drain such as checkpoint capture, not the user). Like T3's
+  `activityRunStatus ?? status`, the newest preparing/starting/running/
+  waiting run of any ordinal wins over the presented run, and a presented
+  `queued` run is not activity (→ DELETE). A `completed` run stays `running`
+  while background work that wakes the agent is open
+  (`backgroundWorkHoldsCompletion`: roster task of the active provider
+  thread with kind other than `command`, or an active subagent /
+  non-persistent dynamic_tool turn item outside a rolled-back run; dev-server
+  commands do not hold). That hold is a SQL approximation (it does not dedupe
+  roster vs item by task id). Deliberate difference: the `auth_refresh` filter
+  runs in the request query, so such a request never hides an older approval.
+  failed → `error`
   with the failed root error item's message, else the newest bound provider
   session's `lastError`; completed → `done`; idle / interrupted / cancelled /
   rolled_back / archived / deleted / unknown → DELETE. Subagent child threads
