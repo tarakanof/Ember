@@ -26,7 +26,12 @@ struct KnobDetail: View {
         }
         .formStyle(.grouped)
         .autosaves(knob.settings)
-        .reloads { await knob.load() }
+        .reloads {
+            await knob.load()
+            async let a: Void = env.settings.pomodoro.load()
+            async let b: Void = env.settings.weather.load()
+            _ = await (a, b)
+        }
         .task {
             // Last check-in, uptime and RSSI move on their own.
             while !Task.isCancelled {
@@ -43,6 +48,16 @@ struct KnobDetail: View {
         }
     }
 
+    private func isOff(_ source: SourceID) -> Bool {
+        let s = env.settings
+        switch source {
+        case .focus: return s.pomodoro.isLoaded && !s.pomodoro.draft.enabled
+        case .weather: return s.weather.isLoaded && !s.weather.draft.enabled
+        case .calendar: return s.meetings.isLoaded && !s.meetings.draft.enabled
+        case .agents: return false
+        }
+    }
+
     @ViewBuilder private var content: some View {
         switch page {
         case .hardware(.display):
@@ -55,7 +70,7 @@ struct KnobDetail: View {
         case .apps:
             KnobPagesSection().disabled(!knob.settings.isLoaded)
         case .app(let app):
-            if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source) }
+            if let source = AppCatalog.source(of: app) { SourceLinkSection(source: source, isOff: isOff(source)) }
             Group {
                 KnobPageSection(app: app)
                 if app == .bot { KnobBotSection() }

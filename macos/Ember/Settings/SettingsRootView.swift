@@ -5,6 +5,7 @@ struct SettingsRootView: View {
     @Environment(AppEnvironment.self) private var env
     @AppStorage(SettingsRoute.storageKey) private var routeName = SettingsRoute.fallback.stored
     @AppStorage(SettingsRoute.expandedKey) private var expandedName = ""
+    @AppStorage(SettingsRoute.revealKey) private var reveal = 0
 
     static let windowWidth: CGFloat = 800
 
@@ -12,13 +13,10 @@ struct SettingsRootView: View {
 
     private var devices: [SettingsDevice] {
         let knob = env.knob
-        let knobState: SettingsDevice.State = if knob.knob != nil {
-            .ready
-        } else if !knob.isLoaded && knob.loadError == nil {
-            .loading
-        } else {
-            .notSetUp
-        }
+        let knobState: SettingsDevice.State =
+            knob.knob != nil ? .ready
+            : !knob.isLoaded ? (knob.loadError == nil ? .loading : .unavailable)
+            : .notSetUp
         return [
             SettingsDevice(id: clockDeviceID, kind: .clock, name: String(localized: DeviceKind.clock.title), state: .ready),
             SettingsDevice(id: knob.knob?.id ?? DeviceKind.knob.placeholderID, kind: .knob,
@@ -50,9 +48,16 @@ struct SettingsRootView: View {
                 .navigationSubtitle(subtitle(env.deviceSettings))
                 .frame(minWidth: 460, minHeight: 360)
         }
-        .task { await env.knob.load() }
+        .task { await env.live.track(.clockHealth) }
+        .task {
+            while !Task.isCancelled {
+                await env.knob.load()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
         .onAppear { settle(tree) }
         .onChange(of: routeName) { settle(tree) }
+        .onChange(of: reveal) { settle(tree) }
         .onChange(of: tree) { _, new in settle(new) }
     }
 
@@ -60,12 +65,10 @@ struct SettingsRootView: View {
     /// stores the route the sidebar actually shows.
     private func settle(_ tree: SettingsTree) {
         let route = tree.resolve(SettingsRoute(stored: routeName))
-        var expanded = SettingsTree.expandedSet(expandedName)
-        expanded.formUnion(tree.expansionIDs(revealing: route))
+        let expanded = tree.expanded(SettingsTree.expandedSet(expandedName), revealing: route)
         let stored = SettingsTree.storedExpanded(expanded)
         if stored != expandedName { expandedName = stored }
-        let loading = tree.devices.contains { $0.device.state == .loading }
-        if !loading, route.stored != routeName { routeName = route.stored }
+        if !tree.holdsStoredRoute, route.stored != routeName { routeName = route.stored }
     }
 
     private func isExpanded(_ id: String) -> Binding<Bool> {
@@ -100,7 +103,7 @@ struct SettingsRootView: View {
                      comment: "Settings sidebar: a device's row while the device list loads (\"Knob loading…\").")
                     .foregroundStyle(.secondary)
             }
-        case .notSetUp:
+        case .notSetUp, .unavailable:
             DeviceRow(device: node.device).tag(node.route)
         case .ready:
             DisclosureGroup(isExpanded: isExpanded(node.expansionID)) {
@@ -133,49 +136,56 @@ private struct DeviceRow: View {
     @Environment(AppEnvironment.self) private var env
     let device: SettingsDevice
 
-    private var online: Bool? {
+    private func online(at now: Date) -> Bool? {
         switch device.kind {
         case .clock:
             return env.live.clockHealth.value?.device?.reachable
         case .knob:
             guard device.state == .ready, let knob = env.knob.knob else { return nil }
-            return knob.isOnline(now: .now)
+            return knob.isOnline(now: now)
         }
     }
 
     var body: some View {
-        Label {
-            HStack(spacing: 6) {
-                Text(verbatim: device.name)
-                Spacer(minLength: 4)
-                if let online {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 7))
-                        .foregroundStyle(online ? .green : .secondary)
-                        .accessibilityHidden(true)
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let online = online(at: context.date)
+            Label {
+                HStack(spacing: 6) {
+                    Text(verbatim: device.name)
+                    Spacer(minLength: 4)
+                    if let online {
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 7))
+                            .foregroundStyle(online ? .green : .secondary)
+                            .accessibilityHidden(true)
+                    }
                 }
+            } icon: {
+                Image(systemName: device.kind.systemImage)
             }
-        } icon: {
-            Image(systemName: device.kind.systemImage)
+            .accessibilityLabel(accessibilityText(online: online))
         }
-        .accessibilityLabel(accessibilityText)
     }
 
-    private var accessibilityText: Text {
+    private func accessibilityText(online: Bool?) -> Text {
         let kind = String(localized: device.kind.title)
+        let who = device.name == kind ? device.name : "\(device.name), \(kind)"
         switch (device.state, online) {
         case (.notSetUp, _):
-            return Text("\(device.name), \(kind), not set up",
-                        comment: "VoiceOver label of a device in the Settings sidebar that isn't set up: its name, then its kind (\"Knob\").")
+            return Text("\(who), not set up",
+                        comment: "VoiceOver label of a Settings sidebar device that isn't set up: its name (and kind, \"Desk knob, Knob\").")
+        case (.unavailable, _):
+            return Text("\(who), unreachable",
+                        comment: "VoiceOver label of a Settings sidebar device whose server didn't answer: its name (and kind, \"Desk knob, Knob\").")
         case (_, true?):
-            return Text("\(device.name), \(kind), online",
-                        comment: "VoiceOver label of a device in the Settings sidebar: its name, then its kind (\"Clock\").")
+            return Text("\(who), online",
+                        comment: "VoiceOver label of a Settings sidebar device: its name (and kind, \"Desk knob, Knob\").")
         case (_, false?):
-            return Text("\(device.name), \(kind), offline",
-                        comment: "VoiceOver label of a device in the Settings sidebar: its name, then its kind (\"Clock\").")
+            return Text("\(who), offline",
+                        comment: "VoiceOver label of a Settings sidebar device: its name (and kind, \"Desk knob, Knob\").")
         default:
-            return Text("\(device.name), \(kind), status unknown",
-                        comment: "VoiceOver label of a device in the Settings sidebar whose reachability isn't known yet: its name, then its kind (\"Clock\").")
+            return Text("\(who), status unknown",
+                        comment: "VoiceOver label of a Settings sidebar device whose reachability isn't known yet: its name (and kind, \"Desk knob, Knob\").")
         }
     }
 }

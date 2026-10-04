@@ -177,7 +177,9 @@ extension EnvironmentValues {
 /// Selects a Settings route; an open Settings window follows at once.
 @MainActor
 func showSettings(_ route: SettingsRoute) {
-    UserDefaults.standard.set(route.stored, forKey: SettingsRoute.storageKey)
+    let defaults = UserDefaults.standard
+    defaults.set(route.stored, forKey: SettingsRoute.storageKey)
+    defaults.set(defaults.integer(forKey: SettingsRoute.revealKey) &+ 1, forKey: SettingsRoute.revealKey)
 }
 
 /// The TC001's node id until it becomes a registry record.
