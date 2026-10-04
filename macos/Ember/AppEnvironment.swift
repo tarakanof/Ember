@@ -137,7 +137,7 @@ public final class AppEnvironment {
         let log = Self.log
         Task.detached(priority: .utility) {
             let defaults = UserDefaults.standard
-            producers.seedOptOutForNewAgents()
+            await producers.seedOptOutForNewAgents()
             let fingerprint = bundleFingerprint(appURL: appURL, version: version, build: build)
             let changed = shouldReconcileAfterUpdate(currentVersion: fingerprint,
                                                      lastReconciledVersion: defaults.string(forKey: key))

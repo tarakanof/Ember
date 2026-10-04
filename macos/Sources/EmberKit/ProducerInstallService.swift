@@ -108,6 +108,14 @@ public enum ProducerInstallError: Error, Equatable, Sendable {
     /// The agent's CLI-installed LaunchAgent (same label) is in
     /// `~/Library/LaunchAgents`, so registering the app's copy would clash.
     case cliInstalled
+    /// Move to Ember: the bundled helper's `uninstall` of the CLI agent
+    /// exited non-zero (`detail` is its stderr), so nothing changed.
+    case cliUninstallFailed(exit: Int32, detail: String)
+    /// Move to Ember removed the CLI agent but couldn't install the app's
+    /// copy; `restored` says whether the CLI agent was put back.
+    case moveFailed(helper: String, reason: String, restored: Bool)
+    /// Claude's settings.json isn't valid JSON, so its helper can't be set up.
+    case settingsUnreadable
     /// `launchctl bootout` of a stuck job failed (exit -1: it didn't run).
     case bootoutFailed(exit: Int32, detail: String)
 }
@@ -123,6 +131,18 @@ extension ProducerInstallError: LocalizedError {
         case .cliInstalled:
             String(localized: "It's installed from the command line. Use Move to Ember first.",
                    comment: "Settings › Agents failure when turning on an agent whose CLI LaunchAgent is loaded.")
+        case .cliUninstallFailed(let exit, let detail):
+            String(localized: "Couldn't remove the command-line agent (exit \(exit): \(detail)); it's still reporting.",
+                   comment: "Settings › Agents failure when Move to Ember can't uninstall the CLI agent; exit code, then the helper's message.")
+        case .moveFailed(_, let reason, true):
+            String(localized: "Ember couldn't take over (\(reason)), so the command-line agent was reinstalled and keeps reporting.",
+                   comment: "Settings › Agents failure after Move to Ember when the app's copy failed and the CLI agent was restored; the failure.")
+        case .moveFailed(let helper, let reason, false):
+            String(localized: "Ember couldn't take over (\(reason)) and the command-line agent is gone, so this agent isn't reporting. Turn it on again here, or run \(helper) install in Terminal.",
+                   comment: "Settings › Agents failure after Move to Ember when neither the app's copy nor the CLI agent is installed; the failure, then the helper's name.")
+        case .settingsUnreadable:
+            String(localized: "~/.claude/settings.json isn't valid JSON. Fix the file by hand first.",
+                   comment: "Settings › Agents failure when moving Claude while its settings file can't be parsed.")
         case .bootoutFailed(let exit, let detail):
             String(localized: "macOS wouldn't stop the stuck background helper (launchctl exit \(exit): \(detail)).",
                    comment: "Settings › Agents failure after Repair when launchctl bootout fails; exit code, then launchctl's message.")
@@ -250,7 +270,12 @@ public final class ProducerInstallService: Sendable {
     /// update that added it) while reporting is already on for some agent,
     /// marks it turned off so the master switch doesn't read "partial" or turn
     /// it on uninvited. Records the cases it has seen.
-    public func seedOptOutForNewAgents() {
+    @concurrent
+    public func seedOptOutForNewAgents() async {
+        await serial.run { seedNow() }
+    }
+
+    private func seedNow() {
         let known = Set(prefs.knownAgents ?? [ProducerAgent.claude.rawValue, ProducerAgent.codex.rawValue])
         let added = ProducerAgent.allCases.filter { !known.contains($0.rawValue) }
         if !added.isEmpty, ProducerAgent.allCases.contains(where: isRegistered) {
@@ -383,7 +408,11 @@ public final class ProducerInstallService: Sendable {
                 prefs.optOut.subtract(detectedAgents().map(\.rawValue))
                 wanted = ProducerAgent.allCases.filter(isWanted)
             }
-            return wanted.filter { !isCLIInstalled($0) }.map { agent in
+            let installable = wanted.filter { !isCLIInstalled($0) }
+            if installable.isEmpty {
+                return wanted.map { AgentOutcome(agent: $0, error: ProducerInstallError.cliInstalled) }
+            }
+            return installable.map { agent in
                 do {
                     try install(agent)
                     return AgentOutcome(agent: agent, error: nil)
@@ -429,20 +458,51 @@ public final class ProducerInstallService: Sendable {
 
     /// Moves a CLI-installed agent to the app off the calling actor: runs the
     /// bundled helper's `uninstall` (which boots out and removes only the
-    /// CLI's own LaunchAgent), then installs the app's copy. Fails with
-    /// `.cliInstalled` when the CLI plist is still there.
+    /// CLI's own LaunchAgent), then installs the app's copy. A failed
+    /// uninstall aborts (`.cliUninstallFailed`); a failed install re-runs the
+    /// CLI binary's `install` and reports `.moveFailed`. Claude is refused
+    /// while its settings.json is unreadable.
     @concurrent
     public func moveToEmber(_ agent: ProducerAgent) async -> [AgentOutcome] {
         await serial.run {
             do {
-                _ = try runner.run(executable: executablePath(for: agent), arguments: ["uninstall"])
-                prefs.optOut.remove(agent.rawValue)
-                try install(agent)
+                try moveNow(agent)
                 return [AgentOutcome(agent: agent, error: nil)]
             } catch {
                 return [AgentOutcome(agent: agent, error: error)]
             }
         }
+    }
+
+    private func moveNow(_ agent: ProducerAgent) throws {
+        if agent == .claude, claudeHookRegistration().settingsUnreadable {
+            throw ProducerInstallError.settingsUnreadable
+        }
+        let cliBinary = cliProgram(agent)
+        let result = try runner.run(executable: executablePath(for: agent), arguments: ["uninstall"])
+        guard result.exitCode == 0 else {
+            throw ProducerInstallError.cliUninstallFailed(
+                exit: result.exitCode, detail: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        do {
+            try install(agent)
+            prefs.optOut.remove(agent.rawValue)
+        } catch ProducerInstallError.cliInstalled {
+            throw ProducerInstallError.cliInstalled
+        } catch {
+            let restored = cliBinary.map { bin in
+                fileExists(bin) && ((try? runner.run(executable: bin, arguments: ["install"]))?.exitCode == 0)
+            } ?? false
+            throw ProducerInstallError.moveFailed(helper: agent.binaryName, reason: error.localizedDescription,
+                                                  restored: restored)
+        }
+    }
+
+    private func cliProgram(_ agent: ProducerAgent) -> String? {
+        guard let data = readFile(cliPlistPath(agent)),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let args = plist["ProgramArguments"] as? [String] else { return nil }
+        return args.first
     }
 
     /// Runs the Claude helper's `configure` off the calling actor: it removes

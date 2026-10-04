@@ -49,22 +49,22 @@ private func service(_ sm: FakeSMAppService, runner: ProducerCommandRunning = Fa
     #expect(prefs.optOut.isEmpty)
 }
 
-@MainActor @Test func upgradeSeedsTheNewAgentAsOptedOutWhenReportingWasOn() {
+@MainActor @Test func upgradeSeedsTheNewAgentAsOptedOutWhenReportingWasOn() async {
     let sm = FakeSMAppService(); sm.statuses = [heartbeat: .enabled, codexPlist: .enabled]
     let prefs = InMemoryProducerPrefs()
     let svc = service(sm, prefs: prefs)
-    svc.seedOptOutForNewAgents()
+    await svc.seedOptOutForNewAgents()
     #expect(prefs.optOut == ["t3"])
     #expect(prefs.knownAgents == ["claude", "codex", "t3"])
     #expect(svc.toggleState() == .on)
     prefs.optOut = []
-    svc.seedOptOutForNewAgents()
+    await svc.seedOptOutForNewAgents()
     #expect(prefs.optOut.isEmpty)
 }
 
-@MainActor @Test func aFreshInstallSeedsNothing() {
+@MainActor @Test func aFreshInstallSeedsNothing() async {
     let prefs = InMemoryProducerPrefs()
-    service(FakeSMAppService(), prefs: prefs).seedOptOutForNewAgents()
+    await service(FakeSMAppService(), prefs: prefs).seedOptOutForNewAgents()
     #expect(prefs.optOut.isEmpty)
     #expect(prefs.knownAgents == ["claude", "codex", "t3"])
 }
@@ -140,4 +140,98 @@ final class RemovingRunner: ProducerCommandRunning, @unchecked Sendable {
         if arguments == ["uninstall"] { onUninstall() }
         return try inner.run(executable: executable, arguments: arguments)
     }
+}
+
+private let cliT3 = "/Users/x/Library/LaunchAgents/com.ember.t3.plist"
+private let cliPlistBody = """
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Label</key><string>com.ember.t3</string>
+<key>ProgramArguments</key><array><string>/Users/x/go/bin/ember-t3-producer</string><string>run</string></array></dict></plist>
+"""
+
+final class ScriptedRunner: ProducerCommandRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _calls: [(String, [String])] = []
+    let result: @Sendable (String, [String]) -> CommandResult
+    init(_ result: @escaping @Sendable (String, [String]) -> CommandResult) { self.result = result }
+    var calls: [(String, [String])] { lock.withLock { _calls } }
+    func run(executable: String, arguments: [String]) throws -> CommandResult {
+        lock.withLock { _calls.append((executable, arguments)) }
+        return result(executable, arguments)
+    }
+}
+
+private func moveService(_ sm: FakeSMAppService, _ runner: ScriptedRunner, cliGone: FlagBox,
+                         extraFiles: [String: String] = [:]) -> ProducerInstallService {
+    ProducerInstallService(sm: sm, runner: runner,
+        bundleMacOSDir: URL(fileURLWithPath: "/A/Contents/MacOS"), home: URL(fileURLWithPath: "/Users/x"),
+        fileExists: { path in
+            if path == cliT3 { return !cliGone.value }
+            return path == "/Users/x/go/bin/ember-t3-producer" || allTools.contains(path) || extraFiles[path] != nil
+        },
+        readFile: { path in path == cliT3 ? Data(cliPlistBody.utf8) : extraFiles[path].map { Data($0.utf8) } },
+        prefs: InMemoryProducerPrefs(), uid: 501)
+}
+
+@MainActor @Test func aFailedCLIUninstallAbortsTheMove() async {
+    let sm = FakeSMAppService()
+    let runner = ScriptedRunner { _, args in
+        args == ["uninstall"] ? CommandResult(exitCode: 1, stdout: "", stderr: "uninstall: boom\n")
+            : CommandResult(exitCode: 0, stdout: "", stderr: "")
+    }
+    let outcomes = await moveService(sm, runner, cliGone: FlagBox()).moveToEmber(.t3)
+    #expect(outcomes.first?.error as? ProducerInstallError == .cliUninstallFailed(exit: 1, detail: "uninstall: boom"))
+    #expect(runner.calls.map(\.1) == [["uninstall"]])
+    #expect(sm.registered.isEmpty)
+}
+
+@MainActor @Test func aFailedTakeoverReinstallsTheCLIAgent() async {
+    let sm = FakeSMAppService(); sm.registerError = NSError(domain: "sm", code: 1)
+    let gone = FlagBox()
+    let runner = ScriptedRunner { _, args in
+        if args == ["uninstall"] { gone.set() }
+        return CommandResult(exitCode: 0, stdout: "", stderr: "")
+    }
+    let outcomes = await moveService(sm, runner, cliGone: gone).moveToEmber(.t3)
+    #expect(runner.calls.map(\.0).last == "/Users/x/go/bin/ember-t3-producer")
+    #expect(runner.calls.map(\.1).last == ["install"])
+    guard case .moveFailed(_, _, let restored)? = outcomes.first?.error as? ProducerInstallError else {
+        Issue.record("want moveFailed"); return
+    }
+    #expect(restored)
+}
+
+@MainActor @Test func aFailedTakeoverWithoutRestoreSaysReportingIsOff() async {
+    let sm = FakeSMAppService(); sm.registerError = NSError(domain: "sm", code: 1)
+    let gone = FlagBox()
+    let runner = ScriptedRunner { _, args in
+        if args == ["uninstall"] { gone.set() }
+        return CommandResult(exitCode: args == ["install"] ? 1 : 0, stdout: "", stderr: "")
+    }
+    let outcomes = await moveService(sm, runner, cliGone: gone).moveToEmber(.t3)
+    let error = outcomes.first?.error as? ProducerInstallError
+    guard case .moveFailed(_, _, let restored)? = error else { Issue.record("want moveFailed"); return }
+    #expect(!restored)
+    #expect(error?.localizedDescription.contains("isn't reporting") == true)
+    #expect(error?.localizedDescription.contains("ember-t3-producer install") == true)
+}
+
+@MainActor @Test func claudeCantMoveWhileSettingsAreUnreadable() async {
+    let sm = FakeSMAppService()
+    let runner = ScriptedRunner { _, _ in CommandResult(exitCode: 0, stdout: "", stderr: "") }
+    let cliClaude = "/Users/x/Library/LaunchAgents/com.ember.heartbeat.plist"
+    let svc = moveService(sm, runner, cliGone: FlagBox(),
+                          extraFiles: [cliClaude: "x", "/Users/x/.claude/settings.json": "{,"])
+    let outcomes = await svc.moveToEmber(.claude)
+    #expect(outcomes.first?.error as? ProducerInstallError == .settingsUnreadable)
+    #expect(runner.calls.isEmpty)
+}
+
+@MainActor @Test func masterOnWithOnlyCLIAgentsSaysSo() async {
+    let sm = FakeSMAppService()
+    let svc = service(sm, dirs: ["/Users/x/.t3"], files: [cliT3: "x"])
+    let outcomes = await svc.installAll()
+    #expect(outcomes.map(\.agent) == [.t3])
+    #expect(outcomes.first?.error as? ProducerInstallError == .cliInstalled)
+    #expect(sm.registered.isEmpty)
 }

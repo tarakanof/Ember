@@ -29,7 +29,7 @@ public enum ProducerAgent: String, CaseIterable, Sendable {
 
     /// The relative path (under `$HOME`) used to detect whether the
     /// corresponding CLI tool is installed (T3 Code also honours
-    /// `T3CODE_HOME` and producer.env's `EMBER_T3_HOME`).
+    /// producer.env's `EMBER_T3_HOME`).
     public var detectRelPath: String {
         switch self {
         case .claude: ".claude"

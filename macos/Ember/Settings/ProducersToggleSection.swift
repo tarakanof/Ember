@@ -171,7 +171,8 @@ struct ProducersToggleSection: View {
             HStack(spacing: 8) {
                 Text("Installed from the CLI").foregroundStyle(.secondary)
                 Button("Move to Ember") { Task { await model.moveToEmber(agent) } }
-                    .disabled(model.isWorking)
+                    .disabled(model.isWorking
+                              || (agent == .claude && model.snapshot?.claudeHooks?.settingsUnreadable == true))
                     .help("Removes the command-line LaunchAgent with the same name, then lets Ember run the bundled helper.")
             }
         case .error(let message):
