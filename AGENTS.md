@@ -2,10 +2,11 @@
 
 ## Project
 
-`ember` is a small Go service that shows Claude/Codex activity on an
-Ulanzi TC001 running awtrix-ng, plus an integrated Pomodoro timer. Host-side
-producers report agent status; the server aggregates and drives the clock over
-direct HTTP; a macOS menu-bar app configures it.
+`ember` is a small Go service that shows Claude Code / Codex / T3 Code activity on
+desk displays, plus an integrated Pomodoro timer. Host-side producers report agent
+status; the server aggregates it, **pushes** frames to an Ulanzi TC001 (awtrix-ng)
+and is **pulled** by the round knob display (firmware repo `tarakanof/cinder`,
+`~/Github/cinder`, via `/v1/devices`); a macOS menu-bar app configures both.
 
 Primary goals: stay lightweight enough for an Unraid Docker container; aggregate
 multiple laptop/session statuses; enforce bearer-token auth on write endpoints
@@ -32,6 +33,49 @@ multiple laptop/session statuses; enforce bearer-token auth on write endpoints
 
 Do not write secrets into this repository. The write-endpoint bearer token is
 supplied via the `EMBER_TOKEN` environment variable.
+
+## Setup
+
+- Go (version in `go.mod`), Xcode + `brew install xcodegen` for the app. Commands
+  for build, test and local app install: `docs/RUNBOOK.md`. Local app builds sign
+  with the identity in `~/.config/ember/signing-identity` (`scripts/build-local.sh`).
+- Producers read `~/.config/ember/producer.env` (0600: `EMBER_SOURCE`,
+  `EMBER_SERVER_URL`, `EMBER_TOKEN`). Claude Code hooks ship as the `ember@ember`
+  plugin from this repo's marketplace; run `ember-claude-producer configure` after
+  installing it so `settings.json` keeps no duplicate hooks.
+- **Git over SSH** can fail inside agent sandboxes (the 1Password agent refuses):
+  use `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS
+  with gh credentials: `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push https://github.com/tarakanof/Ember.git <branch>`.
+
+## Workflow
+
+1. **Issue first.** File a GitHub issue; non-trivial designs get a spec in the
+   Obsidian vault (`Superpowers Specs/ember/`, see "Obsidian workflow"), linked
+   from the issue. Record the user's decisions in the spec and on the issues.
+2. **Worktree per change**: `git worktree add ~/Github/Ember-wt/<slug> -b <type>/<issue>-<slug> origin/main`;
+   never edit the main checkout while another change is in flight. Stack
+   dependent PRs (`--base` the earlier branch), retarget to `main` after it merges.
+3. **TDD**, then `gofmt`, `go vet ./...`, `go test ./... -race`; for app changes
+   `swift test --package-path macos`, `xcodegen generate` + an unsigned build,
+   `scripts/strings.sh check`. CI runs the same.
+4. **PR** with `Closes #N`, evidence (test output, measured numbers, exact JSON
+   shapes, screenshots for UI). Then an **independent review** (a separate agent
+   or person), findings fixed with tests that fail without the fix, a re-check,
+   green CI.
+5. **Merge** with a merge commit (`gh pr merge --merge`), remove the worktree,
+   release with `scripts/release.sh` when the server or app changed for users.
+
+Agent rules:
+- **Smoke runs**: scratch port and temp DB, `EMBER_MDNS_ADVERTISE=0` (unset is
+  *on*: the scratch server would advertise itself on the LAN). Never `:3627`.
+- **Never touch the user's live state** from tests or reviews: `~/.config/ember`,
+  `~/.claude`, `~/Library/LaunchAgents`, `/Applications/Ember.app`. Don't launch a
+  build with the installed bundle id (it re-registers producer agents).
+- **Knob on USB** (`/dev/cu.usbmodem*`, 303a:1001, shared with esptool/idf.py
+  monitor): open it only on an explicit user action; never toggle DTR/RTS (RTS
+  resets the board).
+- **Scratch files**: unique names per task (parallel agents share one scratchpad);
+  the PR comment, not a scratch file, is the source of truth for review findings.
 
 ## Releasing
 
