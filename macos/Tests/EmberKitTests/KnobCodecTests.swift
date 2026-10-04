@@ -142,7 +142,8 @@ private func request(_ r: [String: Any], token: String? = nil) -> CinderLineCode
     let v = try KnobVectors.load("cinder1.json")
     for h in (v["host_rejected"] as! [[String: Any]]) {
         let req = CinderLineCodec.Request.setEmber(url: h["url"] as! String, deviceID: "knob-61fc8c",
-                                                   token: h["token"] as? String ?? "ekd_x", name: "Desk knob")
+                                                   token: h["token"] as? String ?? "ekd_x",
+                                                   name: h["name"] as? String ?? "Desk knob")
         let want: CinderLineCodec.EncodeError = h["error"] as! String == "bad_url" ? .badURL : .tooLong
         #expect(throws: want, "\(h["name"]!)") { try CinderLineCodec.encode(req, id: 1) }
     }
@@ -175,10 +176,30 @@ private func request(_ r: [String: Any], token: String? = nil) -> CinderLineCode
 
 @Test func emberURLValidation() {
     #expect(CinderLineCodec.isValidEmberURL("http://192.168.0.2:3627"))
-    #expect(CinderLineCodec.isValidEmberURL("https://ember.lan/"))
+    #expect(CinderLineCodec.isValidEmberURL("http://ember.lan/"))
+    #expect(!CinderLineCodec.isValidEmberURL("https://ember.lan"))
     #expect(!CinderLineCodec.isValidEmberURL("http://192.168.0.2:3627/api"))
     #expect(!CinderLineCodec.isValidEmberURL("192.168.0.2"))
     #expect(!CinderLineCodec.isValidEmberURL("http://u:p@host"))
+    #expect(!CinderLineCodec.isValidEmberURL("http://192.168.0.2:0"))
+}
+
+@Test func cinderVectorsNormalizeURLs() throws {
+    let v = try KnobVectors.load("cinder1.json")
+    for n in (v["url_normalized"] as! [[String: String]]) {
+        #expect(CinderLineCodec.normalizedEmberURL(n["in"]!) == n["out"]!, "\(n["in"]!)")
+    }
+    for h in (v["host_rejected"] as! [[String: Any]]) where h["error"] as? String == "bad_url" {
+        #expect(CinderLineCodec.normalizedEmberURL(h["url"] as! String) == nil, "\(h["name"]!)")
+    }
+}
+
+@Test func knobNameIsCappedAt32Bytes() {
+    #expect(CinderLineCodec.cappedName("Desk knob") == "Desk knob")
+    let long = String(repeating: "é", count: 20) // 40 bytes
+    let capped = CinderLineCodec.cappedName(long)
+    #expect(capped.utf8.count <= 32)
+    #expect(capped == String(repeating: "é", count: 16))
 }
 
 // MARK: Demuxer

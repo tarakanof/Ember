@@ -632,3 +632,141 @@ final class RegistryBox {
     init(_ v: KnobDevice?) { value = v }
     func set(_ v: KnobDevice?) { value = v }
 }
+
+// MARK: Firmware contract
+
+final class LineLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _lines: [[String: String]] = []
+    var lines: [[String: String]] { lock.withLock { _lines } }
+    func add(_ o: [String: Any]) { lock.withLock { _lines.append(o.compactMapValues { $0 as? String }) } }
+}
+
+@Test func httpsURLIsRejectedBeforeMinting() async throws {
+    let calls = Calls()
+    let p = provisioner(FakeOpener(freshKnob { _ in [] }), calls: calls)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    var r = request
+    r.emberURL = "https://192.168.0.2:3627"
+    await #expect(throws: KnobSetupError.invalid(r.emberURL)) {
+        _ = try await p.provision(session, identity: id, serialNumber: nil, request: r, progress: { _ in })
+    }
+    #expect(calls.mints.isEmpty)
+}
+
+@Test func setEmberSendsTheNormalizedURLAndTheServerName() async throws {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioned))] }
+    let log = LineLog()
+    let base = knob.onCinder
+    knob.onCinder = { log.add($0); return base($0) }
+    var named = minted.device
+    named.name = "Knob 61FC8C"
+    let p = provisioner(FakeOpener(knob), minted: MintedKnob(device: named, token: minted.token), checkedIn: true)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    var r = request
+    r.emberURL = "HTTP://Mini.LAN:3627/"
+    r.name = ""
+    _ = try await p.provision(session, identity: id, serialNumber: nil, request: r, progress: { _ in })
+    let set = try #require(log.lines.first { $0["op"] == "set_ember" })
+    #expect(set["url"] == "http://mini.lan:3627")
+    #expect(set["name"] == "Knob 61FC8C")
+}
+
+@Test func improvInvalidRPCMeansWiFiRejected() async throws {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.error(.invalidRPC))] }
+    let p = provisioner(FakeOpener(knob))
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    await #expect(throws: KnobSetupError.wifiRejected) {
+        _ = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+}
+
+@Test func wifiInvalidEventMeansWiFiRejected() async throws {
+    let knob = freshKnob { _ in [.bytes(CinderLineCodec.line(CinderLineCodec.Event(ev: "wifi", state: "invalid")))] }
+    let p = provisioner(FakeOpener(knob))
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    await #expect(throws: KnobSetupError.wifiRejected) {
+        _ = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+}
+
+/// Answers `status` with `connecting` until `okAfter` polls (nil = never).
+private func connectingKnob(okAfter: Int?) -> FakeKnob {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioned))] }
+    let polls = StateBox("0")
+    let base = knob.onCinder
+    knob.onCinder = { obj in
+        guard obj["op"] as? String == "status" else { return base(obj) }
+        let n = Int(polls.value)! + 1
+        polls.value = "\(n)"
+        let state = okAfter.map { n > $0 ? "ok" : "connecting" } ?? "connecting"
+        return [FakeKnob.reply(["id": obj["id"] as? Int ?? 0, "ok": true, "ember": ["state": state]])]
+    }
+    return knob
+}
+
+@Test func emberConnectingIsStillInProgress() async throws {
+    let p = provisioner(FakeOpener(connectingKnob(okAfter: 2)))
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    _ = try await p.provision(session, identity: id, serialNumber: nil, request: request, progress: { _ in })
+}
+
+@Test func emberStuckConnectingTimesOutNotUnreachable() async throws {
+    let p = provisioner(FakeOpener(connectingKnob(okAfter: nil)))
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    await #expect(throws: KnobSetupError.timedOut(.reachingEmber)) {
+        _ = try await p.provision(session, identity: id, serialNumber: nil, request: request, progress: { _ in })
+    }
+}
+
+/// A knob that reboots itself after `set_ember` (its URL changed).
+private func rebootingAtSetEmber(_ knob: FakeKnob) -> FakeKnob {
+    let base = knob.onCinder
+    knob.onCinder = { obj in
+        let out = base(obj)
+        return obj["op"] as? String == "set_ember" ? out + [.disconnect] : out
+    }
+    return knob
+}
+
+@Test func remintFollowsTheRebootAfterAURLChange() async throws {
+    let knob = rebootingAtSetEmber(freshKnob { _ in [] })
+    let opener = FakeOpener(knob, later: [rebootedKnob(ember: "ok")])
+    let p = provisioner(opener)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    let (_, device) = try await p.remint(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    #expect(device.id == "knob-61fc8c")
+    #expect(opener.reopenedWith == ["x"])
+}
+
+@Test func setupResendsWiFiWhenTheKnobRebootedAfterSetEmber() async throws {
+    let knob = rebootingAtSetEmber(freshKnob { _ in [] })
+    // Back up without Wi-Fi: answers state ready, then takes the Wi-Fi.
+    let blank = FakeKnob()
+    blank.onImprov = { m in
+        switch m {
+        case .rpc(ImprovCodec.Command.currentState.rawValue, _): return [.bytes(ImprovCodec.state(.ready))]
+        case .rpc(ImprovCodec.Command.wifiSettings.rawValue, _):
+            return [.bytes(ImprovCodec.state(.provisioning)), .disconnect]
+        default: return []
+        }
+    }
+    let opener = FakeOpener(knob, later: [blank, rebootedKnob(ember: "ok")])
+    let p = provisioner(opener)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    let (_, device) = try await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    #expect(device.id == "knob-61fc8c")
+    #expect(blank.received.contains { $0.hasPrefix("improv rpc(command: 1") })
+    #expect(opener.reopenedWith.count == 2)
+}
+
+@MainActor
+@Test func setupModelCapsTheNameAndValidatesTheURL() {
+    let m = KnobSetupModel(mode: .setup, provisioner: provisioner(FakeOpener(FakeKnob())),
+                           emberURL: .init(url: "https://ember.lan", replacedHost: nil), name: "", preferredSSID: nil)
+    m.name = String(repeating: "x", count: 40)
+    #expect(m.name.utf8.count == 32)
+    #expect(!m.emberURLValid)
+    m.emberURL = "http://ember.lan:3627"
+    #expect(m.emberURLValid)
+}
