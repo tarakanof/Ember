@@ -152,3 +152,21 @@ func TestProcessOneMarker_LiveOwner_NotReaped(t *testing.T) {
 		t.Errorf("live-owner marker should be preserved: %v", err)
 	}
 }
+
+func TestResolveOwnerSkipsLinuxTruncatedProducerComm(t *testing.T) {
+	procs := map[int]struct {
+		ppid int
+		comm string
+	}{
+		300: {200, "ember-claude-pr"}, // /proc comm of the hook binary on Linux
+		200: {100, "sh"},
+		100: {1, "claude"},
+	}
+	info := func(pid int) (int, string, bool) {
+		p, ok := procs[pid]
+		return p.ppid, p.comm, ok
+	}
+	if got := resolveOwner(300, info); got != 100 {
+		t.Fatalf("owner = %d, want 100 (claude)", got)
+	}
+}
