@@ -42,9 +42,17 @@ enum KnobPreviewSizes {
 struct KnobPreviewData {
     let env: AppEnvironment
     let brightnessLevel: Int?
+    /// The mood to keep while Ember can't be read, as the knob does.
+    let lastMood: KnobMood
 
     var settings: KnobSettings { env.knob.settings.draft }
-    var mood: KnobMood { KnobMood(sessions: env.live.sessions, maxChars: KnobTheme.standard.bot.host.maxChars) }
+    /// The mood from the latest good `/state`; with none, the last one shown.
+    var mood: KnobMood { liveMood ?? lastMood }
+
+    var liveMood: KnobMood? {
+        guard case .loaded(let snap, _) = env.live.snapshot else { return nil }
+        return KnobMood(sessions: snap.sessions, maxChars: KnobTheme.standard.bot.host.maxChars)
+    }
     var pomodoro: PomoState? { env.live.pomodoro.value }
     var pomodoroFetchedAt: Date? { env.live.lastFetched(.pomodoroState) }
     var weather: WeatherState? { env.live.weather.value }
@@ -152,9 +160,10 @@ struct KnobAppPreviewSection: View {
     @Environment(AppEnvironment.self) private var env
     let page: String
     @State private var brightness: Int?
+    @State private var lastMood = KnobMood(mood: .idle)
 
     var body: some View {
-        let data = KnobPreviewData(env: env, brightnessLevel: brightness)
+        let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood)
         Section {
             KnobPreview(title: knobPageTitle(page), caption: data.caption(page), enabled: data.isOn(page)) {
                 data.face(page, animated: true)
@@ -164,6 +173,7 @@ struct KnobAppPreviewSection: View {
             Text("Drawn by Ember from the same data the knob shows.")
         }
         .knobPreviewFeeds(page: page, brightness: $brightness)
+        .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
 
@@ -171,9 +181,10 @@ struct KnobAppPreviewSection: View {
 struct KnobPagesPreviewSection: View {
     @Environment(AppEnvironment.self) private var env
     @State private var brightness: Int?
+    @State private var lastMood = KnobMood(mood: .idle)
 
     var body: some View {
-        let data = KnobPreviewData(env: env, brightnessLevel: brightness)
+        let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood)
         let s = data.settings
         Section {
             HStack(alignment: .top, spacing: 12) {
@@ -189,6 +200,7 @@ struct KnobPagesPreviewSection: View {
             .settingsPreviewRow()
         }
         .knobPreviewFeeds(page: nil, brightness: $brightness)
+        .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
 
@@ -212,10 +224,10 @@ private struct KnobPreviewFeeds: ViewModifier {
                 guard page == nil || page == "weather" else { return }
                 await env.live.track(.weather)
             }
-            .task {
+            .task(id: env.knob.settings.draft.brightness.followEmber) {
+                guard env.knob.settings.draft.brightness.followEmber else { return }
                 while !Task.isCancelled {
-                    if env.knob.settings.draft.brightness.followEmber,
-                       let l: Level = try? await env.connection.client.get("/v1/display/brightness") {
+                    if let l: Level = try? await env.connection.client.get("/v1/display/brightness") {
                         brightness = l.level
                     }
                     try? await Task.sleep(for: .seconds(60))
