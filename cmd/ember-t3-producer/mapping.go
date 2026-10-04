@@ -21,18 +21,29 @@ func mapThread(th thread) (state, message string, reportable bool) {
 	if th.Schema == 1 {
 		return mapV1(th)
 	}
-	switch th.Status {
+	// T3's activityRunStatus ?? status: an active run anywhere in the thread
+	// wins over the presented run's status.
+	status := th.Active
+	if status == "" {
+		status = th.Status
+	}
+	switch status {
 	// A run "waiting" is post-turn drain (checkpoint capture, background
 	// work), not the user: T3's own awareness shows it as running. Requests
 	// that do block on the user are runtime requests (PendingKind).
-	case "preparing", "queued", "starting", "running", "waiting":
+	case "preparing", "starting", "running", "waiting":
 		return "running", "", true
 	case "failed":
 		return "error", errorMessage(th.LastError), true
 	case "completed":
+		// Work that will wake the agent keeps the run going.
+		if th.HoldsCompletion {
+			return "running", "", true
+		}
 		return "done", "", true
 	}
-	// idle (never ran), interrupted, cancelled, rolled_back, and unknown values.
+	// idle (never ran), queued (awareness maps it to null), interrupted,
+	// cancelled, rolled_back, and unknown values.
 	return "", "", false
 }
 

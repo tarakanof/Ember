@@ -28,6 +28,13 @@ type thread struct {
 	Schema int // 1 = projection_* (T3 <= 0.0.45), 2 = orchestration_v2_* (T3 >= 0.0.46)
 	// Status is the v1 session status or the v2 latest-run status; "" when the thread never ran.
 	Status string
+	// Active is the v2 newest run in preparing/starting/running/waiting (any
+	// run, not just the presented one); T3's activityRunStatus. "" = none.
+	Active string
+	// HoldsCompletion is v2 only: the presented run completed but background
+	// work that wakes the agent (subagent, monitor, unnamed task) is still
+	// open, so T3 keeps it "running" (backgroundWorkHoldsCompletion).
+	HoldsCompletion bool
 	// PendingKind is the kind of the newest open request blocking on the user ("" = none).
 	PendingKind string
 	LastError   string
@@ -83,6 +90,7 @@ var (
 		"orchestration_v2_projection_threads", "orchestration_v2_projection_runs",
 		"orchestration_v2_projection_runtime_requests", "orchestration_v2_projection_provider_sessions",
 		"orchestration_v2_projection_provider_session_bindings", "orchestration_v2_projection_turn_items",
+		"orchestration_v2_projection_provider_threads",
 	}
 )
 
@@ -119,14 +127,17 @@ func readWith(ctx context.Context, path string, schema int, tables []string, que
 			id, title                          string
 			status, pending, lastErr, archived sql.NullString
 			stamps                             [3]sql.NullString
+			active                             sql.NullString
+			holds                              sql.NullInt64
 		)
-		if err := rows.Scan(&id, &title, &status, &pending, &lastErr, &archived, &stamps[0], &stamps[1], &stamps[2]); err != nil {
+		if err := rows.Scan(&id, &title, &status, &pending, &lastErr, &archived, &stamps[0], &stamps[1], &stamps[2], &active, &holds); err != nil {
 			return snapshot{}, fmt.Errorf("scan %s: %w", filepath.Base(path), err)
 		}
 		th := thread{
 			ID: id, Title: title, Schema: schema,
 			Status: status.String, PendingKind: pending.String, LastError: lastErr.String,
 			Archived: archived.Valid && archived.String != "",
+			Active:   active.String, HoldsCompletion: holds.Int64 != 0,
 		}
 		for _, s := range stamps {
 			if t, ok := parseStamp(s.String); ok && t.After(th.ChangedAt) {
@@ -166,7 +177,9 @@ SELECT
   t.archived_at,
   s.updated_at,
   NULL,
-  NULL
+  NULL,
+  NULL,
+  0
 FROM projection_threads t
 LEFT JOIN projection_thread_sessions s ON s.thread_id = t.thread_id
 WHERE t.deleted_at IS NULL`
@@ -175,7 +188,13 @@ WHERE t.deleted_at IS NULL`
 // 0.0.46: the presented run is the newest one not held in the queue, and a
 // pending runtime request counts even after its run settled (Codex
 // user_input requests outlive the turn). auth_refresh requests are skipped
-// as T3's awareness does, so one cannot hide an older approval. Subagent
+// as T3's awareness does, so one cannot hide an older approval. active is
+// T3's activityRunStatus (newest preparing/starting/running/waiting run of
+// any ordinal) and holds approximates backgroundWorkHoldsCompletion for a
+// completed presented run: an open roster task of the active provider thread
+// whose kind is not "command" (unknown or missing kinds hold, as in T3), or
+// an active subagent / non-persistent dynamic_tool turn item outside a
+// rolled-back run. Subagent
 // child threads are rows of their own here but not threads in T3's UI. The
 // error text prefers the newest bound provider session of the thread's
 // provider instance, then the failed run's root error item (T3 shows
@@ -203,7 +222,32 @@ SELECT
   presented.requested_at,
   presented.completed_at,
   (SELECT max(q.created_at) FROM orchestration_v2_projection_runtime_requests q
-    WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh')
+    WHERE q.thread_id = t.thread_id AND q.status = 'pending' AND q.kind <> 'auth_refresh'),
+  (SELECT a.status FROM orchestration_v2_projection_runs a
+    WHERE a.thread_id = t.thread_id AND a.status IN ('preparing', 'starting', 'running', 'waiting')
+    ORDER BY a.ordinal DESC, a.run_id DESC LIMIT 1),
+  CASE WHEN presented.status = 'completed' AND (
+    EXISTS (SELECT 1 FROM orchestration_v2_projection_provider_threads pt,
+        json_each(pt.payload_json, '$.pendingBackgroundTasks') task
+      -- The payload's activeProviderThreadId, as T3 decodes it (the
+      -- active_provider_thread_id column is not what T3's shell reads).
+      WHERE pt.thread_id = t.thread_id
+        AND (json_extract(t.payload_json, '$.activeProviderThreadId') IS NULL
+          OR pt.provider_thread_id = json_extract(t.payload_json, '$.activeProviderThreadId'))
+        AND length(COALESCE(json_extract(task.value, '$.taskId'), '')) > 0
+        AND json_extract(task.value, '$.kind') IS NOT 'command')
+    OR EXISTS (SELECT 1 FROM orchestration_v2_projection_turn_items i
+      LEFT JOIN orchestration_v2_projection_runs ir ON ir.run_id = i.run_id
+      -- T3's turn_items_recovery_idx is partial on exactly this type list and
+      -- status list; SQLite only uses it when the WHERE repeats them verbatim,
+      -- else it scans every item of every completed thread (~0.5 s per poll
+      -- on 600k items). command_execution never holds, so exclude it after.
+      WHERE i.thread_id = t.thread_id
+        AND i.type IN ('command_execution', 'dynamic_tool', 'subagent') AND i.type <> 'command_execution'
+        AND i.status IN ('pending', 'running', 'waiting')
+        AND NOT (i.type = 'dynamic_tool' AND json_type(i.payload_json, '$.input.persistent') = 'true')
+        AND (i.run_id IS NULL OR ir.status <> 'rolled_back'))
+  ) THEN 1 ELSE 0 END
 FROM orchestration_v2_projection_threads t
 LEFT JOIN orchestration_v2_projection_runs presented ON presented.run_id = (
   SELECT c.run_id FROM orchestration_v2_projection_runs c

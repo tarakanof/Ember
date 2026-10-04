@@ -49,6 +49,18 @@ CREATE TABLE orchestration_v2_projection_provider_session_bindings (
   thread_id TEXT NOT NULL,
   PRIMARY KEY (provider_session_id, thread_id)
 );
+CREATE TABLE orchestration_v2_projection_provider_threads (
+  provider_thread_id TEXT PRIMARY KEY,
+  thread_id TEXT,
+  owner_node_id TEXT,
+  provider TEXT NOT NULL,
+  provider_session_id TEXT,
+  status TEXT NOT NULL,
+  first_run_ordinal INTEGER,
+  last_run_ordinal INTEGER,
+  updated_at TEXT NOT NULL,
+  payload_json TEXT NOT NULL
+);
 CREATE TABLE orchestration_v2_projection_turn_items (
   turn_item_id TEXT PRIMARY KEY,
   thread_id TEXT NOT NULL,
@@ -74,3 +86,7 @@ CREATE TABLE orchestration_v2_projection_runtime_requests (
   resolved_at TEXT,
   payload_json TEXT NOT NULL
 );
+CREATE INDEX orchestration_v2_projection_turn_items_recovery_idx
+  ON orchestration_v2_projection_turn_items(thread_id)
+  WHERE type IN ('command_execution', 'dynamic_tool', 'subagent')
+    AND status IN ('pending', 'running', 'waiting');
