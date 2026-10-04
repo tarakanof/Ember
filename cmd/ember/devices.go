@@ -262,6 +262,17 @@ func (r *deviceRegistry) list() []deviceView {
 	return out
 }
 
+// versions returns the registry epoch and device id's config version.
+func (r *deviceRegistry) versions(id string) (uint64, int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.state.find(id)
+	if d == nil {
+		return 0, 0, errDeviceNotFound
+	}
+	return r.state.Epoch, d.ConfigVersion, nil
+}
+
 func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

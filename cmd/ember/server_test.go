@@ -48,6 +48,8 @@ func TestDeviceTokenScope(t *testing.T) {
 	}{
 		{"POST", "/v1/devices/self/checkin", `{}`, m.Token, http.StatusOK},
 		{"GET", "/v1/devices/self/config", "", m.Token, http.StatusOK},
+		{"GET", "/v1/devices/self/view", "", m.Token, http.StatusOK},
+		{"GET", "/v1/devices/self/view", "", testToken, http.StatusUnauthorized},
 		{"POST", "/v1/pomodoro/start", `{"phase":"focus"}`, m.Token, http.StatusOK},
 		{"POST", "/v1/pomodoro/pause", "", m.Token, http.StatusOK},
 		{"POST", "/v1/pomodoro/resume", "", m.Token, http.StatusOK},
