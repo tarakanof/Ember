@@ -20,6 +20,8 @@ private let unreachableKnob = SettingsDevice(id: "knob", kind: .knob, name: "Kno
     (.source(.weather), "source/weather"),
     (.device("clock", .hardware(.timeDate)), "device/clock/hardware/time-date"),
     (.device("knob-61fc8c", .hardware(.display)), "device/knob-61fc8c/hardware/display"),
+    (.device("clock", .hardware(.health)), "device/clock/hardware/health"),
+    (.device("knob-61fc8c", .hardware(.health)), "device/knob-61fc8c/hardware/health"),
     (.device("clock", .apps), "device/clock/apps"),
     (.device("clock", .app(.weather)), "device/clock/app/weather"),
 ])
@@ -37,6 +39,8 @@ func routeRoundTripsThroughItsPath(route: SettingsRoute, path: String) {
     ("clock", .device("clock", .hardware(.status))),
     ("device", .device("clock", .hardware(.status))),
     ("knob", .device("knob", .hardware(.status))),
+    ("clock-health", .device("clock", .hardware(.health))),
+    ("knob-dashboard", .device("knob", .hardware(.health))),
     ("agents", .source(.agents)),
     ("display", .source(.agents)),
     ("focus", .source(.focus)),
@@ -70,12 +74,12 @@ func unknownStoredValueFallsBackToConnection(name: String) {
 
 @Test func clockShowsEveryClockApp() {
     #expect(AppCatalog.apps(.clock) == [.agents, .focus, .weather, .calendar])
-    #expect(AppCatalog.hardware(.clock) == [.status, .display, .timeDate, .buttons, .sensors, .sounds])
+    #expect(AppCatalog.hardware(.clock) == [.status, .health, .display, .timeDate, .buttons, .sensors, .sounds])
 }
 
 @Test func knobWithoutReportShowsWhatV1FirmwareDraws() {
     #expect(AppCatalog.apps(.knob) == [.bot, .focus, .weather])
-    #expect(AppCatalog.hardware(.knob) == [.status, .display, .behavior])
+    #expect(AppCatalog.hardware(.knob) == [.status, .health, .display, .behavior])
 }
 
 @Test func knobShowsOnlyAppsItsFirmwareSupports() {
@@ -95,11 +99,11 @@ func unknownStoredValueFallsBackToConnection(name: String) {
     #expect(tree.devices.map(\.id) == ["clock", "knob-61fc8c"])
     let c = tree.devices[0]
     #expect(c.route == .device("clock", .hardware(.status)))
-    #expect(c.hardware == [.display, .timeDate, .buttons, .sensors, .sounds].map { .device("clock", .hardware($0)) })
+    #expect(c.hardware == [.health, .display, .timeDate, .buttons, .sensors, .sounds].map { .device("clock", .hardware($0)) })
     #expect(c.appsRoute == .device("clock", .apps))
     #expect(c.apps == [.agents, .focus, .weather, .calendar].map { .device("clock", .app($0)) })
     let k = tree.devices[1]
-    #expect(k.hardware == [.display, .behavior].map { .device("knob-61fc8c", .hardware($0)) })
+    #expect(k.hardware == [.health, .display, .behavior].map { .device("knob-61fc8c", .hardware($0)) })
     #expect(k.apps == [.bot, .focus, .weather].map { .device("knob-61fc8c", .app($0)) })
 }
 
@@ -130,6 +134,13 @@ func unknownStoredValueFallsBackToConnection(name: String) {
 @Test func legacyKnobRouteFindsTheRegisteredKnob() {
     let tree = SettingsTree(devices: [clock, knob])
     #expect(tree.resolve(SettingsRoute(stored: "knob")) == .device("knob-61fc8c", .hardware(.status)))
+}
+
+@Test func oldDashboardAnchorsOpenTheHardwarePages() {
+    let tree = SettingsTree(devices: [clock, knob])
+    #expect(tree.resolve(SettingsRoute(stored: "knob-dashboard")) == .device("knob-61fc8c", .hardware(.health)))
+    #expect(tree.resolve(SettingsRoute(stored: "clock-health")) == .device("clock", .hardware(.health)))
+    #expect(tree.expansionIDs(revealing: .device("knob-61fc8c", .hardware(.health))) == ["knob-61fc8c"])
 }
 
 @Test func goneDeviceResolvesToFirstOfItsKind() {
@@ -289,6 +300,8 @@ private let controlHomes: [(pane: String, control: String, home: SettingsRoute)]
     ("sounds", "chimes", .device("clock", .hardware(.sounds))),
     ("sounds", "reminder sound", .device("clock", .hardware(.sounds))),
     ("clock", "status", .device("clock", .hardware(.status))),
+    ("dashboard", "clock health", .device("clock", .hardware(.health))),
+    ("dashboard", "knob stats", .device(knob.id, .hardware(.health))),
     ("clock", "display", .device("clock", .hardware(.display))),
     ("clock", "rotation", .device("clock", .apps)),
     ("clock", "built-in apps", .device("clock", .apps)),

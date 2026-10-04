@@ -12,7 +12,10 @@ public enum SourceID: String, CaseIterable, Sendable {
 
 /// A device's own pages that aren't apps (hardware and identity).
 public enum HardwarePage: String, CaseIterable, Sendable {
-    case status, display
+    case status
+    /// The device's hardware health: gauges and charts (sidebar "Hardware").
+    case health
+    case display
     case timeDate = "time-date"
     case buttons, sensors, sounds, behavior
 }
@@ -97,6 +100,9 @@ public enum SettingsRoute: Hashable, Sendable {
         case "sounds": .app(.sounds)
         case "clock", "device": .device(DeviceKind.clock.placeholderID, .hardware(.status))
         case "knob": .device(DeviceKind.knob.placeholderID, .hardware(.status))
+        // The Dashboard sections hardware health moved out of (#246).
+        case "clock-health": .device(DeviceKind.clock.placeholderID, .hardware(.health))
+        case "knob-dashboard": .device(DeviceKind.knob.placeholderID, .hardware(.health))
         case "agents", "display": .source(.agents)
         case "focus", "pomodoro": .source(.focus)
         case "weather": .source(.weather)
