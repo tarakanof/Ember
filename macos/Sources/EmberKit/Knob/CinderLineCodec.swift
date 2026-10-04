@@ -9,6 +9,7 @@ public enum CinderLineCodec {
     public static let maxLineBytes = 1024
     public static let maxURLLength = 128
     public static let maxTokenLength = 64
+    public static let maxNameBytes = 32
 
     public enum ResetScope: String, Sendable, Codable { case factory, ember, wifi }
 
@@ -35,9 +36,9 @@ public enum CinderLineCodec {
         case .reset(let scope):
             obj["op"] = .string("reset")
             obj["scope"] = .string(scope.rawValue)
-        case .setEmber(let url, let deviceID, let token, let name):
-            guard isValidEmberURL(url) else { throw EncodeError.badURL }
-            guard token.utf8.count <= maxTokenLength else { throw EncodeError.tooLong }
+        case .setEmber(let raw, let deviceID, let token, let name):
+            guard let url = normalizedEmberURL(raw) else { throw EncodeError.badURL }
+            guard token.utf8.count <= maxTokenLength, name.utf8.count <= maxNameBytes else { throw EncodeError.tooLong }
             obj["op"] = .string("set_ember")
             obj["url"] = .string(url)
             obj["device_id"] = .string(deviceID)
@@ -51,14 +52,42 @@ public enum CinderLineCodec {
         return line
     }
 
-    /// `http(s)://host[:port]` with no path, at most 128 characters.
-    public static func isValidEmberURL(_ s: String) -> Bool {
-        guard s.count <= maxURLLength, let c = URLComponents(string: s),
-              let scheme = c.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = c.host, !host.isEmpty,
-              c.path.isEmpty || c.path == "/", c.query == nil, c.fragment == nil,
-              c.user == nil, c.password == nil else { return false }
-        return true
+    /// The knob's URL contract: `http://host[:port]`, no TLS on the knob.
+    public static func isValidEmberURL(_ s: String) -> Bool { normalizedEmberURL(s) != nil }
+
+    /// The URL as the knob takes it: `http` only (any case, sent lower-case),
+    /// host an IPv4 address or an ASCII `[a-z0-9.-]` name (no IPv6, `_` or
+    /// IDN), optional port 1–65535, no path (a lone `/` is dropped), query,
+    /// fragment or credentials, at most 128 characters. Nil when it can't be.
+    public static func normalizedEmberURL(_ raw: String) -> String? {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard s.count <= maxURLLength, let sep = s.range(of: "://"),
+              s[..<sep.lowerBound].lowercased() == "http" else { return nil }
+        var rest = Substring(s[sep.upperBound...])
+        if rest.hasSuffix("/") { rest = rest.dropLast() }
+        let parts = rest.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count <= 2 else { return nil }
+        let host = parts[0].lowercased()
+        guard !host.isEmpty, host.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "." || $0 == "-" }),
+              !host.hasPrefix("."), !host.hasPrefix("-"), !host.contains("..") else { return nil }
+        if host.allSatisfy({ $0.isNumber || $0 == "." }) {
+            let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+            guard octets.count == 4, octets.allSatisfy({ !$0.isEmpty && $0.count <= 3 && Int($0).map { $0 <= 255 } == true })
+            else { return nil }
+        }
+        var out = "http://\(host)"
+        if parts.count == 2 {
+            guard let port = Int(parts[1]), parts[1].allSatisfy(\.isNumber), (1...65535).contains(port) else { return nil }
+            out += ":\(port)"
+        }
+        return out
+    }
+
+    /// `name` cut to the knob's 32 UTF-8 bytes, on a character boundary.
+    public static func cappedName(_ name: String) -> String {
+        var n = name
+        while n.utf8.count > maxNameBytes { n.removeLast() }
+        return n
     }
 
     /// Parses one line (without its newline); nil when it isn't a

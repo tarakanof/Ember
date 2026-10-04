@@ -36,7 +36,13 @@ public final class KnobSetupModel {
     public var ssid = ""
     public var password = ""
     public var emberURL = ""
-    public var name = ""
+    /// What the knob shows: at most 32 UTF-8 bytes, cut as typed.
+    public var name = "" {
+        didSet {
+            let capped = CinderLineCodec.cappedName(name)
+            if capped != name { name = capped }
+        }
+    }
     /// The server host the URL had before it became a LAN address.
     public private(set) var replacedHost: String?
 
@@ -53,7 +59,7 @@ public final class KnobSetupModel {
         self.emberURL = emberURL?.url ?? ""
         suggestedURL = emberURL?.url
         replacedHost = emberURL?.replacedHost
-        self.name = name
+        self.name = CinderLineCodec.cappedName(name)
         self.preferredSSID = preferredSSID
     }
 

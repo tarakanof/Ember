@@ -258,7 +258,7 @@ private struct KnobSetupContent: View {
                              comment: "Knob setup: the Ember server address (\"localhost\" or \"mini.local\") was replaced with a LAN IP.")
                     }
                     if !model.emberURL.isEmpty, !model.emberURLValid {
-                        Text("Use http://address:port, with no path.").foregroundStyle(.red)
+                        Text("Use http://address:port. The knob can't use https, IPv6 or a path.").foregroundStyle(.red)
                     }
                     Text("Ember gives the knob its own token; your server token never leaves this Mac.")
                 }
@@ -332,13 +332,15 @@ struct KnobSetupErrorText: View {
             Text("Ember couldn't register the knob: \(Text(e.message))",
                  comment: "Knob setup error; the argument is a short reason (\"Unauthorized — check the token in Connection settings.\").")
         case .rejected("bad_url"):
-            Text("The knob rejected the Ember address. Use http://address:port, with no path.")
+            Text("The knob rejected the Ember address. Use http://address:port, without https or a path.")
         case .rejected(let code):
             Text("The knob rejected the settings (\(code)).",
                  comment: "Knob setup error; the argument is the knob's error code (\"too_long\").")
         case .wifi(let ssid):
             Text("Couldn't join \(ssid). Check the password; 5 GHz-only networks don't work.",
                  comment: "Knob setup error; the argument is the Wi-Fi network name.")
+        case .wifiRejected:
+            Text("The knob rejected the Wi-Fi settings. Check the network name and password.")
         case .improv(let code):
             Text("The knob reported Wi-Fi error \(Int(code)).",
                  comment: "Knob setup error; the argument is the Improv error code number.")
@@ -353,7 +355,7 @@ struct KnobSetupErrorText: View {
         case .timedOut:
             Text("The knob stopped answering. Check that it's plugged in and try again.")
         case .invalid:
-            Text("Use http://address:port for the Ember address, with no path.")
+            Text("Use http://address:port for the Ember address. The knob can't use https, IPv6 or a path.")
         }
     }
 }

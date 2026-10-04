@@ -1780,6 +1780,13 @@ the same board finds its record.
   (one probe on appear and per new board, 3 device-info tries, a `CINDER1`
   boot event also counts) or when the user starts a setup or a USB action. No
   plug-in notification for that reason.
+  The firmware contract: the Ember URL is `http://host[:port]` only (the
+  knob has no TLS; scheme and host sent lower-case, host IPv4 or `[a-z0-9.-]`,
+  no path), checked before the mint; the knob name is the server record's,
+  at most 32 UTF-8 bytes; a knob whose URL changes restarts itself after
+  `set_ember`, so the next step reconnects (and resends Wi-Fi if it comes back
+  `ready`); Improv `invalid RPC` or `{"ev":"wifi","state":"invalid"}` means the
+  Wi-Fi settings were rejected; `ember: connecting` is still in progress.
   `KnobProvisioner` runs Improv device info (no answer in 2 s = not cinder),
   the knob's own scan, `POST /v1/devices` (token), `set_ember`, the Wi-Fi RPC,
   follows the reboot (reopens by serial number, handing the new session to the

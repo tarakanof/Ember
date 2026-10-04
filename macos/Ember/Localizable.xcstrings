@@ -1195,7 +1195,8 @@
     "The knob is scanning…" : {},
     "The knob is set up and talking to Ember." : {},
     "The knob picks up the new token on its next check-in, within a minute if it's online. The old token stops working once the knob uses the new one, or after 24 hours." : {},
-    "The knob rejected the Ember address. Use http://address:port, with no path." : {},
+    "The knob rejected the Ember address. Use http://address:port, without https or a path." : {},
+    "The knob rejected the Wi-Fi settings. Check the network name and password." : {},
     "The knob rejected the settings (%@)." : {
       "comment" : "Knob setup error; the argument is the knob's error code (\"too_long\")."
     },
@@ -1360,8 +1361,8 @@
     "Usage cards join the rotation once the 5-hour window reaches this level. Server-wide." : {},
     "Use" : {},
     "Use Current Location" : {},
-    "Use http://address:port for the Ember address, with no path." : {},
-    "Use http://address:port, with no path." : {},
+    "Use http://address:port for the Ember address. The knob can't use https, IPv6 or a path." : {},
+    "Use http://address:port. The knob can't use https, IPv6 or a path." : {},
     "Use source color" : {},
     "Very weak" : {},
     "Waiting" : {

@@ -22,6 +22,9 @@ public enum KnobSetupError: Error, Equatable, Sendable {
     case rejected(String)
     /// Improv `unable to connect`.
     case wifi(ssid: String)
+    /// Improv `invalid RPC` (or `CINDER1 {"ev":"wifi","state":"invalid"}`):
+    /// the knob refused the SSID/password as sent.
+    case wifiRejected
     /// Any other Improv error code.
     case improv(UInt8)
     /// On Wi-Fi at `ip` but can't reach `url`.
@@ -223,7 +226,7 @@ public struct KnobProvisioner: Sendable {
                           onSession: @escaping @Sendable (KnobSession) -> Void = { _ in })
         async throws -> (KnobSession, KnobDevice) {
         progress(.saving)
-        guard CinderLineCodec.isValidEmberURL(request.emberURL) else { throw KnobSetupError.invalid(request.emberURL) }
+        let request = try Self.validated(request)
         guard let hwID = identity.hwID else { throw KnobSetupError.noHardwareID }
         let minted = try await mintToken(hwID: hwID, name: request.name)
         let s = try await cleaningUp(minted) {
@@ -261,6 +264,7 @@ public struct KnobProvisioner: Sendable {
                        onSession: @escaping @Sendable (KnobSession) -> Void = { _ in })
         async throws -> (KnobSession, KnobDevice) {
         progress(.saving)
+        let request = try Self.validated(request)
         guard let hwID = identity.hwID else { throw KnobSetupError.noHardwareID }
         let minted = try await mintToken(hwID: hwID, name: request.name)
         let s = try await cleaningUp(minted) {
@@ -297,11 +301,34 @@ public struct KnobProvisioner: Sendable {
         do { return try await mint(hwID, name) } catch { throw KnobSetupError.mint(FeedError(error)) }
     }
 
+    /// The request with its URL in the knob's form; checked before the mint
+    /// so a bad URL never creates a record.
+    static func validated(_ request: KnobSetupRequest) throws -> KnobSetupRequest {
+        guard let url = CinderLineCodec.normalizedEmberURL(request.emberURL) else {
+            throw KnobSetupError.invalid(request.emberURL)
+        }
+        var r = request
+        r.emberURL = url
+        r.name = CinderLineCodec.cappedName(request.name.trimmingCharacters(in: .whitespacesAndNewlines))
+        return r
+    }
+
+    /// The name the knob shows: the server record's (which fills in a
+    /// default), never empty, at most 32 bytes.
+    static func knobName(_ minted: MintedKnob, fallback: String) -> String {
+        let n = CinderLineCodec.cappedName(minted.device.name.trimmingCharacters(in: .whitespacesAndNewlines))
+        if !n.isEmpty { return n }
+        return fallback.isEmpty ? "Knob \(minted.device.shortID)" : fallback
+    }
+
+    /// Sends the Ember settings. A knob whose URL changed restarts by itself
+    /// after replying; the next step reconnects.
     private func setEmber(_ session: KnobSession, minted: MintedKnob, request: KnobSetupRequest) async throws {
         let reply: CinderLineCodec.Reply
         do {
             reply = try await session.call(.setEmber(url: request.emberURL, deviceID: minted.device.id,
-                                                      token: minted.token, name: request.name),
+                                                      token: minted.token,
+                                                      name: Self.knobName(minted, fallback: request.name)),
                                            timeout: timeouts.reply)
         } catch let e as CinderLineCodec.EncodeError {
             throw KnobSetupError.rejected(e == .badURL ? "bad_url" : "too_long")
@@ -316,7 +343,7 @@ public struct KnobProvisioner: Sendable {
     }
 
     private enum JoinEvent: Sendable {
-        case state(ImprovCodec.State), error(ImprovCodec.ErrorCode), boot
+        case state(ImprovCodec.State), error(ImprovCodec.ErrorCode), boot, wifiInvalid
     }
 
     /// Sends the Wi-Fi RPC and follows the knob until it reports provisioned.
@@ -324,16 +351,29 @@ public struct KnobProvisioner: Sendable {
               progress: @escaping @Sendable (KnobSetupPhase) -> Void,
               onSession: @escaping @Sendable (KnobSession) -> Void) async throws -> KnobSession {
         await session.drain()
-        // A cancelled setup must not change the knob's Wi-Fi.
-        try Task.checkCancellation()
-        do {
-            try await session.send(ImprovCodec.wifiSettings(ssid: ssid, password: password))
-        } catch {
-            throw KnobSetupError.disconnected
-        }
         var s = session
         var phase = KnobSetupPhase.saving
         func set(_ p: KnobSetupPhase) { if p != phase { phase = p; progress(p) } }
+        let wifi = try ImprovCodec.wifiSettings(ssid: ssid, password: password)
+        var wifiSends = 0
+        /// Reconnected since the Wi-Fi RPC went out: a knob that comes back
+        /// `ready` restarted before it took the Wi-Fi (its URL changed).
+        var restartedSinceWiFi = false
+        func sendWiFi() async throws {
+            // A cancelled setup must not change the knob's Wi-Fi.
+            try Task.checkCancellation()
+            wifiSends += 1
+            restartedSinceWiFi = false
+            do {
+                try await s.send(wifi)
+            } catch {
+                set(.restarting)
+                s = try await reconnect(serialNumber, onSession: onSession)
+                restartedSinceWiFi = true
+                try? await s.send(ImprovCodec.rpc(.currentState))
+            }
+        }
+        try await sendWiFi()
         while true {
             try Task.checkCancellation()
             let ev: JoinEvent
@@ -343,6 +383,7 @@ public struct KnobProvisioner: Sendable {
                     case .improv(.state(let st)): return .state(st)
                     case .improv(.error(let code)) where code != .none: return .error(code)
                     case .cinder(.event(let ev)) where ev.ev == "boot": return .boot
+                    case .cinder(.event(let ev)) where ev.ev == "wifi" && ev.state == "invalid": return .wifiInvalid
                     default: return nil
                     }
                 }
@@ -353,6 +394,7 @@ public struct KnobProvisioner: Sendable {
             } catch {
                 set(.restarting)
                 s = try await reconnect(serialNumber, onSession: onSession)
+                restartedSinceWiFi = true
                 set(.joining(ssid: ssid))
                 try? await s.send(ImprovCodec.rpc(.currentState))
                 continue
@@ -362,12 +404,16 @@ public struct KnobProvisioner: Sendable {
                 return s
             case .state(.provisioning):
                 set(.restarting)
+            case .state(.ready) where restartedSinceWiFi && wifiSends < 3:
+                try await sendWiFi()
             case .state:
                 set(.joining(ssid: ssid))
             case .boot:
                 set(.joining(ssid: ssid))
             case .error(.unableToConnect):
                 throw KnobSetupError.wifi(ssid: ssid)
+            case .error(.invalidRPC), .wifiInvalid:
+                throw KnobSetupError.wifiRejected
             case .error(let code):
                 throw KnobSetupError.improv(code.rawValue)
             }
@@ -433,8 +479,10 @@ public struct KnobProvisioner: Sendable {
                 switch st {
                 case "ok": return s
                 case "unauthorized": throw KnobSetupError.emberUnauthorized
-                case "": break
-                default: lastState = st
+                case "unreachable": lastState = st
+                // "connecting" (first checkin in flight) and unknown states
+                // are still in progress.
+                default: break
                 }
                 try? await Task.sleep(for: timeouts.poll)
             }
