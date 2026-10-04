@@ -70,7 +70,7 @@ private func snapshot(_ states: [(ProducerAgent, AgentState)], blocked: [Produce
 
     let on = PermissionsModel.backgroundItemsRow(snapshot([(.claude, .on), (.codex, .on)]))
     #expect(on.status == .granted && on.required && !on.needsAttention)
-    #expect(on.action == .openPane(.agents))
+    #expect(on.action == .openPane(.source(.agents)))
 }
 
 @Test func helperLocalNetworkComesFromTheLinkFiles() {
@@ -87,7 +87,7 @@ private func snapshot(_ states: [(ProducerAgent, AgentState)], blocked: [Produce
     #expect(asked.needsAttention && asked.action == .requestAccess)
     let unused = PermissionsModel.remindersRow(.denied, inUse: false)
     #expect(unused.status == .notInUse && !unused.required && !unused.needsAttention)
-    #expect(unused.action == .openPane(.calendar))
+    #expect(unused.action == .openPane(.source(.calendar)))
     #expect(PermissionsModel.remindersRow(.notDetermined, inUse: false).status == .notInUse)
     #expect(!PermissionsModel.remindersRow(.granted, inUse: true).needsAttention)
 }
@@ -96,7 +96,7 @@ private func snapshot(_ states: [(ProducerAgent, AgentState)], blocked: [Produce
     let denied = PermissionsModel.locationRow(.denied)
     #expect(denied.status == .denied && !denied.needsAttention)
     #expect(denied.action == .openSystemSettings(.location))
-    #expect(PermissionsModel.locationRow(.notDetermined).action == .openPane(.weather))
+    #expect(PermissionsModel.locationRow(.notDetermined).action == .openPane(.source(.weather)))
 }
 
 @Test func rowsListEveryPermissionInOrder() {

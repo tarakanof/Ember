@@ -51,7 +51,7 @@ public enum PermissionAction: Equatable, Sendable {
     /// Re-registers the producer helpers (`ProducerInstallModel.repair()`).
     case repair
     /// Opens another Settings pane.
-    case openPane(SettingsPaneID)
+    case openPane(SettingsRoute)
 }
 
 /// System Settings panes the Permissions pane links to.
@@ -224,7 +224,7 @@ public final class PermissionsModel {
         let action: PermissionAction
         if !inUse {
             status = .notInUse
-            action = .openPane(.agents)
+            action = .openPane(.source(.agents))
         } else if states.contains(.needsApproval) {
             status = .needsApproval
             action = .openSystemSettings(.loginItems)
@@ -233,10 +233,10 @@ public final class PermissionsModel {
             action = .repair
         } else if states.contains(where: { if case .error = $0 { true } else { false } }) {
             status = .unknown
-            action = .openPane(.agents)
+            action = .openPane(.source(.agents))
         } else {
             status = .granted
-            action = .openPane(.agents)
+            action = .openPane(.source(.agents))
         }
         return PermissionRow(id: .backgroundItems, status: status, required: inUse, action: action)
     }
@@ -255,7 +255,7 @@ public final class PermissionsModel {
 
     nonisolated static func remindersRow(_ access: AccessStatus, inUse: Bool) -> PermissionRow {
         guard inUse else {
-            return PermissionRow(id: .reminders, status: .notInUse, required: false, action: .openPane(.calendar))
+            return PermissionRow(id: .reminders, status: .notInUse, required: false, action: .openPane(.source(.calendar)))
         }
         return PermissionRow(id: .reminders, status: status(access), required: true,
                              action: access == .notDetermined ? .requestAccess : .openSystemSettings(.reminders))
@@ -263,7 +263,7 @@ public final class PermissionsModel {
 
     nonisolated static func locationRow(_ access: AccessStatus) -> PermissionRow {
         PermissionRow(id: .location, status: status(access), required: false,
-                      action: access == .notDetermined ? .openPane(.weather) : .openSystemSettings(.location))
+                      action: access == .notDetermined ? .openPane(.source(.weather)) : .openSystemSettings(.location))
     }
 
     nonisolated private static func status(_ access: AccessStatus) -> PermissionStatus {
