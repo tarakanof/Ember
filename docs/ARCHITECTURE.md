@@ -1707,8 +1707,7 @@ Dashboard rendering constraints:
 Per-device tokens so the master `EMBER_TOKEN` never leaves the Mac/server.
 Today the only kind is `cinder-knob` (the ESP32-S3 knob in the cinder repo);
 the menu app shows one knob, but the registry keys by `hw_id` so re-provisioning
-the same board finds its record. Design: Obsidian `Superpowers
-Specs/cinder/2026-10-04-knob-provisioning-design.md`.
+the same board finds its record.
 
 - **Record** (`deviceRecord`): `id` (`knob-` + last 6 hex of `hw_id`; the full
   `hw_id` on a collision), `kind`, `hw_id` (12 hex, `:`/`-` stripped,
