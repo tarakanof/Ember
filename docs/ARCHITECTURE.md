@@ -552,6 +552,50 @@ markers still get reaped.
   also reads `rate_limits.primary` (5h) **and `secondary`** (weekly) from the
   rollout `token_count` events and posts both to `POST /v1/usage` alongside each
   status post (host-local reset labels formatted producer-side).
+  **App-server source** (#263, #272; `cmd/ember-codex-producer/appserver*.go`,
+  `EMBER_CODEX_APPSERVER`, default on). Codex ≥ 0.160 runs TUI sessions inside
+  a shared app-server daemon, which the TUI starts itself. VS Code and the
+  desktop app run their own stdio app-servers, so the rollout watcher still
+  covers those. A goroutine stats
+  `$CODEX_HOME/app-server-control/app-server-control.sock` every 2 s and, when
+  it exists, connects (WebSocket over the Unix socket, `GET /rpc`, one
+  JSON-RPC message per text frame, stdlib) with 1–30 s backoff and reconnects
+  after a daemon restart or update. It **never starts the daemon**. It
+  initializes as `codex_app_server_daemon`: the first client name outside
+  the server's non-originating list becomes the daemon-wide originator, which
+  Codex records in every TUI rollout. It opts out of the delta notifications.
+  Bootstrap: `thread/loaded/list` + `thread/read`. Ephemeral per-turn helper
+  threads are skipped, and `source`/`originator` go through the same
+  `EMBER_CODEX_SOURCES` / `EMBER_CODEX_INCLUDE_CLAUDE` filter (TUI-via-daemon
+  threads report `source: "vscode"`). State comes from the broadcast
+  `thread/status/changed`: `active` → running, `waitingOnApproval` /
+  `waitingOnUserInput` → waiting, `idle` → done (error after a failed turn),
+  `systemError` → error, `thread/closed` / `notLoaded` → DELETE. A thread
+  subscribes (`thread/resume {excludeTurns}`) **only while active** and
+  unsubscribes on idle, because a subscriber keeps a thread loaded forever.
+  Unsubscribed, the daemon unloads an exited TUI's thread after 60 s and
+  sends `thread/closed`. A resume before the first turn persists fails with
+  "no rollout found" and is retried every second while the thread is active.
+  The subscription supplies the trail (`item/started`: commandExecution with
+  the shell wrapper removed, fileChange, mcpToolCall, webSearch …), the
+  message (`agentMessage`), context % (`thread/tokenUsage/updated`
+  `last.inputTokens / modelContextWindow`) and the turn result
+  (`turn/completed`: interrupted → done, failed → error).
+  `account/rateLimits/updated` (`limitId` `codex` or none; a null window
+  keeps its value) is a candidate for the newest `/v1/usage` snapshot. A
+  done/error thread posts for one activity window after its last change. A
+  running or waiting thread posts for as long as it runs. **Dedupe** by
+  thread id (= rollout `session_meta.id`): while connected, the app-server
+  owns every loaded thread, and recently closed ones for one activity window
+  more. The watcher still folds those rollouts but posts or DELETEs nothing
+  for them. On disconnect, sessions it posted go back to the watcher, or get
+  a DELETE when the watcher has no live rollout for them. **Hard
+  invariant**: the client never answers a server request. On the shared
+  daemon, approvals fan out to every subscriber and are replayed to late
+  joiners, and any response counts as the user's decision. The only
+  outbound type (`outbound`) has no result/error field, every id comes from
+  the client's own counter, and the read loop drops server requests. Tested
+  against a fake daemon that sends every approval/input request kind.
 
 - **T3 Code producer — `cmd/ember-t3-producer`** (#210). T3 Code is a GUI
   over Codex / Claude / Cursor / OpenCode; its threads never reach the other
