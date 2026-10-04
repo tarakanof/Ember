@@ -17,11 +17,14 @@ EMBER_TOKEN=set-me-to-the-server-bearer-token
 # Optional (defaults shown):
 # EMBER_HEARTBEAT_TTL_HOURS=6
 # EMBER_HOOK_TIMEOUT_MS=500
+# EMBER_DONE_TTL_SECONDS=30
 # EMBER_SERVER_INSTANCE=   # with several servers: instance or host name to pick
 # EMBER_SOURCE_COLOR=#aa66ff
 # EMBER_CONTEXT_PCT_ENABLED=true
 # EMBER_CODEX_POLL_INTERVAL_MS=2000
 # EMBER_CODEX_ACTIVITY_WINDOW_SECONDS=300
 # EMBER_CODEX_SESSIONS_DIR=~/.codex/sessions
+# EMBER_CODEX_SOURCES=cli,vscode
+# EMBER_CODEX_INCLUDE_CLAUDE=false
 `, "@SOURCE@", DefaultSource(), 1)
 }

@@ -32,6 +32,7 @@ func runDoctor() {
 	}
 	fmt.Printf("    heartbeat_ttl_hours = %d\n", cfg.HeartbeatTTLHours)
 	fmt.Printf("    hook_timeout_ms     = %d\n", cfg.HookTimeoutMs)
+	fmt.Printf("    done_ttl_seconds    = %d\n", cfg.DoneTTLSeconds)
 
 	envPath := filepath.Join(home, ".config", "ember", "producer.env")
 	if info, err := os.Stat(envPath); err == nil {
