@@ -245,7 +245,11 @@ public struct KnobProvisioner: Sendable {
         do {
             return try await body()
         } catch {
-            if minted.device.lastCheckin == nil { await forget(minted.device.id) }
+            if minted.device.lastCheckin == nil {
+                // Unstructured, so a cancelled setup still sends the DELETE.
+                let forget = self.forget, id = minted.device.id
+                await Task.detached { await forget(id) }.value
+            }
             throw error
         }
     }
@@ -320,6 +324,8 @@ public struct KnobProvisioner: Sendable {
               progress: @escaping @Sendable (KnobSetupPhase) -> Void,
               onSession: @escaping @Sendable (KnobSession) -> Void) async throws -> KnobSession {
         await session.drain()
+        // A cancelled setup must not change the knob's Wi-Fi.
+        try Task.checkCancellation()
         do {
             try await session.send(ImprovCodec.wifiSettings(ssid: ssid, password: password))
         } catch {

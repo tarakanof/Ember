@@ -73,6 +73,15 @@ public final class KnobSetupModel {
         }
     }
 
+    /// The knob the server has registered now (Settings › Knob's one knob).
+    @ObservationIgnored public var registered: @MainActor () -> KnobDevice? = { nil }
+
+    /// The registered knob this setup would replace: a different board.
+    public var replaces: KnobDevice? {
+        guard mode == .setup, let current = registered(), let hw = identity?.hwID, hw != current.hwID else { return nil }
+        return current
+    }
+
     public var canSend: Bool {
         guard stage == .ready, !ssid.isEmpty else { return false }
         switch networks.first(where: { $0.ssid == ssid })?.secured {
@@ -156,9 +165,12 @@ public final class KnobSetupModel {
         }
     }
 
-    /// Runs the setup; `finished` gets the registered device.
-    public func send(finished: @escaping @MainActor (KnobDevice) async -> Void) {
+    /// Runs the setup; `finished` gets the registered device and the knob it
+    /// replaces, captured now: once the mint lands, the new record is the
+    /// newest and `replaces` would read nil.
+    public func send(finished: @escaping @MainActor (KnobDevice, KnobDevice?) async -> Void) {
         guard canSend, let session, let identity else { return }
+        let old = replaces
         let request = KnobSetupRequest(ssid: ssid, password: password, emberURL: emberURL,
                                        name: name.trimmingCharacters(in: .whitespaces))
         let mode = self.mode
@@ -174,13 +186,14 @@ public final class KnobSetupModel {
                 return (next, nil)
             }
         } finished: { device in
-            if let device { await finished(device) }
+            if let device { await finished(device, old) }
         }
     }
 
     /// After "Ember rejected the knob's token": mint a new one.
-    public func remint(finished: @escaping @MainActor (KnobDevice) async -> Void) {
+    public func remint(finished: @escaping @MainActor (KnobDevice, KnobDevice?) async -> Void) {
         guard let session, let identity else { return }
+        let old = replaces
         let request = KnobSetupRequest(ssid: ssid, password: password, emberURL: emberURL,
                                        name: name.trimmingCharacters(in: .whitespaces))
         let serial = port?.serialNumber
@@ -188,7 +201,7 @@ public final class KnobSetupModel {
             try await p.remint(s, identity: identity, serialNumber: serial,
                                request: request, progress: progress, onSession: onSession)
         } finished: { device in
-            if let device { await finished(device) }
+            if let device { await finished(device, old) }
         }
     }
 

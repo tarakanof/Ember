@@ -38,12 +38,7 @@ struct KnobSetupSheet: View {
         }
     }
 
-    /// The registered knob this setup replaces (a different board).
-    private var replaces: KnobDevice? {
-        guard mode == .setup, let current = env.knob.knob, let hw = model?.identity?.hwID,
-              hw != current.hwID else { return nil }
-        return current
-    }
+    private var replaces: KnobDevice? { model?.replaces }
 
     private var replaceTitle: Text {
         Text("Replace “\(replaces?.name ?? "")”?",
@@ -55,8 +50,7 @@ struct KnobSetupSheet: View {
             if case .failed(let e) = model.stage {
                 if e == .emberUnauthorized {
                     Button("Re-mint Token") {
-                        let old = replaces
-                        model.remint { await env.knob.didSetUp($0, replacing: old) }
+                        model.remint { await env.knob.didSetUp($0, replacing: $1) }
                     }
                 }
                 Button("Back") { model.edit() }
@@ -81,11 +75,8 @@ struct KnobSetupSheet: View {
         }
     }
 
-    /// Captures the knob being replaced now: once the mint lands, the new
-    /// record is the newest and `replaces` would read nil.
     private func send() {
-        let old = replaces
-        model?.send { await env.knob.didSetUp($0, replacing: old) }
+        model?.send { await env.knob.didSetUp($0, replacing: $1) }
     }
 
     private func start() async {
@@ -94,6 +85,7 @@ struct KnobSetupSheet: View {
         let provisioner = KnobProvisioner(opener: knob.opener, service: KnobService(client: env.connection.client))
         let m = KnobSetupModel(mode: mode, provisioner: provisioner, emberURL: nil,
                                name: mode == .setup ? "" : (knob.knob?.name ?? ""), preferredSSID: nil)
+        m.registered = { [weak knob] in knob?.knob }
         model = m
         // A probe from the pane may hold the port: wait, then take it.
         await knob.waitForProbe()

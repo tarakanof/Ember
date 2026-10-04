@@ -487,14 +487,148 @@ private func waitFor(_ model: KnobSetupModel, _ done: (KnobSetupModel.Stage) -> 
     await waitFor(m) { _ in !m.networks.isEmpty }
     m.password = "hunter22"
     #expect(m.canSend)
-    m.send { _ in }
+    m.send { _, _ in }
     await waitFor(m) { if case .failed = $0 { true } else { false } }
     #expect(m.stage == .failed(.emberUnauthorized))
     #expect(m.oldTokenRevoked)
     var got: KnobDevice?
-    m.remint { got = $0 }
+    m.remint { d, _ in got = d }
     await waitFor(m) { $0 == .done }
     #expect(m.stage == .done)
     #expect(got?.id == "knob-61fc8c")
     m.close()
+}
+
+// MARK: Re-verify gaps
+
+final class TaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _task: Task<Void, Never>?
+    var task: Task<Void, Never>? {
+        get { lock.withLock { _task } }
+        set { lock.withLock { _task = newValue } }
+    }
+}
+
+final class ForgetLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _calls: [(String, Bool)] = []
+    var calls: [(String, Bool)] { lock.withLock { _calls } }
+    func add(_ id: String, cancelled: Bool) { lock.withLock { _calls.append((id, cancelled)) } }
+}
+
+/// A fresh knob whose `set_ember` cancels the setup task.
+private func knobCancellingAtSetEmber(_ box: TaskBox) -> FakeKnob {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
+    let base = knob.onCinder
+    knob.onCinder = { obj in
+        if obj["op"] as? String == "set_ember" { box.task?.cancel() }
+        return base(obj)
+    }
+    return knob
+}
+
+@Test func cancelAfterSetEmberNeitherSendsWiFiNorReconnects() async throws {
+    let box = TaskBox()
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
+    let opener = FakeOpener(knob, later: [rebootedKnob(ember: "ok")])
+    let p = provisioner(opener)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    // Cancel as set_ember's reply lands: setEmber succeeds, join must stop.
+    await session.observe { e in
+        if case .cinder(.reply) = e, knob.received.contains("cinder set_ember") { box.task?.cancel() }
+    }
+    let t = Task {
+        _ = try? await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+    box.task = t
+    await t.value
+    #expect(knob.received.contains("cinder set_ember"))
+    #expect(!knob.received.contains { $0.hasPrefix("improv rpc(command: 1") })
+    #expect(opener.reopenedWith.isEmpty)
+}
+
+@Test func orphanDeleteSurvivesCancellation() async throws {
+    let box = TaskBox()
+    let log = ForgetLog()
+    let knob = knobCancellingAtSetEmber(box)
+    let p = KnobProvisioner(opener: FakeOpener(knob), mint: { _, _ in minted },
+                            checkedIn: { _, _ in false },
+                            forget: { log.add($0, cancelled: Task.isCancelled) }, timeouts: fast)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    let t = Task {
+        _ = try? await p.provision(session, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    }
+    box.task = t
+    await t.value
+    #expect(log.calls.map(\.0) == ["knob-61fc8c"])
+    #expect(log.calls.first?.1 == false)
+}
+
+@Test func remintDropsAStaleEventQueuedAfterTheFailure() async throws {
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
+    let rebooted = rebootedKnob(ember: "unauthorized", okAfterSetEmber: true)
+    let p = provisioner(FakeOpener(knob, later: [rebooted]))
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    let sink = SessionSink()
+    await #expect(throws: KnobSetupError.emberUnauthorized) {
+        _ = try await p.provision(session, identity: id, serialNumber: "x", request: request,
+                                  progress: { _ in }, onSession: { sink.add($0) })
+    }
+    let live = try #require(sink.all.last)
+    // The old token fails again while the user reads the error.
+    rebooted.emit(.bytes(CinderLineCodec.line(CinderLineCodec.Event(ev: "ember", state: "unauthorized"))))
+    try await Task.sleep(for: .milliseconds(30))
+    let (_, device) = try await p.remint(live, identity: id, serialNumber: "x", request: request, progress: { _ in })
+    #expect(device.id == "knob-61fc8c")
+}
+
+@Test func remintPassesTheMintBaseline() async throws {
+    var known = minted.device
+    known.lastCheckin = KnobCheckin(seenAt: Date(timeIntervalSince1970: 200), fw: "", ip: "", rssi: 0,
+                                    heapInternalFree: 0, heapInternalLargest: 0, uptimeS: 0, appliedVersion: 0)
+    let mintedKnown = MintedKnob(device: known, token: "ekd_x")
+    let box = StateBox("")
+    let knob = freshKnob { _ in [] }
+    let p = KnobProvisioner(opener: FakeOpener(knob), mint: { _, _ in mintedKnown },
+                            checkedIn: { _, baseline in
+                                box.value = baseline.map { "\($0.timeIntervalSince1970)" } ?? "nil"
+                                return true
+                            }, timeouts: fast)
+    let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
+    _ = try await p.remint(session, identity: id, serialNumber: nil, request: request, progress: { _ in })
+    #expect(box.value == "200.0")
+}
+
+@MainActor
+@Test func setupModelKeepsTheReplacedKnobFromSendTime() async throws {
+    let old = KnobDevice(id: "knob-old", hwID: "000000000001", name: "Old", createdAt: .distantPast)
+    let registry = RegistryBox(old)
+    let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioned))] }
+    // The mint makes the new board the registered knob, as the pane's reload would.
+    let p = KnobProvisioner(opener: FakeOpener(knob), mint: { _, _ in
+        await registry.set(minted.device)
+        return minted
+    }, checkedIn: { _, _ in true }, timeouts: fast)
+    let port = KnobSerialPort(path: "/dev/cu.fake", vendorID: 0x303A, productID: 0x1001, serialNumber: nil)
+    let m = KnobSetupModel(mode: .setup, provisioner: p, emberURL: .init(url: "http://192.168.0.2:3627", replacedHost: nil),
+                           name: "Desk knob", preferredSSID: "home")
+    m.registered = { registry.value }
+    m.attach(port)
+    await waitFor(m) { _ in !m.networks.isEmpty }
+    #expect(m.replaces?.id == "knob-old")
+    m.password = "hunter22"
+    var replaced: KnobDevice?
+    m.send { _, old in replaced = old }
+    await waitFor(m) { $0 == .done }
+    #expect(m.replaces == nil)
+    #expect(replaced?.id == "knob-old")
+    m.close()
+}
+
+@MainActor
+final class RegistryBox {
+    var value: KnobDevice?
+    init(_ v: KnobDevice?) { value = v }
+    func set(_ v: KnobDevice?) { value = v }
 }
