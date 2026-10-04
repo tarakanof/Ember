@@ -59,6 +59,44 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(next.patch(from: s) == ["diagnostics": .string("basic")])
 }
 
+@Test func knobSettingsIntervalsDecodeAndPatch() throws {
+    let base = #"{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[{"id":"bot","on":true}],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"diagnostics":"full""#
+    let old = try JSONDecoder().decode(KnobSettings.self, from: Data((base + "}").utf8))
+    #expect(old.statsIntervalS == nil && old.liveIntervalS == nil)
+    #expect(old.patch(from: old).isEmpty)
+    #expect(try JSONValue.object(encoding: old)?["stats_interval_s"] == nil, "an older server never sees the keys")
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data((base + #","stats_interval_s":60,"live_interval_s":5}"#).utf8))
+    #expect(s.statsIntervalS == 60 && s.liveIntervalS == 5)
+    var next = s
+    next.statsIntervalS = 300
+    next.liveIntervalS = 2
+    #expect(next.patch(from: s) == ["stats_interval_s": .int(300), "live_interval_s": .int(2)])
+}
+
+@Test func knobIntervalPickersNeedFirmwareAndKeepOffListValues() {
+    #expect(KnobDevice.firmware("0.7.0", atLeast: [0, 7, 0]))
+    #expect(KnobDevice.firmware("0.10.1-dirty", atLeast: [0, 7, 0]))
+    #expect(KnobDevice.firmware("1.0", atLeast: [0, 7, 0]))
+    #expect(!KnobDevice.firmware("0.6.0", atLeast: [0, 7, 0]))
+    #expect(!KnobDevice.firmware("dev", atLeast: [0, 7, 0]))
+    #expect(!KnobDevice.firmware(nil, atLeast: [0, 7, 0]))
+    #expect(KnobSettings.choices([30, 60, 120, 300], current: 60) == [30, 60, 120, 300])
+    #expect(KnobSettings.choices([30, 60, 120, 300], current: 90) == [30, 60, 90, 120, 300])
+    #expect(KnobSettings.choices([2, 5, 10], current: nil) == [2, 5, 10])
+}
+
+@Test func knobStatsLinesSpanTheStatsInterval() throws {
+    let t0 = iso("2026-10-04T12:00:00Z")
+    let pts = (0..<4).map { i in
+        { var p = KnobStats.Sample(t: t0.addingTimeInterval(Double(i) * 300)); p.cpuPercent = [10, 1]; return p }()
+    }
+    var s = KnobStats(deviceID: "k", diagnostics: .basic, range: .hour, online: true, lastSeen: t0,
+                      latest: pts.last, points: pts)
+    #expect(Set(s.cpuSeries(range: .hour) { "c\($0)" }.map(\.segment)).count == 4, "older server: 60 s spacing")
+    s.statsIntervalS = 300
+    #expect(Set(s.cpuSeries(range: .hour) { "c\($0)" }.map(\.segment)) == [0], "5 min reports: one line")
+}
+
 @Test func knobServiceStatsAndLiveRoutes() async throws {
     let seen = LockedBox()
     let client = stubbedClient { req in

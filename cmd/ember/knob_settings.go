@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 )
 
 var knobPageIDs = []string{"bot", "pomodoro", "weather"}
@@ -19,7 +20,23 @@ type knobSettings struct {
 	// Diagnostics is what the knob reports in a checkin's stats object:
 	// off (nothing), basic or full. See ARCHITECTURE "Knob diagnostics".
 	Diagnostics string `json:"diagnostics"`
+	// StatsIntervalS is how often the knob sends stats (one of
+	// knobStatsIntervals); LiveIntervalS its checkin period in live mode
+	// (one of knobLiveIntervals). Chosen by measurement, see #249.
+	StatsIntervalS int `json:"stats_interval_s"`
+	LiveIntervalS  int `json:"live_interval_s"`
 }
+
+// Allowed stats and live-mode intervals, in seconds, and their defaults.
+var (
+	knobStatsIntervals = []int{30, 60, 120, 300}
+	knobLiveIntervals  = []int{2, 5, 10}
+)
+
+const (
+	knobStatsIntervalDefault = 60
+	knobLiveIntervalDefault  = 5
+)
 
 const (
 	knobDiagOff   = "off"
@@ -56,6 +73,22 @@ func defaultKnobSettings() knobSettings {
 		PollMS:      2000,
 		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20},
 		Diagnostics: knobDiagOff,
+
+		StatsIntervalS: knobStatsIntervalDefault,
+		LiveIntervalS:  knobLiveIntervalDefault,
+	}
+}
+
+// fillDefaults sets fields a stored config from an older server lacks.
+func (s *knobSettings) fillDefaults() {
+	if s.Diagnostics == "" {
+		s.Diagnostics = knobDiagOff
+	}
+	if s.StatsIntervalS == 0 {
+		s.StatsIntervalS = knobStatsIntervalDefault
+	}
+	if s.LiveIntervalS == 0 {
+		s.LiveIntervalS = knobLiveIntervalDefault
 	}
 }
 
@@ -84,6 +117,12 @@ func (s knobSettings) validate() error {
 	default:
 		return fmt.Errorf("diagnostics %q must be off, basic or full", s.Diagnostics)
 	}
+	if err := oneOf("stats_interval_s", s.StatsIntervalS, knobStatsIntervals); err != nil {
+		return err
+	}
+	if err := oneOf("live_interval_s", s.LiveIntervalS, knobLiveIntervals); err != nil {
+		return err
+	}
 	if err := inRange("bot.sleepy_after_s", s.Bot.SleepyAfterS, 0, 86400); err != nil {
 		return err
 	}
@@ -107,6 +146,13 @@ func (s knobSettings) validatePages() error {
 	}
 	if !homeOn {
 		return errors.New("home must name a page that is on")
+	}
+	return nil
+}
+
+func oneOf(field string, v int, allowed []int) error {
+	if !slices.Contains(allowed, v) {
+		return fmt.Errorf("%s %d must be one of %v", field, v, allowed)
 	}
 	return nil
 }

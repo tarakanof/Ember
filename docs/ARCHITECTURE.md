@@ -1848,7 +1848,11 @@ the same board finds its record.
   duplicates), `home` (must name a page that is on), `poll_ms` 1000-10000,
   `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600}`,
   `diagnostics` `off|basic|full` (default `off`; a record stored before #239
-  loads as `off`; see "Knob diagnostics" below). Unlike the
+  loads as `off`; see "Knob diagnostics" below), `stats_interval_s`
+  `30|60|120|300` and `live_interval_s` `2|5|10` (defaults 60 and 5, chosen
+  by measurement in #249; a record stored before #249 loads with the
+  defaults, and the firmware's own defaults match, so no config push is
+  needed). Unlike the
   overlay's top-level `mergeSetting`, the owner PUT decodes the body onto a copy
   of the current config with unknown fields rejected: nested objects merge
   field by field (`{"brightness":{"level":100}}` keeps the other brightness
@@ -1981,34 +1985,62 @@ bytes or counts, CPU outside 0..100, more than 8 cores, temperature outside
 (`device stats dropped`); the checkin itself still answers 200, so a
 firmware bug never costs config or token delivery.
 
-**Cadence and live mode.** Normally the knob sends `stats` with its regular
-checkin (every 60 s, and on epoch/config changes). Both the checkin answer
-and `GET /v1/devices/self/view` carry `"diag_live_until":<server Unix
-seconds>` while live mode is on and diagnostics are not `off`; the field is
-absent otherwise (so the view body and ETag are unchanged without it; in the
-view it is the last field). The checkin answer now also has the
-`X-Ember-Now` header, like the view. While the server's now
-(`X-Ember-Now`, offset applied) is before `diag_live_until` the knob checks in
-**every 5 s** with `stats` (`period_ms` ≈ 5000); after it, or when the field
-disappears, it goes back to 60 s. The knob learns of live mode within one
-view poll (`poll_ms`). A live checkin is an ordinary checkin: it reports
+**Cadence and live mode.** Normally the knob sends `stats` once per
+`stats_interval_s` (default 60 s). It checks in every 60 s, or, while
+diagnostics are on, every stats interval when that is shorter (30 s), so a 120 or 300 s interval still keeps
+the 150 s `online` window and carries `stats` only on every 2nd or 5th
+checkin; the first report after boot or after diagnostics are turned on goes
+out at once. A checkin brought forward by an epoch change carries `stats`
+only when the window is within half a checkin period of the interval. Both
+the checkin answer and `GET /v1/devices/self/view` carry
+`"diag_live_until":<server Unix seconds>` while live mode is on and
+diagnostics are not `off`; the field is absent otherwise (so the view body
+and ETag are unchanged without it; in the view it is the last field). The
+checkin answer also has the `X-Ember-Now` header, like the view. While the
+server's now (`X-Ember-Now`, offset applied) is before `diag_live_until` the
+knob checks in **every `live_interval_s`** (default 5 s) with `stats`
+(`period_ms` ≈ the interval); after it, or when the field disappears, it goes
+back to its normal cadence. The knob learns of live mode within one view poll
+(`poll_ms`) and of an interval change with the config (the view's
+`config_version`). A live checkin is an ordinary checkin: it reports
 `config_version` and the usual fields, and the knob applies a `config` or
-`new_token` in its answer exactly as at 60 s. The app asks for live mode
-only while the 15-minute range is shown (the only range that draws 5 s
-samples) and sends `seconds:0` when the user picks another range.
+`new_token` in its answer as usual. The app asks for live mode only while
+the 15-minute range is shown (the only range that draws live samples) and
+sends `seconds:0` when the user picks another range.
 
-**Storage.** `knobStatsStore`: per device a live ring (120 samples, read back
-10 min) holding each sample whole, and a minute ring (1440 = 24 h) where
+**Measured (#249, knob on the live server, 5-10 min per value).** The
+knob's cost does not move with either interval: CPU 20.7-21.7 % / 0.5-0.6 %
+per core, render 6.5-6.7 ms avg, internal free 105.5 KB in every run; only
+traffic changes: 30.4-31.2 req/min and 10-11 KB/min at 30-300 s stats,
+35.5 / 39.2 / 54.4 req/min and 14 / 18 / 31 KB/min live at 10 / 5 / 2 s.
+The knob checks in from its view-poll loop, so a live interval lands on the
+next `poll_ms` tick (2 s polls: 5 s → ~6 s). The server spends ~11 µs per
+checkin with stats and ~6 µs per 304 view (in-process); its memory per
+device follows the intervals (below). The app's 15-minute poll (every 5 s)
+carries the whole live window: 30 / 57 / 138 KB at 10 / 5 / 2 s. Defaults
+60 s / 5 s: 30 s doubles the checkins for no knob-side gain and 120/300 s
+coarsen the 1-hour charts while saving only server memory; 2 s live costs
++39 % knob requests, 2.4× the app payload and 2.3× the live ring for detail
+the 2 s view poll already limits. Table in the #249 PR.
+
+**Storage.** `knobStatsStore`: per device a live ring (at most 300 samples =
+10 min at 2 s; samples older than 10 min leave it) holding each sample whole,
+and a minute ring (at most 1440 buckets; buckets older than 24 h leave it) where
 samples of one wall-clock minute fold into one bucket: gauges take the
 newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
 `period_ms`-weighted mean; a bucket's `t` is its newest report. Counts become
-rates on arrival (`(req_ok+req_fail)·60000/period_ms`). Deleting the device
-drops its series.
+rates on arrival (`(req_ok+req_fail)·60000/period_ms`). Both rings grow as
+samples arrive (never past their cap) and give their buffer back when it
+falls under a quarter full, so a device costs what it reports: about 380 KB
+for a day at 30-60 s, 245 KB at 120 s, 125 KB at 300 s, plus 20/37/87 KB at
+10/5/2 s while a live session is in the window (released as it ages out). Deleting the device drops its series.
 
 **`GET /v1/devices/{id}/stats?range=15m|1h|24h`** (owner token; default
 `1h`, anything else 400, unknown id 404). Answer (dashboard wire
 conventions: whole-second RFC 3339, `null` for unknown, units in keys):
-`device_id`, `diagnostics`, `range`, `online` (checked in within 150 s),
+`device_id`, `diagnostics`, `stats_interval_s` and `live_interval_s` (the
+knob's settings, so a client can poll and break lines at the cadence samples
+arrive), `range`, `online` (checked in within 150 s),
 `last_seen` (last checkin, with or without stats), `live_until` (null when
 not live or diagnostics off), `reset_reason` (of the newest sample),
 `latest` (newest sample, null before the first) and `points` (ascending,
@@ -2031,7 +2063,14 @@ to now + N (not extended: each call replaces it) and answers
 `off`. In memory only.
 
 **App.** Settings › Devices › Knob › Behavior has the Diagnostics picker
-(Off/Basic/Full); Status has "Show Hardware". See "Hardware pages" below.
+(Off/Basic/Full) and, when the server has them, "Send stats every"
+(30 s-5 min) and "Live stats every" (2-10 s) pickers, disabled while
+diagnostics are off, with a footnote on the trade-off (#249); Status has
+"Show Hardware". See "Hardware pages" below. The knob page's lines break
+after three missed reports at the range's spacing or the knob's
+`stats_interval_s`, whichever is longer. The gap uses the current interval
+for every point, so after a change from 300 s to 30 s the older 5-minute
+points draw as dots until they leave the range.
 
 ### Clock stats — `cmd/ember/clock_stats.go` (#246)
 

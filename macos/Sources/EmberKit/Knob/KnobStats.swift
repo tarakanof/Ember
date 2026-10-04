@@ -99,11 +99,14 @@ public struct KnobStats: Codable, Equatable, Sendable {
     public var lastSeen: Date?
     public var liveUntil: Date?
     public var resetReason: String?
+    /// The knob's stats interval (#249); nil from an older server (60 s).
+    public var statsIntervalS: Int?
     public var latest: Sample?
     public var points: [Sample]
 
     enum CodingKeys: String, CodingKey {
         case diagnostics, range, online, latest, points
+        case statsIntervalS = "stats_interval_s"
         case deviceID = "device_id"
         case lastSeen = "last_seen"
         case liveUntil = "live_until"
@@ -132,14 +135,16 @@ public struct KnobStats: Codable, Equatable, Sendable {
 }
 
 extension KnobStats {
-    /// Gap after which a line breaks: three missed reports at the range's
-    /// normal spacing.
-    public static func gap(for range: KnobStatsRange) -> TimeInterval { range.gap }
+    /// Gap after which this knob's lines break: three missed reports at
+    /// the range's spacing or the knob's stats interval, whichever is longer.
+    public func gap(for range: KnobStatsRange) -> TimeInterval {
+        max(range.gap, TimeInterval(3 * (statsIntervalS ?? 0)))
+    }
 
     /// One series per named value, broken at reporting gaps.
     public func series(_ values: [(name: String, value: (Sample) -> Double?)],
                        range: KnobStatsRange) -> [HardwareSeriesPoint] {
-        HardwareSeries.build(points, time: \.t, values: values, gap: range.gap)
+        HardwareSeries.build(points, time: \.t, values: values, gap: gap(for: range))
     }
 
     /// Per-core CPU lines named by `name(core)`.

@@ -50,6 +50,12 @@ func appDisplayNames(wire: String, name: String) {
     #expect(DurationText.minutes(0, locale: en) == "0m")
 }
 
+@Test func intervalUsesOneUnit() {
+    #expect(DurationText.interval(2, locale: en) == "2 sec")
+    #expect(DurationText.interval(30, locale: en) == "30 sec")
+    #expect(DurationText.interval(300, locale: en) == "5 min")
+}
+
 @Test func uptimeKeepsTwoUnits() {
     #expect(DurationText.uptime(6 * 3600 + 40 * 60 + 12, locale: en) == "6h 40m")
     #expect(DurationText.uptime(3 * 86_400 + 4 * 3600 + 5 * 60, locale: en) == "3d 4h")
