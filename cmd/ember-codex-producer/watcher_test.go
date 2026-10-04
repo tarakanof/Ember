@@ -9,7 +9,7 @@ import (
 
 func writeRollout(t *testing.T, sessionsDir, name string, when time.Time, lines ...string) string {
 	t.Helper()
-	d := when.UTC()
+	d := when.Local()
 	dir := filepath.Join(sessionsDir, d.Format("2006"), d.Format("01"), d.Format("02"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -34,18 +34,23 @@ func newTestWatcher(dir string, now time.Time) *watcher {
 	return w
 }
 
-func TestWatcher_FiltersExecSessions(t *testing.T) {
+func TestWatcher_FiltersSubagentSessions(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
 	writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted)
 	writeRollout(t, dir, "rollout-exec.jsonl", now, metaExec, evStarted)
+	sub := writeRollout(t, dir, "rollout-sub.jsonl", now, metaSub, evStarted)
 	w := newTestWatcher(dir, now)
 	posts, _, _ := w.tick()
-	if len(posts) != 1 {
-		t.Fatalf("want 1 post (cli only), got %d: %+v", len(posts), posts)
+	got := map[string]string{}
+	for _, p := range posts {
+		got[p.Session] = p.State
 	}
-	if posts[0].Session != "u-123" || posts[0].State != "running" {
-		t.Errorf("post = %+v", posts[0])
+	if len(posts) != 2 || got["u-123"] != "running" || got["u-9"] != "running" {
+		t.Fatalf("want cli + exec running, got %+v", posts)
+	}
+	if !w.ignored[sub] {
+		t.Error("object-valued (subagent) source must be cached as ignored, not re-read every tick")
 	}
 }
 
@@ -140,11 +145,11 @@ func TestWatcher_TracksSessionOlderThanWindow(t *testing.T) {
 func TestWatcher_PrunesIgnoredOutsideWindow(t *testing.T) {
 	dir := t.TempDir()
 	day0 := time.Now().UTC()
-	exec := writeRollout(t, dir, "rollout-exec.jsonl", day0, metaExec, evStarted)
+	exec := writeRollout(t, dir, "rollout-sub.jsonl", day0, metaSub, evStarted)
 	w := newTestWatcher(dir, day0)
 	w.tick()
 	if !w.ignored[exec] {
-		t.Fatalf("exec (non-cli) session should be ignored after first tick")
+		t.Fatalf("subagent session should be ignored after first tick")
 	}
 	day2 := day0.Add(48 * time.Hour)
 	w.now = func() time.Time { return day2 }
@@ -169,5 +174,55 @@ func TestWatcher_TailsAppendedEvents(t *testing.T) {
 	posts, _, _ := w.tick()
 	if len(posts) != 1 || posts[0].State != "done" {
 		t.Fatalf("want 1 done post after append, got %+v", posts)
+	}
+}
+
+func TestWatcher_FindsLocalDayDirAheadOfUTC(t *testing.T) {
+	// Codex names day dirs in local time. At UTC+2, 00:30 local on Oct 5 is
+	// still Oct 4 in UTC, so a UTC scan of Oct 4/3 misses the Oct 5 dir.
+	loc := time.FixedZone("UTC+2", 2*3600)
+	now := time.Date(2026, 10, 5, 0, 30, 0, 0, loc)
+	dir := t.TempDir()
+	day := filepath.Join(dir, "2026", "10", "05")
+	if err := os.MkdirAll(day, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(day, "rollout-cli.jsonl")
+	if err := os.WriteFile(path, []byte(metaCLI+"\n"+evStarted+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.Chtimes(path, now, now)
+	w := newTestWatcher(dir, now)
+	w.loc = loc
+	w.lastWalk = now // isolate the day-dir scan from the recent-file walk
+	if posts, _, _ := w.tick(); len(posts) != 1 || posts[0].Session != "u-123" {
+		t.Fatalf("want the local-day session posted, got %+v", posts)
+	}
+}
+
+func TestWatcher_FindsResumedSessionInOldDayDir(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	old := now.AddDate(0, 0, -10)
+	path := writeRollout(t, dir, "rollout-old.jsonl", old, metaCLI, evStarted, evDone)
+	w := newTestWatcher(dir, now)
+	if posts, _, _ := w.tick(); len(posts) != 0 {
+		t.Fatalf("idle old session must not post, got %+v", posts)
+	}
+	// Resume: Codex appends to the original (old-date) file.
+	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	f.WriteString(evStarted + "\n")
+	f.Close()
+	later := now.Add(5 * time.Second)
+	os.Chtimes(path, later, later)
+	w.now = func() time.Time { return later }
+	if posts, _, _ := w.tick(); len(posts) != 0 {
+		t.Fatalf("before the next recent-file walk nothing new is expected, got %+v", posts)
+	}
+	walk := now.Add(resumeScanInterval + time.Second)
+	w.now = func() time.Time { return walk }
+	posts, _, _ := w.tick()
+	if len(posts) != 1 || posts[0].Session != "u-123" || posts[0].State != "running" {
+		t.Fatalf("want resumed session running after walk, got %+v", posts)
 	}
 }

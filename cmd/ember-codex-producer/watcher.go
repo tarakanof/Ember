@@ -12,7 +12,12 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-const keepaliveInterval = 15 * time.Second
+const (
+	keepaliveInterval = 15 * time.Second
+	// resumeScanInterval paces the walk of the whole sessions tree that finds
+	// resumed sessions: Codex appends them to their original, older day dir.
+	resumeScanInterval = 30 * time.Second
+)
 
 type sessionState struct {
 	path         string
@@ -30,6 +35,12 @@ type watcher struct {
 	activityWindow time.Duration
 	sessions       map[string]*sessionState
 	ignored        map[string]bool
+	// loc is the zone Codex names day dirs in (recorder.rs uses local time).
+	loc *time.Location
+	// recent holds rollouts outside the day-dir scan modified within the
+	// activity window, refreshed by a tree walk every resumeScanInterval.
+	recent   map[string]bool
+	lastWalk time.Time
 }
 
 func newWatcher(cfg Config) *watcher {
@@ -39,40 +50,87 @@ func newWatcher(cfg Config) *watcher {
 		activityWindow: time.Duration(cfg.ActivityWindowSeconds) * time.Second,
 		sessions:       map[string]*sessionState{},
 		ignored:        map[string]bool{},
+		loc:            time.Local,
+		recent:         map[string]bool{},
 	}
 }
 
+func isRolloutName(name string) bool {
+	return strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, ".jsonl")
+}
+
+// candidateFiles lists rollouts in the local yesterday/today/tomorrow day dirs
+// (tomorrow covers a clock or zone change) plus recently modified ones found
+// by the periodic tree walk.
 func (w *watcher) candidateFiles(now time.Time) []string {
+	if now.Sub(w.lastWalk) >= resumeScanInterval || now.Before(w.lastWalk) {
+		w.recent = w.recentFiles(now)
+		w.lastWalk = now
+	}
+	seen := map[string]bool{}
 	var out []string
-	for _, day := range []time.Time{now.UTC(), now.UTC().AddDate(0, 0, -1)} {
+	local := now.In(w.loc)
+	for _, off := range []int{0, -1, 1} {
+		day := local.AddDate(0, 0, off)
 		dir := filepath.Join(w.cfg.SessionsDir, day.Format("2006"), day.Format("01"), day.Format("02"))
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() || !strings.HasPrefix(e.Name(), "rollout-") || !strings.HasSuffix(e.Name(), ".jsonl") {
+			if e.IsDir() || !isRolloutName(e.Name()) {
 				continue
 			}
-			out = append(out, filepath.Join(dir, e.Name()))
+			path := filepath.Join(dir, e.Name())
+			seen[path] = true
+			out = append(out, path)
+		}
+	}
+	for path := range w.recent {
+		if !seen[path] {
+			out = append(out, path)
 		}
 	}
 	return out
 }
 
+// recentFiles walks the sessions tree for rollouts modified within the
+// activity window, wherever their day dir is.
+func (w *watcher) recentFiles(now time.Time) map[string]bool {
+	out := map[string]bool{}
+	_ = filepath.WalkDir(w.cfg.SessionsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !isRolloutName(d.Name()) {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if now.Sub(info.ModTime()) <= w.activityWindow {
+			out[path] = true
+		}
+		return nil
+	})
+	return out
+}
+
+// buildUsageRequest reports the windows seen so far; either may be absent
+// (Codex sends null for a window the plan does not have).
 func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
-	if d.weeklyResetAt == 0 {
+	if d.weeklyResetAt == 0 && d.rateResetAt == 0 {
 		return producer.UsageRequest{}, false
 	}
 	loc := time.Now().Location()
-	return producer.UsageRequest{
-		Tool:   "codex",
-		Source: "codex_stream",
-		FiveHour: &producer.UsageWindow{UsedPercent: d.primaryRaw, ResetsAt: d.rateResetAt,
-			ResetLabel: time.Unix(d.rateResetAt, 0).In(loc).Format("15:04")},
-		SevenDay: &producer.UsageWindow{UsedPercent: d.weeklyRaw, ResetsAt: d.weeklyResetAt,
-			ResetLabel: strings.ToUpper(time.Unix(d.weeklyResetAt, 0).In(loc).Format("Mon"))},
-	}, true
+	req := producer.UsageRequest{Tool: "codex", Source: "codex_stream"}
+	if d.rateResetAt != 0 {
+		req.FiveHour = &producer.UsageWindow{UsedPercent: d.primaryRaw, ResetsAt: d.rateResetAt,
+			ResetLabel: time.Unix(d.rateResetAt, 0).In(loc).Format("15:04")}
+	}
+	if d.weeklyResetAt != 0 {
+		req.SevenDay = &producer.UsageWindow{UsedPercent: d.weeklyRaw, ResetsAt: d.weeklyResetAt,
+			ResetLabel: strings.ToUpper(time.Unix(d.weeklyResetAt, 0).In(loc).Format("Mon"))}
+	}
+	return req, true
 }
 
 func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
@@ -102,11 +160,14 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 		ss := w.sessions[path]
 		if ss == nil {
-			meta, ok := readFirstMeta(path)
+			meta, ok, complete := readFirstMeta(path)
 			if !ok {
+				if complete {
+					w.ignored[path] = true // a whole first line that is not session_meta
+				}
 				continue
 			}
-			if meta.source != "cli" {
+			if !trackedSource(meta.source) {
 				w.ignored[path] = true
 				continue
 			}
@@ -154,17 +215,21 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 	return posts, deletes, usages
 }
 
-func readFirstMeta(path string) (sessionMeta, bool) {
+// readFirstMeta parses a rollout's first line; complete reports whether that
+// line was fully written, so a parse failure is final rather than a race.
+func readFirstMeta(path string) (meta sessionMeta, ok, complete bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return sessionMeta{}, false
+		return sessionMeta{}, false, false
 	}
 	defer f.Close()
 	line, err := bufio.NewReader(f).ReadBytes('\n')
-	if err != nil && len(line) == 0 {
-		return sessionMeta{}, false
+	complete = err == nil
+	if !complete {
+		return sessionMeta{}, false, false
 	}
-	return parseSessionMeta(line)
+	meta, ok = parseSessionMeta(line)
+	return meta, ok, complete
 }
 
 func fingerprint(d derived) string {
