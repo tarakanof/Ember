@@ -76,10 +76,6 @@ private struct CardPreview<Content: View>: View {
     let d = f.established
     CardPreview { AgentTimeCard(activity: d.activity, calendar: d.calendar) }
 }
-#Preview("Clock health") {
-    let d = f.established
-    CardPreview { ClockHealthCard(health: d.clockHealth, webURL: d.clockWebURL, now: d.now) }
-}
 #Preview("Weather") {
     let d = f.established
     CardPreview { WeatherCard(weather: d.weather, now: d.now) }

@@ -1,142 +1,147 @@
 import SwiftUI
 import EmberKit
 
-/// The knob's newest readings: four gauges and the facts that don't chart.
-/// Offline, it says how old they are and is drawn muted.
-struct KnobOverviewCard: View {
-    let stats: KnobStats
-    var firmware: String?
-    var now = Date()
+/// One ring gauge on a Now card. The arc is one colour picked by the
+/// reading's thresholds (`HardwareNowCard.level`); a fuller arc always means
+/// more of the quantity, never "better".
+struct HardwareGauge: Identifiable {
+    let id: String
+    let title: LocalizedStringKey
+    var value: Double?
+    var range: ClosedRange<Double>
+    var text: String?
+    var tint: Color
+    var warn = false
+}
 
-    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+/// One fact on a Now card: a reading that doesn't chart.
+struct HardwareFact: Identifiable {
+    let id: String
+    let title: LocalizedStringKey
+    var value: String?
+    /// Secondary text after the value ("1.1.2 available").
+    var note: String?
+    var warn = false
+}
+
+/// A device's newest readings: a row of gauges over a grid of facts.
+/// Offline, it says how old they are and is drawn muted.
+struct HardwareNowCard: View {
+    let gauges: [HardwareGauge]
+    let facts: [HardwareFact]
+    let online: Bool
+    /// The time of the readings, shown while offline.
+    var asOf: Date?
+
+    private var factRows: [[HardwareFact]] {
+        stride(from: 0, to: facts.count, by: 2).map { Array(facts[$0..<min($0 + 2, facts.count)]) }
+    }
 
     var body: some View {
-        let l = stats.latest
-        DashboardCard(title: "Now", systemImage: "gauge.with.dots.needle.33percent", height: 196) {
-            HStack(alignment: .center, spacing: 20) {
+        let rows = factRows
+        DashboardCard(title: "Now", systemImage: "gauge.with.dots.needle.33percent",
+                      height: 148 + CGFloat(rows.count) * 25) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 0) {
-                    gauge("Processor", value: l?.cpuAverage, in: 0...100, text: l?.cpuAverage.map(KnobFormat.percent),
-                          tint: Self.level(l?.cpuAverage, good: { $0 < 70 }, fair: { $0 < KnobReadout.busyCPU }),
-                          warn: (l?.cpuAverage ?? 0) > KnobReadout.busyCPU)
-                    gauge("Temperature", value: l?.tempC, in: 20...85, text: l?.tempC.map(KnobFormat.celsius),
-                          tint: Self.level(l?.tempC, good: { $0 < 60 }, fair: { $0 < KnobReadout.hotC }),
-                          warn: (l?.tempC ?? 0) > KnobReadout.hotC)
-                    gauge("Wi-Fi", value: l?.rssiDBm.map(Double.init), in: -90 ... -30,
-                          text: l?.rssiDBm.map { KnobFormat.dbm(Double($0)) },
-                          tint: Self.level(l?.rssiDBm.map(Double.init), good: { $0 >= -67 }, fair: { $0 >= Double(ClockHealthReadout.weakRSSI) }),
-                          warn: l?.rssiDBm.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false)
-                    if stats.diagnostics == .full {
-                        gauge("Frame rate", value: l?.renderFPS, in: 0...KnobReadout.targetFPS,
-                              text: l?.renderFPS.map(KnobFormat.fps),
-                              tint: Self.level(l?.renderFPS, good: { $0 >= 24 }, fair: { $0 >= 15 }), warn: false)
-                    }
+                    ForEach(gauges) { gauge($0) }
                 }
                 .frame(maxWidth: .infinity)
                 Divider()
-                facts(l).frame(maxWidth: .infinity, alignment: .leading)
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        GridRow {
+                            ForEach(Array(row.enumerated()), id: \.element.id) { i, f in
+                                fact(f, gap: i == 0)
+                            }
+                        }
+                    }
+                }
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .saturation(stats.online ? 1 : 0)
-            .opacity(stats.online ? 1 : 0.6)
+            .saturation(online ? 1 : 0)
+            .opacity(online ? 1 : 0.6)
         } accessory: {
-            if !stats.online, let at = l?.t ?? stats.lastSeen {
-                Text("As of \(Text(at, format: .dateTime.hour().minute()))",
-                     comment: "Dashboard knob Now card while offline: the time of the readings shown (\"As of 21:43\").")
+            if !online, let asOf {
+                Text("As of \(Text(asOf, format: .dateTime.hour().minute()))",
+                     comment: "Hardware page Now card while the device is offline: the time of the readings shown (\"As of 21:43\").")
             }
         }
     }
 
-    private func gauge(_ title: LocalizedStringKey, value: Double?, in range: ClosedRange<Double>, text: String?,
-                       tint: Color, warn: Bool) -> some View {
+    private func gauge(_ g: HardwareGauge) -> some View {
         VStack(spacing: 8) {
-            Gauge(value: min(max(value ?? range.lowerBound, range.lowerBound), range.upperBound), in: range) {
-                Text(title)
+            Gauge(value: min(max(g.value ?? g.range.lowerBound, g.range.lowerBound), g.range.upperBound), in: g.range) {
+                Text(g.title)
             } currentValueLabel: {
-                Text(verbatim: text ?? "—")
+                Text(verbatim: g.text ?? "—")
             }
-            .gaugeStyle(KnobRingGaugeStyle(tint: tint, diameter: 76))
+            .gaugeStyle(HardwareRingGaugeStyle(tint: g.value == nil ? .secondary : g.tint,
+                                               diameter: gauges.count > 4 ? 66 : 76))
             HStack(spacing: 3) {
-                if warn {
+                if g.warn {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                         .imageScale(.small)
                 }
-                Text(title)
+                Text(g.title)
             }
             .lineLimit(1)
+            .minimumScaleFactor(0.85)
             .font(.caption)
             .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue([text ?? String(localized: "Not available"),
-                             warn ? String(localized: "Needs attention") : nil].compactMap { $0 }.joined(separator: ", "))
-    }
-
-    private func facts(_ l: KnobStats.Sample?) -> some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) {
-            GridRow {
-                fact("Free memory", value: l?.heapInternalFreeBytes.map { KnobFormat.bytes(Double($0)) }, gap: true)
-                fact("Largest block", value: l?.heapInternalLargestBytes.map { KnobFormat.bytes(Double($0)) },
-                     warn: (l?.heapInternalLargestBytes ?? .max) < KnobReadout.lowLargestBlock)
-            }
-            GridRow {
-                fact("PSRAM free", value: l?.psramFreeBytes.map { KnobFormat.bytes(Double($0)) }, gap: true)
-                fact("Uptime", value: l?.uptimeSec.map { DurationText.uptime($0) })
-            }
-            GridRow {
-                fact("Last restart", value: stats.resetReason.map(Self.resetReason), gap: true)
-                fact("Firmware", value: firmware)
-            }
-        }
-        .font(.callout)
+        .accessibilityLabel(g.title)
+        .accessibilityValue([g.text ?? String(localized: "Not available"),
+                             g.warn ? String(localized: "Needs attention") : nil].compactMap { $0 }.joined(separator: ", "))
     }
 
     @ViewBuilder
-    private func fact(_ title: LocalizedStringKey, value: String?, warn: Bool = false, gap: Bool = false) -> some View {
-        Text(title).foregroundStyle(.secondary)
-        HStack(alignment: .firstTextBaseline, spacing: 3) {
-            if warn {
+    private func fact(_ f: HardwareFact, gap: Bool) -> some View {
+        Text(f.title).foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            if f.warn {
                 Image(systemName: "exclamationmark.triangle.fill").imageScale(.small).foregroundStyle(.orange)
             }
-            Text(verbatim: value ?? "—")
+            Text(verbatim: f.value ?? "—")
                 .monospacedDigit()
                 .lineLimit(1)
-                .foregroundStyle(warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
+                .foregroundStyle(f.warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
+            if let note = f.note {
+                Text(verbatim: note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
         }
         .padding(.trailing, gap ? 16 : 0)
-        .accessibilityLabel(Text(title))
-        .accessibilityValue(Text(verbatim: [value ?? String(localized: "Not available"),
-                                            warn ? String(localized: "Needs attention") : nil].compactMap { $0 }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(f.title))
+        .accessibilityValue(Text(verbatim: [f.value ?? String(localized: "Not available"), f.note,
+                                            f.warn ? String(localized: "Needs attention") : nil].compactMap { $0 }
                                      .joined(separator: ", ")))
     }
 
     /// The arc colour for a reading: green when normal, yellow when fair,
-    /// orange past that; a fuller arc always means more of the quantity.
+    /// orange past that.
     static func level(_ v: Double?, good: (Double) -> Bool, fair: (Double) -> Bool) -> Color {
         guard let v else { return .secondary }
         if good(v) { return .green }
         return fair(v) ? .yellow : .orange
     }
 
-    /// The ESP-IDF reset reason the knob reported, in words.
-    static func resetReason(_ raw: String) -> String {
-        switch raw {
-        case "poweron": String(localized: "Power on")
-        case "sw": String(localized: "Restarted by software")
-        case "panic": String(localized: "Crash")
-        case "int_wdt", "task_wdt", "wdt": String(localized: "Watchdog")
-        case "brownout": String(localized: "Low voltage")
-        case "deepsleep": String(localized: "Woke from sleep")
-        case "ext": String(localized: "Reset pin")
-        default: raw
-        }
+    /// The Wi-Fi gauge both devices show.
+    static func wifi(rssi: Int?) -> HardwareGauge {
+        let v = rssi.map(Double.init)
+        return HardwareGauge(id: "wifi", title: "Wi-Fi", value: v, range: -90 ... -30,
+                             text: v.map(HardwareFormat.dbm),
+                             tint: level(v, good: { $0 >= Double(WiFiReadout.goodRSSI) }, fair: { $0 >= Double(WiFiReadout.weakRSSI) }),
+                             warn: rssi.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false)
     }
 }
 
 /// A 270° ring gauge at a real size (the system's accessory style is fixed
 /// at watch-complication size): track, tinted value arc, value in the middle.
-struct KnobRingGaugeStyle: GaugeStyle {
+struct HardwareRingGaugeStyle: GaugeStyle {
     let tint: Color
     var diameter: CGFloat = 76
 

@@ -5,7 +5,6 @@ struct KnobStatusSection: View {
     @Environment(AppEnvironment.self) private var env
     let setUp: () -> Void
     @State private var confirmForget = false
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let model = env.knob
@@ -39,7 +38,7 @@ struct KnobStatusSection: View {
                 }
                 LabeledContent("Settings") { applied(knob) }
                 LabeledContent("Hardware stats") {
-                    Button("Show in Dashboard") { showKnobDashboard(openWindow: openWindow, env: env) }
+                    Button("Show Hardware") { showKnobHardware(knob.id) }
                 }
                 KnobUSBRow()
                 HStack {

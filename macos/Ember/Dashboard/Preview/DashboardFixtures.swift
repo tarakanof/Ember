@@ -36,7 +36,6 @@ enum DashboardFixtures {
         d.remindersEnabled = true
         d.pomoConfig = SettingsModels.defaultPomoConfig
         d.meetingsEnabled = true
-        d.clockWebURL = URL(string: "http://192.168.0.66")
         d.now = now
         d.calendar = calendar
         return d

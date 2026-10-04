@@ -71,12 +71,6 @@ enum DashboardPlaceholders {
         return decode(#"{"generated_at":"\#(iso(.now))","recording":true,"days":7,"span_gap_sec":300,"today":\#(window),"period":\#(window),"daily":[],"daily_by_source":[\#(rows.joined(separator: ","))]}"#)
     }()
 
-    static let clockHealth: ClockHealth = decode(#"""
-    {"generated_at":"\#(iso(.now))","publish":{"counting_since":"\#(iso(.now))","ok_24h":99,"fail_24h":1,"success_ratio_24h":0.99,"ok_total":99,"fail_total":1,"retries_total":0,"last_at":"\#(iso(.now))","last_ok":true},
-     "device":{"reachable":true,"checked_at":"\#(iso(.now))","firmware":"1.0.0","current_app":"Time","uptime_sec":3600,"wifi_rssi_dbm":-60,"battery_percent":80,"temperature_c":21,"humidity_percent":40},
-     "latest_firmware":null,"update_available":null}
-    """#)
-
     static let weather: WeatherState = decode(#"""
     {"generated_at":"\#(iso(.now))","enabled":true,"provider":"open-meteo","units":"metric","location_name":"Location",
      "current":{"fetched_at":"\#(iso(.now))","stale":false,"condition":"clouds","severe":false,"temp_c":15,"hourly":[]},

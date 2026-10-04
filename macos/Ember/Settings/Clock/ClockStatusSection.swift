@@ -73,6 +73,9 @@ struct ClockStatusSection: View {
                 }
                 .help("How many of the server's pushes reached the clock in the last 24 hours.")
             }
+            LabeledContent("Hardware stats") {
+                Button("Show Hardware") { showSettings(.device(clockDeviceID, .hardware(.health))) }
+            }
             HStack {
                 Button("Discover Clocks…") { openDiscover() }
                 Button("Open Web UI") {

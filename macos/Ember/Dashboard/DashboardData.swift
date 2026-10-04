@@ -21,12 +21,9 @@ protocol DashboardSource {
     var remindersEnabled: Bool { get }
     var pomoConfig: PomoConfig? { get }
     var meetingsEnabled: Bool? { get }
-    var clockWebURL: URL? { get }
     var calendar: Calendar { get }
     var fixedNow: Date? { get }
     var actions: DashboardActions { get }
-    /// The knob section; nil when no knob is registered.
-    var knob: KnobDashboardInput? { get }
 }
 
 extension DashboardSource {
@@ -69,11 +66,9 @@ struct DashboardData: DashboardSource {
     var remindersEnabled = false
     var pomoConfig: PomoConfig?
     var meetingsEnabled: Bool?
-    var clockWebURL: URL?
     var now = Date()
     var calendar = Calendar.current
     var actions = DashboardActions()
-    var knob: KnobDashboardInput?
     var fixedNow: Date? { now }
 }
 

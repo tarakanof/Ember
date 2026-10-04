@@ -12,6 +12,14 @@ struct KnobDetail: View {
     private var knob: KnobModel { env.knob }
 
     var body: some View {
+        if page == .hardware(.health), knob.knob != nil {
+            KnobHardwarePane()
+        } else {
+            form
+        }
+    }
+
+    private var form: some View {
         Form {
             LoadStateSection(isLoaded: knob.isLoaded, error: knob.loadError,
                              offMessage: "This server has no knob registry. Update the Ember server.",

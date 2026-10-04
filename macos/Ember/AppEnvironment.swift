@@ -17,10 +17,10 @@ public final class AppEnvironment {
     public let deviceSettings: DeviceSettingsModel
     /// Settings › Knob: the registered knob and the boards on USB.
     public let knob: KnobModel
-    /// The Dashboard's knob section: stats polled while it's visible.
+    /// Settings › Knob › Hardware: stats polled while the page is visible.
     public let knobStats: KnobStatsModel
-    /// A Dashboard section to scroll to when the window shows (deep links).
-    public var dashboardScrollTarget: String?
+    /// Settings › Clock › Hardware: stats polled while the page is visible.
+    public let clockStats: ClockStatsModel
     public private(set) var knobDiagnosticsSaving = false
     public private(set) var knobDiagnosticsError: String?
     public private(set) var reminderWatcher: ReminderWatcher
@@ -113,6 +113,7 @@ public final class AppEnvironment {
         deviceSettings = DeviceSettingsModel(service: connection.device, live: live)
         knob = KnobModel(service: KnobService(client: client))
         knobStats = KnobStatsModel(service: KnobService(client: client))
+        clockStats = ClockStatsModel(service: ClockStatsClient(client: client))
         let watcher = ReminderWatcher(client: client)
         reminderWatcher = watcher
         producers = ProducerInstallService(
@@ -127,7 +128,7 @@ public final class AppEnvironment {
             connection: connection, producers: producers, reminders: watcher, location: location))
         #if DEBUG
         // A snapshot run only draws fixtures: no server, producers or USB.
-        if KnobSnapshotRenderer.isRequested { return }
+        if HardwareSnapshotRenderer.isRequested { return }
         #endif
         live.configure(client: client)
         settings.connectionEnv.onSaved = { [weak self] _ in self?.reloadConnection() }
@@ -194,10 +195,11 @@ public final class AppEnvironment {
         deviceSettings.configure(service: connection.device)
         knob.configure(service: KnobService(client: client))
         knobStats.configure(service: KnobService(client: client))
+        clockStats.configure(service: ClockStatsClient(client: client))
     }
 
-    /// Sets the knob's diagnostics level from the Dashboard, then refetches
-    /// its stats so the section follows.
+    /// Sets the knob's diagnostics level from its Hardware page, then
+    /// refetches its stats so the page follows.
     func setKnobDiagnostics(_ level: KnobDiagnostics) async {
         guard !knobDiagnosticsSaving else { return }
         knobDiagnosticsSaving = true

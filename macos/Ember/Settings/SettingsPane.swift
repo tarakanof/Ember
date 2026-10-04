@@ -45,6 +45,7 @@ extension HardwarePage {
     var title: LocalizedStringResource {
         switch self {
         case .status:   "Status"
+        case .health:   "Hardware"
         case .display:  "Display"
         case .timeDate: "Time & Date"
         case .buttons:  "Buttons"
@@ -57,6 +58,7 @@ extension HardwarePage {
     var systemImage: String {
         switch self {
         case .status:   "info.circle"
+        case .health:   "waveform.path.ecg"
         case .display:  "sun.max"
         case .timeDate: "calendar.badge.clock"
         case .buttons:  "hand.tap"

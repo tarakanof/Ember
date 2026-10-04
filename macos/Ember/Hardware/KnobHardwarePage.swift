@@ -1,15 +1,16 @@
+import Charts
 import SwiftUI
 import EmberKit
 
-/// What the Dashboard's knob section reads: plain values and callbacks, so
+/// What the knob's Hardware page reads: plain values and callbacks, so
 /// previews and snapshot renders use `KnobStatsFake`.
-struct KnobDashboardInput {
+struct KnobHardwareInput {
     var knobID: String
-    var name: String
     var firmware: String?
+    var ipAddress: String?
     var stats: Loadable<KnobStats>
-    var range: KnobStatsRange
-    var setRange: @MainActor @Sendable (KnobStatsRange) -> Void = { _ in }
+    var range: HardwareRange
+    var setRange: @MainActor @Sendable (HardwareRange) -> Void = { _ in }
     var setDiagnostics: @MainActor @Sendable (KnobDiagnostics) -> Void = { _ in }
     var savingDiagnostics = false
     var diagnosticsError: String?
@@ -19,88 +20,31 @@ enum KnobCardID: Hashable, Sendable {
     case overview, cpu, memory, psram, temperature, wifi, requests, latency, rendering
 }
 
-/// The knob's hardware stats: a header with the range picker, then gauges
-/// and charts, or the state that explains why there are none.
-struct KnobDashboardSection: View {
-    let input: KnobDashboardInput
+/// Settings › Devices › Knob › Hardware: the range picker, then gauges and
+/// charts, or the state that explains why there are none.
+struct KnobHardwareContent: View {
+    let input: KnobHardwareInput
     var columns = 2
     var now = Date()
 
-    @Environment(\.openWindow) private var openWindow
-
-    static let anchor = "knob-dashboard"
-
     var body: some View {
-        VStack(alignment: .leading, spacing: DashboardContent<DashboardData>.spacing) {
-            header
-            content
-        }
-        .id(Self.anchor)
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Label { Text("Knob") } icon: { Image(systemName: "dial.medium") }
-                .font(.title2.weight(.semibold))
-                .accessibilityAddTraits(.isHeader)
-            Text(verbatim: input.name)
-                .font(.title3)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            status
-            Spacer(minLength: 12)
-            Picker("Time range", selection: Binding(get: { [range = input.range] in range },
-                                                set: { [setRange = input.setRange] r in setRange(r) })) {
-                ForEach(KnobStatsRange.allCases) { r in Text(Self.title(r)).tag(r) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .disabled(input.stats.value?.diagnostics == .off)
-            Button("Knob Settings", systemImage: "gearshape") {
-                openSettings(.device(input.knobID, .hardware(.behavior)), using: openWindow)
+        HardwarePageHeader(status: status, range: input.range, setRange: { r in input.setRange(r) },
+                           pickerDisabled: input.stats.value?.diagnostics == .off,
+                           liveHelp: "The knob reports every 5 seconds while this page is open.") {
+            Button("Diagnostics Settings", systemImage: "slider.horizontal.3") {
+                showSettings(.device(input.knobID, .hardware(.behavior)))
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
-            .help("Knob settings")
+            .help("Change what the knob reports in Behavior")
         }
+        content
     }
 
-    static func title(_ r: KnobStatsRange) -> LocalizedStringKey {
-        switch r {
-        case .fifteenMinutes: "15 Minutes"
-        case .hour: "1 Hour"
-        case .day: "24 Hours"
-        }
-    }
-
-    @ViewBuilder private var status: some View {
-        if let s = input.stats.value {
-            if !s.online {
-                Label {
-                    if let seen = s.lastSeen {
-                        Text("Offline, last report \(Text(seen, format: .relative(presentation: .named)))",
-                             comment: "Dashboard knob status; the argument is a relative time (\"5 minutes ago\").")
-                    } else {
-                        Text("Offline")
-                    }
-                } icon: { Image(systemName: "wifi.slash") }
-                .foregroundStyle(.orange)
-                .font(.callout)
-            } else if s.isLive(now: now) {
-                Label("Live", systemImage: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.green)
-                    .font(.callout)
-                    .help("The knob reports every 5 seconds while this window is open.")
-            } else {
-                Label("Online", systemImage: "circle.fill")
-                    .labelStyle(StatusDotLabelStyle())
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
+    private var status: HardwareStatus? {
+        guard let s = input.stats.value else { return nil }
+        if !s.online { return .offline(lastSeen: s.lastSeen) }
+        return s.isLive(now: now) ? .live : .online
     }
 
     // MARK: Content
@@ -112,7 +56,7 @@ struct KnobDashboardSection: View {
                 .redacted(reason: .placeholder)
                 .accessibilityLabel("Loading")
         case .failed(let error, nil, _):
-            stateBox {
+            HardwareStateBox {
                 ContentUnavailableView {
                     Label("Knob stats unavailable", systemImage: "exclamationmark.triangle")
                 } description: {
@@ -127,14 +71,14 @@ struct KnobDashboardSection: View {
 
     @ViewBuilder private func loaded(_ s: KnobStats) -> some View {
         if s.diagnostics == .off {
-            stateBox { diagnosticsOff }
+            HardwareStateBox { diagnosticsOff }
         } else if s.points.isEmpty, s.latest == nil {
-            stateBox {
+            HardwareStateBox {
                 if s.online {
                     ContentUnavailableView {
                         Label("Waiting for the knob's first report", systemImage: "hourglass")
                     } description: {
-                        Text("The knob sends hardware stats every minute, and every 5 seconds while this window is open. It needs firmware with diagnostics.")
+                        Text("The knob sends hardware stats every minute, and every 5 seconds while this page is open. It needs firmware with diagnostics.")
                     }
                 } else {
                     ContentUnavailableView {
@@ -174,10 +118,6 @@ struct KnobDashboardSection: View {
         }
     }
 
-    private func stateBox<C: View>(@ViewBuilder _ c: () -> C) -> some View {
-        GroupBox { c().frame(maxWidth: .infinity, minHeight: 220) }
-    }
-
     // MARK: Cards
 
     private func cards(_ s: KnobStats, level: KnobDiagnostics) -> [(id: KnobCardID, size: CardSize)] {
@@ -189,19 +129,8 @@ struct KnobDashboardSection: View {
     }
 
     private func grid(_ s: KnobStats, level: KnobDiagnostics) -> some View {
-        VStack(spacing: DashboardContent<DashboardData>.spacing) {
-            ForEach(Array(DashboardLayout.runs(cards(s, level: level), columns: columns).enumerated()), id: \.offset) { _, run in
-                switch run {
-                case .wide(let id):
-                    card(id, s)
-                case .grid(let ids):
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: DashboardContent<DashboardData>.spacing,
-                                                                 alignment: .top), count: columns),
-                              spacing: DashboardContent<DashboardData>.spacing) {
-                        ForEach(ids, id: \.self) { card($0, s) }
-                    }
-                }
-            }
+        VStack(spacing: HardwareMetrics.spacing) {
+            HardwareCardGrid(cards: cards(s, level: level), columns: columns) { card($0, s) }
             if level == .basic { fullDiagnosticsBanner }
         }
     }
@@ -223,126 +152,170 @@ struct KnobDashboardSection: View {
         }
     }
 
+    private func chart(_ title: LocalizedStringKey, ax: String, systemImage: String, _ s: KnobStats,
+                       _ lines: [(HardwareLine, (KnobStats.Sample) -> Double?)], headline: Double? = nil,
+                       fixedDomain: ClosedRange<Double>? = nil, zeroBaseline: Bool = false,
+                       interpolation: InterpolationMethod = .linear, warn: Bool = false,
+                       format: @escaping (Double) -> String) -> some View {
+        let r = input.range
+        return HardwareChartCard(title: title, axTitle: ax, systemImage: systemImage,
+                                 points: s.series(lines.map { ($0.0.name, $0.1) }, range: r),
+                                 lines: lines.map(\.0), range: r, now: now,
+                                 headline: headline ?? s.latest.flatMap { l in lines.first.flatMap { $0.1(l) } },
+                                 fixedDomain: fixedDomain, zeroBaseline: zeroBaseline, interpolation: interpolation,
+                                 warn: warn, format: format)
+    }
+
     @ViewBuilder
     private func card(_ id: KnobCardID, _ s: KnobStats) -> some View {
-        let r = input.range
+        let l = s.latest
         switch id {
         case .overview:
-            KnobOverviewCard(stats: s, firmware: input.firmware, now: now)
+            HardwareNowCard(gauges: gauges(s), facts: facts(s), online: s.online, asOf: l?.t ?? s.lastSeen)
         case .cpu:
-            KnobChartCard(title: "Processor", axTitle: String(localized: "Processor load"), systemImage: "cpu",
-                          stats: s, lines: cpuLines(s), range: r, now: now, headline: s.latest?.cpuAverage,
-                          fixedDomain: 0...100,
-                          warn: (s.latest?.cpuAverage ?? 0) > KnobReadout.busyCPU, format: KnobFormat.percent)
+            chart("Processor", ax: String(localized: "Processor load"), systemImage: "cpu", s, cpuLines(s),
+                  headline: l?.cpuAverage, fixedDomain: 0...100,
+                  warn: (l?.cpuAverage ?? 0) > KnobReadout.busyCPU, format: HardwareFormat.percent)
         case .memory:
-            let bytes = KnobFormat.bytes(scaleTo: s.points.compactMap(\.heapInternalFreeBytes).max() ?? 0)
-            KnobChartCard(title: "Internal memory", axTitle: String(localized: "Internal memory"), systemImage: "memorychip",
-                          stats: s, lines: [
-                              KnobLine(name: String(localized: "Free"), color: KnobPalette.first) { $0.heapInternalFreeBytes.map(Double.init) },
-                              KnobLine(name: String(localized: "Largest block"), color: KnobPalette.third) { $0.heapInternalLargestBytes.map(Double.init) },
-                              KnobLine(name: String(localized: "Lowest free"), color: KnobPalette.second, dashed: true) { $0.heapInternalMinBytes.map(Double.init) },
-                          ], range: r, now: now, zeroBaseline: true,
-                          warn: (s.latest?.heapInternalLargestBytes ?? .max) < KnobReadout.lowLargestBlock, format: bytes)
+            chart("Internal memory", ax: String(localized: "Internal memory"), systemImage: "memorychip", s, [
+                (HardwareLine(name: String(localized: "Free"), color: HardwarePalette.first), { $0.heapInternalFreeBytes.map(Double.init) }),
+                (HardwareLine(name: String(localized: "Largest block"), color: HardwarePalette.third), { $0.heapInternalLargestBytes.map(Double.init) }),
+                (HardwareLine(name: String(localized: "Lowest free"), color: HardwarePalette.second, dashed: true), { $0.heapInternalMinBytes.map(Double.init) }),
+            ], zeroBaseline: true, warn: (l?.heapInternalLargestBytes ?? .max) < KnobReadout.lowLargestBlock,
+                  format: HardwareFormat.bytes(scaleTo: s.points.compactMap(\.heapInternalFreeBytes).max() ?? 0))
         case .psram:
-            let bytes = KnobFormat.bytes(scaleTo: s.points.compactMap(\.psramFreeBytes).max() ?? 0)
-            KnobChartCard(title: "PSRAM", axTitle: String(localized: "PSRAM"), systemImage: "memorychip.fill",
-                          stats: s, lines: [
-                              KnobLine(name: String(localized: "Free"), color: KnobPalette.first) { $0.psramFreeBytes.map(Double.init) },
-                              KnobLine(name: String(localized: "Largest block"), color: KnobPalette.third) { $0.psramLargestBytes.map(Double.init) },
-                              KnobLine(name: String(localized: "Lowest free"), color: KnobPalette.second, dashed: true) { $0.psramMinBytes.map(Double.init) },
-                          ], range: r, now: now, format: bytes)
+            chart("PSRAM", ax: String(localized: "PSRAM"), systemImage: "memorychip.fill", s, [
+                (HardwareLine(name: String(localized: "Free"), color: HardwarePalette.first), { $0.psramFreeBytes.map(Double.init) }),
+                (HardwareLine(name: String(localized: "Largest block"), color: HardwarePalette.third), { $0.psramLargestBytes.map(Double.init) }),
+                (HardwareLine(name: String(localized: "Lowest free"), color: HardwarePalette.second, dashed: true), { $0.psramMinBytes.map(Double.init) }),
+            ], format: HardwareFormat.bytes(scaleTo: s.points.compactMap(\.psramFreeBytes).max() ?? 0))
         case .temperature:
-            KnobChartCard(title: "Chip temperature", axTitle: String(localized: "Chip temperature"), systemImage: "thermometer.medium",
-                          stats: s, lines: [KnobLine(name: String(localized: "Temperature"), color: KnobPalette.second) { $0.tempC }],
-                          range: r, now: now, warn: (s.latest?.tempC ?? 0) > KnobReadout.hotC, format: KnobFormat.celsius)
+            chart("Chip temperature", ax: String(localized: "Chip temperature"), systemImage: "thermometer.medium", s,
+                  [(HardwareLine(name: String(localized: "Temperature"), color: HardwarePalette.second), { $0.tempC })],
+                  warn: (l?.tempC ?? 0) > KnobReadout.hotC, format: HardwareFormat.celsius)
         case .wifi:
-            KnobChartCard(title: "Wi-Fi signal", axTitle: String(localized: "Wi-Fi signal"), systemImage: "wifi",
-                          stats: s, lines: [KnobLine(name: String(localized: "Signal"), color: KnobPalette.first) { $0.rssiDBm.map(Double.init) }],
-                          range: r, now: now, interpolation: r == .day ? .linear : .stepEnd,
-                          warn: s.latest?.rssiDBm.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false, format: KnobFormat.dbm)
+            chart("Wi-Fi signal", ax: String(localized: "Wi-Fi signal"), systemImage: "wifi", s,
+                  [(HardwareLine(name: String(localized: "Signal"), color: HardwarePalette.first), { $0.rssiDBm.map(Double.init) })],
+                  interpolation: input.range == .day ? .linear : .stepEnd,
+                  warn: l?.rssiDBm.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false, format: HardwareFormat.dbm)
         case .requests:
-            KnobChartCard(title: "Requests", axTitle: String(localized: "Requests per minute"), systemImage: "arrow.up.arrow.down",
-                          stats: s, lines: [
-                              KnobLine(name: String(localized: "Requests"), color: KnobPalette.first) { $0.requestsPerMin },
-                              KnobLine(name: String(localized: "Failures"), color: KnobPalette.second, dashed: true) { $0.requestFailuresPerMin },
-                          ], range: r, now: now, zeroBaseline: true,
-                          warn: (s.latest?.requestFailuresPerMin ?? 0) > 0, format: KnobFormat.perMinute)
+            chart("Requests", ax: String(localized: "Requests per minute"), systemImage: "arrow.up.arrow.down", s, [
+                (HardwareLine(name: String(localized: "Requests"), color: HardwarePalette.first), { $0.requestsPerMin }),
+                (HardwareLine(name: String(localized: "Failures"), color: HardwarePalette.second, dashed: true), { $0.requestFailuresPerMin }),
+            ], zeroBaseline: true, warn: (l?.requestFailuresPerMin ?? 0) > 0, format: HardwareFormat.perMinute)
         case .latency:
-            KnobChartCard(title: "Request latency", axTitle: String(localized: "Request latency"), systemImage: "stopwatch",
-                          stats: s, lines: [
-                              KnobLine(name: String(localized: "Average"), color: KnobPalette.first) { $0.requestLatencyAvgMS },
-                              KnobLine(name: String(localized: "Slowest"), color: KnobPalette.fourth, dashed: true) { $0.requestLatencyMaxMS.map(Double.init) },
-                          ], range: r, now: now, zeroBaseline: true, format: KnobFormat.milliseconds)
+            chart("Request latency", ax: String(localized: "Request latency"), systemImage: "stopwatch", s, [
+                (HardwareLine(name: String(localized: "Average"), color: HardwarePalette.first), { $0.requestLatencyAvgMS }),
+                (HardwareLine(name: String(localized: "Slowest"), color: HardwarePalette.fourth, dashed: true), { $0.requestLatencyMaxMS.map(Double.init) }),
+            ], zeroBaseline: true, format: HardwareFormat.milliseconds)
         case .rendering:
-            KnobChartCard(title: "Rendering", axTitle: String(localized: "Frame rate"), systemImage: "square.stack.3d.forward.dottedline",
-                          stats: s, lines: [KnobLine(name: String(localized: "Frame rate"), color: KnobPalette.third) { $0.renderFPS }],
-                          range: r, now: now, zeroBaseline: true, format: KnobFormat.fps)
+            chart("Rendering", ax: String(localized: "Frame rate"), systemImage: "square.stack.3d.forward.dottedline", s,
+                  [(HardwareLine(name: String(localized: "Frame rate"), color: HardwarePalette.third), { $0.renderFPS })],
+                  zeroBaseline: true, format: HardwareFormat.fps)
         }
     }
 
-    private func cpuLines(_ s: KnobStats) -> [KnobLine] {
+    private func cpuLines(_ s: KnobStats) -> [(HardwareLine, (KnobStats.Sample) -> Double?)] {
         let cores = s.points.map { $0.cpuPercent?.count ?? 0 }.max() ?? 0
-        let colors: [Color] = [KnobPalette.first, KnobPalette.second, KnobPalette.third, KnobPalette.fourth]
+        let colors: [Color] = [HardwarePalette.first, HardwarePalette.second, HardwarePalette.third, HardwarePalette.fourth]
         return (0..<cores).map { core in
-            KnobLine(name: String(localized: "Core \(core + 1)", comment: "Dashboard knob CPU chart: a processor core (\"Core 1\")."),
-                     color: colors[core % colors.count]) { sample in
-                sample.cpuPercent.flatMap { $0.indices.contains(core) ? $0[core] : nil }
+            (HardwareLine(name: String(localized: "Core \(core + 1)", comment: "Knob Hardware CPU chart: a processor core (\"Core 1\")."),
+                          color: colors[core % colors.count]),
+             { sample in sample.cpuPercent.flatMap { $0.indices.contains(core) ? $0[core] : nil } })
+        }
+    }
+
+    // MARK: Now card
+
+    private func gauges(_ s: KnobStats) -> [HardwareGauge] {
+        let l = s.latest
+        var out = [
+            HardwareGauge(id: "cpu", title: "Processor", value: l?.cpuAverage, range: 0...100,
+                          text: l?.cpuAverage.map(HardwareFormat.percent),
+                          tint: HardwareNowCard.level(l?.cpuAverage, good: { $0 < 70 }, fair: { $0 < KnobReadout.busyCPU }),
+                          warn: (l?.cpuAverage ?? 0) > KnobReadout.busyCPU),
+            HardwareGauge(id: "temp", title: "Temperature", value: l?.tempC, range: 20...85,
+                          text: l?.tempC.map(HardwareFormat.celsius),
+                          tint: HardwareNowCard.level(l?.tempC, good: { $0 < 60 }, fair: { $0 < KnobReadout.hotC }),
+                          warn: (l?.tempC ?? 0) > KnobReadout.hotC),
+            HardwareNowCard.wifi(rssi: l?.rssiDBm),
+        ]
+        if s.diagnostics == .full {
+            out.append(HardwareGauge(id: "fps", title: "Frame rate", value: l?.renderFPS, range: 0...KnobReadout.targetFPS,
+                                     text: l?.renderFPS.map(HardwareFormat.fps),
+                                     tint: HardwareNowCard.level(l?.renderFPS, good: { $0 >= 24 }, fair: { $0 >= 15 })))
+        }
+        return out
+    }
+
+    private func facts(_ s: KnobStats) -> [HardwareFact] {
+        let l = s.latest
+        return [
+            HardwareFact(id: "free", title: "Free memory", value: l?.heapInternalFreeBytes.map { HardwareFormat.bytes(Double($0)) }),
+            HardwareFact(id: "largest", title: "Largest block", value: l?.heapInternalLargestBytes.map { HardwareFormat.bytes(Double($0)) },
+                         warn: (l?.heapInternalLargestBytes ?? .max) < KnobReadout.lowLargestBlock),
+            HardwareFact(id: "psram", title: "PSRAM free", value: l?.psramFreeBytes.map { HardwareFormat.bytes(Double($0)) }),
+            HardwareFact(id: "uptime", title: "Uptime", value: l?.uptimeSec.map { DurationText.uptime($0) }),
+            HardwareFact(id: "reset", title: "Last restart", value: s.resetReason.map(Self.resetReason)),
+            HardwareFact(id: "firmware", title: "Firmware", value: input.firmware),
+            HardwareFact(id: "ip", title: "IP address", value: input.ipAddress),
+        ]
+    }
+
+    /// The ESP-IDF reset reason the knob reported, in words.
+    static func resetReason(_ raw: String) -> String {
+        switch raw {
+        case "poweron": String(localized: "Power on")
+        case "sw": String(localized: "Restarted by software")
+        case "panic": String(localized: "Crash")
+        case "int_wdt", "task_wdt", "wdt": String(localized: "Watchdog")
+        case "brownout": String(localized: "Low voltage")
+        case "deepsleep": String(localized: "Woke from sleep")
+        case "ext": String(localized: "Reset pin")
+        default: raw
+        }
+    }
+}
+
+/// The page as Settings shows it: the knob's stats polled while the page is
+/// on screen and its window visible.
+struct KnobHardwarePane: View {
+    @Environment(AppEnvironment.self) private var env
+    @State private var isVisible = true
+
+    var body: some View {
+        if let k = env.knob.knob {
+            HardwareScrollPage { columns in
+                TimelineView(.periodic(from: .now, by: 5)) { ctx in
+                    VStack(alignment: .leading, spacing: HardwareMetrics.spacing) {
+                        KnobHardwareContent(input: input(k), columns: columns, now: ctx.date)
+                    }
+                }
+            }
+            .background(WindowVisibilityReader(isVisible: $isVisible))
+            .task(id: KnobPoll(visible: isVisible, knobID: k.id)) {
+                guard isVisible else { return }
+                await env.knobStats.run(deviceID: k.id)
             }
         }
     }
-}
 
-private struct StatusDotLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.icon.font(.system(size: 7)).foregroundStyle(.green)
-            configuration.title
-        }
+    private func input(_ k: KnobDevice) -> KnobHardwareInput {
+        let env = env
+        return KnobHardwareInput(
+            knobID: k.id, firmware: k.lastCheckin?.fw.nonEmpty, ipAddress: k.lastCheckin?.ip.nonEmpty,
+            stats: env.knobStats.stats, range: env.knobStats.range,
+            setRange: { r in
+                env.knobStats.range = r
+                Task { await env.knobStats.refresh(deviceID: k.id) }
+            },
+            setDiagnostics: { level in Task { await env.setKnobDiagnostics(level) } },
+            savingDiagnostics: env.knobDiagnosticsSaving,
+            diagnosticsError: env.knobDiagnosticsError)
     }
 }
 
-/// Value formats for the knob's readings.
-enum KnobFormat {
-    static func percent(_ v: Double) -> String { Percent.text(v) }
-
-    /// Bytes in decimal units (matching the axis's decimal ticks), in the
-    /// unit the knob's numbers usually need.
-    static func bytes(_ v: Double) -> String {
-        bytes(scaleTo: v)(v)
-    }
-
-    /// A byte format fixed to one unit for a whole chart, so its axis reads
-    /// "0 KB, 20 KB, 40 KB" rather than mixing bytes and KB.
-    static func bytes(scaleTo largest: Int) -> (Double) -> String { bytes(scaleTo: Double(largest)) }
-
-    static func bytes(scaleTo largest: Double) -> (Double) -> String {
-        let f = ByteCountFormatter()
-        f.countStyle = .decimal
-        f.allowsNonnumericFormatting = false
-        f.allowedUnits = largest >= 1_000_000 ? .useMB : .useKB
-        return { v in f.string(fromByteCount: Int64(v.rounded())) }
-    }
-
-    static func celsius(_ v: Double) -> String {
-        Measurement(value: v, unit: UnitTemperature.celsius)
-            .formatted(.measurement(width: .narrow, usage: .asProvided, numberFormatStyle: .number.precision(.fractionLength(0...1))))
-    }
-
-    static func dbm(_ v: Double) -> String {
-        String(localized: "\(Int(v.rounded())) dBm", comment: "Wi-Fi signal strength in decibel-milliwatts (\"-62 dBm\").")
-    }
-
-    static func perMinute(_ v: Double) -> String {
-        String(localized: "\(v.formatted(.number.precision(.fractionLength(0...1))))/min",
-               comment: "A rate per minute (\"31/min\").")
-    }
-
-    static func milliseconds(_ v: Double) -> String {
-        String(localized: "\(Int(v.rounded())) ms", comment: "A duration in milliseconds (\"38 ms\").")
-    }
-
-    static func fps(_ v: Double) -> String {
-        String(localized: "\(v.formatted(.number.precision(.fractionLength(0...1)))) fps",
-               comment: "Frames per second (\"29.5 fps\").")
-    }
+private struct KnobPoll: Hashable {
+    let visible: Bool
+    let knobID: String
 }

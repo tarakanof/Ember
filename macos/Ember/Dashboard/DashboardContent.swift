@@ -3,11 +3,11 @@ import EmberKit
 
 enum DashboardCardID: Hashable, Sendable, CaseIterable {
     case clock, focus, usage, upcoming, agents, lastSeven, twelveWeeks, workHours, heatmap
-    case agentTime, clockHealth, weather
+    case agentTime, weather
 
     var clockTick: TimeInterval? {
         switch self {
-        case .usage, .upcoming, .agents, .workHours, .clockHealth, .weather: 60
+        case .usage, .upcoming, .agents, .workHours, .weather: 60
         case .twelveWeeks, .heatmap: 600
         case .clock, .focus, .lastSeven, .agentTime: nil
         }
@@ -26,7 +26,7 @@ struct DashboardContent<Source: DashboardSource>: View {
         if source.showsUsage { out.append((.usage, .standard)) }
         if source.showsUpcoming { out.append((.upcoming, .standard)) }
         out += [(.agents, .wide), (.lastSeven, .standard), (.twelveWeeks, .standard),
-                (.workHours, .wide), (.heatmap, .wide), (.agentTime, .standard), (.clockHealth, .standard)]
+                (.workHours, .wide), (.heatmap, .wide), (.agentTime, .standard)]
         if source.showsWeather { out.append((.weather, .standard)) }
         return out
     }
@@ -83,10 +83,6 @@ struct DashboardContent<Source: DashboardSource>: View {
                     }
                 }
             }
-            if let knob = source.knob {
-                KnobDashboardSection(input: knob, columns: columns, now: source.fixedNow ?? Date())
-                    .padding(.top, 12)
-            }
         }
         .padding(20)
         .onGeometryChange(for: Int.self) { DashboardLayout.columns(forWidth: $0.size.width) } action: { columns = $0 }
@@ -136,8 +132,6 @@ struct DashboardCardSlot<Source: DashboardSource>: View {
             WhenYouFocusCard(heatmap: s.heatmap, todayKey: s.stats.value?.today.date, now: now, calendar: s.calendar)
         case .agentTime:
             AgentTimeCard(activity: s.activity, calendar: s.calendar)
-        case .clockHealth:
-            ClockHealthCard(health: s.clockHealth, webURL: s.clockWebURL, now: now)
         case .weather:
             WeatherCard(weather: s.weather, now: now)
         }
