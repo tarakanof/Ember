@@ -1,0 +1,80 @@
+{
+  "device_id": "knob-61fc8c",
+  "diagnostics": "full",
+  "range": "15m",
+  "online": true,
+  "last_seen": "2026-10-04T12:01:00Z",
+  "live_until": "2026-10-04T12:05:00Z",
+  "reset_reason": "poweron",
+  "latest": {
+    "t": "2026-10-04T12:01:00Z",
+    "uptime_sec": 900,
+    "rssi_dbm": -61,
+    "cpu_percent": [
+      20,
+      55.5
+    ],
+    "heap_internal_free_bytes": 47104,
+    "heap_internal_min_bytes": 29000,
+    "heap_internal_largest_bytes": 31744,
+    "psram_free_bytes": null,
+    "psram_min_bytes": null,
+    "psram_largest_bytes": null,
+    "temp_c": 42,
+    "requests_per_min": 36,
+    "request_failures_per_min": 0,
+    "request_latency_avg_ms": 30,
+    "request_latency_max_ms": 64,
+    "render_fps": 30,
+    "frame_avg_ms": 11.5,
+    "frame_max_ms": 22
+  },
+  "points": [
+    {
+      "t": "2026-10-04T12:00:55Z",
+      "uptime_sec": 900,
+      "rssi_dbm": -61,
+      "cpu_percent": [
+        12,
+        40
+      ],
+      "heap_internal_free_bytes": 47104,
+      "heap_internal_min_bytes": 30000,
+      "heap_internal_largest_bytes": 31744,
+      "psram_free_bytes": 7000000,
+      "psram_min_bytes": 6500000,
+      "psram_largest_bytes": 6000000,
+      "temp_c": 41.5,
+      "requests_per_min": 30,
+      "request_failures_per_min": 2,
+      "request_latency_avg_ms": 35.5,
+      "request_latency_max_ms": 120,
+      "render_fps": 29.5,
+      "frame_avg_ms": 12.25,
+      "frame_max_ms": 40
+    },
+    {
+      "t": "2026-10-04T12:01:00Z",
+      "uptime_sec": 900,
+      "rssi_dbm": -61,
+      "cpu_percent": [
+        20,
+        55.5
+      ],
+      "heap_internal_free_bytes": 47104,
+      "heap_internal_min_bytes": 29000,
+      "heap_internal_largest_bytes": 31744,
+      "psram_free_bytes": null,
+      "psram_min_bytes": null,
+      "psram_largest_bytes": null,
+      "temp_c": 42,
+      "requests_per_min": 36,
+      "request_failures_per_min": 0,
+      "request_latency_avg_ms": 30,
+      "request_latency_max_ms": 64,
+      "render_fps": 30,
+      "frame_avg_ms": 11.5,
+      "frame_max_ms": 22
+    }
+  ]
+}

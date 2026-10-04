@@ -57,6 +57,9 @@
       "comment" : "Share of an agent session's context window in use (\"41% context\"). The argument is a percent.",
       "extractionState" : "manual"
     },
+    "%@ fps" : {
+      "comment" : "Frames per second (\"29.5 fps\")."
+    },
     "%@ in 24 h" : {
       "comment" : "Settings › Clock: share of the server's pushes that reached the clock over the last 24 hours (\"98% in 24 h\")."
     },
@@ -263,8 +266,25 @@
     "%@, unreachable" : {
       "comment" : "VoiceOver label of a Settings sidebar device whose server didn't answer: its name (and kind, \"Desk knob, Knob\")."
     },
+    "%@/min" : {
+      "comment" : "A rate per minute (\"31/min\")."
+    },
+    "%@: now %@, range %@ to %@." : {
+      "comment" : "Knob chart VoiceOver summary: series name, latest value, lowest and highest values.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: now %2$@, range %3$@ to %4$@."
+          }
+        }
+      }
+    },
     "%lld" : {
       "comment" : "A bare count next to a stepper (rounds before a long break)."
+    },
+    "%lld dBm" : {
+      "comment" : "Wi-Fi signal strength in decibel-milliwatts (\"-62 dBm\")."
     },
     "%lld h" : {
       "comment" : "A number of hours, abbreviated (\"12 h\")."
@@ -283,7 +303,7 @@
       "extractionState" : "manual"
     },
     "%lld ms" : {
-      "comment" : "A number of milliseconds, abbreviated (\"400 ms\")."
+      "comment" : "A duration in milliseconds (\"38 ms\")."
     },
     "%lld of %lld" : {
       "comment" : "Focus sessions done of the daily goal (\"3 of 8\"); also the preview page counter (\"2 of 5\").",
@@ -316,8 +336,11 @@
     "%lld to go today" : {
       "comment" : "Focus card: focus sessions still needed to meet today's goal."
     },
+    "1 Hour" : {},
     "12 weeks" : {},
+    "15 Minutes" : {},
     "2 digits" : {},
+    "24 Hours" : {},
     "24-hour time" : {},
     "4 digits" : {},
     "5-hour limit resets" : {},
@@ -357,6 +380,7 @@
     "Activity trail" : {},
     "Add the server's token in Connection settings." : {},
     "Address" : {},
+    "Adds network requests and rendering. Uses a little more of the knob's time." : {},
     "Advanced" : {},
     "After %lld min" : {
       "comment" : "Settings › Agents: minutes before an idle session is hidden."
@@ -396,6 +420,9 @@
     "Apps, %@" : {
       "comment" : "VoiceOver label of a device's Apps row in the Settings sidebar; the argument is the device's name (\"Clock\")."
     },
+    "As of %@" : {
+      "comment" : "Dashboard knob Now card while offline: the time of the readings shown (\"As of 21:43\")."
+    },
     "At once" : {},
     "Attention hold" : {},
     "Automatic brightness" : {},
@@ -408,6 +435,8 @@
     "Background" : {},
     "Background Items" : {},
     "Bars whose height and color follow the temperature." : {},
+    "Base" : {},
+    "Basic" : {},
     "Battery" : {},
     "Behavior" : {},
     "Bell and the reminder's title when it comes due." : {},
@@ -451,6 +480,7 @@
     "Checking the board…" : {},
     "Checking…" : {},
     "Chimes" : {},
+    "Chip temperature" : {},
     "Claude" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
@@ -522,6 +552,10 @@
     "Context glass fills with the session's context use; turning it off also stops reporting it. The trail shows other sessions along the bottom." : {},
     "Continuous" : {},
     "Coordinates" : {},
+    "Core %lld" : {
+      "comment" : "Dashboard knob CPU chart: a processor core (\"Core 1\")."
+    },
+    "Couldn't change the knob's diagnostics." : {},
     "Couldn't check" : {},
     "Couldn't dismiss the notification: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
@@ -586,6 +620,7 @@
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
     },
+    "Crash" : {},
     "Crescent moon, after ^[%lld round](inflect: true)." : {
       "comment" : "Settings › Focus preview caption for the long break; the argument is the number of rounds before it."
     },
@@ -601,6 +636,8 @@
     "Delivered (24 h)" : {},
     "Desk knob" : {},
     "Devices" : {},
+    "Diagnostics" : {},
+    "Diagnostics are off" : {},
     "Discover Clocks…" : {},
     "Discovered Servers" : {},
     "Dismiss Notification" : {},
@@ -686,6 +723,7 @@
     "Factory Reset" : {},
     "Factory Reset…" : {},
     "Fahrenheit" : {},
+    "Failures" : {},
     "Find Clock from This Mac…" : {},
     "Firmware" : {},
     "First model" : {},
@@ -718,8 +756,11 @@
       "comment" : "Settings › Knob confirm title; the argument is the knob's name (\"Desk knob\")."
     },
     "Found via Bonjour. Click Use to fill in the server URL. The server must run on host networking, and Ember needs Local Network access." : {},
+    "Frame rate" : {},
+    "Free" : {},
     "Free memory" : {},
     "From" : {},
+    "Full" : {},
     "General" : {},
     "Goal" : {},
     "Goal %@ a day, met on ^[%lld day](inflect: true)." : {
@@ -739,6 +780,7 @@
     "Goals" : {},
     "Good" : {},
     "Green under 70%, amber, red from 90%." : {},
+    "Hardware stats" : {},
     "Header" : {},
     "Hidden" : {},
     "Hide when idle" : {},
@@ -768,18 +810,24 @@
     "In use" : {},
     "Installed from the CLI" : {},
     "Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw." : {},
+    "Internal memory" : {},
     "It's installed from the command line. Use Move to Ember first." : {
       "comment" : "Settings › Agents failure when turning on an agent whose CLI LaunchAgent is loaded.",
       "extractionState" : "manual"
     },
     "Its screen says “Connect me to your Mac” when it isn't set up yet." : {},
+    "Its stats appear here once it checks in with Ember again." : {},
     "Joining %@" : {
       "comment" : "Knob setup progress step; the argument is the Wi-Fi network name."
     },
     "Keep on screen until dismissed" : {},
     "Knob" : {},
+    "Knob Settings" : {},
     "Knob name" : {},
+    "Knob settings" : {},
+    "Knob stats unavailable" : {},
     "LED matrix" : {},
+    "Largest block" : {},
     "Last 7 days" : {},
     "Last check-in" : {},
     "Last press" : {},
@@ -787,10 +835,13 @@
     "Last reminder didn't reach the clock: %@" : {
       "comment" : "Settings › Calendar: why the last reminder failed (a short error message)."
     },
+    "Last restart" : {},
     "Latitude" : {},
     "Latitude runs from −90 to 90 and longitude from −180 to 180." : {},
     "Launch at login" : {},
     "Leading zero" : {},
+    "Line" : {},
+    "Live" : {},
     "Loading" : {},
     "Loading…" : {},
     "Local Network" : {},
@@ -812,6 +863,8 @@
     "Long-press the knob to try a mood; it holds for the time set here." : {},
     "Longitude" : {},
     "Low" : {},
+    "Low voltage" : {},
+    "Lowest free" : {},
     "Measured now" : {},
     "Meeting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -899,6 +952,7 @@
     "No clock configured" : {},
     "No clocks found. Check that the clock is on and on the same network." : {},
     "No daily goal set" : {},
+    "No data in this range" : {},
     "No data yet" : {},
     "No focus sessions yet — click Start Focus to begin" : {},
     "No knob connected" : {},
@@ -969,6 +1023,9 @@
       "comment" : "Menu header: the time the server stopped answering.",
       "extractionState" : "manual"
     },
+    "Offline, last report %@" : {
+      "comment" : "Dashboard knob status; the argument is a relative time (\"5 minutes ago\")."
+    },
     "Offline: Local Network access is off" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1007,6 +1064,8 @@
       "extractionState" : "manual"
     },
     "Overlay" : {},
+    "PSRAM" : {},
+    "PSRAM free" : {},
     "Page" : {},
     "Page %lld of %lld" : {
       "comment" : "Settings › Knob › Apps: where an app's page sits in the knob's page order (\"Page 2 of 3\").",
@@ -1062,9 +1121,13 @@
     "Popup" : {},
     "Popups" : {},
     "Position" : {},
+    "Power on" : {},
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
+    "Processor" : {},
+    "Processor load" : {},
+    "Processor, memory, temperature and Wi-Fi, every minute." : {},
     "Progress" : {},
     "Provider" : {},
     "Pulsing" : {},
@@ -1096,6 +1159,7 @@
     "Reminders access off" : {},
     "Reminders access on" : {},
     "Removes the command-line LaunchAgent with the same name, then lets Ember run the bundled helper." : {},
+    "Rendering" : {},
     "Repair" : {},
     "Repeat until dismissed" : {},
     "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start." : {},
@@ -1107,8 +1171,13 @@
     "Reporting" : {},
     "Reporting is on, but macOS isn't running its background helper. Repair registers it again." : {},
     "Reporting keeps running after you quit Ember. Turn it off before deleting Ember to remove it completely." : {},
+    "Request and rendering stats need full diagnostics." : {},
+    "Request latency" : {},
+    "Requests" : {},
+    "Requests per minute" : {},
     "Rescan" : {},
     "Reset clock" : {},
+    "Reset pin" : {},
     "Reset to Firmware Defaults" : {},
     "Resets %@" : {
       "comment" : "Usage card tooltip: when the usage window resets, relative (\"in 2 hours\")."
@@ -1116,6 +1185,7 @@
     "Restart" : {},
     "Restart Clock…" : {},
     "Restart the clock?" : {},
+    "Restarted by software" : {},
     "Restarting" : {},
     "Resume" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1200,6 +1270,7 @@
     },
     "Show AM/PM" : {},
     "Show for" : {},
+    "Show in Dashboard" : {},
     "Show next meeting" : {},
     "Show on Clock" : {},
     "Show on the knob" : {},
@@ -1211,10 +1282,12 @@
     "Shown On" : {},
     "Shown in popups" : {},
     "Shows the macOS prompt." : {},
+    "Signal" : {},
     "Skip Phase" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Slowest" : {},
     "Snow" : {},
     "Sound" : {},
     "Sounds" : {},
@@ -1312,6 +1385,7 @@
     "The knob dims and brightens with the clock. It never goes below the minimum." : {},
     "The knob forgets its Wi-Fi, Ember address and token, then restarts to its setup screen. Ember keeps its settings here until you forget it." : {},
     "The knob has to run cinder. Settings change here once it's set up; Wi-Fi changes need the cable again." : {},
+    "The knob is offline" : {},
     "The knob is on Wi-Fi (%@) but can't reach %@." : {
       "comment" : "Knob setup error; the knob's IP address, then the Ember URL it tried.",
       "localizations" : {
@@ -1339,6 +1413,9 @@
     "The knob reported Wi-Fi error %lld." : {
       "comment" : "Knob setup error; the argument is the Improv error code number."
     },
+    "The knob reports every 5 seconds while this window is open." : {},
+    "The knob sends hardware stats every minute, and every 5 seconds while this window is open. It needs firmware with diagnostics." : {},
+    "The knob sends no hardware stats." : {},
     "The knob stays at this brightness. It never goes below the minimum." : {},
     "The knob stopped answering. Check that it's plugged in and try again." : {},
     "The knob was disconnected. Plug it back in and try again." : {},
@@ -1399,6 +1476,7 @@
     "Time" : {},
     "Time & Date" : {},
     "Time per app" : {},
+    "Time range" : {},
     "Time until the 5-hour window resets." : {},
     "Today" : {},
     "Today %@" : {
@@ -1451,7 +1529,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Turn On Diagnostics" : {},
+    "Turn On Full Diagnostics" : {},
     "Turn it on in Settings › Sources › Focus." : {},
+    "Turn on diagnostics to have the knob report its processor, memory, temperature and Wi-Fi. Full diagnostics add network requests and rendering." : {},
     "Turn the knob to move between pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
     "USB" : {},
@@ -1477,6 +1558,7 @@
     },
     "Update the Ember server to let an app follow the text color again." : {},
     "Update the Ember server to mute the clock or set its volume here." : {},
+    "Update the Ember server to see the knob's hardware stats." : {},
     "Update the clock's firmware to NG 1.1 or later to let an app follow the text color again." : {},
     "Update the clock's firmware to NG 1.1 or later to mute it or set its volume here." : {},
     "Updated" : {},
@@ -1499,6 +1581,7 @@
     "Usage cards join the rotation once the 5-hour window reaches this level. Server-wide." : {},
     "Use" : {},
     "Use Current Location" : {},
+    "Use Full Diagnostics" : {},
     "Use http://address:port for the Ember address. The knob can't use https, IPv6 or a path." : {},
     "Use http://address:port. The knob can't use https, IPv6 or a path." : {},
     "Use source color" : {},
@@ -1519,10 +1602,12 @@
         }
       }
     },
+    "Waiting for the knob's first report" : {},
     "Waiting: an agent needs you." : {},
     "Waiting: an agent on %@ needs you." : {
       "comment" : "Knob bot preview: the host whose agent is waiting (\"DT-MBP\")."
     },
+    "Watchdog" : {},
     "Weak" : {},
     "Weather" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1547,6 +1632,8 @@
     "When you focus" : {},
     "Wi-Fi" : {},
     "Wi-Fi passwords are 8 to 63 characters." : {},
+    "Wi-Fi signal" : {},
+    "Woke from sleep" : {},
     "Work hours" : {},
     "Work hours per day" : {},
     "Working: an agent is running." : {},

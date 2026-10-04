@@ -70,6 +70,8 @@ func TestDeviceTokenScope(t *testing.T) {
 		{"GET", "/v1/devices/" + m.ID + "/config", "", m.Token, http.StatusUnauthorized},
 		{"PUT", "/v1/devices/" + m.ID + "/config", `{}`, m.Token, http.StatusUnauthorized},
 		{"POST", "/v1/devices/" + m.ID + "/rotate", "", m.Token, http.StatusUnauthorized},
+		{"GET", "/v1/devices/" + m.ID + "/stats", "", m.Token, http.StatusUnauthorized},
+		{"POST", "/v1/devices/" + m.ID + "/stats/live", "", m.Token, http.StatusUnauthorized},
 		{"DELETE", "/v1/devices/" + m.ID, "", m.Token, http.StatusUnauthorized},
 		{"GET", "/admin/doctor", "", m.Token, http.StatusUnauthorized},
 		{"POST", "/v1/devices/self/checkin", `{}`, testToken, http.StatusUnauthorized},

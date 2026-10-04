@@ -105,6 +105,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/devices/{id}/config", http.HandlerFunc(a.handleDeviceConfigGetOwner))
 	writeMux.Handle("PUT /v1/devices/{id}/config", http.HandlerFunc(a.handleDeviceConfigPutOwner))
 	writeMux.Handle("POST /v1/devices/{id}/rotate", http.HandlerFunc(a.handleDeviceRotate))
+	writeMux.Handle("GET /v1/devices/{id}/stats", http.HandlerFunc(a.handleKnobStats))
+	writeMux.Handle("POST /v1/devices/{id}/stats/live", http.HandlerFunc(a.handleKnobStatsLive))
 	mux.Handle("/v1/", rateLimit(a, requireAuth(a, a.logger, writeMux)))
 
 	mux.Handle("POST /v1/devices/self/checkin", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceCheckin))))

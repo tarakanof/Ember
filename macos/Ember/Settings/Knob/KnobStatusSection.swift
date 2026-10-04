@@ -5,6 +5,7 @@ struct KnobStatusSection: View {
     @Environment(AppEnvironment.self) private var env
     let setUp: () -> Void
     @State private var confirmForget = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let model = env.knob
@@ -37,6 +38,9 @@ struct KnobStatusSection: View {
                     .help("Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw.")
                 }
                 LabeledContent("Settings") { applied(knob) }
+                LabeledContent("Hardware stats") {
+                    Button("Show in Dashboard") { showKnobDashboard(openWindow: openWindow, env: env) }
+                }
                 KnobUSBRow()
                 HStack {
                     Button("Set Up Knob…", action: setUp)

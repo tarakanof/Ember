@@ -113,7 +113,9 @@ Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
 accept a knob device token), `GET/POST /v1/devices`, `GET/PUT
 /v1/devices/{id}/config` (same merge), `PATCH`/`DELETE /v1/devices/{id}`,
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
-registry"),
+registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
+`POST /v1/devices/{id}/stats/live` (knob diagnostics, memory only — see
+ARCHITECTURE "Knob diagnostics"),
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage`, `GET/PUT /v1/usage/config`, `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional

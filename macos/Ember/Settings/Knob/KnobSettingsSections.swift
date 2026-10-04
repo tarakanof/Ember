@@ -86,6 +86,13 @@ struct KnobPagesSection: View {
     }
 }
 
+/// Opens the Dashboard scrolled to the knob section.
+@MainActor
+func showKnobDashboard(openWindow: OpenWindowAction, env: AppEnvironment) {
+    env.dashboardScrollTarget = KnobDashboardSection.anchor
+    presentWindow(id: WindowID.dashboard, using: openWindow)
+}
+
 func knobPageTitle(_ id: String) -> LocalizedStringKey {
     switch id {
     case "bot": "Bot"
@@ -97,6 +104,15 @@ func knobPageTitle(_ id: String) -> LocalizedStringKey {
 
 struct KnobPollSection: View {
     @Environment(AppEnvironment.self) private var env
+    @Environment(\.openWindow) private var openWindow
+
+    private func diagnosticsHelp(_ level: KnobDiagnostics) -> LocalizedStringKey {
+        switch level {
+        case .off: "The knob sends no hardware stats."
+        case .basic: "Processor, memory, temperature and Wi-Fi, every minute."
+        case .full: "Adds network requests and rendering. Uses a little more of the knob's time."
+        }
+    }
 
     var body: some View {
         let knob = env.knob
@@ -109,6 +125,17 @@ struct KnobPollSection: View {
                 step: 0.5) { v in
                 Text("\(Text(v, format: .number.precision(.fractionLength(0...1)))) s",
                      comment: "Settings › Knob: how often the knob polls Ember, in seconds (\"2.5 s\").")
+            }
+            Picker("Diagnostics", selection: knob.binding(\.diagnostics)) {
+                Text("Off").tag(KnobDiagnostics.off)
+                Text("Basic").tag(KnobDiagnostics.basic)
+                Text("Full").tag(KnobDiagnostics.full)
+            }
+            LabeledContent {
+                Button("Show in Dashboard") { showKnobDashboard(openWindow: openWindow, env: env) }
+                    .disabled(s.diagnostics == .off)
+            } label: {
+                Text(diagnosticsHelp(s.diagnostics)).foregroundStyle(.secondary).font(.callout)
             }
         } header: {
             Text("Behavior")

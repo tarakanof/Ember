@@ -1676,7 +1676,8 @@ feed's route is in `LiveModel`'s fetch switch.
 **The Dashboard window (#111)** is a card grid (`macos/Ember/Dashboard/`):
 Clock (live mirror + next/previous/dismiss/power), Focus, Usage, Upcoming,
 Agents, Last 7 days, 12 weeks, Work hours, When you focus (weekday × hour
-heatmap + 12-week strip), Agent time, Clock health, Weather. 3/2/1 columns
+heatmap + 12-week strip), Agent time, Clock health, Weather, then the Knob
+section when a knob is registered (see "Knob diagnostics"). 3/2/1 columns
 at ≥1040/≥700 pt; a wide card waits for a half-filled row to fill. Every
 card reads plain values (`DashboardData`, built from `LiveModel` by
 `DashboardWindow`) and renders through `FeedStateView`, so previews and
@@ -1772,7 +1773,9 @@ the same board finds its record.
   `pomodoro`, `weather`; any id matching `^[a-z][a-z0-9_-]{0,15}$` is kept, so
   firmware can add pages without a server release; order = page order; no
   duplicates), `home` (must name a page that is on), `poll_ms` 1000-10000,
-  `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600}`. Unlike the
+  `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600}`,
+  `diagnostics` `off|basic|full` (default `off`; a record stored before #239
+  loads as `off`; see "Knob diagnostics" below). Unlike the
   overlay's top-level `mergeSetting`, the owner PUT decodes the body onto a copy
   of the current config with unknown fields rejected: nested objects merge
   field by field (`{"brightness":{"level":100}}` keeps the other brightness
@@ -1855,6 +1858,129 @@ the same board finds its record.
   still. The Pages overview has no timers: it redraws when the polled data
   changes. `KNOB_SNAPSHOT_DIR=… swift test --filter knobFaces` writes PNGs
   of every face.
+
+### Knob diagnostics — `cmd/ember/devices_stats.go` (#239)
+
+Hardware stats for the Dashboard's Knob section. The knob's
+`config.diagnostics` decides what it sends; the server keeps the samples in
+memory only (a restart loses them; a checkin never writes the store for
+them, see #233); the owner reads them per range and can ask for faster
+reports ("live mode"). Firmware side: tarakanof/cinder#31.
+
+**Checkin `stats` object (firmware → server).** Optional on
+`POST /v1/devices/self/checkin`, next to the existing top-level fields, which
+still carry `rssi` (dBm), `heap_internal_free` and `heap_internal_largest`
+(bytes) and `uptime_s`; the server takes those into the sample, so `stats`
+does not repeat them. A top-level `rssi` of 0, or a heap or uptime of 0, reads
+as "not measured" (null in the stats), so send the real value or leave it
+out. With `diagnostics` `off` the knob sends no `stats`. Every field is
+optional; omit what the board can't measure (PSRAM fields on a board without
+PSRAM) rather than sending 0. Unknown keys in `stats` are ignored, so firmware
+can add fields before the server knows them. The level is the server's
+call: with `off` it discards any `stats` it gets, and at `basic` it drops the
+full-only fields, so a knob that hasn't applied a level change yet can't
+show data the owner turned off.
+
+| Field | Type, unit | Level | Meaning |
+|---|---|---|---|
+| `period_ms` | int, ms, 1..3 600 000 | basic | Window the averages and counts below cover: time since the previous report; for the first report after boot (or after diagnostics were turned on), time since measuring started. Missing = 60 000. |
+| `cpu_pct` | array of number, %, 0..100, ≤ 8 entries | basic | Load per core over the window (index = core), e.g. idle-task runtime share. |
+| `heap_internal_min` | int, bytes | basic | Lowest internal free heap since boot (`heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`). |
+| `psram_free` | int, bytes | basic | Free PSRAM now. |
+| `psram_min` | int, bytes | basic | Lowest free PSRAM since boot. |
+| `psram_largest` | int, bytes | basic | Largest free PSRAM block now. |
+| `temp_c` | number, °C, -40..150 | basic | Chip temperature sensor. |
+| `reset_reason` | string `^[a-z][a-z0-9_]{0,15}$` | basic | Why the chip last restarted: `poweron`, `ext`, `sw`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `sdio`, `usb`, `jtag`, `unknown` (ESP-IDF `esp_reset_reason`, lower-cased without the `ESP_RST_` prefix). |
+| `req_ok` | int, count | full | HTTP requests to Ember that got an answer (any 2xx/304) during the window. |
+| `req_fail` | int, count | full | Requests that failed (transport error, timeout, non-2xx/304) during the window. |
+| `req_ms_avg` | number, ms | full | Mean request duration over the window. |
+| `req_ms_max` | int, ms | full | Slowest request in the window. |
+| `fps` | number, frames/s | full | Rendered frames per second over the window. |
+| `frame_ms_avg` | number, ms | full | Mean time to render a frame. |
+| `frame_ms_max` | int, ms | full | Slowest frame in the window. |
+
+Counts and averages are **per window, reset after each report** (not
+since boot). Example (full):
+`"stats":{"period_ms":60000,"cpu_pct":[12,40],"heap_internal_min":30000,"psram_free":7000000,"psram_min":6500000,"psram_largest":6000000,"temp_c":41.5,"reset_reason":"poweron","req_ok":28,"req_fail":2,"req_ms_avg":35.5,"req_ms_max":120,"fps":29.5,"frame_ms_avg":12.25,"frame_ms_max":40}`.
+A `stats` value that isn't an object or has a field out of range (negative
+bytes or counts, CPU outside 0..100, more than 8 cores, temperature outside
+-40..150, a malformed `reset_reason`) is dropped whole and logged
+(`device stats dropped`); the checkin itself still answers 200, so a
+firmware bug never costs config or token delivery.
+
+**Cadence and live mode.** Normally the knob sends `stats` with its regular
+checkin (every 60 s, and on epoch/config changes). Both the checkin answer
+and `GET /v1/devices/self/view` carry `"diag_live_until":<server Unix
+seconds>` while live mode is on and diagnostics are not `off`; the field is
+absent otherwise (so the view body and ETag are unchanged without it; in the
+view it is the last field). The checkin answer now also has the
+`X-Ember-Now` header, like the view. While the server's now
+(`X-Ember-Now`, offset applied) is before `diag_live_until` the knob checks in
+**every 5 s** with `stats` (`period_ms` ≈ 5000); after it, or when the field
+disappears, it goes back to 60 s. The knob learns of live mode within one
+view poll (`poll_ms`). A live checkin is an ordinary checkin: it reports
+`config_version` and the usual fields, and the knob applies a `config` or
+`new_token` in its answer exactly as at 60 s. The app asks for live mode
+only while the 15-minute range is shown (the only range that draws 5 s
+samples) and sends `seconds:0` when the user picks another range.
+
+**Storage.** `knobStatsStore`: per device a live ring (120 samples, read back
+10 min) holding each sample whole, and a minute ring (1440 = 24 h) where
+samples of one wall-clock minute fold into one bucket: gauges take the
+newest value, `*_min` the lowest, `*_max` the highest, averages and rates the
+`period_ms`-weighted mean; a bucket's `t` is its newest report. Counts become
+rates on arrival (`(req_ok+req_fail)·60000/period_ms`). Deleting the device
+drops its series.
+
+**`GET /v1/devices/{id}/stats?range=15m|1h|24h`** (owner token; default
+`1h`, anything else 400, unknown id 404). Answer (dashboard wire
+conventions: whole-second RFC 3339, `null` for unknown, units in keys):
+`device_id`, `diagnostics`, `range`, `online` (checked in within 150 s),
+`last_seen` (last checkin, with or without stats), `live_until` (null when
+not live or diagnostics off), `reset_reason` (of the newest sample),
+`latest` (newest sample, null before the first) and `points` (ascending,
+`[]` when empty). `15m` = minute buckets before the oldest live sample, then
+the live samples (5 s while live); `1h` = minute buckets; `24h` = minute
+buckets folded into 5-minute buckets (≤ 288 points). A point:
+`t`, `uptime_sec`, `rssi_dbm`, `cpu_percent` (array), `heap_internal_free_bytes`,
+`heap_internal_min_bytes`, `heap_internal_largest_bytes`, `psram_free_bytes`,
+`psram_min_bytes`, `psram_largest_bytes`, `temp_c`, `requests_per_min`,
+`request_failures_per_min`, `request_latency_avg_ms`, `request_latency_max_ms`,
+`render_fps`, `frame_avg_ms`, `frame_max_ms`. Goldens: `knob_stats.json`,
+`knob_stats_empty.json` in `cmd/ember/testdata/dashboard` (EmberKit decodes
+them too).
+
+**`POST /v1/devices/{id}/stats/live`** (owner token): body optional
+`{"seconds":N}`, N 0..600, default 180; 0 stops live mode. Sets the deadline
+to now + N (not extended: each call replaces it) and answers
+`{"live_until":RFC3339|null}`. 409 while the device's diagnostics are
+`off`. In memory only.
+
+**App.** Settings › Devices › Knob › Behavior has the Diagnostics picker
+(Off/Basic/Full); Status has "Show in Dashboard". The Dashboard's Knob section
+(`Ember/Dashboard/Knob/`) sits below the cards when a knob is registered:
+a segmented 15 Minutes / 1 Hour / 24 Hours picker, a "Now" card of
+`Gauge`s (`.accessoryCircular`: CPU, temperature, Wi-Fi, frame rate) and
+facts, and Swift Charts cards (CPU per core on a fixed 0–100 % axis; memory,
+PSRAM, temperature, Wi-Fi, requests, latency, rendering on fitted axes;
+`.monotone` lines broken at gaps of 3 missed reports, hover callout,
+`AXChartDescriptor` audio graphs). States: diagnostics off (buttons to turn on
+Basic or Full), waiting for the first report, offline (last data with an
+"Offline, last report …" header), basic level (full-only cards offer Full),
+server too old. At basic level one row offers full diagnostics instead of
+the three full-only cards. Charts use a categorical palette (blue, orange,
+purple, grey; no good/bad colours), dashed lines for low-water marks,
+slowest and failures, with a legend that draws each stroke; `.linear`
+lines (`.stepEnd` for integer dBm); an area only on charts with a zero
+baseline; bytes in decimal units fixed per chart. Offline, the Now card is
+muted and captioned "As of <time>". `KnobStatsModel` polls only while the
+window is visible (occlusion, as above) every 5 s / 15 s / 60 s per range;
+at 15 min it POSTs live mode for 180 s and renews it every 60 s, and it
+POSTs `seconds:0` on leaving that range or when its task ends (window hidden
+or closed), so a crash leaves at most 3 min of live mode.
+`KnobStatsFake` drives previews and the snapshot render (Debug build:
+`EMBER_KNOB_SNAPSHOTS=<dir> Ember.app/Contents/MacOS/Ember` writes PNGs and
+quits; it skips server, producers and USB).
 
 ### Config load and `/admin/reload`
 
@@ -2030,7 +2156,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   | `POST /hooks/awtrix/{button,boot}` | none (clock callbacks; rate-limited) |
   | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | `EMBER_TOKEN` **or** a device token |
   | `POST /v1/devices/self/checkin`, `GET /v1/devices/self/{config,view}` | device token only |
-  | every other `/v1/*` (incl. `/v1/devices` admin) | `EMBER_TOKEN` only |
+  | every other `/v1/*` (incl. `/v1/devices` admin and `/v1/devices/{id}/stats`) | `EMBER_TOKEN` only |
   | `/admin/*` | `EMBER_TOKEN` only |
 
   Device tokens fail closed with the rest: an unset `EMBER_TOKEN` rejects them
@@ -2055,7 +2181,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus
-  `"new_token":"ekd_…"` while a rotation is open. `GET
+  `"new_token":"ekd_…"` while a rotation is open, plus `"diag_live_until"`
+  in live mode; an optional `stats` object carries diagnostics (both in
+  "Knob diagnostics"). `GET
   /v1/devices/self/config` answers `{"config_version":7,"config":{…}}`.
 - **Knob view (device token, #234).** `GET /v1/devices/self/view` is the
   knob's one poll (`devices_view.go`): everything it shows, about 400 B with
@@ -2083,6 +2211,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
   reads memory only: no store write, no clock probe, no checkin recorded, no
   session marshal. `/state` gets no ETag: its `now` changes every response.
   A long-poll `?wait=` (#235) builds on the same `knobView` body and ETag.
+  In live mode the body ends with `"diag_live_until":<Unix s>` (see "Knob
+  diagnostics").
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
   ignores it — never in the `StatusRequest` body.

@@ -179,6 +179,11 @@ func readDeviceState(kv settingsKV) (deviceState, error) {
 	if err := json.Unmarshal([]byte(blob), &st); err != nil {
 		return st, fmt.Errorf("decode devices: %w", err)
 	}
+	for i := range st.Devices {
+		if st.Devices[i].Config.Diagnostics == "" {
+			st.Devices[i].Config.Diagnostics = knobDiagOff
+		}
+	}
 	return st, nil
 }
 
@@ -271,6 +276,18 @@ func (r *deviceRegistry) versions(id string) (uint64, int, error) {
 		return 0, 0, errDeviceNotFound
 	}
 	return r.state.Epoch, d.ConfigVersion, nil
+}
+
+// diagnostics returns device id's diagnostics level and its last checkin.
+func (r *deviceRegistry) diagnostics(id string) (string, *deviceCheckin, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.state.find(id)
+	if d == nil {
+		return "", nil, errDeviceNotFound
+	}
+	c := d.clone()
+	return c.Config.Diagnostics, c.LastCheckin, nil
 }
 
 func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
@@ -469,6 +486,9 @@ type checkinResult struct {
 	ConfigVersion int           `json:"config_version"`
 	Config        *knobSettings `json:"config,omitempty"`
 	NewToken      string        `json:"new_token,omitempty"`
+	// DiagLiveUntil is the live-mode deadline (server Unix seconds) while
+	// the owner's dashboard asks for 5 s stats.
+	DiagLiveUntil *int64 `json:"diag_live_until,omitempty"`
 }
 
 // checkin records the device's status report. The result carries the config

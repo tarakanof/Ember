@@ -18,6 +18,10 @@ func TestKnobSettingsValidate(t *testing.T) {
 		ok     bool
 	}{
 		{"defaults", func(*knobSettings) {}, true},
+		{"diagnostics basic", func(s *knobSettings) { s.Diagnostics = "basic" }, true},
+		{"diagnostics full", func(s *knobSettings) { s.Diagnostics = "full" }, true},
+		{"diagnostics unknown", func(s *knobSettings) { s.Diagnostics = "verbose" }, false},
+		{"diagnostics empty", func(s *knobSettings) { s.Diagnostics = "" }, false},
 		{"level above 255", func(s *knobSettings) { s.Brightness.Level = 256 }, false},
 		{"level negative", func(s *knobSettings) { s.Brightness.Level = -1 }, false},
 		{"floor zero", func(s *knobSettings) { s.Brightness.Floor = 0 }, false},
@@ -72,7 +76,7 @@ func TestKnobSettingsWireShape(t *testing.T) {
 	}
 	want := `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
 		`"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true}],` +
-		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20}}`
+		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"diagnostics":"off"}`
 	if string(b) != want {
 		t.Fatalf("wire shape\n got %s\nwant %s", b, want)
 	}
