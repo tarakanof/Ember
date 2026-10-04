@@ -1,12 +1,15 @@
 import CoreGraphics
 import Foundation
 
-/// The knob's weather sky: sprite geometry, particles and timing for the
-/// 200 × 140 sky canvas, ported from cinder's `weather_scene.c`.
+/// The knob's weather sky: particles, timing and the draw list for the sky
+/// canvas, ported from cinder's `weather_scene.c`. Sizes, layout and timing
+/// come from the theme; the sprite outlines are drawn in code.
 /// Deterministic for a seed and a sequence of `step` calls.
 public struct KnobWeatherScene: Sendable {
-    public enum Sprite: Int, Sendable, CaseIterable {
-        case rain, flakeS, flakeL, cloudL, cloudS, bolt, moon, star, sun, rays, fog
+    /// Raw values are the theme's `sprites` keys.
+    public enum Sprite: String, Sendable, CaseIterable {
+        case rain, flakeS = "flake_s", flakeL = "flake_l", cloudL = "cloud_l", cloudS = "cloud_s"
+        case bolt, moon, star, sun, rays, fog
     }
 
     /// One sprite copy, back to front: top-left at (x, y) in sky pixels.
@@ -28,16 +31,17 @@ public struct KnobWeatherScene: Sendable {
         public var fillRect: CGRect?
     }
 
-    static let rayFrames = 16
-    static let width = 200.0, height = 140.0
+    /// The sprite outlines' rain slant (dx per dy); `scene.rain.slant` must match.
     static let rainSlant = -4.0 / 14.0
-    static let starsX = [28, 158, 44, 150, 178, 14], starsY = [26, 18, 98, 104, 60, 62]
+
+    let sc: KnobTheme.Weather.Scene
+    let width: Double, height: Double
 
     public private(set) var look: KnobWeatherLook?
     public private(set) var t = 0.0
     private var rng: UInt32
     private var particles: [Particle] = []
-    private var stars: [(Int, Int)] = []
+    private var stars: [(Double, Double)] = []
     private var twinkle = 0, twinkleStart = 0.0, nextTwinkle = 0.0
     private var nextBolt = 0.0, boltOn = -1.0, boltOff = -1.0, boltOn2 = -1.0, boltOff2 = -1.0
     private var boltX = 0
@@ -47,55 +51,69 @@ public struct KnobWeatherScene: Sendable {
         var sprite = Sprite.rain
     }
 
-    public init(seed: UInt32 = 0x5745_4154) {
+    public init(seed: UInt32 = 0x5745_4154, theme: KnobTheme.Weather = KnobTheme.standard.weather) {
         rng = seed == 0 ? 0x9E37_79B9 : seed
+        sc = theme.scene
+        width = theme.sky.widthPx; height = theme.sky.heightPx
     }
 
     /// Seconds between frames for a look; 0 for a still one.
-    public static func period(_ l: KnobWeatherLook) -> Double {
+    public static func period(_ l: KnobWeatherLook, scene: KnobTheme.Weather.Scene = KnobTheme.standard.weather.scene) -> Double {
         if l.still { return 0 }
         switch l.face {
-        case .rain, .storm: return 1.0 / 12
-        case .snow: return 1.0 / 10
-        default: return 1.0 / 4
+        case .rain, .storm: return 1 / scene.fps.rain
+        case .snow: return 1 / scene.fps.snow
+        default: return 1 / scene.fps.other
         }
     }
+
+    /// A sprite's size in sky pixels.
+    public func size(_ s: Sprite) -> CGSize {
+        let v = sc.sprites[s.rawValue] ?? [0, 0]
+        return CGSize(width: v[0], height: v[1])
+    }
+
+    private mutating func range(_ v: [Double]) -> Double { v[0] + frand() * v[1] }
 
     /// Switches the face; particles and stars respawn only when it changed.
     public mutating func setLook(_ l: KnobWeatherLook) {
         guard l != look else { return }
         look = l
-        particles = (0..<Self.dropCount(l)).map { _ in spawn(initial: true) }
-        stars = (0..<Self.starsX.count).map { i in
-            (Self.starsX[i] + Int(frand() * 8) - 4, Self.starsY[i] + Int(frand() * 8) - 4)
+        particles = (0..<dropCount(l)).map { _ in spawn(initial: true) }
+        let st = sc.stars, j = st.jitter
+        stars = st.x.indices.map { i in
+            (st.x[i] + Double(Int(frand() * j)) - (j / 2).rounded(.down),
+             st.y[i] + Double(Int(frand() * j)) - (j / 2).rounded(.down))
         }
-        twinkle = 0; twinkleStart = t; nextTwinkle = t + 1
+        twinkle = 0; twinkleStart = t; nextTwinkle = t + st.firstTwinkleS
         boltOn = -1; boltOff = -1; boltOn2 = -1; boltOff2 = -1
-        nextBolt = t + 2 + 3 * frand()
+        nextBolt = t + sc.bolt.firstS[0] + sc.bolt.firstS[1] * frand()
     }
 
     /// Advances the scene by `dt` seconds (capped at 0.5 like the firmware).
     public mutating func step(_ dt: Double) {
         guard let look else { return }
-        let dt = min(max(dt, 0), 0.5)
+        let dt = min(max(dt, 0), sc.maxStepS)
         t += dt
         for i in particles.indices {
             particles[i].x += particles[i].vx * dt
             particles[i].y += particles[i].vy * dt
-            if particles[i].y > Self.height - Self.size(particles[i].sprite).height {
+            if particles[i].y > height - size(particles[i].sprite).height {
                 particles[i] = spawn(initial: false)
             }
         }
         if t >= nextTwinkle {
             twinkle = Int(frand() * Double(stars.count)) % max(stars.count, 1)
             twinkleStart = t
-            nextTwinkle = t + 0.8 + 0.8 * frand()
+            nextTwinkle = t + sc.stars.twinkleS[0] + sc.stars.twinkleS[1] * frand()
         }
+        let bo = sc.bolt
         if look.face == .storm && t >= nextBolt {
-            boltOn = t; boltOff = t + 0.25
-            if frand() < 0.5 { boltOn2 = t + 0.4; boltOff2 = t + 0.6 } else { boltOn2 = -1; boltOff2 = -1 }
-            boltX = 60 + Int(frand() * 70)
-            nextBolt = t + 4 + 6 * frand()
+            boltOn = t; boltOff = t + bo.onS
+            if frand() < bo.doubleChance { boltOn2 = t + bo.secondS[0]; boltOff2 = t + bo.secondS[1] }
+            else { boltOn2 = -1; boltOff2 = -1 }
+            boltX = Int(bo.x[0]) + Int(frand() * bo.x[1])
+            nextBolt = t + bo.gapS[0] + bo.gapS[1] * frand()
         }
     }
 
@@ -116,36 +134,46 @@ public struct KnobWeatherScene: Sendable {
 
     private mutating func frand() -> Double { Double(next() >> 8) / 16_777_216 }
 
-    static func dropCount(_ l: KnobWeatherLook) -> Int {
+    static func level(_ i: KnobWeatherLook.Intensity) -> Int {
+        switch i {
+        case .light: 0
+        case .heavy: 2
+        case .none, .moderate: 1
+        }
+    }
+
+    func dropCount(_ l: KnobWeatherLook) -> Int {
         switch l.face {
-        case .rain: l.intensity == .light ? 5 : l.intensity == .heavy ? 16 : 10
-        case .storm: l.intensity == .heavy ? 14 : 10
-        case .snow: l.intensity == .light ? 6 : l.intensity == .heavy ? 12 : 9
+        case .rain: sc.drops.rain[Self.level(l.intensity)]
+        case .storm: sc.drops.storm[Self.level(l.intensity)]
+        case .snow: sc.drops.snow[Self.level(l.intensity)]
         default: 0
         }
     }
 
     private mutating func spawn(initial: Bool) -> Particle {
         var p = Particle()
-        let dropTop = 50.0
+        let rn = sc.rain, sn = sc.snow
+        let dropTop = rn.top
         if look?.face == .snow {
-            p.sprite = frand() < 0.4 ? .flakeL : .flakeS
-            let z = Self.size(p.sprite)
-            p.amp = 4 + 4 * frand()
-            p.freq = 0.5 + 0.4 * frand()
+            p.sprite = frand() < sn.largeShare ? .flakeL : .flakeS
+            let z = size(p.sprite)
+            p.amp = range(sn.amp)
+            p.freq = range(sn.freq)
             p.phase = 2 * .pi * frand()
-            p.x = 40 + p.amp + frand() * (160 - 40 - 2 * p.amp - z.width)
-            let ymax = Self.height - z.height
+            p.x = sn.x[0] + p.amp + frand() * (sn.x[1] - sn.x[0] - 2 * p.amp - z.width)
+            let ymax = height - z.height
             p.y = initial ? dropTop + frand() * (ymax - dropTop) : dropTop - 2 + 4 * frand()
-            p.vy = 18 + 14 * frand()
+            p.vy = range(sn.speed)
         } else {
+            let slant = rn.slant[0] / rn.slant[1]
             p.sprite = .rain
-            p.vy = 150 * (0.9 + 0.2 * frand())
-            p.vx = p.vy * Self.rainSlant
-            p.x = 58 + frand() * (154 - 58)
-            let ymax = Self.height - Self.size(.rain).height
-            p.y = initial ? dropTop + frand() * (ymax - dropTop) : dropTop + 6 * frand()
-            if initial { p.x -= (p.y - dropTop) * -Self.rainSlant }
+            p.vy = rn.speed * (1 - rn.speedSpread / 2 + rn.speedSpread * frand())
+            p.vx = p.vy * slant
+            p.x = rn.x[0] + frand() * (rn.x[1] - rn.x[0])
+            let ymax = height - size(.rain).height
+            p.y = initial ? dropTop + frand() * (ymax - dropTop) : dropTop + rn.respawnBand * frand()
+            if initial { p.x -= (p.y - dropTop) * -slant }
         }
         return p
     }
@@ -167,43 +195,48 @@ public struct KnobWeatherScene: Sendable {
         func drift(_ amp: Double, _ period: Double, _ phase: Double) -> Double {
             amp * sin(2 * .pi * (t / period).truncatingRemainder(dividingBy: 1) + phase)
         }
-        func sun(_ cx: Double, _ cy: Double) {
-            let step = l.still ? 0 : Int((t * 4).truncatingRemainder(dividingBy: Double(Self.rayFrames)))
-            emit(.rays, step, cx - 30, cy - 30, c.rays, 255)
-            emit(.sun, 0, cx - 18, cy - 18, c.sun, 255)
+        func drifting(_ s: Sprite, _ d: KnobTheme.Weather.Scene.Drift, _ rgb: RGB) {
+            cloud(s, d.x + drift(d.amp, d.periodS, d.phase), d.y, rgb, d.alpha)
         }
+        func sun(_ at: [Double]) {
+            let rays = size(.rays), disc = size(.sun)
+            let step = l.still ? 0 : Int((t * sc.rayStepsPerS).truncatingRemainder(dividingBy: Double(sc.rayFrames)))
+            emit(.rays, step, at[0] - rays.width / 2, at[1] - rays.height / 2, c.rays, 255)
+            emit(.sun, 0, at[0] - disc.width / 2, at[1] - disc.height / 2, c.sun, 255)
+        }
+        let ly = sc.layout
         switch l.face {
         case .clearDay:
-            sun(100, 70)
+            sun(ly.clearSun)
         case .clearNight:
             for (i, s) in stars.enumerated() {
-                var a = 90.0
+                var a = sc.stars.alpha
                 if i == twinkle && !l.still {
                     let dur = nextTwinkle - twinkleStart, k = dur > 0 ? (t - twinkleStart) / dur : 0
-                    a += (165 * sin(.pi * min(max(k, 0), 1))).rounded(.towardZero)
+                    a += (sc.stars.twinkleAlpha * sin(.pi * min(max(k, 0), 1))).rounded(.towardZero)
                 }
-                emit(.star, 0, Double(s.0), Double(s.1), c.star, a)
+                emit(.star, 0, s.0, s.1, c.star, a)
             }
-            emit(.moon, 0, 80, 46, c.moon, 255)
+            emit(.moon, 0, ly.nightMoon[0], ly.nightMoon[1], c.moon, 255)
         case .partlyCloudy:
-            if l.night { emit(.moon, 0, 48, 30, c.moon, 255) } else { sun(70, 52) }
-            cloud(.cloudL, 74 + drift(14, 40, 0), 62, c.cloud, 255)
+            if l.night { emit(.moon, 0, ly.partlyMoon[0], ly.partlyMoon[1], c.moon, 255) } else { sun(ly.partlySun) }
+            drifting(.cloudL, ly.partlyCloud, c.cloud)
         case .overcast:
-            cloud(.cloudS, 22 + drift(10, 50, 1), 24, c.cloud, 150)
-            cloud(.cloudL, 66 + drift(16, 36, 0), 52, c.cloud, 255)
+            drifting(.cloudS, ly.overcastBack, c.cloud)
+            drifting(.cloudL, ly.overcastFront, c.cloud)
         case .fog:
-            let amp = [28.0, 22, 30, 18], per = [23.0, 31, 19, 27], ph = [0, 2.1, 4.0, 1.2]
-            for i in 0..<4 {
-                emit(.fog, 0, 36 + drift(amp[i], per[i], ph[i]), 30 + 22 * Double(i), l.rime ? c.rime : c.fog,
-                     i % 2 == 1 ? 140 : 210)
+            let f = ly.fog
+            for i in f.amp.indices {
+                emit(.fog, 0, f.x + drift(f.amp[i], f.periodS[i], f.phase[i]), f.y + f.step * Double(i),
+                     l.rime ? c.rime : c.fog, f.alpha[i % f.alpha.count])
             }
         case .rain, .storm, .snow:
             let storm = l.face == .storm, lit = flash
-            if lit { emit(.bolt, 0, Double(boltX), 50, c.bolt, 255) }
+            if lit { emit(.bolt, 0, Double(boltX), sc.bolt.y, c.bolt, 255) }
             let crgb = l.face == .snow ? c.snowCloud : storm ? (lit ? c.litCloud : c.stormCloud) : c.rainCloud
-            cloud(.cloudL, 45 + drift(6, 30, 0), 4, crgb, 255)
+            drifting(.cloudL, ly.precipCloud, crgb)
             let (rgb, a): (RGB, Double) = l.face == .snow
-                ? (c.snow, 230) : (c.rain, l.intensity == .light ? 170 : l.intensity == .heavy ? 255 : 210)
+                ? (c.snow, sc.dropAlpha.snow) : (c.rain, sc.dropAlpha.rain[Self.level(l.intensity)])
             for p in particles {
                 var x = p.x
                 if p.amp > 0 { x += p.amp * sin(2 * .pi * (t * p.freq).truncatingRemainder(dividingBy: 1) + p.phase) }
@@ -214,23 +247,6 @@ public struct KnobWeatherScene: Sendable {
     }
 
     // MARK: Sprites
-
-    /// A sprite's size in sky pixels.
-    public static func size(_ s: Sprite) -> CGSize {
-        switch s {
-        case .rain: CGSize(width: 8, height: 18)
-        case .flakeS: CGSize(width: 6, height: 6)
-        case .flakeL: CGSize(width: 14, height: 14)
-        case .cloudL: CGSize(width: 110, height: 56)
-        case .cloudS: CGSize(width: 68, height: 36)
-        case .bolt: CGSize(width: 20, height: 40)
-        case .moon: CGSize(width: 40, height: 40)
-        case .star: CGSize(width: 10, height: 10)
-        case .sun: CGSize(width: 36, height: 36)
-        case .rays: CGSize(width: 60, height: 60)
-        case .fog: CGSize(width: 128, height: 10)
-        }
-    }
 
     static let cloudCircles: [(CGPoint, Double)] = [
         (CGPoint(x: 30, y: 34), 16), (CGPoint(x: 58, y: 25), 21), (CGPoint(x: 86, y: 35), 15),
@@ -278,7 +294,7 @@ public struct KnobWeatherScene: Sendable {
     }()
 
     /// The geometry of one sprite frame.
-    public static func shape(_ s: Sprite, frame: Int) -> Shape {
+    public static func shape(_ s: Sprite, frame: Int, rayFrames: Int = 16) -> Shape {
         func line(_ x0: Double, _ y0: Double, _ x1: Double, _ y1: Double) -> [CGPoint] {
             [CGPoint(x: x0, y: y0), CGPoint(x: x1, y: y1)]
         }

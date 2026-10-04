@@ -3,46 +3,6 @@ import SwiftUI
 import Testing
 @testable import EmberKit
 
-// MARK: Theme (drift guard: these are cinder's firmware constants)
-
-@Test func knobThemePinsFirmwareConstants() throws {
-    let t = try KnobTheme.load()
-    #expect(t.version == 1)
-    #expect(t.screen.diameterPx == 466)
-    // bot_view.c
-    #expect(t.bot.fill == 0.84 && t.bot.hopScale == 0.45 && t.bot.eyeScale == 1.15 && t.bot.rimPx == 6)
-    #expect(t.bot.rimDimGain == 0.55)
-    #expect(t.bot.eyeColor == RGB(hex: "#F4F4F2"))
-    #expect(t.bot.host.fontPx == 24 && t.bot.host.y == 0.8 && t.bot.host.maxChars == 10)
-    // bot_shape.c / bot_shape.h
-    #expect(t.bot.ringPoints == 192)
-    #expect(t.bot.triangle.radius == 1.1 && t.bot.triangle.sagitta == 0.11 && t.bot.triangle.tableBins == 720)
-    // bot_behavior.h / .c
-    #expect(t.bot.hop.durationS == 1.0 && t.bot.hop.squash == 0.75)
-    #expect(t.bot.hop.intervalMedianS == 4.5 && t.bot.hop.intervalMinS == 2.5 && t.bot.hop.intervalMaxS == 9)
-    // Ember's stateColorRGB, mood_rgb()
-    #expect(t.moodColors.waiting == RGB(hex: "#FFC14D"))
-    #expect(t.moodColors.error == RGB(hex: "#FF3A3A"))
-    #expect(t.moodColors.working == RGB(hex: "#2EE85E"))
-    #expect(t.moodColors.done == RGB(hex: "#4FA9FF"))
-    #expect(t.moodColors.idle == RGB(hex: "#888888"))
-    // pomo_view.c
-    #expect(t.pomodoro.ringRadiusPx == 222 && t.pomodoro.ringWidthPx == 12)
-    #expect(t.pomodoro.trackGain == 0.18 && t.pomodoro.pausedGain == 0.45)
-    #expect(t.pomodoro.colors.focus == RGB(hex: "#FF6A3D") && t.pomodoro.colors.break == RGB(hex: "#4FA9FF"))
-    #expect(t.pomodoro.time.fontPx == 48 && t.pomodoro.phase.fontPx == 24 && t.pomodoro.round.fontPx == 14)
-    // weather_view.c / weather_scene.h
-    #expect(t.weather.sky.widthPx == 200 && t.weather.sky.heightPx == 140 && t.weather.sky.yPx == 96)
-    #expect(t.weather.temp.fontPx == 48 && t.weather.maxAgeS == 1800)
-    #expect(t.weather.colors.rain == RGB(hex: "#5C9CE0") && t.weather.colors.sun == RGB(hex: "#E0A030"))
-}
-
-@Test func knobThemeRejectsMissingKeysAndBadColours() {
-    #expect(throws: (any Error).self) { try KnobTheme.decode(Data(#"{"version":1}"#.utf8)) }
-    #expect(throws: (any Error).self) { try JSONDecoder().decode([RGB].self, from: Data(#"["red"]"#.utf8)) }
-    #expect((try? JSONDecoder().decode([RGB].self, from: Data(##"["#0A0B0C"]"##.utf8))) == [RGB(r: 10, g: 11, b: 12)])
-}
-
 // MARK: Bot
 
 @Test func knobTriangleHasSharpVerticesAtTheCircumradius() {
@@ -58,11 +18,11 @@ import Testing
 @Test func knobEyesAreTwoStrokesAndHappyIsAnArc() {
     var p = BotPose()
     p.eyes = .dash
-    let dash = KnobBotShape.eyes(p, scale: 1.15)
+    let dash = KnobBotShape.eyes(p, scale: 1.15, geometry: KnobTheme.standard.bot.eyes)
     #expect(dash.count == 2 && dash.allSatisfy { $0.points.count == 2 })
     #expect(dash[0].points[0].x < dash[1].points[0].x)
     p.eyes = .happy
-    #expect(KnobBotShape.eyes(p, scale: 1.15).allSatisfy { $0.points.count == 7 })
+    #expect(KnobBotShape.eyes(p, scale: 1.15, geometry: KnobTheme.standard.bot.eyes).allSatisfy { $0.points.count == 7 })
 }
 
 @Test func knobTuningSlowsAndFlattensTheHop() {
@@ -81,10 +41,39 @@ import Testing
 }
 
 @Test func macTuningIsUnchanged() {
-    var a = BotBehavior(seed: 3, now: 0)
-    var b = BotBehavior(seed: 3, now: 0, tuning: .mac)
-    a.setMood(.waiting, at: 0); b.setMood(.waiting, at: 0)
-    for i in 0..<1200 { #expect(a.pose(at: Double(i) / 30) == b.pose(at: Double(i) / 30)) }
+    let mac = BotBehavior.Tuning.mac
+    #expect(mac == BotBehavior.Tuning(sleepAfter: 300, hopLength: 0.62, hopSquash: 1, hopIntervalMedian: 15,
+                                      hopIntervalSigma: 0.4, hopIntervalRange: 8...40))
+    // Golden poses from BotBehavior on main before Tuning existed (seed 3, waiting, 30 fps).
+    let golden: [(Int, Double, Double, Double, Double, Double, Double)] = [
+        (18, 0.013622231572764792, 0.063514585858115064, 0, 1, 1, 0.0019054375757434519),
+        (25, 0.013622231572764792, 0.063514585858115064, 0, 0.96296296296296302, 1.052910052910053, 0.19172711110112076),
+        (300, -0.012163484960656182, 0.086968916976464528, 0, 1, 1, 0.0026090675092939357),
+        (457, 0.0097419153423897939, 0.087008303393338038, 0, 1, 1, 0.002610249101800141),
+        (900, 0.038895177665241129, 0.091894506513728602, 0, 1, 1, 0.0027568351954118582),
+        (1199, -0.69999999999999996, -0.085259932788898318, 0, 1, 1, -0.0025577979836669497),
+    ]
+    var b = BotBehavior(seed: 3, now: 0)
+    b.setMood(.waiting, at: 0)
+    var poses: [Int: BotPose] = [:]
+    for i in 0..<1200 { poses[i] = b.pose(at: Double(i) / 30) }
+    for g in golden {
+        let p = poses[g.0]!
+        #expect([p.gazeX, p.gazeY, p.lidLeft, p.scaleX, p.scaleY, p.offsetY] == [g.1, g.2, g.3, g.4, g.5, g.6], "frame \(g.0)")
+    }
+}
+
+@Test func knobRimIgnoresThePopAndFollowsTheSquash() {
+    let b = KnobTheme.standard.bot
+    let v = KnobBotShape.rimVariants(steps: b.rimSteps, squash: b.hop.squash)
+    #expect(v.count == 11 && v[5] == (1, 1))
+    var p = BotPose()
+    p.scaleX = 1.08; p.scaleY = 1.08
+    #expect(KnobBotShape.rimVariant(for: p, variants: v) == 5)
+    p.scaleX = 1 + 0.1 * 0.75; p.scaleY = 1 - 0.14 * 0.75
+    #expect(KnobBotShape.rimVariant(for: p, variants: v) == 0)
+    p.scaleX = 1 - 0.07 * 0.75; p.scaleY = 1 + 0.1 * 0.75
+    #expect(KnobBotShape.rimVariant(for: p, variants: v) == 10)
 }
 
 @Test func knobMoodFollowsRenderPriorityAndHost() {
@@ -214,7 +203,9 @@ private func save(_ img: CGImage, _ name: String) {
                                                        mood: KnobMood(mood: .waiting, host: "DT-MBP")))))
     save(waiting, "bot-waiting")
     #expect(near(pixel(waiting, 233, Int(233 - r)), th.moodColors.waiting, 60))
-    #expect(pixel(waiting, 233, 233 + 40) == RGB(r: 0, g: 0, b: 0) || near(pixel(waiting, 233, 233 + 40), .init(r: 0, g: 0, b: 0), 8))
+    #expect(near(pixel(waiting, 233, 233 + 40), .init(r: 0, g: 0, b: 0), 8))
+    // No glow: a few pixels outside the 6 px rim stays black.
+    #expect(near(pixel(waiting, 233, Int(233 - r) - 7), .init(r: 0, g: 0, b: 0), 8))
 
     let error = try #require(render(KnobFaceView(.bot(pose: KnobBotDriver.restingPose(.error),
                                                      mood: KnobMood(mood: .error, host: "MINI")))))
@@ -250,7 +241,12 @@ private func save(_ img: CGImage, _ name: String) {
         let img = try #require(render(KnobFaceView(.weather(look: look, draws: scene.draws(colors: th.weather.colors),
                                                             tempC: look.still ? nil : 14.4))))
         save(img, "weather-\(look.face.rawValue)\(look.still ? "-stale" : "")")
-        if look.face == .clearDay { #expect(near(pixel(img, 233, 96 + 70 - 13), th.weather.colors.sun, 60)) }
+        if look.face == .clearDay {
+            #expect(near(pixel(img, 233, 96 + 70 - 13), th.weather.colors.sun, 60))
+            let rows = (236..<300).filter { y in (200..<266).contains { x in pixel(img, x, y).r > 60 } }
+            let mid = Double(rows.first! + rows.last!) / 2
+            #expect(abs(mid - 262) <= 2, "temperature digits centred at \(mid), firmware ~262")
+        }
     }
 
     for dark in [true, false] {

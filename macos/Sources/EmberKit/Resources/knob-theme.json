@@ -4,7 +4,13 @@
     "diameter_px": 466
   },
   "font": {
-    "family": "Montserrat"
+    "family": "Montserrat-Medium",
+    "file": "Montserrat-Medium.ttf",
+    "metrics": {
+      "14": { "line_height_px": 16, "baseline_px": 3 },
+      "24": { "line_height_px": 27, "baseline_px": 5 },
+      "48": { "line_height_px": 52, "baseline_px": 9 }
+    }
   },
   "mood_colors": {
     "idle": "#888888",
@@ -21,6 +27,7 @@
     "hop_scale": 0.45,
     "rim_px": 6,
     "rim_dim_gain": 0.55,
+    "rim_steps": 5,
     "ring_points": 192,
     "triangle": {
       "radius": 1.1,
@@ -35,6 +42,26 @@
       "interval_sigma": 0.35,
       "interval_min_s": 2.5,
       "interval_max_s": 9
+    },
+    "eyes": {
+      "rest_x": 0.67,
+      "reach": 0.6,
+      "reach_triangle": -0.2,
+      "drop_triangle": 0.12,
+      "drop_slump": 0.1,
+      "limit": 0.52,
+      "limit_triangle": -0.15,
+      "foreshorten": 0.45,
+      "straight": 0.06,
+      "lean_at": 0.6,
+      "sep": 0.44,
+      "sep_round": 0.5,
+      "rise": 0.04,
+      "min_half": 0.002,
+      "dash": { "width": [0.14, 0.24], "height": [0.38, 0.06], "angle_deg": [27, -6] },
+      "angry": { "width": [0.13, 0.22], "height": [0.3, 0.06], "angle_deg": [55, 10] },
+      "round": { "width": [0.3, 0.34], "height": [0.44, 0.05], "angle_deg": [10, 10] },
+      "happy": { "width": 0.3, "height": [0.16, 0.03], "lift": 1.5, "stroke": 0.11, "points": 7 }
     },
     "badge": {
       "at": 0.98,
@@ -86,6 +113,50 @@
       "fog": "#8890A0",
       "rime": "#90C8E0",
       "still": "#5A5A5A"
+    },
+    "scene": {
+      "fps": { "rain": 12, "snow": 10, "other": 4 },
+      "max_step_s": 0.5,
+      "sprites": {
+        "rain": [8, 18],
+        "flake_s": [6, 6],
+        "flake_l": [14, 14],
+        "cloud_l": [110, 56],
+        "cloud_s": [68, 36],
+        "bolt": [20, 40],
+        "moon": [40, 40],
+        "star": [10, 10],
+        "sun": [36, 36],
+        "rays": [60, 60],
+        "fog": [128, 10]
+      },
+      "ray_frames": 16,
+      "ray_steps_per_s": 4,
+      "drops": { "rain": [5, 10, 16], "storm": [10, 10, 14], "snow": [6, 9, 12] },
+      "drop_alpha": { "rain": [170, 210, 255], "snow": 230 },
+      "rain": { "top": 50, "x": [58, 154], "speed": 150, "speed_spread": 0.2, "slant": [-4, 14], "respawn_band": 6 },
+      "snow": { "x": [40, 160], "amp": [4, 4], "freq": [0.5, 0.4], "speed": [18, 14], "large_share": 0.4 },
+      "stars": {
+        "x": [28, 158, 44, 150, 178, 14],
+        "y": [26, 18, 98, 104, 60, 62],
+        "jitter": 8,
+        "alpha": 90,
+        "twinkle_alpha": 165,
+        "first_twinkle_s": 1.0,
+        "twinkle_s": [0.8, 0.8]
+      },
+      "bolt": { "first_s": [2, 3], "gap_s": [4, 6], "on_s": 0.25, "double_chance": 0.5, "second_s": [0.4, 0.6], "x": [60, 70], "y": 50 },
+      "layout": {
+        "clear_sun": [100, 70],
+        "night_moon": [80, 46],
+        "partly_moon": [48, 30],
+        "partly_sun": [70, 52],
+        "partly_cloud": { "x": 74, "y": 62, "amp": 14, "period_s": 40, "phase": 0, "alpha": 255 },
+        "overcast_back": { "x": 22, "y": 24, "amp": 10, "period_s": 50, "phase": 1, "alpha": 150 },
+        "overcast_front": { "x": 66, "y": 52, "amp": 16, "period_s": 36, "phase": 0, "alpha": 255 },
+        "precip_cloud": { "x": 45, "y": 4, "amp": 6, "period_s": 30, "phase": 0, "alpha": 255 },
+        "fog": { "x": 36, "y": 30, "step": 22, "amp": [28, 22, 30, 18], "period_s": [23, 31, 19, 27], "phase": [0, 2.1, 4.0, 1.2], "alpha": [210, 140] }
+      }
     }
   }
 }
