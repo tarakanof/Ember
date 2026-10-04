@@ -1871,13 +1871,19 @@ reports ("live mode"). Firmware side: tarakanof/cinder#31.
 `POST /v1/devices/self/checkin`, next to the existing top-level fields, which
 still carry `rssi` (dBm), `heap_internal_free` and `heap_internal_largest`
 (bytes) and `uptime_s`; the server takes those into the sample, so `stats`
-does not repeat them. With `diagnostics` `off` the knob sends no `stats`.
-Every field is optional; omit what the board can't measure (PSRAM fields on a
-board without PSRAM) rather than sending 0.
+does not repeat them. A top-level `rssi` of 0, or a heap or uptime of 0, reads
+as "not measured" (null in the stats), so send the real value or leave it
+out. With `diagnostics` `off` the knob sends no `stats`. Every field is
+optional; omit what the board can't measure (PSRAM fields on a board without
+PSRAM) rather than sending 0. Unknown keys in `stats` are ignored, so firmware
+can add fields before the server knows them. The level is the server's
+call: with `off` it discards any `stats` it gets, and at `basic` it drops the
+full-only fields, so a knob that hasn't applied a level change yet can't
+show data the owner turned off.
 
 | Field | Type, unit | Level | Meaning |
 |---|---|---|---|
-| `period_ms` | int, ms, 1..3 600 000 | basic | Window the averages and counts below cover: time since the previous report. Missing = 60 000. |
+| `period_ms` | int, ms, 1..3 600 000 | basic | Window the averages and counts below cover: time since the previous report; for the first report after boot (or after diagnostics were turned on), time since measuring started. Missing = 60 000. |
 | `cpu_pct` | array of number, %, 0..100, ≤ 8 entries | basic | Load per core over the window (index = core), e.g. idle-task runtime share. |
 | `heap_internal_min` | int, bytes | basic | Lowest internal free heap since boot (`heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)`). |
 | `psram_free` | int, bytes | basic | Free PSRAM now. |
@@ -1912,7 +1918,11 @@ view it is the last field). The checkin answer now also has the
 (`X-Ember-Now`, offset applied) is before `diag_live_until` the knob checks in
 **every 5 s** with `stats` (`period_ms` ≈ 5000); after it, or when the field
 disappears, it goes back to 60 s. The knob learns of live mode within one
-view poll (`poll_ms`).
+view poll (`poll_ms`). A live checkin is an ordinary checkin: it reports
+`config_version` and the usual fields, and the knob applies a `config` or
+`new_token` in its answer exactly as at 60 s. The app asks for live mode
+only while the 15-minute range is shown (the only range that draws 5 s
+samples) and sends `seconds:0` when the user picks another range.
 
 **Storage.** `knobStatsStore`: per device a live ring (120 samples, read back
 10 min) holding each sample whole, and a minute ring (1440 = 24 h) where
@@ -1957,10 +1967,17 @@ PSRAM, temperature, Wi-Fi, requests, latency, rendering on fitted axes;
 `AXChartDescriptor` audio graphs). States: diagnostics off (buttons to turn on
 Basic or Full), waiting for the first report, offline (last data with an
 "Offline, last report …" header), basic level (full-only cards offer Full),
-server too old. `KnobStatsModel` polls only while the window is visible
-(occlusion, as above) every 5 s / 15 s / 60 s per range, POSTs live mode for
-180 s on start and every 60 s, and POSTs `seconds:0` when its task ends
-(window hidden or closed), so a crash leaves at most 3 min of live mode.
+server too old. At basic level one row offers full diagnostics instead of
+the three full-only cards. Charts use a categorical palette (blue, orange,
+purple, grey; no good/bad colours), dashed lines for low-water marks,
+slowest and failures, with a legend that draws each stroke; `.linear`
+lines (`.stepEnd` for integer dBm); an area only on charts with a zero
+baseline; bytes in decimal units fixed per chart. Offline, the Now card is
+muted and captioned "As of <time>". `KnobStatsModel` polls only while the
+window is visible (occlusion, as above) every 5 s / 15 s / 60 s per range;
+at 15 min it POSTs live mode for 180 s and renews it every 60 s, and it
+POSTs `seconds:0` on leaving that range or when its task ends (window hidden
+or closed), so a crash leaves at most 3 min of live mode.
 `KnobStatsFake` drives previews and the snapshot render (Debug build:
 `EMBER_KNOB_SNAPSHOTS=<dir> Ember.app/Contents/MacOS/Ember` writes PNGs and
 quits; it skips server, producers and USB).

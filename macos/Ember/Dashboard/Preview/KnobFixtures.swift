@@ -34,7 +34,8 @@ enum KnobFixtures {
 /// Renders the knob section's scenarios to PNGs and quits: launch a Debug
 /// build with `EMBER_KNOB_SNAPSHOTS=<dir>`. It draws through an off-screen
 /// window so AppKit-backed controls (the segmented picker) render too,
-/// which `ImageRenderer` leaves blank.
+/// which `ImageRenderer` leaves blank, and makes it key so the default
+/// button draws prominent.
 @MainActor
 enum KnobSnapshotRenderer {
     nonisolated static var isRequested: Bool { ProcessInfo.processInfo.environment["EMBER_KNOB_SNAPSHOTS"] != nil }
@@ -61,12 +62,14 @@ enum KnobSnapshotRenderer {
             .environment(\.colorScheme, scheme)
         let host = NSHostingView(rootView: root)
         let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: width, height: 800),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+                              styleMask: [.titled], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
         window.contentView = host
         host.frame.size = host.fittingSize
         window.setContentSize(host.fittingSize)
-        window.orderFrontRegardless()
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
         try? await Task.sleep(for: .milliseconds(600))
         host.layoutSubtreeIfNeeded()
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }

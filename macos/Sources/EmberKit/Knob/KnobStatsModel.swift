@@ -29,7 +29,8 @@ extension KnobService: KnobStatsService {
 }
 
 /// The Dashboard's knob section: polls the knob's stats while the window is
-/// visible and keeps the knob in live mode (5 s reports) meanwhile.
+/// visible, and keeps the knob in live mode (5 s reports) while the
+/// 15-minute range, the only one that shows them, is selected.
 @MainActor
 @Observable
 public final class KnobStatsModel {
@@ -84,10 +85,13 @@ public final class KnobStatsModel {
         var liveAt: Date?
         while !Task.isCancelled {
             await refresh(deviceID: id)
-            if let s = stats.value, s.deviceID == id, s.diagnostics != .off {
-                if liveAt.map({ now().timeIntervalSince($0) >= Self.liveRenewal }) ?? true {
-                    if (try? await service.setLive(id: id, seconds: Self.liveSeconds)) != nil { liveAt = now() }
-                }
+            let wantsLive = range == .fifteenMinutes
+                && stats.value.map { $0.deviceID == id && $0.diagnostics != .off } == true
+            if wantsLive, liveAt.map({ now().timeIntervalSince($0) >= Self.liveRenewal }) ?? true {
+                if (try? await service.setLive(id: id, seconds: Self.liveSeconds)) != nil { liveAt = now() }
+            } else if !wantsLive, liveAt != nil {
+                liveAt = nil
+                _ = try? await service.setLive(id: id, seconds: 0)
             }
             do { try await sleep(range.pollInterval) } catch { break }
         }

@@ -1,7 +1,8 @@
 import SwiftUI
 import EmberKit
 
-/// The knob's current readings: four gauges and the facts that don't chart.
+/// The knob's newest readings: four gauges and the facts that don't chart.
+/// Offline, it says how old they are and is drawn muted.
 struct KnobOverviewCard: View {
     let stats: KnobStats
     var firmware: String?
@@ -11,46 +12,48 @@ struct KnobOverviewCard: View {
 
     var body: some View {
         let l = stats.latest
-        DashboardCard(title: "Now", systemImage: "gauge.with.dots.needle.33percent", height: 176) {
-            HStack(alignment: .top, spacing: 24) {
-                HStack(alignment: .top, spacing: 18) {
+        DashboardCard(title: "Now", systemImage: "gauge.with.dots.needle.33percent", height: 196) {
+            HStack(alignment: .center, spacing: 20) {
+                HStack(alignment: .top, spacing: 0) {
                     gauge("Processor", value: l?.cpuAverage, in: 0...100, text: l?.cpuAverage.map(KnobFormat.percent),
                           tint: Gradient(colors: [.green, .yellow, .orange]),
                           warn: (l?.cpuAverage ?? 0) > KnobReadout.busyCPU)
-                    gauge("Temperature", value: l?.tempC, in: 20...85, text: l?.tempC.map { "\(Int($0.rounded()))°" },
+                    gauge("Temperature", value: l?.tempC, in: 20...85, text: l?.tempC.map(KnobFormat.celsius),
                           tint: Gradient(colors: [.teal, .yellow, .orange, .red]),
-                          warn: (l?.tempC ?? 0) > KnobReadout.hotC, accessibilityText: l?.tempC.map(KnobFormat.celsius))
-                    gauge("Wi-Fi (dBm)", value: l?.rssiDBm.map(Double.init), in: -90 ... -30,
-                          text: l?.rssiDBm.map { "\($0)" },
+                          warn: (l?.tempC ?? 0) > KnobReadout.hotC)
+                    gauge("Wi-Fi", value: l?.rssiDBm.map(Double.init), in: -90 ... -30,
+                          text: l?.rssiDBm.map { KnobFormat.dbm(Double($0)) },
                           tint: Gradient(colors: [.red, .orange, .yellow, .green]),
-                          warn: l?.rssiDBm.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false,
-                          accessibilityText: l?.rssiDBm.map { KnobFormat.dbm(Double($0)) })
+                          warn: l?.rssiDBm.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false)
                     if stats.diagnostics == .full {
                         gauge("Frame rate", value: l?.renderFPS, in: 0...KnobReadout.targetFPS,
-                              text: l?.renderFPS.map { $0.formatted(.number.precision(.fractionLength(0))) },
-                              tint: Gradient(colors: [.red, .orange, .green]), warn: false,
-                              accessibilityText: l?.renderFPS.map(KnobFormat.fps))
+                              text: l?.renderFPS.map(KnobFormat.fps),
+                              tint: Gradient(colors: [.red, .orange, .green]), warn: false)
                     }
                 }
+                .frame(maxWidth: .infinity)
                 Divider()
-                facts(l)
+                facts(l).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .saturation(stats.online ? 1 : 0)
+            .opacity(stats.online ? 1 : 0.6)
+        } accessory: {
+            if !stats.online, let at = l?.t ?? stats.lastSeen {
+                Text("As of \(Text(at, format: .dateTime.hour().minute()))",
+                     comment: "Dashboard knob Now card while offline: the time of the readings shown (\"As of 21:43\").")
             }
         }
     }
 
     private func gauge(_ title: LocalizedStringKey, value: Double?, in range: ClosedRange<Double>, text: String?,
-                       tint: Gradient, warn: Bool, accessibilityText: String? = nil) -> some View {
-        VStack(spacing: 6) {
+                       tint: Gradient, warn: Bool) -> some View {
+        VStack(spacing: 8) {
             Gauge(value: min(max(value ?? range.lowerBound, range.lowerBound), range.upperBound), in: range) {
-                EmptyView()
+                Text(title)
             } currentValueLabel: {
-                Text(verbatim: text ?? "—").monospacedDigit()
+                Text(verbatim: text ?? "—")
             }
-            .gaugeStyle(.accessoryCircular)
-            .tint(tint)
-            .controlSize(.large)
-            .scaleEffect(1.15)
-            .frame(width: 64, height: 64)
+            .gaugeStyle(KnobRingGaugeStyle(tint: tint, diameter: 76))
             HStack(spacing: 3) {
                 if warn {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -60,57 +63,52 @@ struct KnobOverviewCard: View {
                 Text(title)
             }
             .lineLimit(1)
-            .fixedSize()
             .font(.caption)
             .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue([accessibilityText ?? text ?? String(localized: "Not available"),
+        .accessibilityValue([text ?? String(localized: "Not available"),
                              warn ? String(localized: "Needs attention") : nil].compactMap { $0 }.joined(separator: ", "))
     }
 
     private func facts(_ l: KnobStats.Sample?) -> some View {
-        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
-            fact("Free memory", value: l?.heapInternalFreeBytes.map { KnobFormat.bytes(Double($0)) },
-                 note: l?.heapInternalLargestBytes.map {
-                     String(localized: "largest block \(KnobFormat.bytes(Double($0)))",
-                            comment: "Dashboard knob: the largest free memory block (\"largest block 31 KB\").")
-                 },
-                 warn: (l?.heapInternalLargestBytes ?? .max) < KnobReadout.lowLargestBlock)
-            if let free = l?.psramFreeBytes {
-                fact("PSRAM free", value: KnobFormat.bytes(Double(free)))
-            }
-            fact("Uptime", value: l?.uptimeSec.map { DurationText.uptime($0) })
-            fact("Last restart", value: stats.resetReason.map(Self.resetReason))
-            fact("Firmware", value: firmware)
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 8) {
             GridRow {
-                Text("Last report").foregroundStyle(.secondary)
-                if let seen = stats.lastSeen {
-                    Text(seen, format: .relative(presentation: .named))
-                } else {
-                    Text(verbatim: "—")
-                }
+                fact("Free memory", value: l?.heapInternalFreeBytes.map { KnobFormat.bytes(Double($0)) }, gap: true)
+                fact("Largest block", value: l?.heapInternalLargestBytes.map { KnobFormat.bytes(Double($0)) },
+                     warn: (l?.heapInternalLargestBytes ?? .max) < KnobReadout.lowLargestBlock)
+            }
+            GridRow {
+                fact("PSRAM free", value: l?.psramFreeBytes.map { KnobFormat.bytes(Double($0)) }, gap: true)
+                fact("Uptime", value: l?.uptimeSec.map { DurationText.uptime($0) })
+            }
+            GridRow {
+                fact("Last restart", value: stats.resetReason.map(Self.resetReason), gap: true)
+                fact("Firmware", value: firmware)
             }
         }
         .font(.callout)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func fact(_ title: LocalizedStringKey, value: String?, note: String? = nil, warn: Bool = false) -> some View {
-        GridRow {
-            Text(title).foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                if warn && differentiateWithoutColor {
-                    Image(systemName: "exclamationmark.triangle.fill").imageScale(.small)
-                }
-                Text(verbatim: value ?? "—")
-                    .monospacedDigit()
-                    .foregroundStyle(warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
-                if let note { Text(verbatim: note).foregroundStyle(.secondary).lineLimit(1) }
+    @ViewBuilder
+    private func fact(_ title: LocalizedStringKey, value: String?, warn: Bool = false, gap: Bool = false) -> some View {
+        Text(title).foregroundStyle(.secondary)
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            if warn {
+                Image(systemName: "exclamationmark.triangle.fill").imageScale(.small).foregroundStyle(.orange)
             }
+            Text(verbatim: value ?? "—")
+                .monospacedDigit()
+                .lineLimit(1)
+                .foregroundStyle(warn ? AnyShapeStyle(.orange) : AnyShapeStyle(.primary))
         }
-        .accessibilityElement(children: .combine)
+        .padding(.trailing, gap ? 16 : 0)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(verbatim: [value ?? String(localized: "Not available"),
+                                            warn ? String(localized: "Needs attention") : nil].compactMap { $0 }
+                                     .joined(separator: ", ")))
     }
 
     /// The ESP-IDF reset reason the knob reported, in words.
@@ -125,5 +123,35 @@ struct KnobOverviewCard: View {
         case "ext": String(localized: "Reset pin")
         default: raw
         }
+    }
+}
+
+/// A 270° ring gauge at a real size (the system's accessory style is fixed
+/// at watch-complication size): track, tinted value arc, value in the middle.
+struct KnobRingGaugeStyle: GaugeStyle {
+    let tint: Gradient
+    var diameter: CGFloat = 76
+
+    func makeBody(configuration: Configuration) -> some View {
+        let line: CGFloat = 7
+        let span = 0.75
+        ZStack {
+            Circle()
+                .trim(from: 0, to: span)
+                .stroke(.quaternary, style: StrokeStyle(lineWidth: line, lineCap: .round))
+                .rotationEffect(.degrees(135))
+            Circle()
+                .trim(from: 0, to: span * configuration.value)
+                .stroke(AngularGradient(gradient: tint, center: .center, startAngle: .degrees(0), endAngle: .degrees(360 * span)),
+                        style: StrokeStyle(lineWidth: line, lineCap: .round))
+                .rotationEffect(.degrees(135))
+            configuration.currentValueLabel
+                .font(.system(.callout, design: .rounded).weight(.semibold))
+                .monospacedDigit()
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+                .padding(.horizontal, line + 4)
+        }
+        .frame(width: diameter, height: diameter)
     }
 }

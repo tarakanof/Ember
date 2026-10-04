@@ -182,3 +182,33 @@ private func waitFor(_ cond: @escaping @Sendable () async -> Bool) async {
     let cpu = s.cpuSeries(range: .hour) { "Core \($0 + 1)" }
     #expect(Set(cpu.map(\.series)) == ["Core 1", "Core 2"])
 }
+
+@MainActor private final class ModelBox { weak var model: KnobStatsModel? }
+
+@MainActor @Test func knobStatsModelLivesOnlyAtFifteenMinutes() async {
+    let svc = FakeStatsService(diagnostics: .full)
+    let clock = StepNow()
+    let box = ModelBox()
+    let polls = LockedBox()
+    let model = KnobStatsModel(service: svc, sleep: { d in
+        polls.add("")
+        clock.advance(Double(d.components.seconds))
+        if polls.paths.count == 2 { await MainActor.run { box.model?.range = .hour } }
+        if polls.paths.count >= 4 { throw CancellationError() }
+    }, now: clock.now)
+    box.model = model
+    await model.run(deviceID: "knob-61fc8c")
+    try? await Task.sleep(for: .milliseconds(20))
+    // Live on at 15m, stopped once the range moved to 1h, not restarted.
+    #expect(await svc.live == [KnobStatsModel.liveSeconds, 0])
+}
+
+@MainActor @Test func knobStatsModelNeverAsksLiveOutsideFifteenMinutes() async {
+    let svc = FakeStatsService(diagnostics: .full)
+    let clock = StepNow()
+    let model = KnobStatsModel(service: svc, sleep: steppingSleep(clock, polls: 3), now: clock.now)
+    model.range = .day
+    await model.run(deviceID: "knob-61fc8c")
+    try? await Task.sleep(for: .milliseconds(20))
+    #expect(await svc.live.isEmpty)
+}
