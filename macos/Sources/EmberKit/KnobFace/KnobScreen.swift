@@ -19,6 +19,9 @@ public struct KnobScreen<Face: View>: View {
                 Circle()
                     .fill(LinearGradient(colors: bezelColors, startPoint: .top, endPoint: .bottom))
                     .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.25), radius: side * 0.025, y: side * 0.01)
+                Circle()
+                    .fill(.black)
+                    .padding(ring)
                 face
                     .opacity(on ? 1 : 0.35)
                     .padding(ring)
