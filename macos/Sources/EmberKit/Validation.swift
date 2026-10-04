@@ -15,11 +15,23 @@ private func rejectControlChars(_ v: String) throws {
     }
 }
 
-/// http(s) URL with a host and no embedded credentials.
+/// producer.env's EMBER_SERVER_URL value that makes the Go producers find the
+/// server over mDNS (#255); the app has no URL to call for it.
+public let autoServerURL = "auto"
+
+/// Whether value is the producers' mDNS-discovery keyword ("auto", any case).
+public func isAutoServerURL(_ value: String) -> Bool {
+    value.trimmingCharacters(in: .whitespaces).lowercased() == autoServerURL
+}
+
+/// http(s) URL with a host and no embedded credentials, or "auto" (the
+/// headless producers' mDNS discovery, kept as is so a CLI-written
+/// producer.env never blocks saving the Connection pane).
 public func validateServerURL(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)
     guard !v.isEmpty else { throw ValidationError(message: "Enter the server's URL.") }
+    if isAutoServerURL(v) { return autoServerURL }
     guard let u = URLComponents(string: v),
           let scheme = u.scheme, (scheme == "http" || scheme == "https"),
           let host = u.host, !host.isEmpty,

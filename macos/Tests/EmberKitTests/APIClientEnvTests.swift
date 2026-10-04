@@ -21,3 +21,9 @@ import Foundation
     #expect(c.baseURL == URL(string: "http://h"))
     #expect(c.token == nil)
 }
+
+@Test func autoServerURLHasNoBaseURL() {
+    let c = APIClient(producerEnv: EnvFile(parsing: "EMBER_SERVER_URL=auto\nEMBER_TOKEN=t\n"))
+    #expect(c.baseURL == nil)
+    #expect(c.token == "t")
+}
