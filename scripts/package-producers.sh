@@ -26,10 +26,25 @@ else
   SHA=(shasum -a 256)
 fi
 
+# Never rm -rf a user-supplied path: the out dir may only hold this
+# script's own outputs, and only those are replaced.
+mkdir -p "$OUT"
+for f in "$OUT"/* "$OUT"/.[!.]*; do
+  [ -e "$f" ] || continue
+  case "${f##*/}" in
+    ember-producers_*.tar.gz|SHA256SUMS) rm -f "$f" ;;
+    *) echo "package-producers.sh: $OUT holds other files (${f##*/}); pick an empty or dedicated out dir" >&2; exit 1 ;;
+  esac
+done
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-rm -rf "$OUT"
-mkdir -p "$OUT"
+
+# Reproducible archives: every entry gets the commit time (SOURCE_DATE_EPOCH
+# when set), fixed modes, sorted order, root ownership, and gzip -n drops
+# the name/time from the gzip header.
+EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$REPO" log -1 --format=%ct 2>/dev/null || echo 0)}"
+STAMP="$(date -u -d "@$EPOCH" +%Y%m%d%H%M.%S 2>/dev/null || date -u -r "$EPOCH" +%Y%m%d%H%M.%S)"
 
 build() { # goos goarch outdir
   local goos="$1" goarch="$2" dir="$3" p
@@ -57,8 +72,15 @@ else
 fi
 
 pack() { # name
-  local name="$1"
-  COPYFILE_DISABLE=1 tar "${TAR_OWNER[@]}" -C "$WORK/stage" -czf "$OUT/$name.tar.gz" "$name"
+  local name="$1" dir="$WORK/stage/$1" f
+  chmod 0755 "$dir"
+  for f in "$dir"/*; do
+    case "${f##*/}" in ember-*-producer) chmod 0755 "$f" ;; *) chmod 0644 "$f" ;; esac
+  done
+  TZ=UTC touch -h -t "$STAMP" "$dir" "$dir"/*
+  # shellcheck disable=SC2046 # sorted entry list, no spaces in names
+  (cd "$WORK/stage" && COPYFILE_DISABLE=1 tar "${TAR_OWNER[@]}" --no-recursion -cf - "$name" $(find "$name" -type f | LC_ALL=C sort)) |
+    gzip -n -9 >"$OUT/$name.tar.gz"
   echo "packaged $name.tar.gz"
 }
 

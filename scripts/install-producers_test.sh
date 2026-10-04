@@ -58,4 +58,12 @@ if sh "$SCRIPT" --producers "claude bogus" --no-install >"$WORK/out" 2>&1; then
 fi
 echo "ok: unknown producer refused"
 
+[ "$(tail -n 1 "$SCRIPT")" = 'main "$@"' ] || fail "script must end by calling main (curl | sh truncation guard)"
+half=$(( $(wc -l <"$SCRIPT") / 2 ))
+if ! head -n "$half" "$SCRIPT" | EMBER_RELEASE_BASE_URL="file://$rel" HOME="$WORK/home" sh -s -- --force --bin-dir "$WORK/bin3" >"$WORK/out" 2>&1; then
+  : # a syntax error from the cut is fine; running a fragment is not
+fi
+[ ! -e "$WORK/bin3" ] || fail "a truncated script did work"
+echo "ok: truncated download is inert"
+
 echo "install-producers_test.sh: PASS"

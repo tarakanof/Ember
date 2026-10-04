@@ -23,6 +23,9 @@ concurrency:
 jobs:
   package:
     name: Build, package, upload
+    # Pre-releases get no archives (docker-publish refuses them too); skip
+    # instead of failing the run.
+    if: ${{ github.event_name != 'release' || !github.event.release.prerelease }}
     # macOS for lipo (darwin universal); linux targets cross-compile with CGO off.
     runs-on: macos-latest
     permissions:
@@ -38,15 +41,16 @@ jobs:
           fi
 
       - name: Checkout the tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TAG }}
 
+      # Pinned by SHA and no module/build cache: this job can write to the release.
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Build and package
         run: scripts/package-producers.sh "$TAG" dist/producers
@@ -74,5 +78,5 @@ jobs:
             cat dist/producers/SHA256SUMS
             echo '```'
             echo ""
-            echo "Install: \`curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/scripts/install-producers.sh | sh -s -- --version $TAG\`"
+            echo "Install: \`curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$TAG/scripts/install-producers.sh | sh -s -- --version $TAG\`"
           } >> "$GITHUB_STEP_SUMMARY"
