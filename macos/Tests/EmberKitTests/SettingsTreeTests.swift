@@ -6,6 +6,7 @@ private let clock = SettingsDevice(id: "clock", kind: .clock, name: "Clock", sta
 private let knob = SettingsDevice(id: "knob-61fc8c", kind: .knob, name: "Desk knob", state: .ready)
 private let noKnob = SettingsDevice(id: "knob", kind: .knob, name: "Knob", state: .notSetUp)
 private let loadingKnob = SettingsDevice(id: "knob", kind: .knob, name: "Knob", state: .loading)
+private let unreachableKnob = SettingsDevice(id: "knob", kind: .knob, name: "Knob", state: .unavailable)
 
 // MARK: Route
 
@@ -166,7 +167,38 @@ func unknownStoredValueFallsBackToConnection(name: String) {
     #expect(tree.resolve(stored) == stored)
 }
 
+@Test func routeUnderUnavailableDeviceIsHeld() {
+    let tree = SettingsTree(devices: [clock, unreachableKnob])
+    let stored = SettingsRoute.device("knob-61fc8c", .app(.weather))
+    #expect(tree.resolve(stored) == stored)
+    #expect(tree.holdsStoredRoute)
+}
+
+@Test func unavailableKnobHasNoChildren() {
+    let node = SettingsTree(devices: [clock, unreachableKnob]).devices[1]
+    #expect(node.hardware.isEmpty)
+    #expect(node.apps.isEmpty)
+}
+
+@Test func treeHoldsStoredRouteOnlyWhileADeviceIsUnknown() {
+    #expect(SettingsTree(devices: [clock, loadingKnob]).holdsStoredRoute)
+    #expect(!SettingsTree(devices: [clock, noKnob]).holdsStoredRoute)
+    #expect(!SettingsTree(devices: [clock, knob]).holdsStoredRoute)
+}
+
 // MARK: Expansion
+
+@Test func revealReopensACollapsedAncestor() {
+    let tree = SettingsTree(devices: [clock, knob])
+    let route = SettingsRoute.device("clock", .app(.agents))
+    #expect(tree.expanded(["knob-61fc8c"], revealing: route) == ["knob-61fc8c", "clock", "clock/apps"])
+    #expect(tree.expanded(["clock/apps"], revealing: route) == ["clock", "clock/apps"])
+    #expect(tree.expanded([], revealing: .source(.weather)).isEmpty)
+}
+
+@Test func revealKeyIsStable() {
+    #expect(SettingsRoute.revealKey == "settings.reveal")
+}
 
 @Test func revealingADeepRouteExpandsItsAncestors() {
     let tree = SettingsTree(devices: [clock, knob])
@@ -199,9 +231,9 @@ func unknownStoredValueFallsBackToConnection(name: String) {
 
 // MARK: Every old control has one new home
 
-/// The pre-regroup panes' controls and where each lives now. Keep it in
-/// step with the panes: a control dropped from the table is a control the
-/// regroup lost.
+/// The pre-regroup panes' controls and where each lives now. A checklist
+/// kept by hand: it proves each listed home is a real node and no control
+/// is listed twice, not that a pane still draws the control.
 private let controlHomes: [(pane: String, control: String, home: SettingsRoute)] = [
     ("agents", "preview", .device("clock", .app(.agents))),
     ("agents", "reporting", .source(.agents)),
@@ -275,7 +307,7 @@ private let controlHomes: [(pane: String, control: String, home: SettingsRoute)]
     ("permissions", "permissions", .app(.permissions)),
 ]
 
-@Test func everyOldControlHasExactlyOneHome() {
+@Test func everyListedControlHomeIsANodeAndListedOnce() {
     let keys = controlHomes.map { "\($0.pane)/\($0.control)" }
     #expect(Set(keys).count == keys.count, "a control is listed twice")
     let tree = SettingsTree(devices: [clock, knob])

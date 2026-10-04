@@ -6,6 +6,9 @@ public struct SettingsDevice: Equatable, Sendable {
     public enum State: Equatable, Sendable {
         /// The device list hasn't loaded: a stored route under it is held.
         case loading
+        /// The device list failed to load: the stored route is held too, so
+        /// an unreachable server doesn't lose a deep page.
+        case unavailable
         /// Nothing registered: the node shows the setup state, no children.
         case notSetUp
         case ready
@@ -71,7 +74,7 @@ public struct SettingsTree: Equatable, Sendable {
             ?? DeviceKind(deviceID: id).flatMap { kind in devices.first { $0.device.kind == kind } }
         guard let node else { return SettingsRoute.fallback }
         switch node.device.state {
-        case .loading:
+        case .loading, .unavailable:
             return route
         case .notSetUp:
             return node.route
@@ -83,6 +86,17 @@ public struct SettingsTree: Equatable, Sendable {
             case .app: return node.apps.contains(moved) ? moved : .device(node.id, .apps)
             }
         }
+    }
+
+    /// A device's list is loading or failed, so a stored route under it
+    /// must be kept rather than rewritten to what `resolve` shows now.
+    public var holdsStoredRoute: Bool {
+        devices.contains { $0.device.state == .loading || $0.device.state == .unavailable }
+    }
+
+    /// `expanded` plus every ancestor of `route`, re-opening collapsed ones.
+    public func expanded(_ expanded: Set<String>, revealing route: SettingsRoute) -> Set<String> {
+        expanded.union(expansionIDs(revealing: route))
     }
 
     /// The nodes to expand so `route` is visible in the sidebar.

@@ -41,6 +41,9 @@ public enum SettingsRoute: Hashable, Sendable {
     public static let storageKey = "settings.pane"
     /// The default holding the expanded sidebar nodes, comma-joined.
     public static let expandedKey = "settings.expanded"
+    /// The default bumped by every deep link, so re-opening the current
+    /// route still reveals it in the sidebar.
+    public static let revealKey = "settings.reveal"
     /// Where Settings opens with nothing stored.
     public static let fallback = SettingsRoute.app(.connection)
 
