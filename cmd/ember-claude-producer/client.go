@@ -22,10 +22,18 @@ const daemonHTTPTimeout = 5 * time.Second
 
 // NewDaemonClient builds the client for background daemon traffic, independent of HookTimeoutMs.
 func NewDaemonClient(cfg Config) *Client {
-	return producer.NewClient(cfg.ServerURL, cfg.Token, daemonHTTPTimeout).WithLinkStatus(daemonLink)
+	c := producer.NewClient(cfg.ServerURL, cfg.Token, daemonHTTPTimeout).WithLinkStatus(daemonLink)
+	if cfg.ServerAuto {
+		c.WithAutoServer(daemonServer)
+	}
+	return c
 }
 
 var daemonLink *producer.LinkStatus
+
+// daemonServer is the heartbeat daemon's discovered server (nil with an
+// explicit EMBER_SERVER_URL); it outlives the per-pass clients.
+var daemonServer *producer.AutoServer
 
 func wireRequest(cfg Config, req StatusRequest) StatusRequest {
 	if !cfg.ContextPctEnabled {

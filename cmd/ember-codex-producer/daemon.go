@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -22,18 +21,22 @@ func runDaemon() {
 	rotateCodexLogs()
 	openDaemonLog("ember-codex-producer")
 	cfg, err := loadConfig()
-	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
+	if err != nil || cfg.Source == "" || (cfg.ServerURL == "" && !cfg.ServerAuto) {
 		fmt.Fprintln(os.Stderr, "codex producer: EMBER_SOURCE/EMBER_SERVER_URL not set; nothing to do")
 		os.Exit(0)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	home, _ := os.UserHomeDir()
+	auto, ok := producer.DaemonServer(ctx, home, cfg.ServerURL, cfg.ServerAuto, cfg.ServerInstance)
+	if !ok {
+		return
+	}
 	w := newWatcher(cfg)
-	client := producer.NewClient(cfg.ServerURL, cfg.Token, httpTimeout)
+	client := producer.NewClient(cfg.ServerURL, cfg.Token, httpTimeout).WithAutoServer(auto)
 	if path, err := producer.LinkStatusPath("codex-producer"); err == nil {
 		client.WithLinkStatus(producer.NewLinkStatus(path))
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	ticker := time.NewTicker(time.Duration(cfg.PollIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -87,5 +90,5 @@ func rotateCodexLogs() {
 	if err != nil {
 		return
 	}
-	producer.RotateLogIfLarge(filepath.Join(home, "Library", "Logs", "ember-codex-producer.log"), producer.DefaultLogThreshold)
+	producer.RotateLogIfLarge(producer.LogPath(home, "ember-codex-producer"), producer.DefaultLogThreshold)
 }

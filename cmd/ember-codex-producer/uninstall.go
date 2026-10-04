@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -16,6 +17,13 @@ func runUninstall() {
 	}
 	if err := deconfigureAt(home); err != nil {
 		fmt.Fprintln(os.Stderr, "uninstall: deconfigure:", err)
+	}
+	if runtime.GOOS == "linux" {
+		if err := producer.UninstallUserUnit(producer.ExecRunner, home, systemdUnitName); err != nil {
+			fmt.Fprintln(os.Stderr, "uninstall: systemd unit:", err)
+		}
+		fmt.Println("Uninstall complete. producer.env was left in place (shared with the Claude producer).")
+		return
 	}
 	uid := os.Getuid()
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)

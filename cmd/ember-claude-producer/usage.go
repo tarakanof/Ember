@@ -172,7 +172,7 @@ func usagePollLoop(ctx context.Context) {
 	t := time.NewTicker(usagePollInterval)
 	defer t.Stop()
 	for {
-		if cfg, err := loadConfig(); err == nil && cfg.ServerURL != "" {
+		if cfg, err := loadDaemonConfig(); err == nil && cfg.ServerURL != "" {
 			usagePollOnce(ctx, cfg, NewDaemonClient(cfg))
 		}
 		select {

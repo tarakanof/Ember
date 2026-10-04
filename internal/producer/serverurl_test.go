@@ -24,8 +24,8 @@ func TestIsAutoServerURL(t *testing.T) {
 }
 
 var (
-	srvA = DiscoveredServer{Name: "Ember", Host: "unraid.local.", URL: "http://192.168.0.36:3627", Version: "1.4.0"}
-	srvB = DiscoveredServer{Name: "Ember (2)", Host: "build-1.local.", URL: "http://192.168.0.50:3627"}
+	srvA = DiscoveredServer{Name: "Ember", Host: "unraid.local.", URL: "http://192.0.2.36:3627", Version: "1.4.0"}
+	srvB = DiscoveredServer{Name: "Ember (2)", Host: "build-1.local.", URL: "http://192.0.2.50:3627"}
 )
 
 func TestPickServerSingle(t *testing.T) {
@@ -64,7 +64,7 @@ func TestPickServerMultipleWithoutPreferenceIsAmbiguous(t *testing.T) {
 }
 
 func TestPickServerPrefersInstanceOrHost(t *testing.T) {
-	for _, prefer := range []string{"Ember (2)", "ember (2)", "build-1", "build-1.local", "192.168.0.50"} {
+	for _, prefer := range []string{"Ember (2)", "ember (2)", "build-1", "build-1.local", "192.0.2.50"} {
 		got, err := PickServer([]DiscoveredServer{srvA, srvB}, prefer)
 		if err != nil || got != srvB {
 			t.Errorf("prefer %q: got %+v, %v", prefer, got, err)
@@ -139,7 +139,7 @@ func TestAutoServerRebrowsesAfterRepeatedTransportFailures(t *testing.T) {
 	var calls int32
 	cache := filepath.Join(t.TempDir(), "server.json")
 	moved := srvA
-	moved.URL = "http://192.168.0.99:3627"
+	moved.URL = "http://192.0.2.99:3627"
 	now := time.Unix(1000, 0)
 	loc := &ServerLocator{Browse: fakeBrowser([]DiscoveredServer{moved}, nil, &calls), CachePath: cache}
 	a := NewAutoServer(loc, srvA.URL)
@@ -285,5 +285,30 @@ func TestServerReportAutoNothingFoundMentionsHostNetworking(t *testing.T) {
 	got := strings.Join(lines, "\n")
 	if !strings.Contains(got, "found 0") || !strings.Contains(got, "host networking") {
 		t.Errorf("got:\n%s", got)
+	}
+}
+
+func TestTokenHint(t *testing.T) {
+	for tok, wantHint := range map[string]bool{"": true, TokenPlaceholder: true, " ": true, "s3cret": false} {
+		if got := TokenHint(tok) != ""; got != wantHint {
+			t.Errorf("TokenHint(%q) hint=%v want %v", tok, got, wantHint)
+		}
+	}
+}
+
+func TestDaemonServerExplicitURLNeedsNoDiscovery(t *testing.T) {
+	a, ok := DaemonServer(context.Background(), t.TempDir(), "http://h:1", false, "")
+	if a != nil || !ok {
+		t.Fatalf("got %v, %v", a, ok)
+	}
+	if _, ok := DaemonServer(context.Background(), t.TempDir(), "", false, ""); ok {
+		t.Fatal("no URL and no discovery must be not ok")
+	}
+}
+
+func TestDaemonServerAutoWithCacheStartsFromIt(t *testing.T) {
+	a, ok := DaemonServer(context.Background(), t.TempDir(), srvA.URL, true, "")
+	if !ok || a == nil || a.URL() != srvA.URL {
+		t.Fatalf("got %v, %v", a, ok)
 	}
 }

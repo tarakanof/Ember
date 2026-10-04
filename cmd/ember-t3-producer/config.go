@@ -20,7 +20,10 @@ const (
 
 type Config struct {
 	Source                string
-	ServerURL             string
+	ServerURL             string // effective URL: explicit, else the cached discovery
+	ServerConfigured      string // EMBER_SERVER_URL as written
+	ServerAuto            bool   // EMBER_SERVER_URL empty or "auto": discover over mDNS
+	ServerInstance        string // EMBER_SERVER_INSTANCE: which server when several answer
 	Token                 string
 	SourceColor           string
 	ActivityTrailEnabled  bool
@@ -41,6 +44,7 @@ func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("source", c.Source),
 		slog.String("server_url", c.ServerURL),
+		slog.Bool("server_auto", c.ServerAuto),
 		slog.String("token", tok),
 		slog.String("source_color", c.SourceColor),
 		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
@@ -80,6 +84,8 @@ func loadConfig() (Config, error) {
 			cfg.Source = v
 		case "EMBER_SERVER_URL":
 			cfg.ServerURL = v
+		case "EMBER_SERVER_INSTANCE":
+			cfg.ServerInstance = v
 		case "EMBER_TOKEN":
 			cfg.Token = v
 		case "EMBER_SOURCE_COLOR":
@@ -111,6 +117,8 @@ func loadConfig() (Config, error) {
 		cfg.Token = os.Getenv("EMBER_TOKEN")
 	}
 	cfg.Source = producer.ResolveSource(cfg.Source)
+	cfg.ServerConfigured = cfg.ServerURL
+	cfg.ServerURL, cfg.ServerAuto = producer.ResolveServerURL(home, cfg.ServerURL)
 	if cfg.PollIntervalMs < minPollIntervalMs {
 		cfg.PollIntervalMs = minPollIntervalMs
 	}

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -20,7 +22,7 @@ func runDoctor() {
 	fmt.Printf("  config:\n")
 	fmt.Printf("    source      = %q\n", cfg.Source)
 	fmt.Printf("    hint: %s\n", producer.SourceHint(cfg.Source))
-	fmt.Printf("    server_url  = %q\n", cfg.ServerURL)
+	fmt.Printf("    server_url  = %q\n", cfg.ServerConfigured)
 	if cfg.Token == "" {
 		fmt.Printf("    token       = (unset)\n")
 	} else {
@@ -48,31 +50,33 @@ func runDoctor() {
 		fmt.Printf("  sessions dir: NOT FOUND (%s)\n", cfg.SessionsDir)
 	}
 
-	if cfg.ServerURL == "" {
-		fmt.Printf("  server: (no server_url configured)\n")
-	} else if serverReachable(cfg.ServerURL, 2*time.Second) {
-		fmt.Printf("  server: reachable (%s)\n", cfg.ServerURL)
-	} else {
-		fmt.Printf("  server: UNREACHABLE (%s)\n", cfg.ServerURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, l := range producer.ServerReport(ctx, producer.ServerReportInput{Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance, Home: home}) {
+		fmt.Println("  " + l)
 	}
-
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if _, err := os.Stat(plistPath); err == nil {
-		fmt.Printf("  LaunchAgent: installed at %s\n", plistPath)
-	} else {
-		fmt.Printf("  LaunchAgent: NOT installed\n")
+	if h := producer.TokenHint(cfg.Token); h != "" {
+		fmt.Println("  WARNING: " + h)
+	}
+	for _, l := range serviceStatus(home) {
+		fmt.Println("  " + l)
 	}
 }
 
-func serverReachable(url string, timeout time.Duration) bool {
-	if url == "" {
-		return false
+func serviceStatus(home string) []string {
+	if runtime.GOOS == "linux" {
+		return producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, currentUser())
 	}
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Get(url + "/healthz")
-	if err != nil {
-		return false
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
+	if _, err := os.Stat(plistPath); err == nil {
+		return []string{"LaunchAgent: installed at " + plistPath}
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	return []string{"LaunchAgent: NOT installed"}
+}
+
+func currentUser() string {
+	if u, err := user.Current(); err == nil {
+		return u.Username
+	}
+	return os.Getenv("USER")
 }

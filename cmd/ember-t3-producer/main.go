@@ -11,19 +11,19 @@ import (
 var version = "dev"
 
 func main() {
-	sub := "run"
+	sub, args := "run", []string(nil)
 	if len(os.Args) >= 2 {
-		sub = os.Args[1]
+		sub, args = os.Args[1], os.Args[2:]
 	}
 	switch sub {
 	case "run":
 		runDaemon()
 	case "install":
-		runInstall()
+		runInstall(args)
 	case "uninstall":
 		runUninstall()
 	case "configure":
-		runConfigure()
+		runConfigure(args)
 	case "deconfigure":
 		fmt.Println("Deconfigure complete (nothing to undo).")
 	case "doctor":
@@ -43,9 +43,9 @@ func usage() {
 
 Usage:
   ember-t3-producer [run]       # daemon: poll T3 Code thread state, POST status (default)
-  ember-t3-producer install     # install + start the LaunchAgent (com.ember.t3)
-  ember-t3-producer uninstall   # stop + remove the LaunchAgent
-  ember-t3-producer configure   # file-only setup (no LaunchAgent)
+  ember-t3-producer install [--headless]  # install + start the service (LaunchAgent com.ember.t3 / systemd --user)
+  ember-t3-producer uninstall   # stop + remove the service
+  ember-t3-producer configure   # file-only setup (no service)
   ember-t3-producer deconfigure # reverse configure
   ember-t3-producer doctor      # show config, T3 state + reachability
   ember-t3-producer version     # print version
@@ -53,5 +53,7 @@ Usage:
 
 Configuration:
   ~/.config/ember/producer.env (shared with the Claude/Codex producers)
-  EMBER_T3_HOME (default ~/.t3), EMBER_T3_POLL_INTERVAL_MS, EMBER_T3_ACTIVITY_WINDOW_SECONDS`)
+  EMBER_T3_HOME (default ~/.t3), EMBER_T3_POLL_INTERVAL_MS, EMBER_T3_ACTIVITY_WINDOW_SECONDS
+  EMBER_SERVER_URL empty or "auto" finds the server over mDNS (_ember._tcp).
+  --headless: no Ember.app on this Mac (auto-detected; always so on Linux).`)
 }

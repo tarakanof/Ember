@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -19,7 +20,11 @@ func runUninstall() {
 	if err := deconfigureAt(home); err != nil {
 		fmt.Fprintln(os.Stderr, "uninstall: settings.json:", err)
 	}
-	if err := uninstallPlist(producer.ExecLaunchctl, home, uid); err != nil {
+	if runtime.GOOS == "linux" {
+		if err := producer.UninstallUserUnit(producer.ExecRunner, home, systemdUnitName); err != nil {
+			fmt.Fprintln(os.Stderr, "uninstall: systemd unit:", err)
+		}
+	} else if err := uninstallPlist(producer.ExecLaunchctl, home, uid); err != nil {
 		fmt.Fprintln(os.Stderr, "uninstall: plist:", err)
 	}
 	warnPluginStillEnabled()

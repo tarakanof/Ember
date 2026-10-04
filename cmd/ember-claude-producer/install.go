@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -18,23 +19,24 @@ const (
 	legacyProducerName = "awtrix-claude-producer"
 )
 
-func runInstall() {
+func runInstall(args []string) {
 	if err := install(); err != nil {
 		fmt.Fprintln(os.Stderr, "install failed:", err)
 		os.Exit(1)
 	}
 	printPluginNote()
-	fmt.Println("Install complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
-	printSourceHint()
+	fmt.Println("Install complete. Edit ~/.config/ember/producer.env if needed, then restart `claude`.")
+	printSetupHints(args)
 }
 
-func runConfigure() {
+func runConfigure(args []string) {
 	if err := configure(); err != nil {
 		fmt.Fprintln(os.Stderr, "configure failed:", err)
 		os.Exit(1)
 	}
 	printPluginNote()
-	fmt.Println("Configure complete. Edit ~/.config/ember/producer.env, then restart `claude`.")
+	fmt.Println("Configure complete. Edit ~/.config/ember/producer.env if needed, then restart `claude`.")
+	printSetupHints(args)
 }
 
 func install() error {
@@ -44,8 +46,10 @@ func install() error {
 	}
 	uid := os.Getuid()
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, uid, launchAgentLabel, plistPath); err != nil {
-		return err
+	if runtime.GOOS == "darwin" {
+		if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, uid, launchAgentLabel, plistPath); err != nil {
+			return err
+		}
 	}
 	if err := configure(); err != nil {
 		return err
@@ -54,14 +58,40 @@ func install() error {
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
 	}
-	plistData, err := generatePlist(binPath, home, uid)
+	switch runtime.GOOS {
+	case "darwin":
+		plistData, err := generatePlist(binPath, home, uid)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
+			return err
+		}
+		return reloadLaunchAgent(producer.ExecLaunchctl, uid, plistPath)
+	case "linux":
+		return producer.InstallUserUnit(producer.ExecRunner, home, userUnit(binPath))
+	default:
+		return fmt.Errorf("no background service support on %s: run `%s run` under your own supervisor", runtime.GOOS, binPath)
+	}
+}
+
+const systemdUnitName = "ember-claude-producer"
+
+// userUnit is the systemd --user counterpart of the com.ember.heartbeat LaunchAgent.
+func userUnit(binPath string) producer.UserUnit {
+	return producer.UserUnit{Name: systemdUnitName, Description: "Ember Claude Code heartbeat producer (session heartbeats + usage)", ExecStart: []string{binPath, "run"}}
+}
+
+func printSetupHints(args []string) {
+	cfg, err := loadConfig()
 	if err != nil {
-		return err
+		return
 	}
-	if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
-		return err
-	}
-	return reloadLaunchAgent(producer.ExecLaunchctl, uid, plistPath)
+	home, _ := os.UserHomeDir()
+	producer.PrintSetupHints(os.Stdout, producer.SetupHintsInput{
+		Source: cfg.Source, Token: cfg.Token, Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance,
+		Home: home, Headless: producer.Headless(args, home),
+	})
 }
 
 func configureAt(home, binPath string) error {
@@ -108,12 +138,15 @@ func configure() error {
 }
 
 func createInstallDirs(home string) error {
-	for _, d := range []string{
+	dirs := []string{
 		filepath.Join(home, ".config", "ember"),
 		filepath.Join(home, ".local", "state", "ember", "sessions"),
-		filepath.Join(home, "Library", "Logs"),
-		filepath.Join(home, "Library", "LaunchAgents"),
-	} {
+		producer.LogDir(home),
+	}
+	if runtime.GOOS == "darwin" {
+		dirs = append(dirs, filepath.Join(home, "Library", "LaunchAgents"))
+	}
+	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return err
 		}
@@ -337,7 +370,7 @@ var producerHookSpecs = []producerHookSpec{
 }
 
 func producerHookEntries(binPath string) []producerHookEntry {
-	logRedirect := ` >>$HOME/Library/Logs/ember-claude-producer.log 2>&1`
+	logRedirect := ` >>` + producer.LogDirShell() + `/ember-claude-producer.log 2>&1`
 	cmd := func(eventName string) string {
 		inner := `"` + binPath + `" hook ` + eventName + logRedirect
 		return `[ -x "` + binPath + `" ] && ` + inner + ` || true`
@@ -369,10 +402,4 @@ func entryMatchesProducer(e any) bool {
 		}
 	}
 	return false
-}
-
-func printSourceHint() {
-	if cfg, err := loadConfig(); err == nil {
-		fmt.Println(producer.SourceHint(cfg.Source))
-	}
 }

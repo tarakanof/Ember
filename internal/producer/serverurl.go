@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -373,7 +374,7 @@ func ServerReport(ctx context.Context, in ServerReportInput) []string {
 		for _, s := range found {
 			v := ""
 			if s.Version != "" {
-				v = " (v" + strings.TrimPrefix(s.Version, "v") + ")"
+				v = " (version " + s.Version + ")"
 			}
 			lines = append(lines, "    "+s.String()+v)
 		}
@@ -410,4 +411,34 @@ func reachability(ctx context.Context, u string) string {
 		return fmt.Sprintf("UNHEALTHY (%s: %s)", u, resp.Status)
 	}
 	return fmt.Sprintf("reachable (%s)", u)
+}
+
+// DaemonServer prepares a daemon's server: nil for an explicit URL (ok when
+// set); with discovery, an AutoServer seeded from the cache that first waits,
+// retrying with backoff, until a server answers. ok is false when there is
+// nothing to report to or ctx ended while waiting.
+func DaemonServer(ctx context.Context, home, serverURL string, auto bool, prefer string) (*AutoServer, bool) {
+	if !auto {
+		return nil, serverURL != ""
+	}
+	a := NewAutoServer(NewServerLocator(home, prefer), serverURL)
+	if _, err := WaitForServer(ctx, a, func(err error, retryIn time.Duration) {
+		slog.Warn("server discovery failed", "err", err, "retry_in", retryIn)
+	}); err != nil {
+		return nil, false
+	}
+	slog.Info("server discovered", "url", a.URL())
+	return a, true
+}
+
+// TokenPlaceholder is the EMBER_TOKEN value the env template ships.
+const TokenPlaceholder = "set-me-to-the-server-bearer-token"
+
+// TokenHint is the install/doctor nudge when EMBER_TOKEN is unset or still
+// the placeholder ("" when set).
+func TokenHint(token string) string {
+	if t := strings.TrimSpace(token); t != "" && t != TokenPlaceholder {
+		return ""
+	}
+	return "EMBER_TOKEN is not set: put the server's bearer token in ~/.config/ember/producer.env (mode 0600) — writes are rejected without it"
 }

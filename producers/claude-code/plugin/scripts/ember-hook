@@ -9,8 +9,11 @@
 #   1. $EMBER_CLAUDE_PRODUCER (if set, used alone: no fallback)
 #   2. ember-claude-producer on PATH
 #   3. ~/go/bin/ember-claude-producer (go install)
-#   4. Ember.app's bundled helper under $EMBER_APP_DIRS
+#   4. ~/.local/bin/ember-claude-producer (release tarball / install-producers.sh)
+#   5. Ember.app's bundled helper under $EMBER_APP_DIRS
 #      (default: /Applications ~/Applications)
+#
+# Log: ~/Library/Logs on macOS, else ~/.local/state/ember/logs (XDG state).
 
 event=$1
 [ -n "$event" ] || exit 0
@@ -22,6 +25,7 @@ if [ -n "${EMBER_CLAUDE_PRODUCER+x}" ]; then
 else
   bin=$(command -v "$name" 2>/dev/null) || bin=
   [ -n "$bin" ] && [ -x "$bin" ] || bin=$HOME/go/bin/$name
+  [ -x "$bin" ] || bin=$HOME/.local/bin/$name
   if [ ! -x "$bin" ]; then
     for dir in ${EMBER_APP_DIRS:-/Applications $HOME/Applications}; do
       if [ -x "$dir/Ember.app/Contents/MacOS/$name" ]; then
@@ -34,6 +38,7 @@ fi
 [ -x "$bin" ] || exit 0
 
 log=$HOME/Library/Logs/$name.log
+[ -d "${log%/*}" ] || log=$HOME/.local/state/ember/logs/$name.log
 [ -d "${log%/*}" ] && [ -w "${log%/*}" ] || log=/dev/null
 "$bin" hook "$event" >>"$log" 2>&1
 exit 0

@@ -8,19 +8,19 @@ import (
 var version = "dev"
 
 func main() {
-	sub := "run"
+	sub, args := "run", []string(nil)
 	if len(os.Args) >= 2 {
-		sub = os.Args[1]
+		sub, args = os.Args[1], os.Args[2:]
 	}
 	switch sub {
 	case "run":
 		runDaemon()
 	case "install":
-		runInstall()
+		runInstall(args)
 	case "uninstall":
 		runUninstall()
 	case "configure":
-		runConfigure()
+		runConfigure(args)
 	case "deconfigure":
 		runDeconfigure()
 	case "doctor":
@@ -40,14 +40,16 @@ func usage() {
 
 Usage:
   ember-codex-producer [run]      # daemon: tail Codex rollout files, POST status (default)
-  ember-codex-producer install    # install + start the LaunchAgent
-  ember-codex-producer uninstall  # stop + remove the LaunchAgent
-  ember-codex-producer configure  # file-only setup (no LaunchAgent)
+  ember-codex-producer install [--headless]  # install + start the service (LaunchAgent / systemd --user)
+  ember-codex-producer uninstall  # stop + remove the service
+  ember-codex-producer configure  # file-only setup (no service)
   ember-codex-producer deconfigure # reverse configure
   ember-codex-producer doctor     # show config + reachability
   ember-codex-producer version    # print version
   ember-codex-producer help       # this help
 
 Configuration:
-  ~/.config/ember/producer.env (shared with the Claude producer)`)
+  ~/.config/ember/producer.env (shared with the Claude producer)
+  EMBER_SERVER_URL empty or "auto" finds the server over mDNS (_ember._tcp).
+  --headless: no Ember.app on this Mac (auto-detected; always so on Linux).`)
 }

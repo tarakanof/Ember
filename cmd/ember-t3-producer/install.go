@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -13,23 +14,22 @@ import (
 
 const launchAgentLabel = "com.ember.t3"
 
-func runInstall() {
+func runInstall(args []string) {
 	if err := install(); err != nil {
 		fmt.Fprintln(os.Stderr, "install failed:", err)
 		os.Exit(1)
 	}
 	fmt.Println("Install complete. The T3 Code producer daemon is now running.")
-	fmt.Println("Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
-	printSourceHint()
+	printSetupHints(args)
 }
 
-func runConfigure() {
+func runConfigure(args []string) {
 	if err := configure(); err != nil {
 		fmt.Fprintln(os.Stderr, "configure failed:", err)
 		os.Exit(1)
 	}
-	fmt.Println("Configure complete. Ensure ~/.config/ember/producer.env has EMBER_SOURCE + EMBER_SERVER_URL + EMBER_TOKEN.")
-	printSourceHint()
+	fmt.Println("Configure complete.")
+	printSetupHints(args)
 }
 
 func install() error {
@@ -38,8 +38,10 @@ func install() error {
 		return err
 	}
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, os.Getuid(), launchAgentLabel, plistPath); err != nil {
-		return err
+	if runtime.GOOS == "darwin" {
+		if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, os.Getuid(), launchAgentLabel, plistPath); err != nil {
+			return err
+		}
 	}
 	if err := configure(); err != nil {
 		return err
@@ -48,16 +50,30 @@ func install() error {
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
 	}
-	_ = exec.Command("xattr", "-d", "com.apple.quarantine", binPath).Run()
-	if err := os.WriteFile(plistPath, generatePlist(binPath), 0o644); err != nil {
-		return err
+	switch runtime.GOOS {
+	case "darwin":
+		_ = exec.Command("xattr", "-d", "com.apple.quarantine", binPath).Run()
+		if err := os.WriteFile(plistPath, generatePlist(binPath), 0o644); err != nil {
+			return err
+		}
+		domain := fmt.Sprintf("gui/%d", os.Getuid())
+		producer.BootoutCLIAgent(producer.ExecLaunchctl, domain+"/"+launchAgentLabel, plistPath)
+		if out, err := producer.ExecLaunchctl("bootstrap", domain, plistPath); err != nil {
+			return fmt.Errorf("launchctl bootstrap: %v\nOutput: %s", err, out)
+		}
+		return nil
+	case "linux":
+		return producer.InstallUserUnit(producer.ExecRunner, home, userUnit(binPath))
+	default:
+		return fmt.Errorf("no background service support on %s: run `%s run` under your own supervisor", runtime.GOOS, binPath)
 	}
-	domain := fmt.Sprintf("gui/%d", os.Getuid())
-	producer.BootoutCLIAgent(producer.ExecLaunchctl, domain+"/"+launchAgentLabel, plistPath)
-	if out, err := producer.ExecLaunchctl("bootstrap", domain, plistPath); err != nil {
-		return fmt.Errorf("launchctl bootstrap: %v\nOutput: %s", err, out)
-	}
-	return nil
+}
+
+const systemdUnitName = "ember-t3-producer"
+
+// userUnit is the systemd --user counterpart of the com.ember.t3 LaunchAgent.
+func userUnit(binPath string) producer.UserUnit {
+	return producer.UserUnit{Name: systemdUnitName, Description: "Ember T3 Code producer (polls T3 thread state, reports status)", ExecStart: []string{binPath, "run"}}
 }
 
 func configure() error {
@@ -72,10 +88,14 @@ func configureAt(home string) error {
 	for _, d := range []string{
 		filepath.Join(home, ".config", "ember"),
 		filepath.Join(home, ".local", "state", "ember", "sessions"),
-		filepath.Join(home, "Library", "Logs"),
-		filepath.Join(home, "Library", "LaunchAgents"),
+		producer.LogDir(home),
 	} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
+			return err
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		if err := os.MkdirAll(filepath.Join(home, "Library", "LaunchAgents"), 0o700); err != nil {
 			return err
 		}
 	}
@@ -125,8 +145,14 @@ func xmlEscape(s string) string {
 	return b.String()
 }
 
-func printSourceHint() {
-	if cfg, err := loadConfig(); err == nil {
-		fmt.Println(producer.SourceHint(cfg.Source))
+func printSetupHints(args []string) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return
 	}
+	home, _ := os.UserHomeDir()
+	producer.PrintSetupHints(os.Stdout, producer.SetupHintsInput{
+		Source: cfg.Source, Token: cfg.Token, Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance,
+		Home: home, Headless: producer.Headless(args, home),
+	})
 }

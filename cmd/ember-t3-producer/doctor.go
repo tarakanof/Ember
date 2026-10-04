@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -20,7 +21,7 @@ func runDoctor() {
 	fmt.Println("ember-t3-producer doctor:")
 	fmt.Printf("  source      = %q\n", cfg.Source)
 	fmt.Printf("  hint: %s\n", producer.SourceHint(cfg.Source))
-	fmt.Printf("  server_url  = %q\n", cfg.ServerURL)
+	fmt.Printf("  server_url  = %q\n", cfg.ServerConfigured)
 	if cfg.Token == "" {
 		fmt.Println("  token       = (unset)")
 	} else {
@@ -34,7 +35,7 @@ func runDoctor() {
 	} else {
 		fmt.Println("  T3 server: NOT running (no live userdata/server-runtime.json)")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if snap, err := readSnapshot(ctx, cfg.T3Home); err != nil {
 		fmt.Printf("  T3 state: %v\n", err)
@@ -46,13 +47,17 @@ func runDoctor() {
 		fmt.Printf("  T3 state: schema v%d, migration %d%s, %d threads\n", snap.Schema, snap.Migration, note, len(snap.Threads))
 	}
 
-	switch {
-	case cfg.ServerURL == "":
-		fmt.Println("  ember server: (no server_url configured)")
-	case serverReachable(cfg.ServerURL, 2*time.Second):
-		fmt.Printf("  ember server: reachable (%s)\n", cfg.ServerURL)
-	default:
-		fmt.Printf("  ember server: UNREACHABLE (%s)\n", cfg.ServerURL)
+	for _, l := range producer.ServerReport(ctx, producer.ServerReportInput{Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance, Home: home}) {
+		fmt.Println("  " + l)
+	}
+	if h := producer.TokenHint(cfg.Token); h != "" {
+		fmt.Println("  WARNING: " + h)
+	}
+	if runtime.GOOS == "linux" {
+		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, currentUser()) {
+			fmt.Println("  " + l)
+		}
+		return
 	}
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	if _, err := os.Stat(plistPath); err == nil {
@@ -62,14 +67,9 @@ func runDoctor() {
 	}
 }
 
-func serverReachable(url string, timeout time.Duration) bool {
-	if url == "" {
-		return false
+func currentUser() string {
+	if u, err := user.Current(); err == nil {
+		return u.Username
 	}
-	resp, err := (&http.Client{Timeout: timeout}).Get(url + "/healthz")
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+	return os.Getenv("USER")
 }

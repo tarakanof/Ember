@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -20,7 +24,7 @@ func runDoctor() {
 	fmt.Printf("  config:\n")
 	fmt.Printf("    source     = %q\n", cfg.Source)
 	fmt.Printf("    hint: %s\n", producer.SourceHint(cfg.Source))
-	fmt.Printf("    server_url = %q\n", cfg.ServerURL)
+	fmt.Printf("    server_url = %q\n", cfg.ServerConfigured)
 	if cfg.Token == "" {
 		fmt.Printf("    token      = (unset)\n")
 	} else {
@@ -34,6 +38,15 @@ func runDoctor() {
 		fmt.Printf("  producer.env: %s mode=%#o\n", envPath, info.Mode().Perm())
 	} else {
 		fmt.Printf("  producer.env: MISSING at %s\n", envPath)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, l := range producer.ServerReport(ctx, producer.ServerReportInput{Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance, Home: home}) {
+		fmt.Println("  " + l)
+	}
+	if h := producer.TokenHint(cfg.Token); h != "" {
+		fmt.Println("  WARNING: " + h)
 	}
 
 	hooksLine, _ := hookRegistrationReport(home)
@@ -52,6 +65,12 @@ func runDoctor() {
 		fmt.Printf("  state dir: not present (%s)\n", stateD)
 	}
 
+	if runtime.GOOS == "linux" {
+		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, currentUser()) {
+			fmt.Println("  heartbeat " + l)
+		}
+		return
+	}
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
 	if _, err := os.Stat(plistPath); err == nil {
 		fmt.Printf("  LaunchAgent: installed at %s\n", plistPath)
@@ -64,6 +83,13 @@ func runDoctor() {
 	out, err := exec.Command("launchctl", "print", target).CombinedOutput()
 	hint := heartbeatFixHint(producer.ExecLaunchctl, uid, plistPath)
 	fmt.Printf("  heartbeat agent: %s\n", heartbeatStatusLine(err == nil, string(out), hint))
+}
+
+func currentUser() string {
+	if u, err := user.Current(); err == nil {
+		return u.Username
+	}
+	return os.Getenv("USER")
 }
 
 const appRepairHint = "open Ember › Settings › Agents and click Repair"

@@ -20,11 +20,11 @@ func main() {
 	case "statusline":
 		runStatusline()
 	case "install":
-		runInstall()
+		runInstall(os.Args[2:])
 	case "uninstall":
 		runUninstall()
 	case "configure":
-		runConfigure()
+		runConfigure(os.Args[2:])
 	case "deconfigure":
 		runDeconfigure()
 	case "doctor":
@@ -42,16 +42,18 @@ func usage() {
 
 Usage:
   ember-claude-producer hook <event-name>     # called by Claude Code hooks
-  ember-claude-producer run                   # long-lived heartbeat daemon (LaunchAgent)
+  ember-claude-producer run                   # long-lived heartbeat daemon (LaunchAgent / systemd --user)
   ember-claude-producer tick                  # one-shot heartbeat pass (manual/doctor)
   ember-claude-producer statusline             # called by Claude Code statusLine
-  ember-claude-producer install               # one-shot setup
+  ember-claude-producer install [--headless]  # one-shot setup: hooks, statusline, heartbeat service
   ember-claude-producer uninstall             # reverse install
-  ember-claude-producer configure             # file-only setup (no LaunchAgent)
+  ember-claude-producer configure             # file-only setup (no service)
   ember-claude-producer deconfigure           # reverse configure
   ember-claude-producer doctor                # show config + state health
   ember-claude-producer help                  # this help
 
 Configuration:
-  ~/.config/ember/producer.env`)
+  ~/.config/ember/producer.env
+  EMBER_SERVER_URL empty or "auto" finds the server over mDNS (_ember._tcp).
+  --headless: no Ember.app on this Mac (auto-detected; always so on Linux).`)
 }

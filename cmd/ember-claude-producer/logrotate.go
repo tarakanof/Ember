@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -12,7 +11,7 @@ func rotateProducerLogs() {
 	if err != nil {
 		return
 	}
-	for _, name := range []string{"ember-claude-producer.log", "ember-tick.log"} {
-		producer.RotateLogIfLarge(filepath.Join(home, "Library", "Logs", name), producer.DefaultLogThreshold)
+	for _, name := range []string{"ember-claude-producer", "ember-tick"} {
+		producer.RotateLogIfLarge(producer.LogPath(home, name), producer.DefaultLogThreshold)
 	}
 }

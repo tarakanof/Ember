@@ -20,7 +20,10 @@ const (
 
 type Config struct {
 	Source                string
-	ServerURL             string
+	ServerURL             string // effective URL: explicit, else the cached discovery
+	ServerConfigured      string // EMBER_SERVER_URL as written
+	ServerAuto            bool   // EMBER_SERVER_URL empty or "auto": discover over mDNS
+	ServerInstance        string // EMBER_SERVER_INSTANCE: which server when several answer
 	Token                 string
 	HeartbeatTTLHours     int
 	HookTimeoutMs         int
@@ -45,6 +48,7 @@ func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("source", c.Source),
 		slog.String("server_url", c.ServerURL),
+		slog.Bool("server_auto", c.ServerAuto),
 		slog.String("token", tokenStatus),
 		slog.Int("heartbeat_ttl_hours", c.HeartbeatTTLHours),
 		slog.Int("hook_timeout_ms", c.HookTimeoutMs),
@@ -86,6 +90,8 @@ func loadConfig() (Config, error) {
 			cfg.Source = v
 		case "EMBER_SERVER_URL":
 			cfg.ServerURL = v
+		case "EMBER_SERVER_INSTANCE":
+			cfg.ServerInstance = v
 		case "EMBER_TOKEN":
 			cfg.Token = v
 		case "EMBER_HEARTBEAT_TTL_HOURS":
@@ -155,6 +161,10 @@ func loadConfig() (Config, error) {
 		}
 	}
 	cfg.Source = producer.ResolveSource(cfg.Source)
+	if home, err := os.UserHomeDir(); err == nil {
+		cfg.ServerConfigured = cfg.ServerURL
+		cfg.ServerURL, cfg.ServerAuto = producer.ResolveServerURL(home, cfg.ServerURL)
+	}
 	if cfg.Token == "" {
 		cfg.Token = os.Getenv("EMBER_TOKEN")
 	}
