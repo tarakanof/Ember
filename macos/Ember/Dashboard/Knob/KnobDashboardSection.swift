@@ -51,7 +51,8 @@ struct KnobDashboardSection: View {
                 .lineLimit(1)
             status
             Spacer(minLength: 12)
-            Picker("Time range", selection: Binding(get: { input.range }, set: input.setRange)) {
+            Picker("Time range", selection: Binding(get: { [range = input.range] in range },
+                                                set: { [setRange = input.setRange] r in setRange(r) })) {
                 ForEach(KnobStatsRange.allCases) { r in Text(Self.title(r)).tag(r) }
             }
             .pickerStyle(.segmented)
