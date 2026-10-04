@@ -116,24 +116,37 @@ func TestHook_Stop_UpsertsDoneAndKeepsMarker(t *testing.T) {
 	}
 }
 
-func TestHook_Stop_WithBackgroundTasksStaysRunning(t *testing.T) {
-	h := newHookHarness(t)
-	dir := h.sessionsDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
+func TestHook_Stop_BackgroundTasks(t *testing.T) {
+	cases := []struct {
+		name, tasks, want string
+	}{
+		{"subagent keeps running", `[{"id":"t1","type":"subagent","status":"running","agent_type":"Explore"}]`, "running"},
+		{"workflow keeps running", `[{"id":"t1","type":"workflow","status":"running"}]`, "running"},
+		{"shell is done", `[{"id":"t1","type":"shell","status":"running","command":"npm run dev"}]`, "done"},
+		{"monitor is done", `[{"id":"t1","type":"monitor","status":"running"}]`, "done"},
+		{"mixed keeps running", `[{"type":"shell"},{"type":"teammate"}]`, "running"},
+		{"odd shape is done", `{"nope":1}`, "done"},
 	}
-	markerP := filepath.Join(dir, "abc.json")
-	if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	body := `{"hook_event_name":"Stop","session_id":"abc","cwd":"/repo","last_assistant_message":"waiting on tests",` +
-		`"background_tasks":[{"id":"t1","type":"shell","status":"running","command":"go test ./..."}]}`
-	dispatchHookForTest(t, "stop", []byte(body))
-	if h.posts.Load() != 0 {
-		t.Errorf("stop with background work should not POST; posts = %d", h.posts.Load())
-	}
-	if m, _ := os.ReadFile(markerP); !strings.Contains(string(m), `"state":"running"`) {
-		t.Errorf("marker = %s, want state still running", m)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHookHarness(t)
+			dir := h.sessionsDir()
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			markerP := filepath.Join(dir, "abc.json")
+			if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			body := `{"hook_event_name":"Stop","session_id":"abc","cwd":"/repo","last_assistant_message":"ok","background_tasks":` + c.tasks + `}`
+			dispatchHookForTest(t, "stop", []byte(body))
+			if m, _ := os.ReadFile(markerP); !strings.Contains(string(m), `"state":"`+c.want+`"`) {
+				t.Errorf("marker = %s, want state %s", m, c.want)
+			}
+			if wantPosts := map[string]int32{"running": 0, "done": 1}[c.want]; h.posts.Load() != wantPosts {
+				t.Errorf("posts = %d, want %d", h.posts.Load(), wantPosts)
+			}
+		})
 	}
 }
 
@@ -147,6 +160,11 @@ func TestHook_Notification_TypeMapping(t *testing.T) {
 		{"elicitation_complete", "waiting", "running"},
 		{"elicitation_response", "waiting", "running"},
 		{"elicitation_response", "done", ""}, // only ends a wait
+		{"idle_prompt", "done", ""},          // keeps Stop's reply line
+		{"idle_prompt", "error", ""},         // never hides an error
+		{"permission_prompt", "running", "waiting"},
+		{"agent_needs_input", "running", "waiting"},
+		{"agent_completed", "running", "done"},
 		{"quota_auto_resume_fired", "error", "running"},
 		{"quota_auto_resume_stale", "error", "waiting"},
 		{"quota_auto_resume_disabled", "error", "error"},
@@ -248,6 +266,71 @@ func TestHook_LockWaitIsBounded(t *testing.T) {
 
 // SessionEnd shares a 1.5 s budget: it never waits out the lock and still
 // sends its DELETE.
+// An MCP elicitation answer must not end a permission wait.
+func TestHook_ElicitationResponse_KeepsPermissionWait(t *testing.T) {
+	h := newHookHarness(t)
+	if err := os.MkdirAll(h.sessionsDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	prev := `{"source":"test-mbp","tool":"claude","session":"abc","state":"waiting","pending_permission":"fp"}`
+	if err := os.WriteFile(filepath.Join(h.sessionsDir(), "abc.json"), []byte(prev), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dispatchHookForTest(t, "notification", []byte(`{"session_id":"abc","cwd":"/repo","notification_type":"elicitation_response"}`))
+	if h.posts.Load() != 0 {
+		t.Errorf("posts = %d, want 0", h.posts.Load())
+	}
+}
+
+func TestHook_SessionStart_ClearsMarkerWhenLockBusy(t *testing.T) {
+	h := newHookHarness(t)
+	dir := h.sessionsDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerP := filepath.Join(dir, "abc.json")
+	if err := os.WriteFile(markerP, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	holdLock(t, filepath.Join(dir, "abc.lock"))
+	dispatchHookForTest(t, "session-start", []byte(`{"session_id":"abc","cwd":"/repo","source":"clear"}`))
+	if _, err := os.Stat(markerP); !os.IsNotExist(err) {
+		t.Errorf("marker should be cleared even when the lock is busy")
+	}
+}
+
+// The upsert stamps state_changed_at on a state change and keeps it while
+// the state holds, so done/error expire from when they began.
+func TestHandleUpsert_StateChangedAt(t *testing.T) {
+	h := newHookHarness(t)
+	_ = h
+	t0 := time.Unix(1_800_000_000, 0)
+	now := t0
+	old := hookNow
+	hookNow = func() time.Time { return now }
+	t.Cleanup(func() { hookNow = old })
+	read := func() marker {
+		var m marker
+		raw, _ := os.ReadFile(filepath.Join(h.sessionsDir(), "abc.json"))
+		_ = json.Unmarshal(raw, &m)
+		return m
+	}
+	dispatchHookForTest(t, "stop", []byte(`{"session_id":"abc","cwd":"/repo","last_assistant_message":"a"}`))
+	if got := read().StateChangedAt; got != t0.Unix() {
+		t.Fatalf("state_changed_at = %d, want %d", got, t0.Unix())
+	}
+	now = t0.Add(20 * time.Second)
+	dispatchHookForTest(t, "notification", []byte(`{"session_id":"abc","cwd":"/repo","notification_type":"agent_completed"}`))
+	if got := read().StateChangedAt; got != t0.Unix() {
+		t.Errorf("same state restamped: %d, want %d", got, t0.Unix())
+	}
+	now = t0.Add(40 * time.Second)
+	dispatchHookForTest(t, "user-prompt-submit", []byte(`{"session_id":"abc","cwd":"/repo","prompt":"x"}`))
+	if got := read().StateChangedAt; got != now.Unix() {
+		t.Errorf("state change not stamped: %d, want %d", got, now.Unix())
+	}
+}
+
 func TestHook_SessionEnd_DoesNotBlockOnLock(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -631,7 +714,7 @@ func TestHandleUpsert_StampsRateBottomBar(t *testing.T) {
 	dir := t.TempDir()
 	markerP := markerPath(dir, "sess")
 	lockP := lockPath(dir, "sess")
-	cfg := Config{Source: "mbp", ServerURL: "http://x", RateBottomBarEnabled: true}
+	cfg := Config{Source: "mbp", ServerURL: "http://127.0.0.1:1", HookTimeoutMs: 500, RateBottomBarEnabled: true}
 	client := NewClient(cfg)
 	handleUpsert(context.Background(), cfg, client, "sess", "running", "msg", "", markerP, lockP)
 
@@ -749,5 +832,25 @@ func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
 	got := (*h.bodies)[0]
 	if strings.Contains(got, `"context_pct"`) || strings.Contains(got, `"source_color"`) {
 		t.Errorf("DELETE body must not carry G.3 fields: %s", got)
+	}
+}
+
+// Hooks write the marker under the lock and POST after releasing it, so a
+// slow server can't make a parallel hook (say Stop) drop its marker write
+// and leave the heartbeat re-posting a stale running.
+func TestHook_PostsOutsideLock(t *testing.T) {
+	h := newHookHarness(t)
+	lockP := filepath.Join(h.sessionsDir(), "abc.lock")
+	var lockFree atomic.Bool
+	var calls atomic.Int32
+	h.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			lockFree.Store(withLockExWait(lockP, 100*time.Millisecond, func() error { return nil }) == nil)
+		}
+		w.WriteHeader(204)
+	})
+	dispatchHookForTest(t, "stop", []byte(`{"session_id":"abc","cwd":"/repo","last_assistant_message":"ok"}`))
+	if !lockFree.Load() {
+		t.Error("session lock was held while the hook POST was in flight")
 	}
 }

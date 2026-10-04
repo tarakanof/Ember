@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -74,55 +75,92 @@ func TestTick_StaleMarker_RemovedAndDeleted(t *testing.T) {
 	}
 }
 
-// A heartbeat racing SessionEnd must not leave a ghost session on the server:
-// whatever the interleaving, the last request it sees is a DELETE.
-func TestTick_NoResurrectionUnderConcurrentSessionEnd(t *testing.T) {
+// SessionEnd landing while the heartbeat POST is in flight must not leave a
+// ghost session: the last request the server sees is a DELETE, also when the
+// POST errors (a timed-out POST may still have been applied).
+func TestTick_NoResurrectionWhenSessionEndsDuringPost(t *testing.T) {
+	for _, status := range []int{204, 500} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			h := newHookHarness(t)
+			dir := h.sessionsDir()
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			markerP := filepath.Join(dir, "abc.json")
+			if err := os.WriteFile(markerP, []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, _ := loadConfig()
+			var mu sync.Mutex
+			var reqs []string
+			h.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				reqs = append(reqs, r.Method)
+				first := len(reqs) == 1
+				mu.Unlock()
+				if first {
+					dispatchHook(context.Background(), "session-end", []byte(`{"session_id":"abc","cwd":"/repo","reason":"other"}`), cfg)
+					w.WriteHeader(status)
+					return
+				}
+				w.WriteHeader(204)
+			})
+			dispatchTick(context.Background(), cfg)
+			mu.Lock()
+			defer mu.Unlock()
+			if len(reqs) < 3 || reqs[len(reqs)-1] != http.MethodDelete {
+				t.Errorf("requests = %v, want POST, DELETE (SessionEnd), DELETE (reconcile)", reqs)
+			}
+		})
+	}
+}
+
+func TestHeartbeatDue_DoneAndErrorExpire(t *testing.T) {
+	cfg := Config{DoneTTLSeconds: 30}
+	now := time.Unix(1_800_000_000, 0)
+	at := func(ago time.Duration) int64 { return now.Add(-ago).Unix() }
+	cases := []struct {
+		name  string
+		m     marker
+		mtime time.Duration
+		want  bool
+	}{
+		{"fresh done", marker{StatusRequest: StatusRequest{State: "done"}, StateChangedAt: at(10 * time.Second)}, 0, true},
+		{"expired done", marker{StatusRequest: StatusRequest{State: "done"}, StateChangedAt: at(31 * time.Second)}, 0, false},
+		{"expired error", marker{StatusRequest: StatusRequest{State: "error"}, StateChangedAt: at(time.Minute)}, 0, false},
+		{"old running", marker{StatusRequest: StatusRequest{State: "running"}, StateChangedAt: at(time.Hour)}, 0, true},
+		{"old waiting", marker{StatusRequest: StatusRequest{State: "waiting"}, StateChangedAt: at(time.Hour)}, 0, true},
+		{"legacy done, old mtime", marker{StatusRequest: StatusRequest{State: "done"}}, time.Minute, false},
+		{"legacy done, fresh mtime", marker{StatusRequest: StatusRequest{State: "done"}}, time.Second, true},
+	}
+	for _, c := range cases {
+		if got := heartbeatDue(cfg, c.m, now.Add(-c.mtime), now); got != c.want {
+			t.Errorf("%s: heartbeatDue = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// An expired done marker stays on disk (local state) but isn't re-posted, so
+// the server's done linger runs out and the idle screen returns.
+func TestTick_ExpiredDoneNotReposted(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	old := time.Now().Add(-time.Minute).Unix()
 	markerP := filepath.Join(dir, "abc.json")
-	body := []byte(`{"source":"test-mbp","tool":"claude","session":"abc","state":"running","message":"Bash"}`)
-
-	var mu sync.Mutex
-	var last string
-	h.srv.Close()
-	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		last = r.Method
-		mu.Unlock()
-		w.WriteHeader(204)
-	}))
-	defer h.srv.Close()
-	cfgDir := filepath.Join(h.home, ".config", "ember")
-	envContent := "EMBER_SOURCE=test-mbp\nEMBER_SERVER_URL=" + h.srv.URL + "\nEMBER_TOKEN=tok\n"
-	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(envContent), 0o600); err != nil {
+	body := `{"source":"test-mbp","tool":"claude","session":"abc","state":"done","state_changed_at":` + strconv.FormatInt(old, 10) + `}`
+	if err := os.WriteFile(markerP, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ := loadConfig()
-
-	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		if err := os.WriteFile(markerP, body, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			dispatchTick(context.Background(), cfg)
-		}()
-		go func() {
-			defer wg.Done()
-			dispatchHook(context.Background(), "session-end", []byte(`{"session_id":"abc","cwd":"/repo","reason":"other"}`), cfg)
-		}()
-		wg.Wait()
-		mu.Lock()
-		got := last
-		mu.Unlock()
-		if got != http.MethodDelete {
-			t.Fatalf("iteration %d: last request %s, want DELETE (ghost session)", i, got)
-		}
+	dispatchTick(context.Background(), cfg)
+	if h.posts.Load() != 0 || h.deletes.Load() != 0 {
+		t.Errorf("posts=%d deletes=%d, want none for an expired done", h.posts.Load(), h.deletes.Load())
+	}
+	if _, err := os.Stat(markerP); err != nil {
+		t.Errorf("marker should be kept: %v", err)
 	}
 }
 

@@ -15,6 +15,9 @@ type marker struct {
 	producer.StatusRequest
 	OwnerPID   int    `json:"owner_pid,omitempty"`
 	OwnerStart string `json:"owner_start,omitempty"`
+	// StateChangedAt (unix s) is when State last changed; the heartbeat stops
+	// re-posting done/error once it is older than DoneTTLSeconds.
+	StateChangedAt int64 `json:"state_changed_at,omitempty"`
 	ToolTrack
 }
 

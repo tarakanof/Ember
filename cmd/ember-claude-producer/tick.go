@@ -168,14 +168,15 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 		deleteSession(ctx, client, gone)
 		return nil
 	}
-	body, ok := snapshotMarker(markerP, lockP)
+	body, ok := snapshotMarker(markerP, lockP, -1)
 	if !ok {
 		return nil
 	}
-	var req StatusRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	var m marker
+	if err := json.Unmarshal(body, &m); err != nil {
 		return nil
 	}
+	req := m.StatusRequest
 	var snap *statuslineUsageSnapshot
 	if req.RateWindowPct != nil || req.RateWeekPct != nil {
 		snap = &statuslineUsageSnapshot{
@@ -188,32 +189,65 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			updatedAt:          info.ModTime(),
 		}
 	}
-	if err := client.Post(ctx, wireRequest(cfg, req)); err != nil {
-		tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
+	if !heartbeatDue(cfg, m, info.ModTime(), time.Now()) {
 		return snap
 	}
-	// A hook may have changed or removed the marker (and told the server)
-	// while this POST was in flight, so the server could now hold the older
-	// snapshot. Re-send whatever the marker says now; a vanished marker means
-	// SessionEnd deleted the session, and this POST must not resurrect it.
-	now, ok := snapshotMarker(markerP, lockP)
-	switch {
-	case !ok:
-		deleteSession(ctx, client, &req)
-	case !bytes.Equal(now, body):
-		var cur StatusRequest
-		if json.Unmarshal(now, &cur) == nil {
-			if err := client.Post(ctx, wireRequest(cfg, cur)); err != nil {
-				tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
-			}
-		}
+	if err := postReconciled(ctx, cfg, client, markerP, lockP, body, -1); err != nil {
+		tickFailLog.Warn(slog.Default(), "claude_post", "status POST failed", "err", err)
 	}
 	return snap
 }
 
-// snapshotMarker reads the marker under a shared lock; ok is false when it is gone.
-func snapshotMarker(markerP, lockP string) (body []byte, ok bool) {
-	_ = withLockSh(lockP, func() error {
+// heartbeatDue reports whether the heartbeat should re-post the marker.
+// done and error are re-posted only until DoneTTLSeconds after the state
+// changed (covering a lost hook POST), so the server's done_ttl linger can
+// expire and the idle screen return; running and waiting always are.
+func heartbeatDue(cfg Config, m marker, mtime, now time.Time) bool {
+	if m.State != "done" && m.State != "error" {
+		return true
+	}
+	changed := mtime
+	if m.StateChangedAt != 0 {
+		changed = time.Unix(m.StateChangedAt, 0)
+	}
+	return now.Sub(changed) < time.Duration(cfg.DoneTTLSeconds)*time.Second
+}
+
+// postReconciled POSTs the marker body, then re-reads the marker (lockWait
+// bounds the shared lock; negative blocks). The POST ran outside the lock, so
+// a hook may have changed or removed the marker, and told the server, while
+// it was in flight: a changed marker is re-sent once (a later change racing
+// that re-send heals at the next heartbeat), and a vanished one means
+// SessionEnd deleted the session, so it is DELETEd again rather than left as
+// a ghost. The check runs even when the POST failed: a timed-out POST may
+// still have been applied.
+func postReconciled(ctx context.Context, cfg Config, client *Client, markerP, lockP string, body []byte, lockWait time.Duration) error {
+	var req StatusRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return err
+	}
+	postErr := client.Post(ctx, wireRequest(cfg, req))
+	now, ok := snapshotMarker(markerP, lockP, lockWait)
+	switch {
+	case !ok:
+		if _, err := os.Stat(markerP); os.IsNotExist(err) {
+			deleteSession(ctx, client, &req)
+		}
+	case !bytes.Equal(now, body):
+		var cur marker
+		if json.Unmarshal(now, &cur) == nil && heartbeatDue(cfg, cur, time.Now(), time.Now()) {
+			if err := client.Post(ctx, wireRequest(cfg, cur.StatusRequest)); err != nil && postErr == nil {
+				postErr = err
+			}
+		}
+	}
+	return postErr
+}
+
+// snapshotMarker reads the marker under a shared lock; ok is false when it is
+// gone or the lock stayed busy for wait (negative blocks).
+func snapshotMarker(markerP, lockP string, wait time.Duration) (body []byte, ok bool) {
+	_ = withLockShWait(lockP, wait, func() error {
 		b, err := os.ReadFile(markerP)
 		if err == nil {
 			body, ok = b, true

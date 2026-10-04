@@ -68,6 +68,7 @@ func lateResumedPrompt(prev marker, msg string, now time.Time) bool {
 }
 
 func handleToolOutcome(ctx context.Context, cfg Config, client *Client, in hookInput, outcome, markerP, lockP string) {
+	var post []byte
 	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		old, err := readMarker(markerP)
 		if err != nil {
@@ -84,6 +85,7 @@ func handleToolOutcome(ctx context.Context, cfg Config, client *Client, in hookI
 			m.Message = truncate(in.ToolName, 80)
 			m.PendingPermission, m.PendingToolUseID = "", ""
 			m.ResumedTool, m.ResumedAt = in.ToolName, hookNow().Unix()
+			m.StateChangedAt = hookNow().Unix()
 			changed = true
 		}
 		if outcome != "" && cfg.ActivityDetailEnabled {
@@ -102,11 +104,12 @@ func handleToolOutcome(ctx context.Context, cfg Config, client *Client, in hookI
 		if err != nil {
 			return nil
 		}
-		_ = writeMarker(markerP, body)
-		if !resume {
-			return nil
+		if writeMarker(markerP, body) == nil && resume {
+			post = body
 		}
-		_ = client.Post(ctx, wireRequest(cfg, m.StatusRequest))
 		return nil
 	})
+	if post != nil {
+		_ = postReconciled(ctx, cfg, client, markerP, lockP, post, hookLockWait(cfg))
+	}
 }

@@ -164,7 +164,7 @@ func TestEnrichMarker_SetsAndPreservesResetAt(t *testing.T) {
 	dir := t.TempDir()
 	markerP := markerPath(dir, "sess1")
 	lockP := lockPath(dir, "sess1")
-	cfg := Config{Source: "mbp", ServerURL: "http://x"}
+	cfg := Config{Source: "mbp", ServerURL: "http://127.0.0.1:1", HookTimeoutMs: 500}
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "sess1", "running", "m", "", markerP, lockP)
 	ra := int64(1778614633)
 	wra := int64(1778700000)

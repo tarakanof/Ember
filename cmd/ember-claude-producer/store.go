@@ -93,6 +93,10 @@ func withLockExWait(lockPath string, wait time.Duration, fn func() error) error 
 	return withLockWait(lockPath, syscall.LOCK_EX, wait, fn)
 }
 
+func withLockShWait(lockPath string, wait time.Duration, fn func() error) error {
+	return withLockWait(lockPath, syscall.LOCK_SH, wait, fn)
+}
+
 // withLockWait takes the flock, retrying LOCK_NB until wait elapses; a
 // negative wait blocks.
 func withLockWait(lockPath string, op int, wait time.Duration, fn func() error) error {

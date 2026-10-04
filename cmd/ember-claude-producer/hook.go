@@ -157,9 +157,12 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 	case "notification":
 		handleNotification(ctx, cfg, client, sessionID, in, markerP, lockP)
 	case "stop":
-		// A turn ended. Background work (a shell, subagent, monitor…) wakes
-		// the session again, so it keeps its running state until then.
-		if hasBackgroundTasks(in.BackgroundTasks) {
+		// A turn ended. Only work that wakes the session with a new turn
+		// (subagent, workflow, teammate, cloud session) keeps it running; a
+		// background shell, monitor or dev server can run for the whole idle
+		// period. session_crons are ignored: a scheduled prompt fires
+		// UserPromptSubmit, which marks the session running again.
+		if hasWakingBackgroundTasks(in.BackgroundTasks) {
 			return
 		}
 		handleUpsert(ctx, cfg, client, sessionID, "done", firstLine(in.LastAssistantMessage), "", markerP, lockP)
@@ -177,10 +180,14 @@ func handleSessionStart(cfg Config, in hookInput, markerP, lockP string) {
 	if in.Source == "startup" {
 		return
 	}
-	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
+	// A resumed/cleared/compacted session starts over: drop the old marker
+	// even if the lock is busy, as SessionEnd does.
+	if err := withLockExWait(lockP, hookLockWait(cfg), func() error {
 		_ = os.Remove(markerP)
 		return nil
-	})
+	}); err != nil {
+		_ = os.Remove(markerP)
+	}
 }
 
 func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string) {
@@ -211,10 +218,12 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	}
 	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
 	req.SourceCard, req.SessionBar = &sc, &sb
+	var body []byte
 	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		var ownerPID int
 		var ownerStart string
 		var track ToolTrack
+		changedAt := hookNow().Unix()
 		if old, err := readMarker(markerP); err == nil {
 			var prev marker
 			if json.Unmarshal(old, &prev) == nil {
@@ -235,6 +244,9 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 					req.Activity = producer.PrependTrail(activity, prev.Activity)
 				}
 				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
+				if prev.State == state && prev.StateChangedAt != 0 {
+					changedAt = prev.StateChangedAt
+				}
 			}
 		}
 		if x.preFP != "" {
@@ -253,15 +265,17 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 		if ownerPID == 0 {
 			ownerPID, ownerStart = detectOwner()
 		}
-		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart, ToolTrack: track}
-		body, err := json.Marshal(m)
-		if err != nil {
+		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart, StateChangedAt: changedAt, ToolTrack: track}
+		b, err := json.Marshal(m)
+		if err != nil || writeMarker(markerP, b) != nil {
 			return nil
 		}
-		_ = writeMarker(markerP, body)
-		_ = client.Post(ctx, wireRequest(cfg, req))
+		body = b
 		return nil
 	})
+	if body != nil {
+		_ = postReconciled(ctx, cfg, client, markerP, lockP, body, hookLockWait(cfg))
+	}
 }
 
 // SessionEnd hooks share a 1.5 s budget (plugin hook timeouts don't raise
@@ -291,10 +305,10 @@ func handleDelete(ctx context.Context, cfg Config, sessionID, markerP, lockP str
 	})
 }
 
-// hookLockWait bounds how long a hook waits for the session lock. Every other
-// holder keeps it for file I/O plus at most one hook-path request
-// (HookTimeoutMs), so a longer wait only means the server is unreachable and
-// the update is dropped; the next hook or heartbeat carries the state.
+// hookLockWait bounds how long a hook waits for the session lock. Every
+// holder keeps it only for marker file I/O (requests run after release), so
+// running out means a wedged holder; the update, marker write included, is
+// then dropped and the next hook carries the state.
 func hookLockWait(cfg Config) time.Duration {
 	return time.Duration(cfg.HookTimeoutMs)*time.Millisecond + 100*time.Millisecond
 }
@@ -311,14 +325,20 @@ func handleNotification(ctx context.Context, cfg Config, client *Client, session
 	case "elicitation_complete", "elicitation_response":
 		// The MCP dialog was answered: end the wait it opened, nothing else.
 		handleUpsertWith(ctx, cfg, client, sessionID, "running", msg, "", markerP, lockP, upsertExtra{
-			skip: func(prev marker) bool { return prev.State != "waiting" },
+			skip: func(prev marker) bool { return prev.State != "waiting" || prev.PendingPermission != "" },
 		})
 	case "quota_auto_resume_fired":
 		handleUpsert(ctx, cfg, client, sessionID, "running", pickFirstNonEmpty(msg, "resumed"), "", markerP, lockP)
 	case "quota_auto_resume_disabled":
 		handleUpsert(ctx, cfg, client, sessionID, "error", pickFirstNonEmpty(msg, "usage limit"), "", markerP, lockP)
-	case "agent_completed", "idle_prompt":
+	case "agent_completed":
 		handleUpsert(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP)
+	case "idle_prompt":
+		// Rescues a session whose Stop was missed; never turns an error into
+		// done or replaces the reply line Stop stored.
+		handleUpsertWith(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP, upsertExtra{
+			skip: func(prev marker) bool { return prev.State == "done" || prev.State == "error" },
+		})
 	}
 }
 
@@ -354,11 +374,23 @@ func stopFailureMessage(in hookInput) string {
 	return "error"
 }
 
-// hasBackgroundTasks reports a non-empty background_tasks array; it's kept
-// raw so an unexpected shape can't fail the whole hook decode.
-func hasBackgroundTasks(raw json.RawMessage) bool {
-	var tasks []json.RawMessage
-	return json.Unmarshal(raw, &tasks) == nil && len(tasks) > 0
+// hasWakingBackgroundTasks reports a background task that ends by starting a
+// new turn. background_tasks is kept raw so an unexpected shape can't fail
+// the whole hook decode.
+func hasWakingBackgroundTasks(raw json.RawMessage) bool {
+	var tasks []struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &tasks) != nil {
+		return false
+	}
+	for _, t := range tasks {
+		switch t.Type {
+		case "subagent", "workflow", "teammate", "cloud session":
+			return true
+		}
+	}
+	return false
 }
 
 func firstLine(s string) string {

@@ -14,6 +14,8 @@ import (
 const (
 	defaultHeartbeatTTLHours = 6
 	defaultHookTimeoutMs     = 500
+	// defaultDoneTTLSeconds matches the server's display.done_ttl_seconds.
+	defaultDoneTTLSeconds = 30
 )
 
 type Config struct {
@@ -22,6 +24,7 @@ type Config struct {
 	Token                 string
 	HeartbeatTTLHours     int
 	HookTimeoutMs         int
+	DoneTTLSeconds        int
 	SourceColor           string
 	ContextPctEnabled     bool
 	ActivityDetailEnabled bool
@@ -45,6 +48,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("token", tokenStatus),
 		slog.Int("heartbeat_ttl_hours", c.HeartbeatTTLHours),
 		slog.Int("hook_timeout_ms", c.HookTimeoutMs),
+		slog.Int("done_ttl_seconds", c.DoneTTLSeconds),
 		slog.String("source_color", c.SourceColor),
 		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
 		slog.Bool("activity_detail_enabled", c.ActivityDetailEnabled),
@@ -61,6 +65,7 @@ func loadConfig() (Config, error) {
 	cfg := Config{
 		HeartbeatTTLHours:     defaultHeartbeatTTLHours,
 		HookTimeoutMs:         defaultHookTimeoutMs,
+		DoneTTLSeconds:        defaultDoneTTLSeconds,
 		ContextPctEnabled:     true,
 		ActivityDetailEnabled: true,
 		ActivityTrailEnabled:  true,
@@ -90,6 +95,10 @@ func loadConfig() (Config, error) {
 		case "EMBER_HOOK_TIMEOUT_MS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				cfg.HookTimeoutMs = n
+			}
+		case "EMBER_DONE_TTL_SECONDS":
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				cfg.DoneTTLSeconds = n
 			}
 		case "EMBER_SOURCE_COLOR":
 			cfg.SourceColor = v

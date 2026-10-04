@@ -93,8 +93,11 @@ ember@ember`. Uninstalling or disabling the plugin leaves no hooks (`doctor`:
 `NONE`); run `configure` to put the settings.json hooks back. `deconfigure`/
 `uninstall` write the kill switch `~/.config/ember/claude-hooks.disabled`, so
 plugin hooks go silent (`doctor`: `DISABLED`). `configure` removes it. Hook
-timeouts: blocking plugin hooks 5 s, but SessionEnd shares Claude Code's 1.5 s
-budget, so keep `EMBER_HOOK_TIMEOUT_MS` (default 500) under ~1500.
+timeouts: blocking hooks 5 s (settings.json SessionEnd 2 s); SessionEnd shares
+Claude Code's 1.5 s budget and caps its DELETE at 800 ms whatever
+`EMBER_HOOK_TIMEOUT_MS` (default 500) says. `EMBER_DONE_TTL_SECONDS` (default
+30, match the server's `done_ttl_seconds`) is how long the heartbeat keeps
+re-posting a finished (`done`/`error`) session.
 Settings › Agents shows the same thing under the Claude Code row ("Hooks: the
 ember@ember plugin", "~/.claude/settings.json", both, or none, plus "Paused"
 when the kill switch exists), reading the same files as `doctor`. With Claude
