@@ -238,10 +238,10 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := a.knobStats.now()
-	if stats != nil {
-		a.knobStats.record(id, now, knobSampleFromReport(report, stats))
-	}
 	if diag, _, err := a.devices.diagnostics(id); err == nil {
+		if stats = stats.forLevel(diag); stats != nil {
+			a.knobStats.record(id, now, knobSampleFromReport(report, stats))
+		}
 		res.DiagLiveUntil = a.knobLiveUnix(id, diag, now)
 	}
 	if res.NewToken != "" {

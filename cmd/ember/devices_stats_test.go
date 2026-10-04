@@ -483,3 +483,26 @@ func TestKnobStatsGolden(t *testing.T) {
 	}
 	assertGolden(t, "knob_stats_empty", v)
 }
+
+func TestKnobStatsIgnoredWhileDiagnosticsOff(t *testing.T) {
+	f := newStatsFixture(t)
+	f.checkinStats(t, fullStats)
+	if got := f.stats(t, "15m"); got.Latest != nil || len(got.Points) != 0 {
+		t.Fatalf("stats stored with diagnostics off: %v", got.Latest)
+	}
+}
+
+func TestKnobStatsBasicDropsFullOnlyFields(t *testing.T) {
+	f := newStatsFixture(t)
+	f.setDiagnostics(t, "basic")
+	f.checkinStats(t, fullStats)
+	s := f.stats(t, "15m").Latest
+	if s == nil || s["temp_c"] == nil || s["cpu_percent"] == nil {
+		t.Fatalf("basic fields missing: %v", s)
+	}
+	for _, k := range []string{"requests_per_min", "request_failures_per_min", "request_latency_avg_ms", "request_latency_max_ms", "render_fps", "frame_avg_ms", "frame_max_ms"} {
+		if s[k] != nil {
+			t.Errorf("%s = %v at basic, want null", k, s[k])
+		}
+	}
+}

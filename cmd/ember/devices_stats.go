@@ -95,6 +95,22 @@ func (s *knobStatsReport) validate() error {
 	return nil
 }
 
+// forLevel keeps what diagnostics level diag asks for: nothing at off, no
+// request or rendering fields at basic. The knob may lag a level change by
+// a checkin, so the server, not the firmware, has the last word.
+func (s *knobStatsReport) forLevel(diag string) *knobStatsReport {
+	if s == nil || diag == knobDiagOff {
+		return nil
+	}
+	if diag == knobDiagFull {
+		return s
+	}
+	c := *s
+	c.ReqOK, c.ReqFail, c.ReqMSAvg, c.ReqMSMax = nil, nil, nil, nil
+	c.FPS, c.FrameMSAvg, c.FrameMSMax = nil, nil, nil
+	return &c
+}
+
 // knobSample is one stored point and its wire shape in GET .../stats: units
 // in keys, null when the knob didn't report it (level too low, or no PSRAM).
 type knobSample struct {
