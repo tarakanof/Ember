@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The fixture is a sanitized codex-cli 0.160.0 rollout (history_mode "paginated"):
@@ -70,13 +71,31 @@ func TestFold_ItemCompletedAnyItemIsRunning(t *testing.T) {
 	for _, item := range []string{
 		`{"type":"UserMessage","id":"1","content":[]}`,
 		`{"type":"Reasoning","id":"1","summary_text":[]}`,
-		`{"type":"SubAgentActivity","id":"1","kind":"spawned"}`,
 		`{"type":"SomethingNew","id":"1"}`,
 	} {
 		d := foldAll([]string{itemLine(item)}, true)
 		if d.state != "running" {
 			t.Errorf("%s → state %q, want running", item, d.state)
 		}
+	}
+}
+
+func TestFold_ItemsAfterTaskCompleteKeepDone(t *testing.T) {
+	done := `{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"ok"}}`
+	d := foldAll([]string{evStarted, done,
+		itemLine(`{"type":"SubAgentActivity","id":"1","kind":"completed","agent_path":"a","agent_thread_id":"t"}`),
+		itemLine(`{"type":"CollabAgentToolCall","id":"2","tool":"wait","status":"completed"}`),
+	}, true)
+	if d.state != "done" {
+		t.Errorf("items after task_complete → %q, want done", d.state)
+	}
+	d = foldAll([]string{evStarted, itemLine(`{"type":"SubAgentActivity","id":"1","kind":"spawned"}`)}, true)
+	if d.state != "running" {
+		t.Errorf("SubAgentActivity mid-turn → %q, want running", d.state)
+	}
+	d = foldAll([]string{evStarted, done, evStarted, itemLine(`{"type":"UserMessage","id":"3","content":[]}`)}, true)
+	if d.state != "running" {
+		t.Errorf("next turn → %q, want running", d.state)
 	}
 }
 
@@ -120,6 +139,11 @@ func TestLabelForItem(t *testing.T) {
 		{"web", `{"type":"WebSearch","query":"hooks"}`, "web: hooks", true},
 		{"web no query", `{"type":"WebSearch"}`, "web", true},
 		{"compaction", `{"type":"ContextCompaction","id":"1"}`, "compact", true},
+		{"extension web search", `{"type":"Extension","kind":"web.search","query":"codex hooks","action":{"type":"search","query":"codex hooks","queries":null}}`, "web: codex hooks", true},
+		{"extension web other", `{"type":"Extension","kind":"web.search","query":"","action":{"type":"other"}}`, "web", true},
+		{"extension sleep", `{"type":"Extension","kind":"clock.sleep"}`, "sleep", true},
+		{"extension unknown", `{"type":"Extension","kind":"x.y"}`, "", false},
+		{"collab agent", `{"type":"CollabAgentToolCall","tool":"wait","status":"completed"}`, "agent: wait", true},
 		{"agent message", `{"type":"AgentMessage","content":[]}`, "", false},
 		{"reasoning", `{"type":"Reasoning"}`, "", false},
 	}
@@ -190,6 +214,25 @@ func TestFold_RateLimitsOptionalWindowsAndLimitID(t *testing.T) {
 	}
 }
 
+func TestExpireWindows(t *testing.T) {
+	five, wk := 40, 50
+	d := derived{rateWindowPct: &five, rateResetAt: 100, primaryRaw: 40, weeklyPct: &wk, weeklyResetAt: 300, weeklyRaw: 50}
+	d.expireWindows(time.Unix(200, 0))
+	if d.rateWindowPct != nil || d.rateResetAt != 0 {
+		t.Errorf("passed 5h window kept: %v reset %d", d.rateWindowPct, d.rateResetAt)
+	}
+	if d.weeklyPct == nil || d.weeklyResetAt != 300 {
+		t.Errorf("future weekly window dropped")
+	}
+}
+
+func TestFold_RateAtFromLineTimestamp(t *testing.T) {
+	d := foldAll([]string{`{"timestamp":"2026-10-05T08:00:06.100Z","type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":1,"resets_at":5}}}}`}, false)
+	if want := time.Date(2026, 10, 5, 8, 0, 6, 100e6, time.UTC); !d.rateAt.Equal(want) {
+		t.Errorf("rateAt = %v, want %v", d.rateAt, want)
+	}
+}
+
 func TestBuildUsageRequest_FiveHourOnly(t *testing.T) {
 	req, ok := buildUsageRequest(derived{rateResetAt: 100, primaryRaw: 7})
 	if !ok || req.FiveHour == nil || req.SevenDay != nil {
@@ -220,15 +263,32 @@ func TestParseSessionMeta_Sources(t *testing.T) {
 	}
 }
 
-func TestTrackedSource(t *testing.T) {
-	for _, s := range []string{"cli", "vscode", "exec", "mcp", "custom"} {
-		if !trackedSource(s) {
-			t.Errorf("%q should be tracked", s)
+func TestConfigTracks(t *testing.T) {
+	m := func(source, originator string) sessionMeta {
+		return sessionMeta{id: "u", source: source, originator: originator}
+	}
+	def := Config{}
+	for _, s := range []string{"cli", "vscode"} {
+		if !def.tracks(m(s, "codex-tui")) {
+			t.Errorf("default should track %q", s)
 		}
 	}
-	for _, s := range []string{"subagent", "internal", "unknown", ""} {
-		if trackedSource(s) {
-			t.Errorf("%q should not be tracked", s)
+	for _, s := range []string{"exec", "mcp", "custom", "subagent", "internal", "unknown", ""} {
+		if def.tracks(m(s, "codex_exec")) {
+			t.Errorf("default should not track %q", s)
 		}
+	}
+	if def.tracks(m("vscode", "Claude Code")) {
+		t.Error("Claude Code plugin sessions must be skipped by default")
+	}
+	opt := Config{Sources: parseSources(" cli, Exec ,mcp"), IncludeClaude: true}
+	if !opt.tracks(m("exec", "codex_exec")) || !opt.tracks(m("mcp", "")) || opt.tracks(m("vscode", "")) {
+		t.Errorf("EMBER_CODEX_SOURCES not honoured: %v", opt.Sources)
+	}
+	if !opt.tracks(m("cli", "Claude Code")) {
+		t.Error("IncludeClaude should track Claude Code sessions")
+	}
+	if parseSources(" , ") != nil {
+		t.Error("an empty list must fall back to the default")
 	}
 }

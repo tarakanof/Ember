@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -22,20 +23,42 @@ type derived struct {
 	weeklyResetAt int64
 	weeklyRaw     float64
 	primaryRaw    float64
+	// rateAt is the timestamp of the rollout line the rate limits came from,
+	// so the watcher can post the newest snapshot across sessions.
+	rateAt time.Time
+}
+
+// expireWindows drops a held rate-limit window once its reset has passed:
+// Codex may send null for a window for a long time, and the value it last
+// had is meaningless after the reset.
+func (d *derived) expireWindows(now time.Time) {
+	if d.rateResetAt != 0 && d.rateResetAt < now.Unix() {
+		d.rateWindowPct, d.rateResetAt, d.primaryRaw = nil, 0, 0
+	}
+	if d.weeklyResetAt != 0 && d.weeklyResetAt < now.Unix() {
+		d.weeklyPct, d.weeklyResetAt, d.weeklyRaw = nil, 0, 0
+	}
 }
 
 type sessionMeta struct {
-	id     string
-	source string
+	id         string
+	source     string
+	originator string
 }
 
+// claudeOriginator is session_meta.originator for sessions Claude Code's
+// Codex plugin starts; that work already shows as the Claude session.
+const claudeOriginator = "Claude Code"
+
 type rolloutLine struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Timestamp string          `json:"timestamp"`
+	Type      string          `json:"type"`
+	Payload   json.RawMessage `json:"payload"`
 }
 
 type metaPayload struct {
-	ID string `json:"id"`
+	ID         string `json:"id"`
+	Originator string `json:"originator"`
 	// Source is a string ("cli", "vscode", "exec", "mcp") or, for
 	// SessionSource variants with data, an object such as {"subagent":{...}}.
 	Source json.RawMessage `json:"source"`
@@ -85,7 +108,7 @@ func parseSessionMeta(line []byte) (sessionMeta, bool) {
 	if json.Unmarshal(rl.Payload, &p) != nil || p.ID == "" {
 		return sessionMeta{}, false
 	}
-	return sessionMeta{id: p.ID, source: sourceKind(p.Source)}, true
+	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator}, true
 }
 
 // sourceKind names a session_meta.source: the string itself, or the single
@@ -102,17 +125,6 @@ func sourceKind(raw json.RawMessage) string {
 		}
 	}
 	return ""
-}
-
-// trackedSource reports whether sessions from a source are shown. Subagent
-// threads are skipped (their parent session already shows the work), as are
-// Codex-internal and unknown sources.
-func trackedSource(s string) bool {
-	switch s {
-	case "cli", "vscode", "exec", "mcp", "custom":
-		return true
-	}
-	return false
 }
 
 func isRunningEvent(t string) bool {
@@ -140,19 +152,22 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 			pct := clampPct(int(math.Round(100 * float64(p.Info.LastTokenUsage.InputTokens) / float64(p.Info.ModelContextWindow))))
 			d.contextPct = &pct
 		}
-		if rl := p.RateLimits; ratePctEnabled && rl != nil && (rl.LimitID == "" || rl.LimitID == "codex") {
+		if lim := p.RateLimits; ratePctEnabled && lim != nil && (lim.LimitID == "" || lim.LimitID == "codex") {
 			// Either window may be null; keep the last known value then.
-			if w := rl.Primary; w != nil {
+			if w := lim.Primary; w != nil {
 				r := clampPct(int(math.Round(w.UsedPercent)))
 				d.rateWindowPct = &r
 				d.rateResetAt = w.ResetsAt
 				d.primaryRaw = w.UsedPercent
 			}
-			if w := rl.Secondary; w != nil {
+			if w := lim.Secondary; w != nil {
 				wk := clampPct(int(math.Round(w.UsedPercent)))
 				d.weeklyPct = &wk
 				d.weeklyResetAt = w.ResetsAt
 				d.weeklyRaw = w.UsedPercent
+			}
+			if ts, err := time.Parse(time.RFC3339Nano, rl.Timestamp); err == nil {
+				d.rateAt = ts
 			}
 		}
 	case p.Type == "task_complete":
@@ -173,7 +188,11 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 	case p.Type == "error":
 		d.state = "error"
 	case p.Type == "item_completed" && p.Item != nil:
-		d.state = "running"
+		// A finished turn stays finished until the next task_started: Codex
+		// records subagent completions after task_complete.
+		if p.Item.Type != "SubAgentActivity" && d.state != "done" && d.state != "error" {
+			d.state = "running"
+		}
 		if p.Item.Type == "AgentMessage" {
 			if m := strings.TrimSpace(p.Item.text()); m != "" {
 				d.message = truncate(m, 80)
@@ -244,6 +263,8 @@ type turnItem struct {
 	Changes map[string]json.RawMessage `json:"changes,omitempty"`
 	Tool    string                     `json:"tool,omitempty"`
 	Query   string                     `json:"query,omitempty"`
+	// Kind names an Extension item ("web.search", "clock.sleep").
+	Kind string `json:"kind,omitempty"`
 }
 
 func (it turnItem) text() string {
@@ -277,6 +298,17 @@ func labelForItem(it turnItem) (string, bool) {
 		return prefixed("mcp", it.Tool), true
 	case "WebSearch":
 		return prefixed("web", it.Query), true
+	case "Extension":
+		// Codex 0.160 records web search as an Extension item, not WebSearch.
+		switch it.Kind {
+		case "web.search":
+			return prefixed("web", it.Query), true
+		case "clock.sleep":
+			return "sleep", true
+		}
+		return "", false
+	case "CollabAgentToolCall":
+		return prefixed("agent", it.Tool), true
 	case "ContextCompaction":
 		return "compact", true
 	}

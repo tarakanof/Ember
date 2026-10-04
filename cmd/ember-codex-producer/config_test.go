@@ -323,3 +323,30 @@ func TestConfigureAt_RewritesPlaceholderSource(t *testing.T) {
 		t.Errorf("perm = %v", st.Mode().Perm())
 	}
 }
+
+func TestLoadConfig_CodexSourcesAndClaude(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgDir := filepath.Join(home, ".config", "ember")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sources != nil || cfg.IncludeClaude || sourceList(cfg.Sources) != "cli,vscode" {
+		t.Errorf("defaults: sources %v include_claude %v", cfg.Sources, cfg.IncludeClaude)
+	}
+	env := "EMBER_SOURCE=mbp\nEMBER_CODEX_SOURCES=cli,vscode,exec\nEMBER_CODEX_INCLUDE_CLAUDE=1\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "producer.env"), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sourceList(cfg.Sources) != "cli,exec,vscode" || !cfg.IncludeClaude {
+		t.Errorf("got sources %q include_claude %v", sourceList(cfg.Sources), cfg.IncludeClaude)
+	}
+}

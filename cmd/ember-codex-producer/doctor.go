@@ -32,6 +32,8 @@ func runDoctor() {
 	fmt.Printf("    poll_interval_ms    = %d\n", cfg.PollIntervalMs)
 	fmt.Printf("    activity_window_s   = %d\n", cfg.ActivityWindowSeconds)
 	fmt.Printf("    sessions_dir        = %q\n", cfg.SessionsDir)
+	fmt.Printf("    sources             = %s\n", sourceList(cfg.Sources))
+	fmt.Printf("    include_claude      = %v\n", cfg.IncludeClaude)
 
 	envPath := filepath.Join(home, ".config", "ember", "producer.env")
 	if info, err := os.Stat(envPath); err == nil {

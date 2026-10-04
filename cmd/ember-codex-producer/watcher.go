@@ -27,6 +27,14 @@ type sessionState struct {
 	lastModified time.Time
 	lastPostedAt time.Time
 	fingerprint  string
+	// viaClaude marks a session Claude Code's Codex plugin started.
+	viaClaude bool
+}
+
+// fileStamp identifies a file version, so an idle rollout is skipped until it changes.
+type fileStamp struct {
+	modTime time.Time
+	size    int64
 }
 
 type watcher struct {
@@ -41,6 +49,15 @@ type watcher struct {
 	// activity window, refreshed by a tree walk every resumeScanInterval.
 	recent   map[string]bool
 	lastWalk time.Time
+	// idle caches rollouts found already past the activity window, so they
+	// are not re-read every tick; a new mtime or size re-opens them.
+	idle map[string]fileStamp
+	// usageFP and usagePostedAt dedupe POST /v1/usage, which carries the
+	// newest rate-limit snapshot across all sessions.
+	usageFP       string
+	usagePostedAt time.Time
+	// reads counts rollout opens, for tests.
+	reads int
 }
 
 func newWatcher(cfg Config) *watcher {
@@ -52,6 +69,7 @@ func newWatcher(cfg Config) *watcher {
 		ignored:        map[string]bool{},
 		loc:            time.Local,
 		recent:         map[string]bool{},
+		idle:           map[string]fileStamp{},
 	}
 }
 
@@ -95,7 +113,8 @@ func (w *watcher) candidateFiles(now time.Time) []string {
 }
 
 // recentFiles walks the sessions tree for rollouts modified within the
-// activity window, wherever their day dir is.
+// activity window, wherever their day dir is. Codex never prunes the tree, so
+// the walk grows with it (about 7 ms for 580 files every 30 s).
 func (w *watcher) recentFiles(now time.Time) map[string]bool {
 	out := map[string]bool{}
 	_ = filepath.WalkDir(w.cfg.SessionsDir, func(path string, d os.DirEntry, err error) error {
@@ -160,6 +179,13 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 		ss := w.sessions[path]
 		if ss == nil {
+			stamp := fileStamp{modTime: info.ModTime(), size: info.Size()}
+			if now.Sub(stamp.modTime) > w.activityWindow {
+				w.idle[path] = stamp // finished long ago: skip until it changes
+				continue
+			}
+			delete(w.idle, path)
+			w.reads++
 			meta, ok, complete := readFirstMeta(path)
 			if !ok {
 				if complete {
@@ -167,23 +193,25 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 				}
 				continue
 			}
-			if !trackedSource(meta.source) {
+			if !w.cfg.tracks(meta) {
 				w.ignored[path] = true
 				continue
 			}
-			ss = &sessionState{path: path, uuid: meta.id}
+			ss = &sessionState{path: path, uuid: meta.id, viaClaude: meta.originator == claudeOriginator}
 			w.sessions[path] = ss
 		}
 		if info.Size() < ss.offset {
 			ss.offset = 0
 			ss.derived = derived{}
 		}
+		w.reads++
 		if lines, newOffset, err := readNewLines(path, ss.offset); err == nil {
 			for _, ln := range lines {
 				ss.derived.foldEvent(ln, w.cfg.ContextPctEnabled, w.cfg.RatePctEnabled, w.cfg.ActivityTrailEnabled)
 			}
 			ss.offset = newOffset
 		}
+		ss.derived.expireWindows(now)
 		ss.lastModified = info.ModTime()
 		if ss.derived.state == "" {
 			continue
@@ -193,17 +221,24 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		}
 		fp := fingerprint(ss.derived)
 		if fp != ss.fingerprint || now.Sub(ss.lastPostedAt) >= keepaliveInterval {
-			posts = append(posts, buildStatusRequest(w.cfg, ss.uuid, ss.derived))
-			if u, ok := buildUsageRequest(ss.derived); ok {
-				usages = append(usages, u)
+			req := buildStatusRequest(w.cfg, ss.uuid, ss.derived)
+			if ss.viaClaude {
+				req.Message = viaClaudeMessage(req.Message)
 			}
+			posts = append(posts, req)
 			ss.fingerprint = fp
 			ss.lastPostedAt = now
 		}
 	}
+	if u, ok := w.usage(now); ok {
+		usages = append(usages, u)
+	}
 	for path, ss := range w.sessions {
 		if gone[path] || now.Sub(ss.lastModified) > w.activityWindow {
-			deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: ss.uuid})
+			// Only a session this producer posted exists on the server.
+			if !ss.lastPostedAt.IsZero() {
+				deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: ss.uuid})
+			}
 			delete(w.sessions, path)
 		}
 	}
@@ -212,11 +247,53 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 			delete(w.ignored, path)
 		}
 	}
+	for path := range w.idle {
+		if !candidates[path] {
+			delete(w.idle, path)
+		}
+	}
 	return posts, deletes, usages
 }
 
-// readFirstMeta parses a rollout's first line; complete reports whether that
-// line was fully written, so a parse failure is final rather than a race.
+// usage returns the newest rate-limit snapshot across live sessions when it
+// changed or the keepalive interval passed; an older session's last-seen
+// limits never overwrite a newer one's.
+func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
+	var newest *derived
+	for _, ss := range w.sessions {
+		d := &ss.derived
+		if d.rateResetAt == 0 && d.weeklyResetAt == 0 {
+			continue
+		}
+		if now.Sub(ss.lastModified) > w.activityWindow {
+			continue
+		}
+		if newest == nil || d.rateAt.After(newest.rateAt) {
+			newest = d
+		}
+	}
+	if newest == nil {
+		return producer.UsageRequest{}, false
+	}
+	u, ok := buildUsageRequest(*newest)
+	if !ok {
+		return u, false
+	}
+	fp := fmt.Sprintf("%v|%d|%v|%d", newest.primaryRaw, newest.rateResetAt, newest.weeklyRaw, newest.weeklyResetAt)
+	if fp == w.usageFP && now.Sub(w.usagePostedAt) < keepaliveInterval {
+		return producer.UsageRequest{}, false
+	}
+	w.usageFP, w.usagePostedAt = fp, now
+	return u, true
+}
+
+func viaClaudeMessage(msg string) string {
+	if msg == "" {
+		return "via Claude"
+	}
+	return truncate("via Claude: "+msg, 80)
+}
+
 func readFirstMeta(path string) (meta sessionMeta, ok, complete bool) {
 	f, err := os.Open(path)
 	if err != nil {
