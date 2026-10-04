@@ -50,39 +50,55 @@ struct KnobPagesSection: View {
         let pages = knob.settings.draft.pages
         Section {
             ForEach(Array(pages.enumerated()), id: \.element.id) { index, page in
-                Toggle(isOn: Binding(
-                    get: { page.on },
-                    set: { on in knob.edit { $0.pages[index].on = on } })) {
-                    Text(knobPageTitle(page.id))
+                HStack {
+                    Toggle(isOn: Binding(
+                        get: { page.on },
+                        set: { on in knob.edit { $0.pages[index].on = on } })) {
+                        Text(knobPageTitle(page.id))
+                    }
+                    .disabled(page.on && knob.settings.draft.isLastPageOn(page.id))
+                    Image(systemName: "line.3.horizontal")
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                        .help("Drag to reorder")
                 }
-                .disabled(page.on && knob.settings.draft.isLastPageOn(page.id))
+                .contentShape(Rectangle())
+                .draggable(KnobPageDrag(id: page.id))
+                .dropDestination(for: KnobPageDrag.self) { drops, _ in
+                    guard let drop = drops.first else { return false }
+                    knob.edit { $0.movePage(drop.id, to: page.id) }
+                    return true
+                }
                 .contextMenu {
-                    Button("Move Up") { move(index, by: -1) }.disabled(index == 0)
-                    Button("Move Down") { move(index, by: 1) }.disabled(index == pages.count - 1)
+                    Button("Move Up") { move(page.id, by: -1) }.disabled(index == 0)
+                    Button("Move Down") { move(page.id, by: 1) }.disabled(index == pages.count - 1)
                 }
                 .accessibilityActions {
-                    if index > 0 { Button("Move Up") { move(index, by: -1) } }
-                    if index < pages.count - 1 { Button("Move Down") { move(index, by: 1) } }
+                    if index > 0 { Button("Move Up") { move(page.id, by: -1) } }
+                    if index < pages.count - 1 { Button("Move Down") { move(page.id, by: 1) } }
                 }
             }
-            .onMove { from, to in knob.edit { $0.pages.move(fromOffsets: from, toOffset: to) } }
             Picker("Home page", selection: knob.binding(\.home)) {
                 ForEach(pages.filter(\.on)) { p in Text(knobPageTitle(p.id)).tag(p.id) }
             }
         } header: {
             Text("Pages")
         } footer: {
-            SectionFooter(text: "Turn the knob to move between pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes.",
+            SectionFooter(text: "Hold the knob down and turn it to change pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes.",
                           error: knob.settings.saveError)
         }
     }
 
-    private func move(_ index: Int, by delta: Int) {
-        env.knob.edit { s in
-            let to = index + delta
-            guard s.pages.indices.contains(to) else { return }
-            s.pages.swapAt(index, to)
-        }
+    private func move(_ id: String, by delta: Int) {
+        env.knob.edit { $0.movePage(id, by: delta) }
+    }
+}
+
+/// A page row being dragged to a new place in the knob's order.
+struct KnobPageDrag: Codable, Transferable {
+    let id: String
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .json)
     }
 }
 

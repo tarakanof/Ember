@@ -215,6 +215,22 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public func isLastPageOn(_ id: String) -> Bool {
         pages.filter(\.on).map(\.id) == [id]
     }
+
+    /// Moves page `id` one step (`-1` up, `1` down). No-op at the ends or for an unknown id.
+    public mutating func movePage(_ id: String, by delta: Int) {
+        guard let from = pages.firstIndex(where: { $0.id == id }) else { return }
+        let to = from + delta
+        guard pages.indices.contains(to) else { return }
+        pages.swapAt(from, to)
+    }
+
+    /// Moves page `id` to where page `target` is (drag and drop). The home page is untouched.
+    public mutating func movePage(_ id: String, to target: String) {
+        guard id != target,
+              let from = pages.firstIndex(where: { $0.id == id }),
+              let to = pages.firstIndex(where: { $0.id == target }) else { return }
+        pages.move(fromOffsets: [from], toOffset: to > from ? to + 1 : to)
+    }
 }
 
 extension Comparable {

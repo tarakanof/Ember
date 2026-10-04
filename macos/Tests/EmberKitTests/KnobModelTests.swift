@@ -41,6 +41,28 @@ import Foundation
     #expect(KnobSettings.defaults.isLastPageOn("bot") == false)
 }
 
+@Test func knobMovePages() {
+    var s = KnobSettings.defaults
+    let ids = s.pages.map(\.id)
+    let home = s.home
+    s.movePage(ids[0], by: -1)
+    s.movePage(ids[2], by: 1)
+    #expect(s.pages.map(\.id) == ids)
+    s.movePage(ids[0], by: 1)
+    #expect(s.pages.map(\.id) == [ids[1], ids[0], ids[2]])
+    s = .defaults
+    s.movePage(ids[0], to: ids[2])
+    #expect(s.pages.map(\.id) == [ids[1], ids[2], ids[0]])
+    s.movePage(ids[0], to: ids[1])
+    #expect(s.pages.map(\.id) == [ids[0], ids[1], ids[2]])
+    s.movePage("nope", to: ids[0])
+    s.movePage(ids[0], to: ids[0])
+    #expect(s.pages.map(\.id) == ids)
+    #expect(s.home == home)
+    s.movePage(ids[1], by: -1)
+    #expect(s.patch(from: .defaults).keys.sorted() == ["pages"])
+}
+
 @Test func knobSettingsDecodeServerJSON() throws {
     let json = #"{"brightness":{"follow_ember":false,"level":200,"floor":5,"startup":120},"pages":[{"id":"weather","on":true},{"id":"bot","on":false}],"home":"weather","poll_ms":3000,"bot":{"sleepy_after_s":0,"demo_hold_s":15}}"#
     let s = try JSONDecoder().decode(KnobSettings.self, from: Data(json.utf8))
