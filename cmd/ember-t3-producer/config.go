@@ -99,6 +99,9 @@ func loadConfig() (Config, error) {
 				cfg.ActivityWindowSeconds = n
 			}
 		case "EMBER_T3_HOME":
+			if strings.HasPrefix(v, "~/") {
+				v = filepath.Join(home, v[2:])
+			}
 			if v != "" {
 				cfg.T3Home = v
 			}
