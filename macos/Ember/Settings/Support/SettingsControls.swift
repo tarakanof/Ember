@@ -239,3 +239,16 @@ func hourMinuteBinding(_ hhmm: Binding<String>) -> Binding<Date> {
 func openSystemSettings(_ url: String) {
     if let url = URL(string: url) { NSWorkspace.shared.open(url) }
 }
+
+/// Wi-Fi signal in words, for the Clock and Knob status rows.
+func wifiQuality(_ rssi: Int) -> LocalizedStringKey {
+    if rssi >= -60 { return "Strong" }
+    if rssi >= -70 { return "Good" }
+    if rssi >= -80 { return "Weak" }
+    return "Very weak"
+}
+
+/// "Weak · -80 dBm".
+func wifiSignalText(_ rssi: Int) -> Text {
+    Text("\(Text(wifiQuality(rssi))) · \(rssi) dBm")
+}

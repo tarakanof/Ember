@@ -39,6 +39,7 @@ struct SettingsRootView: View {
         case .general:    GeneralPane()
         case .connection: ConnectionPane()
         case .clock:      ClockPane()
+        case .knob:       KnobPane()
         case .agents:     AgentsPane()
         case .focus:      FocusPane()
         case .weather:    WeatherPane()
@@ -49,7 +50,7 @@ struct SettingsRootView: View {
     }
 
     private func subtitle(_ device: DeviceSettingsModel) -> Text {
-        let status = AggregateSaveStatus.combine((env.settings.all + device.all).map(\.status))
+        let status = AggregateSaveStatus.combine((env.settings.all + device.all + env.knob.all).map(\.status))
         return status.subtitle.map { Text($0) } ?? Text(verbatim: "")
     }
 }

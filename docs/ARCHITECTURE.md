@@ -645,7 +645,7 @@ without relaunch. Hybrid layout:
   server lacks are hidden, e.g. usage falls back to `/state` and display
   power needs 0.28+), the animated bot or tool glyph as its icon, a
   fixed-width sidebar `Settings` window (height resizable only, like System
-  Settings; **General / Connection / Clock / Agents / Focus /
+  Settings; **General / Connection / Clock / Knob / Agents / Focus /
   Weather / Calendar / Sounds & Alerts / Permissions**; the title follows the pane, the
   subtitle is the one save status of every config model, controls stay
   disabled until their model has loaded), a resizable **Dashboard** window ("Ember", ⌘0), and a Dock
@@ -1762,6 +1762,42 @@ the same board finds its record.
   `/state` poll without putting per-device data in a public response.
 - **Doctor:** `devices` check lists each record's last-checkin age; warns
   when one never checked in or is silent for more than 5 min.
+- **App (Settings › Knob, #222/#223):** EmberKit `Knob/` holds the protocol
+  and models, no UI. `ImprovCodec` (Improv Serial frames + checksum; the host
+  appends `\n` after each frame) and `CinderLineCodec` (`CINDER1 {json}` lines,
+  sorted keys) are pinned by the shared vectors in
+  `macos/Tests/EmberKitTests/testdata/knob/` that cinder's firmware tests can
+  reuse. `KnobStreamDemuxer` splits the port's bytes into frames, `CINDER1`
+  lines and log lines. `KnobLink`/`KnobLinkOpener` is the transport seam (USB
+  serial now, BLE later); `SerialPortLink` opens `/dev/cu.*` raw
+  (`O_NONBLOCK`, `cfmakeraw`, `HUPCL` cleared first) and **never touches
+  DTR/RTS**: toggling RTS resets the ESP32-S3. It takes the port exclusively
+  (`TIOCEXCL` + `flock`, like pyserial's `exclusive=True`); a busy port shows as
+  "couldn't open". `KnobSerialPorts` watches IOKit for `303a:1001` and keys a
+  port by its USB serial number (the MAC = `hw_id`) **without opening it**: the
+  port is shared with `idf.py monitor` and esptool (ROM download mode is
+  `303a:1001` too), so Ember opens it only while Settings › Knob is on screen
+  (one probe on appear and per new board, 3 device-info tries, a `CINDER1`
+  boot event also counts) or when the user starts a setup or a USB action. No
+  plug-in notification for that reason.
+  The firmware contract: the Ember URL is `http://host[:port]` only (the
+  knob has no TLS; scheme and host sent lower-case, host IPv4 or `[a-z0-9.-]`,
+  no path), checked before the mint; the knob name is the server record's,
+  at most 32 UTF-8 bytes; a knob whose URL changes restarts itself after
+  `set_ember`, so the next step reconnects (and resends Wi-Fi if it comes back
+  `ready`); Improv `invalid RPC` or `{"ev":"wifi","state":"invalid"}` means the
+  Wi-Fi settings were rejected; `ember: connecting` is still in progress.
+  `KnobProvisioner` runs Improv device info (no answer in 2 s = not cinder),
+  the knob's own scan, `POST /v1/devices` (token), `set_ember`, the Wi-Fi RPC,
+  follows the reboot (reopens by serial number, handing the new session to the
+  caller so a failed step can still re-mint on it) and waits for `ember: ok` or
+  a server checkin strictly newer than the record's checkin at mint time (the
+  server's clock, never the Mac's). If a step after the mint fails and the
+  record never checked in, it deletes the record. `KnobModel` shows the newest `cinder-knob` record only (one
+  knob; a setup on another board replaces it after a confirm and deletes the
+  old record) and autosaves `ConfigModel<KnobSettings>` as a merge PUT of the
+  changed fields only. Tests use a fake link and a pty pair; nothing opens a
+  real serial port.
 
 ### Config load and `/admin/reload`
 

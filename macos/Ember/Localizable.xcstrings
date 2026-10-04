@@ -47,6 +47,12 @@
     "%@ available" : {
       "comment" : "Clock health: a newer clock firmware version is available. The argument is the version (\"1.2.0\")."
     },
+    "%@ connected" : {
+      "comment" : "Settings › Knob USB row: the knob's name (\"Knob 61FC8C\")."
+    },
+    "%@ connected, not set up" : {
+      "comment" : "Settings › Knob USB row: the knob's name (\"Knob 61FC8C\"); it has no Wi-Fi or Ember settings yet."
+    },
     "%@ context" : {
       "comment" : "Share of an agent session's context window in use (\"41% context\"). The argument is a percent.",
       "extractionState" : "manual"
@@ -77,6 +83,9 @@
     },
     "%@ over 7 days." : {
       "comment" : "VoiceOver chart summary: total agent time over the last 7 days (\"12h 40m\")."
+    },
+    "%@ s" : {
+      "comment" : "Settings › Knob: how often the knob polls Ember, in seconds (\"2.5 s\")."
     },
     "%@ so far" : {
       "comment" : "12-week chart: focus time this week, which is still in progress (\"2h 30m\")."
@@ -118,6 +127,17 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ · firmware %2$@ · %3$@"
+          }
+        }
+      }
+    },
+    "%@ · largest block %@" : {
+      "comment" : "Settings › Knob: the knob's free internal RAM, then the largest free block (\"46 KB · largest block 31 KB\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · largest block %2$@"
           }
         }
       }
@@ -235,8 +255,10 @@
     "7d" : {
       "comment" : "Abbreviation for the 7-day usage window (Usage card row). Keep it very short."
     },
+    "A board is connected, but Ember couldn't open its port" : {},
     "A meeting chimes with its popup, so it needs a popup time in Calendar. The severe weather sound plays with its alert, set in Weather." : {},
     "A permission Ember needs is off." : {},
+    "A shorter check interval shows changes sooner and uses a little more power. Long-press the knob to try a mood; it holds for the time set here." : {},
     "AQI %lld" : {
       "comment" : "Settings › Weather: an air quality index threshold (European AQI)."
     },
@@ -258,6 +280,7 @@
     "Activity trail" : {},
     "Add the server's token in Connection settings." : {},
     "Address" : {},
+    "Advanced" : {},
     "After %lld min" : {
       "comment" : "Settings › Agents: minutes before an idle session is hidden."
     },
@@ -278,12 +301,17 @@
     "Air quality alert from" : {},
     "Allow Access…" : {},
     "Always" : {},
+    "An ESP32 board is connected but isn't running cinder" : {},
+    "An ESP32 board is connected but isn't running cinder." : {},
     "An idle session dims, then leaves the rotation until it's active again. A session that needs you holds the clock this long. Server-wide." : {},
     "Animated bot" : {},
     "Animated icons and rain or snow overlays appear on the clock only." : {},
     "App Colors" : {},
     "App Rotation" : {},
     "Apple Reminders" : {},
+    "Applied (version %lld)" : {
+      "comment" : "Settings › Knob: the knob runs the latest settings; the argument is the settings version number."
+    },
     "Applying…" : {},
     "Approve in Login Items…" : {},
     "At once" : {},
@@ -294,6 +322,7 @@
       "comment" : "VoiceOver chart summary: average focus time per finished week (\"6h 15m\")."
     },
     "Average of the finished weeks; this week is still filling up." : {},
+    "Back" : {},
     "Background" : {},
     "Background Items" : {},
     "Bars whose height and color follow the temperature." : {},
@@ -305,11 +334,14 @@
     "Binary" : {},
     "Blinking" : {},
     "Block button navigation" : {},
+    "Bot" : {},
     "Bot (animated)" : {},
+    "Bot gets sleepy after" : {},
     "Bottom bar" : {},
     "Bounce" : {},
     "Break" : {},
     "Brightness" : {},
+    "Brightness at startup" : {},
     "Built-in" : {},
     "Built-in Apps" : {},
     "Buttons" : {},
@@ -324,12 +356,17 @@
     "Cards" : {},
     "Celsius" : {},
     "Centered" : {},
+    "Change Knob Wi-Fi" : {},
+    "Change Wi-Fi" : {},
+    "Change Wi-Fi…" : {},
     "Check Again" : {},
+    "Check Ember every" : {},
     "Checked %@" : {
       "comment" : "Settings › Permissions: when the permissions were last checked, a time like \"10:42\"."
     },
     "Checking agents…" : {},
     "Checking permissions" : {},
+    "Checking the board…" : {},
     "Checking…" : {},
     "Chimes" : {},
     "Claude" : {
@@ -388,6 +425,7 @@
       "comment" : "Dashboard window subtitle while the first request is in flight: the server's host name or address.",
       "extractionState" : "manual"
     },
+    "Connecting to the knob…" : {},
     "Connecting…" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -404,9 +442,15 @@
       "extractionState" : "manual"
     },
     "Couldn't find your location. Enter the coordinates instead." : {},
+    "Couldn't forget the knob: %@" : {
+      "comment" : "Settings › Knob error under Status; the argument is a short reason (\"Server unreachable\")."
+    },
     "Couldn't hide %@: %@" : {
       "comment" : "Menu error row: app name, then a short reason (\"unauthorized\").",
       "extractionState" : "manual"
+    },
+    "Couldn't join %@. Check the password; 5 GHz-only networks don't work." : {
+      "comment" : "Knob setup error; the argument is the Wi-Fi network name."
     },
     "Couldn't pause: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
@@ -469,6 +513,7 @@
     "Day number" : {},
     "Day, month, year" : {},
     "Delivered (24 h)" : {},
+    "Desk knob" : {},
     "Discover Clocks…" : {},
     "Discovered Servers" : {},
     "Dismiss Notification" : {},
@@ -487,8 +532,12 @@
     "Ember" : {},
     "Ember E" : {},
     "Ember E (pixel)" : {},
+    "Ember address" : {},
     "Ember can open at login only when it runs from the Applications folder." : {},
     "Ember can't reach the server. Check that it's running, or change its address in Connection settings." : {},
+    "Ember couldn't register the knob: %@" : {
+      "comment" : "Knob setup error; the argument is a short reason (\"Unauthorized — check the token in Connection settings.\")."
+    },
     "Ember couldn't take over (%@) and the command-line agent is gone, so this agent isn't reporting. Turn it on again here, or run %@ install in Terminal." : {
       "comment" : "Settings › Agents failure after Move to Ember when neither the app's copy nor the CLI agent is installed; the failure, then the helper's name.",
       "extractionState" : "manual"
@@ -499,9 +548,13 @@
     },
     "Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server; this Mac searches too, for when the server can't." : {},
     "Ember flame" : {},
+    "Ember gives the knob its own token; your server token never leaves this Mac." : {},
     "Ember isn't connected to a server" : {},
     "Ember needs access to Reminders" : {},
     "Ember needs your approval in System Settings › General › Login Items." : {},
+    "Ember rejected the knob's token." : {},
+    "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
+    "Ember shows one knob. After this setup it forgets the other knob and revokes its token." : {},
     "Enable Pomodoro" : {},
     "Enable weather" : {},
     "End" : {},
@@ -514,6 +567,7 @@
       "extractionState" : "manual"
     },
     "Enter the server's address in Connection settings, or pick one Ember found on your network." : {},
+    "Erase the knob?" : {},
     "Error" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -521,11 +575,14 @@
     "European AQI in its scale color, with the next 24 hours below." : {},
     "European AQI: up to 20 good, 40 fair, 60 moderate, 80 poor, 100 very poor, above that extreme. The alert pops up once as the AQI crosses the level." : {},
     "Every" : {},
+    "Factory Reset" : {},
+    "Factory Reset…" : {},
     "Fahrenheit" : {},
     "Find Clock from This Mac…" : {},
     "Firmware" : {},
     "First model" : {},
     "Fix Hooks" : {},
+    "Flash cinder onto it first; Ember can't flash firmware." : {},
     "Focus" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -542,11 +599,18 @@
     "Focus sessions today" : {},
     "Focus today" : {},
     "Fog" : {},
+    "Follow Ember brightness" : {},
     "Forecast" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Forget Knob" : {},
+    "Forget Knob…" : {},
+    "Forget “%@”?" : {
+      "comment" : "Settings › Knob confirm title; the argument is the knob's name (\"Desk knob\")."
+    },
     "Found via Bonjour. Click Use to fill in the server URL. The server must run on host networking, and Ember needs Local Network access." : {},
+    "Free memory" : {},
     "From" : {},
     "General" : {},
     "Goal" : {},
@@ -570,6 +634,8 @@
     "Header" : {},
     "Hidden" : {},
     "Hide when idle" : {},
+    "Hold demo mood for" : {},
+    "Home page" : {},
     "Hooks: none registered" : {},
     "Hooks: the ember@ember plugin" : {},
     "Hooks: the ember@ember plugin and ~/.claude/settings.json" : {},
@@ -581,6 +647,7 @@
     "How many of the server's pushes reached the clock in the last 24 hours." : {},
     "Humidity" : {},
     "Humidity offset" : {},
+    "ID" : {},
     "Icon ID" : {},
     "Idle" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -590,13 +657,21 @@
     "Imperial (°F)" : {},
     "In use" : {},
     "Installed from the CLI" : {},
+    "Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw." : {},
     "It's installed from the command line. Use Move to Ember first." : {
       "comment" : "Settings › Agents failure when turning on an agent whose CLI LaunchAgent is loaded.",
       "extractionState" : "manual"
     },
+    "Its screen says “Connect me to your Mac” when it isn't set up yet." : {},
+    "Joining %@" : {
+      "comment" : "Knob setup progress step; the argument is the Wi-Fi network name."
+    },
     "Keep on screen until dismissed" : {},
+    "Knob" : {},
+    "Knob name" : {},
     "LED matrix" : {},
     "Last 7 days" : {},
+    "Last check-in" : {},
     "Last press" : {},
     "Last publish" : {},
     "Last reminder didn't reach the clock: %@" : {
@@ -640,6 +715,8 @@
     "Menu bar icon" : {},
     "Metric (°C)" : {},
     "Middle starts, pauses or resumes; left stops; right skips. Turning this on points the clock at this server." : {},
+    "Minimum brightness" : {},
+    "Model" : {},
     "Monochrome" : {},
     "Month names" : {},
     "Month, day, year" : {},
@@ -661,6 +738,7 @@
     "Mute sounds at night" : {},
     "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show." : {},
     "Name" : {},
+    "Name on the knob" : {},
     "Native Icon IDs" : {},
     "Native animated icon" : {},
     "Native icon" : {},
@@ -672,8 +750,12 @@
       "comment" : "A card needs a newer Ember server; the argument is the minimum version (\"0.28\")."
     },
     "Needs token" : {},
+    "Network" : {},
     "Network discovery is unavailable" : {},
+    "Network name" : {},
+    "Networks come from the knob's own scan. The knob uses 2.4 GHz only." : {},
     "Never" : {},
+    "New token waiting for the knob" : {},
     "Next App" : {},
     "Next Due" : {},
     "Next meeting" : {},
@@ -699,6 +781,7 @@
     },
     "No Claude Code, Codex or T3 Code found on this Mac." : {},
     "No Claude hooks are registered in ~/.claude/settings.json (a plugin enabled only for a project isn't checked), so Claude Code sessions may not report." : {},
+    "No Claude hooks are registered, so Claude Code sessions don't report." : {},
     "No active sessions" : {},
     "No agent activity this week" : {},
     "No calendar feeds. Set EMBER_MEETINGS_ICS_URLS on the server; the URLs are secrets and never leave it." : {},
@@ -707,6 +790,8 @@
     "No daily goal set" : {},
     "No data yet" : {},
     "No focus sessions yet — click Start Focus to begin" : {},
+    "No knob connected" : {},
+    "No knob set up" : {},
     "No meetings in the next 36 hours." : {},
     "No observation yet" : {},
     "No server URL" : {},
@@ -721,6 +806,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Not delivered yet" : {},
     "Not found on this Mac. You can turn it on now; it reports once the app runs." : {},
     "Not in use" : {},
     "Not installed: the app is missing its launch agent." : {
@@ -781,6 +867,7 @@
     },
     "On" : {},
     "On Every Card" : {},
+    "Online" : {},
     "Only some agents are reporting." : {},
     "Only used when you click Detect in Weather to fill in your coordinates." : {},
     "Open Connection Settings" : {},
@@ -807,6 +894,8 @@
       "extractionState" : "manual"
     },
     "Overlay" : {},
+    "Pages" : {},
+    "Password" : {},
     "Pause" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -835,6 +924,9 @@
     "Play" : {},
     "Play Test Chime" : {},
     "Play this melody on the clock" : {},
+    "Plug the knob into this Mac to change its Wi-Fi or erase it." : {},
+    "Plug the knob into this Mac with a USB-C cable, then set it up. Ember gives it your Wi-Fi, this server's address and its own token." : {},
+    "Plug the knob into this Mac with a USB-C cable." : {},
     "Pomodoro" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -846,15 +938,19 @@
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
+    "Progress" : {},
     "Provider" : {},
     "Pulsing" : {},
     "Quiet Hours" : {},
     "Quit Ember" : {},
+    "Quit other apps using the port (such as idf.py monitor), then unplug and plug the knob back in." : {},
     "Rain" : {},
     "Rain and snow overlay" : {},
     "Rate bar" : {},
     "Rate-limited — reachable, token not checked" : {},
+    "Re-mint Token" : {},
     "Reaches the server and the clock on your network, and finds them with Bonjour." : {},
+    "Reaching Ember" : {},
     "Reads reminders with a due time to ring the clock. Needed while reminder alarms are on." : {},
     "Refresh" : {},
     "Refresh (⌘R)" : {},
@@ -876,6 +972,10 @@
     "Repair" : {},
     "Repeat until dismissed" : {},
     "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Calendar, and stops after 15 minutes or when quiet hours start." : {},
+    "Replace" : {},
+    "Replace “%@”?" : {
+      "comment" : "Knob setup confirm title; the argument is the name of the knob already set up (\"Desk knob\")."
+    },
     "Report this Mac's agent activity" : {},
     "Reporting" : {},
     "Reporting is on, but macOS isn't running its background helper. Repair registers it again." : {},
@@ -889,6 +989,7 @@
     "Restart" : {},
     "Restart Clock…" : {},
     "Restart the clock?" : {},
+    "Restarting" : {},
     "Resume" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -896,6 +997,10 @@
     "Review Permissions…" : {},
     "Ring" : {},
     "Ring the clock for due reminders" : {},
+    "Rotate Token" : {},
+    "Rotate Token…" : {},
+    "Rotate the knob's token?" : {},
+    "Rotating the token is routine hygiene, not a fix for a leak: the knob collects the new token on its next check-in, and so could anyone holding the old one. If the token may have leaked, forget the knob and set it up again over USB." : {},
     "Round %lld" : {
       "comment" : "Focus card: the current Pomodoro round number."
     },
@@ -914,10 +1019,12 @@
       "extractionState" : "manual"
     },
     "Saved — leave blank to keep" : {},
+    "Saving" : {},
     "Saving…" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Scan Again" : {},
     "Scroll speed" : {},
     "Scrolling" : {},
     "Scrolling applies to text that doesn't fit the panel. A running Pomodoro may briefly override button navigation." : {},
@@ -945,7 +1052,10 @@
       "extractionState" : "manual"
     },
     "Session pixels" : {},
+    "Set Up" : {},
     "Set Up Ember…" : {},
+    "Set Up Knob" : {},
+    "Set Up Knob…" : {},
     "Settings" : {},
     "Settings…" : {},
     "Severe weather" : {},
@@ -1057,6 +1167,46 @@
       "extractionState" : "manual"
     },
     "The helpers run as background items, so reporting keeps going after you quit Ember." : {},
+    "The knob can't reach “%@”, so it gets this Mac's network address instead." : {
+      "comment" : "Knob setup: the Ember server address (\"localhost\" or \"mini.local\") was replaced with a LAN IP."
+    },
+    "The knob checks in with Ember every minute and picks up setting changes within a few seconds." : {},
+    "The knob didn't report its hardware ID. Update its firmware." : {},
+    "The knob didn't return a scan. Type the network name." : {},
+    "The knob dims and brightens with the clock. It never goes below the minimum." : {},
+    "The knob forgets its Wi-Fi, Ember address and token, then restarts to its setup screen. Ember keeps its settings here until you forget it." : {},
+    "The knob has to run cinder. Settings change here once it's set up; Wi-Fi changes need the cable again." : {},
+    "The knob is on Wi-Fi (%@) but can't reach %@." : {
+      "comment" : "Knob setup error; the knob's IP address, then the Ember URL it tried.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "The knob is on Wi-Fi (%1$@) but can't reach %2$@."
+          }
+        }
+      }
+    },
+    "The knob is on Wi-Fi but can't reach %@." : {
+      "comment" : "Knob setup error; the argument is the Ember URL it tried."
+    },
+    "The knob is on the new network." : {},
+    "The knob is saving; wait until it finishes." : {},
+    "The knob is scanning…" : {},
+    "The knob is set up and talking to Ember." : {},
+    "The knob picks up the new token on its next check-in, within a minute if it's online. The old token stops working once the knob uses the new one, or after 24 hours." : {},
+    "The knob rejected the Ember address. Use http://address:port, without https or a path." : {},
+    "The knob rejected the Wi-Fi settings. Check the network name and password." : {},
+    "The knob rejected the settings (%@)." : {
+      "comment" : "Knob setup error; the argument is the knob's error code (\"too_long\")."
+    },
+    "The knob reported Wi-Fi error %lld." : {
+      "comment" : "Knob setup error; the argument is the Improv error code number."
+    },
+    "The knob stays at this brightness. It never goes below the minimum." : {},
+    "The knob stopped answering. Check that it's plugged in and try again." : {},
+    "The knob was disconnected. Plug it back in and try again." : {},
+    "The knob's old token no longer works. Run the setup again to finish." : {},
     "The menu bar shows the glyph of the tool that's most active." : {},
     "The overlay draws rain, snow or storms over whatever is showing." : {},
     "The reminder shows for the time above, then the clock carries on." : {},
@@ -1093,9 +1243,13 @@
     "This Mac" : {},
     "This Mac can't search the network" : {},
     "This Mac can't search: Local Network access is off" : {},
+    "This board isn't running cinder." : {},
     "This clock has no speaker." : {},
     "This clock style draws no weekday bar; the Date app still does." : {},
     "This clock style has no room for seconds or AM/PM." : {},
+    "This replaces “%@”. Ember forgets that knob after setup." : {
+      "comment" : "Knob setup warning; the argument is the name of the knob already set up."
+    },
     "This server can't reach a clock. Check the clock's address below or discover one." : {},
     "This server doesn't support meetings. Update the Ember server." : {},
     "This server doesn't support these settings. Update the Ember server." : {},
@@ -1103,6 +1257,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "This server has no knob registry. Update the Ember server." : {},
     "Thunderstorm" : {},
     "Tiles" : {},
     "Time" : {},
@@ -1160,7 +1315,9 @@
       "extractionState" : "manual"
     },
     "Turn it on in Settings › Focus." : {},
+    "Turn the knob to move between pages. Drag to reorder, or Control-click a page. The knob goes back to the home page when it wakes." : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
+    "USB" : {},
     "Unauthorized — check the token in Connection settings." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1204,11 +1361,25 @@
     "Usage cards join the rotation once the 5-hour window reaches this level. Server-wide." : {},
     "Use" : {},
     "Use Current Location" : {},
+    "Use http://address:port for the Ember address. The knob can't use https, IPv6 or a path." : {},
+    "Use http://address:port. The knob can't use https, IPv6 or a path." : {},
     "Use source color" : {},
     "Very weak" : {},
     "Waiting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
+    },
+    "Waiting for its first check-in" : {},
+    "Waiting for the knob (has %lld, latest %lld)" : {
+      "comment" : "Settings › Knob: the knob hasn't picked up the latest settings; the settings version it runs, then the latest.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Waiting for the knob (has %1$lld, latest %2$lld)"
+          }
+        }
+      }
     },
     "Weak" : {},
     "Weather" : {
@@ -1231,6 +1402,7 @@
     "When due" : {},
     "When you focus" : {},
     "Wi-Fi" : {},
+    "Wi-Fi passwords are 8 to 63 characters." : {},
     "Work hours" : {},
     "Work hours per day" : {},
     "Wrap around" : {},
@@ -1258,6 +1430,7 @@
       "comment" : "Short reason after a failed menu action: the clock was too slow to finish it.",
       "extractionState" : "manual"
     },
+    "done" : {},
     "extremely poor" : {},
     "fair" : {},
     "found by the server" : {},
@@ -1267,6 +1440,7 @@
     "in %lld min" : {
       "comment" : "Upcoming card: minutes until an event starts."
     },
+    "in progress" : {},
     "just now" : {},
     "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
     "macOS gives Local Network access to one build of an app, so a copy of Ember you build yourself can need approval again after every rebuild. If Ember is already on in Local Network settings but still blocked, turn it off and on again." : {},
@@ -1289,6 +1463,7 @@
     "of %lld" : {
       "comment" : "Inside the Focus ring, under the sessions done: the daily goal (\"of 8\")."
     },
+    "pending" : {},
     "poor" : {},
     "rate-limited" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",

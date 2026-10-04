@@ -15,6 +15,8 @@ public final class AppEnvironment {
     public var serverURL: URL? { connection.serverURL }
     public var preview: PreviewService { PreviewService(client: connection.client) }
     public let deviceSettings: DeviceSettingsModel
+    /// Settings › Knob: the registered knob and the boards on USB.
+    public let knob: KnobModel
     public private(set) var reminderWatcher: ReminderWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
@@ -103,6 +105,7 @@ public final class AppEnvironment {
         envStore = EnvFileStore(path: producerEnvPath)
         settings = SettingsModels(client: client, envStore: envStore)
         deviceSettings = DeviceSettingsModel(service: connection.device, live: live)
+        knob = KnobModel(service: KnobService(client: client))
         let watcher = ReminderWatcher(client: client)
         reminderWatcher = watcher
         producers = ProducerInstallService(
@@ -125,6 +128,14 @@ public final class AppEnvironment {
         feedBot()
         feedMenuBarLabel()
         reconcileProducers()
+        watchKnobPorts()
+    }
+
+    /// Watches USB for the knob passively (IOKit: VID:PID and serial
+    /// number). Nothing opens the port until the user opens Settings › Knob
+    /// or starts a setup: idf.py monitor and esptool share it.
+    private func watchKnobPorts() {
+        knob.ports.start()
     }
 
     private func reconcileProducers() {
@@ -170,6 +181,7 @@ public final class AppEnvironment {
         live.configure(client: client)
         settings.configure(client: client)
         deviceSettings.configure(service: connection.device)
+        knob.configure(service: KnobService(client: client))
     }
 
     private func observeSleep() {

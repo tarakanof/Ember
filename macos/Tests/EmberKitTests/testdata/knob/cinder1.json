@@ -1,0 +1,204 @@
+{
+  "about": "CINDER1 JSON lines. host lines: exact bytes the Ember app sends for request/id (sorted keys, newline-terminated). device lines: what the knob sends and how the host parses them. Shared with cinder's firmware tests. Contract: url is http only, lower-case scheme and host, host = IPv4 or [a-z0-9.-] hostname, optional port 1-65535, no path/query/credentials, <=128 chars; name 1-32 UTF-8 bytes; token <=64. Copy to cinder's firmware/test/vectors/ unchanged; change both sides together.",
+  "host": [
+    {
+      "name": "info",
+      "id": 1,
+      "request": {
+        "op": "info"
+      },
+      "line": "CINDER1 {\"id\":1,\"op\":\"info\"}\n"
+    },
+    {
+      "name": "status",
+      "id": 3,
+      "request": {
+        "op": "status"
+      },
+      "line": "CINDER1 {\"id\":3,\"op\":\"status\"}\n"
+    },
+    {
+      "name": "set_ember",
+      "id": 2,
+      "request": {
+        "op": "set_ember",
+        "url": "http://192.168.0.2:3627",
+        "device_id": "knob-61fc8c",
+        "token": "ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "name": "Desk knob"
+      },
+      "line": "CINDER1 {\"device_id\":\"knob-61fc8c\",\"id\":2,\"name\":\"Desk knob\",\"op\":\"set_ember\",\"token\":\"ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"url\":\"http://192.168.0.2:3627\"}\n"
+    },
+    {
+      "name": "reset factory",
+      "id": 4,
+      "request": {
+        "op": "reset",
+        "scope": "factory"
+      },
+      "line": "CINDER1 {\"id\":4,\"op\":\"reset\",\"scope\":\"factory\"}\n"
+    },
+    {
+      "name": "reboot",
+      "id": 5,
+      "request": {
+        "op": "reboot"
+      },
+      "line": "CINDER1 {\"id\":5,\"op\":\"reboot\"}\n"
+    }
+  ],
+  "host_rejected": [
+    {
+      "name": "url with path",
+      "url": "http://192.168.0.2:3627/v1",
+      "error": "bad_url"
+    },
+    {
+      "name": "url ftp",
+      "url": "ftp://192.168.0.2",
+      "error": "bad_url"
+    },
+    {
+      "name": "url https (knob has no TLS)",
+      "url": "https://192.168.0.2:3627",
+      "error": "bad_url"
+    },
+    {
+      "name": "url ipv6",
+      "url": "http://[fe80::1]:3627",
+      "error": "bad_url"
+    },
+    {
+      "name": "url underscore host",
+      "url": "http://my_host:3627",
+      "error": "bad_url"
+    },
+    {
+      "name": "url idn host",
+      "url": "http://ембер.lan:3627",
+      "error": "bad_url"
+    },
+    {
+      "name": "url port out of range",
+      "url": "http://192.168.0.2:70000",
+      "error": "bad_url"
+    },
+    {
+      "name": "url with query",
+      "url": "http://192.168.0.2:3627?x=1",
+      "error": "bad_url"
+    },
+    {
+      "name": "url with credentials",
+      "url": "http://u:p@192.168.0.2",
+      "error": "bad_url"
+    },
+    {
+      "name": "url too long",
+      "url": "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com",
+      "error": "bad_url"
+    },
+    {
+      "name": "token too long",
+      "url": "http://192.168.0.2:3627",
+      "token": "ekd_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "error": "too_long"
+    },
+    {
+      "name": "Desk knob with a very long name!!",
+      "url": "http://192.168.0.2:3627",
+      "error": "too_long"
+    }
+  ],
+  "device": [
+    {
+      "name": "info unprovisioned",
+      "line": "CINDER1 {\"id\":1,\"ok\":true,\"fw\":\"0.5.0\",\"hw_id\":\"3cdc7561fc8c\",\"device_id\":null,\"wifi\":{\"configured\":false},\"ember\":{\"configured\":false}}",
+      "kind": "reply",
+      "id": 1,
+      "ok": true,
+      "hw_id": "3cdc7561fc8c"
+    },
+    {
+      "name": "set_ember ok",
+      "line": "CINDER1 {\"id\":2,\"ok\":true}",
+      "kind": "reply",
+      "id": 2,
+      "ok": true
+    },
+    {
+      "name": "status",
+      "line": "CINDER1 {\"id\":3,\"ok\":true,\"wifi\":{\"state\":\"connected\",\"ssid\":\"home\",\"ip\":\"192.168.0.39\",\"rssi\":-58},\"ember\":{\"state\":\"ok\",\"last_checkin_s\":4,\"config_version\":7},\"heap\":{\"internal_free\":47104,\"internal_largest\":31744,\"psram_free\":3100000}}",
+      "kind": "reply",
+      "id": 3,
+      "ok": true,
+      "ember_state": "ok",
+      "wifi_ip": "192.168.0.39"
+    },
+    {
+      "name": "error bad_url",
+      "line": "CINDER1 {\"id\":6,\"ok\":false,\"error\":\"bad_url\"}",
+      "kind": "reply",
+      "id": 6,
+      "ok": false,
+      "error": "bad_url"
+    },
+    {
+      "name": "event ember unauthorized",
+      "line": "CINDER1 {\"ev\":\"ember\",\"state\":\"unauthorized\"}",
+      "kind": "event",
+      "ev": "ember",
+      "state": "unauthorized"
+    },
+    {
+      "name": "event boot",
+      "line": "CINDER1 {\"ev\":\"boot\",\"fw\":\"0.5.0\",\"provisioned\":true}\r",
+      "kind": "event",
+      "ev": "boot",
+      "provisioned": true
+    },
+    {
+      "name": "event wifi invalid",
+      "line": "CINDER1 {\"ev\":\"wifi\",\"state\":\"invalid\"}",
+      "kind": "event",
+      "ev": "wifi",
+      "state": "invalid"
+    },
+    {
+      "name": "status ember connecting",
+      "line": "CINDER1 {\"id\":7,\"ok\":true,\"ember\":{\"state\":\"connecting\"}}",
+      "kind": "reply",
+      "id": 7,
+      "ok": true,
+      "ember_state": "connecting"
+    },
+    {
+      "name": "not json",
+      "line": "CINDER1 {oops",
+      "kind": "none"
+    },
+    {
+      "name": "log line",
+      "line": "I (1234) ember: polling",
+      "kind": "none"
+    }
+  ],
+  "url_normalized": [
+    {
+      "in": "http://192.168.0.2:3627",
+      "out": "http://192.168.0.2:3627"
+    },
+    {
+      "in": "HTTP://Mini.LAN:3627/",
+      "out": "http://mini.lan:3627"
+    },
+    {
+      "in": "http://ember-host",
+      "out": "http://ember-host"
+    },
+    {
+      "in": "  http://10.0.0.5:80  ",
+      "out": "http://10.0.0.5:80"
+    }
+  ]
+}
