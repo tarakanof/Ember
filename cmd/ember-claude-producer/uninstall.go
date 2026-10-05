@@ -93,32 +93,7 @@ func uninstallSettings(home string) error {
 		}
 	}
 
-	out, err := json.MarshalIndent(root, "", "  ")
-	if err != nil {
-		return err
-	}
-	out = append(out, '\n')
-	bak := fmt.Sprintf("%s.bak.%d", settingsPath, os.Getpid())
-	_ = os.WriteFile(bak, body, 0o600)
-	tmp, err := os.CreateTemp(filepath.Dir(settingsPath), "settings.tmp-*.json")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), settingsPath)
+	return saveSettings(settingsPath, body, root)
 }
 
 func uninstallPlist(lc producer.Launchctl, home string, uid int) error {

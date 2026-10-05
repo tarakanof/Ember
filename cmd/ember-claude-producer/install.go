@@ -256,10 +256,6 @@ func mergeSettingsJSON(home, binPath string) error {
 		if err := json.Unmarshal(existing, &root); err != nil {
 			return fmt.Errorf("settings.json is not valid JSON (comments/trailing-commas not supported): %w", err)
 		}
-		bak := fmt.Sprintf("%s.bak.%d", settingsPath, os.Getpid())
-		if err := os.WriteFile(bak, existing, 0o600); err != nil {
-			return err
-		}
 	}
 
 	hooksRoot, _ := root["hooks"].(map[string]any)
@@ -306,30 +302,7 @@ func mergeSettingsJSON(home, binPath string) error {
 		"command": ourStatuslineCommand(binPath),
 	}
 
-	out, err := json.MarshalIndent(root, "", "  ")
-	if err != nil {
-		return err
-	}
-	out = append(out, '\n')
-	tmp, err := os.CreateTemp(filepath.Dir(settingsPath), "settings.tmp-*.json")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), settingsPath)
+	return saveSettings(settingsPath, existing, root)
 }
 
 type producerHookEntry struct {
