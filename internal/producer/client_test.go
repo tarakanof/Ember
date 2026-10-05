@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -166,5 +168,29 @@ func TestClientUsagePostsToV1Usage(t *testing.T) {
 	}
 	if gotBody.Tool != "claude" || gotBody.FiveHour == nil || gotBody.FiveHour.ResetLabel != "14:25" {
 		t.Errorf("body = %+v", gotBody)
+	}
+}
+
+func TestClientReusesConnectionAfterErrorStatus(t *testing.T) {
+	var conns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("x", 4096)))
+	}))
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+	c := NewClient(srv.URL, "", time.Second)
+	for i := 0; i < 3; i++ {
+		if err := c.Post(context.Background(), StatusRequest{}); err == nil {
+			t.Fatal("want an error for a 500")
+		}
+	}
+	if n := conns.Load(); n != 1 {
+		t.Errorf("connections = %d, want 1 (error bodies drained for keep-alive)", n)
 	}
 }
