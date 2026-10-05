@@ -8,6 +8,8 @@ public enum AppPane: String, CaseIterable, Sendable {
 /// Settings › Sources: where data comes from, configured once for every device.
 public enum SourceID: String, CaseIterable, Sendable {
     case agents, focus, weather, calendar
+    /// Apple Music on this Mac (Plex is configured on the server).
+    case music
 }
 
 /// A device's own pages that aren't apps (hardware and identity).

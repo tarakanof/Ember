@@ -847,7 +847,7 @@ without relaunch. Hybrid layout:
   power needs 0.28+), the animated bot or tool glyph as its icon, a
   fixed-width sidebar `Settings` window (height resizable only, like System
   Settings; three groups: **App** (General, Connection, Permissions,
-  Sounds & Alerts), **Sources** (Agents, Focus, Weather, Calendar: where
+  Sounds & Alerts), **Sources** (Agents, Focus, Weather, Calendar, Music: where
   data comes from, set once) and **Devices** (Clock and Knob, each with its
   hardware pages and an Apps subtree holding that device's presentation of
   each source; a source pane and its device apps bind the same config model,
@@ -1001,6 +1001,25 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   (Check Again, after Repair) waits out the running check, which may predate the
   fix, and runs fresh. During a re-check the last Local Network verdict stays up
   so the row doesn't flicker.
+- **Apple Music pusher (#226).** Settings › Sources › Music toggles it
+  (per Mac, `UserDefaults` `musicNowPlaying.enabled`, off by default).
+  `MusicNowPlayingWatcher` observes the `com.apple.Music.playerInfo`
+  distributed notification only while it is on: no timers, no polling.
+  EmberKit's `AppleMusicPusher` coalesces bursts to the latest state, POSTs
+  `/v1/nowplaying` (`source:"music"`, `player` = the Connection pane's
+  source name, else the computer name, `track_id` = Music's persistent ID
+  in AppleScript's 16-hex form), and PUTs the album artwork when the answer
+  says the server lacks it (`ArtworkShrinker` re-encodes art over 512 KB or
+  1000 px as a 1000 px JPEG). `AppleScriptMusicBridge` reads `player
+  position`, `raw data of artwork 1 of current track` and, when the toggle
+  turns on mid-track, a one-shot snapshot; every script first checks
+  `NSRunningApplication` for `com.apple.Music`, because a `tell` would
+  launch Music. Hardened runtime needs
+  `com.apple.security.automation.apple-events` (`Ember/Ember.entitlements`)
+  and `NSAppleEventsUsageDescription`; Settings › Permissions has an
+  "Automation: Music" row read with `AEDeterminePermissionToAutomateTarget`
+  (no prompt; "Couldn't check" while Music isn't running). MediaRemote was
+  not used: private, entitlement-gated since macOS 15.4.
 - **Presentation.** The menu-bar label is driven by a small value (icon plus
   VoiceOver text) instead of the winning `Session` or `ConnectionHealth`, so it
   re-renders only when what it shows changes. The clock-health reading is dated

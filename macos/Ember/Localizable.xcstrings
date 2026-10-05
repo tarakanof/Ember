@@ -407,6 +407,8 @@
     },
     "Air quality" : {},
     "Air quality alert from" : {},
+    "Album" : {},
+    "Album and artist" : {},
     "Allow Access…" : {},
     "Always" : {},
     "An ESP32 board is connected but isn't running cinder" : {},
@@ -417,6 +419,7 @@
     "App" : {},
     "App Colors" : {},
     "App Rotation" : {},
+    "Apple Music" : {},
     "Apple Reminders" : {},
     "Applied (version %lld)" : {
       "comment" : "Settings › Knob: the knob runs the latest settings; the argument is the settings version number."
@@ -427,12 +430,14 @@
     "Apps, %@" : {
       "comment" : "VoiceOver label of a device's Apps row in the Settings sidebar; the argument is the device's name (\"Clock\")."
     },
+    "Artist" : {},
     "As of %@" : {
       "comment" : "Hardware page Now card while the device is offline: the time of the readings shown (\"As of 21:43\")."
     },
     "At once" : {},
     "Attention hold" : {},
     "Automatic brightness" : {},
+    "Automation: Music" : {},
     "Average" : {},
     "Average %@ a week." : {
       "comment" : "VoiceOver chart summary: average focus time per finished week (\"6h 15m\")."
@@ -862,6 +867,9 @@
       "comment" : "Settings › Calendar: why the last reminder failed (a short error message)."
     },
     "Last restart" : {},
+    "Last update didn't reach the server: %@" : {
+      "comment" : "Settings › Music: why the last Apple Music update failed (a short error message)."
+    },
     "Latitude" : {},
     "Latitude runs from −90 to 90 and longitude from −180 to 180." : {},
     "Launch at login" : {},
@@ -932,6 +940,7 @@
     "Move Down" : {},
     "Move Up" : {},
     "Move to Ember" : {},
+    "Music" : {},
     "Mute sounds at night" : {},
     "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show." : {},
     "Name" : {},
@@ -1026,12 +1035,14 @@
     "Notched calendar, bar above" : {},
     "Notched calendar, bar below" : {},
     "Nothing in the next 36 hours" : {},
+    "Nothing playing." : {},
     "Nothing yet" : {},
     "Notification" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
     "Now" : {},
+    "Now Playing on the Server" : {},
     "Off" : {},
     "Off. %@" : {
       "comment" : "VoiceOver, a Settings preview of a clock panel that is turned off; the argument is the panel's description."
@@ -1070,8 +1081,10 @@
     "On" : {},
     "On Every Card" : {},
     "Online" : {},
+    "Only on this Mac, while Ember is running. Ember reacts when Music changes track or pauses; it never starts Music and doesn't poll it." : {},
     "Only some agents are reporting." : {},
     "Only used when you click Detect in Weather to fill in your coordinates." : {},
+    "Open Automation Settings…" : {},
     "Open Connection Settings" : {},
     "Open Dashboard" : {},
     "Open Dashboard at launch" : {},
@@ -1140,10 +1153,12 @@
     "Per-model 5-hour usage, e.g. Sonnet." : {},
     "Per-model usage" : {},
     "Permissions" : {},
+    "Pictures" : {},
     "Pixel E" : {},
     "Play" : {},
     "Play Test Chime" : {},
     "Play this melody on the clock" : {},
+    "Plex is read by the server itself; set it up there (see the Runbook, \"Now playing\")." : {},
     "Plug the knob into this Mac to change its Wi-Fi or erase it." : {},
     "Plug the knob into this Mac with a USB-C cable, then set it up. Ember gives it your Wi-Fi, this server's address and its own token." : {},
     "Plug the knob into this Mac with a USB-C cable." : {},
@@ -1167,6 +1182,7 @@
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
+    "Privacy: the track's title, artist, album, position and artwork go only to your Ember server. To show artist pictures the server looks the artist's name up on Deezer (turn that off with EMBER_ARTIST_LOOKUP=0)." : {},
     "Processor" : {},
     "Processor load" : {},
     "Processor, memory, temperature and Wi-Fi, every minute." : {},
@@ -1186,6 +1202,7 @@
     "Reaches the server and the clock on your network, and finds them with Bonjour." : {},
     "Reaching Ember" : {},
     "Reads reminders with a due time to ring the clock. Needed while reminder alarms are on." : {},
+    "Reads the playing track's position and artwork from Music. Needed while Apple Music is sent to Ember." : {},
     "Refresh" : {},
     "Refresh (⌘R)" : {},
     "Refresh every" : {},
@@ -1284,6 +1301,7 @@
     "Searching the local network…" : {},
     "Searching…" : {},
     "Second model" : {},
+    "Send Apple Music to Ember" : {},
     "Send stats every" : {},
     "Sensor Calibration" : {},
     "Sensors" : {},
@@ -1574,6 +1592,7 @@
     "Tool Glyphs" : {},
     "Tool glyphs" : {},
     "Tool icon and machine name in the source color." : {},
+    "Track" : {},
     "Transition" : {},
     "Transition length" : {},
     "Try Again" : {},
@@ -1746,6 +1765,7 @@
     },
     "in progress" : {},
     "just now" : {},
+    "macOS asks once to let Ember control Music; Ember only reads the player position and artwork." : {},
     "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
     "macOS gives Local Network access to one build of an app, so a copy of Ember you build yourself can need approval again after every rebuild. If Ember is already on in Local Network settings but still blocked, turn it off and on again." : {},
     "macOS is blocking %@ from the local network, so its reports don't reach the server." : {

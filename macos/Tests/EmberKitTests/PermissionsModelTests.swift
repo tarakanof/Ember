@@ -99,6 +99,17 @@ private func snapshot(_ states: [(ProducerAgent, AgentState)], blocked: [Produce
     #expect(PermissionsModel.locationRow(.notDetermined).action == .openPane(.source(.weather)))
 }
 
+@Test func musicAutomationMattersOnlyWhenThePusherIsOn() {
+    let off = PermissionsModel.musicAutomationRow(.denied, inUse: false)
+    #expect(off.status == .notInUse && !off.needsAttention && off.action == .openPane(.source(.music)))
+    let ask = PermissionsModel.musicAutomationRow(.notDetermined, inUse: true)
+    #expect(ask.needsAttention && ask.action == .requestMusicAutomation)
+    let denied = PermissionsModel.musicAutomationRow(.denied, inUse: true)
+    #expect(denied.status == .denied && denied.needsAttention && denied.action == .openSystemSettings(.automation))
+    let notRunning = PermissionsModel.musicAutomationRow(nil, inUse: true)
+    #expect(notRunning.status == .unknown && !notRunning.needsAttention)
+}
+
 @Test func rowsListEveryPermissionInOrder() {
     let rows = PermissionsModel.rows(localNetwork: .granted, producers: nil, reminders: .granted,
                                      remindersInUse: false, location: .notDetermined)
@@ -131,6 +142,9 @@ private final class FakeSources: PermissionSources {
     func producers() async -> ProducerSnapshot? { snapshot }
     func reminders() -> (status: AccessStatus, inUse: Bool) { (remindersAccess, remindersInUse) }
     func location() -> AccessStatus { locationAccess }
+    var musicAccess: AccessStatus? = nil
+    var musicInUse = false
+    func musicAutomation() async -> (status: AccessStatus?, inUse: Bool) { (musicAccess, musicInUse) }
 }
 
 @MainActor

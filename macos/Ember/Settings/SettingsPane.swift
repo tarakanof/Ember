@@ -28,6 +28,7 @@ extension SourceID {
         case .focus:    "Focus"
         case .weather:  "Weather"
         case .calendar: "Calendar"
+        case .music:    "Music"
         }
     }
 
@@ -37,6 +38,7 @@ extension SourceID {
         case .focus:    "timer"
         case .weather:  "cloud.sun"
         case .calendar: "calendar"
+        case .music:    "music.note"
         }
     }
 }

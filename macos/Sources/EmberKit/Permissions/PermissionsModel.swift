@@ -14,6 +14,8 @@ public enum PermissionID: String, CaseIterable, Identifiable, Sendable {
     case reminders
     /// Location, for Weather's Detect button.
     case location
+    /// Automation of Music.app (Apple Events), for the Apple Music pusher.
+    case musicAutomation
 
     public var id: String { rawValue }
 }
@@ -52,6 +54,8 @@ public enum PermissionAction: Equatable, Sendable {
     case repair
     /// Opens another Settings pane.
     case openPane(SettingsRoute)
+    /// Shows macOS's Automation prompt for Music.app.
+    case requestMusicAutomation
 }
 
 /// System Settings panes the Permissions pane links to.
@@ -60,6 +64,7 @@ public enum SystemSettingsPane: String, Sendable {
     case reminders = "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders"
     case location = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
     case loginItems = "x-apple.systempreferences:com.apple.LoginItems-Settings.extension"
+    case automation = "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
 
     public var url: URL { URL(string: rawValue)! }
 }
@@ -104,6 +109,9 @@ public protocol PermissionSources: AnyObject, Sendable {
     /// Reminders access, and whether reminder alarms are on.
     func reminders() -> (status: AccessStatus, inUse: Bool)
     func location() -> AccessStatus
+    /// Whether Ember may send Apple Events to Music.app (nil when it can't
+    /// tell, e.g. Music isn't running), and whether the pusher is on.
+    func musicAutomation() async -> (status: AccessStatus?, inUse: Bool)
 }
 
 /// Live status of every permission Ember uses, re-read on demand (the pane
@@ -162,16 +170,19 @@ public final class PermissionsModel {
         isChecking = true
         let reminders = sources.reminders()
         let location = sources.location()
+        let music = await sources.musicAutomation()
         let previous = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
         let lastNetwork = previous[.localNetwork].flatMap { Self.networkStatus(of: $0.status) }
         rows = Self.rows(localNetwork: lastNetwork, producers: nil, keepingProducerRowsFrom: previous,
-                         reminders: reminders.status, remindersInUse: reminders.inUse, location: location)
+                         reminders: reminders.status, remindersInUse: reminders.inUse, location: location,
+                         music: music.status, musicInUse: music.inUse)
 
         async let network = sources.localNetwork()
         async let producers = sources.producers()
         let (n, p) = await (network, producers)
         rows = Self.rows(localNetwork: n, producers: p, keepingProducerRowsFrom: previous,
-                         reminders: reminders.status, remindersInUse: reminders.inUse, location: location)
+                         reminders: reminders.status, remindersInUse: reminders.inUse, location: location,
+                         music: music.status, musicInUse: music.inUse)
         isChecking = false
         checkedAt = Date()
     }
@@ -190,11 +201,13 @@ public final class PermissionsModel {
     nonisolated static func rows(localNetwork: LocalNetworkStatus?, producers: ProducerSnapshot?,
                      keepingProducerRowsFrom previous: [PermissionID: PermissionRow] = [:],
                      reminders: AccessStatus, remindersInUse: Bool,
-                     location: AccessStatus) -> [PermissionRow] {
+                     location: AccessStatus,
+                     music: AccessStatus? = nil, musicInUse: Bool = false) -> [PermissionRow] {
         var byID: [PermissionID: PermissionRow] = [
             .localNetwork: localNetworkRow(localNetwork),
             .reminders: remindersRow(reminders, inUse: remindersInUse),
             .location: locationRow(location),
+            .musicAutomation: musicAutomationRow(music, inUse: musicInUse),
         ]
         for id in [PermissionID.backgroundItems, .helperLocalNetwork] {
             byID[id] = previous[id] ?? PermissionRow(id: id, status: .checking, required: false, action: nil)
@@ -264,6 +277,19 @@ public final class PermissionsModel {
     nonisolated static func locationRow(_ access: AccessStatus) -> PermissionRow {
         PermissionRow(id: .location, status: status(access), required: false,
                       action: access == .notDetermined ? .openPane(.source(.weather)) : .openSystemSettings(.location))
+    }
+
+    nonisolated static func musicAutomationRow(_ access: AccessStatus?, inUse: Bool) -> PermissionRow {
+        guard inUse else {
+            return PermissionRow(id: .musicAutomation, status: .notInUse, required: false,
+                                 action: .openPane(.source(.music)))
+        }
+        guard let access else {
+            return PermissionRow(id: .musicAutomation, status: .unknown, required: true,
+                                 action: .openSystemSettings(.automation))
+        }
+        return PermissionRow(id: .musicAutomation, status: status(access), required: true,
+                             action: access == .notDetermined ? .requestMusicAutomation : .openSystemSettings(.automation))
     }
 
     nonisolated private static func status(_ access: AccessStatus) -> PermissionStatus {
