@@ -2804,7 +2804,8 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   every server staleness window. `SessionEnd` is unreliable (skipped on
   window-close / Cmd-Q / SIGHUP / crash). Walk the hook's process ancestry past
   the `sh` wrapper to the owning `claude`/`node` PID, record PID + `ps lstart`
-  (guards PID reuse), reap when it dies (~10 s). Audit any code that round-trips
+  (guards PID reuse), reap when it dies (~10 s). A failed start-time lookup is
+  not death: only a pid that signal 0 reports gone is. Audit any code that round-trips
   the marker through the wire struct (it can silently strip the liveness fields).
 - **Producer↔server version skew is silent.** When a feature's render is in the
   server but its data comes from a producer, shipping the producer alone shows
