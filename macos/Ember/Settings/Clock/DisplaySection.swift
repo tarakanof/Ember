@@ -20,22 +20,24 @@ struct DisplaySection: View {
                 }
                 .disabled(pending != nil)
             }
-            Toggle("Automatic brightness", isOn: s.binding(\.autoBrightness, false))
+            InfoToggle("Automatic brightness", isOn: s.binding(\.autoBrightness, false), info: .clockAutoBrightness,
+                       requirement: .loading)
             PercentSliderRow(title: "Brightness", percent: Binding(
                 get: { DeviceUnits.brightnessPercent(raw: s.draft.brightness ?? 120) },
                 set: { s.draft.brightness = DeviceUnits.brightnessRaw(percent: $0) }))
                 .disabled(s.draft.autoBrightness ?? false)
             HexColorRow(title: "Text color", hex: s.binding(\.textColor, "#FFFFFF"))
-            Toggle("Uppercase text", isOn: s.binding(\.uppercase, true))
+            InfoToggle("Uppercase text", isOn: s.binding(\.uppercase, true), info: .clockUppercase, requirement: .loading)
             Picker("Scrolling", selection: s.binding(\.scroll, \.mode, ScrollMode.wrap.rawValue, empty: ScrollSettings())) {
                 ForEach(ScrollMode.allCases) { m in Text(title(m)).tag(m.rawValue) }
             }
             PercentSliderRow(title: "Scroll speed",
                              percent: s.binding(\.scroll, \.speed, 100, empty: ScrollSettings()),
                              range: (10...500).including(s.draft.scroll?.speed ?? 100), step: 10,
-                             info: .clockScrollSpeed)
+                             info: .clockScrollSpeed, requirement: device.isLoaded ? .scrolling : .loading)
                 .disabled(s.draft.scroll?.mode == ScrollMode.static.rawValue)
-            InfoToggle("Block button navigation", isOn: s.binding(\.blockNavigation, false), info: .clockBlockNavigation)
+            InfoToggle("Block button navigation", isOn: s.binding(\.blockNavigation, false), info: .clockBlockNavigation,
+                       requirement: .loading)
         } header: {
             Text("Display")
         } footer: {

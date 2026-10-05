@@ -139,14 +139,14 @@ struct ClockAgentsAppPane: View {
 
             Section {
                 Toggle("Context glass", isOn: $cards.draft.contextPct)
-                InfoRow("Bottom bar", info: .bottomBar) { label in
+                InfoRow("Bottom bar", info: .bottomBar, requirement: .loading) { label in
                     Picker(selection: $cards.draft.bottomBarMode) {
                         Text("Session pixels").tag(BottomBarMode.session)
                         Text("Rate bar").tag(BottomBarMode.rate)
                         Text("Off").tag(BottomBarMode.off)
                     } label: { label }
                 }
-                InfoToggle("Activity trail", isOn: $cards.draft.activityTrail, info: .activityTrail)
+                InfoToggle("Activity trail", isOn: $cards.draft.activityTrail, info: .activityTrail, requirement: .loading)
             } header: {
                 Text("On Every Card")
             } footer: {

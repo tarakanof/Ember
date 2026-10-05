@@ -12,8 +12,9 @@ struct RotationSection: View {
                 get: { (s.draft.appDurationMs ?? 7000) / 1000 },
                 set: { s.draft.appDurationMs = $0 * 1000 }),
                 range: (1...60).including((s.draft.appDurationMs ?? 7000) / 1000),
-                info: .clockTimePerApp) { Text("\($0) s") }
-            InfoToggle("Switch apps automatically", isOn: s.binding(\.autoTransition, true), info: .clockAutoTransition)
+                info: .clockTimePerApp, requirement: .loading) { Text("\($0) s") }
+            InfoToggle("Switch apps automatically", isOn: s.binding(\.autoTransition, true), info: .clockAutoTransition,
+                       requirement: .loading)
             Picker("Transition", selection: s.binding(\.transitionEffect, device.transitions.first ?? "Fade")) {
                 let current = s.draft.transitionEffect
                 ForEach(device.transitions, id: \.self) { Text(verbatim: DeviceKnownValues.displayName($0)).tag($0) }

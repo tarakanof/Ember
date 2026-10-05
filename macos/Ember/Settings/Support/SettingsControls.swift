@@ -7,10 +7,11 @@ struct StepperRow: View {
     let range: ClosedRange<Int>
     var step: Int = 1
     var info: SettingsInfo? = nil
+    var requirement: SettingsInfoRequirement? = nil
     let valueText: (Int) -> Text
 
     var body: some View {
-        InfoRow(title, info: info) { label in
+        InfoRow(title, info: info, requirement: requirement) { label in
             LabeledContent {
                 HStack(spacing: 6) {
                     valueText(value).monospacedDigit()
@@ -38,10 +39,11 @@ struct DecimalStepperRow: View {
     let range: ClosedRange<Double>
     let step: Double
     var info: SettingsInfo? = nil
+    var requirement: SettingsInfoRequirement? = nil
     let valueText: (Double) -> Text
 
     var body: some View {
-        InfoRow(title, info: info) { label in
+        InfoRow(title, info: info, requirement: requirement) { label in
             LabeledContent {
                 HStack(spacing: 6) {
                     valueText(value).monospacedDigit()
@@ -69,9 +71,10 @@ struct PercentSliderRow: View {
     var range: ClosedRange<Int> = 0...100
     var step: Int = 1
     var info: SettingsInfo? = nil
+    var requirement: SettingsInfoRequirement? = nil
 
     var body: some View {
-        InfoRow(title, info: info) { label in
+        InfoRow(title, info: info, requirement: requirement) { label in
             sliderRow(label)
         }
     }

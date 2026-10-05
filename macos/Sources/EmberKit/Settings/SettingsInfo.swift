@@ -11,6 +11,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
     case knobFollowBrightness, knobMinBrightness, knobStartupBrightness
     case knobSleepy, knobSourceLabel, knobWorkingRing
     // Devices › Clock
+    case clockAutoBrightness, clockUppercase
     case clockTimePerApp, clockAutoTransition, clockScrollSpeed, clockBlockNavigation
     case melody, attentionChime, limitAlarm
     case bottomBar, activityTrail
@@ -34,6 +35,8 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .knobSleepy: "Idle time before the bot gets sleepy"
         case .knobSourceLabel: "Writes the agent's computer name along the bottom of the face"
         case .knobWorkingRing: "A glint circles the bot's outline while an agent works"
+        case .clockAutoBrightness: "Lets the clock's light sensor set its brightness"
+        case .clockUppercase: "Shows the text of apps and popups in capitals"
         case .clockTimePerApp: "How long each app stays on screen"
         case .clockAutoTransition: "Moves on to the next app by itself"
         case .clockScrollSpeed: "How fast text that doesn't fit moves across the panel"
@@ -86,15 +89,20 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "While an agent is working, waiting or in error, the name of its computer curves along the bottom of the bot's face, after the tool's icon. Default: on."
         case .knobWorkingRing:
             "While an agent is working, a glint orbits the bot's outline every 3 s, and after a long stretch the eyes chase it for a few laps. Off keeps the outline still. Default: on."
+        // awtrix-ng docs: guides/brightness and reference/settings (defaults, ranges).
+        case .clockAutoBrightness:
+            "The clock follows its light sensor within its own minimum and maximum, staying dim until the room is properly bright, and eases changes in over about 10 s. The Brightness slider isn't used while this is on. Default: off."
+        case .clockUppercase:
+            "The clock capitalizes the text of pushed apps and notifications before drawing them; an app can ask for its own case instead. Default: on."
         // ARCHITECTURE "Hold precedence": running agents and weather tiles ask for 6 s.
         case .clockTimePerApp:
-            "How long the clock shows an app before moving to the next. Apps can ask for their own time: Ember's agent cards and weather tiles stay 6 s."
+            "How long the clock shows an app before moving to the next. Apps can ask for their own time: Ember's agent cards and weather tiles stay 6 s. Default: 7 s."
         case .clockAutoTransition:
-            "Off keeps the current app on screen until you press a button or Ember switches to something that needs you. A running Pomodoro turns this off until it stops, then puts your setting back."
+            "Off keeps the current app on screen until you press a button or Ember switches to something that needs you. A running Pomodoro turns this off until it stops, then puts your setting back. Default: on."
         case .clockScrollSpeed:
-            "At 100 percent, text moves 21 pixels a second. It has no effect when Scrolling is Don't scroll."
+            "At 100 percent, text moves 21 pixels a second; above 200 percent it gets hard to read. Default: 100 percent."
         case .clockBlockNavigation:
-            "The clock's buttons no longer move between apps. A running Pomodoro turns this on so the buttons control the timer, then puts your setting back when it stops."
+            "The clock's left and right buttons no longer change apps. A running Pomodoro turns this on so the buttons control the timer, then puts your setting back when it stops. Default: off."
         case .melody:
             "Built-in plays Ember's own tune. Pick a melody stored on the clock, or choose Custom and type a stored melody's name or an RTTTL tune."
         case .attentionChime:
@@ -136,5 +144,34 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .menuBarIcon:
             "The animated bot changes its face with your most urgent session. Tool glyphs shows the icon of the most active tool instead."
         }
+    }
+}
+
+/// Why an info row's control is unavailable, added to its popover while the
+/// row is disabled (the info button itself stays enabled, see `staysEnabled`).
+public enum SettingsInfoRequirement: String, CaseIterable, Sendable {
+    case loading, diagnosticsOn, currentConditionsOn, scrolling, weatherOn, meetingsOn, remindersOn
+    case focusSoundOn, severeAlertOn
+
+    public var text: LocalizedStringResource {
+        switch self {
+        case .loading: "Available once Ember has loaded this setting."
+        case .diagnosticsOn: "Available when Diagnostics is Basic or Full."
+        case .currentConditionsOn: "Available when Current conditions is on."
+        case .scrolling: "Has no effect while Scrolling is set to Don't scroll."
+        case .weatherOn: "Available when weather is on in Sources › Weather."
+        case .meetingsOn: "Available when Show next meeting is on in Sources › Calendar."
+        case .remindersOn: "Available when Ring the clock for due reminders is on in Sources › Calendar."
+        case .focusSoundOn: "Available when Focus phase ends is on."
+        case .severeAlertOn: "Available when Severe weather alert is on in Sources › Weather."
+        }
+    }
+}
+
+extension SettingsInfo {
+    /// The popover's paragraphs: the detail, then why the row is off while it is.
+    public func popover(rowEnabled: Bool, requirement: SettingsInfoRequirement?) -> [LocalizedStringResource] {
+        guard !rowEnabled, let requirement else { return [detail] }
+        return [detail, requirement.text]
     }
 }

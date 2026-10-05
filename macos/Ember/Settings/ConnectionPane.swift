@@ -51,7 +51,7 @@ struct ConnectionPane: View {
                 InfoToggle("Use source color", isOn: Binding(
                     get: { !model.draft.sourceColor.isEmpty },
                     set: { model.draft.sourceColor = $0 ? "#FF8800" : "" }),
-                    info: .sourceColor)
+                    info: .sourceColor, requirement: .loading)
                 if !model.draft.sourceColor.isEmpty {
                     HexColorRow(title: "Source color", hex: $model.draft.sourceColor, fallback: "#FF8800")
                 }

@@ -460,7 +460,7 @@
     "As of %@" : {
       "comment" : "Hardware page Now card while the device is offline: the time of the readings shown (\"As of 21:43\")."
     },
-    "At 100 percent, text moves 21 pixels a second. It has no effect when Scrolling is Don't scroll." : {
+    "At 100 percent, text moves 21 pixels a second; above 200 percent it gets hard to read. Default: 100 percent." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -468,6 +468,38 @@
     "Attention hold" : {},
     "Automatic brightness" : {},
     "Automation: Music" : {},
+    "Available once Ember has loaded this setting." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Available when Current conditions is on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Available when Diagnostics is Basic or Full." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Available when Focus phase ends is on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Available when Ring the clock for due reminders is on in Sources › Calendar." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Available when Severe weather alert is on in Sources › Weather." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Available when Show next meeting is on in Sources › Calendar." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Available when weather is on in Sources › Weather." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Average" : {},
     "Average %@ a week." : {
       "comment" : "VoiceOver chart summary: average focus time per finished week (\"6h 15m\")."
@@ -709,6 +741,7 @@
     "Diagnostics" : {},
     "Diagnostics Settings" : {},
     "Diagnostics are off" : {},
+    "Disabled row" : {},
     "Discover Clocks…" : {},
     "Discovered Servers" : {},
     "Dismiss Notification" : {},
@@ -860,6 +893,10 @@
     "Green under 70%, amber, red from 90%." : {},
     "Hardware" : {},
     "Hardware stats" : {},
+    "Has no effect while Scrolling is set to Don't scroll." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Header" : {},
     "Hidden" : {},
     "Hide when idle" : {},
@@ -882,7 +919,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "How long the clock shows an app before moving to the next. Apps can ask for their own time: Ember's agent cards and weather tiles stay 6 s." : {
+    "How long the clock shows an app before moving to the next. Apps can ask for their own time: Ember's agent cards and weather tiles stay 6 s. Default: 7 s." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -963,6 +1000,10 @@
     "Latitude runs from −90 to 90 and longitude from −180 to 180." : {},
     "Launch at login" : {},
     "Leading zero" : {},
+    "Lets the clock's light sensor set its brightness" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Light" : {},
     "Light level" : {},
     "Line" : {},
@@ -1147,7 +1188,7 @@
     "Now Playing" : {},
     "Now Playing on the Server" : {},
     "Off" : {},
-    "Off keeps the current app on screen until you press a button or Ember switches to something that needs you. A running Pomodoro turns this off until it stops, then puts your setting back." : {
+    "Off keeps the current app on screen until you press a button or Ember switches to something that needs you. A running Pomodoro turns this off until it stops, then puts your setting back. Default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -1514,6 +1555,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Shows the text of apps and popups in capitals" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Shows the weather popup again once this long has passed since the last one, even if nothing changed. Off keeps only the popups above. Default: 2 h." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1615,6 +1660,10 @@
       "extractionState" : "manual"
     },
     "The clock adds these offsets to its sensor's readings; the temperature one makes up for the clock warming itself. Compare Measured now with a thermometer you trust and change the offset by the difference." : {},
+    "The clock capitalizes the text of pushed apps and notifications before drawing them; an app can ask for its own case instead. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The clock chimes once when a session starts waiting for you or hits an error and takes over the screen. Quiet hours mute it." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1635,12 +1684,16 @@
       "comment" : "Error: a clock setting was sent but the clock never confirmed it, so it may or may not be saved.",
       "extractionState" : "manual"
     },
+    "The clock follows its light sensor within its own minimum and maximum, staying dim until the room is properly bright, and eases changes in over about 10 s. The Brightness slider isn't used while this is on. Default: off." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The clock hasn't reported its apps yet." : {},
     "The clock is unavailable for a few seconds while it restarts." : {},
     "The clock is unreachable" : {},
     "The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state." : {},
     "The clock shows animated icons; the preview shows the drawn ones." : {},
-    "The clock's buttons no longer move between apps. A running Pomodoro turns this on so the buttons control the timer, then puts your setting back when it stops." : {
+    "The clock's left and right buttons no longer change apps. A running Pomodoro turns this on so the buttons control the timer, then puts your setting back when it stops. Default: off." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },

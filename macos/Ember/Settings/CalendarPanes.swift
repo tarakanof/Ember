@@ -157,7 +157,8 @@ struct ClockCalendarAppPane: View {
                 StepperRow(title: "Show tile from", value: $model.draft.tileLeadMinutes,
                            range: (5...240).including(c.tileLeadMinutes), step: 5) { Text("\($0) min before") }
                 StepperRow(title: "Popup", value: $model.draft.popupLeadMinutes,
-                           range: (0...30).including(c.popupLeadMinutes), info: .meetingPopupLead) { m in
+                           range: (0...30).including(c.popupLeadMinutes), info: .meetingPopupLead,
+                           requirement: model.isLoaded ? .meetingsOn : .loading) { m in
                     m == 0 ? Text("Off") : Text("\(m) min before")
                 }
             } header: {
@@ -172,7 +173,7 @@ struct ClockCalendarAppPane: View {
                 StepperRow(title: "Show for", value: $watcher.prefs.popupDuration,
                            range: (5...120).including(watcher.prefs.popupDuration), step: 5) { Text("\($0) s") }
                     .disabled(watcher.prefs.hold)
-                InfoToggle("Native icon", isOn: $watcher.prefs.useNativeIcon, info: .reminderNativeIcon)
+                InfoToggle("Native icon", isOn: $watcher.prefs.useNativeIcon, info: .reminderNativeIcon, requirement: .remindersOn)
                 TextField("Icon ID", text: $watcher.prefs.nativeIconId, prompt: Text(verbatim: "1234"))
                     .disabled(!watcher.prefs.useNativeIcon)
             } header: {

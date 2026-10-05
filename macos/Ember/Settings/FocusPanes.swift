@@ -53,7 +53,7 @@ struct FocusSourcePane: View {
                         n == 0 ? Text("Off") : Text("^[\(n) session](inflect: true)")
                     }
                     StepperRow(title: "Weekly goal", value: $model.draft.weeklyGoalDays, range: 0...7,
-                               info: .focusWeeklyGoal) { n in
+                               info: .focusWeeklyGoal, requirement: .loading) { n in
                         n == 0 ? Text("Off") : Text("^[\(n) active day](inflect: true)")
                     }
                 } header: {
@@ -63,10 +63,11 @@ struct FocusSourcePane: View {
                 }
 
                 Section {
-                    InfoToggle("Start the next phase automatically", isOn: $model.draft.autoStartNext, info: .focusAutoStart)
+                    InfoToggle("Start the next phase automatically", isOn: $model.draft.autoStartNext, info: .focusAutoStart,
+                               requirement: .loading)
                     StepperRow(title: "Stop after", value: $model.draft.maxSessionMinutes,
                                range: (0...480).including(c.maxSessionMinutes), step: 30,
-                               info: .focusStopAfter) { m in
+                               info: .focusStopAfter, requirement: .loading) { m in
                         m == 0 ? Text("Never") : Text(verbatim: DurationText.minutes(m))
                     }
                 } header: {
