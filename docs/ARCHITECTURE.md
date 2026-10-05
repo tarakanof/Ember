@@ -764,12 +764,17 @@ Claude producer constraints:
   figures, so the daemon forwards the last OAuth-poller per-model snapshot
   (`usageModels`); without it the server's last-write-wins `UsageStore.Put`
   would blank the per-model breakdown on the next 10 s heartbeat. The
-  statusline relay (freshest live session wins, by the marker's
-  `statusline_at`) is the primary weekly/5h source; the OAuth endpoint is the
-  flaky fallback. The statusline rewrites (and fsyncs) the marker only when a
-  figure changed or `statusline_at` is a minute old, so file mtime no longer
-  tracks every refresh; hooks carry `statusline_at` over. A wrapped status
-  line command gets 5 s, then its process group is killed.
+  statusline relay (the session whose figures changed most recently wins, by
+  the marker's `statusline_changed_ms`, ties broken by mtime) is the primary
+  weekly/5h source; the OAuth endpoint is the flaky fallback. The statusline
+  rewrites (and fsyncs) the marker only when a figure changed, or once a
+  minute by mtime so the TTL reap still sees it; hooks carry
+  `statusline_changed_ms` over. A wrapped status line command gets
+  `EMBER_STATUSLINE_TIMEOUT_MS` (default 10 s), then its process group is
+  killed and the session's last good output
+  (`~/.local/state/ember/statusline/<session>.out`, pruned after a day) is
+  shown instead. A command that exits 0 but leaves a background child holding
+  stdout still has its output shown.
 - **`claude agents --json` cross-check** (#266, `agents.go`,
   `EMBER_CLAUDE_AGENTS_POLL`, default on). Hooks miss three transitions: an
   approved permission dialog stays `waiting` until the tool finishes (no hook

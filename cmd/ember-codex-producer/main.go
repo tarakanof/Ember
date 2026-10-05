@@ -22,7 +22,7 @@ func main() {
 	case "configure":
 		runConfigure(args)
 	case "deconfigure":
-		fmt.Println("Deconfigure complete.")
+		fmt.Println("Deconfigure complete (nothing to undo: configure only seeds the shared producer.env).")
 	case "doctor":
 		runDoctor()
 	case "discover":
