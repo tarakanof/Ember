@@ -592,6 +592,7 @@ func (a *App) pollWeather(ctx context.Context, now time.Time) {
 		a.weather.lastPopupAt = now
 	}
 	a.weather.mu.Unlock()
+	a.changes.notify(topicWeather)
 
 	popped := a.evaluateWeatherPopup(ctx, now, obs, prevCond, prevSevere, lastPopup, cfg)
 

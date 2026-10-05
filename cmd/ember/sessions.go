@@ -23,6 +23,7 @@ func (a *App) sessionPolicy() sessions.Policy {
 }
 
 func (a *App) onSessionReaped(r sessions.Reaped) {
+	a.changes.notify(topicSessions)
 	a.metrics.incSessionEvicted()
 	a.logger.Warn("session reaped",
 		"source", r.Session.Source,
@@ -36,15 +37,20 @@ func (a *App) onSessionReaped(r sessions.Reaped) {
 // Upsert stores req's session and returns the resulting /state Render plus the state the session held before this upsert ("" if new).
 func (a *App) Upsert(req StatusRequest) (Render, string) {
 	v, prior := a.sessions.Upsert(req.normalized())
+	a.changes.notify(topicSessions)
 	return a.legacyRender(v), prior
 }
 
 func (a *App) Clear() Render {
-	return a.legacyRender(a.sessions.Clear())
+	v := a.sessions.Clear()
+	a.changes.notify(topicSessions)
+	return a.legacyRender(v)
 }
 
 func (a *App) Delete(key string) Render {
-	return a.legacyRender(a.sessions.Delete(key))
+	v := a.sessions.Delete(key)
+	a.changes.notify(topicSessions)
+	return a.legacyRender(v)
 }
 
 // Snapshot is the GET /state body and the coordinator's view of the sessions.

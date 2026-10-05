@@ -320,8 +320,13 @@ func (a *App) tickBrightness(ctx context.Context, now time.Time) {
 	c := a.cfg.Load().Brightness.resolved()
 	geo := a.brightnessGeo()
 	a.brightness.mu.Lock()
-	defer a.brightness.mu.Unlock()
+	prev := a.brightness.st
 	_, a.brightness.st = decideBrightness(c, a.brightness.st, sample, geo, now)
+	moved := a.brightness.st.Level != prev.Level || a.brightness.st.HasLevel != prev.HasLevel
+	a.brightness.mu.Unlock()
+	if moved {
+		a.changes.notify(topicBrightness)
+	}
 }
 
 // StartBrightness ticks the filter at once and then every

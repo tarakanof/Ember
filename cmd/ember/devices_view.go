@@ -205,12 +205,29 @@ func localNoon(now time.Time, obs weatherObservation, lon float64) time.Time {
 }
 
 func (a *App) handleDeviceSelfView(w http.ResponseWriter, r *http.Request) {
+	id := deviceIDFrom(r.Context())
+	wait, err := parseViewWait(r.URL.Query().Get("wait"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.Header().Set(knobViewWaitHeader, strconv.Itoa(int(knobViewWaitMax/time.Second)))
+	if a.serveKnobViewWait(w, r, id, wait) {
+		return
+	}
 	now := time.Now()
-	body, etag, err := a.knobView(deviceIDFrom(r.Context()), now)
+	body, etag, err := a.knobView(id, now)
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}
+	a.writeKnobView(w, r, body, etag, now)
+}
+
+// writeKnobView answers body, or 304 when the request's If-None-Match
+// matches etag. X-Ember-Now is now: the moment the answer leaves, so a
+// long-poll's 304 carries the time at its end, not its start.
+func (a *App) writeKnobView(w http.ResponseWriter, r *http.Request, body []byte, etag string, now time.Time) {
 	h := w.Header()
 	h.Set("ETag", etag)
 	h.Set("Cache-Control", "no-cache")

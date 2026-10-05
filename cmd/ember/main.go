@@ -202,6 +202,9 @@ func main() {
 const shutdownTimeout = 8 * time.Second
 
 func (a *App) shutdown(ctx context.Context, server *http.Server, workers *sync.WaitGroup) {
+	// Release long-polls first: Shutdown waits for active requests, and a
+	// waiting view request would otherwise hold it for up to knobViewWaitMax.
+	a.changes.close()
 	if err := server.Shutdown(ctx); err != nil {
 		a.logger.Warn("server shutdown failed", "err", err)
 	}

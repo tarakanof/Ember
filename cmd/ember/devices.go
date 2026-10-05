@@ -145,6 +145,10 @@ type deviceRegistry struct {
 	loadErr      error
 	persistedAt  time.Time
 	dirty        bool
+
+	// onChange runs after every committed mutation, under mu; it must not
+	// block or call back into the registry.
+	onChange func()
 }
 
 func newDeviceRegistry(kv func() settingsKV) *deviceRegistry {
@@ -212,6 +216,9 @@ func (r *deviceRegistry) mutateLocked(fn func(*deviceState) error) error {
 		return err
 	}
 	r.state = next
+	if r.onChange != nil {
+		r.onChange()
+	}
 	return nil
 }
 

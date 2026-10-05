@@ -24,7 +24,11 @@ type metrics struct {
 	rateLimitDenied  atomic.Int64
 	sessionsEvicted  atomic.Int64
 	commandsDropped  atomic.Int64
+	longPoll         [len(longPollResults)]atomic.Int64
 }
+
+// longPollResults is the label order of ember_knob_view_longpoll_total.
+var longPollResults = [...]string{longPollChange, longPollTimeout, longPollShutdown, longPollGone, longPollBusy}
 
 func newMetrics() *metrics { return &metrics{} }
 
@@ -68,6 +72,18 @@ func (m *metrics) incSessionEvicted() {
 func (m *metrics) incCommandDropped() {
 	if m != nil {
 		m.commandsDropped.Add(1)
+	}
+}
+
+func (m *metrics) incLongPoll(result string) {
+	if m == nil {
+		return
+	}
+	for i, r := range longPollResults {
+		if r == result {
+			m.longPoll[i].Add(1)
+			return
+		}
 	}
 }
 
@@ -122,6 +138,16 @@ func (m *metrics) render(w io.Writer, app *App) {
 	fmt.Fprintln(w, "# HELP ember_coordinator_commands_dropped_total State-change commands dropped because the coordinator command buffer was full.")
 	fmt.Fprintln(w, "# TYPE ember_coordinator_commands_dropped_total counter")
 	fmt.Fprintf(w, "ember_coordinator_commands_dropped_total %d\n", m.commandsDropped.Load())
+
+	fmt.Fprintln(w, "# HELP ember_knob_view_longpoll_total Knob view long-polls (?wait=) by result: change (200), timeout (304), shutdown (304), gone (client closed), busy (429).")
+	fmt.Fprintln(w, "# TYPE ember_knob_view_longpoll_total counter")
+	for i, r := range longPollResults {
+		fmt.Fprintf(w, "ember_knob_view_longpoll_total{result=\"%s\"} %d\n", r, m.longPoll[i].Load())
+	}
+
+	fmt.Fprintln(w, "# HELP ember_knob_view_waiters Knob view requests blocked in a long-poll now.")
+	fmt.Fprintln(w, "# TYPE ember_knob_view_waiters gauge")
+	fmt.Fprintf(w, "ember_knob_view_waiters %d\n", app.viewWaiters.count())
 
 	sessionsActive := len(app.sessions.View().Sessions)
 	app.mu.Lock()
