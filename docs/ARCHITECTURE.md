@@ -2614,8 +2614,11 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `devices_view_wait.go`) with `If-None-Match` holds the request while the
   view still matches the tag: 200 with the new body as soon as it changes,
   else 304 with the same ETag when the wait ends. Without `wait`, without a
-  tag, or when the tag is already stale it answers at once as above; a
-  malformed `wait` is 400. Every view answer carries `X-Ember-View-Wait: 25`
+  tag, with `If-None-Match: *` (matches any view: always 304), or when the
+  tag is already stale it answers at once as above, before any waiter slot
+  is taken (so a stale tag gets its 200 even at the cap); a malformed
+  `wait` is 400. A reverse proxy in front needs a read timeout ≥ 35 s
+  (RUNBOOK). Every view answer carries `X-Ember-View-Wait: 25`
   so a client long-polls only a server that advertises it (an older one
   ignores the parameter and would answer at once, so a client that sent it
   blindly would spin). `X-Ember-Now` is the time the answer leaves. The 25 s
@@ -2633,11 +2636,13 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `chan struct{}` closed and swapped on every `notify(topic)`. A waiter
   subscribes *before* it reads the state and then blocks on that channel,
   so a change between the read and the block is never lost. Sources:
-  sessions (upsert, delete, clear, reap), Pomodoro (`pomoChanged`: every
+  sessions (upsert only when the `/state` render moves, so heartbeats and
+  statusline ticks stay silent; delete, clear, reap), Pomodoro (`pomoChanged`: every
   action, button, phase end, settings), weather (new observation),
-  brightness (filter level moved), devices (`deviceRegistry.onChange` after
+  brightness (the served level/source/night moved), devices (`deviceRegistry.onChange` after
   each committed mutation: epoch, config, rotation; live mode), config
-  (`tryUpdateConfig`, so reloads and every settings PUT). `notify` takes only
+  (`tryUpdateConfig`: every settings PUT; `/admin/reload` stores directly and
+  notifies config + Pomodoro after its engine resync). `notify` takes only
   its own lock and never blocks, so callers may hold theirs. Fields that move
   with the clock alone (sun-schedule brightness, weather going stale, live
   mode ending) are caught by a 5 s recheck inside the wait. Topics are bits

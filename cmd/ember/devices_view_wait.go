@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -124,6 +125,9 @@ func (a *App) awaitKnobView(ctx context.Context, id, inm string, wait time.Durat
 		case final != "":
 			return body, etag, final, nil
 		}
+		if a.viewWaitHook != nil {
+			a.viewWaitHook() // tests: a change between the read and the block
+		}
 		select {
 		case <-ch:
 		case <-recheck.C:
@@ -137,6 +141,16 @@ func (a *App) awaitKnobView(ctx context.Context, id, inm string, wait time.Durat
 	}
 }
 
+// inmHasStar reports an If-None-Match "*" member.
+func inmHasStar(inm string) bool {
+	for tag := range strings.SplitSeq(inm, ",") {
+		if strings.TrimSpace(tag) == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) knobViewRecheckEvery() time.Duration {
 	if a.viewRecheck > 0 {
 		return a.viewRecheck
@@ -148,7 +162,13 @@ func (a *App) knobViewRecheckEvery() time.Duration {
 // request is not one (no wait or no tag), so the caller answers at once.
 func (a *App) serveKnobViewWait(w http.ResponseWriter, r *http.Request, id string, wait time.Duration) bool {
 	inm := r.Header.Get("If-None-Match")
-	if wait <= 0 || inm == "" {
+	if wait <= 0 || inm == "" || inmHasStar(inm) {
+		// "*" matches any view: a wait would always run out with 304.
+		return false
+	}
+	// A stale tag answers at once, before a slot is taken: at the cap it gets
+	// its 200, not a 429.
+	if _, etag, err := a.knobView(id, time.Now()); err != nil || !etagMatches(inm, etag) {
 		return false
 	}
 	release, ok := a.viewWaiters.acquire(id)

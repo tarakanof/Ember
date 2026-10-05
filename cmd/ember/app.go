@@ -65,6 +65,8 @@ type App struct {
 	changes     *changeBroadcaster
 	viewWaiters viewWaiters
 	viewRecheck time.Duration
+	// viewWaitHook runs in a long-poll between its read and its block (tests).
+	viewWaitHook func()
 	// knobStats holds knob diagnostics samples and live mode, memory only.
 	knobStats *knobStatsStore
 	// clockStats holds the clock's probe samples, memory only.

@@ -320,10 +320,11 @@ func (a *App) tickBrightness(ctx context.Context, now time.Time) {
 	c := a.cfg.Load().Brightness.resolved()
 	geo := a.brightnessGeo()
 	a.brightness.mu.Lock()
-	prev := a.brightness.st
+	before := brightnessAt(c, a.brightness.st, geo, now)
 	_, a.brightness.st = decideBrightness(c, a.brightness.st, sample, geo, now)
-	moved := a.brightness.st.Level != prev.Level || a.brightness.st.HasLevel != prev.HasLevel
+	after := brightnessAt(c, a.brightness.st, geo, now)
 	a.brightness.mu.Unlock()
+	moved := after != before // the served output, not just the filter's level
 	if moved {
 		a.changes.notify(topicBrightness)
 	}

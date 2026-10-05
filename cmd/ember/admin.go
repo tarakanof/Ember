@@ -216,6 +216,7 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.cfgMu.Unlock()
 		app.resyncPomodoroAfterReload()
 		app.settings.reapply()
+		app.changes.notify(topicConfig | topicPomodoro) // the Store above bypassed tryUpdateConfig
 		if !clockDisabled() {
 			go app.ensureBootPingScript(context.Background())
 		}
