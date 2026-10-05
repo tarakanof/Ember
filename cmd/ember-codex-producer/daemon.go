@@ -18,8 +18,7 @@ const httpTimeout = 5 * time.Second
 var daemonFailLog = producer.NewFailureLogger(time.Minute)
 
 func runDaemon() {
-	rotateCodexLogs()
-	openDaemonLog("ember-codex-producer")
+	producer.StartDaemonLog("ember-codex-producer")
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || (cfg.ServerURL == "" && !cfg.ServerAuto) {
 		fmt.Fprintln(os.Stderr, "codex producer: EMBER_SOURCE/EMBER_SERVER_URL not set; nothing to do")
@@ -61,15 +60,6 @@ func runDaemon() {
 		case <-ticker.C:
 		}
 	}
-}
-
-func openDaemonLog(name string) {
-	f, err := producer.OpenDaemonLog(name)
-	if err != nil {
-		return
-	}
-	producer.RedirectStandardIO(f)
-	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }
 
 // cycle merges one poll of the app-server source (nil when disabled) and the
@@ -129,12 +119,4 @@ func runOnce(ctx context.Context, w *watcher, as *appServer, client *producer.Cl
 			daemonFailLog.Warn(slog.Default(), "codex_usage", "usage POST failed", "err", err)
 		}
 	}
-}
-
-func rotateCodexLogs() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	producer.RotateLogIfLarge(producer.LogPath(home, "ember-codex-producer"), producer.DefaultLogThreshold)
 }

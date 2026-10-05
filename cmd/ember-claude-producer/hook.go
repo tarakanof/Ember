@@ -39,7 +39,7 @@ func runHook(args []string) {
 	if home, err := os.UserHomeDir(); err != nil || !hooksEnabledAt(home) {
 		os.Exit(0)
 	}
-	rotateProducerLogs()
+	producer.RotateLogs(producerLogs...)
 	event := args[0]
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {

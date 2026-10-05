@@ -20,7 +20,7 @@ const heartbeatInterval = 10 * time.Second
 var tickFailLog = producer.NewFailureLogger(time.Minute)
 
 func runTick() {
-	rotateProducerLogs()
+	producer.RotateLogs(producerLogs...)
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
 		os.Exit(0)
@@ -32,8 +32,7 @@ func runTick() {
 }
 
 func runDaemon() {
-	rotateProducerLogs()
-	openDaemonLog("ember-tick")
+	producer.StartDaemonLog("ember-tick", "ember-claude-producer")
 	if path, err := producer.LinkStatusPath("claude-producer"); err == nil {
 		daemonLink = producer.NewLinkStatus(path)
 	}
@@ -83,15 +82,6 @@ func heartbeatPass(parent context.Context) {
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 	dispatchTick(ctx, cfg)
-}
-
-func openDaemonLog(name string) {
-	f, err := producer.OpenDaemonLog(name)
-	if err != nil {
-		return
-	}
-	producer.RedirectStandardIO(f)
-	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }
 
 type statuslineUsageSnapshot struct {
