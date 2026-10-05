@@ -96,21 +96,10 @@ func (w *watcher) deleteRequest(id string) producer.DeleteRequest {
 }
 
 func (w *watcher) buildStatusRequest(th thread, state, message string) producer.StatusRequest {
-	req := producer.StatusRequest{
-		Source:  w.cfg.Source,
-		Tool:    toolName,
-		Session: th.ID,
-		State:   state,
-		Message: message,
-	}
+	req := w.cfg.StatusRequest(toolName, th.ID, state)
+	req.Message = message
 	if w.cfg.ActivityTrailEnabled {
 		req.Activity = producer.Truncate(th.Title, maxActivityRunes)
 	}
-	if w.cfg.SourceColor != "" {
-		sc := w.cfg.SourceColor
-		req.SourceColor = &sc
-	}
-	sc, sb := w.cfg.SourceCardEnabled, w.cfg.SessionBarEnabled
-	req.SourceCard, req.SessionBar = &sc, &sb
 	return req
 }

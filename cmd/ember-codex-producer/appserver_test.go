@@ -229,8 +229,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 }
 
 func testAppServerConfig(sock string) Config {
-	return Config{Source: "mbp", ActivityWindowSeconds: 90, ContextPctEnabled: true, RatePctEnabled: true,
-		ActivityTrailEnabled: true, AppServerEnabled: true, AppServerSocket: sock}
+	return Config{Common: producer.Common{Source: "mbp", ActivityTrailEnabled: true}, Gauges: producer.Gauges{ContextPctEnabled: true}, ActivityWindowSeconds: 90, RatePctEnabled: true, AppServerEnabled: true, AppServerSocket: sock}
 }
 
 func startAppServer(t *testing.T, cfg Config) *appServer {

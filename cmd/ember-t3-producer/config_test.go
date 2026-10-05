@@ -74,7 +74,7 @@ func TestLoadConfigTokenFromEnvironment(t *testing.T) {
 }
 
 func TestConfigLogValueRedactsToken(t *testing.T) {
-	cfg := Config{Token: "super-secret"}
+	cfg := Config{Common: producer.Common{Token: "super-secret"}}
 	if s := cfg.LogValue().String(); s == "" || strings.Contains(s, "super-secret") {
 		t.Fatalf("LogValue leaks token: %s", s)
 	}

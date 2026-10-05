@@ -36,25 +36,12 @@ func readNewLines(path string, offset int64) ([][]byte, int64, error) {
 }
 
 func buildStatusRequest(cfg Config, uuid string, d derived) producer.StatusRequest {
-	req := producer.StatusRequest{
-		Source:        cfg.Source,
-		Tool:          "codex",
-		Session:       uuid,
-		State:         d.state,
-		Message:       d.message,
-		Activity:      d.activity,
-		ContextPct:    d.contextPct,
-		RateWindowPct: d.rateWindowPct,
-		ContextNumber: cfg.ContextNumberEnabled,
-		RateBottomBar: cfg.RateBottomBarEnabled,
-		RateResetAt:   d.rateResetAt,
-		RateReset:     cfg.RateResetEnabled,
-	}
-	if cfg.SourceColor != "" {
-		sc := cfg.SourceColor
-		req.SourceColor = &sc
-	}
-	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
-	req.SourceCard, req.SessionBar = &sc, &sb
+	req := cfg.StatusRequest("codex", uuid, d.state)
+	req.Message = d.message
+	req.Activity = d.activity
+	req.ContextPct = d.contextPct
+	req.RateWindowPct = d.rateWindowPct
+	req.RateResetAt = d.rateResetAt
+	cfg.Gauges.Apply(&req)
 	return req
 }

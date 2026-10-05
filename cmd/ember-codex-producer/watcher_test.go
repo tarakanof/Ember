@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func writeRollout(t *testing.T, sessionsDir, name string, when time.Time, lines ...string) string {
@@ -30,7 +32,7 @@ func writeRollout(t *testing.T, sessionsDir, name string, when time.Time, lines 
 }
 
 func newTestWatcher(dir string, now time.Time) *watcher {
-	w := newWatcher(Config{Source: "mbp", SessionsDir: dir, StateDir: filepath.Join(dir, "markers"), ActivityWindowSeconds: 90, ContextPctEnabled: true})
+	w := newWatcher(Config{Common: producer.Common{Source: "mbp"}, Gauges: producer.Gauges{ContextPctEnabled: true}, SessionsDir: dir, StateDir: filepath.Join(dir, "markers"), ActivityWindowSeconds: 90})
 	w.now = func() time.Time { return now }
 	return w
 }

@@ -123,11 +123,7 @@ func contextPctEnabled() bool {
 	if err != nil {
 		return true
 	}
-	switch strings.ToLower(data["EMBER_CONTEXT_PCT_ENABLED"]) {
-	case "false", "0", "no", "off":
-		return false
-	}
-	return true
+	return producer.Bool(data["EMBER_CONTEXT_PCT_ENABLED"], true)
 }
 
 func wrappedStatuslinePath(home string) string {

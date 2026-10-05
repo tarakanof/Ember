@@ -48,7 +48,7 @@ func TestPollPostsThenDeletesWhenServerStops(t *testing.T) {
 		`INSERT INTO orchestration_v2_projection_runs (run_id, thread_id, ordinal, provider, status, requested_at, payload_json) VALUES ('r1', 'th-1', 1, 'codex', 'running', '2026-10-02T10:01:00.000Z', '{}')`,
 	)
 	stateDir := t.TempDir()
-	cfg := Config{Source: "mbp", T3Home: home, StateDir: stateDir, ActivityWindowSeconds: 300, ActivityTrailEnabled: true}
+	cfg := Config{Common: producer.Common{Source: "mbp", ActivityTrailEnabled: true}, T3Home: home, StateDir: stateDir, ActivityWindowSeconds: 300}
 	d := newDaemon(cfg, producer.NewClient(srv.URL, "tok", time.Second))
 	alive := true
 	d.alive = func(string) bool { return alive }
@@ -81,7 +81,7 @@ func TestPollUnknownSchemaKeepsSessionsAndReportsError(t *testing.T) {
 	srv, got := recordingServer(t)
 	home := t.TempDir()
 	makeDB(t, home, "statev2.sqlite", "schema_v1.sql")
-	d := newDaemon(Config{Source: "mbp", T3Home: home, StateDir: t.TempDir()}, producer.NewClient(srv.URL, "", time.Second))
+	d := newDaemon(Config{Common: producer.Common{Source: "mbp"}, T3Home: home, StateDir: t.TempDir()}, producer.NewClient(srv.URL, "", time.Second))
 	d.alive = func(string) bool { return true }
 	err := d.poll(context.Background())
 	if !errors.Is(err, errUnknownSchema) {

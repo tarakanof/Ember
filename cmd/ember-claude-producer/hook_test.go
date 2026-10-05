@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 type hookHarness struct {
@@ -714,7 +716,7 @@ func TestHandleUpsert_StampsRateBottomBar(t *testing.T) {
 	dir := t.TempDir()
 	markerP := markerPath(dir, "sess")
 	lockP := lockPath(dir, "sess")
-	cfg := Config{Source: "mbp", ServerURL: "http://127.0.0.1:1", HookTimeoutMs: 500, RateBottomBarEnabled: true}
+	cfg := Config{Common: producer.Common{Source: "mbp", ServerURL: "http://127.0.0.1:1"}, Gauges: producer.Gauges{RateBottomBarEnabled: true}, HookTimeoutMs: 500}
 	client := NewClient(cfg)
 	handleUpsert(context.Background(), cfg, client, "sess", "running", "msg", "", markerP, lockP)
 

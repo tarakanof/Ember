@@ -204,23 +204,10 @@ type upsertExtra struct {
 }
 
 func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string, x upsertExtra) {
-	req := StatusRequest{
-		Source:        cfg.Source,
-		Tool:          "claude",
-		Session:       sessionID,
-		State:         state,
-		Message:       truncate(message, 80),
-		Activity:      truncate(activity, 80),
-		ContextNumber: cfg.ContextNumberEnabled,
-		RateBottomBar: cfg.RateBottomBarEnabled,
-		RateReset:     cfg.RateResetEnabled,
-	}
-	if cfg.SourceColor != "" {
-		sc := cfg.SourceColor
-		req.SourceColor = &sc
-	}
-	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
-	req.SourceCard, req.SessionBar = &sc, &sb
+	req := cfg.StatusRequest("claude", sessionID, state)
+	req.Message = truncate(message, 80)
+	req.Activity = truncate(activity, 80)
+	cfg.Gauges.Apply(&req)
 	var body []byte
 	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		var ownerPID int

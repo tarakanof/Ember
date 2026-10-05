@@ -3,15 +3,14 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 var t0 = time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 
 func testWatcher() *watcher {
-	return newWatcher(Config{
-		Source: "mbp", SourceColor: "#123456", SourceCardEnabled: true, SessionBarEnabled: true,
-		ActivityTrailEnabled: true, ActivityWindowSeconds: 300,
-	})
+	return newWatcher(Config{Common: producer.Common{Source: "mbp", SourceColor: "#123456", SourceCardEnabled: true, SessionBarEnabled: true, ActivityTrailEnabled: true}, ActivityWindowSeconds: 300})
 }
 
 func TestTickPostsRunningThread(t *testing.T) {
