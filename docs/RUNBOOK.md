@@ -113,8 +113,8 @@ sessions with `claude agents --json`: it ends a wait the hooks can't see end
 (approved dialog, Esc on a dialog), marks an Esc-interrupted turn `done`
 ("interrupted"), and shows a session whose hooks went quiet (started before
 the plugin was installed, or lost its settings.json hooks to `configure`) as
-running "working" while `claude agents` says busy (restart such sessions, or
-run `/reload-plugins` in them). It needs Claude Code ≥ 2.1.288 at `~/.local/bin/claude`
+running "working" while `claude agents` says busy; `doctor` warns about such
+sessions: restart them, or run `/reload-plugins` in them. It needs Claude Code ≥ 2.1.288 at `~/.local/bin/claude`
 (native installer), on the daemon's PATH, or in `/opt/homebrew/bin` /
 `/usr/local/bin`; nvm/npm-global installs aren't found and the check stays
 off. `doctor` prints `claude agents cross-check: on (claude X at PATH)` or why

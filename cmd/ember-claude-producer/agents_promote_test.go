@@ -241,3 +241,44 @@ func TestHook_WriteClearsAgentsRunAndStampsHookAt(t *testing.T) {
 		t.Fatalf("marker = %+v; a hook write must clear agents_run, stamp hook_at and keep statusline_at", got)
 	}
 }
+
+func TestStaleHookSessions(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	mk := func(id string, hookAgo, slAgo time.Duration) marker {
+		var m marker
+		m.Session, m.State = id, "done"
+		m.HookAt = now.Add(-hookAgo).Unix()
+		m.StatuslineAt = now.Add(-slAgo).Unix()
+		return m
+	}
+	legacy := mk("legacy", 0, time.Minute)
+	legacy.HookAt, legacy.StateChangedAt = 0, now.Add(-3*time.Hour).Unix()
+	rows := map[string]agentRow{
+		"stale":   {PID: 1, SessionID: "stale", Status: "busy"},
+		"fresh":   {PID: 2, SessionID: "fresh", Status: "busy"},
+		"idle":    {PID: 3, SessionID: "idle", Status: "idle"},
+		"gone":    {PID: 4, SessionID: "gone", Status: "busy"},
+		"legacy":  {PID: 5, SessionID: "legacy", Status: "busy"},
+		"nostats": {PID: 6, SessionID: "nostats", Status: "busy"},
+	}
+	markers := []marker{
+		mk("stale", 2*time.Hour, time.Minute),
+		mk("fresh", time.Minute, 0),
+		mk("idle", 2*time.Hour, time.Minute),
+		mk("gone", 2*time.Hour, time.Hour), // statusline quiet too
+		legacy,
+		mk("nostats", 2*time.Hour, 0),
+	}
+	markers[5].StatuslineAt = 0
+	got := staleHookSessions(markers, rows, now)
+	var ids []string
+	for _, s := range got {
+		ids = append(ids, s.sessionID)
+	}
+	if strings.Join(ids, ",") != "stale,legacy" {
+		t.Fatalf("stale = %v; want stale,legacy", ids)
+	}
+	if got[0].pid != 1 || got[0].hookAge != 2*time.Hour {
+		t.Fatalf("got %+v", got[0])
+	}
+}

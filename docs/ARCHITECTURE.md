@@ -819,7 +819,9 @@ Claude producer constraints:
   confirmed by two snapshots promotes it to `running` "working" (flag
   `agents_run`, cleared by any hook write); idle then ends it as `done`
   "done". Marker comparisons ignore statusline-owned fields, which change on
-  every assistant message.
+  every assistant message. Hooks stamp `hook_at`, the statusline
+  `statusline_at`; `doctor` warns when a busy session's statusline is fresh but
+  no hook wrote for 10 min.
 - **Session lock file.** The per-session lock file is never deleted: removing
   it would break the POSIX flock-on-inode guarantee between concurrent holders.
 

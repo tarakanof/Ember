@@ -751,3 +751,76 @@ func agentsWatchLoop(ctx context.Context) {
 		}
 	}
 }
+
+// hooksStaleAfter is how long a busy session may go with a working
+// statusline but no hook write before doctor calls its hooks stale.
+const hooksStaleAfter = 10 * time.Minute
+
+// staleHookSession is a session doctor warns about.
+type staleHookSession struct {
+	sessionID string
+	pid       int
+	hookAge   time.Duration
+}
+
+// staleHookSessions finds busy sessions whose statusline still writes the
+// marker but whose hooks have not for hooksStaleAfter: a session that started
+// before the ember plugin was installed, or lost its settings.json hooks when
+// `configure` moved them to the plugin, reports through no hook at all until
+// it is restarted or runs /reload-plugins (#285).
+func staleHookSessions(markers []marker, rows map[string]agentRow, now time.Time) []staleHookSession {
+	var out []staleHookSession
+	for _, m := range markers {
+		row, ok := rows[m.Session]
+		if !ok || row.Status != "busy" {
+			continue
+		}
+		hookAt := m.HookAt
+		if hookAt == 0 && !m.AgentsRun {
+			hookAt = m.StateChangedAt // a marker from an older producer
+		}
+		slAt := max(m.StatuslineAt, m.StatuslineChangedMs/1000)
+		if hookAt == 0 || slAt == 0 {
+			continue
+		}
+		hook, sl := time.Unix(hookAt, 0), time.Unix(slAt, 0)
+		if now.Sub(sl) > hooksStaleAfter || sl.Sub(hook) < hooksStaleAfter {
+			continue
+		}
+		out = append(out, staleHookSession{sessionID: m.Session, pid: row.PID, hookAge: now.Sub(hook).Truncate(time.Minute)})
+	}
+	return out
+}
+
+// staleHooksDoctorLines runs the CLI once and reports sessions whose hooks
+// look stale; nothing when the CLI is unavailable.
+func staleHooksDoctorLines(ctx context.Context, stateDir string) []string {
+	if !agentsPollEnabled() || !resolveClaudeCLI(ctx).ok {
+		return nil
+	}
+	active, dormant := scanClaudeMarkers(stateDir)
+	var markers []marker
+	for _, a := range append(active, dormant...) {
+		markers = append(markers, a.m)
+	}
+	if len(markers) == 0 {
+		return nil
+	}
+	out, err := runClaudeAgents(ctx)
+	if err != nil {
+		return nil
+	}
+	rows, err := parseAgents(out)
+	if err != nil {
+		return nil
+	}
+	var lines []string
+	for _, s := range staleHookSessions(markers, rows, time.Now()) {
+		lines = append(lines, fmt.Sprintf("WARNING: session %s (pid %d) is busy and its status line runs, but no hook has reported for %s",
+			s.sessionID, s.pid, s.hookAge))
+	}
+	if len(lines) > 0 {
+		lines = append(lines, "hint: hooks look stale; restart Claude Code sessions after installing or updating the ember plugin (or run /reload-plugins in them)")
+	}
+	return lines
+}
