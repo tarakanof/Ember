@@ -65,7 +65,7 @@ type deviceRecord struct {
 }
 
 func (d deviceRecord) clone() deviceRecord {
-	d.Config.Pages = slices.Clone(d.Config.Pages)
+	d.Config = d.Config.clone()
 	if d.RotatedAt != nil {
 		t := *d.RotatedAt
 		d.RotatedAt = &t
@@ -575,6 +575,7 @@ func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
 	if err := dec.Decode(&cur); err != nil {
 		return cur, fmt.Errorf("%w: %w", errSettingBody, err)
 	}
+	cur.Bot.fillDefaults() // a null flag reads as on, as when absent
 	return cur, nil
 }
 

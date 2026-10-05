@@ -414,6 +414,7 @@
     "An ESP32 board is connected but isn't running cinder" : {},
     "An ESP32 board is connected but isn't running cinder." : {},
     "An idle session dims, then leaves the rotation until it's active again. A session that needs you holds the clock this long. Server-wide." : {},
+    "Animate the outline while working" : {},
     "Animated bot" : {},
     "Animated icons and rain or snow overlays appear on the clock only." : {},
     "App" : {},
@@ -898,6 +899,7 @@
     },
     "Long break" : {},
     "Long-press the knob to try a mood; it holds for the time set here." : {},
+    "Long-press the knob to try a mood; it holds for the time set here. The name of the computer whose agent is working or waiting shows along the bottom of the face." : {},
     "Longitude" : {},
     "Low" : {},
     "Low voltage" : {
@@ -1348,6 +1350,7 @@
     "Show on Clock" : {},
     "Show on the knob" : {},
     "Show seconds" : {},
+    "Show the host's name" : {},
     "Show tile from" : {},
     "Show usage from" : {},
     "Show weekday" : {},

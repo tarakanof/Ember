@@ -36,12 +36,13 @@ func (a *App) onSessionReaped(r sessions.Reaped) {
 
 // Upsert stores req's session and returns the resulting /state Render plus the state the session held before this upsert ("" if new).
 func (a *App) Upsert(req StatusRequest) (Render, string) {
-	before := a.legacyRender(a.sessions.View())
+	bv := a.sessions.View()
+	before := a.legacyRender(bv)
 	v, prior := a.sessions.Upsert(req.normalized())
 	after := a.legacyRender(v)
 	// Heartbeats and statusline ticks repeat the same state: wake pull clients
-	// only when what they render moved.
-	if after != before {
+	// only when what they render moved (the knob view's lead included).
+	if after != before || knobLeadOf(v) != knobLeadOf(bv) {
 		a.changes.notify(topicSessions)
 	}
 	return after, prior

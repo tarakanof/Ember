@@ -85,11 +85,34 @@ import Testing
         """.utf8))
     }
     #expect(KnobMood(sessions: []) == KnobMood(mood: .idle))
-    #expect(KnobMood(sessions: [s("dt-mbp", "running"), s("mini", "waiting")]) == KnobMood(mood: .waiting, host: "MINI"))
-    #expect(KnobMood(sessions: [s("a", "error"), s("b", "error", 5)]).host == "")
+    #expect(KnobMood(sessions: [s("dt-mbp", "running"), s("mini", "waiting")])
+        == KnobMood(mood: .waiting, host: "MINI", tool: "claude"))
+    // Several hosts: the one with the most sessions leads (ties to the smaller name), + the others.
+    #expect(KnobMood(sessions: [s("a", "error"), s("b", "error", 5)]).host == "A +1")
+    #expect(KnobMood(sessions: [s("mini", "running", 9), s("m4", "running"), s("m4", "running", 1)]).host == "M4 +1")
     #expect(KnobMood(sessions: [s("very-long-hostname", "waiting")]).host == "VERY-LONG-")
-    #expect(KnobMood(mood: .working, host: "X").showsHost == false)
+    #expect(KnobMood(sessions: [s("very-long-hostname", "waiting"), s("b", "waiting")]).host == "B +1")
+    #expect(KnobMood(sessions: [s("very-long-hostname", "waiting"), s("very-long-hostname", "waiting", 1),
+                                s("b", "waiting")]).host == "VERY-LO +1")
+    #expect(KnobMood(sessions: [s("", "running")]).host == "")
+    #expect(KnobMood(mood: .working, host: "X").showsHost)
     #expect(KnobMood(mood: .error, host: "X").showsHost)
+    #expect(KnobMood(mood: .done, host: "X").showsHost == false)
+}
+
+@Test func knobMoodCarriesTheLeadColourAndTool() throws {
+    func s(_ src: String, _ tool: String, _ color: String?, _ session: String) throws -> Session {
+        let c = color.map { #""source_color":"\#($0)","# } ?? ""
+        return try JSONDecoder.iso.decode(Session.self, from: Data("""
+        {"source":"\(src)","tool":"\(tool)","session":"\(session)","state":"running","message":"",\(c)
+         "tokens_today":0,"activity":"","context_number":false,"rate_bottom_bar":false,"rate_reset_at":0,
+         "rate_reset":false,"updated_at":"2026-10-05T12:00:00Z"}
+        """.utf8))
+    }
+    let m = KnobMood(sessions: [try s("m4", "claude", nil, "a"), try s("m4", "claude", "#b48cff", "b")])
+    #expect(m.host == "M4" && m.hostColor == RGB(r: 0xB4, g: 0x8C, b: 0xFF) && m.tool == "claude")
+    let mixed = KnobMood(sessions: [try s("m4", "claude", "bad", "a"), try s("m4", "codex", nil, "b")])
+    #expect(mixed.hostColor == nil && mixed.tool == "")
 }
 
 extension JSONDecoder {
@@ -211,6 +234,19 @@ private func save(_ img: CGImage, _ name: String) {
                                                      mood: KnobMood(mood: .error, host: "MINI")))))
     save(error, "bot-error")
     #expect(near(pixel(error, 233, Int(233 - r * 1.1) + 3), th.moodColors.error, 90))
+
+    // Working: the glint over the ring at its head, the curved label in the host colour.
+    let purple = RGB(r: 0xB4, g: 0x8C, b: 0xFF)
+    let working = try #require(render(KnobFaceView(.bot(pose: KnobBotDriver.restingPose(.working),
+                                                       mood: KnobMood(mood: .working, host: "M4 +1", hostColor: purple,
+                                                                      tool: "claude"),
+                                                       glint: -90))))
+    save(working, "bot-working-glint")
+    let glint = RGB(r: 0xC0, g: 0xF8, b: 0xCF)
+    #expect(near(pixel(working, 233, Int(233 - r)), glint, 40), "glint head at 12 o'clock")
+    #expect(near(pixel(working, Int(233 + r), 233), th.moodColors.working, 60), "plain ring at 3 o'clock")
+    let labelPixels = (380..<410).flatMap { y in (190..<280).map { x in pixel(working, x, y) } }
+    #expect(labelPixels.contains { near($0, purple, 40) }, "label in the host colour near the bottom")
 
     for mood in [BotMood.idle, .working, .done, .sleepy] {
         let img = try #require(render(KnobFaceView(.bot(pose: KnobBotDriver.restingPose(mood), mood: KnobMood(mood: mood)))))

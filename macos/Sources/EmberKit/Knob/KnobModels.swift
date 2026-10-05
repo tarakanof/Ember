@@ -143,12 +143,20 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     public struct Bot: Codable, Equatable, Sendable {
         public var sleepyAfterS: Int
         public var demoHoldS: Int
+        /// The curved host label and the working glint (Ember#282, cinder#42);
+        /// nil from a server without them (never sent back to it, so its strict
+        /// PUT decode does not reject the body). The knob treats absent as on.
+        public var sourceLabel: Bool?
+        public var workingRing: Bool?
         enum CodingKeys: String, CodingKey {
             case sleepyAfterS = "sleepy_after_s"
             case demoHoldS = "demo_hold_s"
+            case sourceLabel = "source_label"
+            case workingRing = "working_ring"
         }
-        public init(sleepyAfterS: Int, demoHoldS: Int) {
+        public init(sleepyAfterS: Int, demoHoldS: Int, sourceLabel: Bool? = nil, workingRing: Bool? = nil) {
             self.sleepyAfterS = sleepyAfterS; self.demoHoldS = demoHoldS
+            self.sourceLabel = sourceLabel; self.workingRing = workingRing
         }
     }
 

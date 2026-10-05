@@ -69,6 +69,31 @@ type knobPage struct {
 type knobBot struct {
 	SleepyAfterS int `json:"sleepy_after_s"`
 	DemoHoldS    int `json:"demo_hold_s"`
+	// SourceLabel: the curved host label under the face (working, waiting,
+	// error); WorkingRing: the glint orbiting the outline while working
+	// (cinder#42). Pointers so a record stored before them reads as on.
+	SourceLabel *bool `json:"source_label,omitempty"`
+	WorkingRing *bool `json:"working_ring,omitempty"`
+}
+
+// clone copies the flags, so decoding a patch into a copy never writes
+// through a pointer the stored record shares.
+func (b knobBot) clone() knobBot {
+	if b.SourceLabel != nil {
+		v := *b.SourceLabel
+		b.SourceLabel = &v
+	}
+	if b.WorkingRing != nil {
+		v := *b.WorkingRing
+		b.WorkingRing = &v
+	}
+	return b
+}
+
+func (s knobSettings) clone() knobSettings {
+	s.Pages = slices.Clone(s.Pages)
+	s.Bot = s.Bot.clone()
+	return s
 }
 
 func defaultKnobSettings() knobSettings {
@@ -81,7 +106,7 @@ func defaultKnobSettings() knobSettings {
 		Pages:       pages,
 		Home:        "bot",
 		PollMS:      2000,
-		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20},
+		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true)},
 		Diagnostics: knobDiagOff,
 
 		StatsIntervalS: knobStatsIntervalDefault,
@@ -99,6 +124,16 @@ func (s *knobSettings) fillDefaults() {
 	}
 	if s.LiveIntervalS == 0 {
 		s.LiveIntervalS = knobLiveIntervalDefault
+	}
+	s.Bot.fillDefaults()
+}
+
+func (b *knobBot) fillDefaults() {
+	if b.SourceLabel == nil {
+		b.SourceLabel = boolPtr(true)
+	}
+	if b.WorkingRing == nil {
+		b.WorkingRing = boolPtr(true)
 	}
 }
 

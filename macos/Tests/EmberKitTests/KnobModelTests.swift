@@ -70,6 +70,17 @@ import Foundation
     #expect(s.pages.map(\.id) == ["weather", "bot"])
     #expect(s.pollMS == 3000)
     #expect(s.bot.sleepyAfterS == 0)
+    #expect(s.bot.sourceLabel == nil && s.bot.workingRing == nil)
+}
+
+// Ember#282: the bot flags round-trip when the server has them, and stay out
+// of what the app sends to a server that does not (its PUT rejects unknown keys).
+@Test func knobBotFlagsDecodeAndStayOffTheWireWhenAbsent() throws {
+    let json = #"{"sleepy_after_s":300,"demo_hold_s":20,"source_label":false,"working_ring":true}"#
+    let b = try JSONDecoder().decode(KnobSettings.Bot.self, from: Data(json.utf8))
+    #expect(b.sourceLabel == false && b.workingRing == true)
+    let old = String(decoding: try JSONEncoder().encode(KnobSettings.Bot(sleepyAfterS: 300, demoHoldS: 20)), as: UTF8.self)
+    #expect(!old.contains("source_label") && !old.contains("working_ring"))
 }
 
 // MARK: Device

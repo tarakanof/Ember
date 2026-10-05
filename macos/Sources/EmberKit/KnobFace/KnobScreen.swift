@@ -52,6 +52,9 @@ public struct KnobScreen<Face: View>: View {
 public struct KnobBotLive: View {
     let mood: KnobMood
     let sleepAfter: Double
+    /// Knob settings `bot.source_label` and `bot.working_ring`.
+    let sourceLabel: Bool
+    let workingRing: Bool
     let animated: Bool
     let theme: KnobTheme
     let brightness: Double
@@ -60,24 +63,44 @@ public struct KnobBotLive: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// `sleepAfter` is the knob's `bot.sleepy_after_s` (0: never).
-    public init(mood: KnobMood, sleepAfter: Double, animated: Bool = true, theme: KnobTheme = .standard,
-                brightness: Double = 1) {
+    public init(mood: KnobMood, sleepAfter: Double, sourceLabel: Bool = true, workingRing: Bool = true,
+                animated: Bool = true, theme: KnobTheme = .standard, brightness: Double = 1) {
         self.mood = mood; self.sleepAfter = sleepAfter; self.animated = animated; self.theme = theme
         self.brightness = brightness
+        self.sourceLabel = sourceLabel; self.workingRing = workingRing
+    }
+
+    private var shown: KnobMood {
+        var m = mood
+        if !sourceLabel { m.host = "" }
+        return m
+    }
+
+    private var glintOn: Bool { workingRing && mood.mood == .working }
+
+    /// The firmware's glint head at `date`: whole frame steps, from 12 o'clock.
+    private func glint(at date: Date) -> Double? {
+        guard glintOn else { return nil }
+        let g = theme.bot.glint, step = 1 / g.fps
+        let steps = (date.timeIntervalSinceReferenceDate / step).rounded(.down)
+        let turns = steps * step / g.periodS
+        return (turns - turns.rounded(.down)) * 360 - 90
     }
 
     public var body: some View {
         Group {
             if animated && visible {
-                TimelineView(KnobBotSchedule(clock: driver.clock, mood: mood.mood)) { _ in
+                TimelineView(KnobBotSchedule(clock: driver.clock, mood: mood.mood,
+                                             continuous: glintOn && !reduceMotion ? 1 / theme.bot.glint.fps : nil)) { tl in
                     KnobFaceView(.bot(pose: driver.pose(at: Date(), mood: mood.mood, config: config)
                                         .quantized(toPixels: theme.screen.diameterPx / 2 * theme.bot.fill),
-                                      mood: mood),
+                                      mood: shown, glint: reduceMotion ? (glintOn ? -40 : nil) : glint(at: tl.date)),
                                  theme: theme, brightness: brightness)
                     .equatable()
                 }
             } else {
-                KnobFaceView(.bot(pose: KnobBotDriver.restingPose(mood.mood, theme: theme), mood: mood),
+                KnobFaceView(.bot(pose: KnobBotDriver.restingPose(mood.mood, theme: theme), mood: shown,
+                                  glint: glintOn ? -40 : nil),
                              theme: theme, brightness: brightness)
             }
         }
@@ -100,12 +123,18 @@ struct KnobBotSchedule: TimelineSchedule {
     let clock: KnobBotClock
     /// A new mood restarts the schedule so its transition frames run at once.
     let mood: BotMood
+    /// Frame period while the working glint runs (it moves every frame); nil otherwise.
+    var continuous: Double? = nil
 
     func entries(from start: Date, mode: Mode) -> AnyIterator<Date> {
         var last = start
         var first = true
         return AnyIterator {
             if first { first = false; return start }
+            if let continuous {
+                last = last.addingTimeInterval(min(continuous, Self.frame))
+                return last
+            }
             let (moving, next) = clock.read()
             let step = last.addingTimeInterval(Self.frame)
             last = moving ? step : max(step, next)

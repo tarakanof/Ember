@@ -35,12 +35,32 @@ type knobView struct {
 	DiagLiveUntil *int64          `json:"diag_live_until,omitempty"`
 }
 
+// knobMood: the /state render counters and source, then who leads the
+// winning state (cinder#42, knobLeadOf). lead is left out when it equals
+// source (one host), hosts when it is 0 or 1; all four are omitted for an
+// idle view, so its bytes and ETag are as before.
 type knobMood struct {
-	Waiting int    `json:"waiting"`
-	Errors  int    `json:"errors"`
-	Running int    `json:"running"`
-	Done    int    `json:"done"`
-	Source  string `json:"source"`
+	Waiting   int    `json:"waiting"`
+	Errors    int    `json:"errors"`
+	Running   int    `json:"running"`
+	Done      int    `json:"done"`
+	Source    string `json:"source"`
+	Lead      string `json:"lead,omitempty"`
+	Hosts     int    `json:"hosts,omitempty"`
+	LeadColor string `json:"lead_color,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+}
+
+func newKnobMood(r Render, l knobLead) knobMood {
+	m := knobMood{Waiting: r.Waiting, Errors: r.Errors, Running: r.Running, Done: r.Done, Source: r.Source,
+		LeadColor: l.Color, Tool: l.Tool}
+	if l.Lead != r.Source {
+		m.Lead = l.Lead
+	}
+	if l.Hosts > 1 {
+		m.Hosts = l.Hosts
+	}
+	return m
 }
 
 type knobPomo struct {
@@ -102,13 +122,14 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	r := a.legacyRender(a.sessions.View())
+	sv := a.sessions.View()
+	r := a.legacyRender(sv)
 	b := a.currentBrightness(now)
 	v := knobView{
 		V:             1,
 		Epoch:         epoch,
 		ConfigVersion: version,
-		Mood:          knobMood{Waiting: r.Waiting, Errors: r.Errors, Running: r.Running, Done: r.Done, Source: r.Source},
+		Mood:          newKnobMood(r, knobLeadOf(sv)),
 		Pomo:          a.knobPomo(now),
 		Weather:       a.knobWeather(now),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
