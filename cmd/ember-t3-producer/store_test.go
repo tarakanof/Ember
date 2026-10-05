@@ -495,3 +495,83 @@ func TestStoreReaderReopensAfterFailureAndWhenFileVanishes(t *testing.T) {
 		t.Fatal("handle must be closed when the database is gone")
 	}
 }
+
+// T3 runs its database in WAL mode with a writer that stays open; a reused
+// read-only handle must keep seeing commits, checkpoints and a VACUUM.
+func TestStoreReaderFollowsAHeldWALWriter(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	path := filepath.Join(home, "userdata", "state.sqlite")
+	w, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	w.SetMaxOpenConns(1)
+	if _, err := w.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		t.Fatal(err)
+	}
+	add := func(id string) {
+		t.Helper()
+		if _, err := w.Exec(`INSERT INTO projection_threads (thread_id, project_id, title, model, created_at, updated_at, pending_approval_count, pending_user_input_count, archived_at, deleted_at)
+		 VALUES (?, 'p', ?, 'gpt-5', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', 0, 0, NULL, NULL)`, id, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &storeReader{}
+	defer r.Close()
+	want := 0
+	check := func(step string) {
+		t.Helper()
+		snap, err := r.Read(context.Background(), home)
+		if err != nil || len(snap.Threads) != want {
+			t.Fatalf("%s: threads=%d err=%v, want %d", step, len(snap.Threads), err, want)
+		}
+	}
+	add("a")
+	want++
+	check("first commit")
+	db1 := r.db
+	add("b")
+	want++
+	check("commit in WAL")
+	var busy, logFrames, ckpt int
+	if err := w.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logFrames, &ckpt); err != nil || busy != 0 {
+		t.Fatalf("checkpoint blocked by the idle reader: busy=%d err=%v", busy, err)
+	}
+	check("after checkpoint")
+	add("c")
+	want++
+	check("commit after checkpoint")
+	if _, err := w.Exec(`VACUUM`); err != nil {
+		t.Fatal(err)
+	}
+	check("after VACUUM")
+	add("d")
+	want++
+	check("commit after VACUUM")
+	if r.db != db1 {
+		t.Fatal("the handle should have survived commits, checkpoint and VACUUM")
+	}
+}
+
+func TestDaemonPollClosesHandleWhileT3IsDown(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	d := newDaemon(Config{T3Home: home}, nil)
+	up := true
+	d.alive = func(string) bool { return up }
+	if _, err := d.store.Read(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	if d.store.db == nil {
+		t.Fatal("expected an open handle while T3 is up")
+	}
+	up = false
+	if err := d.poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d.store.db != nil {
+		t.Fatal("handle must be closed while T3 is down")
+	}
+}

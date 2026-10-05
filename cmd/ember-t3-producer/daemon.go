@@ -97,6 +97,9 @@ func runDaemon() {
 // so the loop can back off.
 func (d *daemon) poll(ctx context.Context) error {
 	if !d.alive(d.cfg.T3Home) {
+		// Hold no handle on T3's files while it is down (T3's last close can
+		// then remove the -wal/-shm files; an uninstall or restore is not blocked).
+		d.store.Close()
 		d.send(ctx, nil, d.watcher.dropAll())
 		return nil
 	}

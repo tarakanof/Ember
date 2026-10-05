@@ -100,6 +100,8 @@ func (r *storeReader) Close() {
 // handle returns the open handle for path, reopening it when path changed or
 // the file at path is no longer the one the handle was opened on.
 func (r *storeReader) handle(path string) (*sql.DB, error) {
+	// sql.Open is lazy: a file replaced between this Stat and the first query
+	// records the old identity and costs one extra reopen on the next poll.
 	info, err := os.Stat(path)
 	if err != nil {
 		r.Close()
