@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -667,7 +666,7 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 		if t == nil || !as.cfg.ContextPctEnabled || p.TokenUsage.ModelContextWindow <= 0 {
 			return
 		}
-		pct := clampPct(int(math.Round(100 * float64(p.TokenUsage.Last.InputTokens) / float64(p.TokenUsage.ModelContextWindow))))
+		pct := producer.Pct(100 * float64(p.TokenUsage.Last.InputTokens) / float64(p.TokenUsage.ModelContextWindow))
 		t.d.contextPct = &pct
 	case "account/rateLimits/updated":
 		var p struct {
@@ -686,12 +685,12 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 		}
 		// A sparse update: a null window keeps its last value.
 		if w := lim.Primary; w != nil {
-			r := clampPct(int(math.Round(w.UsedPercent)))
+			r := producer.Pct(w.UsedPercent)
 			as.rate.rateWindowPct, as.rate.rateResetAt, as.rate.primaryRaw = &r, w.resetsAt(), w.UsedPercent
 			as.hasRate = true
 		}
 		if w := lim.Secondary; w != nil {
-			wk := clampPct(int(math.Round(w.UsedPercent)))
+			wk := producer.Pct(w.UsedPercent)
 			as.rate.weeklyPct, as.rate.weeklyResetAt, as.rate.weeklyRaw = &wk, w.resetsAt(), w.UsedPercent
 			as.hasRate = true
 		}

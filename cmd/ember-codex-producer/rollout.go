@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"math"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -149,19 +148,19 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 	switch {
 	case p.Type == "token_count":
 		if contextPctEnabled && p.Info != nil && p.Info.ModelContextWindow > 0 {
-			pct := clampPct(int(math.Round(100 * float64(p.Info.LastTokenUsage.InputTokens) / float64(p.Info.ModelContextWindow))))
+			pct := producer.Pct(100 * float64(p.Info.LastTokenUsage.InputTokens) / float64(p.Info.ModelContextWindow))
 			d.contextPct = &pct
 		}
 		if lim := p.RateLimits; ratePctEnabled && lim != nil && (lim.LimitID == "" || lim.LimitID == "codex") {
 			// Either window may be null; keep the last known value then.
 			if w := lim.Primary; w != nil {
-				r := clampPct(int(math.Round(w.UsedPercent)))
+				r := producer.Pct(w.UsedPercent)
 				d.rateWindowPct = &r
 				d.rateResetAt = w.ResetsAt
 				d.primaryRaw = w.UsedPercent
 			}
 			if w := lim.Secondary; w != nil {
-				wk := clampPct(int(math.Round(w.UsedPercent)))
+				wk := producer.Pct(w.UsedPercent)
 				d.weeklyPct = &wk
 				d.weeklyResetAt = w.ResetsAt
 				d.weeklyRaw = w.UsedPercent
@@ -217,16 +216,6 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 			d.activity = producer.PrependTrail(label, d.activity)
 		}
 	}
-}
-
-func clampPct(n int) int {
-	if n < 0 {
-		return 0
-	}
-	if n > 100 {
-		return 100
-	}
-	return n
 }
 
 func truncate(s string, n int) string {

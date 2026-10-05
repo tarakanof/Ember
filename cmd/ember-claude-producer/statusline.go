@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,13 +47,7 @@ func extractRatePct(in statuslineInput) (*int, bool) {
 	if in.RateLimits == nil || in.RateLimits.FiveHour == nil {
 		return nil, false
 	}
-	pct := int(math.Round(in.RateLimits.FiveHour.UsedPercentage))
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
+	pct := producer.Pct(in.RateLimits.FiveHour.UsedPercentage)
 	return &pct, true
 }
 
@@ -77,13 +70,7 @@ func extractWeekPct(in statuslineInput) (*int, bool) {
 	if in.RateLimits == nil || in.RateLimits.SevenDay == nil {
 		return nil, false
 	}
-	pct := int(math.Round(in.RateLimits.SevenDay.UsedPercentage))
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
+	pct := producer.Pct(in.RateLimits.SevenDay.UsedPercentage)
 	return &pct, true
 }
 
@@ -106,13 +93,7 @@ func extractContextPct(in statuslineInput) (*int, bool) {
 	if in.ContextWindow == nil || in.ContextWindow.UsedPercentage == nil {
 		return nil, false
 	}
-	pct := int(math.Round(*in.ContextWindow.UsedPercentage))
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
+	pct := producer.Pct(*in.ContextWindow.UsedPercentage)
 	return &pct, true
 }
 
