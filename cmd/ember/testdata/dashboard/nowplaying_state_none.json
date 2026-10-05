@@ -1,0 +1,15 @@
+{
+  "state": "none",
+  "source": null,
+  "player": null,
+  "title": null,
+  "artist": null,
+  "album": null,
+  "duration_ms": null,
+  "position_ms": null,
+  "position_at": null,
+  "updated_at": null,
+  "art_version": null,
+  "has_album_art": false,
+  "has_artist_art": false
+}

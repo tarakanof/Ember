@@ -82,6 +82,15 @@ func main() {
 	if len(app.meetingsURLs) > 0 {
 		logger.Info("meetings ICS feeds configured", "count", len(app.meetingsURLs))
 	}
+	if plexCfg, ok := plexConfigFromEnv(os.Getenv); ok {
+		app.nowPlaying.plex = newPlexSource(plexCfg)
+		logger.Info("plex now-playing source enabled", "plex", plexCfg)
+	} else if plexCfg.URL != "" || plexCfg.Token != "" {
+		logger.Warn("plex now-playing source disabled: EMBER_PLEX_URL must be http(s) and EMBER_PLEX_TOKEN set")
+	}
+	if envEnabled(os.Getenv("EMBER_ARTIST_LOOKUP")) {
+		app.nowPlaying.artists = newArtistLookup(deezerAPIBase)
+	}
 	if cfg.Weather.Enabled {
 		logger.Info("weather enabled", "provider", cfg.Weather.Provider, "location", cfg.Weather.LocationName)
 	}
@@ -130,6 +139,7 @@ func main() {
 	workers.Go(func() { app.StartWeather(ctx) })
 	workers.Go(func() { app.StartBrightness(ctx) })
 	workers.Go(func() { app.StartMeetings(ctx) })
+	workers.Go(func() { app.StartNowPlaying(ctx) })
 	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
 	if !clockDisabled() {
 		workers.Go(func() { app.ensureBootPingScript(ctx) })

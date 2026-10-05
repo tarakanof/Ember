@@ -1347,6 +1347,61 @@ counter).
 > the one SQLite store, opened once at boot by `initPomodoro` (`ensureStore`,
 > path `pomodoro.db_path`) whether or not Pomodoro is enabled.
 
+### Now playing — `internal/nowplaying`, `cmd/ember/nowplaying*.go` (#226)
+
+Music state and pictures for the knob's now-playing page (cinder #14).
+Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`.
+
+- **Model** (`internal/nowplaying.Registry`, pure): one entry per
+  `(source, player)`; a report is `{source, player, state
+  playing|paused|stopped, title, artist, album, track_id, duration_ms,
+  position_ms}` (`source` `^[a-z][a-z0-9_-]{0,31}$`, text ≤200 characters).
+  `stopped` deletes the entry. Shown: the most recently *started* playing
+  entry, else the most recently paused one. Paused lives 10 min from the
+  pause (re-reports don't extend it); playing lives until its extrapolated
+  end + 60 s (a Mac that slept never says "stopped"), or 30 min after its
+  last report without a duration.
+- **Position anchor:** the entry stores `position_ms` at `position_at`. A
+  report for the same track and state moves the anchor only when it is more
+  than 3 s off the extrapolation (a seek). Plex re-reports `viewOffset`
+  every poll; without the anchor the knob view's ETag would change every
+  2 s.
+- **Pictures:** each entry holds an album and an artist source image (bytes
+  + content hash); a new track drops both. `art_version` hashes the two
+  hashes, so it moves exactly when a picture does. `backdrop` is the artist
+  picture, else the album. Rendering (`nowplaying.Render`): centre-crop
+  square, area-average resample (no `x/image` dep), backdrop = 3-pass box
+  blur (radius size/40) dimmed to 35 %, then **baseline** JPEG q80 (Go's
+  encoder writes SOF0 only, which TJpgDec/`esp_jpeg` on the knob needs; no
+  alpha — the knob applies its own circle mask). Sources must be JPEG/PNG,
+  ≤2 MB, ≤4096 px a side, checked with `DecodeConfig` before decoding.
+  Renders are serialised (a 1400 px source costs ~40 ms and ~20 MB
+  transient) and cached in a RAM LRU of 32 entries / 8 MB keyed by
+  `(hash, kind, size)`. Nothing touches disk (Deezer's terms forbid
+  storing its images).
+- **Plex** (`nowplaying_plex.go`): with `EMBER_PLEX_URL` + `EMBER_PLEX_TOKEN`
+  a goroutine polls `/status/sessions` (`Accept: application/json`; 2 s
+  while a track plays, else 10 s; `POST /hooks/plex?key=` wakes it).
+  Only `type:"track"` sessions, filtered by `EMBER_PLEX_USER` /
+  `EMBER_PLEX_PLAYER`; first playing match, else first paused. Artist =
+  `originalTitle` (compilations) else `grandparentTitle`. Album art =
+  `parentThumb` (else `thumb`), artist = `grandparentThumb`, both via
+  `/photo/:/transcode?width=480&height=480&minSize=1&upscale=1&url=…`,
+  fetched only when the path changes. The token rides in the
+  `X-Plex-Token` header only (`plexConfig` has a redacting `LogValue`);
+  a failing poll logs once per distinct error.
+- **Artist pictures** (`nowplaying_deezer.go`): an entry with an artist and
+  no artist picture queues a lookup (channel of 4; full = dropped, the next
+  report re-queues). Deezer `search/artist?q=` (no key): exact
+  case-insensitive name, else the first hit; `picture_xl` rewritten to
+  500 px. Hits and misses are remembered by name in RAM (64 names, misses
+  1 h). `SetArtistArt` attaches only while the player still plays that
+  artist. `EMBER_ARTIST_LOOKUP=0` turns it off.
+- **Ember.app pusher** (`macos/Ember/Services/MusicNowPlayingWatcher.swift`):
+  see "Menu-bar app".
+- **Not built yet:** `POST /v1/nowplaying/control` (play/pause/next/volume
+  back to Ember.app or Plex), iTunes album fallback, Plex websocket.
+
 ### Runtime settings overlay (`settings_overlay.go`)
 
 Every menu-editable config slice — pomodoro (`settings_json`), weather
@@ -2442,7 +2497,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
 
   | Route | Credential |
   |---|---|
-  | `GET /state`, `/healthz`, previews, dashboard reads | none |
+  | `GET /state`, `/healthz`, previews, dashboard reads, `GET /v1/nowplaying/{state,art}` | none |
+  | `POST /hooks/plex?key=` | `EMBER_PLEX_WEBHOOK_KEY` in the query (404 when unset) |
   | `POST /hooks/awtrix/{button,boot}` | none (clock callbacks; rate-limited) |
   | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | `EMBER_TOKEN` **or** a device token |
   | `POST /v1/devices/self/checkin`, `GET /v1/devices/self/{config,view}` | device token only |
@@ -2501,6 +2557,15 @@ draws-if-present in `internal/render`, add a menu checkbox.
   reads memory only: no store write, no clock probe, no checkin recorded, no
   session marshal. `/state` gets no ETag: its `now` changes every response.
   A long-poll `?wait=` (#235) builds on the same `knobView` body and ETag.
+  **Now playing (#226):** only when the device's `pages` has
+  `{"id":"nowplaying","on":true}`, the body gains (after `brightness`)
+  `"nowplaying":{"state":"playing","source":"plex","title":…,"artist":…,"album":…,"duration_ms":330000,"position_ms":61000,"position_at":<Unix ms>,"art_version":"fb43cf74b67a","album_art":true,"artist_art":true}`
+  (`{"state":"none"}` when nothing plays; zero/empty fields omitted). A
+  knob without that page gets byte-identical bodies, so `v` stays 1.
+  `position_ms` is anchored at `position_at`: extrapolate with
+  `X-Ember-Now`; the block moves only on a real change. On an
+  `art_version` change fetch `/v1/nowplaying/art?kind=…&v=<art_version>`
+  (cacheable with `v`).
   In live mode the body ends with `"diag_live_until":<Unix s>` (see "Knob
   diagnostics").
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,

@@ -670,6 +670,29 @@ meeting the `ember-meet` tile appears in the rotation. A stale feed (last
 successful fetch ≥ 60 min ago) shows as a `[WARN]` in `/admin/doctor` — non-fatal,
 does not affect other checks.
 
+## Now playing (Plex, Apple Music) — #226
+
+What the knob's now-playing page (cinder #14) shows. Sources: the Plex poller
+on the server and Ember.app's Apple Music pusher (Settings › Sources › Music,
+per Mac, off by default). Reads: `GET /v1/nowplaying/state`,
+`GET /v1/nowplaying/art?kind=album|artist|backdrop&size=16-512` (ARCHITECTURE
+"Now playing").
+
+| Env | Meaning |
+|---|---|
+| `EMBER_PLEX_URL` | Plex Media Server base URL, `http(s)://host:32400`. With the token, enables the poller |
+| `EMBER_PLEX_TOKEN` | **Secret.** Sent only as the `X-Plex-Token` header; never logged, stored or answered |
+| `EMBER_PLEX_USER` / `EMBER_PLEX_PLAYER` | Optional filters: Plex user title; player title or machine id |
+| `EMBER_PLEX_WEBHOOK_KEY` | Optional. Enables `POST /hooks/plex?key=<this>` (Plex Pass webhook → poll now). Unset = 404 |
+| `EMBER_ARTIST_LOOKUP` | Default on; `0` stops artist-picture lookups on Deezer (the artist **name** leaves the server; pictures stay in RAM only) |
+
+**Verify without a knob.** `curl -s $EMBER/v1/nowplaying/state` while
+Plexamp plays (or after the app posts), then
+`curl -s "$EMBER/v1/nowplaying/art?kind=backdrop" -o /tmp/b.jpg` — a 466 px
+square, dimmed baseline JPEG. A knob gets the compact block in
+`/v1/devices/self/view` only after `nowplaying` is added to its pages
+(`PUT /v1/devices/{id}/config {"pages":[…,{"id":"nowplaying","on":true}]}`).
+
 ## AI usage card (threshold-gated, inside the main app)
 
 Claude + Codex subscription usage renders as a **usage card** inside the main

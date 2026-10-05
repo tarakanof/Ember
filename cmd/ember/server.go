@@ -44,6 +44,10 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /v1/usage", a.handleUsageSnapshot)
 	mux.Handle("GET /v1/activity/summary", rateLimit(a, http.HandlerFunc(a.handleActivitySummary)))
 	mux.HandleFunc("GET /v1/weather/state", a.handleWeatherState)
+	mux.HandleFunc("GET /v1/nowplaying/state", a.handleNowPlayingState)
+	// Art renders can cost ~40 ms and ~20 MB on a cache miss: rate-limited.
+	mux.Handle("GET /v1/nowplaying/art", rateLimit(a, http.HandlerFunc(a.handleNowPlayingArt)))
+	mux.Handle("POST /hooks/plex", rateLimit(a, http.HandlerFunc(a.handlePlexWebhook)))
 	// Brightness for sensorless displays; the clock probe is the shared 30s cache,
 	// but it can still reach the clock, so rate-limit like the health read.
 	mux.Handle("GET /v1/display/brightness", rateLimit(a, http.HandlerFunc(a.handleDisplayBrightness)))
@@ -74,6 +78,8 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("GET /v1/meetings/config", http.HandlerFunc(a.handleMeetingsConfigGet))
 	writeMux.Handle("PUT /v1/meetings/config", http.HandlerFunc(a.handleMeetingsConfigPut))
 	writeMux.Handle("POST /v1/reminders/fire", http.HandlerFunc(a.handleReminderFire))
+	writeMux.Handle("POST /v1/nowplaying", http.HandlerFunc(a.handleNowPlayingReport))
+	writeMux.Handle("PUT /v1/nowplaying/art", http.HandlerFunc(a.handleNowPlayingArtPut))
 	writeMux.Handle("GET /v1/device/discover", http.HandlerFunc(a.handleDeviceDiscover))
 	writeMux.Handle("GET /v1/device/config", http.HandlerFunc(a.handleDeviceConfigGet))
 	writeMux.Handle("PUT /v1/device/config", http.HandlerFunc(a.handleDeviceConfigPut))
