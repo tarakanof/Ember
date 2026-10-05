@@ -10,6 +10,7 @@
       "14": { "line_height_px": 16, "baseline_px": 3 },
       "18": { "line_height_px": 21, "baseline_px": 4 },
       "24": { "line_height_px": 27, "baseline_px": 5 },
+      "30": { "line_height_px": 33, "baseline_px": 6 },
       "48": { "line_height_px": 52, "baseline_px": 9 }
     }
   },
@@ -70,10 +71,13 @@
       "dot": 0.22
     },
     "host": {
-      "font_px": 24,
-      "radius_px": 172,
-      "icon_cell_px": 3,
-      "icon_gap_px": 6,
+      "font_px": 30,
+      "radius_px": 176,
+      "icon_cell_px": 4,
+      "mark_h_px": 48,
+      "mark_bottom_px": 146,
+      "claude_color": "#D77757",
+      "codex_color": "#FFFFFF",
       "max_chars": 10
     },
     "glint": {

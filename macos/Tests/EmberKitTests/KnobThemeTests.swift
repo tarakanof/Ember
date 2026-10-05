@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Testing
 @testable import EmberKit
 
@@ -19,6 +20,8 @@ private let pinned: [String: String] = [
     "font.metrics.18.baseline_px": "4",
     "font.metrics.24.line_height_px": "27",
     "font.metrics.24.baseline_px": "5",
+    "font.metrics.30.line_height_px": "33",
+    "font.metrics.30.baseline_px": "6",
     "font.metrics.48.line_height_px": "52",
     "font.metrics.48.baseline_px": "9",
     "mood_colors.idle": "#888888",
@@ -76,10 +79,13 @@ private let pinned: [String: String] = [
     "bot.badge.at": "0.98",
     "bot.badge.gap": "0.3",
     "bot.badge.dot": "0.22",
-    "bot.host.font_px": "24",
-    "bot.host.radius_px": "172",
-    "bot.host.icon_cell_px": "3",
-    "bot.host.icon_gap_px": "6",
+    "bot.host.font_px": "30",
+    "bot.host.radius_px": "176",
+    "bot.host.icon_cell_px": "4",
+    "bot.host.mark_h_px": "48",
+    "bot.host.mark_bottom_px": "146",
+    "bot.host.claude_color": "#D77757",
+    "bot.host.codex_color": "#FFFFFF",
     "bot.host.max_chars": "10",
     "bot.glint.width_px": "12",
     "bot.glint.tail_deg": "40",
@@ -333,7 +339,10 @@ private func allChecks() -> [Check] {
         one(bv, #"#define RIM_STEPS (\d+)"#, "bot.rim_steps"),
         one(bv, #"#define LABEL_R "# + num, "bot.host.radius_px"),
         one(bv, #"#define LABEL_ICON_CELL (\d+)"#, "bot.host.icon_cell_px"),
-        one(bv, #"#define LABEL_ICON_GAP "# + num, "bot.host.icon_gap_px"),
+        one(bv, #"#define LABEL_ICON_R (\d+)"#, "bot.host.mark_bottom_px"),
+        one("components/bot/include/tool_marks.h", #"#define TOOL_MARK_H (\d+)"#, "bot.host.mark_h_px"),
+        one("components/bot/tool_marks.c", #"case 1: \*rgb = "# + hex, "bot.host.claude_color"),
+        one("components/bot/tool_marks.c", #"case 2: \*rgb = "# + hex, "bot.host.codex_color"),
         Check(file: bv, pattern: #"#define GLINT_HW "# + num, keys: [("bot.glint.width_px", { n(String(2 * (Double(n($0[1])) ?? .nan))) })]),
         one(bv, #"#define GLINT_TAIL_DEG "# + num, "bot.glint.tail_deg"),
         one(bv, #"#define GLINT_MIX "# + num, "bot.glint.white_mix"),
@@ -537,4 +546,30 @@ func themeMatchesCinderSource() throws {
     let uncovered = Set(flat.keys).subtracting(covered).subtracting(codeOnly)
         .filter { !$0.hasPrefix("font.metrics") }
     #expect(uncovered.isEmpty, "theme keys with no firmware check: \(uncovered.sorted())")
+}
+
+/// The preview's mark PNGs are the firmware's A8 masks (`tool_marks.c`), pixel for pixel.
+@Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))
+func markImagesMatchFirmwareMasks() throws {
+    let root = try #require(cinderDir).appendingPathComponent("firmware/components/bot/tool_marks.c")
+    let src = try String(contentsOf: root, encoding: .utf8)
+    for tool in ["claude", "codex"] {
+        let re = try NSRegularExpression(pattern: "k_\(tool)\\[[^\\]]*\\] = \\{([^}]*)\\}", options: [.dotMatchesLineSeparators])
+        let m = try #require(re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)))
+        let body = String(src[Range(m.range(at: 1), in: src)!].drop(while: { $0 != "\n" }))   // past the size comment
+        let dims = try #require(NSRegularExpression(pattern: "k_\(tool)\\[(\\d+) \\* (\\d+)\\]").firstMatch(in: src, range: NSRange(src.startIndex..., in: src)))
+        let w = Int(src[Range(dims.range(at: 1), in: src)!])!, hh = Int(src[Range(dims.range(at: 2), in: src)!])!
+        let want = body.split(whereSeparator: { $0 == "," || $0.isWhitespace }).compactMap { UInt8($0) }
+        let url = try #require(Bundle.module.url(forResource: "knob-mark-\(tool)", withExtension: "png"))
+        let img = try #require(CGImageSourceCreateWithURL(url as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
+        #expect(img.width == w && img.height == hh && want.count == w * hh, "\(tool) size")
+        #expect(Double(img.height) == (try KnobTheme.load().bot.host.markHPx), "\(tool) height is the theme's mark height")
+        var rgba = [UInt8](repeating: 0, count: img.width * img.height * 4)
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(data: &rgba, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: img.width * 4,
+                            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+        let got = stride(from: 3, to: rgba.count, by: 4).map { rgba[$0] }
+        #expect(got == want, "\(tool) mask differs from firmware")
+    }
 }
