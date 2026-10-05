@@ -268,26 +268,7 @@ struct KnobHardwareContent: View {
             HardwareFact(id: "ip", title: "IP address", value: input.ipAddress),
         ]
     }
-
-    /// The ESP-IDF reset reason the knob reported, in words.
-    static func resetReason(_ raw: String) -> String {
-        switch raw {
-        case "poweron": String(localized: "Power on")
-        case "sw": String(localized: "Restarted by software")
-        case "panic": String(localized: "Crash")
-        case "int_wdt", "task_wdt", "wdt": String(localized: "Watchdog")
-        case "brownout": String(localized: "Low voltage")
-        case "deepsleep": String(localized: "Woke from sleep")
-        case "ext": String(localized: "Reset pin")
-        case "sdio": String(localized: "SDIO reset")
-        case "usb": String(localized: "USB reset")
-        case "jtag": String(localized: "Debugger reset")
-        case "efuse": String(localized: "eFuse error")
-        case "pwr_glitch": String(localized: "Power glitch")
-        case "cpu_lockup": String(localized: "CPU lockup")
-        default: raw
-        }
-    }
+    static func resetReason(_ raw: String) -> String { KnobResetReason.label(raw) }
 }
 
 /// The page as Settings shows it: the knob's stats polled while the page is
