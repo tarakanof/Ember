@@ -12,6 +12,7 @@ func writeEnv(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("CODEX_HOME", "")
 	envDir := filepath.Join(dir, ".config", "ember")
 	if err := os.MkdirAll(envDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -348,5 +349,45 @@ func TestLoadConfig_CodexSourcesAndClaude(t *testing.T) {
 	}
 	if sourceList(cfg.Sources) != "cli,exec,vscode" || !cfg.IncludeClaude {
 		t.Errorf("got sources %q include_claude %v", sourceList(cfg.Sources), cfg.IncludeClaude)
+	}
+}
+
+func TestLoadConfig_AppServerDefaultsOnAtCodexHomeSocket(t *testing.T) {
+	t.Setenv("CODEX_HOME", "")
+	home := writeEnv(t, "EMBER_SOURCE=mbp\n")
+	cfg, _ := loadConfig()
+	if !cfg.AppServerEnabled {
+		t.Error("AppServerEnabled should default true (a no-op without the socket)")
+	}
+	if want := filepath.Join(home, ".codex", "app-server-control", "app-server-control.sock"); cfg.AppServerSocket != want {
+		t.Errorf("AppServerSocket = %q, want %q", cfg.AppServerSocket, want)
+	}
+	t.Setenv("CODEX_HOME", "/opt/ch")
+	cfg, _ = loadConfig()
+	if cfg.AppServerSocket != "/opt/ch/app-server-control/app-server-control.sock" {
+		t.Errorf("CODEX_HOME ignored: %q", cfg.AppServerSocket)
+	}
+}
+
+func TestLoadConfig_AppServerDisabled(t *testing.T) {
+	writeEnv(t, "EMBER_SOURCE=mbp\nEMBER_CODEX_APPSERVER=0\n")
+	cfg, _ := loadConfig()
+	if cfg.AppServerEnabled {
+		t.Error("EMBER_CODEX_APPSERVER=0 should disable the app-server source")
+	}
+}
+
+func TestLoadConfig_CodexHomeFromProducerEnvMovesSessionsAndSocket(t *testing.T) {
+	t.Setenv("CODEX_HOME", "/from/shell")
+	writeEnv(t, "EMBER_SOURCE=mbp\nCODEX_HOME=/from/env\n")
+	t.Setenv("CODEX_HOME", "/from/shell")
+	cfg, _ := loadConfig()
+	if cfg.SessionsDir != "/from/env/sessions" || cfg.AppServerSocket != "/from/env/app-server-control/app-server-control.sock" {
+		t.Errorf("producer.env CODEX_HOME: sessions=%q socket=%q", cfg.SessionsDir, cfg.AppServerSocket)
+	}
+	writeEnv(t, "EMBER_SOURCE=mbp\nCODEX_HOME=/from/env\nEMBER_CODEX_SESSIONS_DIR=/s\n")
+	cfg, _ = loadConfig()
+	if cfg.SessionsDir != "/s" {
+		t.Errorf("EMBER_CODEX_SESSIONS_DIR should win, got %q", cfg.SessionsDir)
 	}
 }

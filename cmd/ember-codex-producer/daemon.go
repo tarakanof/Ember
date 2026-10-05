@@ -33,6 +33,11 @@ func runDaemon() {
 		return
 	}
 	w := newWatcher(cfg)
+	var as *appServer
+	if cfg.AppServerEnabled {
+		as = newAppServer(cfg)
+		go as.run(ctx)
+	}
 	client := producer.NewClient(cfg.ServerURL, cfg.Token, httpTimeout).WithAutoServer(auto)
 	if path, err := producer.LinkStatusPath("codex-producer"); err == nil {
 		client.WithLinkStatus(producer.NewLinkStatus(path))
@@ -41,11 +46,16 @@ func runDaemon() {
 	ticker := time.NewTicker(time.Duration(cfg.PollIntervalMs) * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		runOnce(ctx, w, client)
+		runOnce(ctx, w, as, client)
 		select {
 		case <-ctx.Done():
 			for _, ss := range w.sessions {
 				_ = removeMarker(cfg.StateDir, ss.uuid)
+			}
+			if as != nil {
+				for id := range as.tick().owned {
+					_ = removeMarker(cfg.StateDir, id)
+				}
 			}
 			return
 		case <-ticker.C:
@@ -62,8 +72,44 @@ func openDaemonLog(name string) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }
 
-func runOnce(ctx context.Context, w *watcher, client *producer.Client) {
-	posts, deletes, usages := w.tick()
+// cycle merges one poll of the app-server source (nil when disabled) and the
+// rollout watcher. The app-server wins for the threads it sees; on a
+// disconnect its sessions go back to the watcher, or get a DELETE when the
+// watcher has no live rollout for them.
+func cycle(w *watcher, as *appServer) (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
+	var ap apTick
+	if as != nil {
+		ap = as.tick()
+	}
+	w.owned, w.rateExtra = ap.owned, ap.rate
+	posts, deletes, usages = w.tick()
+	posts = append(ap.posts, posts...)
+	deletes = append(deletes, ap.deletes...)
+	for _, id := range ap.released {
+		if !w.posted(id) {
+			deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: id})
+		}
+	}
+	// A session the watcher posted and the app-server now owns but does not
+	// post (no turn yet, or idle past the window) would linger on the server.
+	for _, id := range w.handedOver {
+		if !ap.held[id] {
+			deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: id})
+		}
+	}
+	seen := map[string]bool{}
+	uniq := deletes[:0]
+	for _, d := range deletes {
+		if !seen[d.Session] {
+			seen[d.Session] = true
+			uniq = append(uniq, d)
+		}
+	}
+	return posts, uniq, usages
+}
+
+func runOnce(ctx context.Context, w *watcher, as *appServer, client *producer.Client) {
+	posts, deletes, usages := cycle(w, as)
 	for _, req := range posts {
 		if err := client.Post(ctx, req); err != nil {
 			daemonFailLog.Warn(slog.Default(), "codex_post", "status POST failed", "err", err)
