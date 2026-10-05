@@ -197,6 +197,17 @@ type key struct{ source, player string }
 type Registry struct {
 	mu      sync.Mutex // protects entries
 	entries map[key]*Entry
+	// OnChange, when set before use, runs after every mutation a reader could
+	// see (not after a heartbeat that repeats the same report), under mu: it
+	// must not block or call back into the registry. Expiry with time alone
+	// (Current) does not call it.
+	OnChange func()
+}
+
+func (r *Registry) changedLocked() {
+	if r.OnChange != nil {
+		r.OnChange()
+	}
 }
 
 // NewRegistry returns an empty registry.
@@ -216,6 +227,9 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 	if rep.State == Stopped {
 		_, had := r.entries[k]
 		delete(r.entries, k)
+		if had {
+			r.changedLocked()
+		}
 		return had, nil
 	}
 	old := r.entries[k]
@@ -225,6 +239,7 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 	next := &Entry{Report: rep, PositionAt: now, StateSince: now, UpdatedAt: now}
 	if old == nil || old.track() != rep.track() {
 		r.entries[k] = next
+		r.changedLocked()
 		return true, nil
 	}
 	next.AlbumArt, next.ArtistArt = old.AlbumArt, old.ArtistArt
@@ -236,6 +251,12 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 		}
 	}
 	r.entries[k] = next
+	// A heartbeat: same report, position within the seek tolerance (kept).
+	same := rep
+	same.PositionMS = old.PositionMS
+	if same != old.Report || !next.PositionAt.Equal(old.PositionAt) {
+		r.changedLocked()
+	}
 	return false, nil
 }
 
@@ -261,6 +282,7 @@ func (r *Registry) SetArt(source, player, trackID string, kind Kind, img *Image)
 		return fmt.Errorf("%w: art kind must be album or artist", ErrInvalid)
 	}
 	r.entries[key{source, player}] = &c
+	r.changedLocked()
 	return nil
 }
 
@@ -277,6 +299,7 @@ func (r *Registry) SetArtistArt(source, player, artist string, img *Image) bool 
 	c := *e
 	c.ArtistArt = img
 	r.entries[key{source, player}] = &c
+	r.changedLocked()
 	return true
 }
 
@@ -295,7 +318,10 @@ func (r *Registry) Get(source, player string) (Entry, bool) {
 func (r *Registry) Remove(source, player string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.entries, key{source, player})
+	if _, had := r.entries[key{source, player}]; had {
+		delete(r.entries, key{source, player})
+		r.changedLocked()
+	}
 }
 
 // evictLocked forgets silent entries and, at the cap, the least recently

@@ -236,3 +236,30 @@ func TestRegistryForgetsSilentEntriesAndCapsPlayers(t *testing.T) {
 		t.Fatalf("entries = %d, cap %d", n, maxEntries)
 	}
 }
+
+func TestOnChangeSkipsHeartbeats(t *testing.T) {
+	r := NewRegistry()
+	n := 0
+	r.OnChange = func() { n++ }
+	step := func(what string, want int, f func()) {
+		t.Helper()
+		before := n
+		f()
+		if got := n - before; got != want {
+			t.Fatalf("%s: %d OnChange calls, want %d", what, got, want)
+		}
+	}
+	step("new track", 1, func() { mustReport(t, r, song("s", "p", Playing, "one", 1000), t0) })
+	step("heartbeat on time", 0, func() { mustReport(t, r, song("s", "p", Playing, "one", 3000), t0.Add(2*time.Second)) })
+	step("seek", 1, func() { mustReport(t, r, song("s", "p", Playing, "one", 90_000), t0.Add(3*time.Second)) })
+	step("pause", 1, func() { mustReport(t, r, song("s", "p", Paused, "one", 90_500), t0.Add(4*time.Second)) })
+	step("album art", 1, func() {
+		if err := r.SetArt("s", "p", "one", Album, &Image{Hash: "h"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	step("artist art", 1, func() { r.SetArtistArt("s", "p", "A", &Image{Hash: "a"}) })
+	step("artist art again: refused", 0, func() { r.SetArtistArt("s", "p", "A", &Image{Hash: "b"}) })
+	step("stopped", 1, func() { mustReport(t, r, song("s", "p", Stopped, "one", 0), t0.Add(5*time.Second)) })
+	step("remove unknown", 0, func() { r.Remove("s", "p") })
+}

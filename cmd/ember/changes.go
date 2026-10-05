@@ -15,10 +15,11 @@ const (
 	topicBrightness                         // the clock-lux filter moved
 	topicDevices                            // knob registry (epoch, config, rotation) or live mode
 	topicConfig                             // the effective Config was replaced
+	topicNowPlaying                         // now-playing: track, state, seek, pictures
 	topicCount      = iota
 )
 
-var changeTopicNames = [topicCount]string{"sessions", "pomodoro", "weather", "brightness", "devices", "config"}
+var changeTopicNames = [topicCount]string{"sessions", "pomodoro", "weather", "brightness", "devices", "config", "nowplaying"}
 
 // String lists the topic names joined by "|", for logs and tests.
 func (t changeTopic) String() string {

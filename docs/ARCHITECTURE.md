@@ -2639,7 +2639,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   sessions (upsert only when the `/state` render moves, so heartbeats and
   statusline ticks stay silent; delete, clear, reap), Pomodoro (`pomoChanged`: every
   action, button, phase end, settings), weather (new observation),
-  brightness (the served level/source/night moved), devices (`deviceRegistry.onChange` after
+  brightness (the served level/source/night moved), now playing
+  (`nowplaying.Registry.OnChange`: track, state, seek, pictures, stop/remove;
+  not a heartbeat that repeats the report), devices (`deviceRegistry.onChange` after
   each committed mutation: epoch, config, rotation; live mode), config
   (`tryUpdateConfig`: every settings PUT; `/admin/reload` stores directly and
   notifies config + Pomodoro after its engine resync). `notify` takes only

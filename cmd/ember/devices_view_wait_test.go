@@ -578,3 +578,20 @@ func TestKnobViewWaitStarDoesNotWait(t *testing.T) {
 		t.Fatal("a waiter slot was taken")
 	}
 }
+
+// A now-playing report wakes a knob that shows the page.
+func TestKnobViewWaitWakesOnNowPlaying(t *testing.T) {
+	f := newViewFixture(t)
+	f.app.viewRecheck = time.Hour
+	devReq(t, f.srv, "PUT", "/v1/devices/"+f.m.ID+"/config", testToken,
+		`{"pages":[{"id":"bot","on":true},{"id":"nowplaying","on":true}]}`)
+	resp, _ := f.get(t, "")
+	etag := resp.Header.Get("ETag")
+	resp, body, _ := waitThenAct(t, f, etag, func() {
+		devReq(t, f.srv, "POST", "/v1/nowplaying", testToken,
+			`{"source":"music","player":"M4","state":"playing","title":"Song","artist":"Band","track_id":"T1","duration_ms":200000,"position_ms":1000}`)
+	})
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"title":"Song"`) {
+		t.Fatalf("status %d body %s", resp.StatusCode, body)
+	}
+}

@@ -126,6 +126,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.meetings = newMeetingsStore()
 	a.meetingsFetcher = newICSFetcher()
 	a.nowPlaying = newNowPlayingService()
+	a.nowPlaying.reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
 	a.changes = newChangeBroadcaster()
