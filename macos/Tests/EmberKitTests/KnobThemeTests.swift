@@ -15,6 +15,8 @@ private let pinned: [String: String] = [
     "font.file": "Montserrat-Medium.ttf",
     "font.metrics.14.line_height_px": "16",
     "font.metrics.14.baseline_px": "3",
+    "font.metrics.18.line_height_px": "21",
+    "font.metrics.18.baseline_px": "4",
     "font.metrics.24.line_height_px": "27",
     "font.metrics.24.baseline_px": "5",
     "font.metrics.48.line_height_px": "52",
@@ -208,6 +210,34 @@ private let pinned: [String: String] = [
     "weather.scene.layout.fog.period_s": "[23,31,19,27]",
     "weather.scene.layout.fog.phase": "[0,2.1,4,1.2]",
     "weather.scene.layout.fog.alpha": "[210,140]",
+    "nowplaying.backdrop_disk_radius_px": "188",
+    "nowplaying.ring_radius_px": "198",
+    "nowplaying.ring_width_px": "6",
+    "nowplaying.album_px": "240",
+    "nowplaying.album_dy_px": "-44",
+    "nowplaying.artist_px": "64",
+    "nowplaying.dot_px": "16",
+    "nowplaying.colors.track": "#2E2E2E",
+    "nowplaying.colors.arc": "#F4F4F2",
+    "nowplaying.colors.arc_paused": "#6E6E6E",
+    "nowplaying.colors.text": "#F4F4F2",
+    "nowplaying.colors.sub": "#BDBDBD",
+    "nowplaying.colors.meta": "#8A8A8A",
+    "nowplaying.colors.idle": "#5A5A5A",
+    "nowplaying.colors.placeholder": "#1C1C1C",
+    "nowplaying.colors.note": "#4A4A4A",
+    "nowplaying.title.font_px": "24",
+    "nowplaying.title.dy_px": "96",
+    "nowplaying.title.width_px": "290",
+    "nowplaying.sub.font_px": "18",
+    "nowplaying.sub.dy_px": "126",
+    "nowplaying.sub.width_px": "260",
+    "nowplaying.meta.font_px": "14",
+    "nowplaying.meta.dy_px": "150",
+    "nowplaying.meta.width_px": "220",
+    "nowplaying.idle.font_px": "24",
+    "nowplaying.idle.dy_px": "0",
+    "nowplaying.idle.width_px": "300",
 ]
 
 private func themeJSON() throws -> [String: Any] {
@@ -291,6 +321,7 @@ private func one(_ file: String, _ pattern: String, _ key: String) -> Check { Ch
 private let num = #"(-?[\d.]+f?)"#
 private let hex = #"(0x[0-9A-Fa-f]{6})"#
 private let bv = "main/bot_view.c", bs = "components/bot/bot_shape.c", bb = "components/bot/bot_behavior.c"
+private let nv = "main/nowplaying_view.c", nc = "main/nowplaying_client.c", nh = "components/nowplaying/include/np.h"
 private let pv = "main/pomo_view.c", wv = "main/weather_view.c", ws = "components/weather/weather_scene.c"
 
 private func allChecks() -> [Check] {
@@ -431,6 +462,28 @@ private func allChecks() -> [Check] {
     for (key, def) in [("focus", "FOCUS"), ("break", "BREAK"), ("other", "OTHER"), ("idle_track", "IDLE_TRACK"),
                        ("text", "TEXT"), ("text_dim", "TEXT_DIM"), ("note", "NOTE")] {
         c.append(one(pv, "#define COL_\(def) " + hex, "pomodoro.colors.\(key)"))
+    }
+    c += [
+        one(nc, #"#define FACE_DISK_R "# + num, "nowplaying.backdrop_disk_radius_px"),
+        Check(file: nv, pattern: #"\.r = (\d+), \.hw = (\d+)"#,
+              keys: [("nowplaying.ring_radius_px", g(1)), ("nowplaying.ring_width_px", { n(String(2 * (Int($0[2]) ?? 0))) })]),
+        one(nh, #"#define NP_ALBUM_PX (\d+)"#, "nowplaying.album_px"),
+        one(nh, #"#define NP_ARTIST_PX (\d+)"#, "nowplaying.artist_px"),
+        one(nv, #"#define ALBUM_DY \((-?\d+)\)"#, "nowplaying.album_dy_px"),
+        one(nv, #"s_dot = circle_create\((\d+), COL_ARC\)"#, "nowplaying.dot_px"),
+        one(nv, #"lv_color_hex\("# + hex + #"\), 0\);\s+lv_label_set_text_static\(note"#, "nowplaying.colors.note"),
+        one(nv, #"#define TITLE_W (\d+)"#, "nowplaying.title.width_px"),
+        one(nv, #"#define SUB_W (\d+)"#, "nowplaying.sub.width_px"),
+    ]
+    for (key, def) in [("track", "TRACK"), ("arc", "ARC"), ("arc_paused", "ARC_PAUSED"), ("text", "TEXT"), ("sub", "SUB"),
+                       ("meta", "META"), ("idle", "IDLE"), ("placeholder", "PLACEHOLDER")] {
+        c.append(one(nv, "#define COL_\(def) " + hex, "nowplaying.colors.\(key)"))
+    }
+    for (key, obj, width) in [("title", "s_title", "TITLE_W"), ("sub", "s_sub", "SUB_W"), ("meta", "s_meta", "(\\d+)"),
+                              ("idle", "s_idle", "(\\d+)")] {
+        let widthKey = width.hasPrefix("(") ? [("nowplaying.\(key).width_px", g(2))] : []
+        c.append(Check(file: nv, pattern: obj + #" = label_create\(&lv_font_montserrat_(\d+), "# + width + #", (-?\d+), "#,
+                       keys: [("nowplaying.\(key).font_px", g(1)), ("nowplaying.\(key).dy_px", g(width.hasPrefix("(") ? 3 : 2))] + widthKey))
     }
     for (key, obj) in [("time", "s_time"), ("phase", "s_phase"), ("round", "s_round")] {
         c.append(Check(file: pv, pattern: obj + #" = label_create\(s_root, &lv_font_montserrat_(\d+), (\d+), (-?\d+)\)"#,

@@ -219,7 +219,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     /// The server's defaults (`defaultKnobSettings`).
     public static let defaults = KnobSettings(
         brightness: Brightness(followEmber: true, level: 153, floor: 10, startup: 153),
-        pages: ["bot", "pomodoro", "weather"].map { Page(id: $0, on: true) },
+        pages: ["bot", "pomodoro", "weather", "nowplaying"].map { Page(id: $0, on: $0 != "nowplaying") },
         home: "bot", pollMS: 2000, bot: Bot(sleepyAfterS: 300, demoHoldS: 20))
 
     public static let levelRange = 0...255

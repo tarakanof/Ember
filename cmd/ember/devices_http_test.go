@@ -295,7 +295,7 @@ func TestDeviceConfigPutMergesAndBumpsVersion(t *testing.T) {
 	}
 	var got knobSettings
 	_ = json.Unmarshal(b, &got)
-	if got.PollMS != 3000 || got.Brightness.Level != 100 || got.Home != "bot" || len(got.Pages) != 3 {
+	if got.PollMS != 3000 || got.Brightness.Level != 100 || got.Home != "bot" || len(got.Pages) != 4 {
 		t.Fatalf("merged = %+v", got)
 	}
 	if app.devices.epochValue() == epoch0 {

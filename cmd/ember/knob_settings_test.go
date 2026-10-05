@@ -75,10 +75,40 @@ func TestKnobSettingsWireShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},` +
-		`"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true}],` +
+		`"pages":[{"id":"bot","on":true},{"id":"pomodoro","on":true},{"id":"weather","on":true},{"id":"nowplaying","on":false}],` +
 		`"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20,"source_label":true,"working_ring":true},"diagnostics":"off",` +
 		`"stats_interval_s":60,"live_interval_s":5,"display":{"fast_link":true}}`
 	if string(b) != want {
 		t.Fatalf("wire shape\n got %s\nwant %s", b, want)
+	}
+}
+
+func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
+	d := defaultKnobSettings()
+	if d.pageOn("nowplaying") || !d.pageOn("weather") {
+		t.Fatalf("defaults: %+v", d.Pages)
+	}
+	if err := d.validate(); err != nil {
+		t.Fatal(err)
+	}
+	// A record stored before the page existed gains it, off, last.
+	s := knobSettings{Pages: []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "x", On: true}}}
+	s.fillDefaults()
+	want := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "x", On: true},
+		{ID: "pomodoro", On: false}, {ID: "nowplaying", On: false}}
+	if len(s.Pages) != len(want) {
+		t.Fatalf("pages = %+v", s.Pages)
+	}
+	for i := range want {
+		if s.Pages[i] != want[i] {
+			t.Fatalf("pages = %+v, want %+v", s.Pages, want)
+		}
+	}
+	// A page already listed (on) keeps its place and state.
+	s = defaultKnobSettings()
+	s.Pages = []knobPage{{ID: "nowplaying", On: true}, {ID: "bot", On: true}, {ID: "pomodoro", On: true}, {ID: "weather", On: true}}
+	s.fillDefaults()
+	if len(s.Pages) != 4 || s.Pages[0] != (knobPage{ID: "nowplaying", On: true}) {
+		t.Fatalf("pages = %+v", s.Pages)
 	}
 }

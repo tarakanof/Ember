@@ -7,7 +7,12 @@ import (
 	"slices"
 )
 
-var knobPageIDs = []string{"bot", "pomodoro", "weather"}
+// knobPageIDs are the pages the server knows, in default order. Pages in
+// knobPagesOffByDefault start off (nowplaying: its view block is only sent
+// while the page is on, so off costs nothing).
+var knobPageIDs = []string{"bot", "pomodoro", "weather", "nowplaying"}
+
+var knobPagesOffByDefault = []string{"nowplaying"}
 
 var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
 
@@ -117,7 +122,7 @@ func (s knobSettings) clone() knobSettings {
 func defaultKnobSettings() knobSettings {
 	pages := make([]knobPage, 0, len(knobPageIDs))
 	for _, id := range knobPageIDs {
-		pages = append(pages, knobPage{ID: id, On: true})
+		pages = append(pages, knobPage{ID: id, On: !slices.Contains(knobPagesOffByDefault, id)})
 	}
 	return knobSettings{
 		Brightness:  knobBrightness{FollowEmber: true, Level: 153, Floor: 10, Startup: 153},
@@ -146,6 +151,21 @@ func (s *knobSettings) fillDefaults() {
 	}
 	s.Bot.fillDefaults()
 	s.Display.fillDefaults()
+	s.addKnownPages()
+}
+
+// addKnownPages appends known pages a stored list lacks, as off, so a knob
+// configured before a page existed can turn it on in the app (#284). An
+// empty list is left to validation.
+func (s *knobSettings) addKnownPages() {
+	if len(s.Pages) == 0 {
+		return
+	}
+	for _, id := range knobPageIDs {
+		if !slices.ContainsFunc(s.Pages, func(p knobPage) bool { return p.ID == id }) {
+			s.Pages = append(s.Pages, knobPage{ID: id, On: false})
+		}
+	}
 }
 
 func (d *knobDisplay) fillDefaults() {

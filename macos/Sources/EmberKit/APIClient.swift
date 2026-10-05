@@ -251,6 +251,11 @@ public struct APIClient: Sendable {
         catch { throw APIError.decoding(String(describing: error)) }
     }
 
+    /// GET answering the raw body (an image).
+    public func getData(_ path: String, query: [URLQueryItem] = [], budget: RequestBudget = .server) async throws -> Data {
+        try await perform("GET", path, query: query, body: nil, budget: budget)
+    }
+
     /// POST/DELETE with no body.
     public func send(_ method: String, _ path: String, budget: RequestBudget = .server) async throws {
         _ = try await perform(method, path, query: [], body: nil, budget: budget)

@@ -8,6 +8,7 @@
     "file": "Montserrat-Medium.ttf",
     "metrics": {
       "14": { "line_height_px": 16, "baseline_px": 3 },
+      "18": { "line_height_px": 21, "baseline_px": 4 },
       "24": { "line_height_px": 27, "baseline_px": 5 },
       "48": { "line_height_px": 52, "baseline_px": 9 }
     }
@@ -166,5 +167,29 @@
         "fog": { "x": 36, "y": 30, "step": 22, "amp": [28, 22, 30, 18], "period_s": [23, 31, 19, 27], "phase": [0, 2.1, 4.0, 1.2], "alpha": [210, 140] }
       }
     }
+  },
+  "nowplaying": {
+    "backdrop_disk_radius_px": 188,
+    "ring_radius_px": 198,
+    "ring_width_px": 6,
+    "album_px": 240,
+    "album_dy_px": -44,
+    "artist_px": 64,
+    "dot_px": 16,
+    "colors": {
+      "track": "#2E2E2E",
+      "arc": "#F4F4F2",
+      "arc_paused": "#6E6E6E",
+      "text": "#F4F4F2",
+      "sub": "#BDBDBD",
+      "meta": "#8A8A8A",
+      "idle": "#5A5A5A",
+      "placeholder": "#1C1C1C",
+      "note": "#4A4A4A"
+    },
+    "title": { "font_px": 24, "dy_px": 96, "width_px": 290 },
+    "sub": { "font_px": 18, "dy_px": 126, "width_px": 260 },
+    "meta": { "font_px": 14, "dy_px": 150, "width_px": 220 },
+    "idle": { "font_px": 24, "dy_px": 0, "width_px": 300 }
   }
 }
