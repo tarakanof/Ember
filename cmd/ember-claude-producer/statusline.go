@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -150,9 +152,21 @@ func readWrappedCommand(path string) (string, bool) {
 	return "", false
 }
 
+// wrappedStatuslineTimeout bounds the user's own status line command, so a
+// hung one cannot hang ours (Claude Code waits on our stdout).
+var wrappedStatuslineTimeout = 5 * time.Second
+
+// runWrapped runs the wrapped status line command with stdin. On timeout its
+// whole process group is killed, so a background child still holding stdout
+// cannot keep the read open.
 func runWrapped(command string, stdin []byte) ([]byte, error) {
-	cmd := exec.Command("sh", "-c", command)
+	ctx, cancel := context.WithTimeout(context.Background(), wrappedStatuslineTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Stdin = bytes.NewReader(stdin)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 500 * time.Millisecond
 	return cmd.Output()
 }
 

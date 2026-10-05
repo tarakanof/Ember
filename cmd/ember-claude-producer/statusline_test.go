@@ -384,3 +384,17 @@ func TestStatusLineIsOurs(t *testing.T) {
 		t.Error("user command should not be detected as ours")
 	}
 }
+
+func TestRunWrappedTimesOut(t *testing.T) {
+	defer func(d time.Duration) { wrappedStatuslineTimeout = d }(wrappedStatuslineTimeout)
+	wrappedStatuslineTimeout = 200 * time.Millisecond
+	for _, cmd := range []string{"sleep 30", "sleep 30 & echo partial; wait"} {
+		start := time.Now()
+		if _, err := runWrapped(cmd, nil); err == nil {
+			t.Errorf("%q: want a timeout error", cmd)
+		}
+		if d := time.Since(start); d > 3*time.Second {
+			t.Errorf("%q: runWrapped took %v despite the timeout", cmd, d)
+		}
+	}
+}
