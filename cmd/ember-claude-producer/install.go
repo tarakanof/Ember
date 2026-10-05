@@ -174,7 +174,7 @@ func mergeSettingsJSON(home, binPath string) error {
 		"command": ourStatuslineCommand(binPath),
 	}
 
-	return saveSettings(settingsPath, existing, root)
+	return saveSettings(settingsPath, existing, root, false)
 }
 
 type producerHookEntry struct {

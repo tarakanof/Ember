@@ -41,6 +41,9 @@ func runDoctor() {
 
 	hooksLine, _ := hookRegistrationReport(home)
 	fmt.Printf("  claude hooks: %s\n", hooksLine)
+	if n := legacySettingsBackups(filepath.Join(home, ".claude", "settings.json")); n > 0 {
+		fmt.Printf("  hint: %d settings.json.bak.<pid> backups from older installs in ~/.claude; delete them if you don't need them\n", n)
+	}
 	fmt.Printf("  claude agents cross-check: %s\n", agentsDoctorLine(ctx))
 
 	stateD, _ := stateDir()

@@ -12,11 +12,20 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
+// settingsBackupPath is the one backup configure/deconfigure keep: each write
+// overwrites it, so backups never pile up. Older producers wrote
+// settings.json.bak.<pid> on every run; those are left alone (a hand-made
+// settings.json.bak.<date> looks the same) and doctor counts them.
+func settingsBackupPath(settingsPath string) string {
+	return settingsPath + ".ember-bak"
+}
+
 // saveSettings saves root as settings.json when it differs from old (the
-// file's current bytes). The previous content goes to settings.json.bak.<pid>
-// and older backups are removed, so configure runs never pile them up. A
-// symlinked settings.json (dotfiles) is written through, keeping the link.
-func saveSettings(settingsPath string, old []byte, root map[string]any) error {
+// file's current bytes), backing old up to settingsBackupPath first. With
+// bestEffortBackup a failed backup only warns (uninstall must still remove
+// the hooks); otherwise it aborts. A symlinked settings.json (dotfiles) is
+// written through, keeping the link.
+func saveSettings(settingsPath string, old []byte, root map[string]any, bestEffortBackup bool) error {
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err
@@ -26,23 +35,25 @@ func saveSettings(settingsPath string, old []byte, root map[string]any) error {
 		return nil
 	}
 	if len(old) > 0 {
-		bak := fmt.Sprintf("%s.bak.%d", settingsPath, os.Getpid())
-		if err := os.WriteFile(bak, old, 0o600); err != nil {
-			return err
+		if err := os.WriteFile(settingsBackupPath(settingsPath), old, 0o600); err != nil {
+			if !bestEffortBackup {
+				return fmt.Errorf("back up settings.json: %w", err)
+			}
+			fmt.Fprintln(os.Stderr, "warning: could not back up settings.json:", err)
 		}
-		pruneSettingsBackups(settingsPath, bak)
 	}
 	return producer.WriteFileAtomic(settingsPath, out, 0o600)
 }
 
-// pruneSettingsBackups removes every settings.json.bak.<pid> except keep.
-func pruneSettingsBackups(settingsPath, keep string) {
+// legacySettingsBackups counts settings.json.bak.<number> files, which older
+// producers wrote on every configure.
+func legacySettingsBackups(settingsPath string) int {
 	matches, _ := filepath.Glob(settingsPath + ".bak.*")
+	n := 0
 	for _, m := range matches {
-		suffix := strings.TrimPrefix(m, settingsPath+".bak.")
-		if _, err := strconv.Atoi(suffix); err != nil || m == keep {
-			continue
+		if _, err := strconv.Atoi(strings.TrimPrefix(m, settingsPath+".bak.")); err == nil {
+			n++
 		}
-		_ = os.Remove(m)
 	}
+	return n
 }

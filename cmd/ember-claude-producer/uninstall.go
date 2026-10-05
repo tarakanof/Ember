@@ -85,5 +85,5 @@ func uninstallSettings(home string) error {
 		}
 	}
 
-	return saveSettings(settingsPath, body, root)
+	return saveSettings(settingsPath, body, root, true)
 }
