@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -97,16 +99,39 @@ func extractContextPct(in statuslineInput) (*int, bool) {
 	return &pct, true
 }
 
-func contextPctEnabled() bool {
+// statuslineEnv reads producer.env for the statusline, which never calls
+// loadConfig; nil when it is unreadable.
+func statuslineEnv() map[string]string {
 	path, err := envFilePath()
 	if err != nil {
-		return true
+		return nil
 	}
 	data, err := producer.ReadEnvFile(path)
 	if err != nil {
-		return true
+		return nil
 	}
-	return producer.Bool(data["EMBER_CONTEXT_PCT_ENABLED"], true)
+	return data
+}
+
+func contextPctEnabled(env map[string]string) bool {
+	return producer.Bool(env["EMBER_CONTEXT_PCT_ENABLED"], true)
+}
+
+// defaultWrappedTimeout bounds the user's own status line command, so a
+// hung one cannot hang ours (Claude Code waits on our stdout).
+const defaultWrappedTimeout = 10 * time.Second
+
+// wrappedTimeout is EMBER_STATUSLINE_TIMEOUT_MS from the environment, else
+// producer.env, else defaultWrappedTimeout.
+func wrappedTimeout(env map[string]string) time.Duration {
+	v, ok := os.LookupEnv("EMBER_STATUSLINE_TIMEOUT_MS")
+	if !ok {
+		v = env["EMBER_STATUSLINE_TIMEOUT_MS"]
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+		return time.Duration(n) * time.Millisecond
+	}
+	return defaultWrappedTimeout
 }
 
 func wrappedStatuslinePath(home string) string {
@@ -133,22 +158,73 @@ func readWrappedCommand(path string) (string, bool) {
 	return "", false
 }
 
-// wrappedStatuslineTimeout bounds the user's own status line command, so a
-// hung one cannot hang ours (Claude Code waits on our stdout).
-var wrappedStatuslineTimeout = 5 * time.Second
+// errWrappedTimeout means the wrapped command ran past its timeout.
+var errWrappedTimeout = errors.New("wrapped status line timed out")
 
 // runWrapped runs the wrapped status line command with stdin. On timeout its
 // whole process group is killed, so a background child still holding stdout
-// cannot keep the read open.
-func runWrapped(command string, stdin []byte) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), wrappedStatuslineTimeout)
+// cannot keep the read open. A command that exited 0 but left such a child
+// returns its complete output with exec.ErrWaitDelay.
+func runWrapped(command string, stdin []byte, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Stdin = bytes.NewReader(stdin)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 500 * time.Millisecond
-	return cmd.Output()
+	out, err := cmd.Output()
+	if err != nil && ctx.Err() == context.DeadlineExceeded {
+		return out, errWrappedTimeout
+	}
+	return out, err
+}
+
+// wrappedOutput is what the wrapped command printed. A good run is cached
+// per session (rewritten only when it changed); a timed-out run shows the
+// cached output rather than a blank status line. A failing command prints
+// nothing, as before.
+func wrappedOutput(command string, stdin []byte, timeout time.Duration, cachePath string) []byte {
+	out, err := runWrapped(command, stdin, timeout)
+	switch {
+	case err == nil || errors.Is(err, exec.ErrWaitDelay):
+		if cachePath != "" {
+			if prev, rerr := os.ReadFile(cachePath); rerr != nil || !bytes.Equal(prev, out) {
+				_ = os.MkdirAll(filepath.Dir(cachePath), 0o700)
+				_ = os.WriteFile(cachePath, out, 0o600)
+				pruneStatuslineCache(filepath.Dir(cachePath))
+			}
+		}
+		return out
+	case errors.Is(err, errWrappedTimeout) && cachePath != "":
+		cached, _ := os.ReadFile(cachePath)
+		return cached
+	}
+	return nil
+}
+
+// statuslineCacheTTL is how long a session's cached wrapped output is kept.
+const statuslineCacheTTL = 24 * time.Hour
+
+func statuslineCachePath(sessionID string) string {
+	dir, err := stateDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(dir), "statusline", sessionID+".out")
+}
+
+func pruneStatuslineCache(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-statuslineCacheTTL)
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 func ourStatuslineCommand(binPath string) string {
@@ -167,7 +243,9 @@ func statusLineIsOurs(v any) bool {
 
 func runStatusline() {
 	buf, _ := io.ReadAll(os.Stdin)
-	if in, ok := parseStatusline(buf); ok {
+	env := statuslineEnv()
+	in, parsed := parseStatusline(buf)
+	if parsed {
 		var ratePct, ctxPct, weekPct *int
 		var resetAt, weekResetAt *int64
 		var resetLabel, weekResetLabel string
@@ -189,7 +267,7 @@ func runStatusline() {
 		if l, ok := extractWeekResetLabel(in); ok {
 			weekResetLabel = l
 		}
-		if contextPctEnabled() {
+		if contextPctEnabled(env) {
 			if p, ok := extractContextPct(in); ok {
 				ctxPct = p
 			}
@@ -204,9 +282,11 @@ func runStatusline() {
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		if cmd, ok := readWrappedCommand(wrappedStatuslinePath(home)); ok {
-			if out, err := runWrapped(cmd, buf); err == nil {
-				_, _ = os.Stdout.Write(out)
+			cache := ""
+			if parsed {
+				cache = statuslineCachePath(sanitizeSessionID(in.SessionID, in.Cwd))
 			}
+			_, _ = os.Stdout.Write(wrappedOutput(cmd, buf, wrappedTimeout(env), cache))
 		}
 	}
 	os.Exit(0)
@@ -214,8 +294,8 @@ func runStatusline() {
 
 const statuslineLockWait = 250 * time.Millisecond
 
-// statuslineRefresh is how long an unchanged marker goes without a
-// statusline rewrite: Claude Code refreshes the status line many times a
+// statuslineRefresh is how long (by file mtime) an unchanged marker goes
+// without a statusline rewrite: Claude Code refreshes the status line many times a
 // second while streaming, and each write was an fsync.
 const statuslineRefresh = time.Minute
 
@@ -256,11 +336,14 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 			m.RateWeekResetLabel = weekResetLabel
 		}
 		now := hookNow()
-		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) &&
-			now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh {
-			return nil
+		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
+			// Unchanged: rewrite only to keep the mtime fresh for the TTL.
+			if fi, err := os.Stat(mp); err == nil && now.Sub(fi.ModTime()) < statuslineRefresh {
+				return nil
+			}
+		} else {
+			m.StatuslineChangedMs = now.UnixMilli()
 		}
-		m.StatuslineAt = now.Unix()
 		out, err := json.Marshal(m)
 		if err != nil {
 			return nil

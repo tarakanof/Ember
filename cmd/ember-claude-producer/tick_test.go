@@ -665,33 +665,50 @@ func TestProcessOneMarker_ReGatesSourceCardAndSessionBarWhenDisabled(t *testing.
 	}
 }
 
-func TestDispatchTick_FreshestByStatuslineAtNotMtime(t *testing.T) {
-	usageModels.reset()
-	h := newUsageRelayHarness(t)
-	dir := h.sessionsDir()
-	now := time.Now().Unix()
-	// "seen" got its figures from the statusline just now but was written
-	// a minute ago (later refreshes were unchanged and skipped); "touched"
-	// was rewritten by a hook just now with figures a statusline saw earlier.
-	pSeen := writeMarkerFile(t, dir, "seen", fmt.Sprintf(`,"rate_week_pct":90,"rate_week_reset_at":2000,"statusline_at":%d`, now))
-	pTouched := writeMarkerFile(t, dir, "touched", fmt.Sprintf(`,"rate_week_pct":10,"rate_week_reset_at":1000,"statusline_at":%d`, now-600))
-	older := time.Now().Add(-time.Minute)
-	if err := os.Chtimes(pSeen, older, older); err != nil {
-		t.Fatal(err)
+func TestDispatchTick_FreshestByStatuslineChange(t *testing.T) {
+	cases := []struct {
+		name               string
+		changedA, changedB int64 // statusline_changed_ms
+		mtimeANewer        bool
+		want               float64
+	}{
+		// A's figures changed most recently, though B was written later.
+		{"newest change wins over mtime", 2_000_500, 2_000_000, false, 90},
+		// Sub-second stamps: 1 ms apart still orders.
+		{"millisecond resolution", 2_000_001, 2_000_000, false, 90},
+		// Same change time: the later write breaks the tie.
+		{"tie broken by mtime", 2_000_000, 2_000_000, true, 90},
 	}
-	if err := os.Chtimes(pTouched, time.Now(), time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	cfg, _ := loadConfig()
-	dispatchTick(context.Background(), cfg)
-	if len(h.usageBodies) != 1 {
-		t.Fatalf("usage posts = %d, want 1", len(h.usageBodies))
-	}
-	var req struct {
-		SevenDay *producerWindow `json:"seven_day"`
-	}
-	_ = json.Unmarshal([]byte(h.usageBodies[0]), &req)
-	if req.SevenDay == nil || req.SevenDay.UsedPercent != 90 {
-		t.Errorf("want the marker with the newest statusline_at (90), got %+v", req.SevenDay)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			usageModels.reset()
+			h := newUsageRelayHarness(t)
+			dir := h.sessionsDir()
+			pA := writeMarkerFile(t, dir, "a", fmt.Sprintf(`,"rate_week_pct":90,"rate_week_reset_at":2000,"statusline_changed_ms":%d`, tc.changedA))
+			pB := writeMarkerFile(t, dir, "b", fmt.Sprintf(`,"rate_week_pct":10,"rate_week_reset_at":1000,"statusline_changed_ms":%d`, tc.changedB))
+			older, newer := time.Now().Add(-time.Minute), time.Now()
+			mA, mB := older, newer
+			if tc.mtimeANewer {
+				mA, mB = newer, older
+			}
+			if err := os.Chtimes(pA, mA, mA); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(pB, mB, mB); err != nil {
+				t.Fatal(err)
+			}
+			cfg, _ := loadConfig()
+			dispatchTick(context.Background(), cfg)
+			if len(h.usageBodies) != 1 {
+				t.Fatalf("usage posts = %d, want 1", len(h.usageBodies))
+			}
+			var req struct {
+				SevenDay *producerWindow `json:"seven_day"`
+			}
+			_ = json.Unmarshal([]byte(h.usageBodies[0]), &req)
+			if req.SevenDay == nil || req.SevenDay.UsedPercent != tc.want {
+				t.Errorf("seven_day = %+v, want %v", req.SevenDay, tc.want)
+			}
+		})
 	}
 }

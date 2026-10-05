@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -244,11 +245,11 @@ func TestContextPctEnabled(t *testing.T) {
 		}
 	}
 	write(t, "EMBER_SOURCE=mbp\n")
-	if !contextPctEnabled() {
+	if !contextPctEnabled(statuslineEnv()) {
 		t.Error("default (absent key) should be true")
 	}
 	write(t, "EMBER_SOURCE=mbp\nEMBER_CONTEXT_PCT_ENABLED=off\n")
-	if contextPctEnabled() {
+	if contextPctEnabled(statuslineEnv()) {
 		t.Error("=off should be false")
 	}
 }
@@ -366,7 +367,7 @@ func TestReadWrappedCommand(t *testing.T) {
 }
 
 func TestRunWrapped(t *testing.T) {
-	out, err := runWrapped("cat", []byte("hello-json"))
+	out, err := runWrapped("cat", []byte("hello-json"), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,12 +387,10 @@ func TestStatusLineIsOurs(t *testing.T) {
 }
 
 func TestRunWrappedTimesOut(t *testing.T) {
-	defer func(d time.Duration) { wrappedStatuslineTimeout = d }(wrappedStatuslineTimeout)
-	wrappedStatuslineTimeout = 200 * time.Millisecond
 	for _, cmd := range []string{"sleep 30", "sleep 30 & echo partial; wait"} {
 		start := time.Now()
-		if _, err := runWrapped(cmd, nil); err == nil {
-			t.Errorf("%q: want a timeout error", cmd)
+		if _, err := runWrapped(cmd, nil, 200*time.Millisecond); !errors.Is(err, errWrappedTimeout) {
+			t.Errorf("%q: err = %v, want errWrappedTimeout", cmd, err)
 		}
 		if d := time.Since(start); d > 3*time.Second {
 			t.Errorf("%q: runWrapped took %v despite the timeout", cmd, d)
@@ -399,8 +398,53 @@ func TestRunWrappedTimesOut(t *testing.T) {
 	}
 }
 
+func TestWrappedOutputKeepsOutputWhenChildHoldsStdout(t *testing.T) {
+	start := time.Now()
+	out := wrappedOutput("echo hi; sleep 3 &", nil, 5*time.Second, "")
+	if string(out) != "hi\n" {
+		t.Fatalf("out = %q, want hi", out)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("waited %v for the background child", d)
+	}
+}
+
+func TestWrappedOutputTimeoutShowsCachedOutput(t *testing.T) {
+	cache := filepath.Join(t.TempDir(), "statusline", "s.out")
+	if out := wrappedOutput("echo good", nil, 5*time.Second, cache); string(out) != "good\n" {
+		t.Fatalf("out = %q", out)
+	}
+	if out := wrappedOutput("sleep 30", nil, 200*time.Millisecond, cache); string(out) != "good\n" {
+		t.Fatalf("timed-out out = %q, want the cached good output", out)
+	}
+	if out := wrappedOutput("exit 3", nil, 5*time.Second, cache); len(out) != 0 {
+		t.Fatalf("failed command out = %q, want nothing", out)
+	}
+	if out := wrappedOutput("sleep 30", nil, 200*time.Millisecond, ""); len(out) != 0 {
+		t.Fatalf("no cache: out = %q", out)
+	}
+}
+
+func TestWrappedTimeout(t *testing.T) {
+	t.Setenv("EMBER_STATUSLINE_TIMEOUT_MS", "")
+	os.Unsetenv("EMBER_STATUSLINE_TIMEOUT_MS")
+	if d := wrappedTimeout(nil); d != defaultWrappedTimeout {
+		t.Errorf("default = %v", d)
+	}
+	if d := wrappedTimeout(map[string]string{"EMBER_STATUSLINE_TIMEOUT_MS": "1500"}); d != 1500*time.Millisecond {
+		t.Errorf("producer.env = %v", d)
+	}
+	if d := wrappedTimeout(map[string]string{"EMBER_STATUSLINE_TIMEOUT_MS": "junk"}); d != defaultWrappedTimeout {
+		t.Errorf("junk = %v", d)
+	}
+	t.Setenv("EMBER_STATUSLINE_TIMEOUT_MS", "250")
+	if d := wrappedTimeout(map[string]string{"EMBER_STATUSLINE_TIMEOUT_MS": "1500"}); d != 250*time.Millisecond {
+		t.Errorf("env override = %v", d)
+	}
+}
+
 func TestEnrichMarker_SkipsUnchangedRewrite(t *testing.T) {
-	now := time.Unix(1_800_000_000, 0)
+	now := time.Now()
 	defer func(f func() time.Time) { hookNow = f }(hookNow)
 	hookNow = func() time.Time { return now }
 	dir := t.TempDir()
@@ -408,6 +452,12 @@ func TestEnrichMarker_SkipsUnchangedRewrite(t *testing.T) {
 	body, _ := json.Marshal(marker{StatusRequest: StatusRequest{Source: "mbp", Tool: "claude", Session: "s", State: "running"}})
 	if err := os.WriteFile(mp, body, 0o600); err != nil {
 		t.Fatal(err)
+	}
+	read := func() marker {
+		var m marker
+		raw, _ := readMarker(mp)
+		_ = json.Unmarshal(raw, &m)
+		return m
 	}
 	enrich := func(pct int) os.FileInfo {
 		t.Helper()
@@ -421,32 +471,29 @@ func TestEnrichMarker_SkipsUnchangedRewrite(t *testing.T) {
 		return fi
 	}
 	first := enrich(40)
-	var m marker
-	raw, _ := readMarker(mp)
-	_ = json.Unmarshal(raw, &m)
-	if m.StatuslineAt != now.Unix() {
-		t.Fatalf("statusline_at = %d, want %d", m.StatuslineAt, now.Unix())
+	changedAt := now.UnixMilli()
+	if got := read().StatuslineChangedMs; got != changedAt {
+		t.Fatalf("statusline_changed_ms = %d, want %d", got, changedAt)
 	}
 	now = now.Add(time.Second)
 	if again := enrich(40); !os.SameFile(first, again) {
 		t.Fatal("an unchanged refresh rewrote the marker")
 	}
-	changed := enrich(41)
-	if os.SameFile(first, changed) {
-		t.Fatal("a changed figure was not written")
-	}
 	now = now.Add(statuslineRefresh)
-	if refreshed := enrich(41); os.SameFile(changed, refreshed) {
-		t.Fatal("statusline_at was not refreshed after statuslineRefresh")
+	if refreshed := enrich(40); os.SameFile(first, refreshed) {
+		t.Fatal("an unchanged marker was not rewritten after statuslineRefresh (TTL mtime)")
 	}
-	raw, _ = readMarker(mp)
-	_ = json.Unmarshal(raw, &m)
-	if m.StatuslineAt != now.Unix() || m.RateWindowPct == nil || *m.RateWindowPct != 41 {
-		t.Fatalf("marker = %+v", m)
+	if got := read().StatuslineChangedMs; got != changedAt {
+		t.Fatalf("an unchanged refresh moved statusline_changed_ms %d -> %d", changedAt, got)
+	}
+	now = now.Add(time.Millisecond)
+	enrich(41)
+	if m := read(); m.StatuslineChangedMs != now.UnixMilli() || *m.RateWindowPct != 41 {
+		t.Fatalf("marker after a change = %+v", m)
 	}
 }
 
-func TestHookKeepsStatuslineAt(t *testing.T) {
+func TestHookKeepsStatuslineChanged(t *testing.T) {
 	dir := t.TempDir()
 	mp, lp := markerPath(dir, "s"), lockPath(dir, "s")
 	cfg := Config{Common: producer.Common{Source: "mbp", ServerURL: "http://127.0.0.1:1"}, HookTimeoutMs: 50}
@@ -460,8 +507,8 @@ func TestHookKeepsStatuslineAt(t *testing.T) {
 	handleUpsert(context.Background(), cfg, NewClient(cfg), "s", "running", "m2", "", mp, lp)
 	raw, _ = readMarker(mp)
 	_ = json.Unmarshal(raw, &after)
-	if before.StatuslineAt == 0 || after.StatuslineAt != before.StatuslineAt {
-		t.Fatalf("statusline_at %d -> %d", before.StatuslineAt, after.StatuslineAt)
+	if before.StatuslineChangedMs == 0 || after.StatuslineChangedMs != before.StatuslineChangedMs {
+		t.Fatalf("statusline_changed_ms %d -> %d", before.StatuslineChangedMs, after.StatuslineChangedMs)
 	}
 }
 

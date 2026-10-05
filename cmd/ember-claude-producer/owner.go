@@ -19,18 +19,19 @@ type marker struct {
 	// StateChangedAt (unix s) is when State last changed; the heartbeat stops
 	// re-posting done/error once it is older than DoneTTLSeconds.
 	StateChangedAt int64 `json:"state_changed_at,omitempty"`
-	// StatuslineAt (unix s) is when the statusline last refreshed the rate
-	// and context figures; the usage relay picks the freshest by it. The
-	// statusline skips unchanged rewrites, so file mtime does not track it.
-	StatuslineAt int64 `json:"statusline_at,omitempty"`
+	// StatuslineChangedMs (unix ms) is when the statusline last saw a rate or
+	// context figure change; the usage relay picks the most recent change.
+	// Unchanged refreshes skip the rewrite (one per minute keeps the mtime
+	// fresh for the TTL), so file mtime does not track it.
+	StatuslineChangedMs int64 `json:"statusline_changed_ms,omitempty"`
 	ToolTrack
 }
 
-// usageSeenAt is when the marker's rate figures were last seen: StatuslineAt,
-// else (a marker from an older producer) its file mtime.
+// usageSeenAt is when the marker's rate figures last changed:
+// StatuslineChangedMs, else (a marker from an older producer) its file mtime.
 func (m marker) usageSeenAt(mtime time.Time) time.Time {
-	if m.StatuslineAt != 0 {
-		return time.Unix(m.StatuslineAt, 0)
+	if m.StatuslineChangedMs != 0 {
+		return time.UnixMilli(m.StatuslineChangedMs)
 	}
 	return mtime
 }

@@ -207,7 +207,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		var ownerPID int
 		var ownerStart string
-		var statuslineAt int64
+		var statuslineChanged int64
 		var track ToolTrack
 		changedAt := hookNow().Unix()
 		if old, err := readMarker(markerP); err == nil {
@@ -230,7 +230,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 					req.Activity = producer.PrependTrail(activity, prev.Activity)
 				}
 				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
-				statuslineAt = prev.StatuslineAt
+				statuslineChanged = prev.StatuslineChangedMs
 				if prev.State == state && prev.StateChangedAt != 0 {
 					changedAt = prev.StateChangedAt
 				}
@@ -257,7 +257,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 			ownerPID, ownerStart = detectOwner()
 		}
 		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart, StateChangedAt: changedAt,
-			StatuslineAt: statuslineAt, ToolTrack: track}
+			StatuslineChangedMs: statuslineChanged, ToolTrack: track}
 		b, err := json.Marshal(m)
 		if err != nil || writeMarker(markerP, b) != nil {
 			return nil
