@@ -263,3 +263,33 @@ func TestOnChangeSkipsHeartbeats(t *testing.T) {
 	step("stopped", 1, func() { mustReport(t, r, song("s", "p", Stopped, "one", 0), t0.Add(5*time.Second)) })
 	step("remove unknown", 0, func() { r.Remove("s", "p") })
 }
+
+func TestVolumeIsValidatedAndAChange(t *testing.T) {
+	vol := func(v int) *int { return &v }
+	bad := song("music", "mbp", Playing, "one", 0)
+	bad.Volume = vol(101)
+	if _, err := NewRegistry().Report(bad, t0); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("volume 101: err = %v", err)
+	}
+	r := NewRegistry()
+	changes := 0
+	r.OnChange = func() { changes++ }
+	rep := song("music", "mbp", Playing, "one", 0)
+	rep.Volume = vol(40)
+	mustReport(t, r, rep, t0)
+	rep.Volume = vol(40) // another pointer, same value: a heartbeat
+	mustReport(t, r, rep, t0.Add(time.Second))
+	if changes != 1 {
+		t.Fatalf("same volume: %d changes, want 1", changes)
+	}
+	rep.Volume = vol(45)
+	mustReport(t, r, rep, t0.Add(2*time.Second))
+	if e, _ := r.Get("music", "mbp"); changes != 2 || e.Volume == nil || *e.Volume != 45 {
+		t.Fatalf("new volume: %d changes, entry %v", changes, e.Volume)
+	}
+	rep.Volume = nil // unknown this time: keeps 45, no change
+	mustReport(t, r, rep, t0.Add(3*time.Second))
+	if e, _ := r.Get("music", "mbp"); changes != 2 || e.Volume == nil || *e.Volume != 45 {
+		t.Fatalf("no volume: %d changes, entry %v", changes, e.Volume)
+	}
+}

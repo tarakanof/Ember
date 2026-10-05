@@ -20,6 +20,11 @@ type fakePlex struct {
 	sessions  string
 	photoHits []string
 	badToken  bool
+	// Player control (#280): requests to /player/*, as "path?query target",
+	// the timeline volume (empty: none) and a status for playback commands.
+	playerHits  []string
+	timelineVol string
+	playerCode  int
 }
 
 func newFakePlex(t *testing.T, art []byte) (*fakePlex, *httptest.Server) {
@@ -39,7 +44,26 @@ func newFakePlex(t *testing.T, art []byte) (*fakePlex, *httptest.Server) {
 		case "/photo/:/transcode":
 			f.photoHits = append(f.photoHits, r.URL.Query().Get("url"))
 			_, _ = w.Write(art)
+		case "/player/timeline/poll":
+			f.playerHits = append(f.playerHits, r.URL.Path+" "+r.Header.Get("X-Plex-Target-Client-Identifier"))
+			_, _ = w.Write([]byte(`<MediaContainer commandID="1"><Timeline type="video" state="stopped"/>` +
+				`<Timeline type="music" state="playing" volume="` + f.timelineVol + `"/></MediaContainer>`))
 		default:
+			if strings.HasPrefix(r.URL.Path, "/player/playback/") {
+				q := r.URL.Query()
+				hit := r.URL.Path + " " + r.Header.Get("X-Plex-Target-Client-Identifier") + " type=" + q.Get("type")
+				if v := q.Get("volume"); v != "" {
+					hit += " volume=" + v
+				}
+				if q.Get("commandID") == "" || r.Header.Get("X-Plex-Client-Identifier") == "" {
+					hit += " MISSING-IDS"
+				}
+				f.playerHits = append(f.playerHits, hit)
+				if f.playerCode != 0 {
+					w.WriteHeader(f.playerCode)
+				}
+				return
+			}
 			http.NotFound(w, r)
 		}
 	}))

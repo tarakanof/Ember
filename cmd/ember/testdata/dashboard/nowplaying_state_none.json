@@ -10,5 +10,6 @@
   "updated_at": null,
   "art_version": null,
   "has_album_art": false,
-  "has_artist_art": false
+  "has_artist_art": false,
+  "volume": null
 }

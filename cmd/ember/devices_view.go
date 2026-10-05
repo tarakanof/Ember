@@ -101,6 +101,8 @@ type knobNowPlaying struct {
 	ArtVersion string `json:"art_version,omitempty"`
 	AlbumArt   bool   `json:"album_art,omitempty"`
 	ArtistArt  bool   `json:"artist_art,omitempty"`
+	// Volume is the player's level 0-100 (#280), left out when unknown.
+	Volume *int `json:"volume,omitempty"`
 }
 
 // knobNowPlayingPage is the knob page id that opts a device into the block.
@@ -164,6 +166,7 @@ func (a *App) knobNowPlaying(now time.Time) *knobNowPlaying {
 		ArtVersion: e.ArtVersion(),
 		AlbumArt:   e.AlbumArt != nil,
 		ArtistArt:  e.ArtistArt != nil,
+		Volume:     e.Volume,
 	}
 }
 

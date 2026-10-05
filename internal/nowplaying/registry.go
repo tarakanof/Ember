@@ -72,6 +72,10 @@ type Report struct {
 	TrackID    string `json:"track_id"`
 	DurationMS int64  `json:"duration_ms"`
 	PositionMS int64  `json:"position_ms"`
+	// Volume is the player's own volume, 0-100 (Music's sound volume, not
+	// the Mac's); nil when the source can't tell, which keeps the player's
+	// last known volume.
+	Volume *int `json:"volume,omitempty"`
 }
 
 // Validate checks a report's identity, state and text lengths.
@@ -101,7 +105,20 @@ func (r Report) Validate() error {
 	if r.DurationMS < 0 || r.PositionMS < 0 {
 		return fmt.Errorf("%w: duration_ms and position_ms must be >= 0", ErrInvalid)
 	}
+	if r.Volume != nil && (*r.Volume < 0 || *r.Volume > 100) {
+		return fmt.Errorf("%w: volume must be 0-100", ErrInvalid)
+	}
 	return nil
+}
+
+// equal compares two reports by value (Volume is a pointer).
+func (r Report) equal(o Report) bool {
+	rv, ov := r.Volume, o.Volume
+	r.Volume, o.Volume = nil, nil
+	if r != o || (rv == nil) != (ov == nil) {
+		return false
+	}
+	return rv == nil || *rv == *ov
 }
 
 func (r Report) track() string {
@@ -236,6 +253,9 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 	if old == nil {
 		r.evictLocked(now)
 	}
+	if rep.Volume == nil && old != nil {
+		rep.Volume = old.Volume // a report without a volume keeps the last known one
+	}
 	next := &Entry{Report: rep, PositionAt: now, StateSince: now, UpdatedAt: now}
 	if old == nil || old.track() != rep.track() {
 		r.entries[k] = next
@@ -254,7 +274,7 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 	// A heartbeat: same report, position within the seek tolerance (kept).
 	same := rep
 	same.PositionMS = old.PositionMS
-	if same != old.Report || !next.PositionAt.Equal(old.PositionAt) {
+	if !same.equal(old.Report) || !next.PositionAt.Equal(old.PositionAt) {
 		r.changedLocked()
 	}
 	return false, nil

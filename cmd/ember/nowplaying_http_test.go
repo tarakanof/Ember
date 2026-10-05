@@ -111,7 +111,7 @@ func TestNowPlayingStateGolden(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	assertGolden(t, "nowplaying_state_none", app.nowPlayingState(goldenNow))
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Teardrop",
-		Artist: "Massive Attack", Album: "Mezzanine", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000}
+		Artist: "Massive Attack", Album: "Mezzanine", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000, Volume: new(40)}
 	if _, err := app.nowPlaying.reg.Report(rep, goldenNow); err != nil {
 		t.Fatal(err)
 	}

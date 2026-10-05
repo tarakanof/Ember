@@ -69,6 +69,8 @@ type plexSource struct {
 	artFailed  map[string]bool // art paths that failed; logged once, retried each poll
 	track      string          // ratingKey and viewOffset of the last poll, to tell a
 	offset     int64           // fresh timeline update from a repeated stale one
+
+	ctl plexControl // shared with the control requests
 }
 
 func newPlexSource(cfg plexConfig) *plexSource {
@@ -78,7 +80,8 @@ func newPlexSource(cfg plexConfig) *plexSource {
 			return http.ErrUseLastResponse
 		},
 	}
-	return &plexSource{cfg: cfg, client: client, nudge: make(chan struct{}, 1), artFailed: make(map[string]bool)}
+	return &plexSource{cfg: cfg, client: client, nudge: make(chan struct{}, 1), artFailed: make(map[string]bool),
+		ctl: plexControl{targets: make(map[string]string), volumes: make(map[string]int)}}
 }
 
 // wake asks the poller to poll now.
@@ -159,6 +162,8 @@ func (p *plexSource) poll(ctx context.Context, np *nowPlayingService, logger *sl
 		np.reg.Remove(plexSourceID, p.player)
 	}
 	p.player = player
+	target := s.Player.MachineIdentifier
+	p.ctl.setTarget(player, target)
 	artist := s.GrandparentTitle
 	if s.OriginalTitle != "" {
 		artist = s.OriginalTitle
@@ -171,6 +176,7 @@ func (p *plexSource) poll(ctx context.Context, np *nowPlayingService, logger *sl
 		Source: plexSourceID, Player: player, State: state,
 		Title: truncRunes(s.Title, 200), Artist: truncRunes(artist, 200), Album: truncRunes(s.ParentTitle, 200),
 		TrackID: truncRunes(s.RatingKey, 128), DurationMS: max(s.Duration, 0), PositionMS: max(s.ViewOffset, 0),
+		Volume: p.ctl.volume(target),
 	}
 	if rep.TrackID == p.track && s.ViewOffset == p.offset {
 		if e, ok := np.reg.Get(plexSourceID, player); ok && e.TrackID == rep.TrackID && e.State == state {
