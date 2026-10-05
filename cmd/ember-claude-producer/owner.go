@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -71,14 +73,31 @@ func resolveOwner(startPID int, info func(int) (ppid int, comm string, ok bool))
 }
 
 var ownerAlive = func(pid int, start string) bool {
-	cur, ok := procStart(pid)
+	return ownerAliveWith(pid, start, procStart, pidExists)
+}
+
+// ownerAliveWith reports whether pid is still the process that started at
+// start. When the start time cannot be read (ps failed, e.g. a ps without
+// lstart), the owner counts as dead only if the pid is gone: a lookup
+// failure must not reap a live session.
+func ownerAliveWith(pid int, start string, startOf func(int) (string, bool), exists func(int) bool) bool {
+	cur, ok := startOf(pid)
 	if !ok {
-		return false
+		return exists(pid)
 	}
 	if start == "" {
 		return true
 	}
 	return cur == start
+}
+
+// pidExists probes pid with signal 0; EPERM means it exists under another user.
+func pidExists(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func markerOwner(markerP string) (pid int, start string, ok bool) {

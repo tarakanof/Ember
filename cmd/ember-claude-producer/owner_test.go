@@ -170,3 +170,39 @@ func TestResolveOwnerSkipsLinuxTruncatedProducerComm(t *testing.T) {
 		t.Fatalf("owner = %d, want 100 (claude)", got)
 	}
 }
+
+func TestOwnerAliveWith(t *testing.T) {
+	startOK := func(s string) func(int) (string, bool) { return func(int) (string, bool) { return s, true } }
+	startFail := func(int) (string, bool) { return "", false }
+	yes := func(int) bool { return true }
+	no := func(int) bool { return false }
+	for _, tc := range []struct {
+		name   string
+		start  string
+		of     func(int) (string, bool)
+		exists func(int) bool
+		want   bool
+	}{
+		{"same start", "Mon 1", startOK("Mon 1"), no, true},
+		{"pid reused", "Mon 1", startOK("Tue 2"), yes, false},
+		{"no recorded start", "", startOK("Tue 2"), no, true},
+		{"lookup failed, pid live", "Mon 1", startFail, yes, true},
+		{"lookup failed, pid gone", "Mon 1", startFail, no, false},
+	} {
+		if got := ownerAliveWith(42, tc.start, tc.of, tc.exists); got != tc.want {
+			t.Errorf("%s: alive = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestPidExists(t *testing.T) {
+	if !pidExists(os.Getpid()) {
+		t.Error("own pid reported gone")
+	}
+	if pidExists(0) || pidExists(-1) {
+		t.Error("non-positive pid reported live")
+	}
+	if pidExists(1 << 22) { // above every default pid_max
+		t.Error("absent pid reported live")
+	}
+}
