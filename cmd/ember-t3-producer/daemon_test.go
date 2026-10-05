@@ -120,3 +120,17 @@ func TestNoteMigrationWarnsOncePerUntestedVersion(t *testing.T) {
 		t.Fatal("same migration must warn only once")
 	}
 }
+
+func TestNoteMigrationKeyedBySchema(t *testing.T) {
+	d := newDaemon(Config{}, nil)
+	// The same id above both pins is a distinct warning per schema.
+	if !d.noteMigration(1, 60) {
+		t.Fatal("v1 migration 60 must warn")
+	}
+	if !d.noteMigration(2, 60) {
+		t.Fatal("v2 migration 60 must warn even after v1's")
+	}
+	if d.noteMigration(1, 60) || d.noteMigration(2, 60) {
+		t.Fatal("each (schema, id) must warn only once")
+	}
+}

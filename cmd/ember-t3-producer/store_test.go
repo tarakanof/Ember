@@ -393,3 +393,185 @@ func TestQueryV2UsesRecoveryIndex(t *testing.T) {
 		t.Fatalf("turn-item lookup no longer uses the recovery index:\n%s", plan.String())
 	}
 }
+
+func tidFirst(t *testing.T, snap snapshot) string {
+	t.Helper()
+	if len(snap.Threads) != 1 {
+		t.Fatalf("threads = %d, want 1", len(snap.Threads))
+	}
+	return snap.Threads[0].Title
+}
+
+func insertV1(t *testing.T, path, id, title string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`INSERT INTO projection_threads (thread_id, project_id, title, model, created_at, updated_at, pending_approval_count, pending_user_input_count, archived_at, deleted_at)
+	 VALUES (?, 'p', ?, 'gpt-5', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', 0, 0, NULL, NULL)`, id, title); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStoreReaderReusesHandleAndSeesNewRows(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "state.sqlite", "schema_v1.sql",
+		`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (54, 'x')`)
+	path := filepath.Join(home, "userdata", "state.sqlite")
+	insertV1(t, path, "a", "first")
+	r := &storeReader{}
+	defer r.Close()
+	snap, err := r.Read(context.Background(), home)
+	if err != nil || tidFirst(t, snap) != "first" {
+		t.Fatalf("first read: %v %v", snap, err)
+	}
+	db1 := r.db
+	insertV1(t, path, "b", "second")
+	snap, err = r.Read(context.Background(), home)
+	if err != nil || len(snap.Threads) != 2 {
+		t.Fatalf("second read: %v %v", snap, err)
+	}
+	if r.db != db1 {
+		t.Fatal("handle must be reused across reads of the same file")
+	}
+}
+
+func TestStoreReaderReopensWhenFileReplaced(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	path := filepath.Join(home, "userdata", "state.sqlite")
+	insertV1(t, path, "a", "old")
+	r := &storeReader{}
+	defer r.Close()
+	if snap, err := r.Read(context.Background(), home); err != nil || tidFirst(t, snap) != "old" {
+		t.Fatalf("read old: %v %v", snap, err)
+	}
+	db1 := r.db
+	if err := os.Rename(path, path+".bak"); err != nil {
+		t.Fatal(err)
+	}
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	insertV1(t, path, "z", "replacement")
+	snap, err := r.Read(context.Background(), home)
+	if err != nil || tidFirst(t, snap) != "replacement" {
+		t.Fatalf("read after replace: %v %v", snap, err)
+	}
+	if r.db == db1 {
+		t.Fatal("handle must be reopened when the file is replaced")
+	}
+}
+
+func TestStoreReaderReopensAfterFailureAndWhenFileVanishes(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	path := filepath.Join(home, "userdata", "state.sqlite")
+	insertV1(t, path, "a", "t")
+	r := &storeReader{}
+	defer r.Close()
+	if _, err := r.Read(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	// A read failure (here: a cancelled context) drops the handle.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := r.Read(ctx, home); err == nil {
+		t.Fatal("cancelled read must fail")
+	}
+	if r.db != nil {
+		t.Fatal("handle must be dropped after a failed read")
+	}
+	if snap, err := r.Read(context.Background(), home); err != nil || tidFirst(t, snap) != "t" {
+		t.Fatalf("read after failure: %v %v", snap, err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Read(context.Background(), home); !errors.Is(err, errNoDatabase) {
+		t.Fatalf("err = %v, want errNoDatabase", err)
+	}
+	if r.db != nil {
+		t.Fatal("handle must be closed when the database is gone")
+	}
+}
+
+// T3 runs its database in WAL mode with a writer that stays open; a reused
+// read-only handle must keep seeing commits, checkpoints and a VACUUM.
+func TestStoreReaderFollowsAHeldWALWriter(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	path := filepath.Join(home, "userdata", "state.sqlite")
+	w, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	w.SetMaxOpenConns(1)
+	if _, err := w.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		t.Fatal(err)
+	}
+	add := func(id string) {
+		t.Helper()
+		if _, err := w.Exec(`INSERT INTO projection_threads (thread_id, project_id, title, model, created_at, updated_at, pending_approval_count, pending_user_input_count, archived_at, deleted_at)
+		 VALUES (?, 'p', ?, 'gpt-5', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', 0, 0, NULL, NULL)`, id, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &storeReader{}
+	defer r.Close()
+	want := 0
+	check := func(step string) {
+		t.Helper()
+		snap, err := r.Read(context.Background(), home)
+		if err != nil || len(snap.Threads) != want {
+			t.Fatalf("%s: threads=%d err=%v, want %d", step, len(snap.Threads), err, want)
+		}
+	}
+	add("a")
+	want++
+	check("first commit")
+	db1 := r.db
+	add("b")
+	want++
+	check("commit in WAL")
+	var busy, logFrames, ckpt int
+	if err := w.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logFrames, &ckpt); err != nil || busy != 0 {
+		t.Fatalf("checkpoint blocked by the idle reader: busy=%d err=%v", busy, err)
+	}
+	check("after checkpoint")
+	add("c")
+	want++
+	check("commit after checkpoint")
+	if _, err := w.Exec(`VACUUM`); err != nil {
+		t.Fatal(err)
+	}
+	check("after VACUUM")
+	add("d")
+	want++
+	check("commit after VACUUM")
+	if r.db != db1 {
+		t.Fatal("the handle should have survived commits, checkpoint and VACUUM")
+	}
+}
+
+func TestDaemonPollClosesHandleWhileT3IsDown(t *testing.T) {
+	home := t.TempDir()
+	makeDB(t, home, "state.sqlite", "schema_v1.sql")
+	d := newDaemon(Config{T3Home: home}, nil)
+	up := true
+	d.alive = func(string) bool { return up }
+	if _, err := d.store.Read(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	if d.store.db == nil {
+		t.Fatal("expected an open handle while T3 is up")
+	}
+	up = false
+	if err := d.poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d.store.db != nil {
+		t.Fatal("handle must be closed while T3 is down")
+	}
+}

@@ -19,7 +19,8 @@ const (
 )
 
 // pinnedMigrations is the newest effect_sql_migrations id verified per schema:
-// v1 = T3 Code v0.0.45, v2 = T3 Code v0.0.46-preview.20261002.2598. A newer id
+// v1 = T3 Code v0.0.45, v2 = T3 Code v0.0.46-preview.20261002.2598
+// (T3 main and the 0.0.46 nightlies through 2026-10-05 still end at 56). A newer id
 // is logged once and still read; a missing table or column is a soft failure.
 var pinnedMigrations = map[int]int{1: 54, 2: 56}
 
@@ -31,7 +32,8 @@ type daemon struct {
 	watcher *watcher
 	now     func() time.Time
 	alive   func(home string) bool
-	warned  map[int]bool
+	warned  map[[2]int]bool
+	store   *storeReader
 }
 
 func newDaemon(cfg Config, client *producer.Client) *daemon {
@@ -41,7 +43,8 @@ func newDaemon(cfg Config, client *producer.Client) *daemon {
 		watcher: newWatcher(cfg),
 		now:     time.Now,
 		alive:   func(home string) bool { return serverAlive(home, pidAlive) },
-		warned:  map[int]bool{},
+		warned:  map[[2]int]bool{},
+		store:   &storeReader{},
 	}
 }
 
@@ -66,6 +69,7 @@ func runDaemon() {
 	}
 	sweepMarkers(cfg.StateDir)
 	d := newDaemon(cfg, client)
+	defer d.store.Close()
 
 	base := time.Duration(cfg.PollIntervalMs) * time.Millisecond
 	failures := 0
@@ -93,10 +97,13 @@ func runDaemon() {
 // so the loop can back off.
 func (d *daemon) poll(ctx context.Context) error {
 	if !d.alive(d.cfg.T3Home) {
+		// Hold no handle on T3's files while it is down (T3's last close can
+		// then remove the -wal/-shm files; an uninstall or restore is not blocked).
+		d.store.Close()
 		d.send(ctx, nil, d.watcher.dropAll())
 		return nil
 	}
-	snap, err := readSnapshot(ctx, d.cfg.T3Home)
+	snap, err := d.store.Read(ctx, d.cfg.T3Home)
 	if err != nil {
 		return err
 	}
@@ -112,10 +119,10 @@ func (d *daemon) poll(ctx context.Context) error {
 // noteMigration reports whether migration is newer than the pinned one for
 // schema and has not been reported yet.
 func (d *daemon) noteMigration(schema, migration int) bool {
-	if migration <= pinnedMigrations[schema] || d.warned[migration] {
+	if migration <= pinnedMigrations[schema] || d.warned[[2]int{schema, migration}] {
 		return false
 	}
-	d.warned[migration] = true
+	d.warned[[2]int{schema, migration}] = true
 	return true
 }
 

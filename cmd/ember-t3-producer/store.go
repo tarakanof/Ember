@@ -52,22 +52,72 @@ type snapshot struct {
 	Threads   []thread
 }
 
-// readSnapshot reads every non-deleted thread from the T3 database under home.
-// When both files exist the most recently written one wins: the v2 server
+// readSnapshot reads every non-deleted thread from the T3 database under home
+// with a throwaway reader; the daemon keeps a storeReader across polls instead.
+func readSnapshot(ctx context.Context, home string) (snapshot, error) {
+	r := &storeReader{}
+	defer r.Close()
+	return r.Read(ctx, home)
+}
+
+// storeReader keeps one read-only handle per database file across polls (the
+// daemon reads every 2 s) and reopens it when the file is replaced, the
+// producer switches between the v1 and v2 files, or a read fails (a WAL or
+// I/O error leaves a handle worth discarding). It never writes to T3's files.
+type storeReader struct {
+	path string
+	info os.FileInfo // identity of the file the handle was opened on
+	db   *sql.DB
+}
+
+// Read reads every non-deleted thread from the T3 database under home. When
+// both files exist the most recently written one wins: the v2 server
 // (T3 >= 0.0.46) imports state.sqlite and then leaves it untouched, and after
 // a downgrade to 0.0.45 statev2.sqlite is the stale one.
-func readSnapshot(ctx context.Context, home string) (snapshot, error) {
+func (r *storeReader) Read(ctx context.Context, home string) (snapshot, error) {
 	dir := filepath.Join(home, "userdata")
 	v1, v2 := filepath.Join(dir, "state.sqlite"), filepath.Join(dir, "statev2.sqlite")
 	m1, ok1 := dbModTime(v1)
 	m2, ok2 := dbModTime(v2)
 	switch {
 	case ok2 && (!ok1 || !m1.After(m2)):
-		return readWith(ctx, v2, 2, v2Tables, queryV2)
+		return r.readWith(ctx, v2, 2, v2Tables, queryV2)
 	case ok1:
-		return readWith(ctx, v1, 1, v1Tables, queryV1)
+		return r.readWith(ctx, v1, 1, v1Tables, queryV1)
 	}
+	r.Close()
 	return snapshot{}, errNoDatabase
+}
+
+// Close drops the open handle, if any.
+func (r *storeReader) Close() {
+	if r.db != nil {
+		r.db.Close()
+	}
+	r.db, r.path, r.info = nil, "", nil
+}
+
+// handle returns the open handle for path, reopening it when path changed or
+// the file at path is no longer the one the handle was opened on.
+func (r *storeReader) handle(path string) (*sql.DB, error) {
+	// sql.Open is lazy: a file replaced between this Stat and the first query
+	// records the old identity and costs one extra reopen on the next poll.
+	info, err := os.Stat(path)
+	if err != nil {
+		r.Close()
+		return nil, err
+	}
+	if r.db != nil && (r.path != path || !os.SameFile(r.info, info)) {
+		r.Close()
+	}
+	if r.db == nil {
+		db, err := openReadOnly(path)
+		if err != nil {
+			return nil, err
+		}
+		r.db, r.path, r.info = db, path, info
+	}
+	return r.db, nil
 }
 
 // dbModTime is the newer mtime of a database and its WAL; in WAL mode
@@ -94,12 +144,20 @@ var (
 	}
 )
 
-func readWith(ctx context.Context, path string, schema int, tables []string, query string) (snapshot, error) {
-	db, err := openReadOnly(path)
+func (r *storeReader) readWith(ctx context.Context, path string, schema int, tables []string, query string) (snapshot, error) {
+	db, err := r.handle(path)
 	if err != nil {
 		return snapshot{}, err
 	}
-	defer db.Close()
+	snap, err := readTables(ctx, db, path, schema, tables, query)
+	if err != nil && !errors.Is(err, errUnknownSchema) {
+		// Not a schema problem: the handle may be the broken part.
+		r.Close()
+	}
+	return snap, err
+}
+
+func readTables(ctx context.Context, db *sql.DB, path string, schema int, tables []string, query string) (snapshot, error) {
 	for _, tbl := range tables {
 		var n int
 		if err := db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl).Scan(&n); err != nil {
