@@ -65,16 +65,3 @@ func TestFailureLogger_DifferentKindsThrottledIndependently(t *testing.T) {
 		t.Error("a different kind should not be throttled by another kind's history")
 	}
 }
-
-func TestFailureLogger_ResetClearsThrottleState(t *testing.T) {
-	var buf bytes.Buffer
-	f := NewFailureLogger(time.Minute)
-	logger := newTestLogger(&buf)
-	f.Warn(logger, "post", "status POST failed")
-	f.Reset()
-	buf.Reset()
-	logged := f.Warn(logger, "post", "status POST failed")
-	if !logged {
-		t.Error("Warn after Reset should log again")
-	}
-}

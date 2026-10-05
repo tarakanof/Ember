@@ -74,7 +74,7 @@ func TestRunOnce_WritesAndRemovesMarker(t *testing.T) {
 }
 
 func TestRunOnce_WarnsOnPostFailure(t *testing.T) {
-	daemonFailLog.Reset()
+	daemonFailLog = producer.NewFailureLogger(time.Minute)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))

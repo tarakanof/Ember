@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -105,10 +104,6 @@ func skipJSONValue(dec *json.Decoder) error {
 			return nil
 		}
 	}
-}
-
-func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
-	dispatchHookFrom(ctx, event, bytes.NewReader(stdin), cfg)
 }
 
 func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config) {

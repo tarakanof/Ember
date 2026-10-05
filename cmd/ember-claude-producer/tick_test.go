@@ -369,7 +369,7 @@ func TestTick_LegacyMarkerNoToolField_TreatedAsClaude(t *testing.T) {
 }
 
 func TestDispatchTick_WarnsOnPostFailure(t *testing.T) {
-	tickFailLog.Reset()
+	tickFailLog = producer.NewFailureLogger(time.Minute)
 	h := newHookHarness(t)
 	h.srv.Close()
 	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +405,7 @@ func TestDispatchTick_WarnsOnPostFailure(t *testing.T) {
 }
 
 func TestDispatchTick_ThrottlesRepeatedPostFailures(t *testing.T) {
-	tickFailLog.Reset()
+	tickFailLog = producer.NewFailureLogger(time.Minute)
 	h := newHookHarness(t)
 	h.srv.Close()
 	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -33,10 +33,3 @@ func (f *FailureLogger) Warn(logger *slog.Logger, kind, msg string, args ...any)
 	logger.Warn(msg, append([]any{"kind", kind}, args...)...)
 	return true
 }
-
-// Reset clears all throttle state.
-func (f *FailureLogger) Reset() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.last = map[string]time.Time{}
-}
