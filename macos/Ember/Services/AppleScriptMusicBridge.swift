@@ -35,14 +35,38 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         switch text(1) {
         case "playing", "paused":
             guard list.numberOfItems >= 7 else { return nil }
+            let volume = list.numberOfItems >= 8 ? list.atIndex(8).map { Int($0.int32Value) } : nil
             return MusicPlayerInfo(
                 state: text(1) == "playing" ? .playing : .paused,
                 name: text(2), artist: text(3), album: text(4),
                 durationMs: Int64(((list.atIndex(5)?.doubleValue ?? 0) * 1000).rounded()),
-                persistentID: text(6), position: list.atIndex(7)?.doubleValue)
+                persistentID: text(6), position: list.atIndex(7)?.doubleValue, volume: volume)
         default:
             return MusicPlayerInfo(state: .stopped)
         }
+    }
+
+    func volume() async -> Int? {
+        guard await isRunning(), let d = await run(Self.volumeScript), d.descriptorType != typeNull else { return nil }
+        return Int(d.int32Value)
+    }
+
+    /// The knob's controls (Ember #280). `run` re-checks that Music runs right
+    /// before the script, so a command never launches it.
+    func perform(_ command: NowPlayingCommand) async -> Bool {
+        let source: String
+        switch command.action {
+        case .playPause?: source = Self.playPauseScript
+        case .next?: source = Self.nextScript
+        case .previous?: source = Self.previousScript
+        case .volume?:
+            guard command.delta != 0 else { return true }
+            // Clamped to an integer first, so the script text is a small literal.
+            source = Self.volumeChangeScript(delta: min(max(command.delta, -100), 100))
+        case nil: return false
+        }
+        guard await isRunning() else { return false }
+        return await run(source, cache: command.action != .volume) != nil
     }
 
     /// Ember's Automation permission for Music: nil when macOS can't say
@@ -65,7 +89,8 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         }
     }
 
-    private func run(_ source: String) async -> NSAppleEventDescriptor? {
+    /// `cache: false` for one-off scripts (volume deltas), so `compiled` stays small.
+    private func run(_ source: String, cache: Bool = true) async -> NSAppleEventDescriptor? {
         await withCheckedContinuation { cont in
             queue.async {
                 guard !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty else {
@@ -73,7 +98,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
                     return
                 }
                 let script = self.compiled[source] ?? NSAppleScript(source: source)
-                self.compiled[source] = script
+                if cache { self.compiled[source] = script }
                 var error: NSDictionary?
                 let result = script?.executeAndReturnError(&error)
                 if let error {
@@ -90,6 +115,21 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     /// errAENoSuchObject: no artwork, or nothing playing; expected, not logged.
     private static let noSuchObject = -1728
 
+    private static let volumeScript = #"tell application id "com.apple.Music" to get sound volume"#
+    private static let playPauseScript = #"tell application id "com.apple.Music" to playpause"#
+    private static let nextScript = #"tell application id "com.apple.Music" to next track"#
+    private static let previousScript = #"tell application id "com.apple.Music" to previous track"#
+    private static func volumeChangeScript(delta: Int) -> String {
+        """
+        tell application id "com.apple.Music"
+            set v to (sound volume) + (\(delta))
+            if v < 0 then set v to 0
+            if v > 100 then set v to 100
+            set sound volume to v
+            return v
+        end tell
+        """
+    }
     private static let positionScript = #"tell application id "com.apple.Music" to get player position"#
     private static let artworkScript = #"""
     tell application id "com.apple.Music"
@@ -105,7 +145,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         try
             set d to duration of t
         end try
-        return {(player state as text), (name of t), (artist of t), (album of t), d, (persistent ID of t), player position}
+        return {(player state as text), (name of t), (artist of t), (album of t), d, (persistent ID of t), player position, sound volume}
     end tell
     """#
 }
