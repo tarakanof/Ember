@@ -119,13 +119,13 @@ func (a *App) routes() http.Handler {
 
 	mux.Handle("POST /v1/devices/self/checkin", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceCheckin))))
 	mux.Handle("GET /v1/devices/self/config", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceSelfConfig))))
-	mux.Handle("GET /v1/devices/self/view", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceSelfView))))
+	mux.Handle("GET /v1/devices/self/view", rateLimitAuthFailures(a, nil, a.perDevice(a.viewLimit, http.HandlerFunc(a.handleDeviceSelfView))))
 	mux.Handle("POST /v1/pomodoro/start", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroStart))))
 	mux.Handle("POST /v1/pomodoro/pause", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroPause))))
 	mux.Handle("POST /v1/pomodoro/resume", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroResume))))
 	mux.Handle("POST /v1/pomodoro/stop", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroStop))))
 	mux.Handle("POST /v1/pomodoro/skip", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroSkip))))
-	mux.Handle("POST /v1/nowplaying/control", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handleNowPlayingControl))))
+	mux.Handle("POST /v1/nowplaying/control", rateLimitAuthFailures(a, http.HandlerFunc(a.handleNowPlayingControl), http.HandlerFunc(a.handleNowPlayingControl)))
 
 	adminMux := http.NewServeMux()
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))

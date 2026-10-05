@@ -73,6 +73,14 @@ func TestControlAcceptsKnobDeviceToken(t *testing.T) {
 	}
 	go func() { _, _ = app.nowPlaying.commands.take(context.Background(), "M4", 2*time.Second) }()
 	waitPolling(t, app.nowPlaying.commands, "M4")
+	// Least privilege: only a knob showing the now-playing page may control.
+	if code, _, b := control(t, srv, knob.Token, `{"action":"play_pause"}`, "k1"); code != http.StatusForbidden {
+		t.Fatalf("page off: %d %s", code, b)
+	}
+	if resp, b := devReq(t, srv, "PUT", "/v1/devices/"+knob.ID+"/config", testToken,
+		`{"pages":[{"id":"bot","on":true},{"id":"nowplaying","on":true}]}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("enable page: %d %s", resp.StatusCode, b)
+	}
 	if code, res, b := control(t, srv, knob.Token, `{"action":"play_pause"}`, "k1"); code != http.StatusAccepted ||
 		res.Status != "queued" || res.Source != "music" {
 		t.Fatalf("device token: %d %s", code, b)
@@ -149,20 +157,31 @@ func TestControlIdempotencyKeyStopsDoubleSkip(t *testing.T) {
 func TestControlKeysAreScopedPerCaller(t *testing.T) {
 	var k controlKeys
 	now := time.Now()
-	if !k.claim("device:a\x00k", now) || !k.claim("owner\x00k", now) {
+	if !k.claim("device:a", "k", now) || !k.claim("owner", "k", now) {
 		t.Fatal("same key from two callers must both pass")
 	}
-	if k.claim("owner\x00k", now.Add(controlKeyTTL-time.Second)) {
+	if k.claim("owner", "k", now.Add(controlKeyTTL-time.Second)) {
 		t.Fatal("duplicate within the TTL passed")
 	}
-	if !k.claim("owner\x00k", now.Add(controlKeyTTL)) {
+	if !k.claim("owner", "k", now.Add(controlKeyTTL)) {
 		t.Fatal("key not forgotten after the TTL")
 	}
-	for i := range controlKeysMax + 10 {
-		k.claim("x"+strconv.Itoa(i)+strings.Repeat("y", i), now)
+	// A busy caller fills only its own share: the knob's key survives.
+	k.claim("device:knob", "press-1", now)
+	for i := range controlKeysPerCaller * 3 {
+		k.claim("owner", "x"+strconv.Itoa(i), now)
 	}
-	if len(k.seen) > controlKeysMax {
-		t.Fatalf("keys unbounded: %d", len(k.seen))
+	if len(k.callers["owner"]) > controlKeysPerCaller {
+		t.Fatalf("keys unbounded: %d", len(k.callers["owner"]))
+	}
+	if k.claim("device:knob", "press-1", now.Add(time.Minute)) {
+		t.Fatal("another caller's burst evicted the knob's key")
+	}
+	for i := range controlCallersMax * 2 {
+		k.claim("c"+strconv.Itoa(i), "k", now)
+	}
+	if len(k.callers) > controlCallersMax {
+		t.Fatalf("callers unbounded: %d", len(k.callers))
 	}
 }
 
@@ -214,21 +233,25 @@ func TestCommandsLongPollWakesOnPush(t *testing.T) {
 	}
 }
 
-func TestControlVolumeIsRateLimited(t *testing.T) {
+func TestControlIsRateLimitedPerCaller(t *testing.T) {
 	app, srv := npServer(t)
 	playMusic(t, app, "M4")
 	pollCommands(t, srv, "M4", 0)
 	limited := 0
-	for range volumeBurst + 5 {
-		if code, _, _ := control(t, srv, testToken, `{"action":"volume","delta":1}`, ""); code == http.StatusTooManyRequests {
+	for i := range controlBurst + 5 {
+		code, _, _ := control(t, srv, testToken, `{"action":"volume","delta":1}`, "v"+strconv.Itoa(i))
+		if code == http.StatusTooManyRequests {
 			limited++
 		}
 	}
 	if limited == 0 {
-		t.Fatal("no volume step was limited")
+		t.Fatal("no step was limited")
 	}
-	if code, _, _ := control(t, srv, testToken, `{"action":"next"}`, ""); code != http.StatusAccepted {
-		t.Fatalf("other actions limited too: %d", code)
+	// A limited key was released: a later retry of it is not a "duplicate".
+	app.nowPlaying.controlLimit = &callerLimiter{burst: controlBurst, perSec: controlPerSec}
+	if code, res, _ := control(t, srv, testToken, `{"action":"next"}`, "v"+strconv.Itoa(controlBurst+4)); code != http.StatusAccepted ||
+		res.Status != "queued" {
+		t.Fatalf("retry of a limited key: %d %+v", code, res)
 	}
 }
 
@@ -281,7 +304,8 @@ func TestControlPlexVolumeReadsTimelineThenSteps(t *testing.T) {
 	fake.mu.Lock()
 	hits := strings.Join(fake.playerHits, "\n")
 	fake.mu.Unlock()
-	want := "/player/timeline/poll amp-1\n" +
+	want := "/player/timeline/poll amp-1\n" + // the setup poll: no level yet
+		"/player/timeline/poll amp-1\n" +
 		"/player/playback/setParameters amp-1 type=music volume=100\n" +
 		"/player/playback/setParameters amp-1 type=music volume=90"
 	if hits != want {
@@ -337,5 +361,124 @@ func TestKnobViewCarriesVolume(t *testing.T) {
 	b, _ := json.Marshal(app.knobNowPlaying(time.Now()))
 	if !strings.Contains(string(b), `"volume":35`) {
 		t.Fatalf("block = %s", b)
+	}
+}
+
+func TestControlPlexVolumeRereadsAStaleLevel(t *testing.T) {
+	app, srv, fake := plexControlApp(t)
+	now := time.Now()
+	app.nowPlaying.plex.ctl.now = func() time.Time { return now }
+	fake.mu.Lock()
+	fake.timelineVol = "80"
+	fake.mu.Unlock()
+	control(t, srv, testToken, `{"action":"volume","delta":2}`, "") // 80 -> 82
+	// The level is changed on the phone; past the TTL a step reads it again.
+	fake.mu.Lock()
+	fake.timelineVol = "10"
+	fake.mu.Unlock()
+	now = now.Add(plexVolumeTTL + time.Second)
+	code, res, b := control(t, srv, testToken, `{"action":"volume","delta":2}`, "")
+	if code != http.StatusOK || res.Volume == nil || *res.Volume != 12 {
+		t.Fatalf("stale level: %d %s, want 12 (never 84)", code, b)
+	}
+	// Within the TTL (a continuous turn) the level set is the base.
+	code, res, _ = control(t, srv, testToken, `{"action":"volume","delta":2}`, "")
+	if code != http.StatusOK || *res.Volume != 14 {
+		t.Fatalf("continuous turn: %d %v", code, res.Volume)
+	}
+}
+
+func TestControlPlexPlayPauseFollowsWhatWasCommanded(t *testing.T) {
+	_, srv, fake := plexControlApp(t)
+	last := func() string {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		return fake.playerHits[len(fake.playerHits)-1]
+	}
+	// Two quick toggles before the poller sees the first: pause, then play.
+	control(t, srv, testToken, `{"action":"play_pause"}`, "")
+	if l := last(); l != "/player/playback/pause amp-1 type=music" {
+		t.Fatalf("first toggle: %s", l)
+	}
+	control(t, srv, testToken, `{"action":"play_pause"}`, "")
+	if l := last(); l != "/player/playback/play amp-1 type=music" {
+		t.Fatalf("second toggle: %s", l)
+	}
+	control(t, srv, testToken, `{"action":"play"}`, "")
+	if l := last(); l != "/player/playback/play amp-1 type=music" {
+		t.Fatalf("explicit play: %s", l)
+	}
+	control(t, srv, testToken, `{"action":"pause"}`, "")
+	if l := last(); l != "/player/playback/pause amp-1 type=music" {
+		t.Fatalf("explicit pause: %s", l)
+	}
+}
+
+func TestControlRefusesWhenTheShownTrackChanged(t *testing.T) {
+	app, srv := npServer(t)
+	playMusic(t, app, "M4")
+	pollCommands(t, srv, "M4", 0)
+	for _, body := range []string{`{"action":"next","source":"plex"}`, `{"action":"next","track_id":"T9"}`,
+		`{"action":"next","source":"music","player":"Other"}`} {
+		if code, _, b := control(t, srv, testToken, body, "same"); code != http.StatusConflict {
+			t.Fatalf("%s: %d %s", body, code, b)
+		}
+	}
+	// The key was released (nothing sent): the corrected press goes through.
+	if code, _, b := control(t, srv, testToken, `{"action":"next","source":"music","track_id":"T1"}`, "same"); code != http.StatusAccepted {
+		t.Fatalf("matching target: %d %s", code, b)
+	}
+	if got := pollCommands(t, srv, "M4", 0); len(got) != 1 {
+		t.Fatalf("commands = %+v", got)
+	}
+}
+
+func TestCommandsCarryTheirAge(t *testing.T) {
+	q := newCommandQueue()
+	now := time.Now()
+	q.clock = func() time.Time { return now }
+	_, _ = q.take(context.Background(), "M4", 0)
+	_ = q.push("M4", controlRequest{Action: actNext})
+	now = now.Add(1200 * time.Millisecond)
+	cmds, _ := q.take(context.Background(), "M4", 0)
+	if len(cmds) != 1 || cmds[0].AgeMS != 1200 {
+		t.Fatalf("cmds = %+v", cmds)
+	}
+}
+
+// A knob turning at 5 Hz for 20 s with a view re-arm after each step must
+// never be limited per IP (its token is valid); bad tokens still are.
+func TestKnobBurstIsNotChargedPerIP(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	cfg := *app.cfg.Load()
+	cfg.RateLimit.Disabled = false
+	cfg.RateLimit.Burst, cfg.RateLimit.RefillPerSec = 60, 5
+	app.cfg.Store(&cfg)
+	now := time.Now()
+	clock := func() time.Time { return now }
+	app.limiter.clock, app.viewLimit.clock, app.nowPlaying.controlLimit.clock = clock, clock, clock
+	knob := mintKnob(t, srv, http.StatusCreated)
+	devReq(t, srv, "PUT", "/v1/devices/"+knob.ID+"/config", testToken, `{"pages":[{"id":"nowplaying","on":true}]}`)
+	playMusic(t, app, "M4")
+	go func() { _, _ = app.nowPlaying.commands.take(context.Background(), "M4", 25*time.Second) }()
+	waitPolling(t, app.nowPlaying.commands, "M4")
+	for i := range 100 {
+		now = now.Add(200 * time.Millisecond)
+		if code, _, b := control(t, srv, knob.Token, `{"action":"volume","delta":1}`, "s"+strconv.Itoa(i)); code == http.StatusTooManyRequests {
+			t.Fatalf("step %d limited: %s", i, b)
+		}
+		if resp, b := devReq(t, srv, "GET", "/v1/devices/self/view", knob.Token, ""); resp.StatusCode == http.StatusTooManyRequests {
+			t.Fatalf("view %d limited: %s", i, b)
+		}
+	}
+	limited := false
+	for range 80 {
+		if resp, _ := devReq(t, srv, "GET", "/v1/devices/self/view", "bad-token", ""); resp.StatusCode == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("failed tokens were never limited")
 	}
 }

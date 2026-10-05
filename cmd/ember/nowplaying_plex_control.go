@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
@@ -17,16 +18,42 @@ import (
 // plexClientID names Ember to Plex as the controller (X-Plex-Client-Identifier).
 const plexClientID = "ember-nowplaying"
 
+// Plex volume freshness. Sessions carry no volume; the player's timeline
+// does. A step adds to a level read or set within plexVolumeTTL (a
+// continuous turn), else reads the timeline again: the level may have
+// changed on the player, and a step from a stale one could blast. The
+// poller re-reads it every plexVolumeRefresh while a track plays.
+const (
+	plexVolumeTTL     = 5 * time.Second
+	plexVolumeRefresh = 30 * time.Second
+)
+
 // plexControl is the Plex state control requests share with the poller:
-// each player's machine identifier (the command target) and the last volume
-// read or set per target. Plex's sessions list carries no volume; the
-// player's timeline does.
+// each player's machine identifier (the command target), the last volume
+// read or set per target and the play state Ember last commanded.
 type plexControl struct {
-	mu      sync.Mutex
-	targets map[string]string // player title → machineIdentifier
-	volumes map[string]int    // machineIdentifier → 0-100
-	volMu   sync.Mutex        // one volume read-modify-write at a time
-	cmdID   atomic.Int64
+	now       func() time.Time
+	mu        sync.Mutex
+	targets   map[string]string      // player title → machineIdentifier
+	volumes   map[string]plexLevel   // machineIdentifier → level
+	commanded map[string]plexCommand // machineIdentifier → last play/pause sent
+	volMu     sync.Mutex             // one volume read-modify-write at a time
+	cmdID     atomic.Int64
+}
+
+type plexLevel struct {
+	v  int
+	at time.Time
+}
+
+type plexCommand struct {
+	state nowplaying.State
+	at    time.Time
+}
+
+func newPlexControl() plexControl {
+	return plexControl{now: time.Now, targets: make(map[string]string), volumes: make(map[string]plexLevel),
+		commanded: make(map[string]plexCommand)}
 }
 
 func (c *plexControl) setTarget(player, target string) {
@@ -44,15 +71,15 @@ func (c *plexControl) target(player string) string {
 	return c.targets[player]
 }
 
-// volume returns the target's last known volume, nil when unknown.
-func (c *plexControl) volume(target string) *int {
+// volume returns the target's level read or set within maxAge, else nil.
+func (c *plexControl) volume(target string, maxAge time.Duration) *int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	v, ok := c.volumes[target]
-	if !ok {
+	l, ok := c.volumes[target]
+	if !ok || c.now().Sub(l.at) > maxAge {
 		return nil
 	}
-	return &v
+	return &l.v
 }
 
 func (c *plexControl) setVolume(target string, v int) {
@@ -61,7 +88,28 @@ func (c *plexControl) setVolume(target string, v int) {
 	if len(c.volumes) >= 16 {
 		clear(c.volumes)
 	}
-	c.volumes[target] = v
+	c.volumes[target] = plexLevel{v, c.now()}
+}
+
+// playState is the state a play/pause toggle starts from: the one Ember
+// commanded within plexCommandedTTL (the poller may not have seen it), else
+// the entry's.
+func (c *plexControl) playState(target string, shown nowplaying.State) nowplaying.State {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cmd, ok := c.commanded[target]; ok && c.now().Sub(cmd.at) < plexCommandedTTL {
+		return cmd.state
+	}
+	return shown
+}
+
+func (c *plexControl) setCommanded(target string, st nowplaying.State) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.commanded) >= 16 {
+		clear(c.commanded)
+	}
+	c.commanded[target] = plexCommand{st, c.now()}
 }
 
 // control sends req to the Plex player of e through the server's player
@@ -74,12 +122,21 @@ func (p *plexSource) control(ctx context.Context, e nowplaying.Entry, req contro
 	res := controlResult{Status: "done", Source: plexSourceID}
 	var err error
 	switch req.Action {
-	case actPlayPause:
+	case actPlayPause, actPlay, actPause:
+		want := nowplaying.Playing
+		switch {
+		case req.Action == actPause:
+			want = nowplaying.Paused
+		case req.Action == actPlayPause && p.ctl.playState(target, e.State) == nowplaying.Playing:
+			want = nowplaying.Paused
+		}
 		cmd := "play"
-		if e.State == nowplaying.Playing {
+		if want == nowplaying.Paused {
 			cmd = "pause"
 		}
-		err = p.command(ctx, target, cmd, nil)
+		if err = p.command(ctx, target, cmd, nil); err == nil {
+			p.ctl.setCommanded(target, want)
+		}
 	case actNext:
 		err = p.command(ctx, target, "skipNext", nil)
 	case actPrevious:
@@ -102,7 +159,7 @@ func (p *plexSource) control(ctx context.Context, e nowplaying.Entry, req contro
 func (p *plexSource) stepVolume(ctx context.Context, target string, delta int) (int, error) {
 	p.ctl.volMu.Lock()
 	defer p.ctl.volMu.Unlock()
-	cur := p.ctl.volume(target)
+	cur := p.ctl.volume(target, plexVolumeTTL)
 	if cur == nil {
 		v, err := p.timelineVolume(ctx, target)
 		if err != nil {

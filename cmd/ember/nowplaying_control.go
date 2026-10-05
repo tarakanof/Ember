@@ -23,6 +23,8 @@ type controlAction string
 
 const (
 	actPlayPause controlAction = "play_pause"
+	actPlay      controlAction = "play"
+	actPause     controlAction = "pause"
 	actNext      controlAction = "next"
 	actPrevious  controlAction = "previous"
 	actVolume    controlAction = "volume"
@@ -30,10 +32,14 @@ const (
 
 const (
 	// controlKeyTTL keeps an Idempotency-Key long enough for any client
-	// retry; controlKeysMax bounds the map (oldest dropped first).
-	controlKeyTTL  = 2 * time.Minute
-	controlKeysMax = 256
-	maxControlKey  = 128
+	// retry. Keys are kept per caller, at most controlKeysPerCaller each
+	// (oldest dropped first: a long volume turn makes ~4 keys/s, so a
+	// caller's oldest keys may go before the TTL), so one busy client can't
+	// evict another's.
+	controlKeyTTL        = 2 * time.Minute
+	controlKeysPerCaller = 128
+	controlCallersMax    = 32
+	maxControlKey        = 128
 	// A queued Music command older than this is dropped, not delivered: a
 	// "next" run seconds after the press would skip a song the user already
 	// moved on from.
@@ -44,27 +50,44 @@ const (
 	commandsPerPlayer  = 8
 	commandsWaitMax    = 25 * time.Second
 	commandWaitersMax  = 8
-	// Volume steps per caller: a turn of the knob is coalesced on the knob
-	// (about 5 posts/s); more than this is a runaway client.
-	volumeBurst  = 10
-	volumePerSec = 10.0
+	// Control requests per caller (any action): the knob coalesces a turn to
+	// ~4 posts/s; more than this is a runaway client. Authenticated callers
+	// are not charged to the per-IP limiter (see deviceAuth).
+	controlBurst  = 20
+	controlPerSec = 10.0
+	// A play/pause toggle on Plex follows the state Ember last commanded for
+	// this long, since the poller may not have seen it yet.
+	plexCommandedTTL = 5 * time.Second
 )
 
 var (
 	errNothingPlaying = errors.New("nothing is playing")
 	errNoController   = errors.New("the source of the shown track can't be controlled")
 	errControlFailed  = errors.New("the player did not take the command")
+	errShownChanged   = errors.New("the shown track changed")
 )
 
 type controlRequest struct {
 	Action controlAction `json:"action"`
 	// Delta is the volume step in points (-100..100), volume only.
 	Delta int `json:"delta"`
+	// Optional: the entry the client shows. When set and the shown entry
+	// is another, the answer is 409 and nothing is sent (a "next" must not
+	// skip a player that started since the client drew its face).
+	Source  string `json:"source"`
+	Player  string `json:"player"`
+	TrackID string `json:"track_id"`
+}
+
+// matches reports whether e is the entry the request names.
+func (c controlRequest) matches(e nowplaying.Entry) bool {
+	return (c.Source == "" || c.Source == e.Source) && (c.Player == "" || c.Player == e.Player) &&
+		(c.TrackID == "" || c.TrackID == e.TrackID)
 }
 
 func (c controlRequest) validate() error {
 	switch c.Action {
-	case actPlayPause, actNext, actPrevious:
+	case actPlayPause, actPlay, actPause, actNext, actPrevious:
 		if c.Delta != 0 {
 			return errors.New("delta is for volume only")
 		}
@@ -73,7 +96,7 @@ func (c controlRequest) validate() error {
 			return errors.New("volume needs a delta of -100..100, not 0")
 		}
 	default:
-		return errors.New("action must be play_pause, next, previous or volume")
+		return errors.New("action must be play_pause, play, pause, next, previous or volume")
 	}
 	return nil
 }
@@ -116,30 +139,45 @@ func (a *App) handleNowPlayingControl(w http.ResponseWriter, r *http.Request) {
 	caller := "owner"
 	if id := deviceIDFrom(r.Context()); id != "" {
 		caller = "device:" + id
+		// Least privilege: a knob controls playback only while it shows
+		// the now-playing page.
+		cfg, _, err := a.devices.config(id)
+		if err != nil {
+			a.writeDeviceError(w, r, err)
+			return
+		}
+		if !cfg.pageOn(knobNowPlayingPage) {
+			writeError(w, http.StatusForbidden, errors.New("the device's now-playing page is off"))
+			return
+		}
 	}
 	now := time.Now()
-	if req.Action == actVolume && !a.nowPlaying.volumeLimit.allow(caller, now) {
-		w.Header().Set("Retry-After", "1")
-		writeError(w, http.StatusTooManyRequests, errors.New("volume steps too fast"))
-		return
-	}
 	key := r.Header.Get("Idempotency-Key")
 	if len(key) > maxControlKey {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("Idempotency-Key is longer than %d bytes", maxControlKey))
 		return
 	}
-	if key != "" {
-		key = caller + "\x00" + key
-		if !a.nowPlaying.controlKeys.claim(key, now) {
-			a.logger.Info("now-playing control duplicate", "action", req.Action, "caller", caller)
-			writeJSON(w, http.StatusOK, controlResult{Status: "duplicate"})
-			return
-		}
+	// The key first: a retry of a step already taken is a duplicate, and
+	// spends no limiter token.
+	if !a.nowPlaying.controlKeys.claim(caller, key, now) {
+		a.logger.Info("now-playing control duplicate", "action", req.Action, "caller", caller)
+		writeJSON(w, http.StatusOK, controlResult{Status: "duplicate"})
+		return
+	}
+	if !a.nowPlaying.controlLimit.allowNow(caller) {
+		a.nowPlaying.controlKeys.release(caller, key)
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, errors.New("control requests too fast"))
+		return
 	}
 	e, ok := a.nowPlaying.reg.Current(now)
-	if !ok {
-		a.nowPlaying.controlKeys.release(key)
-		writeError(w, http.StatusConflict, errNothingPlaying)
+	if !ok || !req.matches(e) {
+		a.nowPlaying.controlKeys.release(caller, key)
+		err := errNothingPlaying
+		if ok {
+			err = errShownChanged
+		}
+		writeError(w, http.StatusConflict, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*plexTimeout)
@@ -150,11 +188,12 @@ func (a *App) handleNowPlayingControl(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, errNoController):
 		// Nothing was sent: a retry with the same key may try again.
-		a.nowPlaying.controlKeys.release(key)
+		a.nowPlaying.controlKeys.release(caller, key)
 		writeError(w, http.StatusServiceUnavailable, err)
 	case err != nil:
 		// The player may have taken it (a timeout after the send): the key
-		// stays claimed, so a retry can't skip twice.
+		// stays claimed, so a retry can't skip twice. That retry answers
+		// "duplicate" (200), not this error.
 		writeError(w, http.StatusBadGateway, err)
 	case res.Status == "queued":
 		writeJSON(w, http.StatusAccepted, res)
@@ -165,73 +204,109 @@ func (a *App) handleNowPlayingControl(w http.ResponseWriter, r *http.Request) {
 
 // controlKeys remembers Idempotency-Keys per caller for controlKeyTTL.
 type controlKeys struct {
-	mu   sync.Mutex
-	seen map[string]time.Time
+	mu      sync.Mutex
+	callers map[string]map[string]time.Time
 }
 
-// claim reports whether key is new (and records it). An empty key is always new.
-func (k *controlKeys) claim(key string, now time.Time) bool {
+// claim reports whether key is new for caller (and records it). An empty
+// key is always new.
+func (k *controlKeys) claim(caller, key string, now time.Time) bool {
 	if key == "" {
 		return true
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if k.seen == nil {
-		k.seen = make(map[string]time.Time)
+	if k.callers == nil {
+		k.callers = make(map[string]map[string]time.Time)
+	}
+	seen := k.callers[caller]
+	if seen == nil {
+		if len(k.callers) >= controlCallersMax {
+			for c, m := range k.callers { // drop callers whose keys all expired
+				if keysExpired(m, now) {
+					delete(k.callers, c)
+				}
+			}
+			if len(k.callers) >= controlCallersMax {
+				clear(k.callers)
+			}
+		}
+		seen = make(map[string]time.Time)
+		k.callers[caller] = seen
 	}
 	var oldest string
-	for s, at := range k.seen {
+	for s, at := range seen {
 		if now.Sub(at) >= controlKeyTTL {
-			delete(k.seen, s)
-		} else if oldest == "" || at.Before(k.seen[oldest]) {
+			delete(seen, s)
+		} else if oldest == "" || at.Before(seen[oldest]) {
 			oldest = s
 		}
 	}
-	if _, ok := k.seen[key]; ok {
+	if _, ok := seen[key]; ok {
 		return false
 	}
-	if len(k.seen) >= controlKeysMax {
-		delete(k.seen, oldest)
+	if len(seen) >= controlKeysPerCaller {
+		delete(seen, oldest)
 	}
-	k.seen[key] = now
+	seen[key] = now
 	return true
 }
 
-func (k *controlKeys) release(key string) {
+func keysExpired(m map[string]time.Time, now time.Time) bool {
+	for _, at := range m {
+		if now.Sub(at) < controlKeyTTL {
+			return false
+		}
+	}
+	return true
+}
+
+func (k *controlKeys) release(caller, key string) {
 	if key == "" {
 		return
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	delete(k.seen, key)
+	delete(k.callers[caller], key)
 }
 
-// volumeLimiter is a token bucket per caller for volume steps.
-type volumeLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*volumeBucket
+// callerLimiter is a token bucket per caller (a device or the owner).
+type callerLimiter struct {
+	burst, perSec float64
+	clock         func() time.Time // nil: time.Now
+	mu            sync.Mutex
+	buckets       map[string]*callerBucket
 }
 
-type volumeBucket struct {
+type callerBucket struct {
 	tokens float64
 	at     time.Time
 }
 
-func (l *volumeLimiter) allow(caller string, now time.Time) bool {
+// allowNow is allow at the limiter's clock.
+func (l *callerLimiter) allowNow(caller string) bool {
+	now := time.Now()
+	if l.clock != nil {
+		now = l.clock()
+	}
+	return l.allow(caller, now)
+}
+
+func (l *callerLimiter) allow(caller string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.buckets == nil {
-		l.buckets = make(map[string]*volumeBucket)
+		l.buckets = make(map[string]*callerBucket)
 	}
 	b := l.buckets[caller]
 	if b == nil {
 		if len(l.buckets) >= 64 {
 			clear(l.buckets)
 		}
-		b = &volumeBucket{tokens: volumeBurst, at: now}
+		b = &callerBucket{tokens: l.burst, at: now}
 		l.buckets[caller] = b
 	}
-	b.tokens = min(volumeBurst, b.tokens+now.Sub(b.at).Seconds()*volumePerSec)
+	b.tokens = min(l.burst, b.tokens+now.Sub(b.at).Seconds()*l.perSec)
 	b.at = now
 	if b.tokens < 1 {
 		return false
@@ -245,7 +320,10 @@ type queuedCommand struct {
 	ID     string        `json:"id"`
 	Action controlAction `json:"action"`
 	Delta  int           `json:"delta"`
-	at     time.Time
+	// AgeMS is how long the command waited here, set on delivery: the app
+	// drops one that would run too late.
+	AgeMS int64 `json:"age_ms"`
+	at    time.Time
 }
 
 // commandQueue holds Music commands per player (a Mac's name) until
@@ -345,6 +423,9 @@ func (q *commandQueue) take(ctx context.Context, player string, wait time.Durati
 		wake := q.wake
 		q.mu.Unlock()
 		if len(cmds) > 0 || wait <= 0 {
+			for i := range cmds {
+				cmds[i].AgeMS = q.clock().Sub(cmds[i].at).Milliseconds()
+			}
 			return cmds, nil
 		}
 		select {

@@ -724,7 +724,9 @@ the row turns Off with "Open Automation Settings…".
 
 **Playback control (#280).** The knob's now-playing page sends
 `POST /v1/nowplaying/control` (turn = volume, push = play/pause, double
-push = next, long push = previous). Verify the server without a knob or a
+push = next, long push = previous; the knob sends `play`/`pause` plus the
+`source` and `track_id` it shows). A device token may control only while
+its pages have `nowplaying` on. Verify the server without a knob or a
 player, on a scratch server (scratch port, temp DB,
 `EMBER_MDNS_ADVERTISE=0 EMBER_CLOCK=off`):
 

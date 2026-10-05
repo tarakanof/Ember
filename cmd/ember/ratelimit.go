@@ -75,6 +75,24 @@ func (l *IPLimiter) Allow(ip string) (bool, int) {
 	return false, retryAfterSeconds(b.tokens, rl.RefillPerSec)
 }
 
+// Has reports whether ip's bucket holds a token now, without spending it.
+func (l *IPLimiter) Has(ip string) bool {
+	rl := l.app.cfg.Load().RateLimit
+	if rl.Disabled || rl.Burst <= 0 || rl.RefillPerSec <= 0 {
+		return true
+	}
+	l.mu.Lock()
+	b, ok := l.buckets[ip]
+	l.mu.Unlock()
+	if !ok {
+		return true
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	tokens := b.tokens + l.clock().Sub(b.lastFill).Seconds()*rl.RefillPerSec
+	return tokens >= 1
+}
+
 func retryAfterSeconds(tokens, refillPerSec float64) int {
 	needed := 1 - tokens
 	if needed <= 0 {

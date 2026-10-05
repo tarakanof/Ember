@@ -70,6 +70,9 @@ type plexSource struct {
 	track      string          // ratingKey and viewOffset of the last poll, to tell a
 	offset     int64           // fresh timeline update from a repeated stale one
 
+	volTried  time.Time // last timeline read for a report (volumeFor)
+	volTarget string
+
 	ctl plexControl // shared with the control requests
 }
 
@@ -81,7 +84,7 @@ func newPlexSource(cfg plexConfig) *plexSource {
 		},
 	}
 	return &plexSource{cfg: cfg, client: client, nudge: make(chan struct{}, 1), artFailed: make(map[string]bool),
-		ctl: plexControl{targets: make(map[string]string), volumes: make(map[string]int)}}
+		ctl: newPlexControl()}
 }
 
 // wake asks the poller to poll now.
@@ -176,7 +179,7 @@ func (p *plexSource) poll(ctx context.Context, np *nowPlayingService, logger *sl
 		Source: plexSourceID, Player: player, State: state,
 		Title: truncRunes(s.Title, 200), Artist: truncRunes(artist, 200), Album: truncRunes(s.ParentTitle, 200),
 		TrackID: truncRunes(s.RatingKey, 128), DurationMS: max(s.Duration, 0), PositionMS: max(s.ViewOffset, 0),
-		Volume: p.ctl.volume(target),
+		Volume: p.volumeFor(ctx, target, s.Player.State == "playing"),
 	}
 	if rep.TrackID == p.track && s.ViewOffset == p.offset {
 		if e, ok := np.reg.Get(plexSourceID, player); ok && e.TrackID == rep.TrackID && e.State == state {
@@ -202,6 +205,29 @@ func (p *plexSource) poll(ctx context.Context, np *nowPlayingService, logger *sl
 	}
 	np.wantArtist(plexSourceID, player)
 	return state == nowplaying.Playing
+}
+
+// volumeFor is the target's level for a report: re-read from its timeline
+// every plexVolumeRefresh while it plays (a change on the player shows), nil
+// when unknown (the registry keeps the last one).
+func (p *plexSource) volumeFor(ctx context.Context, target string, playing bool) *int {
+	if target == "" {
+		return nil
+	}
+	if v := p.ctl.volume(target, plexVolumeRefresh); v != nil || !playing {
+		return v
+	}
+	// One read per refresh period, success or not (a player without a
+	// timeline would cost a request every poll).
+	if now := p.ctl.now(); now.Sub(p.volTried) >= plexVolumeRefresh || p.volTarget != target {
+		p.volTried, p.volTarget = now, target
+	} else {
+		return nil
+	}
+	if v, err := p.timelineVolume(ctx, target); err == nil {
+		return &v
+	}
+	return nil
 }
 
 // art fetches a Plex image through the photo transcoder when its path
