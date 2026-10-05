@@ -11,8 +11,9 @@ struct RotationSection: View {
             StepperRow(title: "Time per app", value: Binding(
                 get: { (s.draft.appDurationMs ?? 7000) / 1000 },
                 set: { s.draft.appDurationMs = $0 * 1000 }),
-                range: (1...60).including((s.draft.appDurationMs ?? 7000) / 1000)) { Text("\($0) s") }
-            Toggle("Switch apps automatically", isOn: s.binding(\.autoTransition, true))
+                range: (1...60).including((s.draft.appDurationMs ?? 7000) / 1000),
+                info: .clockTimePerApp) { Text("\($0) s") }
+            InfoToggle("Switch apps automatically", isOn: s.binding(\.autoTransition, true), info: .clockAutoTransition)
             Picker("Transition", selection: s.binding(\.transitionEffect, device.transitions.first ?? "Fade")) {
                 let current = s.draft.transitionEffect
                 ForEach(device.transitions, id: \.self) { Text(verbatim: DeviceKnownValues.displayName($0)).tag($0) }

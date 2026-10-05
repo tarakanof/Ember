@@ -139,16 +139,18 @@ struct ClockAgentsAppPane: View {
 
             Section {
                 Toggle("Context glass", isOn: $cards.draft.contextPct)
-                Picker("Bottom bar", selection: $cards.draft.bottomBarMode) {
-                    Text("Session pixels").tag(BottomBarMode.session)
-                    Text("Rate bar").tag(BottomBarMode.rate)
-                    Text("Off").tag(BottomBarMode.off)
+                InfoRow("Bottom bar", info: .bottomBar) { label in
+                    Picker(selection: $cards.draft.bottomBarMode) {
+                        Text("Session pixels").tag(BottomBarMode.session)
+                        Text("Rate bar").tag(BottomBarMode.rate)
+                        Text("Off").tag(BottomBarMode.off)
+                    } label: { label }
                 }
-                Toggle("Activity trail", isOn: $cards.draft.activityTrail)
+                InfoToggle("Activity trail", isOn: $cards.draft.activityTrail, info: .activityTrail)
             } header: {
                 Text("On Every Card")
             } footer: {
-                Text("Context glass fills with the session's context use; turning it off also stops reporting it. The trail shows other sessions along the bottom.")
+                Text("Context glass fills with the session's context use; turning it off also stops reporting it.")
             }
             .disabled(!cards.isLoaded)
 

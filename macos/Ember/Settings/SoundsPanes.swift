@@ -27,9 +27,9 @@ struct ClockSoundsPane: View {
                         .disabled(!pomodoro.draft.sound)
                 }
                 .disabled(!pomodoro.isLoaded)
-                Toggle("Agent needs attention", isOn: $display.draft.attentionChime)
+                InfoToggle("Agent needs attention", isOn: $display.draft.attentionChime, info: .attentionChime)
                     .disabled(!display.isLoaded)
-                Toggle("5-hour limit resets", isOn: $usage.draft.limitAlarm)
+                InfoToggle("5-hour limit resets", isOn: $usage.draft.limitAlarm, info: .limitAlarm)
                     .disabled(!usage.isLoaded)
                 Toggle("Meeting popup", isOn: $meetings.draft.chime)
                     .disabled(!meetings.isLoaded || meetings.draft.popupLeadMinutes == 0)
@@ -181,6 +181,15 @@ private struct MelodyRow: View {
 
     var body: some View {
         let choice = customPicked ? .custom : MelodyChoice(value: value, available: names)
+        InfoRow(title, info: .melody) { label in
+            row(choice, label: label)
+        }
+        if choice == .custom {
+            TextField("Melody", text: $value, prompt: Text("Melody name or RTTTL"))
+        }
+    }
+
+    private func row(_ choice: MelodyChoice, label: InfoLabel) -> some View {
         LabeledContent {
             HStack(spacing: 6) {
                 Picker(selection: Binding(
@@ -214,10 +223,7 @@ private struct MelodyRow: View {
                 }
             }
         } label: {
-            Text(title)
-        }
-        if choice == .custom {
-            TextField("Melody", text: $value, prompt: Text("Melody name or RTTTL"))
+            label
         }
     }
 }

@@ -32,9 +32,10 @@ struct DisplaySection: View {
             }
             PercentSliderRow(title: "Scroll speed",
                              percent: s.binding(\.scroll, \.speed, 100, empty: ScrollSettings()),
-                             range: (10...500).including(s.draft.scroll?.speed ?? 100), step: 10)
+                             range: (10...500).including(s.draft.scroll?.speed ?? 100), step: 10,
+                             info: .clockScrollSpeed)
                 .disabled(s.draft.scroll?.mode == ScrollMode.static.rawValue)
-            Toggle("Block button navigation", isOn: s.binding(\.blockNavigation, false))
+            InfoToggle("Block button navigation", isOn: s.binding(\.blockNavigation, false), info: .clockBlockNavigation)
         } header: {
             Text("Display")
         } footer: {

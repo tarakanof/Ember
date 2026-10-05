@@ -364,11 +364,21 @@
       "comment" : "Abbreviation for the 7-day usage window (Usage card row). Keep it very short."
     },
     "A board is connected, but Ember couldn't open its port" : {},
+    "A day counts as active when it has at least one completed focus session. The Dashboard compares the last 7 days with this goal." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "A glint circles the bot's outline while an agent works" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "A hidden tool's sessions still report; the clock skips them. Changes apply at once." : {},
     "A meeting chimes with its popup, so it needs a popup time in Clock › Apps › Calendar. The severe weather sound plays with its alert, set in Sources › Weather. Quiet hours, in Sounds & Alerts, mute all of these." : {},
     "A permission Ember needs is off." : {},
-    "A shorter check interval shows changes sooner and uses a little more power." : {},
-    "A shorter check interval shows changes sooner and uses a little more power. Live stats are sent only while the knob's stats are open in Ember. Shorter stats intervals mean more requests from the knob and more memory on the server." : {},
+    "A popup shortly before each meeting" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "AQI %lld" : {
       "comment" : "Settings › Weather: an air quality index threshold (European AQI)."
     },
@@ -384,6 +394,10 @@
       }
     },
     "About Ember" : {},
+    "Active days to aim for in the last 7" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Active minutes" : {},
     "Activity" : {},
     "Activity card" : {},
@@ -394,6 +408,10 @@
     "Advanced" : {},
     "After %lld min" : {
       "comment" : "Settings › Agents: minutes before an idle session is hidden."
+    },
+    "After this long with no agent activity, the bot's eyelids droop and it blinks slowly; new activity wakes it. Default: 5 min." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
     },
     "Agent active time per day by Mac" : {},
     "Agent needs attention" : {},
@@ -420,6 +438,10 @@
     "Animate the outline while working" : {},
     "Animated bot" : {},
     "Animated icons and rain or snow overlays appear on the clock only." : {},
+    "Animates rain or snow over the weather tile and popups" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "App" : {},
     "App Colors" : {},
     "App Rotation" : {},
@@ -437,6 +459,10 @@
     "Artist" : {},
     "As of %@" : {
       "comment" : "Hardware page Now card while the device is offline: the time of the readings shown (\"As of 21:43\")."
+    },
+    "At 100 percent, text moves 21 pixels a second. It has no effect when Scrolling is Don't scroll." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
     },
     "At once" : {},
     "Attention hold" : {},
@@ -471,6 +497,10 @@
     "Brightness at startup" : {},
     "Built-in" : {},
     "Built-in Apps" : {},
+    "Built-in plays Ember's own tune. Pick a melody stored on the clock, or choose Custom and type a stored melody's name or an RTTTL tune." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Buttons" : {},
     "Buzzer volume" : {},
     "By hour, last 12 weeks" : {},
@@ -501,6 +531,10 @@
     "Checking the board…" : {},
     "Checking…" : {},
     "Chimes" : {},
+    "Chimes when an agent starts waiting for you or fails" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Chip temperature" : {},
     "Claude" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -534,9 +568,17 @@
     "Colon" : {},
     "Colored" : {},
     "Colors" : {},
+    "Colors this Mac's agent icon and its name card on the clock, so you can tell computers apart. Off uses the default colors." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Completed" : {},
     "Condition icon, temperature and a strip for the next ^[%lld hour](inflect: true), blue for cold to red for warm." : {
       "comment" : "Settings › Weather preview caption; the argument is the forecast length in hours."
+    },
+    "Conditions and the hourly forecast come from this service. Air quality always comes from Open-Meteo, because MET Norway has none. Default: Open-Meteo." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
     },
     "Connected" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -569,7 +611,7 @@
     "Connection" : {},
     "Context" : {},
     "Context glass" : {},
-    "Context glass fills with the session's context use; turning it off also stops reporting it. The trail shows other sessions along the bottom." : {},
+    "Context glass fills with the session's context use; turning it off also stops reporting it." : {},
     "Continuous" : {},
     "Coordinates" : {},
     "Core %lld" : {
@@ -832,10 +874,43 @@
     "Hour of day" : {},
     "Hourly forecast" : {},
     "Hours ahead" : {},
+    "How fast text that doesn't fit moves across the panel" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "How long each app stays on screen" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "How long the clock shows an app before moving to the next. Apps can ask for their own time: Ember's agent cards and weather tiles stay 6 s." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "How many of the server's pushes reached the clock in the last 24 hours." : {},
+    "How often the knob asks Ember for updates" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "How often the knob asks Ember for updates when it can't wait on an open request, for example with an older server or after an error. A current server answers the moment something changes, so a shorter interval mostly adds requests. Default: 2 s." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "How often the knob reports while its Hardware page is open" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "How often the knob sends the stats behind its Hardware page. Shorter gives finer charts, but more requests from the knob and more memory on the server. Default: 1 min." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "How often the knob uploads its hardware stats" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Humidity" : {},
     "Humidity offset" : {},
     "ID" : {},
+    "IDs from the LaMetric icon gallery. Leave one empty to use Ember's default." : {},
     "IP address" : {},
     "Icon ID" : {},
     "Idle" : {
@@ -843,6 +918,10 @@
       "extractionState" : "manual"
     },
     "Idle or other" : {},
+    "Idle time before the bot gets sleepy" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Idle. Push the knob to start a focus round." : {},
     "Idle: no agent is working." : {},
     "Imperial (°F)" : {},
@@ -861,6 +940,10 @@
       "comment" : "Knob setup progress step; the argument is the Wi-Fi network name."
     },
     "Keep on screen until dismissed" : {},
+    "Keeps recent tool calls in the activity card" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Knob" : {},
     "Knob name" : {},
     "Knob stats unavailable" : {},
@@ -904,7 +987,6 @@
     },
     "Long break" : {},
     "Long-press the knob to try a mood; it holds for the time set here." : {},
-    "Long-press the knob to try a mood; it holds for the time set here. The name of the computer whose agent is working or waiting shows along the bottom of the face." : {},
     "Longitude" : {},
     "Low" : {},
     "Low voltage" : {
@@ -912,6 +994,10 @@
       "extractionState" : "manual"
     },
     "Lowest free" : {},
+    "Matches the brightness Ember works out for displays without a light sensor" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Measured now" : {},
     "Meeting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -933,6 +1019,9 @@
     "Month names" : {},
     "Month, day, year" : {},
     "Moon phase at night" : {},
+    "More info about %@" : {
+      "comment" : "VoiceOver label of a Settings row's info button; the row's title (\"Fast display link\")."
+    },
     "Most focus on %@ at %@." : {
       "comment" : "VoiceOver chart summary: the weekday (\"Tue\"), then the hour (\"10 AM\") with the most focus.",
       "localizations" : {
@@ -947,6 +1036,10 @@
     "Move Down" : {},
     "Move Up" : {},
     "Move to Ember" : {},
+    "Moves on to the next app by itself" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Music" : {},
     "Mute sounds at night" : {},
     "Mutes every chime and alarm from the server during these hours, in the server's time zone. Popups still show." : {},
@@ -1004,6 +1097,7 @@
     "No data in this range" : {},
     "No data yet" : {},
     "No focus sessions yet — click Start Focus to begin" : {},
+    "No info here" : {},
     "No knob connected" : {},
     "No knob set up" : {},
     "No meetings in the next 36 hours." : {},
@@ -1053,6 +1147,10 @@
     "Now Playing" : {},
     "Now Playing on the Server" : {},
     "Off" : {},
+    "Off keeps the current app on screen until you press a button or Ember switches to something that needs you. A running Pomodoro turns this off until it stops, then puts your setting back." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Off. %@" : {
       "comment" : "VoiceOver, a Settings preview of a clock panel that is turned off; the argument is the panel's description."
     },
@@ -1089,6 +1187,10 @@
     },
     "On" : {},
     "On Every Card" : {},
+    "On a clear night the conditions tile shows tonight's moon phase instead of the weather icon. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Online" : {},
     "Only on this Mac, while Ember is running. Ember reacts when Music changes track or pauses; it never starts Music and doesn't poll it." : {},
     "Only some agents are reporting." : {},
@@ -1183,6 +1285,10 @@
     },
     "Pomodoro is off" : {},
     "Pomodoro is off on the server, or the server is too old. Turn it on in the server's config." : {},
+    "Pops up with a sound when severe weather starts" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Popup" : {},
     "Popups" : {},
     "Position" : {},
@@ -1219,6 +1325,10 @@
     "Reading what's playing…" : {},
     "Reads reminders with a due time to ring the clock. Needed while reminder alarms are on." : {},
     "Reads the playing track's position and artwork from Music. Needed while Apple Music is sent to Ember." : {},
+    "Redraws the screen faster (a full frame in about 25 ms instead of 35) and halves the time in which a redraw can tear. 80 MHz is beyond the panel's rated speed, so the knob checks the link at startup and every 5 s and drops back to 40 MHz by itself if a check fails. Changing it restarts the knob; default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Refresh" : {},
     "Refresh (⌘R)" : {},
     "Refresh every" : {},
@@ -1240,6 +1350,10 @@
     "Repair" : {},
     "Repeat until dismissed" : {},
     "Repeating rings every few seconds until you press the clock's middle button. It needs “Keep on screen until dismissed” in Clock › Apps › Calendar, and stops after 15 minutes or when quiet hours start." : {},
+    "Repeats the weather popup on a schedule" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Replace" : {},
     "Replace “%@”?" : {
       "comment" : "Knob setup confirm title; the argument is the name of the knob already set up (\"Desk knob\")."
@@ -1291,8 +1405,15 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Runs breaks and focus phases back to back" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Runs ember-claude-producer configure: removes the pause and keeps one set of hooks, the plugin's when it's enabled." : {},
-    "Runs the knob's screen link at 80 MHz instead of 40: smoother motion, less tearing. The knob restarts to apply it and goes back to 40 MHz by itself if the link fails a check." : {},
+    "Runs the knob's screen link at 80 MHz instead of 40 MHz" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Runs the timer on the clock and lets the clock's buttons control it." : {},
     "SDIO reset" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1341,6 +1462,10 @@
       "extractionState" : "manual"
     },
     "Session pixels" : {},
+    "Session pixels draws one dot per active session, the most urgent first. Rate bar shows how much of the 5-hour limit is used, when the tool reports it. Off leaves the row empty." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Set Up" : {},
     "Set Up Ember…" : {},
     "Set Up Knob" : {},
@@ -1372,7 +1497,27 @@
     "Show weekday bar" : {},
     "Shown On" : {},
     "Shown in popups" : {},
+    "Shows a popup this many minutes before a meeting starts, with a chime if Meeting popup is on in Clock › Sounds. Default: 2 min." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Shows a weather popup with a sound when heavy rain, heavy snow or a thunderstorm begins, once each time. Pick the sound in Clock › Sounds; quiet hours mute it. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Shows an icon stored on the clock instead of the bell" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Shows the macOS prompt." : {},
+    "Shows the moon's phase on clear nights" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Shows the weather popup again once this long has passed since the last one, even if nothing changed. Off keeps only the popups above. Default: 2 h." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Signal" : {},
     "Skip Phase" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1412,6 +1557,18 @@
       "extractionState" : "manual"
     },
     "Stop after" : {},
+    "Stops the clock's buttons from switching apps" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Stops the timer once this much time has passed since you started it, pauses included. It matters most with automatic phases, which would otherwise run on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Stops the whole Pomodoro after this long" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Storm" : {},
     "Streak" : {},
     "Strong" : {},
@@ -1420,11 +1577,19 @@
       "extractionState" : "manual"
     },
     "Sunrise and sunset" : {},
+    "Swaps the drawn condition icon for an animated one from the LaMetric gallery, which the server uploads to the clock. On clear nights the moon phase still shows. Default: off." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Switch apps automatically" : {},
     "T3 Code" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
       "shouldTranslate" : false
+    },
+    "Tells you when a used-up 5-hour limit resets" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
     },
     "Temperature" : {},
     "Temperature offset" : {},
@@ -1437,7 +1602,23 @@
     "The Dashboard tracks these." : {},
     "The Pomodoro is off in Ember." : {},
     "The activity card scrolls the current tool call next to the icon. These apply to this Mac's sessions." : {},
+    "The activity card scrolls the last few tool calls, newest first, instead of only the current one. It needs the activity card." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The animated bot changes its face with your most urgent session. Tool glyphs shows the icon of the most active tool instead." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The animated bot, or the glyph of the active tool" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The clock adds these offsets to its sensor's readings; the temperature one makes up for the clock warming itself. Compare Measured now with a thermometer you trust and change the offset by the difference." : {},
+    "The clock chimes once when a session starts waiting for you or hits an error and takes over the screen. Quiet hours mute it." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The clock didn't finish in time." : {
       "comment" : "Error: reading the clock's settings failed because the clock was too slow; nothing was changed.",
       "extractionState" : "manual"
@@ -1459,7 +1640,15 @@
     "The clock is unreachable" : {},
     "The clock rotates these cards for each active session. The icon uses this Mac's source color; its eyes show the session state." : {},
     "The clock shows animated icons; the preview shows the drawn ones." : {},
+    "The clock's buttons no longer move between apps. A running Pomodoro turns this on so the buttons control the timer, then puts your setting back when it stops." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The color must be a hex value like #FF8800." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "The dimmest the knob ever gets" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -1476,6 +1665,10 @@
     "The knob didn't return a scan. Type the network name." : {},
     "The knob dims and brightens with the clock. It never goes below the minimum." : {},
     "The knob forgets its Wi-Fi, Ember address and token, then restarts to its setup screen. Ember keeps its settings here until you forget it." : {},
+    "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The knob has to run cinder. Settings change here once it's set up; Wi-Fi changes need the cable again." : {},
     "The knob is offline" : {},
     "The knob is on Wi-Fi (%@) but can't reach %@." : {
@@ -1496,6 +1689,10 @@
     "The knob is saving; wait until it finishes." : {},
     "The knob is scanning…" : {},
     "The knob is set up and talking to Ember." : {},
+    "The knob never goes below this, whether it follows Ember or not. Raising it above Brightness raises Brightness too. Default: 4 percent." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The knob picks up the new token on its next check-in, within a minute if it's online. The old token stops working once the knob uses the new one, or after 24 hours." : {},
     "The knob rejected the Ember address. Use http://address:port, without https or a path." : {},
     "The knob rejected the Wi-Fi settings. Check the network name and password." : {},
@@ -1512,10 +1709,18 @@
     "The knob stopped answering. Check that it's plugged in and try again." : {},
     "The knob was disconnected. Plug it back in and try again." : {},
     "The knob's old token no longer works. Run the setup again to finish." : {},
+    "The level the screen lights at when the knob starts" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The menu bar shows the glyph of the tool that's most active." : {},
     "The overlay draws rain, snow or storms over whatever is showing." : {},
     "The reminder shows for the time above, then the clock carries on." : {},
     "The reminder stays on the clock until you press its middle button." : {},
+    "The screen stays dark while the knob boots, then lights at this level until your brightness setting takes over. Default: 60 percent." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The server URL must start with http:// or https://, include a host, and have no user name or password." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1539,6 +1744,10 @@
     },
     "The server's activity overlay is off, so new agent time isn't stored." : {},
     "The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN." : {},
+    "The tune the clock plays" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The value can't contain control characters." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1570,6 +1779,10 @@
     "Time per app" : {},
     "Time range" : {},
     "Time until the 5-hour window resets." : {},
+    "Tints this Mac's agent icon and name on the clock" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Today" : {},
     "Today %@" : {
       "comment" : "Agent time card header: agent time today (\"1h 15m\")."
@@ -1682,6 +1895,18 @@
     "Use http://address:port for the Ember address. The knob can't use https, IPv6 or a path." : {},
     "Use http://address:port. The knob can't use https, IPv6 or a path." : {},
     "Use source color" : {},
+    "Uses an animated icon on the conditions tile" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Uses animated icons in weather popups" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Uses the animated icon with this ID from the clock's own icon store. The clock must already have it: Ember uploads only the weather and Pomodoro icons." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Very weak" : {},
     "Waiting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1719,6 +1944,10 @@
       "extractionState" : "manual"
     },
     "Weather is off on the server, or the server is too old." : {},
+    "Weather popups show animated LaMetric gallery icons instead of the drawn ones. Change the icon for each condition under Native Icon IDs. Default: off." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Week" : {},
     "Week of %@" : {
       "comment" : "VoiceOver chart axis: a week, named by its first day (\"Sep 21\")."
@@ -1726,11 +1955,43 @@
     "Weekday Bar" : {},
     "Weekly goal" : {},
     "Weekly window usage." : {},
+    "What the bottom row of each agent card shows" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "What's shown comes from the source, set once for every device. This page sets only how this device shows it." : {},
+    "When Claude's or Codex's 5-hour window is used up, the clock shows a popup with a chime about a minute after it resets, so you know you can carry on. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "When a phase ends, the next one starts at once. Off leaves the next phase waiting until you start it. Default: off." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "When conditions change" : {},
     "When due" : {},
     "When usage cards join the rotation is set in Sources › Agents. Server-wide." : {},
     "When you focus" : {},
+    "Where the server gets conditions and the forecast" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "While an agent is working, a glint orbits the bot's outline every 3 s, and after a long stretch the eyes chase it for a few laps. Off keeps the outline still. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "While an agent is working, waiting or in error, the name of its computer curves along the bottom of the bot's face, after the tool's icon. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "While it's raining, snowing or storming, the clock animates it over the conditions tile and weather popups. The previews here don't show it. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "While the knob's Hardware page is open in Ember, the knob checks in this often so the charts move live, then goes back to normal. The real pace rounds up to the check interval, so 5 s can come out near 6 s. Default: 5 s." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Wi-Fi" : {},
     "Wi-Fi passwords are 8 to 63 characters." : {},
     "Wi-Fi signal" : {},
@@ -1742,6 +2003,10 @@
     "Work hours per day" : {},
     "Working: an agent is running." : {},
     "Wrap around" : {},
+    "Writes the agent's computer name along the bottom of the face" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Year" : {},
     "Year, month, day" : {},
     "Yes" : {},

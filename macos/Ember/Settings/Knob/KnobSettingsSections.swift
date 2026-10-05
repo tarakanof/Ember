@@ -22,11 +22,13 @@ struct KnobDisplaySection: View {
         let knob = env.knob
         let follow = knob.settings.draft.brightness.followEmber
         Section {
-            Toggle("Follow Ember brightness", isOn: knob.binding(\.brightness.followEmber))
+            InfoToggle("Follow Ember brightness", isOn: knob.binding(\.brightness.followEmber), info: .knobFollowBrightness)
             PercentSliderRow(title: "Brightness", percent: knob.percent(\.brightness.level))
                 .disabled(follow)
-            PercentSliderRow(title: "Minimum brightness", percent: knob.percent(\.brightness.floor), range: 1...100)
-            PercentSliderRow(title: "Brightness at startup", percent: knob.percent(\.brightness.startup))
+            PercentSliderRow(title: "Minimum brightness", percent: knob.percent(\.brightness.floor), range: 1...100,
+                             info: .knobMinBrightness)
+            PercentSliderRow(title: "Brightness at startup", percent: knob.percent(\.brightness.startup),
+                             info: .knobStartupBrightness)
         } header: {
             Text("Display")
         } footer: {
@@ -137,7 +139,7 @@ struct KnobPollSection: View {
                 get: { Double(s.pollMS) / 1000 },
                 set: { v in knob.edit { $0.pollMS = Int((v * 1000).rounded()) } }),
                 range: Double(KnobSettings.pollRange.lowerBound) / 1000...Double(KnobSettings.pollRange.upperBound) / 1000,
-                step: 0.5) { v in
+                step: 0.5, info: .knobPoll) { v in
                 Text("\(Text(v, format: .number.precision(.fractionLength(0...1)))) s",
                      comment: "Settings › Knob: how often the knob polls Ember, in seconds (\"2.5 s\").")
             }
@@ -147,25 +149,29 @@ struct KnobPollSection: View {
                 Text("Full").tag(KnobDiagnostics.full)
             }
             if s.statsIntervalS != nil, s.liveIntervalS != nil, knob.knob?.supportsStatsIntervals == true {
-                Picker("Send stats every", selection: knob.binding(\.statsIntervalS)) {
-                    ForEach(KnobSettings.choices(KnobSettings.statsIntervals, current: s.statsIntervalS), id: \.self) { sec in
-                        Text(verbatim: DurationText.interval(sec))
-                            .tag(Int?.some(sec))
-                    }
+                InfoRow("Send stats every", info: .knobStatsInterval) { label in
+                    Picker(selection: knob.binding(\.statsIntervalS)) {
+                        ForEach(KnobSettings.choices(KnobSettings.statsIntervals, current: s.statsIntervalS), id: \.self) { sec in
+                            Text(verbatim: DurationText.interval(sec))
+                                .tag(Int?.some(sec))
+                        }
+                    } label: { label }
                 }
                 .disabled(s.diagnostics == .off)
-                Picker("Live stats every", selection: knob.binding(\.liveIntervalS)) {
-                    ForEach(KnobSettings.choices(KnobSettings.liveIntervals, current: s.liveIntervalS), id: \.self) { sec in
-                        Text(verbatim: DurationText.interval(sec)).tag(Int?.some(sec))
-                    }
+                InfoRow("Live stats every", info: .knobLiveInterval) { label in
+                    Picker(selection: knob.binding(\.liveIntervalS)) {
+                        ForEach(KnobSettings.choices(KnobSettings.liveIntervals, current: s.liveIntervalS), id: \.self) { sec in
+                            Text(verbatim: DurationText.interval(sec)).tag(Int?.some(sec))
+                        }
+                    } label: { label }
                 }
                 .disabled(s.diagnostics == .off)
             }
             if s.display != nil {
-                Toggle("Fast display link", isOn: Binding(
+                InfoToggle("Fast display link", isOn: Binding(
                     get: { s.display?.fastLink ?? true },
-                    set: { v in knob.edit { $0.display = KnobSettings.Display(fastLink: v) } }))
-                    .help("Runs the knob's screen link at 80 MHz instead of 40: smoother motion, less tearing. The knob restarts to apply it and goes back to 40 MHz by itself if the link fails a check.")
+                    set: { v in knob.edit { $0.display = KnobSettings.Display(fastLink: v) } }),
+                    info: .knobFastLink)
             }
             LabeledContent {
                 Button("Show Hardware") { if let id = knob.knob?.id { showKnobHardware(id) } }
@@ -176,10 +182,7 @@ struct KnobPollSection: View {
         } header: {
             Text("Behavior")
         } footer: {
-            SectionFooter(text: s.statsIntervalS == nil || knob.knob?.supportsStatsIntervals != true
-                          ? "A shorter check interval shows changes sooner and uses a little more power."
-                          : "A shorter check interval shows changes sooner and uses a little more power. Live stats are sent only while the knob's stats are open in Ember. Shorter stats intervals mean more requests from the knob and more memory on the server.",
-                          error: knob.settings.saveError)
+            SaveErrorFooter(error: knob.settings.saveError)
         }
     }
 }
@@ -194,27 +197,27 @@ struct KnobBotSection: View {
             StepperRow(title: "Bot gets sleepy after", value: Binding(
                 get: { s.bot.sleepyAfterS / 60 },
                 set: { m in knob.edit { $0.bot.sleepyAfterS = m * 60 } }),
-                range: 0...(KnobSettings.sleepyRange.upperBound / 60)) { m in
+                range: 0...(KnobSettings.sleepyRange.upperBound / 60), info: .knobSleepy) { m in
                 m == 0 ? Text("Never") : Text(verbatim: DurationText.minutes(m))
             }
             StepperRow(title: "Hold demo mood for", value: knob.binding(\.bot.demoHoldS),
                        range: KnobSettings.demoHoldRange, step: 5) { Text("\($0) s") }
             if s.bot.sourceLabel != nil {
-                Toggle("Show the host's name", isOn: Binding(
+                InfoToggle("Show the host's name", isOn: Binding(
                     get: { s.bot.sourceLabel ?? true },
-                    set: { v in knob.edit { $0.bot.sourceLabel = v } }))
+                    set: { v in knob.edit { $0.bot.sourceLabel = v } }),
+                    info: .knobSourceLabel)
             }
             if s.bot.workingRing != nil {
-                Toggle("Animate the outline while working", isOn: Binding(
+                InfoToggle("Animate the outline while working", isOn: Binding(
                     get: { s.bot.workingRing ?? true },
-                    set: { v in knob.edit { $0.bot.workingRing = v } }))
+                    set: { v in knob.edit { $0.bot.workingRing = v } }),
+                    info: .knobWorkingRing)
             }
         } header: {
             Text("Bot")
         } footer: {
-            SectionFooter(text: s.bot.sourceLabel == nil
-                          ? "Long-press the knob to try a mood; it holds for the time set here."
-                          : "Long-press the knob to try a mood; it holds for the time set here. The name of the computer whose agent is working or waiting shows along the bottom of the face.",
+            SectionFooter(text: "Long-press the knob to try a mood; it holds for the time set here.",
                           error: knob.settings.saveError)
         }
     }

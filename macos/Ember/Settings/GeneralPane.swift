@@ -16,9 +16,11 @@ struct GeneralPane: View {
             }
 
             Section("Menu Bar") {
-                Picker("Menu bar icon", selection: $env.prefs.trayStyle) {
-                    Text("Animated bot").tag("bot")
-                    Text("Tool glyphs").tag("glyphs")
+                InfoRow("Menu bar icon", info: .menuBarIcon) { label in
+                    Picker(selection: $env.prefs.trayStyle) {
+                        Text("Animated bot").tag("bot")
+                        Text("Tool glyphs").tag("glyphs")
+                    } label: { label }
                 }
                 Picker("Menu bar color", selection: $env.prefs.trayTint) {
                     Text("Colored").tag("color")
