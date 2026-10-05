@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"syscall"
 	"time"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 const maxSessionIDLen = 64
@@ -40,32 +42,7 @@ func lockPath(stateDir, sessionID string) string {
 }
 
 func writeMarker(markerPath string, body []byte) error {
-	dir := filepath.Dir(markerPath)
-	tmp, err := os.CreateTemp(dir, ".tmp-*.json")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
-		cleanup()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		cleanup()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := os.Rename(tmpName, markerPath); err != nil {
-		cleanup()
-		return err
-	}
-	return nil
+	return producer.WriteFileAtomic(markerPath, body, 0o600)
 }
 
 func readMarker(markerPath string) ([]byte, error) {

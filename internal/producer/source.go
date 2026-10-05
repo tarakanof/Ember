@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
@@ -160,23 +159,7 @@ func EnsureSourceInEnv(path string) (string, bool, error) {
 		}
 		out += "EMBER_SOURCE=" + def + "\n"
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".producer.env.*")
-	if err != nil {
-		return "", false, err
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return "", false, err
-	}
-	if _, err := tmp.WriteString(out); err != nil {
-		tmp.Close()
-		return "", false, err
-	}
-	if err := tmp.Close(); err != nil {
-		return "", false, err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	if err := WriteFileAtomic(path, []byte(out), 0o600); err != nil {
 		return "", false, err
 	}
 	return def, true, nil

@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func markerPath(stateDir, uuid string) string {
@@ -13,31 +15,7 @@ func writeMarker(stateDir, uuid string, body []byte) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(stateDir, ".tmp-*.json")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
-		cleanup()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		cleanup()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := os.Rename(tmpName, markerPath(stateDir, uuid)); err != nil {
-		cleanup()
-		return err
-	}
-	return nil
+	return producer.WriteFileAtomic(markerPath(stateDir, uuid), body, 0o600)
 }
 
 func removeMarker(stateDir, uuid string) error {
