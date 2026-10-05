@@ -10,6 +10,10 @@ struct WeatherSourcePane: View {
 
     private var model: ServerConfigModel<WeatherConfig> { env.settings.weather }
 
+    private var weatherRequirement: SettingsInfoRequirement {
+        !model.isLoaded ? .loading : .weatherOn
+    }
+
     var body: some View {
         @Bindable var model = model
         let c = model.draft
@@ -51,9 +55,11 @@ struct WeatherSourcePane: View {
     private func locationSection(_ model: ServerConfigModel<WeatherConfig>) -> some View {
         @Bindable var model = model
         return Section {
-            Picker("Provider", selection: $model.draft.provider) {
-                Text(verbatim: "Open-Meteo").tag("open-meteo")
-                Text(verbatim: "MET Norway").tag("met-no")
+            InfoRow("Provider", info: .weatherProvider, requirement: weatherRequirement) { label in
+                Picker(selection: $model.draft.provider) {
+                    Text(verbatim: "Open-Meteo").tag("open-meteo")
+                    Text(verbatim: "MET Norway").tag("met-no")
+                } label: { label }
             }
             TextField("Name", text: $model.draft.locationName, prompt: Text("Shown in popups"))
             LabeledContent("Coordinates") {
@@ -124,7 +130,8 @@ struct WeatherSourcePane: View {
         return Section {
             StepperRow(title: "Refresh every", value: $model.draft.refreshMinutes,
                        range: (5...60).including(c.refreshMinutes), step: 5) { Text("\($0) min") }
-            Toggle("Severe weather alert", isOn: $model.draft.severeAlert)
+            InfoToggle("Severe weather alert", isOn: $model.draft.severeAlert, info: .weatherSevereAlert,
+                       requirement: weatherRequirement)
             StepperRow(title: "Air quality alert from", value: $model.draft.airPopupThreshold,
                        range: 0...200, step: 10) { n in n == 0 ? Text("Off") : Text("AQI \(n)") }
         } header: {
@@ -170,6 +177,14 @@ struct ClockWeatherAppPane: View {
 
     private var model: ServerConfigModel<WeatherConfig> { env.settings.weather }
 
+    private var weatherRequirement: SettingsInfoRequirement {
+        !model.isLoaded ? .loading : .weatherOn
+    }
+
+    private var tileRequirement: SettingsInfoRequirement {
+        !model.isLoaded ? .loading : (model.draft.enabled ? .currentConditionsOn : .weatherOn)
+    }
+
     var body: some View {
         @Bindable var model = model
         let c = model.draft
@@ -205,6 +220,9 @@ struct ClockWeatherAppPane: View {
                         ForEach(Self.iconConditions, id: \.key) { row in
                             TextField(row.label, text: iconBinding(row.key), prompt: Text(verbatim: row.placeholder))
                         }
+                        Text("IDs from the LaMetric icon gallery. Leave one empty to use Ember's default.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     } header: {
                         Text("Native Icon IDs")
                     }
@@ -224,9 +242,10 @@ struct ClockWeatherAppPane: View {
         return Section {
             Toggle("Current conditions", isOn: $model.draft.rotateInApps)
             Group {
-                Toggle("Native animated icon", isOn: $model.draft.tileNativeIcons)
-                Toggle("Moon phase at night", isOn: $model.draft.moonPhase)
-                Toggle("Rain and snow overlay", isOn: $model.draft.overlay)
+                InfoToggle("Native animated icon", isOn: $model.draft.tileNativeIcons, info: .weatherNativeTileIcon,
+                           requirement: tileRequirement)
+                InfoToggle("Moon phase at night", isOn: $model.draft.moonPhase, info: .weatherMoonPhase, requirement: tileRequirement)
+                InfoToggle("Rain and snow overlay", isOn: $model.draft.overlay, info: .weatherOverlay, requirement: tileRequirement)
             }
             .disabled(!c.rotateInApps)
             Toggle("Hourly forecast", isOn: $model.draft.forecastTile)
@@ -247,12 +266,14 @@ struct ClockWeatherAppPane: View {
             Toggle("When conditions change", isOn: $model.draft.popupOnChange)
             Toggle("Sunrise and sunset", isOn: $model.draft.sunPopups)
             StepperRow(title: "Every", value: $model.draft.popupIntervalMinutes,
-                       range: (0...360).including(model.draft.popupIntervalMinutes), step: 30) { m in
+                       range: (0...360).including(model.draft.popupIntervalMinutes), step: 30,
+                       info: .weatherPopupInterval, requirement: weatherRequirement) { m in
                 m == 0 ? Text("Off") : Text(verbatim: DurationText.minutes(m))
             }
             StepperRow(title: "Show for", value: $model.draft.popupDurationSeconds,
                        range: (5...120).including(model.draft.popupDurationSeconds), step: 5) { Text("\($0) s") }
-            Toggle("Native icons in popups", isOn: $model.draft.useNativeIcons)
+            InfoToggle("Native icons in popups", isOn: $model.draft.useNativeIcons, info: .weatherNativePopupIcons,
+                       requirement: weatherRequirement)
         } header: {
             Text("Popups")
         } footer: {

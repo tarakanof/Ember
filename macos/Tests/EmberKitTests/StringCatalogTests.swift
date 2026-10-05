@@ -30,6 +30,8 @@ private func emberKitStrings() -> [LocalizedStringResource] {
     let errors: [FeedError] = [.offline, .unauthorized, .rateLimited, .featureOff, .server("x")]
     out += errors.flatMap { [$0.message, $0.saveMessage] }
     out += [AggregateSaveStatus.saving, .saved, .failed].compactMap(\.subtitle)
+    out += SettingsInfo.allCases.flatMap { [$0.summary, $0.detail] }
+    out += SettingsInfoRequirement.allCases.map(\.text)
     return out
 }
 

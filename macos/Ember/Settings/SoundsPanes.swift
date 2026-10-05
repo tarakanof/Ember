@@ -22,18 +22,20 @@ struct ClockSoundsPane: View {
                 Group {
                     Toggle("Focus phase ends", isOn: $pomodoro.draft.sound)
                     MelodyRow(title: "Focus melody", value: $pomodoro.draft.soundMelody, names: names,
+                              requirement: pomodoro.isLoaded ? .focusSoundOn : .loading,
                               allowsCustom: true, canPreview: device.audio == .available,
                               preview: { await device.playTestChime(melody: $0) })
                         .disabled(!pomodoro.draft.sound)
                 }
                 .disabled(!pomodoro.isLoaded)
-                Toggle("Agent needs attention", isOn: $display.draft.attentionChime)
+                InfoToggle("Agent needs attention", isOn: $display.draft.attentionChime, info: .attentionChime, requirement: .loading)
                     .disabled(!display.isLoaded)
-                Toggle("5-hour limit resets", isOn: $usage.draft.limitAlarm)
+                InfoToggle("5-hour limit resets", isOn: $usage.draft.limitAlarm, info: .limitAlarm, requirement: .loading)
                     .disabled(!usage.isLoaded)
                 Toggle("Meeting popup", isOn: $meetings.draft.chime)
                     .disabled(!meetings.isLoaded || meetings.draft.popupLeadMinutes == 0)
                 MelodyRow(title: "Severe weather", value: $weather.draft.severeSound, names: names,
+                          requirement: weather.isLoaded ? .severeAlertOn : .loading,
                           allowsCustom: true, canPreview: device.audio == .available,
                           preview: { await device.playTestChime(melody: $0) })
                     .disabled(!weather.isLoaded || !weather.draft.severeAlert)
@@ -174,6 +176,7 @@ private struct MelodyRow: View {
     let title: LocalizedStringKey
     @Binding var value: String
     let names: [String]
+    let requirement: SettingsInfoRequirement?
     let allowsCustom: Bool
     let canPreview: Bool
     let preview: (String) async -> Void
@@ -181,6 +184,15 @@ private struct MelodyRow: View {
 
     var body: some View {
         let choice = customPicked ? .custom : MelodyChoice(value: value, available: names)
+        InfoRow(title, info: .melody, requirement: requirement) { label in
+            row(choice, label: label)
+        }
+        if choice == .custom {
+            TextField("Melody", text: $value, prompt: Text("Melody name or RTTTL"))
+        }
+    }
+
+    private func row(_ choice: MelodyChoice, label: InfoLabel) -> some View {
         LabeledContent {
             HStack(spacing: 6) {
                 Picker(selection: Binding(
@@ -214,10 +226,7 @@ private struct MelodyRow: View {
                 }
             }
         } label: {
-            Text(title)
-        }
-        if choice == .custom {
-            TextField("Melody", text: $value, prompt: Text("Melody name or RTTTL"))
+            label
         }
     }
 }

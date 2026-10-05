@@ -6,17 +6,21 @@ struct StepperRow: View {
     @Binding var value: Int
     let range: ClosedRange<Int>
     var step: Int = 1
+    var info: SettingsInfo? = nil
+    var requirement: SettingsInfoRequirement? = nil
     let valueText: (Int) -> Text
 
     var body: some View {
-        LabeledContent {
-            HStack(spacing: 6) {
-                valueText(value).monospacedDigit()
-                Stepper(value: $value, in: range, step: step) { Text(title) }
-                    .labelsHidden()
+        InfoRow(title, info: info, requirement: requirement) { label in
+            LabeledContent {
+                HStack(spacing: 6) {
+                    valueText(value).monospacedDigit()
+                    Stepper(value: $value, in: range, step: step) { Text(title) }
+                        .labelsHidden()
+                }
+            } label: {
+                label
             }
-        } label: {
-            Text(title)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAdjustableAction { direction in
@@ -34,17 +38,21 @@ struct DecimalStepperRow: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
     let step: Double
+    var info: SettingsInfo? = nil
+    var requirement: SettingsInfoRequirement? = nil
     let valueText: (Double) -> Text
 
     var body: some View {
-        LabeledContent {
-            HStack(spacing: 6) {
-                valueText(value).monospacedDigit()
-                Stepper(value: $value, in: range, step: step) { Text(title) }
-                    .labelsHidden()
+        InfoRow(title, info: info, requirement: requirement) { label in
+            LabeledContent {
+                HStack(spacing: 6) {
+                    valueText(value).monospacedDigit()
+                    Stepper(value: $value, in: range, step: step) { Text(title) }
+                        .labelsHidden()
+                }
+            } label: {
+                label
             }
-        } label: {
-            Text(title)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAdjustableAction { direction in
@@ -62,8 +70,16 @@ struct PercentSliderRow: View {
     @Binding var percent: Int
     var range: ClosedRange<Int> = 0...100
     var step: Int = 1
+    var info: SettingsInfo? = nil
+    var requirement: SettingsInfoRequirement? = nil
 
     var body: some View {
+        InfoRow(title, info: info, requirement: requirement) { label in
+            sliderRow(label)
+        }
+    }
+
+    private func sliderRow(_ label: InfoLabel) -> some View {
         LabeledContent {
             HStack(spacing: 8) {
                 Slider(value: Binding(get: { Double(percent) }, set: { percent = Int($0.rounded()) }),
@@ -79,7 +95,7 @@ struct PercentSliderRow: View {
                     .accessibilityHidden(true)
             }
         } label: {
-            Text(title)
+            label
         }
     }
 

@@ -48,9 +48,10 @@ struct ConnectionPane: View {
                 TextField("Source", text: $source, prompt: Text(verbatim: "m4"))
                     .focused($focused, equals: .source)
                     .onSubmit { commit(\.source, source) }
-                Toggle("Use source color", isOn: Binding(
+                InfoToggle("Use source color", isOn: Binding(
                     get: { !model.draft.sourceColor.isEmpty },
-                    set: { model.draft.sourceColor = $0 ? "#FF8800" : "" }))
+                    set: { model.draft.sourceColor = $0 ? "#FF8800" : "" }),
+                    info: .sourceColor, requirement: .loading)
                 if !model.draft.sourceColor.isEmpty {
                     HexColorRow(title: "Source color", hex: $model.draft.sourceColor, fallback: "#FF8800")
                 }
