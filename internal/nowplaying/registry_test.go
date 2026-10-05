@@ -202,3 +202,37 @@ func TestSetArtistArtOnlyForSameArtistWithoutPicture(t *testing.T) {
 		t.Fatal("Get lost the picture")
 	}
 }
+
+func TestExpiredPausedStaysHiddenWhileReReported(t *testing.T) {
+	r := NewRegistry()
+	mustReport(t, r, song("plex", "amp", Paused, "one", 5000), t0)
+	for m := 1; m <= 20; m++ {
+		at := t0.Add(time.Duration(m) * time.Minute)
+		mustReport(t, r, song("plex", "amp", Paused, "one", 5000), at)
+		if _, ok := r.Current(at); ok && m >= 10 {
+			t.Fatalf("paused track came back after %d min of re-reports", m)
+		}
+	}
+	mustReport(t, r, song("plex", "amp", Playing, "one", 5000), t0.Add(21*time.Minute))
+	if _, ok := r.Current(t0.Add(21 * time.Minute)); !ok {
+		t.Fatal("resuming should show the track again")
+	}
+}
+
+func TestRegistryForgetsSilentEntriesAndCapsPlayers(t *testing.T) {
+	r := NewRegistry()
+	mustReport(t, r, song("music", "old", Paused, "x", 0), t0)
+	mustReport(t, r, song("music", "new", Paused, "y", 0), t0.Add(ForgetAfter))
+	if _, ok := r.Get("music", "old"); ok {
+		t.Fatal("silent entry not forgotten")
+	}
+	for i := 0; i < maxEntries+5; i++ {
+		mustReport(t, r, song("music", strings.Repeat("p", i+1), Playing, "z", 0), t0.Add(ForgetAfter+time.Duration(i)*time.Second))
+	}
+	r.mu.Lock()
+	n := len(r.entries)
+	r.mu.Unlock()
+	if n > maxEntries {
+		t.Fatalf("entries = %d, cap %d", n, maxEntries)
+	}
+}

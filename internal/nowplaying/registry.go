@@ -38,10 +38,15 @@ const (
 
 // Lifetimes of an entry without a fresh report.
 const (
-	PausedTTL       = 10 * time.Minute
-	PlayingGrace    = 60 * time.Second
-	NoDurationTTL   = 30 * time.Minute
-	SeekTolerance   = 3 * time.Second
+	PausedTTL     = 10 * time.Minute
+	PlayingGrace  = 60 * time.Second
+	NoDurationTTL = 30 * time.Minute
+	SeekTolerance = 3 * time.Second
+	// ForgetAfter drops an entry with no report for this long; until then an
+	// expired entry is kept (hidden) so a source re-reporting the same
+	// paused track doesn't bring it back.
+	ForgetAfter     = time.Hour
+	maxEntries      = 32
 	maxTextRunes    = 200
 	maxPlayerRunes  = 64
 	maxTrackIDRunes = 128
@@ -214,6 +219,9 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 		return had, nil
 	}
 	old := r.entries[k]
+	if old == nil {
+		r.evictLocked(now)
+	}
 	next := &Entry{Report: rep, PositionAt: now, StateSince: now, UpdatedAt: now}
 	if old == nil || old.track() != rep.track() {
 		r.entries[k] = next
@@ -290,19 +298,35 @@ func (r *Registry) Remove(source, player string) {
 	delete(r.entries, key{source, player})
 }
 
+// evictLocked forgets silent entries and, at the cap, the least recently
+// updated one, so a misbehaving pusher can't grow the map without bound.
+func (r *Registry) evictLocked(now time.Time) {
+	var oldest key
+	var oldestAt time.Time
+	for k, e := range r.entries {
+		if now.Sub(e.UpdatedAt) >= ForgetAfter {
+			delete(r.entries, k)
+			continue
+		}
+		if oldestAt.IsZero() || e.UpdatedAt.Before(oldestAt) {
+			oldest, oldestAt = k, e.UpdatedAt
+		}
+	}
+	if len(r.entries) >= maxEntries {
+		delete(r.entries, oldest)
+	}
+}
+
 // Current returns the entry displays show at now: the most recently started
-// playing entry, else the most recently paused one. Expired entries are
-// dropped.
+// playing entry, else the most recently paused one, skipping expired ones.
 func (r *Registry) Current(now time.Time) (Entry, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var live []*Entry
-	for k, e := range r.entries {
-		if e.expired(now) {
-			delete(r.entries, k)
-			continue
+	for _, e := range r.entries {
+		if !e.expired(now) {
+			live = append(live, e)
 		}
-		live = append(live, e)
 	}
 	if len(live) == 0 {
 		return Entry{}, false

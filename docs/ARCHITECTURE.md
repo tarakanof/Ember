@@ -1379,7 +1379,10 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   entry, else the most recently paused one. Paused lives 10 min from the
   pause (re-reports don't extend it); playing lives until its extrapolated
   end + 60 s (a Mac that slept never says "stopped"), or 30 min after its
-  last report without a duration.
+  last report without a duration. An expired entry stays (hidden) until
+  its track or state changes, so Plex re-reporting a long-paused session
+  doesn't bring it back; entries silent for 1 h are forgotten, and at most
+  32 players are kept.
 - **Position anchor:** the entry stores `position_ms` at `position_at`. A
   report for the same track and state moves the anchor only when it is more
   than 3 s off the extrapolation (a seek). Plex re-reports `viewOffset`
