@@ -24,7 +24,7 @@ type nowPlayingService struct {
 	reg   *nowplaying.Registry
 	cache *nowplaying.Cache
 	// renderMu serialises art renders so concurrent cache misses can't
-	// multiply the decode buffers (a 1400 px source is ~20 MB transient).
+	// multiply the decode buffers (a 2048 px source is ~50 MB transient).
 	renderMu sync.Mutex
 	// artists finds artist pictures by name; nil turns lookups off.
 	artists *artistLookup

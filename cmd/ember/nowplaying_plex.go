@@ -66,10 +66,19 @@ type plexSource struct {
 	album      *nowplaying.Image
 	artist     *nowplaying.Image
 	lastErr    string
+	artFailed  map[string]bool // art paths that failed; logged once, retried each poll
+	track      string          // ratingKey and viewOffset of the last poll, to tell a
+	offset     int64           // fresh timeline update from a repeated stale one
 }
 
 func newPlexSource(cfg plexConfig) *plexSource {
-	return &plexSource{cfg: cfg, client: &http.Client{Timeout: plexTimeout}, nudge: make(chan struct{}, 1)}
+	client := &http.Client{
+		Timeout: plexTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return &plexSource{cfg: cfg, client: client, nudge: make(chan struct{}, 1), artFailed: make(map[string]bool)}
 }
 
 // wake asks the poller to poll now.
@@ -163,6 +172,12 @@ func (p *plexSource) poll(ctx context.Context, np *nowPlayingService, logger *sl
 		Title: truncRunes(s.Title, 200), Artist: truncRunes(artist, 200), Album: truncRunes(s.ParentTitle, 200),
 		TrackID: truncRunes(s.RatingKey, 128), DurationMS: max(s.Duration, 0), PositionMS: max(s.ViewOffset, 0),
 	}
+	if rep.TrackID == p.track && s.ViewOffset == p.offset {
+		if e, ok := np.reg.Get(plexSourceID, player); ok && e.TrackID == rep.TrackID && e.State == state {
+			rep.PositionMS = e.Position(now)
+		}
+	}
+	p.track, p.offset = rep.TrackID, s.ViewOffset
 	if _, err := np.reg.Report(rep, now); err != nil {
 		logger.Warn("plex session rejected", "err", err)
 		return false
@@ -189,17 +204,24 @@ func (p *plexSource) art(ctx context.Context, path string, last *string, prev *n
 	if path == *last {
 		return prev
 	}
-	*last = path
 	if path == "" {
+		*last = ""
 		return nil
 	}
 	u := fmt.Sprintf("%s/photo/:/transcode?width=%d&height=%d&minSize=1&upscale=1&url=%s",
 		p.cfg.URL, plexArtPx, plexArtPx, url.QueryEscape(path))
 	img, err := fetchArt(ctx, p.client, u, p.headers())
 	if err != nil {
-		logger.Warn("plex artwork fetch failed", "err", err)
+		if !p.artFailed[path] {
+			logger.Warn("plex artwork fetch failed", "err", err)
+		}
+		if len(p.artFailed) >= 8 {
+			clear(p.artFailed)
+		}
+		p.artFailed[path] = true
 		return nil
 	}
+	*last = path
 	return img
 }
 

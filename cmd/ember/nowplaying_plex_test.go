@@ -181,3 +181,51 @@ func TestStartNowPlayingStopsWithContext(t *testing.T) {
 		t.Fatal("StartNowPlaying did not stop")
 	}
 }
+
+func TestPlexArtRetriesAfterFailure(t *testing.T) {
+	fake, srv := newFakePlex(t, []byte("broken"))
+	fake.set(readFixture(t, "plex_sessions.json"))
+	np := newNowPlayingService()
+	p := newPlexSource(plexConfig{URL: srv.URL, Token: fakePlexToken, User: "dt"})
+	var logs bytes.Buffer
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	p.poll(context.Background(), np, captureLogger(&logs), now)
+	p.poll(context.Background(), np, captureLogger(&logs), now.Add(2*time.Second))
+	if len(fake.photoHits) != 4 {
+		t.Fatalf("failed art not retried: %v", fake.photoHits)
+	}
+	if n := strings.Count(logs.String(), "plex artwork fetch failed"); n != 2 {
+		t.Fatalf("failure logged %d times, want once per path", n)
+	}
+}
+
+func TestPlexStaleViewOffsetKeepsExtrapolating(t *testing.T) {
+	fake, srv := newFakePlex(t, pngBytes(t, 10, color.White))
+	fake.set(readFixture(t, "plex_sessions.json"))
+	np := newNowPlayingService()
+	p := newPlexSource(plexConfig{URL: srv.URL, Token: fakePlexToken, User: "dt"})
+	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	p.poll(context.Background(), np, testLogger(), now)
+	p.poll(context.Background(), np, testLogger(), now.Add(10*time.Second))
+	e, _ := np.reg.Current(now.Add(10 * time.Second))
+	if !e.PositionAt.Equal(now) || e.Position(now.Add(10*time.Second)) != 71000 {
+		t.Fatalf("stale viewOffset re-anchored: %d at %v", e.PositionMS, e.PositionAt)
+	}
+}
+
+func TestPlexRefusesRedirects(t *testing.T) {
+	var leaked bool
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked = r.Header.Get("X-Plex-Token") != ""
+	}))
+	t.Cleanup(other.Close)
+	plex := httptest.NewServer(http.RedirectHandler(other.URL+"/status/sessions", http.StatusFound))
+	t.Cleanup(plex.Close)
+	p := newPlexSource(plexConfig{URL: plex.URL, Token: fakePlexToken})
+	if _, err := p.session(context.Background()); err == nil {
+		t.Fatal("redirect answered as sessions")
+	}
+	if leaked {
+		t.Fatal("token followed a redirect")
+	}
+}

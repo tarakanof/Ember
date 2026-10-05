@@ -64,6 +64,10 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     private func run(_ source: String) async -> NSAppleEventDescriptor? {
         await withCheckedContinuation { cont in
             queue.async {
+                guard !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty else {
+                    cont.resume(returning: nil)
+                    return
+                }
                 let script = self.compiled[source] ?? NSAppleScript(source: source)
                 self.compiled[source] = script
                 var error: NSDictionary?

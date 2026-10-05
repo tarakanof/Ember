@@ -1378,7 +1378,7 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   `stopped` deletes the entry. Shown: the most recently *started* playing
   entry, else the most recently paused one. Paused lives 10 min from the
   pause (re-reports don't extend it); playing lives until its extrapolated
-  end + 60 s (a Mac that slept never says "stopped"), or 30 min after its
+  end + 5 min (a Mac that slept never says "stopped"; Music posts no notification on a seek, so a backward seek must not hide a playing track), or 30 min after its
   last report without a duration. An expired entry stays (hidden) until
   its track or state changes, so Plex re-reporting a long-paused session
   doesn't bring it back; entries silent for 1 h are forgotten, and at most
@@ -1396,8 +1396,8 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   blur (radius size/40) dimmed to 35 %, then **baseline** JPEG q80 (Go's
   encoder writes SOF0 only, which TJpgDec/`esp_jpeg` on the knob needs; no
   alpha — the knob applies its own circle mask). Sources must be JPEG/PNG,
-  ≤2 MB, ≤4096 px a side, checked with `DecodeConfig` before decoding.
-  Renders are serialised (a 1400 px source costs ~40 ms and ~20 MB
+  ≤2 MB, ≤2048 px a side, checked with `DecodeConfig` before decoding.
+  Renders are serialised (a 1400 px source costs ~44 ms and ~22 MB
   transient) and cached in a RAM LRU of 32 entries / 8 MB keyed by
   `(hash, kind, size)`. Nothing touches disk (Deezer's terms forbid
   storing its images).
@@ -1411,13 +1411,18 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   `/photo/:/transcode?width=480&height=480&minSize=1&upscale=1&url=…`,
   fetched only when the path changes. The token rides in the
   `X-Plex-Token` header only (`plexConfig` has a redacting `LogValue`);
-  a failing poll logs once per distinct error.
+  a failing poll logs once per distinct error. Redirects are refused (Go
+  would carry the custom token header to another host). A failed art
+  fetch is retried each poll, logged once per path. A `viewOffset` equal
+  to the previous poll's for the same track is stale (Plex updates it only
+  on a client timeline report), so the poller reports the extrapolated
+  position instead and the anchor holds.
 - **Artist pictures** (`nowplaying_deezer.go`): an entry with an artist and
   no artist picture queues a lookup (channel of 4; full = dropped, the next
   report re-queues). Deezer `search/artist?q=` (no key): exact
   case-insensitive name, else the first hit; `picture_xl` rewritten to
   500 px. Hits and misses are remembered by name in RAM (64 names, misses
-  1 h). `SetArtistArt` attaches only while the player still plays that
+  1 h, errors 1 min). `SetArtistArt` attaches only while the player still plays that
   artist. `EMBER_ARTIST_LOOKUP=0` turns it off.
 - **Ember.app pusher** (`macos/Ember/Services/MusicNowPlayingWatcher.swift`):
   see "Menu-bar app".

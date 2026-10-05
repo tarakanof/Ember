@@ -305,3 +305,19 @@ func TestArtistLookupOffQueuesNothing(t *testing.T) {
 	default:
 	}
 }
+
+func TestArtistLookupBacksOffAfterError(t *testing.T) {
+	var calls int
+	deezer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(deezer.Close)
+	l := newArtistLookup(deezer.URL)
+	if _, err := l.find(context.Background(), "Band"); err == nil {
+		t.Fatal("want the error once")
+	}
+	if img, err := l.find(context.Background(), "Band"); err != nil || img != nil || calls != 1 {
+		t.Fatalf("error not cached: calls=%d err=%v", calls, err)
+	}
+}

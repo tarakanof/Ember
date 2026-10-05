@@ -16,7 +16,7 @@ import (
 // Art limits: source bytes, source dimensions, and the sizes served.
 const (
 	MaxArtBytes   = 2 << 20
-	MaxArtSidePx  = 4096
+	MaxArtSidePx  = 2048
 	MinSizePx     = 16
 	MaxSizePx     = 512
 	jpegQuality   = 80
@@ -29,7 +29,7 @@ const (
 var DefaultSize = map[Kind]int{Album: 240, Artist: 64, Backdrop: 466}
 
 // ErrBadImage is a source picture that is not a JPEG/PNG within the limits.
-var ErrBadImage = errors.New("artwork must be a JPEG or PNG of at most 2 MB and 4096x4096 px")
+var ErrBadImage = errors.New("artwork must be a JPEG or PNG of at most 2 MB and 2048x2048 px")
 
 // CheckImage validates source bytes without decoding the pixels.
 func CheckImage(data []byte) error {

@@ -39,7 +39,7 @@ const (
 // Lifetimes of an entry without a fresh report.
 const (
 	PausedTTL     = 10 * time.Minute
-	PlayingGrace  = 60 * time.Second
+	PlayingGrace  = 5 * time.Minute
 	NoDurationTTL = 30 * time.Minute
 	SeekTolerance = 3 * time.Second
 	// ForgetAfter drops an entry with no report for this long; until then an

@@ -19,6 +19,7 @@ const (
 	deezerAPIBase       = "https://api.deezer.com"
 	artistLookupMax     = 64
 	artistMissTTL       = time.Hour
+	artistErrTTL        = time.Minute
 	artistLookupTimeout = 10 * time.Second
 )
 
@@ -34,6 +35,7 @@ type artistLookup struct {
 
 type artistHit struct {
 	img *nowplaying.Image // nil = no picture
+	err error             // a failed lookup, retried after artistErrTTL
 	at  time.Time
 }
 
@@ -53,14 +55,21 @@ func (l *artistLookup) find(ctx context.Context, artist string) (*nowplaying.Ima
 		return nil, nil
 	}
 	l.mu.Lock()
-	if h, ok := l.hits[name]; ok && (h.img != nil || l.now().Sub(h.at) < artistMissTTL) {
-		l.mu.Unlock()
-		return h.img, nil
+	if h, ok := l.hits[name]; ok {
+		age := l.now().Sub(h.at)
+		switch {
+		case h.err != nil && age < artistErrTTL:
+			l.mu.Unlock()
+			return nil, nil
+		case h.err == nil && (h.img != nil || age < artistMissTTL):
+			l.mu.Unlock()
+			return h.img, nil
+		}
 	}
 	l.mu.Unlock()
 
 	img, err := l.search(ctx, name)
-	if err != nil {
+	if err != nil && ctx.Err() != nil {
 		return nil, err
 	}
 	l.mu.Lock()
@@ -74,8 +83,8 @@ func (l *artistLookup) find(ctx context.Context, artist string) (*nowplaying.Ima
 		}
 		delete(l.hits, oldest)
 	}
-	l.hits[name] = artistHit{img: img, at: l.now()}
-	return img, nil
+	l.hits[name] = artistHit{img: img, err: err, at: l.now()}
+	return img, err
 }
 
 func (l *artistLookup) search(ctx context.Context, name string) (*nowplaying.Image, error) {

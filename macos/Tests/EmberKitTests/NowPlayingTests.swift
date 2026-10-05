@@ -169,3 +169,17 @@ private func jpeg(side: Int) -> Data {
     #expect(props[kCGImagePropertyPixelWidth] as? Int == ArtworkShrinker.maxSide)
     #expect(ArtworkShrinker.fit(Data("nope".utf8)) == nil)
 }
+
+@MainActor
+@Test func renamingThePlayerStopsTheOldOne() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    let p = AppleMusicPusher(bridge: bridge, sink: sink, player: "Old")
+    p.submit(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    await p.drain()
+    await p.configure(sink: sink, player: "New")
+    let r = await sink.reports
+    #expect(r.map(\.player) == ["Old", "Old"] && r.last?.state == .stopped)
+    await p.configure(sink: sink, player: "New")
+    #expect(await sink.reports.count == 2)
+}

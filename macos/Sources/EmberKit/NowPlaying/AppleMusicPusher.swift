@@ -61,8 +61,13 @@ public final class AppleMusicPusher {
         self.player = player
     }
 
-    /// Points the pusher at another server, or renames this Mac's player.
-    public func configure(sink: NowPlayingSink, player: String) {
+    /// Points the pusher at another server, or renames this Mac's player
+    /// (the old name is reported stopped, so it doesn't linger).
+    public func configure(sink: NowPlayingSink, player: String) async {
+        if player != self.player, let last = lastSent, last.state != .stopped {
+            await drain()
+            await send(MusicPlayerInfo(state: .stopped).report(source: Self.source, player: self.player))
+        }
         self.sink = sink
         self.player = player
     }
