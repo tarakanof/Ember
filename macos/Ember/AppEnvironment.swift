@@ -24,6 +24,8 @@ public final class AppEnvironment {
     public private(set) var knobDiagnosticsSaving = false
     public private(set) var knobDiagnosticsError: String?
     public private(set) var reminderWatcher: ReminderWatcher
+    /// Settings › Sources › Music: the Apple Music pusher.
+    let musicWatcher: MusicNowPlayingWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
     public let clockDiscovery = ClockDiscovery()
@@ -116,6 +118,8 @@ public final class AppEnvironment {
         clockStats = ClockStatsModel(service: ClockStatsClient(client: client))
         let watcher = ReminderWatcher(client: client)
         reminderWatcher = watcher
+        let music = MusicNowPlayingWatcher(client: client, envStore: envStore)
+        musicWatcher = music
         producers = ProducerInstallService(
             sm: RealSMAppService(),
             runner: ProcessCommandRunner(),
@@ -125,7 +129,7 @@ public final class AppEnvironment {
             prefs: UserDefaultsProducerPrefs()
         )
         permissions = PermissionsModel(sources: AppPermissionSources(
-            connection: connection, producers: producers, reminders: watcher, location: location))
+            connection: connection, producers: producers, reminders: watcher, location: location, music: music))
         #if DEBUG
         // A snapshot run only draws fixtures: no server, producers or USB.
         if HardwareSnapshotRenderer.isRequested { return }
@@ -135,6 +139,7 @@ public final class AppEnvironment {
         live.start()
         observeSleep()
         reminderWatcher.start()
+        musicWatcher.start()
         AppEnvironment.applyAppIcon(prefs.appIcon)
         BotAnimator.shared.showInMenuBar(prefs.trayStyle == "bot", colored: prefs.trayTint == "color")
         feedBot()
@@ -190,6 +195,7 @@ public final class AppEnvironment {
         guard connection.reload() else { return }
         let client = connection.client
         reminderWatcher.reconfigure(client: client)
+        musicWatcher.reconfigure(client: client)
         live.configure(client: client)
         settings.configure(client: client)
         deviceSettings.configure(service: connection.device)

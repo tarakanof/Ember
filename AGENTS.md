@@ -134,7 +134,9 @@ registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 ARCHITECTURE "Knob diagnostics"), `GET /v1/clock/stats?range=15m|1h|24h`
 (clock probe history, memory only — ARCHITECTURE "Clock stats"),
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
-`POST /v1/usage`, `GET/PUT /v1/usage/config`, `GET/PUT /v1/display/config`,
+`POST /v1/usage`, `GET/PUT /v1/usage/config`, `POST /v1/nowplaying` (a
+source's player report) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`
+(raw JPEG/PNG ≤2 MB; 409 once the track moved on — ARCHITECTURE "Now playing"), `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),
 `GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config`, `GET/PUT /v1/brightness/config` (every `…/config`
@@ -172,6 +174,8 @@ effect/transition/overlay/palette lists; live proxy when the cache is cold),
 snapshot per tool — the POST stays authed), `GET /v1/activity/summary?days=`
 (agent time per tool/source, waiting excluded), `GET /v1/weather/state` (cached
 observation; label but no coordinates, sun times rounded to 5 min),
+`GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop&size=`
+(square baseline JPEG, ETag; rate-limited),
 `GET /v1/clock/health` (24h publish counts + clock RSSI/heap/uptime/current
 app, device probe cached 30s, latest NG release looked up on GitHub in the
 background every 6h — `EMBER_FIRMWARE_CHECK=0` disables it). Dashboard
@@ -181,7 +185,8 @@ units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `/version`, `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
 `GET /v1/devices/self/config`, `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304 — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
-on any knob config change or rotation). Device-only (unauthenticated): `POST /hooks/awtrix/button`
+on any knob config change or rotation). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
+the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`
 (NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
 the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an
 alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,

@@ -51,6 +51,16 @@ type knobBrightness struct {
 	Startup     int  `json:"startup"`
 }
 
+// pageOn reports whether the page id is in the list and on.
+func (s knobSettings) pageOn(id string) bool {
+	for _, p := range s.Pages {
+		if p.ID == id {
+			return p.On
+		}
+	}
+	return false
+}
+
 type knobPage struct {
 	ID string `json:"id"`
 	On bool   `json:"on"`

@@ -62,7 +62,7 @@ struct KnobDetail: View {
         case .focus: return s.pomodoro.isLoaded && !s.pomodoro.draft.enabled
         case .weather: return s.weather.isLoaded && !s.weather.draft.enabled
         case .calendar: return s.meetings.isLoaded && !s.meetings.draft.enabled
-        case .agents: return false
+        case .agents, .music: return false
         }
     }
 

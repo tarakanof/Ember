@@ -31,6 +31,8 @@ targets:
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
+        # Apple Events to Music.app for the Apple Music pusher (hardened runtime).
+        CODE_SIGN_ENTITLEMENTS: Ember/Ember.entitlements
         DEVELOPMENT_TEAM: VX7Q4NH37M
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "Developer ID Application"

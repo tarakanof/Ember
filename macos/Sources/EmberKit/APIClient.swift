@@ -275,6 +275,13 @@ public struct APIClient: Sendable {
         catch { throw APIError.decoding(String(describing: error)) }
     }
 
+    /// PUT of raw bytes (an image upload) with its content type and query.
+    public func putData(_ path: String, query: [URLQueryItem], data: Data, contentType: String,
+                        budget: RequestBudget = .server) async throws {
+        _ = try await perform("PUT", path, query: query, body: data,
+                              headers: ["Content-Type": contentType], budget: budget)
+    }
+
     /// POST carrying an `Idempotency-Key` so the server can drop a retry, with a
     /// timeout long enough to hear the server's answer instead of guessing.
     public func postIdempotent<B: Encodable>(_ path: String, body: B, key: String) async throws {

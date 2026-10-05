@@ -847,7 +847,7 @@ without relaunch. Hybrid layout:
   power needs 0.28+), the animated bot or tool glyph as its icon, a
   fixed-width sidebar `Settings` window (height resizable only, like System
   Settings; three groups: **App** (General, Connection, Permissions,
-  Sounds & Alerts), **Sources** (Agents, Focus, Weather, Calendar: where
+  Sounds & Alerts), **Sources** (Agents, Focus, Weather, Calendar, Music: where
   data comes from, set once) and **Devices** (Clock and Knob, each with its
   hardware pages and an Apps subtree holding that device's presentation of
   each source; a source pane and its device apps bind the same config model,
@@ -1001,6 +1001,27 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   (Check Again, after Repair) waits out the running check, which may predate the
   fix, and runs fresh. During a re-check the last Local Network verdict stays up
   so the row doesn't flicker.
+- **Apple Music pusher (#226).** Settings › Sources › Music toggles it
+  (per Mac, `UserDefaults` `musicNowPlaying.enabled`, off by default).
+  `MusicNowPlayingWatcher` observes the `com.apple.Music.playerInfo`
+  distributed notification only while it is on: no timers, no polling.
+  EmberKit's `AppleMusicPusher` coalesces bursts to the latest state, POSTs
+  `/v1/nowplaying` (`source:"music"`, `player` = the Connection pane's
+  source name, else the computer name, `track_id` = Music's persistent ID
+  in AppleScript's 16-hex form), and PUTs the album artwork when the answer
+  says the server lacks it (`ArtworkShrinker` re-encodes art over 512 KB or
+  1000 px as a 1000 px JPEG). `AppleScriptMusicBridge` reads `player
+  position`, `{persistent ID, raw data of artwork 1}` of the current track
+  in one script (the PUT is skipped when the ID isn't the reported track's,
+  so a skip can't put B's cover on A) and, when the toggle
+  turns on mid-track, a one-shot snapshot; every script first checks
+  `NSRunningApplication` for `com.apple.Music`, because a `tell` would
+  launch Music. Hardened runtime needs
+  `com.apple.security.automation.apple-events` (`Ember/Ember.entitlements`)
+  and `NSAppleEventsUsageDescription`; Settings › Permissions has an
+  "Automation: Music" row read with `AEDeterminePermissionToAutomateTarget`
+  (no prompt; "Couldn't check" while Music isn't running). MediaRemote was
+  not used: private, entitlement-gated since macOS 15.4.
 - **Presentation.** The menu-bar label is driven by a small value (icon plus
   VoiceOver text) instead of the winning `Session` or `ConnectionHealth`, so it
   re-renders only when what it shows changes. The clock-health reading is dated
@@ -1346,6 +1367,82 @@ counter).
 > **Shared store.** Runtime settings + hidden-apps + Pomodoro stats all live in
 > the one SQLite store, opened once at boot by `initPomodoro` (`ensureStore`,
 > path `pomodoro.db_path`) whether or not Pomodoro is enabled.
+
+### Now playing — `internal/nowplaying`, `cmd/ember/nowplaying*.go` (#226)
+
+Music state and pictures for the knob's now-playing page (cinder #14).
+Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`.
+
+- **Model** (`internal/nowplaying.Registry`, pure): one entry per
+  `(source, player)`; a report is `{source, player, state
+  playing|paused|stopped, title, artist, album, track_id, duration_ms,
+  position_ms}` (`source` `^[a-z][a-z0-9_-]{0,31}$`, text ≤200 characters).
+  `stopped` deletes the entry. Shown: the most recently *started* playing
+  entry, else the most recently paused one. Paused lives 10 min from the
+  pause (re-reports don't extend it); playing lives until its extrapolated
+  end + 5 min (a Mac that slept never says "stopped"; Music posts no notification on a seek, so a backward seek must not hide a playing track), or 30 min after its
+  last report without a duration. An expired entry stays (hidden) until
+  its track or state changes, so Plex re-reporting a long-paused session
+  doesn't bring it back; entries silent for 1 h are forgotten, and at most
+  32 players are kept.
+- **Position anchor:** the entry stores `position_ms` at `position_at`. A
+  report for the same track and state moves the anchor only when it is more
+  than 3 s off the extrapolation (a seek). Plex re-reports `viewOffset`
+  every poll; without the anchor the knob view's ETag would change every
+  2 s.
+- **Public state** (`GET /v1/nowplaying/state`, no token) leaves out
+  `player` (a Mac's name); the knob block leaves it out too. `PUT
+  /v1/nowplaying/art` requires `track_id`.
+- **Pictures:** each entry holds an album and an artist source image (bytes
+  + content hash); a new track drops both. `art_version` hashes the two
+  hashes, so it moves exactly when a picture does. `backdrop` is the artist
+  picture, else the album. Rendering (`nowplaying.Render`): centre-crop
+  square, area-average resample (no `x/image` dep), backdrop = 3-pass box
+  blur (radius size/40) dimmed to 35 %, then **baseline** JPEG q80 (Go's
+  encoder writes SOF0 only, which TJpgDec/`esp_jpeg` on the knob needs; no
+  alpha — the knob applies its own circle mask). Sources must be JPEG/PNG,
+  ≤2 MB, ≤2048 px a side, checked with `DecodeConfig` and then fully
+  decoded once at ingest (`nowplaying.Validate`), so a corrupt body is a
+  400, not a failure on every render. Served sizes are a fixed set per kind
+  (`nowplaying.Sizes`: album 240/120, artist 64/120, backdrop 466; first =
+  default), so a client can't force a fresh render per request. 466 isn't
+  a multiple of the 16 px MCU; TJpgDec handles the partial MCU, but the
+  knob's output buffer and stride must allow for it (cinder#14).
+  Renders are serialised (a 1400 px source costs ~44 ms and ~22 MB
+  transient) and cached in a RAM LRU of 32 entries / 8 MB keyed by
+  `(hash, kind, size)`. Nothing touches disk (Deezer's terms forbid
+  storing its images).
+- **Plex** (`nowplaying_plex.go`): with `EMBER_PLEX_URL` + `EMBER_PLEX_TOKEN`
+  a goroutine polls `/status/sessions` (`Accept: application/json`; 2 s
+  while a track plays, else 10 s; `POST /hooks/plex?key=` wakes it).
+  Only `type:"track"` sessions, filtered by `EMBER_PLEX_USER` /
+  `EMBER_PLEX_PLAYER`; first playing match, else first paused. Artist =
+  `originalTitle` (compilations) else `grandparentTitle`. Album art =
+  `parentThumb` (else `thumb`), artist = `grandparentThumb`, both via
+  `/photo/:/transcode?width=480&height=480&minSize=1&upscale=1&url=…`,
+  fetched only when the path changes. The token rides in the
+  `X-Plex-Token` header only (`plexConfig` has a redacting `LogValue`);
+  a failing poll logs once per distinct error. Redirects are refused (Go
+  would carry the custom token header to another host). A failed art
+  fetch is retried each poll, logged once per path. A `viewOffset` equal
+  to the previous poll's for the same track is stale (Plex updates it only
+  on a client timeline report), so the poller reports the extrapolated
+  position instead and the anchor holds.
+- **Artist pictures** (`nowplaying_deezer.go`): an entry with an artist and
+  no artist picture queues a lookup (channel of 4; full = dropped, the next
+  report re-queues). Deezer `search/artist?q=` (no key): exact
+  case-insensitive name only (no match = no picture, never a stranger's
+  photo); `picture_xl` rewritten to 500 px and fetched only from
+  `https://*.dzcdn.net`, redirects refused (the picture is served
+  publicly, so a spoofed answer must not make the server fetch a LAN URL).
+  Hits and misses are remembered by name in RAM (64 names and 4 MB, misses
+  1 h, errors 1 min). `SetArtistArt` attaches only while the player still
+  plays that artist. **Off by default:** `EMBER_ARTIST_LOOKUP=1` turns it
+  on (artist names leave the LAN; logged once at startup).
+- **Ember.app pusher** (`macos/Ember/Services/MusicNowPlayingWatcher.swift`):
+  see "Menu-bar app".
+- **Not built yet:** `POST /v1/nowplaying/control` (play/pause/next/volume
+  back to Ember.app or Plex), iTunes album fallback, Plex websocket.
 
 ### Runtime settings overlay (`settings_overlay.go`)
 
@@ -2442,7 +2539,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
 
   | Route | Credential |
   |---|---|
-  | `GET /state`, `/healthz`, previews, dashboard reads | none |
+  | `GET /state`, `/healthz`, previews, dashboard reads, `GET /v1/nowplaying/{state,art}` | none |
+  | `POST /hooks/plex?key=` | `EMBER_PLEX_WEBHOOK_KEY` in the query (404 when unset) |
   | `POST /hooks/awtrix/{button,boot}` | none (clock callbacks; rate-limited) |
   | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | `EMBER_TOKEN` **or** a device token |
   | `POST /v1/devices/self/checkin`, `GET /v1/devices/self/{config,view}` | device token only |
@@ -2501,6 +2599,15 @@ draws-if-present in `internal/render`, add a menu checkbox.
   reads memory only: no store write, no clock probe, no checkin recorded, no
   session marshal. `/state` gets no ETag: its `now` changes every response.
   A long-poll `?wait=` (#235) builds on the same `knobView` body and ETag.
+  **Now playing (#226):** only when the device's `pages` has
+  `{"id":"nowplaying","on":true}`, the body gains (after `brightness`)
+  `"nowplaying":{"state":"playing","source":"plex","title":…,"artist":…,"album":…,"duration_ms":330000,"position_ms":61000,"position_at":<Unix ms>,"art_version":"fb43cf74b67a","album_art":true,"artist_art":true}`
+  (`{"state":"none"}` when nothing plays; zero/empty fields omitted). A
+  knob without that page gets byte-identical bodies, so `v` stays 1.
+  `position_ms` is anchored at `position_at`: extrapolate with
+  `X-Ember-Now`; the block moves only on a real change. On an
+  `art_version` change fetch `/v1/nowplaying/art?kind=…&v=<art_version>`
+  (cacheable with `v`).
   In live mode the body ends with `"diag_live_until":<Unix s>` (see "Knob
   diagnostics").
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,

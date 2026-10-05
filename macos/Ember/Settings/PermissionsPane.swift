@@ -55,6 +55,11 @@ struct PermissionsPane: View {
                 _ = await env.reminderWatcher.requestAccess()
                 await model.refresh()
             }
+        case .requestMusicAutomation:
+            Task {
+                _ = await env.musicWatcher.requestAutomation()
+                await model.refresh()
+            }
         case .repair:
             Task {
                 await producers?.repair()
@@ -94,6 +99,7 @@ private struct PermissionRowView: View {
         case .backgroundItems: "Background Items"
         case .reminders: "Reminders"
         case .location: "Location"
+        case .musicAutomation: "Automation: Music"
         }
     }
 
@@ -112,6 +118,8 @@ private struct PermissionRowView: View {
             return "Reads reminders with a due time to ring the clock. Needed while reminder alarms are on."
         case .location:
             return "Only used when you click Detect in Weather to fill in your coordinates."
+        case .musicAutomation:
+            return "Reads the playing track's position and artwork from Music. Needed while Apple Music is sent to Ember."
         }
     }
 
@@ -121,7 +129,8 @@ private struct PermissionRowView: View {
         case .openSystemSettings(.reminders): Text("Open Reminders Settings…")
         case .openSystemSettings(.location): Text("Open Location Settings…")
         case .openSystemSettings(.loginItems): Text("Open Login Items…")
-        case .requestAccess: Text("Allow Access…")
+        case .openSystemSettings(.automation): Text("Open Automation Settings…")
+        case .requestAccess, .requestMusicAutomation: Text("Allow Access…")
         case .repair: Text("Repair")
         case .openPane(let pane): Text("Show \(Text(tree.title(for: pane)))", comment: "Button that opens a Settings pane, e.g. Show Weather")
         }
@@ -130,7 +139,7 @@ private struct PermissionRowView: View {
     private func buttonHelp(_ action: PermissionAction) -> LocalizedStringKey {
         switch action {
         case .openSystemSettings: "Opens System Settings, where you can turn it on for Ember."
-        case .requestAccess: "Shows the macOS prompt."
+        case .requestAccess, .requestMusicAutomation: "Shows the macOS prompt."
         case .repair: "Registers the background helper with macOS again so it starts reporting."
         case .openPane: "Opens the pane that uses it."
         }

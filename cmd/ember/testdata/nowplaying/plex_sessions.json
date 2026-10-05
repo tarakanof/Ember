@@ -1,0 +1,46 @@
+{
+  "MediaContainer": {
+    "size": 3,
+    "Metadata": [
+      {
+        "type": "movie",
+        "ratingKey": "900",
+        "title": "Some Film",
+        "thumb": "/library/metadata/900/thumb/1",
+        "duration": 7200000,
+        "viewOffset": 100000,
+        "User": {"id": "1", "title": "dt"},
+        "Player": {"title": "Living Room TV", "state": "playing", "machineIdentifier": "tv-1"}
+      },
+      {
+        "type": "track",
+        "ratingKey": "5000",
+        "title": "Other Song",
+        "grandparentTitle": "Other Artist",
+        "parentTitle": "Other Album",
+        "duration": 180000,
+        "viewOffset": 1000,
+        "User": {"id": "2", "title": "guest"},
+        "Player": {"title": "Guest Phone", "state": "playing", "machineIdentifier": "phone-2"}
+      },
+      {
+        "type": "track",
+        "ratingKey": "4242",
+        "key": "/library/metadata/4242",
+        "parentRatingKey": "4240",
+        "grandparentRatingKey": "4239",
+        "title": "Teardrop",
+        "grandparentTitle": "Massive Attack",
+        "parentTitle": "Mezzanine",
+        "thumb": "/library/metadata/4240/thumb/1",
+        "parentThumb": "/library/metadata/4240/thumb/1",
+        "grandparentThumb": "/library/metadata/4239/thumb/1",
+        "grandparentArt": "/library/metadata/4239/art/1",
+        "duration": 330000,
+        "viewOffset": 61000,
+        "User": {"id": "1", "title": "dt"},
+        "Player": {"title": "Plexamp", "state": "playing", "machineIdentifier": "amp-1", "product": "Plexamp"}
+      }
+    ]
+  }
+}

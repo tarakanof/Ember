@@ -21,15 +21,18 @@ const knobNowHeader = "X-Ember-Now"
 // an unchanged view keeps its ETag. pomo is null with the Pomodoro off,
 // weather null when disabled or never fetched. weather.night is the sun
 // schedule's call; sunrise/sunset are the location's local day, informational.
+// nowplaying appears only when the device's pages turn "nowplaying" on, so
+// a knob without that page gets the same bytes and ETag as before.
 type knobView struct {
-	V             int          `json:"v"`
-	Epoch         uint64       `json:"epoch"`
-	ConfigVersion int          `json:"config_version"`
-	Mood          knobMood     `json:"mood"`
-	Pomo          *knobPomo    `json:"pomo"`
-	Weather       *knobWeather `json:"weather"`
-	Brightness    knobLight    `json:"brightness"`
-	DiagLiveUntil *int64       `json:"diag_live_until,omitempty"`
+	V             int             `json:"v"`
+	Epoch         uint64          `json:"epoch"`
+	ConfigVersion int             `json:"config_version"`
+	Mood          knobMood        `json:"mood"`
+	Pomo          *knobPomo       `json:"pomo"`
+	Weather       *knobWeather    `json:"weather"`
+	Brightness    knobLight       `json:"brightness"`
+	NowPlaying    *knobNowPlaying `json:"nowplaying,omitempty"`
+	DiagLiveUntil *int64          `json:"diag_live_until,omitempty"`
 }
 
 type knobMood struct {
@@ -62,6 +65,27 @@ type knobWeather struct {
 	Sunset   *int64  `json:"sunset"`
 }
 
+// knobNowPlaying is the view's music block. state none carries nothing
+// else. position_ms is the position at position_at (server Unix ms), so the
+// block moves only on a real change and the knob extrapolates; art_version
+// changes when the pictures do (fetch /v1/nowplaying/art then).
+type knobNowPlaying struct {
+	State      string `json:"state"`
+	Source     string `json:"source,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Artist     string `json:"artist,omitempty"`
+	Album      string `json:"album,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	PositionMS int64  `json:"position_ms,omitempty"`
+	PositionAt int64  `json:"position_at,omitempty"`
+	ArtVersion string `json:"art_version,omitempty"`
+	AlbumArt   bool   `json:"album_art,omitempty"`
+	ArtistArt  bool   `json:"artist_art,omitempty"`
+}
+
+// knobNowPlayingPage is the knob page id that opts a device into the block.
+const knobNowPlayingPage = "nowplaying"
+
 type knobLight struct {
 	Level int  `json:"level"`
 	Night bool `json:"night"`
@@ -74,7 +98,7 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	diag, _, err := a.devices.diagnostics(id)
+	cfg, _, err := a.devices.config(id)
 	if err != nil {
 		return nil, "", err
 	}
@@ -88,7 +112,10 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 		Pomo:          a.knobPomo(now),
 		Weather:       a.knobWeather(now),
 		Brightness:    knobLight{Level: b.Level, Night: b.Night},
-		DiagLiveUntil: a.knobLiveUnix(id, diag, now),
+		DiagLiveUntil: a.knobLiveUnix(id, cfg.Diagnostics, now),
+	}
+	if cfg.pageOn(knobNowPlayingPage) {
+		v.NowPlaying = a.knobNowPlaying(now)
 	}
 	body, err := json.Marshal(v)
 	if err != nil {
@@ -97,6 +124,26 @@ func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	h := fnv.New64a()
 	_, _ = h.Write(body)
 	return body, fmt.Sprintf(`"%016x"`, h.Sum64()), nil
+}
+
+func (a *App) knobNowPlaying(now time.Time) *knobNowPlaying {
+	e, ok := a.nowPlaying.reg.Current(now)
+	if !ok {
+		return &knobNowPlaying{State: nowPlayingNone}
+	}
+	return &knobNowPlaying{
+		State:      string(e.State),
+		Source:     e.Source,
+		Title:      e.Title,
+		Artist:     e.Artist,
+		Album:      e.Album,
+		DurationMS: e.DurationMS,
+		PositionMS: e.PositionMS,
+		PositionAt: e.PositionAt.UnixMilli(),
+		ArtVersion: e.ArtVersion(),
+		AlbumArt:   e.AlbumArt != nil,
+		ArtistArt:  e.ArtistArt != nil,
+	}
 }
 
 func (a *App) knobPomo(now time.Time) *knobPomo {

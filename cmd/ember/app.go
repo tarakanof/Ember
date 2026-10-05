@@ -74,6 +74,8 @@ type App struct {
 
 	meetingsURLs []string
 
+	nowPlaying *nowPlayingService
+
 	meetings        *meetingsStore
 	meetingsFetcher *icsFetcher
 
@@ -115,6 +117,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.weatherFetcher = newWeatherFetcher()
 	a.meetings = newMeetingsStore()
 	a.meetingsFetcher = newICSFetcher()
+	a.nowPlaying = newNowPlayingService()
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
 	a.clock = newClockAccess(a.cfg.Load)

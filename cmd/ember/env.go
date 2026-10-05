@@ -24,3 +24,13 @@ func envEnabled(v string) bool {
 		return true
 	}
 }
+
+// envOptIn reports whether an off-by-default toggle is explicitly on.
+func envOptIn(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}

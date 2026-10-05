@@ -205,6 +205,7 @@ private struct SettingsDetail: View {
         case .source(.focus):    FocusSourcePane()
         case .source(.weather):  WeatherSourcePane()
         case .source(.calendar): CalendarSourcePane()
+        case .source(.music):    MusicSourcePane()
         case .device(let id, let page):
             switch tree.node(for: route)?.device.kind ?? DeviceKind(deviceID: id) {
             case .clock?: ClockDetail(page: page)
