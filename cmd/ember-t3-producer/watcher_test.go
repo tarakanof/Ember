@@ -35,16 +35,16 @@ func TestTickKeepaliveAndChange(t *testing.T) {
 	if posts, _ := w.tick([]thread{th}, t0.Add(5*time.Second)); len(posts) != 0 {
 		t.Fatalf("unchanged thread re-posted before keepalive: %+v", posts)
 	}
-	if posts, _ := w.tick([]thread{th}, t0.Add(keepaliveInterval)); len(posts) != 1 {
+	if posts, _ := w.tick([]thread{th}, t0.Add(producer.KeepaliveInterval)); len(posts) != 1 {
 		t.Fatal("keepalive post missing")
 	}
 	th.PendingKind = "user_input"
-	posts, _ := w.tick([]thread{th}, t0.Add(keepaliveInterval+time.Second))
+	posts, _ := w.tick([]thread{th}, t0.Add(producer.KeepaliveInterval+time.Second))
 	if len(posts) != 1 || posts[0].State != "waiting" || posts[0].Message != "needs input" {
 		t.Fatalf("state change not posted at once: %+v", posts)
 	}
 	th.Title = "Renamed"
-	if posts, _ := w.tick([]thread{th}, t0.Add(keepaliveInterval+2*time.Second)); len(posts) != 1 || posts[0].Activity != "Renamed" {
+	if posts, _ := w.tick([]thread{th}, t0.Add(producer.KeepaliveInterval+2*time.Second)); len(posts) != 1 || posts[0].Activity != "Renamed" {
 		t.Fatalf("title change not posted at once: %+v", posts)
 	}
 }

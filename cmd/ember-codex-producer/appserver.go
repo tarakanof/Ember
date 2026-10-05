@@ -52,9 +52,7 @@ type apThread struct {
 	resumeAt   time.Time // earliest next thread/resume after a failure
 	failed     bool      // the last turn failed
 	lastChange time.Time
-	lastPosted time.Time
-	fp         string
-	posted     bool // the server holds this session
+	post       producer.Repost // Posted: the server holds this session
 }
 
 // apPending is a thread/read in waiting. Notifications that arrive while the
@@ -266,7 +264,7 @@ func (as *appServer) disconnect() {
 	defer as.mu.Unlock()
 	as.lastReleased = map[string]bool{}
 	for id, t := range as.threads {
-		if t.posted {
+		if t.post.Posted() {
 			as.released = append(as.released, id)
 			as.lastReleased[id] = true
 		}
@@ -505,7 +503,7 @@ func (as *appServer) closeLocked(id string) {
 		return
 	}
 	as.gone[id] = as.now()
-	if t.posted {
+	if t.post.Posted() {
 		as.deletes = append(as.deletes, id)
 	}
 }
@@ -775,22 +773,20 @@ func (as *appServer) tick() apTick {
 			continue
 		}
 		if !t.busy && now.Sub(t.lastChange) > window {
-			if t.posted {
+			if t.post.Posted() {
 				out.deletes = append(out.deletes, producer.DeleteRequest{Source: as.cfg.Source, Tool: "codex", Session: id})
-				t.posted, t.fp = false, ""
+				t.post.Reset()
 			}
 			continue
 		}
 		d := t.d
 		d.rateWindowPct, d.rateResetAt = as.rate.rateWindowPct, as.rate.rateResetAt
-		fp := fingerprint(d)
-		if fp != t.fp || now.Sub(t.lastPosted) >= keepaliveInterval {
+		if t.post.Due(fingerprint(d), now) {
 			req := buildStatusRequest(as.cfg, id, d)
 			if t.viaClaude {
 				req.Message = viaClaudeMessage(req.Message)
 			}
 			out.posts = append(out.posts, req)
-			t.fp, t.lastPosted, t.posted = fp, now, true
 		}
 	}
 	for _, id := range as.deletes {
@@ -801,7 +797,7 @@ func (as *appServer) tick() apTick {
 	out.owned, out.held = map[string]bool{}, map[string]bool{}
 	for id, t := range as.threads {
 		out.owned[id] = true
-		if t.posted {
+		if t.post.Posted() {
 			out.held[id] = true
 		}
 	}

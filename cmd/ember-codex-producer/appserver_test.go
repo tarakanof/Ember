@@ -264,7 +264,7 @@ func waitState(t *testing.T, as *appServer, id, want string) producer.StatusRequ
 	waitFor(t, id+" "+want, func() bool {
 		as.mu.Lock()
 		if th := as.threads[id]; th != nil {
-			th.fp = "" // force a post
+			th.post.Reset() // force a post
 		}
 		as.mu.Unlock()
 		if p, ok := postFor(as.tick().posts, id); ok {

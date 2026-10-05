@@ -6,13 +6,9 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// keepaliveInterval re-posts unchanged threads to stay under the server's staleness reap (same as Codex).
-const keepaliveInterval = 15 * time.Second
-
 type liveThread struct {
-	fingerprint  string
-	lastPostedAt time.Time
-	state        string
+	post  producer.Repost
+	state string
 	// settledAt is when this watcher saw the thread go running/waiting ->
 	// done/error. The run's own completion time can be long past (a hold on
 	// background work outlasts the activity window), and done must still show.
@@ -67,9 +63,8 @@ func (w *watcher) tick(threads []thread, now time.Time) (posts []producer.Status
 			w.live[th.ID] = lt
 		}
 		lt.state = state
-		if fp != lt.fingerprint || now.Sub(lt.lastPostedAt) >= keepaliveInterval {
+		if lt.post.Due(fp, now) {
 			posts = append(posts, req)
-			lt.fingerprint, lt.lastPostedAt = fp, now
 		}
 	}
 	for id := range w.live {

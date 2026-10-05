@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	keepaliveInterval = 15 * time.Second
 	// resumeScanInterval paces the walk of the whole sessions tree that finds
 	// resumed sessions: Codex appends them to their original, older day dir.
 	resumeScanInterval = 30 * time.Second
@@ -25,8 +24,7 @@ type sessionState struct {
 	offset       int64
 	derived      derived
 	lastModified time.Time
-	lastPostedAt time.Time
-	fingerprint  string
+	post         producer.Repost
 	// viaClaude marks a session Claude Code's Codex plugin started.
 	viaClaude bool
 }
@@ -52,10 +50,9 @@ type watcher struct {
 	// idle caches rollouts found already past the activity window, so they
 	// are not re-read every tick; a new mtime or size re-opens them.
 	idle map[string]fileStamp
-	// usageFP and usagePostedAt dedupe POST /v1/usage, which carries the
-	// newest rate-limit snapshot across all sessions.
-	usageFP       string
-	usagePostedAt time.Time
+	// usagePost dedupes POST /v1/usage, which carries the newest
+	// rate-limit snapshot across all sessions.
+	usagePost producer.Repost
 	// owned are session ids the app-server source covers; the watcher keeps
 	// folding their rollouts but posts nothing for them (set before tick).
 	owned map[string]bool
@@ -224,12 +221,12 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		ss.derived.expireWindows(now)
 		ss.lastModified = info.ModTime()
 		if w.owned[ss.uuid] {
-			if !ss.lastPostedAt.IsZero() {
+			if ss.post.Posted() {
 				w.handedOver = append(w.handedOver, ss.uuid)
 			}
 			// The app-server source posts this session. Forget the watcher's
 			// post so it neither DELETEs it nor waits to post on release.
-			ss.lastPostedAt, ss.fingerprint = time.Time{}, ""
+			ss.post.Reset()
 			continue
 		}
 		if ss.derived.state == "" {
@@ -238,15 +235,12 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		if now.Sub(ss.lastModified) > w.activityWindow {
 			continue
 		}
-		fp := fingerprint(ss.derived)
-		if fp != ss.fingerprint || now.Sub(ss.lastPostedAt) >= keepaliveInterval {
+		if ss.post.Due(fingerprint(ss.derived), now) {
 			req := buildStatusRequest(w.cfg, ss.uuid, ss.derived)
 			if ss.viaClaude {
 				req.Message = viaClaudeMessage(req.Message)
 			}
 			posts = append(posts, req)
-			ss.fingerprint = fp
-			ss.lastPostedAt = now
 		}
 	}
 	if u, ok := w.usage(now); ok {
@@ -255,7 +249,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 	for path, ss := range w.sessions {
 		if gone[path] || now.Sub(ss.lastModified) > w.activityWindow {
 			// Only a session this producer posted exists on the server.
-			if !ss.lastPostedAt.IsZero() {
+			if ss.post.Posted() {
 				deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: ss.uuid})
 			}
 			delete(w.sessions, path)
@@ -302,17 +296,16 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 		return u, false
 	}
 	fp := fmt.Sprintf("%v|%d|%v|%d", newest.primaryRaw, newest.rateResetAt, newest.weeklyRaw, newest.weeklyResetAt)
-	if fp == w.usageFP && now.Sub(w.usagePostedAt) < keepaliveInterval {
+	if !w.usagePost.Due(fp, now) {
 		return producer.UsageRequest{}, false
 	}
-	w.usageFP, w.usagePostedAt = fp, now
 	return u, true
 }
 
 // posted reports whether the watcher holds a posted session with this id.
 func (w *watcher) posted(id string) bool {
 	for _, ss := range w.sessions {
-		if ss.uuid == id && !ss.lastPostedAt.IsZero() {
+		if ss.uuid == id && ss.post.Posted() {
 			return true
 		}
 	}
