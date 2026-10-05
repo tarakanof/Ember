@@ -83,7 +83,7 @@ func (c controlRequest) validate() error {
 // before: nothing sent again). volume is the level set, when known.
 type controlResult struct {
 	Status string `json:"status"`
-	Source string `json:"source"`
+	Source string `json:"source,omitempty"`
 	Volume *int   `json:"volume,omitempty"`
 }
 
