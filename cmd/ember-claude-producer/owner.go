@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -18,7 +19,20 @@ type marker struct {
 	// StateChangedAt (unix s) is when State last changed; the heartbeat stops
 	// re-posting done/error once it is older than DoneTTLSeconds.
 	StateChangedAt int64 `json:"state_changed_at,omitempty"`
+	// StatuslineAt (unix s) is when the statusline last refreshed the rate
+	// and context figures; the usage relay picks the freshest by it. The
+	// statusline skips unchanged rewrites, so file mtime does not track it.
+	StatuslineAt int64 `json:"statusline_at,omitempty"`
 	ToolTrack
+}
+
+// usageSeenAt is when the marker's rate figures were last seen: StatuslineAt,
+// else (a marker from an older producer) its file mtime.
+func (m marker) usageSeenAt(mtime time.Time) time.Time {
+	if m.StatuslineAt != 0 {
+		return time.Unix(m.StatuslineAt, 0)
+	}
+	return mtime
 }
 
 // ToolTrack is marker-only bookkeeping for the tool-outcome hooks; none of it goes on the wire.

@@ -233,6 +233,11 @@ func runStatusline() {
 
 const statuslineLockWait = 250 * time.Millisecond
 
+// statuslineRefresh is how long an unchanged marker goes without a
+// statusline rewrite: Claude Code refreshes the status line many times a
+// second while streaming, and each write was an fsync.
+const statuslineRefresh = time.Minute
+
 func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
 	weekPct *int, weekResetAt *int64, weekResetLabel string) error {
 	mp := markerPath(stateDir, sessionID)
@@ -269,6 +274,12 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 		if weekResetLabel != "" {
 			m.RateWeekResetLabel = weekResetLabel
 		}
+		now := hookNow()
+		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) &&
+			now.Sub(time.Unix(m.StatuslineAt, 0)) < statuslineRefresh {
+			return nil
+		}
+		m.StatuslineAt = now.Unix()
 		out, err := json.Marshal(m)
 		if err != nil {
 			return nil

@@ -438,8 +438,14 @@ The aggregator and the only writer to the device.
 
 ### Producers
 
-All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
-`RotateLogIfLarge`) and are configured via `~/.config/ember/producer.env`.
+All producers share `internal/producer` and are configured via
+`~/.config/ember/producer.env`: the HTTP client, `ReadEnvFile`, the common
+keys (`Common`: source, server, token, card toggles; `Gauges`: context/rate
+toggles for Claude and Codex; `Bool` for every toggle), `WriteFileAtomic`
+(synced temp+rename that writes through a symlink), `Repost` (POST on change
+or every 15 s keepalive), `StartDaemonLog`, and `Service` (LaunchAgent plist,
+launchctl reload, systemd unit, uninstall, doctor status) with each
+producer's label/unit as data.
 **Source default (#208):** when `EMBER_SOURCE` is empty or the template
 placeholder `set-me-to-this-laptop-id`, producers use a short host id via
 `producer.ResolveSource`: `scutil --get LocalHostName` on macOS (else, and on
@@ -758,8 +764,12 @@ Claude producer constraints:
   figures, so the daemon forwards the last OAuth-poller per-model snapshot
   (`usageModels`); without it the server's last-write-wins `UsageStore.Put`
   would blank the per-model breakdown on the next 10 s heartbeat. The
-  statusline relay (freshest live session wins) is the primary weekly/5h
-  source; the OAuth endpoint is the flaky fallback.
+  statusline relay (freshest live session wins, by the marker's
+  `statusline_at`) is the primary weekly/5h source; the OAuth endpoint is the
+  flaky fallback. The statusline rewrites (and fsyncs) the marker only when a
+  figure changed or `statusline_at` is a minute old, so file mtime no longer
+  tracks every refresh; hooks carry `statusline_at` over. A wrapped status
+  line command gets 5 s, then its process group is killed.
 - **`claude agents --json` cross-check** (#266, `agents.go`,
   `EMBER_CLAUDE_AGENTS_POLL`, default on). Hooks miss three transitions: an
   approved permission dialog stays `waiting` until the tool finishes (no hook

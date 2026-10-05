@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -661,5 +662,36 @@ func TestProcessOneMarker_ReGatesSourceCardAndSessionBarWhenDisabled(t *testing.
 	}
 	if posted.SessionBar == nil || *posted.SessionBar {
 		t.Errorf("re-gate: session_bar should be false in re-post, got %v", posted.SessionBar)
+	}
+}
+
+func TestDispatchTick_FreshestByStatuslineAtNotMtime(t *testing.T) {
+	usageModels.reset()
+	h := newUsageRelayHarness(t)
+	dir := h.sessionsDir()
+	now := time.Now().Unix()
+	// "seen" got its figures from the statusline just now but was written
+	// a minute ago (later refreshes were unchanged and skipped); "touched"
+	// was rewritten by a hook just now with figures a statusline saw earlier.
+	pSeen := writeMarkerFile(t, dir, "seen", fmt.Sprintf(`,"rate_week_pct":90,"rate_week_reset_at":2000,"statusline_at":%d`, now))
+	pTouched := writeMarkerFile(t, dir, "touched", fmt.Sprintf(`,"rate_week_pct":10,"rate_week_reset_at":1000,"statusline_at":%d`, now-600))
+	older := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(pSeen, older, older); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(pTouched, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := loadConfig()
+	dispatchTick(context.Background(), cfg)
+	if len(h.usageBodies) != 1 {
+		t.Fatalf("usage posts = %d, want 1", len(h.usageBodies))
+	}
+	var req struct {
+		SevenDay *producerWindow `json:"seven_day"`
+	}
+	_ = json.Unmarshal([]byte(h.usageBodies[0]), &req)
+	if req.SevenDay == nil || req.SevenDay.UsedPercent != 90 {
+		t.Errorf("want the marker with the newest statusline_at (90), got %+v", req.SevenDay)
 	}
 }

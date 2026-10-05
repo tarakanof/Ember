@@ -187,7 +187,7 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			sevenDayPct:        req.RateWeekPct,
 			sevenDayResetAt:    req.RateWeekResetAt,
 			sevenDayResetLabel: req.RateWeekResetLabel,
-			updatedAt:          info.ModTime(),
+			updatedAt:          m.usageSeenAt(info.ModTime()),
 		}
 	}
 	if !heartbeatDue(cfg, m, info.ModTime(), time.Now()) {

@@ -398,3 +398,69 @@ func TestRunWrappedTimesOut(t *testing.T) {
 		}
 	}
 }
+
+func TestEnrichMarker_SkipsUnchangedRewrite(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	defer func(f func() time.Time) { hookNow = f }(hookNow)
+	hookNow = func() time.Time { return now }
+	dir := t.TempDir()
+	mp := markerPath(dir, "s")
+	body, _ := json.Marshal(marker{StatusRequest: StatusRequest{Source: "mbp", Tool: "claude", Session: "s", State: "running"}})
+	if err := os.WriteFile(mp, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	enrich := func(pct int) os.FileInfo {
+		t.Helper()
+		if err := enrichMarker(dir, "s", ratePtr(pct), nil, nil, "", nil, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+		fi, err := os.Stat(mp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fi
+	}
+	first := enrich(40)
+	var m marker
+	raw, _ := readMarker(mp)
+	_ = json.Unmarshal(raw, &m)
+	if m.StatuslineAt != now.Unix() {
+		t.Fatalf("statusline_at = %d, want %d", m.StatuslineAt, now.Unix())
+	}
+	now = now.Add(time.Second)
+	if again := enrich(40); !os.SameFile(first, again) {
+		t.Fatal("an unchanged refresh rewrote the marker")
+	}
+	changed := enrich(41)
+	if os.SameFile(first, changed) {
+		t.Fatal("a changed figure was not written")
+	}
+	now = now.Add(statuslineRefresh)
+	if refreshed := enrich(41); os.SameFile(changed, refreshed) {
+		t.Fatal("statusline_at was not refreshed after statuslineRefresh")
+	}
+	raw, _ = readMarker(mp)
+	_ = json.Unmarshal(raw, &m)
+	if m.StatuslineAt != now.Unix() || m.RateWindowPct == nil || *m.RateWindowPct != 41 {
+		t.Fatalf("marker = %+v", m)
+	}
+}
+
+func TestHookKeepsStatuslineAt(t *testing.T) {
+	dir := t.TempDir()
+	mp, lp := markerPath(dir, "s"), lockPath(dir, "s")
+	cfg := Config{Common: producer.Common{Source: "mbp", ServerURL: "http://127.0.0.1:1"}, HookTimeoutMs: 50}
+	handleUpsert(context.Background(), cfg, NewClient(cfg), "s", "running", "m", "", mp, lp)
+	if err := enrichMarker(dir, "s", ratePtr(50), nil, nil, "", nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	var before, after marker
+	raw, _ := readMarker(mp)
+	_ = json.Unmarshal(raw, &before)
+	handleUpsert(context.Background(), cfg, NewClient(cfg), "s", "running", "m2", "", mp, lp)
+	raw, _ = readMarker(mp)
+	_ = json.Unmarshal(raw, &after)
+	if before.StatuslineAt == 0 || after.StatuslineAt != before.StatuslineAt {
+		t.Fatalf("statusline_at %d -> %d", before.StatuslineAt, after.StatuslineAt)
+	}
+}
