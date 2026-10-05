@@ -111,7 +111,7 @@ func TestNowPlayingStateGolden(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	assertGolden(t, "nowplaying_state_none", app.nowPlayingState(goldenNow))
 	rep := nowplaying.Report{Source: "plex", Player: "Plexamp", State: nowplaying.Playing, Title: "Teardrop",
-		Artist: "Massive Attack", Album: "Mezzanine", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000}
+		Artist: "Massive Attack", Album: "Mezzanine", TrackID: "4242", DurationMS: 330_000, PositionMS: 61_000, Volume: new(40)}
 	if _, err := app.nowPlaying.reg.Report(rep, goldenNow); err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestKnobViewNowPlayingOnlyWithPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `"nowplaying":{"state":"playing","source":"music","title":"Song","artist":"Band","album":"Record","duration_ms":200000,"position_ms":1000,"position_at":` +
+	want := `"nowplaying":{"state":"playing","source":"music","title":"Song","artist":"Band","album":"Record","track_id":"T1","duration_ms":200000,"position_ms":1000,"position_at":` +
 		strconv.FormatInt(now.UnixMilli(), 10) + `}`
 	if !strings.Contains(string(body), want) || etag2 == etag {
 		t.Fatalf("view = %s\nwant block %s", body, want)

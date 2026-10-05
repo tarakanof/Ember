@@ -90,17 +90,22 @@ type knobWeather struct {
 // block moves only on a real change and the knob extrapolates; art_version
 // changes when the pictures do (fetch /v1/nowplaying/art then).
 type knobNowPlaying struct {
-	State      string `json:"state"`
-	Source     string `json:"source,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Artist     string `json:"artist,omitempty"`
-	Album      string `json:"album,omitempty"`
+	State  string `json:"state"`
+	Source string `json:"source,omitempty"`
+	Title  string `json:"title,omitempty"`
+	Artist string `json:"artist,omitempty"`
+	Album  string `json:"album,omitempty"`
+	// TrackID names the track for POST /v1/nowplaying/control (#280), so a
+	// press acts only on what the knob shows.
+	TrackID    string `json:"track_id,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 	PositionMS int64  `json:"position_ms,omitempty"`
 	PositionAt int64  `json:"position_at,omitempty"`
 	ArtVersion string `json:"art_version,omitempty"`
 	AlbumArt   bool   `json:"album_art,omitempty"`
 	ArtistArt  bool   `json:"artist_art,omitempty"`
+	// Volume is the player's level 0-100 (#280), left out when unknown.
+	Volume *int `json:"volume,omitempty"`
 }
 
 // knobNowPlayingPage is the knob page id that opts a device into the block.
@@ -158,12 +163,14 @@ func (a *App) knobNowPlaying(now time.Time) *knobNowPlaying {
 		Title:      e.Title,
 		Artist:     e.Artist,
 		Album:      e.Album,
+		TrackID:    e.TrackID,
 		DurationMS: e.DurationMS,
 		PositionMS: e.PositionMS,
 		PositionAt: e.PositionAt.UnixMilli(),
 		ArtVersion: e.ArtVersion(),
 		AlbumArt:   e.AlbumArt != nil,
 		ArtistArt:  e.ArtistArt != nil,
+		Volume:     e.Volume,
 	}
 }
 

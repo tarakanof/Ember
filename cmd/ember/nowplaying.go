@@ -33,15 +33,22 @@ type nowPlayingService struct {
 	// for that player queues it again).
 	jobs chan artistJob
 	plex *plexSource
+	// Playback control (#280): Music commands waiting for their Mac, the
+	// Idempotency-Keys seen, and the volume-step limit.
+	commands     *commandQueue
+	controlKeys  controlKeys
+	controlLimit *callerLimiter
 }
 
 type artistJob struct{ source, player, artist string }
 
 func newNowPlayingService() *nowPlayingService {
 	return &nowPlayingService{
-		reg:   nowplaying.NewRegistry(),
-		cache: nowplaying.NewCache(nowPlayingCacheEntries, nowPlayingCacheBytes),
-		jobs:  make(chan artistJob, 4),
+		reg:          nowplaying.NewRegistry(),
+		cache:        nowplaying.NewCache(nowPlayingCacheEntries, nowPlayingCacheBytes),
+		jobs:         make(chan artistJob, 4),
+		commands:     newCommandQueue(),
+		controlLimit: &callerLimiter{burst: controlBurst, perSec: controlPerSec},
 	}
 }
 

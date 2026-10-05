@@ -72,6 +72,19 @@ private actor FakeBridge: MusicBridge {
     func snapshot() async -> MusicPlayerInfo? { running ? snap : nil }
     func setSnapshot(_ s: MusicPlayerInfo) { snap = s }
     func setArt(_ d: Data?) { art = d }
+    var level = 40
+    var granted = true
+    func set(granted: Bool) { self.granted = granted }
+    func canControl() async -> Bool { granted }
+    var performed: [NowPlayingCommand] = []
+    func volume() async -> Int? { running ? level : nil }
+    func perform(_ command: NowPlayingCommand) async -> Bool {
+        guard running else { return false }
+        performed.append(command)
+        if command.action == .volume { level = min(max(level + command.delta, 0), 100) }
+        snap?.volume = level
+        return true
+    }
 }
 
 private actor FakeSink: NowPlayingSink {
@@ -199,4 +212,140 @@ private func jpeg(side: Int) -> Data {
     p.submit(MusicPlayerInfo(state: .playing, name: "A", persistentID: "T1"))
     await p.drain()
     #expect(await sink.uploads.isEmpty)
+}
+
+// MARK: Commands (Ember #280)
+
+@Test func reportCarriesVolumeOnlyWhenKnown() throws {
+    let without = String(decoding: try JSONEncoder().encode(
+        NowPlayingReport(source: "music", player: "M4", state: .playing)), as: UTF8.self)
+    #expect(!without.contains("volume"))
+    let with = MusicPlayerInfo(state: .playing, name: "x", volume: 130).report(source: "music", player: "M4")
+    #expect(with.volume == 100)
+    #expect(String(decoding: try JSONEncoder().encode(with), as: UTF8.self).contains("\"volume\":100"))
+}
+
+@Test func commandsDecodeAndToleratesUnknownActions() throws {
+    let body = #"{"commands":[{"id":"c1","action":"next"},{"id":"c2","action":"volume","delta":-4},{"id":"c3","action":"shuffle"}]}"#
+    let c = try JSONDecoder().decode(NowPlayingCommands.self, from: Data(body.utf8)).commands
+    #expect(c == [NowPlayingCommand(id: "c1", action: .next), NowPlayingCommand(id: "c2", action: .volume, delta: -4),
+                  NowPlayingCommand(id: "c3", action: nil)])
+    #expect(try JSONDecoder().decode(NowPlayingCommands.self, from: Data("{}".utf8)).commands.isEmpty)
+}
+
+@Test func commandSourceLongPollsTheServer() async throws {
+    let client = stubbedClient { req in
+        #expect(req.url?.path == "/v1/nowplaying/commands")
+        let q = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        #expect(q.contains(URLQueryItem(name: "player", value: "M4")) && q.contains(URLQueryItem(name: "wait", value: "25")))
+        return (okResponse(req.url!), Data(#"{"commands":[{"id":"c1","action":"play_pause"}]}"#.utf8))
+    }
+    let got = try await NowPlayingClient(client: client).commands(player: "M4", wait: 25)
+    #expect(got.map(\.action) == [.playPause])
+}
+
+/// Answers scripted rounds; then blocks until cancelled.
+private actor FakeCommands: NowPlayingCommandSource {
+    var rounds: [Result<[NowPlayingCommand], Error>]
+    var calls = 0
+    init(_ rounds: [Result<[NowPlayingCommand], Error>]) { self.rounds = rounds }
+    func commands(player: String, wait: Int) async throws -> [NowPlayingCommand] {
+        calls += 1
+        if rounds.isEmpty {
+            try await Task.sleep(for: .seconds(3600))
+            return []
+        }
+        return try rounds.removeFirst().get()
+    }
+}
+
+private final class Sleeps: @unchecked Sendable {
+    private let lock = NSLock()
+    private var log: [Duration] = []
+    var all: [Duration] { lock.withLock { log } }
+    func sleep(_ d: Duration) async throws {
+        lock.withLock { log.append(d) }
+        try Task.checkCancellation()
+    }
+}
+
+@MainActor
+private func waitUntil(_ cond: () async -> Bool) async {
+    for _ in 0..<500 where !(await cond()) { try? await Task.sleep(for: .milliseconds(2)) }
+}
+
+@MainActor
+@Test func listenerRunsCommandsInOrderAndReReportsVolume() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(nil)
+    await bridge.setSnapshot(MusicPlayerInfo(state: .playing, name: "Song", persistentID: "T1"))
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let sleeps = Sleeps()
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: sleeps.sleep)
+    let source = FakeCommands([.success([
+        NowPlayingCommand(id: "1", action: .next), NowPlayingCommand(id: "2", action: nil),
+        NowPlayingCommand(id: "3", action: .volume, delta: 6),
+    ])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 2 }
+    await pusher.drain()
+    #expect(await bridge.performed.map(\.id) == ["1", "3"])
+    #expect(await sink.reports.last?.volume == 46)
+    listener.stop()
+    await listener.join()
+}
+
+@MainActor
+@Test func listenerNeverPerformsWhileMusicIsClosed() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.set(running: false)
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    let source = FakeCommands([.success([NowPlayingCommand(id: "1", action: .playPause)])])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 2 }
+    #expect(await bridge.performed.isEmpty)
+    #expect(await sink.reports.isEmpty)
+    listener.stop()
+    await listener.join()
+}
+
+@MainActor
+@Test func listenerDropsStaleCommandsAndNeedsAutomation() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    await listener.execute([NowPlayingCommand(id: "old", action: .next, ageMs: 5_001),
+                            NowPlayingCommand(id: "ok", action: .pause, ageMs: 200)])
+    #expect(await bridge.performed.map(\.id) == ["ok"])
+    // The answer arrived 6 s ago (the queue was blocked): dropped too.
+    await listener.execute([NowPlayingCommand(id: "late", action: .play)], received: .now - .seconds(6))
+    #expect(await bridge.performed.map(\.id) == ["ok"])
+    await bridge.set(granted: false)
+    await listener.execute([NowPlayingCommand(id: "denied", action: .play)])
+    #expect(await bridge.performed.map(\.id) == ["ok"])
+}
+
+@Test func commandDecodesPlayPauseAndAge() throws {
+    let json = Data(#"{"commands":[{"id":"a","action":"play","age_ms":120},{"id":"b","action":"pause"},{"id":"c","action":"play_pause","age_ms":-4}]}"#.utf8)
+    let c = try JSONDecoder().decode(NowPlayingCommands.self, from: json).commands
+    #expect(c.map(\.action) == [.play, .pause, .playPause])
+    #expect(c.map(\.ageMs) == [120, 0, 0])
+}
+
+@MainActor
+@Test func listenerBacksOffOnErrors() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let sleeps = Sleeps()
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: sleeps.sleep)
+    let down = APIError.transport("down")
+    let source = FakeCommands([.failure(down), .failure(down), .failure(down), .failure(down), .failure(down),
+                               .failure(APIError.http(status: 404, body: "")), .success([]), .failure(down)])
+    listener.start(source: source, player: "M4")
+    await waitUntil { await source.calls >= 9 }
+    #expect(sleeps.all == [.seconds(5), .seconds(10), .seconds(20), .seconds(40), .seconds(60), .seconds(300),
+                           .seconds(1), .seconds(5)])
+    listener.stop()
+    await listener.join()
 }

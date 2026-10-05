@@ -6,7 +6,8 @@ import EmberKit
 /// Settings › Sources › Music: forwards Music.app's now playing to the
 /// server while the user has it on. Event-driven: it listens for Music's
 /// `com.apple.Music.playerInfo` distributed notification and does nothing
-/// in between; with the toggle off it doesn't even listen.
+/// in between; with the toggle off it doesn't even listen. While on, it also
+/// runs the knob's playback commands (`MusicCommandListener`, Ember #280).
 @MainActor
 @Observable
 final class MusicNowPlayingWatcher {
@@ -22,6 +23,8 @@ final class MusicNowPlayingWatcher {
     }
 
     let pusher: AppleMusicPusher
+    @ObservationIgnored private let commands: MusicCommandListener
+    @ObservationIgnored private var player: String = MusicNowPlayingWatcher.computerName
     @ObservationIgnored let bridge: AppleScriptMusicBridge
     @ObservationIgnored private var observer: NSObjectProtocol?
     @ObservationIgnored private var client: APIClient
@@ -34,6 +37,7 @@ final class MusicNowPlayingWatcher {
         let bridge = AppleScriptMusicBridge()
         self.bridge = bridge
         pusher = AppleMusicPusher(bridge: bridge, sink: NowPlayingClient(client: client), player: Self.computerName)
+        commands = MusicCommandListener(bridge: bridge, pusher: pusher)
     }
 
     func start() {
@@ -45,7 +49,10 @@ final class MusicNowPlayingWatcher {
 
     func reconfigure(client: APIClient) {
         self.client = client
-        Task { await configurePusher() }
+        Task {
+            await configurePusher()
+            if enabled { listen() }
+        }
     }
 
     /// Shows macOS's Automation prompt for Music (only while Music runs).
@@ -56,7 +63,13 @@ final class MusicNowPlayingWatcher {
     private func configurePusher() async {
         let source = ConnectionSettings(reading: await envStore.read()).source
             .trimmingCharacters(in: .whitespaces)
-        await pusher.configure(sink: NowPlayingClient(client: client), player: source.isEmpty ? Self.computerName : source)
+        player = source.isEmpty ? Self.computerName : source
+        await pusher.configure(sink: NowPlayingClient(client: client), player: player)
+    }
+
+    /// (Re)starts the command long-poll with the current server and name.
+    private func listen() {
+        commands.start(source: NowPlayingClient(client: client), player: player)
     }
 
     private func apply() {
@@ -67,9 +80,11 @@ final class MusicNowPlayingWatcher {
                 MainActor.assumeIsolated { self?.pusher.submit(info) }
             }
             Task { await pusher.pushSnapshot() }
+            listen()
         } else if !enabled, let o = observer {
             center.removeObserver(o)
             observer = nil
+            commands.stop()
             Task { await pusher.stop() }
         }
     }

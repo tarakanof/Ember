@@ -23,7 +23,7 @@ struct MusicSourcePane: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Only on this Mac, while Ember is running. Ember reacts when Music changes track or pauses; it never starts Music and doesn't poll it.")
                     Text("Privacy: the track's title, artist, album, position and artwork go to your Ember server, and anyone on your network can read what's playing from it (no token needed). Artist pictures come from Deezer only if the server has EMBER_ARTIST_LOOKUP=1; then the artist's name leaves your network.")
-                    Text("macOS asks once to let Ember control Music; Ember only reads the player position and artwork.")
+                    Text("macOS asks once to let Ember control Music. Ember reads the player position, volume and artwork, and runs the knob's controls: play/pause, next, previous and Music's own volume (not the Mac's). Only while this is on and Music is already open; Ember never starts Music.")
                 }
             }
 

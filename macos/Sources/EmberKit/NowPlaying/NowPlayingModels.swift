@@ -13,16 +13,20 @@ public struct NowPlayingReport: Codable, Equatable, Sendable {
     public var trackID: String
     public var durationMs: Int64
     public var positionMs: Int64
+    /// The player's own volume, 0-100 (Music's `sound volume`, not the
+    /// system volume); left out of the JSON when unknown.
+    public var volume: Int?
 
     public init(source: String, player: String, state: State, title: String = "", artist: String = "",
-                album: String = "", trackID: String = "", durationMs: Int64 = 0, positionMs: Int64 = 0) {
+                album: String = "", trackID: String = "", durationMs: Int64 = 0, positionMs: Int64 = 0,
+                volume: Int? = nil) {
         self.source = source; self.player = player; self.state = state
         self.title = title; self.artist = artist; self.album = album; self.trackID = trackID
-        self.durationMs = durationMs; self.positionMs = positionMs
+        self.durationMs = durationMs; self.positionMs = positionMs; self.volume = volume
     }
 
     enum CodingKeys: String, CodingKey {
-        case source, player, state, title, artist, album
+        case source, player, state, title, artist, album, volume
         case trackID = "track_id", durationMs = "duration_ms", positionMs = "position_ms"
     }
 }
@@ -78,11 +82,14 @@ public struct MusicPlayerInfo: Equatable, Sendable {
     public var persistentID: String
     /// Seconds, when the source knew it (AppleScript snapshot only).
     public var position: Double?
+    /// Music's `sound volume` (0-100), when read (AppleScript only).
+    public var volume: Int?
 
     public init(state: NowPlayingReport.State, name: String = "", artist: String = "", album: String = "",
-                durationMs: Int64 = 0, persistentID: String = "", position: Double? = nil) {
+                durationMs: Int64 = 0, persistentID: String = "", position: Double? = nil, volume: Int? = nil) {
         self.state = state; self.name = name; self.artist = artist; self.album = album
         self.durationMs = durationMs; self.persistentID = persistentID; self.position = position
+        self.volume = volume
     }
 
     /// Parses a notification's userInfo; nil when it has no player state.
@@ -99,6 +106,7 @@ public struct MusicPlayerInfo: Equatable, Sendable {
         durationMs = (userInfo["Total Time"] as? NSNumber)?.int64Value ?? 0
         persistentID = (userInfo["PersistentID"] as? NSNumber).map { Self.hexID($0.int64Value) } ?? ""
         position = nil
+        volume = nil
     }
 
     /// The notification's signed 64-bit id in AppleScript's hex form.
@@ -114,11 +122,52 @@ public struct MusicPlayerInfo: Equatable, Sendable {
             source: source, player: player, state: state,
             title: Self.clip(name, 200), artist: Self.clip(artist, 200), album: Self.clip(album, 200),
             trackID: persistentID, durationMs: max(durationMs, 0),
-            positionMs: position.map { Int64(max($0, 0) * 1000) } ?? 0)
+            positionMs: position.map { Int64(max($0, 0) * 1000) } ?? 0,
+            volume: volume.map { min(max($0, 0), 100) })
     }
 
     /// Cuts to n Unicode scalars, the unit the server counts.
     static func clip(_ s: String, _ n: Int) -> String {
         s.unicodeScalars.count <= n ? s : String(String.UnicodeScalarView(s.unicodeScalars.prefix(n)))
+    }
+}
+
+/// One playback command for this Mac's Music, from
+/// `GET /v1/nowplaying/commands` (the knob's controls, Ember #280).
+public struct NowPlayingCommand: Decodable, Equatable, Sendable {
+    public enum Action: String, Sendable { case play, pause, playPause = "play_pause", next, previous, volume }
+
+    public let id: String
+    /// nil for an action this app doesn't know (a newer server): ignored.
+    public let action: Action?
+    /// Volume change in points (volume only).
+    public let delta: Int
+    /// How long the server had held it when it answered the poll (ms).
+    public let ageMs: Int
+
+    public init(id: String, action: Action?, delta: Int = 0, ageMs: Int = 0) {
+        self.id = id; self.action = action; self.delta = delta; self.ageMs = ageMs
+    }
+
+    enum CodingKeys: String, CodingKey { case id, action, delta, ageMs = "age_ms" }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        action = try c.decodeIfPresent(String.self, forKey: .action).flatMap(Action.init(rawValue:))
+        delta = try c.decodeIfPresent(Int.self, forKey: .delta) ?? 0
+        ageMs = max(0, try c.decodeIfPresent(Int.self, forKey: .ageMs) ?? 0)
+    }
+}
+
+/// The answer of `GET /v1/nowplaying/commands`.
+public struct NowPlayingCommands: Decodable, Equatable, Sendable {
+    public let commands: [NowPlayingCommand]
+
+    enum CodingKeys: String, CodingKey { case commands }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commands = try c.decodeIfPresent([NowPlayingCommand].self, forKey: .commands) ?? []
     }
 }

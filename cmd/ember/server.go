@@ -80,6 +80,7 @@ func (a *App) routes() http.Handler {
 	writeMux.Handle("POST /v1/reminders/fire", http.HandlerFunc(a.handleReminderFire))
 	writeMux.Handle("POST /v1/nowplaying", http.HandlerFunc(a.handleNowPlayingReport))
 	writeMux.Handle("PUT /v1/nowplaying/art", http.HandlerFunc(a.handleNowPlayingArtPut))
+	writeMux.Handle("GET /v1/nowplaying/commands", http.HandlerFunc(a.handleNowPlayingCommands))
 	writeMux.Handle("GET /v1/device/discover", http.HandlerFunc(a.handleDeviceDiscover))
 	writeMux.Handle("GET /v1/device/config", http.HandlerFunc(a.handleDeviceConfigGet))
 	writeMux.Handle("PUT /v1/device/config", http.HandlerFunc(a.handleDeviceConfigPut))
@@ -118,12 +119,13 @@ func (a *App) routes() http.Handler {
 
 	mux.Handle("POST /v1/devices/self/checkin", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceCheckin))))
 	mux.Handle("GET /v1/devices/self/config", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceSelfConfig))))
-	mux.Handle("GET /v1/devices/self/view", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceSelfView))))
+	mux.Handle("GET /v1/devices/self/view", rateLimitAuthFailures(a, nil, a.perDevice(a.viewLimit, http.HandlerFunc(a.handleDeviceSelfView))))
 	mux.Handle("POST /v1/pomodoro/start", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroStart))))
 	mux.Handle("POST /v1/pomodoro/pause", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroPause))))
 	mux.Handle("POST /v1/pomodoro/resume", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroResume))))
 	mux.Handle("POST /v1/pomodoro/stop", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroStop))))
 	mux.Handle("POST /v1/pomodoro/skip", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroSkip))))
+	mux.Handle("POST /v1/nowplaying/control", rateLimitAuthFailures(a, http.HandlerFunc(a.handleNowPlayingControl), http.HandlerFunc(a.handleNowPlayingControl)))
 
 	adminMux := http.NewServeMux()
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))

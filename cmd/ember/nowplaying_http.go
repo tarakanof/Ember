@@ -28,6 +28,7 @@ type nowPlayingState struct {
 	ArtVersion   *string `json:"art_version"`
 	HasAlbumArt  bool    `json:"has_album_art"`
 	HasArtistArt bool    `json:"has_artist_art"`
+	Volume       *int    `json:"volume"`
 }
 
 const nowPlayingNone = "none"
@@ -50,6 +51,7 @@ func (a *App) nowPlayingState(now time.Time) nowPlayingState {
 		UpdatedAt:    str(e.UpdatedAt.UTC().Format(time.RFC3339)),
 		HasAlbumArt:  e.AlbumArt != nil,
 		HasArtistArt: e.ArtistArt != nil,
+		Volume:       e.Volume,
 	}
 	if e.DurationMS > 0 {
 		s.DurationMS = num(e.DurationMS)

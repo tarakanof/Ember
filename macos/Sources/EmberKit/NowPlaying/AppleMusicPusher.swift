@@ -14,6 +14,15 @@ public protocol MusicBridge: Sendable {
     func artwork() async -> (trackID: String, data: Data)?
     /// The whole player state, for when the pusher turns on mid-track.
     func snapshot() async -> MusicPlayerInfo?
+    /// Music's own `sound volume` (0-100), not the system volume.
+    func volume() async -> Int?
+    /// Runs a playback command; false when Music isn't running or refused it.
+    /// Implementations must address the running process only, so a Music
+    /// that quit meanwhile is never launched.
+    func perform(_ command: NowPlayingCommand) async -> Bool
+    /// Whether Ember may already send Apple Events to Music. Never prompts:
+    /// the prompt belongs to the Settings button, not to a knob press.
+    func canControl() async -> Bool
 }
 
 /// Where reports and artwork go: the Ember server.
@@ -36,6 +45,15 @@ public struct NowPlayingClient: NowPlayingSink {
             URLQueryItem(name: "source", value: source), URLQueryItem(name: "player", value: player),
             URLQueryItem(name: "kind", value: "album"), URLQueryItem(name: "track_id", value: trackID),
         ], data: data, contentType: contentType)
+    }
+}
+
+extension NowPlayingClient: NowPlayingCommandSource {
+    public func commands(player: String, wait: Int) async throws -> [NowPlayingCommand] {
+        let answer: NowPlayingCommands = try await client.get("/v1/nowplaying/commands", query: [
+            URLQueryItem(name: "player", value: player), URLQueryItem(name: "wait", value: String(wait)),
+        ], budget: .clockLong)   // 35 s to the first byte: above the server's 25 s wait
+        return answer.commands
     }
 }
 
@@ -111,6 +129,7 @@ public final class AppleMusicPusher {
         var running = false
         if info.state != .stopped { running = await bridge.isRunning() }
         if running, info.position == nil { info.position = await bridge.position() }
+        if running, info.volume == nil { info.volume = await bridge.volume() }
         let report = info.report(source: Self.source, player: player)
         guard let ack = await send(report), running, !ack.hasAlbumArt,
               !report.trackID.isEmpty,

@@ -30,8 +30,46 @@ func requireOwnerOrDevice(a *App, next http.Handler) http.Handler {
 	return deviceAuth(a, next, next)
 }
 
-func deviceAuth(a *App, owner, device http.Handler) http.Handler {
+// rateLimitAuthFailures is rateLimit for routes an authenticated knob
+// calls in bursts (the view re-arm, control steps): a client whose IP has
+// spent its bucket on failed tokens gets 429 before any token check, a
+// failed token spends one, and a valid token spends none (the routes keep
+// their own per-caller caps). Brute force stays as limited as elsewhere.
+func rateLimitAuthFailures(a *App, owner, device http.Handler) http.Handler {
+	return deviceAuthWith(a, owner, device, true)
+}
+
+// View requests per knob: a long-poll re-arm after each change, plain polls
+// every poll_ms; this is far above either.
+const (
+	viewBurst  = 30
+	viewPerSec = 10.0
+)
+
+// perDevice answers 429 when the authenticated device spent its bucket.
+func (a *App) perDevice(l *callerLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !l.allowNow(deviceIDFrom(r.Context())) {
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, errors.New("too many view requests"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func deviceAuth(a *App, owner, device http.Handler) http.Handler {
+	return deviceAuthWith(a, owner, device, false)
+}
+
+func deviceAuthWith(a *App, owner, device http.Handler, chargeFailures bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if chargeFailures && !a.limiter.Has(clientIP(r)) {
+			a.metrics.incRateLimitDenied()
+			w.Header().Set("Retry-After", "1")
+			writeError(w, http.StatusTooManyRequests, errors.New("rate limit exceeded"))
+			return
+		}
 		token := a.cfg.Load().Auth.StatusToken
 		if token == "" {
 			a.logger.InfoContext(r.Context(), "auth disabled",
@@ -52,6 +90,9 @@ func deviceAuth(a *App, owner, device http.Handler) http.Handler {
 			return
 		}
 		if !ok {
+			if chargeFailures {
+				a.limiter.Allow(clientIP(r))
+			}
 			a.logger.InfoContext(r.Context(), "auth rejected",
 				"remote_addr", r.RemoteAddr, "path", r.URL.Path, "method", r.Method)
 			writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))

@@ -27,6 +27,9 @@ type App struct {
 	versionInfo  versionInfo
 	startedAt    time.Time
 	limiter      *IPLimiter
+	// viewLimit caps view requests per knob (they skip the per-IP charge
+	// once authenticated, see rateLimitAuthFailures).
+	viewLimit *callerLimiter
 
 	sessions *sessions.Registry
 
@@ -144,6 +147,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.clockStats = newClockStatsStore()
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
+	a.viewLimit = &callerLimiter{burst: viewBurst, perSec: viewPerSec}
 	if publisher == nil {
 		if clockDisabled() {
 			publisher = disabledPublisher{}

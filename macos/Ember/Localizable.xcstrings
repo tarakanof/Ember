@@ -1783,7 +1783,7 @@
     },
     "in progress" : {},
     "just now" : {},
-    "macOS asks once to let Ember control Music; Ember only reads the player position and artwork." : {},
+    "macOS asks once to let Ember control Music. Ember reads the player position, volume and artwork, and runs the knob's controls: play/pause, next, previous and Music's own volume (not the Mac's). Only while this is on and Music is already open; Ember never starts Music." : {},
     "macOS didn't ask for location access. Turn it on for Ember in System Settings › Privacy & Security › Location Services." : {},
     "macOS gives Local Network access to one build of an app, so a copy of Ember you build yourself can need approval again after every rebuild. If Ember is already on in Local Network settings but still blocked, turn it off and on again." : {},
     "macOS is blocking %@ from the local network, so its reports don't reach the server." : {
