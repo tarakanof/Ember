@@ -1,0 +1,163 @@
+package main
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/tarakanof/ember/internal/awtrix"
+	"github.com/tarakanof/ember/internal/discovery"
+)
+
+type countingTransport struct {
+	n    atomic.Int64
+	next http.RoundTripper
+}
+
+func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.n.Add(1)
+	return c.next.RoundTrip(r)
+}
+
+// TestClockOffMakesNoClockRequests drives every clock-facing path of a server
+// run with EMBER_CLOCK=off and proves nothing leaves the process: neither a
+// stub standing in for the clock nor the default transport sees a request, and
+// no mDNS browse starts.
+func TestClockOffMakesNoClockRequests(t *testing.T) {
+	t.Setenv("EMBER_CLOCK", "off")
+
+	var stubHits atomic.Int64
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stubHits.Add(1)
+		_, _ = w.Write([]byte(`{"uid":"awtrix_x","boardType":"awtrixng"}`))
+	}))
+	defer stub.Close()
+	ct := &countingTransport{next: http.DefaultTransport}
+	prev := http.DefaultTransport
+	http.DefaultTransport = ct
+	defer func() { http.DefaultTransport = prev }()
+
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = stub.URL
+	cfg.Auth.StatusToken = "tok"
+	cfg.applyDefaults()
+	app := NewApp(cfg, nil, discardLogger())
+	var browses atomic.Int64
+	app.browseFn = func(context.Context, time.Duration) ([]discovery.Candidate, error) {
+		browses.Add(1)
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	app.initDeviceDiscovery(ctx)
+	if app.rediscoverClock(ctx) {
+		t.Fatal("rediscover must not swap")
+	}
+	if got := app.lastRediscoverResult.Load(); got != "disabled" {
+		t.Fatalf("rediscover result = %v, want disabled", got)
+	}
+	app.StartClockSampler(ctx, time.Hour)
+	app.ensureBootPingScript(ctx)
+	app.RepublishAll("test")
+	if err := app.ClearIndicators(ctx); err != nil {
+		t.Fatalf("ClearIndicators: %v", err)
+	}
+	for _, err := range []error{
+		app.publisher.CustomApp(ctx, "x", map[string]any{"text": "hi"}),
+		app.publisher.Notify(ctx, map[string]any{"text": "hi"}),
+		app.publisher.Settings(ctx, map[string]any{"TIME_COL": 1}),
+		app.publisher.Switch(ctx, "x", awtrix.SwitchMode(0)),
+	} {
+		if err != nil {
+			t.Fatalf("publisher call: %v", err)
+		}
+	}
+	if app.clock.reachable(ctx, stub.URL) {
+		t.Fatal("reachable must be false")
+	}
+	if _, err := app.clock.readSystem(ctx); err != errClockDisabled {
+		t.Fatalf("readSystem err = %v, want errClockDisabled", err)
+	}
+
+	h := app.routes()
+	for _, rq := range []struct{ method, path, body string }{
+		{"GET", "/v1/clock/health", ""},
+		{"GET", "/v1/clock/stats?range=15m", ""},
+		{"GET", "/v1/device/discover", ""},
+		{"GET", "/v1/device/settings", ""},
+		{"PUT", "/v1/device/settings", `{}`},
+		{"GET", "/v1/device/capabilities", ""},
+		{"GET", "/v1/device/sensors", ""},
+		{"GET", "/v1/device/screen", ""},
+		{"POST", "/v1/device/reboot", ""},
+	} {
+		req := httptest.NewRequest(rq.method, rq.path, strings.NewReader(rq.body))
+		req.Header.Set("Authorization", "Bearer tok")
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rq.path == "/v1/clock/health" {
+			if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"disabled":true`) || !strings.Contains(rec.Body.String(), `"device":null`) {
+				t.Fatalf("health = %d %s", rec.Code, rec.Body)
+			}
+		}
+		if rq.path == "/v1/device/discover" && rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("discover = %d, want 503", rec.Code)
+		}
+	}
+
+	res := runDoctorChecks(ctx, app, app.cfg.Load())
+	for _, k := range []string{"clock", "awtrix_reachable"} {
+		if c := res.Checks[k]; c.Status != StatusSkipped || !strings.Contains(c.Detail, "disabled") {
+			t.Fatalf("doctor %s = %+v, want skipped/disabled", k, c)
+		}
+	}
+	off := runDoctorChecks(ctx, nil, app.cfg.Load())
+	if c := off.Checks["awtrix_reachable"]; c.Status != StatusSkipped {
+		t.Fatalf("offline doctor awtrix_reachable = %+v", c)
+	}
+
+	if n := stubHits.Load(); n != 0 {
+		t.Fatalf("clock stub received %d requests, want 0", n)
+	}
+	if n := ct.n.Load(); n != 0 {
+		t.Fatalf("default transport carried %d requests, want 0", n)
+	}
+	if n := browses.Load(); n != 0 {
+		t.Fatalf("mDNS browse ran %d times, want 0", n)
+	}
+}
+
+// With the switch unset the same stub is reached, so the test above is not
+// passing for want of wiring.
+func TestClockOnReachesClock(t *testing.T) {
+	t.Setenv("EMBER_CLOCK", "")
+	var hits atomic.Int64
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer stub.Close()
+	cfg := defaultConfig()
+	cfg.AWTRIX.HTTPBaseURL = stub.URL
+	cfg.applyDefaults()
+	app := NewApp(cfg, nil, discardLogger())
+	app.probeClockHealth(context.Background(), time.Now())
+	if hits.Load() == 0 {
+		t.Fatal("expected the probe to reach the clock stub")
+	}
+}
+
+func TestClockDisabledValues(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "on": false, "off": true, "OFF": true, " off ": true, "0": true, "false": true, "no": true, "disabled": true, "auto": false} {
+		t.Setenv("EMBER_CLOCK", v)
+		if got := clockDisabled(); got != want {
+			t.Errorf("EMBER_CLOCK=%q: %v, want %v", v, got, want)
+		}
+	}
+}

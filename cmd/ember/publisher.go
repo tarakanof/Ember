@@ -35,6 +35,28 @@ type Publisher interface {
 	PutIcon(ctx context.Context, filename string, data []byte) error
 }
 
+// disabledPublisher is the Publisher under EMBER_CLOCK=off: every write
+// succeeds without leaving the process.
+type disabledPublisher struct{}
+
+var _ Publisher = disabledPublisher{}
+
+func (disabledPublisher) CustomApp(context.Context, string, map[string]any) error { return nil }
+func (disabledPublisher) ClearApp(context.Context, string) error                  { return nil }
+func (disabledPublisher) ListApps(context.Context) ([]string, error)              { return nil, nil }
+func (disabledPublisher) Notify(context.Context, map[string]any) error            { return nil }
+func (disabledPublisher) DismissNotifyByName(context.Context, string) error       { return nil }
+func (disabledPublisher) PlayRTTTL(context.Context, string) error                 { return nil }
+func (disabledPublisher) Indicator(context.Context, int, map[string]any) error    { return nil }
+func (disabledPublisher) ClearIndicator(context.Context, int) error               { return nil }
+func (disabledPublisher) Settings(context.Context, map[string]any) error          { return nil }
+func (disabledPublisher) ReadSettings(context.Context) (map[string]any, error) {
+	return map[string]any{}, nil
+}
+func (disabledPublisher) Switch(context.Context, string, awtrix.SwitchMode) error { return nil }
+func (disabledPublisher) ListIcons(context.Context) ([]string, error)             { return nil, nil }
+func (disabledPublisher) PutIcon(context.Context, string, []byte) error           { return nil }
+
 type clockPublisher struct{ k *clockAccess }
 
 var _ Publisher = clockPublisher{}

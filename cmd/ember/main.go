@@ -59,7 +59,7 @@ func main() {
 	}
 
 	app := NewApp(cfg, nil, logger)
-	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) {
+	if envEnabled(os.Getenv("EMBER_FIRMWARE_CHECK")) && !clockDisabled() {
 		app.firmware.url = ngReleasesURL
 	}
 	app.configPath = configPath
@@ -92,7 +92,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app.initDeviceDiscovery(ctx)
+	if clockDisabled() {
+		logger.Warn("clock disabled (EMBER_CLOCK=off): no clock I/O, publishes are dropped")
+	} else {
+		app.initDeviceDiscovery(ctx)
+	}
 
 	var workers sync.WaitGroup
 
@@ -115,8 +119,10 @@ func main() {
 		logger.Info("mDNS advertising disabled (EMBER_MDNS_ADVERTISE)")
 	}
 
-	if err := app.ClearIndicators(context.Background()); err != nil {
-		logger.Warn("clear indicators on startup failed", "err", err)
+	if !clockDisabled() {
+		if err := app.ClearIndicators(context.Background()); err != nil {
+			logger.Warn("clear indicators on startup failed", "err", err)
+		}
 	}
 
 	workers.Go(func() { app.limiter.runSweeper(ctx) })
@@ -125,9 +131,13 @@ func main() {
 	workers.Go(func() { app.StartBrightness(ctx) })
 	workers.Go(func() { app.StartMeetings(ctx) })
 	workers.Go(func() { app.StartReminderLoopGuard(ctx) })
-	workers.Go(func() { app.ensureBootPingScript(ctx) })
+	if !clockDisabled() {
+		workers.Go(func() { app.ensureBootPingScript(ctx) })
+	}
 
-	if cfg.AWTRIX.AutoRediscoverEnabled() {
+	if clockDisabled() {
+		logger.Info("clock watch and sampler off (EMBER_CLOCK=off)")
+	} else if cfg.AWTRIX.AutoRediscoverEnabled() {
 		logger.Info("clock auto-rediscover enabled", "interval", deviceWatchInterval.String())
 		workers.Go(func() { app.StartDeviceWatch(ctx, deviceWatchInterval) })
 	} else {

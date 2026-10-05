@@ -131,7 +131,11 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	if publisher == nil {
-		publisher = clockPublisher{a.clock}
+		if clockDisabled() {
+			publisher = disabledPublisher{}
+		} else {
+			publisher = clockPublisher{a.clock}
+		}
 	}
 	quiet := &quietPublisher{Publisher: publisher, cfg: a.cfg.Load, now: time.Now}
 	a.publisher = quiet

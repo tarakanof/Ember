@@ -175,7 +175,7 @@ type clockStatsView struct {
 func (a *App) buildClockStats(rng string, now time.Time) clockStatsView {
 	v := clockStatsView{
 		Range:             rng,
-		Configured:        a.cfg.Load().effectiveClockURL() != "",
+		Configured:        a.cfg.Load().effectiveClockURL() != "" && !clockDisabled(),
 		SampleIntervalSec: int(clockProbeTTL / time.Second),
 	}
 	c := a.clockStats

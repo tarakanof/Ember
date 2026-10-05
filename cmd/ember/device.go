@@ -36,6 +36,10 @@ func (a *App) initDeviceDiscovery(ctx context.Context) {
 }
 
 func (a *App) rediscoverClock(ctx context.Context) bool {
+	if clockDisabled() {
+		a.lastRediscoverResult.Store("disabled")
+		return false
+	}
 	a.deviceRediscoverMu.Lock()
 	defer a.deviceRediscoverMu.Unlock()
 
@@ -235,6 +239,10 @@ func (a *App) handleDeviceConfigPut(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceDiscover(w http.ResponseWriter, r *http.Request) {
+	if clockDisabled() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": errClockDisabled.Error(), "code": "clock_disabled"})
+		return
+	}
 	browse := a.browseFn
 	if browse == nil {
 		browse = discovery.BrowseAWTRIX

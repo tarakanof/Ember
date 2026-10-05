@@ -92,6 +92,9 @@ func (c callClass) timeout(cfg *Config) time.Duration {
 
 var errClockNotConfigured = errors.New("clock not configured")
 
+// errClockDisabled is every clock call's answer under EMBER_CLOCK=off.
+var errClockDisabled = errors.New("clock disabled (EMBER_CLOCK=off)")
+
 func clockBaseURL(cfg *Config) (string, error) {
 	base := strings.TrimRight(cfg.effectiveClockURL(), "/")
 	if base == "" {
@@ -104,6 +107,9 @@ func clockBaseURL(cfg *Config) (string, error) {
 }
 
 func (k *clockAccess) client(c callClass) (*awtrix.Client, error) {
+	if clockDisabled() {
+		return nil, errClockDisabled
+	}
 	cfg := k.cfg()
 	base, err := clockBaseURL(cfg)
 	if err != nil {
@@ -148,6 +154,9 @@ func (k *clockAccess) fetch(ctx context.Context, call deviceCall) ([]byte, error
 }
 
 func (k *clockAccess) reachable(ctx context.Context, base string) bool {
+	if clockDisabled() {
+		return false
+	}
 	_, ok := discovery.Reachable(ctx, &http.Client{Timeout: probeCallTimeout}, base)
 	return ok
 }

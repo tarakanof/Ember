@@ -80,7 +80,7 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	}
 
 	awtrixCheck := checkAWTRIXReachable(ctx, cfg)
-	if app != nil {
+	if app != nil && !clockDisabled() {
 		awtrixCheck.Detail += fmt.Sprintf(" [source=%s]", app.deviceSource())
 	}
 	res.Checks["awtrix_reachable"] = awtrixCheck
@@ -153,6 +153,9 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 }
 
 func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
+	if clockDisabled() {
+		return CheckResult{Status: StatusSkipped, Detail: "clock disabled (EMBER_CLOCK=off)"}
+	}
 	if cfg == nil || cfg.effectiveClockURL() == "" {
 		return CheckResult{Status: StatusFail, Detail: "awtrix.http_base_url empty"}
 	}
@@ -305,6 +308,9 @@ func checkMeetings(app *App, cfg *Config) CheckResult {
 }
 
 func checkClock(ctx context.Context, app *App) CheckResult {
+	if clockDisabled() {
+		return CheckResult{Status: StatusSkipped, Detail: "clock disabled (EMBER_CLOCK=off)"}
+	}
 	baseURL, source := app.cfg.Load().clockURL()
 
 	probeCtx, cancel := context.WithTimeout(ctx, probeCallTimeout)
