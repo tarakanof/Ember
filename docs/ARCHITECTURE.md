@@ -2094,7 +2094,7 @@ show data the owner turned off.
 | `psram_min` | int, bytes | basic | Lowest free PSRAM since boot. |
 | `psram_largest` | int, bytes | basic | Largest free PSRAM block now. |
 | `temp_c` | number, °C, -40..150 | basic | Chip temperature sensor. |
-| `reset_reason` | string `^[a-z][a-z0-9_]{0,15}$` | basic | Why the chip last restarted: `poweron`, `ext`, `sw`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `sdio`, `usb`, `jtag`, `unknown` (ESP-IDF `esp_reset_reason`, lower-cased without the `ESP_RST_` prefix). |
+| `reset_reason` | string `^[a-z][a-z0-9_]{0,15}$` | basic | Why the chip last restarted: `poweron`, `ext`, `sw`, `panic`, `int_wdt`, `task_wdt`, `wdt`, `deepsleep`, `brownout`, `sdio`, `usb`, `jtag`, `efuse`, `pwr_glitch`, `cpu_lockup`, `unknown` (ESP-IDF `esp_reset_reason`, lower-cased without the `ESP_RST_` prefix). |
 | `req_ok` | int, count | full | HTTP requests to Ember that got an answer (any 2xx/304) during the window. |
 | `req_fail` | int, count | full | Requests that failed (transport error, timeout, non-2xx/304) during the window. |
 | `req_ms_avg` | number, ms | full | Mean request duration over the window. |

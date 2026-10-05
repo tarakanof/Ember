@@ -279,6 +279,12 @@ struct KnobHardwareContent: View {
         case "brownout": String(localized: "Low voltage")
         case "deepsleep": String(localized: "Woke from sleep")
         case "ext": String(localized: "Reset pin")
+        case "sdio": String(localized: "SDIO reset")
+        case "usb": String(localized: "USB reset")
+        case "jtag": String(localized: "Debugger reset")
+        case "efuse": String(localized: "eFuse error")
+        case "pwr_glitch": String(localized: "Power glitch")
+        case "cpu_lockup": String(localized: "CPU lockup")
         default: raw
         }
     }

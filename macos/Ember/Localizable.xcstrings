@@ -465,6 +465,7 @@
     "Buttons" : {},
     "Buzzer volume" : {},
     "By hour, last 12 weeks" : {},
+    "CPU lockup" : {},
     "Calendar" : {},
     "Calendar Box" : {},
     "Calendar icon, title and minutes to go." : {},
@@ -641,6 +642,7 @@
     "Day" : {},
     "Day number" : {},
     "Day, month, year" : {},
+    "Debugger reset" : {},
     "Delivered" : {},
     "Desk knob" : {},
     "Devices" : {},
@@ -1142,6 +1144,7 @@
     "Popup" : {},
     "Popups" : {},
     "Position" : {},
+    "Power glitch" : {},
     "Power on" : {},
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},
@@ -1233,6 +1236,7 @@
     },
     "Runs ember-claude-producer configure: removes the pause and keeps one set of hooks, the plugin's when it's enabled." : {},
     "Runs the timer on the clock and lets the clock's buttons control it." : {},
+    "SDIO reset" : {},
     "Same as text" : {},
     "Save Token" : {},
     "Saved" : {
@@ -1560,6 +1564,7 @@
     "Turn on diagnostics to have the knob report its processor, memory, temperature and Wi-Fi. Full diagnostics add network requests and rendering." : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
     "USB" : {},
+    "USB reset" : {},
     "Unauthorized — check the token in Connection settings." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1690,6 +1695,7 @@
       "extractionState" : "manual"
     },
     "done" : {},
+    "eFuse error" : {},
     "extremely poor" : {},
     "fair" : {},
     "found by the server" : {},
