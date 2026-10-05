@@ -812,16 +812,21 @@ Claude producer constraints:
   (verified: a plugin update alone keeps a running session's hooks; a plugin
   installed mid-session plus removed settings hooks fires nothing; the
   statusline, a settings command, keeps running). Its marker stays `done`
-  while the session works. For a `done`/`idle` marker the watcher also calls
-  the CLI when its owner's `sessions/<pid>.json` changes and doesn't read
-  `idle`, or the statusline writes new figures ≥5 s after the marker went
-  dormant; each change is acted on once, so quiet sessions cost nothing. Busy
-  confirmed by two snapshots promotes it to `running` "working" (flag
-  `agents_run`, cleared by any hook write); idle then ends it as `done`
-  "done". Marker comparisons ignore statusline-owned fields, which change on
-  every assistant message. Hooks stamp `hook_at`, the statusline
+  while the session works. A `done`/`idle` marker is promoted only on proof
+  that a turn began after it went dormant: its owner's `sessions/<pid>.json`
+  says `busy` with `statusUpdatedAt` past the second after `state_changed_at`
+  (no `statusUpdatedAt`: a statusline change ≥5 s after done). A slow Stop hook
+  of another plugin keeps the old turn busy and fails the proof; so does idle
+  with a background shell, which the file calls `shell` while `claude agents`
+  says busy (measured on 2.1.289). The CLI is asked only when that file or the
+  statusline changed and the proof holds, so quiet sessions and healthy turn
+  ends cost no call; a session without the file (nested, SDK) is never
+  promoted. Busy confirmed by two snapshots promotes it to `running`
+  "working" (flag `agents_run`, cleared by any hook write); idle, or `shell`,
+  then ends it as `done` "done". Marker comparisons ignore statusline-owned
+  fields, which change on every assistant message. Hooks stamp `hook_at`, the statusline
   `statusline_at`; `doctor` warns when a busy session's statusline is fresh but
-  no hook wrote for 10 min.
+  no hook wrote for 10 min (markers without `hook_at` are skipped).
 - **Session lock file.** The per-session lock file is never deleted: removing
   it would break the POSIX flock-on-inode guarantee between concurrent holders.
 

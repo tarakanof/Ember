@@ -39,8 +39,8 @@ import (
 // only while a marker is running or waiting, and then only when a file under
 // ~/.claude/sessions changes (Claude rewrites its <pid>.json on every status
 // change) or agentsFallbackEvery has passed; for a done marker, only when its
-// owner's <pid>.json changes to a non-idle status or the statusline shows
-// activity after the marker went done (dormantDue). A disagreement is applied only
+// owner's <pid>.json or the statusline changed and the file proves a busy
+// that began after the marker went done (dormantDue). A disagreement is applied only
 // after a second call agrees and the marker did not change in between, so a
 // hook that is merely late (Stop lands just before the status goes idle)
 // never flips the display.
@@ -336,21 +336,31 @@ func scanClaudeMarkers(dir string) (active, dormant []activeMarker) {
 	return active, dormant
 }
 
-// claudeSessionStatus reads the status field of a ~/.claude/sessions/<pid>.json
-// ("" when unreadable). The layout is internal: it only gates whether the
-// CLI is asked, never what is written.
-func claudeSessionStatus(path string) string {
+// claudeSession is what the watcher reads from Claude's sessions/<pid>.json.
+// The layout is internal: it gates when the CLI is asked and whether a done
+// marker may be promoted, never what is written.
+type claudeSession struct {
+	// Status is busy, idle, waiting, or shell: idle with a background
+	// shell, which `claude agents` reports as busy.
+	Status string `json:"status"`
+	// StatusUpdatedAt (unix ms) is when Status last changed.
+	StatusUpdatedAt int64 `json:"statusUpdatedAt"`
+}
+
+func readClaudeSession(path string) (claudeSession, bool) {
+	var s claudeSession
 	b, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil || json.Unmarshal(b, &s) != nil {
+		return claudeSession{}, false
+	}
+	return s, true
+}
+
+func (w *agentsWatcher) claudeSessionPath(m marker) string {
+	if m.OwnerPID <= 0 || w.sessionsDir == "" {
 		return ""
 	}
-	var s struct {
-		Status string `json:"status"`
-	}
-	if json.Unmarshal(b, &s) != nil {
-		return ""
-	}
-	return s.Status
+	return filepath.Join(w.sessionsDir, strconv.Itoa(m.OwnerPID)+".json")
 }
 
 // statuslineAfterDone is how long after a marker went dormant a statusline
@@ -358,40 +368,67 @@ func claudeSessionStatus(path string) string {
 // a moment after Stop.
 const statuslineAfterDone = 5 * time.Second
 
-// dormantDue reports whether a dormant marker's session may have started a
-// turn the hooks didn't report: its sessions/<pid>.json changed (Claude
-// rewrites it on every status flip) or the statusline wrote new figures
-// well after the marker went dormant, and the file doesn't say idle. Each
-// change is acted on once, so a quiet session costs no CLI calls.
-func (w *agentsWatcher) dormantDue(d activeMarker) bool {
-	changed := false
-	path := ""
-	if d.m.OwnerPID > 0 && w.sessionsDir != "" {
-		path = filepath.Join(w.sessionsDir, strconv.Itoa(d.m.OwnerPID)+".json")
-		if fi, err := os.Stat(path); err == nil {
-			mt := fi.ModTime()
-			if prev, seen := w.pidSeen[d.m.OwnerPID]; !seen || !prev.Equal(mt) {
-				changed = true
-			}
-			w.pidSeen[d.m.OwnerPID] = mt
-		}
+// busyAfterDormant reports evidence that the session started a turn after
+// its marker went dormant. A turn that is merely still finishing (a slow Stop
+// hook of another plugin keeps the session busy) or a session idle with a
+// background shell (status "shell") is not one.
+func busyAfterDormant(m marker, s claudeSession) bool {
+	if s.Status != "busy" {
+		return false
 	}
-	if sl := d.m.StatuslineChangedMs; sl != w.slSeen[d.sessionID] {
-		w.slSeen[d.sessionID] = sl
-		if time.UnixMilli(sl).Sub(time.Unix(d.m.StateChangedAt, 0)) >= statuslineAfterDone {
-			changed = true
-		}
+	if s.StatusUpdatedAt > 0 {
+		// state_changed_at has whole seconds: a busy that began in the same
+		// second as the Stop counts as the old turn.
+		return s.StatusUpdatedAt >= (m.StateChangedAt+1)*1000
+	}
+	return m.StatuslineChangedMs >= m.StateChangedAt*1000+statuslineAfterDone.Milliseconds()
+}
+
+// seenKey keys the per-session trigger bookkeeping: two markers may share
+// one owner pid.
+func seenKey(m marker, sessionID string) string {
+	return strconv.Itoa(m.OwnerPID) + "/" + sessionID
+}
+
+// noteSessionFile records the mtime of a marker's sessions/<pid>.json and
+// reports whether it changed since the last pass (or was first seen).
+func (w *agentsWatcher) noteSessionFile(a activeMarker) (path string, changed bool) {
+	path = w.claudeSessionPath(a.m)
+	if path == "" {
+		return "", false
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", false
+	}
+	k := seenKey(a.m, a.sessionID)
+	prev, seen := w.fileSeen[k]
+	w.fileSeen[k] = fi.ModTime()
+	return path, !seen || !prev.Equal(fi.ModTime())
+}
+
+// dormantDue reports whether a dormant marker's session shows a turn the
+// hooks didn't report: its sessions/<pid>.json changed (Claude rewrites it
+// on every status flip) or the statusline wrote new figures, and the file
+// proves a busy that began after the marker went dormant. A session without
+// that file (nested, SDK) is never promoted. Each change is acted on once,
+// and a healthy turn end (busy since before the Stop) fails the proof, so
+// neither costs a CLI call.
+func (w *agentsWatcher) dormantDue(d activeMarker) bool {
+	path, changed := w.noteSessionFile(d)
+	if path == "" {
+		return false
+	}
+	k := seenKey(d.m, d.sessionID)
+	if sl := d.m.StatuslineChangedMs; sl != w.slSeen[k] {
+		w.slSeen[k] = sl
+		changed = true
 	}
 	if !changed {
 		return false
 	}
-	switch path {
-	case "":
-		return true
-	default:
-		st := claudeSessionStatus(path)
-		return st == "busy" || st == ""
-	}
+	s, ok := readClaudeSession(path)
+	return ok && busyAfterDormant(d.m, s)
 }
 
 // correction is the state a marker should take from one agents snapshot.
@@ -453,6 +490,27 @@ func wantFor(m marker, row agentRow) (correction, bool) {
 	return correction{}, false
 }
 
+// wantForSession is wantFor plus what only Claude's sessions file can tell:
+// a dormant marker is promoted only on proof of a turn begun after it went
+// dormant, and a run the watcher opened ends when the session is idle with a
+// background shell, which `claude agents` still calls busy.
+func (w *agentsWatcher) wantForSession(a activeMarker, row agentRow) (correction, bool) {
+	want, ok := wantFor(a.m, row)
+	var s claudeSession
+	read := false
+	if path := w.claudeSessionPath(a.m); path != "" {
+		s, read = readClaudeSession(path)
+	}
+	if ok && dormantState(a.m.State) && (!read || !busyAfterDormant(a.m, s)) {
+		return correction{}, false
+	}
+	if !ok && a.m.AgentsRun && a.m.State == "running" && row.Status == "busy" &&
+		read && s.Status != "" && s.Status != "busy" && s.Status != "waiting" {
+		return correction{"done", "done"}, true
+	}
+	return want, ok
+}
+
 // approvedTool is the tool a PermissionRequest message names, or "".
 func approvedTool(msg string) string {
 	if t, ok := strings.CutPrefix(msg, "approve "); ok {
@@ -481,11 +539,11 @@ type agentsWatcher struct {
 	lastCall     time.Time
 	backoffUntil time.Time
 	pending      map[string]pendingCorrection
-	// pidSeen and slSeen are the last sessions/<pid>.json mtime and
-	// statusline change seen for dormant markers (dormantDue).
-	pidSeen map[int]time.Time
-	slSeen  map[string]int64
-	failLog *producer.FailureLogger
+	// fileSeen and slSeen are the last sessions/<pid>.json mtime and
+	// statusline change seen per marker (dormantDue), keyed by seenKey.
+	fileSeen map[string]time.Time
+	slSeen   map[string]int64
+	failLog  *producer.FailureLogger
 }
 
 func newAgentsWatcher(stateDir, sessionsDir string) *agentsWatcher {
@@ -496,7 +554,7 @@ func newAgentsWatcher(stateDir, sessionsDir string) *agentsWatcher {
 		sessionsDir: sessionsDir,
 		pending:     map[string]pendingCorrection{},
 		unlisted:    map[string]bool{},
-		pidSeen:     map[int]time.Time{},
+		fileSeen:    map[string]time.Time{},
 		slSeen:      map[string]int64{},
 		failLog:     producer.NewFailureLogger(10 * time.Minute),
 	}
@@ -506,7 +564,7 @@ func newAgentsWatcher(stateDir, sessionsDir string) *agentsWatcher {
 func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bool {
 	now := w.now()
 	active, dormant := w.scan()
-	wake, dormantDue := w.wakeCandidates(dormant)
+	wake, dormantDue := w.wakeCandidates(active, dormant)
 	if len(active) == 0 && len(wake) == 0 {
 		w.wasActive = false
 		clear(w.pending)
@@ -583,13 +641,17 @@ func (w *agentsWatcher) scan() (active, dormant []activeMarker) {
 
 // wakeCandidates picks the dormant markers this pass checks: those with a
 // fresh sign of a turn (due reports any) and those awaiting confirmation.
-// Bookkeeping for markers that are gone is dropped.
-func (w *agentsWatcher) wakeCandidates(dormant []activeMarker) (wake []activeMarker, due bool) {
-	pids := map[int]bool{}
-	ids := map[string]bool{}
+// Active markers only record their sessions file, so the flip at their turn
+// end isn't news once they go dormant. Bookkeeping for markers that are gone
+// is dropped.
+func (w *agentsWatcher) wakeCandidates(active, dormant []activeMarker) (wake []activeMarker, due bool) {
+	keys := map[string]bool{}
+	for _, a := range active {
+		keys[seenKey(a.m, a.sessionID)] = true
+		w.noteSessionFile(a)
+	}
 	for _, d := range dormant {
-		pids[d.m.OwnerPID] = true
-		ids[d.sessionID] = true
+		keys[seenKey(d.m, d.sessionID)] = true
 		_, pending := w.pending[d.sessionID]
 		if w.dormantDue(d) {
 			due = true
@@ -598,14 +660,14 @@ func (w *agentsWatcher) wakeCandidates(dormant []activeMarker) (wake []activeMar
 			wake = append(wake, d)
 		}
 	}
-	for pid := range w.pidSeen {
-		if !pids[pid] {
-			delete(w.pidSeen, pid)
+	for k := range w.fileSeen {
+		if !keys[k] {
+			delete(w.fileSeen, k)
 		}
 	}
-	for id := range w.slSeen {
-		if !ids[id] {
-			delete(w.slSeen, id)
+	for k := range w.slSeen {
+		if !keys[k] {
+			delete(w.slSeen, k)
 		}
 	}
 	return wake, due
@@ -626,7 +688,7 @@ func (w *agentsWatcher) reconcile(ctx context.Context, cfg Config, client *Clien
 			}
 			continue
 		}
-		want, ok := wantFor(a.m, row)
+		want, ok := w.wantForSession(a, row)
 		if !ok {
 			continue
 		}
@@ -775,10 +837,9 @@ func staleHookSessions(markers []marker, rows map[string]agentRow, now time.Time
 		if !ok || row.Status != "busy" {
 			continue
 		}
+		// No hook_at: an older producer wrote the marker last, and its
+		// state_changed_at doesn't move on same-state hook writes.
 		hookAt := m.HookAt
-		if hookAt == 0 && !m.AgentsRun {
-			hookAt = m.StateChangedAt // a marker from an older producer
-		}
 		slAt := max(m.StatuslineAt, m.StatuslineChangedMs/1000)
 		if hookAt == 0 || slAt == 0 {
 			continue
@@ -820,7 +881,8 @@ func staleHooksDoctorLines(ctx context.Context, stateDir string) []string {
 			s.sessionID, s.pid, s.hookAge))
 	}
 	if len(lines) > 0 {
-		lines = append(lines, "hint: hooks look stale; restart Claude Code sessions after installing or updating the ember plugin (or run /reload-plugins in them)")
+		lines = append(lines, "hint: hooks look stale; restart Claude Code sessions after installing or updating the ember plugin (or run /reload-plugins in them). "+
+			"A single tool running over 10 min with statusLine.refreshInterval set looks the same; ignore it then")
 	}
 	return lines
 }

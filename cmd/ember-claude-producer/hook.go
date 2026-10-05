@@ -279,10 +279,10 @@ func markBackgroundWake(cfg Config, markerP, lockP string) {
 			return nil
 		}
 		var m marker
-		if json.Unmarshal(old, &m) != nil || m.BackgroundWake {
+		if json.Unmarshal(old, &m) != nil || (m.BackgroundWake && !m.AgentsRun) {
 			return nil
 		}
-		m.BackgroundWake = true
+		m.BackgroundWake, m.AgentsRun = true, false
 		m.HookAt = hookNow().Unix()
 		b, err := json.Marshal(m)
 		if err != nil {
