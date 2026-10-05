@@ -28,6 +28,7 @@ func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // stub standing in for the clock nor the default transport sees a request, and
 // no mDNS browse starts.
 func TestClockOffMakesNoClockRequests(t *testing.T) {
+	// Swaps the global http.DefaultTransport: do not add t.Parallel() here.
 	t.Setenv("EMBER_CLOCK", "off")
 
 	var stubHits atomic.Int64
@@ -95,6 +96,23 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 		{"GET", "/v1/device/sensors", ""},
 		{"GET", "/v1/device/screen", ""},
 		{"POST", "/v1/device/reboot", ""},
+		{"GET", "/v1/device/buttons", ""},
+		{"PUT", "/v1/device/buttons", `{}`},
+		{"GET", "/v1/device/display", ""},
+		{"PUT", "/v1/device/display", `{}`},
+		{"PUT", "/v1/device/display/power", `{"power":true}`},
+		{"GET", "/v1/device/apps", ""},
+		{"PUT", "/v1/device/apps", `{}`},
+		{"POST", "/v1/device/audio/test", ""},
+		{"POST", "/v1/device/audio/stop", ""},
+		{"GET", "/v1/device/audio/melodies", ""},
+		{"GET", "/v1/device/stats", ""},
+		{"PUT", "/v1/device/sensors", `{}`},
+		{"POST", "/v1/device/notify/dismiss", ""},
+		{"POST", "/v1/device/app/next", ""},
+		{"POST", "/v1/device/app/previous", ""},
+		{"PUT", "/v1/device/config", `{"base_url":"http://127.0.0.1:9"}`},
+		{"POST", "/hooks/awtrix/boot", ""},
 	} {
 		req := httptest.NewRequest(rq.method, rq.path, strings.NewReader(rq.body))
 		req.Header.Set("Authorization", "Bearer tok")
@@ -112,14 +130,17 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 	}
 
 	res := runDoctorChecks(ctx, app, app.cfg.Load())
-	for _, k := range []string{"clock", "awtrix_reachable"} {
-		if c := res.Checks[k]; c.Status != StatusSkipped || !strings.Contains(c.Detail, "disabled") {
-			t.Fatalf("doctor %s = %+v, want skipped/disabled", k, c)
+	for _, k := range []string{"clock", "awtrix_reachable", "capabilities"} {
+		if c := res.Checks[k]; c.Status != StatusOK || !strings.Contains(c.Detail, "disabled") {
+			t.Fatalf("doctor %s = %+v, want ok/disabled", k, c)
 		}
 	}
 	off := runDoctorChecks(ctx, nil, app.cfg.Load())
-	if c := off.Checks["awtrix_reachable"]; c.Status != StatusSkipped {
+	if c := off.Checks["awtrix_reachable"]; c.Status != StatusOK || !strings.Contains(c.Detail, "disabled") {
 		t.Fatalf("offline doctor awtrix_reachable = %+v", c)
+	}
+	if ok, fail := app.publishWindow.last24h(time.Now()); ok+fail != 0 {
+		t.Fatalf("dropped publishes counted: ok=%d fail=%d", ok, fail)
 	}
 
 	if n := stubHits.Load(); n != 0 {
@@ -159,5 +180,25 @@ func TestClockDisabledValues(t *testing.T) {
 		if got := clockDisabled(); got != want {
 			t.Errorf("EMBER_CLOCK=%q: %v, want %v", v, got, want)
 		}
+	}
+}
+
+func TestClockOffDoctorIsOK(t *testing.T) {
+	t.Setenv("EMBER_CLOCK", "off")
+	app := newAppForDoctor(t, "http://127.0.0.1:9")
+	res := runDoctorChecks(context.Background(), app, app.cfg.Load())
+	if !res.OK {
+		t.Fatalf("doctor not OK under EMBER_CLOCK=off: %+v", res.Checks)
+	}
+}
+
+func TestClockOffSkipsIconProvisioning(t *testing.T) {
+	t.Setenv("EMBER_CLOCK", "off")
+	app, pub := iconTestApp(t, func(w *WeatherConfig) { w.TileNativeIcons = true })
+	fetched := 0
+	app.iconFetch = func(context.Context, string) ([]byte, string, error) { fetched++; return nil, "", nil }
+	app.ensureNativeIcons(context.Background())
+	if fetched != 0 || len(pub.PutIconNamesSnapshot()) != 0 {
+		t.Fatalf("fetched %d icons under EMBER_CLOCK=off", fetched)
 	}
 }

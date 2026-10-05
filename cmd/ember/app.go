@@ -166,6 +166,9 @@ func (a *App) tryUpdateConfig(mutate func(*Config) error) error {
 }
 
 func (a *App) recordPublish(snap Snapshot, err error) {
+	if clockDisabled() {
+		return // publishes went to a no-op sink: not counted as clock health
+	}
 	now := time.Now()
 	a.publishWindow.add(now, err == nil)
 	a.mu.Lock()

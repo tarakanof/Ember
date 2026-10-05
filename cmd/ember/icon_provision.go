@@ -28,6 +28,9 @@ func (a *App) ensureNativeIcons(ctx context.Context) {
 		return
 	}
 
+	if clockDisabled() {
+		return
+	}
 	a.iconMu.Lock()
 	defer a.iconMu.Unlock()
 

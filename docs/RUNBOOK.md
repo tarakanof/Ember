@@ -766,11 +766,12 @@ fingerprint doesn't exist on NG). The server advertises itself as
 - `EMBER_CLOCK=off` (also `0`/`false`/`no`/`disabled`; unset = clock on) runs the
   server with **no clock I/O at all**: no AWTRIX HTTP (publishes, probes, the
   `/v1/device/*` proxy), no mDNS browse or UDP find, no auto-rediscover or sampler,
-  no boot-ping install, no firmware lookup. Publishes are dropped as successes, the
+  no boot-ping install, no icon provisioning, no firmware lookup. Publishes are dropped
+  (not counted in publish health), the
   `/v1/device/*` proxy answers 502 `clock disabled`, `GET /v1/device/discover` 503
   `clock_disabled`. `GET /v1/clock/health` carries `"disabled": true` with
-  `device: null`; `/admin/doctor`'s `clock` and `awtrix_reachable` checks are
-  `skipped`. Use it for tests and scratch servers: safe by construction.
+  `device: null`; `/admin/doctor`'s `clock`, `awtrix_reachable` and
+  `capabilities` checks are `ok` with a "disabled" detail (doctor stays OK). Use it for tests and scratch servers: safe by construction.
 - `EMBER_MDNS_ADVERTISE` (default on; `0`/`false`/`no`/`off` disables) gates only the
   advertising side; clock discovery and Settings › Devices › Clock still work with a
   configured URL.

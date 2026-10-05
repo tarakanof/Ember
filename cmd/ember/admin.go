@@ -216,7 +216,9 @@ func handleAdminReload(app *App) http.HandlerFunc {
 		app.cfgMu.Unlock()
 		app.resyncPomodoroAfterReload()
 		app.settings.reapply()
-		go app.ensureBootPingScript(context.Background())
+		if !clockDisabled() {
+			go app.ensureBootPingScript(context.Background())
+		}
 		logOutcome(http.StatusOK, len(changed), "")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"reloaded":       true,
