@@ -24,6 +24,13 @@ type marker struct {
 	// Unchanged refreshes skip the rewrite (one per minute keeps the mtime
 	// fresh for the TTL), so file mtime does not track it.
 	StatuslineChangedMs int64 `json:"statusline_changed_ms,omitempty"`
+	// StatuslineAt (unix s) is when the statusline last wrote the marker (a
+	// change, or the once-a-minute refresh): proof the session is alive even
+	// when its hooks are not (#285).
+	StatuslineAt int64 `json:"statusline_at,omitempty"`
+	// HookAt (unix s) is when a hook last wrote the marker. doctor compares it
+	// with StatuslineAt to spot a session whose hooks went quiet.
+	HookAt int64 `json:"hook_at,omitempty"`
 	ToolTrack
 }
 
@@ -51,6 +58,9 @@ type ToolTrack struct {
 	BackgroundWake bool `json:"bg_wake,omitempty"`
 	// AgentsWait marks a wait the agents cross-check opened, so it may also close it; any hook write clears it.
 	AgentsWait bool `json:"agents_wait,omitempty"`
+	// AgentsRun marks a run the agents cross-check opened on a done marker
+	// whose session was busy without hooks (#285); any hook write clears it.
+	AgentsRun bool `json:"agents_run,omitempty"`
 }
 
 var shellComms = map[string]bool{

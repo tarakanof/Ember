@@ -805,6 +805,21 @@ Claude producer constraints:
   stdout can't wedge the watcher. The binary is `~/.local/bin/claude`, then
   PATH, then Homebrew paths, gated once per path+mtime on `claude --version` ≥
   2.1.288; a failed call backs off 5 min. `doctor` prints the state.
+  **Hookless sessions** (#285): a session started before the ember plugin was
+  installed never loads it, and when `configure` strips the old
+  `settings.json` hooks a running session hot-reloads settings and loses them
+  too, so it reports through no hook until restarted or `/reload-plugins`
+  (verified: a plugin update alone keeps a running session's hooks; a plugin
+  installed mid-session plus removed settings hooks fires nothing; the
+  statusline, a settings command, keeps running). Its marker stays `done`
+  while the session works. For a `done`/`idle` marker the watcher also calls
+  the CLI when its owner's `sessions/<pid>.json` changes and doesn't read
+  `idle`, or the statusline writes new figures ≥5 s after the marker went
+  dormant; each change is acted on once, so quiet sessions cost nothing. Busy
+  confirmed by two snapshots promotes it to `running` "working" (flag
+  `agents_run`, cleared by any hook write); idle then ends it as `done`
+  "done". Marker comparisons ignore statusline-owned fields, which change on
+  every assistant message.
 - **Session lock file.** The per-session lock file is never deleted: removing
   it would break the POSIX flock-on-inode guarantee between concurrent holders.
 

@@ -100,6 +100,7 @@ func handleToolOutcome(ctx context.Context, cfg Config, client *Client, in hookI
 		if !changed {
 			return nil
 		}
+		m.HookAt = hookNow().Unix()
 		body, err := json.Marshal(m)
 		if err != nil {
 			return nil

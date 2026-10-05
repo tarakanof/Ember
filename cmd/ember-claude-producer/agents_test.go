@@ -14,13 +14,14 @@ import (
 )
 
 type agentsFixture struct {
-	h     *hookHarness
-	w     *agentsWatcher
-	cfg   Config
-	clock time.Time
-	out   string
-	err   error
-	calls int
+	h             *hookHarness
+	w             *agentsWatcher
+	cfg           Config
+	clock         time.Time
+	out           string
+	err           error
+	calls         int
+	sessionsMtime time.Time
 }
 
 func newAgentsFixture(t *testing.T) *agentsFixture {

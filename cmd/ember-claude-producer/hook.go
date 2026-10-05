@@ -207,7 +207,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		var ownerPID int
 		var ownerStart string
-		var statuslineChanged int64
+		var statuslineChanged, statuslineAt int64
 		var track ToolTrack
 		changedAt := hookNow().Unix()
 		if old, err := readMarker(markerP); err == nil {
@@ -230,7 +230,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 					req.Activity = producer.PrependTrail(activity, prev.Activity)
 				}
 				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
-				statuslineChanged = prev.StatuslineChangedMs
+				statuslineChanged, statuslineAt = prev.StatuslineChangedMs, prev.StatuslineAt
 				if prev.State == state && prev.StateChangedAt != 0 {
 					changedAt = prev.StateChangedAt
 				}
@@ -249,7 +249,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 		if state != "waiting" {
 			track.PendingPermission, track.PendingToolUseID = "", ""
 		}
-		track.AgentsWait = false
+		track.AgentsWait, track.AgentsRun = false, false
 		if x.newTurn || state == "done" || state == "error" {
 			track.BackgroundWake = false
 		}
@@ -257,7 +257,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 			ownerPID, ownerStart = detectOwner()
 		}
 		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart, StateChangedAt: changedAt,
-			StatuslineChangedMs: statuslineChanged, ToolTrack: track}
+			StatuslineChangedMs: statuslineChanged, StatuslineAt: statuslineAt, HookAt: hookNow().Unix(), ToolTrack: track}
 		b, err := json.Marshal(m)
 		if err != nil || writeMarker(markerP, b) != nil {
 			return nil
@@ -283,6 +283,7 @@ func markBackgroundWake(cfg Config, markerP, lockP string) {
 			return nil
 		}
 		m.BackgroundWake = true
+		m.HookAt = hookNow().Unix()
 		b, err := json.Marshal(m)
 		if err != nil {
 			return nil

@@ -344,6 +344,7 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 		} else {
 			m.StatuslineChangedMs = now.UnixMilli()
 		}
+		m.StatuslineAt = now.Unix()
 		out, err := json.Marshal(m)
 		if err != nil {
 			return nil
