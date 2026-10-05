@@ -42,7 +42,6 @@ public struct NowPlayingAck: Decodable, Equatable, Sendable {
 public struct NowPlayingState: Decodable, Equatable, Sendable {
     public let state: String
     public let source: String?
-    public let player: String?
     public let title: String?
     public let artist: String?
     public let album: String?
@@ -55,7 +54,7 @@ public struct NowPlayingState: Decodable, Equatable, Sendable {
     public let hasArtistArt: Bool
 
     enum CodingKeys: String, CodingKey {
-        case state, source, player, title, artist, album
+        case state, source, title, artist, album
         case durationMs = "duration_ms", positionMs = "position_ms", positionAt = "position_at"
         case updatedAt = "updated_at", artVersion = "art_version"
         case hasAlbumArt = "has_album_art", hasArtistArt = "has_artist_art"

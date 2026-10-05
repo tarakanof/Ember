@@ -18,6 +18,7 @@ import (
 const (
 	deezerAPIBase       = "https://api.deezer.com"
 	artistLookupMax     = 64
+	artistLookupBytes   = 4 << 20
 	artistMissTTL       = time.Hour
 	artistErrTTL        = time.Minute
 	artistLookupTimeout = 10 * time.Second
@@ -28,6 +29,9 @@ type artistLookup struct {
 	base   string
 	client *http.Client
 	now    func() time.Time
+	// pictureOK vets a picture URL from a search answer before it is
+	// fetched (and later served publicly): https on Deezer's CDN only.
+	pictureOK func(*url.URL) bool
 
 	mu   sync.Mutex // protects hits
 	hits map[string]artistHit
@@ -41,11 +45,22 @@ type artistHit struct {
 
 func newArtistLookup(base string) *artistLookup {
 	return &artistLookup{
-		base:   strings.TrimRight(base, "/"),
-		client: &http.Client{Timeout: artistLookupTimeout},
-		now:    time.Now,
-		hits:   make(map[string]artistHit),
+		base: strings.TrimRight(base, "/"),
+		client: &http.Client{
+			Timeout: artistLookupTimeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		now:       time.Now,
+		hits:      make(map[string]artistHit),
+		pictureOK: deezerCDN,
 	}
+}
+
+func deezerCDN(u *url.URL) bool {
+	h := strings.ToLower(u.Hostname())
+	return u.Scheme == "https" && (h == "dzcdn.net" || strings.HasSuffix(h, ".dzcdn.net"))
 }
 
 // find returns the artist's picture, nil when Deezer has none.
@@ -74,7 +89,11 @@ func (l *artistLookup) find(ctx context.Context, artist string) (*nowplaying.Ima
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if len(l.hits) >= artistLookupMax {
+	delete(l.hits, name)
+	for len(l.hits) >= artistLookupMax || l.bytesLocked()+imgLen(img) > artistLookupBytes {
+		if len(l.hits) == 0 {
+			break
+		}
 		var oldest string
 		for k, h := range l.hits {
 			if oldest == "" || h.at.Before(l.hits[oldest].at) {
@@ -85,6 +104,21 @@ func (l *artistLookup) find(ctx context.Context, artist string) (*nowplaying.Ima
 	}
 	l.hits[name] = artistHit{img: img, err: err, at: l.now()}
 	return img, err
+}
+
+func (l *artistLookup) bytesLocked() int {
+	n := 0
+	for _, h := range l.hits {
+		n += imgLen(h.img)
+	}
+	return n
+}
+
+func imgLen(img *nowplaying.Image) int {
+	if img == nil {
+		return 0
+	}
+	return len(img.Data)
 }
 
 func (l *artistLookup) search(ctx context.Context, name string) (*nowplaying.Image, error) {
@@ -120,9 +154,6 @@ func (l *artistLookup) search(ctx context.Context, name string) (*nowplaying.Ima
 			break
 		}
 	}
-	if pick < 0 && len(body.Data) > 0 {
-		pick = 0
-	}
 	if pick < 0 {
 		return nil, nil
 	}
@@ -133,7 +164,11 @@ func (l *artistLookup) search(ctx context.Context, name string) (*nowplaying.Ima
 	if pic == "" || strings.Contains(pic, "/artist//") {
 		return nil, nil
 	}
-	img, err := fetchArt(ctx, l.client, strings.Replace(pic, "/1000x1000-", "/500x500-", 1), nil)
+	pu, err := url.Parse(strings.Replace(pic, "/1000x1000-", "/500x500-", 1))
+	if err != nil || !l.pictureOK(pu) {
+		return nil, nil
+	}
+	img, err := fetchArt(ctx, l.client, pu.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("deezer picture: %w", err)
 	}

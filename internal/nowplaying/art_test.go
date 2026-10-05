@@ -143,3 +143,19 @@ func BenchmarkRenderBackdropFrom1400(b *testing.B) {
 		}
 	}
 }
+
+func TestValidateRefusesCorruptBodyBehindValidHeader(t *testing.T) {
+	good := testPNG(t, 64, 64, solid(color.White))
+	if err := Validate(good); err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(good[:len(good)-30]); !errors.Is(err, ErrBadImage) {
+		t.Fatalf("err = %v, want ErrBadImage", err)
+	}
+}
+
+func TestSizesListTheKnobDefaultsFirst(t *testing.T) {
+	if Sizes[Album][0] != 240 || Sizes[Artist][0] != 64 || Sizes[Backdrop][0] != 466 {
+		t.Fatalf("defaults = %v", Sizes)
+	}
+}

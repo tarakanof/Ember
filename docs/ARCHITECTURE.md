@@ -1011,7 +1011,9 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   in AppleScript's 16-hex form), and PUTs the album artwork when the answer
   says the server lacks it (`ArtworkShrinker` re-encodes art over 512 KB or
   1000 px as a 1000 px JPEG). `AppleScriptMusicBridge` reads `player
-  position`, `raw data of artwork 1 of current track` and, when the toggle
+  position`, `{persistent ID, raw data of artwork 1}` of the current track
+  in one script (the PUT is skipped when the ID isn't the reported track's,
+  so a skip can't put B's cover on A) and, when the toggle
   turns on mid-track, a one-shot snapshot; every script first checks
   `NSRunningApplication` for `com.apple.Music`, because a `tell` would
   launch Music. Hardened runtime needs
@@ -1388,6 +1390,9 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   than 3 s off the extrapolation (a seek). Plex re-reports `viewOffset`
   every poll; without the anchor the knob view's ETag would change every
   2 s.
+- **Public state** (`GET /v1/nowplaying/state`, no token) leaves out
+  `player` (a Mac's name); the knob block leaves it out too. `PUT
+  /v1/nowplaying/art` requires `track_id`.
 - **Pictures:** each entry holds an album and an artist source image (bytes
   + content hash); a new track drops both. `art_version` hashes the two
   hashes, so it moves exactly when a picture does. `backdrop` is the artist
@@ -1396,7 +1401,13 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   blur (radius size/40) dimmed to 35 %, then **baseline** JPEG q80 (Go's
   encoder writes SOF0 only, which TJpgDec/`esp_jpeg` on the knob needs; no
   alpha — the knob applies its own circle mask). Sources must be JPEG/PNG,
-  ≤2 MB, ≤2048 px a side, checked with `DecodeConfig` before decoding.
+  ≤2 MB, ≤2048 px a side, checked with `DecodeConfig` and then fully
+  decoded once at ingest (`nowplaying.Validate`), so a corrupt body is a
+  400, not a failure on every render. Served sizes are a fixed set per kind
+  (`nowplaying.Sizes`: album 240/120, artist 64/120, backdrop 466; first =
+  default), so a client can't force a fresh render per request. 466 isn't
+  a multiple of the 16 px MCU; TJpgDec handles the partial MCU, but the
+  knob's output buffer and stride must allow for it (cinder#14).
   Renders are serialised (a 1400 px source costs ~44 ms and ~22 MB
   transient) and cached in a RAM LRU of 32 entries / 8 MB keyed by
   `(hash, kind, size)`. Nothing touches disk (Deezer's terms forbid
@@ -1420,10 +1431,14 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
 - **Artist pictures** (`nowplaying_deezer.go`): an entry with an artist and
   no artist picture queues a lookup (channel of 4; full = dropped, the next
   report re-queues). Deezer `search/artist?q=` (no key): exact
-  case-insensitive name, else the first hit; `picture_xl` rewritten to
-  500 px. Hits and misses are remembered by name in RAM (64 names, misses
-  1 h, errors 1 min). `SetArtistArt` attaches only while the player still plays that
-  artist. `EMBER_ARTIST_LOOKUP=0` turns it off.
+  case-insensitive name only (no match = no picture, never a stranger's
+  photo); `picture_xl` rewritten to 500 px and fetched only from
+  `https://*.dzcdn.net`, redirects refused (the picture is served
+  publicly, so a spoofed answer must not make the server fetch a LAN URL).
+  Hits and misses are remembered by name in RAM (64 names and 4 MB, misses
+  1 h, errors 1 min). `SetArtistArt` attaches only while the player still
+  plays that artist. **Off by default:** `EMBER_ARTIST_LOOKUP=1` turns it
+  on (artist names leave the LAN; logged once at startup).
 - **Ember.app pusher** (`macos/Ember/Services/MusicNowPlayingWatcher.swift`):
   see "Menu-bar app".
 - **Not built yet:** `POST /v1/nowplaying/control` (play/pause/next/volume

@@ -22,10 +22,11 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         return d.doubleValue
     }
 
-    func artwork() async -> Data? {
-        guard await isRunning(), let d = await run(Self.artworkScript), d.descriptorType != typeNull else { return nil }
-        let data = d.data
-        return data.isEmpty ? nil : data
+    func artwork() async -> (trackID: String, data: Data)? {
+        guard await isRunning(), let list = await run(Self.artworkScript), list.numberOfItems == 2,
+              let id = list.atIndex(1)?.stringValue, let art = list.atIndex(2) else { return nil }
+        let data = art.data
+        return data.isEmpty ? nil : (id, data)
     }
 
     func snapshot() async -> MusicPlayerInfo? {
@@ -45,12 +46,15 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     }
 
     /// Ember's Automation permission for Music: nil when macOS can't say
-    /// (Music isn't running). `ask` shows the prompt when not decided yet.
+    /// (Music isn't running). `ask` shows the prompt when not decided yet;
+    /// it names a concrete event (core/getd, what the scripts send), since
+    /// wildcard event codes are reported not to prompt.
     func automationStatus(ask: Bool) async -> AccessStatus? {
         await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .utility).async {
                 let target = NSAppleEventDescriptor(bundleIdentifier: Self.bundleID)
-                let status = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, ask)
+                let status = AEDeterminePermissionToAutomateTarget(
+                    target.aeDesc, AEEventClass(kCoreEventClass), AEEventID(kAEGetData), ask)
                 switch status {
                 case noErr: cont.resume(returning: .granted)
                 case OSStatus(errAEEventNotPermitted): cont.resume(returning: .denied)
@@ -87,7 +91,12 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     private static let noSuchObject = -1728
 
     private static let positionScript = #"tell application id "com.apple.Music" to get player position"#
-    private static let artworkScript = #"tell application id "com.apple.Music" to get raw data of artwork 1 of current track"#
+    private static let artworkScript = #"""
+    tell application id "com.apple.Music"
+        set t to current track
+        return {(persistent ID of t), (raw data of artwork 1 of t)}
+    end tell
+    """#
     private static let snapshotScript = #"""
     tell application id "com.apple.Music"
         if player state is stopped then return {"stopped"}

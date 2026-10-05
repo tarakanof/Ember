@@ -22,7 +22,7 @@ struct MusicSourcePane: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Only on this Mac, while Ember is running. Ember reacts when Music changes track or pauses; it never starts Music and doesn't poll it.")
-                    Text("Privacy: the track's title, artist, album, position and artwork go only to your Ember server. To show artist pictures the server looks the artist's name up on Deezer (turn that off with EMBER_ARTIST_LOOKUP=0).")
+                    Text("Privacy: the track's title, artist, album, position and artwork go to your Ember server, and anyone on your network can read what's playing from it (no token needed). Artist pictures come from Deezer only if the server has EMBER_ARTIST_LOOKUP=1; then the artist's name leaves your network.")
                     Text("macOS asks once to let Ember control Music; Ember only reads the player position and artwork.")
                 }
             }
@@ -32,9 +32,7 @@ struct MusicSourcePane: View {
                     LabeledContent("Track") { Text(verbatim: now.title ?? "") }
                     LabeledContent("Artist") { Text(verbatim: now.artist ?? "") }
                     LabeledContent("Album") { Text(verbatim: now.album ?? "") }
-                    LabeledContent("From") {
-                        Text(verbatim: [now.source, now.player].compactMap { $0 }.joined(separator: " · "))
-                    }
+                    LabeledContent("From") { Text(verbatim: now.source ?? "") }
                     LabeledContent("Pictures") {
                         Text(pictures(now))
                     }

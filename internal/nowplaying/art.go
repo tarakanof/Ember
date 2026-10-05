@@ -17,16 +17,16 @@ import (
 const (
 	MaxArtBytes   = 2 << 20
 	MaxArtSidePx  = 2048
-	MinSizePx     = 16
-	MaxSizePx     = 512
 	jpegQuality   = 80
 	backdropDim   = 0.35
 	backdropPass  = 3
 	backdropRatio = 40 // blur radius = size / backdropRatio
 )
 
-// Default rendered sizes per kind, matching the knob's layout.
-var DefaultSize = map[Kind]int{Album: 240, Artist: 64, Backdrop: 466}
+// Sizes lists the sizes served per kind, the first being the default
+// (the knob's layout). A fixed set keeps an unauthenticated client from
+// forcing a fresh render per request.
+var Sizes = map[Kind][]int{Album: {240, 120}, Artist: {64, 120}, Backdrop: {466}}
 
 // ErrBadImage is a source picture that is not a JPEG/PNG within the limits.
 var ErrBadImage = errors.New("artwork must be a JPEG or PNG of at most 2 MB and 2048x2048 px")
@@ -42,6 +42,18 @@ func CheckImage(data []byte) error {
 	}
 	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > MaxArtSidePx || cfg.Height > MaxArtSidePx {
 		return ErrBadImage
+	}
+	return nil
+}
+
+// Validate fully decodes a source picture once, at ingest, so a corrupt
+// body behind a valid header is refused instead of failing every render.
+func Validate(data []byte) error {
+	if err := CheckImage(data); err != nil {
+		return err
+	}
+	if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
+		return fmt.Errorf("%w: %v", ErrBadImage, err)
 	}
 	return nil
 }

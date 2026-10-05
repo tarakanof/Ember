@@ -56,13 +56,19 @@ private func golden(_ name: String) throws -> Data {
 private actor FakeBridge: MusicBridge {
     var running = true
     var art: Data? = Data([0xFF, 0xD8])
+    var artTrack: String?
     var artReads = 0
     var positionReads = 0
     var snap: MusicPlayerInfo?
     func set(running: Bool) { self.running = running }
     func isRunning() async -> Bool { running }
     func position() async -> Double? { positionReads += 1; return running ? 42 : nil }
-    func artwork() async -> Data? { artReads += 1; return running ? art : nil }
+    func artwork() async -> (trackID: String, data: Data)? {
+        artReads += 1
+        guard running, let art else { return nil }
+        return (artTrack ?? snap?.persistentID ?? "T1", art)
+    }
+    func setArtTrack(_ id: String) { artTrack = id }
     func snapshot() async -> MusicPlayerInfo? { running ? snap : nil }
     func setSnapshot(_ s: MusicPlayerInfo) { snap = s }
     func setArt(_ d: Data?) { art = d }
@@ -182,4 +188,15 @@ private func jpeg(side: Int) -> Data {
     #expect(r.map(\.player) == ["Old", "Old"] && r.last?.state == .stopped)
     await p.configure(sink: sink, player: "New")
     #expect(await sink.reports.count == 2)
+}
+
+@MainActor
+@Test func pusherSkipsArtworkOfAnotherTrack() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    await bridge.setArt(jpeg(side: 32))
+    await bridge.setArtTrack("T2")
+    let p = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    p.submit(MusicPlayerInfo(state: .playing, name: "A", persistentID: "T1"))
+    await p.drain()
+    #expect(await sink.uploads.isEmpty)
 }

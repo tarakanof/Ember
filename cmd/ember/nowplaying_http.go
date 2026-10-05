@@ -4,19 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
-// nowPlayingState is GET /v1/nowplaying/state. state is playing, paused or
-// none; every other field is null with none. position_ms is the position
+// nowPlayingState is GET /v1/nowplaying/state, readable by anyone on the
+// LAN, so it leaves out the player (a Mac's name). state is playing, paused
+// or none; every other field is null with none. position_ms is the position
 // at position_at (Unix ms): clients extrapolate while playing.
 type nowPlayingState struct {
 	State        string  `json:"state"`
 	Source       *string `json:"source"`
-	Player       *string `json:"player"`
 	Title        *string `json:"title"`
 	Artist       *string `json:"artist"`
 	Album        *string `json:"album"`
@@ -41,7 +42,6 @@ func (a *App) nowPlayingState(now time.Time) nowPlayingState {
 	s := nowPlayingState{
 		State:        string(e.State),
 		Source:       str(e.Source),
-		Player:       str(e.Player),
 		Title:        str(e.Title),
 		Artist:       str(e.Artist),
 		Album:        str(e.Album),
@@ -70,16 +70,16 @@ func (a *App) handleNowPlayingState(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	kind := nowplaying.Kind(q.Get("kind"))
-	def, ok := nowplaying.DefaultSize[kind]
+	sizes, ok := nowplaying.Sizes[kind]
 	if !ok {
 		writeError(w, http.StatusBadRequest, errors.New("kind must be album, artist or backdrop"))
 		return
 	}
-	size := def
+	size := sizes[0]
 	if s := q.Get("size"); s != "" {
 		n, err := strconv.Atoi(s)
-		if err != nil || n < nowplaying.MinSizePx || n > nowplaying.MaxSizePx {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("size must be %d-%d", nowplaying.MinSizePx, nowplaying.MaxSizePx))
+		if err != nil || !slices.Contains(sizes, n) {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("size for %s must be one of %v", kind, sizes))
 			return
 		}
 		size = n
@@ -146,6 +146,10 @@ func (a *App) handleNowPlayingArtPut(w http.ResponseWriter, r *http.Request) {
 	kind := nowplaying.Kind(q.Get("kind"))
 	if kind != nowplaying.Album && kind != nowplaying.Artist {
 		writeError(w, http.StatusBadRequest, errors.New("kind must be album or artist"))
+		return
+	}
+	if q.Get("track_id") == "" {
+		writeError(w, http.StatusBadRequest, errors.New("track_id is required"))
 		return
 	}
 	img, err := readArt(http.MaxBytesReader(w, r.Body, nowplaying.MaxArtBytes))

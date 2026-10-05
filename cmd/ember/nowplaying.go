@@ -126,13 +126,13 @@ func (s *nowPlayingService) lookupArtist(ctx context.Context, j artistJob, a *Ap
 }
 
 // readArt reads at most nowplaying.MaxArtBytes from r and checks the result
-// is a JPEG or PNG within the limits.
+// is a decodable JPEG or PNG within the limits.
 func readArt(r io.Reader) (*nowplaying.Image, error) {
 	b, err := io.ReadAll(io.LimitReader(r, nowplaying.MaxArtBytes+1))
 	if err != nil {
 		return nil, err
 	}
-	if err := nowplaying.CheckImage(b); err != nil {
+	if err := nowplaying.Validate(b); err != nil {
 		return nil, err
 	}
 	return nowplaying.NewImage(b), nil

@@ -675,7 +675,7 @@ does not affect other checks.
 What the knob's now-playing page (cinder #14) shows. Sources: the Plex poller
 on the server and Ember.app's Apple Music pusher (Settings › Sources › Music,
 per Mac, off by default). Reads: `GET /v1/nowplaying/state`,
-`GET /v1/nowplaying/art?kind=album|artist|backdrop&size=16-512` (ARCHITECTURE
+`GET /v1/nowplaying/art?kind=album|artist|backdrop&size=` (fixed sizes: album 240/120, artist 64/120, backdrop 466; ARCHITECTURE
 "Now playing").
 
 | Env | Meaning |
@@ -684,7 +684,7 @@ per Mac, off by default). Reads: `GET /v1/nowplaying/state`,
 | `EMBER_PLEX_TOKEN` | **Secret.** Sent only as the `X-Plex-Token` header; never logged, stored or answered |
 | `EMBER_PLEX_USER` / `EMBER_PLEX_PLAYER` | Optional filters: Plex user title; player title or machine id |
 | `EMBER_PLEX_WEBHOOK_KEY` | Optional. Enables `POST /hooks/plex?key=<this>` (Plex Pass webhook → poll now). Unset = 404 |
-| `EMBER_ARTIST_LOOKUP` | Default on; `0` stops artist-picture lookups on Deezer (the artist **name** leaves the server; pictures stay in RAM only) |
+| `EMBER_ARTIST_LOOKUP` | **Off by default.** `1` turns on artist-picture lookups on Deezer: every artist **name** played (Plex and Apple Music) leaves your network, tied to your public IP; pictures stay in RAM only. Logged once at startup when on |
 
 **Verify without a knob.** `curl -s $EMBER/v1/nowplaying/state` while
 Plexamp plays (or after the app posts), then
@@ -692,6 +692,18 @@ Plexamp plays (or after the app posts), then
 square, dimmed baseline JPEG. A knob gets the compact block in
 `/v1/devices/self/view` only after `nowplaying` is added to its pages
 (`PUT /v1/devices/{id}/config {"pages":[…,{"id":"nowplaying","on":true}]}`).
+
+**Privacy.** `GET /v1/nowplaying/state` needs no token: anyone on the LAN
+can read the track, artist and album (not the Mac's name).
+
+**Apple Music permission (manual test).** On a Mac, reset the grant with
+`tccutil reset AppleEvents com.ember.Ember` (only on a test build's bundle
+id, never the installed app's), start Music, turn on Settings › Sources ›
+Music: macOS should show "Ember wants access to control Music". Or in
+Settings › Permissions, with the row at "Not asked yet", click Allow
+Access…: it calls `AEDeterminePermissionToAutomateTarget` with
+`core`/`getd` (wildcard event codes are reported not to prompt). Deny →
+the row turns Off with "Open Automation Settings…".
 
 ## AI usage card (threshold-gated, inside the main app)
 

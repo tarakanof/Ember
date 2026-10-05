@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -98,6 +99,9 @@ func TestNowPlayingStateIsPublicAndReflectsReport(t *testing.T) {
 	if s.State != "playing" || *s.Title != "Song" || s.ArtVersion != nil || s.HasAlbumArt {
 		t.Fatalf("state = %s", b)
 	}
+	if strings.Contains(string(b), "M4") || strings.Contains(string(b), "player") {
+		t.Fatalf("public state leaks the player name: %s", b)
+	}
 }
 
 func TestNowPlayingStateGolden(t *testing.T) {
@@ -134,6 +138,12 @@ func TestNowPlayingArtPutAndGet(t *testing.T) {
 	if got := put("source=music&player=M4&kind=album&track_id=T1", make([]byte, nowplaying.MaxArtBytes+1)); got != http.StatusRequestEntityTooLarge {
 		t.Fatalf("too big: %d, want 413", got)
 	}
+	if got := put("source=music&player=M4&kind=album", art); got != http.StatusBadRequest {
+		t.Fatalf("missing track_id: %d, want 400", got)
+	}
+	if got := put("source=music&player=M4&kind=album&track_id=T1", art[:len(art)/2]); got != http.StatusBadRequest {
+		t.Fatalf("truncated PNG: %d, want 400", got)
+	}
 	if got := put("source=music&player=M4&kind=backdrop&track_id=T1", art); got != http.StatusBadRequest {
 		t.Fatalf("backdrop upload: %d, want 400", got)
 	}
@@ -159,15 +169,20 @@ func TestNowPlayingArtPutAndGet(t *testing.T) {
 	if resp, _ := npDo(t, srv, "GET", "/v1/nowplaying/art?kind=artist", "", nil, nil); resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("artist without picture: %d, want 404", resp.StatusCode)
 	}
-	resp, b = npDo(t, srv, "GET", "/v1/nowplaying/art?kind=backdrop&size=100", "", nil, nil)
+	resp, b = npDo(t, srv, "GET", "/v1/nowplaying/art?kind=backdrop", "", nil, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("backdrop from album: %d", resp.StatusCode)
 	}
-	if img, _ := jpeg.Decode(bytes.NewReader(b)); img.Bounds().Dx() != 100 {
+	if img, _ := jpeg.Decode(bytes.NewReader(b)); img.Bounds().Dx() != 466 {
 		t.Fatalf("backdrop size %v", img.Bounds())
 	}
-	if resp, _ := npDo(t, srv, "GET", "/v1/nowplaying/art?kind=album&size=1000", "", nil, nil); resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("size 1000: %d, want 400", resp.StatusCode)
+	if resp, _ := npDo(t, srv, "GET", "/v1/nowplaying/art?kind=album&size=120", "", nil, nil); resp.StatusCode != http.StatusOK {
+		t.Fatalf("size 120: %d, want 200", resp.StatusCode)
+	}
+	for _, q := range []string{"kind=album&size=1000", "kind=album&size=239", "kind=backdrop&size=240"} {
+		if resp, _ := npDo(t, srv, "GET", "/v1/nowplaying/art?"+q, "", nil, nil); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s: %d, want 400", q, resp.StatusCode)
+		}
 	}
 
 	_, sb := npDo(t, srv, "GET", "/v1/nowplaying/state", "", nil, nil)
@@ -273,6 +288,7 @@ func TestArtistLookupAttachesDeezerPicture(t *testing.T) {
 	app := NewApp(defaultConfig(), &recordingPublisher{}, testLogger())
 	np := app.nowPlaying
 	np.artists = newArtistLookup(deezer.URL)
+	np.artists.pictureOK = func(*url.URL) bool { return true }
 	rep := nowplaying.Report{Source: "music", Player: "M4", State: nowplaying.Playing, Title: "Song", Artist: "Band"}
 	if err := np.report(rep, time.Now()); err != nil {
 		t.Fatal(err)
@@ -319,5 +335,67 @@ func TestArtistLookupBacksOffAfterError(t *testing.T) {
 	}
 	if img, err := l.find(context.Background(), "Band"); err != nil || img != nil || calls != 1 {
 		t.Fatalf("error not cached: calls=%d err=%v", calls, err)
+	}
+}
+
+func TestArtistLookupNeedsExactNameAndDeezerCDN(t *testing.T) {
+	var fetched int
+	deezer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/search/artist" {
+			fetched++
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[{"name":"Bandits","picture_xl":"http://`+r.Host+`/a/1000x1000-0.jpg"},`+
+			`{"name":"Band","picture_xl":"http://`+r.Host+`/b/1000x1000-0.jpg"}]}`)
+	}))
+	t.Cleanup(deezer.Close)
+	l := newArtistLookup(deezer.URL)
+	if img, err := l.find(context.Background(), "Band"); err != nil || img != nil || fetched != 0 {
+		t.Fatalf("non-CDN picture fetched: img=%v fetched=%d err=%v", img, fetched, err)
+	}
+	l = newArtistLookup(deezer.URL)
+	l.pictureOK = func(*url.URL) bool { return true }
+	if img, _ := l.find(context.Background(), "Ban"); img != nil {
+		t.Fatal("picked a picture without an exact name match")
+	}
+	for _, c := range []struct {
+		u  string
+		ok bool
+	}{
+		{"https://e-cdns-images.dzcdn.net/images/artist/x/500x500-0.jpg", true},
+		{"http://e-cdns-images.dzcdn.net/x.jpg", false},
+		{"https://dzcdn.net.evil.example/x.jpg", false},
+		{"https://192.168.0.1/x.jpg", false},
+	} {
+		u, _ := url.Parse(c.u)
+		if deezerCDN(u) != c.ok {
+			t.Errorf("deezerCDN(%s) = %v", c.u, !c.ok)
+		}
+	}
+}
+
+func TestKnobViewWithoutPageIsByteIdentical(t *testing.T) {
+	f := newViewFixture(t)
+	now := f.clk.Now()
+	before, etag, err := f.app.knobView(f.m.ID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := nowplaying.Report{Source: "plex", Player: "amp", State: nowplaying.Playing, Title: "x", TrackID: "1", DurationMS: 1000}
+	if _, err := f.app.nowPlaying.reg.Report(rep, now); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.app.nowPlaying.reg.SetArt("plex", "amp", "1", nowplaying.Album, nowplaying.NewImage([]byte("a")))
+	after, etag2, _ := f.app.knobView(f.m.ID, now)
+	if !bytes.Equal(before, after) || etag != etag2 {
+		t.Fatalf("view changed without the page:\n%s\n%s", before, after)
+	}
+}
+
+func TestEnvOptIn(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "0": false, "off": false, "1": true, "TRUE": true, " yes ": true} {
+		if envOptIn(v) != want {
+			t.Errorf("envOptIn(%q) = %v", v, !want)
+		}
 	}
 }

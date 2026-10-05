@@ -9,8 +9,9 @@ public protocol MusicBridge: Sendable {
     func isRunning() async -> Bool
     /// The player position in seconds.
     func position() async -> Double?
-    /// The current track's artwork bytes as Music stores them (JPEG or PNG).
-    func artwork() async -> Data?
+    /// The current track's persistent ID and artwork bytes (JPEG or PNG),
+    /// read together so the art can't belong to a track that started since.
+    func artwork() async -> (trackID: String, data: Data)?
     /// The whole player state, for when the pusher turns on mid-track.
     func snapshot() async -> MusicPlayerInfo?
 }
@@ -113,7 +114,8 @@ public final class AppleMusicPusher {
         let report = info.report(source: Self.source, player: player)
         guard let ack = await send(report), running, !ack.hasAlbumArt,
               !report.trackID.isEmpty,
-              let raw = await bridge.artwork(), let art = ArtworkShrinker.fit(raw) else { return }
+              let raw = await bridge.artwork(), raw.trackID == report.trackID,
+              let art = ArtworkShrinker.fit(raw.data) else { return }
         do {
             try await sink.putArtwork(art.data, contentType: art.contentType, source: Self.source,
                                       player: report.player, trackID: report.trackID)

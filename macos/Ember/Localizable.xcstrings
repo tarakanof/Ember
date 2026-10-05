@@ -1182,7 +1182,7 @@
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
-    "Privacy: the track's title, artist, album, position and artwork go only to your Ember server. To show artist pictures the server looks the artist's name up on Deezer (turn that off with EMBER_ARTIST_LOOKUP=0)." : {},
+    "Privacy: the track's title, artist, album, position and artwork go to your Ember server, and anyone on your network can read what's playing from it (no token needed). Artist pictures come from Deezer only if the server has EMBER_ARTIST_LOOKUP=1; then the artist's name leaves your network." : {},
     "Processor" : {},
     "Processor load" : {},
     "Processor, memory, temperature and Wi-Fi, every minute." : {},
