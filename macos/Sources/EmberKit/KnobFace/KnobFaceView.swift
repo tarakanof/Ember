@@ -334,7 +334,7 @@ enum KnobFaceRender {
         }
 
         // The artist rides the ring at the progress point (a dot without a picture).
-        let a = (-90 + 360 * f.fraction) * .pi / 180
+        let a = (-90 + 360 * f.avatarFraction) * .pi / 180
         let at = CGPoint(x: c + t.ringRadiusPx * cos(a), y: c + t.ringRadiusPx * sin(a))
         if let p = f.pictures.artist {
             let r = CGRect(x: at.x - t.artistPx / 2, y: at.y - t.artistPx / 2, width: t.artistPx, height: t.artistPx)

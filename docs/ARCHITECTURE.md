@@ -2067,8 +2067,8 @@ the same board finds its record.
   `DELETE /v1/devices/{id}` or re-POST the `hw_id` (USB), which revoke at once.
 - **Config** (`knobSettings`, schema v1): `brightness{follow_ember, level
   0-255, floor 1-255 ≤ level, startup 0-255}`, `pages[{id,on}]` (defaults `bot`,
-  `pomodoro`, `weather` on and `nowplaying` off; a stored list missing a known
-  id gets it appended off at load, #284; any id matching `^[a-z][a-z0-9_-]{0,15}$` is kept, so
+  `pomodoro`, `weather` on and `nowplaying` off; a stored or PUT list missing a known
+  id gets it appended off (at most 8 pages, the firmware's KS_MAX_PAGES), #284; any id matching `^[a-z][a-z0-9_-]{0,15}$` is kept, so
   firmware can add pages without a server release; order = page order; no
   duplicates), `home` (must name a page that is on), `poll_ms` 1000-10000,
   `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600, source_label,
@@ -2151,7 +2151,7 @@ the same board finds its record.
   riding the ring, three text lines, folded to ASCII like `np_text_fold`;
   `KnobNowPlayingFeed` polls `/v1/nowplaying/state` and fetches the three
   pictures from `/v1/nowplaying/art` once per `art_version`, only while a
-  preview is up; burn-in dimming and drift are not drawn); `BotBehavior.Tuning`
+  preview is up; burn-in dimming and drift are not drawn; text folds with the firmware's own tables, `KnobTextFold`, tested against np.c; failed picture fetches retry with a 5-60 s back-off; Knob > Now Playing is its own app page from firmware 0.9.0; `GET /v1/nowplaying/state` sends `X-Ember-Now` for clock skew); `BotBehavior.Tuning`
   carries the knob's slower, flatter hop. `knob-theme.json`
   (`macos/Sources/EmberKit/Resources/`) holds the numbers the renderers
   share with the firmware: geometry, palette, label layout and LVGL font

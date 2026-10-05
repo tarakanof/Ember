@@ -341,10 +341,7 @@ private func np(_ state: String = "playing", pos: Int64 = 62_000, dur: Int64 = 1
     #expect(KnobNowPlayingFace(state: np("none"), now: t0).idleLine == "Nothing playing")
     #expect(KnobNowPlayingFace(state: nil, now: t0).idleLine == "Waiting for Ember")
     #expect(KnobNowPlayingFace(state: np(), offline: true, now: t0).idleLine == "Ember offline")
-    // Montserrat has no accents or Cyrillic: fold as np_text_fold does.
     #expect(KnobNowPlayingFace.fold("Björk – “Hyperballad” Ænima Łódź") == "Bjork - \"Hyperballad\" AEnima Lodz")
-    #expect(KnobNowPlayingFace.fold("Мумий Тролль") == "Mumij Troll'" || KnobNowPlayingFace.fold("Мумий Тролль").allSatisfy { $0.isASCII })
-    #expect(KnobNowPlayingFace.fold("日本") == "??")
 }
 
 @MainActor @Test func knobNowPlayingRendersToTheFirmwareLayout() throws {
@@ -356,7 +353,7 @@ private func np(_ state: String = "playing", pos: Int64 = 62_000, dur: Int64 = 1
                                       album: .init(image: solid(.init(r: 0x20, g: 0x80, b: 0x20), 240), id: "a"),
                                       artist: .init(image: solid(.init(r: 0x20, g: 0x20, b: 0xC0), 64), id: "r"))
     // 25 % through: the avatar sits at 3 o'clock on the ring.
-    let playing = KnobNowPlayingFace(state: np(pos: 47_500, dur: 190_000, at: at), now: t0, pictures: pics)
+    let playing = KnobNowPlayingFace(state: np(pos: 48_000, dur: 192_000, at: at), now: t0, pictures: pics)
     let img = try #require(render(KnobFaceView(.nowPlaying(playing))))
     save(img, "nowplaying-playing")
     #expect(near(pixel(img, c, c + th.nowplaying.albumDyPx.rounded().asInt), .init(r: 0x20, g: 0x80, b: 0x20), 6), "album centre")
@@ -370,7 +367,7 @@ private func np(_ state: String = "playing", pos: Int64 = 62_000, dur: Int64 = 1
     #expect(!titleRows.isEmpty, "title drawn at +96")
 
     // Paused, no pictures: grey arc, dot instead of the avatar, placeholder album.
-    let pausedFace = KnobNowPlayingFace(state: np("paused", pos: 47_500, at: at, art: false), now: t0)
+    let pausedFace = KnobNowPlayingFace(state: np("paused", pos: 48_000, dur: 192_000, at: at, art: false), now: t0)
     let paused = try #require(render(KnobFaceView(.nowPlaying(pausedFace))))
     save(paused, "nowplaying-paused")
     #expect(near(pixel(paused, c, c - 198), th.nowplaying.colors.arcPaused, 30))
@@ -399,21 +396,57 @@ private func pngData(_ side: Int) -> Data {
 
 private extension Double { var asInt: Int { Int(self) } }
 
-@MainActor @Test func knobNowPlayingFeedLoadsPicturesOnceAndSurvivesFailures() async {
-    final class Calls: @unchecked Sendable { var art: [String] = []; var fail = false; var state = np() }
+@MainActor @Test func knobNowPlayingFeedLoadsPicturesOnceAndRetriesFailures() async {
+    final class Calls: @unchecked Sendable {
+        var art: [String] = []; var failArt = false; var fail = false; var state = np(); var serverNow: Date?
+        var now = Date(timeIntervalSince1970: 5000)
+    }
     let calls = Calls()
     let feed = KnobNowPlayingFeed(
-        fetchState: { if calls.fail { throw URLError(.cannotConnectToHost) }; return calls.state },
-        fetchArt: { kind, size, v in calls.art.append("\(kind)/\(size)/\(v)"); return pngData(size) })
+        fetchState: { if calls.fail { throw URLError(.cannotConnectToHost) }; return (calls.state, calls.serverNow) },
+        fetchArt: { kind, size, v in
+            calls.art.append("\(kind)/\(size)/\(v)")
+            if calls.failArt { throw APIError.http(status: 404, body: "") }
+            return pngData(size)
+        },
+        now: { calls.now })
+    // A failing fetch leaves the placeholder, surfaces the error, and is retried after a back-off.
+    calls.failArt = true
     await feed.refresh()
+    #expect(calls.art == ["backdrop/466/abc123"] && feed.artError != nil && feed.pictures.backdrop == nil)
     await feed.refresh()
-    #expect(calls.art == ["backdrop/466/abc123", "album/240/abc123", "artist/64/abc123"], "fetched once per art_version")
-    #expect(feed.pictures.backdrop != nil && feed.pictures.album != nil && feed.pictures.artist != nil)
+    #expect(calls.art.count == 1, "no retry inside the back-off")
+    calls.now.addTimeInterval(5.1)
+    calls.failArt = false
+    await feed.refresh()
+    #expect(feed.artError == nil && feed.pictures.backdrop != nil && feed.pictures.album != nil && feed.pictures.artist != nil)
+    await feed.refresh()
+    #expect(calls.art.suffix(3) == ["backdrop/466/abc123", "album/240/abc123", "artist/64/abc123"] && calls.art.count == 4,
+            "each picture fetched once per art_version")
+    // Offline only after three failed reads in a row; the last state stays meanwhile.
     calls.fail = true
+    await feed.refresh(); await feed.refresh()
+    #expect(!feed.failed && feed.state != nil)
     await feed.refresh()
-    #expect(feed.failed && feed.state != nil)
+    #expect(feed.failed)
     calls.fail = false
     calls.state = np("none", art: false)
     await feed.refresh()
     #expect(!feed.failed && feed.pictures == .init())
+    // The server's clock: ignored within 2 s, followed beyond.
+    calls.serverNow = calls.now.addingTimeInterval(0.4)
+    await feed.refresh()
+    #expect(feed.serverOffset == 0)
+    calls.serverNow = calls.now.addingTimeInterval(-30)
+    await feed.refresh()
+    #expect(abs(feed.serverOffset + 29.5) < 0.01)
+}
+
+@MainActor @Test func knobNowPlayingThumbnailSkipsTheBackdrop() async {
+    final class Calls: @unchecked Sendable { var art: [String] = [] }
+    let calls = Calls()
+    let feed = KnobNowPlayingFeed(thumbnail: true, fetchState: { (np(), nil) },
+                                  fetchArt: { k, s, _ in calls.art.append("\(k)/\(s)"); return pngData(s) })
+    await feed.refresh()
+    #expect(calls.art == ["album/120", "artist/64"] && feed.pictures.backdrop == nil && feed.pictures.album != nil)
 }

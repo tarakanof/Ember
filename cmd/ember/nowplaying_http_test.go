@@ -90,6 +90,9 @@ func TestNowPlayingStateIsPublicAndReflectsReport(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"state":"none"`) {
 		t.Fatalf("empty state: %d %s", resp.StatusCode, b)
 	}
+	if sec, err := strconv.ParseInt(resp.Header.Get("X-Ember-Now"), 10, 64); err != nil || time.Now().Unix()-sec > 2 {
+		t.Fatalf("X-Ember-Now = %q", resp.Header.Get("X-Ember-Now"))
+	}
 	npDo(t, srv, "POST", "/v1/nowplaying", testToken, []byte(musicReport), nil)
 	_, b = npDo(t, srv, "GET", "/v1/nowplaying/state", "", nil, nil)
 	var s nowPlayingState

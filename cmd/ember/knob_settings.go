@@ -12,6 +12,9 @@ import (
 // while the page is on, so off costs nothing).
 var knobPageIDs = []string{"bot", "pomodoro", "weather", "nowplaying"}
 
+// knobMaxPages is the firmware's KS_MAX_PAGES: it drops pages past the 8th.
+const knobMaxPages = 8
+
 var knobPagesOffByDefault = []string{"nowplaying"}
 
 var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
@@ -162,6 +165,9 @@ func (s *knobSettings) addKnownPages() {
 		return
 	}
 	for _, id := range knobPageIDs {
+		if len(s.Pages) >= knobMaxPages {
+			return
+		}
 		if !slices.ContainsFunc(s.Pages, func(p knobPage) bool { return p.ID == id }) {
 			s.Pages = append(s.Pages, knobPage{ID: id, On: false})
 		}
@@ -221,6 +227,9 @@ func (s knobSettings) validate() error {
 }
 
 func (s knobSettings) validatePages() error {
+	if len(s.Pages) > knobMaxPages {
+		return fmt.Errorf("pages: %d listed, the knob shows at most %d", len(s.Pages), knobMaxPages)
+	}
 	seen := make(map[string]bool, len(s.Pages))
 	homeOn := false
 	for _, p := range s.Pages {

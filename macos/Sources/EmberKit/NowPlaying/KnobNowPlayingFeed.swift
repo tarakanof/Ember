@@ -2,38 +2,62 @@ import Foundation
 import ImageIO
 
 /// What the now-playing knob preview reads: `GET /v1/nowplaying/state`, and
-/// the three pictures the knob fetches (`GET /v1/nowplaying/art`), re-fetched
-/// only when `art_version` moves. Runs only while a preview is on screen.
+/// the pictures the knob fetches (`GET /v1/nowplaying/art`), re-fetched only
+/// when `art_version` moves. Runs only while a preview is on screen.
 @MainActor
 @Observable
 public final class KnobNowPlayingFeed {
+    /// Failed reads in a row before the face says "Ember offline", as the knob.
+    public static let offlineAfterFailures = 3
+
     public private(set) var state: NowPlayingState?
-    /// The last read failed (the knob would say "Ember offline" after three).
-    public private(set) var failed = false
+    /// How many reads in a row failed.
+    public private(set) var failures = 0
     public private(set) var pictures = KnobNowPlayingPictures()
+    /// Seconds to add to this Mac's clock to get the server's; 0 unless they differ by over 2 s.
+    public private(set) var serverOffset: TimeInterval = 0
+    /// Why the last picture fetch failed (404 before the server has it, 429 when rate-limited);
+    /// nil once every wanted picture is in.
+    public private(set) var artError: Error?
 
-    private let fetchState: @Sendable () async throws -> NowPlayingState
+    public var failed: Bool { failures >= Self.offlineAfterFailures }
+
+    public typealias StateRead = (state: NowPlayingState, serverNow: Date?)
+
+    private let fetchState: @Sendable () async throws -> StateRead
     private let fetchArt: @Sendable (_ kind: String, _ size: Int, _ version: String) async throws -> Data
-    private var picturesFor: String?
+    private let now: @Sendable () -> Date
     private let interval: Duration
+    private let sizes: [(kind: String, size: Int)]
+    private var version: String?
+    private var loaded: [String: KnobPicture] = [:]
+    private var retryAt: Date?
+    private var retryDelay: TimeInterval = KnobNowPlayingFeed.firstRetry
 
-    public init(fetchState: @escaping @Sendable () async throws -> NowPlayingState,
+    static let firstRetry: TimeInterval = 5
+    static let lastRetry: TimeInterval = 60
+
+    /// `thumbnail`: only the small pictures, no 466 px backdrop (the Pages overview).
+    public init(thumbnail: Bool = false,
+                fetchState: @escaping @Sendable () async throws -> StateRead,
                 fetchArt: @escaping @Sendable (_ kind: String, _ size: Int, _ version: String) async throws -> Data,
-                interval: Duration = .seconds(3)) {
-        self.fetchState = fetchState; self.fetchArt = fetchArt; self.interval = interval
+                now: @escaping @Sendable () -> Date = Date.init, interval: Duration = .seconds(3)) {
+        self.fetchState = fetchState; self.fetchArt = fetchArt; self.now = now; self.interval = interval
+        sizes = thumbnail ? [("album", 120), ("artist", 64)] : [("backdrop", 466), ("album", 240), ("artist", 64)]
     }
 
-    public convenience init(client: APIClient) {
-        self.init(fetchState: { try await client.get("/v1/nowplaying/state") },
+    public convenience init(client: APIClient, thumbnail: Bool = false) {
+        self.init(thumbnail: thumbnail,
+                  fetchState: {
+                      let (s, http): (NowPlayingState, HTTPURLResponse) = try await client.getWithResponse("/v1/nowplaying/state")
+                      return (s, http.value(forHTTPHeaderField: "X-Ember-Now").flatMap(TimeInterval.init).map { Date(timeIntervalSince1970: $0) })
+                  },
                   fetchArt: { kind, size, version in
                       try await client.getData("/v1/nowplaying/art", query: [
                           URLQueryItem(name: "kind", value: kind), URLQueryItem(name: "size", value: String(size)),
                           URLQueryItem(name: "v", value: version)])
                   })
     }
-
-    /// The pictures the knob draws, [kind: size].
-    static let sizes = [("backdrop", 466), ("album", 240), ("artist", 64)]
 
     /// Polls until cancelled.
     public func run() async {
@@ -44,40 +68,53 @@ public final class KnobNowPlayingFeed {
     }
 
     public func refresh() async {
+        let asked = now()
         do {
-            let s = try await fetchState()
-            state = s
-            failed = false
-            await loadPictures(for: s)
+            let read = try await fetchState()
+            state = read.state
+            failures = 0
+            if let server = read.serverNow {
+                // X-Ember-Now has whole seconds: aim at the middle of its second, and ignore small skews.
+                let skew = server.timeIntervalSince1970 + 0.5 - asked.timeIntervalSince1970
+                serverOffset = abs(skew) > 2 ? skew : 0
+            }
+            await loadPictures(for: read.state)
         } catch is CancellationError {
             return
         } catch {
-            failed = true
+            failures += 1
         }
     }
 
     private func loadPictures(for s: NowPlayingState) async {
-        guard s.isActive, let version = s.artVersion, s.hasAlbumArt || s.hasArtistArt else {
-            picturesFor = nil
+        guard s.isActive, let v = s.artVersion, s.hasAlbumArt || s.hasArtistArt else {
+            version = nil; loaded = [:]; artError = nil; retryAt = nil; retryDelay = Self.firstRetry
             pictures = .init()
             return
         }
-        guard picturesFor != version else { return }
-        picturesFor = version
-        var out = KnobNowPlayingPictures()
-        for (kind, size) in Self.sizes {
-            if kind == "album", !s.hasAlbumArt { continue }
-            if kind == "artist", !s.hasArtistArt { continue }
-            guard let data = try? await fetchArt(kind, size, version), let image = Self.decode(data) else { continue }
-            let pic = KnobPicture(image: image, id: "\(kind)-\(version)")
-            switch kind {
-            case "backdrop": out.backdrop = pic
-            case "album": out.album = pic
-            default: out.artist = pic
+        if version != v {
+            version = v; loaded = [:]; artError = nil; retryAt = nil; retryDelay = Self.firstRetry
+        }
+        let wanted = sizes.filter { $0.kind != "album" || s.hasAlbumArt }.filter { $0.kind != "artist" || s.hasArtistArt }
+        for (kind, size) in wanted where loaded[kind] == nil {
+            if let at = retryAt, now() < at { break }
+            do {
+                let data = try await fetchArt(kind, size, v)
+                guard let image = Self.decode(data) else { throw APIError.decoding("\(kind) picture") }
+                guard version == v, !Task.isCancelled else { return }
+                loaded[kind] = KnobPicture(image: image, id: "\(kind)-\(size)-\(v)")
+            } catch is CancellationError {
+                return
+            } catch {
+                // Try again after a back-off; what already loaded stays.
+                artError = error
+                retryAt = now().addingTimeInterval(retryDelay)
+                retryDelay = min(retryDelay * 2, Self.lastRetry)
+                break
             }
         }
-        if Task.isCancelled { picturesFor = nil; return }
-        pictures = out
+        if wanted.allSatisfy({ loaded[$0.kind] != nil }) { artError = nil; retryAt = nil }
+        pictures = KnobNowPlayingPictures(backdrop: loaded["backdrop"], album: loaded["album"], artist: loaded["artist"])
     }
 
     static func decode(_ data: Data) -> CGImage? {

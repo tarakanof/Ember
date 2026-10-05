@@ -39,10 +39,13 @@ public struct KnobNowPlayingFace: Equatable, Sendable {
     public var meta: String
     /// Played share 0…1, from the shown whole second.
     public var fraction: Double
+    /// Where the artist picture sits: the firmware moves it every 2 s, the ring every second.
+    public var avatarFraction: Double
     public var pictures: KnobNowPlayingPictures
 
     public init(mode: Mode, idleLine: String = "", title: String = "", sub: String = "", meta: String = "",
-                fraction: Double = 0, pictures: KnobNowPlayingPictures = .init()) {
+                fraction: Double = 0, avatarFraction: Double? = nil, pictures: KnobNowPlayingPictures = .init()) {
+        self.avatarFraction = avatarFraction ?? fraction
         self.mode = mode; self.idleLine = idleLine; self.title = title; self.sub = sub; self.meta = meta
         self.fraction = fraction; self.pictures = pictures
     }
@@ -75,7 +78,8 @@ public struct KnobNowPlayingFace: Equatable, Sendable {
         else if dur > 0 { meta = "\(Self.sourceName(s.source ?? ""))  \(played) / \(Self.time(dur))" }
         else { meta = "\(Self.sourceName(s.source ?? ""))  \(played)" }
         self.init(mode: playing ? .playing : .paused, title: title.isEmpty ? "Unknown track" : title, sub: sub, meta: meta,
-                  fraction: dur > 0 ? min(Double(pos) / Double(dur), 1) : 0, pictures: pictures)
+                  fraction: dur > 0 ? min(Double(pos) / Double(dur), 1) : 0,
+                  avatarFraction: dur > 0 ? min(Double(pos / 2000 * 2000) / Double(dur), 1) : 0, pictures: pictures)
     }
 
     static func time(_ ms: Int64) -> String {
@@ -89,30 +93,5 @@ public struct KnobNowPlayingFace: Equatable, Sendable {
         return fold(name).uppercased()
     }
 
-    /// The firmware's `np_text_fold`: Latin diacritics dropped, Cyrillic and
-    /// other scripts transliterated, typographic punctuation to ASCII, the rest "?".
-    static func fold(_ text: String) -> String {
-        var out = ""
-        for ch in text {
-            for u in String(ch).unicodeScalars {
-                if u.value < 0x80 { out.unicodeScalars.append(u.value < 0x20 || u.value == 0x7F ? " " : u); continue }
-                if let m = special[u.value] { out += m; continue }
-                let v = u.value
-                guard (0xC0...0x24F).contains(v) || (0x1E00...0x1EFF).contains(v) || (0x400...0x52F).contains(v) else {
-                    out += "?"; continue
-                }
-                let latin = String(u).applyingTransform(.toLatin, reverse: false) ?? String(u)
-                let plain = (latin.applyingTransform(.stripCombiningMarks, reverse: false) ?? latin)
-                out += plain.unicodeScalars.allSatisfy { $0.value < 0x80 } && !plain.isEmpty ? plain : "?"
-            }
-        }
-        return out
-    }
-
-    private static let special: [UInt32: String] = [
-        0x2018: "'", 0x2019: "'", 0x201A: ",", 0x201C: "\"", 0x201D: "\"", 0x201E: "\"", 0x2013: "-", 0x2014: "-",
-        0x2026: "...", 0x00A0: " ", 0x00B0: "\u{B0}", 0x2022: "\u{2022}", 0x00DF: "ss", 0x00C6: "AE", 0x00E6: "ae",
-        0x00D8: "O", 0x00F8: "o", 0x0110: "D", 0x0111: "d", 0x0141: "L", 0x0142: "l", 0x0152: "OE", 0x0153: "oe",
-        0x00DE: "Th", 0x00FE: "th", 0x00D0: "D", 0x00F0: "d",
-    ]
+    static func fold(_ text: String) -> String { KnobTextFold.fold(text) }
 }

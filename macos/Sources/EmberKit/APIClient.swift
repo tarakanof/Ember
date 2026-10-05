@@ -186,6 +186,14 @@ public struct APIClient: Sendable {
                          query: [URLQueryItem], body: Data?,
                          headers: [String: String] = [:], budget: RequestBudget,
                          reportNotSent: Bool = false) async throws -> Data {
+        try await performResponse(method, path, query: query, body: body, headers: headers, budget: budget,
+                                  reportNotSent: reportNotSent).0
+    }
+
+    private func performResponse(_ method: String, _ path: String,
+                                 query: [URLQueryItem], body: Data?,
+                                 headers: [String: String] = [:], budget: RequestBudget,
+                                 reportNotSent: Bool = false) async throws -> (Data, HTTPURLResponse) {
         guard let baseURL else { throw APIError.notConfigured }
         var base = baseURL.absoluteString
         if base.hasSuffix("/") { base.removeLast() }
@@ -229,7 +237,7 @@ public struct APIClient: Sendable {
             let snippet = String(data: data.prefix(512), encoding: .utf8) ?? ""
             throw APIError.http(status: http.statusCode, body: snippet)
         }
-        return data
+        return (data, http)
     }
 
     static func classify(_ error: Error, budget: RequestBudget, host: String?,
@@ -248,6 +256,14 @@ public struct APIClient: Sendable {
                                   budget: RequestBudget = .server) async throws -> T {
         let data = try await perform("GET", path, query: query, body: nil, budget: budget)
         do { return try Self.makeDecoder().decode(T.self, from: data) }
+        catch { throw APIError.decoding(String(describing: error)) }
+    }
+
+    /// GET decoding the JSON answer, with the response (for its headers).
+    public func getWithResponse<T: Decodable>(_ path: String, query: [URLQueryItem] = [],
+                                              budget: RequestBudget = .server) async throws -> (T, HTTPURLResponse) {
+        let (data, http) = try await performResponse("GET", path, query: query, body: nil, budget: budget)
+        do { return (try Self.makeDecoder().decode(T.self, from: data), http) }
         catch { throw APIError.decoding(String(describing: error)) }
     }
 

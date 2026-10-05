@@ -112,3 +112,23 @@ func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
 		t.Fatalf("pages = %+v", s.Pages)
 	}
 }
+
+func TestKnobPagesCapAtEight(t *testing.T) {
+	s := defaultKnobSettings()
+	s.Pages = nil
+	for _, id := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+		s.Pages = append(s.Pages, knobPage{ID: id, On: true})
+	}
+	s.Home = "a"
+	if err := s.validate(); err != nil {
+		t.Fatalf("8 pages: %v", err)
+	}
+	s.fillDefaults() // full list: nothing appended
+	if len(s.Pages) != 8 {
+		t.Fatalf("fill grew a full list: %d", len(s.Pages))
+	}
+	s.Pages = append(s.Pages, knobPage{ID: "i", On: true})
+	if err := s.validate(); err == nil {
+		t.Fatal("9 pages accepted")
+	}
+}

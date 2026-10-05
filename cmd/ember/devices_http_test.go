@@ -491,8 +491,10 @@ func TestDeviceConfigPutMergesNestedObjects(t *testing.T) {
 		t.Fatalf("pages put = %d: %s", resp.StatusCode, b)
 	}
 	_ = json.Unmarshal(b, &got)
-	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}}
-	if len(got.Pages) != 2 || got.Pages[0] != wantPages[0] || got.Pages[1] != wantPages[1] {
+	// Known pages the PUT left out come back off, last (#284).
+	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "pomodoro"}, {ID: "nowplaying"}}
+	if len(got.Pages) != 4 || got.Pages[0] != wantPages[0] || got.Pages[1] != wantPages[1] ||
+		got.Pages[2] != wantPages[2] || got.Pages[3] != wantPages[3] {
 		t.Fatalf("pages replaced = %+v, want %+v", got.Pages, wantPages)
 	}
 	for _, body := range []string{`{"brightness":{"lvl":1}}`, `{"colour":"red"}`} {

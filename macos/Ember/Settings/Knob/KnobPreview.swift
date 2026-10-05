@@ -86,7 +86,7 @@ struct KnobPreviewData {
         case "weather":
             KnobWeatherLive(state: weather, animated: animated, brightness: brightness)
         case "nowplaying":
-            KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false,
+            KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false, offset: nowPlaying?.serverOffset ?? 0,
                                pictures: nowPlaying?.pictures ?? .init(),
                                animated: animated, brightness: brightness)
         default:
@@ -145,7 +145,7 @@ struct KnobPreviewData {
         guard let s = nowPlaying?.state else {
             return nowPlaying?.failed == true ? Text("No music data from Ember.") : Text("Reading what's playing…")
         }
-        guard s.isActive else { return Text("Nothing is playing.") }
+        guard s.isActive else { return Text("Nothing playing.") }
         let what = Text(verbatim: [s.title, s.artist].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " - "))
         return s.state == "paused"
             ? Text("Paused: \(what)", comment: "Knob now-playing preview: the paused track (\"Paused: Song - Artist\").")
@@ -248,15 +248,22 @@ private struct KnobPreviewFeeds: ViewModifier {
 
     private struct Level: Decodable { let level: Int }
 
+    private var overviewNeedsNowPlaying: Bool {
+        page == nil && env.knob.settings.draft.pages.contains { $0.id == "nowplaying" && $0.on }
+    }
+
     func body(content: Content) -> some View {
         content
             .task {
                 guard page == nil || page == "weather" else { return }
                 await env.live.track(.weather)
             }
-            .task(id: env.connection.serverURL) {
-                guard page == nil || page == "nowplaying" else { return }
-                let feed = KnobNowPlayingFeed(client: env.connection.client)
+            .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(overviewNeedsNowPlaying)") {
+                // The overview draws a thumbnail and only when the page is on; the page's own
+                // preview shows even when it is off.
+                let overview = page == nil
+                guard page == "nowplaying" || (overview && overviewNeedsNowPlaying) else { return }
+                let feed = KnobNowPlayingFeed(client: env.connection.client, thumbnail: overview)
                 nowPlaying = feed
                 await feed.run()
             }
