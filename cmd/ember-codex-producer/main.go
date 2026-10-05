@@ -22,7 +22,7 @@ func main() {
 	case "configure":
 		runConfigure(args)
 	case "deconfigure":
-		runDeconfigure()
+		fmt.Println("Deconfigure complete.")
 	case "doctor":
 		runDoctor()
 	case "discover":

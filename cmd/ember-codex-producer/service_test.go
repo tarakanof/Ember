@@ -6,7 +6,7 @@ import (
 )
 
 func TestUserUnitRunsDaemonFromInstalledBinary(t *testing.T) {
-	u := userUnit("/home/u/.local/bin/ember-codex-producer")
+	u := service.UserUnit("/home/u/.local/bin/ember-codex-producer")
 	if u.Name != "ember-codex-producer" {
 		t.Errorf("unit name %q", u.Name)
 	}

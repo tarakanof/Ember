@@ -1,18 +1,20 @@
 package main
 
 import (
-	"encoding/xml"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strings"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
 
 const launchAgentLabel = "com.ember.t3"
+
+var service = producer.Service{
+	Label:        launchAgentLabel,
+	Unit:         "ember-t3-producer",
+	Description:  "Ember T3 Code producer (polls T3 thread state, reports status)",
+	Unquarantine: true,
+}
 
 func runInstall(args []string) {
 	if err := install(); err != nil {
@@ -37,11 +39,8 @@ func install() error {
 	if err != nil {
 		return err
 	}
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if runtime.GOOS == "darwin" {
-		if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, os.Getuid(), launchAgentLabel, plistPath); err != nil {
-			return err
-		}
+	if err := service.CheckInstall(home); err != nil {
+		return err
 	}
 	if err := configure(); err != nil {
 		return err
@@ -50,30 +49,7 @@ func install() error {
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		_ = exec.Command("xattr", "-d", "com.apple.quarantine", binPath).Run()
-		if err := os.WriteFile(plistPath, generatePlist(binPath), 0o644); err != nil {
-			return err
-		}
-		domain := fmt.Sprintf("gui/%d", os.Getuid())
-		producer.BootoutCLIAgent(producer.ExecLaunchctl, domain+"/"+launchAgentLabel, plistPath)
-		if out, err := producer.ExecLaunchctl("bootstrap", domain, plistPath); err != nil {
-			return fmt.Errorf("launchctl bootstrap: %v\nOutput: %s", err, out)
-		}
-		return nil
-	case "linux":
-		return producer.InstallUserUnit(producer.ExecRunner, home, userUnit(binPath))
-	default:
-		return fmt.Errorf("no background service support on %s: run `%s run` under your own supervisor", runtime.GOOS, binPath)
-	}
-}
-
-const systemdUnitName = "ember-t3-producer"
-
-// userUnit is the systemd --user counterpart of the com.ember.t3 LaunchAgent.
-func userUnit(binPath string) producer.UserUnit {
-	return producer.NewUserUnit(systemdUnitName, "Ember T3 Code producer (polls T3 thread state, reports status)", binPath, "run")
+	return service.Install(home, binPath)
 }
 
 func configure() error {
@@ -81,85 +57,11 @@ func configure() error {
 	if err != nil {
 		return err
 	}
-	return configureAt(home)
+	return producer.Configure(home)
 }
 
-func configureAt(home string) error {
-	for _, d := range []string{
-		filepath.Join(home, ".config", "ember"),
-		filepath.Join(home, ".local", "state", "ember", "sessions"),
-		producer.LogDir(home),
-	} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
-		}
-	}
-	if runtime.GOOS == "darwin" {
-		if err := os.MkdirAll(filepath.Join(home, "Library", "LaunchAgents"), 0o700); err != nil {
-			return err
-		}
-	}
-	envPath := filepath.Join(home, ".config", "ember", "producer.env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if err := os.WriteFile(envPath, []byte(producer.EnvExample()), 0o600); err != nil {
-			return err
-		}
-	}
-	if _, _, err := producer.EnsureSourceInEnv(envPath); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not default EMBER_SOURCE:", err)
-	}
-	return nil
-}
-
-func generatePlist(binPath string) []byte {
-	const tmpl = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>%s</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>%s</string>
-        <string>run</string>
-    </array>
-    <key>KeepAlive</key>
-    <true/>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>ProcessType</key>
-    <string>Background</string>
-    <key>Nice</key>
-    <integer>10</integer>
-    <key>LowPriorityIO</key>
-    <true/>
-</dict>
-</plist>
-`
-	return []byte(fmt.Sprintf(tmpl, xmlEscape(launchAgentLabel), xmlEscape(binPath)))
-}
-
-func xmlEscape(s string) string {
-	var b strings.Builder
-	_ = xml.EscapeText(&b, []byte(s))
-	return b.String()
-}
-
-// printSetupHints prints the post-setup checklist; only a headless install
-// touches the network (configure is what Ember.app runs: keep it offline).
 func printSetupHints(args []string, installing bool) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return
+	if cfg, err := loadConfig(); err == nil {
+		producer.PrintSetupHintsFor(os.Stdout, cfg.Common, args, installing)
 	}
-	home, _ := os.UserHomeDir()
-	headless := producer.Headless(args, home)
-	lingerUser := ""
-	if installing {
-		lingerUser = producer.CurrentUser()
-	}
-	producer.PrintSetupHints(os.Stdout, producer.SetupHintsInput{
-		Source: cfg.Source, Token: cfg.Token, Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance,
-		Home: home, Headless: headless, Discover: installing && headless, LingerUser: lingerUser,
-	})
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -13,9 +11,7 @@ import (
 
 func runDoctor() {
 	home, _ := os.UserHomeDir()
-	if home != "" {
-		_, _, _ = producer.EnsureSourceInEnv(filepath.Join(home, ".config", "ember", "producer.env"))
-	}
+	producer.DoctorPrelude(home)
 	cfg, _ := loadConfig()
 	fmt.Println("ember-t3-producer doctor:")
 	fmt.Printf("  source      = %q\n", cfg.Source)
@@ -46,22 +42,10 @@ func runDoctor() {
 		fmt.Printf("  T3 state: schema v%d, migration %d%s, %d threads\n", snap.Schema, snap.Migration, note, len(snap.Threads))
 	}
 
-	for _, l := range producer.ServerReport(ctx, producer.ServerReportInput{Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance, Home: home}) {
+	for _, l := range producer.ServerLines(ctx, home, cfg.Common) {
 		fmt.Println("  " + l)
 	}
-	if h := producer.TokenHint(cfg.Token); h != "" {
-		fmt.Println("  WARNING: " + h)
-	}
-	if runtime.GOOS == "linux" {
-		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, producer.CurrentUser()) {
-			fmt.Println("  " + l)
-		}
-		return
-	}
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if _, err := os.Stat(plistPath); err == nil {
-		fmt.Printf("  LaunchAgent: installed at %s\n", plistPath)
-	} else {
-		fmt.Println("  LaunchAgent: NOT installed")
+	for _, l := range service.Status(home) {
+		fmt.Println("  " + l)
 	}
 }
