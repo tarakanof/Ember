@@ -188,12 +188,12 @@ enum KnobFaceRender {
         ctx.fill(Path(ellipseIn: CGRect(x: h.x - hw, y: h.y - hw, width: 2 * hw, height: 2 * hw)), with: .color(c))
     }
 
-    /// T3's 8×8 tool icon (internal/render): body rows, then feature rows. Claude and
-    /// Codex use the official marks instead (`knob-mark-*.png`, cinder `tool_marks.c`).
+    /// T3's 8×8 tool icon (internal/render): body rows, then feature rows. Claude
+    /// (Claude Code's mascot) and Codex (the OpenAI mark) use `knob-mark-*.png` (cinder `tool_marks.c`).
     static let t3Icon = (["........", "XXX.XXX.", ".X....X.", ".X...XX.", ".X....X.", ".X..XXX.", "........", "........"],
                          ["........", "....XXX.", "......X.", ".....XX.", "......X.", "....XXX.", "........", "........"])
 
-    /// The official mark's alpha mask (white on alpha, `markPx` square), by tool.
+    /// The official mark's alpha mask (white on alpha), by tool.
     static let toolMarks: [String: CGImage] = {
         var out: [String: CGImage] = [:]
         for tool in ["claude", "codex"] {
@@ -225,15 +225,18 @@ enum KnobFaceRender {
             items.append((CGPoint(x: center.x + h.radiusPx * cos(a), y: center.y + h.radiusPx * sin(a)), th - 90))
             s += w
         }
-        let box = CGRect(x: center.x - h.markPx / 2, y: center.y + h.markBottomPx - h.markPx, width: h.markPx, height: h.markPx)
+        let box = CGRect(x: center.x - h.markHPx / 2, y: center.y + h.markBottomPx - h.markHPx, width: h.markHPx, height: h.markHPx)
         if let mark = toolMarks[mood.tool] {
+            // The mark's own pixels, centred in the icon box (Clawd is 72 wide, Codex 48).
+            let r = CGRect(x: center.x - Double(mark.width) / 2, y: box.maxY - Double(mark.height),
+                           width: Double(mark.width), height: Double(mark.height))
             var c2 = ctx
             let brand = mood.tool == "claude" ? h.claudeColor : h.codexColor
-            c2.clipToLayer(opacity: 1) { l in l.draw(Image(decorative: mark, scale: 1), in: box) }
-            c2.fill(Path(box), with: .color(Color(brand)))
+            c2.clipToLayer(opacity: 1) { l in l.draw(Image(decorative: mark, scale: 1), in: r) }
+            c2.fill(Path(r), with: .color(Color(brand)))
         } else if mood.tool == "t3" {
             let (body, feature) = t3Icon
-            let off = (h.markPx - 8 * h.iconCellPx) / 2
+            let off = (h.markHPx - 8 * h.iconCellPx) / 2
             for (rows, color) in [(body, textColor), (feature, moodColor)] {
                 var cells = Path()
                 for (y, row) in rows.enumerated() {

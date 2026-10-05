@@ -82,9 +82,9 @@ private let pinned: [String: String] = [
     "bot.host.font_px": "30",
     "bot.host.radius_px": "176",
     "bot.host.icon_cell_px": "4",
-    "bot.host.mark_px": "36",
+    "bot.host.mark_h_px": "48",
     "bot.host.mark_bottom_px": "146",
-    "bot.host.claude_color": "#D97757",
+    "bot.host.claude_color": "#D77757",
     "bot.host.codex_color": "#FFFFFF",
     "bot.host.max_chars": "10",
     "bot.glint.width_px": "12",
@@ -340,7 +340,7 @@ private func allChecks() -> [Check] {
         one(bv, #"#define LABEL_R "# + num, "bot.host.radius_px"),
         one(bv, #"#define LABEL_ICON_CELL (\d+)"#, "bot.host.icon_cell_px"),
         one(bv, #"#define LABEL_ICON_R (\d+)"#, "bot.host.mark_bottom_px"),
-        one("components/bot/include/tool_marks.h", #"#define TOOL_MARK_PX (\d+)"#, "bot.host.mark_px"),
+        one("components/bot/include/tool_marks.h", #"#define TOOL_MARK_H (\d+)"#, "bot.host.mark_h_px"),
         one("components/bot/tool_marks.c", #"case 1: \*rgb = "# + hex, "bot.host.claude_color"),
         one("components/bot/tool_marks.c", #"case 2: \*rgb = "# + hex, "bot.host.codex_color"),
         Check(file: bv, pattern: #"#define GLINT_HW "# + num, keys: [("bot.glint.width_px", { n(String(2 * (Double(n($0[1])) ?? .nan))) })]),
@@ -556,12 +556,14 @@ func markImagesMatchFirmwareMasks() throws {
     for tool in ["claude", "codex"] {
         let re = try NSRegularExpression(pattern: "k_\(tool)\\[[^\\]]*\\] = \\{([^}]*)\\}", options: [.dotMatchesLineSeparators])
         let m = try #require(re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)))
-        let body = String(src[Range(m.range(at: 1), in: src)!])
+        let body = String(src[Range(m.range(at: 1), in: src)!].drop(while: { $0 != "\n" }))   // past the size comment
+        let dims = try #require(NSRegularExpression(pattern: "k_\(tool)\\[(\\d+) \\* (\\d+)\\]").firstMatch(in: src, range: NSRange(src.startIndex..., in: src)))
+        let w = Int(src[Range(dims.range(at: 1), in: src)!])!, hh = Int(src[Range(dims.range(at: 2), in: src)!])!
         let want = body.split(whereSeparator: { $0 == "," || $0.isWhitespace }).compactMap { UInt8($0) }
         let url = try #require(Bundle.module.url(forResource: "knob-mark-\(tool)", withExtension: "png"))
         let img = try #require(CGImageSourceCreateWithURL(url as CFURL, nil).flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
-        let t = try KnobTheme.load().bot.host.markPx
-        #expect(Double(img.width) == t && Double(img.height) == t && want.count == img.width * img.height, "\(tool) size")
+        #expect(img.width == w && img.height == hh && want.count == w * hh, "\(tool) size")
+        #expect(Double(img.height) == (try KnobTheme.load().bot.host.markHPx), "\(tool) height is the theme's mark height")
         var rgba = [UInt8](repeating: 0, count: img.width * img.height * 4)
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = CGContext(data: &rgba, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: img.width * 4,

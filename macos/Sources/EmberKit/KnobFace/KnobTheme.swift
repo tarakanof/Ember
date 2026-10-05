@@ -59,11 +59,11 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var at, gap, dot: Double
         }
         /// The curved host label (cinder#42): baseline on a circle of `radiusPx`
-        /// around the body centre, under the tool's mark: the official Claude / Codex
-        /// marks (`markPx` square, bottom edge `markBottomPx` below the body centre, in
-        /// their brand colours), or T3's 8×8 glyph of `iconCellPx` cells.
+        /// around the body centre, under the tool's mark: the Claude Code mascot (pixel art) /
+        /// the OpenAI mark (`markHPx` tall, bottom edge `markBottomPx` below the body
+        /// centre, in their colours), or T3's 8×8 glyph of `iconCellPx` cells.
         public struct Host: Decodable, Sendable, Equatable {
-            public var fontPx, radiusPx, iconCellPx, markPx, markBottomPx: Double
+            public var fontPx, radiusPx, iconCellPx, markHPx, markBottomPx: Double
             public var claudeColor, codexColor: RGB
             public var maxChars: Int
         }
