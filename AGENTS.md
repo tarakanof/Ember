@@ -125,8 +125,9 @@ The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
 ## Endpoints (quick reference)
 
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
-`POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` (also
-accept a knob device token), `GET/POST /v1/devices`, `GET/PUT
+`POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` and
+`POST /v1/nowplaying/control` (also accept a knob device token; control takes an
+optional `Idempotency-Key`), `GET/POST /v1/devices`, `GET/PUT
 /v1/devices/{id}/config` (same merge), `PATCH`/`DELETE /v1/devices/{id}`,
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
 registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
@@ -135,7 +136,8 @@ ARCHITECTURE "Knob diagnostics"), `GET /v1/clock/stats?range=15m|1h|24h`
 (clock probe history, memory only — ARCHITECTURE "Clock stats"),
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage`, `GET/PUT /v1/usage/config`, `POST /v1/nowplaying` (a
-source's player report) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`
+source's player report), `GET /v1/nowplaying/commands?player=&wait=` (Ember.app's
+long-poll for Music commands) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`
 (raw JPEG/PNG ≤2 MB; 409 once the track moved on — ARCHITECTURE "Now playing"), `GET/PUT /v1/display/config`,
 `GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
 `Idempotency-Key` header dedupes retries for 10 min),

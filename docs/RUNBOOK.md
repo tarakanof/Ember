@@ -722,6 +722,33 @@ Access…: it calls `AEDeterminePermissionToAutomateTarget` with
 `core`/`getd` (wildcard event codes are reported not to prompt). Deny →
 the row turns Off with "Open Automation Settings…".
 
+**Playback control (#280).** The knob's now-playing page sends
+`POST /v1/nowplaying/control` (turn = volume, push = play/pause, double
+push = next, long push = previous). Verify the server without a knob or a
+player, on a scratch server (scratch port, temp DB,
+`EMBER_MDNS_ADVERTISE=0 EMBER_CLOCK=off`):
+
+```sh
+# a fake Music entry, then a fake Mac listening for its commands
+curl -s -H "Authorization: Bearer $T" -d '{"source":"music","player":"Test Mac","state":"playing","title":"x","track_id":"1","volume":40}' $EMBER/v1/nowplaying
+curl -s -H "Authorization: Bearer $T" "$EMBER/v1/nowplaying/commands?player=Test%20Mac&wait=25" &
+curl -s -H "Authorization: Bearer $T" -H 'Idempotency-Key: k1' -d '{"action":"next"}' $EMBER/v1/nowplaying/control   # 202 queued; the poll prints it
+curl -s -H "Authorization: Bearer $T" -H 'Idempotency-Key: k1' -d '{"action":"next"}' $EMBER/v1/nowplaying/control   # 200 duplicate
+```
+
+Manual, with real players (not covered by tests):
+- **Apple Music:** Ember.app with Settings › Sources › Music on, Music
+  playing, the knob on the now-playing page. Push: Music pauses; double
+  push: next track; long push: previous; turn: Music's own volume slider
+  moves (the Mac's volume does not). Quit Music, then push: nothing
+  happens and Music stays closed. The first command may show macOS's
+  Automation prompt for Music.
+- **Plex / Plexamp:** with `EMBER_PLEX_*` set and Plexamp playing (the
+  player must accept remote control from the server), the same inputs; watch the server log for
+  `now-playing control … source=plex`. A 502 means the PMS or player
+  refused the relay (Plexamp's support for the relayed player API is
+  unverified); a volume 502 means the player's timeline gave no level.
+
 ## AI usage card (threshold-gated, inside the main app)
 
 Claude + Codex subscription usage renders as a **usage card** inside the main

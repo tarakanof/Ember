@@ -1038,7 +1038,9 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   so a skip can't put B's cover on A) and, when the toggle
   turns on mid-track, a one-shot snapshot; every script first checks
   `NSRunningApplication` for `com.apple.Music`, because a `tell` would
-  launch Music. Hardened runtime needs
+  launch Music. While the toggle is on, `MusicCommandListener` long-polls
+  `/v1/nowplaying/commands` for this player and runs the knob's commands
+  (#280; see "Now playing"). Hardened runtime needs
   `com.apple.security.automation.apple-events` (`Ember/Ember.entitlements`)
   and `NSAppleEventsUsageDescription`; Settings › Permissions has an
   "Automation: Music" row read with `AEDeterminePermissionToAutomateTarget`
@@ -1463,8 +1465,42 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   on (artist names leave the LAN; logged once at startup).
 - **Ember.app pusher** (`macos/Ember/Services/MusicNowPlayingWatcher.swift`):
   see "Menu-bar app".
-- **Not built yet:** `POST /v1/nowplaying/control` (play/pause/next/volume
-  back to Ember.app or Plex), iTunes album fallback, Plex websocket.
+- **Volume** (#280): a report may carry `volume` 0-100 (the player's own
+  level: Music's `sound volume`, never the Mac's output volume). A report
+  without it keeps the player's last known level. `GET /v1/nowplaying/state`
+  answers it (`null` unknown); the knob block has it only when known.
+- **Playback control** (#280, `nowplaying_control.go`,
+  `nowplaying_plex_control.go`): `POST /v1/nowplaying/control`
+  `{"action":"play_pause|next|previous|volume","delta":±1..100}` (delta for
+  volume only), master **or** knob device token (like the Pomodoro
+  actions). It acts on the **shown** entry's source: 409 nothing playing,
+  503 no controller for that source (Plex not configured, or no Ember.app
+  polling for that Mac), 502 the player refused. An optional
+  `Idempotency-Key` (≤128 B, scoped per caller, 2 min, 256 keys) answers a
+  repeat with `200 {"status":"duplicate"}` and sends nothing, so a knob
+  retry can't skip twice; a 409/503 releases the key (nothing was sent), a
+  502 keeps it (the player may have taken it). Volume steps are limited to
+  10/s per caller (429); the knob sends at most ~5/s.
+  - **Plex** runs from the server: `GET /player/playback/{play|pause|skipNext|skipPrevious|setParameters?volume=}`
+    `?type=music&commandID=N` with `X-Plex-Target-Client-Identifier` = the
+    session's `Player.machineIdentifier` (the PMS relays it to the player).
+    Play/pause picks `play` or `pause` from the entry state. Sessions carry
+    no volume: the first step reads the player's timeline
+    (`/player/timeline/poll?wait=0`, `Timeline type="music" volume=`), later
+    steps add to the last level set; no known level = 502, never a guessed
+    one. A command wakes the poller, which reports the new state and level.
+    **Not verified against a real Plexamp** (RUNBOOK "Now playing" has the
+    manual test).
+  - **Music** runs on the Mac that reported it: commands wait in a
+    per-player queue (`commandQueue`, at most 8, coalescing consecutive
+    volume steps, dropped after 5 s so a late "next" never fires) that
+    Ember.app long-polls with `GET /v1/nowplaying/commands?player=&wait=≤25`
+    (master token; delivery at most once). A Mac counts as listening while a
+    poll waits and 30 s after one; otherwise the control answers 503.
+    The app runs `playpause` / `next track` / `previous track` / `set sound
+    volume` only while Music runs (never launches it), then re-reads and
+    re-reports (Music posts no notification for a volume change).
+- **Not built yet:** iTunes album fallback, Plex websocket.
 
 ### Runtime settings overlay (`settings_overlay.go`)
 
