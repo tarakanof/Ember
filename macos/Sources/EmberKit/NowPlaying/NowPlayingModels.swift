@@ -135,25 +135,28 @@ public struct MusicPlayerInfo: Equatable, Sendable {
 /// One playback command for this Mac's Music, from
 /// `GET /v1/nowplaying/commands` (the knob's controls, Ember #280).
 public struct NowPlayingCommand: Decodable, Equatable, Sendable {
-    public enum Action: String, Sendable { case playPause = "play_pause", next, previous, volume }
+    public enum Action: String, Sendable { case play, pause, playPause = "play_pause", next, previous, volume }
 
     public let id: String
     /// nil for an action this app doesn't know (a newer server): ignored.
     public let action: Action?
     /// Volume change in points (volume only).
     public let delta: Int
+    /// How long the server had held it when it answered the poll (ms).
+    public let ageMs: Int
 
-    public init(id: String, action: Action?, delta: Int = 0) {
-        self.id = id; self.action = action; self.delta = delta
+    public init(id: String, action: Action?, delta: Int = 0, ageMs: Int = 0) {
+        self.id = id; self.action = action; self.delta = delta; self.ageMs = ageMs
     }
 
-    enum CodingKeys: String, CodingKey { case id, action, delta }
+    enum CodingKeys: String, CodingKey { case id, action, delta, ageMs = "age_ms" }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
         action = try c.decodeIfPresent(String.self, forKey: .action).flatMap(Action.init(rawValue:))
         delta = try c.decodeIfPresent(Int.self, forKey: .delta) ?? 0
+        ageMs = max(0, try c.decodeIfPresent(Int.self, forKey: .ageMs) ?? 0)
     }
 }
 

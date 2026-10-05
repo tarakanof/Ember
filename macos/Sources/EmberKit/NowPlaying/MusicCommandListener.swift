@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// Where playback commands for this Mac come from: the server's long-poll.
 public protocol NowPlayingCommandSource: Sendable {
@@ -13,12 +14,15 @@ public protocol NowPlayingCommandSource: Sendable {
 @MainActor
 public final class MusicCommandListener {
     public static let wait = 25
+    private static let log = Logger(subsystem: "com.ember.Ember", category: "music")
     static let firstBackoff: Duration = .seconds(5)
     static let maxBackoff: Duration = .seconds(60)
     /// An older server without the route: ask again much later.
     static let missingRouteBackoff: Duration = .seconds(300)
     /// A long-poll that answers empty at once (a misbehaving proxy) must not spin.
     static let minRound: Duration = .seconds(1)
+    /// A command this old is dropped: a late "next" skips a song the user moved on from.
+    static let maxAge: Duration = .seconds(5)
 
     public typealias Sleep = @Sendable (Duration) async throws -> Void
 
@@ -26,6 +30,7 @@ public final class MusicCommandListener {
     private let pusher: AppleMusicPusher
     private let sleep: Sleep
     private var task: Task<Void, Never>?
+    private var loggedDenied = false
 
     public init(bridge: MusicBridge, pusher: AppleMusicPusher,
                 sleep: @escaping Sleep = { try await Task.sleep(for: $0) }) {
@@ -59,7 +64,7 @@ public final class MusicCommandListener {
             do {
                 let commands = try await source.commands(player: player, wait: Self.wait)
                 backoff = Self.firstBackoff
-                await execute(commands)
+                await execute(commands, received: clock.now)
                 if commands.isEmpty, clock.now - began < Self.minRound { try await sleep(Self.minRound) }
             } catch {
                 if Task.isCancelled || error is CancellationError { return }
@@ -76,11 +81,24 @@ public final class MusicCommandListener {
         }
     }
 
-    /// Runs commands in order; one re-report after any that ran.
-    func execute(_ commands: [NowPlayingCommand]) async {
+    /// Runs commands in order; one re-report after any that ran. A command
+    /// older than `maxAge` (the server's age plus the time since the answer
+    /// arrived) is dropped; nothing runs without Automation already granted.
+    func execute(_ commands: [NowPlayingCommand], received: ContinuousClock.Instant = .now) async {
         var ran = false
         for c in commands where c.action != nil {
+            let age = Duration.milliseconds(c.ageMs) + (ContinuousClock.now - received)
+            if age > Self.maxAge {
+                Self.log.notice("dropped a stale knob command (\(c.action?.rawValue ?? "", privacy: .public))")
+                continue
+            }
             guard await bridge.isRunning() else { continue }
+            guard await bridge.canControl() else {
+                if !loggedDenied { Self.log.notice("knob command skipped: Automation for Music not granted") }
+                loggedDenied = true
+                continue
+            }
+            loggedDenied = false
             if await bridge.perform(c) { ran = true }
         }
         guard ran, let info = await bridge.snapshot() else { return }

@@ -73,6 +73,9 @@ private actor FakeBridge: MusicBridge {
     func setSnapshot(_ s: MusicPlayerInfo) { snap = s }
     func setArt(_ d: Data?) { art = d }
     var level = 40
+    var granted = true
+    func set(granted: Bool) { self.granted = granted }
+    func canControl() async -> Bool { granted }
     var performed: [NowPlayingCommand] = []
     func volume() async -> Int? { running ? level : nil }
     func perform(_ command: NowPlayingCommand) async -> Bool {
@@ -305,6 +308,29 @@ private func waitUntil(_ cond: () async -> Bool) async {
     #expect(await sink.reports.isEmpty)
     listener.stop()
     await listener.join()
+}
+
+@MainActor
+@Test func listenerDropsStaleCommandsAndNeedsAutomation() async {
+    let bridge = FakeBridge(), sink = FakeSink()
+    let pusher = AppleMusicPusher(bridge: bridge, sink: sink, player: "M4")
+    let listener = MusicCommandListener(bridge: bridge, pusher: pusher, sleep: Sleeps().sleep)
+    await listener.execute([NowPlayingCommand(id: "old", action: .next, ageMs: 5_001),
+                            NowPlayingCommand(id: "ok", action: .pause, ageMs: 200)])
+    #expect(await bridge.performed.map(\.id) == ["ok"])
+    // The answer arrived 6 s ago (the queue was blocked): dropped too.
+    await listener.execute([NowPlayingCommand(id: "late", action: .play)], received: .now - .seconds(6))
+    #expect(await bridge.performed.map(\.id) == ["ok"])
+    await bridge.set(granted: false)
+    await listener.execute([NowPlayingCommand(id: "denied", action: .play)])
+    #expect(await bridge.performed.map(\.id) == ["ok"])
+}
+
+@Test func commandDecodesPlayPauseAndAge() throws {
+    let json = Data(#"{"commands":[{"id":"a","action":"play","age_ms":120},{"id":"b","action":"pause"},{"id":"c","action":"play_pause","age_ms":-4}]}"#.utf8)
+    let c = try JSONDecoder().decode(NowPlayingCommands.self, from: json).commands
+    #expect(c.map(\.action) == [.play, .pause, .playPause])
+    #expect(c.map(\.ageMs) == [120, 0, 0])
 }
 
 @MainActor

@@ -47,26 +47,88 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     }
 
     func volume() async -> Int? {
-        guard await isRunning(), let d = await run(Self.volumeScript), d.descriptorType != typeNull else { return nil }
-        return Int(d.int32Value)
+        await onQueue { self.readVolume() }
     }
 
-    /// The knob's controls (Ember #280). `run` re-checks that Music runs right
-    /// before the script, so a command never launches it.
+    func canControl() async -> Bool {
+        await automationStatus(ask: false) == .granted
+    }
+
+    /// The knob's controls (Ember #280), as Apple Events addressed to the
+    /// running Music's PID: an event to a process that quit meanwhile fails
+    /// (procNotFound) and launches nothing, unlike `tell application`.
     func perform(_ command: NowPlayingCommand) async -> Bool {
-        let source: String
-        switch command.action {
-        case .playPause?: source = Self.playPauseScript
-        case .next?: source = Self.nextScript
-        case .previous?: source = Self.previousScript
-        case .volume?:
-            guard command.delta != 0 else { return true }
-            // Clamped to an integer first, so the script text is a small literal.
-            source = Self.volumeChangeScript(delta: min(max(command.delta, -100), 100))
-        case nil: return false
+        guard let action = command.action else { return false }
+        return await onQueue {
+            switch action {
+            case .playPause: return self.send(Self.hook("PlPs")) != nil
+            case .play: return self.send(Self.hook("Play")) != nil
+            case .pause: return self.send(Self.hook("Paus")) != nil
+            case .next: return self.send(Self.hook("Next")) != nil
+            case .previous: return self.send(Self.hook("Prev")) != nil
+            case .volume:
+                guard command.delta != 0 else { return true }
+                guard let cur = self.readVolume() else { return false }
+                let v = min(max(cur + min(max(command.delta, -100), 100), 0), 100)
+                return v == cur || self.writeVolume(v)
+            }
         }
-        guard await isRunning() else { return false }
-        return await run(source, cache: command.action != .volume) != nil
+    }
+
+    // MARK: Apple Events to the running process (on `queue`)
+
+    private func onQueue<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { cont in queue.async { cont.resume(returning: work()) } }
+    }
+
+    private static func fourCC(_ s: String) -> FourCharCode {
+        s.utf8.reduce(0) { ($0 << 8) | FourCharCode($1) }
+    }
+
+    /// An event builder: the class/ID pair, sent to the target given later.
+    private struct Event { let cls: FourCharCode; let id: FourCharCode; var params: [(AEKeyword, NSAppleEventDescriptor)] = [] }
+
+    private static func hook(_ id: String) -> Event { Event(cls: fourCC("hook"), id: fourCC(id)) }
+
+    /// The application's `sound volume` property specifier.
+    private static var volumeProperty: NSAppleEventDescriptor {
+        let spec = NSAppleEventDescriptor.record().coerce(toDescriptorType: DescType(typeObjectSpecifier))!
+        spec.setDescriptor(NSAppleEventDescriptor.null(), forKeyword: AEKeyword(keyAEContainer))
+        spec.setDescriptor(NSAppleEventDescriptor(enumCode: DescType(formPropertyID)), forKeyword: AEKeyword(keyAEKeyForm))
+        spec.setDescriptor(NSAppleEventDescriptor(typeCode: fourCC("pVol")), forKeyword: AEKeyword(keyAEKeyData))
+        spec.setDescriptor(NSAppleEventDescriptor(typeCode: DescType(cProperty)), forKeyword: AEKeyword(keyAEDesiredClass))
+        return spec
+    }
+
+    private func readVolume() -> Int? {
+        var e = Event(cls: AEEventClass(kAECoreSuite), id: AEEventID(kAEGetData))
+        e.params = [(AEKeyword(keyDirectObject), Self.volumeProperty)]
+        guard let reply = send(e), let v = reply.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)) else { return nil }
+        return Int(v.int32Value)
+    }
+
+    private func writeVolume(_ v: Int) -> Bool {
+        var e = Event(cls: AEEventClass(kAECoreSuite), id: AEEventID(kAESetData))
+        e.params = [(AEKeyword(keyDirectObject), Self.volumeProperty),
+                    (AEKeyword(keyAEData), NSAppleEventDescriptor(int32: Int32(v)))]
+        return send(e) != nil
+    }
+
+    /// Sends to Music's PID; nil when Music isn't running or the event failed.
+    private func send(_ e: Event) -> NSAppleEventDescriptor? {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).first else { return nil }
+        let target = NSAppleEventDescriptor(processIdentifier: app.processIdentifier)
+        let event = NSAppleEventDescriptor.appleEvent(withEventClass: e.cls, eventID: e.id, targetDescriptor: target,
+                                                      returnID: AEReturnID(kAutoGenerateReturnID),
+                                                      transactionID: AETransactionID(kAnyTransactionID))
+        for (k, d) in e.params { event.setParam(d, forKeyword: k) }
+        do {
+            return try event.sendEvent(options: [.waitForReply, .neverInteract], timeout: 3)
+        } catch {
+            let code = (error as NSError).code
+            if code != Self.noSuchObject { Self.log.notice("Music event failed: \(code, privacy: .public)") }
+            return nil
+        }
     }
 
     /// Ember's Automation permission for Music: nil when macOS can't say
@@ -89,8 +151,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         }
     }
 
-    /// `cache: false` for one-off scripts (volume deltas), so `compiled` stays small.
-    private func run(_ source: String, cache: Bool = true) async -> NSAppleEventDescriptor? {
+    private func run(_ source: String) async -> NSAppleEventDescriptor? {
         await withCheckedContinuation { cont in
             queue.async {
                 guard !NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).isEmpty else {
@@ -98,7 +159,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
                     return
                 }
                 let script = self.compiled[source] ?? NSAppleScript(source: source)
-                if cache { self.compiled[source] = script }
+                self.compiled[source] = script
                 var error: NSDictionary?
                 let result = script?.executeAndReturnError(&error)
                 if let error {
@@ -115,21 +176,6 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     /// errAENoSuchObject: no artwork, or nothing playing; expected, not logged.
     private static let noSuchObject = -1728
 
-    private static let volumeScript = #"tell application id "com.apple.Music" to get sound volume"#
-    private static let playPauseScript = #"tell application id "com.apple.Music" to playpause"#
-    private static let nextScript = #"tell application id "com.apple.Music" to next track"#
-    private static let previousScript = #"tell application id "com.apple.Music" to previous track"#
-    private static func volumeChangeScript(delta: Int) -> String {
-        """
-        tell application id "com.apple.Music"
-            set v to (sound volume) + (\(delta))
-            if v < 0 then set v to 0
-            if v > 100 then set v to 100
-            set sound volume to v
-            return v
-        end tell
-        """
-    }
     private static let positionScript = #"tell application id "com.apple.Music" to get player position"#
     private static let artworkScript = #"""
     tell application id "com.apple.Music"

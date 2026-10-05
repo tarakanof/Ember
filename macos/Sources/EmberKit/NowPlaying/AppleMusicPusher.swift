@@ -17,7 +17,12 @@ public protocol MusicBridge: Sendable {
     /// Music's own `sound volume` (0-100), not the system volume.
     func volume() async -> Int?
     /// Runs a playback command; false when Music isn't running or refused it.
+    /// Implementations must address the running process only, so a Music
+    /// that quit meanwhile is never launched.
     func perform(_ command: NowPlayingCommand) async -> Bool
+    /// Whether Ember may already send Apple Events to Music. Never prompts:
+    /// the prompt belongs to the Settings button, not to a knob press.
+    func canControl() async -> Bool
 }
 
 /// Where reports and artwork go: the Ember server.
