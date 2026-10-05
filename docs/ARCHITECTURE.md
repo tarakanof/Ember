@@ -2610,6 +2610,40 @@ draws-if-present in `internal/render`, add a menu checkbox.
   (cacheable with `v`).
   In live mode the body ends with `"diag_live_until":<Unix s>` (see "Knob
   diagnostics").
+- **Knob view long-poll (#235).** `?wait=N` (whole seconds, capped at 25,
+  `devices_view_wait.go`) with `If-None-Match` holds the request while the
+  view still matches the tag: 200 with the new body as soon as it changes,
+  else 304 with the same ETag when the wait ends. Without `wait`, without a
+  tag, or when the tag is already stale it answers at once as above; a
+  malformed `wait` is 400. Every view answer carries `X-Ember-View-Wait: 25`
+  so a client long-polls only a server that advertises it (an older one
+  ignores the parameter and would answer at once, so a client that sent it
+  blindly would spin). `X-Ember-Now` is the time the answer leaves. The 25 s
+  cap stays under the server's 30 s Read/WriteTimeout and 120 s
+  IdleTimeout; the handler still moves both conn deadlines to wait + 5 s
+  (`http.ResponseController`), else a slow write or net/http's background
+  read would cut it off. Waiters: 2 per device (one plus a reconnect the
+  server has not yet seen close), 32 in total; over a cap → 429 +
+  `Retry-After: 2`. A closed client cancels the request context and frees
+  its slot at once (no goroutine left); `shutdown` closes the broadcaster
+  first so `server.Shutdown` does not wait out open polls (they answer 304).
+  A device deleted mid-wait gets 401, as the auth check would give.
+  Metrics: `ember_knob_view_waiters` (gauge), `ember_knob_view_longpoll_total{result=change|timeout|shutdown|gone|busy}`.
+- **Change broadcaster (`changes.go`).** `changeBroadcaster` is a
+  `chan struct{}` closed and swapped on every `notify(topic)`. A waiter
+  subscribes *before* it reads the state and then blocks on that channel,
+  so a change between the read and the block is never lost. Sources:
+  sessions (upsert, delete, clear, reap), Pomodoro (`pomoChanged`: every
+  action, button, phase end, settings), weather (new observation),
+  brightness (filter level moved), devices (`deviceRegistry.onChange` after
+  each committed mutation: epoch, config, rotation; live mode), config
+  (`tryUpdateConfig`, so reloads and every settings PUT). `notify` takes only
+  its own lock and never blocks, so callers may hold theirs. Fields that move
+  with the clock alone (sun-schedule brightness, weather going stale, live
+  mode ending) are caught by a 5 s recheck inside the wait. Topics are bits
+  with a per-topic sequence (`since(seq)`), so a later SSE `/v1/events`
+  (#269 phase 2) can name what changed on the same broadcaster without a
+  queue per subscriber.
 - **Liveness fields stay local:** process-liveness data (`owner_pid`,
   `owner_start`) lives only in the local marker, embedded so the wire decoder
   ignores it — never in the `StatusRequest` body.
