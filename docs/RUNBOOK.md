@@ -520,6 +520,12 @@ where multicast is filtered, set the URL.
 > untrusted networks set an explicit `EMBER_SERVER_URL` (ideally https behind
 > a reverse proxy).
 
+> **Reverse proxy and the knob long-poll:** `GET /v1/devices/self/view?wait=`
+> holds a request up to 25 s (the knob reads for up to 35 s). A proxy in front
+> of Ember needs a read/response timeout of at least 35 s (nginx
+> `proxy_read_timeout` defaults to 60 s: fine) and must not buffer or retry
+> the request.
+
 Ember.app accepts `auto` in Settings › Connection (it keeps the value and,
 having no URL to call, shows the server as not configured); on a Mac with the
 app, prefer a real URL there.

@@ -59,6 +59,14 @@ type App struct {
 	settings appSettings
 
 	devices *deviceRegistry
+	// changes wakes pull clients waiting on state (the knob view long-poll,
+	// #235; a later SSE stream). viewWaiters bounds the blocked view requests;
+	// viewRecheck overrides knobViewRecheck in tests.
+	changes     *changeBroadcaster
+	viewWaiters viewWaiters
+	viewRecheck time.Duration
+	// viewWaitHook runs in a long-poll between its read and its block (tests).
+	viewWaitHook func()
 	// knobStats holds knob diagnostics samples and live mode, memory only.
 	knobStats *knobStatsStore
 	// clockStats holds the clock's probe samples, memory only.
@@ -118,8 +126,10 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.meetings = newMeetingsStore()
 	a.meetingsFetcher = newICSFetcher()
 	a.nowPlaying = newNowPlayingService()
+	a.nowPlaying.reg.OnChange = func() { a.changes.notify(topicNowPlaying) }
 	a.iconFetch = fetchLaMetricIcon
 	a.cfg.Store(&cfg)
+	a.changes = newChangeBroadcaster()
 	a.clock = newClockAccess(a.cfg.Load)
 	a.sessions = a.newSessionRegistry(realClock{}.Now)
 	a.settings = newAppSettings(a)
@@ -129,6 +139,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 		}
 		return a.store
 	})
+	a.devices.onChange = func() { a.changes.notify(topicDevices) }
 	a.knobStats = newKnobStatsStore()
 	a.clockStats = newClockStatsStore()
 	a.metrics = newMetrics()
@@ -165,6 +176,7 @@ func (a *App) tryUpdateConfig(mutate func(*Config) error) error {
 		return err
 	}
 	a.cfg.Store(&cur)
+	a.changes.notify(topicConfig)
 	return nil
 }
 

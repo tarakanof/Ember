@@ -136,6 +136,12 @@ func (a *App) nudgePomo() {
 	}
 }
 
+// pomoChanged tells pull clients and the coordinator that the engine moved.
+func (a *App) pomoChanged() {
+	a.changes.notify(topicPomodoro)
+	a.nudgePomo()
+}
+
 func (a *App) pomoTick() {
 	if !a.pomodoroOn() {
 		return
@@ -146,7 +152,7 @@ func (a *App) pomoTick() {
 		if res.Completed {
 			a.pomoPhaseEndAlert(res)
 		}
-		a.nudgePomo()
+		a.pomoChanged()
 		return
 	}
 	if a.engine.Active() {
@@ -224,7 +230,7 @@ func (a *App) handlePomodoroStart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.engine.Start(phase)
-	a.nudgePomo()
+	a.pomoChanged()
 	a.writePomoState(w)
 }
 
@@ -234,7 +240,7 @@ func (a *App) handlePomodoroPause(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.engine.Pause(time.Now())
-	a.nudgePomo()
+	a.pomoChanged()
 	a.writePomoState(w)
 }
 
@@ -244,7 +250,7 @@ func (a *App) handlePomodoroResume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.engine.Resume(time.Now())
-	a.nudgePomo()
+	a.pomoChanged()
 	a.writePomoState(w)
 }
 
@@ -257,7 +263,7 @@ func (a *App) handlePomodoroStop(w http.ResponseWriter, r *http.Request) {
 	if res := a.engine.Stop(now); res != nil {
 		a.recordPhase(res, now)
 	}
-	a.nudgePomo()
+	a.pomoChanged()
 	a.writePomoState(w)
 }
 
@@ -270,7 +276,7 @@ func (a *App) handlePomodoroSkip(w http.ResponseWriter, r *http.Request) {
 	if res := a.engine.Skip(now); res != nil {
 		a.recordPhase(res, now)
 	}
-	a.nudgePomo()
+	a.pomoChanged()
 	a.writePomoState(w)
 }
 
@@ -312,7 +318,7 @@ func (a *App) pomodoroSettingSpec() settingSpec[pomodoroSettingsDTO] {
 					a.engine.Stop(time.Now())
 				}
 			}
-			a.nudgePomo()
+			a.pomoChanged()
 			go a.ensureNativeIcons(context.Background())
 		},
 	}
@@ -391,7 +397,7 @@ func (a *App) handleAwtrixButton(w http.ResponseWriter, r *http.Request) {
 		acted = a.pomoSideButton(button, down, now)
 	}
 	if acted {
-		a.nudgePomo()
+		a.pomoChanged()
 	}
 	w.WriteHeader(http.StatusOK)
 }

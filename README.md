@@ -190,8 +190,10 @@ text exposition format:
 
 - counters: `ember_requests_total{pattern,status}`,
   `ember_publish_total{result}`, `ember_publish_retries_total`,
-  `ember_rate_limit_denied_total`, `ember_sessions_evicted_total`
+  `ember_rate_limit_denied_total`, `ember_sessions_evicted_total`,
+  `ember_knob_view_longpoll_total{result}`
 - gauges: `ember_sessions_active`, `ember_uptime_seconds`,
+  `ember_knob_view_waiters`,
   `ember_last_publish_unix`, `ember_last_publish_ok`,
   `ember_ratelimit_buckets`,
   `ember_build_info{revision,go_version,version}`

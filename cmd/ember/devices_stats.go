@@ -430,6 +430,7 @@ func (a *App) handleKnobStatsLive(w http.ResponseWriter, r *http.Request) {
 		until = now.Add(d)
 	}
 	a.knobStats.setLive(id, until)
+	a.changes.notify(topicDevices)
 	writeJSON(w, http.StatusOK, map[string]*time.Time{"live_until": a.knobStats.liveUntil(id, now)})
 }
 
