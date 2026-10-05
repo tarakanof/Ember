@@ -131,8 +131,9 @@ struct KnobBotSchedule: TimelineSchedule {
         var first = true
         return AnyIterator {
             if first { first = false; return start }
-            if let continuous {
-                last = last.addingTimeInterval(min(continuous, Self.frame))
+            if let continuous {   /* on the glint's own step boundaries, as the firmware steps */
+                let n = (last.timeIntervalSinceReferenceDate / continuous).rounded(.down) + 1
+                last = Date(timeIntervalSinceReferenceDate: n * continuous)
                 return last
             }
             let (moving, next) = clock.read()

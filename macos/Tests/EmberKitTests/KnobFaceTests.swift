@@ -95,6 +95,7 @@ import Testing
     #expect(KnobMood(sessions: [s("very-long-hostname", "waiting"), s("very-long-hostname", "waiting", 1),
                                 s("b", "waiting")]).host == "VERY-LO +1")
     #expect(KnobMood(sessions: [s("", "running")]).host == "")
+    #expect(KnobMood(sessions: [s("m4", "running"), s("M4", "running", 1)]).host == "M4", "hosts compare uppercased")
     #expect(KnobMood(mood: .working, host: "X").showsHost)
     #expect(KnobMood(mood: .error, host: "X").showsHost)
     #expect(KnobMood(mood: .done, host: "X").showsHost == false)
@@ -242,7 +243,7 @@ private func save(_ img: CGImage, _ name: String) {
                                                                       tool: "claude"),
                                                        glint: -90))))
     save(working, "bot-working-glint")
-    let glint = RGB(r: 0xC0, g: 0xF8, b: 0xCF)
+    let glint = RGB(r: 0xE0, g: 0xFC, b: 0xE7)
     #expect(near(pixel(working, 233, Int(233 - r)), glint, 40), "glint head at 12 o'clock")
     #expect(near(pixel(working, Int(233 + r), 233), th.moodColors.working, 60), "plain ring at 3 o'clock")
     let labelPixels = (380..<410).flatMap { y in (190..<280).map { x in pixel(working, x, y) } }

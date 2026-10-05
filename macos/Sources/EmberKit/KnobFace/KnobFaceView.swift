@@ -162,7 +162,8 @@ enum KnobFaceRender {
     }
 
     /// The working glint (cinder `ring_glint.c`): an arc on the ring's centreline
-    /// from the head back `tailDeg`, alpha (1 − u)² along the tail, round head.
+    /// from the head back `tailDeg`, alpha falling linearly along the tail (one
+    /// stroke with a conic gradient, so no seams), round head.
     static func glint(head: Double, center: CGPoint, radius: Double, color: RGB, _ g: KnobTheme.Bot.Glint,
                       in ctx: inout GraphicsContext) {
         func mix(_ v: UInt8) -> UInt8 { UInt8((Double(v) + (255 - Double(v)) * g.whiteMix).rounded()) }
@@ -171,14 +172,15 @@ enum KnobFaceRender {
             let a = deg * .pi / 180
             return CGPoint(x: center.x + radius * cos(a), y: center.y + radius * sin(a))
         }
-        let steps = Int(g.tailDeg)
-        for k in 0..<steps {
-            let u = 1 - (Double(k) + 0.5) / g.tailDeg
-            var seg = Path()
-            seg.move(to: pt(head - Double(k)))
-            seg.addLine(to: pt(head - Double(k + 1)))
-            ctx.stroke(seg, with: .color(c.opacity(u * u)), style: StrokeStyle(lineWidth: g.widthPx, lineCap: .butt))
-        }
+        var arc = Path()
+        arc.move(to: pt(head - g.tailDeg))
+        for k in stride(from: g.tailDeg - 1, through: 0, by: -1) { arc.addLine(to: pt(head - k)) }
+        let tail = 1 - g.tailDeg / 360
+        let shading = GraphicsContext.Shading.conicGradient(
+            Gradient(stops: [.init(color: c.opacity(0), location: 0), .init(color: c.opacity(0), location: tail),
+                             .init(color: c, location: 1)]),
+            center: center, angle: .degrees(head))
+        ctx.stroke(arc, with: shading, style: StrokeStyle(lineWidth: g.widthPx, lineCap: .butt, lineJoin: .round))
         let h = pt(head), hw = g.widthPx / 2
         ctx.fill(Path(ellipseIn: CGRect(x: h.x - hw, y: h.y - hw, width: 2 * hw, height: 2 * hw)), with: .color(c))
     }

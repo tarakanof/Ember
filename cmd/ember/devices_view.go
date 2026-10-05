@@ -37,7 +37,7 @@ type knobView struct {
 
 // knobMood: the /state render counters and source, then who leads the
 // winning state (cinder#42, knobLeadOf). lead is left out when it equals
-// source (one host), hosts when it is 0 or 1; all four are omitted for an
+// source but for case (one host), hosts when it is 0 or 1; all four are omitted for an
 // idle view, so its bytes and ETag are as before.
 type knobMood struct {
 	Waiting   int    `json:"waiting"`
@@ -54,7 +54,7 @@ type knobMood struct {
 func newKnobMood(r Render, l knobLead) knobMood {
 	m := knobMood{Waiting: r.Waiting, Errors: r.Errors, Running: r.Running, Done: r.Done, Source: r.Source,
 		LeadColor: l.Color, Tool: l.Tool}
-	if l.Lead != r.Source {
+	if !strings.EqualFold(l.Lead, r.Source) {
 		m.Lead = l.Lead
 	}
 	if l.Hosts > 1 {

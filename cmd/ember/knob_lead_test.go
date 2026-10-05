@@ -52,6 +52,10 @@ func TestKnobLeadOf(t *testing.T) {
 			render.Session{Source: "M4", Session: "b", State: "error", SourceColor: &purple}),
 			knobLead{Lead: "M4", Hosts: 1, Color: "#B48CFF"}},
 		{"no source", leadView(render.Session{Tool: "claude", State: "running"}), knobLead{}},
+		{"case-insensitive hosts", leadView(
+			render.Session{Source: "m4", Tool: "claude", Session: "a", State: "running"},
+			render.Session{Source: "M4", Tool: "claude", Session: "b", State: "running"}),
+			knobLead{Lead: "M4", Hosts: 1, Tool: "claude"}},
 	}
 	for _, c := range cases {
 		if got := knobLeadOf(c.v); got != c.want {
@@ -121,5 +125,12 @@ func TestKnobBotFlagsDefaultOnAndMerge(t *testing.T) {
 	}
 	if null.Bot.WorkingRing == nil || !*null.Bot.WorkingRing {
 		t.Fatalf("null must read as on: %+v", null.Bot)
+	}
+}
+
+func TestNewKnobMoodLeavesOutALeadThatOnlyDiffersInCase(t *testing.T) {
+	m := newKnobMood(Render{Running: 1, Source: "m4"}, knobLead{Lead: "M4", Hosts: 1, Tool: "codex"})
+	if m.Lead != "" || m.Hosts != 0 || m.Tool != "codex" {
+		t.Fatalf("mood = %+v", m)
 	}
 }

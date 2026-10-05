@@ -17,7 +17,9 @@ type knobLead struct {
 }
 
 // knobLeadOf picks the lead from the sessions in the winning state: the
-// source with the most sessions, ties to the smaller name. Unlike
+// source with the most sessions, ties to the smaller name. Sources are
+// compared case-insensitively (the knob uppercases them, so "m4" and "M4"
+// are one host); the lead is returned uppercased. Unlike
 // PickWinning's newest-wins this does not flip between hosts as their
 // sessions heartbeat, so the view (and its long-poll) stays still.
 func knobLeadOf(v sessions.View) knobLead {
@@ -28,7 +30,7 @@ func knobLeadOf(v sessions.View) knobLead {
 	count := map[string]int{}
 	for _, s := range v.Sessions {
 		if s.State == win.State && s.Source != "" {
-			count[s.Source]++
+			count[strings.ToUpper(s.Source)]++
 		}
 	}
 	var l knobLead
@@ -43,7 +45,7 @@ func knobLeadOf(v sessions.View) knobLead {
 	}
 	first := true
 	for _, s := range v.Sessions {
-		if s.State != win.State || s.Source != l.Lead {
+		if s.State != win.State || strings.ToUpper(s.Source) != l.Lead {
 			continue
 		}
 		if l.Color == "" && s.SourceColor != nil && isHexColor(*s.SourceColor) {

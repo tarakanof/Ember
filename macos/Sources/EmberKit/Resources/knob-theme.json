@@ -76,9 +76,9 @@
       "max_chars": 10
     },
     "glint": {
-      "width_px": 10,
+      "width_px": 12,
       "tail_deg": 40,
-      "white_mix": 0.7,
+      "white_mix": 0.85,
       "period_s": 3,
       "fps": 15
     }

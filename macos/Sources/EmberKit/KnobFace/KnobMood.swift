@@ -20,7 +20,8 @@ public struct KnobMood: Equatable, Sendable {
 
     /// The mood and host for `sessions`: waiting > error > running > done; the
     /// lead is the source with the most sessions in the winning state (ties to
-    /// the smaller name), plus " +N" for the other hosts in that state.
+    /// the smaller name, compared uppercased as the knob shows them), plus " +N"
+    /// for the other hosts in that state.
     public init(sessions: [Session], maxChars: Int = 10) {
         guard let win = pickWinning(sessions) else {
             self.init(mood: .idle)
@@ -28,9 +29,9 @@ public struct KnobMood: Equatable, Sendable {
         }
         let peers = sessions.filter { $0.state == win.state && !$0.source.isEmpty }
         var count: [String: Int] = [:]
-        for s in peers { count[s.source, default: 0] += 1 }
+        for s in peers { count[s.source.uppercased(), default: 0] += 1 }
         let lead = count.min { a, b in a.value != b.value ? a.value > b.value : a.key < b.key }?.key ?? ""
-        let mine = peers.filter { $0.source == lead }
+        let mine = peers.filter { $0.source.uppercased() == lead }
         let color = mine.lazy.compactMap { $0.sourceColor.flatMap(RGB.init(hex:)) }.first
         let tools = Set(mine.map(\.tool))
         self.init(mood: BotMood(state: win.state),
