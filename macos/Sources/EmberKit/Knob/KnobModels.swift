@@ -11,9 +11,15 @@ public struct KnobCheckin: Codable, Equatable, Sendable {
     public var heapInternalLargest: Int
     public var uptimeS: Int
     public var appliedVersion: Int
+    /// The panel QSPI clock (cinder#23); nil from firmware before 0.9.2.
+    public var linkMHz: Int?
+    /// True when the knob runs at 40 MHz because a link check failed.
+    public var linkFallback: Bool?
 
     enum CodingKeys: String, CodingKey {
         case fw, ip, rssi
+        case linkMHz = "link_mhz"
+        case linkFallback = "link_fallback"
         case seenAt = "seen_at"
         case heapInternalFree = "heap_internal_free"
         case heapInternalLargest = "heap_internal_largest"
@@ -140,15 +146,31 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         public init(id: String, on: Bool) { self.id = id; self.on = on }
     }
 
+    /// Panel options (cinder#23); nil from a server without them.
+    public struct Display: Codable, Equatable, Sendable {
+        /// The 80 MHz panel link; nil reads as on.
+        public var fastLink: Bool?
+        enum CodingKeys: String, CodingKey { case fastLink = "fast_link" }
+        public init(fastLink: Bool? = nil) { self.fastLink = fastLink }
+    }
+
     public struct Bot: Codable, Equatable, Sendable {
         public var sleepyAfterS: Int
         public var demoHoldS: Int
+        /// The curved host label and the working glint (Ember#282, cinder#42);
+        /// nil from a server without them (never sent back to it, so its strict
+        /// PUT decode does not reject the body). The knob treats absent as on.
+        public var sourceLabel: Bool?
+        public var workingRing: Bool?
         enum CodingKeys: String, CodingKey {
             case sleepyAfterS = "sleepy_after_s"
             case demoHoldS = "demo_hold_s"
+            case sourceLabel = "source_label"
+            case workingRing = "working_ring"
         }
-        public init(sleepyAfterS: Int, demoHoldS: Int) {
+        public init(sleepyAfterS: Int, demoHoldS: Int, sourceLabel: Bool? = nil, workingRing: Bool? = nil) {
             self.sleepyAfterS = sleepyAfterS; self.demoHoldS = demoHoldS
+            self.sourceLabel = sourceLabel; self.workingRing = workingRing
         }
     }
 
@@ -164,9 +186,11 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     /// (#249); nil from a server that has no such setting.
     public var statsIntervalS: Int?
     public var liveIntervalS: Int?
+    /// nil from a server without display settings; never sent back to one.
+    public var display: Display?
 
     enum CodingKeys: String, CodingKey {
-        case brightness, pages, home, bot, diagnostics
+        case brightness, pages, home, bot, diagnostics, display
         case pollMS = "poll_ms"
         case statsIntervalS = "stats_interval_s"
         case liveIntervalS = "live_interval_s"
@@ -189,6 +213,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
         diagnostics = try c.decodeIfPresent(KnobDiagnostics.self, forKey: .diagnostics) ?? .off
         statsIntervalS = try c.decodeIfPresent(Int.self, forKey: .statsIntervalS)
         liveIntervalS = try c.decodeIfPresent(Int.self, forKey: .liveIntervalS)
+        display = try c.decodeIfPresent(Display.self, forKey: .display)
     }
 
     /// The server's defaults (`defaultKnobSettings`).

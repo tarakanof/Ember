@@ -75,8 +75,9 @@ struct KnobPreviewData {
     func face(_ page: String, animated: Bool) -> some View {
         switch page {
         case "bot":
-            KnobBotLive(mood: mood, sleepAfter: Double(settings.bot.sleepyAfterS), animated: animated,
-                        brightness: brightness)
+            KnobBotLive(mood: mood, sleepAfter: Double(settings.bot.sleepyAfterS),
+                        sourceLabel: settings.bot.sourceLabel ?? true, workingRing: settings.bot.workingRing ?? true,
+                        animated: animated, brightness: brightness)
         case "pomodoro":
             KnobPomoLive(state: pomodoro, fetchedAt: pomodoroFetchedAt, note: pomodoroNote, animated: animated,
                          brightness: brightness)

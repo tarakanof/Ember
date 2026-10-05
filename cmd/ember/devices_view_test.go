@@ -77,7 +77,7 @@ func TestKnobViewBodyIsCompactAndOrdered(t *testing.T) {
 	}
 	rise, set, _ := sunTimes(lonLat, lonLon, now)
 	want := fmt.Sprintf(`{"v":1,"epoch":1,"config_version":1,`+
-		`"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4"},`+
+		`"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4","tool":"claude"},`+
 		`"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":%d,"planned_sec":1500,"round":0},`+
 		`"weather":{"provider":"open-meteo","cond":"rain","code":"61","temp_c":12.5,"stale":false,"severe":false,"night":false,"sunrise":%d,"sunset":%d},`+
 		`"brightness":{"level":255,"night":false}}`,

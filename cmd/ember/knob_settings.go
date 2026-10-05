@@ -25,6 +25,23 @@ type knobSettings struct {
 	// (one of knobLiveIntervals). Chosen by measurement, see #249.
 	StatsIntervalS int `json:"stats_interval_s"`
 	LiveIntervalS  int `json:"live_interval_s"`
+	// Display: panel options (cinder#23).
+	Display knobDisplay `json:"display"`
+}
+
+// knobDisplay.FastLink runs the knob's panel QSPI link at 80 MHz (out of the
+// panel's write spec, measured stable; the knob falls back to 40 MHz by itself
+// when a link check fails). Pointer so a stored record without it reads as on.
+type knobDisplay struct {
+	FastLink *bool `json:"fast_link,omitempty"`
+}
+
+func (d knobDisplay) clone() knobDisplay {
+	if d.FastLink != nil {
+		v := *d.FastLink
+		d.FastLink = &v
+	}
+	return d
 }
 
 // Allowed stats and live-mode intervals, in seconds, and their defaults.
@@ -69,6 +86,32 @@ type knobPage struct {
 type knobBot struct {
 	SleepyAfterS int `json:"sleepy_after_s"`
 	DemoHoldS    int `json:"demo_hold_s"`
+	// SourceLabel: the curved host label under the face (working, waiting,
+	// error); WorkingRing: the glint orbiting the outline while working
+	// (cinder#42). Pointers so a record stored before them reads as on.
+	SourceLabel *bool `json:"source_label,omitempty"`
+	WorkingRing *bool `json:"working_ring,omitempty"`
+}
+
+// clone copies the flags, so decoding a patch into a copy never writes
+// through a pointer the stored record shares.
+func (b knobBot) clone() knobBot {
+	if b.SourceLabel != nil {
+		v := *b.SourceLabel
+		b.SourceLabel = &v
+	}
+	if b.WorkingRing != nil {
+		v := *b.WorkingRing
+		b.WorkingRing = &v
+	}
+	return b
+}
+
+func (s knobSettings) clone() knobSettings {
+	s.Pages = slices.Clone(s.Pages)
+	s.Bot = s.Bot.clone()
+	s.Display = s.Display.clone()
+	return s
 }
 
 func defaultKnobSettings() knobSettings {
@@ -81,7 +124,8 @@ func defaultKnobSettings() knobSettings {
 		Pages:       pages,
 		Home:        "bot",
 		PollMS:      2000,
-		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20},
+		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true)},
+		Display:     knobDisplay{FastLink: boolPtr(true)},
 		Diagnostics: knobDiagOff,
 
 		StatsIntervalS: knobStatsIntervalDefault,
@@ -99,6 +143,23 @@ func (s *knobSettings) fillDefaults() {
 	}
 	if s.LiveIntervalS == 0 {
 		s.LiveIntervalS = knobLiveIntervalDefault
+	}
+	s.Bot.fillDefaults()
+	s.Display.fillDefaults()
+}
+
+func (d *knobDisplay) fillDefaults() {
+	if d.FastLink == nil {
+		d.FastLink = boolPtr(true)
+	}
+}
+
+func (b *knobBot) fillDefaults() {
+	if b.SourceLabel == nil {
+		b.SourceLabel = boolPtr(true)
+	}
+	if b.WorkingRing == nil {
+		b.WorkingRing = boolPtr(true)
 	}
 }
 

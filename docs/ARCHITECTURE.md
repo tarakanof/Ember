@@ -2070,7 +2070,13 @@ the same board finds its record.
   `pomodoro`, `weather`; any id matching `^[a-z][a-z0-9_-]{0,15}$` is kept, so
   firmware can add pages without a server release; order = page order; no
   duplicates), `home` (must name a page that is on), `poll_ms` 1000-10000,
-  `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600}`,
+  `bot{sleepy_after_s 0-86400 (0 = never), demo_hold_s 1-600, source_label,
+  working_ring}` (the two booleans, cinder#42: the curved host label and the
+  glint orbiting the outline while working; absent or null = true, so a
+  record stored before #282 keeps both on with no config push),
+  `display{fast_link}` (cinder#23: the knob's panel QSPI link at 80 MHz,
+  absent or null = true like the bot flags; the knob reboots to apply a
+  change and falls back to 40 MHz by itself after a failed link check),
   `diagnostics` `off|basic|full` (default `off`; a record stored before #239
   loads as `off`; see "Knob diagnostics" below), `stats_interval_s`
   `30|60|120|300` and `live_interval_s` `2|5|10` (defaults 60 and 5, chosen
@@ -2566,6 +2572,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
 - **Knob checkin (device token).** `POST /v1/devices/self/checkin` decodes
   non-strict like `/v1/status`:
   `{"fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"config_version":6}`
+  (since cinder 0.9.2 also `link_mhz` 40/80 and `link_fallback`, 0..1000,
+  stored on the record's `last_checkin` and shown as "Display link")
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus
@@ -2578,7 +2586,15 @@ draws-if-present in `internal/render`, add a menu checkbox.
   weather, versus four endpoints and ~4 KB before. Typical body (409 B, field
   order fixed):
   `{"v":1,"epoch":1,"config_version":1,"mood":{"waiting":1,"errors":0,"running":1,"done":0,"source":"M4"},"pomo":{"phase":"focus","running":true,"paused":false,"ends_at":1782044100,"planned_sec":1500,"round":0},"weather":{"provider":"open-meteo","cond":"rain","code":"61","temp_c":12.5,"stale":false,"severe":false,"night":false,"sunrise":1782013200,"sunset":1782072900},"brightness":{"level":255,"night":false}}`.
-  `mood` is `/state`'s `render` counters and `source` (the winning host);
+  `mood` is `/state`'s `render` counters and `source` (the winning host),
+  then who leads the winning state (#282, `knob_lead.go`): `lead` (the source
+  with the most sessions in that state, ties to the smaller name, so it does
+  not flip as sessions heartbeat; left out when it equals `source`), `hosts`
+  (distinct sources in that state; left out at 0 or 1), `lead_color` (first
+  valid `source_color` of the lead's sessions, uppercased) and `tool` (the
+  lead's tool when its sessions agree), all omitted when empty, so an idle
+  view's bytes do not change. `Upsert` also notifies when this summary moves
+  without the render (a new source colour);
   `pomo` is null with the Pomodoro off, and carries `ends_at` (server Unix
   seconds) while counting down, `remaining_sec` otherwise (paused, parked,
   idle), never both; `weather` is null when disabled or never fetched,

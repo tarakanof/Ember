@@ -199,6 +199,8 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		HeapInternalLargest int             `json:"heap_internal_largest"`
 		UptimeS             int64           `json:"uptime_s"`
 		ConfigVersion       int             `json:"config_version"`
+		LinkMHz             int             `json:"link_mhz"`
+		LinkFallback        bool            `json:"link_fallback"`
 		Stats               json.RawMessage `json:"stats"`
 	}
 	if !a.decodeOptionalOrReject(w, r, &req, false) {
@@ -206,6 +208,10 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	}
 	if utf8.RuneCountInString(req.FW) > 32 || !utf8.ValidString(req.FW) {
 		a.writeDeviceError(w, r, fmt.Errorf("%w: fw must be at most 32 characters", errDeviceBody))
+		return
+	}
+	if req.LinkMHz < 0 || req.LinkMHz > 1000 {
+		a.writeDeviceError(w, r, fmt.Errorf("%w: link_mhz must be 0..1000", errDeviceBody))
 		return
 	}
 	ip := clientIP(r)
@@ -227,6 +233,8 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		HeapInternalLargest: req.HeapInternalLargest,
 		UptimeS:             req.UptimeS,
 		AppliedVersion:      req.ConfigVersion,
+		LinkMHz:             req.LinkMHz,
+		LinkFallback:        req.LinkFallback && req.LinkMHz > 0,
 	}
 	res, err := a.devices.checkin(id, report)
 	if errors.Is(err, errCheckinNotStored) {

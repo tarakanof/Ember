@@ -160,6 +160,12 @@ struct KnobPollSection: View {
                 }
                 .disabled(s.diagnostics == .off)
             }
+            if s.display != nil {
+                Toggle("Fast display link", isOn: Binding(
+                    get: { s.display?.fastLink ?? true },
+                    set: { v in knob.edit { $0.display = KnobSettings.Display(fastLink: v) } }))
+                    .help("Runs the knob's screen link at 80 MHz instead of 40: smoother motion, less tearing. The knob restarts to apply it and goes back to 40 MHz by itself if the link fails a check.")
+            }
             LabeledContent {
                 Button("Show Hardware") { if let id = knob.knob?.id { showKnobHardware(id) } }
                     .disabled(s.diagnostics == .off)
@@ -192,10 +198,22 @@ struct KnobBotSection: View {
             }
             StepperRow(title: "Hold demo mood for", value: knob.binding(\.bot.demoHoldS),
                        range: KnobSettings.demoHoldRange, step: 5) { Text("\($0) s") }
+            if s.bot.sourceLabel != nil {
+                Toggle("Show the host's name", isOn: Binding(
+                    get: { s.bot.sourceLabel ?? true },
+                    set: { v in knob.edit { $0.bot.sourceLabel = v } }))
+            }
+            if s.bot.workingRing != nil {
+                Toggle("Animate the outline while working", isOn: Binding(
+                    get: { s.bot.workingRing ?? true },
+                    set: { v in knob.edit { $0.bot.workingRing = v } }))
+            }
         } header: {
             Text("Bot")
         } footer: {
-            SectionFooter(text: "Long-press the knob to try a mood; it holds for the time set here.",
+            SectionFooter(text: s.bot.sourceLabel == nil
+                          ? "Long-press the knob to try a mood; it holds for the time set here."
+                          : "Long-press the knob to try a mood; it holds for the time set here. The name of the computer whose agent is working or waiting shows along the bottom of the face.",
                           error: knob.settings.saveError)
         }
     }

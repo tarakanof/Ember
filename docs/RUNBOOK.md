@@ -324,6 +324,14 @@ build, which fails when a string is missing from the catalog.
 Launch-at-login is in-app (App tab → `SMAppService`), not a LaunchAgent. The app
 reads `producer.env` for connection config and needs a server on a build that
 includes `GET /v1/preview` (added 2026-05; older servers 401 that route).
+The `macos` job also checks `knob-theme.json` against cinder's firmware
+constants (`themeMatchesCinderSource`): it checks out `tarakanof/cinder@main`
+(sparse, `firmware/`) with the `CINDER_READ_TOKEN` secret, a fine-grained
+read-only token for that private repo, and points `CINDER_DIR` at it. A
+failed checkout fails the job; with no secret (fork PRs, or not yet set up)
+the test skips and the job prints a notice. Locally the test reads
+`../cinder` or `CINDER_DIR`. A theme change and its cinder change merge
+together (cinder first), else main's check fails until both are in.
 
 The app bundle now builds + signs the three producer helpers (`ember-claude-producer`,
 `ember-codex-producer`, `ember-t3-producer`) and their LaunchAgent plists

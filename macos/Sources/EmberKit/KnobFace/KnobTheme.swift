@@ -58,9 +58,15 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public struct Badge: Decodable, Sendable, Equatable {
             public var at, gap, dot: Double
         }
+        /// The curved host label (cinder#42): baseline on a circle of `radiusPx`
+        /// around the body centre, after an 8×8 tool glyph of `iconCellPx` cells.
         public struct Host: Decodable, Sendable, Equatable {
-            public var fontPx, y, widthPx: Double
+            public var fontPx, radiusPx, iconCellPx, iconGapPx: Double
             public var maxChars: Int
+        }
+        /// The working glint orbiting the outline (cinder#42).
+        public struct Glint: Decodable, Sendable, Equatable {
+            public var widthPx, tailDeg, whiteMix, periodS, fps: Double
         }
         public var fill: Double
         public var bodyColor, eyeColor: RGB
@@ -73,6 +79,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public var eyes: Eyes
         public var badge: Badge
         public var host: Host
+        public var glint: Glint
     }
 
     public struct Label: Decodable, Sendable, Equatable {

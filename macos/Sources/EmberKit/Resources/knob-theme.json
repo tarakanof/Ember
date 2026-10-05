@@ -70,9 +70,17 @@
     },
     "host": {
       "font_px": 24,
-      "y": 0.8,
-      "width_px": 300,
+      "radius_px": 172,
+      "icon_cell_px": 3,
+      "icon_gap_px": 6,
       "max_chars": 10
+    },
+    "glint": {
+      "width_px": 12,
+      "tail_deg": 40,
+      "white_mix": 0.85,
+      "period_s": 3,
+      "fps": 15
     }
   },
   "pomodoro": {

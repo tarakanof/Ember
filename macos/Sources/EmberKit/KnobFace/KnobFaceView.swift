@@ -3,7 +3,9 @@ import SwiftUI
 
 /// One frame of a knob page, as data.
 public enum KnobFace: Sendable, Equatable {
-    case bot(pose: BotPose, mood: KnobMood)
+    /// `glint`: the working glint's head angle in screen degrees (0 = 3 o'clock,
+    /// clockwise), nil for none.
+    case bot(pose: BotPose, mood: KnobMood, glint: Double? = nil)
     case pomodoro(KnobPomoFace)
     /// `tempC` nil prints "--°".
     case weather(look: KnobWeatherLook, draws: [KnobWeatherScene.Draw], tempC: Double?)
@@ -32,7 +34,7 @@ public struct KnobFaceView: View, Equatable {
             ctx.fill(disc, with: .color(.black))
             ctx.clip(to: disc)
             switch face {
-            case .bot(let pose, let mood): KnobFaceRender.bot(pose, mood, theme, in: &ctx)
+            case .bot(let pose, let mood, let glint): KnobFaceRender.bot(pose, mood, glint: glint, theme, in: &ctx)
             case .pomodoro(let p): KnobFaceRender.pomodoro(p, theme, in: &ctx)
             case .weather(let look, let draws, let temp): KnobFaceRender.weather(look, draws, temp, theme, in: &ctx)
             }
@@ -112,7 +114,8 @@ enum KnobFaceRender {
 
     // MARK: Bot
 
-    static func bot(_ p: BotPose, _ mood: KnobMood, _ theme: KnobTheme, in ctx: inout GraphicsContext) {
+    static func bot(_ p: BotPose, _ mood: KnobMood, glint: Double? = nil, _ theme: KnobTheme,
+                    in ctx: inout GraphicsContext) {
         let b = theme.bot
         let c = theme.screen.diameterPx / 2
         let r = c * b.fill
@@ -128,6 +131,11 @@ enum KnobFaceRender {
         outline = outline.offsetBy(dx: 0, dy: rimDY)
         ctx.fill(outline, with: .color(Color(b.bodyColor)))
         ctx.stroke(outline, with: .color(Color(rim)), style: StrokeStyle(lineWidth: b.rimPx, lineJoin: .round))
+        // The firmware draws the glint on the base circle only (no hop, no squash).
+        if let glint, p.mood == .working, p.triangle < 0.5, rimDY == 0,
+           KnobBotShape.rimVariant(for: p, variants: variants) == b.rimSteps {
+            Self.glint(head: glint, center: CGPoint(x: c, y: c), radius: r, color: color, b.glint, in: &ctx)
+        }
 
         func screen(_ q: CGPoint) -> CGPoint {
             let by = p.offsetY * b.hopScale - (1 - p.scaleY) + p.scaleY * q.y
@@ -148,10 +156,92 @@ enum KnobFaceRender {
             ctx.fill(disc(b.badge.gap * p.badge * r), with: .color(.black))
             ctx.fill(disc(b.badge.dot * p.badge * r), with: .color(Color(color)))
         }
-        if mood.showsHost && (p.mood == .waiting || p.mood == .error) {
-            let lh = theme.font.metrics(b.host.fontPx).lineHeightPx
-            let top = (c + b.host.y * r).rounded() - (lh / 2).rounded(.down) + rimDY
-            label(mood.host, b.host.fontPx, color, centerX: c, top: top, clip: b.host.widthPx, theme: theme, in: &ctx)
+        if mood.showsHost && (p.mood == .working || p.mood == .waiting || p.mood == .error) {
+            arcLabel(mood, moodColor: color, center: CGPoint(x: c, y: c + rimDY), theme: theme, in: &ctx)
+        }
+    }
+
+    /// The working glint (cinder `ring_glint.c`): an arc on the ring's centreline
+    /// from the head back `tailDeg`, alpha falling linearly along the tail (one
+    /// stroke with a conic gradient, so no seams), round head.
+    static func glint(head: Double, center: CGPoint, radius: Double, color: RGB, _ g: KnobTheme.Bot.Glint,
+                      in ctx: inout GraphicsContext) {
+        func mix(_ v: UInt8) -> UInt8 { UInt8((Double(v) + (255 - Double(v)) * g.whiteMix).rounded()) }
+        let c = Color(RGB(r: mix(color.r), g: mix(color.g), b: mix(color.b)))
+        func pt(_ deg: Double) -> CGPoint {
+            let a = deg * .pi / 180
+            return CGPoint(x: center.x + radius * cos(a), y: center.y + radius * sin(a))
+        }
+        var arc = Path()
+        arc.move(to: pt(head - g.tailDeg))
+        for k in stride(from: g.tailDeg - 1, through: 0, by: -1) { arc.addLine(to: pt(head - k)) }
+        let tail = 1 - g.tailDeg / 360
+        let shading = GraphicsContext.Shading.conicGradient(
+            Gradient(stops: [.init(color: c.opacity(0), location: 0), .init(color: c.opacity(0), location: tail),
+                             .init(color: c, location: 1)]),
+            center: center, angle: .degrees(head))
+        ctx.stroke(arc, with: shading, style: StrokeStyle(lineWidth: g.widthPx, lineCap: .butt, lineJoin: .round))
+        let h = pt(head), hw = g.widthPx / 2
+        ctx.fill(Path(ellipseIn: CGRect(x: h.x - hw, y: h.y - hw, width: 2 * hw, height: 2 * hw)), with: .color(c))
+    }
+
+    /// Ember's 8×8 tool icons (internal/render): body rows, then feature rows.
+    static let toolIcons: [String: ([String], [String])] = [
+        "claude": (["..X..X..", ".XXXXXX.", ".X.XX.X.", "XX.XX.XX", "XXXXXXXX", ".X....X.", ".XXXXXX.", "........"],
+                   ["........", "........", "..X..X..", "..X..X..", "........", "........", "........", "........"]),
+        "codex": (["X.......", ".X......", "..X.....", "...X....", "..X.....", ".X......", "X..XXXX.", "........"],
+                  ["........", "........", "........", "........", "........", "........", "...XXXX.", "........"]),
+        "t3": (["........", "XXX.XXX.", ".X....X.", ".X...XX.", ".X....X.", ".X..XXX.", "........", "........"],
+               ["........", "....XXX.", "......X.", ".....XX.", "......X.", "....XXX.", "........", "........"]),
+    ]
+
+    /// The curved host label (cinder `arc_text.c` + `bot_view.c` label_draw):
+    /// tool glyph, gap, then each letter along the bottom of a circle, baseline on
+    /// it, tops toward the centre, centred on 6 o'clock.
+    static func arcLabel(_ mood: KnobMood, moodColor: RGB, center: CGPoint, theme: KnobTheme,
+                         in ctx: inout GraphicsContext) {
+        let h = theme.bot.host
+        let textColor = mood.hostColor ?? moodColor
+        let font: Font = fontRegistered ? .custom(theme.font.family, fixedSize: h.fontPx)
+            : .system(size: h.fontPx, weight: .medium)
+        let icon = toolIcons[mood.tool]
+        let iconPx = 8 * h.iconCellPx
+        let glyphs = mood.host.map { ctx.resolve(Text(verbatim: String($0)).font(font).foregroundStyle(Color(textColor))) }
+        let sizes = glyphs.map { $0.measure(in: CGSize(width: 200, height: 200)) }
+        var widths = sizes.map(\.width)
+        if icon != nil { widths.insert(contentsOf: [iconPx, h.iconGapPx], at: 0) }
+        let total = widths.reduce(0, +), k = 180 / .pi / h.radiusPx
+        var s = 0.0
+        var items: [(CGPoint, Double)] = []
+        for w in widths {
+            let th = 90 + total / 2 * k - (s + w / 2) * k, a = th * .pi / 180
+            items.append((CGPoint(x: center.x + h.radiusPx * cos(a), y: center.y + h.radiusPx * sin(a)), th - 90))
+            s += w
+        }
+        var first = 0
+        if let (body, feature) = icon {
+            var c2 = ctx
+            c2.translateBy(x: items[0].0.x, y: items[0].0.y)
+            c2.rotate(by: .degrees(items[0].1))
+            for (rows, color) in [(body, textColor), (feature, moodColor)] {
+                var cells = Path()
+                for (y, row) in rows.enumerated() {
+                    for (x, ch) in row.enumerated() where ch == "X" {
+                        cells.addRect(CGRect(x: -iconPx / 2 + Double(x) * h.iconCellPx,
+                                             y: -iconPx + Double(y) * h.iconCellPx, width: h.iconCellPx, height: h.iconCellPx))
+                    }
+                }
+                c2.fill(cells, with: .color(Color(color)))
+            }
+            first = 2
+        }
+        for (i, g) in glyphs.enumerated() {
+            let (p, rot) = items[first + i]
+            var c2 = ctx
+            c2.translateBy(x: p.x, y: p.y)
+            c2.rotate(by: .degrees(rot))
+            let size = sizes[i]
+            c2.draw(g, in: CGRect(x: -size.width / 2, y: -g.firstBaseline(in: size), width: size.width, height: size.height))
         }
     }
 
