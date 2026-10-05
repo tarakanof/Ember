@@ -235,6 +235,8 @@ type publishHealthOut struct {
 type clockHealthOut struct {
 	GeneratedAt time.Time        `json:"generated_at"`
 	Publish     publishHealthOut `json:"publish"`
+	// Disabled: the server runs with EMBER_CLOCK=off and does no clock I/O; device stays null.
+	Disabled bool `json:"disabled,omitempty"`
 	// Device is null when no clock is configured.
 	Device *clockDeviceOut `json:"device"`
 	// LatestFirmware is the newest awtrix-ng release ("1.1.2"), looked up on GitHub in the background at most every 6h; null when unknown (the first request after start, offline, rate-limited, or EMBER_FIRMWARE_CHECK=0).
@@ -273,7 +275,7 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 // ARCHITECTURE). Every fresh probe is also a clock stats sample.
 func (a *App) probeClockHealthWithin(ctx context.Context, now time.Time, maxAge time.Duration) *clockDeviceOut {
 	base := a.cfg.Load().effectiveClockURL()
-	if base == "" {
+	if base == "" || clockDisabled() {
 		return nil
 	}
 	c := &a.clockProbe
@@ -357,7 +359,7 @@ func (a *App) buildClockHealth(ctx context.Context, now time.Time) clockHealthOu
 		pub.SuccessRatio24h = &ratio
 	}
 
-	out := clockHealthOut{GeneratedAt: wireTime(now, loc), Publish: pub}
+	out := clockHealthOut{GeneratedAt: wireTime(now, loc), Publish: pub, Disabled: clockDisabled()}
 	if dev := a.probeClockHealth(ctx, now); dev != nil {
 		d := *dev
 		d.CheckedAt = wireTime(d.CheckedAt, loc)

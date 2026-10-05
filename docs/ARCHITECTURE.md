@@ -1619,14 +1619,14 @@ only** — `config.json` and the writable store are never rewritten, so a
 config/store edit still takes effect the next time its source URL goes
 unreachable. The whole probe loop is gated by `awtrix.auto_rediscover` (config,
 default on; `/admin/doctor`'s `clock` check reports the source, reachability,
-and last re-discovery time/result). The server also advertises
+and last re-discovery time/result; `"disabled"` under `EMBER_CLOCK=off`, which runs the server with no clock I/O at all, see RUNBOOK). The server also advertises
 itself as `_ember._tcp` so the menu app can discover it (gated by
 `EMBER_MDNS_ADVERTISE`); the app browses (`ServerDiscovery`) only while
 Settings › Connection is open. Both directions require host/macvlan networking.
 
 The app can find the clock itself (#57), for a server that can't see
 multicast. Settings › Clock's Discover sheet runs the server's
-`/v1/device/discover` and an app-side browse (`ClockDiscovery`, EmberKit) side
+`/v1/device/discover` (503 `clock_disabled` under `EMBER_CLOCK=off`) and an app-side browse (`ClockDiscovery`, EmberKit) side
 by side and lists both, one row per `uid`, labelled by who found it (the
 server's address wins a tie: it has shown it can reach it). The app-side rules
 mirror `internal/discovery`: browse `_awtrixng._tcp` (listed in
@@ -1788,7 +1788,7 @@ Open (no token) reads for the native macOS dashboard, alongside the existing
   provider's own series start), air quality, the user's `location_name` label
   and today's sunrise/sunset **rounded to 5 min** (to the second they'd pin the
   coordinates). No provider call; the coordinates are never echoed.
-- **`GET /v1/clock/health`** (per-IP rate-limited) — publish counts for the last
+- **`GET /v1/clock/health`** (per-IP rate-limited; under `EMBER_CLOCK=off` it adds `"disabled": true` (omitted otherwise), `device` is `null` and no publishes are counted) — publish counts for the last
   24 h (hourly buckets fed by `recordPublish`) and since start, the last publish,
   plus the clock's `currentApp` (not shown by the app: 30 s behind a rotation
   that changes every few seconds), `wifiRssi`, heap, uptime, `wifi.connects`,
@@ -2338,7 +2338,7 @@ offline mode is partial by design: automation must treat `OK == false` as failed
 or partial and inspect the mode and per-check status. The `clock` check only
 warns on a transient miss (the watch loop recovers), and a missing
 `capabilities` entry is a Warn (clock dark at startup; the endpoint still
-live-fetches). The meetings check never prints feed URLs. Offline, failures of
+live-fetches). Under `EMBER_CLOCK=off` the `clock`, `awtrix_reachable` and `capabilities` checks are OK with a "disabled" detail (not Skipped, which is non-OK), so a scratch server's doctor still gates on `OK`. The meetings check never prints feed URLs. Offline, failures of
 static checks are real failures. The standalone doctor builds a bare stderr
 logger so baseline-repair warnings aren't dropped.
 

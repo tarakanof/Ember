@@ -131,7 +131,11 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	if publisher == nil {
-		publisher = clockPublisher{a.clock}
+		if clockDisabled() {
+			publisher = disabledPublisher{}
+		} else {
+			publisher = clockPublisher{a.clock}
+		}
 	}
 	quiet := &quietPublisher{Publisher: publisher, cfg: a.cfg.Load, now: time.Now}
 	a.publisher = quiet
@@ -162,6 +166,9 @@ func (a *App) tryUpdateConfig(mutate func(*Config) error) error {
 }
 
 func (a *App) recordPublish(snap Snapshot, err error) {
+	if clockDisabled() {
+		return // publishes went to a no-op sink: not counted as clock health
+	}
 	now := time.Now()
 	a.publishWindow.add(now, err == nil)
 	a.mu.Lock()

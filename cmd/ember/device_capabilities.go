@@ -13,7 +13,7 @@ import (
 func (a *App) refreshCapabilities(ctx context.Context) {
 	base := a.cfg.Load().effectiveClockURL()
 	cl, err := a.clock.client(callCapabilities)
-	if errors.Is(err, errClockNotConfigured) {
+	if errors.Is(err, errClockNotConfigured) || errors.Is(err, errClockDisabled) {
 		return
 	}
 	if err != nil {

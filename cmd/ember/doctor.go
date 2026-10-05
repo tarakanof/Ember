@@ -80,7 +80,7 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	}
 
 	awtrixCheck := checkAWTRIXReachable(ctx, cfg)
-	if app != nil {
+	if app != nil && !clockDisabled() {
 		awtrixCheck.Detail += fmt.Sprintf(" [source=%s]", app.deviceSource())
 	}
 	res.Checks["awtrix_reachable"] = awtrixCheck
@@ -152,7 +152,16 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	return res
 }
 
+// clockDisabledCheck is the clock checks' answer under EMBER_CLOCK=off: OK, not
+// Skipped (Skipped is non-OK), so a scratch server's doctor can still gate on OK.
+func clockDisabledCheck() CheckResult {
+	return CheckResult{Status: StatusOK, Detail: "disabled (EMBER_CLOCK=off); no clock I/O"}
+}
+
 func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
+	if clockDisabled() {
+		return clockDisabledCheck()
+	}
 	if cfg == nil || cfg.effectiveClockURL() == "" {
 		return CheckResult{Status: StatusFail, Detail: "awtrix.http_base_url empty"}
 	}
@@ -174,6 +183,9 @@ func checkAWTRIXReachable(ctx context.Context, cfg *Config) CheckResult {
 }
 
 func checkCapabilities(app *App) CheckResult {
+	if clockDisabled() {
+		return clockDisabledCheck()
+	}
 	caps, ok := app.capabilities()
 	if !ok {
 		return CheckResult{Status: StatusWarn, Detail: "not fetched (clock unreachable at startup?)"}
@@ -305,6 +317,9 @@ func checkMeetings(app *App, cfg *Config) CheckResult {
 }
 
 func checkClock(ctx context.Context, app *App) CheckResult {
+	if clockDisabled() {
+		return clockDisabledCheck()
+	}
 	baseURL, source := app.cfg.Load().clockURL()
 
 	probeCtx, cancel := context.WithTimeout(ctx, probeCallTimeout)
