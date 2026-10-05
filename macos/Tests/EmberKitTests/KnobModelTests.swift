@@ -18,11 +18,11 @@ import Foundation
 @Test func knobPatchSendsPagesWhole() {
     let old = KnobSettings.defaults
     var new = old
-    new.pages.swapAt(0, 2)
+    new.pages.swapAt(0, 3)
     let patch = new.patch(from: old)
     #expect(patch.keys.sorted() == ["pages"])
     guard case .array(let pages)? = patch["pages"] else { Issue.record("pages"); return }
-    #expect(pages.count == 3)
+    #expect(pages.count == 4)
     #expect(KnobSettings.defaults.patch(from: .defaults).isEmpty)
 }
 
@@ -46,15 +46,15 @@ import Foundation
     let ids = s.pages.map(\.id)
     let home = s.home
     s.movePage(ids[0], by: -1)
-    s.movePage(ids[2], by: 1)
+    s.movePage(ids[3], by: 1)
     #expect(s.pages.map(\.id) == ids)
     s.movePage(ids[0], by: 1)
-    #expect(s.pages.map(\.id) == [ids[1], ids[0], ids[2]])
+    #expect(s.pages.map(\.id) == [ids[1], ids[0], ids[2], ids[3]])
     s = .defaults
     s.movePage(ids[0], to: ids[2])
-    #expect(s.pages.map(\.id) == [ids[1], ids[2], ids[0]])
+    #expect(s.pages.map(\.id) == [ids[1], ids[2], ids[0], ids[3]])
     s.movePage(ids[0], to: ids[1])
-    #expect(s.pages.map(\.id) == [ids[0], ids[1], ids[2]])
+    #expect(s.pages.map(\.id) == [ids[0], ids[1], ids[2], ids[3]])
     s.movePage("nope", to: ids[0])
     s.movePage(ids[0], to: ids[0])
     #expect(s.pages.map(\.id) == ids)

@@ -7,6 +7,7 @@ public enum KnobFace: Sendable, Equatable {
     /// clockwise), nil for none.
     case bot(pose: BotPose, mood: KnobMood, glint: Double? = nil)
     case pomodoro(KnobPomoFace)
+    case nowPlaying(KnobNowPlayingFace)
     /// `tempC` nil prints "--°".
     case weather(look: KnobWeatherLook, draws: [KnobWeatherScene.Draw], tempC: Double?)
 }
@@ -36,6 +37,7 @@ public struct KnobFaceView: View, Equatable {
             switch face {
             case .bot(let pose, let mood, let glint): KnobFaceRender.bot(pose, mood, glint: glint, theme, in: &ctx)
             case .pomodoro(let p): KnobFaceRender.pomodoro(p, theme, in: &ctx)
+            case .nowPlaying(let n): KnobFaceRender.nowPlaying(n, theme, in: &ctx)
             case .weather(let look, let draws, let temp): KnobFaceRender.weather(look, draws, temp, theme, in: &ctx)
             }
             let dim = (1 - min(max(brightness, 0), 1)) * 0.6
@@ -264,6 +266,91 @@ enum KnobFaceRender {
                                  (f.phase, t.phase, f.phaseColor)] {
             label(text, l.fontPx, color, centerX: c, top: centredTop(l.fontPx, dy: l.dyPx, theme: theme),
                   clip: l.widthPx, theme: theme, in: &ctx)
+        }
+    }
+
+    // MARK: Now playing
+
+    /// `text` cut to `width` px with "..." as the firmware's `fit_text` does.
+    static func fit(_ text: String, _ px: Double, width: Double, theme: KnobTheme) -> String {
+        let font = CTFontCreateWithName(theme.font.family as CFString, px, nil)
+        func w(_ s: String) -> Double {
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: s, attributes: [.font: font]))
+            return CTLineGetTypographicBounds(line, nil, nil, nil)
+        }
+        guard w(text) > width else { return text }
+        let chars = Array(text)
+        var lo = 0, hi = chars.count
+        while lo < hi {   // the longest prefix that fits with "..."
+            let mid = (lo + hi + 1) / 2
+            if w(String(chars[..<mid]) + "...") <= width { lo = mid } else { hi = mid - 1 }
+        }
+        while lo > 0, chars[lo - 1] == " " || chars[lo - 1] == "-" { lo -= 1 }
+        return String(chars[..<lo]) + "..."
+    }
+
+    static func nowPlaying(_ f: KnobNowPlayingFace, _ theme: KnobTheme, in ctx: inout GraphicsContext) {
+        let t = theme.nowplaying
+        let d = theme.screen.diameterPx
+        let c = d / 2
+        guard f.mode != .idle else {
+            label(f.idleLine, t.idle.fontPx, t.colors.idle, centerX: c,
+                  top: centredTop(t.idle.fontPx, dy: t.idle.dyPx, theme: theme), clip: t.idle.widthPx, theme: theme, in: &ctx)
+            return
+        }
+        let playing = f.mode == .playing
+        let arc = playing ? t.colors.arc : t.colors.arcPaused
+        let center = CGPoint(x: c, y: c)
+
+        // The backdrop is masked to a disk; the ring runs in the black band outside it.
+        if let b = f.pictures.backdrop {
+            ctx.drawLayer { l in
+                l.clip(to: Path(ellipseIn: CGRect(x: c - t.backdropDiskRadiusPx, y: c - t.backdropDiskRadiusPx,
+                                                   width: 2 * t.backdropDiskRadiusPx, height: 2 * t.backdropDiskRadiusPx)))
+                l.draw(Image(decorative: b.image, scale: 1), in: CGRect(x: 0, y: 0, width: d, height: d))
+            }
+        }
+        var track = Path()
+        track.addArc(center: center, radius: t.ringRadiusPx, startAngle: .zero, endAngle: .degrees(360), clockwise: false)
+        ctx.stroke(track, with: .color(Color(t.colors.track)), lineWidth: t.ringWidthPx)
+        if f.fraction > 0 {
+            var p = Path()
+            p.addArc(center: center, radius: t.ringRadiusPx, startAngle: .degrees(-90),
+                     endAngle: .degrees(-90 + 360 * f.fraction), clockwise: false)
+            ctx.stroke(p, with: .color(Color(arc)), style: StrokeStyle(lineWidth: t.ringWidthPx, lineCap: .round))
+        }
+
+        let album = CGRect(x: c - t.albumPx / 2, y: c + t.albumDyPx - t.albumPx / 2, width: t.albumPx, height: t.albumPx)
+        ctx.drawLayer { l in
+            l.clip(to: Path(ellipseIn: album))
+            if let a = f.pictures.album {
+                l.draw(Image(decorative: a.image, scale: 1), in: album)
+            } else {
+                l.fill(Path(album), with: .color(Color(t.colors.placeholder)))
+                let note = l.resolve(Text(Image(systemName: "music.note")).font(.system(size: 48))
+                    .foregroundStyle(Color(t.colors.note)))
+                l.draw(note, at: CGPoint(x: album.midX, y: album.midY))
+            }
+        }
+
+        // The artist rides the ring at the progress point (a dot without a picture).
+        let a = (-90 + 360 * f.avatarFraction) * .pi / 180
+        let at = CGPoint(x: c + t.ringRadiusPx * cos(a), y: c + t.ringRadiusPx * sin(a))
+        if let p = f.pictures.artist {
+            let r = CGRect(x: at.x - t.artistPx / 2, y: at.y - t.artistPx / 2, width: t.artistPx, height: t.artistPx)
+            ctx.drawLayer { l in
+                l.clip(to: Path(ellipseIn: r))
+                l.draw(Image(decorative: p.image, scale: 1), in: r)
+            }
+        } else {
+            ctx.fill(Path(ellipseIn: CGRect(x: at.x - t.dotPx / 2, y: at.y - t.dotPx / 2, width: t.dotPx, height: t.dotPx)),
+                     with: .color(Color(arc)))
+        }
+
+        // Text last: it may run over the artist picture at 4 to 8 o'clock.
+        for (text, l, color) in [(f.title, t.title, t.colors.text), (f.sub, t.sub, t.colors.sub), (f.meta, t.meta, t.colors.meta)] {
+            label(fit(text, l.fontPx, width: l.widthPx, theme: theme), l.fontPx, color, centerX: c,
+                  top: centredTop(l.fontPx, dy: l.dyPx, theme: theme), clip: l.widthPx, theme: theme, in: &ctx)
         }
     }
 

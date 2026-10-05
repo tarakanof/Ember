@@ -1007,6 +1007,7 @@
     "No knob connected" : {},
     "No knob set up" : {},
     "No meetings in the next 36 hours." : {},
+    "No music data from Ember." : {},
     "No observation yet" : {},
     "No server URL" : {},
     "No server found?" : {},
@@ -1049,6 +1050,7 @@
       "extractionState" : "manual"
     },
     "Now" : {},
+    "Now Playing" : {},
     "Now Playing on the Server" : {},
     "Off" : {},
     "Off. %@" : {
@@ -1145,6 +1147,9 @@
     "Paused · round %lld" : {
       "comment" : "Focus card: the timer is paused; the argument is the Pomodoro round number."
     },
+    "Paused: %@" : {
+      "comment" : "Knob now-playing preview: the paused track (\"Paused: Song - Artist\")."
+    },
     "Peak %@ %@" : {
       "comment" : "\"When you focus\" card header: the weekday (\"Tue\"), then the time (\"10:00\") with the most focus.",
       "localizations" : {
@@ -1165,6 +1170,9 @@
     "Play" : {},
     "Play Test Chime" : {},
     "Play this melody on the clock" : {},
+    "Playing: %@" : {
+      "comment" : "Knob now-playing preview: the playing track (\"Playing: Song - Artist\")."
+    },
     "Plex is read by the server itself; set it up there (see the Runbook, \"Now playing\")." : {},
     "Plug the knob into this Mac to change its Wi-Fi or erase it." : {},
     "Plug the knob into this Mac with a USB-C cable, then set it up. Ember gives it your Wi-Fi, this server's address and its own token." : {},
@@ -1208,6 +1216,7 @@
     "Re-mint Token" : {},
     "Reaches the server and the clock on your network, and finds them with Bonjour." : {},
     "Reaching Ember" : {},
+    "Reading what's playing…" : {},
     "Reads reminders with a due time to ring the clock. Needed while reminder alarms are on." : {},
     "Reads the playing track's position and artwork from Music. Needed while Apple Music is sent to Ember." : {},
     "Refresh" : {},

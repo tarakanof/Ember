@@ -44,6 +44,8 @@ struct KnobPreviewData {
     let brightnessLevel: Int?
     /// The mood to keep while Ember can't be read, as the knob does.
     let lastMood: KnobMood
+    /// Reads what the server says is playing; nil until the preview is on screen.
+    let nowPlaying: KnobNowPlayingFeed?
 
     var settings: KnobSettings { env.knob.settings.draft }
     /// The mood from the latest good `/state`; with none, the last one shown.
@@ -83,6 +85,10 @@ struct KnobPreviewData {
                          brightness: brightness)
         case "weather":
             KnobWeatherLive(state: weather, animated: animated, brightness: brightness)
+        case "nowplaying":
+            KnobNowPlayingLive(state: nowPlaying?.state, offline: nowPlaying?.failed ?? false, offset: nowPlaying?.serverOffset ?? 0,
+                               pictures: nowPlaying?.pictures ?? .init(),
+                               animated: animated, brightness: brightness)
         default:
             Circle().fill(.black)
         }
@@ -93,6 +99,7 @@ struct KnobPreviewData {
         case "bot": botCaption
         case "pomodoro": pomodoroCaption
         case "weather": weatherCaption
+        case "nowplaying": nowPlayingCaption
         default: Text(verbatim: "")
         }
     }
@@ -134,6 +141,17 @@ struct KnobPreviewData {
         }
     }
 
+    private var nowPlayingCaption: Text {
+        guard let s = nowPlaying?.state else {
+            return nowPlaying?.failed == true ? Text("No music data from Ember.") : Text("Reading what's playing…")
+        }
+        guard s.isActive else { return Text("Nothing playing.") }
+        let what = Text(verbatim: [s.title, s.artist].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " - "))
+        return s.state == "paused"
+            ? Text("Paused: \(what)", comment: "Knob now-playing preview: the paused track (\"Paused: Song - Artist\").")
+            : Text("Playing: \(what)", comment: "Knob now-playing preview: the playing track (\"Playing: Song - Artist\").")
+    }
+
     private var weatherCaption: Text {
         guard let w = weather, let cur = w.current else { return Text("No weather from Ember yet.") }
         let look = KnobWeatherLook(state: w, now: .now, maxAge: KnobTheme.standard.weather.maxAgeS)
@@ -162,9 +180,11 @@ struct KnobAppPreviewSection: View {
     let page: String
     @State private var brightness: Int?
     @State private var lastMood = KnobMood(mood: .idle)
+    @State private var nowPlaying: KnobNowPlayingFeed?
 
     var body: some View {
-        let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood)
+        let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood,
+                                   nowPlaying: nowPlaying)
         Section {
             KnobPreview(title: knobPageTitle(page), caption: data.caption(page), enabled: data.isOn(page)) {
                 data.face(page, animated: true)
@@ -173,7 +193,7 @@ struct KnobAppPreviewSection: View {
         } footer: {
             Text("Drawn by Ember from the same data the knob shows.")
         }
-        .knobPreviewFeeds(page: page, brightness: $brightness)
+        .knobPreviewFeeds(page: page, brightness: $brightness, nowPlaying: $nowPlaying)
         .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
@@ -183,9 +203,10 @@ struct KnobPagesPreviewSection: View {
     @Environment(AppEnvironment.self) private var env
     @State private var brightness: Int?
     @State private var lastMood = KnobMood(mood: .idle)
+    @State private var nowPlaying: KnobNowPlayingFeed?
 
     var body: some View {
-        let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood)
+        let data = KnobPreviewData(env: env, brightnessLevel: brightness, lastMood: lastMood, nowPlaying: nowPlaying)
         let s = data.settings
         Section {
             HStack(alignment: .top, spacing: 12) {
@@ -206,15 +227,16 @@ struct KnobPagesPreviewSection: View {
             }
             .settingsPreviewRow()
         }
-        .knobPreviewFeeds(page: nil, brightness: $brightness)
+        .knobPreviewFeeds(page: nil, brightness: $brightness, nowPlaying: $nowPlaying)
         .onChange(of: data.liveMood, initial: true) { _, m in if let m { lastMood = m } }
     }
 }
 
 extension View {
     /// Keeps the feeds a knob preview reads fresh while it is on screen.
-    func knobPreviewFeeds(page: String?, brightness: Binding<Int?>) -> some View {
-        modifier(KnobPreviewFeeds(page: page, brightness: brightness))
+    func knobPreviewFeeds(page: String?, brightness: Binding<Int?>,
+                          nowPlaying: Binding<KnobNowPlayingFeed?>) -> some View {
+        modifier(KnobPreviewFeeds(page: page, brightness: brightness, nowPlaying: nowPlaying))
     }
 }
 
@@ -222,14 +244,28 @@ private struct KnobPreviewFeeds: ViewModifier {
     @Environment(AppEnvironment.self) private var env
     let page: String?
     @Binding var brightness: Int?
+    @Binding var nowPlaying: KnobNowPlayingFeed?
 
     private struct Level: Decodable { let level: Int }
+
+    private var overviewNeedsNowPlaying: Bool {
+        page == nil && env.knob.settings.draft.pages.contains { $0.id == "nowplaying" && $0.on }
+    }
 
     func body(content: Content) -> some View {
         content
             .task {
                 guard page == nil || page == "weather" else { return }
                 await env.live.track(.weather)
+            }
+            .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(overviewNeedsNowPlaying)") {
+                // The overview draws a thumbnail and only when the page is on; the page's own
+                // preview shows even when it is off.
+                let overview = page == nil
+                guard page == "nowplaying" || (overview && overviewNeedsNowPlaying) else { return }
+                let feed = KnobNowPlayingFeed(client: env.connection.client, thumbnail: overview)
+                nowPlaying = feed
+                await feed.run()
             }
             .task(id: env.knob.settings.draft.brightness.followEmber) {
                 guard env.knob.settings.draft.brightness.followEmber else { return }

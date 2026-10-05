@@ -95,6 +95,18 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public var time, phase, round: Label
     }
 
+    /// The now-playing page (cinder#14): a backdrop disk, the progress ring,
+    /// the album and the artist picture, and three text lines.
+    public struct NowPlaying: Decodable, Sendable, Equatable {
+        public struct Colors: Decodable, Sendable, Equatable {
+            public var track, arc, arcPaused, text, sub, meta, idle, placeholder, note: RGB
+        }
+        public var backdropDiskRadiusPx, ringRadiusPx, ringWidthPx: Double
+        public var albumPx, albumDyPx, artistPx, dotPx: Double
+        public var colors: Colors
+        public var title, sub, meta, idle: Label
+    }
+
     public struct Weather: Decodable, Sendable, Equatable {
         public struct Sky: Decodable, Sendable, Equatable {
             public var widthPx, heightPx, yPx: Double
@@ -171,6 +183,7 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
     public var bot: Bot
     public var pomodoro: Pomodoro
     public var weather: Weather
+    public var nowplaying: NowPlaying
 
     /// The bundled font's file, for registering it with Core Text.
     public static var fontURL: URL? {

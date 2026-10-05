@@ -61,8 +61,12 @@ func (a *App) nowPlayingState(now time.Time) nowPlayingState {
 }
 
 func (a *App) handleNowPlayingState(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
 	w.Header().Set("Cache-Control", "no-cache")
-	writeJSON(w, http.StatusOK, a.nowPlayingState(time.Now()))
+	// The server's Unix seconds, so a client with a skewed clock extrapolates
+	// position_at the way the knob does.
+	w.Header().Set(knobNowHeader, strconv.FormatInt(now.Unix(), 10))
+	writeJSON(w, http.StatusOK, a.nowPlayingState(now))
 }
 
 // handleNowPlayingArt serves the current entry's picture as a square

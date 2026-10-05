@@ -80,6 +80,15 @@ public struct KnobDevice: Codable, Equatable, Sendable, Identifiable {
     /// (cinder 0.7.0, tarakanof/cinder#40); false before its first checkin.
     public var supportsStatsIntervals: Bool { Self.firmware(lastCheckin?.fw, atLeast: [0, 7, 0]) }
 
+    /// Firmware with the `nowplaying` page (cinder 0.9.0, cinder#14).
+    public var supportsNowPlaying: Bool { Self.firmware(lastCheckin?.fw, atLeast: [0, 9, 0]) }
+
+    /// The pages this knob's firmware draws: v1's, plus now playing from 0.9.0 (the
+    /// firmware doesn't report them; see #231).
+    public var supportedPages: [String] {
+        AppCatalog.knobDefaultPages + (supportsNowPlaying ? ["nowplaying"] : [])
+    }
+
     /// `fw` ("0.7.0", "0.7.1-dirty") at or past `min`, compared numerically
     /// by its leading dotted numbers; false when it has none.
     static func firmware(_ fw: String?, atLeast min: [Int]) -> Bool {
@@ -219,7 +228,7 @@ public struct KnobSettings: Codable, Equatable, Sendable {
     /// The server's defaults (`defaultKnobSettings`).
     public static let defaults = KnobSettings(
         brightness: Brightness(followEmber: true, level: 153, floor: 10, startup: 153),
-        pages: ["bot", "pomodoro", "weather"].map { Page(id: $0, on: true) },
+        pages: ["bot", "pomodoro", "weather", "nowplaying"].map { Page(id: $0, on: $0 != "nowplaying") },
         home: "bot", pollMS: 2000, bot: Bot(sleepyAfterS: 300, demoHoldS: 20))
 
     public static let levelRange = 0...255

@@ -24,7 +24,7 @@ public enum HardwarePage: String, CaseIterable, Sendable {
 
 /// A device's version of an app: only presentation, never source data.
 public enum AppID: String, CaseIterable, Sendable {
-    case agents, bot, focus, weather, calendar
+    case agents, bot, focus, weather, calendar, nowplaying
 }
 
 /// A page under one device node.

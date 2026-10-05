@@ -113,6 +113,7 @@ func knobPageTitle(_ id: String) -> LocalizedStringKey {
     case "bot": "Bot"
     case "pomodoro": "Pomodoro"
     case "weather": "Weather"
+    case "nowplaying": "Now Playing"
     default: LocalizedStringKey(id.capitalized)
     }
 }

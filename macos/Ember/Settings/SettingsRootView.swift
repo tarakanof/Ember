@@ -20,7 +20,8 @@ struct SettingsRootView: View {
         return [
             SettingsDevice(id: clockDeviceID, kind: .clock, name: String(localized: DeviceKind.clock.title), state: .ready),
             SettingsDevice(id: knob.knob?.id ?? DeviceKind.knob.placeholderID, kind: .knob,
-                           name: knob.knob?.name ?? String(localized: DeviceKind.knob.title), state: knobState),
+                           name: knob.knob?.name ?? String(localized: DeviceKind.knob.title), state: knobState,
+                           supportedPages: knob.knob?.supportedPages),
         ]
     }
 

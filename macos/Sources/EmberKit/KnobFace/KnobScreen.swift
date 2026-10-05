@@ -282,3 +282,37 @@ final class KnobWeatherDriver {
         return scene.draws(colors: colors)
     }
 }
+
+/// The now-playing page with the second-by-second position, like the knob.
+public struct KnobNowPlayingLive: View {
+    let state: NowPlayingState?
+    let offline: Bool
+    /// Seconds from this Mac's clock to the server's.
+    let offset: TimeInterval
+    let pictures: KnobNowPlayingPictures
+    let animated: Bool
+    let theme: KnobTheme
+    let brightness: Double
+
+    public init(state: NowPlayingState?, offline: Bool = false, offset: TimeInterval = 0,
+                pictures: KnobNowPlayingPictures = .init(),
+                animated: Bool = true, theme: KnobTheme = .standard, brightness: Double = 1) {
+        self.state = state; self.offline = offline; self.offset = offset; self.pictures = pictures; self.animated = animated
+        self.theme = theme; self.brightness = brightness
+    }
+
+    public var body: some View {
+        if animated {
+            TimelineView(.periodic(from: .now, by: 1)) { tl in face(at: tl.date) }
+        } else {
+            face(at: .now)
+        }
+    }
+
+    private func face(at now: Date) -> some View {
+        KnobFaceView(.nowPlaying(KnobNowPlayingFace(state: state, offline: offline, now: now.addingTimeInterval(offset),
+                                                  pictures: pictures)),
+                     theme: theme, brightness: brightness)
+        .equatable()
+    }
+}

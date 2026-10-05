@@ -79,6 +79,7 @@ extension AppID {
         case .focus:    "Focus"
         case .weather:  "Weather"
         case .calendar: "Calendar"
+        case .nowplaying: "Now Playing"
         }
     }
 
@@ -89,6 +90,7 @@ extension AppID {
         case .focus:    "timer"
         case .weather:  "cloud.sun"
         case .calendar: "calendar"
+        case .nowplaying: "music.note"
         }
     }
 }

@@ -81,7 +81,8 @@ func unknownStoredValueFallsBackToConnection(name: String) {
 }
 
 @Test func knobShowsOnlyAppsItsFirmwareSupports() {
-    #expect(AppCatalog.apps(.knob, supportedPages: ["bot", "weather", "nowplaying"]) == [.bot, .weather])
+    #expect(AppCatalog.apps(.knob, supportedPages: ["bot", "weather", "nowplaying"]) == [.bot, .weather, .nowplaying])
+    #expect(AppCatalog.knobPage(.nowplaying) == "nowplaying" && AppCatalog.source(of: .nowplaying) == .music)
 }
 
 @Test func everyAppHasASource() {

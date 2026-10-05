@@ -581,6 +581,7 @@ func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
 	}
 	cur.Bot.fillDefaults() // a null flag reads as on, as when absent
 	cur.Display.fillDefaults()
+	cur.addKnownPages() // a PUT that leaves out a known page gets it back, off (#284)
 	return cur, nil
 }
 
