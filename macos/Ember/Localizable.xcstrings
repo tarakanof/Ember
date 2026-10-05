@@ -465,6 +465,10 @@
     "Buttons" : {},
     "Buzzer volume" : {},
     "By hour, last 12 weeks" : {},
+    "CPU lockup" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Calendar" : {},
     "Calendar Box" : {},
     "Calendar icon, title and minutes to go." : {},
@@ -627,7 +631,10 @@
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
     },
-    "Crash" : {},
+    "Crash" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Crescent moon, after ^[%lld round](inflect: true)." : {
       "comment" : "Settings › Focus preview caption for the long break; the argument is the number of rounds before it."
     },
@@ -641,6 +648,10 @@
     "Day" : {},
     "Day number" : {},
     "Day, month, year" : {},
+    "Debugger reset" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Delivered" : {},
     "Desk knob" : {},
     "Devices" : {},
@@ -881,7 +892,10 @@
     "Long-press the knob to try a mood; it holds for the time set here." : {},
     "Longitude" : {},
     "Low" : {},
-    "Low voltage" : {},
+    "Low voltage" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Lowest free" : {},
     "Measured now" : {},
     "Meeting" : {
@@ -1142,7 +1156,14 @@
     "Popup" : {},
     "Popups" : {},
     "Position" : {},
-    "Power on" : {},
+    "Power glitch" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Power on" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Preview" : {},
     "Preview unavailable: the server didn't answer." : {},
     "Previous App" : {},
@@ -1200,7 +1221,10 @@
     "Requests per minute" : {},
     "Rescan" : {},
     "Reset clock" : {},
-    "Reset pin" : {},
+    "Reset pin" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Reset to Firmware Defaults" : {},
     "Resets %@" : {
       "comment" : "Usage card tooltip: when the usage window resets, relative (\"in 2 hours\")."
@@ -1208,7 +1232,10 @@
     "Restart" : {},
     "Restart Clock…" : {},
     "Restart the clock?" : {},
-    "Restarted by software" : {},
+    "Restarted by software" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Restarting" : {},
     "Resume" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1233,6 +1260,10 @@
     },
     "Runs ember-claude-producer configure: removes the pause and keeps one set of hooks, the plugin's when it's enabled." : {},
     "Runs the timer on the clock and lets the clock's buttons control it." : {},
+    "SDIO reset" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Same as text" : {},
     "Save Token" : {},
     "Saved" : {
@@ -1560,6 +1591,10 @@
     "Turn on diagnostics to have the knob report its processor, memory, temperature and Wi-Fi. Full diagnostics add network requests and rendering." : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
     "USB" : {},
+    "USB reset (flashing or serial)" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Unauthorized — check the token in Connection settings." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1633,7 +1668,10 @@
     "Waiting: an agent on %@ needs you." : {
       "comment" : "Knob bot preview: the host whose agent is waiting (\"DT-MBP\")."
     },
-    "Watchdog" : {},
+    "Watchdog" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Weak" : {},
     "Weather" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1659,7 +1697,10 @@
     "Wi-Fi" : {},
     "Wi-Fi passwords are 8 to 63 characters." : {},
     "Wi-Fi signal" : {},
-    "Woke from sleep" : {},
+    "Woke from sleep" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Work hours" : {},
     "Work hours per day" : {},
     "Working: an agent is running." : {},
@@ -1690,6 +1731,10 @@
       "extractionState" : "manual"
     },
     "done" : {},
+    "eFuse error" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "extremely poor" : {},
     "fair" : {},
     "found by the server" : {},
