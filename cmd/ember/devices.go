@@ -48,6 +48,10 @@ type deviceCheckin struct {
 	HeapInternalLargest int       `json:"heap_internal_largest"`
 	UptimeS             int64     `json:"uptime_s"`
 	AppliedVersion      int       `json:"applied_version"`
+	// LinkMHz is the knob's panel QSPI clock (cinder#23: 80, or 40 when
+	// display.fast_link is off or LinkFallback says a link check failed).
+	LinkMHz      int  `json:"link_mhz,omitempty"`
+	LinkFallback bool `json:"link_fallback,omitempty"`
 }
 
 type deviceRecord struct {
@@ -576,6 +580,7 @@ func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
 		return cur, fmt.Errorf("%w: %w", errSettingBody, err)
 	}
 	cur.Bot.fillDefaults() // a null flag reads as on, as when absent
+	cur.Display.fillDefaults()
 	return cur, nil
 }
 

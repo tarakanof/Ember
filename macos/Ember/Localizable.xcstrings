@@ -286,6 +286,9 @@
     "%lld" : {
       "comment" : "A bare count next to a stepper (rounds before a long break)."
     },
+    "%lld MHz (fell back after a check failed)" : {
+      "comment" : "Settings › Knob: the knob's panel link clock after it fell back from 80 MHz (\"40 MHz (fell back after a check failed)\")."
+    },
     "%lld dBm" : {
       "comment" : "Wi-Fi signal strength in decibel-milliwatts (\"-62 dBm\")."
     },
@@ -668,6 +671,7 @@
     "Discovered Servers" : {},
     "Dismiss Notification" : {},
     "Display" : {},
+    "Display link" : {},
     "Display on" : {},
     "Dock" : {},
     "Dock icon" : {},
@@ -754,6 +758,7 @@
     "Fahrenheit" : {},
     "Failed" : {},
     "Failures" : {},
+    "Fast display link" : {},
     "Find Clock from This Mac…" : {},
     "Firmware" : {},
     "First model" : {},
@@ -1278,6 +1283,7 @@
       "extractionState" : "manual"
     },
     "Runs ember-claude-producer configure: removes the pause and keeps one set of hooks, the plugin's when it's enabled." : {},
+    "Runs the knob's screen link at 80 MHz instead of 40: smoother motion, less tearing. The knob restarts to apply it and goes back to 40 MHz by itself if the link fails a check." : {},
     "Runs the timer on the clock and lets the clock's buttons control it." : {},
     "SDIO reset" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",

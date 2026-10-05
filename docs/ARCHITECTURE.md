@@ -2074,6 +2074,9 @@ the same board finds its record.
   working_ring}` (the two booleans, cinder#42: the curved host label and the
   glint orbiting the outline while working; absent or null = true, so a
   record stored before #282 keeps both on with no config push),
+  `display{fast_link}` (cinder#23: the knob's panel QSPI link at 80 MHz,
+  absent or null = true like the bot flags; the knob reboots to apply a
+  change and falls back to 40 MHz by itself after a failed link check),
   `diagnostics` `off|basic|full` (default `off`; a record stored before #239
   loads as `off`; see "Knob diagnostics" below), `stats_interval_s`
   `30|60|120|300` and `live_interval_s` `2|5|10` (defaults 60 and 5, chosen
@@ -2569,6 +2572,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
 - **Knob checkin (device token).** `POST /v1/devices/self/checkin` decodes
   non-strict like `/v1/status`:
   `{"fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"config_version":6}`
+  (since cinder 0.9.2 also `link_mhz` 40/80 and `link_fallback`, 0..1000,
+  stored on the record's `last_checkin` and shown as "Display link")
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus

@@ -667,3 +667,23 @@ func TestDoctorReportsDevices(t *testing.T) {
 		t.Fatalf("stale = %+v", got)
 	}
 }
+
+// cinder#23: the panel link clock and its fallback ride the checkin into the record.
+func TestDeviceCheckinRecordsTheDisplayLink(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.2","link_mhz":40,"link_fallback":true}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
+	}
+	got := app.devices.list()[0].LastCheckin
+	if got.LinkMHz != 40 || !got.LinkFallback {
+		t.Fatalf("link = %d MHz, fallback %v", got.LinkMHz, got.LinkFallback)
+	}
+	if resp, _ := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"link_mhz":-1}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad link_mhz = %d, want 400", resp.StatusCode)
+	}
+	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.1"}`)
+	if got := app.devices.list()[0].LastCheckin; got.LinkMHz != 0 || got.LinkFallback {
+		t.Fatalf("older firmware: link = %d, %v", got.LinkMHz, got.LinkFallback)
+	}
+}

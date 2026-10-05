@@ -75,6 +75,18 @@ import Foundation
 
 // Ember#282: the bot flags round-trip when the server has them, and stay out
 // of what the app sends to a server that does not (its PUT rejects unknown keys).
+@Test func knobDisplayLinkDecodes() throws {
+    let s = try JSONDecoder().decode(KnobSettings.self, from: Data(#"{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"display":{"fast_link":false}}"#.utf8))
+    #expect(s.display?.fastLink == false)
+    let old = try JSONDecoder().decode(KnobSettings.self, from: Data(#"{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20}}"#.utf8))
+    #expect(old.display == nil)
+    #expect(!String(decoding: try JSONEncoder().encode(old), as: UTF8.self).contains("display"))
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let c = try d.decode(KnobCheckin.self, from: Data(#"{"seen_at":"2026-10-05T10:00:00Z","fw":"0.9.2","ip":"","rssi":-60,"heap_internal_free":1,"heap_internal_largest":1,"uptime_s":1,"applied_version":1,"link_mhz":40,"link_fallback":true}"#.utf8))
+    #expect(c.linkMHz == 40 && c.linkFallback == true)
+}
+
 @Test func knobBotFlagsDecodeAndStayOffTheWireWhenAbsent() throws {
     let json = #"{"sleepy_after_s":300,"demo_hold_s":20,"source_label":false,"working_ring":true}"#
     let b = try JSONDecoder().decode(KnobSettings.Bot.self, from: Data(json.utf8))

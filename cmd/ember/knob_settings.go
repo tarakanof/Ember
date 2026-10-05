@@ -25,6 +25,23 @@ type knobSettings struct {
 	// (one of knobLiveIntervals). Chosen by measurement, see #249.
 	StatsIntervalS int `json:"stats_interval_s"`
 	LiveIntervalS  int `json:"live_interval_s"`
+	// Display: panel options (cinder#23).
+	Display knobDisplay `json:"display"`
+}
+
+// knobDisplay.FastLink runs the knob's panel QSPI link at 80 MHz (out of the
+// panel's write spec, measured stable; the knob falls back to 40 MHz by itself
+// when a link check fails). Pointer so a stored record without it reads as on.
+type knobDisplay struct {
+	FastLink *bool `json:"fast_link,omitempty"`
+}
+
+func (d knobDisplay) clone() knobDisplay {
+	if d.FastLink != nil {
+		v := *d.FastLink
+		d.FastLink = &v
+	}
+	return d
 }
 
 // Allowed stats and live-mode intervals, in seconds, and their defaults.
@@ -93,6 +110,7 @@ func (b knobBot) clone() knobBot {
 func (s knobSettings) clone() knobSettings {
 	s.Pages = slices.Clone(s.Pages)
 	s.Bot = s.Bot.clone()
+	s.Display = s.Display.clone()
 	return s
 }
 
@@ -107,6 +125,7 @@ func defaultKnobSettings() knobSettings {
 		Home:        "bot",
 		PollMS:      2000,
 		Bot:         knobBot{SleepyAfterS: 300, DemoHoldS: 20, SourceLabel: boolPtr(true), WorkingRing: boolPtr(true)},
+		Display:     knobDisplay{FastLink: boolPtr(true)},
 		Diagnostics: knobDiagOff,
 
 		StatsIntervalS: knobStatsIntervalDefault,
@@ -126,6 +145,13 @@ func (s *knobSettings) fillDefaults() {
 		s.LiveIntervalS = knobLiveIntervalDefault
 	}
 	s.Bot.fillDefaults()
+	s.Display.fillDefaults()
+}
+
+func (d *knobDisplay) fillDefaults() {
+	if d.FastLink == nil {
+		d.FastLink = boolPtr(true)
+	}
 }
 
 func (b *knobBot) fillDefaults() {

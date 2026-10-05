@@ -36,6 +36,16 @@ struct KnobStatusSection: View {
                     }
                     .help("Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw.")
                 }
+                if let mhz = checkin?.linkMHz, mhz > 0 {
+                    LabeledContent("Display link") {
+                        if checkin?.linkFallback == true {
+                            Text("\(mhz) MHz (fell back after a check failed)",
+                                 comment: "Settings › Knob: the knob's panel link clock after it fell back from 80 MHz (\"40 MHz (fell back after a check failed)\").")
+                        } else {
+                            Text(verbatim: "\(mhz) MHz")
+                        }
+                    }
+                }
                 LabeledContent("Settings") { applied(knob) }
                 LabeledContent("Hardware stats") {
                     Button("Show Hardware") { showKnobHardware(knob.id) }

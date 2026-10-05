@@ -99,6 +99,25 @@ func TestUpsertNotifiesWhenOnlyTheLeadMoves(t *testing.T) {
 	}
 }
 
+func TestKnobDisplayFastLinkDefaultsOnAndMerges(t *testing.T) {
+	var s knobSettings
+	if err := json.Unmarshal([]byte(`{"bot":{"sleepy_after_s":300,"demo_hold_s":20}}`), &s); err != nil {
+		t.Fatal(err)
+	}
+	s.fillDefaults()
+	if s.Display.FastLink == nil || !*s.Display.FastLink {
+		t.Fatal("a stored record without display reads fast_link on")
+	}
+	cur := defaultKnobSettings()
+	off, err := mergeKnobSettings(cur.clone(), []byte(`{"display":{"fast_link":false}}`))
+	if err != nil || *off.Display.FastLink || !*cur.Display.FastLink {
+		t.Fatalf("merge: %v %+v (original %+v)", err, off.Display, cur.Display)
+	}
+	if _, err := mergeKnobSettings(cur.clone(), []byte(`{"display":{"turbo":true}}`)); err == nil {
+		t.Fatal("unknown display field accepted")
+	}
+}
+
 func TestKnobBotFlagsDefaultOnAndMerge(t *testing.T) {
 	var s knobSettings
 	if err := json.Unmarshal([]byte(`{"bot":{"sleepy_after_s":300,"demo_hold_s":20}}`), &s); err != nil {

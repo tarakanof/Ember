@@ -160,6 +160,12 @@ struct KnobPollSection: View {
                 }
                 .disabled(s.diagnostics == .off)
             }
+            if s.display != nil {
+                Toggle("Fast display link", isOn: Binding(
+                    get: { s.display?.fastLink ?? true },
+                    set: { v in knob.edit { $0.display = KnobSettings.Display(fastLink: v) } }))
+                    .help("Runs the knob's screen link at 80 MHz instead of 40: smoother motion, less tearing. The knob restarts to apply it and goes back to 40 MHz by itself if the link fails a check.")
+            }
             LabeledContent {
                 Button("Show Hardware") { if let id = knob.knob?.id { showKnobHardware(id) } }
                     .disabled(s.diagnostics == .off)
