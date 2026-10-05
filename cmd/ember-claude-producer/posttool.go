@@ -97,9 +97,15 @@ func handleToolOutcome(ctx context.Context, cfg Config, client *Client, in hookI
 				}
 			}
 		}
+		if m.AgentsRun {
+			// Any hook write ends a run the watcher opened: hooks report again.
+			m.AgentsRun = false
+			changed = true
+		}
 		if !changed {
 			return nil
 		}
+		m.HookAt = hookNow().Unix()
 		body, err := json.Marshal(m)
 		if err != nil {
 			return nil

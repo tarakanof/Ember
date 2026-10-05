@@ -230,6 +230,9 @@ func TestEnrichMarker_PreservesOwner(t *testing.T) {
 	if got.RateWindowPct == nil || *got.RateWindowPct != 50 {
 		t.Errorf("enrich did not apply rate_window_pct")
 	}
+	if got.StatuslineAt == 0 {
+		t.Errorf("enrich did not stamp statusline_at (doctor's liveness signal)")
+	}
 }
 
 func TestContextPctEnabled(t *testing.T) {

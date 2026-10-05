@@ -55,6 +55,9 @@ func runDoctor() {
 			}
 		}
 		fmt.Printf("  active markers: %d in %s\n", count, stateD)
+		for _, l := range staleHooksDoctorLines(ctx, stateD) {
+			fmt.Println("  " + l)
+		}
 	} else {
 		fmt.Printf("  state dir: not present (%s)\n", stateD)
 	}
