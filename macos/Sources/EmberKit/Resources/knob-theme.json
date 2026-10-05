@@ -74,7 +74,10 @@
       "font_px": 30,
       "radius_px": 176,
       "icon_cell_px": 4,
-      "icon_gap_px": 8,
+      "mark_px": 36,
+      "mark_bottom_px": 146,
+      "claude_color": "#D97757",
+      "codex_color": "#FFFFFF",
       "max_chars": 10
     },
     "glint": {
