@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -366,5 +367,18 @@ func TestLoadConfig_CodexHomeFromProducerEnvMovesSessionsAndSocket(t *testing.T)
 	cfg, _ = loadConfig()
 	if cfg.SessionsDir != "/s" {
 		t.Errorf("EMBER_CODEX_SESSIONS_DIR should win, got %q", cfg.SessionsDir)
+	}
+}
+
+func TestConfigLogValueRedactsTokenAndListsToggles(t *testing.T) {
+	cfg := Config{Common: producer.Common{Token: "super-secret"}}
+	s := cfg.LogValue().String()
+	if strings.Contains(s, "super-secret") || !strings.Contains(s, "token=set") {
+		t.Fatalf("LogValue = %s", s)
+	}
+	for _, k := range []string{"source_card_enabled", "context_pct_enabled", "rate_reset_enabled"} {
+		if !strings.Contains(s, k) {
+			t.Errorf("LogValue missing %s: %s", k, s)
+		}
 	}
 }

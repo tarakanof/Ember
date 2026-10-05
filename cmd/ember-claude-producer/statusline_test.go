@@ -464,3 +464,14 @@ func TestHookKeepsStatuslineAt(t *testing.T) {
 		t.Fatalf("statusline_at %d -> %d", before.StatuslineAt, after.StatuslineAt)
 	}
 }
+
+func TestExtractRateResetLabel(t *testing.T) {
+	in, _ := parseStatusline([]byte(`{"rate_limits":{"five_hour":{"used_percentage":10,"resets_at":1778614633}}}`))
+	l, ok := extractRateResetLabel(in)
+	if want := time.Unix(1778614633, 0).Local().Format("15:04"); !ok || l != want {
+		t.Fatalf("label = %q %v, want %q", l, ok, want)
+	}
+	if _, ok := extractRateResetLabel(statuslineInput{}); ok {
+		t.Fatal("no rate limits must report ok=false")
+	}
+}

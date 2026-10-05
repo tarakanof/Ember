@@ -2,7 +2,10 @@ package producer
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -187,5 +190,43 @@ func TestShellSafePath(t *testing.T) {
 		if ShellSafePath(p) != ok {
 			t.Errorf("ShellSafePath(%q) != %v", p, ok)
 		}
+	}
+}
+
+func TestServerLinesAddsTokenWarning(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+	lines := ServerLines(context.Background(), t.TempDir(), Common{ServerConfigured: srv.URL})
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "server: ") {
+		t.Fatalf("lines = %q", lines)
+	}
+	if !strings.HasPrefix(lines[len(lines)-1], "WARNING: ") {
+		t.Fatalf("no token warning for an empty token: %q", lines)
+	}
+}
+
+func TestPrintSetupHintsForConfigure(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var buf bytes.Buffer
+	PrintSetupHintsFor(&buf, Common{Source: "mbp", ServerConfigured: "http://h:1"}, []string{HeadlessFlag}, false)
+	if !strings.Contains(buf.String(), "Headless mode") {
+		t.Fatalf("hints = %q", buf.String())
+	}
+}
+
+func TestDoctorPreludeDefaultsSource(t *testing.T) {
+	defer SetHostNameForTest("Dmitrys-Mac-mini")()
+	home := t.TempDir()
+	DoctorPrelude("") // no home: nothing to do
+	if err := os.MkdirAll(filepath.Dir(EnvFilePath(home)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(EnvFilePath(home), []byte("EMBER_SOURCE=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	DoctorPrelude(home)
+	if b, _ := os.ReadFile(EnvFilePath(home)); string(b) != "EMBER_SOURCE=mini\n" {
+		t.Fatalf("env = %q", b)
 	}
 }
