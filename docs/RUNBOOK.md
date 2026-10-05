@@ -98,6 +98,15 @@ Claude Code's 1.5 s budget and caps its DELETE at 800 ms whatever
 `EMBER_HOOK_TIMEOUT_MS` (default 500) says. `EMBER_DONE_TTL_SECONDS` (default
 30, match the server's `done_ttl_seconds`) is how long the heartbeat keeps
 re-posting a finished (`done`/`error`) session.
+`configure`/`deconfigure` back up `~/.claude/settings.json` to
+`settings.json.ember-bak` (one file, overwritten) before changing it, and skip
+the write when nothing changes; a symlinked settings.json is written through
+(a link into a read-only store is an error naming it, a dangling link is
+replaced). Older producers wrote `settings.json.bak.<pid>` on every
+run; they are never deleted automatically (`doctor` prints how many there
+are), remove them by hand. `EMBER_STATUSLINE_TIMEOUT_MS` (default 10000, env
+var or `producer.env`) bounds a wrapped status line command; on timeout the
+last good output is shown.
 `EMBER_CLAUDE_AGENTS_POLL` (default on; `0`/`off` disables, the env var
 overrides `producer.env`) lets the `run` daemon cross-check running/waiting
 sessions with `claude agents --json`: it ends a wait the hooks can't see end

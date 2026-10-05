@@ -2,11 +2,9 @@ package main
 
 import (
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -39,17 +37,20 @@ func runConfigure(args []string) {
 	printSetupHints(args, false)
 }
 
+var service = producer.Service{
+	Label:       launchAgentLabel,
+	Unit:        "ember-claude-producer",
+	Description: "Ember Claude Code heartbeat producer (session heartbeats + usage)",
+	BrewPATH:    true,
+}
+
 func install() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
-	uid := os.Getuid()
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if runtime.GOOS == "darwin" {
-		if err := producer.CheckInstallAllowed(producer.ExecLaunchctl, uid, launchAgentLabel, plistPath); err != nil {
-			return err
-		}
+	if err := service.CheckInstall(home); err != nil {
+		return err
 	}
 	if err := configure(); err != nil {
 		return err
@@ -58,61 +59,18 @@ func install() error {
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		plistData, err := generatePlist(binPath, home, uid)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(plistPath, plistData, 0o644); err != nil {
-			return err
-		}
-		return reloadLaunchAgent(producer.ExecLaunchctl, uid, plistPath)
-	case "linux":
-		return producer.InstallUserUnit(producer.ExecRunner, home, userUnit(binPath))
-	default:
-		return fmt.Errorf("no background service support on %s: run `%s run` under your own supervisor", runtime.GOOS, binPath)
-	}
+	return service.Install(home, binPath)
 }
 
-const systemdUnitName = "ember-claude-producer"
-
-// userUnit is the systemd --user counterpart of the com.ember.heartbeat LaunchAgent.
-func userUnit(binPath string) producer.UserUnit {
-	return producer.NewUserUnit(systemdUnitName, "Ember Claude Code heartbeat producer (session heartbeats + usage)", binPath, "run")
-}
-
-// printSetupHints prints the post-setup checklist; only a headless install
-// touches the network (configure is what Ember.app runs: keep it offline).
 func printSetupHints(args []string, installing bool) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return
+	if cfg, err := loadConfig(); err == nil {
+		producer.PrintSetupHintsFor(os.Stdout, cfg.Common, args, installing)
 	}
-	home, _ := os.UserHomeDir()
-	headless := producer.Headless(args, home)
-	lingerUser := ""
-	if installing {
-		lingerUser = producer.CurrentUser()
-	}
-	producer.PrintSetupHints(os.Stdout, producer.SetupHintsInput{
-		Source: cfg.Source, Token: cfg.Token, Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance,
-		Home: home, Headless: headless, Discover: installing && headless, LingerUser: lingerUser,
-	})
 }
 
 func configureAt(home, binPath string) error {
-	if err := createInstallDirs(home); err != nil {
+	if err := producer.Configure(home); err != nil {
 		return err
-	}
-	envPath := filepath.Join(home, ".config", "ember", "producer.env")
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if err := os.WriteFile(envPath, []byte(producerEnvExampleContent()), 0o600); err != nil {
-			return err
-		}
-	}
-	if _, _, err := producer.EnsureSourceInEnv(envPath); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not default EMBER_SOURCE:", err)
 	}
 	if err := mergeSettingsJSON(home, binPath); err != nil {
 		return err
@@ -134,7 +92,7 @@ func configure() error {
 	if err != nil {
 		return fmt.Errorf("os.Executable: %w", err)
 	}
-	if !shellSafePath(binPath) {
+	if !producer.ShellSafePath(binPath) {
 		return fmt.Errorf("binary path contains shell metacharacters: %s\nMove the binary to a path without spaces or special chars", binPath)
 	}
 	home, err := os.UserHomeDir()
@@ -142,92 +100,6 @@ func configure() error {
 		return err
 	}
 	return configureAt(home, binPath)
-}
-
-func createInstallDirs(home string) error {
-	dirs := []string{
-		filepath.Join(home, ".config", "ember"),
-		filepath.Join(home, ".local", "state", "ember", "sessions"),
-		producer.LogDir(home),
-	}
-	if runtime.GOOS == "darwin" {
-		dirs = append(dirs, filepath.Join(home, "Library", "LaunchAgents"))
-	}
-	for _, d := range dirs {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func shellSafePath(p string) bool {
-	for _, c := range p {
-		switch c {
-		case ' ', '\t', '"', '\'', '\\', '$', '`', ';', '|', '&', '>', '<',
-			'*', '?', '(', ')', '{', '}', '!', '#', '\n':
-			return false
-		}
-	}
-	return true
-}
-
-func generatePlist(binPath, home string, uid int) ([]byte, error) {
-	const tmpl = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>%s</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>%s</string>
-        <string>run</string>
-    </array>
-    <key>KeepAlive</key>
-    <true/>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>ProcessType</key>
-    <string>Background</string>
-    <key>Nice</key>
-    <integer>10</integer>
-    <key>LowPriorityIO</key>
-    <true/>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    </dict>
-</dict>
-</plist>
-`
-	out := fmt.Sprintf(tmpl,
-		xmlEscape(launchAgentLabel),
-		xmlEscape(binPath),
-	)
-	return []byte(out), nil
-}
-
-func xmlEscape(s string) string {
-	var b strings.Builder
-	xml.EscapeText(&b, []byte(s))
-	return b.String()
-}
-
-func producerEnvExampleContent() string {
-	return producer.EnvExample()
-}
-
-func reloadLaunchAgent(lc producer.Launchctl, uid int, plistPath string) error {
-	domain := fmt.Sprintf("gui/%d", uid)
-	target := fmt.Sprintf("%s/%s", domain, launchAgentLabel)
-	producer.BootoutCLIAgent(lc, target, plistPath)
-	out, err := lc("bootstrap", domain, plistPath)
-	if err != nil {
-		return fmt.Errorf("launchctl bootstrap: %v\nOutput: %s", err, out)
-	}
-	return nil
 }
 
 type hookEvent struct {
@@ -255,10 +127,6 @@ func mergeSettingsJSON(home, binPath string) error {
 	if len(existing) > 0 {
 		if err := json.Unmarshal(existing, &root); err != nil {
 			return fmt.Errorf("settings.json is not valid JSON (comments/trailing-commas not supported): %w", err)
-		}
-		bak := fmt.Sprintf("%s.bak.%d", settingsPath, os.Getpid())
-		if err := os.WriteFile(bak, existing, 0o600); err != nil {
-			return err
 		}
 	}
 
@@ -306,30 +174,7 @@ func mergeSettingsJSON(home, binPath string) error {
 		"command": ourStatuslineCommand(binPath),
 	}
 
-	out, err := json.MarshalIndent(root, "", "  ")
-	if err != nil {
-		return err
-	}
-	out = append(out, '\n')
-	tmp, err := os.CreateTemp(filepath.Dir(settingsPath), "settings.tmp-*.json")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), settingsPath)
+	return saveSettings(settingsPath, existing, root, false)
 }
 
 type producerHookEntry struct {

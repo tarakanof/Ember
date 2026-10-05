@@ -172,19 +172,7 @@ func WriteServerCache(path string, c ServerCache) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".server.json.*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return WriteFileAtomic(path, b, 0o600)
 }
 
 // ResolveServerURL maps a configured EMBER_SERVER_URL to the URL to use now:

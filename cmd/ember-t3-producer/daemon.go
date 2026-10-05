@@ -46,8 +46,7 @@ func newDaemon(cfg Config, client *producer.Client) *daemon {
 }
 
 func runDaemon() {
-	rotateLog()
-	openDaemonLog()
+	producer.StartDaemonLog("ember-t3-producer")
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || (cfg.ServerURL == "" && !cfg.ServerAuto) {
 		fmt.Fprintln(os.Stderr, "t3 producer: EMBER_SOURCE/EMBER_SERVER_URL not set; nothing to do")
@@ -147,21 +146,4 @@ func backoff(base time.Duration, failures int) time.Duration {
 		return maxBackoff
 	}
 	return d
-}
-
-func openDaemonLog() {
-	f, err := producer.OpenDaemonLog("ember-t3-producer")
-	if err != nil {
-		return
-	}
-	producer.RedirectStandardIO(f)
-	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
-}
-
-func rotateLog() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	producer.RotateLogIfLarge(producer.LogPath(home, "ember-t3-producer"), producer.DefaultLogThreshold)
 }

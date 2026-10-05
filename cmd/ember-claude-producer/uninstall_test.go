@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,7 +76,7 @@ func TestUninstall_StripsHooksAndRemovesPlist(t *testing.T) {
 		t.Errorf("launchctl %v on an app-managed job", args)
 		return nil, nil
 	}
-	if err := uninstallPlist(lc, tmp, os.Getuid()); err != nil {
+	if err := service.UninstallLaunchAgent(lc, tmp, os.Getuid(), io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(filepath.Join(tmp, ".claude", "settings.json"))

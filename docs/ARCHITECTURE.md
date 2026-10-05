@@ -438,8 +438,14 @@ The aggregator and the only writer to the device.
 
 ### Producers
 
-All producers share `internal/producer` (HTTP client + `ReadEnvFile` +
-`RotateLogIfLarge`) and are configured via `~/.config/ember/producer.env`.
+All producers share `internal/producer` and are configured via
+`~/.config/ember/producer.env`: the HTTP client, `ReadEnvFile`, the common
+keys (`Common`: source, server, token, card toggles; `Gauges`: context/rate
+toggles for Claude and Codex; `Bool` for every toggle), `WriteFileAtomic`
+(synced temp+rename that writes through a symlink), `Repost` (POST on change
+or every 15 s keepalive), `StartDaemonLog`, and `Service` (LaunchAgent plist,
+launchctl reload, systemd unit, uninstall, doctor status) with each
+producer's label/unit as data.
 **Source default (#208):** when `EMBER_SOURCE` is empty or the template
 placeholder `set-me-to-this-laptop-id`, producers use a short host id via
 `producer.ResolveSource`: `scutil --get LocalHostName` on macOS (else, and on
@@ -758,8 +764,17 @@ Claude producer constraints:
   figures, so the daemon forwards the last OAuth-poller per-model snapshot
   (`usageModels`); without it the server's last-write-wins `UsageStore.Put`
   would blank the per-model breakdown on the next 10 s heartbeat. The
-  statusline relay (freshest live session wins) is the primary weekly/5h
-  source; the OAuth endpoint is the flaky fallback.
+  statusline relay (the session whose figures changed most recently wins, by
+  the marker's `statusline_changed_ms`, ties broken by mtime) is the primary
+  weekly/5h source; the OAuth endpoint is the flaky fallback. The statusline
+  rewrites (and fsyncs) the marker only when a figure changed, or once a
+  minute by mtime so the TTL reap still sees it; hooks carry
+  `statusline_changed_ms` over. A wrapped status line command gets
+  `EMBER_STATUSLINE_TIMEOUT_MS` (default 10 s), then its process group is
+  killed and the session's last good output
+  (`~/.local/state/ember/statusline/<session>.out`, pruned after a day) is
+  shown instead. A command that exits 0 but leaves a background child holding
+  stdout still has its output shown.
 - **`claude agents --json` cross-check** (#266, `agents.go`,
   `EMBER_CLAUDE_AGENTS_POLL`, default on). Hooks miss three transitions: an
   approved permission dialog stays `waiting` until the tool finishes (no hook
@@ -2794,7 +2809,8 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   every server staleness window. `SessionEnd` is unreliable (skipped on
   window-close / Cmd-Q / SIGHUP / crash). Walk the hook's process ancestry past
   the `sh` wrapper to the owning `claude`/`node` PID, record PID + `ps lstart`
-  (guards PID reuse), reap when it dies (~10 s). Audit any code that round-trips
+  (guards PID reuse), reap when it dies (~10 s). A failed start-time lookup is
+  not death: only a pid that signal 0 reports gone is. Audit any code that round-trips
   the marker through the wire struct (it can silently strip the liveness fields).
 - **Producer↔server version skew is silent.** When a feature's render is in the
   server but its data comes from a producer, shipping the producer alone shows

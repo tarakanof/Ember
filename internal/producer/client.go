@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -73,11 +74,6 @@ func (c *Client) WithAutoServer(a *AutoServer) *Client {
 	return c
 }
 
-// Timeout reports the HTTP client's configured Timeout.
-func (c *Client) Timeout() time.Duration {
-	return c.httpClient.Timeout
-}
-
 func (c *Client) Post(ctx context.Context, req StatusRequest) error {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -141,7 +137,11 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte) err
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Drain a short body so the connection goes back to the keep-alive pool.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+		resp.Body.Close()
+	}()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}

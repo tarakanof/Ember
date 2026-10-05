@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
@@ -13,9 +11,7 @@ import (
 
 func runDoctor() {
 	home, _ := os.UserHomeDir()
-	if home != "" {
-		_, _, _ = producer.EnsureSourceInEnv(filepath.Join(home, ".config", "ember", "producer.env"))
-	}
+	producer.DoctorPrelude(home)
 	cfg, _ := loadConfig()
 	fmt.Println("ember-codex-producer doctor:")
 	fmt.Printf("  config:\n")
@@ -36,12 +32,7 @@ func runDoctor() {
 	fmt.Printf("    sources             = %s\n", sourceList(cfg.Sources))
 	fmt.Printf("    include_claude      = %v\n", cfg.IncludeClaude)
 
-	envPath := filepath.Join(home, ".config", "ember", "producer.env")
-	if info, err := os.Stat(envPath); err == nil {
-		fmt.Printf("  producer.env: %s mode=%#o\n", envPath, info.Mode().Perm())
-	} else {
-		fmt.Printf("  producer.env: MISSING at %s\n", envPath)
-	}
+	fmt.Println("  " + producer.EnvFileLine(home))
 
 	if info, err := os.Stat(cfg.SessionsDir); err == nil && info.IsDir() {
 		fmt.Printf("  sessions dir: OK (%s)\n", cfg.SessionsDir)
@@ -56,24 +47,10 @@ func runDoctor() {
 		fmt.Println("  " + l)
 	}
 	acancel()
-	for _, l := range producer.ServerReport(ctx, producer.ServerReportInput{Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance, Home: home}) {
+	for _, l := range producer.ServerLines(ctx, home, cfg.Common) {
 		fmt.Println("  " + l)
 	}
-	if h := producer.TokenHint(cfg.Token); h != "" {
-		fmt.Println("  WARNING: " + h)
-	}
-	for _, l := range serviceStatus(home) {
+	for _, l := range service.Status(home) {
 		fmt.Println("  " + l)
 	}
-}
-
-func serviceStatus(home string) []string {
-	if runtime.GOOS == "linux" {
-		return producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, producer.CurrentUser())
-	}
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if _, err := os.Stat(plistPath); err == nil {
-		return []string{"LaunchAgent: installed at " + plistPath}
-	}
-	return []string{"LaunchAgent: NOT installed"}
 }

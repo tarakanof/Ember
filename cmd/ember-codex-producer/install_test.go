@@ -6,7 +6,7 @@ import (
 )
 
 func TestGeneratePlist_DaemonShape(t *testing.T) {
-	out := string(generatePlist("/Users/x/go/bin/ember-codex-producer", "/Users/x"))
+	out := string(service.Plist("/Users/x/go/bin/ember-codex-producer"))
 	for _, want := range []string{
 		"com.ember.codex",
 		"<key>KeepAlive</key>",
@@ -26,7 +26,7 @@ func TestGeneratePlist_DaemonShape(t *testing.T) {
 }
 
 func TestGeneratePlist_NoToken(t *testing.T) {
-	out := string(generatePlist("/Users/x/go/bin/ember-codex-producer", "/Users/x"))
+	out := string(service.Plist("/Users/x/go/bin/ember-codex-producer"))
 	if strings.Contains(out, "Bearer") || strings.Contains(out, "EMBER_TOKEN") {
 		t.Errorf("plist must not contain token material:\n%s", out)
 	}

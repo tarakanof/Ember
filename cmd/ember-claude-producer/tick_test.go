@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -369,7 +370,7 @@ func TestTick_LegacyMarkerNoToolField_TreatedAsClaude(t *testing.T) {
 }
 
 func TestDispatchTick_WarnsOnPostFailure(t *testing.T) {
-	tickFailLog.Reset()
+	tickFailLog = producer.NewFailureLogger(time.Minute)
 	h := newHookHarness(t)
 	h.srv.Close()
 	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -405,7 +406,7 @@ func TestDispatchTick_WarnsOnPostFailure(t *testing.T) {
 }
 
 func TestDispatchTick_ThrottlesRepeatedPostFailures(t *testing.T) {
-	tickFailLog.Reset()
+	tickFailLog = producer.NewFailureLogger(time.Minute)
 	h := newHookHarness(t)
 	h.srv.Close()
 	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -661,5 +662,53 @@ func TestProcessOneMarker_ReGatesSourceCardAndSessionBarWhenDisabled(t *testing.
 	}
 	if posted.SessionBar == nil || *posted.SessionBar {
 		t.Errorf("re-gate: session_bar should be false in re-post, got %v", posted.SessionBar)
+	}
+}
+
+func TestDispatchTick_FreshestByStatuslineChange(t *testing.T) {
+	cases := []struct {
+		name               string
+		changedA, changedB int64 // statusline_changed_ms
+		mtimeANewer        bool
+		want               float64
+	}{
+		// A's figures changed most recently, though B was written later.
+		{"newest change wins over mtime", 2_000_500, 2_000_000, false, 90},
+		// Sub-second stamps: 1 ms apart still orders.
+		{"millisecond resolution", 2_000_001, 2_000_000, false, 90},
+		// Same change time: the later write breaks the tie.
+		{"tie broken by mtime", 2_000_000, 2_000_000, true, 90},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			usageModels.reset()
+			h := newUsageRelayHarness(t)
+			dir := h.sessionsDir()
+			pA := writeMarkerFile(t, dir, "a", fmt.Sprintf(`,"rate_week_pct":90,"rate_week_reset_at":2000,"statusline_changed_ms":%d`, tc.changedA))
+			pB := writeMarkerFile(t, dir, "b", fmt.Sprintf(`,"rate_week_pct":10,"rate_week_reset_at":1000,"statusline_changed_ms":%d`, tc.changedB))
+			older, newer := time.Now().Add(-time.Minute), time.Now()
+			mA, mB := older, newer
+			if tc.mtimeANewer {
+				mA, mB = newer, older
+			}
+			if err := os.Chtimes(pA, mA, mA); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(pB, mB, mB); err != nil {
+				t.Fatal(err)
+			}
+			cfg, _ := loadConfig()
+			dispatchTick(context.Background(), cfg)
+			if len(h.usageBodies) != 1 {
+				t.Fatalf("usage posts = %d, want 1", len(h.usageBodies))
+			}
+			var req struct {
+				SevenDay *producerWindow `json:"seven_day"`
+			}
+			_ = json.Unmarshal([]byte(h.usageBodies[0]), &req)
+			if req.SevenDay == nil || req.SevenDay.UsedPercent != tc.want {
+				t.Errorf("seven_day = %+v, want %v", req.SevenDay, tc.want)
+			}
+		})
 	}
 }

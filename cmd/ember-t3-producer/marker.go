@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 // markerPath names a thread's marker in the shared sessions dir. The "t3-"
@@ -30,25 +32,7 @@ func writeMarker(stateDir, id string, body []byte) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(stateDir, ".tmp-*.json")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, markerPath(stateDir, id)); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return producer.WriteFileAtomic(markerPath(stateDir, id), body, 0o600)
 }
 
 func removeMarker(stateDir, id string) error {

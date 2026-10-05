@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -16,7 +19,21 @@ type marker struct {
 	// StateChangedAt (unix s) is when State last changed; the heartbeat stops
 	// re-posting done/error once it is older than DoneTTLSeconds.
 	StateChangedAt int64 `json:"state_changed_at,omitempty"`
+	// StatuslineChangedMs (unix ms) is when the statusline last saw a rate or
+	// context figure change; the usage relay picks the most recent change.
+	// Unchanged refreshes skip the rewrite (one per minute keeps the mtime
+	// fresh for the TTL), so file mtime does not track it.
+	StatuslineChangedMs int64 `json:"statusline_changed_ms,omitempty"`
 	ToolTrack
+}
+
+// usageSeenAt is when the marker's rate figures last changed:
+// StatuslineChangedMs, else (a marker from an older producer) its file mtime.
+func (m marker) usageSeenAt(mtime time.Time) time.Time {
+	if m.StatuslineChangedMs != 0 {
+		return time.UnixMilli(m.StatuslineChangedMs)
+	}
+	return mtime
 }
 
 // ToolTrack is marker-only bookkeeping for the tool-outcome hooks; none of it goes on the wire.
@@ -71,14 +88,31 @@ func resolveOwner(startPID int, info func(int) (ppid int, comm string, ok bool))
 }
 
 var ownerAlive = func(pid int, start string) bool {
-	cur, ok := procStart(pid)
+	return ownerAliveWith(pid, start, procStart, pidExists)
+}
+
+// ownerAliveWith reports whether pid is still the process that started at
+// start. When the start time cannot be read (ps failed, e.g. a ps without
+// lstart), the owner counts as dead only if the pid is gone: a lookup
+// failure must not reap a live session.
+func ownerAliveWith(pid int, start string, startOf func(int) (string, bool), exists func(int) bool) bool {
+	cur, ok := startOf(pid)
 	if !ok {
-		return false
+		return exists(pid)
 	}
 	if start == "" {
 		return true
 	}
 	return cur == start
+}
+
+// pidExists probes pid with signal 0; EPERM means it exists under another user.
+func pidExists(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func markerOwner(markerP string) (pid int, start string, ok bool) {

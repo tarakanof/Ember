@@ -90,11 +90,7 @@ func agentsPollEnabled() bool {
 			}
 		}
 	}
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "0", "false", "no", "off":
-		return false
-	}
-	return true
+	return producer.Bool(strings.TrimSpace(v), true)
 }
 
 // claudeCandidates lists where the claude CLI may be, best first. The

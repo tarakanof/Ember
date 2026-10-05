@@ -15,9 +15,7 @@ import (
 
 func runDoctor() {
 	home, _ := os.UserHomeDir()
-	if home != "" {
-		_, _, _ = producer.EnsureSourceInEnv(filepath.Join(home, ".config", "ember", "producer.env"))
-	}
+	producer.DoctorPrelude(home)
 	cfg, _ := loadConfig()
 	fmt.Println("ember-claude-producer doctor:")
 	fmt.Printf("  config:\n")
@@ -33,24 +31,19 @@ func runDoctor() {
 	fmt.Printf("    hook_timeout_ms     = %d\n", cfg.HookTimeoutMs)
 	fmt.Printf("    done_ttl_seconds    = %d\n", cfg.DoneTTLSeconds)
 
-	envPath := filepath.Join(home, ".config", "ember", "producer.env")
-	if info, err := os.Stat(envPath); err == nil {
-		fmt.Printf("  producer.env: %s mode=%#o\n", envPath, info.Mode().Perm())
-	} else {
-		fmt.Printf("  producer.env: MISSING at %s\n", envPath)
-	}
+	fmt.Println("  " + producer.EnvFileLine(home))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	for _, l := range producer.ServerReport(ctx, producer.ServerReportInput{Configured: cfg.ServerConfigured, Prefer: cfg.ServerInstance, Home: home}) {
+	for _, l := range producer.ServerLines(ctx, home, cfg.Common) {
 		fmt.Println("  " + l)
-	}
-	if h := producer.TokenHint(cfg.Token); h != "" {
-		fmt.Println("  WARNING: " + h)
 	}
 
 	hooksLine, _ := hookRegistrationReport(home)
 	fmt.Printf("  claude hooks: %s\n", hooksLine)
+	if n := legacySettingsBackups(filepath.Join(home, ".claude", "settings.json")); n > 0 {
+		fmt.Printf("  hint: %d settings.json.bak.<pid> backups from older installs in ~/.claude; delete them if you don't need them\n", n)
+	}
 	fmt.Printf("  claude agents cross-check: %s\n", agentsDoctorLine(ctx))
 
 	stateD, _ := stateDir()
@@ -66,19 +59,16 @@ func runDoctor() {
 		fmt.Printf("  state dir: not present (%s)\n", stateD)
 	}
 
-	if runtime.GOOS == "linux" {
-		for _, l := range producer.UserUnitStatus(producer.ExecRunner, home, systemdUnitName, producer.CurrentUser()) {
-			fmt.Println("  heartbeat " + l)
+	for _, l := range service.Status(home) {
+		if runtime.GOOS == "linux" {
+			l = "heartbeat " + l
 		}
+		fmt.Println("  " + l)
+	}
+	if runtime.GOOS == "linux" {
 		return
 	}
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	if _, err := os.Stat(plistPath); err == nil {
-		fmt.Printf("  LaunchAgent: installed at %s\n", plistPath)
-	} else {
-		fmt.Printf("  LaunchAgent: NOT installed\n")
-	}
-
+	plistPath := service.PlistPath(home)
 	uid := os.Getuid()
 	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
 	out, err := exec.Command("launchctl", "print", target).CombinedOutput()

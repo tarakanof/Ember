@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -39,7 +38,7 @@ func runHook(args []string) {
 	if home, err := os.UserHomeDir(); err != nil || !hooksEnabledAt(home) {
 		os.Exit(0)
 	}
-	rotateProducerLogs()
+	producer.RotateLogs(producerLogs...)
 	event := args[0]
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
@@ -105,10 +104,6 @@ func skipJSONValue(dec *json.Decoder) error {
 			return nil
 		}
 	}
-}
-
-func dispatchHook(ctx context.Context, event string, stdin []byte, cfg Config) {
-	dispatchHookFrom(ctx, event, bytes.NewReader(stdin), cfg)
 }
 
 func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config) {
@@ -204,27 +199,15 @@ type upsertExtra struct {
 }
 
 func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID, state, message, activity, markerP, lockP string, x upsertExtra) {
-	req := StatusRequest{
-		Source:        cfg.Source,
-		Tool:          "claude",
-		Session:       sessionID,
-		State:         state,
-		Message:       truncate(message, 80),
-		Activity:      truncate(activity, 80),
-		ContextNumber: cfg.ContextNumberEnabled,
-		RateBottomBar: cfg.RateBottomBarEnabled,
-		RateReset:     cfg.RateResetEnabled,
-	}
-	if cfg.SourceColor != "" {
-		sc := cfg.SourceColor
-		req.SourceColor = &sc
-	}
-	sc, sb := cfg.SourceCardEnabled, cfg.SessionBarEnabled
-	req.SourceCard, req.SessionBar = &sc, &sb
+	req := cfg.StatusRequest("claude", sessionID, state)
+	req.Message = truncate(message, 80)
+	req.Activity = truncate(activity, 80)
+	cfg.Gauges.Apply(&req)
 	var body []byte
 	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		var ownerPID int
 		var ownerStart string
+		var statuslineChanged int64
 		var track ToolTrack
 		changedAt := hookNow().Unix()
 		if old, err := readMarker(markerP); err == nil {
@@ -247,6 +230,7 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 					req.Activity = producer.PrependTrail(activity, prev.Activity)
 				}
 				ownerPID, ownerStart = prev.OwnerPID, prev.OwnerStart
+				statuslineChanged = prev.StatuslineChangedMs
 				if prev.State == state && prev.StateChangedAt != 0 {
 					changedAt = prev.StateChangedAt
 				}
@@ -272,7 +256,8 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 		if ownerPID == 0 {
 			ownerPID, ownerStart = detectOwner()
 		}
-		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart, StateChangedAt: changedAt, ToolTrack: track}
+		m := marker{StatusRequest: req, OwnerPID: ownerPID, OwnerStart: ownerStart, StateChangedAt: changedAt,
+			StatuslineChangedMs: statuslineChanged, ToolTrack: track}
 		b, err := json.Marshal(m)
 		if err != nil || writeMarker(markerP, b) != nil {
 			return nil

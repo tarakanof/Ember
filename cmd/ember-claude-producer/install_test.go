@@ -12,10 +12,7 @@ import (
 )
 
 func TestGeneratePlist_StructureAndPaths(t *testing.T) {
-	data, err := generatePlist("/abs/path/to/ember-claude-producer", "/Users/joe", 501)
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := service.Plist("/abs/path/to/ember-claude-producer")
 	s := string(data)
 	if !strings.Contains(s, "<key>Label</key>") {
 		t.Errorf("missing Label key")
@@ -49,10 +46,7 @@ func TestGeneratePlist_StructureAndPaths(t *testing.T) {
 }
 
 func TestGeneratePlist_EscapesPathWithSpecialChars(t *testing.T) {
-	data, err := generatePlist("/Users/<weird>&path/ember-claude-producer", "/Users/joe", 501)
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := service.Plist("/Users/<weird>&path/ember-claude-producer")
 	if strings.Contains(string(data), "<weird>&path") {
 		t.Errorf("special chars not escaped: %s", string(data))
 	}
@@ -73,14 +67,14 @@ func TestShellSafePath(t *testing.T) {
 		{"/path/with`backtick", false},
 	}
 	for _, c := range cases {
-		if got := shellSafePath(c.path); got != c.ok {
+		if got := producer.ShellSafePath(c.path); got != c.ok {
 			t.Errorf("shellSafePath(%q) = %v, want %v", c.path, got, c.ok)
 		}
 	}
 }
 
 func TestProducerEnvExample_Content(t *testing.T) {
-	got := producerEnvExampleContent()
+	got := producer.EnvExample()
 	for _, want := range []string{"EMBER_SOURCE=", "EMBER_SERVER_URL=", "EMBER_TOKEN="} {
 		if !strings.Contains(got, want) {
 			t.Errorf("env example missing %q", want)

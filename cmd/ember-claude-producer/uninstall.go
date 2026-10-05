@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
-
-	"github.com/tarakanof/ember/internal/producer"
 )
 
 func runUninstall() {
@@ -16,16 +13,11 @@ func runUninstall() {
 		fmt.Fprintln(os.Stderr, "uninstall: cannot find home dir:", err)
 		os.Exit(1)
 	}
-	uid := os.Getuid()
 	if err := deconfigureAt(home); err != nil {
 		fmt.Fprintln(os.Stderr, "uninstall: settings.json:", err)
 	}
-	if runtime.GOOS == "linux" {
-		if err := producer.UninstallUserUnit(producer.ExecRunner, home, systemdUnitName); err != nil {
-			fmt.Fprintln(os.Stderr, "uninstall: systemd unit:", err)
-		}
-	} else if err := uninstallPlist(producer.ExecLaunchctl, home, uid); err != nil {
-		fmt.Fprintln(os.Stderr, "uninstall: plist:", err)
+	if err := service.Uninstall(home, os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, "uninstall:", err)
 	}
 	warnPluginStillEnabled()
 	fmt.Println("Uninstall complete.")
@@ -93,46 +85,5 @@ func uninstallSettings(home string) error {
 		}
 	}
 
-	out, err := json.MarshalIndent(root, "", "  ")
-	if err != nil {
-		return err
-	}
-	out = append(out, '\n')
-	bak := fmt.Sprintf("%s.bak.%d", settingsPath, os.Getpid())
-	_ = os.WriteFile(bak, body, 0o600)
-	tmp, err := os.CreateTemp(filepath.Dir(settingsPath), "settings.tmp-*.json")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), settingsPath)
-}
-
-func uninstallPlist(lc producer.Launchctl, home string, uid int) error {
-	plistPath := filepath.Join(home, "Library", "LaunchAgents", launchAgentLabel+".plist")
-	target := fmt.Sprintf("gui/%d/%s", uid, launchAgentLabel)
-	switch producer.AgentOwner(lc, target, plistPath) {
-	case producer.OwnedByCLI:
-		_, _ = lc("bootout", target)
-	case producer.OwnedByOther:
-		fmt.Fprintf(os.Stderr, "uninstall: left %s loaded: it's Ember.app's (turn reporting off in Ember › Settings › Agents)\n", target)
-	case producer.NotLoaded:
-	}
-	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+	return saveSettings(settingsPath, body, root, true)
 }

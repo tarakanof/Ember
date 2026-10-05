@@ -1,6 +1,7 @@
 package producer
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,4 +72,28 @@ func RedirectStandardIO(f *os.File) {
 	_ = unix.Dup2(fd, 2)
 	os.Stdout = f
 	os.Stderr = f
+}
+
+// RotateLogs rotates each named log (LogPath) past DefaultLogThreshold.
+func RotateLogs(names ...string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	for _, n := range names {
+		RotateLogIfLarge(LogPath(home, n), DefaultLogThreshold)
+	}
+}
+
+// StartDaemonLog rotates name's log (and alsoRotate's), then points
+// stdout/stderr and the default slog logger at it. Without a log file the
+// daemon keeps its inherited stdio.
+func StartDaemonLog(name string, alsoRotate ...string) {
+	RotateLogs(append([]string{name}, alsoRotate...)...)
+	f, err := OpenDaemonLog(name)
+	if err != nil {
+		return
+	}
+	RedirectStandardIO(f)
+	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
 }

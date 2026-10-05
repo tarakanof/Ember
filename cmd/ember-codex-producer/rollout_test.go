@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 const (
@@ -189,7 +191,7 @@ func TestFoldEvent_TrailDisabledStaysEmpty(t *testing.T) {
 }
 
 func TestBuildStatusRequest_SetsActivityFromTrail(t *testing.T) {
-	req := buildStatusRequest(Config{Source: "mbp"}, "u1", derived{state: "running", activity: "web: docs · exec: go build"})
+	req := buildStatusRequest(Config{Common: producer.Common{Source: "mbp"}}, "u1", derived{state: "running", activity: "web: docs · exec: go build"})
 	if req.Activity != "web: docs · exec: go build" {
 		t.Errorf("req.Activity = %q, want the trail", req.Activity)
 	}

@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/tarakanof/ember/internal/producer"
 )
@@ -19,62 +17,33 @@ const (
 )
 
 type Config struct {
-	Source                string
-	ServerURL             string // effective URL: explicit, else the cached discovery
-	ServerConfigured      string // EMBER_SERVER_URL as written
-	ServerAuto            bool   // EMBER_SERVER_URL empty or "auto": discover over mDNS
-	ServerInstance        string // EMBER_SERVER_INSTANCE: which server when several answer
-	Token                 string
+	producer.Common
+	producer.Gauges
 	HeartbeatTTLHours     int
 	HookTimeoutMs         int
 	DoneTTLSeconds        int
-	SourceColor           string
-	ContextPctEnabled     bool
 	ActivityDetailEnabled bool
-	ActivityTrailEnabled  bool
-	ContextNumberEnabled  bool
-	RateBottomBarEnabled  bool
-	RateResetEnabled      bool
-	SourceCardEnabled     bool
-	SessionBarEnabled     bool
 }
 
 // LogValue redacts the token.
 func (c Config) LogValue() slog.Value {
-	tokenStatus := "unset"
-	if c.Token != "" {
-		tokenStatus = "set"
-	}
-	return slog.GroupValue(
-		slog.String("source", c.Source),
-		slog.String("server_url", c.ServerURL),
-		slog.Bool("server_auto", c.ServerAuto),
-		slog.String("token", tokenStatus),
+	attrs := append(c.Common.LogAttrs(), c.Gauges.LogAttrs()...)
+	return slog.GroupValue(append(attrs,
 		slog.Int("heartbeat_ttl_hours", c.HeartbeatTTLHours),
 		slog.Int("hook_timeout_ms", c.HookTimeoutMs),
 		slog.Int("done_ttl_seconds", c.DoneTTLSeconds),
-		slog.String("source_color", c.SourceColor),
-		slog.Bool("context_pct_enabled", c.ContextPctEnabled),
 		slog.Bool("activity_detail_enabled", c.ActivityDetailEnabled),
-		slog.Bool("activity_trail_enabled", c.ActivityTrailEnabled),
-		slog.Bool("context_number_enabled", c.ContextNumberEnabled),
-		slog.Bool("rate_bottom_bar_enabled", c.RateBottomBarEnabled),
-		slog.Bool("rate_reset_enabled", c.RateResetEnabled),
-		slog.Bool("source_card_enabled", c.SourceCardEnabled),
-		slog.Bool("session_bar_enabled", c.SessionBarEnabled),
-	)
+	)...)
 }
 
 func loadConfig() (Config, error) {
 	cfg := Config{
+		Common:                producer.DefaultCommon(),
+		Gauges:                producer.DefaultGauges(),
 		HeartbeatTTLHours:     defaultHeartbeatTTLHours,
 		HookTimeoutMs:         defaultHookTimeoutMs,
 		DoneTTLSeconds:        defaultDoneTTLSeconds,
-		ContextPctEnabled:     true,
 		ActivityDetailEnabled: true,
-		ActivityTrailEnabled:  true,
-		SourceCardEnabled:     true,
-		SessionBarEnabled:     true,
 	}
 	path, err := envFilePath()
 	if err != nil {
@@ -85,15 +54,10 @@ func loadConfig() (Config, error) {
 		fmt.Fprintln(os.Stderr, "warning: ignoring producer.env:", err)
 	}
 	for k, v := range data {
+		if cfg.Common.Set(k, v) || cfg.Gauges.Set(k, v) {
+			continue
+		}
 		switch k {
-		case "EMBER_SOURCE":
-			cfg.Source = v
-		case "EMBER_SERVER_URL":
-			cfg.ServerURL = v
-		case "EMBER_SERVER_INSTANCE":
-			cfg.ServerInstance = v
-		case "EMBER_TOKEN":
-			cfg.Token = v
 		case "EMBER_HEARTBEAT_TTL_HOURS":
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				cfg.HeartbeatTTLHours = n
@@ -106,67 +70,17 @@ func loadConfig() (Config, error) {
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				cfg.DoneTTLSeconds = n
 			}
-		case "EMBER_SOURCE_COLOR":
-			cfg.SourceColor = v
-		case "EMBER_CONTEXT_PCT_ENABLED":
-			switch strings.ToLower(v) {
-			case "false", "0", "no", "off":
-				cfg.ContextPctEnabled = false
-			case "true", "1", "yes", "on", "":
-				cfg.ContextPctEnabled = true
-			}
 		case "EMBER_ACTIVITY_DETAIL_ENABLED":
-			switch strings.ToLower(v) {
-			case "false", "0", "no", "off":
-				cfg.ActivityDetailEnabled = false
-			case "true", "1", "yes", "on", "":
-				cfg.ActivityDetailEnabled = true
-			}
-		case "EMBER_ACTIVITY_TRAIL_ENABLED":
-			switch strings.ToLower(v) {
-			case "false", "0", "no", "off":
-				cfg.ActivityTrailEnabled = false
-			case "true", "1", "yes", "on", "":
-				cfg.ActivityTrailEnabled = true
-			}
-		case "EMBER_CONTEXT_NUMBER_ENABLED":
-			switch strings.ToLower(v) {
-			case "true", "1", "yes", "on":
-				cfg.ContextNumberEnabled = true
-			}
-		case "EMBER_RATE_BOTTOM_BAR":
-			switch strings.ToLower(v) {
-			case "true", "1", "yes", "on":
-				cfg.RateBottomBarEnabled = true
-			}
-		case "EMBER_RATE_RESET":
-			switch strings.ToLower(v) {
-			case "true", "1", "yes", "on":
-				cfg.RateResetEnabled = true
-			}
-		case "EMBER_SOURCE_CARD":
-			switch strings.ToLower(v) {
-			case "false", "0", "no", "off":
-				cfg.SourceCardEnabled = false
-			case "true", "1", "yes", "on", "":
-				cfg.SourceCardEnabled = true
-			}
-		case "EMBER_SESSION_BAR":
-			switch strings.ToLower(v) {
-			case "false", "0", "no", "off":
-				cfg.SessionBarEnabled = false
-			case "true", "1", "yes", "on", "":
-				cfg.SessionBarEnabled = true
-			}
+			cfg.ActivityDetailEnabled = producer.Bool(v, true)
 		}
 	}
-	cfg.Source = producer.ResolveSource(cfg.Source)
 	if home, err := os.UserHomeDir(); err == nil {
-		cfg.ServerConfigured = cfg.ServerURL
-		cfg.ServerURL, cfg.ServerAuto = producer.ResolveServerURL(home, cfg.ServerURL, cfg.ServerInstance)
-	}
-	if cfg.Token == "" {
-		cfg.Token = os.Getenv("EMBER_TOKEN")
+		cfg.Common.Resolve(home)
+	} else {
+		cfg.Source = producer.ResolveSource(cfg.Source)
+		if cfg.Token == "" {
+			cfg.Token = os.Getenv("EMBER_TOKEN")
+		}
 	}
 	return cfg, nil
 }
@@ -176,5 +90,5 @@ func envFilePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "ember", "producer.env"), nil
+	return producer.EnvFilePath(home), nil
 }

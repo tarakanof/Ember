@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tarakanof/ember/internal/producer"
 )
 
 func TestReadNewLines_AdvancesAndSkipsPartial(t *testing.T) {
@@ -52,7 +54,7 @@ func TestReadNewLines_NoNewBytes(t *testing.T) {
 
 func TestBuildStatusRequest(t *testing.T) {
 	pct, rw := 50, 42
-	cfg := Config{Source: "mbp", SourceColor: "#aa66ff"}
+	cfg := Config{Common: producer.Common{Source: "mbp", SourceColor: "#aa66ff"}}
 	req := buildStatusRequest(cfg, "u-1", derived{state: "running", message: "hi", contextPct: &pct, rateWindowPct: &rw})
 	if req.Source != "mbp" || req.Tool != "codex" || req.Session != "u-1" || req.State != "running" || req.Message != "hi" {
 		t.Fatalf("req = %+v", req)
@@ -66,40 +68,40 @@ func TestBuildStatusRequest(t *testing.T) {
 }
 
 func TestBuildStatusRequest_NoColorWhenEmpty(t *testing.T) {
-	req := buildStatusRequest(Config{Source: "mbp"}, "u-1", derived{state: "done"})
+	req := buildStatusRequest(Config{Common: producer.Common{Source: "mbp"}}, "u-1", derived{state: "done"})
 	if req.SourceColor != nil {
 		t.Errorf("SourceColor should be nil when cfg empty, got %v", *req.SourceColor)
 	}
 }
 
 func TestBuildStatusRequest_SetsContextNumber(t *testing.T) {
-	on := buildStatusRequest(Config{Source: "mbp", ContextNumberEnabled: true}, "u1", derived{state: "running"})
+	on := buildStatusRequest(Config{Common: producer.Common{Source: "mbp"}, Gauges: producer.Gauges{ContextNumberEnabled: true}}, "u1", derived{state: "running"})
 	if !on.ContextNumber {
 		t.Error("ContextNumber should be true when enabled")
 	}
-	off := buildStatusRequest(Config{Source: "mbp"}, "u1", derived{state: "running"})
+	off := buildStatusRequest(Config{Common: producer.Common{Source: "mbp"}}, "u1", derived{state: "running"})
 	if off.ContextNumber {
 		t.Error("ContextNumber should be false by default")
 	}
 }
 
 func TestBuildStatusRequest_SetsReset(t *testing.T) {
-	on := buildStatusRequest(Config{Source: "mbp", RateResetEnabled: true}, "u1", derived{state: "running", rateResetAt: 1778614633})
+	on := buildStatusRequest(Config{Common: producer.Common{Source: "mbp"}, Gauges: producer.Gauges{RateResetEnabled: true}}, "u1", derived{state: "running", rateResetAt: 1778614633})
 	if !on.RateReset || on.RateResetAt != 1778614633 {
 		t.Errorf("reset fields not stamped: %+v", on)
 	}
-	off := buildStatusRequest(Config{Source: "mbp"}, "u1", derived{state: "running", rateResetAt: 1778614633})
+	off := buildStatusRequest(Config{Common: producer.Common{Source: "mbp"}}, "u1", derived{state: "running", rateResetAt: 1778614633})
 	if off.RateReset {
 		t.Error("RateReset should be false by default")
 	}
 }
 
 func TestBuildStatusRequest_SetsRateBottomBar(t *testing.T) {
-	on := buildStatusRequest(Config{Source: "mbp", RateBottomBarEnabled: true}, "u1", derived{state: "running"})
+	on := buildStatusRequest(Config{Common: producer.Common{Source: "mbp"}, Gauges: producer.Gauges{RateBottomBarEnabled: true}}, "u1", derived{state: "running"})
 	if !on.RateBottomBar {
 		t.Error("RateBottomBar should be true when enabled")
 	}
-	off := buildStatusRequest(Config{Source: "mbp"}, "u1", derived{state: "running"})
+	off := buildStatusRequest(Config{Common: producer.Common{Source: "mbp"}}, "u1", derived{state: "running"})
 	if off.RateBottomBar {
 		t.Error("RateBottomBar should be false by default")
 	}

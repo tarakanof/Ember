@@ -20,7 +20,7 @@ const heartbeatInterval = 10 * time.Second
 var tickFailLog = producer.NewFailureLogger(time.Minute)
 
 func runTick() {
-	rotateProducerLogs()
+	producer.RotateLogs(producerLogs...)
 	cfg, err := loadConfig()
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
 		os.Exit(0)
@@ -32,8 +32,7 @@ func runTick() {
 }
 
 func runDaemon() {
-	rotateProducerLogs()
-	openDaemonLog("ember-tick")
+	producer.StartDaemonLog("ember-tick", "ember-claude-producer")
 	if path, err := producer.LinkStatusPath("claude-producer"); err == nil {
 		daemonLink = producer.NewLinkStatus(path)
 	}
@@ -85,15 +84,6 @@ func heartbeatPass(parent context.Context) {
 	dispatchTick(ctx, cfg)
 }
 
-func openDaemonLog(name string) {
-	f, err := producer.OpenDaemonLog(name)
-	if err != nil {
-		return
-	}
-	producer.RedirectStandardIO(f)
-	slog.SetDefault(slog.New(slog.NewTextHandler(f, nil)))
-}
-
 type statuslineUsageSnapshot struct {
 	fiveHourPct        *int
 	fiveHourResetAt    int64
@@ -101,7 +91,8 @@ type statuslineUsageSnapshot struct {
 	sevenDayPct        *int
 	sevenDayResetAt    int64
 	sevenDayResetLabel string
-	updatedAt          time.Time
+	updatedAt          time.Time // when the figures last changed
+	mtime              time.Time // tie-break: the marker's last write
 }
 
 func dispatchTick(ctx context.Context, cfg Config) {
@@ -124,7 +115,8 @@ func dispatchTick(ctx context.Context, cfg Config) {
 		markerP := filepath.Join(dir, e.Name())
 		lockP := filepath.Join(dir, sessionID+".lock")
 		if snap := processOneMarker(ctx, cfg, client, markerP, lockP, staleThreshold); snap != nil {
-			if best == nil || snap.updatedAt.After(best.updatedAt) {
+			if best == nil || snap.updatedAt.After(best.updatedAt) ||
+				(snap.updatedAt.Equal(best.updatedAt) && snap.mtime.After(best.mtime)) {
 				best = snap
 			}
 		}
@@ -197,7 +189,8 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 			sevenDayPct:        req.RateWeekPct,
 			sevenDayResetAt:    req.RateWeekResetAt,
 			sevenDayResetLabel: req.RateWeekResetLabel,
-			updatedAt:          info.ModTime(),
+			updatedAt:          m.usageSeenAt(info.ModTime()),
+			mtime:              info.ModTime(),
 		}
 	}
 	if !heartbeatDue(cfg, m, info.ModTime(), time.Now()) {
