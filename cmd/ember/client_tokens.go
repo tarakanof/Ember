@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-// Client token scopes. A client (kind "client", token prefix ekc_) holds a
-// subset; the master EMBER_TOKEN and the admin scope satisfy every one.
 const (
 	scopeIngest  = "ingest"
 	scopeControl = "control"
@@ -17,7 +15,6 @@ const (
 	scopeAdmin   = "admin"
 )
 
-// maxClients bounds the client records; every mint rewrites the registry blob.
 const maxClients = 64
 
 var (
@@ -28,9 +25,7 @@ var (
 
 type clientCallerKey struct{}
 
-// requireMasterForClients answers 403 and returns false when a client token
-// (even an admin one) tries to mint, rotate or delete a client: a leaked
-// client must not be able to outlive its own revocation.
+// A leaked client must not outlive its own revocation, so a client token (even admin) can never manage clients.
 func (a *App) requireMasterForClients(w http.ResponseWriter, r *http.Request) bool {
 	if isClient, _ := r.Context().Value(clientCallerKey{}).(bool); !isClient {
 		return true
@@ -40,8 +35,6 @@ func (a *App) requireMasterForClients(w http.ResponseWriter, r *http.Request) bo
 	return false
 }
 
-// requiredScope is the client scope that admits an owner route (a pattern
-// registered on the authenticated /v1 mux). Anything not listed needs admin.
 func requiredScope(pattern string) string {
 	switch pattern {
 	case "POST /v1/status", "DELETE /v1/status", "POST /v1/usage", "POST /v1/notify", "POST /v1/reminders/fire":
@@ -58,8 +51,6 @@ func scopeAllowed(have []string, need string) bool {
 	return slices.Contains(have, need) || slices.Contains(have, scopeAdmin)
 }
 
-// normalizeScopes validates a mint request's scopes and returns them sorted
-// and deduplicated; at least one is required.
 func normalizeScopes(raw []string) ([]string, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("%w: scopes is required for a client", errDeviceBody)
@@ -77,9 +68,6 @@ func normalizeScopes(raw []string) ([]string, error) {
 	return slices.Compact(out), nil
 }
 
-// clientAuth checks a non-master bearer against the client registry. It
-// answers 401 for an unknown token, 403 for a client without scope, 500 when
-// the registry is unreadable, and returns true only when next may run.
 func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) bool {
 	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	id, scopes, ok, err := a.devices.authenticateClient(bearer)

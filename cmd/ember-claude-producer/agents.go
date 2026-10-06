@@ -32,6 +32,7 @@ const (
 	interruptedMessage  = "interrupted"
 )
 
+// An older CLI would take "agents" as a prompt: see ARCHITECTURE (Claude producer).
 var minAgentsVersion = [3]int{2, 1, 288}
 
 type agentRow struct {

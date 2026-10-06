@@ -18,7 +18,7 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-// CheckStatus is one of "ok" | "warn" | "fail" | "skipped".
+// ok | warn | fail | skipped.
 type CheckStatus string
 
 const (
@@ -28,7 +28,6 @@ const (
 	StatusSkipped CheckStatus = "skipped"
 )
 
-// CheckResult is one of the named checks in DoctorResult.
 type CheckResult struct {
 	Status               CheckStatus `json:"status"`
 	Detail               string      `json:"detail,omitempty"`
@@ -39,10 +38,9 @@ type CheckResult struct {
 	LastRediscoverResult string      `json:"last_rediscover_result,omitempty"`
 }
 
-// DoctorResult is the full diagnostic.
 type DoctorResult struct {
 	OK bool `json:"ok"`
-	// Mode is "online" or "offline".
+	// "online" or "offline".
 	Mode   string                 `json:"mode"`
 	Checks map[string]CheckResult `json:"checks"`
 }
@@ -152,8 +150,7 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 	return res
 }
 
-// clockDisabledCheck is the clock checks' answer under EMBER_CLOCK=off: OK, not
-// Skipped (Skipped is non-OK), so a scratch server's doctor can still gate on OK.
+// OK, not Skipped (Skipped is non-OK), so a scratch server's doctor can still gate on OK.
 func clockDisabledCheck() CheckResult {
 	return CheckResult{Status: StatusOK, Detail: "disabled (EMBER_CLOCK=off); no clock I/O"}
 }

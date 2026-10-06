@@ -13,6 +13,7 @@ import (
 	"github.com/tarakanof/ember/internal/discovery"
 )
 
+// Tests swapping http.DefaultTransport must not use t.Parallel().
 type countingTransport struct {
 	n    atomic.Int64
 	next http.RoundTripper

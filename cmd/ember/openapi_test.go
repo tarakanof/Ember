@@ -14,8 +14,6 @@ import (
 
 const openAPIPath = "../../docs/openapi.yaml"
 
-// internalRoutes are registered but deliberately left out of the published
-// contract: operator endpoints and the clock/Plex webhooks.
 var internalRoutes = []string{
 	"GET /metrics",
 	"GET /admin/doctor",
@@ -29,11 +27,11 @@ type specAuth struct {
 	public       bool
 	owner        bool
 	device       bool
-	clientScopes []string // empty: the operation takes no client token
+	clientScopes []string
 }
 
 type specOp struct {
-	route string // "METHOD /path", the ServeMux pattern form
+	route string
 	auth  specAuth
 }
 
@@ -44,9 +42,6 @@ var (
 	specSchemeRe   = regexp.MustCompile(`\{(\w+): \[([^\]]*)\]\}`)
 )
 
-// readSpecOps reads the operations in docs/openapi.yaml. The file keeps a
-// fixed layout (paths at two spaces, methods at four, a one-line flow
-// `security:` on every operation) so a line scan is enough here.
 func readSpecOps(t *testing.T) []specOp {
 	t.Helper()
 	f, err := os.Open(openAPIPath)
@@ -145,13 +140,6 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 	}
 }
 
-// TestOpenAPIAuthMatchesServer is the route × credential table: every
-// credential the spec does not admit on an operation must be refused there,
-// 401 for a credential of the wrong kind and 403 for a client token lacking
-// the scope; a client token holding a scope the spec names must not be
-// (any other status, a 400 for the empty body included, is fine). Admin-only
-// operations get no positive request, so no clock-proxy handler runs here;
-// TestDeviceTokenScope covers admitted master, knob and admin calls.
 func TestOpenAPIAuthMatchesServer(t *testing.T) {
 	ops := readSpecOps(t)
 	app := newPomodoroApp(t)

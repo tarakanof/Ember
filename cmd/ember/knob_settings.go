@@ -28,8 +28,8 @@ type knobSettings struct {
 	Display        knobDisplay    `json:"display"`
 }
 
-// 80 MHz is out of the panel's write spec but measured stable; the knob falls back to 40 MHz.
 type knobDisplay struct {
+	// Pointer: a record stored without it reads as on.
 	FastLink *bool `json:"fast_link,omitempty"`
 }
 

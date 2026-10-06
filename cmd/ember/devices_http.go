@@ -22,34 +22,23 @@ func deviceIDFrom(ctx context.Context) string {
 	return id
 }
 
-// requireDevice admits only a device bearer token.
 func requireDevice(a *App, next http.Handler) http.Handler {
 	return deviceAuth(a, nil, next)
 }
 
-// requireControl admits EMBER_TOKEN, a device bearer token, or a client
-// token with the control scope.
 func requireControl(a *App, next http.Handler) http.Handler {
 	return deviceAuthWith(a, next, next, scopeControl, false)
 }
 
-// rateLimitAuthFailures is rateLimit for routes an authenticated knob
-// calls in bursts (the view re-arm, control steps): a client whose IP has
-// spent its bucket on failed tokens gets 429 before any token check, a
-// failed token spends one, and a valid token spends none (the routes keep
-// their own per-caller caps). Brute force stays as limited as elsewhere.
 func rateLimitAuthFailures(a *App, owner, device http.Handler) http.Handler {
 	return deviceAuthWith(a, owner, device, "", true)
 }
 
-// View requests per knob: a long-poll re-arm after each change, plain polls
-// every poll_ms; this is far above either.
 const (
 	viewBurst  = 30
 	viewPerSec = 10.0
 )
 
-// perDevice answers 429 when the authenticated device spent its bucket.
 func (a *App) perDevice(l *callerLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !l.allowNow(deviceIDFrom(r.Context())) {
@@ -65,8 +54,6 @@ func deviceAuth(a *App, owner, device http.Handler) http.Handler {
 	return deviceAuthWith(a, owner, device, "", false)
 }
 
-// deviceAuthWith admits the owner, a device, or (when clientScope is set) a
-// client token holding clientScope; the client runs owner without a device id.
 func deviceAuthWith(a *App, owner, device http.Handler, clientScope string, chargeFailures bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if chargeFailures && !a.limiter.Has(clientIP(r)) {
@@ -388,15 +375,11 @@ func (a *App) decodeDeviceWifi(r *http.Request, raw json.RawMessage) *deviceWifi
 	return &w
 }
 
-// wifiDropLog keeps a knob that keeps sending the same bad wifi object from
-// logging it at Info on every checkin.
 type wifiDropLog struct {
-	mu   sync.Mutex        // protects last
-	last map[string]string // device ID -> last drop reason
+	mu   sync.Mutex
+	last map[string]string
 }
 
-// changed records reason ("" for a valid object) and reports whether it
-// differs from the device's previous one.
 func (l *wifiDropLog) changed(id, reason string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()

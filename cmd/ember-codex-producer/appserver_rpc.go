@@ -131,6 +131,7 @@ func (c *rpcConn) readLoop(onNotify func(method string, params json.RawMessage))
 				}
 			}
 		case m.Method != "" && len(m.ID) > 0:
+			// Server requests are never answered: see outbound.
 		case m.Method != "":
 			onNotify(m.Method, m.Params)
 		}

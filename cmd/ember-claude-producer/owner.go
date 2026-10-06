@@ -14,14 +14,16 @@ import (
 
 type marker struct {
 	producer.StatusRequest
-	OwnerPID       int    `json:"owner_pid,omitempty"`
-	OwnerStart     string `json:"owner_start,omitempty"`
-	StateChangedAt int64  `json:"state_changed_at,omitempty"`
+	OwnerPID   int    `json:"owner_pid,omitempty"`
+	OwnerStart string `json:"owner_start,omitempty"`
+	// unix s.
+	StateChangedAt int64 `json:"state_changed_at,omitempty"`
 	// unix ms; unchanged refreshes skip the rewrite, so the file mtime does not track it.
 	StatuslineChangedMs int64 `json:"statusline_changed_ms,omitempty"`
 	// unix s.
 	StatuslineAt int64 `json:"statusline_at,omitempty"`
-	HookAt       int64 `json:"hook_at,omitempty"`
+	// unix s.
+	HookAt int64 `json:"hook_at,omitempty"`
 	ToolTrack
 }
 
@@ -38,10 +40,11 @@ type ToolTrack struct {
 	LastToolUseID     string `json:"last_tool_use_id,omitempty"`
 	LastToolFP        string `json:"last_tool_fp,omitempty"`
 	ResumedTool       string `json:"resumed_tool,omitempty"`
-	ResumedAt         int64  `json:"resumed_at,omitempty"`
-	BackgroundWake    bool   `json:"bg_wake,omitempty"`
-	AgentsWait        bool   `json:"agents_wait,omitempty"`
-	AgentsRun         bool   `json:"agents_run,omitempty"`
+	// unix s.
+	ResumedAt      int64 `json:"resumed_at,omitempty"`
+	BackgroundWake bool  `json:"bg_wake,omitempty"`
+	AgentsWait     bool  `json:"agents_wait,omitempty"`
+	AgentsRun      bool  `json:"agents_run,omitempty"`
 }
 
 var shellComms = map[string]bool{

@@ -277,9 +277,8 @@ type queuedCommand struct {
 	ID     string        `json:"id"`
 	Action controlAction `json:"action"`
 	Delta  int           `json:"delta"`
-	// ms the command waited here, set on delivery.
-	AgeMS int64 `json:"age_ms"`
-	at    time.Time
+	AgeMS  int64         `json:"age_ms"`
+	at     time.Time
 }
 
 type commandQueue struct {
