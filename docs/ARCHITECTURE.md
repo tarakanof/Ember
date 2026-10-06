@@ -2178,13 +2178,14 @@ the same board finds its record.
   appends `\n` after each frame) and `CinderLineCodec` (`CINDER1 {json}` lines,
   sorted keys) are pinned by the shared vectors in
   `macos/Tests/EmberKitTests/testdata/knob/` that cinder's firmware tests can
-  reuse. `KnobStreamDemuxer` splits the port's bytes into frames, `CINDER1`
+  reuse (keep them in sync with cinder's `firmware/test/vectors`). `KnobStreamDemuxer` splits the port's bytes into frames, `CINDER1`
   lines and log lines. `KnobLink`/`KnobLinkOpener` is the transport seam (USB
   serial now, BLE later); `SerialPortLink` opens `/dev/cu.*` raw
   (`O_NONBLOCK`, `cfmakeraw`, `HUPCL` cleared first) and **never touches
   DTR/RTS**: toggling RTS resets the ESP32-S3. It takes the port exclusively
-  (`TIOCEXCL` + `flock`, like pyserial's `exclusive=True`); a busy port shows as
-  "couldn't open". `KnobSerialPorts` watches IOKit for `303a:1001` and keys a
+  (`TIOCEXCL` + `flock`, like pyserial's `exclusive=True`) and releases it with
+  `TIOCNXCL` before closing, because the tty's exclusive flag outlives the fd
+  while anything else holds the port open; a busy port shows as "couldn't open". `KnobSerialPorts` watches IOKit for `303a:1001` and keys a
   port by its USB serial number (the MAC = `hw_id`) **without opening it**: the
   port is shared with `idf.py monitor` and esptool (ROM download mode is
   `303a:1001` too), so Ember opens it only while Settings › Knob is on screen
@@ -3055,6 +3056,8 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   that error means the user must enable Location for the app there.
   `requestLocation()` is deferred until the user answers the prompt, because
   issuing it while `.notDetermined` doesn't reliably deliver a callback.
+- **Music long-poll budget.** The Apple Music command long-poll uses the
+  `.clockLong` budget (35 s to the first byte), above the server's 25 s wait.
 - **Launch at login** uses `SMAppService.mainApp` (System Settings › General ›
   Login Items). It needs the app signed and in `/Applications` to register fully,
   and a first registration may report `.requiresApproval`.
