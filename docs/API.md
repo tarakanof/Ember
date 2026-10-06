@@ -17,7 +17,9 @@ each ≤64 chars, needs `ingest` or `admin`) binds the token: `POST`/`DELETE
 /v1/status` and `POST /v1/usage` naming another `source` (usage: or none) are
 403; without it any source passes. Usage stays keyed by tool, so a bound
 token's usage post is also 403 when that tool's stored entry came from a
-source outside its list (no entry yet: accepted). Client tokens never pass the knob-only
+source outside its list (no entry yet: accepted). Sessions are keyed
+`source/tool/session`, so a bound token's status `tool`/`session` and a minted
+source may not contain `/` (400). Client tokens never pass the knob-only
 routes, now-playing control or `/admin/*`. Details: RUNBOOK "Integrating a
 source".
 

@@ -153,7 +153,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if !a.allowSource(w, r, req.Source) {
+	if !a.allowSessionKey(w, r, req.Source, req.Tool, req.Session) {
 		return
 	}
 	normalized := req.normalized()
@@ -230,7 +230,7 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if !a.allowSource(w, r, req.Source) {
+	if !a.allowSessionKey(w, r, req.Source, req.Tool, req.Session) {
 		return
 	}
 	a.Delete(req.key())

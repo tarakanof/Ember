@@ -691,7 +691,10 @@ or Home Assistant token can't overwrite or delete the Mac's Claude/Codex
 sessions. Usage stays one entry per tool (the dashboard is unchanged), so a
 bound token's usage post is also 403 when that tool's stored entry came from
 another source; a tool with no entry yet is accepted, and the Mac's unbound
-producer overwrites it on its next post. Without `sources` the token may name
+producer overwrites it on its next post. Sessions are keyed
+`source/tool/session`, so a bound token may not use `/` in `tool` or `session`
+and a source may not contain `/` (400): otherwise `ci` + `lab` + `claude/1`
+would reach source `ci/lab`'s sessions. Without `sources` the token may name
 any source. The list (1-16
 names, each at most 64 characters, trimmed and deduplicated) needs the
 `ingest` or `admin` scope, shows in `GET /v1/devices`, survives rotation and

@@ -27,6 +27,7 @@ var (
 	errMasterRequired = errors.New("managing client tokens requires EMBER_TOKEN")
 	errTooManyClients = fmt.Errorf("%w: at most %d client tokens; delete one first", errDeviceBody, maxClients)
 	errSourceDenied   = errors.New("token is not bound to source")
+	errBoundKeySlash  = errors.New("a source-bound token may not use \"/\" in tool or session")
 )
 
 type clientCallerKey struct{}
@@ -95,6 +96,9 @@ func normalizeSources(raw, scopes []string) ([]string, error) {
 		if s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > maxSourceRunes {
 			return nil, fmt.Errorf("%w: each source must be 1 to %d characters", errDeviceBody, maxSourceRunes)
 		}
+		if strings.Contains(s, "/") {
+			return nil, fmt.Errorf("%w: a source may not contain \"/\"", errDeviceBody)
+		}
 		out = append(out, s)
 	}
 	slices.Sort(out)
@@ -137,6 +141,16 @@ func (a *App) allowSource(w http.ResponseWriter, r *http.Request, source string)
 	}
 	a.denySource(w, r, source)
 	return false
+}
+
+func (a *App) allowSessionKey(w http.ResponseWriter, r *http.Request, source, tool, session string) bool {
+	if len(boundSources(r)) > 0 && (strings.Contains(tool, "/") || strings.Contains(session, "/")) {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr, "path", r.URL.Path, "reason", "validation", "field", "session_key")
+		writeError(w, http.StatusBadRequest, errBoundKeySlash)
+		return false
+	}
+	return a.allowSource(w, r, source)
 }
 
 func (a *App) denySource(w http.ResponseWriter, r *http.Request, source string) {

@@ -406,3 +406,30 @@ func TestUsagePutIfOwnedIsAtomic(t *testing.T) {
 		t.Fatalf("%d bound writers won an absent tool, want exactly 1", n)
 	}
 }
+
+func TestBoundClientCannotReachAnotherSourceThroughSlashInKey(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
+	if resp, b := devReq(t, srv, "POST", "/v1/status", testToken, `{"source":"ci/lab","tool":"claude","session":"1","state":"running"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("master post = %d %s", resp.StatusCode, b)
+	}
+	for _, c := range []struct{ method, body string }{
+		{"DELETE", `{"source":"ci","tool":"lab","session":"claude/1"}`},
+		{"POST", `{"source":"ci","tool":"lab","session":"claude/1","state":"error"}`},
+		{"POST", `{"source":"ci","tool":"lab/claude","session":"1","state":"error"}`},
+	} {
+		if resp, b := devReq(t, srv, c.method, "/v1/status", m.Token, c.body); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s %s = %d %s, want 400", c.method, c.body, resp.StatusCode, b)
+		}
+	}
+	_, b := devReq(t, srv, "GET", "/state", "", "")
+	if !strings.Contains(string(b), `"ci/lab"`) || !strings.Contains(string(b), `"running"`) {
+		t.Fatalf("ci/lab session changed: %s", b)
+	}
+	if resp, b := devReq(t, srv, "POST", "/v1/status", testToken, `{"source":"ci","tool":"lab","session":"claude/2","state":"running"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("master slash session = %d %s, want 200", resp.StatusCode, b)
+	}
+	if resp, b := devReq(t, srv, "POST", "/v1/devices", testToken, `{"kind":"client","name":"x","scopes":["ingest"],"sources":["ci/lab"]}`); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("mint slash source = %d %s, want 400", resp.StatusCode, b)
+	}
+}

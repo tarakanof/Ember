@@ -25,8 +25,9 @@ info:
     /v1/status` and `POST /v1/usage` naming any other `source` (or, for
     usage, none) are 403. Usage stays keyed by tool, so a bound token's usage
     post is also 403 when that tool's stored entry came from a source outside
-    its list (no entry yet: accepted). A token without `sources` may name any
-    source.
+    its list (no entry yet: accepted). Sessions are keyed
+    `source/tool/session`, so a bound token's status `tool` and `session`
+    may not contain `/` (400). A token without `sources` may name any source.
 
     A missing or unknown token is 401; a known client token without the
     scope, or bound to other sources, is 403. Errors are `{"error": "…"}`. Request bodies are capped at
@@ -433,7 +434,7 @@ components:
             sources:
               type: array
               description: |
-                Optional. Binds the token to these `source` values on
+                Optional. Binds the token to these `source` values (no `/`) on
                 `POST`/`DELETE /v1/status` and `POST /v1/usage` (403 for any
                 other). Trimmed, sorted and deduplicated; needs the `ingest`
                 or `admin` scope. Omit for a token that may name any source.
@@ -509,7 +510,9 @@ paths:
       tags: [ingest]
       operationId: postStatus
       summary: Report a session's status
-      description: A client token bound to `sources` gets 403 for any other `source`.
+      description: |
+        A client token bound to `sources` gets 403 for any other `source`,
+        and 400 for a `/` in `tool` or `session`.
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true
@@ -545,7 +548,9 @@ paths:
       tags: [ingest]
       operationId: deleteStatus
       summary: Drop a session
-      description: A client token bound to `sources` gets 403 for any other `source`.
+      description: |
+        A client token bound to `sources` gets 403 for any other `source`,
+        and 400 for a `/` in `tool` or `session`.
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true
