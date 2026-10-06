@@ -1164,7 +1164,7 @@ change durations/colours/cap/goals without a writable config file. API:
 `POST /v1/pomodoro/{start,pause,resume,stop,skip}` + `GET/PUT /v1/pomodoro/config`
 (bearer; PUT is **merge semantics** since #84 — omitted fields keep their
 current value; `daily_goal_sessions`/`weekly_goal_days` round-trip here too,
-validated against `[0, 50]`/`[0, 7]`, `0` = goal off).); open
+validated against `[0, 50]`/`[0, 7]`, `0` = goal off); open
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}` (`stats.goal` reports
 progress against those two config fields — `workhours` reports
 `work_start`/`work_end` as `null` on a day with no work). The stats handlers
