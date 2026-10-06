@@ -80,9 +80,13 @@ they apply at every step.
   user updates the container and says "server updated".
   - The MCP is the user's `tarakanof/Unraid-MCP` checkout, run over stdio
     (`UNRAID_MCP_DIR` points at it; its gitignored `.env` holds the Unraid API
-    URL and key, which needs `DOCKER` `UPDATE_ANY`). `.claude/settings.json`
-    denies every write tool except `refresh_docker_digests` and
-    `update_docker_container`; update only the Ember container.
+    URL and key). The key is the boundary: it holds only `DOCKER` `READ_ANY`
+    + `UPDATE_ANY`, so array, VM, parity and notification calls fail at the
+    API whatever tools the server registers. `.claude/settings.json` also
+    denies the known write tools except `refresh_docker_digests` and
+    `update_docker_container` (a denylist: a write tool added by a newer
+    unraid-mcp is not in it, so it falls back to a permission prompt). Update
+    only the Ember container.
 - **Mac app** (after a release that changed it):
   ```sh
   scripts/build-local.sh <scratch>/ember-build
