@@ -2191,7 +2191,9 @@ the same board finds its record.
   overwrite another source's tool (absent tool: allowed). Session keys
   join `source/tool/session` with `/`, so `allowSessionKey` 400s a `/` in a
   bound caller's tool or session and mint rejects `/` in a source; otherwise
-  `ci` + `lab` + `claude/1` would address `ci/lab`'s session. `docs/openapi.yaml`
+  `ci` + `lab` + `claude/1` would address `ci/lab`'s session. `boundSources` fails closed: an `ekc_` bearer with no caller in the
+  context (a route not behind `requireAuth`) is 403, never treated as
+  unbound. `docs/openapi.yaml`
   records each operation's credentials; `openapi_test.go` checks every
   registered route against it (route × credential table).
 - **Rotation:** `POST /v1/devices/{id}/rotate` (202) only marks the record.

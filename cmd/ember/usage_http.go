@@ -51,13 +51,14 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 	for _, win := range req.Models {
 		clampUsageWindow(win)
 	}
+	sources, _ := boundSources(r)
 	owner, ok := a.usage.PutIfOwned(req.Tool, ToolUsage{
 		FiveHour:  req.FiveHour,
 		SevenDay:  req.SevenDay,
 		Models:    req.Models,
 		Source:    req.Source,
 		UpdatedAt: time.Now(),
-	}, boundSources(r))
+	}, sources)
 	if !ok {
 		a.denySource(w, r, owner)
 		return

@@ -128,15 +128,18 @@ func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) (
 	return clientCaller{id: c.id, sources: c.sources}, true
 }
 
-func boundSources(r *http.Request) []string {
-	c, _ := r.Context().Value(clientCallerKey{}).(clientCaller)
-	return c.sources
+func boundSources(r *http.Request) ([]string, bool) {
+	c, ok := r.Context().Value(clientCallerKey{}).(clientCaller)
+	if !ok && isClientBearer(r) {
+		return nil, false
+	}
+	return c.sources, true
 }
 
 func (a *App) allowSource(w http.ResponseWriter, r *http.Request, source string) bool {
-	sources := boundSources(r)
+	sources, known := boundSources(r)
 	source = strings.TrimSpace(source)
-	if len(sources) == 0 || slices.Contains(sources, source) {
+	if known && (len(sources) == 0 || slices.Contains(sources, source)) {
 		return true
 	}
 	a.denySource(w, r, source)
@@ -144,7 +147,7 @@ func (a *App) allowSource(w http.ResponseWriter, r *http.Request, source string)
 }
 
 func (a *App) allowSessionKey(w http.ResponseWriter, r *http.Request, source, tool, session string) bool {
-	if len(boundSources(r)) > 0 && (strings.Contains(tool, "/") || strings.Contains(session, "/")) {
+	if sources, _ := boundSources(r); len(sources) > 0 && (strings.Contains(tool, "/") || strings.Contains(session, "/")) {
 		a.logger.InfoContext(r.Context(), "request rejected",
 			"remote_addr", r.RemoteAddr, "path", r.URL.Path, "reason", "validation", "field", "session_key")
 		writeError(w, http.StatusBadRequest, errBoundKeySlash)

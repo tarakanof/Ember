@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -433,5 +434,42 @@ func TestBoundClientCannotReachAnotherSourceThroughSlashInKey(t *testing.T) {
 	}
 	if resp, b := devReq(t, srv, "POST", "/v1/devices", testToken, `{"kind":"client","name":"x","scopes":["ingest"],"sources":["ci/lab"]}`); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("mint slash source = %d %s, want 400", resp.StatusCode, b)
+	}
+}
+
+func TestAllowSourceDeniesClientBearerWithoutCaller(t *testing.T) {
+	app, _ := newDevicesApp(t, "")
+	req := func(bearer string, c *clientCaller) *http.Request {
+		r := httptest.NewRequest("POST", "/v1/status", nil)
+		if bearer != "" {
+			r.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		if c != nil {
+			r = r.WithContext(context.WithValue(r.Context(), clientCallerKey{}, *c))
+		}
+		return r
+	}
+	cases := []struct {
+		name string
+		r    *http.Request
+		want bool
+	}{
+		{"master", req(testToken, nil), true},
+		{"no bearer", req("", nil), true},
+		{"unbound client", req(clientTokenPrefix+"x", &clientCaller{id: "client-1"}), true},
+		{"bound client, own source", req(clientTokenPrefix+"x", &clientCaller{id: "client-1", sources: []string{"ci"}}), true},
+		{"bound client, other source", req(clientTokenPrefix+"x", &clientCaller{id: "client-1", sources: []string{"lab"}}), false},
+		{"client bearer, no caller", req(clientTokenPrefix+"x", nil), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			if got := app.allowSource(w, c.r, "ci"); got != c.want {
+				t.Fatalf("allowSource = %v, want %v (%d %s)", got, c.want, w.Code, w.Body)
+			}
+			if !c.want && w.Code != http.StatusForbidden {
+				t.Fatalf("denied with %d, want 403", w.Code)
+			}
+		})
 	}
 }
