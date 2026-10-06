@@ -275,6 +275,7 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	a.knobStats.forget(id)
 	a.wifiDrops.forget(id)
+	a.diagDrops.forget(id)
 	a.logger.InfoContext(r.Context(), "device deleted", "device_id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -291,6 +292,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		LinkMHz             int             `json:"link_mhz"`
 		LinkFallback        bool            `json:"link_fallback"`
 		Wifi                json.RawMessage `json:"wifi"`
+		Diag                json.RawMessage `json:"diag"`
 		Stats               json.RawMessage `json:"stats"`
 	}
 	if !a.decodeOptionalOrReject(w, r, &req, false) {
@@ -325,7 +327,8 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		AppliedVersion:      req.ConfigVersion,
 		LinkMHz:             req.LinkMHz,
 		LinkFallback:        req.LinkFallback && req.LinkMHz > 0,
-		Wifi:                a.decodeDeviceWifi(r, req.Wifi),
+		Wifi:                decodeCheckinPart[deviceWifi](a, r, "wifi", req.Wifi, &a.wifiDrops),
+		Diag:                a.decodeDeviceDiag(r, req.Diag),
 	}
 	res, err := a.devices.checkin(id, report)
 	if errors.Is(err, errCheckinNotStored) {
@@ -335,6 +338,10 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return
+	}
+	if c := res.newCrash; c != nil {
+		a.logger.WarnContext(r.Context(), "knob crash reported", "device_id", id, "reason", c.Reason, "task", c.Task, "pc", c.PC,
+			"boots", report.Diag.Boots, "reset_reason", report.Diag.ResetReason)
 	}
 	now := a.knobStats.now()
 	if diag, _, err := a.devices.diagnostics(id); err == nil {
@@ -353,34 +360,46 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-func (a *App) decodeDeviceWifi(r *http.Request, raw json.RawMessage) *deviceWifi {
+type checkinPart interface {
+	validate() error
+}
+
+func decodeCheckinPart[T checkinPart](a *App, r *http.Request, name string, raw json.RawMessage, drops *checkinDropLog) *T {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
-	var w deviceWifi
-	err := json.Unmarshal(raw, &w)
+	var v T
+	err := json.Unmarshal(raw, &v)
 	if err == nil {
-		err = w.validate()
+		err = v.validate()
 	}
 	id := deviceIDFrom(r.Context())
 	if err != nil {
 		level := slog.LevelDebug
-		if a.wifiDrops.changed(id, err.Error()) {
+		if drops.changed(id, err.Error()) {
 			level = slog.LevelInfo
 		}
-		a.logger.Log(r.Context(), level, "device wifi dropped", "device_id", id, "err", err)
+		a.logger.Log(r.Context(), level, "device "+name+" dropped", "device_id", id, "err", err)
 		return nil
 	}
-	a.wifiDrops.changed(id, "")
-	return &w
+	drops.changed(id, "")
+	return &v
 }
 
-type wifiDropLog struct {
+func (a *App) decodeDeviceDiag(r *http.Request, raw json.RawMessage) *deviceDiag {
+	d := decodeCheckinPart[deviceDiag](a, r, "diag", raw, &a.diagDrops)
+	if d != nil {
+		d.Reboots, d.PrevResetReason = 0, ""
+	}
+	return d
+}
+
+type checkinDropLog struct {
 	mu   sync.Mutex
 	last map[string]string
 }
 
-func (l *wifiDropLog) changed(id, reason string) bool {
+func (l *checkinDropLog) changed(id, reason string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.last[id] == reason {
@@ -397,7 +416,7 @@ func (l *wifiDropLog) changed(id, reason string) bool {
 	return true
 }
 
-func (l *wifiDropLog) forget(id string) {
+func (l *checkinDropLog) forget(id string) {
 	l.mu.Lock()
 	delete(l.last, id)
 	l.mu.Unlock()
