@@ -87,6 +87,22 @@ import Foundation
     #expect(c.linkMHz == 40 && c.linkFallback == true)
 }
 
+// Ember#293: the knob's Wi-Fi link (cinder#21) decodes from the stored
+// checkin; firmware before 0.9.8 has none, and unknown keys are left out.
+@Test func knobCheckinWifiDecodes() throws {
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let base = #""seen_at":"2026-10-06T10:00:00Z","fw":"0.9.8","ip":"","rssi":-74,"heap_internal_free":1,"heap_internal_largest":1,"uptime_s":1,"applied_version":1"#
+    let full = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","wifi":{"bssid":"78:45:58:4b:c2:cd","channel":6,"disconnects":3,"last_reason":203,"rssi_min":-83}}"#).utf8))
+    #expect(full.wifi == KnobWifi(bssid: "78:45:58:4b:c2:cd", channel: 6, disconnects: 3, lastReason: 203, rssiMin: -83))
+    let sparse = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","wifi":{"disconnects":0}}"#).utf8))
+    #expect(sparse.wifi == KnobWifi(disconnects: 0))
+    #expect(full.wifi?.hasLinkDetails == true && sparse.wifi?.hasLinkDetails == false)
+    #expect(KnobWifi(channel: 6, disconnects: 0).hasLinkDetails && KnobWifi(disconnects: 0, rssiMin: -83).hasLinkDetails)
+    let old = try d.decode(KnobCheckin.self, from: Data(("{" + base + "}").utf8))
+    #expect(old.wifi == nil)
+}
+
 @Test func knobBotFlagsDecodeAndStayOffTheWireWhenAbsent() throws {
     let json = #"{"sleepy_after_s":300,"demo_hold_s":20,"source_label":false,"working_ring":true}"#
     let b = try JSONDecoder().decode(KnobSettings.Bot.self, from: Data(json.utf8))

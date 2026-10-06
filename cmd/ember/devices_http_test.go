@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -687,5 +688,107 @@ func TestDeviceCheckinRecordsTheDisplayLink(t *testing.T) {
 	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.1"}`)
 	if got := app.devices.list()[0].LastCheckin; got.LinkMHz != 0 || got.LinkFallback {
 		t.Fatalf("older firmware: link = %d, %v", got.LinkMHz, got.LinkFallback)
+	}
+}
+
+// cinder#21: the knob's Wi-Fi link telemetry rides the checkin into the record.
+func TestDeviceCheckinRecordsTheWifiLink(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	body := `{"fw":"0.9.8","rssi":-74,"wifi":{"bssid":"78:45:58:4b:c2:cd","channel":6,"disconnects":3,"last_reason":203,"rssi_min":-83}}`
+	if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, body); resp.StatusCode != http.StatusOK {
+		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
+	}
+	got := app.devices.list()[0].LastCheckin.Wifi
+	want := deviceWifi{BSSID: "78:45:58:4b:c2:cd", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83}
+	if got == nil || *got != want {
+		t.Fatalf("wifi = %+v, want %+v", got, want)
+	}
+	got.Disconnects = 99
+	if again := app.devices.list()[0].LastCheckin.Wifi; again.Disconnects != 3 {
+		t.Fatalf("list shares the stored wifi: disconnects = %d", again.Disconnects)
+	}
+	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"wifi":{"bssid":"78:45:58:4b:c2:cd","channel":6,"disconnects":3,"last_reason":203,"rssi_min":-83}`) {
+		t.Fatalf("GET /v1/devices = %d: %s", resp.StatusCode, b)
+	}
+}
+
+func TestDeviceCheckinKeepsOnlyDisconnectsWhenTheKnobKnowsNoMore(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.8","wifi":{"disconnects":0}}`)
+	if got := app.devices.list()[0].LastCheckin.Wifi; got == nil || *got != (deviceWifi{}) {
+		t.Fatalf("wifi = %+v, want zero object", got)
+	}
+	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"wifi":{"disconnects":0}`) {
+		t.Fatalf("GET /v1/devices = %d: %s", resp.StatusCode, b)
+	}
+}
+
+func TestDeviceCheckinDropsAnInvalidWifiObjectButKeepsTheCheckin(t *testing.T) {
+	for name, wifi := range map[string]string{
+		"channel":       `{"channel":15,"disconnects":1}`,
+		"rssi_min high": `{"rssi_min":1,"disconnects":1}`,
+		"rssi_min low":  `{"rssi_min":-128,"disconnects":1}`,
+		"last_reason":   `{"last_reason":256,"disconnects":1}`,
+		"disconnects":   `{"disconnects":-1}`,
+		"bssid case":    `{"bssid":"78:45:58:4B:C2:CD","disconnects":1}`,
+		"bssid short":   `{"bssid":"78:45:58:4b:c2","disconnects":1}`,
+		"wrong type":    `{"channel":"6","disconnects":1}`,
+		"not object":    `[1]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			app, srv := newDevicesApp(t, "")
+			m := mintKnob(t, srv, http.StatusCreated)
+			resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.8","rssi":-70,"wifi":`+wifi+`}`)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
+			}
+			got := app.devices.list()[0].LastCheckin
+			if got.Wifi != nil || got.FW != "0.9.8" || got.RSSI != -70 {
+				t.Fatalf("checkin = %+v, wifi %+v", got, got.Wifi)
+			}
+		})
+	}
+}
+
+func TestDeviceCheckinWithoutWifiClearsTheStoredLink(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.8","wifi":{"disconnects":2}}`)
+	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.7"}`)
+	if got := app.devices.list()[0].LastCheckin.Wifi; got != nil {
+		t.Fatalf("older firmware: wifi = %+v", got)
+	}
+}
+
+func TestDeviceCheckinLogsADroppedWifiObjectOnlyWhenTheReasonChanges(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	var logs bytes.Buffer
+	app.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	m := mintKnob(t, srv, http.StatusCreated)
+	post := func(wifi string) {
+		t.Helper()
+		if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.8","wifi":`+wifi+`}`); resp.StatusCode != http.StatusOK {
+			t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
+		}
+	}
+	dropped := func() int { return strings.Count(logs.String(), "device wifi dropped") }
+	for range 3 {
+		post(`{"channel":15,"disconnects":1}`)
+	}
+	if got := dropped(); got != 1 {
+		t.Fatalf("Info logs for one repeated reason = %d, want 1:\n%s", got, logs.String())
+	}
+	post(`{"rssi_min":5,"disconnects":1}`)
+	if got := dropped(); got != 2 {
+		t.Fatalf("Info logs after the reason changed = %d, want 2", got)
+	}
+	post(`{"disconnects":1}`)
+	post(`{"rssi_min":5,"disconnects":1}`)
+	if got := dropped(); got != 3 {
+		t.Fatalf("Info logs after a valid object in between = %d, want 3", got)
 	}
 }

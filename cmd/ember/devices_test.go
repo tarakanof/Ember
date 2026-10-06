@@ -160,3 +160,21 @@ func TestDeviceCheckinSucceedsWhenThePeriodicWriteFails(t *testing.T) {
 		t.Fatalf("stored registry lacks the checkin: %s", blob)
 	}
 }
+
+func TestDeviceLastCheckinWifiSurvivesRestart(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app1, srv1 := newDevicesApp(t, db)
+	m := mintKnob(t, srv1, http.StatusCreated)
+	devReq(t, srv1, "POST", "/v1/devices/self/checkin", m.Token,
+		`{"fw":"0.9.8","wifi":{"bssid":"78:45:58:4b:c2:cd","channel":6,"disconnects":3,"last_reason":203,"rssi_min":-83}}`)
+	srv1.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	app1.shutdown(ctx, &http.Server{}, &sync.WaitGroup{})
+
+	app2, _ := newDevicesApp(t, db)
+	want := deviceWifi{BSSID: "78:45:58:4b:c2:cd", Channel: 6, Disconnects: 3, LastReason: 203, RSSIMin: -83}
+	if got := app2.devices.list()[0].LastCheckin.Wifi; got == nil || *got != want {
+		t.Fatalf("wifi after restart = %+v, want %+v", got, want)
+	}
+}

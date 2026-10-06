@@ -15,9 +15,11 @@ public struct KnobCheckin: Codable, Equatable, Sendable {
     public var linkMHz: Int?
     /// True when the knob runs at 40 MHz because a link check failed.
     public var linkFallback: Bool?
+    /// The Wi-Fi link (cinder#21); nil from firmware before 0.9.8.
+    public var wifi: KnobWifi?
 
     enum CodingKeys: String, CodingKey {
-        case fw, ip, rssi
+        case fw, ip, rssi, wifi
         case linkMHz = "link_mhz"
         case linkFallback = "link_fallback"
         case seenAt = "seen_at"
@@ -32,6 +34,37 @@ public struct KnobCheckin: Codable, Equatable, Sendable {
         self.seenAt = seenAt; self.fw = fw; self.ip = ip; self.rssi = rssi
         self.heapInternalFree = heapInternalFree; self.heapInternalLargest = heapInternalLargest
         self.uptimeS = uptimeS; self.appliedVersion = appliedVersion
+    }
+}
+
+/// The knob's Wi-Fi link as the server stores it (`deviceWifi`): nil fields
+/// are ones the knob did not know.
+public struct KnobWifi: Codable, Equatable, Sendable {
+    /// The access point, lower-case `aa:bb:cc:dd:ee:ff`.
+    public var bssid: String?
+    public var channel: Int?
+    /// Disconnects since the knob booted; each starts a reconnect.
+    public var disconnects: Int
+    /// ESP-IDF `wifi_err_reason_t` of the last disconnect (`KnobWifiReason`).
+    public var lastReason: Int?
+    /// The lowest RSSI (dBm) since the previous checkin.
+    public var rssiMin: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case bssid, channel, disconnects
+        case lastReason = "last_reason"
+        case rssiMin = "rssi_min"
+    }
+
+    /// True when the knob reported its access point, channel or lowest RSSI.
+    public var hasLinkDetails: Bool {
+        bssid?.isEmpty == false || (channel ?? 0) > 0 || (rssiMin ?? 0) != 0
+    }
+
+    public init(bssid: String? = nil, channel: Int? = nil, disconnects: Int,
+                lastReason: Int? = nil, rssiMin: Int? = nil) {
+        self.bssid = bssid; self.channel = channel; self.disconnects = disconnects
+        self.lastReason = lastReason; self.rssiMin = rssiMin
     }
 }
 

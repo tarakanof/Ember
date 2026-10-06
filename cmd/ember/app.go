@@ -72,6 +72,8 @@ type App struct {
 	viewWaitHook func()
 	// knobStats holds knob diagnostics samples and live mode, memory only.
 	knobStats *knobStatsStore
+	// wifiDrops remembers why each knob's last wifi object was dropped.
+	wifiDrops wifiDropLog
 	// clockStats holds the clock's probe samples, memory only.
 	clockStats *clockStatsStore
 

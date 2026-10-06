@@ -17,6 +17,17 @@
         }
       }
     },
+    "%@ (min %lld dBm)" : {
+      "comment" : "Settings › Knob Wi-Fi row: the signal, then its lowest value since the last check-in (\"Weak · -74 dBm (min -83 dBm)\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (min %2$lld dBm)"
+          }
+        }
+      }
+    },
     "%@ 5h %@" : {
       "comment" : "Menu usage row: tool name, then percent of its 5-hour window used (\"Claude 5h 47%\").",
       "extractionState" : "manual"
@@ -232,6 +243,17 @@
         }
       }
     },
+    "%@, channel %lld" : {
+      "comment" : "Settings › Knob Wi-Fi row: the signal, then the Wi-Fi channel (\"Weak · -74 dBm, channel 6\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, channel %2$lld"
+          }
+        }
+      }
+    },
     "%@, not set up" : {
       "comment" : "VoiceOver label of a Settings sidebar device that isn't set up: its name (and kind, \"Desk knob, Knob\")."
     },
@@ -285,6 +307,28 @@
     },
     "%lld" : {
       "comment" : "A bare count next to a stepper (rounds before a long break)."
+    },
+    "%lld (last: %lld %@)" : {
+      "comment" : "Settings › Knob: Wi-Fi reconnects since the knob started, then the last disconnect's ESP-IDF reason code and its meaning (\"3 (last: 203 association failed)\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld (last: %2$lld %3$@)"
+          }
+        }
+      }
+    },
+    "%lld (last: reason %lld)" : {
+      "comment" : "Settings › Knob: Wi-Fi reconnects since the knob started, then the last disconnect's ESP-IDF reason code this app has no words for (\"3 (last: reason 250)\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld (last: reason %2$lld)"
+          }
+        }
+      }
     },
     "%lld MHz (fell back after a check failed)" : {
       "comment" : "Settings › Knob: the knob's panel link clock after it fell back from 80 MHz (\"40 MHz (fell back after a check failed)\")."
@@ -352,6 +396,10 @@
     "24 Hours" : {},
     "24-hour time" : {},
     "4 digits" : {},
+    "4-way handshake timeout" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "5-hour limit resets" : {},
     "5-hour usage" : {},
     "5-hour window" : {},
@@ -362,6 +410,10 @@
     "7-day window" : {},
     "7d" : {
       "comment" : "Abbreviation for the 7-day usage window (Usage card row). Keep it very short."
+    },
+    "802.1X authentication failed" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
     },
     "A board is connected, but Ember couldn't open its port" : {},
     "A day counts as active when it has at least one completed focus session. The Dashboard compares the last 7 days with this goal." : {
@@ -394,6 +446,9 @@
       }
     },
     "About Ember" : {},
+    "Access point %@" : {
+      "comment" : "Settings › Knob: tooltip on the Wi-Fi row naming the access point the knob uses (\"Access point 78:45:58:4b:c2:cd\")."
+    },
     "Active days to aim for in the last 7" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1366,6 +1421,7 @@
     "Reading what's playing…" : {},
     "Reads reminders with a due time to ring the clock. Needed while reminder alarms are on." : {},
     "Reads the playing track's position and artwork from Music. Needed while Apple Music is sent to Ember." : {},
+    "Reconnects" : {},
     "Redraws the screen faster (a full frame in about 25 ms instead of 35) and halves the time in which a redraw can tear. 80 MHz is beyond the panel's rated speed, so the knob checks the link at startup and every 5 s and drops back to 40 MHz by itself if a check fails. Changing it restarts the knob; default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1456,6 +1512,10 @@
       "extractionState" : "manual"
     },
     "Runs the timer on the clock and lets the clock's buttons control it." : {},
+    "SA query timeout" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "SDIO reset" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1564,6 +1624,9 @@
       "extractionState" : "manual"
     },
     "Signal" : {},
+    "Signal unknown" : {
+      "comment" : "Settings › Knob Wi-Fi row when the knob could not read its signal, before the lowest signal and channel (\"Signal unknown, channel 6\")."
+    },
     "Skip Phase" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1832,6 +1895,7 @@
     "Time per app" : {},
     "Time range" : {},
     "Time until the 5-hour window resets." : {},
+    "Times the knob lost Wi-Fi since it started. Each one starts a reconnect." : {},
     "Tints this Mac's agent icon and name on the clock" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2078,14 +2142,58 @@
     "^[%lld session](inflect: true) today" : {
       "comment" : "Focus card with no daily goal: focus sessions completed today."
     },
+    "access point clock reset" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "access point full" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "access point left" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "association comeback time too long" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "association failed" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "authentication expired" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "authentication failed" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "avg %@ / week" : {
       "comment" : "12-week card header: average focus time per finished week (\"6h 15m\")."
+    },
+    "beacon timeout" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
     },
     "clock didn't finish in time" : {
       "comment" : "Short reason after a failed menu action: the clock was too slow to finish it.",
       "extractionState" : "manual"
     },
+    "connection failed" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "disconnected itself" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "done" : {},
+    "dropped for inactivity" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "eFuse error" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2095,7 +2203,23 @@
     "found by the server" : {},
     "found by the server and this Mac" : {},
     "found by this Mac" : {},
+    "frame from an unassociated station" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "frame from an unauthenticated station" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "good" : {},
+    "group key update timeout" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "handshake timeout" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "in %lld min" : {
       "comment" : "Upcoming card: minutes until an event starts."
     },
@@ -2115,7 +2239,31 @@
       "comment" : "Settings › Agents failure after Repair when launchctl bootout fails; exit code, then launchctl's message.",
       "extractionState" : "manual"
     },
+    "message integrity failure" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "missing acknowledgements" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "moderate" : {},
+    "no access point above the signal threshold" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "no access point found" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "no access point in the security threshold" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
+    "no access point with compatible security" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "not supported by this server" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
@@ -2127,6 +2275,10 @@
     "poor" : {},
     "rate-limited" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "roaming" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
     },
     "server error" : {
@@ -2141,8 +2293,16 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
+    "timeout" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
+      "extractionState" : "manual"
+    },
     "unauthorized" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "unspecified" : {
+      "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
     },
     "updated %@" : {

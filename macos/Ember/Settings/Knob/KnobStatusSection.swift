@@ -16,8 +16,12 @@ struct KnobStatusSection: View {
                     Text(verbatim: checkin?.ip.nonEmpty ?? "—").textSelection(.enabled)
                 }
                 LabeledContent("Firmware") { Text(verbatim: checkin?.fw.nonEmpty ?? "—") }
-                if let rssi = checkin?.rssi, rssi != 0 {
-                    LabeledContent("Wi-Fi") { wifiSignalText(rssi) }
+                if let c = checkin, c.rssi != 0 || c.wifi?.hasLinkDetails == true {
+                    wifiRow(c.rssi, c.wifi)
+                }
+                if let wifi = checkin?.wifi {
+                    LabeledContent("Reconnects") { reconnects(wifi) }
+                        .help("Times the knob lost Wi-Fi since it started. Each one starts a reconnect.")
                 }
                 if let up = checkin?.uptimeS {
                     LabeledContent("Uptime") { Text(DurationText.uptime(up)) }
@@ -104,6 +108,40 @@ struct KnobStatusSection: View {
                  comment: "Settings › Knob: the knob hasn't picked up the latest settings; the settings version it runs, then the latest.")
                 .foregroundStyle(.orange)
         }
+    }
+
+    @ViewBuilder private func wifiRow(_ rssi: Int, _ wifi: KnobWifi?) -> some View {
+        let row = LabeledContent("Wi-Fi") { wifiLinkText(rssi, wifi) }
+        if let bssid = wifi?.bssid {
+            row.help(Text("Access point \(bssid)",
+                          comment: "Settings › Knob: tooltip on the Wi-Fi row naming the access point the knob uses (\"Access point 78:45:58:4b:c2:cd\")."))
+        } else {
+            row
+        }
+    }
+
+    private func wifiLinkText(_ rssi: Int, _ wifi: KnobWifi?) -> Text {
+        var text = rssi != 0 ? wifiSignalText(rssi)
+            : Text("Signal unknown", comment: "Settings › Knob Wi-Fi row when the knob could not read its signal, before the lowest signal and channel (\"Signal unknown, channel 6\").")
+        if let low = wifi?.rssiMin, low != 0 {
+            text = Text("\(text) (min \(low) dBm)",
+                        comment: "Settings › Knob Wi-Fi row: the signal, then its lowest value since the last check-in (\"Weak · -74 dBm (min -83 dBm)\").")
+        }
+        if let channel = wifi?.channel, channel > 0 {
+            text = Text("\(text), channel \(channel)",
+                        comment: "Settings › Knob Wi-Fi row: the signal, then the Wi-Fi channel (\"Weak · -74 dBm, channel 6\").")
+        }
+        return text
+    }
+
+    private func reconnects(_ wifi: KnobWifi) -> Text {
+        guard let code = wifi.lastReason, code > 0 else { return Text(verbatim: "\(wifi.disconnects)") }
+        if let reason = KnobWifiReason.label(code) {
+            return Text("\(wifi.disconnects) (last: \(code) \(reason))",
+                        comment: "Settings › Knob: Wi-Fi reconnects since the knob started, then the last disconnect's ESP-IDF reason code and its meaning (\"3 (last: 203 association failed)\").")
+        }
+        return Text("\(wifi.disconnects) (last: reason \(code))",
+                    comment: "Settings › Knob: Wi-Fi reconnects since the knob started, then the last disconnect's ESP-IDF reason code this app has no words for (\"3 (last: reason 250)\").")
     }
 
     private func bytes(_ n: Int) -> String {
