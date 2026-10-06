@@ -210,11 +210,13 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
     let store = Store(1)
     let (m, _) = makeModel(store)
     var seen: [Int] = []
-    m.onSaved = { seen.append($0) }
+    var previous: [Int?] = []
+    m.onSaved = { saved, before in seen.append(saved); previous.append(before) }
     await m.load()
     m.draft = 5
     await m.saveNow()
     #expect(seen == [5])
+    #expect(previous == [1])
 }
 
 @Test func aggregateStatusPrefersErrorsThenSaving() {

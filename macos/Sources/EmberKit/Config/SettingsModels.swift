@@ -76,7 +76,7 @@ public final class SettingsModels {
         EnvConfigModel(
             env: store, initial: ProducerTuning(reading: EnvFile(parsing: "")),
             read: { ProducerTuning(reading: $0) },
-            apply: { value, env in try value.apply(to: &env) })
+            applyChange: { value, previous, env in try value.apply(to: &env, from: previous) })
     }
 
     /// Points the server-backed models at a new client.

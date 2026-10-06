@@ -28,35 +28,42 @@ public struct ProducerTuning: Equatable, Sendable {
             ?? Self.defaultStatuslineTimeoutMs
     }
 
-    /// Validates every value, then writes the ones whose parsed value differs
-    /// from the file's, so defaults are never pinned and a throw writes nothing.
-    public func apply(to env: inout EnvFile) throws {
+    /// Validates every value, then writes each one that differs from
+    /// `previous` (the value last loaded or saved; nil compares with the
+    /// file), so a hand edit to another key survives. A value equal to the
+    /// producer's default removes its key. A throw writes nothing.
+    public func apply(to env: inout EnvFile, from previous: ProducerTuning? = nil) throws {
         if codexSources.isEmpty {
             throw ValidationError(message: "Choose at least one kind of Codex session to show.")
         }
         if doneTTLSeconds <= 0 || statuslineTimeoutMs <= 0 {
             throw ValidationError(message: "The value must be a positive whole number.")
         }
+        let base = previous ?? ProducerTuning(reading: env)
+        let defaults = ProducerTuning(reading: EnvFile(parsing: ""))
+        func write<V: Equatable>(_ key: String, _ path: KeyPath<ProducerTuning, V>, _ text: (V) -> String) {
+            guard self[keyPath: path] != base[keyPath: path] else { return }
+            if self[keyPath: path] == defaults[keyPath: path] {
+                env.remove(key)
+            } else {
+                env.set(key, text(self[keyPath: path]))
+            }
+        }
         func b(_ v: Bool) -> String { v ? "true" : "false" }
-        let current = ProducerTuning(reading: env)
-        if current.codexIncludeClaude != codexIncludeClaude {
-            env.set(SettingsKeys.codexIncludeClaude, b(codexIncludeClaude))
-        }
-        if current.codexSources != codexSources {
-            env.set(SettingsKeys.codexSources, Self.sourceList(codexSources))
-        }
-        if current.codexAppServer != codexAppServer {
-            env.set(SettingsKeys.codexAppServer, b(codexAppServer))
-        }
-        if current.doneTTLSeconds != doneTTLSeconds {
-            env.set(SettingsKeys.doneTTLSeconds, String(doneTTLSeconds))
-        }
-        if current.claudeAgentsPoll != claudeAgentsPoll {
-            env.set(SettingsKeys.claudeAgentsPoll, b(claudeAgentsPoll))
-        }
-        if current.statuslineTimeoutMs != statuslineTimeoutMs {
-            env.set(SettingsKeys.statuslineTimeoutMs, String(statuslineTimeoutMs))
-        }
+        write(SettingsKeys.codexIncludeClaude, \.codexIncludeClaude, b)
+        write(SettingsKeys.codexSources, \.codexSources, Self.sourceList)
+        write(SettingsKeys.codexAppServer, \.codexAppServer, b)
+        write(SettingsKeys.doneTTLSeconds, \.doneTTLSeconds, String.init)
+        write(SettingsKeys.claudeAgentsPoll, \.claudeAgentsPoll, b)
+        write(SettingsKeys.statuslineTimeoutMs, \.statuslineTimeoutMs, String.init)
+    }
+
+    /// Whether a Codex setting differs, which the Codex producer only reads
+    /// when it starts.
+    public func changesCodex(from other: ProducerTuning) -> Bool {
+        codexIncludeClaude != other.codexIncludeClaude
+            || codexSources != other.codexSources
+            || codexAppServer != other.codexAppServer
     }
 
     /// Whether unchecking `kind` leaves at least one kind checked.
