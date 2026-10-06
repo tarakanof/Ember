@@ -65,7 +65,8 @@ type App struct {
 	viewRecheck  time.Duration
 	viewWaitHook func()
 	knobStats    *knobStatsStore
-	wifiDrops    wifiDropLog
+	wifiDrops    checkinDropLog
+	diagDrops    checkinDropLog
 	clockStats   *clockStatsStore
 
 	appsMu     sync.Mutex

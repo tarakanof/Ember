@@ -50,6 +50,7 @@ type deviceCheckin struct {
 	LinkMHz             int         `json:"link_mhz,omitempty"`
 	LinkFallback        bool        `json:"link_fallback,omitempty"`
 	Wifi                *deviceWifi `json:"wifi,omitempty"`
+	Diag                *deviceDiag `json:"diag,omitempty"`
 }
 
 type deviceWifi struct {
@@ -108,6 +109,7 @@ func (d deviceRecord) clone() deviceRecord {
 			w := *c.Wifi
 			c.Wifi = &w
 		}
+		c.Diag = c.Diag.clone()
 		d.LastCheckin = &c
 	}
 	return d
@@ -624,6 +626,7 @@ type checkinResult struct {
 	NewToken      string        `json:"new_token,omitempty"`
 	// server Unix seconds.
 	DiagLiveUntil *int64 `json:"diag_live_until,omitempty"`
+	newCrash      *deviceCrash
 }
 
 func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult, error) {
@@ -638,6 +641,14 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 	}
 	report.SeenAt = r.now().UTC()
 	res := checkinResult{ConfigVersion: d.ConfigVersion}
+	var prevDiag *deviceDiag
+	if d.LastCheckin != nil {
+		prevDiag = d.LastCheckin.Diag
+	}
+	if report.Diag != nil {
+		report.Diag.carryFrom(prevDiag)
+	}
+	res.newCrash = newDiagCrash(prevDiag, report.Diag)
 	if report.AppliedVersion != d.ConfigVersion {
 		c := d.clone().Config
 		res.Config = &c

@@ -381,6 +381,23 @@ components:
           format: date-time
         last_checkin:
           type: [object, "null"]
+          description: The knob's last checkin as reported (see the checkin request), plus `seen_at` and `applied_version`.
+          properties:
+            diag:
+              type: object
+              description: The checkin's `diag` object plus fields the server adds from the previous checkin.
+              properties:
+                reboots:
+                  type: integer
+                  minimum: 0
+                  description: Increases of `boots` seen by the server (a drop in `boots` counts one).
+                prev_reset_reason:
+                  type: string
+                  description: The reset reason before the latest reboot; left out when `boots` rose by more than one between checkins.
+                reboots_since_seen:
+                  type: integer
+                  minimum: 2
+                  description: How far `boots` jumped between two checkins when it rose by more than one.
         scopes:
           type: array
           description: Clients only.
@@ -1495,6 +1512,70 @@ paths:
                   type: integer
                 link_fallback:
                   type: boolean
+                wifi:
+                  type: object
+                  description: Wi-Fi link telemetry (cinder 0.9.8); dropped when invalid.
+                  properties:
+                    bssid:
+                      type: string
+                    channel:
+                      type: integer
+                      minimum: 0
+                      maximum: 14
+                    disconnects:
+                      type: integer
+                      minimum: 0
+                    last_reason:
+                      type: integer
+                      minimum: 0
+                      maximum: 255
+                    rssi_min:
+                      type: integer
+                      minimum: -127
+                      maximum: 0
+                diag:
+                  type: object
+                  description: >-
+                    Restart and memory diagnostics (cinder 0.9.13); dropped when invalid.
+                    Knob-sent `reboots`, `prev_reset_reason` and `reboots_since_seen` are ignored;
+                    the server sets them.
+                  properties:
+                    boots:
+                      type: integer
+                      minimum: 0
+                    crash:
+                      type: object
+                      description: Present while a core dump is in flash.
+                      properties:
+                        pc:
+                          type: string
+                          pattern: "^0x[0-9a-f]{1,8}$"
+                        reason:
+                          type: string
+                          pattern: "^[a-z0-9_]{1,24}$"
+                          description: panic, int_wdt, task_wdt, wdt or unknown.
+                        task:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                    heap_internal_min:
+                      type: integer
+                      minimum: 0
+                    heap_largest_min:
+                      type: integer
+                      minimum: 0
+                    reset_reason:
+                      type: string
+                      pattern: "^[a-z0-9_]{1,24}$"
+                    stack_free:
+                      type: object
+                      maxProperties: 32
+                      propertyNames:
+                        minLength: 1
+                        maxLength: 16
+                      additionalProperties:
+                        type: integer
+                        minimum: 0
                 stats:
                   type: object
       responses:
