@@ -1229,8 +1229,8 @@ paths:
         `{"kind":"client","name":"CI","scopes":["ingest"]}` mints an `ekc_`
         client token; `{"kind":"cinder-knob","hw_id":"…"}` provisions a knob.
         The response carries the token once (`Cache-Control: no-store`).
-        Minting a client takes the master token: a client token, admin
-        included, gets 403. At most 64 clients (400 past that).
+        Minting (a client or a knob) takes the master token: a client token,
+        admin included, gets 403. At most 64 clients (400 past that).
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
         required: true

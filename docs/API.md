@@ -5,7 +5,7 @@ The contract (request/response shapes, auth per route) is
 and may change.
 
 **Tokens.** `EMBER_TOKEN` (master) passes every bearer route below. Scoped
-client tokens (`ekc_…`) are minted by the master token with `POST /v1/devices
+client tokens (`ekc_…`) and knob tokens are minted only by the master token with `POST /v1/devices
 {"kind":"client","name","scopes"}` (at most 64; rotate/delete also master-only)
 and pass only their scopes: `ingest` (`POST`/`DELETE /v1/status`,
 `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire`), `control`

@@ -177,6 +177,7 @@ func TestAdminClientCannotManageClients(t *testing.T) {
 	other := mintClient(t, srv, "ci", "ingest")
 	for _, c := range []struct{ method, path, body string }{
 		{"POST", "/v1/devices", `{"kind":"client","name":"x","scopes":["admin"]}`},
+		{"POST", "/v1/devices", `{"kind":"cinder-knob","hw_id":"` + testHwID + `"}`},
 		{"POST", "/v1/devices/" + other.ID + "/rotate", ""},
 		{"POST", "/v1/devices/" + admin.ID + "/rotate", ""},
 		{"DELETE", "/v1/devices/" + other.ID, ""},

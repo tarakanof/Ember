@@ -142,10 +142,10 @@ func (a *App) handleDevicesCreate(w http.ResponseWriter, r *http.Request) {
 	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
+	if !a.requireMasterForClients(w, r) {
+		return
+	}
 	if req.Kind == deviceKindClient {
-		if !a.requireMasterForClients(w, r) {
-			return
-		}
 		a.createClient(w, r, req.HwID, req.Name, req.Scopes)
 		return
 	}

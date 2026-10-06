@@ -665,7 +665,7 @@ carries only the scopes it was minted with:
 | `ingest` | `POST`/`DELETE /v1/status`, `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire` |
 | `control` | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` |
 | `read` | the non-secret settings reads: `GET /v1/{apps,pomodoro/config,usage/config,display/config,brightness/config,quiet/config,clock/stats}` (weather and meetings config hold a location or a calendar URL: `admin` only) |
-| `admin` | every route `EMBER_TOKEN` passes under `/v1/`, except minting, rotating or deleting client tokens (master only, so a leaked client can't outlive its revocation) |
+| `admin` | every route `EMBER_TOKEN` passes under `/v1/`, except minting any token and rotating or deleting client tokens (master only, so a leaked client can't outlive its revocation) |
 
 Public reads (`/state`, `/v1/*/state`, previews, dashboard reads) need no
 token. A missing or unknown token is 401; a client token without the scope is
@@ -681,7 +681,8 @@ curl -s -XPOST localhost:3627/v1/devices/client-1a2b3c4d/rotate -H "$H"  # new t
 curl -s -XDELETE localhost:3627/v1/devices/client-1a2b3c4d -H "$H"       # revoke
 ```
 
-Only `EMBER_TOKEN` manages client tokens (any client token gets 403), and
+Only `EMBER_TOKEN` mints tokens (client or knob) and manages client tokens
+(any client token gets 403), and
 there are at most 64 (400 past that). Only the token's SHA-256 is stored (the knob registry, `devices_json`). Rotating
 a client answers 200 with the new token and revokes the old one at once (a knob
 rotation is 202 and waits for its checkin). Clients are not knobs: they have no
