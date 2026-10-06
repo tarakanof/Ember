@@ -716,4 +716,11 @@ public struct ProducerSnapshot: Sendable {
 
     /// Whether an agent is on but not running, so Settings offers Repair.
     public var needsRepair: Bool { agents.contains { $0.state == .notRunning } }
+
+    /// Whether the Agents pane shows an agent's producer.env settings: it's
+    /// listed and either found on this Mac or turned on.
+    public func showsSettings(for agent: ProducerAgent) -> Bool {
+        guard let row = agents.first(where: { $0.agent == agent }) else { return false }
+        return !undetected.contains(agent) || row.state != .off
+    }
 }

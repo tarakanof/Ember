@@ -254,7 +254,7 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
 @MainActor @Test func settingsModelsAggregateTheirStatus() async {
     let client = stubbedClient { req in (okResponse(req.url!, status: 404), Data()) }
     let s = SettingsModels(client: client, envStore: EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env")))
-    #expect(s.all.count == 8)
+    #expect(s.all.count == 9)
     #expect(s.aggregateStatus == .idle)
     await s.pomodoro.load()
     #expect(s.pomodoro.loadError == .featureOff)
