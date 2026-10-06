@@ -16,8 +16,8 @@ struct KnobStatusSection: View {
                     Text(verbatim: checkin?.ip.nonEmpty ?? "—").textSelection(.enabled)
                 }
                 LabeledContent("Firmware") { Text(verbatim: checkin?.fw.nonEmpty ?? "—") }
-                if let rssi = checkin?.rssi, rssi != 0 {
-                    wifiRow(rssi, checkin?.wifi)
+                if let c = checkin, c.rssi != 0 || c.wifi?.hasLinkDetails == true {
+                    wifiRow(c.rssi, c.wifi)
                 }
                 if let wifi = checkin?.wifi {
                     LabeledContent("Reconnects") { reconnects(wifi) }
@@ -121,7 +121,8 @@ struct KnobStatusSection: View {
     }
 
     private func wifiLinkText(_ rssi: Int, _ wifi: KnobWifi?) -> Text {
-        var text = wifiSignalText(rssi)
+        var text = rssi != 0 ? wifiSignalText(rssi)
+            : Text("Signal unknown", comment: "Settings › Knob Wi-Fi row when the knob could not read its signal, before the lowest signal and channel (\"Signal unknown, channel 6\").")
         if let low = wifi?.rssiMin, low != 0 {
             text = Text("\(text) (min \(low) dBm)",
                         comment: "Settings › Knob Wi-Fi row: the signal, then its lowest value since the last check-in (\"Weak · -74 dBm (min -83 dBm)\").")

@@ -97,6 +97,8 @@ import Foundation
     #expect(full.wifi == KnobWifi(bssid: "78:45:58:4b:c2:cd", channel: 6, disconnects: 3, lastReason: 203, rssiMin: -83))
     let sparse = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","wifi":{"disconnects":0}}"#).utf8))
     #expect(sparse.wifi == KnobWifi(disconnects: 0))
+    #expect(full.wifi?.hasLinkDetails == true && sparse.wifi?.hasLinkDetails == false)
+    #expect(KnobWifi(channel: 6, disconnects: 0).hasLinkDetails && KnobWifi(disconnects: 0, rssiMin: -83).hasLinkDetails)
     let old = try d.decode(KnobCheckin.self, from: Data(("{" + base + "}").utf8))
     #expect(old.wifi == nil)
 }

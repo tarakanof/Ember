@@ -56,6 +56,11 @@ public struct KnobWifi: Codable, Equatable, Sendable {
         case rssiMin = "rssi_min"
     }
 
+    /// True when the knob reported its access point, channel or lowest RSSI.
+    public var hasLinkDetails: Bool {
+        bssid?.isEmpty == false || (channel ?? 0) > 0 || (rssiMin ?? 0) != 0
+    }
+
     public init(bssid: String? = nil, channel: Int? = nil, disconnects: Int,
                 lastReason: Int? = nil, rssiMin: Int? = nil) {
         self.bssid = bssid; self.channel = channel; self.disconnects = disconnects
