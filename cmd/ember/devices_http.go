@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -227,6 +229,7 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.knobStats.forget(id)
+	a.wifiDrops.forget(id)
 	a.logger.InfoContext(r.Context(), "device deleted", "device_id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -314,11 +317,49 @@ func (a *App) decodeDeviceWifi(r *http.Request, raw json.RawMessage) *deviceWifi
 	if err == nil {
 		err = w.validate()
 	}
+	id := deviceIDFrom(r.Context())
 	if err != nil {
-		a.logger.InfoContext(r.Context(), "device wifi dropped", "device_id", deviceIDFrom(r.Context()), "err", err)
+		level := slog.LevelDebug
+		if a.wifiDrops.changed(id, err.Error()) {
+			level = slog.LevelInfo
+		}
+		a.logger.Log(r.Context(), level, "device wifi dropped", "device_id", id, "err", err)
 		return nil
 	}
+	a.wifiDrops.changed(id, "")
 	return &w
+}
+
+// wifiDropLog keeps a knob that keeps sending the same bad wifi object from
+// logging it at Info on every checkin.
+type wifiDropLog struct {
+	mu   sync.Mutex        // protects last
+	last map[string]string // device ID -> last drop reason
+}
+
+// changed records reason ("" for a valid object) and reports whether it
+// differs from the device's previous one.
+func (l *wifiDropLog) changed(id, reason string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.last[id] == reason {
+		return false
+	}
+	if l.last == nil {
+		l.last = make(map[string]string)
+	}
+	if reason == "" {
+		delete(l.last, id)
+	} else {
+		l.last[id] = reason
+	}
+	return true
+}
+
+func (l *wifiDropLog) forget(id string) {
+	l.mu.Lock()
+	delete(l.last, id)
+	l.mu.Unlock()
 }
 
 func (a *App) handleDeviceSelfConfig(w http.ResponseWriter, r *http.Request) {

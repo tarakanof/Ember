@@ -2664,8 +2664,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
   as the "Wi-Fi" and "Reconnects" rows. An invalid object (channel outside
   0..14, `rssi_min` outside -127..0, `last_reason` outside 0..255, negative
   `disconnects`, a `bssid` not lower-case `aa:bb:cc:dd:ee:ff`, a wrong type) is
-  dropped and logged, the rest of the checkin kept; a checkin without one
-  clears it)
+  dropped (logged at Info when the device's drop reason changes, Debug when it
+  repeats), the rest of the checkin kept; a checkin without one clears it)
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -760,5 +761,34 @@ func TestDeviceCheckinWithoutWifiClearsTheStoredLink(t *testing.T) {
 	devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.7"}`)
 	if got := app.devices.list()[0].LastCheckin.Wifi; got != nil {
 		t.Fatalf("older firmware: wifi = %+v", got)
+	}
+}
+
+func TestDeviceCheckinLogsADroppedWifiObjectOnlyWhenTheReasonChanges(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	var logs bytes.Buffer
+	app.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	m := mintKnob(t, srv, http.StatusCreated)
+	post := func(wifi string) {
+		t.Helper()
+		if resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", m.Token, `{"fw":"0.9.8","wifi":`+wifi+`}`); resp.StatusCode != http.StatusOK {
+			t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
+		}
+	}
+	dropped := func() int { return strings.Count(logs.String(), "device wifi dropped") }
+	for range 3 {
+		post(`{"channel":15,"disconnects":1}`)
+	}
+	if got := dropped(); got != 1 {
+		t.Fatalf("Info logs for one repeated reason = %d, want 1:\n%s", got, logs.String())
+	}
+	post(`{"rssi_min":5,"disconnects":1}`)
+	if got := dropped(); got != 2 {
+		t.Fatalf("Info logs after the reason changed = %d, want 2", got)
+	}
+	post(`{"disconnects":1}`)
+	post(`{"rssi_min":5,"disconnects":1}`)
+	if got := dropped(); got != 3 {
+		t.Fatalf("Info logs after a valid object in between = %d, want 3", got)
 	}
 }
