@@ -4,6 +4,8 @@ import EmberKit
 
 struct ProducersToggleSection: View {
     let model: ProducerInstallModel
+    let tuning: EnvConfigModel<ProducerTuning>
+    let overrides: ProducerTuning.Overrides
 
     var body: some View {
         Section {
@@ -18,6 +20,9 @@ struct ProducersToggleSection: View {
                 }
                 ForEach(snapshot.agents, id: \.agent) { row in
                     agentRow(row.agent, state: row.state, snapshot: snapshot)
+                    if snapshot.showsSettings(for: row.agent) {
+                        AgentTuningRows(agent: row.agent, tuning: tuning, overrides: overrides)
+                    }
                 }
                 if snapshot.claudeHooksNotice != .fine {
                     claudeHooksWarning(snapshot.claudeHooksNotice)
@@ -37,6 +42,7 @@ struct ProducersToggleSection: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Reporting keeps running after you quit Ember. Turn it off before deleting Ember to remove it completely.")
+                SaveErrorFooter(error: tuning.saveError)
                 if model.isWorking {
                     Text("Applying…")
                 } else if let failure = model.failure {
@@ -177,6 +183,92 @@ struct ProducersToggleSection: View {
             }
         case .error(let message):
             Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+        }
+    }
+}
+
+/// An agent's producer.env settings, listed under its row in Reporting.
+private struct AgentTuningRows: View {
+    let agent: ProducerAgent
+    let tuning: EnvConfigModel<ProducerTuning>
+    let overrides: ProducerTuning.Overrides
+
+    var body: some View {
+        @Bindable var tuning = tuning
+        switch agent {
+        case .claude:
+            Group {
+                InfoToggle("Cross-check with claude agents", isOn: Binding(
+                    get: { overrides.claudeAgentsPoll ?? tuning.draft.claudeAgentsPoll },
+                    set: { tuning.draft.claudeAgentsPoll = $0 }),
+                    info: .claudeAgentsPoll, requirement: requirement(overridden: overrides.claudeAgentsPoll != nil))
+                    .disabled(!tuning.isLoaded || overrides.claudeAgentsPoll != nil)
+                if overrides.claudeAgentsPoll != nil {
+                    envCaption(Text("Set by the EMBER_CLAUDE_AGENTS_POLL environment variable."))
+                }
+                StepperRow(title: "Keep reporting finished sessions", value: $tuning.draft.doneTTLSeconds,
+                           range: 5...300, step: 5, info: .doneTTL, requirement: .loading) { Text("\($0) s") }
+                    .disabled(!tuning.isLoaded)
+                StepperRow(title: "Status line timeout", value: Binding(
+                    get: { overrides.statuslineTimeoutMs ?? tuning.draft.statuslineTimeoutMs },
+                    set: { tuning.draft.statuslineTimeoutMs = $0 }),
+                           range: 1000...60000, step: 1000, info: .statuslineTimeout,
+                           requirement: requirement(overridden: overrides.statuslineTimeoutMs != nil)) { ms in
+                    ms % 1000 == 0 ? Text("\(ms / 1000) s") : Text("\(ms) ms")
+                }
+                .disabled(!tuning.isLoaded || overrides.statuslineTimeoutMs != nil)
+                if overrides.statuslineTimeoutMs != nil {
+                    envCaption(Text("Set by the EMBER_STATUSLINE_TIMEOUT_MS environment variable."))
+                }
+            }
+            .padding(.leading, 12)
+        case .codex:
+            Group {
+                InfoToggle("Include Claude Code's Codex runs", isOn: $tuning.draft.codexIncludeClaude,
+                           info: .codexIncludeClaude, requirement: .loading)
+                InfoRow("Session kinds", info: .codexSources, requirement: .loading) { label in
+                    LabeledContent {
+                        HStack(spacing: 10) {
+                            ForEach(ProducerTuning.codexSourceKinds, id: \.self) { kind in
+                                Toggle(isOn: Binding(
+                                    get: { tuning.draft.codexSources.contains(kind) },
+                                    set: { tuning.draft.setCodexSource(kind, on: $0) })) {
+                                    Text(sourceName(kind))
+                                }
+                                .toggleStyle(.checkbox)
+                                .disabled(tuning.draft.codexSources.contains(kind)
+                                          && !tuning.draft.canUncheckCodexSource(kind))
+                            }
+                        }
+                    } label: { label }
+                }
+                InfoToggle("Follow the app-server daemon", isOn: $tuning.draft.codexAppServer,
+                           info: .codexAppServer, requirement: .loading)
+                Text("Codex reads these when its reporting starts. Turn Codex off and on to apply a change now.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!tuning.isLoaded)
+            .padding(.leading, 12)
+        case .t3:
+            EmptyView()
+        }
+    }
+
+    private func requirement(overridden: Bool) -> SettingsInfoRequirement {
+        overridden ? .setByEnvironment : .loading
+    }
+
+    private func envCaption(_ text: Text) -> some View {
+        text.font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func sourceName(_ kind: String) -> LocalizedStringKey {
+        switch kind {
+        case "cli": "CLI"
+        case "vscode": "VS Code"
+        case "exec": "Exec"
+        case "mcp": "MCP"
+        default: LocalizedStringKey(kind)
         }
     }
 }

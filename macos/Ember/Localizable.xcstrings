@@ -409,6 +409,10 @@
     "After %lld min" : {
       "comment" : "Settings › Agents: minutes before an idle session is hidden."
     },
+    "After a Claude Code session finishes or fails, the heartbeat keeps reporting it this long in case a hook's report was lost. Keep it equal to the server's done_ttl_seconds. Default: 30 s." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "After this long with no agent activity, the bot's eyelids droop and it blinks slowly; new activity wakes it. Default: 5 min." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -431,9 +435,17 @@
     "Album" : {},
     "Album and artist" : {},
     "Allow Access…" : {},
+    "Also shows Codex runs that Claude Code's Codex plugin starts" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Always" : {},
     "An ESP32 board is connected but isn't running cinder" : {},
     "An ESP32 board is connected but isn't running cinder." : {},
+    "An environment variable sets this, and it wins over the setting here." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "An idle session dims, then leaves the rotation until it's active again. A session that needs you holds the clock this long. Server-wide." : {},
     "Animate the outline while working" : {},
     "Animated bot" : {},
@@ -459,6 +471,10 @@
     "Artist" : {},
     "As of %@" : {
       "comment" : "Hardware page Now card while the device is offline: the time of the readings shown (\"As of 21:43\")."
+    },
+    "Asks claude agents for each session's state, which ends a wait you answered in a dialog and catches a turn stopped with Esc, where no hook fires. Needs Claude Code 2.1.288 or later. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
     },
     "At 100 percent, text moves 21 pixels a second; above 200 percent it gets hard to read. Default: 100 percent." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -536,6 +552,11 @@
     "Buttons" : {},
     "Buzzer volume" : {},
     "By hour, last 12 weeks" : {},
+    "CLI" : {},
+    "CLI is the Codex TUI; VS Code covers the IDE extension and the desktop app. Exec and MCP are runs started by scripts or other agents. Default: CLI and VS Code." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "CPU lockup" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -562,12 +583,20 @@
     "Checking permissions" : {},
     "Checking the board…" : {},
     "Checking…" : {},
+    "Checks sessions against claude agents to catch missed changes" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Chimes" : {},
     "Chimes when an agent starts waiting for you or fails" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
     "Chip temperature" : {},
+    "Choose at least one kind of Codex session to show." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Claude" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
@@ -595,6 +624,7 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Codex reads these when its reporting starts. Turn Codex off and on to apply a change now." : {},
     "Coffee" : {},
     "Coffee mug and time left in the break color." : {},
     "Colon" : {},
@@ -721,6 +751,7 @@
     "Crescent moon, after ^[%lld round](inflect: true)." : {
       "comment" : "Settings › Focus preview caption for the long break; the argument is the number of rounds before it."
     },
+    "Cross-check with claude agents" : {},
     "Current app" : {},
     "Current conditions" : {},
     "Custom" : {},
@@ -828,6 +859,7 @@
     "European AQI in its scale color, with the next 24 hours below." : {},
     "European AQI: up to 20 good, 40 fair, 60 moderate, 80 poor, 100 very poor, above that extreme. The alert pops up once as the AQI crosses the level." : {},
     "Every" : {},
+    "Exec" : {},
     "Factory Reset" : {},
     "Factory Reset…" : {},
     "Fahrenheit" : {},
@@ -856,6 +888,11 @@
     "Focus today" : {},
     "Fog" : {},
     "Follow Ember brightness" : {},
+    "Follow the app-server daemon" : {},
+    "Follows Codex TUI sessions through the app-server daemon" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Forecast" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -915,11 +952,19 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "How long a finished session keeps reporting" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "How long each app stays on screen" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
     "How long the clock shows an app before moving to the next. Apps can ask for their own time: Ember's agent cards and weather tiles stay 6 s. Default: 7 s." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "How long your own status line command may run" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -963,6 +1008,7 @@
     "Idle: no agent is working." : {},
     "Imperial (°F)" : {},
     "In use" : {},
+    "Include Claude Code's Codex runs" : {},
     "Installed from the CLI" : {},
     "Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw." : {},
     "Internal memory" : {},
@@ -977,6 +1023,7 @@
       "comment" : "Knob setup progress step; the argument is the Wi-Fi network name."
     },
     "Keep on screen until dismissed" : {},
+    "Keep reporting finished sessions" : {},
     "Keeps recent tool calls in the activity card" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1035,6 +1082,7 @@
       "extractionState" : "manual"
     },
     "Lowest free" : {},
+    "MCP" : {},
     "Matches the brightness Ember works out for displays without a light sensor" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1502,6 +1550,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Session kinds" : {},
     "Session pixels" : {},
     "Session pixels draws one dot per active session, the most urgent first. Rate bar shows how much of the 5-hour limit is used, when the tool reports it. Off leaves the row empty." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1511,6 +1560,8 @@
     "Set Up Ember…" : {},
     "Set Up Knob" : {},
     "Set Up Knob…" : {},
+    "Set by the EMBER_CLAUDE_AGENTS_POLL environment variable." : {},
+    "Set by the EMBER_STATUSLINE_TIMEOUT_MS environment variable." : {},
     "Settings" : {},
     "Settings…" : {},
     "Severe weather" : {},
@@ -1547,6 +1598,10 @@
       "extractionState" : "manual"
     },
     "Shows an icon stored on the clock instead of the bell" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Shows the Codex sessions that Claude Code starts through its Codex plugin, marked via Claude. It's off because the Claude Code session that started them already shows that work. Default: off." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
@@ -1593,6 +1648,7 @@
     "Startup" : {},
     "State" : {},
     "Status" : {},
+    "Status line timeout" : {},
     "Status: %@" : {
       "comment" : "VoiceOver label of a permission status badge, e.g. \"Status: On\"."
     },
@@ -1805,6 +1861,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The value must be a positive whole number." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "These settings apply only to this Mac, while it's awake and Ember is running." : {},
     "This Mac" : {},
     "This Mac can't search the network" : {},
@@ -1960,6 +2020,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "VS Code" : {},
     "Very weak" : {},
     "Waiting" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2017,15 +2078,27 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "When Ember wraps your own Claude Code status line, a command that runs longer is stopped and its last good output is shown. Default: 10 s." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "When a phase ends, the next one starts at once. Off leaves the next phase waiting until you start it. Default: off." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
     "When conditions change" : {},
     "When due" : {},
+    "When the Codex app-server daemon is running, Ember reads TUI sessions from its socket, including waits for approval. Without the daemon this does nothing, and Ember never starts it. Default: on." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "When usage cards join the rotation is set in Sources › Agents. Server-wide." : {},
     "When you focus" : {},
     "Where the server gets conditions and the forecast" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "Which kinds of Codex sessions report" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
