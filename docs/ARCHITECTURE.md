@@ -937,7 +937,9 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   an old config never turns a feature off.
 - **Env toggles.** `envTrue` (default true) and `envOn` (default false) parse
   like Go's `producer.Bool`: `true/1/yes/on` and `false/0/no/off` in any case,
-  anything else keeps the default.
+  anything else keeps the default. The Swift parsers also trim whitespace,
+  which Go's `Bool` doesn't; both file readers already trim values, so the
+  result is the same for `producer.env`.
 - **Info buttons (#290).** `SettingsInfo` text states only what the code or
   docs behind it say, so re-check it when behaviour changes. Sources: the
   server's defaults and validation (`cmd/ember`); cinder `docs/features.md`
@@ -1057,8 +1059,9 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   `com.apple.security.automation.apple-events` (`Ember/Ember.entitlements`)
   and `NSAppleEventsUsageDescription`; Settings › Permissions has an
   "Automation: Music" row read with `AEDeterminePermissionToAutomateTarget`
-  for the concrete event `core/getd`, which the scripts send (wildcard event
-  codes are reported not to prompt) (no prompt; "Couldn't check" while Music isn't running). MediaRemote was
+  for the concrete event `core/getd`, which the scripts send, since wildcard
+  event codes are reported not to prompt (no prompt; "Couldn't check" while
+  Music isn't running). MediaRemote was
   not used: private, entitlement-gated since macOS 15.4.
 - **Presentation.** The menu-bar label is driven by a small value (icon plus
   VoiceOver text) instead of the winning `Session` or `ConnectionHealth`, so it
@@ -2210,16 +2213,19 @@ the same board finds its record.
   boot event also counts) or when the user starts a setup or a USB action. No
   plug-in notification for that reason.
   The firmware contract: the Ember URL is `http://host[:port]` only (the
-  knob's lwIP can't resolve `.local`, there is no mdns component, and
-  `localhost` would be the knob itself, so `KnobEmberURL` rewrites those hosts
-  to this Mac's LAN IPv4 and the sheet says so; the knob has no TLS; scheme and host sent lower-case, host IPv4 or `[a-z0-9.-]`,
+  knob has no TLS; scheme and host sent lower-case, host IPv4 or `[a-z0-9.-]`,
   no path), checked before the mint; the knob name is the server record's,
   at most 32 UTF-8 bytes; a knob whose URL changes restarts itself after
   `set_ember`, so the next step reconnects (and resends Wi-Fi if it comes back
   `ready`); Improv `invalid RPC` or `{"ev":"wifi","state":"invalid"}` means the
-  Wi-Fi settings were rejected; `ember: connecting` is still in progress. The
-  cleanup that deletes a record minted by a failed setup runs as an
-  unstructured task, so a cancelled setup still sends the DELETE.
+  Wi-Fi settings were rejected; `ember: connecting` is still in progress.
+  The knob's lwIP can't resolve `.local` (no mdns component) and `localhost`
+  would be the knob itself, so `KnobEmberURL` handles those hosts: a `.local`
+  name is resolved on this Mac first and replaced by its IPv4, falling back to
+  this Mac's LAN IPv4 only if that fails; `localhost`, `127.*`, `::1` and
+  `0.0.0.0` become this Mac's LAN IPv4. The sheet says when the host was
+  replaced. The cleanup that deletes a record minted by a failed setup runs as
+  an unstructured task, so a cancelled setup still sends the DELETE.
   `KnobProvisioner` runs Improv device info (no answer in 2 s = not cinder),
   the knob's own scan, `POST /v1/devices` (token), `set_ember`, the Wi-Fi RPC,
   follows the reboot (reopens by serial number, handing the new session to the

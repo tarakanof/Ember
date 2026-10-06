@@ -389,9 +389,9 @@ Connection that means the host is down, the route black-holed or the
 process hung: a powered-off or off-subnet server usually times out rather
 than refusing, so a dead box now reads "not responding", not "unreachable".
 Only a clock-settings call that times out points at a slow clock.
-Connection's status row probes `/v1/apps`, which is always mounted and needs
-the token (the Pomodoro config 404s when that feature is off, and `/healthz`
-wouldn't check the token), then reads the version.
+Connection's status row probes `GET /v1/apps`, a route that is always mounted
+behind the token (so it tests the token as well as reachability), then reads
+the version.
 
 **Release note for the first release with fixed helper identifiers**
 (`com.ember.claude-producer`, `com.ember.codex-producer`): existing installs
