@@ -1,0 +1,92 @@
+# API quick reference
+
+Server routes, grouped by auth. Behavior and wire shapes: [`ARCHITECTURE.md`](ARCHITECTURE.md) "Wire protocol". Setup and toggles: [`RUNBOOK.md`](RUNBOOK.md).
+
+Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
+`POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` and
+`POST /v1/nowplaying/control` (also accept a knob device token; control takes an
+optional `Idempotency-Key`), `GET/POST /v1/devices`, `GET/PUT
+/v1/devices/{id}/config` (same merge), `PATCH`/`DELETE /v1/devices/{id}`,
+`POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
+registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
+`POST /v1/devices/{id}/stats/live` (knob diagnostics, memory only — see
+ARCHITECTURE "Knob diagnostics"), `GET /v1/clock/stats?range=15m|1h|24h`
+(clock probe history, memory only — ARCHITECTURE "Clock stats"),
+`GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
+`POST /v1/usage`, `GET/PUT /v1/usage/config`, `POST /v1/nowplaying` (a
+source's player report), `GET /v1/nowplaying/commands?player=&wait=` (Ember.app's
+long-poll for Music commands) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`
+(raw JPEG/PNG ≤2 MB; 409 once the track moved on — ARCHITECTURE "Now playing"), `GET/PUT /v1/display/config`,
+`GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
+`Idempotency-Key` header dedupes retries for 10 min),
+`GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config`, `GET/PUT /v1/brightness/config` (every `…/config`
+settings PUT above is merge semantics: the body is a JSON object whose omitted
+keys keep their current value; an invalid merged result is a 400 and changes
+nothing — see `settings_overlay.go`), `GET/PUT /v1/device/config`
+(`{"base_url"}`, the same merge: `{}` changes nothing, an empty or non-http(s)
+URL is a 400; GET answers the effective URL and its `source` — see
+`clock_url.go`),
+`GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
+`PATCH /api/v1/settings` keys — see `device_settings.go`; during a Pomodoro
+takeover `autoTransition`/`blockNavigation` read and write the saved prior,
+flagged by an `X-Ember-Deferred-Keys` response header),
+`GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
+`PUT /v1/device/display/power` (`{"power":bool}` — blanks/relights the
+matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
+`{"melody":"<name>"}` to preview a stored one), `POST /v1/device/audio/stop`,
+`GET /v1/device/audio/melodies` (NG's melody list; the audio routes answer
+503 `unavailable` when cached capabilities show no buzzer / no output),
+`GET/PUT /v1/device/apps` (ordering + enable/disable,
+`PUT /api/v1/apps/order`), `GET/PUT /v1/device/sensors` (system
+`tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,
+no reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons` (read-merge-PUT
+of `/api/v1/system.buttonCallback`),
+`GET /v1/device/stats`, `GET /v1/device/screen` (proxies
+`GET /api/v1/display/screen`, raw `{width,height,pixels}`),
+`GET /v1/device/capabilities` (cached `GET /api/v1/capabilities` — the firmware's
+effect/transition/overlay/palette lists; live proxy when the cache is cold),
+`POST /v1/device/{reboot,notify/dismiss,app/next,app/previous}`. Read (no auth):
+`GET /state`, `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule), `GET /v1/preview`,
+`GET /v1/{weather,pomodoro,reminders}/preview`, `GET /v1/meetings/{preview,state}`,
+`GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
+`GET /v1/pomodoro/dashboard` (HTML), and the native-dashboard reads
+(`dashboard_http.go`, `clock_health_http.go`): `GET /v1/usage` (latest usage
+snapshot per tool — the POST stays authed), `GET /v1/activity/summary?days=`
+(agent time per tool/source, waiting excluded), `GET /v1/weather/state` (cached
+observation; label but no coordinates, sun times rounded to 5 min),
+`GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop&size=`
+(square baseline JPEG, ETag; rate-limited),
+`GET /v1/clock/health` (24h publish counts + clock RSSI/heap/uptime/current
+app, device probe cached 30s, latest NG release looked up on GitHub in the
+background every 6h — `EMBER_FIRMWARE_CHECK=0` disables it). Dashboard
+JSON: RFC 3339 whole-second times, `null` not zero sentinels, arrays of points,
+units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
+`-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
+`/version`, `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
+`GET /v1/devices/self/config`, `GET /v1/devices/self/view` (the knob's
+single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
+`X-Ember-View-Wait` — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
+on any knob config change or rotation). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
+the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`
+(NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
+the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an
+alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,
+right=skip — all on press; the left+right chord from AWTRIX3 is gone).
+
+The `/v1/device/*` group discovers the clock (mDNS `_awtrixng._tcp` browse +
+`FIND_AWTRIXNG` UDP fallback, fingerprinted via `GET /api/v1/device`) and
+proxies its NG API to the menu's Settings › Clock pane; the effective clock URL is the
+menu override, else `config.json` baseline; if that fails its probes, an in-memory mDNS swap replaces it (the pin included) until a PUT naming `base_url` or a reload that changes the file URL (see `clock_url.go`). A 30s
+device-watch probe re-discovers on IP change and detects a clock reboot (via
+falling `uptimeSeconds`) to trigger a republish of every pushed app — issue
+#73's Berry boot-ping hook (`POST /hooks/awtrix/boot`, config toggle
+`awtrix.boot_ping`) is the fast path that republishes instantly instead of
+waiting on the 30s watch. The server also advertises itself as `_ember._tcp`
+(default on; `EMBER_MDNS_ADVERTISE=0` to disable; TXT `version`, `path`); the
+macOS app and headless producers with an empty/`auto` `EMBER_SERVER_URL` find
+it that way (RUNBOOK "Headless / Linux producers"). **mDNS in both directions
+needs the container on host (or macvlan) networking** — multicast doesn't
+cross the default Docker bridge.
+
+Full behavior (staleness, render priority, the coordinator, display hold) is in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).

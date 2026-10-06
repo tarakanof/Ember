@@ -111,7 +111,7 @@ Two distinct cases:
 ### 12. Documentation has a layered structure
 
 - `README.md` — how to run it, basic config, endpoints. Skimmable in 60 seconds.
-- `AGENTS.md` — repository conventions, build/test commands, secrets, runtime notes. The single source of truth every AI assistant (Claude Code included) loads; there is no `CLAUDE.md`.
+- `AGENTS.md` — hard rules and the docs map; `docs/WORKFLOW.md` — how a change ships. The single source of truth every AI assistant (Claude Code included) loads; there is no `CLAUDE.md`.
 - `docs/STYLE.md` — this file.
 - `Superpowers Specs/<project>/` (Obsidian vault) — design contracts + matching implementation plans for non-trivial work, dated.
 - Inline docs (godoc) — exported API only.
@@ -330,7 +330,7 @@ When writing producer hooks (sub-project B/C):
 
 ## Appendix A — Commit & PR conventions
 
-- Subject ≤ 70 characters, imperative mood, no trailing period: `Add bearer-token auth on write endpoints`.
+- [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`, subject ≤ 70 characters, imperative mood, no trailing period: `feat(auth): add bearer-token auth on write endpoints`.
 - Body wraps at 72 characters and explains *why*, not *what* (the diff already shows what).
 - One logical change per commit. If you need "and" in the subject, you have two commits.
 - Reference the relevant spec/plan file path in the commit body when applicable, even though those files are not tracked (see below) — the references serve as local-context pointers for the author.
@@ -338,9 +338,9 @@ When writing producer hooks (sub-project B/C):
 - Never amend a pushed commit.
 - Never `--no-verify`. If a hook fails, fix the underlying issue.
 
-### Superpowers artifacts are not tracked
+### Specs are not tracked
 
-Files under `docs/superpowers/` (specs, plans, brainstorm notes produced by superpowers-skill workflows) are gitignored. They live on the contributor's local disk and inform the work, but the repo itself ships only the implementation, `docs/STYLE.md`, `README.md`, and `AGENTS.md`.
+Specs, plans and brainstorm notes live in the Obsidian vault (`Superpowers Specs/ember/`, see [`WORKFLOW.md`](WORKFLOW.md)); `docs/superpowers/` is gitignored. The repo ships the implementation and its docs.
 
 ---
 
