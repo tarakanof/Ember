@@ -14,8 +14,6 @@ var tempGradient = []tempStop{
 	{38, RGB{0xE0, 0x33, 0x33}},
 }
 
-// TempColor returns the gradient colour for a temperature in °C: the colour of
-// the hourly strip, the forecast bars and the conditions tile's digits.
 func TempColor(c float64) RGB {
 	last := len(tempGradient) - 1
 	if c <= tempGradient[0].t {
@@ -134,18 +132,12 @@ func drawForecastBarsOnGrid(f *Frame, hourly []float64) {
 	}
 }
 
-// ForecastTileFrame composes the drawn forecast-tile frame: the hourly
-// temperature bars on the bottom-bar grid (cols 8-31, full height) — no icon,
-// no temp digits (those live on the conditions tile), so the two tiles read
-// differently at a glance.
 func ForecastTileFrame(hourly []float64) Frame {
 	var f Frame
 	drawForecastBarsOnGrid(&f, hourly)
 	return f
 }
 
-// ForecastPayload renders the standalone forecast tile: hourly temperature bars
-// (height + colour = temperature).
 func ForecastPayload(hourly []float64, lifetime int) map[string]any {
 	f := ForecastTileFrame(hourly)
 	return map[string]any{

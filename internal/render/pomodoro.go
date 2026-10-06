@@ -2,7 +2,6 @@ package render
 
 import "fmt"
 
-// PomodoroView is the render input for one Pomodoro frame.
 type PomodoroView struct {
 	Phase        string
 	Paused       bool
@@ -58,7 +57,6 @@ var coffeeSteam = []string{
 	"..X.X..",
 }
 
-// HexRGB parses a "#RRGGBB" colour string into an RGB.
 func HexRGB(s string) (RGB, bool) { return parseHex(s) }
 
 func isZeroRGB(c RGB) bool { return c == RGB{} }
@@ -110,8 +108,6 @@ const pomoTimeW = 17
 
 const pomoTimeX = contentX + (contentW-pomoTimeW)/2
 
-// RenderPomodoro paints the drawn preview of the Pomodoro tile for
-// /v1/pomodoro/preview.
 func RenderPomodoro(v PomodoroView) *Frame {
 	f := &Frame{}
 	c := pomoBaseColor(v)
@@ -149,8 +145,6 @@ func RenderPomodoro(v PomodoroView) *Frame {
 	return f
 }
 
-// Native AWTRIX icon IDs (in /ICONS) that Pomodoro payloads reference: tomato
-// for focus, coffee for breaks.
 const (
 	PomoFocusIconID = "29802"
 	PomoBreakIconID = "6396"
@@ -177,9 +171,6 @@ func pomoProgressPct(remaining, planned int) int {
 	return p
 }
 
-// PomodoroPayload encodes a Pomodoro frame using AWTRIX's built-in animated
-// icon (tomato for focus, coffee for breaks) + a native MM:SS countdown + the
-// native progress bar.
 func PomodoroPayload(v PomodoroView, lifetimeSeconds int) map[string]any {
 	c := pomoBaseColor(v)
 	if v.Paused {

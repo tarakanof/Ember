@@ -18,21 +18,15 @@ func scrollStaticWhenFits() map[string]any {
 	return map[string]any{"whenFits": "static"}
 }
 
-// NG's six weather overlays, drawn over the whole page after text, draw ops and
-// icon (reference/payload "Overlay").
 const (
 	OverlayRain    = "rain"
 	OverlayDrizzle = "drizzle"
 	OverlaySnow    = "snow"
-	// OverlayStorm is dense wind-slanted streaks.
-	OverlayStorm = "storm"
-	// OverlayThunder is a storm plus irregular white flashes.
+	OverlayStorm   = "storm"
 	OverlayThunder = "thunder"
-	// OverlayFrost is a static icy crust along the top and bottom edges.
-	OverlayFrost = "frost"
+	OverlayFrost   = "frost"
 )
 
-// WithOverlay sets p's per-app weather overlay and returns p.
 func WithOverlay(p map[string]any, name string) map[string]any {
 	if name != "" {
 		p["overlay"] = name

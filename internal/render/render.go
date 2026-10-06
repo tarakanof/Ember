@@ -7,21 +7,16 @@ import (
 	"time"
 )
 
-// RGB is a 24-bit colour.
 type RGB struct {
 	R, G, B uint8
 }
 
-// Frame is a 32×8 pixel buffer.
 type Frame struct {
 	Pixels [8][32]RGB
 	Dirty  [8][32]bool
-	// Native, when set, is text the FIRMWARE renders in its own font on top of
-	// this bitmap, rather than something painted into Pixels.
 	Native *NativeText
 }
 
-// NativeText is firmware-rendered text laid over a Frame's bitmap.
 type NativeText struct {
 	Text  string
 	X     int
@@ -29,8 +24,6 @@ type NativeText struct {
 	Color RGB
 }
 
-// Session holds the current state of a single AI session as received via the
-// status endpoint.
 type Session struct {
 	Source         string  `json:"source"`
 	Tool           string  `json:"tool"`
@@ -47,42 +40,35 @@ type Session struct {
 	RateResetAt    int64   `json:"rate_reset_at,omitempty"`
 	RateReset      bool    `json:"rate_reset,omitempty"`
 	RateResetLabel string  `json:"rate_reset_label,omitempty"`
-	// SourceCard / SessionBar are *bool so a producer that predates them (nil)
-	// keeps the element ON — absent must never regress the display.
+	// nil keeps the element on: absent must never regress the display.
 	SourceCard *bool     `json:"source_card,omitempty"`
 	SessionBar *bool     `json:"session_bar,omitempty"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// Key returns the canonical slash-delimited key for this session.
 func (s Session) Key() string {
 	return s.Source + "/" + s.Tool + "/" + s.Session
 }
 
-// UsageView is the per-tool account-usage data the usage card renders.
 type UsageView struct {
 	FiveHourPct int
-	// ResetLabel is the host-local "HH:MM"; empty falls back to an hourglass from ResetAt.
 	ResetLabel  string
-	ResetAt     int64 // unix; used only when ResetLabel is ""
-	SevenDayPct *int  // nil when the 7d window is unknown
+	ResetAt     int64
+	SevenDayPct *int
 	Models      []ModelUsage
 }
 
-// ModelUsage is one per-model usage face ("OP" opus / "SO" sonnet).
 type ModelUsage struct {
-	Marker string // exactly two font3x5 glyphs
+	Marker string
 	Pct    int
 }
 
-// Snapshot is a point-in-time view of all sessions plus the computed Render.
 type Snapshot struct {
 	Now      time.Time `json:"now"`
 	Sessions []Session `json:"sessions"`
 	Render   Render    `json:"render"`
 }
 
-// Render is the computed summary of the current session set (text/color/counters).
 type Render struct {
 	Text        string `json:"text"`
 	Color       string `json:"color"`
@@ -92,10 +78,8 @@ type Render struct {
 	Done        int    `json:"done"`
 	ActiveTotal int    `json:"active_total"`
 	Message     string `json:"message,omitempty"`
-	// Source and Tool identify the winning session (empty when none), so thin
-	// clients need not re-run PickWinning over sessions[] to learn the host.
-	Source string `json:"source"`
-	Tool   string `json:"tool"`
+	Source      string `json:"source"`
+	Tool        string `json:"tool"`
 }
 
 func paintCell(f *Frame, x, y int, c RGB) {
@@ -411,7 +395,6 @@ func ngGlyphW(r rune) int {
 	return ngWideGlyphW
 }
 
-// SourceCardText is the uppercased prefix of source that fits the clock card.
 func SourceCardText(source string) string {
 	var out []rune
 	w := 0
@@ -429,7 +412,6 @@ func SourceCardText(source string) string {
 	return string(out)
 }
 
-// AvailableCards returns the cards this session offers, in rotation order.
 func AvailableCards(s Session, u *UsageView) []int {
 	var cards []int
 	if sourceCardEnabled(s) && s.Source != "" {
@@ -504,8 +486,6 @@ func drawUnitPctFace(f *Frame, unit string, pct int) {
 	drawUsageUnit(f, unit)
 }
 
-// PickWinning returns the priority-winning session, its state colour, and the
-// number of active sessions (waiting, error, running or done).
 func PickWinning(sessions []Session) (win *Session, color RGB, total int) {
 	for i := range sessions {
 		s := &sessions[i]
@@ -533,8 +513,6 @@ func sessionKey(s Session) string {
 	return s.Key()
 }
 
-// SessionByKey returns the session in snap whose canonical key matches, or the
-// zero Session when absent.
 func SessionByKey(snap Snapshot, key string) Session {
 	for i := range snap.Sessions {
 		if sessionKey(snap.Sessions[i]) == key {
@@ -546,8 +524,6 @@ func SessionByKey(snap Snapshot, key string) Session {
 
 const priorityInactive = 4
 
-// StatePriority ranks a session state for display, lower first: waiting 0,
-// error 1, running 2, done 3, idle or unknown priorityInactive.
 func StatePriority(state string) int {
 	switch state {
 	case "waiting":
@@ -563,8 +539,6 @@ func StatePriority(state string) int {
 	}
 }
 
-// SortedActiveKeys returns the canonical keys of non-idle sessions in rotation
-// order: state-priority first, then (source, tool, session) lexicographically.
 func SortedActiveKeys(snap Snapshot) []string {
 	type entry struct {
 		key  string
@@ -617,7 +591,6 @@ func SortedActiveKeys(snap Snapshot) []string {
 	return keys
 }
 
-// PickRotated advances the rotation pointer.
 func PickRotated(prev string, keys []string) string {
 	if len(keys) == 0 {
 		return ""
@@ -703,9 +676,6 @@ func chooseSession(snap Snapshot, keys []string, pointer string) *Session {
 	return nil
 }
 
-// AttentionHeld reports whether RenderForCoord will emit the held attention
-// frame for this snapshot/pointer/lock combination — i.e. whether the frame
-// claims the display hold and the caller must pin the app device-side too.
 func AttentionHeld(snap Snapshot, pointer string, locked bool) bool {
 	if !locked {
 		return false
@@ -718,8 +688,6 @@ func AttentionHeld(snap Snapshot, pointer string, locked bool) bool {
 	return s != nil && (s.State == "waiting" || s.State == "error")
 }
 
-// RenderForCoord composes the awtrix-ng pushed-app payload for the
-// coordinator's current display state.
 func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifetimeSeconds int, usage map[string]*UsageView) map[string]any {
 	keys := SortedActiveKeys(snap)
 	if len(keys) == 0 {
@@ -755,7 +723,6 @@ func RenderForCoord(snap Snapshot, pointer string, card int, locked bool, lifeti
 	return frameToCustomApp(&frame, lifetimeSeconds, false)
 }
 
-// ComposeFrame paints the standard layout for one session.
 func ComposeFrame(s Session, card int, u *UsageView, sessions []Session, now time.Time) Frame {
 	var f Frame
 	drawToolIcon8(&f, s, iconBodyColor(s), colorForState(s.State))
@@ -837,8 +804,6 @@ func stateHex(state string) string { return hexOf(colorForState(state)) }
 
 var idleDimWhite = RGB{0x66, 0x66, 0x66}
 
-// RenderIdleFrame returns the dimmed-robot payload emitted during the G.2
-// idle-restore countdown.
 func RenderIdleFrame(lifetimeSeconds int) map[string]any {
 	pixels := composeToolIconBodyPixels(Session{State: "idle"}, idleDimWhite)
 	p := map[string]any{
@@ -851,8 +816,6 @@ func RenderIdleFrame(lifetimeSeconds int) map[string]any {
 
 var idleUsageTools = []string{"claude", "codex"}
 
-// RenderIdleUsagePayload renders the idle-with-hot-usage frame: dimmed tool
-// icon + one usage face + the dimmed threshold bar.
 func RenderIdleUsagePayload(views map[string]*UsageView, cursor int, now time.Time, lifetimeSeconds int) map[string]any {
 	type face struct {
 		tool   string

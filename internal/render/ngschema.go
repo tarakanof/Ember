@@ -37,10 +37,6 @@ var (
 		"textCenter": true, "textInFront": true, "chartAutoscale": true, "paletteBlend": true}
 )
 
-// CheckNGPayload returns every reason NG 1.1.2 would reject p with 422: a key
-// outside the schema (or a notification-only key on a pushed app), an enum word
-// outside its list, an unknown scroll field, or a wrongly typed
-// integer/boolean.
 func CheckNGPayload(p map[string]any, notification bool) []string {
 	var errs []string
 	for k, v := range p {

@@ -1,7 +1,5 @@
 package render
 
-// MoonView is the moon's appearance: Illum is the illuminated fraction (0 = new,
-// 1 = full); Waxing lights the right limb (growing), waning the left.
 type MoonView struct {
 	Illum  float64
 	Waxing bool
@@ -52,8 +50,6 @@ var (
 	sunsetColor  = RGB{0xFF, 0x6A, 0x2A}
 )
 
-// SunPopupPayload renders a sunrise/sunset notification: an 8×8 sun-on-horizon
-// glyph (cols 0–7) + a left-aligned label like "SUNRISE 5:21".
 func SunPopupPayload(rising bool, label string, durationSec int) map[string]any {
 	col := sunriseColor
 	if !rising {

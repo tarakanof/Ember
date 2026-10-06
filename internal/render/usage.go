@@ -10,7 +10,6 @@ var usageIconCodex = []string{
 	"..X.....", ".X......", "X..XXXX.", "........",
 }
 
-// usageIconT3 is "T3" for T3 Code; the "3" (t3Three8) takes the state colour.
 var usageIconT3 = []string{
 	"........", "XXX.XXX.", ".X....X.", ".X...XX.",
 	".X....X.", ".X..XXX.", "........", "........",
@@ -105,8 +104,6 @@ func drawBarInto(f *Frame, pct int) {
 	}
 }
 
-// LimitResetPopupPayload is the "5h limit reset — back to work" notification:
-// drawn 8×8 tool icon + brand-coloured text, auto-dismiss.
 func LimitResetPopupPayload(tool string, durationSec int) map[string]any {
 	icon, color, label := usageIconClaude, usageColorClaude, "CLAUDE 5H RESET"
 	if tool == "codex" {

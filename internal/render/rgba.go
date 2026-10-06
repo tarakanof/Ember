@@ -2,8 +2,6 @@ package render
 
 var offBG = RGB{0x0d, 0x0d, 0x0d}
 
-// RenderRGBA returns a (32*scale)×(8*scale) 8-bit RGBA buffer for f, scaled
-// nearest-neighbour (each matrix pixel becomes a scale×scale block).
 func RenderRGBA(f Frame, scale int) (pix []byte, w, h int) {
 	if scale < 1 {
 		scale = 1
@@ -33,8 +31,6 @@ func RenderRGBA(f Frame, scale int) (pix []byte, w, h int) {
 	return pix, w, h
 }
 
-// MaskFrameToRegion returns a copy of f keeping only the cols [x0,x1) × rows
-// [y0,y1) sub-rectangle; every cell outside it is cleared to unlit.
 func MaskFrameToRegion(f Frame, x0, y0, x1, y1 int) Frame {
 	if x0 < 0 {
 		x0 = 0
