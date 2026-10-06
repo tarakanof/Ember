@@ -21,7 +21,8 @@ struct ProducersToggleSection: View {
                 ForEach(snapshot.agents, id: \.agent) { row in
                     agentRow(row.agent, state: row.state, snapshot: snapshot)
                     if snapshot.showsSettings(for: row.agent) {
-                        AgentTuningRows(agent: row.agent, tuning: tuning, overrides: overrides)
+                        AgentTuningRows(agent: row.agent, reporting: row.state != .off,
+                                        tuning: tuning, overrides: overrides)
                     }
                 }
                 if snapshot.claudeHooksNotice != .fine {
@@ -190,6 +191,7 @@ struct ProducersToggleSection: View {
 /// An agent's producer.env settings, listed under its row in Reporting.
 private struct AgentTuningRows: View {
     let agent: ProducerAgent
+    let reporting: Bool
     let tuning: EnvConfigModel<ProducerTuning>
     let overrides: ProducerTuning.Overrides
 
@@ -244,8 +246,10 @@ private struct AgentTuningRows: View {
                 }
                 InfoToggle("Follow the app-server daemon", isOn: $tuning.draft.codexAppServer,
                            info: .codexAppServer, requirement: .loading)
-                Text("Codex reads these when its reporting starts. Turn Codex off and on to apply a change now.")
-                    .font(.caption).foregroundStyle(.secondary)
+                if reporting {
+                    Text("Codex reporting restarts to apply a change.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             .disabled(!tuning.isLoaded)
             .padding(.leading, 12)

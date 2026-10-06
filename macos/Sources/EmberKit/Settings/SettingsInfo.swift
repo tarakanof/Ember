@@ -150,7 +150,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .doneTTL:
             "After a Claude Code session finishes or fails, the heartbeat keeps reporting it this long in case a hook's report was lost. Keep it equal to the server's done_ttl_seconds. Default: 30 s."
         case .statuslineTimeout:
-            "When Ember wraps your own Claude Code status line, a command that runs longer is stopped and its last good output is shown. Default: 10 s."
+            "When Ember wraps your own Claude Code status line, a command that runs longer is stopped and its last good output is shown. An EMBER_STATUSLINE_TIMEOUT_MS exported in the shell that runs claude wins over this, and Ember can't see it. Default: 10 s."
         case .focusAutoStart:
             "When a phase ends, the next one starts at once. Off leaves the next phase waiting until you start it. Default: off."
         case .focusStopAfter:

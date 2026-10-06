@@ -624,7 +624,7 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
-    "Codex reads these when its reporting starts. Turn Codex off and on to apply a change now." : {},
+    "Codex reporting restarts to apply a change." : {},
     "Coffee" : {},
     "Coffee mug and time left in the break color." : {},
     "Colon" : {},
@@ -2078,7 +2078,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "When Ember wraps your own Claude Code status line, a command that runs longer is stopped and its last good output is shown. Default: 10 s." : {
+    "When Ember wraps your own Claude Code status line, a command that runs longer is stopped and its last good output is shown. An EMBER_STATUSLINE_TIMEOUT_MS exported in the shell that runs claude wins over this, and Ember can't see it. Default: 10 s." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },

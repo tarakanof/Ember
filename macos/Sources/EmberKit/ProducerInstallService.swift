@@ -338,6 +338,27 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
+    /// Restarts a registered agent whose launchd job is loaded
+    /// (`launchctl kickstart -k`), off the calling actor, so it rereads
+    /// producer.env; does nothing otherwise. True when it restarted.
+    @concurrent
+    public func restart(_ agent: ProducerAgent) async -> Bool {
+        await serial.run {
+            guard sm.status(plistName: agent.plistName) == .enabled else { return false }
+            let target = launchdTarget(agent)
+            guard let probe = try? runner.run(executable: "/bin/launchctl", arguments: ["print", target]),
+                  launchdProbe(probe) == .loaded else { return false }
+            do {
+                let result = try runner.run(executable: "/bin/launchctl", arguments: ["kickstart", "-k", target])
+                if result.exitCode == 0 { return true }
+                Self.log.warning("launchctl kickstart \(target, privacy: .public) failed: exit=\(result.exitCode) \(result.stderr, privacy: .public)")
+            } catch {
+                Self.log.warning("launchctl kickstart \(target, privacy: .public) didn't run: \(error.localizedDescription, privacy: .public)")
+            }
+            return false
+        }
+    }
+
     private func launchdTarget(_ agent: ProducerAgent) -> String {
         "gui/\(uid)/\(agent.label)"
     }
