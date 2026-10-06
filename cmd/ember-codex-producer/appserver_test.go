@@ -17,25 +17,19 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// fakeAppServer is a stand-in for the Codex app-server daemon: WebSocket over
-// a Unix socket, JSON-RPC per text frame, frames shaped like codex 0.160's.
 type fakeAppServer struct {
 	t    *testing.T
 	path string
 	ln   net.Listener
 
-	mu      sync.Mutex
-	threads map[string]map[string]any // thread/read results by id
-	loaded  []string
-	// resumeFailures answers that many thread/resume calls with "no rollout found".
+	mu             sync.Mutex
+	threads        map[string]map[string]any
+	loaded         []string
 	resumeFailures int
-	received       []map[string]any // every message from the client
+	received       []map[string]any
 	conns          []*wsConn
-	// beforeRead runs before a thread/read is answered (notifications sent
-	// from it reach the client first).
-	beforeRead func(id string)
-	// hang drops every request: a daemon that holds the socket but stalls.
-	hang bool
+	beforeRead     func(id string)
+	hang           bool
 }
 
 func shortSockDir(t *testing.T) string {
@@ -165,7 +159,6 @@ func (f *fakeAppServer) sendOn(ws *wsConn, v any) {
 	_ = ws.WriteText(b)
 }
 
-// send pushes a frame to every connected client.
 func (f *fakeAppServer) send(v any) {
 	f.mu.Lock()
 	conns := append([]*wsConn(nil), f.conns...)
@@ -247,7 +240,6 @@ func connected(as *appServer) func() bool {
 	return func() bool { ok, _ := as.status(); return ok }
 }
 
-// postFor returns the newest post for session id across ticks.
 func postFor(posts []producer.StatusRequest, id string) (producer.StatusRequest, bool) {
 	for i := len(posts) - 1; i >= 0; i-- {
 		if posts[i].Session == id {
@@ -257,14 +249,13 @@ func postFor(posts []producer.StatusRequest, id string) (producer.StatusRequest,
 	return producer.StatusRequest{}, false
 }
 
-// waitState ticks until the thread is posted with want, forcing a post each time.
 func waitState(t *testing.T, as *appServer, id, want string) producer.StatusRequest {
 	t.Helper()
 	var last producer.StatusRequest
 	waitFor(t, id+" "+want, func() bool {
 		as.mu.Lock()
 		if th := as.threads[id]; th != nil {
-			th.post.Reset() // force a post
+			th.post.Reset()
 		}
 		as.mu.Unlock()
 		if p, ok := postFor(as.tick().posts, id); ok {
@@ -286,8 +277,6 @@ func TestAppServer_InitializesAsNonOriginatingClient(t *testing.T) {
 		t.Fatalf("want 1 initialize, got %d", len(init))
 	}
 	params := init[0]["params"].(map[string]any)
-	// Any other name, if first to initialize, becomes the daemon-wide
-	// originator recorded in every TUI rollout.
 	if name := params["clientInfo"].(map[string]any)["name"]; name != "codex_app_server_daemon" {
 		t.Errorf("clientInfo.name = %v", name)
 	}
@@ -306,7 +295,7 @@ func TestAppServer_BootstrapsLoadedThreadsAndMapsStatus(t *testing.T) {
 	f := newFakeAppServer(t, sock)
 	f.addThread("t-run", "vscode", active(), nil)
 	f.addThread("t-idle", "cli", idle, map[string]any{"preview": "hi"})
-	f.addThread("t-new", "cli", idle, nil) // opened, no turn yet
+	f.addThread("t-new", "cli", idle, nil)
 	f.addThread("t-eph", "cli", active(), map[string]any{"ephemeral": true})
 	f.loaded = []string{"t-run", "t-idle", "t-new", "t-eph"}
 	as := startAppServer(t, testAppServerConfig(sock))
@@ -332,7 +321,7 @@ func TestAppServer_BootstrapsLoadedThreadsAndMapsStatus(t *testing.T) {
 		{active(), "running"},
 		{idle, "done"},
 		{map[string]any{"type": "systemError"}, "error"},
-		{idle, "error"}, // a system error holds until the next turn
+		{idle, "error"},
 		{active(), "running"},
 	}
 	for _, c := range cases {
@@ -468,8 +457,6 @@ func TestAppServer_RespectsSourceAndClaudeFilters(t *testing.T) {
 	})
 }
 
-// The hard invariant: on the shared daemon a response to a server request is
-// the user's decision, so the client must never send one.
 func TestAppServer_NeverAnswersServerRequests(t *testing.T) {
 	sock := filepath.Join(shortSockDir(t), "s.sock")
 	f := newFakeAppServer(t, sock)
@@ -494,8 +481,6 @@ func TestAppServer_NeverAnswersServerRequests(t *testing.T) {
 	for _, r := range requests {
 		f.send(r)
 	}
-	// Drive the client through more work, so a reply would have been sent by
-	// the time it unsubscribes.
 	f.notify("serverRequest/resolved", map[string]any{"threadId": "t1", "requestId": 0})
 	f.notify("thread/status/changed", map[string]any{"threadId": "t1", "status": idle})
 	waitFor(t, "unsubscribe", func() bool { return len(f.calls("thread/unsubscribe")) == 1 })
@@ -519,8 +504,6 @@ func TestAppServer_NeverAnswersServerRequests(t *testing.T) {
 	}
 }
 
-// Structural half of the invariant: the only outbound shape cannot carry a
-// result or error.
 func TestOutbound_CannotExpressAResponse(t *testing.T) {
 	typ := reflect.TypeOf(outbound{})
 	var tags []string
@@ -553,7 +536,7 @@ func TestAppServer_ReconnectsAfterDaemonRestart(t *testing.T) {
 	as := startAppServer(t, testAppServerConfig(sock))
 	waitState(t, as, "t1", "running")
 
-	f.close() // daemon stop / update restart
+	f.close()
 	waitFor(t, "disconnect", func() bool { return !connected(as)() })
 	tk := as.tick()
 	if len(tk.released) != 1 || tk.released[0] != "t1" || tk.owned["t1"] {
@@ -564,8 +547,6 @@ func TestAppServer_ReconnectsAfterDaemonRestart(t *testing.T) {
 	f2 := newFakeAppServer(t, sock)
 	f2.addThread("t2", "cli", active(), nil)
 	f2.loaded = []string{"t2"}
-	// The restart killed t1's TUI: the new daemon does not load it, so it
-	// gets a DELETE and stays owned (the watcher must not revive it).
 	var del, posted bool
 	waitFor(t, "t2 posted and t1 deleted", func() bool {
 		tk := as.tick()
@@ -584,7 +565,7 @@ func TestAppServer_ReconnectsAfterDaemonRestart(t *testing.T) {
 func TestAppServer_StatusDuringInFlightReadWins(t *testing.T) {
 	sock := filepath.Join(shortSockDir(t), "s.sock")
 	f := newFakeAppServer(t, sock)
-	f.addThread("t1", "cli", idle, map[string]any{"preview": "hi"}) // stale snapshot
+	f.addThread("t1", "cli", idle, map[string]any{"preview": "hi"})
 	f.loaded = []string{"t1"}
 	f.beforeRead = func(id string) {
 		f.notify("thread/status/changed", map[string]any{"threadId": id, "status": active()})

@@ -200,7 +200,7 @@ func TestBuildStatusRequest_SetsActivityFromTrail(t *testing.T) {
 func TestFoldEventParsesSecondaryWeekly(t *testing.T) {
 	line := []byte(`{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":3.0,"resets_at":1780669527},"secondary":{"used_percent":18.0,"resets_at":1781168271}}}}`)
 	var d derived
-	d.foldEvent(line, false /*ctx*/, true /*rate*/, false /*trail*/)
+	d.foldEvent(line, false, true, false)
 	if d.weeklyPct == nil || *d.weeklyPct != 18 {
 		t.Errorf("weeklyPct = %v", d.weeklyPct)
 	}

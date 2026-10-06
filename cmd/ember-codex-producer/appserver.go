@@ -1,10 +1,5 @@
 package main
 
-// The appserver source observes TUI sessions through the shared Codex
-// app-server daemon (#263, #272). It is a passive client: it connects when
-// the daemon's control socket exists, never starts the daemon, and never
-// answers a server request (see outbound in appserver_rpc.go).
-
 import (
 	"context"
 	"encoding/json"
@@ -19,15 +14,9 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// appServerClientName is the clientInfo.name sent on initialize. The first
-// client to initialize with a name outside the server's
-// NON_ORIGINATING_CLIENT_NAMES sets the daemon-wide originator, which Codex
-// then records in every TUI rollout and request header. This internal name is
-// on that list (codex-rs app-server initialize_processor.rs), so Ember never
-// relabels the user's sessions (spike #263: verified "codex-tui" stays).
+// Name is on the server's NON_ORIGINATING_CLIENT_NAMES list, so Ember never relabels the user's Codex sessions; see ARCHITECTURE.
 const appServerClientName = "codex_app_server_daemon"
 
-// appServerOptOut are high-volume notifications Ember never displays.
 var appServerOptOut = []string{
 	"item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta",
 	"item/reasoning/summaryPartAdded", "item/reasoning/textDelta",
@@ -41,63 +30,52 @@ func appServerSocket(codexHome string) string {
 }
 
 type apThread struct {
-	id        string
-	tracked   bool // passes EMBER_CODEX_SOURCES / INCLUDE_CLAUDE
-	viaClaude bool
-	d         derived
-	// busy is status active: a turn runs, so a subscription is wanted.
+	id         string
+	tracked    bool
+	viaClaude  bool
+	d          derived
 	busy       bool
 	subscribed bool
-	resumeAt   time.Time // earliest next thread/resume after a failure
-	failed     bool      // the last turn failed
+	resumeAt   time.Time
+	failed     bool
 	lastChange time.Time
-	post       producer.Repost // Posted: the server holds this session
+	post       producer.Repost
 }
 
-// apPending is a thread/read in waiting. Notifications that arrive while the
-// read is in flight may be newer than its snapshot: the last status is
-// applied after it, and a close wins.
 type apPending struct {
 	inflight bool
 	status   *wireStatus
 	closed   bool
 }
 
-// ephemeralTTL bounds how long a helper thread id is remembered.
 const ephemeralTTL = 10 * time.Minute
 
 type appServer struct {
-	cfg  Config
-	sock string
-	now  func() time.Time
-	// Timings; tests shorten them.
-	pollEvery   time.Duration // socket presence check while absent
+	cfg         Config
+	sock        string
+	now         func() time.Time
+	pollEvery   time.Duration
 	backoffMin  time.Duration
 	backoffMax  time.Duration
-	retryEvery  time.Duration // thread/resume retry ("no rollout found")
+	retryEvery  time.Duration
 	callTimeout time.Duration
-	// liveEvery: with no inbound message for this long, a cheap request
-	// checks the daemon still answers within liveTimeout; else reconnect.
 	liveEvery   time.Duration
 	liveTimeout time.Duration
 	failLog     *producer.FailureLogger
 
-	kick chan struct{} // wakes the worker; capacity 1
+	kick chan struct{}
 
-	mu        sync.Mutex // protects the fields below
-	connected bool
-	userAgent string
-	threads   map[string]*apThread
-	unread    map[string]*apPending // ids awaiting thread/read
-	ephemeral map[string]time.Time  // helper threads, never shown; pruned after ephemeralTTL
-	gone      map[string]time.Time  // closed thread ids, kept from the rollout watcher a while
-	// lastReleased are the ids released at the last disconnect; after the
-	// next bootstrap, those the daemon no longer loads (a restart killed
-	// their TUI) get a DELETE.
+	mu           sync.Mutex
+	connected    bool
+	userAgent    string
+	threads      map[string]*apThread
+	unread       map[string]*apPending
+	ephemeral    map[string]time.Time
+	gone         map[string]time.Time
 	lastReleased map[string]bool
-	deletes      []string // closed threads the server still holds
-	released     []string // posted threads handed to the watcher on disconnect
-	rate         derived  // account rate limits (rate fields only)
+	deletes      []string
+	released     []string
+	rate         derived
 	hasRate      bool
 }
 
@@ -140,8 +118,6 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// run connects whenever the socket exists and reconnects with backoff after a
-// failure or a daemon restart, until ctx ends.
 func (as *appServer) run(ctx context.Context) {
 	backoff := as.backoffMin
 	for ctx.Err() == nil {
@@ -170,7 +146,6 @@ func (as *appServer) run(ctx context.Context) {
 	}
 }
 
-// session holds one connection until it fails or ctx ends.
 func (as *appServer) session(ctx context.Context) error {
 	ws, err := dialWS(ctx, as.sock)
 	if err != nil {
@@ -182,7 +157,7 @@ func (as *appServer) session(ctx context.Context) error {
 	defer func() {
 		cancel()
 		_ = ws.Close()
-		<-c.done // no notification lands after disconnect
+		<-c.done
 		as.disconnect()
 	}()
 	go func() {
@@ -257,7 +232,6 @@ func (as *appServer) call(ctx context.Context, c *rpcConn, method string, params
 	return c.call(cctx, method, params, out)
 }
 
-// disconnect hands every posted thread back to the rollout watcher.
 func (as *appServer) disconnect() {
 	as.mu.Lock()
 	defer as.mu.Unlock()
@@ -275,11 +249,6 @@ func (as *appServer) disconnect() {
 	as.hasRate, as.rate = false, derived{}
 }
 
-// worker runs every request after the bootstrap, one at a time, so the read
-// loop never blocks on a call: thread/read for new ids, then the lazy
-// subscriptions (thread/resume while busy, thread/unsubscribe once idle).
-// It returns when the connection ends, or with an error when the daemon
-// stops answering (a hung daemon still holds the socket open).
 func (as *appServer) worker(ctx context.Context, c *rpcConn) error {
 	live := time.NewTicker(as.liveEvery)
 	defer live.Stop()
@@ -323,11 +292,10 @@ func (as *appServer) worker(ctx context.Context, c *rpcConn) error {
 }
 
 type apAction struct {
-	kind string // "read", "resume", "unsubscribe"
+	kind string
 	id   string
 }
 
-// nextAction picks one pending request; retryAt is the earliest deferred resume.
 func (as *appServer) nextAction(now time.Time) (a apAction, retryAt time.Time) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
@@ -377,9 +345,6 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) time.Time {
 			}
 			as.mu.Unlock()
 		case "resume":
-			// Rejoins the running thread as a subscriber: turn, item and
-			// token notifications follow. Fails with "no rollout found"
-			// until the first turn has persisted; retried while busy.
 			err := as.call(ctx, c, "thread/resume", map[string]any{"threadId": a.id, "excludeTurns": true}, nil)
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
@@ -391,8 +356,6 @@ func (as *appServer) reconcile(ctx context.Context, c *rpcConn) time.Time {
 			}
 			as.mu.Unlock()
 		case "unsubscribe":
-			// A subscriber keeps a thread loaded forever; dropping it lets
-			// the daemon unload an exited TUI's thread (thread/closed).
 			_ = as.call(ctx, c, "thread/unsubscribe", map[string]any{"threadId": a.id}, nil)
 			as.mu.Lock()
 			if t := as.threads[a.id]; t != nil {
@@ -424,7 +387,7 @@ func (as *appServer) addThreadLocked(th wireThread) {
 		return
 	}
 	if th.Ephemeral {
-		as.ephemeral[th.ID] = as.now() // per-turn helper threads have no rollout
+		as.ephemeral[th.ID] = as.now()
 		return
 	}
 	if th.Status.Type == "notLoaded" {
@@ -441,7 +404,7 @@ func (as *appServer) addThreadLocked(th wireThread) {
 	}
 	switch th.Status.Type {
 	case "idle":
-		if th.Preview != "" { // it has had a turn
+		if th.Preview != "" {
 			t.d.state = "done"
 		}
 	case "systemError":
@@ -454,7 +417,6 @@ func (as *appServer) addThreadLocked(th wireThread) {
 	as.wake()
 }
 
-// applyStatusLocked maps the broadcast thread status.
 func (as *appServer) applyStatusLocked(t *apThread, st wireStatus) {
 	switch st.Type {
 	case "active":
@@ -480,8 +442,6 @@ func (as *appServer) applyStatusLocked(t *apThread, st wireStatus) {
 		}
 		t.busy = false
 	case "systemError":
-		// Stays error through a following idle, like a failed turn, until
-		// the next active.
 		t.busy = false
 		t.failed = true
 		t.d.state = "error"
@@ -540,7 +500,6 @@ func (w rateLimitWindow) resetsAt() int64 {
 	return *w.ResetsAt
 }
 
-// onNotification runs on the read loop; it only updates state.
 func (as *appServer) onNotification(method string, params json.RawMessage) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
@@ -616,7 +575,7 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 		case "failed":
 			t.failed = true
 			t.d.state = "error"
-		case "completed", "interrupted": // Esc is the user's choice, not a failure
+		case "completed", "interrupted":
 			t.d.state = "done"
 		}
 		for i := len(p.Turn.Items) - 1; i >= 0; i-- {
@@ -681,9 +640,8 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 		}
 		lim := p.RateLimits
 		if lim.LimitID != nil && *lim.LimitID != "" && *lim.LimitID != "codex" {
-			return // a separate meter, not the plan's own windows
+			return
 		}
-		// A sparse update: a null window keeps its last value.
 		if w := lim.Primary; w != nil {
 			r := producer.Pct(w.UsedPercent)
 			as.rate.rateWindowPct, as.rate.rateResetAt, as.rate.primaryRaw = &r, w.resetsAt(), w.UsedPercent
@@ -698,8 +656,6 @@ func (as *appServer) onNotification(method string, params json.RawMessage) {
 	}
 }
 
-// appServerItemLabel names a started item for the activity trail, like the
-// rollout watcher's labelForItem.
 func appServerItemLabel(it wireThreadItem) (string, bool) {
 	switch it.Type {
 	case "commandExecution":
@@ -726,8 +682,6 @@ func appServerItemLabel(it wireThreadItem) (string, bool) {
 	return "", false
 }
 
-// unwrapShell drops the shell wrapper from a command line
-// ("/bin/zsh -lc 'go test ./...'" → "go test ./...").
 func unwrapShell(cmd string) string {
 	cmd = strings.TrimSpace(cmd)
 	f := strings.SplitN(cmd, " ", 3)
@@ -744,20 +698,13 @@ func unwrapShell(cmd string) string {
 	return firstLine(cmd)
 }
 
-// apTick is one poll's worth of app-server output.
 type apTick struct {
-	posts   []producer.StatusRequest
-	deletes []producer.DeleteRequest
-	// owned are thread ids the rollout watcher must not post: every loaded
-	// thread while connected, plus recently closed ones.
-	owned map[string]bool
-	// released are threads this source posted before a disconnect; the
-	// watcher takes them over, or they get a DELETE.
+	posts    []producer.StatusRequest
+	deletes  []producer.DeleteRequest
+	owned    map[string]bool
 	released []string
-	// held are threads whose session this source has posted and not
-	// deleted; a watcher session handed over without one gets a DELETE.
-	held map[string]bool
-	rate *derived // the account rate snapshot while connected
+	held     map[string]bool
+	rate     *derived
 }
 
 func (as *appServer) tick() apTick {
@@ -806,7 +753,6 @@ func (as *appServer) tick() apTick {
 		}
 	}
 	for id, at := range as.gone {
-		// The watcher drops a rollout one activity window after its last write.
 		if now.Sub(at) > window+resumeScanInterval {
 			delete(as.gone, id)
 			continue
@@ -820,7 +766,6 @@ func (as *appServer) tick() apTick {
 	return out
 }
 
-// status reports the connection for logs and tests.
 func (as *appServer) status() (connected bool, userAgent string) {
 	as.mu.Lock()
 	defer as.mu.Unlock()

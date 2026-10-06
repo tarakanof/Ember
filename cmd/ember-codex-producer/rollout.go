@@ -22,14 +22,9 @@ type derived struct {
 	weeklyResetAt int64
 	weeklyRaw     float64
 	primaryRaw    float64
-	// rateAt is the timestamp of the rollout line the rate limits came from,
-	// so the watcher can post the newest snapshot across sessions.
-	rateAt time.Time
+	rateAt        time.Time
 }
 
-// expireWindows drops a held rate-limit window once its reset has passed:
-// Codex may send null for a window for a long time, and the value it last
-// had is meaningless after the reset.
 func (d *derived) expireWindows(now time.Time) {
 	if d.rateResetAt != 0 && d.rateResetAt < now.Unix() {
 		d.rateWindowPct, d.rateResetAt, d.primaryRaw = nil, 0, 0
@@ -45,8 +40,6 @@ type sessionMeta struct {
 	originator string
 }
 
-// claudeOriginator is session_meta.originator for sessions Claude Code's
-// Codex plugin starts; that work already shows as the Claude session.
 const claudeOriginator = "Claude Code"
 
 type rolloutLine struct {
@@ -56,11 +49,9 @@ type rolloutLine struct {
 }
 
 type metaPayload struct {
-	ID         string `json:"id"`
-	Originator string `json:"originator"`
-	// Source is a string ("cli", "vscode", "exec", "mcp") or, for
-	// SessionSource variants with data, an object such as {"subagent":{...}}.
-	Source json.RawMessage `json:"source"`
+	ID         string          `json:"id"`
+	Originator string          `json:"originator"`
+	Source     json.RawMessage `json:"source"`
 }
 
 type tokenInfo struct {
@@ -80,8 +71,6 @@ type eventPayload struct {
 	Message    string     `json:"message"`
 	Info       *tokenInfo `json:"info"`
 	RateLimits *struct {
-		// LimitID is "codex" for the plan's own windows; other ids (such as
-		// "premium") are separate meters. Older Codex omits it.
 		LimitID   string      `json:"limit_id"`
 		Primary   *rateWindow `json:"primary"`
 		Secondary *rateWindow `json:"secondary"`
@@ -110,8 +99,6 @@ func parseSessionMeta(line []byte) (sessionMeta, bool) {
 	return sessionMeta{id: p.ID, source: sourceKind(p.Source), originator: p.Originator}, true
 }
 
-// sourceKind names a session_meta.source: the string itself, or the single
-// key of an object-valued source ({"subagent":{...}} → "subagent").
 func sourceKind(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
@@ -152,7 +139,6 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 			d.contextPct = &pct
 		}
 		if lim := p.RateLimits; ratePctEnabled && lim != nil && (lim.LimitID == "" || lim.LimitID == "codex") {
-			// Either window may be null; keep the last known value then.
 			if w := lim.Primary; w != nil {
 				r := producer.Pct(w.UsedPercent)
 				d.rateWindowPct = &r
@@ -175,10 +161,8 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 			d.message = truncate(m, 80)
 		}
 	case strings.HasSuffix(p.Type, "_approval_request"):
-		// Legacy rollouts only: paginated rollouts never persist approvals.
 		d.state = "waiting"
 	case p.Type == "turn_aborted":
-		// Esc (interrupted) or a replacing turn is the user's choice, not a failure.
 		if p.Reason == "budget_limited" {
 			d.state = "error"
 		} else {
@@ -187,8 +171,6 @@ func (d *derived) foldEvent(line []byte, contextPctEnabled, ratePctEnabled, trai
 	case p.Type == "error":
 		d.state = "error"
 	case p.Type == "item_completed" && p.Item != nil:
-		// A finished turn stays finished until the next task_started: Codex
-		// records subagent completions after task_complete.
 		if p.Item.Type != "SubAgentActivity" && d.state != "done" && d.state != "error" {
 			d.state = "running"
 		}
@@ -239,8 +221,6 @@ func labelForEvent(p eventPayload) (string, bool) {
 	return "", false
 }
 
-// turnItem is a paginated rollout's item_completed TurnItem (PascalCase type,
-// codex-rs/protocol/src/items.rs). Only the fields Ember labels are decoded.
 type turnItem struct {
 	Type    string `json:"type"`
 	Content []struct {
@@ -252,8 +232,7 @@ type turnItem struct {
 	Changes map[string]json.RawMessage `json:"changes,omitempty"`
 	Tool    string                     `json:"tool,omitempty"`
 	Query   string                     `json:"query,omitempty"`
-	// Kind names an Extension item ("web.search", "clock.sleep").
-	Kind string `json:"kind,omitempty"`
+	Kind    string                     `json:"kind,omitempty"`
 }
 
 func (it turnItem) text() string {
@@ -304,8 +283,6 @@ func labelForItem(it turnItem) (string, bool) {
 	return "", false
 }
 
-// commandText renders an argv for the trail, unwrapping the shell wrapper
-// Codex adds (["/bin/zsh","-lc","go test ./..."] → "go test ./...").
 func commandText(argv []string) string {
 	if len(argv) == 3 && (argv[1] == "-lc" || argv[1] == "-c") {
 		switch filepath.Base(argv[0]) {

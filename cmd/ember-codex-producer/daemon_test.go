@@ -97,8 +97,6 @@ func TestRunOnce_WarnsOnPostFailure(t *testing.T) {
 	}
 }
 
-// connectedAppServer is an app-server source with one loaded thread, as the
-// bootstrap leaves it.
 func connectedAppServer(cfg Config, id string, status wireStatus) *appServer {
 	as := newAppServer(cfg)
 	as.mu.Lock()
@@ -111,7 +109,7 @@ func connectedAppServer(cfg Config, id string, status wireStatus) *appServer {
 func TestCycle_AppServerWinsForItsThreads(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
-	writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted) // id u-123
+	writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted)
 	writeRollout(t, dir, "rollout-vscode.jsonl", now, metaVSCode, evStarted)
 	w := newTestWatcher(dir, now)
 	as := connectedAppServer(w.cfg, "u-123", wireStatus{Type: "active", ActiveFlags: []string{"waitingOnApproval"}})
@@ -171,14 +169,12 @@ func TestCycle_UsageTakesTheNewerAppServerSnapshot(t *testing.T) {
 	if len(usages) != 1 || usages[0].FiveHour == nil || usages[0].FiveHour.UsedPercent != 55 {
 		t.Fatalf("usage = %+v, want the app-server's 55%%", usages)
 	}
-	// A different meter never replaces the plan's windows.
 	as.onNotification("account/rateLimits/updated", json.RawMessage(`{"rateLimits":{"limitId":"premium","primary":{"usedPercent":99,"resetsAt":`+strconv.FormatInt(reset, 10)+`}}}`))
 	if tk := as.tick(); tk.rate == nil || *tk.rate.rateWindowPct != 55 {
 		t.Errorf("premium meter leaked into the codex windows: %+v", tk.rate)
 	}
 }
 
-// The watcher posted a session before the app-server connected and owned it.
 func TestCycle_HandoverFromWatcherLeavesNoGhost(t *testing.T) {
 	cases := []struct {
 		name       string

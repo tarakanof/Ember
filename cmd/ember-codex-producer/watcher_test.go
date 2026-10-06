@@ -102,7 +102,6 @@ func TestWatcher_IdleRolloutNotReReadOrDeleted(t *testing.T) {
 	if w.reads != 0 {
 		t.Errorf("idle rollout opened %d times, want 0", w.reads)
 	}
-	// Appending re-opens it.
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	f.WriteString(evStarted + "\n")
 	f.Close()
@@ -117,7 +116,6 @@ func TestWatcher_IdleRolloutNotReReadOrDeleted(t *testing.T) {
 func TestWatcher_UnpostedSessionNotDeleted(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
-	// Tracked but no state yet (only the meta line), so never posted.
 	writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI)
 	w := newTestWatcher(dir, now)
 	if posts, _, _ := w.tick(); len(posts) != 0 {
@@ -144,8 +142,6 @@ func TestWatcher_UsageFromNewestSnapshot(t *testing.T) {
 	if len(usages) != 1 || usages[0].FiveHour == nil || usages[0].FiveHour.UsedPercent != 30 {
 		t.Fatalf("want one usage with the newest snapshot (30), got %+v", usages)
 	}
-	// The older session changing (new message, same stale limits) must not
-	// overwrite the newer snapshot or re-post it.
 	f, _ := os.OpenFile(b, os.O_APPEND|os.O_WRONLY, 0o600)
 	f.WriteString(evAgent + "\n")
 	f.Close()
@@ -281,8 +277,6 @@ func TestWatcher_TailsAppendedEvents(t *testing.T) {
 }
 
 func TestWatcher_FindsLocalDayDirAheadOfUTC(t *testing.T) {
-	// Codex names day dirs in local time. At UTC+2, 00:30 local on Oct 5 is
-	// still Oct 4 in UTC, so a UTC scan of Oct 4/3 misses the Oct 5 dir.
 	loc := time.FixedZone("UTC+2", 2*3600)
 	now := time.Date(2026, 10, 5, 0, 30, 0, 0, loc)
 	dir := t.TempDir()
@@ -297,7 +291,7 @@ func TestWatcher_FindsLocalDayDirAheadOfUTC(t *testing.T) {
 	os.Chtimes(path, now, now)
 	w := newTestWatcher(dir, now)
 	w.loc = loc
-	w.lastWalk = now // isolate the day-dir scan from the recent-file walk
+	w.lastWalk = now
 	if posts, _, _ := w.tick(); len(posts) != 1 || posts[0].Session != "u-123" {
 		t.Fatalf("want the local-day session posted, got %+v", posts)
 	}
@@ -312,7 +306,6 @@ func TestWatcher_FindsResumedSessionInOldDayDir(t *testing.T) {
 	if posts, _, _ := w.tick(); len(posts) != 0 {
 		t.Fatalf("idle old session must not post, got %+v", posts)
 	}
-	// Resume: Codex appends to the original (old-date) file.
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	f.WriteString(evStarted + "\n")
 	f.Close()
