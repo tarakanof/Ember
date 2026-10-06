@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// The shared vectors in testdata/knob (cinder's firmware tests read the
-/// same files).
 enum KnobVectors {
     static var dir: URL {
         URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("testdata/knob")
@@ -87,7 +85,6 @@ private func expected(_ m: [String: Any]) -> ImprovCodec.Message? {
 }
 
 @Test func improvChecksumOfNewlineIsNotStripped() throws {
-    // A frame whose checksum byte is 0x0a still decodes without a newline.
     for b in UInt8(0)...UInt8(255) {
         let f = Array(ImprovCodec.frame(0x01, [b]).dropLast())
         if f.last == 0x0A {
@@ -113,8 +110,6 @@ private func expected(_ m: [String: Any]) -> ImprovCodec.Message? {
     #expect(KnobWiFiNetwork.dedupe(list).map(\.ssid) == ["b", "a", "c"])
     #expect(KnobWiFiNetwork.dedupe(list).first?.rssi == -40)
 }
-
-// MARK: CINDER1
 
 private func request(_ r: [String: Any], token: String? = nil) -> CinderLineCodec.Request? {
     switch r["op"] as? String {
@@ -196,13 +191,11 @@ private func request(_ r: [String: Any], token: String? = nil) -> CinderLineCode
 
 @Test func knobNameIsCappedAt32Bytes() {
     #expect(CinderLineCodec.cappedName("Desk knob") == "Desk knob")
-    let long = String(repeating: "é", count: 20) // 40 bytes
+    let long = String(repeating: "é", count: 20)
     let capped = CinderLineCodec.cappedName(long)
     #expect(capped.utf8.count <= 32)
     #expect(capped == String(repeating: "é", count: 16))
 }
-
-// MARK: Demuxer
 
 @Test func demuxerSplitsInterleavedStream() throws {
     var d = KnobStreamDemuxer()
@@ -212,7 +205,6 @@ private func request(_ r: [String: Any], token: String? = nil) -> CinderLineCode
     stream += ImprovCodec.state(.provisioned)
     stream += Array("CINDER1 {\"ev\":\"ember\",\"state\":\"ok\"}\nW (5) wifi: IMPROV in a log line\n".utf8)
     var events: [KnobEvent] = []
-    // Byte by byte: frames and lines must survive any split.
     for b in stream { events += d.feed([b]) }
     #expect(events == [
         .log("I (100) boot: hello"),

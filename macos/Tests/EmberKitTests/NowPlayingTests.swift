@@ -51,8 +51,6 @@ private func golden(_ name: String) throws -> Data {
     #expect(info.report(source: "music", player: "M4") == NowPlayingReport(source: "music", player: "M4", state: .stopped))
 }
 
-// MARK: Pusher
-
 private actor FakeBridge: MusicBridge {
     var running = true
     var art: Data? = Data([0xFF, 0xD8])
@@ -214,8 +212,6 @@ private func jpeg(side: Int) -> Data {
     #expect(await sink.uploads.isEmpty)
 }
 
-// MARK: Commands (Ember #280)
-
 @Test func reportCarriesVolumeOnlyWhenKnown() throws {
     let without = String(decoding: try JSONEncoder().encode(
         NowPlayingReport(source: "music", player: "M4", state: .playing)), as: UTF8.self)
@@ -244,7 +240,6 @@ private func jpeg(side: Int) -> Data {
     #expect(got.map(\.action) == [.playPause])
 }
 
-/// Answers scripted rounds; then blocks until cancelled.
 private actor FakeCommands: NowPlayingCommandSource {
     var rounds: [Result<[NowPlayingCommand], Error>]
     var calls = 0
@@ -318,7 +313,6 @@ private func waitUntil(_ cond: () async -> Bool) async {
     await listener.execute([NowPlayingCommand(id: "old", action: .next, ageMs: 5_001),
                             NowPlayingCommand(id: "ok", action: .pause, ageMs: 200)])
     #expect(await bridge.performed.map(\.id) == ["ok"])
-    // The answer arrived 6 s ago (the queue was blocked): dropped too.
     await listener.execute([NowPlayingCommand(id: "late", action: .play)], received: .now - .seconds(6))
     #expect(await bridge.performed.map(\.id) == ["ok"])
     await bridge.set(granted: false)

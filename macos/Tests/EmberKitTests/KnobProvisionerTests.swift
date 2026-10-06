@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-/// A scripted knob: answers host frames and lines with device bytes, which
-/// go back through the real demuxer.
 final class FakeKnob: KnobLink, @unchecked Sendable {
     enum Out { case bytes([UInt8]), disconnect }
 
@@ -59,7 +57,6 @@ final class FakeKnob: KnobLink, @unchecked Sendable {
         continuation.finish()
     }
 
-    // Common answers.
     static let info = try! ImprovCodec.result(.deviceInfo, ["cinder", "0.5.0", "ESP32-S3", "Knob 61FC8C"])
 
     static func reply(_ obj: [String: Any]) -> Out {
@@ -132,7 +129,6 @@ private func provisioner(_ opener: FakeOpener, calls: Calls = Calls(), minted: M
     }, checkedIn: { _, _ in checkedIn }, forget: { calls.forget($0) }, timeouts: fast)
 }
 
-/// A knob before setup: answers device info, `info`, scan and `set_ember`.
 private func freshKnob(wifi: @escaping (FakeKnob) -> [FakeKnob.Out]) -> FakeKnob {
     let k = FakeKnob()
     k.onImprov = { [unowned k] m in
@@ -165,9 +161,6 @@ private func freshKnob(wifi: @escaping (FakeKnob) -> [FakeKnob.Out]) -> FakeKnob
     return k
 }
 
-/// The knob after its reboot: joined, answers `status` with `ember`.
-/// `okAfterSetEmber`: a new token (re-mint) makes Ember answer ok; the
-/// knob also announces the old token's failure unprompted.
 private func rebootedKnob(ember: String, okAfterSetEmber: Bool = false) -> FakeKnob {
     let k = FakeKnob()
     let state = StateBox(ember)
@@ -249,7 +242,6 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
     #expect(opener.reopenedWith == ["3C:DC:75:61:FC:8C"])
     #expect(phases.all == [.saving, .restarting, .joining(ssid: "home"), .reachingEmber, .done])
     #expect(knob.received.contains("cinder set_ember"))
-    // set_ember goes before the Wi-Fi RPC, which reboots the knob.
     let order = knob.received.filter { $0 == "cinder set_ember" || $0.hasPrefix("improv rpc(command: 1") }
     #expect(order.first == "cinder set_ember")
 }
@@ -331,8 +323,6 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
     #expect(knob.received.contains("cinder reset"))
 }
 
-// MARK: Review fixes
-
 @Test func remintAfterRebootUsesTheLiveSessionAndIgnoresStaleEvents() async throws {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
     let calls = Calls()
@@ -345,8 +335,6 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
     }
     let live = try #require(sink.all.last)
     #expect(await !live.isClosed)
-    // The rebooted knob already sent "unauthorized" for the old token; the
-    // re-mint must wait for a fresh answer.
     let (_, device) = try await p.remint(live, identity: id, serialNumber: "x", request: request, progress: { _ in })
     #expect(device.id == "knob-61fc8c")
     #expect(calls.mints.count == 2)
@@ -458,8 +446,6 @@ private let request = KnobSetupRequest(ssid: "home", password: "hunter22", ember
     #expect(try! ImprovCodec.decode(ImprovCodec.state(.stopped)) == .state(.stopped))
 }
 
-// MARK: Setup model
-
 @MainActor
 private func waitFor(_ model: KnobSetupModel, _ done: (KnobSetupModel.Stage) -> Bool) async {
     for _ in 0..<300 where !done(model.stage) { try? await Task.sleep(for: .milliseconds(10)) }
@@ -499,8 +485,6 @@ private func waitFor(_ model: KnobSetupModel, _ done: (KnobSetupModel.Stage) -> 
     m.close()
 }
 
-// MARK: Re-verify gaps
-
 final class TaskBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _task: Task<Void, Never>?
@@ -517,7 +501,6 @@ final class ForgetLog: @unchecked Sendable {
     func add(_ id: String, cancelled: Bool) { lock.withLock { _calls.append((id, cancelled)) } }
 }
 
-/// A fresh knob whose `set_ember` cancels the setup task.
 private func knobCancellingAtSetEmber(_ box: TaskBox) -> FakeKnob {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioning)), .disconnect] }
     let base = knob.onCinder
@@ -534,7 +517,6 @@ private func knobCancellingAtSetEmber(_ box: TaskBox) -> FakeKnob {
     let opener = FakeOpener(knob, later: [rebootedKnob(ember: "ok")])
     let p = provisioner(opener)
     let (session, id) = try await p.connect(path: "/dev/cu.fake", usbHwID: nil)
-    // Cancel as set_ember's reply lands: setEmber succeeds, join must stop.
     await session.observe { e in
         if case .cinder(.reply) = e, knob.received.contains("cinder set_ember") { box.task?.cancel() }
     }
@@ -576,7 +558,6 @@ private func knobCancellingAtSetEmber(_ box: TaskBox) -> FakeKnob {
                                   progress: { _ in }, onSession: { sink.add($0) })
     }
     let live = try #require(sink.all.last)
-    // The old token fails again while the user reads the error.
     rebooted.emit(.bytes(CinderLineCodec.line(CinderLineCodec.Event(ev: "ember", state: "unauthorized"))))
     try await Task.sleep(for: .milliseconds(30))
     let (_, device) = try await p.remint(live, identity: id, serialNumber: "x", request: request, progress: { _ in })
@@ -605,7 +586,6 @@ private func knobCancellingAtSetEmber(_ box: TaskBox) -> FakeKnob {
     let old = KnobDevice(id: "knob-old", hwID: "000000000001", name: "Old", createdAt: .distantPast)
     let registry = RegistryBox(old)
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioned))] }
-    // The mint makes the new board the registered knob, as the pane's reload would.
     let p = KnobProvisioner(opener: FakeOpener(knob), mint: { _, _ in
         await registry.set(minted.device)
         return minted
@@ -632,8 +612,6 @@ final class RegistryBox {
     init(_ v: KnobDevice?) { value = v }
     func set(_ v: KnobDevice?) { value = v }
 }
-
-// MARK: Firmware contract
 
 final class LineLog: @unchecked Sendable {
     private let lock = NSLock()
@@ -690,7 +668,6 @@ final class LineLog: @unchecked Sendable {
     }
 }
 
-/// Answers `status` with `connecting` until `okAfter` polls (nil = never).
 private func connectingKnob(okAfter: Int?) -> FakeKnob {
     let knob = freshKnob { _ in [.bytes(ImprovCodec.state(.provisioned))] }
     let polls = StateBox("0")
@@ -719,7 +696,6 @@ private func connectingKnob(okAfter: Int?) -> FakeKnob {
     }
 }
 
-/// A knob that reboots itself after `set_ember` (its URL changed).
 private func rebootingAtSetEmber(_ knob: FakeKnob) -> FakeKnob {
     let base = knob.onCinder
     knob.onCinder = { obj in
@@ -741,7 +717,6 @@ private func rebootingAtSetEmber(_ knob: FakeKnob) -> FakeKnob {
 
 @Test func setupResendsWiFiWhenTheKnobRebootedAfterSetEmber() async throws {
     let knob = rebootingAtSetEmber(freshKnob { _ in [] })
-    // Back up without Wi-Fi: answers state ready, then takes the Wi-Fi.
     let blank = FakeKnob()
     blank.onImprov = { m in
         switch m {

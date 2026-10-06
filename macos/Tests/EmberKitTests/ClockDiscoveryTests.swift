@@ -24,8 +24,6 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
     ClockDiscovery.candidate(name: "Awtrix", baseURL: "http://192.168.0.66:80", status: status, body: Data(body.utf8))
 }
 
-// MARK: Fingerprint — mirrors internal/discovery's probe (uid AND boardType)
-
 @Test func clockFingerprintAcceptsARealNGDevice() {
     let c = fingerprint(ngDeviceFixture)
     #expect(c == DiscoveredClock(host: "Awtrix", baseURL: "http://192.168.0.66:80",
@@ -56,8 +54,6 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
     #expect(fingerprint(#"{"uid":"u","boardType":"awtrixng"}"#)?.version == "")
 }
 
-// MARK: Base URL — byte-identical to the server's baseURLFor for IPv4
-
 @Test func clockBaseURLKeepsAnExplicitPort() {
     #expect(ClockDiscovery.baseURL(host: "192.168.0.66", port: 80) == "http://192.168.0.66:80")
     #expect(ClockDiscovery.baseURL(host: "192.168.0.66", port: 8080) == "http://192.168.0.66:8080")
@@ -72,8 +68,6 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
     #expect(ClockDiscovery.baseURL(host: "fe80::1%en0", port: 80) == nil)
     #expect(ClockDiscovery.baseURL(host: "Awtrix.local.", port: 80) == nil)
 }
-
-// MARK: Probe request (stubbed transport — no LAN traffic)
 
 @Test func clockProbeGetsTheDeviceRouteWithAShortTimeout() async {
     let host = "stub-\(UUID().uuidString.lowercased()).local"
@@ -93,8 +87,6 @@ private func fingerprint(_ body: String, status: Int = 200) -> DiscoveredClock? 
     StubURLProtocol.register(host: host) { _ in throw URLError(.cannotConnectToHost) }
     #expect(await ClockDiscovery.probe(name: "x", baseURL: "http://\(host):80", session: stubSession()) == nil)
 }
-
-// MARK: Merge — server and app results, de-duplicated by uid, labelled by source
 
 private func clock(_ host: String, _ base: String, uid: String) -> DiscoveredClock {
     DiscoveredClock(host: host, baseURL: base, uid: uid, version: "1.1.2")
@@ -138,8 +130,6 @@ private func clock(_ host: String, _ base: String, uid: String) -> DiscoveredClo
     #expect(!ClockURL.same("http://192.168.0.66:8080", "http://192.168.0.66"))
     #expect(!ClockURL.same("http://192.168.0.66:80", nil))
 }
-
-// MARK: When to offer "Find clock from this Mac"
 
 private let reachableFalse = #""device":{"reachable":false,"checked_at":"2026-09-26T10:00:00Z"}"#
 private let reachableTrue = #""device":{"reachable":true,"checked_at":"2026-09-26T10:00:00Z"}"#
@@ -186,8 +176,6 @@ private func healthJSON(_ device: String, lastOk: Bool = true) throws -> ClockHe
     return try d.decode(ClockHealth.self, from: Data(json.utf8))
 }
 
-// MARK: Resolve states — keep waiting, give up only on failure or denial
-
 @Test func resolveKeepsWaitingOnATransientError() {
     #expect(BonjourClockBrowser.step(for: .waiting(.posix(.ENETUNREACH))) == .keepWaiting)
     #expect(BonjourClockBrowser.step(for: .waiting(.dns(DNSServiceErrorType(kDNSServiceErr_Timeout)))) == .keepWaiting)
@@ -201,8 +189,6 @@ private func healthJSON(_ device: String, lastOk: Bool = true) throws -> ClockHe
     #expect(BonjourClockBrowser.step(for: .failed(denied)) == .denied)
     #expect(BonjourClockBrowser.step(for: .failed(.posix(.ECONNREFUSED))) == .failed)
 }
-
-// MARK: Lifecycle (#61) — a fake browser, a hand-driven clock, no mDNS
 
 @MainActor
 private final class FakeBrowser: ClockBrowsing {
@@ -382,8 +368,6 @@ private func makeDiscovery() -> (ClockDiscovery, FakeBrowser, HeldProbes, Manual
     await scan.value
     #expect(d.access == .unavailable)
 }
-
-// MARK: Choosing a clock — PUT /v1/device/config through the existing path
 
 private struct DeviceConfigBody: Decodable, Equatable { let base_url: String }
 

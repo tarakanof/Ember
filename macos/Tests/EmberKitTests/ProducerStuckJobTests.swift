@@ -108,8 +108,6 @@ private func ok(_ stdout: String) -> CommandResult { CommandResult(exitCode: 0, 
     #expect(fields["ID"] == nil)
 }
 
-// MARK: - Service
-
 private let heartbeat = "com.ember.heartbeat.plist"
 private let codex = "com.ember.codex.plist"
 
@@ -219,8 +217,6 @@ private final class HealingRunner: ProducerCommandRunning, @unchecked Sendable {
     #expect(r.bootouts == 1)
     #expect(first.count + second.count == 1)
 }
-
-// MARK: - Local Network
 
 @Test func linkStateDecodesTheHelpersJSON() {
     let blocked = Data(#"{"ok":false,"no_route":true,"error":"dial tcp: connect: no route to host","at":"2026-09-26T16:40:20+02:00"}"#.utf8)

@@ -25,8 +25,6 @@ private func stats(done: Int, goal: Int, total: Int = 10, streak: Int = 3) -> Po
 
 private let now = iso("2026-09-26T10:00:00+02:00")
 
-// MARK: Focus
-
 @Test func focusRingShowsTheGoalWhileIdle() {
     let f = FocusSummary(stats: stats(done: 3, goal: 8), state: state("idle", running: false), now: now)
     #expect(f.ring == .goal(completed: 3, goal: 8))
@@ -56,8 +54,6 @@ private let now = iso("2026-09-26T10:00:00+02:00")
     #expect(paused.ring == .phase(.shortBreak, remaining: 600, planned: 1500, endsAt: nil, round: 2))
     #expect(!paused.isEmpty)
 }
-
-// MARK: Usage
 
 private let usageJSON = #"""
 {"generated_at":"2026-09-26T10:30:00+02:00","stale_after_sec":600,"tools":[
@@ -171,8 +167,6 @@ private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:
     #expect(rows[0].source == "statusline")
 }
 
-// MARK: Upcoming
-
 @Test func upcomingMergesSortsAndCaps() {
     let meetings = [
         MeetingsState.Item(uid: "a", title: "Standup", start: now.addingTimeInterval(12 * 60)),
@@ -193,8 +187,6 @@ private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:
     #expect(UpcomingItem.merge(meetings: [], reminders: [], now: now).isEmpty)
 }
 
-// MARK: Agents
-
 @Test func agentsTableSortsByAttentionThenRecency() {
     let s: [Session] = [
         decode(#"{"source":"m4","tool":"claude","session":"1","state":"running","updated_at":"2026-09-26T10:00:00Z"}"#),
@@ -209,8 +201,6 @@ private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:
     #expect(t.rows[0].id == "m5|codex|2")
     #expect(AgentsTable(sessions: []).isEmpty)
 }
-
-// MARK: Clock health
 
 @Test func clockHealthThresholds() {
     #expect(ClockHealthReadout.wifi(rssi: -74).weak == false)
@@ -234,8 +224,6 @@ private let emptyUsage: UsageSnapshot = decode(#"{"generated_at":"2026-09-26T10:
     q.successRatio24h = 0.7
     #expect(ClockHealthReadout.publishRatio(q) == 0.7)
 }
-
-// MARK: Weather
 
 @Test func airLevelsFollowTheEuropeanBands() {
     #expect(WeatherReadout.AirLevel(europeanAQI: 0) == .good)

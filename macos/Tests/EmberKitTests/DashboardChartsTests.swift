@@ -30,8 +30,6 @@ private let week: [PomoDayStat] = [
     day("2026-09-23", 2, 50), day("2026-09-22", 0, 0), day("2026-09-21", 1, 25), day("2026-09-20", 0, 0),
 ]
 
-// MARK: Last 7 days
-
 @Test func weekBarsAreOldestFirstWithTodayLast() {
     let bars = WeekBars(stats: stats(history: week), focusMinutes: 25, calendar: calendar())
     #expect(bars.bars.map(\.key) == ["2026-09-20", "2026-09-21", "2026-09-22", "2026-09-23",
@@ -60,8 +58,6 @@ private let week: [PomoDayStat] = [
     #expect(WeekBars.axisTop(0) == 60)
     #expect(WeekBars.axisTop(200) == 240)
 }
-
-// MARK: 12 weeks
 
 @Test func weeklyTrendZeroFillsAndEndsThisWeek() {
     let weekly = [FocusBucket(key: "2026-W30", focusMin: 100, sessions: 4),
@@ -103,8 +99,6 @@ private let week: [PomoDayStat] = [
     #expect(!WeeklyTrend.serverLacksWeekly(stats(history: none)))
 }
 
-// MARK: Day keys and DST
-
 @Test func dayKeysSurviveDSTChanges() {
     let cal = calendar()
     let days = DayKey.days(endingAt: iso("2026-10-26T12:00:00+01:00"), count: 4, in: cal)
@@ -121,8 +115,6 @@ private let week: [PomoDayStat] = [
     #expect(DayKey.weekStart("2026-39", in: cal) == nil)
     #expect(DayKey.weekKey(iso("2027-01-01T12:00:00+01:00"), in: cal) == "2026-W53")
 }
-
-// MARK: Heatmap
 
 private func grid(_ fill: (Int, Int) -> Int) -> Heatmap {
     Heatmap(grid: (0..<7).map { wd in (0..<24).map { h in fill(wd, h) } }, calendar: [], days: 84)
@@ -191,8 +183,6 @@ private func grid(_ fill: (Int, Int) -> Int) -> Heatmap {
     #expect(Set(keys).count == keys.count)
 }
 
-// MARK: Work hours
-
 private func workDay(_ date: String, _ start: String?, _ end: String?, active: Int = 3600, sessions: Int = 2) -> String {
     let s = start.map { "\"\($0)\"" } ?? "null", e = end.map { "\"\($0)\"" } ?? "null"
     return #"{"date":"\#(date)","work_start":\#(s),"work_end":\#(e),"span_sec":0,"active_sec":\#(active),"break_sec":0,"sessions":\#(sessions),"longest_sec":0}"#
@@ -258,8 +248,6 @@ private func workHours(_ days: [String]) -> WorkHours {
     let wh = workHours([workDay("2026-09-26", "2026-09-26T09:00:00+02:00", nil)])
     #expect(!WorkHoursChart(days: wh.days, now: .now, calendar: calendar()).rows[0].hasWork)
 }
-
-// MARK: Agent time
 
 private func golden(_ name: String) throws -> Data {
     try Data(contentsOf: URL(fileURLWithPath: #filePath)

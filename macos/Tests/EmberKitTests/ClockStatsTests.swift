@@ -95,7 +95,7 @@ private actor FakeClockStatsService: ClockStatsService {
 @Test func summedSeriesAddsCountsPerUnit() {
     var cal = Calendar(identifier: .gregorian)
     cal.timeZone = TimeZone(identifier: "UTC")!
-    let t0 = Date(timeIntervalSinceReferenceDate: 812_000_040) // 2026-09-25 03:34:00 UTC
+    let t0 = Date(timeIntervalSinceReferenceDate: 812_000_040)
     let points = [
         HardwareSeriesPoint(t: t0, series: "OK", segment: 0, value: 2),
         HardwareSeriesPoint(t: t0.addingTimeInterval(30), series: "OK", segment: 0, value: 3),

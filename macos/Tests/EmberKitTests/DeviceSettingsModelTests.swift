@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-// MARK: Patch
-
 @Test func patchSendsOnlyChangedKeys() {
     var old = DeviceSettings()
     old.brightness = 100
@@ -53,8 +51,6 @@ import Foundation
     #expect(new.serverSupportsNG11)
 }
 
-// MARK: Units and options
-
 @Test func brightnessPercentRoundTrips() {
     #expect(DeviceUnits.brightnessPercent(raw: 0) == 0)
     #expect(DeviceUnits.brightnessPercent(raw: 255) == 100)
@@ -74,8 +70,6 @@ import Foundation
     #expect(!ClockTimeStyle.binary.drawsWeekdayBar)
     #expect(ClockTimeStyle.notchedBarAbove.drawsCalendarBox)
 }
-
-// MARK: Native apps
 
 private let appsJSON = #"""
 [{"name":"Time","enabled":true,"inLoop":true,"present":true,"slot":0,"origin":"builtin"},
@@ -140,8 +134,6 @@ private let sampleApps = try! JSONDecoder().decode([AppInfo].self, from: Data(ap
     #expect(apps[0].present == true && apps[0].slot == 0)
     #expect(apps[1].enabled && apps[1].slot == nil)
 }
-
-// MARK: Model
 
 private final class FakeClock: @unchecked Sendable {
     private let lock = NSLock()

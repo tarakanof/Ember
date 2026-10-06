@@ -2,10 +2,6 @@ import Foundation
 import Testing
 @testable import EmberKit
 
-// The knob folds track text to ASCII with fixed tables (cinder np.c, np_text_fold).
-// The pinned cases are the firmware's outputs; the parity tests read the firmware
-// source when a cinder checkout sits next to this repo (or CINDER_DIR names one).
-
 private func fold(_ s: String) -> String { KnobNowPlayingFace.fold(s) }
 
 @Test func foldMatchesTheFirmwareOnRussianAndPunctuation() {
@@ -13,7 +9,7 @@ private func fold(_ s: String) -> String { KnobNowPlayingFace.fold(s) }
     #expect(fold("Жуки — Щука «Чай»") == "Zhuki - Shchuka \"Chay\"")
     #expect(fold("Юля Цой Хор Объект") == "Yulya Tsoy Khor Obekt")
     #expect(fold("Щёлк") == "Shchyolk")
-    #expect(fold("Cafe\u{301}") == "Cafe")   // NFD: the combining mark folds to nothing
+    #expect(fold("Cafe\u{301}") == "Cafe")
     #expect(fold("a\u{200B}b\u{2010}c×d") == "ab-cxd")
     #expect(fold("20°C • live") == "20?C . live")
     #expect(fold("Việt") == "Vi?t")
@@ -51,7 +47,6 @@ func foldTablesMatchNpC() throws {
     #expect(try table("LATIN", in: src) == KnobTextFold.latin)
     #expect(try table("CYR_UPPER", in: src) == KnobTextFold.cyrUpper)
     #expect(try table("CYR_LOWER", in: src) == KnobTextFold.cyrLower)
-    // The switch: every `case 0x..: return "..";` line, plus the ranges.
     let re = try NSRegularExpression(pattern: "((?:case 0x[0-9A-Fa-f]+: ?)+)return \"((?:[^\"\\\\]|\\\\.)*)\";")
     let fn = try #require(src.range(of: "static const char *fold_cp"))
     let tail = String(src[fn.lowerBound...])
@@ -65,12 +60,10 @@ func foldTablesMatchNpC() throws {
             #expect(KnobTextFold.fold(codePoint: cp) == want, "U+\(String(cp, radix: 16))")
         }
     }
-    // Ranges the firmware handles by `if`.
     #expect(KnobTextFold.fold(codePoint: 0x2005) == " " && KnobTextFold.fold(codePoint: 0x2012) == "-")
     #expect(KnobTextFold.fold(codePoint: 0x301) == "" && KnobTextFold.fold(codePoint: 0x1F600) == "?")
 }
 
-/// C string literals (adjacent ones joined, \xHH escapes) as bytes.
 private func cLiterals(_ s: Substring) -> [[UInt8]] {
     var out: [[UInt8]] = [], cur: [UInt8]? = nil
     let b = Array(s.utf8)
@@ -114,7 +107,7 @@ func foldAgreesWithTheFirmwareHostTestVectors() throws {
         guard let end = rest.range(of: ");") else { break }
         let lits = cLiterals(rest[..<end.lowerBound])
         guard lits.count == 2, let input = String(bytes: lits[0], encoding: .utf8), let want = String(bytes: lits[1], encoding: .utf8)
-        else { continue }   // invalid UTF-8 inputs can't be a Swift String
+        else { continue }
         #expect(fold(input) == want, "fold \(input)")
         checked += 1
     }

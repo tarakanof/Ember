@@ -3,8 +3,6 @@ import Foundation
 import Darwin
 @testable import EmberKit
 
-/// A fake knob on the master side of a pty: the real `SerialPortLink` opens
-/// the slave like a `/dev/cu.*` port. No real serial device is touched.
 private final class PtyKnob: @unchecked Sendable {
     let master: Int32
     let slave: Int32
@@ -25,7 +23,6 @@ private final class PtyKnob: @unchecked Sendable {
         tcsetattr(s, TCSANOW, &t)
     }
 
-    /// Answers device info and `CINDER1 info`, with log lines in between.
     func run() {
         queue.async { [self] in
             var host = KnobStreamDemuxer()
@@ -84,7 +81,6 @@ private final class PtyKnob: @unchecked Sendable {
     defer { knob.stop() }
     let link = try SerialPortLink(path: knob.path)
     defer { link.close() }
-    // Configure applied to the same tty: HUPCL cleared, so close leaves DTR/RTS alone.
     var t = termios()
     #expect(tcgetattr(knob.slave, &t) == 0)
     #expect(t.c_cflag & tcflag_t(HUPCL) == 0)
@@ -121,7 +117,6 @@ private final class PtyKnob: @unchecked Sendable {
         let link = try SerialPortLink(path: knob.path)
         _ = link.path
     }
-    // The port's exclusive lock goes away only when the fd is closed.
     var reopened: SerialPortLink?
     for _ in 0..<100 where reopened == nil {
         reopened = try? SerialPortLink(path: knob.path)

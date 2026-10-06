@@ -157,8 +157,6 @@ private func runner(notLoaded labels: Set<String>) -> FakeRunner {
     #expect(outcomes.map(\.agent) == [.codex])
 }
 
-// MARK: - Bundle fingerprint
-
 @Test func fingerprintChangesWhenOnlyAHelperChanges() {
     let a = producerBundleFingerprint(version: "0.28.0", build: "1", helperDigests: ["aa", "bb"])
     let b = producerBundleFingerprint(version: "0.28.0", build: "1", helperDigests: ["aa", "cc"])

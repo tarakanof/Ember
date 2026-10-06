@@ -3,12 +3,6 @@ import ImageIO
 import Testing
 @testable import EmberKit
 
-// The drift guard for knob-theme.json. Every key is pinned here, so a change
-// to the file has to be made on purpose (and copied to cinder, tarakanof/cinder#34).
-// `themeMatchesCinderSource` also reads the firmware source when a cinder
-// checkout sits next to this repo (or CINDER_DIR names one) and checks each
-// value against the constant it mirrors.
-
 private let pinned: [String: String] = [
 "version": "1",
     "screen.diameter_px": "466",
@@ -290,8 +284,6 @@ private func flatten(_ v: Any, _ prefix: String = "", into out: inout [String: S
     #expect((try? JSONDecoder().decode([RGB].self, from: Data(##"["#0A0B0C"]"##.utf8))) == [RGB(r: 10, g: 11, b: 12)])
 }
 
-// MARK: Parity with cinder's source (opt-in)
-
 private let cinderDir: URL? = {
     let fm = FileManager.default
     var candidates: [URL] = []
@@ -302,8 +294,6 @@ private let cinderDir: URL? = {
     return candidates.first { fm.fileExists(atPath: $0.appendingPathComponent("firmware/main/bot_view.c").path) }
 }()
 
-/// One firmware constant: `pattern`'s capture groups, mapped to the theme
-/// keys they mirror (`map` turns the groups into each key's value).
 private struct Check {
     let file: String
     let pattern: String
@@ -548,7 +538,6 @@ func themeMatchesCinderSource() throws {
     #expect(uncovered.isEmpty, "theme keys with no firmware check: \(uncovered.sorted())")
 }
 
-/// The preview's mark PNGs are the firmware's A8 masks (`tool_marks.c`), pixel for pixel.
 @Test(.enabled(if: cinderDir != nil, "no cinder checkout next to this repo (set CINDER_DIR)"))
 func markImagesMatchFirmwareMasks() throws {
     let root = try #require(cinderDir).appendingPathComponent("firmware/components/bot/tool_marks.c")
@@ -556,7 +545,7 @@ func markImagesMatchFirmwareMasks() throws {
     for tool in ["claude", "codex"] {
         let re = try NSRegularExpression(pattern: "k_\(tool)\\[[^\\]]*\\] = \\{([^}]*)\\}", options: [.dotMatchesLineSeparators])
         let m = try #require(re.firstMatch(in: src, range: NSRange(src.startIndex..., in: src)))
-        let body = String(src[Range(m.range(at: 1), in: src)!].drop(while: { $0 != "\n" }))   // past the size comment
+        let body = String(src[Range(m.range(at: 1), in: src)!].drop(while: { $0 != "\n" }))
         let dims = try #require(NSRegularExpression(pattern: "k_\(tool)\\[(\\d+) \\* (\\d+)\\]").firstMatch(in: src, range: NSRange(src.startIndex..., in: src)))
         let w = Int(src[Range(dims.range(at: 1), in: src)!])!, hh = Int(src[Range(dims.range(at: 2), in: src)!])!
         let want = body.split(whereSeparator: { $0 == "," || $0.isWhitespace }).compactMap { UInt8($0) }
