@@ -31,7 +31,7 @@ That stance is the project's default. We deviate from it only when a dependency 
 
 Don't add features, refactors, or abstractions beyond what the task requires. A bug fix doesn't need surrounding cleanup; a one-shot operation doesn't need a helper. Don't design for hypothetical future requirements. **Three similar lines is better than a premature abstraction.**
 
-No half-finished implementations. If the work doesn't merit being done now, leave a single sharp note in the relevant spec or task. Floating `TODO:` markers in source code are not acceptable; anchored ones (with an issue number, spec path, or deadline) are — see §9.
+No half-finished implementations. If the work doesn't merit being done now, leave a single sharp note in the relevant spec or task. Open work is a GitHub issue, not a `TODO` in source — see §9.
 
 ### 4. Errors are values, never silent
 
@@ -79,15 +79,21 @@ Configuration loading happens once, at startup. After that, the rest of the prog
 - Secrets come from env vars only. Never hard-coded, never committed, never logged.
 - Use `slog.LogValuer` (or equivalent redaction) on any type carrying secrets so a stray `slog.Info("config loaded", "cfg", cfg)` can't leak them.
 
-### 9. Comments explain *why*, never *what*
+### 9. No comments, except the exceptional ones
 
-Two distinct cases:
+Code carries no comments. Code that seems to need one should be clearer code: better names, a smaller function, a named constant. Knowledge goes where it is found and kept current:
 
-**Inline comments** (inside function bodies): none. Code that needs one should be clearer code. A hidden constraint, a subtle invariant, a workaround for a specific bug, or behavior that would surprise a reader goes in the docs (`ARCHITECTURE.md` gotchas, `MENU-BOT.md`, `RUNBOOK.md`); its history and rationale go in the commit message and PR description. Don't restate what the code does, and don't reference the current task or PR.
+- **Why this change, its history**: the commit message and the PR description.
+- **Hidden constraints, invariants, measurements, gotchas**: the docs (`ARCHITECTURE.md` gotchas, `MENU-BOT.md`, `RUNBOOK.md`; cinder's `docs/features.md`).
+- **Open work**: a GitHub issue, not a `TODO`.
 
-**Doc comments on exported APIs** (Go, and `public` Swift in EmberKit): required, one sentence. It starts with the identifier name (Go) and states the *contract* (what it returns or guarantees, error cases), not the implementation or its history. A package gets a one-line `// Package foo …` comment in one file. Unexported and app-target code gets a doc comment only when its role can't be read from its name and signature.
+The exceptions, each one line at most:
 
-`TODO` markers are acceptable when they include a concrete reference (issue number, spec path, or a sentence with a deadline): `// TODO: drop after sub-project E ships`. Floating `// TODO: handle this` with no anchor is not — that's how dead code accumulates.
+1. **Code that looks wrong but is right**: a hardware, protocol or OS quirk a reader would "fix" into a bug. Name the quirk and point at the doc that holds the full story.
+2. **A contract the caller can't read from the name and signature** (units, ownership, a non-obvious error case) on an exported Go or `public` Swift API.
+3. **Required text**: directives (`//go:build`, `//go:embed`, `// swiftlint:`), generated-file headers, licence and attribution notes.
+
+Localization `comment:` arguments are translator notes, not code comments; keep them.
 
 ### 10. Concurrency is explicit and bounded
 
@@ -114,7 +120,7 @@ Two distinct cases:
 - `AGENTS.md` — hard rules and the docs map; `docs/WORKFLOW.md` — how a change ships. The single source of truth every AI assistant (Claude Code included) loads; there is no `CLAUDE.md`.
 - `docs/STYLE.md` — this file.
 - `Superpowers Specs/<project>/` (Obsidian vault) — design contracts + matching implementation plans for non-trivial work, dated.
-- Inline docs (godoc) — exported API only.
+- Inline docs (godoc) — only the exceptions in §9.
 
 When in doubt, write the spec, then point at it from the code's commit message. Don't paste the spec into the code.
 
@@ -349,7 +355,7 @@ Specs, plans and brainstorm notes live in the Obsidian vault (`Superpowers Specs
 | Anti-pattern | Antidote |
 |---|---|
 | Logging *and* returning the same error | Pick one — log at the boundary or return for the caller to handle. |
-| Floating `// TODO:` with no anchor | Either anchor it (issue number, spec path, deadline) or delete it. Anchored TODOs are fine. |
+| `// TODO:` in source | File an issue and delete the marker. |
 | "Add error handling" in a plan/spec without specifying what | Specify the exact failure mode and the exact response. |
 | Premature abstraction (extracting a helper called once) | Inline it. Wait until 3+ callers exist. |
 | Backwards-compat shims for code with zero current consumers | Delete the old code; we have git. |
