@@ -366,3 +366,57 @@ func TestFirmwareStoreRemoveAndChannel(t *testing.T) {
 		t.Fatalf("dir kept: %v", err)
 	}
 }
+
+func TestFirmwareStoreReplaceKeepsTheOldVersionWhenTheWriteFails(t *testing.T) {
+	s := newFWStore(t)
+	old, _ := putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "test")
+	other := fakeFirmware(fwOpts{version: "0.9.14", seed: 9})
+	d, _ := parseFirmwareImage(other)
+	s.writeFile = func(path string, data []byte) error {
+		if filepath.Base(path) == firmwareBinName {
+			return errors.New("disk full")
+		}
+		return writeFileAtomic(path, data)
+	}
+	if _, _, err := s.put(d, other, "test", true, func(string) bool { return false }, nil); err == nil {
+		t.Fatal("put succeeded")
+	}
+	m, ok := s.get("0.9.14")
+	if !ok || m.SHA256 != old.SHA256 {
+		t.Fatalf("old version lost: %+v %v", m, ok)
+	}
+	got, err := os.ReadFile(filepath.Join(s.dir, "0.9.14", firmwareBinName))
+	if err != nil || sha256.Sum256(got) != sha256.Sum256(fakeFirmware(fwOpts{version: "0.9.14"})) {
+		t.Fatalf("old bin on disk changed: %v", err)
+	}
+	again := newFirmwareStore(s.dir)
+	if err := again.load(); err != nil || len(again.list()) != 1 || again.list()[0].SHA256 != old.SHA256 {
+		t.Fatalf("after reload: %+v %v", again.list(), err)
+	}
+	entries, _ := os.ReadDir(s.dir)
+	if len(entries) != 1 {
+		t.Fatalf("leftovers: %v", entries)
+	}
+}
+
+func TestFirmwareStoreRestoresAnOldVersionMovedAsideByACrash(t *testing.T) {
+	s := newFWStore(t)
+	old, _ := putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14-rc1"}), "test")
+	if err := os.Rename(filepath.Join(s.dir, "0.9.14-rc1"), filepath.Join(s.dir, ".old-0.9.14-rc1-123")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(s.dir, ".tmp-0.9.14-rc1-456"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	again := newFirmwareStore(s.dir)
+	if err := again.load(); err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := again.get("0.9.14-rc1"); !ok || m.SHA256 != old.SHA256 {
+		t.Fatalf("not restored: %+v %v", m, ok)
+	}
+	entries, _ := os.ReadDir(s.dir)
+	if len(entries) != 1 || entries[0].Name() != "0.9.14-rc1" {
+		t.Fatalf("entries = %v", entries)
+	}
+}
