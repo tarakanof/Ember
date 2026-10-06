@@ -4,7 +4,7 @@ import Foundation
 /// for the hover tooltip and a 1–3 sentence `detail` for the popover (what the
 /// option does, its trade-off, its default). Every claim comes from the code
 /// or docs it names, so check them when the behaviour changes: the server's
-/// defaults and validation (`cmd/ember`), cinder's `docs/llm.md` for the knob.
+/// defaults and validation (`cmd/ember`), cinder's `docs/features.md` for the knob.
 public enum SettingsInfo: String, CaseIterable, Sendable {
     // Devices › Knob
     case knobPoll, knobStatsInterval, knobLiveInterval, knobFastLink
@@ -65,7 +65,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
 
     public var detail: LocalizedStringResource {
         switch self {
-        // cinder docs/llm.md "Long-poll" (#27): with a current server the knob
+        // cinder docs/features.md "Long-poll" (#27): with a current server the knob
         // waits on an open view request and polls every poll_ms only without it.
         case .knobPoll:
             "How often the knob asks Ember for updates when it can't wait on an open request, for example with an older server or after an error. A current server answers the moment something changes, so a shorter interval mostly adds requests. Default: 2 s."
@@ -73,7 +73,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "How often the knob sends the stats behind its Hardware page. Shorter gives finer charts, but more requests from the knob and more memory on the server. Default: 1 min."
         case .knobLiveInterval:
             "While the knob's Hardware page is open in Ember, the knob checks in this often so the charts move live, then goes back to normal. The real pace rounds up to the check interval, so 5 s can come out near 6 s. Default: 5 s."
-        // cinder docs/llm.md "QSPI 80 MHz panel link" (#23).
+        // cinder docs/features.md "QSPI 80 MHz panel link" (#23).
         case .knobFastLink:
             "Redraws the screen faster (a full frame in about 25 ms instead of 35) and halves the time in which a redraw can tear. 80 MHz is beyond the panel's rated speed, so the knob checks the link at startup and every 5 s and drops back to 40 MHz by itself if a check fails. Changing it restarts the knob; default: on."
         // ARCHITECTURE "GET /v1/display/brightness".

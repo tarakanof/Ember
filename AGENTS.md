@@ -23,13 +23,13 @@ on Unraid, kept small: stdlib Go plus `modernc.org/sqlite`.
 - [`docs/MENU-BOT.md`](docs/MENU-BOT.md): the animated menu-bar bot. Read before
   touching `macos/**/Bot*`.
 - `AGENTS.local.md` (gitignored; template `AGENTS.local.md.example`): device
-  hosts, server URL, Obsidian vault path.
+  hosts, Obsidian vault path.
 
 ## Hard rules
 
 - **Secrets**: never print or commit `EMBER_TOKEN`, device tokens, Wi-Fi
-  passwords, `sdkconfig.secrets`. Secrets come from env only, never JSON, tests,
-  logs or docs.
+  passwords, `sdkconfig.secrets`. Settings follow the config-file + env-var
+  pattern; secrets come from env only, never JSON, tests, logs or docs.
 - **Live state is off limits** to tests and reviews: `~/.config/ember`,
   `~/.claude`, `~/.codex`, `~/Library/LaunchAgents`, `/Applications/Ember.app`.
   Don't launch a build with the installed bundle id (it re-registers producer
@@ -44,8 +44,9 @@ on Unraid, kept small: stdlib Go plus `modernc.org/sqlite`.
 - **The knob is live and paired** (`knob-61fc8c`): never repoint it to a scratch
   server or token, re-mint it, change its Wi-Fi or factory-reset it without
   asking. If allowed, restore it and confirm a live checkin before reporting.
-- **Knob USB** (`/dev/cu.usbmodem*`, 303a:1001): open it only for a user-asked
-  action; never toggle DTR/RTS (RTS resets the board).
+- **Knob USB** (`/dev/cu.usbmodem*`, 303a:1001): open it only with cinder's
+  `firmware/tools` (they leave DTR/RTS alone) or for a flash; never toggle
+  DTR/RTS yourself (RTS resets the board).
 - **Install software only with the user's approval.**
 - **Scratch files**: unique names per task (parallel agents share one scratchpad).
 - Conventional Commits, no `Co-Authored-By`. If a rule conflicts with a user

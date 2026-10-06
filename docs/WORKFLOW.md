@@ -59,21 +59,25 @@ they apply at every step.
 
 - `gh pr merge --merge` (merge commit), then remove the worktree and branch.
 - Release when the server, app or producers changed for users, from a clean,
-  in-sync `main`: `scripts/release.sh X.Y.Z "title" --yes`. It bumps the app
+  in-sync `main`, once the user asked for the release: `scripts/release.sh X.Y.Z "title" --yes`. It bumps the app
   version in `macos/project.yml`, tags `vX.Y.Z` and publishes a GitHub Release,
   which triggers `docker-publish.yml` (server image `:X.Y.Z`, `:latest`) and
   `release-producers.yml` (headless producer archives + `SHA256SUMS`).
 - If SSH push fails in a sandbox (1Password agent):
-  `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`.
+  `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS
+  with gh credentials:
+  `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push https://github.com/tarakanof/Ember.git <branch>`.
 
 ## 6. Deploy and install
 
 - **Server**: the user updates the Unraid container and says "server updated".
-  Then check `curl -s http://<server>:3627/healthz` and `/version`.
+  Then check `/healthz` and `/version` on the live server (`EMBER_SERVER_URL`
+  in `producer.env`, or mDNS `_ember._tcp`).
 - **Mac app** (after a release that changed it):
   ```sh
   scripts/build-local.sh <scratch>/ember-build
   osascript -e 'quit app "Ember"'
+  rm -rf /Applications/Ember.app   # ditto merges; stale files would stay
   ditto <scratch>/ember-build/Build/Products/Release/Ember.app /Applications/Ember.app
   open /Applications/Ember.app
   ```
