@@ -63,7 +63,7 @@ struct ClockHardwareContent: View {
         if let notice = ClockHealthReadout.disabledNotice(input.health.map { .loaded($0, at: now) } ?? .loading) {
             HardwareStateBox {
                 ContentUnavailableView {
-                    Label(String(localized: notice), systemImage: "poweroff")
+                    Label(String(localized: notice), systemImage: "clock.badge.xmark")
                 }
             }
         } else if !s.configured {

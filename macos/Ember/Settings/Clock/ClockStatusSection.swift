@@ -21,7 +21,7 @@ struct ClockStatusSection: View {
     var body: some View {
         Section {
             if let notice = disabledNotice {
-                Label(String(localized: notice), systemImage: "poweroff")
+                Label(String(localized: notice), systemImage: "clock.badge.xmark")
                     .foregroundStyle(.secondary)
             } else if serverLostClock {
                 LabeledContent {

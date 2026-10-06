@@ -27,7 +27,7 @@ struct ClockCard: View {
             .ledBezel(padding: 10, cornerRadius: 10)
             .overlay {
                 if let disabledNotice {
-                    Label(String(localized: disabledNotice), systemImage: "poweroff")
+                    Label(String(localized: disabledNotice), systemImage: "clock.badge.xmark")
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.7))
                 } else if screen.value == nil, !screen.isLoading {
