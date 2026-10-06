@@ -65,6 +65,21 @@ jobs:
       - name: go test -race
         run: go test ./... -race
 
+  openapi:
+    name: OpenAPI lint (docs/openapi.yaml)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: redocly lint
+        run: npx --yes @redocly/cli@2.58.2 lint --config docs/redocly.yaml --format github-actions docs/openapi.yaml
+
   producers-cross:
     name: Producers (cross-compile, install script)
     runs-on: ubuntu-latest

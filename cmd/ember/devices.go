@@ -21,7 +21,9 @@ import (
 const (
 	devicesKey          = "devices_json"
 	deviceKindKnob      = "cinder-knob"
+	deviceKindClient    = "client"
 	deviceTokenPrefix   = "ekd_"
+	clientTokenPrefix   = "ekc_"
 	deviceRotationGrace = 24 * time.Hour
 	// deviceCheckinPersistInterval bounds how often checkins alone rewrite the
 	// stored registry; other changes are written at once.
@@ -98,10 +100,12 @@ type deviceRecord struct {
 	ConfigVersion      int            `json:"config_version"`
 	CreatedAt          time.Time      `json:"created_at"`
 	LastCheckin        *deviceCheckin `json:"last_checkin,omitempty"`
+	Scopes             []string       `json:"scopes,omitempty"`
 }
 
 func (d deviceRecord) clone() deviceRecord {
 	d.Config = d.Config.clone()
+	d.Scopes = slices.Clone(d.Scopes)
 	if d.RotatedAt != nil {
 		t := *d.RotatedAt
 		d.RotatedAt = &t
@@ -139,6 +143,14 @@ func (s *deviceState) find(id string) *deviceRecord {
 	return nil
 }
 
+// findKnob is find limited to devices that pull a config: a client has none.
+func (s *deviceState) findKnob(id string) *deviceRecord {
+	if d := s.find(id); d != nil && d.Kind != deviceKindClient {
+		return d
+	}
+	return nil
+}
+
 // deviceView is the owner-facing wire shape of a device: no token material.
 type deviceView struct {
 	ID              string         `json:"id"`
@@ -150,6 +162,7 @@ type deviceView struct {
 	RotationPending bool           `json:"rotation_pending"`
 	RotatedAt       *time.Time     `json:"rotated_at"`
 	LastCheckin     *deviceCheckin `json:"last_checkin"`
+	Scopes          []string       `json:"scopes,omitempty"`
 }
 
 func (d deviceRecord) view() deviceView {
@@ -163,6 +176,7 @@ func (d deviceRecord) view() deviceView {
 		ConfigVersion:   d.ConfigVersion,
 		RotationPending: d.RotatedAt != nil,
 		LastCheckin:     d.LastCheckin,
+		Scopes:          d.Scopes,
 	}
 	if d.RotatedAt != nil {
 		t := d.RotatedAt.UTC().Truncate(time.Second)
@@ -316,7 +330,7 @@ func (r *deviceRegistry) list() []deviceView {
 func (r *deviceRegistry) versions(id string) (uint64, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d := r.state.find(id)
+	d := r.state.findKnob(id)
 	if d == nil {
 		return 0, 0, errDeviceNotFound
 	}
@@ -327,7 +341,7 @@ func (r *deviceRegistry) versions(id string) (uint64, int, error) {
 func (r *deviceRegistry) diagnostics(id string) (string, *deviceCheckin, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d := r.state.find(id)
+	d := r.state.findKnob(id)
 	if d == nil {
 		return "", nil, errDeviceNotFound
 	}
@@ -340,7 +354,7 @@ func (r *deviceRegistry) diagnostics(id string) (string, *deviceCheckin, error) 
 func (r *deviceRegistry) settingsAndCheckin(id string) (knobSettings, *deviceCheckin, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d := r.state.find(id)
+	d := r.state.findKnob(id)
 	if d == nil {
 		return knobSettings{}, nil, errDeviceNotFound
 	}
@@ -351,7 +365,7 @@ func (r *deviceRegistry) settingsAndCheckin(id string) (knobSettings, *deviceChe
 func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d := r.state.find(id)
+	d := r.state.findKnob(id)
 	if d == nil {
 		return knobSettings{}, 0, errDeviceNotFound
 	}
@@ -363,14 +377,14 @@ func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
 // (old token and any rotation revoked, config kept). It returns the plaintext
 // token, which is never stored.
 func (r *deviceRegistry) provision(hwID, name string) (deviceView, string, bool, error) {
-	token := newDeviceToken()
+	token := newToken(deviceTokenPrefix)
 	var view deviceView
 	created := false
 	err := r.mutate(func(st *deviceState) error {
 		st.Epoch++
 		for i := range st.Devices {
 			d := &st.Devices[i]
-			if d.HwID != hwID {
+			if d.Kind == deviceKindClient || d.HwID != hwID {
 				continue
 			}
 			d.TokenSHA256 = tokenHash(token)
@@ -405,6 +419,55 @@ func (r *deviceRegistry) provision(hwID, name string) (deviceView, string, bool,
 	return view, token, created, err
 }
 
+// provisionClient mints a client record with scopes and returns its view and
+// plaintext token, which is never stored.
+func (r *deviceRegistry) provisionClient(name string, scopes []string) (deviceView, string, error) {
+	token := newToken(clientTokenPrefix)
+	var view deviceView
+	err := r.mutate(func(st *deviceState) error {
+		n := 0
+		for _, d := range st.Devices {
+			if d.Kind == deviceKindClient {
+				n++
+			}
+		}
+		if n >= maxClients {
+			return errTooManyClients
+		}
+		st.Epoch++
+		id := clientID()
+		for st.find(id) != nil {
+			id = clientID()
+		}
+		d := deviceRecord{
+			ID:          id,
+			Kind:        deviceKindClient,
+			Name:        name,
+			TokenSHA256: tokenHash(token),
+			Scopes:      scopes,
+			CreatedAt:   r.now().UTC(),
+		}
+		st.Devices = append(st.Devices, d)
+		slices.SortFunc(st.Devices, func(a, b deviceRecord) int { return strings.Compare(a.ID, b.ID) })
+		view = d.view()
+		return nil
+	})
+	return view, token, err
+}
+
+func (r *deviceRegistry) isClient(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.state.find(id)
+	return d != nil && d.Kind == deviceKindClient
+}
+
+func clientID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return "client-" + hex.EncodeToString(b)
+}
+
 func deviceID(st *deviceState, hwID string) string {
 	id := "knob-" + hwID[len(hwID)-6:]
 	if st.find(id) != nil {
@@ -427,12 +490,23 @@ func (r *deviceRegistry) rename(id, name string) (deviceView, error) {
 	return view, err
 }
 
-func (r *deviceRegistry) rotate(id string) (deviceView, error) {
+// rotate starts a knob's token rotation, delivered on its next checkin. A
+// client has no checkin, so its new token is minted at once, returned, and the
+// old one revoked.
+func (r *deviceRegistry) rotate(id string) (deviceView, string, error) {
 	var view deviceView
+	var token string
 	err := r.mutate(func(st *deviceState) error {
 		d := st.find(id)
 		if d == nil {
 			return errDeviceNotFound
+		}
+		if d.Kind == deviceKindClient {
+			token = newToken(clientTokenPrefix)
+			d.TokenSHA256 = tokenHash(token)
+			st.Epoch++
+			view = d.view()
+			return nil
 		}
 		now := r.now().UTC()
 		d.RotatedAt = &now
@@ -441,7 +515,7 @@ func (r *deviceRegistry) rotate(id string) (deviceView, error) {
 		view = d.view()
 		return nil
 	})
-	return view, err
+	return view, token, err
 }
 
 func (r *deviceRegistry) remove(id string) error {
@@ -465,7 +539,7 @@ func (r *deviceRegistry) putConfig(id string, patch []byte) (knobSettings, int, 
 	var version int
 	changed := false
 	err := r.mutate(func(st *deviceState) error {
-		d := st.find(id)
+		d := st.findKnob(id)
 		if d == nil {
 			return errDeviceNotFound
 		}
@@ -509,6 +583,9 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	now := r.now()
 	match, pending := -1, false
 	for i, d := range r.state.Devices {
+		if d.Kind == deviceKindClient {
+			continue
+		}
 		cur := subtle.ConstantTimeCompare(h, []byte(d.TokenSHA256)) == 1
 		if cur && d.RotatedAt != nil && now.Sub(*d.RotatedAt) > deviceRotationGrace {
 			cur = false
@@ -540,6 +617,31 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	return id, true, nil
 }
 
+// authenticateClient maps a client bearer token to its id and scopes in
+// constant time over all clients; it never writes.
+func (r *deviceRegistry) authenticateClient(token string) (string, []string, bool, error) {
+	if !strings.HasPrefix(token, clientTokenPrefix) {
+		return "", nil, false, nil
+	}
+	h := []byte(tokenHash(token))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.writableLocked(); err != nil {
+		return "", nil, false, err
+	}
+	match := -1
+	for i, d := range r.state.Devices {
+		if d.Kind == deviceKindClient && subtle.ConstantTimeCompare(h, []byte(d.TokenSHA256)) == 1 {
+			match = i
+		}
+	}
+	if match < 0 {
+		return "", nil, false, nil
+	}
+	d := r.state.Devices[match]
+	return d.ID, slices.Clone(d.Scopes), true, nil
+}
+
 type checkinResult struct {
 	ConfigVersion int           `json:"config_version"`
 	Config        *knobSettings `json:"config,omitempty"`
@@ -563,7 +665,7 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 	if err := r.writableLocked(); err != nil {
 		return checkinResult{}, err
 	}
-	d := r.state.find(id)
+	d := r.state.findKnob(id)
 	if d == nil {
 		return checkinResult{}, errDeviceNotFound
 	}
@@ -576,7 +678,7 @@ func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult
 	if d.RotatedAt != nil {
 		res.NewToken = r.pendingPlain[id]
 		if res.NewToken == "" || tokenHash(res.NewToken) != d.PendingTokenSHA256 {
-			res.NewToken = newDeviceToken()
+			res.NewToken = newToken(deviceTokenPrefix)
 			err := r.mutateLocked(func(st *deviceState) error {
 				d := st.find(id)
 				d.LastCheckin = &report
@@ -621,10 +723,10 @@ func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
 	return cur, nil
 }
 
-func newDeviceToken() string {
+func newToken(prefix string) string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
-	return deviceTokenPrefix + base64.RawURLEncoding.EncodeToString(b)
+	return prefix + base64.RawURLEncoding.EncodeToString(b)
 }
 
 func tokenHash(token string) string {

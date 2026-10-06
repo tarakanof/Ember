@@ -1,0 +1,6 @@
+# Lint config for docs/openapi.yaml (CI: npx @redocly/cli lint).
+extends:
+  - recommended
+rules:
+  # Open LAN reads (/state, previews, dashboard reads) have no 4xx answer.
+  operation-4xx-response: off

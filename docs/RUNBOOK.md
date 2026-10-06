@@ -649,6 +649,94 @@ curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
   `pomodoro.db`), so the same writable volume is needed; without it, minted
   tokens are lost on restart.
 
+## Integrating a source
+
+Anything that can run `curl` can show up on the clock and the knob: another
+agent CLI's hooks, a CI job, a Home Assistant automation. The contract is
+[`docs/openapi.yaml`](openapi.yaml) (OpenAPI 3.1; operations marked
+`x-internal` are Ember.app plumbing and may change).
+
+**Give it a scoped client token, not `EMBER_TOKEN`.** The master token can also
+rewrite settings, reboot the clock and mint tokens. A client token (`ekc_…`)
+carries only the scopes it was minted with:
+
+| Scope | Routes |
+|---|---|
+| `ingest` | `POST`/`DELETE /v1/status`, `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire` |
+| `control` | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` |
+| `read` | the non-secret settings reads: `GET /v1/{apps,pomodoro/config,usage/config,display/config,brightness/config,quiet/config,clock/stats}` (weather and meetings config hold a location or a calendar URL: `admin` only) |
+| `admin` | every route `EMBER_TOKEN` passes under `/v1/`, except minting any token and rotating or deleting client tokens (master only, so a leaked client can't outlive its revocation) |
+
+Public reads (`/state`, `/v1/*/state`, previews, dashboard reads) need no
+token. A missing or unknown token is 401; a client token without the scope is
+403. Client tokens never pass the knob's `/v1/devices/self/*` routes, now-playing
+control or `/admin/*`, which stay master- or device-only.
+
+```sh
+H="Authorization: Bearer $EMBER_TOKEN"
+curl -s -XPOST localhost:3627/v1/devices -H "$H" \
+  -d '{"kind":"client","name":"CI runner","scopes":["ingest"]}'   # token printed once
+curl -s localhost:3627/v1/devices -H "$H"                          # lists it with its scopes
+curl -s -XPOST localhost:3627/v1/devices/client-1a2b3c4d/rotate -H "$H"  # new token now, old one dead
+curl -s -XDELETE localhost:3627/v1/devices/client-1a2b3c4d -H "$H"       # revoke
+```
+
+Only `EMBER_TOKEN` mints tokens (client or knob) and manages client tokens
+(any client token gets 403), and
+there are at most 64 (400 past that). Only the token's SHA-256 is stored (the knob registry, `devices_json`). Rotating
+a client answers 200 with the new token and revokes the old one at once (a knob
+rotation is 202 and waits for its checkin). Clients are not knobs: they have no
+config or stats (404) and `/admin/doctor` counts them as `clients=N` without
+checkin warnings. There is no Ember.app UI for client tokens yet; mint them
+with curl.
+
+**Rolling back past this release: delete every client token first**
+(`DELETE /v1/devices/client-…`). Older servers don't know the `client` kind and
+accept any registry token as a knob's, so an ingest-only `ekc_` token would pass
+`/v1/devices/self/*`, now-playing control and the Pomodoro actions there.
+
+**Report a session.** One `POST /v1/status` per state change, plus a heartbeat
+every ~10 s while `running` or `waiting`: a session not refreshed for
+`stale_seconds` (25 s) is dropped, and `done`/`error` linger for
+`done_ttl_seconds` (30 s). `source`/`tool`/`session` key the session.
+
+```sh
+EKC=ekc_…   # the ingest token
+curl -s -XPOST http://ember.local:3627/v1/status -H "Authorization: Bearer $EKC" \
+  -H 'Content-Type: application/json' \
+  -d '{"source":"ci","tool":"gha","session":"deploy-42","state":"running","activity":"deploy api"}'
+curl -s -XPOST http://ember.local:3627/v1/status -H "Authorization: Bearer $EKC" \
+  -d '{"source":"ci","tool":"gha","session":"deploy-42","state":"done","message":"api v1.4 live"}'
+curl -s -XPOST http://ember.local:3627/v1/notify -H "Authorization: Bearer $EKC" \
+  -d '{"text":"washer done","color":"#00FF88"}'
+```
+
+- `state`: `idle`, `running`, `waiting` (needs you: wins the display),
+  `done`, `error`.
+- `tool`: lower-cased, any value is accepted. `claude`, `codex` and `t3` have
+  their own label and icon; anything else shows capitalised (`gemini` →
+  "Gemini") with the Claude icon for now, and appears in Settings › Apps (`/v1/apps`) once it
+  has posted. `POST /v1/usage` takes the same id, `^[a-z0-9_-]{1,32}$`.
+- `activity` (≤ 80 chars) is the running detail, `message` the text shown with
+  `done`/`waiting`/`error`. The display toggles (`source_card`, `session_bar`,
+  `rate_bottom_bar`…) are optional; leave them out.
+- Unknown fields are ignored on `/v1/status`, so a source written against a
+  newer server still works on an older one.
+
+**Producers with a client token (headless hosts only).** The bundled
+producers only call `/v1/status` and `/v1/usage`, so an `ingest` token is
+enough on a host without Ember.app (a Linux box, "Headless / Linux
+producers"). **Not on a Mac with Ember.app:** the app reads `EMBER_TOKEN` from
+the same `producer.env` for settings, the knob registry and the clock proxy,
+which need the master token.
+
+```sh
+# ~/.config/ember/producer.env (0600)
+EMBER_SOURCE=build-box
+EMBER_SERVER_URL=auto
+EMBER_TOKEN=ekc_…      # an ingest-scoped client token
+```
+
 ## `EMBER_*` toggle reference (the "spine" flags)
 
 Each is a render-opt-in boolean (default off unless noted). They gate the wire

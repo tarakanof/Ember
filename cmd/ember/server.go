@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -18,8 +19,36 @@ func handleMetrics(app *App) http.HandlerFunc {
 	}
 }
 
+// routeMux is a ServeMux that records every pattern registered on it, so
+// the route-coverage test can hold the mux to docs/openapi.yaml.
+type routeMux struct {
+	*http.ServeMux
+	patterns *[]string
+}
+
+func newRouteMux(patterns *[]string) routeMux {
+	return routeMux{ServeMux: http.NewServeMux(), patterns: patterns}
+}
+
+func (m routeMux) Handle(pattern string, h http.Handler) {
+	*m.patterns = append(*m.patterns, pattern)
+	m.ServeMux.Handle(pattern, h)
+}
+
+func (m routeMux) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
+	m.Handle(pattern, http.HandlerFunc(h))
+}
+
 func (a *App) routes() http.Handler {
-	mux := http.NewServeMux()
+	h, _ := a.routeTable()
+	return h
+}
+
+// routeTable builds the server's handler and lists every registered pattern,
+// mounts ("/v1/", "/admin/") included.
+func (a *App) routeTable() (http.Handler, []string) {
+	var patterns []string
+	mux := newRouteMux(&patterns)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -55,7 +84,7 @@ func (a *App) routes() http.Handler {
 	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
 	mux.Handle("POST "+bootHookPath, rateLimit(a, http.HandlerFunc(a.handleAwtrixBoot)))
 
-	writeMux := http.NewServeMux()
+	writeMux := newRouteMux(&patterns)
 	writeMux.Handle("POST /v1/status", http.HandlerFunc(a.handleStatus))
 	writeMux.Handle("DELETE /v1/status", http.HandlerFunc(a.handleDeleteStatus))
 	writeMux.Handle("POST /v1/clear", http.HandlerFunc(a.handleClear))
@@ -120,19 +149,19 @@ func (a *App) routes() http.Handler {
 	mux.Handle("POST /v1/devices/self/checkin", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceCheckin))))
 	mux.Handle("GET /v1/devices/self/config", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceSelfConfig))))
 	mux.Handle("GET /v1/devices/self/view", rateLimitAuthFailures(a, nil, a.perDevice(a.viewLimit, http.HandlerFunc(a.handleDeviceSelfView))))
-	mux.Handle("POST /v1/pomodoro/start", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroStart))))
-	mux.Handle("POST /v1/pomodoro/pause", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroPause))))
-	mux.Handle("POST /v1/pomodoro/resume", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroResume))))
-	mux.Handle("POST /v1/pomodoro/stop", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroStop))))
-	mux.Handle("POST /v1/pomodoro/skip", rateLimit(a, requireOwnerOrDevice(a, http.HandlerFunc(a.handlePomodoroSkip))))
+	mux.Handle("POST /v1/pomodoro/start", rateLimit(a, requireControl(a, http.HandlerFunc(a.handlePomodoroStart))))
+	mux.Handle("POST /v1/pomodoro/pause", rateLimit(a, requireControl(a, http.HandlerFunc(a.handlePomodoroPause))))
+	mux.Handle("POST /v1/pomodoro/resume", rateLimit(a, requireControl(a, http.HandlerFunc(a.handlePomodoroResume))))
+	mux.Handle("POST /v1/pomodoro/stop", rateLimit(a, requireControl(a, http.HandlerFunc(a.handlePomodoroStop))))
+	mux.Handle("POST /v1/pomodoro/skip", rateLimit(a, requireControl(a, http.HandlerFunc(a.handlePomodoroSkip))))
 	mux.Handle("POST /v1/nowplaying/control", rateLimitAuthFailures(a, http.HandlerFunc(a.handleNowPlayingControl), http.HandlerFunc(a.handleNowPlayingControl)))
 
-	adminMux := http.NewServeMux()
+	adminMux := newRouteMux(&patterns)
 	adminMux.Handle("GET /admin/doctor", handleAdminDoctor(a))
 	adminMux.Handle("POST /admin/reload", handleAdminReload(a))
 	mux.Handle("/admin/", rateLimit(a, adminRequireAuth(a, a.logger, adminMux)))
 
-	return loggingMiddleware(a.logger, observeRequests(a, mux))
+	return loggingMiddleware(a.logger, observeRequests(a, mux)), patterns
 }
 
 func (a *App) decodeOrReject(w http.ResponseWriter, r *http.Request, dst any, strict bool) bool {
@@ -194,6 +223,9 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
+// requireAuth admits the master EMBER_TOKEN, or a client token holding the
+// scope requiredScope names for the route next would serve (admin when next
+// can't say).
 func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := app.cfg.Load().Auth.StatusToken
@@ -206,8 +238,14 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 			writeError(w, http.StatusUnauthorized, errors.New("writes disabled: EMBER_TOKEN unset"))
 			return
 		}
-		expected := "Bearer " + token
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
+		master := subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) == 1
+		if !master && isClientBearer(r) {
+			if app.clientAuth(w, r, requiredScope(routePattern(next, r))) {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientCallerKey{}, true)))
+			}
+			return
+		}
+		if !master {
 			logger.InfoContext(r.Context(), "auth rejected",
 				"remote_addr", r.RemoteAddr,
 				"path", r.URL.Path,
@@ -218,6 +256,17 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func routePattern(h http.Handler, r *http.Request) string {
+	m, ok := h.(interface {
+		Handler(*http.Request) (http.Handler, string)
+	})
+	if !ok {
+		return ""
+	}
+	_, pattern := m.Handler(r)
+	return pattern
 }
 
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {

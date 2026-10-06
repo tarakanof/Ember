@@ -27,9 +27,10 @@ func requireDevice(a *App, next http.Handler) http.Handler {
 	return deviceAuth(a, nil, next)
 }
 
-// requireOwnerOrDevice admits EMBER_TOKEN or a device bearer token.
-func requireOwnerOrDevice(a *App, next http.Handler) http.Handler {
-	return deviceAuth(a, next, next)
+// requireControl admits EMBER_TOKEN, a device bearer token, or a client
+// token with the control scope.
+func requireControl(a *App, next http.Handler) http.Handler {
+	return deviceAuthWith(a, next, next, scopeControl, false)
 }
 
 // rateLimitAuthFailures is rateLimit for routes an authenticated knob
@@ -38,7 +39,7 @@ func requireOwnerOrDevice(a *App, next http.Handler) http.Handler {
 // failed token spends one, and a valid token spends none (the routes keep
 // their own per-caller caps). Brute force stays as limited as elsewhere.
 func rateLimitAuthFailures(a *App, owner, device http.Handler) http.Handler {
-	return deviceAuthWith(a, owner, device, true)
+	return deviceAuthWith(a, owner, device, "", true)
 }
 
 // View requests per knob: a long-poll re-arm after each change, plain polls
@@ -61,10 +62,12 @@ func (a *App) perDevice(l *callerLimiter, next http.Handler) http.Handler {
 }
 
 func deviceAuth(a *App, owner, device http.Handler) http.Handler {
-	return deviceAuthWith(a, owner, device, false)
+	return deviceAuthWith(a, owner, device, "", false)
 }
 
-func deviceAuthWith(a *App, owner, device http.Handler, chargeFailures bool) http.Handler {
+// deviceAuthWith admits the owner, a device, or (when clientScope is set) a
+// client token holding clientScope; the client runs owner without a device id.
+func deviceAuthWith(a *App, owner, device http.Handler, clientScope string, chargeFailures bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if chargeFailures && !a.limiter.Has(clientIP(r)) {
 			a.metrics.incRateLimitDenied()
@@ -82,6 +85,12 @@ func deviceAuthWith(a *App, owner, device http.Handler, chargeFailures bool) htt
 		header := r.Header.Get("Authorization")
 		if owner != nil && subtle.ConstantTimeCompare([]byte(header), []byte("Bearer "+token)) == 1 {
 			owner.ServeHTTP(w, r)
+			return
+		}
+		if clientScope != "" && isClientBearer(r) {
+			if a.clientAuth(w, r, clientScope) {
+				owner.ServeHTTP(w, r)
+			}
 			return
 		}
 		bearer, _ := strings.CutPrefix(header, "Bearer ")
@@ -125,15 +134,27 @@ type mintedDevice struct {
 
 func (a *App) handleDevicesCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Kind string `json:"kind"`
-		HwID string `json:"hw_id"`
-		Name string `json:"name"`
+		Kind   string   `json:"kind"`
+		HwID   string   `json:"hw_id"`
+		Name   string   `json:"name"`
+		Scopes []string `json:"scopes"`
+	}
+	if !a.requireMasterForClients(w, r) {
+		return
 	}
 	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
+	if req.Kind == deviceKindClient {
+		a.createClient(w, r, req.HwID, req.Name, req.Scopes)
+		return
+	}
 	if req.Kind != deviceKindKnob {
-		a.writeDeviceError(w, r, fmt.Errorf("%w: kind must be %q", errDeviceBody, deviceKindKnob))
+		a.writeDeviceError(w, r, fmt.Errorf("%w: kind must be %q or %q", errDeviceBody, deviceKindKnob, deviceKindClient))
+		return
+	}
+	if req.Scopes != nil {
+		a.writeDeviceError(w, r, fmt.Errorf("%w: scopes apply to kind %q only", errDeviceBody, deviceKindClient))
 		return
 	}
 	hwID, err := normalizeHwID(req.HwID)
@@ -158,6 +179,31 @@ func (a *App) handleDevicesCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, status, mintedDevice{deviceView: view, Token: token})
+}
+
+func (a *App) createClient(w http.ResponseWriter, r *http.Request, hwID, rawName string, rawScopes []string) {
+	if hwID != "" {
+		a.writeDeviceError(w, r, fmt.Errorf("%w: a client has no hw_id", errDeviceBody))
+		return
+	}
+	name, err := normalizeDeviceName(rawName, true)
+	if err != nil {
+		a.writeDeviceError(w, r, err)
+		return
+	}
+	scopes, err := normalizeScopes(rawScopes)
+	if err != nil {
+		a.writeDeviceError(w, r, err)
+		return
+	}
+	view, token, err := a.devices.provisionClient(name, scopes)
+	if err != nil {
+		a.writeDeviceError(w, r, err)
+		return
+	}
+	a.logger.InfoContext(r.Context(), "client token minted", "device_id", view.ID, "scopes", strings.Join(scopes, ","))
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusCreated, mintedDevice{deviceView: view, Token: token})
 }
 
 func (a *App) handleDevicesList(w http.ResponseWriter, r *http.Request) {
@@ -213,9 +259,18 @@ func (a *App) handleDevicePatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceRotate(w http.ResponseWriter, r *http.Request) {
-	view, err := a.devices.rotate(r.PathValue("id"))
+	if a.devices.isClient(r.PathValue("id")) && !a.requireMasterForClients(w, r) {
+		return
+	}
+	view, token, err := a.devices.rotate(r.PathValue("id"))
 	if err != nil {
 		a.writeDeviceError(w, r, err)
+		return
+	}
+	if token != "" {
+		a.logger.InfoContext(r.Context(), "client token rotated", "device_id", view.ID)
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, http.StatusOK, mintedDevice{deviceView: view, Token: token})
 		return
 	}
 	a.logger.InfoContext(r.Context(), "device token rotation started", "device_id", view.ID)
@@ -224,6 +279,9 @@ func (a *App) handleDeviceRotate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if a.devices.isClient(id) && !a.requireMasterForClients(w, r) {
+		return
+	}
 	if err := a.devices.remove(id); err != nil {
 		a.writeDeviceError(w, r, err)
 		return

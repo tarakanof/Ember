@@ -1,5 +1,21 @@
 # API quick reference
 
+The contract (request/response shapes, auth per route) is
+[`openapi.yaml`](openapi.yaml); operations marked `x-internal` serve Ember.app
+and may change.
+
+**Tokens.** `EMBER_TOKEN` (master) passes every bearer route below. Scoped
+client tokens (`ekc_…`) and knob tokens are minted only by the master token with `POST /v1/devices
+{"kind":"client","name","scopes"}` (at most 64; rotate/delete also master-only)
+and pass only their scopes: `ingest` (`POST`/`DELETE /v1/status`,
+`POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire`), `control`
+(`POST /v1/pomodoro/{start,pause,resume,stop,skip}`), `read` (the non-secret
+settings GETs: apps, pomodoro/usage/display/brightness/quiet config,
+`/v1/clock/stats`), `admin` (every bearer `/v1/` route except client-token
+management). Wrong scope is 403. Client tokens never pass the knob-only
+routes, now-playing control or `/admin/*`. Details: RUNBOOK "Integrating a
+source".
+
 Server routes, grouped by auth. Behavior and wire shapes: [`ARCHITECTURE.md`](ARCHITECTURE.md) "Wire protocol". Setup and toggles: [`RUNBOOK.md`](RUNBOOK.md).
 
 Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
