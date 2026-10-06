@@ -40,6 +40,11 @@ func TestDeviceTokenScope(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	t.Cleanup(srv.Close)
 	m := mintKnob(t, srv, http.StatusCreated)
+	ingest := mintClient(t, srv, "ci", "ingest").Token
+	control := mintClient(t, srv, "deck", "control").Token
+	read := mintClient(t, srv, "ha", "read").Token
+	admin := mintClient(t, srv, "ops", "admin").Token
+	status := `{"source":"a","tool":"b","session":"c","state":"running"}`
 
 	cases := []struct {
 		method, path, body string
@@ -81,6 +86,43 @@ func TestDeviceTokenScope(t *testing.T) {
 		{"GET", "/v1/devices/self/config", "", testToken, http.StatusUnauthorized},
 		{"POST", "/v1/devices/self/checkin", `{}`, "", http.StatusUnauthorized},
 		{"GET", "/v1/devices/self/config", "", "garbage", http.StatusUnauthorized},
+
+		{"POST", "/v1/status", status, ingest, http.StatusOK},
+		{"DELETE", "/v1/status", `{"source":"a","tool":"b","session":"c"}`, ingest, http.StatusNoContent},
+		{"POST", "/v1/usage", `{"tool":"gemini"}`, ingest, http.StatusNoContent},
+		{"POST", "/v1/reminders/fire", `{"text":"stretch"}`, ingest, http.StatusNoContent},
+		{"PUT", "/v1/display/config", `{}`, ingest, http.StatusForbidden},
+		{"POST", "/v1/device/reboot", "", ingest, http.StatusForbidden},
+		{"POST", "/v1/devices", `{"kind":"client","name":"x","scopes":["admin"]}`, ingest, http.StatusForbidden},
+		{"GET", "/v1/devices", "", ingest, http.StatusForbidden},
+		{"POST", "/v1/clear", "", ingest, http.StatusForbidden},
+		{"GET", "/v1/display/config", "", ingest, http.StatusForbidden},
+		{"POST", "/v1/pomodoro/start", `{"phase":"focus"}`, ingest, http.StatusForbidden},
+		{"GET", "/admin/doctor", "", ingest, http.StatusUnauthorized},
+
+		{"POST", "/v1/pomodoro/start", `{"phase":"focus"}`, control, http.StatusOK},
+		{"POST", "/v1/pomodoro/pause", "", control, http.StatusOK},
+		{"POST", "/v1/pomodoro/resume", "", control, http.StatusOK},
+		{"POST", "/v1/pomodoro/skip", "", control, http.StatusOK},
+		{"POST", "/v1/pomodoro/stop", "", control, http.StatusOK},
+		{"POST", "/v1/status", status, control, http.StatusForbidden},
+		{"PUT", "/v1/pomodoro/config", `{}`, control, http.StatusForbidden},
+
+		{"GET", "/v1/display/config", "", read, http.StatusOK},
+		{"GET", "/v1/pomodoro/config", "", read, http.StatusOK},
+		{"GET", "/v1/apps", "", read, http.StatusOK},
+		{"GET", "/v1/weather/config", "", read, http.StatusForbidden},
+		{"GET", "/v1/meetings/config", "", read, http.StatusForbidden},
+		{"GET", "/v1/devices", "", read, http.StatusForbidden},
+		{"PUT", "/v1/display/config", `{}`, read, http.StatusForbidden},
+		{"POST", "/v1/status", status, read, http.StatusForbidden},
+
+		{"POST", "/v1/status", status, admin, http.StatusOK},
+		{"POST", "/v1/pomodoro/start", `{"phase":"focus"}`, admin, http.StatusOK},
+		{"POST", "/v1/pomodoro/stop", "", admin, http.StatusOK},
+		{"PUT", "/v1/display/config", `{}`, admin, http.StatusOK},
+		{"GET", "/v1/devices", "", admin, http.StatusOK},
+		{"GET", "/v1/devices/self/view", "", admin, http.StatusUnauthorized},
 	}
 	for _, c := range cases {
 		t.Run(c.method+" "+c.path, func(t *testing.T) {

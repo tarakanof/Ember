@@ -206,10 +206,21 @@ func checkDevices(app *App) CheckResult {
 	if err := app.devices.loadError(); err != nil {
 		return CheckResult{Status: StatusFail, Detail: "registry load failed (writes refused until restart): " + err.Error()}
 	}
-	devices := app.devices.list()
+	var devices []deviceView
+	clients := 0
+	for _, d := range app.devices.list() {
+		if d.Kind == deviceKindClient {
+			clients++
+			continue
+		}
+		devices = append(devices, d)
+	}
 	now := app.devices.now()
 	status := StatusOK
 	detail := fmt.Sprintf("registered=%d", len(devices))
+	if clients > 0 {
+		detail += fmt.Sprintf(" clients=%d", clients)
+	}
 	for _, d := range devices {
 		if d.LastCheckin == nil {
 			status = StatusWarn
