@@ -49,7 +49,7 @@ No half-finished implementations. If the work doesn't merit being done now, leav
 
 - No package-level mutable state. Pass dependencies (logger, config, store) explicitly through constructors.
 - A goroutine's lifetime is owned by something. That owner is responsible for shutdown (via `context.Context` cancellation or an explicit channel).
-- Mutexes guard *exactly one logical thing*. Document what (`mu sync.Mutex // protects sessions`).
+- Mutexes guard *exactly one logical thing*, and the name says which (`sessionsMu sync.Mutex`).
 - Prefer "share by communicating": channels for ownership transfer between goroutines; mutexes for in-place state protection. Don't mix metaphors on the same datum.
 
 ### 6. Tests verify behavior, not internals
@@ -91,9 +91,9 @@ The exceptions, each one line at most:
 
 1. **Code that looks wrong but is right**: a hardware, protocol or OS quirk a reader would "fix" into a bug. Name the quirk and point at the doc that holds the full story.
 2. **A contract the caller can't read from the name and signature** (units, ownership, a non-obvious error case) on an exported Go or `public` Swift API.
-3. **Required text**: directives (`//go:build`, `//go:embed`, `// swiftlint:`), generated-file headers, licence and attribution notes.
+3. **Required text**: directives (`//go:build`, `//go:embed`, `// swiftlint:`), functional headers (the `# @name`/`# @config` lines of `internal/berry/*.be`, script usage headers), generated-file headers, licence and attribution notes.
 
-Localization `comment:` arguments are translator notes, not code comments; keep them.
+Localization `comment:` arguments are translator notes, not code comments; keep them. The rule covers this repo's source; Berry apps written for a user's clock (the `awtrix-berry-app` skill) follow that skill.
 
 ### 10. Concurrency is explicit and bounded
 
@@ -230,8 +230,8 @@ When in doubt, write the spec, then point at it from the code's commit message. 
 - Mutexes are unexported and named for what they guard:
   ```go
   type App struct {
-      mu       sync.Mutex // protects sessions
-      sessions map[string]Session
+      sessionsMu sync.Mutex
+      sessions   map[string]Session
   }
   ```
 - For "wait for N goroutines, fail together": `golang.org/x/sync/errgroup`. Worth the dependency.
