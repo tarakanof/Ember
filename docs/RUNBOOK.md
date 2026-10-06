@@ -680,11 +680,65 @@ esp-coredump --chip esp32s3 info_corefile -c ~/Downloads/knob-61fc8c-0.9.14-1a2b
   firmware/build/cinder.elf
 ```
 
+When Ember holds the ELF of the build that crashed (checkin `diag.crash.elf`,
+dump list `elf`), take it from Ember instead of rebuilding:
+`curl -s -OJ localhost:3627/v1/firmware/by-build/<elf>/elf -H "$H"`
+(Ember.app: "Download ELF…" next to the dump).
+
 It prints the crashed task's backtrace, registers and every task's stack.
 `dbg_corefile` with the same arguments opens GDB on the dump. The dump id is
 IDF's own checksum (the image's last 4 bytes, little-endian), so
 `python3 -c 'import sys,zlib;b=open(sys.argv[1],"rb").read();print("%08x"%zlib.crc32(b[:-4]),b[-4:][::-1].hex())' <file>`
 prints the id twice for an intact file.
+
+### Knob firmware updates (OTA, #225)
+
+Ember stores knob images and offers one to the knob in its checkin; the
+knob downloads it, installs it when no Pomodoro runs, and confirms it or
+rolls back by itself (ARCHITECTURE "Knob firmware updates"). Ember never
+contacts GitHub: images arrive only through the owner routes.
+
+- **Storage:** `<data dir>/firmware/cinder-knob/<version>/cinder.bin`,
+  `cinder.elf` (optional, ~17 MB) and `meta.json` (written last; a version
+  directory without it is removed at boot, as are `.*.tmp-*` leftovers).
+  The newest 5 versions are kept, plus every version that is a knob's
+  target, being offered, or running on a knob. No data dir (no Pomodoro DB
+  path): the routes answer 503 and doctor's `firmware` check says so.
+- **Upload** a release build (no dev seed: Ember answers 400
+  `dev_seed_build` when the image or ELF contains its own `EMBER_TOKEN` or
+  `CINDER-DEV-SEED-BUILD`). cinder's `firmware/tools/publish.sh` does this;
+  by hand:
+
+  ```sh
+  H="Authorization: Bearer $EMBER_TOKEN"
+  curl -s --data-binary @build-release/cinder.bin -H "$H" \
+    -H 'Content-Type: application/octet-stream' "localhost:3627/v1/firmware?channel=release"
+  curl -s -XPUT --data-binary @build-release/cinder.elf -H "$H" \
+    -H 'Content-Type: application/octet-stream' localhost:3627/v1/firmware/0.9.14/elf
+  curl -s localhost:3627/v1/firmware -H "$H"
+  ```
+
+  201 = stored, 200 = the same bytes were already there, 409 = this
+  version is stored with other bytes (`?replace=1` replaces it unless a
+  knob targets it). `channel` defaults to `test`; promote with
+  `PATCH /v1/firmware/0.9.14 {"channel":"release"}`. Automatic mode only
+  installs `release` builds.
+- **Update a knob:** Ember.app Settings › Knob › Status "Update to X", or
+  `curl -s -XPUT localhost:3627/v1/devices/knob-61fc8c/ota -H "$H" -d '{"target":"0.9.14"}'`
+  (409 `no_rollback_bootloader` until the knob reports `ota.rollback`:
+  the one-time USB flash of the rollback bootloader is in cinder
+  `docs/workflow.md`). Watch `GET /v1/devices/knob-61fc8c/ota`: `phase`,
+  `progress_pct` (bytes Ember has sent), `waiting_for` (`pomodoro`,
+  `coredump`, `idle_input`). After `failed` or `rolled_back`, `error` holds
+  the knob's reason; `{"retry":true}` offers the version again once.
+  `{"mode":"auto"}` makes the knob take newer release builds after 10 min
+  without input; `{"mode":"manual"}` (the default, "Ask first") stops that.
+- **Delete** a test build once no knob targets it:
+  `curl -s -XDELETE localhost:3627/v1/firmware/0.9.15 -H "$H"` (409 while
+  targeted or offered).
+- **Doctor:** `firmware` shows the image count and bytes on disk; `devices`
+  warns when a knob reports `ota.image:"new"` (it booted an OTA image
+  through a bootloader without rollback: do the USB step).
 
 ## Integrating a source
 
