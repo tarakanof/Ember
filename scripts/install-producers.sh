@@ -30,7 +30,7 @@ usage: install-producers.sh [--version vX.Y.Z] [--producers "claude codex t3"]
 USAGE
 }
 
-fetch() { # url dest
+fetch() {
   if command -v curl >/dev/null 2>&1; then
     curl -fsSL -o "$2" "$1"
   elif command -v wget >/dev/null 2>&1; then
