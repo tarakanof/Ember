@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "deny": [
+      "mcp__unraid__archive_all_notifications",
+      "mcp__unraid__create_notification",
+      "mcp__unraid__delete_archived_notifications",
+      "mcp__unraid__delete_notification",
+      "mcp__unraid__docker_container_power",
+      "mcp__unraid__force_stop_vm",
+      "mcp__unraid__notification_archive",
+      "mcp__unraid__notification_archive_bulk",
+      "mcp__unraid__parity_check_control",
+      "mcp__unraid__reboot_vm",
+      "mcp__unraid__reset_vm",
+      "mcp__unraid__restart_docker_container",
+      "mcp__unraid__set_docker_autostart",
+      "mcp__unraid__start_array",
+      "mcp__unraid__start_parity_check",
+      "mcp__unraid__stop_array",
+      "mcp__unraid__stop_docker_container",
+      "mcp__unraid__stop_vm",
+      "mcp__unraid__unarchive_all_notifications",
+      "mcp__unraid__update_docker_containers",
+      "mcp__unraid__vm_power"
+    ]
+  }
+}

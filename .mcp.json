@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "unraid": {
+      "type": "http",
+      "url": "${UNRAID_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${UNRAID_MCP_TOKEN}"
+      }
+    }
+  }
+}
