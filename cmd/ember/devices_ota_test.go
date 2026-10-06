@@ -866,3 +866,42 @@ func TestOTARefusedOfferIsRecorded(t *testing.T) {
 		t.Fatalf("status = %+v, offer %v", st, offerOf(t, reply))
 	}
 }
+
+func blockVersions(t *testing.T, k otaKnob, versions ...string) {
+	t.Helper()
+	_, _, err := k.app.devices.updateOTA(k.knob.ID, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
+		o.Blocked = versions
+		return false, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOTATargetingABlockedVersionUnblocksItAndRetries(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.12"}), "")
+	k.idle(t)
+	blockVersions(t, k, "0.9.12", "0.9.15")
+	code, st := k.put(t, `{"target":"0.9.12"}`)
+	if code != http.StatusOK || len(st.Blocked) != 1 || st.Blocked[0] != "0.9.15" {
+		t.Fatalf("target = %d %+v", code, st)
+	}
+	if offer := offerOf(t, k.idle(t)); offer == nil || offer["retry"] != true {
+		t.Fatalf("offer = %v, want retry", offer)
+	}
+}
+
+func TestOTASuccessfulInstallUnblocksTheVersion(t *testing.T) {
+	k := newOTAKnob(t)
+	img := k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.idle(t)
+	k.target(t, "0.9.14")
+	k.idle(t)
+	blockVersions(t, k, "0.9.14", "0.9.15")
+	k.download(t, "0.9.14", nil)
+	k.checkin(t, otaReport("0.9.14", img.Build, "valid", "idle", true, ""))
+	if st := k.status(t); st.Phase != otaPhaseDone || len(st.Blocked) != 1 || st.Blocked[0] != "0.9.15" {
+		t.Fatalf("status = %+v", st)
+	}
+}

@@ -225,7 +225,7 @@ func applyOTAPut(o *knobOTA, last *deviceCheckin, mode, target *string, clearTar
 	if committed && (retry || (clearTarget && o.Target != "") || (target != nil && *target != o.Version)) {
 		return false, errOTAInProgress
 	}
-	if target != nil && *target == o.Version && (o.Phase == otaPhaseFailed || o.Phase == otaPhaseRolledBack) {
+	if target != nil && ((*target == o.Version && (o.Phase == otaPhaseFailed || o.Phase == otaPhaseRolledBack)) || slices.Contains(o.Blocked, *target)) {
 		retry = true
 	}
 	bump := false

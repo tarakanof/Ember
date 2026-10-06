@@ -2581,9 +2581,10 @@ the current or last attempt's version, also for automatic ones). `PUT`
 merges `mode`, `target` (`null` clears it and cancels an offer that has
 not started downloading) and `retry` (re-offers the last version once with
 `retry:true`, which clears the knob's own bad-image guard, and unblocks
-it). Setting the target to the version that just failed or rolled back is
-a retry too: without `retry:true` the knob would ignore its own bad image
-forever. A target or retry is 409 `no_rollback_bootloader` while the last
+it). Setting the target to the version that just failed or rolled back,
+or to any version in `blocked`, is a retry too (unblocked, `retry:true`):
+without it the knob would ignore its own bad image forever. A successful
+install (`done`) also removes the version from `blocked`. A target or retry is 409 `no_rollback_bootloader` while the last
 checkin has no `ota.rollback`; a new target, clearing the target or a
 retry is 409 `ota_in_progress` while the phase is `installing`,
 `restarting` or `verifying` (the knob holds the staged or unconfirmed

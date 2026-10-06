@@ -258,6 +258,7 @@ func applyOTAResult(o *knobOTA, rep deviceCheckin, now time.Time) {
 			return
 		}
 		o.Phase, o.Error, o.FinishedAt, o.Retry = otaPhaseDone, "", &now, false
+		o.Blocked = slices.DeleteFunc(o.Blocked, func(v string) bool { return v == o.Version })
 		if o.Target == o.Version {
 			o.Target = ""
 		}

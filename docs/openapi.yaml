@@ -1822,7 +1822,8 @@ paths:
         `target: null` cancels an offer that has not started downloading.
         `retry: true` re-offers the last version once with `retry: true` and
         removes it from `blocked`; setting the target to the version that just
-        failed or rolled back does the same.
+        failed or rolled back, or to any blocked version, does the same. A
+        successful install also unblocks its version.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
