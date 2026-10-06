@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -15,19 +16,30 @@ const (
 	scopeAdmin   = "admin"
 )
 
-const maxClients = 64
+const (
+	maxClients       = 64
+	maxClientSources = 16
+	maxSourceRunes   = 64
+)
 
 var (
 	errScopeDenied    = errors.New("token lacks the required scope")
 	errMasterRequired = errors.New("managing client tokens requires EMBER_TOKEN")
 	errTooManyClients = fmt.Errorf("%w: at most %d client tokens; delete one first", errDeviceBody, maxClients)
+	errSourceDenied   = errors.New("token is not bound to source")
+	errBoundKeySlash  = errors.New("a source-bound token may not use \"/\" in tool or session")
 )
 
 type clientCallerKey struct{}
 
+type clientCaller struct {
+	id      string
+	sources []string
+}
+
 // A leaked client must not outlive its own revocation, so a client token (even admin) can never manage clients.
 func (a *App) requireMasterForClients(w http.ResponseWriter, r *http.Request) bool {
-	if isClient, _ := r.Context().Value(clientCallerKey{}).(bool); !isClient {
+	if _, isClient := r.Context().Value(clientCallerKey{}).(clientCaller); !isClient {
 		return true
 	}
 	a.logger.InfoContext(r.Context(), "auth scope denied", "reason", "master_required", "path", r.URL.Path, "method", r.Method)
@@ -68,27 +80,87 @@ func normalizeScopes(raw []string) ([]string, error) {
 	return slices.Compact(out), nil
 }
 
-func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) bool {
+func normalizeSources(raw, scopes []string) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if len(raw) == 0 || len(raw) > maxClientSources {
+		return nil, fmt.Errorf("%w: sources must list 1 to %d sources, or be omitted", errDeviceBody, maxClientSources)
+	}
+	if !slices.Contains(scopes, scopeIngest) || slices.Contains(scopes, scopeAdmin) {
+		return nil, fmt.Errorf("%w: sources need the ingest scope and can't be combined with admin", errDeviceBody)
+	}
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		s = strings.TrimSpace(s)
+		if s == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > maxSourceRunes {
+			return nil, fmt.Errorf("%w: each source must be 1 to %d characters", errDeviceBody, maxSourceRunes)
+		}
+		if strings.Contains(s, "/") {
+			return nil, fmt.Errorf("%w: a source may not contain \"/\"", errDeviceBody)
+		}
+		out = append(out, s)
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
+func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) (clientCaller, bool) {
 	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	id, scopes, ok, err := a.devices.authenticateClient(bearer)
+	c, ok, err := a.devices.authenticateClient(bearer)
 	if err != nil {
 		a.logger.WarnContext(r.Context(), "client auth failed", "path", r.URL.Path, "err", err)
 		writeError(w, http.StatusInternalServerError, errors.New("device registry unavailable"))
-		return false
+		return clientCaller{}, false
 	}
 	if !ok {
 		a.logger.InfoContext(r.Context(), "auth rejected",
 			"remote_addr", r.RemoteAddr, "path", r.URL.Path, "method", r.Method)
 		writeError(w, http.StatusUnauthorized, errors.New("unauthorized"))
-		return false
+		return clientCaller{}, false
 	}
-	if !scopeAllowed(scopes, scope) {
+	if !scopeAllowed(c.scopes, scope) {
 		a.logger.InfoContext(r.Context(), "auth scope denied",
-			"client_id", id, "scope", scope, "path", r.URL.Path, "method", r.Method)
+			"client_id", c.id, "scope", scope, "path", r.URL.Path, "method", r.Method)
 		writeError(w, http.StatusForbidden, fmt.Errorf("%w %q", errScopeDenied, scope))
+		return clientCaller{}, false
+	}
+	return clientCaller{id: c.id, sources: c.sources}, true
+}
+
+func boundSources(r *http.Request) ([]string, bool) {
+	c, ok := r.Context().Value(clientCallerKey{}).(clientCaller)
+	if !ok && isClientBearer(r) {
+		return nil, false
+	}
+	return c.sources, true
+}
+
+func (a *App) allowSource(w http.ResponseWriter, r *http.Request, source string) bool {
+	sources, known := boundSources(r)
+	source = strings.TrimSpace(source)
+	if known && (len(sources) == 0 || slices.Contains(sources, source)) {
+		return true
+	}
+	a.denySource(w, r, source)
+	return false
+}
+
+func (a *App) allowSessionKey(w http.ResponseWriter, r *http.Request, source, tool, session string) bool {
+	if sources, _ := boundSources(r); len(sources) > 0 && (strings.Contains(tool, "/") || strings.Contains(session, "/")) {
+		a.logger.InfoContext(r.Context(), "request rejected",
+			"remote_addr", r.RemoteAddr, "path", r.URL.Path, "reason", "validation", "field", "session_key")
+		writeError(w, http.StatusBadRequest, errBoundKeySlash)
 		return false
 	}
-	return true
+	return a.allowSource(w, r, source)
+}
+
+func (a *App) denySource(w http.ResponseWriter, r *http.Request, source string) {
+	c, _ := r.Context().Value(clientCallerKey{}).(clientCaller)
+	a.logger.InfoContext(r.Context(), "auth source denied",
+		"client_id", c.id, "source", source, "path", r.URL.Path, "method", r.Method)
+	writeError(w, http.StatusForbidden, fmt.Errorf("%w %q", errSourceDenied, source))
 }
 
 func isClientBearer(r *http.Request) bool {

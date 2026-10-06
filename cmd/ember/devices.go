@@ -91,11 +91,13 @@ type deviceRecord struct {
 	CreatedAt          time.Time      `json:"created_at"`
 	LastCheckin        *deviceCheckin `json:"last_checkin,omitempty"`
 	Scopes             []string       `json:"scopes,omitempty"`
+	Sources            []string       `json:"sources,omitempty"`
 }
 
 func (d deviceRecord) clone() deviceRecord {
 	d.Config = d.Config.clone()
 	d.Scopes = slices.Clone(d.Scopes)
+	d.Sources = slices.Clone(d.Sources)
 	if d.RotatedAt != nil {
 		t := *d.RotatedAt
 		d.RotatedAt = &t
@@ -151,6 +153,7 @@ type deviceView struct {
 	RotatedAt       *time.Time     `json:"rotated_at"`
 	LastCheckin     *deviceCheckin `json:"last_checkin"`
 	Scopes          []string       `json:"scopes,omitempty"`
+	Sources         []string       `json:"sources,omitempty"`
 }
 
 func (d deviceRecord) view() deviceView {
@@ -165,6 +168,7 @@ func (d deviceRecord) view() deviceView {
 		RotationPending: d.RotatedAt != nil,
 		LastCheckin:     d.LastCheckin,
 		Scopes:          d.Scopes,
+		Sources:         d.Sources,
 	}
 	if d.RotatedAt != nil {
 		t := d.RotatedAt.UTC().Truncate(time.Second)
@@ -398,7 +402,7 @@ func (r *deviceRegistry) provision(hwID, name string) (deviceView, string, bool,
 }
 
 // The plaintext token is returned once and never stored.
-func (r *deviceRegistry) provisionClient(name string, scopes []string) (deviceView, string, error) {
+func (r *deviceRegistry) provisionClient(name string, scopes, sources []string) (deviceView, string, error) {
 	token := newToken(clientTokenPrefix)
 	var view deviceView
 	err := r.mutate(func(st *deviceState) error {
@@ -422,6 +426,7 @@ func (r *deviceRegistry) provisionClient(name string, scopes []string) (deviceVi
 			Name:        name,
 			TokenSHA256: tokenHash(token),
 			Scopes:      scopes,
+			Sources:     sources,
 			CreatedAt:   r.now().UTC(),
 		}
 		st.Devices = append(st.Devices, d)
@@ -584,15 +589,21 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	return id, true, nil
 }
 
-func (r *deviceRegistry) authenticateClient(token string) (string, []string, bool, error) {
+type clientCreds struct {
+	id      string
+	scopes  []string
+	sources []string
+}
+
+func (r *deviceRegistry) authenticateClient(token string) (clientCreds, bool, error) {
 	if !strings.HasPrefix(token, clientTokenPrefix) {
-		return "", nil, false, nil
+		return clientCreds{}, false, nil
 	}
 	h := []byte(tokenHash(token))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.writableLocked(); err != nil {
-		return "", nil, false, err
+		return clientCreds{}, false, err
 	}
 	match := -1
 	for i, d := range r.state.Devices {
@@ -601,10 +612,10 @@ func (r *deviceRegistry) authenticateClient(token string) (string, []string, boo
 		}
 	}
 	if match < 0 {
-		return "", nil, false, nil
+		return clientCreds{}, false, nil
 	}
 	d := r.state.Devices[match]
-	return d.ID, slices.Clone(d.Scopes), true, nil
+	return clientCreds{id: d.ID, scopes: slices.Clone(d.Scopes), sources: slices.Clone(d.Sources)}, true, nil
 }
 
 type checkinResult struct {

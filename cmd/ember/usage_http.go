@@ -43,17 +43,25 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("tool must match ^[a-z0-9_-]{1,32}$"))
 		return
 	}
+	if !a.allowSource(w, r, req.Source) {
+		return
+	}
 	clampUsageWindow(req.FiveHour)
 	clampUsageWindow(req.SevenDay)
 	for _, win := range req.Models {
 		clampUsageWindow(win)
 	}
-	a.usage.Put(req.Tool, ToolUsage{
+	sources, _ := boundSources(r)
+	owner, ok := a.usage.PutIfOwned(req.Tool, ToolUsage{
 		FiveHour:  req.FiveHour,
 		SevenDay:  req.SevenDay,
 		Models:    req.Models,
 		Source:    req.Source,
 		UpdatedAt: time.Now(),
-	})
+	}, sources)
+	if !ok {
+		a.denySource(w, r, owner)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

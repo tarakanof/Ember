@@ -21,8 +21,17 @@ info:
     - a knob device token (`deviceToken`, prefix `ekd_`) passes the
       device-self routes and the control routes.
 
+    An `ingest` client token minted with `sources` (not allowed with
+    `admin`) is bound to them: `POST`/`DELETE
+    /v1/status` and `POST /v1/usage` naming any other `source` (or, for
+    usage, none) are 403. Usage stays keyed by tool, so a bound token's usage
+    post is also 403 when that tool's stored entry came from a source outside
+    its list (no entry yet: accepted). Sessions are keyed
+    `source/tool/session`, so a bound token's status `tool` and `session`
+    may not contain `/` (400). A token without `sources` may name any source.
+
     A missing or unknown token is 401; a known client token without the
-    scope is 403. Errors are `{"error": "…"}`. Request bodies are capped at
+    scope, or bound to other sources, is 403. Errors are `{"error": "…"}`. Request bodies are capped at
     1 MB (413). The `…/config` PUTs merge: omitted keys keep their value, an
     invalid merged result is a 400 and changes nothing.
 
@@ -112,7 +121,7 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     Forbidden:
-      description: A client token without the required scope.
+      description: A client token without the required scope, or bound to other sources.
       content:
         application/json:
           schema:
@@ -378,6 +387,11 @@ components:
           items:
             type: string
             enum: [ingest, control, read, admin]
+        sources:
+          type: array
+          description: Clients bound to sources only; absent means any source.
+          items:
+            type: string
     MintedDevice:
       allOf:
         - $ref: "#/components/schemas/DeviceView"
@@ -418,6 +432,20 @@ components:
               items:
                 type: string
                 enum: [ingest, control, read, admin]
+            sources:
+              type: array
+              description: |
+                Optional. Binds the token to these `source` values (no `/`) on
+                `POST`/`DELETE /v1/status` and `POST /v1/usage` (403 for any
+                other). Trimmed, sorted and deduplicated; needs the `ingest`
+                scope and is a 400 with `admin` (an admin token could still
+                `POST /v1/clear`). Omit for a token that may name any source.
+              minItems: 1
+              maxItems: 16
+              items:
+                type: string
+                minLength: 1
+                maxLength: 64
     CheckinResult:
       type: object
       properties:
@@ -484,6 +512,9 @@ paths:
       tags: [ingest]
       operationId: postStatus
       summary: Report a session's status
+      description: |
+        A client token bound to `sources` gets 403 for any other `source`,
+        and 400 for a `/` in `tool` or `session`.
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true
@@ -519,6 +550,9 @@ paths:
       tags: [ingest]
       operationId: deleteStatus
       summary: Drop a session
+      description: |
+        A client token bound to `sources` gets 403 for any other `source`,
+        and 400 for a `/` in `tool` or `session`.
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true
@@ -610,6 +644,11 @@ paths:
       tags: [ingest]
       operationId: postUsage
       summary: Report a tool's account usage windows
+      description: |
+        Usage is one entry per tool. A client token bound to `sources` gets
+        403 for any other `source`, for none, and when the tool's stored entry
+        came from a source outside its list; a tool with no entry yet is
+        accepted (the next unbound post overwrites it).
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true
@@ -1227,7 +1266,7 @@ paths:
       summary: Mint a knob or client token
       description: |
         `{"kind":"client","name":"CI","scopes":["ingest"]}` mints an `ekc_`
-        client token; `{"kind":"cinder-knob","hw_id":"…"}` provisions a knob.
+        client token (add `"sources":["ci"]` to bind it to that source); `{"kind":"cinder-knob","hw_id":"…"}` provisions a knob.
         The response carries the token once (`Cache-Control: no-store`).
         Minting (a client or a knob) takes the master token: a client token,
         admin included, gets 403. At most 64 clients (400 past that).
