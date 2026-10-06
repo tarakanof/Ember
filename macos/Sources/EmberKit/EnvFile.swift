@@ -6,14 +6,14 @@ public struct EnvFile: Sendable {
 
     public init(parsing text: String) {
         var out: [Line] = []
-        for raw in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
-            let stripped = raw.trimmingCharacters(in: .whitespaces)
+        for raw in text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" }).map(String.init) {
+            let stripped = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if stripped.isEmpty || stripped.hasPrefix("#") { out.append(Line(raw: raw, key: nil, value: "")); continue }
             guard let eq = raw.firstIndex(of: "="), eq != raw.startIndex else {
                 out.append(Line(raw: raw, key: nil, value: "")); continue
             }
-            let key = String(raw[raw.startIndex..<eq]).trimmingCharacters(in: .whitespaces)
-            var val = String(raw[raw.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+            let key = String(raw[raw.startIndex..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+            var val = String(raw[raw.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
             if val.count >= 2, let f = val.first, (f == "\"" || f == "'"), val.last == f {
                 val = String(val.dropFirst().dropLast())
             }
@@ -75,14 +75,14 @@ public struct EnvFile: Sendable {
 }
 
 public func envTrue(_ v: String) -> Bool {
-    switch v.trimmingCharacters(in: .whitespaces).lowercased() {
+    switch v.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
     case "false", "0", "no", "off": return false
     default: return true
     }
 }
 
 public func envOn(_ v: String) -> Bool {
-    switch v.trimmingCharacters(in: .whitespaces).lowercased() {
+    switch v.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
     case "true", "1", "yes", "on": return true
     default: return false
     }
