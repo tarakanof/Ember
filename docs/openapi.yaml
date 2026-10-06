@@ -1,0 +1,1936 @@
+openapi: 3.1.0
+info:
+  title: Ember API
+  version: "1"
+  summary: Desk-display hub for AI agent activity, a Pomodoro timer and friends.
+  description: |
+    The HTTP contract of the Ember server (`cmd/ember`). Sources post agent
+    status and usage, controllers drive the Pomodoro timer, displays read
+    state; the macOS app configures everything.
+
+    **Stability.** Operations without `x-internal` are the public v1
+    contract: changes are additive only. Operations marked `x-internal: true`
+    (the `/v1/device/*` clock proxy, the `…/config` settings and the
+    now-playing plumbing) serve Ember.app and may change between releases.
+
+    **Auth.** Reads are open on the LAN. Writes take a bearer token:
+    - the master `EMBER_TOKEN` (`ownerToken`) passes every owner route;
+    - a scoped client token (`clientToken`, prefix `ekc_`) passes the routes
+      whose requirement lists one of its scopes; the `admin` scope passes
+      every route that lists any client scope;
+    - a knob device token (`deviceToken`, prefix `ekd_`) passes the
+      device-self routes and the control routes.
+
+    A missing or unknown token is 401; a known client token without the
+    scope is 403. Errors are `{"error": "…"}`. Request bodies are capped at
+    1 MB (413). The `…/config` PUTs merge: omitted keys keep their value, an
+    invalid merged result is a 400 and changes nothing.
+
+    This file keeps a fixed layout that `cmd/ember/openapi_test.go` reads:
+    paths at two spaces, methods at four, and a one-line flow `security:` on
+    every operation.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://ember.local:3627
+    description: Default port; the server also advertises `_ember._tcp` over mDNS.
+tags:
+  - name: ingest
+    description: Sources report activity (agent hooks, CI, Home Assistant). Scope `ingest`.
+  - name: control
+    description: Drive the Pomodoro timer. Scope `control`.
+  - name: read
+    description: Unauthenticated state and preview reads.
+  - name: devices
+    description: The device registry (knobs) and client tokens. Owner or `admin`.
+  - name: device-self
+    description: Called by a knob with its own device token.
+  - name: settings
+    description: Ember.app settings (merge PUT). Internal.
+  - name: clock
+    description: Proxy to the TC001 clock's awtrix-ng API. Internal.
+  - name: nowplaying
+    description: Now-playing reports, art and playback commands.
+  - name: operator
+    description: Health and version.
+
+components:
+  securitySchemes:
+    ownerToken:
+      type: http
+      scheme: bearer
+      description: The master `EMBER_TOKEN`. Holds every scope.
+    clientToken:
+      type: http
+      scheme: bearer
+      description: |
+        A scoped client token (`ekc_…`), minted with `POST /v1/devices`
+        `{"kind":"client"}`. Scopes: `ingest`, `control`, `read`, `admin`
+        (`admin` satisfies every scope).
+    deviceToken:
+      type: http
+      scheme: bearer
+      description: A knob device token (`ekd_…`), minted with `POST /v1/devices` `{"kind":"cinder-knob"}`.
+
+  parameters:
+    DeviceID:
+      name: id
+      in: path
+      required: true
+      description: A device or client id (`knob-61fc8c`, `client-1a2b3c4d`).
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Retries with the same key within 10 minutes are answered without repeating the action.
+      schema:
+        type: string
+        maxLength: 256
+    StatsRange:
+      name: range
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [15m, 1h, 24h]
+        default: 1h
+
+  responses:
+    BadRequest:
+      description: Malformed or invalid body or query.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or unknown token (or `EMBER_TOKEN` unset on the server).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: A client token without the required scope.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: token lacks the required scope "admin"
+    NotFound:
+      description: Unknown resource, or the feature is disabled.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadGateway:
+      description: The clock did not answer.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Object:
+      description: A JSON object; see the server source for the exact shape.
+      content:
+        application/json:
+          schema:
+            type: object
+    NoContent:
+      description: Done; no body.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    State:
+      type: string
+      enum: [idle, running, waiting, done, error]
+    StatusRequest:
+      type: object
+      description: |
+        One session's status. Sessions are keyed by `source`/`tool`/`session`
+        and go stale when not refreshed. Unknown fields are ignored, so newer
+        producers keep working against older servers.
+      required: [source, tool, session, state]
+      properties:
+        source:
+          type: string
+          description: The host or origin, shown as the session's label (`dt-mbp`, `ci`).
+        tool:
+          type: string
+          description: |
+            Lower-cased tool id. `claude`, `codex` and `t3` have their own
+            label and icon; any other value shows capitalised (`gemini` →
+            "Gemini") with the default icon.
+        session:
+          type: string
+          description: Stable id of the session within source and tool.
+        state:
+          $ref: "#/components/schemas/State"
+        message:
+          type: string
+          description: Short text shown with done, waiting and error states.
+        activity:
+          type: string
+          maxLength: 80
+          description: "What the agent is doing now (`Bash: go test`)."
+        tokens_today:
+          type: integer
+          format: int64
+        context_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        rate_window_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        rate_reset_at:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Unix seconds.
+        source_color:
+          type: string
+          pattern: "^#[0-9A-Fa-f]{6}$"
+        context_number:
+          type: boolean
+        rate_bottom_bar:
+          type: boolean
+        rate_reset:
+          type: boolean
+        rate_reset_label:
+          type: string
+        source_card:
+          type: boolean
+        session_bar:
+          type: boolean
+    Session:
+      allOf:
+        - $ref: "#/components/schemas/StatusRequest"
+        - type: object
+          properties:
+            updated_at:
+              type: string
+              format: date-time
+    Render:
+      type: object
+      properties:
+        text:
+          type: string
+        color:
+          type: string
+        waiting:
+          type: integer
+        running:
+          type: integer
+        errors:
+          type: integer
+        done:
+          type: integer
+        active_total:
+          type: integer
+        message:
+          type: string
+        source:
+          type: string
+          description: The winning session's source; empty when none.
+        tool:
+          type: string
+    Snapshot:
+      type: object
+      properties:
+        now:
+          type: string
+          format: date-time
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+        render:
+          $ref: "#/components/schemas/Render"
+    UsageWindow:
+      type: object
+      required: [used_percent]
+      properties:
+        used_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        resets_at:
+          type: integer
+          format: int64
+          description: Unix seconds.
+        reset_label:
+          type: string
+    UsageRequest:
+      type: object
+      additionalProperties: false
+      required: [tool]
+      properties:
+        tool:
+          type: string
+          pattern: "^[a-z0-9_-]{1,32}$"
+        source:
+          type: string
+        five_hour:
+          $ref: "#/components/schemas/UsageWindow"
+        seven_day:
+          $ref: "#/components/schemas/UsageWindow"
+        models:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/UsageWindow"
+    NotifyRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+        color:
+          type: string
+          default: "#FFFFFF"
+        duration:
+          type: integer
+          default: 5
+          description: Seconds.
+        hold:
+          type: boolean
+          description: Keep the notification until dismissed on the clock.
+        text_case:
+          type: string
+          enum: [inherit, upper, asTyped]
+    ReminderFireRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: Trimmed to 200 characters.
+        sound:
+          type: boolean
+        duration:
+          type: integer
+          minimum: 1
+          maximum: 300
+          default: 8
+        native_icon_id:
+          type: string
+        hold:
+          type: boolean
+        repeat_sound:
+          type: boolean
+    PomodoroStatus:
+      type: object
+      properties:
+        phase:
+          type: string
+          enum: [idle, focus, short_break, long_break]
+        running:
+          type: boolean
+        paused:
+          type: boolean
+        remaining_sec:
+          type: integer
+        planned_sec:
+          type: integer
+        round:
+          type: integer
+          description: Completed focus phases in the current cycle.
+    DeviceView:
+      type: object
+      description: A registry record without token material.
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [cinder-knob, client]
+        hw_id:
+          type: string
+          description: 12 hex digits for a knob; empty for a client.
+        name:
+          type: string
+          maxLength: 64
+        created_at:
+          type: string
+          format: date-time
+        config_version:
+          type: integer
+          description: 0 for a client.
+        rotation_pending:
+          type: boolean
+        rotated_at:
+          type: [string, "null"]
+          format: date-time
+        last_checkin:
+          type: [object, "null"]
+        scopes:
+          type: array
+          description: Clients only.
+          items:
+            type: string
+            enum: [ingest, control, read, admin]
+    MintedDevice:
+      allOf:
+        - $ref: "#/components/schemas/DeviceView"
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: The plaintext token. Shown once; the server keeps only its hash.
+    MintRequest:
+      oneOf:
+        - type: object
+          title: Knob
+          additionalProperties: false
+          required: [kind, hw_id]
+          properties:
+            kind:
+              const: cinder-knob
+            hw_id:
+              type: string
+              description: The knob's MAC; `:`/`-` are stripped. A known hw_id re-provisions (200).
+            name:
+              type: string
+              maxLength: 64
+        - type: object
+          title: Client
+          additionalProperties: false
+          required: [kind, name, scopes]
+          properties:
+            kind:
+              const: client
+            name:
+              type: string
+              maxLength: 64
+            scopes:
+              type: array
+              minItems: 1
+              items:
+                type: string
+                enum: [ingest, control, read, admin]
+    CheckinResult:
+      type: object
+      properties:
+        config_version:
+          type: integer
+        config:
+          type: object
+          description: Present when the device's applied version is stale.
+        new_token:
+          type: string
+          description: Present while a rotation is pending.
+        diag_live_until:
+          type: integer
+          format: int64
+
+paths:
+  /healthz:
+    get:
+      tags: [operator]
+      operationId: getHealthz
+      summary: Liveness
+      security: []
+      responses:
+        "200":
+          description: Always ok while the process serves.
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                status: ok
+  /version:
+    get:
+      tags: [operator]
+      operationId: getVersion
+      summary: Build version
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+  /state:
+    get:
+      tags: [read]
+      operationId: getState
+      summary: Sessions and the aggregated render
+      description: |
+        Every live session and the legacy aggregated render. The
+        `X-Ember-Devices-Epoch` header changes when the device registry does.
+      security: []
+      responses:
+        "200":
+          description: The snapshot.
+          headers:
+            X-Ember-Devices-Epoch:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+
+  /v1/status:
+    post:
+      tags: [ingest]
+      operationId: postStatus
+      summary: Report a session's status
+      security: [{ownerToken: []}, {clientToken: [ingest]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatusRequest"
+            example:
+              source: ci
+              tool: gha
+              session: deploy-42
+              state: running
+              activity: deploy api
+      responses:
+        "200":
+          description: Stored; returns the aggregated render.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  render:
+                    $ref: "#/components/schemas/Render"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [ingest]
+      operationId: deleteStatus
+      summary: Drop a session
+      security: [{ownerToken: []}, {clientToken: [ingest]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [source, tool, session]
+              properties:
+                source:
+                  type: string
+                tool:
+                  type: string
+                session:
+                  type: string
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/clear:
+    post:
+      tags: [ingest]
+      operationId: postClear
+      summary: Drop every session
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/notify:
+    post:
+      tags: [ingest]
+      operationId: postNotify
+      summary: Show a one-off notification on the clock
+      security: [{ownerToken: []}, {clientToken: [ingest]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotifyRequest"
+            example:
+              text: washer done
+              color: "#00FF88"
+      responses:
+        "200":
+          description: Sent to the clock.
+          content:
+            application/json:
+              schema:
+                type: object
+              example:
+                ok: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+  /v1/usage:
+    get:
+      tags: [read]
+      operationId: getUsage
+      summary: Latest usage snapshot per tool
+      security: []
+      responses:
+        "200":
+          description: Per-tool usage.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                golden:
+                  externalValue: ../cmd/ember/testdata/dashboard/usage.json
+    post:
+      tags: [ingest]
+      operationId: postUsage
+      summary: Report a tool's account usage windows
+      security: [{ownerToken: []}, {clientToken: [ingest]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UsageRequest"
+            example:
+              tool: gemini
+              source: dt-mbp
+              five_hour:
+                used_percent: 42
+                resets_at: 1791900000
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/reminders/fire:
+    post:
+      tags: [ingest]
+      operationId: postReminderFire
+      summary: Fire a reminder popup on the clock
+      security: [{ownerToken: []}, {clientToken: [ingest]}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReminderFireRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "200":
+          description: A duplicate of an Idempotency-Key seen in the last 10 minutes; nothing shown.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/reminders/preview:
+    get:
+      tags: [read]
+      operationId: getReminderPreview
+      summary: Preview frames of a reminder popup
+      security: []
+      parameters:
+        - name: text
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+
+  /v1/pomodoro/start:
+    post:
+      tags: [control]
+      operationId: pomodoroStart
+      summary: Start a phase
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [focus, short_break, long_break]
+                  default: focus
+      responses:
+        "200":
+          description: The timer after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PomodoroStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/pause:
+    post:
+      tags: [control]
+      operationId: pomodoroPause
+      summary: Pause the running phase
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The timer after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PomodoroStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/resume:
+    post:
+      tags: [control]
+      operationId: pomodoroResume
+      summary: Resume a paused phase
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The timer after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PomodoroStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/stop:
+    post:
+      tags: [control]
+      operationId: pomodoroStop
+      summary: Stop the timer
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The timer after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PomodoroStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/skip:
+    post:
+      tags: [control]
+      operationId: pomodoroSkip
+      summary: Skip to the next phase
+      security: [{ownerToken: []}, {deviceToken: []}, {clientToken: [control]}]
+      responses:
+        "200":
+          description: The timer after the action.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PomodoroStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/state:
+    get:
+      tags: [read]
+      operationId: getPomodoroState
+      summary: The timer
+      security: []
+      responses:
+        "200":
+          description: The timer now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PomodoroStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/stats:
+    get:
+      tags: [read]
+      operationId: getPomodoroStats
+      summary: Focus statistics
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/heatmap:
+    get:
+      tags: [read]
+      operationId: getPomodoroHeatmap
+      summary: Focus heatmap
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/workhours:
+    get:
+      tags: [read]
+      operationId: getPomodoroWorkHours
+      summary: Focus by hour of day
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/pomodoro/dashboard:
+    get:
+      tags: [read]
+      operationId: getPomodoroDashboard
+      summary: HTML focus dashboard
+      security: []
+      responses:
+        "200":
+          description: An HTML page.
+          content:
+            text/html:
+              schema:
+                type: string
+  /v1/pomodoro/preview:
+    get:
+      tags: [read]
+      operationId: getPomodoroPreview
+      summary: Preview frames of the Pomodoro app
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+  /v1/pomodoro/config:
+    get:
+      tags: [settings]
+      operationId: getPomodoroConfig
+      summary: Pomodoro settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putPomodoroConfig
+      summary: Merge Pomodoro settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/preview:
+    get:
+      tags: [read]
+      operationId: getPreview
+      summary: Preview frames of the agent app
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+  /v1/weather/preview:
+    get:
+      tags: [read]
+      operationId: getWeatherPreview
+      summary: Preview frames of the weather app
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+  /v1/weather/state:
+    get:
+      tags: [read]
+      operationId: getWeatherState
+      summary: Cached weather observation
+      description: Label but no coordinates; sun times rounded to 5 minutes.
+      security: []
+      responses:
+        "200":
+          description: The observation, or nulls before the first fetch.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                golden:
+                  externalValue: ../cmd/ember/testdata/dashboard/weather_state.json
+                empty:
+                  externalValue: ../cmd/ember/testdata/dashboard/weather_state_empty.json
+  /v1/meetings/preview:
+    get:
+      tags: [read]
+      operationId: getMeetingsPreview
+      summary: Preview frames of the next-meeting app
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+  /v1/meetings/state:
+    get:
+      tags: [read]
+      operationId: getMeetingsState
+      summary: The next meeting
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+  /v1/activity/summary:
+    get:
+      tags: [read]
+      operationId: getActivitySummary
+      summary: Agent time per tool and source
+      security: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Agent time, waiting excluded.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                golden:
+                  externalValue: ../cmd/ember/testdata/dashboard/activity_summary.json
+  /v1/display/brightness:
+    get:
+      tags: [read]
+      operationId: getDisplayBrightness
+      summary: Brightness for sensorless displays
+      description: The clock's lux reading, else the sun schedule.
+      security: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+  /v1/clock/health:
+    get:
+      tags: [read]
+      operationId: getClockHealth
+      summary: Clock health
+      security: []
+      responses:
+        "200":
+          description: 24 h publish counts and the clock's last probe.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                golden:
+                  externalValue: ../cmd/ember/testdata/dashboard/clock_health.json
+                unreachable:
+                  externalValue: ../cmd/ember/testdata/dashboard/clock_health_unreachable.json
+  /v1/clock/stats:
+    get:
+      tags: [settings]
+      operationId: getClockStats
+      summary: Clock probe history (memory only)
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      parameters:
+        - $ref: "#/components/parameters/StatsRange"
+      responses:
+        "200":
+          description: Probe samples.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                golden:
+                  externalValue: ../cmd/ember/testdata/dashboard/clock_stats.json
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/apps:
+    get:
+      tags: [settings]
+      operationId: getApps
+      summary: Per-tool clock visibility
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putApps
+      summary: Set per-tool clock visibility
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/usage/config:
+    get:
+      tags: [settings]
+      operationId: getUsageConfig
+      summary: Usage card settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putUsageConfig
+      summary: Merge usage card settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/display/config:
+    get:
+      tags: [settings]
+      operationId: getDisplayConfig
+      summary: Display settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putDisplayConfig
+      summary: Merge display settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/brightness/config:
+    get:
+      tags: [settings]
+      operationId: getBrightnessConfig
+      summary: Brightness schedule settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putBrightnessConfig
+      summary: Merge brightness schedule settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/quiet/config:
+    get:
+      tags: [settings]
+      operationId: getQuietConfig
+      summary: Quiet hours
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [read]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putQuietConfig
+      summary: Merge quiet hours
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/weather/config:
+    get:
+      tags: [settings]
+      operationId: getWeatherConfig
+      summary: Weather settings (includes the location)
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putWeatherConfig
+      summary: Merge weather settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/meetings/config:
+    get:
+      tags: [settings]
+      operationId: getMeetingsConfig
+      summary: Meetings settings (includes the calendar feed)
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [settings]
+      operationId: putMeetingsConfig
+      summary: Merge meetings settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/devices:
+    get:
+      tags: [devices]
+      operationId: listDevices
+      summary: List knobs and client tokens
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: Every record, without token material.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DeviceView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [devices]
+      operationId: mintDevice
+      summary: Mint a knob or client token
+      description: |
+        `{"kind":"client","name":"CI","scopes":["ingest"]}` mints an `ekc_`
+        client token; `{"kind":"cinder-knob","hw_id":"…"}` provisions a knob.
+        The response carries the token once (`Cache-Control: no-store`).
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MintRequest"
+            example:
+              kind: client
+              name: CI runner
+              scopes: [ingest]
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MintedDevice"
+        "200":
+          description: A known knob hw_id re-provisioned; its old token is revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MintedDevice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/devices/{id}:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    patch:
+      tags: [devices]
+      operationId: renameDevice
+      summary: Rename a record
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  maxLength: 64
+      responses:
+        "200":
+          description: The renamed record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceView"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [devices]
+      operationId: deleteDevice
+      summary: Revoke a knob or client token
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/devices/{id}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    post:
+      tags: [devices]
+      operationId: rotateDevice
+      summary: Rotate a token
+      description: |
+        A client's new token is minted at once and returned (200); the old
+        one stops working. A knob's rotation is only marked (202) and its
+        next checkin collects the new token.
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: Client rotated; the new token, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MintedDevice"
+        "202":
+          description: Knob rotation started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceView"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/devices/{id}/config:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    get:
+      tags: [devices]
+      operationId: getKnobConfig
+      summary: A knob's settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [devices]
+      operationId: putKnobConfig
+      summary: Merge a knob's settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/devices/{id}/stats:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    get:
+      tags: [devices]
+      operationId: getKnobStats
+      summary: A knob's diagnostics history (memory only)
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      parameters:
+        - $ref: "#/components/parameters/StatsRange"
+      responses:
+        "200":
+          description: Samples.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                golden:
+                  externalValue: ../cmd/ember/testdata/dashboard/knob_stats.json
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/devices/{id}/stats/live:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    post:
+      tags: [devices]
+      operationId: postKnobStatsLive
+      summary: Ask a knob for live diagnostics
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/devices/self/checkin:
+    post:
+      tags: [device-self]
+      operationId: deviceCheckin
+      summary: A knob reports in and collects config or a rotated token
+      security: [{deviceToken: []}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fw:
+                  type: string
+                  maxLength: 32
+                ip:
+                  type: string
+                rssi:
+                  type: integer
+                heap_internal_free:
+                  type: integer
+                heap_internal_largest:
+                  type: integer
+                uptime_s:
+                  type: integer
+                config_version:
+                  type: integer
+                link_mhz:
+                  type: integer
+                link_fallback:
+                  type: boolean
+                stats:
+                  type: object
+      responses:
+        "200":
+          description: The current config version, plus config or new_token when due.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckinResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/devices/self/config:
+    get:
+      tags: [device-self]
+      operationId: deviceSelfConfig
+      summary: The calling knob's config
+      security: [{deviceToken: []}]
+      responses:
+        "200":
+          description: The config and its version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckinResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/devices/self/view:
+    get:
+      tags: [device-self]
+      operationId: deviceSelfView
+      summary: The knob's compact view (v 1)
+      description: |
+        Everything the knob draws in one poll. ETag/304; `?wait=` (≤25 s)
+        long-polls for a change, advertised by `X-Ember-View-Wait`.
+      security: [{deviceToken: []}]
+      parameters:
+        - name: wait
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 25
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "304":
+          description: Unchanged since If-None-Match.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/nowplaying/state:
+    get:
+      tags: [nowplaying]
+      operationId: getNowPlayingState
+      summary: What is playing
+      security: []
+      responses:
+        "200":
+          description: The shown entry, or nulls.
+          content:
+            application/json:
+              schema:
+                type: object
+              examples:
+                golden:
+                  externalValue: ../cmd/ember/testdata/dashboard/nowplaying_state.json
+                none:
+                  externalValue: ../cmd/ember/testdata/dashboard/nowplaying_state_none.json
+  /v1/nowplaying/art:
+    get:
+      tags: [nowplaying]
+      operationId: getNowPlayingArt
+      summary: Square JPEG of the album, artist or backdrop
+      security: []
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [album, artist, backdrop]
+        - name: size
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: A baseline JPEG with an ETag.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                contentEncoding: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [nowplaying]
+      operationId: putNowPlayingArt
+      summary: Upload art for the current track
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/nowplaying:
+    post:
+      tags: [nowplaying]
+      operationId: postNowPlaying
+      summary: A source's player report
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/nowplaying/commands:
+    get:
+      tags: [nowplaying]
+      operationId: getNowPlayingCommands
+      summary: Ember.app's long-poll for player commands
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/nowplaying/control:
+    post:
+      tags: [nowplaying]
+      operationId: postNowPlayingControl
+      summary: Play, pause, next, previous or volume
+      x-internal: true
+      security: [{ownerToken: []}, {deviceToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/device/discover:
+    get:
+      tags: [clock]
+      operationId: clockDiscover
+      summary: Find awtrix-ng clocks on the LAN
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/config:
+    get:
+      tags: [clock]
+      operationId: getClockConfig
+      summary: The effective clock URL and its source
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [clock]
+      operationId: putClockConfig
+      summary: Override the clock URL
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/settings:
+    get:
+      tags: [clock]
+      operationId: getClockSettings
+      summary: Whitelisted clock settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [clock]
+      operationId: putClockSettings
+      summary: Patch clock settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/display:
+    get:
+      tags: [clock]
+      operationId: getClockDisplay
+      summary: Clock display overlay
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [clock]
+      operationId: putClockDisplay
+      summary: Patch the clock display overlay
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/display/power:
+    put:
+      tags: [clock]
+      operationId: putClockPower
+      summary: Blank or relight the matrix
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/audio/test:
+    post:
+      tags: [clock]
+      operationId: clockAudioTest
+      summary: Play the chime or a stored melody
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/audio/stop:
+    post:
+      tags: [clock]
+      operationId: clockAudioStop
+      summary: Stop playback
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/audio/melodies:
+    get:
+      tags: [clock]
+      operationId: clockMelodies
+      summary: Stored melodies
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/apps:
+    get:
+      tags: [clock]
+      operationId: getClockApps
+      summary: Clock app order and state
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [clock]
+      operationId: putClockApps
+      summary: Reorder or toggle clock apps
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/stats:
+    get:
+      tags: [clock]
+      operationId: getClockDeviceStats
+      summary: Clock runtime stats
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/capabilities:
+    get:
+      tags: [clock]
+      operationId: getClockCapabilities
+      summary: Cached firmware capabilities
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/sensors:
+    get:
+      tags: [clock]
+      operationId: getClockSensors
+      summary: Sensor offsets
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [clock]
+      operationId: putClockSensors
+      summary: Set sensor offsets
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/screen:
+    get:
+      tags: [clock]
+      operationId: getClockScreen
+      summary: The matrix's current pixels
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/reboot:
+    post:
+      tags: [clock]
+      operationId: clockReboot
+      summary: Reboot the clock
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/notify/dismiss:
+    post:
+      tags: [clock]
+      operationId: clockDismiss
+      summary: Dismiss the shown notification
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/app/next:
+    post:
+      tags: [clock]
+      operationId: clockNextApp
+      summary: Next clock app
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/app/previous:
+    post:
+      tags: [clock]
+      operationId: clockPreviousApp
+      summary: Previous clock app
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /v1/device/buttons:
+    get:
+      tags: [clock]
+      operationId: getClockButtons
+      summary: Button callback settings
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [clock]
+      operationId: putClockButtons
+      summary: Set the button callback
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          $ref: "#/components/responses/Object"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
