@@ -625,8 +625,10 @@ type checkinResult struct {
 	Config        *knobSettings `json:"config,omitempty"`
 	NewToken      string        `json:"new_token,omitempty"`
 	// server Unix seconds.
-	DiagLiveUntil *int64 `json:"diag_live_until,omitempty"`
-	newCrash      *deviceCrash
+	DiagLiveUntil  *int64 `json:"diag_live_until,omitempty"`
+	CoredumpWanted string `json:"coredump_wanted,omitempty"`
+	CoredumpAck    string `json:"coredump_ack,omitempty"`
+	newCrash       *deviceCrash
 }
 
 func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult, error) {

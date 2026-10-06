@@ -33,7 +33,11 @@ optional `Idempotency-Key`), `GET/POST /v1/devices`, `GET/PUT
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
 registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 `POST /v1/devices/{id}/stats/live` (knob diagnostics, memory only — see
-ARCHITECTURE "Knob diagnostics"), `GET /v1/clock/stats?range=15m|1h|24h`
+ARCHITECTURE "Knob diagnostics"), `GET /v1/devices/{id}/coredumps`
+(stored knob core dumps, newest first) and `GET`/`DELETE
+/v1/devices/{id}/coredumps/{dump}` (`application/octet-stream`,
+`Content-Disposition: attachment; filename="<device>-<fw>-<dump>.bin"`; see
+ARCHITECTURE "Knob checkin", RUNBOOK "Decoding a knob core dump"), `GET /v1/clock/stats?range=15m|1h|24h`
 (clock probe history, memory only — ARCHITECTURE "Clock stats"),
 `GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
 `POST /v1/usage`, `GET/PUT /v1/usage/config`, `POST /v1/nowplaying` (a
@@ -86,7 +90,10 @@ JSON: RFC 3339 whole-second times, `null` not zero sentinels, arrays of points,
 units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
 `/version`, `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
-`GET /v1/devices/self/config`, `GET /v1/devices/self/view` (the knob's
+`GET /v1/devices/self/config`, `PUT /v1/devices/self/coredump?id=<dump>`
+(the core dump a checkin asked for: `application/octet-stream`, ≤128 KiB or
+413, CRC-checked or 400, 409 while another upload of this knob runs, 204 when
+stored or already stored), `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 `X-Ember-View-Wait` — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes

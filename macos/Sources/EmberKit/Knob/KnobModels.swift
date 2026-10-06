@@ -98,12 +98,14 @@ public struct KnobDiag: Codable, Equatable, Sendable {
 }
 
 public struct KnobCrash: Codable, Equatable, Sendable {
+    public var id: String?
+    public var size: Int?
     public var pc: String?
     public var reason: String?
     public var task: String?
 
-    public init(pc: String? = nil, reason: String? = nil, task: String? = nil) {
-        self.pc = pc; self.reason = reason; self.task = task
+    public init(id: String? = nil, size: Int? = nil, pc: String? = nil, reason: String? = nil, task: String? = nil) {
+        self.id = id; self.size = size; self.pc = pc; self.reason = reason; self.task = task
     }
 }
 

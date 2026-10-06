@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 public enum KnobAction: Hashable, Sendable {
-    case rename, rotate, forget, factoryReset
+    case rename, rotate, forget, factoryReset, coredump, deleteCoredump
 }
 
 public enum KnobPortStatus: Equatable, Sendable {
@@ -22,6 +22,7 @@ public final class KnobModel {
     public private(set) var settings: ServerConfigModel<KnobSettings>
     public private(set) var running: Set<KnobAction> = []
     public private(set) var actionErrors: [KnobAction: FeedError] = [:]
+    public private(set) var coredumps: [KnobCoredump] = []
     public var rotationPending: Bool { knob?.rotationPending ?? false }
     public private(set) var portStatus: [String: KnobPortStatus] = [:]
 
@@ -56,7 +57,7 @@ public final class KnobModel {
         guard next != service else { return }
         settings.cancelPendingSave()
         service = next
-        knob = nil; devices = []; isLoaded = false; loadError = nil; actionErrors = [:]
+        knob = nil; devices = []; coredumps = []; isLoaded = false; loadError = nil; actionErrors = [:]
         settings = Self.settingsModel(next, id: nil, debounce: debounce, sleep: sleep)
         Task { await load() }
     }
@@ -72,13 +73,43 @@ public final class KnobModel {
             loadError = FeedError(error)
             return
         }
-        if knob != nil { await settings.load() }
+        if knob != nil {
+            await settings.load()
+            await loadCoredumps()
+        }
+    }
+
+    public func loadCoredumps() async {
+        guard let id = knob?.id else { coredumps = []; return }
+        guard let list = try? await service.coredumps(id: id), knob?.id == id else { return }
+        coredumps = list
+    }
+
+    public func coredump(for crash: KnobCrash) -> KnobCoredump? {
+        guard let id = crash.id else { return nil }
+        return coredumps.first { $0.id == id }
+    }
+
+    @discardableResult
+    public func deleteCoredump(_ dump: KnobCoredump) async -> Bool {
+        guard let id = knob?.id else { return false }
+        let ok = await perform(.deleteCoredump) { try await self.service.deleteCoredump(id: id, dump: dump.id) }
+        if ok { await loadCoredumps() }
+        return ok
+    }
+
+    public func coredumpData(_ dump: KnobCoredump) async -> Data? {
+        guard let id = knob?.id else { return nil }
+        var data: Data?
+        await perform(.coredump) { data = try await self.service.coredump(id: id, dump: dump.id) }
+        return data
     }
 
     private func apply(_ next: KnobDevice?) {
         if next?.id != knob?.id {
             settings.cancelPendingSave()
             settings = Self.settingsModel(service, id: next?.id, debounce: debounce, sleep: sleep)
+            coredumps = []
         }
         knob = next
     }

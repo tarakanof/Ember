@@ -309,6 +309,17 @@
         }
       }
     },
+    "%@, firmware %@, %@" : {
+      "comment" : "Settings › Knob Crash dumps row: the crash, the knob firmware when it crashed, and when Ember received the dump (\"Panic in ember, firmware 0.9.14, 6 Oct 2026 at 10:00\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, firmware %2$@, %3$@"
+          }
+        }
+      }
+    },
     "%@, largest block down to %@" : {
       "comment" : "Settings › Knob: the lowest free internal RAM since the knob started, then the smallest its largest free block got (\"69 KB, largest block down to 30 KB\").",
       "localizations" : {
@@ -818,9 +829,15 @@
     },
     "Couldn't change the knob's diagnostics." : {},
     "Couldn't check" : {},
+    "Couldn't delete the crash dump: %@" : {
+      "comment" : "Settings › Knob error under Status after deleting a stored crash dump failed; the argument is a short reason (\"Server unreachable\")."
+    },
     "Couldn't dismiss the notification: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
+    },
+    "Couldn't download the crash dump: %@" : {
+      "comment" : "Settings › Knob error under Status; the argument is a short reason (\"Server unreachable\")."
     },
     "Couldn't find your location. Enter the coordinates instead." : {},
     "Couldn't forget the knob: %@" : {
@@ -848,6 +865,9 @@
     "Couldn't resume: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
+    },
+    "Couldn't save the crash dump: %@" : {
+      "comment" : "Settings › Knob error under Status after a crash dump download; the argument is the file system's reason."
     },
     "Couldn't save — see below" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -885,6 +905,8 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Crash dumps" : {},
+    "Crash dumps the knob uploaded to Ember. Ember keeps the newest three." : {},
     "Crescent moon, after ^[%lld round](inflect: true)." : {
       "comment" : "Settings › Focus preview caption for the long break; the argument is the number of rounds before it."
     },
@@ -903,6 +925,10 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Decode a crash dump with `esp-coredump info_corefile -c <file> build/cinder.elf` from the matching firmware build." : {},
+    "Delete" : {},
+    "Delete this dump?" : {},
+    "Delete…" : {},
     "Delivered" : {},
     "Desk knob" : {},
     "Devices" : {},
@@ -924,6 +950,7 @@
       "extractionState" : "manual"
     },
     "Done: an agent finished." : {},
+    "Download Crash Dump…" : {},
     "Drag to reorder" : {},
     "Drag to reorder, or Control-click an app. Changes apply at once." : {},
     "Drawn by Ember from the same data the knob shows." : {},
@@ -1970,7 +1997,7 @@
       "comment" : "Knob setup error; the argument is the Improv error code number."
     },
     "The knob reports every 5 seconds while this page is open." : {},
-    "The knob saved a crash dump in flash. It reports it on every check-in until the dump is erased over USB (idf.py coredump-erase or a reflash)." : {},
+    "The knob saved a crash dump in flash. It uploads the dump to Ember and erases it once Ember has it; older firmware reports it on every check-in until it is erased over USB (idf.py coredump-erase or a reflash)." : {},
     "The knob sends hardware stats every minute, and every 5 seconds while this page is open. It needs firmware with diagnostics." : {},
     "The knob sends no hardware stats." : {},
     "The knob stays at this brightness. It never goes below the minimum." : {},

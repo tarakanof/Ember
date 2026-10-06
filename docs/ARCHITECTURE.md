@@ -2760,19 +2760,63 @@ draws-if-present in `internal/render`, add a menu checkbox.
   loses them; carrying them across would need a store of its own), and keys of
   those names sent by the knob are ignored. A
   crash logs once at Warn (`knob crash reported`) when it first appears or its
-  pc, task or reason changes against the previous checkin. Dropped like
+  pc, task, reason or id changes against the previous checkin. Since Ember#311
+  `crash` also carries `id` and `size` (`"id":"1a2b3c4d","size":65536`), both
+  or neither: the dump's IDF checksum (its last 4 bytes as a little-endian
+  u32, which is the CRC-32 IEEE of the bytes before them) as 8 lower-case hex,
+  and its length. Dropped like
   `wifi`, with the same Info/Debug logging, when invalid: a negative count, a
   reason not 1..24 of `a-z0-9_`, a `pc` not lower-case `0x` plus 1..8 hex
-  digits, a task name not 1..16 printable ASCII characters, more than 32
+  digits, a task name not 1..16 printable ASCII characters, an `id` not 8
+  lower-case hex, a `size` outside 1..131072, only one of the two, more than 32
   `stack_free` tasks, a wrong type. The app shows Crash (only while present),
   Last restart, Boots and Lowest free memory rows)
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus
   `"new_token":"ekd_…"` while a rotation is open, plus `"diag_live_until"`
-  in live mode; an optional `stats` object carries diagnostics (both in
+  in live mode, plus `"coredump_wanted":"<id>"` or `"coredump_ack":"<id>"`
+  when the checkin's `diag.crash` has an `id` (see "Knob core dumps"); an optional `stats` object carries diagnostics (both in
   "Knob diagnostics"). `GET
   /v1/devices/self/config` answers `{"config_version":7,"config":{…}}`.
+- **Knob core dumps (device token up, owner down, #311).** Upload → server
+  stores → checkin acks → knob erases; the knob never erases without an ack
+  for the same id. A checkin with `diag.crash.id` gets `coredump_wanted` while
+  that id is not stored for this device and `coredump_ack` once it is
+  (neither without an id, or when the server has no data dir).
+  `PUT /v1/devices/self/coredump?id=<id>` (`knob_coredumps_http.go`) takes the
+  whole image as `application/octet-stream`: `http.MaxBytesReader` caps it at
+  131072 bytes (413); it is stored only when at least 8 bytes long, the CRC-32
+  IEEE of all but the last 4 bytes equals `id` and those 4 bytes read
+  little-endian equal `id` (else 400). A CRC over the whole image is useless
+  as an id: with IDF's trailing CRC it is always the residue `0x2144df1c`. An
+  already stored id answers 204 before the body is read; one upload per device
+  runs at a time (409 with `Retry-After: 60`, in-memory flag). Storage
+  (`knob_coredumps.go`): `<data dir>/coredumps/<device>/<id>.bin` plus a
+  `<id>.json` sidecar (`id`, `size`, `fw` from the last checkin, `received_at`,
+  and `reason`/`task`/`pc` when the last checkin's crash had this id), each
+  written to a temp file and renamed, the sidecar last (its presence means
+  stored). The sidecar also holds `seq`, a per-device insert counter (highest
+  stored plus one): the list and pruning order by it, not by `received_at`, so
+  a clock stepping back or several uploads in one second can't misorder them.
+  The newest 3 are kept, older ones pruned on insert, and the dump just
+  written is never pruned. Before each insert, and for every device at
+  startup, leftovers are removed: `.*.tmp-*` files from a killed write, a
+  `.bin` without its sidecar and a sidecar without its `.bin`. The data dir is the directory of the Pomodoro DB (`ensureStore`).
+  The device-exists check and the write run under the store lock, so a knob
+  deleted mid-upload leaves no files, and `DELETE /v1/devices/{id}` removes
+  the device's directory. Owner or admin client: `GET
+  /v1/devices/{id}/coredumps` lists
+  `[{"id","size","fw","received_at","reason","task","pc"}]` newest first
+  (`[]` when none), `GET /v1/devices/{id}/coredumps/{dump}` serves the bytes
+  with `Content-Disposition: attachment;
+  filename="<device>-<fw>-<dump>.bin"` (`fw` reduced to `A-Za-z0-9._-`,
+  `unknown` when empty), `DELETE` the same path answers 204. A device token
+  gets 401 on these, so a knob cannot read any dump, its own included.
+  Ember.app lists them in the Knob pane (Crash row and "Crash dumps" rows,
+  "Download Crash Dump…" through `NSSavePanel`; each "Crash dumps" row also
+  has "Delete…", confirmed in the row, which deletes and reloads the list). Decoding: RUNBOOK "Decoding a
+  knob core dump".
 - **Knob view (device token, #234).** `GET /v1/devices/self/view` is the
   knob's one poll (`devices_view.go`): everything it shows, about 400 B with
   weather, versus four endpoints and ~4 KB before. Typical body (409 B, field

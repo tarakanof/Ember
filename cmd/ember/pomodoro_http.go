@@ -81,6 +81,10 @@ func (a *App) ensureStore(path string) error {
 		return err
 	}
 	a.store = store
+	a.coredumps = newCoredumpStore(filepath.Join(filepath.Dir(path), "coredumps"))
+	if err := a.coredumps.sweep(); err != nil {
+		a.logger.Warn("core dump leftovers not removed", "err", err)
+	}
 	a.coord.setSettingsKV(store)
 	return nil
 }
