@@ -12,21 +12,14 @@ import (
 	"strings"
 )
 
-// Service is a producer's background daemon (`<bin> run`): a LaunchAgent on
-// macOS, a systemd --user unit on Linux.
 type Service struct {
-	Label       string // LaunchAgent label, e.g. "com.ember.codex"
-	Unit        string // systemd unit name, e.g. "ember-codex-producer"
-	Description string // systemd Description
-	// BrewPATH sets the LaunchAgent's PATH to include Homebrew, for daemons
-	// that run other CLIs (claude, codex).
-	BrewPATH bool
-	// Unquarantine strips com.apple.quarantine from the binary before
-	// loading it (a downloaded release would otherwise be blocked).
+	Label        string
+	Unit         string
+	Description  string
+	BrewPATH     bool
 	Unquarantine bool
 }
 
-// PlistPath is the CLI's LaunchAgent plist in ~/Library/LaunchAgents.
 func (s Service) PlistPath(home string) string {
 	return filepath.Join(home, "Library", "LaunchAgents", s.Label+".plist")
 }
@@ -65,8 +58,6 @@ const plistTail = `</dict>
 </plist>
 `
 
-// Plist is the LaunchAgent running `binPath run`, kept alive by launchd.
-// The daemon opens its own log, so no StandardOutPath is set.
 func (s Service) Plist(binPath string) []byte {
 	out := fmt.Sprintf(plistHead, xmlEscape(s.Label), xmlEscape(binPath))
 	if s.BrewPATH {
@@ -81,12 +72,10 @@ func xmlEscape(s string) string {
 	return b.String()
 }
 
-// UserUnit is the systemd --user counterpart of the LaunchAgent.
 func (s Service) UserUnit(binPath string) UserUnit {
 	return NewUserUnit(s.Unit, s.Description, binPath, "run")
 }
 
-// CheckInstall refuses on macOS when Ember.app owns the LaunchAgent label.
 func (s Service) CheckInstall(home string) error {
 	if runtime.GOOS != "darwin" {
 		return nil
@@ -94,7 +83,6 @@ func (s Service) CheckInstall(home string) error {
 	return CheckInstallAllowed(ExecLaunchctl, os.Getuid(), s.Label, s.PlistPath(home))
 }
 
-// Install writes and (re)starts the service for binPath.
 func (s Service) Install(home, binPath string) error {
 	switch runtime.GOOS {
 	case "darwin":
@@ -113,8 +101,6 @@ func (s Service) Install(home, binPath string) error {
 	}
 }
 
-// Reload boots out the CLI's own copy of the job (never Ember.app's) and
-// bootstraps plistPath.
 func (s Service) Reload(lc Launchctl, uid int, plistPath string) error {
 	domain := fmt.Sprintf("gui/%d", uid)
 	BootoutCLIAgent(lc, domain+"/"+s.Label, plistPath)
@@ -124,8 +110,6 @@ func (s Service) Reload(lc Launchctl, uid int, plistPath string) error {
 	return nil
 }
 
-// Uninstall stops and removes the service. Ember.app's job is left loaded
-// with a note on warn; the CLI's plist is removed either way.
 func (s Service) Uninstall(home string, warn io.Writer) error {
 	if runtime.GOOS == "linux" {
 		return UninstallUserUnit(ExecRunner, home, s.Unit)
@@ -133,7 +117,6 @@ func (s Service) Uninstall(home string, warn io.Writer) error {
 	return s.UninstallLaunchAgent(ExecLaunchctl, home, os.Getuid(), warn)
 }
 
-// UninstallLaunchAgent is Uninstall's macOS half.
 func (s Service) UninstallLaunchAgent(lc Launchctl, home string, uid int, warn io.Writer) error {
 	plistPath := s.PlistPath(home)
 	target := fmt.Sprintf("gui/%d/%s", uid, s.Label)
@@ -150,8 +133,6 @@ func (s Service) UninstallLaunchAgent(lc Launchctl, home string, uid int, warn i
 	return nil
 }
 
-// Status is doctor's service lines: the systemd unit state on Linux,
-// whether the LaunchAgent plist is installed elsewhere.
 func (s Service) Status(home string) []string {
 	if runtime.GOOS == "linux" {
 		return UserUnitStatus(ExecRunner, home, s.Unit, CurrentUser())
@@ -163,9 +144,6 @@ func (s Service) Status(home string) []string {
 	return []string{"LaunchAgent: NOT installed"}
 }
 
-// Configure is the file-only setup every producer shares: the config, state
-// and log dirs (plus ~/Library/LaunchAgents on macOS), and producer.env from
-// the template when missing, with EMBER_SOURCE defaulted.
 func Configure(home string) error {
 	dirs := []string{
 		filepath.Join(home, ".config", "ember"),
@@ -192,15 +170,10 @@ func Configure(home string) error {
 	return nil
 }
 
-// ShellSafePath reports whether p can be pasted unquoted into a shell
-// command (hook commands in settings.json).
 func ShellSafePath(p string) bool {
 	return !strings.ContainsAny(p, " \t\"'\\$`;|&><*?(){}!#\n")
 }
 
-// PrintSetupHintsFor prints the post-install/configure checklist for c; only
-// a headless install touches the network (configure is what Ember.app runs:
-// keep it offline).
 func PrintSetupHintsFor(w io.Writer, c Common, args []string, installing bool) {
 	home, _ := os.UserHomeDir()
 	headless := Headless(args, home)
@@ -214,15 +187,12 @@ func PrintSetupHintsFor(w io.Writer, c Common, args []string, installing bool) {
 	})
 }
 
-// DoctorPrelude defaults EMBER_SOURCE in producer.env, as install does, so
-// doctor reports the value the hooks will use.
 func DoctorPrelude(home string) {
 	if home != "" {
 		_, _, _ = EnsureSourceInEnv(EnvFilePath(home))
 	}
 }
 
-// EnvFileLine is doctor's producer.env line (path and mode, or MISSING).
 func EnvFileLine(home string) string {
 	envPath := EnvFilePath(home)
 	if info, err := os.Stat(envPath); err == nil {
@@ -231,7 +201,6 @@ func EnvFileLine(home string) string {
 	return "producer.env: MISSING at " + envPath
 }
 
-// ServerLines is doctor's server reachability report plus a token warning.
 func ServerLines(ctx context.Context, home string, c Common) []string {
 	lines := ServerReport(ctx, ServerReportInput{Configured: c.ServerConfigured, Prefer: c.ServerInstance, Home: home})
 	if h := TokenHint(c.Token); h != "" {

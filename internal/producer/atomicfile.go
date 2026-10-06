@@ -6,12 +6,7 @@ import (
 	"path/filepath"
 )
 
-// WriteFileAtomic replaces path with data via a synced temp file in the same
-// directory and a rename, so a reader never sees a partial file. A symlink at
-// path is written through (its target is replaced and the link kept), so a
-// dotfiles-managed file stays linked. A dangling symlink is replaced by a
-// regular file; a link whose target directory is not writable (a read-only
-// Nix/home-manager store) is an error naming both paths.
+// A symlink at path is written through; a dangling one is replaced; an unwritable link target is an error.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	link := ""
 	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {

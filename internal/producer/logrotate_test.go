@@ -49,7 +49,7 @@ func TestRotateLogsByName(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Truncate(big, DefaultLogThreshold); err != nil { // sparse
+	if err := os.Truncate(big, DefaultLogThreshold); err != nil {
 		t.Fatal(err)
 	}
 	RotateLogs("big", "small", "absent")

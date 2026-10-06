@@ -10,7 +10,7 @@ import (
 
 type fakeRunner struct {
 	calls [][]string
-	out   map[string]string // "name args..." -> output
+	out   map[string]string
 	fail  map[string]error
 }
 

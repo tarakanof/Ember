@@ -11,19 +11,13 @@ import (
 	"time"
 )
 
-// LinkState is what a LinkStatus file holds: whether the daemon's last request reached the server.
 type LinkState struct {
-	// OK means the last request got an HTTP response of any status.
-	OK bool `json:"ok"`
-	// NoRoute means the last request failed with EHOSTUNREACH, which is how Local Network privacy denies a LAN connection.
-	NoRoute bool `json:"no_route"`
-	// Error is the last transport error, empty when OK.
-	Error string `json:"error,omitempty"`
-	// At is when this state began.
-	At time.Time `json:"at"`
+	OK      bool      `json:"ok"`
+	NoRoute bool      `json:"no_route"`
+	Error   string    `json:"error,omitempty"`
+	At      time.Time `json:"at"`
 }
 
-// LinkStatus persists a daemon's link state to a JSON file.
 type LinkStatus struct {
 	path string
 	now  func() time.Time
@@ -33,12 +27,10 @@ type LinkStatus struct {
 	written bool
 }
 
-// NewLinkStatus returns a LinkStatus that records into path.
 func NewLinkStatus(path string) *LinkStatus {
 	return &LinkStatus{path: path, now: time.Now}
 }
 
-// LinkStatusPath is where the named daemon ("claude-producer", "codex-producer") records its link state: next to producer.env.
 func LinkStatusPath(name string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -47,7 +39,6 @@ func LinkStatusPath(name string) (string, error) {
 	return filepath.Join(home, ".config", "ember", name+".link.json"), nil
 }
 
-// IsNoRoute reports whether err is EHOSTUNREACH ("no route to host").
 func IsNoRoute(err error) bool {
 	if err == nil {
 		return false
@@ -55,7 +46,6 @@ func IsNoRoute(err error) bool {
 	return errors.Is(err, syscall.EHOSTUNREACH) || strings.Contains(err.Error(), "no route to host")
 }
 
-// Record notes the result of one request: nil for any HTTP response, the transport error otherwise.
 func (l *LinkStatus) Record(err error) {
 	if l == nil {
 		return

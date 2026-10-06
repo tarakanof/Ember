@@ -9,27 +9,19 @@ import (
 	"strings"
 )
 
-// Runner runs a command and returns its combined output; tests fake it.
 type Runner func(name string, args ...string) ([]byte, error)
 
-// ExecRunner is the real Runner.
 func ExecRunner(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
 }
 
-// UserUnit is a systemd --user service running a producer daemon: the Linux
-// counterpart of the macOS LaunchAgent (KeepAlive -> Restart=always).
 type UserUnit struct {
-	Name        string   // unit name without ".service", e.g. "ember-codex-producer"
-	Description string   // [Unit] Description
-	ExecStart   []string // absolute binary path + args
-	// Env is extra Environment= pairs; NewUserUnit passes XDG_STATE_HOME
-	// through so the daemon logs and caches where the hooks look.
-	Env map[string]string
+	Name        string
+	Description string
+	ExecStart   []string
+	Env         map[string]string
 }
 
-// NewUserUnit builds a producer's unit, carrying the installing shell's
-// absolute $XDG_STATE_HOME (the user manager may not set it).
 func NewUserUnit(name, description string, execStart ...string) UserUnit {
 	u := UserUnit{Name: name, Description: description, ExecStart: execStart}
 	if v := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(v) {
@@ -38,12 +30,10 @@ func NewUserUnit(name, description string, execStart ...string) UserUnit {
 	return u
 }
 
-// UserUnitPath is where the unit file lives (~/.config/systemd/user).
 func UserUnitPath(home, name string) string {
 	return filepath.Join(home, ".config", "systemd", "user", name+".service")
 }
 
-// Render returns the unit file body.
 func (u UserUnit) Render() []byte {
 	args := make([]string, len(u.ExecStart))
 	for i, a := range u.ExecStart {
@@ -76,15 +66,11 @@ WantedBy=default.target
 `, u.Name, systemdDescription(u.Description), env, strings.Join(args, " ")))
 }
 
-// systemdDescription keeps a free-text value on one line with specifiers escaped.
 func systemdDescription(s string) string {
 	s = strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
 	return strings.ReplaceAll(s, "%", "%%")
 }
 
-// systemdQuote quotes one ExecStart/Environment word: C-style escapes for
-// backslash, quote and line breaks, "%%" for specifiers and "$$" so systemd
-// doesn't expand $VAR.
 func systemdQuote(s string) string {
 	s = strings.NewReplacer(
 		`\`, `\\`,
@@ -101,8 +87,6 @@ func systemctlUser(run Runner, args ...string) ([]byte, error) {
 	return run("systemctl", append([]string{"--user"}, args...)...)
 }
 
-// InstallUserUnit writes the unit, reloads the user manager, enables the unit
-// and (re)starts it so a rebuilt binary takes over.
 func InstallUserUnit(run Runner, home string, u UserUnit) error {
 	path := UserUnitPath(home, u.Name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -123,7 +107,6 @@ func InstallUserUnit(run Runner, home string, u UserUnit) error {
 	return nil
 }
 
-// UninstallUserUnit stops, disables and removes the unit; a missing unit is a no-op.
 func UninstallUserUnit(run Runner, home, name string) error {
 	path := UserUnitPath(home, name)
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -137,8 +120,6 @@ func UninstallUserUnit(run Runner, home, name string) error {
 	return nil
 }
 
-// LingerHint is the install-time nudge to enable lingering ("" when it is
-// already on or unknown), so the unit survives logout and starts at boot.
 func LingerHint(run Runner, user string) string {
 	if user == "" {
 		return ""
@@ -150,8 +131,6 @@ func LingerHint(run Runner, user string) string {
 	return fmt.Sprintf("Note: lingering is off, so the unit stops when your last session ends. On a headless box run `sudo loginctl enable-linger %s`.", user)
 }
 
-// UserUnitStatus is doctor's view of the unit: installed, active/enabled, and
-// whether lingering keeps it running without a login session.
 func UserUnitStatus(run Runner, home, name, user string) []string {
 	path := UserUnitPath(home, name)
 	if _, err := os.Stat(path); err != nil {

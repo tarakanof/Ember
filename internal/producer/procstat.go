@@ -9,19 +9,13 @@ import (
 	"time"
 )
 
-// ProcStat is what the producers need from Linux /proc/<pid>/stat.
 type ProcStat struct {
 	PPID int
-	// Comm is the kernel task name: the executable's base name cut to 15
-	// bytes ("ember-claude-producer" reads "ember-claude-pr").
-	Comm string
-	// StartTicks is the start time in clock ticks after boot; with the pid it
-	// identifies one process across pid reuse.
+	// Comm is the kernel task name cut to 15 bytes.
+	Comm       string
 	StartTicks uint64
 }
 
-// ParseProcStat parses a /proc/<pid>/stat line. comm is parenthesized and
-// may itself contain spaces or ')', so fields are read after the last ')'.
 func ParseProcStat(b []byte) (ProcStat, bool) {
 	open := bytes.IndexByte(b, '(')
 	end := bytes.LastIndexByte(b, ')')
@@ -29,7 +23,6 @@ func ParseProcStat(b []byte) (ProcStat, bool) {
 		return ProcStat{}, false
 	}
 	f := strings.Fields(string(b[end+1:]))
-	// f[0]=state(3) f[1]=ppid(4) ... f[19]=starttime(22)
 	if len(f) < 20 {
 		return ProcStat{}, false
 	}
@@ -41,7 +34,6 @@ func ParseProcStat(b []byte) (ProcStat, bool) {
 	return ProcStat{PPID: ppid, Comm: string(b[open+1 : end]), StartTicks: start}, true
 }
 
-// ReadProcStat reads /proc/<pid>/stat (Linux; BusyBox included, no ps needed).
 func ReadProcStat(pid int) (ProcStat, bool) {
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
@@ -50,10 +42,9 @@ func ReadProcStat(pid int) (ProcStat, bool) {
 	return ParseProcStat(b)
 }
 
-// clockTicks is USER_HZ; 100 on every mainstream Linux build (sysconf needs cgo).
+// USER_HZ is 100 on every mainstream Linux build; sysconf needs cgo.
 const clockTicks = 100
 
-// ParseBootTime reads btime (boot time, unix seconds) from /proc/stat content.
 func ParseBootTime(b []byte) (time.Time, bool) {
 	for _, line := range strings.Split(string(b), "\n") {
 		if v, ok := strings.CutPrefix(line, "btime "); ok {
@@ -65,7 +56,6 @@ func ParseBootTime(b []byte) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// ProcStartTime is pid's wall-clock start time on Linux (1/USER_HZ precision).
 func ProcStartTime(pid int) (time.Time, bool) {
 	st, ok := ReadProcStat(pid)
 	if !ok {

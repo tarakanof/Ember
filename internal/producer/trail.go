@@ -10,7 +10,7 @@ const (
 	trailMaxLen    = 80
 )
 
-// PrependTrail returns prev with head prepended as the newest, newest-first trail item, capped at 80 chars by dropping whole trailing items.
+// Capped at 80 chars by dropping whole trailing items.
 func PrependTrail(head, prev string) string {
 	head = strings.TrimSpace(head)
 	if head == "" {
@@ -25,7 +25,6 @@ func PrependTrail(head, prev string) string {
 	return capTrail(head + trailSeparator + prev)
 }
 
-// AnnotateTrail marks one tool call's trail item with its outcome: the newest item equal to item is replaced by annotated.
 func AnnotateTrail(trail, item, annotated string, prepend bool) string {
 	item, annotated = strings.TrimSpace(item), strings.TrimSpace(annotated)
 	if item == "" || annotated == "" {
