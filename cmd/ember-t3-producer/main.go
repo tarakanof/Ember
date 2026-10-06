@@ -1,6 +1,3 @@
-// Command ember-t3-producer reports T3 Code (t3.codes) thread status to an
-// Ember server. It polls T3's local SQLite state read-only; see
-// docs/ARCHITECTURE.md (Producers) for why not the WebSocket RPC API.
 package main
 
 import (

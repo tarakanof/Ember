@@ -12,7 +12,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// captureStdout runs fn with os.Stdout sent to a buffer and returns it.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -29,7 +28,6 @@ func captureStdout(t *testing.T, fn func()) string {
 	return <-done
 }
 
-// entryHome is a temp HOME with producer.env pointing at a local stub server.
 func entryHome(t *testing.T) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))

@@ -9,13 +9,10 @@ import (
 type liveThread struct {
 	post  producer.Repost
 	state string
-	// settledAt is when this watcher saw the thread go running/waiting ->
-	// done/error. The run's own completion time can be long past (a hold on
-	// background work outlasts the activity window), and done must still show.
+	// Not the run's completion time: a background hold outlasts the activity window and done must still show.
 	settledAt time.Time
 }
 
-// watcher diffs successive thread snapshots into status POSTs and DELETEs.
 type watcher struct {
 	cfg            Config
 	activityWindow time.Duration
@@ -30,9 +27,6 @@ func newWatcher(cfg Config) *watcher {
 	}
 }
 
-// tick reports threads that are running or waiting, plus done/error threads
-// that changed within the activity window; every other previously reported
-// thread is deleted. Pass nil threads when the T3 server is not running.
 func (w *watcher) tick(threads []thread, now time.Time) (posts []producer.StatusRequest, deletes []producer.DeleteRequest) {
 	seen := map[string]bool{}
 	for _, th := range threads {
@@ -76,7 +70,6 @@ func (w *watcher) tick(threads []thread, now time.Time) (posts []producer.Status
 	return posts, deletes
 }
 
-// dropAll forgets every reported thread and returns their DELETEs.
 func (w *watcher) dropAll() []producer.DeleteRequest {
 	var out []producer.DeleteRequest
 	for id := range w.live {

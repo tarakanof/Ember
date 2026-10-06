@@ -9,9 +9,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// markerPath names a thread's marker in the shared sessions dir. The "t3-"
-// prefix keeps T3 thread ids from colliding with Claude/Codex session ids;
-// an id with characters unsafe in a file name is hashed instead.
 func markerPath(stateDir, id string) string {
 	name := id
 	for _, c := range id {
@@ -42,8 +39,6 @@ func removeMarker(stateDir, id string) error {
 	return nil
 }
 
-// sweepMarkers removes every T3 marker, so a crash or SIGKILL of the previous
-// daemon does not leave stale threads in the menu app.
 func sweepMarkers(stateDir string) {
 	matches, _ := filepath.Glob(filepath.Join(stateDir, "t3-*.json"))
 	for _, m := range matches {

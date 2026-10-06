@@ -18,10 +18,6 @@ const (
 	maxBackoff  = time.Minute
 )
 
-// pinnedMigrations is the newest effect_sql_migrations id verified per schema:
-// v1 = T3 Code v0.0.45, v2 = T3 Code v0.0.46-preview.20261002.2598
-// (T3 main and the 0.0.46 nightlies through 2026-10-05 still end at 56). A newer id
-// is logged once and still read; a missing table or column is a soft failure.
 var pinnedMigrations = map[int]int{1: 54, 2: 56}
 
 var daemonFailLog = producer.NewFailureLogger(time.Minute)
@@ -82,7 +78,6 @@ func runDaemon() {
 		}
 		select {
 		case <-ctx.Done():
-			// Best effort on shutdown: a fresh context, since ctx is already cancelled.
 			shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			d.send(shutdown, nil, d.watcher.dropAll())
 			cancel()
@@ -92,13 +87,9 @@ func runDaemon() {
 	}
 }
 
-// poll reads T3 once and reports the difference. A read error leaves the
-// reported threads alone (the server reaps them if it lasts) and is returned
-// so the loop can back off.
 func (d *daemon) poll(ctx context.Context) error {
 	if !d.alive(d.cfg.T3Home) {
-		// Hold no handle on T3's files while it is down (T3's last close can
-		// then remove the -wal/-shm files; an uninstall or restore is not blocked).
+		// Hold no handle on T3's files while it is down, so its last close can remove -wal/-shm.
 		d.store.Close()
 		d.send(ctx, nil, d.watcher.dropAll())
 		return nil
@@ -116,8 +107,6 @@ func (d *daemon) poll(ctx context.Context) error {
 	return nil
 }
 
-// noteMigration reports whether migration is newer than the pinned one for
-// schema and has not been reported yet.
 func (d *daemon) noteMigration(schema, migration int) bool {
 	if migration <= pinnedMigrations[schema] || d.warned[[2]int{schema, migration}] {
 		return false
@@ -143,7 +132,6 @@ func (d *daemon) send(ctx context.Context, posts []producer.StatusRequest, delet
 	}
 }
 
-// backoff doubles base per consecutive failure, capped at maxBackoff.
 func backoff(base time.Duration, failures int) time.Duration {
 	d := base
 	for i := 0; i < failures && d < maxBackoff; i++ {

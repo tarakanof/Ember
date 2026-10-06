@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// makeDB builds <home>/userdata/<file> from a testdata schema plus extra SQL.
 func makeDB(t *testing.T, home, file, schema string, stmts ...string) {
 	t.Helper()
 	dir := filepath.Join(home, "userdata")
@@ -103,11 +102,9 @@ func TestReadSnapshotV1(t *testing.T) {
 
 func TestReadSnapshotV2(t *testing.T) {
 	home := t.TempDir()
-	// A leftover v1 file must be ignored while statev2.sqlite is the newer one.
 	makeDB(t, home, "state.sqlite", "schema_v1.sql")
 	makeDB(t, home, "statev2.sqlite", "schema_v2.sql",
 		`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (55, 'OrchestrationV2'), (56, 'RemoveRedundantProjectionIndexes')`,
-		// updated_at is deliberately late (settle, rename, archive bump it): it must not drive ChangedAt.
 		`INSERT INTO orchestration_v2_projection_threads (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode, created_at, updated_at, archived_at, deleted_at, payload_json, provider_instance_id) VALUES
 		 ('t-run', 'p', 'Add dark mode', 'codex', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-05T09:00:00.000Z', NULL, NULL, '{}', 'codex'),
 		 ('t-wait', 'p', 'Ship it', 'claudeAgent', 'full-access', 'default', '2026-10-02T10:00:00.000Z', '2026-10-02T10:00:00.000Z', NULL, NULL, '{}', 'claudeAgent'),
@@ -218,18 +215,17 @@ func TestReadSnapshotV2(t *testing.T) {
 		holds, archived                  bool
 		changed                          time.Time
 	}{
-		"t-run":       {status: "running", active: "running", changed: at("10:03:00")},
-		"t-wait":      {status: "waiting", active: "waiting", changed: at("10:03:00")},
-		"t-done-ask":  {status: "completed", pending: "user_input", changed: at("10:04:30")},
-		"t-fail":      {status: "failed", lastErr: "usage limit reached", changed: at("10:04:00")},
-		"t-fail-sess": {status: "failed", lastErr: "rate limited", changed: at("10:04:00")},
-		"t-held":      {status: "completed", changed: at("10:04:00")},
-		"t-arch":      {archived: true},
-		"t-idle":      {},
-		"t-auth":      {status: "running", active: "running", pending: "command", changed: at("10:03:10")},
-		"t-settled":   {status: "completed", changed: at("10:04:00")},
-		"t-fork":      {},
-		// A queued run behind an active one: the active run is the activity.
+		"t-run":        {status: "running", active: "running", changed: at("10:03:00")},
+		"t-wait":       {status: "waiting", active: "waiting", changed: at("10:03:00")},
+		"t-done-ask":   {status: "completed", pending: "user_input", changed: at("10:04:30")},
+		"t-fail":       {status: "failed", lastErr: "usage limit reached", changed: at("10:04:00")},
+		"t-fail-sess":  {status: "failed", lastErr: "rate limited", changed: at("10:04:00")},
+		"t-held":       {status: "completed", changed: at("10:04:00")},
+		"t-arch":       {archived: true},
+		"t-idle":       {},
+		"t-auth":       {status: "running", active: "running", pending: "command", changed: at("10:03:10")},
+		"t-settled":    {status: "completed", changed: at("10:04:00")},
+		"t-fork":       {},
 		"t-q":          {status: "queued", active: "running", changed: at("10:04:00")},
 		"t-bg-roster":  {status: "completed", holds: true, changed: at("10:04:00")},
 		"t-bg-other":   {status: "completed", changed: at("10:04:00")},
@@ -265,8 +261,6 @@ func setMtime(t *testing.T, path string, at time.Time) {
 }
 
 func TestReadSnapshotPrefersNewerDatabase(t *testing.T) {
-	// Downgrade from the 0.0.46 preview to 0.0.45: statev2.sqlite is left
-	// behind and only state.sqlite is still written.
 	home := t.TempDir()
 	makeDB(t, home, "statev2.sqlite", "schema_v2.sql")
 	makeDB(t, home, "state.sqlite", "schema_v1.sql")
@@ -278,7 +272,6 @@ func TestReadSnapshotPrefersNewerDatabase(t *testing.T) {
 	if snap.Schema != 1 {
 		t.Fatalf("schema = %d, want 1 (state.sqlite is newer)", snap.Schema)
 	}
-	// A fresh WAL counts as a write even when the main file is old.
 	wal := filepath.Join(home, "userdata", "statev2.sqlite-wal")
 	if err := os.WriteFile(wal, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -326,7 +319,7 @@ func TestReadSnapshotWALWithConcurrentWriter(t *testing.T) {
 
 func TestReadSnapshotUnknownSchemaFailsSoft(t *testing.T) {
 	home := t.TempDir()
-	makeDB(t, home, "statev2.sqlite", "schema_v1.sql") // v2 file without v2 tables
+	makeDB(t, home, "statev2.sqlite", "schema_v1.sql")
 	_, err := readSnapshot(context.Background(), home)
 	if !errors.Is(err, errUnknownSchema) {
 		t.Fatalf("err = %v, want errUnknownSchema", err)
@@ -365,8 +358,6 @@ func TestReadSnapshotIsReadOnly(t *testing.T) {
 	}
 }
 
-// The turn-item EXISTS must use T3's partial recovery index, not scan every
-// item of every completed thread (~0.5 s per poll at 600k items).
 func TestQueryV2UsesRecoveryIndex(t *testing.T) {
 	home := t.TempDir()
 	makeDB(t, home, "statev2.sqlite", "schema_v2.sql")
@@ -473,7 +464,6 @@ func TestStoreReaderReopensAfterFailureAndWhenFileVanishes(t *testing.T) {
 	if _, err := r.Read(context.Background(), home); err != nil {
 		t.Fatal(err)
 	}
-	// A read failure (here: a cancelled context) drops the handle.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := r.Read(ctx, home); err == nil {
@@ -496,8 +486,6 @@ func TestStoreReaderReopensAfterFailureAndWhenFileVanishes(t *testing.T) {
 	}
 }
 
-// T3 runs its database in WAL mode with a writer that stays open; a reused
-// read-only handle must keep seeing commits, checkpoints and a VACUUM.
 func TestStoreReaderFollowsAHeldWALWriter(t *testing.T) {
 	home := t.TempDir()
 	makeDB(t, home, "state.sqlite", "schema_v1.sql")
