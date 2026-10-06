@@ -2461,6 +2461,160 @@ after three missed reports at the range's spacing or the knob's
 for every point, so after a change from 300 s to 30 s the older 5-minute
 points draw as dots until they leave the range.
 
+### Knob firmware updates — `cmd/ember/firmware*.go`, `devices_ota*.go` (#225)
+
+Over-the-air updates for the cinder knob (firmware side: tarakanof/cinder#10;
+design: `Superpowers Specs/cinder/2026-10-06-knob-ota-design.md`). Ember
+hosts the images, decides when to offer one, serves it, and tracks the
+knob's progress; the knob downloads, verifies the pinned SHA-256, installs
+when no Pomodoro runs, and confirms or rolls back by itself. Ember never
+contacts GitHub: images arrive only through `POST /v1/firmware` (cinder's
+`publish.sh`/`release.sh` or Ember.app), so no token lives on the server.
+
+**Store (`firmware.go`).** `<data dir>/firmware/cinder-knob/<version>/`
+holds `cinder.bin`, an optional `cinder.elf` and `meta.json` (the
+`image` fields plus `elf_sha256`). Each file is written to a temp file,
+fsynced and renamed, `meta.json` last, so its presence means stored; at
+boot the index is rebuilt from the `meta.json` files, and version dirs
+without one (or without `cinder.bin`), `.*.tmp-*` leftovers and an ELF
+that `meta.json` does not record are removed. Upload checks, all from
+the bytes: 64 KiB-4 MiB, byte 0 `0xE9`, `chip_id` (offset 12, u16 LE)
+9 = ESP32-S3, `esp_app_desc_t` magic `0xABCD5432` at 32, `version` (48,
+strict semver, no build metadata), `project_name` (80) `cinder`,
+`idf_ver` (144), `app_elf_sha256` (176; `build` = its first 4 bytes as
+hex, the knob's `fw_build`). A new version is written into a
+`.tmp-<version>-*` directory and renamed into place; a replace moves the
+old directory aside to `.old-<version>-*` first and deletes it after the
+rename, so a failed write keeps the old version, and a crash between the
+two renames is undone at boot (an `.old-` directory whose version is
+missing is moved back). A dev-seed build (cinder's local default with
+`sdkconfig.secrets`) has the Wi-Fi password and the master token compiled
+in, so an image or ELF containing the server's own `EMBER_TOKEN` or the
+marker `CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
+streamed to a temp file through SHA-256 and the same scanner (a needle
+split across reads is still found). The ELF is stored only when its
+SHA-256 equals `app_elf_sha256` (`elf_mismatch`). Same version, same bytes:
+200 and nothing changes; other bytes: 409 unless `?replace=1` and no knob
+targets it. Pruning after each upload keeps the 5 newest versions (semver
+order), every version that is a knob's target or active offer or a knob's
+running `fw`, and the image just written. The store lock is taken before
+the registry lock (the in-use checks), never the other way round.
+
+**Record (`devices_ota.go`).** `deviceRecord.ota` in the registry blob:
+`mode` (`manual` = "Ask first", the default, or `auto`), `target`, a
+one-shot `retry`, `blocked` (versions that failed or rolled back, at most
+16; auto mode skips them), `phase`, `error`, `from`, and the offered
+`version`/`build`/`size`/`auto`, the `attempt` id and
+`started_at`/`finished_at`. It is
+written only when it changes (never per progress tick): the checkin
+computes the step on a copy under the registry lock and persists only a
+difference. Progress (`bytes`) and `waiting_for` live in memory.
+`last_checkin` keeps the knob's `fw_build` and `ota` report as sent.
+
+**Checkin.** The knob adds `fw_build` (8 hex; ignored when malformed) and
+`ota` `{"image":"valid|pending_verify|new|undefined","last":{"attempt","error","result":"ok|failed|rolled_back","version"},"phase":"idle|waiting|rebooting","rollback":bool,"slot":0|1}`
+(dropped and logged like `wifi` when invalid). `diag.crash` gains `elf`
+(8 hex, the crashed app's ELF prefix), copied into the core dump sidecar
+so `GET /v1/firmware/by-build/{elf}/elf` finds the ELF that decodes it.
+Each checkin first applies the knob's result to an active offer:
+`fw_build` = offered build with `pending_verify` → `verifying`, with any
+other image state → `done` (target cleared); `ota.phase` `waiting` →
+`installing`, `rebooting` → `restarting`; `last` with the current
+`attempt` and the offered version and `failed`/`rolled_back` → that
+phase, its `error`, and the version added to `blocked`, in any active
+phase, `offered` included (a failure before any byte was served, or the
+knob's own guards refusing the offer). Every new offer (another version,
+or a Retry) takes the next `attempt` id, a per-device counter kept in the
+record, always one past the larger of the record's counter and the
+`ota.last.attempt` in the checkin, so a re-paired knob or a registry
+restored from an older backup never gets an id the knob still holds;
+repeats of the same offer keep it. The knob stores the id with
+its attempt and echoes it in `ota.last.attempt`, so a `last` it keeps in
+NVS from an earlier attempt (it does until a new attempt starts) never
+fails or finishes the current one. When the knob declines an offer for a
+lasting reason (its bad-image guard, the per-boot attempt cap) it reports
+`last` `{"attempt","result":"failed","error":"refused","version"}`, which
+Ember applies like any failure. An offer that the knob has been sent for
+30 minutes of checkins (manual) or 24 hours (automatic: it waits for 10 min
+without input, which can take hours) without starting it becomes `failed`
+with `error` `not_started`; an automatic one is also blocked. The clock is
+in memory, keyed by attempt, and restarts with a new attempt and whenever
+a checkin withholds the offer (Pomodoro, core dump, knob not ready).
+Then it decides the offer. The candidate is `target` (manual: any stored
+version, downgrades included; none after its own failure until a Retry or
+a new target) or, with no target in auto mode, the newest `release` image
+above the running `fw` that is not blocked. The answer carries
+`"ota":{"attempt","auto","build","retry","sha256","size","url":"/v1/devices/self/firmware/<v>","version"}`
+(keys sorted) only when the knob reported `rollback` true (the bootloader
+can roll back; without it the first OTA would have no safety net),
+`image` `valid`, `phase` idle, a `fw_build` other than the candidate's,
+the Pomodoro engine is neither running nor paused (idle or parked is
+fine), and the same answer has no `coredump_wanted` (a dump uploaded after
+the update would carry the new `fw`). Pomodoro and core dump holds show as
+`waiting_for`; an auto offer the knob has not started shows `idle_input`
+(it waits for 10 min without input). Setting a target, a mode or a retry
+bumps the devices epoch, so the knob checks in within one view poll;
+checkins never move it.
+
+**Download.** `GET /v1/devices/self/firmware/{version}` (device token,
+per-device limiter: burst 6, one per 10 s) answers 404 for an unknown
+version and 409 unless the version is this device's offer in phase
+`offered` or `downloading`, so a device token reads one image and only
+during its own update. The first request moves the phase to
+`downloading` and resets the progress (a Retry of the same version starts
+from zero). `http.ServeContent` serves the file with `ETag:
+"<sha256>"` and `Cache-Control: no-store`, so `Range` and `If-Range`
+resume work (a stale `If-Range` gets the whole file, a `Range` past the end 416). The write deadline
+is raised to 10 min through `http.NewResponseController` (the server's
+`WriteTimeout` is 30 s and a slow knob stalls the writer through TCP
+back-pressure). A counting `ResponseWriter` (unwrappable, so the
+controller reaches the connection) records range start + bytes written
+as the progress. Once every byte has gone out and the knob has not
+checked in since, the owner view shows `restarting`: the knob verifies,
+switches the boot slot and restarts right after the stream ends.
+
+**Owner view.** `GET /v1/devices/{id}/ota` answers
+`{"mode","target","version","phase","progress_pct","bytes","size","from","error","started_at","finished_at","blocked","running":{"fw","build","slot","image","rollback"},"available","waiting_for"}`
+(dashboard style: whole-second RFC 3339, null when unknown; `available` =
+the newest stored version above the running one, any channel; `version` =
+the current or last attempt's version, also for automatic ones). `PUT`
+merges `mode`, `target` (`null` clears it and cancels an offer that has
+not started downloading) and `retry` (re-offers the last version once with
+`retry:true`, which clears the knob's own bad-image guard, and unblocks
+it). Setting the target to the version that just failed or rolled back,
+or to any version in `blocked`, is a retry too (unblocked, `retry:true`):
+without it the knob would ignore its own bad image forever. A successful
+install (`done`) also removes the version from `blocked`. A target or retry is 409 `no_rollback_bootloader` while the last
+checkin has no `ota.rollback`; a new target, clearing the target or a
+retry is 409 `ota_in_progress` while the phase is `installing`,
+`restarting` or `verifying` (the knob holds the staged or unconfirmed
+image, and its result would be lost); an unknown version is 400. Goldens:
+`knob_ota_idle.json`, `knob_ota_downloading.json`,
+`knob_ota_rolled_back.json`, `firmware_list.json` in
+`cmd/ember/testdata/dashboard` (EmberKit decodes them).
+
+**Doctor.** `firmware`: the dir is writable, image count, bytes on disk
+(OK with "no data dir" when storage is off). `devices` warns when a knob
+reports `ota.image:"new"`: it booted an OTA image through a bootloader
+without rollback, so the one-time USB flash was skipped.
+
+**App.** Settings › Devices › Knob › Status "Firmware" shows `fw (build)`,
+"Update to X" when `available` is set (disabled without a rollback
+bootloader, with the USB note; hidden after a failure when it would name
+the failed version, where Retry does the same), then a progress bar and
+the phase line, or the failure line (naming the attempt's `version`) and
+Retry. It polls `GET …/ota` every second only while the phase is
+`downloading`, `installing` or `restarting` and the pane is open; the
+pane's 15 s reload covers the rest. Deleting the version a knob runs is
+allowed (the knob keeps both images in flash), but the confirmation says
+that its ELF, needed to decode that build's crash dumps, goes too. Behavior › Firmware has Ask first / Automatic and the
+Manage Firmware sheet (upload `cinder.bin` plus a `cinder.elf` or
+`<name>.elf` next to it, channel Test by default, upload progress from
+the `URLSession` upload task; Mark as Release, Delete, Download ELF).
+Uploads and ELF downloads use the `transfer` request budget (60 s per
+request, 10 min per resource). The Crash rows get "Download ELF…" when
+Ember holds the ELF for the crash's build.
+
 ### Clock stats — `cmd/ember/clock_stats.go` (#246)
 
 The clock's history for Settings › Devices › Clock › Hardware. Every fresh
@@ -2708,7 +2862,7 @@ draws-if-present in `internal/render`, add a menu checkbox.
   | `POST /hooks/plex?key=` | `EMBER_PLEX_WEBHOOK_KEY` in the query (404 when unset) |
   | `POST /hooks/awtrix/{button,boot}` | none (clock callbacks; rate-limited) |
   | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` | `EMBER_TOKEN` **or** a device token |
-  | `POST /v1/devices/self/checkin`, `GET /v1/devices/self/{config,view}` | device token only |
+  | `POST /v1/devices/self/checkin`, `GET /v1/devices/self/{config,view}`, `PUT /v1/devices/self/coredump`, `GET /v1/devices/self/firmware/{version}` | device token only |
   | every other `/v1/*` (incl. `/v1/devices` admin and `/v1/devices/{id}/stats`) | `EMBER_TOKEN` only |
   | `/admin/*` | `EMBER_TOKEN` only |
 
@@ -2817,6 +2971,9 @@ draws-if-present in `internal/render`, add a menu checkbox.
   "Download Crash Dump…" through `NSSavePanel`; each "Crash dumps" row also
   has "Delete…", confirmed in the row, which deletes and reloads the list). Decoding: RUNBOOK "Decoding a
   knob core dump".
+- **Knob firmware updates (#225).** See "Knob firmware updates" below: the
+  checkin takes `fw_build` and an `ota` object and may answer with an `ota`
+  offer; the knob fetches it from `GET /v1/devices/self/firmware/{version}`.
 - **Knob view (device token, #234).** `GET /v1/devices/self/view` is the
   knob's one poll (`devices_view.go`): everything it shows, about 400 B with
   weather, versus four endpoints and ~4 KB before. Typical body (409 B, field

@@ -32,6 +32,15 @@ optional `Idempotency-Key`), `GET/POST /v1/devices`, `GET/PUT
 /v1/devices/{id}/config` (same merge), `PATCH`/`DELETE /v1/devices/{id}`,
 `POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
 registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
+`GET`/`PUT /v1/devices/{id}/ota` (knob firmware update: `{"mode":"manual|auto","target":"0.9.14"|null,"retry":true}` merge;
+409 `no_rollback_bootloader`, or `ota_in_progress` while installing, restarting or verifying), `POST /v1/firmware?channel=release|test`
+(raw cinder `.bin` ≤4 MiB: 201 stored, 200 same bytes, 409 other bytes,
+400 `bad_image|wrong_chip|wrong_project|bad_version|dev_seed_build`),
+`GET /v1/firmware` (newest first), `PATCH`/`DELETE /v1/firmware/{version}`
+(channel; 409 while targeted), `PUT`/`GET /v1/firmware/{version}/elf`
+(≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
+`GET /v1/firmware/by-build/{build}/elf` (ARCHITECTURE "Knob firmware
+updates"),
 `POST /v1/devices/{id}/stats/live` (knob diagnostics, memory only — see
 ARCHITECTURE "Knob diagnostics"), `GET /v1/devices/{id}/coredumps`
 (stored knob core dumps, newest first) and `GET`/`DELETE
@@ -93,7 +102,9 @@ units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
 `GET /v1/devices/self/config`, `PUT /v1/devices/self/coredump?id=<dump>`
 (the core dump a checkin asked for: `application/octet-stream`, ≤128 KiB or
 413, CRC-checked or 400, 409 while another upload of this knob runs, 204 when
-stored or already stored), `GET /v1/devices/self/view` (the knob's
+stored or already stored), `GET /v1/devices/self/firmware/{version}` (only
+the image its checkin's `ota` offers: 409 for any other version, `Range`/`If-Range` (416 past the end),
+`ETag: "<sha256>"`, per-device rate limit), `GET /v1/devices/self/view` (the knob's
 single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
 `X-Ember-View-Wait` — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
 on any knob config change or rotation). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes

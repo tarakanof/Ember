@@ -69,7 +69,7 @@ func (a *App) handleCoredumpUpload(w http.ResponseWriter, r *http.Request) {
 	if _, c, err := a.devices.diagnostics(device); err == nil && c != nil {
 		meta.FW = c.FW
 		if c.Diag != nil && c.Diag.Crash != nil && c.Diag.Crash.ID == id {
-			meta.Reason, meta.Task, meta.PC = c.Diag.Crash.Reason, c.Diag.Crash.Task, c.Diag.Crash.PC
+			meta.Reason, meta.Task, meta.PC, meta.ELF = c.Diag.Crash.Reason, c.Diag.Crash.Task, c.Diag.Crash.PC, c.Diag.Crash.ELF
 		}
 	}
 	err = store.put(device, meta, body, func() bool {

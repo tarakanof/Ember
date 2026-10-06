@@ -8,16 +8,17 @@ public struct KnobCoredump: Codable, Equatable, Sendable, Identifiable {
     public var reason: String
     public var task: String
     public var pc: String
+    public var elf: String
 
     enum CodingKeys: String, CodingKey {
-        case id, size, fw, reason, task, pc
+        case id, size, fw, reason, task, pc, elf
         case receivedAt = "received_at"
     }
 
     public init(id: String, size: Int, fw: String = "", receivedAt: Date,
-                reason: String = "", task: String = "", pc: String = "") {
+                reason: String = "", task: String = "", pc: String = "", elf: String = "") {
         self.id = id; self.size = size; self.fw = fw; self.receivedAt = receivedAt
-        self.reason = reason; self.task = task; self.pc = pc
+        self.reason = reason; self.task = task; self.pc = pc; self.elf = elf
     }
 
     public init(from decoder: Decoder) throws {
@@ -29,6 +30,7 @@ public struct KnobCoredump: Codable, Equatable, Sendable, Identifiable {
         reason = try c.decodeIfPresent(String.self, forKey: .reason) ?? ""
         task = try c.decodeIfPresent(String.self, forKey: .task) ?? ""
         pc = try c.decodeIfPresent(String.self, forKey: .pc) ?? ""
+        elf = try c.decodeIfPresent(String.self, forKey: .elf) ?? ""
     }
 
     public func filename(device: String) -> String {

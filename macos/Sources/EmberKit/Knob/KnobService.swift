@@ -52,6 +52,45 @@ public struct KnobService: Sendable, Equatable {
         try await client.send("DELETE", "/v1/devices/\(Self.escape(id))/coredumps/\(Self.escape(dump))")
     }
 
+    public func ota(id: String) async throws -> KnobOTAStatus {
+        try await client.get("/v1/devices/\(Self.escape(id))/ota")
+    }
+
+    public func updateOTA(id: String, patch: [String: JSONValue]) async throws -> KnobOTAStatus {
+        try await client.request("PUT", "/v1/devices/\(Self.escape(id))/ota", body: JSONValue.object(patch))
+    }
+
+    public func firmware() async throws -> [KnobFirmwareImage] {
+        try await client.get("/v1/firmware")
+    }
+
+    public func uploadFirmware(_ data: Data, channel: String,
+                               progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> KnobFirmwareImage {
+        try await client.upload("POST", "/v1/firmware", query: [URLQueryItem(name: "channel", value: channel)],
+                                data: data, progress: progress)
+    }
+
+    public func uploadELF(version: String, _ data: Data,
+                          progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
+        try await client.upload("PUT", "/v1/firmware/\(Self.escape(version))/elf", data: data, progress: progress)
+    }
+
+    public func setFirmwareChannel(version: String, channel: String) async throws -> KnobFirmwareImage {
+        try await client.request("PATCH", "/v1/firmware/\(Self.escape(version))", body: ["channel": channel])
+    }
+
+    public func deleteFirmware(version: String) async throws {
+        try await client.send("DELETE", "/v1/firmware/\(Self.escape(version))")
+    }
+
+    public func firmwareELF(version: String) async throws -> Data {
+        try await client.getData("/v1/firmware/\(Self.escape(version))/elf", budget: .transfer)
+    }
+
+    public func firmwareELF(build: String) async throws -> Data {
+        try await client.getData("/v1/firmware/by-build/\(Self.escape(build))/elf", budget: .transfer)
+    }
+
     static func escape(_ id: String) -> String {
         id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? id
     }

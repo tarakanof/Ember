@@ -39,18 +39,20 @@ var (
 )
 
 type deviceCheckin struct {
-	SeenAt              time.Time   `json:"seen_at"`
-	FW                  string      `json:"fw"`
-	IP                  string      `json:"ip"`
-	RSSI                int         `json:"rssi"`
-	HeapInternalFree    int         `json:"heap_internal_free"`
-	HeapInternalLargest int         `json:"heap_internal_largest"`
-	UptimeS             int64       `json:"uptime_s"`
-	AppliedVersion      int         `json:"applied_version"`
-	LinkMHz             int         `json:"link_mhz,omitempty"`
-	LinkFallback        bool        `json:"link_fallback,omitempty"`
-	Wifi                *deviceWifi `json:"wifi,omitempty"`
-	Diag                *deviceDiag `json:"diag,omitempty"`
+	SeenAt              time.Time      `json:"seen_at"`
+	FW                  string         `json:"fw"`
+	IP                  string         `json:"ip"`
+	RSSI                int            `json:"rssi"`
+	HeapInternalFree    int            `json:"heap_internal_free"`
+	HeapInternalLargest int            `json:"heap_internal_largest"`
+	UptimeS             int64          `json:"uptime_s"`
+	AppliedVersion      int            `json:"applied_version"`
+	LinkMHz             int            `json:"link_mhz,omitempty"`
+	LinkFallback        bool           `json:"link_fallback,omitempty"`
+	Wifi                *deviceWifi    `json:"wifi,omitempty"`
+	Diag                *deviceDiag    `json:"diag,omitempty"`
+	FWBuild             string         `json:"fw_build,omitempty"`
+	OTA                 *knobOTAReport `json:"ota,omitempty"`
 }
 
 type deviceWifi struct {
@@ -93,12 +95,14 @@ type deviceRecord struct {
 	LastCheckin        *deviceCheckin `json:"last_checkin,omitempty"`
 	Scopes             []string       `json:"scopes,omitempty"`
 	Sources            []string       `json:"sources,omitempty"`
+	OTA                *knobOTA       `json:"ota,omitempty"`
 }
 
 func (d deviceRecord) clone() deviceRecord {
 	d.Config = d.Config.clone()
 	d.Scopes = slices.Clone(d.Scopes)
 	d.Sources = slices.Clone(d.Sources)
+	d.OTA = d.OTA.clone()
 	if d.RotatedAt != nil {
 		t := *d.RotatedAt
 		d.RotatedAt = &t
@@ -110,6 +114,7 @@ func (d deviceRecord) clone() deviceRecord {
 			c.Wifi = &w
 		}
 		c.Diag = c.Diag.clone()
+		c.OTA = c.OTA.clone()
 		d.LastCheckin = &c
 	}
 	return d
@@ -625,9 +630,10 @@ type checkinResult struct {
 	Config        *knobSettings `json:"config,omitempty"`
 	NewToken      string        `json:"new_token,omitempty"`
 	// server Unix seconds.
-	DiagLiveUntil  *int64 `json:"diag_live_until,omitempty"`
-	CoredumpWanted string `json:"coredump_wanted,omitempty"`
-	CoredumpAck    string `json:"coredump_ack,omitempty"`
+	DiagLiveUntil  *int64    `json:"diag_live_until,omitempty"`
+	CoredumpWanted string    `json:"coredump_wanted,omitempty"`
+	CoredumpAck    string    `json:"coredump_ack,omitempty"`
+	OTA            *otaOffer `json:"ota,omitempty"`
 	newCrash       *deviceCrash
 }
 

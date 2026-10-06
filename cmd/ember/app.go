@@ -59,16 +59,20 @@ type App struct {
 
 	settings appSettings
 
-	devices      *deviceRegistry
-	changes      *changeBroadcaster
-	viewWaiters  viewWaiters
-	viewRecheck  time.Duration
-	viewWaitHook func()
-	knobStats    *knobStatsStore
-	wifiDrops    checkinDropLog
-	diagDrops    checkinDropLog
-	coredumps    *coredumpStore
-	clockStats   *clockStatsStore
+	devices       *deviceRegistry
+	changes       *changeBroadcaster
+	viewWaiters   viewWaiters
+	viewRecheck   time.Duration
+	viewWaitHook  func()
+	knobStats     *knobStatsStore
+	wifiDrops     checkinDropLog
+	diagDrops     checkinDropLog
+	coredumps     *coredumpStore
+	knobFW        *firmwareStore
+	ota           otaLive
+	otaDrops      checkinDropLog
+	firmwareLimit *callerLimiter
+	clockStats    *clockStatsStore
 
 	appsMu     sync.Mutex
 	hiddenApps map[string]bool
@@ -142,6 +146,7 @@ func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a.metrics = newMetrics()
 	a.limiter = NewIPLimiter(a)
 	a.viewLimit = &callerLimiter{burst: viewBurst, perSec: viewPerSec}
+	a.firmwareLimit = &callerLimiter{burst: firmwareDownloadBurst, perSec: firmwareDownloadPerSec}
 	if publisher == nil {
 		if clockDisabled() {
 			publisher = disabledPublisher{}
