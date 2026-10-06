@@ -2655,7 +2655,17 @@ draws-if-present in `internal/render`, add a menu checkbox.
   non-strict like `/v1/status`:
   `{"fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"config_version":6}`
   (since cinder 0.9.2 also `link_mhz` 40/80 and `link_fallback`, 0..1000,
-  stored on the record's `last_checkin` and shown as "Display link")
+  stored on the record's `last_checkin` and shown as "Display link"; since
+  cinder 0.9.8 a `wifi` object,
+  `{"bssid":"78:45:58:4b:c2:cd","channel":6,"disconnects":3,"last_reason":203,"rssi_min":-83}`,
+  every key but `disconnects` left out when the knob does not know it,
+  `last_reason` an ESP-IDF `wifi_err_reason_t`, `rssi_min` the lowest RSSI since
+  the previous checkin; stored as `last_checkin.wifi` in the same shape and shown
+  as the "Wi-Fi" and "Reconnects" rows. An invalid object (channel outside
+  0..14, `rssi_min` outside -127..0, `last_reason` outside 0..255, negative
+  `disconnects`, a `bssid` not lower-case `aa:bb:cc:dd:ee:ff`, a wrong type) is
+  dropped and logged, the rest of the checkin kept; a checkin without one
+  clears it)
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus

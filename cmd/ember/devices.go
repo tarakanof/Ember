@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -52,6 +53,37 @@ type deviceCheckin struct {
 	// display.fast_link is off or LinkFallback says a link check failed).
 	LinkMHz      int  `json:"link_mhz,omitempty"`
 	LinkFallback bool `json:"link_fallback,omitempty"`
+	// Wifi is the knob's Wi-Fi link (cinder#21); nil before firmware 0.9.8
+	// or when the knob sent an invalid object.
+	Wifi *deviceWifi `json:"wifi,omitempty"`
+}
+
+// deviceWifi is the knob's Wi-Fi link telemetry: zero fields are unknown,
+// except Disconnects.
+type deviceWifi struct {
+	BSSID       string `json:"bssid,omitempty"`
+	Channel     int    `json:"channel,omitempty"`
+	Disconnects int64  `json:"disconnects"`
+	LastReason  int    `json:"last_reason,omitempty"`
+	RSSIMin     int    `json:"rssi_min,omitempty"`
+}
+
+var bssidPattern = regexp.MustCompile(`^([0-9a-f]{2}:){5}[0-9a-f]{2}$`)
+
+func (w deviceWifi) validate() error {
+	switch {
+	case w.BSSID != "" && !bssidPattern.MatchString(w.BSSID):
+		return errors.New("bssid must be lower-case aa:bb:cc:dd:ee:ff")
+	case w.Channel < 0 || w.Channel > 14:
+		return errors.New("channel must be 0..14")
+	case w.Disconnects < 0:
+		return errors.New("disconnects must be >= 0")
+	case w.LastReason < 0 || w.LastReason > 255:
+		return errors.New("last_reason must be 0..255")
+	case w.RSSIMin < -127 || w.RSSIMin > 0:
+		return errors.New("rssi_min must be -127..0")
+	}
+	return nil
 }
 
 type deviceRecord struct {
@@ -76,6 +108,10 @@ func (d deviceRecord) clone() deviceRecord {
 	}
 	if d.LastCheckin != nil {
 		c := *d.LastCheckin
+		if c.Wifi != nil {
+			w := *c.Wifi
+			c.Wifi = &w
+		}
 		d.LastCheckin = &c
 	}
 	return d

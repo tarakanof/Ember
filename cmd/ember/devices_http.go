@@ -242,6 +242,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		ConfigVersion       int             `json:"config_version"`
 		LinkMHz             int             `json:"link_mhz"`
 		LinkFallback        bool            `json:"link_fallback"`
+		Wifi                json.RawMessage `json:"wifi"`
 		Stats               json.RawMessage `json:"stats"`
 	}
 	if !a.decodeOptionalOrReject(w, r, &req, false) {
@@ -276,6 +277,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		AppliedVersion:      req.ConfigVersion,
 		LinkMHz:             req.LinkMHz,
 		LinkFallback:        req.LinkFallback && req.LinkMHz > 0,
+		Wifi:                a.decodeDeviceWifi(r, req.Wifi),
 	}
 	res, err := a.devices.checkin(id, report)
 	if errors.Is(err, errCheckinNotStored) {
@@ -301,6 +303,22 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set(knobNowHeader, unixHeader(now))
 	writeJSON(w, http.StatusOK, res)
+}
+
+func (a *App) decodeDeviceWifi(r *http.Request, raw json.RawMessage) *deviceWifi {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var w deviceWifi
+	err := json.Unmarshal(raw, &w)
+	if err == nil {
+		err = w.validate()
+	}
+	if err != nil {
+		a.logger.InfoContext(r.Context(), "device wifi dropped", "device_id", deviceIDFrom(r.Context()), "err", err)
+		return nil
+	}
+	return &w
 }
 
 func (a *App) handleDeviceSelfConfig(w http.ResponseWriter, r *http.Request) {
