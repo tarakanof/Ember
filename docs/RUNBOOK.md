@@ -652,6 +652,40 @@ curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c -H "$H"   # revoke
   `pomodoro.db`), so the same writable volume is needed; without it, minted
   tokens are lost on restart.
 
+### Decoding a knob core dump
+
+A knob with a crash dump in flash (cinder with `crash.id`) uploads it after a
+checkin answers `coredump_wanted`, and erases it once a checkin answers
+`coredump_ack`. Ember keeps the newest 3 per knob in
+`<data dir>/coredumps/<device>/<dump>.bin` (data dir = the directory of
+`pomodoro.db`, `/var/lib/ember` in Docker) with a `<dump>.json` sidecar;
+deleting the knob deletes them. Ember.app: Settings › Knob › Status, "Download
+Crash Dump…". By hand:
+
+```sh
+H="Authorization: Bearer $EMBER_TOKEN"
+curl -s localhost:3627/v1/devices/knob-61fc8c/coredumps -H "$H"   # newest first
+curl -s -OJ localhost:3627/v1/devices/knob-61fc8c/coredumps/1a2b3c4d -H "$H"
+curl -s -XDELETE localhost:3627/v1/devices/knob-61fc8c/coredumps/1a2b3c4d -H "$H"
+```
+
+Decode it against the ELF of the **same** firmware (`fw` in the list and the
+file name; a different build gives wrong symbols), with ESP-IDF's
+`esp-coredump` (part of an ESP-IDF install, or `pip install esp-coredump`):
+
+```sh
+cd ~/Github/cinder
+git checkout v<fw> && (cd firmware && idf.py build)   # skip if the build is current
+esp-coredump --chip esp32s3 info_corefile -c ~/Downloads/knob-61fc8c-0.9.14-1a2b3c4d.bin \
+  firmware/build/cinder.elf
+```
+
+It prints the crashed task's backtrace, registers and every task's stack.
+`dbg_corefile` with the same arguments opens GDB on the dump. The dump id is
+IDF's own checksum (the image's last 4 bytes, little-endian), so
+`python3 -c 'import sys,zlib;b=open(sys.argv[1],"rb").read();print("%08x"%zlib.crc32(b[:-4]),b[-4:][::-1].hex())' <file>`
+prints the id twice for an intact file.
+
 ## Integrating a source
 
 Anything that can run `curl` can show up on the clock and the knob: another
