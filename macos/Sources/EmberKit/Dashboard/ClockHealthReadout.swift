@@ -3,6 +3,8 @@ import Foundation
 public enum ClockHealthReadout {
     public static let weakRSSI = -80
 
+    public static let disabledTitle: LocalizedStringResource = "Clock disabled on this server"
+
     public static func wifi(rssi: Int) -> (strength: Double, weak: Bool) {
         let s = min(1, max(0, Double(rssi + 90) / 40))
         return (s, rssi < weakRSSI)

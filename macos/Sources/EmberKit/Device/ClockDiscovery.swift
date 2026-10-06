@@ -192,6 +192,7 @@ public final class ClockDiscovery {
     public nonisolated static func serverLostClock(health: Loadable<ClockHealth>, settingsLoaded: Bool,
                                                    settingsError: FeedError?) -> Bool {
         if case .loaded(let h, _) = health {
+            if h.isDisabled { return false }
             guard let device = h.device else { return true }
             if !device.reachable && !h.publish.lastOk { return true }
         }

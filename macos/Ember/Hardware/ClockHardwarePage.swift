@@ -60,7 +60,13 @@ struct ClockHardwareContent: View {
     }
 
     @ViewBuilder private func loaded(_ s: ClockStats) -> some View {
-        if !s.configured {
+        if input.health?.isDisabled == true {
+            HardwareStateBox {
+                ContentUnavailableView {
+                    Label(String(localized: ClockHealthReadout.disabledTitle), systemImage: "poweroff")
+                }
+            }
+        } else if !s.configured {
             HardwareStateBox {
                 ContentUnavailableView {
                     Label("No clock configured", systemImage: "clock.badge.questionmark")

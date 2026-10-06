@@ -667,6 +667,10 @@
     "Clock Sounds…" : {},
     "Clock Web UI" : {},
     "Clock buttons control Pomodoro" : {},
+    "Clock disabled on this server" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Clock display" : {},
     "Clock stats unavailable" : {},
     "Clock style" : {},

@@ -19,7 +19,10 @@ struct ClockStatusSection: View {
 
     var body: some View {
         Section {
-            if serverLostClock {
+            if health?.isDisabled == true {
+                Label(String(localized: ClockHealthReadout.disabledTitle), systemImage: "poweroff")
+                    .foregroundStyle(.secondary)
+            } else if serverLostClock {
                 LabeledContent {
                     Button("Find Clock from This Mac…") { openDiscover() }
                 } label: {
