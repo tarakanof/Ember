@@ -1,232 +1,63 @@
 # Agent Instructions
 
-## Project
+`ember` is a small Go service that shows Claude Code / Codex / T3 Code activity
+on desk displays, plus a Pomodoro timer. Host producers report agent status; the
+server aggregates it, **pushes** frames to an Ulanzi TC001 (awtrix-ng) and is
+**pulled** by the round knob (firmware: `tarakanof/cinder`, `~/Github/cinder`).
+A macOS menu-bar app (`macos/`) configures both. It runs as a Docker container
+on Unraid, kept small: stdlib Go plus `modernc.org/sqlite`.
 
-`ember` is a small Go service that shows Claude Code / Codex / T3 Code activity on
-desk displays, plus an integrated Pomodoro timer. Host-side producers report agent
-status; the server aggregates it, **pushes** frames to an Ulanzi TC001 (awtrix-ng)
-and is **pulled** by the round knob display (firmware repo `tarakanof/cinder`,
-`~/Github/cinder`, via `/v1/devices`); a macOS menu-bar app configures both.
+## Docs
 
-Primary goals: stay lightweight enough for an Unraid Docker container; aggregate
-multiple laptop/session statuses; enforce bearer-token auth on write endpoints
-(`EMBER_TOKEN`); keep credentials and local machine details out of Git.
+- [`docs/WORKFLOW.md`](docs/WORKFLOW.md): issue → spec → worktree → PR → review
+  → merge → release → deploy/install → report. Read before starting any change.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): system model, components, the
+  "spine", wire protocol, display layout, hard-won gotchas. Read before any
+  non-trivial change.
+- [`docs/API.md`](docs/API.md): every route by auth. Read before adding or
+  calling an endpoint.
+- [`docs/RUNBOOK.md`](docs/RUNBOOK.md): build/test, deploy, producer and app
+  install, headless Linux producers, the `EMBER_*` toggles, on-device checks.
+- [`docs/STYLE.md`](docs/STYLE.md): coding and commit guide. Read before
+  non-trivial code.
+- [`docs/MENU-BOT.md`](docs/MENU-BOT.md): the animated menu-bar bot. Read before
+  touching `macos/**/Bot*`.
+- `AGENTS.local.md` (gitignored; template `AGENTS.local.md.example`): device
+  hosts, Obsidian vault path.
 
-## Read first
+## Hard rules
 
-- **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — system model, components,
-  the "spine" pattern, wire protocol, display layout, and hard-won gotchas
-  (firmware, menu app, deploy). Read before any non-trivial change.
-- **[`docs/RUNBOOK.md`](docs/RUNBOOK.md)** — build/test, deploy, producer & menu
-  install, the `EMBER_*` toggle reference, on-device verification.
-- **[`docs/STYLE.md`](docs/STYLE.md)** — coding guide. Read before non-trivial code.
-- **[`docs/MENU-BOT.md`](docs/MENU-BOT.md)** — the animated menu-bar/Dock bot:
-  moods, timing, sizes, macOS gotchas. Read before touching `macos/**/Bot*`.
+- **Secrets**: never print or commit `EMBER_TOKEN`, device tokens, Wi-Fi
+  passwords, `sdkconfig.secrets`. Settings follow the config-file + env-var
+  pattern; secrets come from env only, never JSON, tests, logs or docs.
+- **Live state is off limits** to tests and reviews: `~/.config/ember`,
+  `~/.claude`, `~/.codex`, `~/Library/LaunchAgents`, `/Applications/Ember.app`.
+  Don't launch a build with the installed bundle id (it re-registers producer
+  agents). Installing a released app follows WORKFLOW step 6.
+- **Smoke runs**: scratch port (never `:3627`) and temp DB,
+  `EMBER_MDNS_ADVERTISE=0` (unset is *on*) and `EMBER_CLOCK=off` (no clock I/O,
+  so it can't reach the real TC001). A run that must exercise the clock drops
+  `EMBER_CLOCK=off` but sets `awtrix.auto_rediscover: false` **and** points the
+  clock URL at a local stub answering `GET /api/v1/device` with an awtrix-ng
+  fingerprint (otherwise it rediscovers the real clock). Prefer measuring the
+  live server.
+- **The knob is live and paired** (`knob-61fc8c`): never repoint it to a scratch
+  server or token, re-mint it, change its Wi-Fi or factory-reset it without
+  asking. If allowed, restore it and confirm a live checkin before reporting.
+- **Knob USB** (`/dev/cu.usbmodem*`, 303a:1001): open it only with cinder's
+  `firmware/tools` (they leave DTR/RTS alone) or for a flash; never toggle
+  DTR/RTS yourself (RTS resets the board).
+- **Install software only with the user's approval.**
+- **Scratch files**: unique names per task (parallel agents share one scratchpad).
+- Conventional Commits, no `Co-Authored-By`. If a rule conflicts with a user
+  instruction, say so before complying.
 
-## Local Context
+## Local context
 
-- GitHub remote: `git@github.com:tarakanof/ember.git`
-- Docker Hub (post first release): `docker.io/dtarakanov/ember`
-- Deployment-specific values (the AWTRIX device ID / topic prefix, its HTTP URL,
-  the Home Assistant host) live in `AGENTS.local.md` — a gitignored, local-only
-  file. Copy `AGENTS.local.md.example` to `AGENTS.local.md` and fill in your own.
-
-Do not write secrets into this repository. The write-endpoint bearer token is
-supplied via the `EMBER_TOKEN` environment variable.
-
-## Setup
-
-- Go (version in `go.mod`), Xcode + `brew install xcodegen` for the app. Commands
-  for build, test and local app install: `docs/RUNBOOK.md`. Local app builds sign
-  with the identity in `~/.config/ember/signing-identity` (`scripts/build-local.sh`).
+- Remote `git@github.com:tarakanof/ember.git`; image `docker.io/dtarakanov/ember`.
 - Producers read `~/.config/ember/producer.env` (0600: `EMBER_SOURCE`,
-  `EMBER_SERVER_URL` — empty/`auto` = mDNS discovery, `EMBER_TOKEN`). They also
-  run headless on Linux (systemd `--user` units): RUNBOOK "Headless / Linux
-  producers". Claude Code hooks ship as the `ember@ember` plugin from this
-  repo's marketplace; run `ember-claude-producer configure` after
+  `EMBER_SERVER_URL` — empty/`auto` = mDNS, `EMBER_TOKEN`). Claude Code hooks
+  ship as the `ember@ember` plugin; run `ember-claude-producer configure` after
   installing it so `settings.json` keeps no duplicate hooks.
-- **Git over SSH** can fail inside agent sandboxes (the 1Password agent refuses):
-  use `GIT_SSH_COMMAND="ssh -o IdentityAgent=none -o IdentitiesOnly=yes"`, or HTTPS
-  with gh credentials: `git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push https://github.com/tarakanof/Ember.git <branch>`.
-
-## Workflow
-
-1. **Issue first.** File a GitHub issue; non-trivial designs get a spec in the
-   Obsidian vault (`Superpowers Specs/ember/`, see "Obsidian workflow"), linked
-   from the issue. Record the user's decisions in the spec and on the issues.
-2. **Worktree per change**: `git worktree add ~/Github/Ember-wt/<slug> -b <type>/<issue>-<slug> origin/main`;
-   never edit the main checkout while another change is in flight. Stack
-   dependent PRs (`--base` the earlier branch), retarget to `main` after it merges.
-3. **TDD**, then `gofmt`, `go vet ./...`, `go test ./... -race`; for app changes
-   `swift test --package-path macos`, `xcodegen generate` + an unsigned build,
-   `scripts/strings.sh check`. CI runs the same.
-4. **PR** with `Closes #N`, evidence (test output, measured numbers, exact JSON
-   shapes, screenshots for UI). Then an **independent review** (a separate agent
-   or person), findings fixed with tests that fail without the fix, a re-check,
-   green CI.
-5. **Merge** with a merge commit (`gh pr merge --merge`), remove the worktree,
-   release with `scripts/release.sh` when the server or app changed for users.
-
-Agent rules:
-- **Smoke runs**: scratch port and temp DB, `EMBER_MDNS_ADVERTISE=0` (unset is
-  *on*: the scratch server would advertise itself on the LAN), and **`EMBER_CLOCK=off`**
-  (no clock I/O at all: no discovery, mDNS/UDP find, probe, publish or rediscovery,
-  so the scratch server cannot reach the real TC001). Never `:3627`. Only if a
-  smoke run must exercise the clock path itself, drop `EMBER_CLOCK=off` and keep the
-  older safety rules: a scratch server that talks to a clock discovers clocks over
-  mDNS/UDP and pushes apps to them, so set `awtrix.auto_rediscover: false` **and**
-  point the clock URL at a local stub that answers `GET /api/v1/device` with an
-  awtrix-ng fingerprint: an unreachable URL or a failed fingerprint makes the server
-  rediscover and find the real one. Prefer measuring against the live server over
-  running a scratch one.
-- **Never touch the user's live state** from tests or reviews: `~/.config/ember`,
-  `~/.claude`, `~/Library/LaunchAgents`, `/Applications/Ember.app`. Don't launch a
-  build with the installed bundle id (it re-registers producer agents).
-- **Knob on USB** (`/dev/cu.usbmodem*`, 303a:1001, shared with esptool/idf.py
-  monitor): open it only on an explicit user action; never toggle DTR/RTS (RTS
-  resets the board).
-- **The knob is live and paired** (device `knob-61fc8c` on the live server): never
-  repoint it to a scratch server or token, or re-mint it, without asking the user;
-  if allowed, restore it and confirm a live checkin before reporting.
-- **Scratch files**: unique names per task (parallel agents share one scratchpad);
-  the PR comment, not a scratch file, is the source of truth for review findings.
-
-## Releasing
-
-Cut a release with `scripts/release.sh <X.Y.Z> ["title"]`, run from a clean,
-in-sync `main`. It bumps the macOS app `MARKETING_VERSION` in `macos/project.yml`
-(the only version not already derived from the git tag) and increments
-`CURRENT_PROJECT_VERSION`, commits, tags `vX.Y.Z`,
-and publishes a GitHub Release — which triggers
-[`docker-publish.yml`](.github/workflows/docker-publish.yml) to build and push the
-server image to Docker Hub (`:X.Y.Z`, `:latest`), and
-[`release-producers.yml`](.github/workflows/release-producers.yml) to attach the
-headless producer archives (linux amd64/arm64, darwin universal) + `SHA256SUMS`. It prompts before pushing (`-y`
-to skip). Afterwards, update the Unraid container to pull the new image.
-
-## Coding Guidelines
-
-The deep dive is [`docs/STYLE.md`](docs/STYLE.md). Repository essentials:
-
-- Keep the service small and boring. Stdlib by default; deps that clearly earn
-  their slot are fine (the Go server's only one is now `modernc.org/sqlite`; the
-  macOS menu is a separate native SwiftUI app under `macos/`).
-- Preserve the config-file + env-var pattern. Secrets via env only — never in
-  JSON, tests, logs, or docs.
-- TDD by default for new behavior. Run `gofmt` and `go test ./... -race` before
-  every commit.
-- Don't leave long-running local test services on port `3627`.
-- One logical change per commit. Commit body explains *why*, not *what*.
-- **No `Co-Authored-By` trailers** in commits.
-- AI assistants (Claude Code, Codex CLI, Gemini CLI): this guide governs current
-  and future work here. If a rule conflicts with a user instruction, surface the
-  conflict before complying.
-
-## Endpoints (quick reference)
-
-Write (bearer auth): `POST /v1/status`, `DELETE /v1/status`, `POST /v1/clear`,
-`POST /v1/notify`, `POST /v1/pomodoro/{start,pause,resume,stop,skip}` and
-`POST /v1/nowplaying/control` (also accept a knob device token; control takes an
-optional `Idempotency-Key`), `GET/POST /v1/devices`, `GET/PUT
-/v1/devices/{id}/config` (same merge), `PATCH`/`DELETE /v1/devices/{id}`,
-`POST /v1/devices/{id}/rotate` (the knob registry — see ARCHITECTURE "Device
-registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
-`POST /v1/devices/{id}/stats/live` (knob diagnostics, memory only — see
-ARCHITECTURE "Knob diagnostics"), `GET /v1/clock/stats?range=15m|1h|24h`
-(clock probe history, memory only — ARCHITECTURE "Clock stats"),
-`GET/PUT /v1/pomodoro/config`, `GET/PUT /v1/apps` (per-tool clock visibility),
-`POST /v1/usage`, `GET/PUT /v1/usage/config`, `POST /v1/nowplaying` (a
-source's player report), `GET /v1/nowplaying/commands?player=&wait=` (Ember.app's
-long-poll for Music commands) and `PUT /v1/nowplaying/art?source=&player=&kind=album|artist&track_id=`
-(raw JPEG/PNG ≤2 MB; 409 once the track moved on — ARCHITECTURE "Now playing"), `GET/PUT /v1/display/config`,
-`GET/PUT /v1/weather/config`, `POST /v1/reminders/fire` (optional
-`Idempotency-Key` header dedupes retries for 10 min),
-`GET/PUT /v1/meetings/config`, `GET/PUT /v1/quiet/config`, `GET/PUT /v1/brightness/config` (every `…/config`
-settings PUT above is merge semantics: the body is a JSON object whose omitted
-keys keep their current value; an invalid merged result is a 400 and changes
-nothing — see `settings_overlay.go`), `GET/PUT /v1/device/config`
-(`{"base_url"}`, the same merge: `{}` changes nothing, an empty or non-http(s)
-URL is a 400; GET answers the effective URL and its `source` — see
-`clock_url.go`),
-`GET /v1/device/discover`, `GET/PUT /v1/device/settings` (whitelisted
-`PATCH /api/v1/settings` keys — see `device_settings.go`; during a Pomodoro
-takeover `autoTransition`/`blockNavigation` read and write the saved prior,
-flagged by an `X-Ember-Deferred-Keys` response header),
-`GET/PUT /v1/device/display` (overlay, `PATCH /api/v1/display`),
-`PUT /v1/device/display/power` (`{"power":bool}` — blanks/relights the
-matrix, runtime-only), `POST /v1/device/audio/test` (built-in chime, or
-`{"melody":"<name>"}` to preview a stored one), `POST /v1/device/audio/stop`,
-`GET /v1/device/audio/melodies` (NG's melody list; the audio routes answer
-503 `unavailable` when cached capabilities show no buzzer / no output),
-`GET/PUT /v1/device/apps` (ordering + enable/disable,
-`PUT /api/v1/apps/order`), `GET/PUT /v1/device/sensors` (system
-`tempOffset`/`humOffset` via read-merge-PUT of `/api/v1/system`; applies live,
-no reboot), `GET /v1/device/buttons`, `PUT /v1/device/buttons` (read-merge-PUT
-of `/api/v1/system.buttonCallback`),
-`GET /v1/device/stats`, `GET /v1/device/screen` (proxies
-`GET /api/v1/display/screen`, raw `{width,height,pixels}`),
-`GET /v1/device/capabilities` (cached `GET /api/v1/capabilities` — the firmware's
-effect/transition/overlay/palette lists; live proxy when the cache is cold),
-`POST /v1/device/{reboot,notify/dismiss,app/next,app/previous}`. Read (no auth):
-`GET /state`, `GET /healthz`, `GET /v1/display/brightness` (clock lux, else sun schedule), `GET /v1/preview`,
-`GET /v1/{weather,pomodoro,reminders}/preview`, `GET /v1/meetings/{preview,state}`,
-`GET /v1/pomodoro/{state,stats,heatmap,workhours}`,
-`GET /v1/pomodoro/dashboard` (HTML), and the native-dashboard reads
-(`dashboard_http.go`, `clock_health_http.go`): `GET /v1/usage` (latest usage
-snapshot per tool — the POST stays authed), `GET /v1/activity/summary?days=`
-(agent time per tool/source, waiting excluded), `GET /v1/weather/state` (cached
-observation; label but no coordinates, sun times rounded to 5 min),
-`GET /v1/nowplaying/state`, `GET /v1/nowplaying/art?kind=album|artist|backdrop&size=`
-(square baseline JPEG, ETag; rate-limited),
-`GET /v1/clock/health` (24h publish counts + clock RSSI/heap/uptime/current
-app, device probe cached 30s, latest NG release looked up on GitHub in the
-background every 6h — `EMBER_FIRMWARE_CHECK=0` disables it). Dashboard
-JSON: RFC 3339 whole-second times, `null` not zero sentinels, arrays of points,
-units in keys; goldens in `cmd/ember/testdata/dashboard` (regenerate with
-`-update`) are also EmberKit's decode fixtures. Operator: `/admin/doctor`, `/admin/reload`,
-`/version`, `/metrics`. Knob device token only: `POST /v1/devices/self/checkin`,
-`GET /v1/devices/self/config`, `GET /v1/devices/self/view` (the knob's
-single compact poll, ETag/304, long-poll `?wait=≤25` advertised by
-`X-Ember-View-Wait` — see ARCHITECTURE "Wire protocol") (`/state` carries `X-Ember-Devices-Epoch`, bumped
-on any knob config change or rotation). `POST /hooks/plex?key=…` (Plex webhook, `EMBER_PLEX_WEBHOOK_KEY`; only wakes
-the Plex poller). Device-only (unauthenticated): `POST /hooks/awtrix/button`
-(NG ≥1.1.1 posts JSON `{"button":"left|middle|right","state":bool,"uid"}`, older NG
-the form `button=…&state=1|0&uid` — both accepted; `select` accepted as an
-alias for `middle`; Pomodoro maps middle=play/pause/resume, left=stop,
-right=skip — all on press; the left+right chord from AWTRIX3 is gone).
-
-The `/v1/device/*` group discovers the clock (mDNS `_awtrixng._tcp` browse +
-`FIND_AWTRIXNG` UDP fallback, fingerprinted via `GET /api/v1/device`) and
-proxies its NG API to the menu's Settings › Clock pane; the effective clock URL is the
-menu override, else `config.json` baseline; if that fails its probes, an in-memory mDNS swap replaces it (the pin included) until a PUT naming `base_url` or a reload that changes the file URL (see `clock_url.go`). A 30s
-device-watch probe re-discovers on IP change and detects a clock reboot (via
-falling `uptimeSeconds`) to trigger a republish of every pushed app — issue
-#73's Berry boot-ping hook (`POST /hooks/awtrix/boot`, config toggle
-`awtrix.boot_ping`) is the fast path that republishes instantly instead of
-waiting on the 30s watch. The server also advertises itself as `_ember._tcp`
-(default on; `EMBER_MDNS_ADVERTISE=0` to disable; TXT `version`, `path`); the
-macOS app and headless producers with an empty/`auto` `EMBER_SERVER_URL` find
-it that way (RUNBOOK "Headless / Linux producers"). **mDNS in both directions
-needs the container on host (or macvlan) networking** — multicast doesn't
-cross the default Docker bridge.
-
-Full behavior (staleness, render priority, the coordinator, display hold) is in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-## Obsidian workflow
-
-Documentation lives in Obsidian (the vault path is recorded in the local-only
-`AGENTS.local.md`). The project task note is `AI/Tasks/Ember.md` — it holds
-**current status + the canonical open-items/TODO list** (the repo no longer
-carries a `TODO.md`).
-
-**Superpowers spec/plan docs live in the vault** under
-`Superpowers Specs/ember/` (flat — `…-design.md` specs alongside their
-plans), **not** in this repo. The repo's old `docs/superpowers/` tree was migrated
-there on 2026-05-29; `.gitignore` still blocks `docs/superpowers/` so it can't
-reappear in-repo.
-
-For vault updates: read `AI/SCHEMA.md`, then the relevant `AI/Rules/*.md` (esp.
-`Core.md`, `Tasks.md`, `Security.md`); update the task note when meaningful work
-lands; update `AI/Dashboard.md` if status/priority changes; append a concise
-entry to `AI/log.md`.
+- Local app builds sign with `~/.config/ember/signing-identity`
+  (`scripts/build-local.sh`).
