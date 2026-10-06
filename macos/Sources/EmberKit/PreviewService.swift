@@ -1,7 +1,5 @@
 import Foundation
 
-/// The six display toggles that affect a single-session render, plus usageCard
-/// and an optional source colour.
 public struct DraftDisplay: Sendable, Equatable {
     public var contextPct = false
     public var activityDetail = false
@@ -28,8 +26,6 @@ public struct DraftDisplay: Sendable, Equatable {
     }
 }
 
-/// The weather config fields that change the Weather-tab preview, mapped 1:1
-/// to GET /v1/weather/preview query params.
 public struct WeatherPreviewDraft: Sendable, Equatable {
     public var rotateInApps: Bool
     public var forecastTile: Bool
@@ -72,14 +68,10 @@ public struct PreviewService: Sendable {
         try await client.get("/v1/preview", query: draft.queryItems)
     }
 
-    /// Weather-tab preview: GET /v1/weather/preview with the draft's
-    /// display-relevant fields.
     public func fetchWeatherPreview(_ draft: WeatherPreviewDraft) async throws -> PreviewResponse {
         try await client.get("/v1/weather/preview", query: draft.queryItems)
     }
 
-    /// Pomodoro-tab preview: GET /v1/pomodoro/preview with the draft config's
-    /// display-relevant fields.
     public func fetchPomodoroPreview(_ cfg: PomoConfig) async throws -> PreviewResponse {
         try await client.get("/v1/pomodoro/preview", query: [
             URLQueryItem(name: "focus_minutes", value: String(cfg.focusMinutes)),
@@ -90,13 +82,10 @@ public struct PreviewService: Sendable {
         ])
     }
 
-    /// Reminders-tab preview: GET /v1/reminders/preview — the bell alarm popup
-    /// with the server's sample text.
     public func fetchReminderPreview() async throws -> PreviewResponse {
         try await client.get("/v1/reminders/preview", query: [])
     }
 
-    /// Meetings-tab preview: GET /v1/meetings/preview — the ember-meet countdown tile.
     public func fetchMeetingsPreview() async throws -> PreviewResponse {
         try await client.get("/v1/meetings/preview", query: [])
     }

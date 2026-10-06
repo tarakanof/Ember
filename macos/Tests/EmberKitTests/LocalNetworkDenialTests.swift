@@ -7,8 +7,6 @@ private func networkDown(_ code: URLError.Code = .notConnectedToInternet) -> URL
     URLError(code, userInfo: ["_kCFStreamErrorDomainKey": 1, "_kCFStreamErrorCodeKey": 50])
 }
 
-// MARK: Classifier
-
 @Test func dnsNoAuthAndPolicyDeniedAreRefusals() {
     #expect(LocalNetworkDenial.isDenied(NWError.dns(-65555)))
     #expect(LocalNetworkDenial.isDenied(NWError.dns(-65570)))
@@ -78,8 +76,6 @@ func lanHosts(host: String, lan: Bool) {
     #expect(LocalNetworkDenial.isLANHost(host) == lan)
 }
 
-// MARK: Error mapping
-
 @Test func apiClientMapsARefusalToLocalNetworkDenied() async {
     let client = stubbedClient { _ in throw networkDown() }
     await #expect(throws: APIError.localNetworkDenied) { try await client.send("GET", "/state") }
@@ -140,8 +136,6 @@ func lanHosts(host: String, lan: Bool) {
     let online = ConnectionHealth.online(since: since).subtitle(serverHost: "h", offlineReason: .localNetworkDenied)
     #expect(String(localized: online) == "Connected to h")
 }
-
-// MARK: Browses
 
 @Test func refusedBrowseAsksForAccessInsteadOfFailing() {
     #expect(BonjourClockBrowser.browseState(for: .failed(.dns(-65555))) == .denied)

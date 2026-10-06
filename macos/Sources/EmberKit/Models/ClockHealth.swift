@@ -1,18 +1,13 @@
 import Foundation
 
-/// GET /v1/clock/health — server→clock publish record, the clock's own
-/// telemetry (cached server-side for 30 s), and the latest NG release.
 public struct ClockHealth: Decodable, Sendable, Equatable {
     public struct Publish: Decodable, Sendable, Equatable {
-        /// Server start; every counter resets on restart.
         public var countingSince: Date
         public var ok24h: Int
         public var fail24h: Int
-        /// ok / (ok + fail) over the last 24 h, 0...1; nil without publishes.
         public var successRatio24h: Double?
         public var okTotal: Int
         public var failTotal: Int
-        /// Lost first attempts that a retry recovered.
         public var retriesTotal: Int
         public var lastAt: Date?
         public var lastOk: Bool
@@ -30,8 +25,6 @@ public struct ClockHealth: Decodable, Sendable, Equatable {
         }
     }
 
-    /// Telemetry fields are nil when the clock is unreachable or its firmware
-    /// doesn't report them.
     public struct Device: Decodable, Sendable, Equatable {
         public var reachable: Bool
         public var checkedAt: Date
@@ -41,7 +34,6 @@ public struct ClockHealth: Decodable, Sendable, Equatable {
         public var freeHeapBytes: Int?
         public var minFreeHeapBytes: Int?
         public var wifiRssiDbm: Int?
-        /// Wi-Fi (re)connects since boot; above 1 means the link dropped.
         public var wifiConnects: Int?
         public var resetReason: String?
         public var fps: Double?
@@ -71,11 +63,8 @@ public struct ClockHealth: Decodable, Sendable, Equatable {
 
     public var generatedAt: Date
     public var publish: Publish
-    /// nil when the server has no clock configured.
     public var device: Device?
-    /// Newest awtrix-ng release ("1.1.2"); nil when the server couldn't look it up.
     public var latestFirmware: String?
-    /// nil when either version is unknown.
     public var updateAvailable: Bool?
 
     enum CodingKeys: String, CodingKey {

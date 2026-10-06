@@ -3,8 +3,6 @@ import Foundation
 import Network
 @testable import EmberKit
 
-// MARK: Budgets against the server's own (cmd/ember/clock_access.go, main.go)
-
 private let serverMenuCallBudget: TimeInterval = 8
 private let serverDiscoverBudget: TimeInterval = 8
 private let serverReminderFireBudget: TimeInterval = 10
@@ -49,8 +47,6 @@ func defaultClientRunsEachBudgetOnItsSession(budget: RequestBudget) {
     let client = APIClient(baseURL: URL(string: "http://example.local"), token: nil)
     #expect(client.sessions(budget) === APIClient.session(for: budget))
 }
-
-// MARK: Which session each call runs on
 
 private let budgetHeader = "X-Test-Budget"
 
@@ -164,8 +160,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
     #expect(log["POST /v1/reminders/fire"] == "clockLong")
 }
 
-// MARK: Timeouts
-
 @Test func timeoutIsItsOwnError() async {
     let client = stubbedClient { _ in throw URLError(.timedOut) }
     await #expect(throws: APIError.timedOut) { try await client.send("GET", "/v1/device/stats", budget: .clock) }
@@ -221,8 +215,6 @@ private func budgetRecordingClient(body: @escaping @Sendable (URLRequest) -> Str
                                 offlineReason: .offline, locale: en, timeZone: utc)
     #expect(String(localized: plain.title).hasPrefix("Offline — server unreachable since"))
 }
-
-// MARK: Local Network precedence
 
 @Test func refusalUnderAClockBudgetIsStillDenied() async {
     let refused = URLError(.notConnectedToInternet,

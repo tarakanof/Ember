@@ -2,22 +2,17 @@ import Foundation
 import Observation
 import OSLog
 
-/// A clock control.
 public enum ClockAction: Hashable, Sendable {
     case next, previous, dismiss
-    /// Blank (false) or relight (true) the matrix.
     case power(Bool)
     case reboot
 }
 
-/// Something the user asked Ember to do.
 public enum EmberAction: Hashable, Sendable {
     case pomodoro(PomodoroAction)
-    /// Show or hide an Ember app on the clock (`/v1/apps`).
     case setApp(String, enabled: Bool)
     case clock(ClockAction)
 
-    /// The feeds whose values the action changes.
     var affectedFeeds: [Feed] {
         switch self {
         case .pomodoro: [.pomodoroState]
@@ -29,9 +24,6 @@ public enum EmberAction: Hashable, Sendable {
     }
 }
 
-/// Runs user actions for the menu, the Dashboard, the Dock menu and Settings
-/// (the one path for clock actions), so none of them swallows a failure with
-/// `try?`.
 @MainActor
 @Observable
 public final class ActionRunner {
@@ -41,12 +33,8 @@ public final class ActionRunner {
         public let at: Date
     }
 
-    /// The most recent failure; cleared by the next success or after
-    /// `clearAfter`.
     public private(set) var lastError: Failure?
-    /// Actions currently running, so a view can disable a button meanwhile.
     public private(set) var running: Set<EmberAction> = []
-    /// The state an in-flight display write is setting, nil when none is.
     public var pendingDisplayPower: Bool? {
         if running.contains(.clock(.power(true))) { return true }
         if running.contains(.clock(.power(false))) { return false }
@@ -62,7 +50,6 @@ public final class ActionRunner {
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "actions")
 
-    /// Actions go to whichever server `connection` holds when they run.
     public convenience init(live: LiveModel, connection: ServerConnection) {
         self.init(live: live, connection: connection, clearAfter: .seconds(10), now: { Date() },
                   sleep: { try await Task.sleep(for: $0) })
@@ -92,8 +79,6 @@ public final class ActionRunner {
         }
     }
 
-    /// Runs the action, records a failure, then refreshes the feeds it
-    /// touched.
     @discardableResult
     public func run(_ action: EmberAction) async -> Bool {
         running.insert(action)

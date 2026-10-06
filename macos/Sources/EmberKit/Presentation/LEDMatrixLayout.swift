@@ -1,28 +1,17 @@
 import CoreGraphics
 
-/// Where the clock's LED matrix sits inside the space a view is offered.
 public struct LEDMatrixLayout: Equatable, Sendable {
-    /// Smallest pitch drawn; below it the dots stop reading as a panel.
     public static let minPitch: CGFloat = 3
-    /// Largest pitch; past it the panel is just big, not clearer.
     public static let maxPitch: CGFloat = 20
-    /// Pitch when the container offers no size at all.
     public static let idealPitch: CGFloat = 10
-    /// Below this pitch the per-cell glow is skipped: it would only muddy dots.
     public static let glowMinPitch: CGFloat = 6
 
     public let columns: Int
     public let rows: Int
-    /// Points per cell, a whole number in `minPitch...maxPitch`.
     public let pitch: CGFloat
-    /// The panel itself: `columns × pitch` by `rows × pitch`.
     public let size: CGSize
-    /// Top-left of the panel, centred in the container and snapped to device
-    /// pixels.
     public let origin: CGPoint
 
-    /// - Parameters:
-    ///   - width, height: the offered space; nil or infinite means unconstrained.
     public init(width: CGFloat?, height: CGFloat?, columns: Int = 32, rows: Int = 8,
                 scale: CGFloat = 1, maxPitch: CGFloat = LEDMatrixLayout.maxPitch) {
         let cols = max(columns, 1), rws = max(rows, 1)
@@ -51,25 +40,17 @@ public struct LEDMatrixLayout: Equatable, Sendable {
         self.origin = CGPoint(x: centre(width, size.width), y: centre(height, size.height))
     }
 
-    /// Cell `(x, y)` relative to the panel's own top-left.
     public func cell(x: Int, y: Int) -> CGRect {
         CGRect(x: CGFloat(x) * pitch, y: CGFloat(y) * pitch, width: pitch, height: pitch)
     }
 
-    /// The LED inside a cell: the same gap on every side, so dots stay crisp
-    /// and evenly spaced.
     public func led(x: Int, y: Int) -> CGRect {
         cell(x: x, y: y).insetBy(dx: gap, dy: gap)
     }
 
-    /// Gap between a cell's edge and its LED: about 1/7 of the pitch in whole
-    /// points, half a point on the smallest panels so their LEDs aren't mere
-    /// specks (a device pixel on Retina).
     public var gap: CGFloat { max(0.5, (pitch * 0.14).rounded()) }
 
-    /// Corner radius of an LED, proportional to its size.
     public var cornerRadius: CGFloat { (pitch - 2 * gap) * 0.22 }
 
-    /// Whether lit cells get a halo; tiny panels draw plain dots.
     public var showsGlow: Bool { pitch >= Self.glowMinPitch }
 }

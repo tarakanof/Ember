@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Sources › Focus: the Pomodoro engine every device shows.
 struct FocusSourcePane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var customFocus = false
@@ -86,7 +85,6 @@ struct FocusSourcePane: View {
     }
 }
 
-/// Clock › Apps › Focus: how the TC001 draws the Pomodoro.
 struct ClockFocusAppPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var preview = PreviewModel()

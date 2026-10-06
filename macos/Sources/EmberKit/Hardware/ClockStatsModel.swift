@@ -1,12 +1,10 @@
 import Foundation
 import Observation
 
-/// The clock stats read (`GET /v1/clock/stats`; a fake in tests).
 public protocol ClockStatsService: Sendable {
     func clockStats(range: HardwareRange) async throws -> ClockStats
 }
 
-/// Reads the clock's stats over the owner token.
 public struct ClockStatsClient: ClockStatsService {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
@@ -17,8 +15,6 @@ public struct ClockStatsClient: ClockStatsService {
 }
 
 extension HardwareRange {
-    /// How often the clock page asks while this range is shown: the server
-    /// probes every 30 s.
     public var clockPollInterval: Duration {
         switch self {
         case .fifteenMinutes: .seconds(15)
@@ -28,8 +24,6 @@ extension HardwareRange {
     }
 }
 
-/// Settings › Clock › Hardware: polls the clock's stats while the page is
-/// visible.
 @MainActor
 @Observable
 public final class ClockStatsModel {
@@ -48,13 +42,11 @@ public final class ClockStatsModel {
         self.now = now
     }
 
-    /// Points the model at another server.
     public func configure(service next: any ClockStatsService) {
         service = next
         stats = .loading
     }
 
-    /// Fetches the current range once.
     public func refresh() async {
         let range = range
         do {
@@ -67,7 +59,6 @@ public final class ClockStatsModel {
         }
     }
 
-    /// Polls until the caller's task is cancelled.
     public func run() async {
         while !Task.isCancelled {
             await refresh()

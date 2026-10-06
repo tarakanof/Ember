@@ -1,21 +1,15 @@
 import Foundation
 import Observation
 
-/// The server this Mac talks to: producer.env's URL and token as one
-/// `APIClient`.
 @MainActor
 @Observable
 public final class ServerConnection {
-    /// The current client.
     public private(set) var client: APIClient
-    /// The configured server, nil when producer.env has none.
     public var serverURL: URL? { client.baseURL }
-    /// The clock routes (`/v1/device/*`) on the current server.
     public var device: DeviceService { DeviceService(client: client) }
 
     @ObservationIgnored private let read: () -> APIClient
 
-    /// Reads producer.env at `envPath` (a missing file is an unconfigured client).
     public convenience init(envPath: URL) {
         self.init(read: {
             let text = (try? String(contentsOf: envPath, encoding: .utf8)) ?? ""
@@ -28,7 +22,6 @@ public final class ServerConnection {
         client = read()
     }
 
-    /// Re-reads producer.env.
     @discardableResult
     public func reload() -> Bool {
         let next = read()

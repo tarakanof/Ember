@@ -110,7 +110,6 @@ extension DeviceKind {
         }
     }
 
-    /// The Apps node's own page: the clock's rotation, the knob's pages.
     var appsTitle: LocalizedStringResource {
         switch self {
         case .clock: "Rotation"
@@ -127,7 +126,6 @@ extension DeviceKind {
 }
 
 extension SettingsTree {
-    /// The node a device route sits under.
     func node(for route: SettingsRoute) -> SettingsTree.Device? {
         guard let id = route.deviceID else { return nil }
         return devices.first { $0.id == id }
@@ -137,7 +135,6 @@ extension SettingsTree {
         node(for: route)?.device.kind ?? route.deviceID.flatMap { DeviceKind(deviceID: $0) } ?? .clock
     }
 
-    /// A row's title (device names come from the registry, not from here).
     func title(for route: SettingsRoute) -> LocalizedStringResource {
         switch route {
         case .app(let p): p.title
@@ -158,7 +155,6 @@ extension SettingsTree {
         }
     }
 
-    /// The window title: the pane's name, or "Weather — Clock" under a device.
     func windowTitle(for route: SettingsRoute) -> Text {
         guard let node = node(for: route) else { return Text(title(for: route)) }
         let name = node.device.name
@@ -173,14 +169,12 @@ private struct SettingsTreeKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// The Settings sidebar, for panes that link across it ("Shown on").
     var settingsTree: SettingsTree {
         get { self[SettingsTreeKey.self] }
         set { self[SettingsTreeKey.self] = newValue }
     }
 }
 
-/// Selects a Settings route; an open Settings window follows at once.
 @MainActor
 func showSettings(_ route: SettingsRoute) {
     let defaults = UserDefaults.standard
@@ -188,5 +182,4 @@ func showSettings(_ route: SettingsRoute) {
     defaults.set(defaults.integer(forKey: SettingsRoute.revealKey) &+ 1, forKey: SettingsRoute.revealKey)
 }
 
-/// The TC001's node id until it becomes a registry record.
 let clockDeviceID = DeviceKind.clock.placeholderID

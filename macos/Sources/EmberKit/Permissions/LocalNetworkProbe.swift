@@ -1,48 +1,32 @@
 import Foundation
 import Network
 
-/// Whether this app has Local Network access, as far as a probe can tell.
 public enum LocalNetworkStatus: Equatable, Sendable {
     case granted, denied, unknown
 }
 
-/// Probes Local Network access with an explicit, short Bonjour browse for
-/// `_ember._tcp`, plus a request to the configured server when that's a LAN
-/// host.
 public enum LocalNetworkProbe {
-    /// What the browse reported before `browseTimeout`.
     public enum BrowseOutcome: Equatable, Sendable {
-        /// Browsing (DNS-SD answered): access is on.
         case ready
-        /// DNS-SD `NoAuth`/`PolicyDenied`: access is off.
         case denied
-        /// Failed or waited for another reason, or never settled.
         case inconclusive
     }
 
-    /// What `GET /healthz` on the configured server got back.
     public enum ServerOutcome: Equatable, Sendable {
-        /// Any HTTP answer: the LAN is open to this app.
         case reachable
-        /// `APIError.localNetworkDenied`.
         case denied
-        /// No answer for another reason (server down, timeout).
         case unreachable
-        /// No server configured, or it isn't on the LAN, so it says nothing.
         case notApplicable
     }
 
     public static let browseTimeout: Duration = .seconds(3)
 
-    /// A denial from either side wins: each only reports one when macOS
-    /// said so.
     public static func combine(browse: BrowseOutcome, server: ServerOutcome) -> LocalNetworkStatus {
         if browse == .denied || server == .denied { return .denied }
         if browse == .ready || server == .reachable { return .granted }
         return .unknown
     }
 
-    /// Runs the browse and the server check together.
     @MainActor
     public static func run(client: APIClient) async -> LocalNetworkStatus {
         async let browse = self.browse()
@@ -50,8 +34,6 @@ public enum LocalNetworkProbe {
         return combine(browse: await browse, server: await server)
     }
 
-    /// Checks the server only when it's a LAN host; any HTTP status counts
-    /// as reached.
     public static func server(_ client: APIClient) async -> ServerOutcome {
         guard let host = client.baseURL?.host(), LocalNetworkDenial.isLANHost(host) else { return .notApplicable }
         do {
@@ -80,9 +62,6 @@ public enum LocalNetworkProbe {
         }
     }
 
-    /// A one-off `_ember._tcp` browse, ended by a result (on), a refusal
-    /// (off) or `browseTimeout` (on if the browse got to ready, else
-    /// inconclusive).
     @MainActor
     public static func browse(timeout: Duration = browseTimeout) async -> BrowseOutcome {
         let params = NWParameters()

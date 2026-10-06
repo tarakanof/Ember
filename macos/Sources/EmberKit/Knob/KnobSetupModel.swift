@@ -1,15 +1,11 @@
 import Foundation
 import Observation
 
-/// The USB setup sheet: connect, the knob's own Wi-Fi scan, Ember URL and
-/// name, then the provisioning progress.
 @MainActor
 @Observable
 public final class KnobSetupModel {
     public enum Mode: Equatable, Sendable {
-        /// Wi-Fi + Ember + token.
         case setup
-        /// Wi-Fi only (Advanced › Change Wi-Fi).
         case changeWiFi
     }
 
@@ -17,7 +13,6 @@ public final class KnobSetupModel {
         case waitingForKnob
         case connecting
         case notCinder
-        /// Knob identified; the form is live.
         case ready
         case sending(KnobSetupPhase)
         case done
@@ -36,14 +31,12 @@ public final class KnobSetupModel {
     public var ssid = ""
     public var password = ""
     public var emberURL = ""
-    /// What the knob shows: at most 32 UTF-8 bytes, cut as typed.
     public var name = "" {
         didSet {
             let capped = CinderLineCodec.cappedName(name)
             if capped != name { name = capped }
         }
     }
-    /// The server host the URL had before it became a LAN address.
     public private(set) var replacedHost: String?
 
     @ObservationIgnored private let provisioner: KnobProvisioner
@@ -63,7 +56,6 @@ public final class KnobSetupModel {
         self.preferredSSID = preferredSSID
     }
 
-    /// Uses the server URL as the knob will reach it, unless already edited.
     public func suggest(_ url: KnobEmberURL.Suggestion?) {
         guard let url, emberURL.isEmpty || emberURL == suggestedURL else { return }
         emberURL = url.url
@@ -71,7 +63,6 @@ public final class KnobSetupModel {
         replacedHost = url.replacedHost
     }
 
-    /// Preselects this Mac's network once the knob's scan has it.
     public func prefer(ssid: String?) {
         preferredSSID = ssid
         if let ssid, networks.contains(where: { $0.ssid == ssid }), self.ssid.isEmpty || self.ssid == networks.first?.ssid {
@@ -79,10 +70,8 @@ public final class KnobSetupModel {
         }
     }
 
-    /// The knob the server has registered now (Settings › Knob's one knob).
     @ObservationIgnored public var registered: @MainActor () -> KnobDevice? = { nil }
 
-    /// The registered knob this setup would replace: a different board.
     public var replaces: KnobDevice? {
         guard mode == .setup, let current = registered(), let hw = identity?.hwID, hw != current.hwID else { return nil }
         return current
@@ -93,7 +82,6 @@ public final class KnobSetupModel {
         switch networks.first(where: { $0.ssid == ssid })?.secured {
         case true?: if !Self.isValidWPAPassword(password) { return false }
         case false?: break
-        // Typed by hand: open (no password) or a valid WPA one.
         case nil: if !password.isEmpty && !Self.isValidWPAPassword(password) { return false }
         }
         if mode == .setup {
@@ -110,16 +98,12 @@ public final class KnobSetupModel {
         }
     }
 
-    /// The host the suggested URL replaced, while the URL is still the
-    /// suggestion.
     public var replacedHostNote: String? { emberURL == suggestedURL ? replacedHost : nil }
 
-    /// A password is typed but can't be a WPA one (8–63 characters).
     public var passwordInvalid: Bool { !password.isEmpty && !Self.isValidWPAPassword(password) }
 
     public var emberURLValid: Bool { CinderLineCodec.isValidEmberURL(emberURL) }
 
-    /// Connects to `port` (nil: wait for one to be plugged in).
     public func attach(_ port: KnobSerialPort?) {
         guard let port else {
             if session == nil, !isBusy, stage != .done { stage = .waitingForKnob }
@@ -171,9 +155,6 @@ public final class KnobSetupModel {
         }
     }
 
-    /// Runs the setup; `finished` gets the registered device and the knob it
-    /// replaces, captured now: once the mint lands, the new record is the
-    /// newest and `replaces` would read nil.
     public func send(finished: @escaping @MainActor (KnobDevice, KnobDevice?) async -> Void) {
         guard canSend, let session, let identity else { return }
         let old = replaces
@@ -196,7 +177,6 @@ public final class KnobSetupModel {
         }
     }
 
-    /// After "Ember rejected the knob's token": mint a new one.
     public func remint(finished: @escaping @MainActor (KnobDevice, KnobDevice?) async -> Void) {
         guard let session, let identity else { return }
         let old = replaces
@@ -211,11 +191,8 @@ public final class KnobSetupModel {
         }
     }
 
-    /// The failed setup minted a new token after the knob already had one:
-    /// the old token no longer works, so the knob needs this setup to finish.
     public private(set) var oldTokenRevoked = false
 
-    /// Back to the form after a failure.
     public func edit() {
         guard case .failed = stage, session != nil else { connect(); return }
         Task {
@@ -255,11 +232,8 @@ public final class KnobSetupModel {
                 await finished(device)
                 stage = .done
             } catch is CancellationError {
-                // Closed mid-setup: nothing may keep the port open.
                 await latest.value?.close()
             } catch {
-                // The knob may have rebooted onto a new session: keep it, so
-                // Re-mint and Back talk to the live port.
                 if let s = latest.value {
                     if Task.isCancelled { await s.close() } else { adopt(s) }
                 }
@@ -282,7 +256,6 @@ public final class KnobSetupModel {
         Task { await old?.close() }
     }
 
-    /// Closes the port; call when the sheet goes away.
     public func close() {
         work?.cancel()
         work = nil
@@ -293,7 +266,6 @@ public final class KnobSetupModel {
 }
 
 extension KnobSetupModel {
-    /// WPA/WPA2: 8–63 characters, or 64 hex digits. Open networks take none.
     public nonisolated static func isValidWPAPassword(_ p: String) -> Bool {
         let n = p.utf8.count
         if (8...63).contains(n) { return true }
@@ -301,7 +273,6 @@ extension KnobSetupModel {
     }
 }
 
-/// The newest session the provisioner opened (after a reboot).
 private final class LatestSession: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: KnobSession?

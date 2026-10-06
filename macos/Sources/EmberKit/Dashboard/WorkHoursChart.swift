@@ -1,13 +1,9 @@
 import Foundation
 
-/// The "Work hours" chart: one row per logical day, a bar from the first to
-/// the last worked minute on an hour-of-day axis.
 public struct WorkHoursChart: Equatable, Sendable {
     public struct Row: Equatable, Sendable, Identifiable {
         public let key: String
-        /// Local midnight of the day.
         public let date: Date
-        /// Wall-clock hours from the day's midnight (9.5 = 09:30).
         public let start: Double?
         public let end: Double?
         public let activeSec: Int
@@ -18,19 +14,14 @@ public struct WorkHoursChart: Equatable, Sendable {
         public var hasWork: Bool { start != nil && end != nil }
     }
 
-    /// Rows shown even when fewer days have work.
     public static let minimumRows = 7
 
-    /// Oldest first, so today is the bottom row.
     public let rows: [Row]
-    /// Hour-of-day axis fitted to the worked range (see `domain`).
     public let hourDomain: ClosedRange<Double>
-    /// Now on today's row, when it's inside the axis.
     public let nowHour: Double?
 
     public var isEmpty: Bool { !rows.contains(where: \.hasWork) }
 
-    /// `days` is the server's list (newest first).
     public init(days: [WorkHours.Day], now: Date, calendar: Calendar) {
         let todayKey = days.first?.date
         var all: [Row] = days.reversed().compactMap { d in
@@ -60,9 +51,6 @@ public struct WorkHoursChart: Equatable, Sendable {
         nowHour = nowOnToday.flatMap { domain.contains($0) ? $0 : nil }
     }
 
-    /// The hour axis: the worked range padded by an hour each side, stretched
-    /// to show now on today's row, at least `minimumSpan` hours and within
-    /// 0...30.
     public static func domain(low: Double?, high: Double?, now: Double?) -> ClosedRange<Double> {
         guard var lo = low, var hi = high else { return 8...18 }
         if let now, now >= lo - 1, now <= 30 { hi = max(hi, now) }
@@ -77,12 +65,8 @@ public struct WorkHoursChart: Equatable, Sendable {
         return lo...hi
     }
 
-    /// The narrowest the hour axis gets.
     public static let minimumSpan: Double = 8
 
-    /// Wall-clock hours of `date` counted from `midnight`'s calendar day:
-    /// 09:00 is 9 even on a 23- or 25-hour DST day, and the next day's 01:00
-    /// is 25.
     public static func wallHours(_ date: Date, since midnight: Date, calendar: Calendar) -> Double {
         let c = calendar.dateComponents([.hour, .minute, .second], from: date)
         let dayOffset = calendar.dateComponents([.day], from: calendar.startOfDay(for: midnight),

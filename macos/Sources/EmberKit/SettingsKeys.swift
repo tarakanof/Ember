@@ -1,4 +1,3 @@
-/// producer.env keys the Settings tabs read/write (mirrors the retired Go menu's form.go).
 public enum SettingsKeys {
     public static let source = "EMBER_SOURCE"
     public static let serverURL = "EMBER_SERVER_URL"

@@ -1,9 +1,6 @@
 import Foundation
 
-/// The ESP-IDF `wifi_err_reason_t` codes the knob reports as `wifi.last_reason`
-/// (cinder#21), in words.
 public enum KnobWifiReason {
-    /// Nil for a code this app has no words for.
     public static func label(_ code: Int) -> String? {
         switch code {
         case 1: String(localized: "unspecified", comment: "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").")

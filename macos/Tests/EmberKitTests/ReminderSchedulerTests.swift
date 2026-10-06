@@ -106,8 +106,6 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     }
 }
 
-// MARK: Timing (the loop, on the manual clock)
-
 @MainActor @Test func firesJustAfterDueNotUpToAPollLate() async {
     let clock = ManualClock()
     let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base.addingTimeInterval(100))])
@@ -187,8 +185,6 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     s.sync()
     #expect(!s.isRunning)
 }
-
-// MARK: Arming (App Nap is defeated only near a fire)
 
 @MainActor @Test func armsOnlyOnceTheNextFireIsWithinFiveMinutes() async {
     let clock = ManualClock()
@@ -362,8 +358,6 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     #expect(sent.fires.isEmpty)
 }
 
-// MARK: Selection and delivery (polled by hand)
-
 @MainActor @Test func firesEachOccurrenceOnceAndARecurrenceAgain() async {
     var now = base
     let source = FakeSource([DueReminder(id: "a", title: "Walk", due: base)])
@@ -497,8 +491,6 @@ private final class GatedSource: ReminderSource, @unchecked Sendable {
     #expect(source.fetches == 0)
     #expect(sent.fires.isEmpty)
 }
-
-// MARK: Production send
 
 @MainActor @Test func firesThroughTheServerWithTheIdempotencyKey() async throws {
     let due = Date(timeIntervalSince1970: Double(Int(Date().timeIntervalSince1970)))

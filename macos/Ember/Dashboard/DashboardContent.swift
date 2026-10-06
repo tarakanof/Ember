@@ -139,7 +139,6 @@ struct DashboardCardSlot<Source: DashboardSource>: View {
 }
 
 #if DEBUG
-/// Counts card body evaluations for the snapshot tool.
 @MainActor
 final class DashboardRenderCounter {
     static let shared = DashboardRenderCounter()

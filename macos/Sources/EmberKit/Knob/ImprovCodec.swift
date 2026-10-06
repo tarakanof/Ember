@@ -1,13 +1,8 @@
 import Foundation
 
-/// Improv Serial (https://www.improv-wifi.com/serial/) frames: `IMPROV`,
-/// version 1, type, length, data, checksum (low byte of the sum of every
-/// preceding byte). The knob speaks it for Wi-Fi; Ember settings go over
-/// `CinderLineCodec`.
 public enum ImprovCodec {
     public static let header: [UInt8] = Array("IMPROV".utf8)
     public static let version: UInt8 = 1
-    /// Header, version, type, length.
     static let prefixLength = header.count + 3
 
     public enum PacketType: UInt8, Sendable {
@@ -28,7 +23,6 @@ public enum ImprovCodec {
 
     public enum State: UInt8, Sendable {
         case stopped = 0x00
-        /// BLE only.
         case authorizationRequired = 0x01
         case ready = 0x02
         case provisioning = 0x03
@@ -40,21 +34,16 @@ public enum ImprovCodec {
         case invalidRPC = 0x01
         case unknownCommand = 0x02
         case unableToConnect = 0x03
-        /// BLE only.
         case notAuthorized = 0x04
         case badHostname = 0x05
         case unknown = 0xFF
     }
 
-    /// A decoded frame.
     public enum Message: Equatable, Sendable {
         case state(State)
         case error(ErrorCode)
-        /// An RPC result: the command it answers and its strings.
         case result(command: UInt8, strings: [String])
-        /// A host-to-device RPC (seen only when testing against a fake knob).
         case rpc(command: UInt8, strings: [String])
-        /// A known frame with an unknown type or value.
         case other(type: UInt8, data: [UInt8])
     }
 
@@ -62,10 +51,6 @@ public enum ImprovCodec {
         case tooShort, badHeader, badVersion, badLength, badChecksum, badStrings
     }
 
-    // MARK: Encoding
-
-    /// A frame of `type` carrying `data`, with the trailing newline the
-    /// Improv JS SDK sends (not part of the checksum).
     public static func frame(_ type: UInt8, _ data: [UInt8]) -> [UInt8] {
         precondition(data.count <= 255, "Improv data is at most 255 bytes")
         var out = header + [version, type, UInt8(data.count)] + data
@@ -78,7 +63,6 @@ public enum ImprovCodec {
         UInt8(truncatingIfNeeded: bytes.reduce(0) { $0 &+ Int($1) })
     }
 
-    /// An RPC frame: command, payload length, then each string length-prefixed.
     public static func rpc(_ command: Command, _ strings: [String] = []) throws -> [UInt8] {
         let payload = try lengthPrefixed(strings)
         return frame(PacketType.rpc.rawValue, [command.rawValue, UInt8(payload.count)] + payload)
@@ -88,7 +72,6 @@ public enum ImprovCodec {
         try rpc(.wifiSettings, [ssid, password])
     }
 
-    /// The device side's RPC result, for fake knobs in tests.
     public static func result(_ command: Command, _ strings: [String]) throws -> [UInt8] {
         let payload = try lengthPrefixed(strings)
         return frame(PacketType.rpcResult.rawValue, [command.rawValue, UInt8(payload.count)] + payload)
@@ -109,9 +92,6 @@ public enum ImprovCodec {
         return out
     }
 
-    // MARK: Decoding
-
-    /// Decodes one whole frame (an optional trailing newline is ignored).
     public static func decode(_ bytes: [UInt8]) throws -> Message {
         var b = bytes
         guard b.count >= prefixLength + 1 else { throw DecodeError.tooShort }
@@ -156,7 +136,6 @@ public enum ImprovCodec {
     }
 }
 
-/// The knob's Improv device-info answer: `["cinder", fw, chip, name]`.
 public struct ImprovDeviceInfo: Equatable, Sendable {
     public let firmware: String
     public let version: String
@@ -175,7 +154,6 @@ public struct ImprovDeviceInfo: Equatable, Sendable {
     public var isCinder: Bool { firmware.lowercased() == "cinder" }
 }
 
-/// One network from the knob's own scan (RPC 0x04).
 public struct KnobWiFiNetwork: Equatable, Hashable, Sendable, Identifiable {
     public let ssid: String
     public let rssi: Int
@@ -186,8 +164,6 @@ public struct KnobWiFiNetwork: Equatable, Hashable, Sendable, Identifiable {
         self.ssid = ssid; self.rssi = rssi; self.secured = secured
     }
 
-    /// One scan result `[ssid, rssi, "YES"/"NO"]`; nil for the empty
-    /// terminator.
     public init?(strings: [String]) {
         guard strings.count >= 3, !strings[0].isEmpty else { return nil }
         ssid = strings[0]
@@ -195,7 +171,6 @@ public struct KnobWiFiNetwork: Equatable, Hashable, Sendable, Identifiable {
         secured = strings[2].uppercased() == "YES"
     }
 
-    /// Strongest per SSID, strongest first.
     public static func dedupe(_ list: [KnobWiFiNetwork]) -> [KnobWiFiNetwork] {
         var best: [String: KnobWiFiNetwork] = [:]
         for n in list where best[n.ssid].map({ n.rssi > $0.rssi }) ?? true { best[n.ssid] = n }

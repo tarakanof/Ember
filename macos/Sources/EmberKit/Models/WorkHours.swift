@@ -1,11 +1,8 @@
 import Foundation
 
-/// GET /v1/pomodoro/workhours — sessionized work span per logical day.
 public struct WorkHours: Decodable, Sendable, Equatable {
     public struct Day: Decodable, Sendable, Equatable, Identifiable {
-        /// Logical day ("2026-09-26").
         public var date: String
-        /// nil on a day with no work.
         public var workStart: Date?
         public var workEnd: Date?
         public var spanSec: Int
@@ -43,10 +40,8 @@ public struct WorkHours: Decodable, Sendable, Equatable {
         }
     }
 
-    /// Most recent first.
     public var days: [Day]
     public var gapMin: Int
-    /// Agent activity is unioned with focus blocks.
     public var includeActivity: Bool
 
     enum CodingKeys: String, CodingKey {

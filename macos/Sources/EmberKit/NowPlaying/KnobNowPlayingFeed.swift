@@ -1,23 +1,15 @@
 import Foundation
 import ImageIO
 
-/// What the now-playing knob preview reads: `GET /v1/nowplaying/state`, and
-/// the pictures the knob fetches (`GET /v1/nowplaying/art`), re-fetched only
-/// when `art_version` moves. Runs only while a preview is on screen.
 @MainActor
 @Observable
 public final class KnobNowPlayingFeed {
-    /// Failed reads in a row before the face says "Ember offline", as the knob.
     public static let offlineAfterFailures = 3
 
     public private(set) var state: NowPlayingState?
-    /// How many reads in a row failed.
     public private(set) var failures = 0
     public private(set) var pictures = KnobNowPlayingPictures()
-    /// Seconds to add to this Mac's clock to get the server's; 0 unless they differ by over 2 s.
     public private(set) var serverOffset: TimeInterval = 0
-    /// Why the last picture fetch failed (404 before the server has it, 429 when rate-limited);
-    /// nil once every wanted picture is in.
     public private(set) var artError: Error?
 
     public var failed: Bool { failures >= Self.offlineAfterFailures }
@@ -37,7 +29,6 @@ public final class KnobNowPlayingFeed {
     static let firstRetry: TimeInterval = 5
     static let lastRetry: TimeInterval = 60
 
-    /// `thumbnail`: only the small pictures, no 466 px backdrop (the Pages overview).
     public init(thumbnail: Bool = false,
                 fetchState: @escaping @Sendable () async throws -> StateRead,
                 fetchArt: @escaping @Sendable (_ kind: String, _ size: Int, _ version: String) async throws -> Data,
@@ -59,7 +50,6 @@ public final class KnobNowPlayingFeed {
                   })
     }
 
-    /// Polls until cancelled.
     public func run() async {
         while !Task.isCancelled {
             await refresh()
@@ -74,7 +64,6 @@ public final class KnobNowPlayingFeed {
             state = read.state
             failures = 0
             if let server = read.serverNow {
-                // X-Ember-Now has whole seconds: aim at the middle of its second, and ignore small skews.
                 let skew = server.timeIntervalSince1970 + 0.5 - asked.timeIntervalSince1970
                 serverOffset = abs(skew) > 2 ? skew : 0
             }
@@ -106,7 +95,6 @@ public final class KnobNowPlayingFeed {
             } catch is CancellationError {
                 return
             } catch {
-                // Try again after a back-off; what already loaded stays.
                 artError = error
                 retryAt = now().addingTimeInterval(retryDelay)
                 retryDelay = min(retryDelay * 2, Self.lastRetry)

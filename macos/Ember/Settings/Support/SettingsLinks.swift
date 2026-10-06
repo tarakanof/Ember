@@ -1,10 +1,8 @@
 import SwiftUI
 import EmberKit
 
-/// The top of a device app: the source it shows, linked to its settings.
 struct SourceLinkSection: View {
     let source: SourceID
-    /// The source is turned off, so the device shows nothing for this app.
     var isOff = false
 
     var body: some View {
@@ -28,7 +26,6 @@ struct SourceLinkSection: View {
     }
 }
 
-/// The bottom of a source pane: every device app showing this source.
 struct ShownOnSection: View {
     @Environment(\.settingsTree) private var tree
     let source: SourceID

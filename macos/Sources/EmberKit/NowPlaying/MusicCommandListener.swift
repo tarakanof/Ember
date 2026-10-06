@@ -1,27 +1,18 @@
 import Foundation
 import OSLog
 
-/// Where playback commands for this Mac come from: the server's long-poll.
 public protocol NowPlayingCommandSource: Sendable {
-    /// Waits up to `wait` seconds for commands addressed to `player`.
     func commands(player: String, wait: Int) async throws -> [NowPlayingCommand]
 }
 
-/// Runs the knob's playback commands (Ember #280) on Music.app while the
-/// pusher is on: long-polls the server, performs each command only while
-/// Music runs (never launching it), then re-reports the player so the knob
-/// sees the result (Music posts no notification for a volume change).
 @MainActor
 public final class MusicCommandListener {
     public static let wait = 25
     private static let log = Logger(subsystem: "com.ember.Ember", category: "music")
     static let firstBackoff: Duration = .seconds(5)
     static let maxBackoff: Duration = .seconds(60)
-    /// An older server without the route: ask again much later.
     static let missingRouteBackoff: Duration = .seconds(300)
-    /// A long-poll that answers empty at once (a misbehaving proxy) must not spin.
     static let minRound: Duration = .seconds(1)
-    /// A command this old is dropped: a late "next" skips a song the user moved on from.
     static let maxAge: Duration = .seconds(5)
 
     public typealias Sleep = @Sendable (Duration) async throws -> Void
@@ -41,10 +32,9 @@ public final class MusicCommandListener {
 
     public var isRunning: Bool { task != nil }
 
-    /// Starts listening as `player` (restarts when already running).
     public func start(source: NowPlayingCommandSource, player: String) {
         stop()
-        let player = MusicPlayerInfo.clip(player, 64)   // the name the reports carry
+        let player = MusicPlayerInfo.clip(player, MusicPlayerInfo.playerNameLimit)
         task = Task { [weak self] in await self?.run(source: source, player: player) }
     }
 
@@ -53,7 +43,6 @@ public final class MusicCommandListener {
         task = nil
     }
 
-    /// Waits for the listener to end (tests; after `stop`).
     public func join() async { await task?.value }
 
     private func run(source: NowPlayingCommandSource, player: String) async {
@@ -81,9 +70,6 @@ public final class MusicCommandListener {
         }
     }
 
-    /// Runs commands in order; one re-report after any that ran. A command
-    /// older than `maxAge` (the server's age plus the time since the answer
-    /// arrived) is dropped; nothing runs without Automation already granted.
     func execute(_ commands: [NowPlayingCommand], received: ContinuousClock.Instant = .now) async {
         var ran = false
         for c in commands where c.action != nil {

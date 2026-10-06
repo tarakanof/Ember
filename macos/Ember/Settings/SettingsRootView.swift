@@ -62,8 +62,6 @@ struct SettingsRootView: View {
         .onChange(of: tree) { _, new in settle(new) }
     }
 
-    /// Opens the selection's ancestors and, once no device is loading,
-    /// stores the route the sidebar actually shows.
     private func settle(_ tree: SettingsTree) {
         let route = tree.resolve(SettingsRoute(stored: routeName))
         let expanded = tree.expanded(SettingsTree.expandedSet(expandedName), revealing: route)
@@ -132,7 +130,6 @@ struct SettingsRootView: View {
     }
 }
 
-/// A device's sidebar row: its name, kind and whether it's reachable.
 private struct DeviceRow: View {
     @Environment(AppEnvironment.self) private var env
     let device: SettingsDevice
@@ -191,7 +188,6 @@ private struct DeviceRow: View {
     }
 }
 
-/// The pane for a route.
 private struct SettingsDetail: View {
     let route: SettingsRoute
     let tree: SettingsTree

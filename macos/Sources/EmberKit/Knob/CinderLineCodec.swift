@@ -1,11 +1,7 @@
 import Foundation
 
-/// `CINDER1 {json}\n` lines: the knob's Ember settings extension next to
-/// Improv. Host lines carry an `id` that the reply echoes; the knob also
-/// sends unsolicited events (`ev`).
 public enum CinderLineCodec {
     public static let prefix = "CINDER1 "
-    /// Longest line either side sends, prefix included.
     public static let maxLineBytes = 1024
     public static let maxURLLength = 128
     public static let maxTokenLength = 64
@@ -13,7 +9,6 @@ public enum CinderLineCodec {
 
     public enum ResetScope: String, Sendable, Codable { case factory, ember, wifi }
 
-    /// What the host asks.
     public enum Request: Equatable, Sendable {
         case info
         case status
@@ -26,7 +21,6 @@ public enum CinderLineCodec {
         case badURL, tooLong
     }
 
-    /// The request as one line, keys sorted so the bytes are stable.
     public static func encode(_ request: Request, id: Int) throws -> [UInt8] {
         var obj: [String: JSONValue] = ["id": .int(id)]
         switch request {
@@ -52,13 +46,8 @@ public enum CinderLineCodec {
         return line
     }
 
-    /// The knob's URL contract: `http://host[:port]`, no TLS on the knob.
     public static func isValidEmberURL(_ s: String) -> Bool { normalizedEmberURL(s) != nil }
 
-    /// The URL as the knob takes it: `http` only (any case, sent lower-case),
-    /// host an IPv4 address or an ASCII `[a-z0-9.-]` name (no IPv6, `_` or
-    /// IDN), optional port 1–65535, no path (a lone `/` is dropped), query,
-    /// fragment or credentials, at most 128 characters. Nil when it can't be.
     public static func normalizedEmberURL(_ raw: String) -> String? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard s.count <= maxURLLength, let sep = s.range(of: "://"),
@@ -83,15 +72,13 @@ public enum CinderLineCodec {
         return out
     }
 
-    /// `name` cut to the knob's 32 UTF-8 bytes, on a character boundary.
+    /// Cut to the knob's 32 UTF-8 bytes, on a character boundary.
     public static func cappedName(_ name: String) -> String {
         var n = name
         while n.utf8.count > maxNameBytes { n.removeLast() }
         return n
     }
 
-    /// Parses one line (without its newline); nil when it isn't a
-    /// `CINDER1` line or its JSON doesn't parse.
     public static func decode(line: String) -> Message? {
         var l = line
         if l.hasSuffix("\r") { l.removeLast() }
@@ -145,7 +132,6 @@ public enum CinderLineCodec {
         }
     }
 
-    /// A reply to a host line; only the fields its op returns are set.
     public struct Reply: Codable, Equatable, Sendable {
         public var id: Int?
         public var ok: Bool
@@ -168,8 +154,6 @@ public enum CinderLineCodec {
         }
     }
 
-    /// An unsolicited line: `{"ev":"ember","state":"ok"}`,
-    /// `{"ev":"boot","fw":"0.5.0","provisioned":true}`.
     public struct Event: Codable, Equatable, Sendable {
         public var ev: String?
         public var state: String?
@@ -180,7 +164,6 @@ public enum CinderLineCodec {
         }
     }
 
-    /// The device side's line, for fake knobs in tests.
     public static func line<T: Encodable>(_ value: T) -> [UInt8] {
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]

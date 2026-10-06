@@ -77,8 +77,6 @@ final class RefreshCoordinator {
             now: { ContinuousClock.now - origin })
     }
 
-    // MARK: Introspection
-
     func holdCount(_ feed: Feed) -> Int { holds[feed, default: 0] }
 
     func isActive(_ feed: Feed) -> Bool {
@@ -98,8 +96,6 @@ final class RefreshCoordinator {
     func consecutiveFailures(_ feed: Feed) -> Int { pacing[feed]?.consecutiveFailures ?? 0 }
 
     func lastTickAt(_ feed: Feed) -> Duration? { lastTick[feed] }
-
-    // MARK: Lifecycle
 
     func start() {
         guard !isStarted else { return }
@@ -136,8 +132,6 @@ final class RefreshCoordinator {
 
     func forgetInFlight() { inFlight.removeAll() }
 
-    // MARK: Holds
-
     func hold(_ feeds: [Feed]) {
         let set = Set(feeds)
         for f in set { holds[f, default: 0] += 1 }
@@ -152,8 +146,6 @@ final class RefreshCoordinator {
         }
         for f in set { reconcile(f) }
     }
-
-    // MARK: Fetching
 
     func refreshNow(_ feeds: [Feed] = [], ifOlderThan age: Duration? = nil) async {
         let candidates = feeds.isEmpty ? activeFeeds : Set(feeds)
@@ -182,8 +174,6 @@ final class RefreshCoordinator {
         inFlight[feed] = (id, task)
         return await task.value
     }
-
-    // MARK: Loops
 
     private func remaining(_ feed: Feed) -> Duration {
         guard let t = lastTick[feed] else { return .zero }

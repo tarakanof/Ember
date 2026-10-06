@@ -2,8 +2,6 @@ import Testing
 import Foundation
 @testable import EmberKit
 
-// MARK: Settings
-
 @Test func knobPatchMergesNestedFields() {
     let old = KnobSettings.defaults
     var new = old
@@ -73,8 +71,6 @@ import Foundation
     #expect(s.bot.sourceLabel == nil && s.bot.workingRing == nil)
 }
 
-// Ember#282: the bot flags round-trip when the server has them, and stay out
-// of what the app sends to a server that does not (its PUT rejects unknown keys).
 @Test func knobDisplayLinkDecodes() throws {
     let s = try JSONDecoder().decode(KnobSettings.self, from: Data(#"{"brightness":{"follow_ember":true,"level":153,"floor":10,"startup":153},"pages":[],"home":"bot","poll_ms":2000,"bot":{"sleepy_after_s":300,"demo_hold_s":20},"display":{"fast_link":false}}"#.utf8))
     #expect(s.display?.fastLink == false)
@@ -87,8 +83,6 @@ import Foundation
     #expect(c.linkMHz == 40 && c.linkFallback == true)
 }
 
-// Ember#293: the knob's Wi-Fi link (cinder#21) decodes from the stored
-// checkin; firmware before 0.9.8 has none, and unknown keys are left out.
 @Test func knobCheckinWifiDecodes() throws {
     let d = JSONDecoder()
     d.dateDecodingStrategy = .iso8601
@@ -110,8 +104,6 @@ import Foundation
     let old = String(decoding: try JSONEncoder().encode(KnobSettings.Bot(sleepyAfterS: 300, demoHoldS: 20)), as: UTF8.self)
     #expect(!old.contains("source_label") && !old.contains("working_ring"))
 }
-
-// MARK: Device
 
 private let deviceJSON = #"""
 {"id":"knob-61fc8c","kind":"cinder-knob","hw_id":"3cdc7561fc8c","name":"Desk knob","created_at":"2026-10-04T10:00:00Z","config_version":3,"rotation_pending":false,"rotated_at":null,"last_checkin":{"seen_at":"2026-10-04T10:05:00Z","fw":"0.5.0","ip":"192.168.0.39","rssi":-58,"heap_internal_free":47104,"heap_internal_largest":31744,"uptime_s":812,"applied_version":2}}
@@ -136,8 +128,6 @@ private let deviceJSON = #"""
     #expect(KnobDevice.current(in: [b, a, other])?.id == "b")
     #expect(KnobDevice.current(in: []) == nil)
 }
-
-// MARK: Service + model against a fake server
 
 private final class FakeRegistry: @unchecked Sendable {
     private let lock = NSLock()
@@ -263,8 +253,6 @@ private func model(_ fake: FakeRegistry) -> KnobModel {
     #expect(m.connectedPort == port)
 }
 
-// MARK: Ember URL for the knob
-
 @Test func emberURLSwapsLoopbackAndMDNSForLANAddresses() {
     let local = KnobEmberURL.suggest(server: URL(string: "http://localhost:3627/"), thisMac: "192.168.0.2", resolve: { _ in nil })
     #expect(local == .init(url: "http://192.168.0.2:3627", replacedHost: "localhost"))
@@ -299,11 +287,9 @@ final class CountingOpener: KnobLinkOpener, @unchecked Sendable {
     let m = KnobModel(service: KnobService(client: stubbedClient(token: "t") { fake.handle($0) }),
                       ports: ports, opener: opener, debounce: .zero, sleep: { _ in })
     await m.load()
-    // Passive: the registered knob is on USB by its serial number alone.
     #expect(m.registeredKnobOnUSB)
     #expect(m.connectedPort == port)
     #expect(opener.opens == 0)
-    // A busy port (idf.py monitor) is reported, and only opened on request.
     await m.probePorts()
     #expect(opener.opens == 1)
     #expect(m.portStatus[port.path] == .unavailable)

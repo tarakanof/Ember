@@ -44,8 +44,6 @@ import Testing
     #expect(throws: ValidationError.self) { try c.apply(to: &env, token: nil) }
 }
 
-// MARK: first-run tolerant apply (fill fields in any order without deadlock)
-
 @Test func tolerantApplyWritesServerURLWithSourceStillEmpty() throws {
     var env = EnvFile(parsing: "")
     let c = ConnectionSettings(source: "", serverURL: "http://192.168.0.14:3627", sourceColor: "")
@@ -90,8 +88,6 @@ import Testing
     try c.applyTolerant(to: &env, token: "  secret  ")
     #expect(env.get(SettingsKeys.token) == "secret")
 }
-
-// MARK: clearing an already-set required field (Finding 4)
 
 @Test func tolerantApplyToleratesEmptyRequiredFieldOnFirstRun() throws {
     var env = EnvFile(parsing: "")

@@ -3,16 +3,12 @@ import Network
 import Observation
 import os
 
-/// One `_awtrixng._tcp` instance resolved to an address.
 public struct ClockService: Equatable, Sendable {
-    /// The Bonjour instance name.
     public var name: String
-    /// An IPv4 literal.
     public var host: String
     public var port: Int
 }
 
-/// What the browse under a scan is doing.
 public enum ClockBrowseState: Sendable {
     case ready, denied, failed
 }
@@ -24,21 +20,15 @@ protocol ClockBrowsing: AnyObject {
     func cancel()
 }
 
-/// Finds awtrix-ng clocks from this Mac: the app-side twin of the server's
-/// `GET /v1/device/discover`, for when the server can't see multicast (a
-/// bridge-networked container).
 @MainActor
 @Observable
 public final class ClockDiscovery {
-    /// Whether this Mac can browse at all.
     public enum Access: Equatable, Sendable {
         case ok
-        /// macOS refused the browse: Local Network access is off for this app.
         case needsAccess
         case unavailable
     }
 
-    /// Clocks found by the current or last scan, ordered by host.
     public private(set) var clocks: [DiscoveredClock] = []
     public private(set) var isScanning = false
     public private(set) var access: Access = .ok
@@ -71,7 +61,6 @@ public final class ClockDiscovery {
         self.sleep = sleep
     }
 
-    /// Runs one bounded scan, replacing any running one.
     public func scan() async {
         stop()
         let gen = generation
@@ -98,7 +87,6 @@ public final class ClockDiscovery {
         }
     }
 
-    /// Cancels the scan and everything under it, and clears the list.
     public func stop() {
         generation += 1
         browser?.cancel()
@@ -148,8 +136,6 @@ public final class ClockDiscovery {
             self.clocks = Self.merged(self.clocks, adding: found)
         })
     }
-
-    // MARK: Matching rules (pure; mirror internal/discovery)
 
     nonisolated static func baseURL(host: String, port: Int) -> String? {
         guard IPv4Address(host) != nil, host.contains(".") else { return nil }
@@ -203,10 +189,6 @@ public final class ClockDiscovery {
         return (list + [c]).sorted { ($0.host, $0.baseURL) < ($1.host, $1.baseURL) }
     }
 
-    /// Whether to offer finding the clock from this Mac: the server's health
-    /// (fresh, not a stale value kept after the feed failed) says it has no
-    /// clock, or that its last probe AND its last push both failed; or the
-    /// proxied settings read failed on the server's side.
     public nonisolated static func serverLostClock(health: Loadable<ClockHealth>, settingsLoaded: Bool,
                                                    settingsError: FeedError?) -> Bool {
         if case .loaded(let h, _) = health {
@@ -218,7 +200,6 @@ public final class ClockDiscovery {
     }
 }
 
-/// A clock in the Discover sheet, and who found it.
 public struct ClockChoice: Identifiable, Equatable, Sendable {
     public enum Source: Equatable, Sendable {
         case server, mac, both
@@ -228,8 +209,6 @@ public struct ClockChoice: Identifiable, Equatable, Sendable {
     public var source: Source
     public var id: String { clock.uid }
 
-    /// The server's and this Mac's results as one list, one row per `uid`,
-    /// ordered by host.
     public static func merge(server: [DiscoveredClock], mac: [DiscoveredClock]) -> [ClockChoice] {
         var out: [ClockChoice] = []
         for c in server where !out.contains(where: { $0.clock.uid == c.uid }) {
@@ -246,10 +225,7 @@ public struct ClockChoice: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Clock address comparison.
 public enum ClockURL {
-    /// Whether two clock addresses name the same endpoint: discovery always
-    /// writes the port, a hand-entered address often omits it (http → 80).
     public static func same(_ a: String, _ b: String?) -> Bool {
         guard let b, let x = key(a), let y = key(b) else { return false }
         return x == y

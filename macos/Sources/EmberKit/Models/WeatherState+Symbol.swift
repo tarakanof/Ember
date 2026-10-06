@@ -1,13 +1,8 @@
 import Foundation
 
 extension WeatherState {
-    /// SF Symbol for the current condition, with the night variant between
-    /// sunset and sunrise, and `questionmark.circle` before the first
-    /// observation (a cloud would claim weather nobody measured).
     public var sfSymbol: String { sfSymbol(at: Date()) }
 
-    /// `sfSymbol` as of `now`, for tests and for views that pass their
-    /// timeline date.
     public func sfSymbol(at now: Date) -> String {
         guard let current else { return "questionmark.circle" }
         let night = sun.map { now < $0.sunrise || now >= $0.sunset } ?? false

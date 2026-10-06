@@ -941,6 +941,20 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   retried. A pending edit blocks a reload from overwriting what the user just
   typed. Models decode absent fields to the server's own defaults so re-saving
   an old config never turns a feature off.
+- **Env toggles.** `envTrue` (default true) and `envOn` (default false) parse
+  like Go's `producer.Bool`: `true/1/yes/on` and `false/0/no/off` in any case,
+  anything else keeps the default. The Swift parsers also trim whitespace,
+  which Go's `Bool` doesn't; both file readers already trim values, so the
+  result is the same for `producer.env`.
+- **Info buttons (#290).** `SettingsInfo` text states only what the code or
+  docs behind it say, so re-check it when behaviour changes. Sources: the
+  server's defaults and validation (`cmd/ember`); cinder `docs/features.md`
+  ("View long-poll" #27, "QSPI 80 MHz panel link" #23) for the knob; this file
+  ("GET /v1/display/brightness", "Hold precedence", "5h limit-reset alarm",
+  "App-server source", "claude agents --json cross-check"); RUNBOOK's `EMBER_*`
+  toggle reference and `cmd/ember-codex-producer/config.go`; awtrix-ng's
+  `guides/brightness` and `reference/settings`; `cmd/ember/weather.go`
+  (`wmoCondition`, `metSymbolCondition`) for severe weather.
 - **Env file.** Every in-app writer of `producer.env` (settings panes, the
   Connection pane's token save) goes through one `EnvFileStore` per path; without
   that serial queue two concurrent saves read the same old file and the second
@@ -1044,13 +1058,16 @@ which, with no cache headers from the server, only rewrote `Cache.db` every poll
   so a skip can't put B's cover on A) and, when the toggle
   turns on mid-track, a one-shot snapshot; every script first checks
   `NSRunningApplication` for `com.apple.Music`, because a `tell` would
-  launch Music. While the toggle is on, `MusicCommandListener` long-polls
+  launch Music (`NSAppleScript` isn't thread-safe, so scripts share one serial
+  queue). While the toggle is on, `MusicCommandListener` long-polls
   `/v1/nowplaying/commands` for this player and runs the knob's commands
   (#280; see "Now playing"). Hardened runtime needs
   `com.apple.security.automation.apple-events` (`Ember/Ember.entitlements`)
   and `NSAppleEventsUsageDescription`; Settings › Permissions has an
   "Automation: Music" row read with `AEDeterminePermissionToAutomateTarget`
-  (no prompt; "Couldn't check" while Music isn't running). MediaRemote was
+  for the concrete event `core/getd`, which the scripts send, since wildcard
+  event codes are reported not to prompt (no prompt; "Couldn't check" while
+  Music isn't running). MediaRemote was
   not used: private, entitlement-gated since macOS 15.4.
 - **Presentation.** The menu-bar label is driven by a small value (icon plus
   VoiceOver text) instead of the winning `Session` or `ConnectionHealth`, so it
@@ -1523,14 +1540,16 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
     per-player queue (`commandQueue`, at most 8, coalescing consecutive
     volume steps, dropped after 5 s so a late "next" never fires) that
     Ember.app long-polls with `GET /v1/nowplaying/commands?player=&wait=≤25`
-    (master token; delivery at most once; each command carries `age_ms`,
+    (request budget `.clockLong`, 35 s to the first byte, above that wait; master token; delivery at most once; each command carries `age_ms`,
     its wait here, and the app drops one older than 5 s in all). A Mac
     counts as listening while a poll waits and 30 s after one; otherwise
     the control answers 503. The app sends Apple Events to the running
     Music's **PID** (an event to a process that just quit fails; nothing
     can launch Music), only while Automation is already granted (checked
     without prompting; the prompt is the Settings button's), then re-reads
-    and re-reports (Music posts no notification for a volume change).
+    and re-reports (Music posts no notification for a volume change). The
+    `playerInfo` userInfo keys are undocumented by Apple; the ones read have
+    been stable since iTunes.
 - **Not built yet:** iTunes album fallback, Plex websocket.
 
 ### Runtime settings overlay (`settings_overlay.go`)
@@ -2214,13 +2233,15 @@ the same board finds its record.
   appends `\n` after each frame) and `CinderLineCodec` (`CINDER1 {json}` lines,
   sorted keys) are pinned by the shared vectors in
   `macos/Tests/EmberKitTests/testdata/knob/` that cinder's firmware tests can
-  reuse. `KnobStreamDemuxer` splits the port's bytes into frames, `CINDER1`
+  reuse (keep them in sync with cinder's `firmware/test/vectors`).
+  `KnobStreamDemuxer` splits the port's bytes into frames, `CINDER1`
   lines and log lines. `KnobLink`/`KnobLinkOpener` is the transport seam (USB
   serial now, BLE later); `SerialPortLink` opens `/dev/cu.*` raw
   (`O_NONBLOCK`, `cfmakeraw`, `HUPCL` cleared first) and **never touches
   DTR/RTS**: toggling RTS resets the ESP32-S3. It takes the port exclusively
-  (`TIOCEXCL` + `flock`, like pyserial's `exclusive=True`); a busy port shows as
-  "couldn't open". `KnobSerialPorts` watches IOKit for `303a:1001` and keys a
+  (`TIOCEXCL` + `flock`, like pyserial's `exclusive=True`) and releases it with
+  `TIOCNXCL` before closing, because the tty's exclusive flag outlives the fd
+  while anything else holds the port open; a busy port shows as "couldn't open". `KnobSerialPorts` watches IOKit for `303a:1001` and keys a
   port by its USB serial number (the MAC = `hw_id`) **without opening it**: the
   port is shared with `idf.py monitor` and esptool (ROM download mode is
   `303a:1001` too), so Ember opens it only while Settings › Knob is on screen
@@ -2234,6 +2255,13 @@ the same board finds its record.
   `set_ember`, so the next step reconnects (and resends Wi-Fi if it comes back
   `ready`); Improv `invalid RPC` or `{"ev":"wifi","state":"invalid"}` means the
   Wi-Fi settings were rejected; `ember: connecting` is still in progress.
+  The knob's lwIP can't resolve `.local` (no mdns component) and `localhost`
+  would be the knob itself, so `KnobEmberURL` handles those hosts: a `.local`
+  name is resolved on this Mac first and replaced by its IPv4, falling back to
+  this Mac's LAN IPv4 only if that fails; `localhost`, `127.*`, `::1` and
+  `0.0.0.0` become this Mac's LAN IPv4. The sheet says when the host was
+  replaced. The cleanup that deletes a record minted by a failed setup runs as
+  an unstructured task, so a cancelled setup still sends the DELETE.
   `KnobProvisioner` runs Improv device info (no answer in 2 s = not cinder),
   the knob's own scan, `POST /v1/devices` (token), `set_ember`, the Wi-Fi RPC,
   follows the reboot (reopens by serial number, handing the new session to the
@@ -3091,6 +3119,16 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   that error means the user must enable Location for the app there.
   `requestLocation()` is deferred until the user answers the prompt, because
   issuing it while `.notDetermined` doesn't reliably deliver a callback.
+- **Hardware snapshot tool.** `ImageRenderer` leaves AppKit-backed controls
+  (the segmented picker) blank, so the Debug-only `EMBER_HARDWARE_SNAPSHOTS=<dir>`
+  renderer draws through an off-screen key window (key, so the default
+  button draws prominent).
+- **Ring gauges are hand-drawn.** The system accessory gauge style is fixed at
+  watch-complication size, so `HardwareNowCard` draws its own 270° ring.
+- **A disabled row can't be re-enabled by a child.** A child's
+  `.disabled(false)` can't undo a parent's `.disabled(true)`; the info button
+  stays usable in a disabled row by overriding the environment value
+  (`staysEnabled`, #290).
 - **Launch at login** uses `SMAppService.mainApp` (System Settings › General ›
   Login Items). It needs the app signed and in `/Applications` to register fully,
   and a first registration may report `.requiresApproval`.
@@ -3139,7 +3177,9 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   program … 3: No such process`. Unregister + register on top of it doesn't
   help; `launchctl bootout` of the job, then register, does (verified on
   26A428). The app treats that state as **Not running** (Repair boots out,
-  then registers) and checks again 30 s after an update reconcile. The
+  then registers) and checks again 30 s after an update reconcile (the new helper's first spawn,
+  launchd's 10 s respawn throttle and the failed constraint repair take about
+  11 s in all, on macOS 27). The
   helpers are signed with a fixed identifier (`com.ember.claude-producer`,
   `com.ember.codex-producer`, `com.ember.t3-producer`): the ad-hoc default `<name>-<LC_UUID>` changes
   every build, and Local Network privacy keys on it, so a rebuilt helper got

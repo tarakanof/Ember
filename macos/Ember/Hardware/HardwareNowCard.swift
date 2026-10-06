@@ -1,9 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// One ring gauge on a Now card. The arc is one colour picked by the
-/// reading's thresholds (`HardwareNowCard.level`); a fuller arc always means
-/// more of the quantity, never "better".
 struct HardwareGauge: Identifiable {
     let id: String
     let title: LocalizedStringKey
@@ -14,23 +11,18 @@ struct HardwareGauge: Identifiable {
     var warn = false
 }
 
-/// One fact on a Now card: a reading that doesn't chart.
 struct HardwareFact: Identifiable {
     let id: String
     let title: LocalizedStringKey
     var value: String?
-    /// Secondary text after the value ("1.1.2 available").
     var note: String?
     var warn = false
 }
 
-/// A device's newest readings: a row of gauges over a grid of facts.
-/// Offline, it says how old they are and is drawn muted.
 struct HardwareNowCard: View {
     let gauges: [HardwareGauge]
     let facts: [HardwareFact]
     let online: Bool
-    /// The time of the readings, shown while offline.
     var asOf: Date?
 
     private var factRows: [[HardwareFact]] {
@@ -121,15 +113,12 @@ struct HardwareNowCard: View {
                                      .joined(separator: ", ")))
     }
 
-    /// The arc colour for a reading: green when normal, yellow when fair,
-    /// orange past that.
     static func level(_ v: Double?, good: (Double) -> Bool, fair: (Double) -> Bool) -> Color {
         guard let v else { return .secondary }
         if good(v) { return .green }
         return fair(v) ? .yellow : .orange
     }
 
-    /// The Wi-Fi gauge both devices show.
     static func wifi(rssi: Int?) -> HardwareGauge {
         let v = rssi.map(Double.init)
         return HardwareGauge(id: "wifi", title: "Wi-Fi", value: v, range: -90 ... -30,
@@ -139,8 +128,7 @@ struct HardwareNowCard: View {
     }
 }
 
-/// A 270° ring gauge at a real size (the system's accessory style is fixed
-/// at watch-complication size): track, tinted value arc, value in the middle.
+/// Hand-drawn: the system accessory style is fixed-size (ARCHITECTURE gotchas, "Ring gauges").
 struct HardwareRingGaugeStyle: GaugeStyle {
     let tint: Color
     var diameter: CGFloat = 76

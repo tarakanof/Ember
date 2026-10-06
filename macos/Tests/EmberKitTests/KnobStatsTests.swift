@@ -12,8 +12,6 @@ private func golden(_ name: String) throws -> Data {
 
 private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
 
-// MARK: Wire
-
 @Test func knobStatsDecodesGolden() async throws {
     let body = try golden("knob_stats")
     let client = stubbedClient { req in (okResponse(req.url!), body) }
@@ -122,8 +120,6 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     ])
 }
 
-// MARK: Model
-
 private actor FakeStatsService: KnobStatsService {
     var diagnostics: KnobDiagnostics
     var fetches: [KnobStatsRange] = []
@@ -148,8 +144,6 @@ private final class StepNow: @unchecked Sendable {
     func advance(_ s: TimeInterval) { lock.lock(); value += s; lock.unlock() }
 }
 
-/// A sleep that advances the clock by the requested time and stops the
-/// loop after `polls` sleeps.
 private func steppingSleep(_ clock: StepNow, polls: Int) -> @Sendable (Duration) async throws -> Void {
     let count = LockedBox()
     return { d in
@@ -170,7 +164,6 @@ private func waitFor(_ cond: @escaping @Sendable () async -> Bool) async {
     await model.run(deviceID: "knob-61fc8c")
     #expect(await svc.fetches.count == 30)
     #expect(await svc.fetches.allSatisfy { $0 == .fifteenMinutes })
-    // 30 polls 5 s apart: live at 0 s, renewed at 60 s and 120 s, then stopped.
     await waitFor { await svc.live.last == 0 }
     #expect(await svc.live == [KnobStatsModel.liveSeconds, KnobStatsModel.liveSeconds, KnobStatsModel.liveSeconds, 0])
     #expect(model.stats.value?.diagnostics == .basic)
@@ -196,8 +189,6 @@ private func waitFor(_ cond: @escaping @Sendable () async -> Bool) async {
     #expect(await svc.fetches == [.day, .day, .day, .day])
     #expect(model.stats.value?.range == "24h")
 }
-
-// MARK: Fake and series
 
 @Test func knobStatsFakeCoversEachRange() {
     let now = Date(timeIntervalSinceReferenceDate: 812_000_000)
@@ -239,7 +230,6 @@ private func waitFor(_ cond: @escaping @Sendable () async -> Bool) async {
     box.model = model
     await model.run(deviceID: "knob-61fc8c")
     try? await Task.sleep(for: .milliseconds(20))
-    // Live on at 15m, stopped once the range moved to 1h, not restarted.
     #expect(await svc.live == [KnobStatsModel.liveSeconds, 0])
 }
 

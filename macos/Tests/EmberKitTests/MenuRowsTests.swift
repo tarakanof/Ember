@@ -32,8 +32,6 @@ private func pomo(_ phase: String, running: Bool = false, paused: Bool = false,
               plannedSec: 1500, round: round)
 }
 
-// MARK: Header
-
 @Test func headerShowsTheWinningSessionAndItsActivity() throws {
     let s = try session(#"{"source":"m4","tool":"claude","state":"running","activity":"Bash: sed -n 1,237p cmd/ember/device.go and then some more text"}"#)
     let h = MenuRows.header(connection: .online(since: now), hasEverLoaded: true, winning: s, locale: en, timeZone: utc)
@@ -70,8 +68,6 @@ private func pomo(_ phase: String, running: Bool = false, paused: Bool = false,
     #expect(MenuRows.accessibilityValue(connection: .online(since: now), winning: nil).text == "Idle")
     #expect(MenuRows.accessibilityValue(connection: .offline(since: now), winning: nil).text == "Offline")
 }
-
-// MARK: Menu-bar label
 
 private func prefs(claude: String = "claude", codex: String = "codex",
                    style: String = "glyph", tint: String = "mono") -> MenuPrefs {
@@ -133,8 +129,6 @@ private func prefs(claude: String = "claude", codex: String = "codex",
     #expect(MenuRows.label(connection: .online(since: now), winning: s, prefs: .default) != before)
 }
 
-// MARK: Other sessions
-
 @Test func otherSessionsExcludeTheWinnerAndPutAttentionFirst() throws {
     let winner = try session(tool: "claude", source: "m4", state: "waiting", id: "a", updated: 0)
     let running = try session(tool: "codex", source: "m5", state: "running", id: "b", updated: -10, context: 41)
@@ -167,8 +161,6 @@ private func prefs(claude: String = "claude", codex: String = "codex",
     #expect(others.rows.first?.text.text.ns == "Codex on m0 — Running")
     #expect(others.overflow?.text == "4 more")
 }
-
-// MARK: Usage
 
 private func usageSnapshot(_ tools: [UsageSnapshot.Tool]) -> UsageSnapshot {
     UsageSnapshot(generatedAt: now, staleAfterSec: 900, tools: tools)
@@ -260,8 +252,6 @@ private func tool(_ name: String, pct: Double?, resetsIn: TimeInterval? = nil, l
     #expect(MenuRows.usage(.loading, sessions: stale, now: now).isEmpty)
 }
 
-// MARK: Next event
-
 private func meetings(_ items: [(String, TimeInterval)]) -> MeetingsState {
     MeetingsState(upcoming: items.map { MeetingsState.Item(title: $0.0, start: now.addingTimeInterval($0.1)) })
 }
@@ -289,8 +279,6 @@ private func meetings(_ items: [(String, TimeInterval)]) -> MeetingsState {
             == "Next: Reminder: Pay rent in 20 min")
     #expect(MenuRows.nextEvent(meetings: nil, reminders: [], now: now) == nil)
 }
-
-// MARK: Pomodoro
 
 @Test func pomodoroStatusLine() {
     #expect(MenuRows.pomodoroStatus(nil) == nil)
@@ -320,8 +308,6 @@ private func meetings(_ items: [(String, TimeInterval)]) -> MeetingsState {
     #expect(offline?.items.map(\.action) == [.pause, .skip, .stop])
 }
 
-// MARK: Today
-
 private func stats(done: Int, minutes: Int, goal: Int) -> PomoStats {
     PomoStats(today: PomoDayStat(date: "2026-09-26", completedFocus: done, focusMin: minutes), history: [], streak: 0,
               goal: GoalStatus(dailySessions: goal, todayCompleted: done, dailyMet: done >= goal))
@@ -335,8 +321,6 @@ private func stats(done: Int, minutes: Int, goal: Int) -> PomoStats {
     #expect(MenuRows.today(stats(done: 0, minutes: 0, goal: 0), locale: en)?.text == "Today 0 sessions · 0m")
 }
 
-// MARK: Action errors
-
 @Test func failureRowNamesTheActionAndAShortReason() {
     #expect(MenuRows.failure(.pomodoro(.start), .unauthorized).text == "Couldn't start: unauthorized")
     #expect(MenuRows.failure(.pomodoro(.skip), .offline).text == "Couldn't skip: server unreachable")
@@ -346,8 +330,6 @@ private func stats(done: Int, minutes: Int, goal: Int) -> PomoStats {
             == "Couldn't hide Weather: rate-limited")
     #expect(MenuRows.failure(.clock(.next), .server("boom")).text == "Couldn't switch apps: server error")
 }
-
-// MARK: Clock
 
 @Test func displayPowerHiddenUntilTheServerSupportsIt() {
     let off = Loadable<UsageSnapshot>.failed(.featureOff, last: nil, lastAt: nil)

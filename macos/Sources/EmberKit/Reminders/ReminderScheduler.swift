@@ -2,7 +2,6 @@ import Foundation
 import Observation
 import OSLog
 
-/// Rings the clock when an Apple Reminder comes due.
 @MainActor
 @Observable
 public final class ReminderScheduler {
@@ -20,11 +19,8 @@ public final class ReminderScheduler {
     public var prefs: ReminderPrefs {
         didSet { sync() }
     }
-    /// The next few due-timed reminders not yet past due, soonest first.
     public private(set) var upcoming: [DueReminder] = []
-    /// Why the last fire request failed, or nil once one succeeds.
     public private(set) var lastFireError: String?
-    /// True while the poll loop runs.
     public private(set) var isRunning = false
 
     @ObservationIgnored private let source: any ReminderSource
@@ -69,12 +65,10 @@ public final class ReminderScheduler {
         self.onArmedChange = onArmedChange
     }
 
-    /// Points fires at a new server (Connection change).
     public func configure(client: APIClient) {
         send = Self.send(via: client)
     }
 
-    /// Starts the poll loop when enabled with access, stops it otherwise.
     public func sync() {
         let shouldRun = prefs.enabled && source.hasAccess
         if shouldRun, loop == nil {

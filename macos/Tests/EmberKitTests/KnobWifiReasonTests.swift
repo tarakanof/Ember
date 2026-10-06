@@ -2,7 +2,6 @@ import Testing
 @testable import EmberKit
 
 @Suite struct KnobWifiReasonTests {
-    /// The ESP-IDF v5.5.5 `wifi_err_reason_t` codes this app puts into words.
     static let worded = [1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 23, 34, 39,
                          200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212]
 

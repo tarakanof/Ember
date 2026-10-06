@@ -1,8 +1,6 @@
 import Foundation
 import ServiceManagement
 
-/// The observable registration state of a LaunchAgent, mirroring
-/// `SMAppService.Status` in a form that's easy to unit test against.
 public enum AgentRegistration: Sendable, Equatable {
     case notRegistered
     case enabled
@@ -10,15 +8,12 @@ public enum AgentRegistration: Sendable, Equatable {
     case notFound
 }
 
-/// Boundary over `SMAppService` so registration logic can be unit tested
-/// without touching the real system LaunchAgent database.
 public protocol SMAppServiceControlling: Sendable {
     func register(plistName: String) throws
     func unregister(plistName: String) throws
     func status(plistName: String) -> AgentRegistration
 }
 
-/// The result of running an external command.
 public struct CommandResult: Sendable {
     public let exitCode: Int32
     public let stdout: String
@@ -31,15 +26,10 @@ public struct CommandResult: Sendable {
     }
 }
 
-/// Boundary over running an external command.
 public protocol ProducerCommandRunning: Sendable {
     func run(executable: String, arguments: [String]) throws -> CommandResult
 }
 
-// MARK: - Real adapters (not unit-tested here; validated on-device)
-
-/// Wraps `SMAppService.agent(plistName:)` to register/unregister/query the
-/// real per-user LaunchAgent.
 public struct RealSMAppService: SMAppServiceControlling {
     public init() {}
 
@@ -67,7 +57,6 @@ public struct RealSMAppService: SMAppServiceControlling {
     }
 }
 
-/// Wraps `Foundation.Process` to run a command and capture its output.
 public struct ProcessCommandRunner: ProducerCommandRunning {
     public init() {}
 

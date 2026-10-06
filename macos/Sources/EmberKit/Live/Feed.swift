@@ -1,12 +1,8 @@
 import Foundation
 
-/// One server read that `LiveModel` keeps fresh.
 public enum Feed: Hashable, CaseIterable, Sendable {
-    /// Tier A: always polled, every 3 s.
     case state, pomodoroState
-    /// Tier B: always polled, every 60 s; faster while a view tracks them.
     case stats, usage, meetings, apps
-    /// Tier C: polled only while a view tracks them.
     case screen, clockHealth, weather, activity, workhours, heatmap
 
     public enum Tier: Sendable, Equatable {
@@ -21,7 +17,6 @@ public enum Feed: Hashable, CaseIterable, Sendable {
         }
     }
 
-    /// Cadence with no view tracking the feed.
     public var baseCadence: Duration {
         switch tier {
         case .a: .seconds(3)
@@ -30,7 +25,6 @@ public enum Feed: Hashable, CaseIterable, Sendable {
         }
     }
 
-    /// Cadence while at least one view tracks the feed.
     public var heldCadence: Duration {
         switch self {
         case .state, .pomodoroState: .seconds(3)
@@ -42,6 +36,5 @@ public enum Feed: Hashable, CaseIterable, Sendable {
         }
     }
 
-    /// Feeds polled from launch whether or not anything is on screen.
     public static let alwaysOn: Set<Feed> = Set(allCases.filter { $0.tier != .c })
 }

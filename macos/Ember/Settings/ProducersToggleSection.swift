@@ -188,7 +188,6 @@ struct ProducersToggleSection: View {
     }
 }
 
-/// An agent's producer.env settings, listed under its row in Reporting.
 private struct AgentTuningRows: View {
     let agent: ProducerAgent
     let reporting: Bool

@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// A knob face behind the round glass: a thin metal bezel, a glass sheen,
-/// and the face dimmed when its page is off.
 public struct KnobScreen<Face: View>: View {
     let on: Bool
     let face: Face
@@ -47,12 +45,9 @@ public struct KnobScreen<Face: View>: View {
     }
 }
 
-/// The bot page, animated with the knob's `BotBehavior` timings while
-/// `animated` and on screen; Reduce Motion keeps only the blinks.
 public struct KnobBotLive: View {
     let mood: KnobMood
     let sleepAfter: Double
-    /// Knob settings `bot.source_label` and `bot.working_ring`.
     let sourceLabel: Bool
     let workingRing: Bool
     let animated: Bool
@@ -62,7 +57,6 @@ public struct KnobBotLive: View {
     @State private var visible = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// `sleepAfter` is the knob's `bot.sleepy_after_s` (0: never).
     public init(mood: KnobMood, sleepAfter: Double, sourceLabel: Bool = true, workingRing: Bool = true,
                 animated: Bool = true, theme: KnobTheme = .standard, brightness: Double = 1) {
         self.mood = mood; self.sleepAfter = sleepAfter; self.animated = animated; self.theme = theme
@@ -78,7 +72,6 @@ public struct KnobBotLive: View {
 
     private var glintOn: Bool { workingRing && mood.mood == .working }
 
-    /// The firmware's glint head at `date`: whole frame steps, from 12 o'clock.
     private func glint(at date: Date) -> Double? {
         guard glintOn else { return nil }
         let g = theme.bot.glint, step = 1 / g.fps
@@ -115,15 +108,10 @@ public struct KnobBotLive: View {
     }
 }
 
-/// When the bot next needs a frame: every 1/20 s while something moves,
-/// else at its next scheduled event (blink, glance, hop), like the firmware
-/// redrawing only when the pose changes.
 struct KnobBotSchedule: TimelineSchedule {
     static let frame = 1.0 / 20
     let clock: KnobBotClock
-    /// A new mood restarts the schedule so its transition frames run at once.
     let mood: BotMood
-    /// Frame period while the working glint runs (it moves every frame); nil otherwise.
     var continuous: Double? = nil
 
     func entries(from start: Date, mode: Mode) -> AnyIterator<Date> {
@@ -131,7 +119,7 @@ struct KnobBotSchedule: TimelineSchedule {
         var first = true
         return AnyIterator {
             if first { first = false; return start }
-            if let continuous {   /* on the glint's own step boundaries, as the firmware steps */
+            if let continuous {
                 let n = (last.timeIntervalSinceReferenceDate / continuous).rounded(.down) + 1
                 last = Date(timeIntervalSinceReferenceDate: n * continuous)
                 return last
@@ -144,7 +132,6 @@ struct KnobBotSchedule: TimelineSchedule {
     }
 }
 
-/// The bot's motion state, shared with the schedule (read off the main actor).
 final class KnobBotClock: @unchecked Sendable {
     private let lock = NSLock()
     private var moving = true
@@ -154,7 +141,6 @@ final class KnobBotClock: @unchecked Sendable {
     func write(moving m: Bool, next n: Date) { lock.withLock { moving = m; next = n } }
 }
 
-/// Owns the knob bot's `BotBehavior` across frames.
 @MainActor
 final class KnobBotDriver {
     let clock = KnobBotClock()
@@ -185,7 +171,6 @@ final class KnobBotDriver {
         return p
     }
 
-    /// A settled, eyes-open frame for `mood`, looking where that mood looks.
     nonisolated static func restingPose(_ mood: BotMood, theme: KnobTheme = .standard) -> BotPose {
         var b = BotBehavior(seed: 1, now: 0, tuning: theme.botTuning)
         b.reduceMotion = true
@@ -204,8 +189,6 @@ final class KnobBotDriver {
     }
 }
 
-/// The Pomodoro page, ticking once a second while `animated`; otherwise
-/// redrawn only when its inputs change.
 public struct KnobPomoLive: View {
     let state: PomoState?
     let fetchedAt: Date?
@@ -214,7 +197,6 @@ public struct KnobPomoLive: View {
     let theme: KnobTheme
     let brightness: Double
 
-    /// `fetchedAt` is when `state` was read; the countdown runs on from it.
     public init(state: PomoState?, fetchedAt: Date?, note: String? = nil, animated: Bool = true,
                 theme: KnobTheme = .standard, brightness: Double = 1) {
         self.state = state; self.fetchedAt = fetchedAt; self.note = note; self.animated = animated; self.theme = theme
@@ -237,8 +219,6 @@ public struct KnobPomoLive: View {
     }
 }
 
-/// The weather page: the sky animates at the firmware's frame rate while
-/// `animated`, on screen and Reduce Motion is off.
 public struct KnobWeatherLive: View {
     let state: WeatherState?
     let animated: Bool
@@ -283,11 +263,9 @@ final class KnobWeatherDriver {
     }
 }
 
-/// The now-playing page with the second-by-second position, like the knob.
 public struct KnobNowPlayingLive: View {
     let state: NowPlayingState?
     let offline: Bool
-    /// Seconds from this Mac's clock to the server's.
     let offset: TimeInterval
     let pictures: KnobNowPlayingPictures
     let animated: Bool

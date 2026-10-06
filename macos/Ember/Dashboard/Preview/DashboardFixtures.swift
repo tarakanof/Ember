@@ -2,7 +2,6 @@
 import Foundation
 import EmberKit
 
-/// Fixture data for the Dashboard's previews and snapshot renders.
 @MainActor
 enum DashboardFixtures {
     static let calendar: Calendar = {
@@ -15,8 +14,6 @@ enum DashboardFixtures {
 
     static let now = date("2026-09-26T10:30:00+02:00")
     static let loadedAt = date("2026-09-26T10:29:30+02:00")
-
-    // MARK: Scenarios
 
     static var established: DashboardData {
         var d = DashboardData()
@@ -114,8 +111,6 @@ enum DashboardFixtures {
         return d
     }
 
-    // MARK: Server payloads
-
     static func golden<T: Decodable>(_ name: String) -> T {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -178,8 +173,6 @@ enum DashboardFixtures {
         decoder.dateDecodingStrategy = .iso8601
         return Snapshot(sessions: rows.map { try! decoder.decode(Session.self, from: Data($0.utf8)) })
     }
-
-    // MARK: Synthetic history
 
     private static func noise(_ seed: Int) -> Double {
         var x = UInt64(truncatingIfNeeded: seed &* 2_654_435_761 &+ 97)
@@ -292,8 +285,6 @@ enum DashboardFixtures {
         a.days = days
         return a
     }
-
-    // MARK: LED frame
 
     static var ledFrame: [Int] {
         let font: [Character: [String]] = [

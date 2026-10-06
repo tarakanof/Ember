@@ -1,38 +1,31 @@
 import CoreGraphics
 import Foundation
 
-/// The knob's weather sky: particles, timing and the draw list for the sky
-/// canvas, ported from cinder's `weather_scene.c`. Sizes, layout and timing
-/// come from the theme; the sprite outlines are drawn in code.
-/// Deterministic for a seed and a sequence of `step` calls.
 public struct KnobWeatherScene: Sendable {
-    /// Raw values are the theme's `sprites` keys.
     public enum Sprite: String, Sendable, CaseIterable {
         case rain, flakeS = "flake_s", flakeL = "flake_l", cloudL = "cloud_l", cloudS = "cloud_s"
         case bolt, moon, star, sun, rays, fog
     }
 
-    /// One sprite copy, back to front: top-left at (x, y) in sky pixels.
     public struct Draw: Sendable, Equatable {
         public var sprite: Sprite
         public var frame: Int
         public var x, y: Double
-        /// nil fills the sprite's solid part (a cloud interior) in black.
         public var color: RGB?
         public var alpha: Double
     }
 
-    /// One sprite frame: round-capped polylines of one width, plus a solid part.
     public struct Shape: Sendable {
         public var strokes: [[CGPoint]]
         public var halfWidth: Double
-        /// Cloud interior: circles (cx, cy, r) and a slab, in sprite pixels.
         public var fillCircles: [(CGPoint, Double)] = []
         public var fillRect: CGRect?
     }
 
-    /// The sprite outlines' rain slant (dx per dy); `scene.rain.slant` must match.
-    static let rainSlant = -4.0 / 14.0
+    static var rainSlant: Double {
+        let s = KnobTheme.standard.weather.scene.rain.slant
+        return s[0] / s[1]
+    }
 
     let sc: KnobTheme.Weather.Scene
     let width: Double, height: Double
@@ -57,7 +50,6 @@ public struct KnobWeatherScene: Sendable {
         width = theme.sky.widthPx; height = theme.sky.heightPx
     }
 
-    /// Seconds between frames for a look; 0 for a still one.
     public static func period(_ l: KnobWeatherLook, scene: KnobTheme.Weather.Scene = KnobTheme.standard.weather.scene) -> Double {
         if l.still { return 0 }
         switch l.face {
@@ -67,7 +59,6 @@ public struct KnobWeatherScene: Sendable {
         }
     }
 
-    /// A sprite's size in sky pixels.
     public func size(_ s: Sprite) -> CGSize {
         let v = sc.sprites[s.rawValue] ?? [0, 0]
         return CGSize(width: v[0], height: v[1])
@@ -75,7 +66,6 @@ public struct KnobWeatherScene: Sendable {
 
     private mutating func range(_ v: [Double]) -> Double { v[0] + frand() * v[1] }
 
-    /// Switches the face; particles and stars respawn only when it changed.
     public mutating func setLook(_ l: KnobWeatherLook) {
         guard l != look else { return }
         look = l
@@ -90,7 +80,6 @@ public struct KnobWeatherScene: Sendable {
         nextBolt = t + sc.bolt.firstS[0] + sc.bolt.firstS[1] * frand()
     }
 
-    /// Advances the scene by `dt` seconds (capped at 0.5 like the firmware).
     public mutating func step(_ dt: Double) {
         guard let look else { return }
         let dt = min(max(dt, 0), sc.maxStepS)
@@ -117,13 +106,10 @@ public struct KnobWeatherScene: Sendable {
         }
     }
 
-    /// True while the storm's bolt is lit.
     public var flash: Bool {
         guard let look, look.face == .storm, !look.still else { return false }
         return (t >= boltOn && t < boltOff) || (t >= boltOn2 && t < boltOff2)
     }
-
-    // MARK: Spawning
 
     private mutating func next() -> UInt32 {
         var x = rng
@@ -178,9 +164,6 @@ public struct KnobWeatherScene: Sendable {
         return p
     }
 
-    // MARK: Draw list
-
-    /// The sprite copies for the current moment, back to front.
     public func draws(colors c: KnobTheme.Weather.Colors) -> [Draw] {
         guard let l = look else { return [] }
         var out: [Draw] = []
@@ -246,8 +229,6 @@ public struct KnobWeatherScene: Sendable {
         return out
     }
 
-    // MARK: Sprites
-
     static let cloudCircles: [(CGPoint, Double)] = [
         (CGPoint(x: 30, y: 34), 16), (CGPoint(x: 58, y: 25), 21), (CGPoint(x: 86, y: 35), 15),
     ]
@@ -293,7 +274,6 @@ public struct KnobWeatherScene: Sendable {
         return pts + [pts[0]]
     }()
 
-    /// The geometry of one sprite frame.
     public static func shape(_ s: Sprite, frame: Int, rayFrames: Int = 16) -> Shape {
         func line(_ x0: Double, _ y0: Double, _ x1: Double, _ y1: Double) -> [CGPoint] {
             [CGPoint(x: x0, y: y0), CGPoint(x: x1, y: y1)]

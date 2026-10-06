@@ -1,52 +1,36 @@
 import Foundation
 
-/// True when `now` is inside a reminder's fire window: at or after its fire time
-/// (dueDate shifted earlier by `leadMinutes`) and no later than `grace` seconds
-/// after it.
 public func reminderShouldFire(now: Date, dueDate: Date, leadMinutes: Int, grace: TimeInterval) -> Bool {
     let fireTime = dueDate.addingTimeInterval(-Double(leadMinutes) * 60)
     let delta = now.timeIntervalSince(fireTime)
     return delta >= 0 && delta <= grace
 }
 
-/// A stable per-occurrence key so each reminder rings once; a recurring reminder
-/// (new due date after completion) yields a new key and rings again.
 public func reminderDedupeKey(id: String, dueDate: Date) -> String {
     "\(id)|\(Int(dueDate.timeIntervalSince1970))"
 }
 
-/// The reminder occurrences (by `reminderDedupeKey`) already delivered to the
-/// clock, so each rings once.
 public struct ReminderFiredLedger: Sendable {
     private var dueByKey: [String: Date] = [:]
 
     public init() {}
 
-    /// Number of remembered occurrences.
     public var count: Int { dueByKey.count }
 
-    /// True when `key` was recorded and not yet pruned.
     public func contains(_ key: String) -> Bool { dueByKey[key] != nil }
 
-    /// Remembers that the occurrence `key`, due at `due`, reached the clock.
     public mutating func record(_ key: String, due: Date) { dueByKey[key] = due }
 
-    /// Forgets occurrences due more than `keep` before `now`.
     public mutating func prune(now: Date, keep: TimeInterval = 86_400) {
         dueByKey = dueByKey.filter { now.timeIntervalSince($0.value) <= keep }
     }
 }
 
-/// What a fire attempt tells us about whether the popup reached the clock.
 public enum ReminderFireOutcome: Equatable, Sendable {
     case delivered
-    /// The request may have reached the server (timeout, 5xx such as a 502
-    /// after a lost clock ack).
     case maybeDelivered
-    /// The request provably had no effect; safe to retry.
     case notDelivered
 
-    /// Classifies a `RemindersService.fire` error.
     public init(error: Error) {
         switch error {
         case is RequestNotSent:
@@ -61,35 +45,28 @@ public enum ReminderFireOutcome: Equatable, Sendable {
     }
 }
 
-/// Decides which due reminder occurrences to fire.
 public struct ReminderFireTracker: Sendable {
     private var fired = ReminderFiredLedger()
     private var inFlight = Set<String>()
 
     public init() {}
 
-    /// Claims `key` for a fire attempt; false if it already fired or is in flight.
     public mutating func begin(_ key: String) -> Bool {
         if fired.contains(key) || inFlight.contains(key) { return false }
         inFlight.insert(key)
         return true
     }
 
-    /// Releases the claim from `begin`, recording the occurrence (due at `due`)
-    /// as fired unless `outcome` is `.notDelivered`.
     public mutating func finish(_ key: String, due: Date, outcome: ReminderFireOutcome) {
         inFlight.remove(key)
         if outcome != .notDelivered { fired.record(key, due: due) }
     }
 
-    /// Forgets fired occurrences due more than a day before `now`.
     public mutating func prune(now: Date) { fired.prune(now: now) }
 
-    /// Number of remembered fired occurrences.
     public var firedCount: Int { fired.count }
 }
 
-/// Apple-Reminders watcher settings, persisted app-side (UserDefaults).
 public struct ReminderPrefs: Codable, Equatable, Sendable {
     public var enabled: Bool
     public var sound: Bool
@@ -97,10 +74,7 @@ public struct ReminderPrefs: Codable, Equatable, Sendable {
     public var popupDuration: Int
     public var useNativeIcon: Bool
     public var nativeIconId: String
-    /// When true the alarm takes over the clock until dismissed (middle button);
-    /// when false it auto-dismisses after `popupDuration`.
     public var hold: Bool
-    /// Opt-in: a held alarm with sound repeats its chime until dismissed.
     public var repeatSound: Bool
 
     public init(enabled: Bool = false, sound: Bool = true, leadMinutes: Int = 0,

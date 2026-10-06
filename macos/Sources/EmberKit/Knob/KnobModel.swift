@@ -1,37 +1,27 @@
 import Foundation
 import Observation
 
-/// One-off knob writes whose failure is shown next to their control.
 public enum KnobAction: Hashable, Sendable {
     case rename, rotate, forget, factoryReset
 }
 
-/// What a plugged-in knob-like board said when probed.
 public enum KnobPortStatus: Equatable, Sendable {
     case probing
     case cinder(KnobIdentity)
-    /// No Improv answer: an ESP32 board not running cinder.
     case notCinder
-    /// Couldn't open the port (busy in another app, gone).
     case unavailable
 }
 
-/// Settings › Knob: the single registered knob (`/v1/devices`), its
-/// settings (autosaved, merge PUT), the one-off actions, and the knob-like
-/// boards on USB.
 @MainActor
 @Observable
 public final class KnobModel {
     public private(set) var knob: KnobDevice?
-    /// Every registered knob; the pane shows only `knob`.
     public private(set) var devices: [KnobDevice] = []
     public private(set) var isLoaded = false
     public private(set) var loadError: FeedError?
     public private(set) var settings: ServerConfigModel<KnobSettings>
     public private(set) var running: Set<KnobAction> = []
     public private(set) var actionErrors: [KnobAction: FeedError] = [:]
-    /// A rotation was asked for in this session (the server says so too,
-    /// until the knob collects the token).
     public var rotationPending: Bool { knob?.rotationPending ?? false }
     public private(set) var portStatus: [String: KnobPortStatus] = [:]
 
@@ -40,9 +30,7 @@ public final class KnobModel {
     @ObservationIgnored public let opener: any KnobLinkOpener
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
-    /// The probe running now; at most one, so two opens never race.
     @ObservationIgnored private var probeTask: Task<Void, Never>?
-    /// Set while the setup sheet owns the port, so probes don't open it.
     @ObservationIgnored public var portBusy = false
     @ObservationIgnored var probeTimeouts = KnobProvisioner.Timeouts()
 
@@ -64,7 +52,6 @@ public final class KnobModel {
         settings = Self.settingsModel(service, id: nil, debounce: debounce, sleep: sleep)
     }
 
-    /// Points the model at another server.
     public func configure(service next: KnobService) {
         guard next != service else { return }
         settings.cancelPendingSave()
@@ -74,7 +61,6 @@ public final class KnobModel {
         Task { await load() }
     }
 
-    /// Reads the registry, then the knob's settings.
     public func load() async {
         do {
             let list = try await service.devices()
@@ -97,15 +83,12 @@ public final class KnobModel {
         knob = next
     }
 
-    /// Applies an edit and keeps the result valid (floor ≤ level, home on).
     public func edit(_ change: (inout KnobSettings) -> Void) {
         var d = settings.draft
         change(&d)
         settings.draft = d.normalized()
     }
 
-    /// Sets the knob's diagnostics level and saves at once (the Dashboard
-    /// has no autosave); false when there is no knob or the save failed.
     @discardableResult
     public func setDiagnostics(_ level: KnobDiagnostics) async -> Bool {
         guard knob != nil else { return false }
@@ -115,8 +98,6 @@ public final class KnobModel {
         await settings.saveNow()
         return settings.saveError == nil && settings.applied?.diagnostics == level
     }
-
-    // MARK: Actions
 
     @discardableResult
     func perform(_ action: KnobAction, _ body: () async throws -> Void) async -> Bool {
@@ -147,7 +128,6 @@ public final class KnobModel {
         if await perform(.rotate, { try await self.service.rotate(id: id) }) { await load() }
     }
 
-    /// Revokes the token and forgets the knob.
     @discardableResult
     public func forget() async -> Bool {
         guard let id = knob?.id else { return false }
@@ -156,7 +136,6 @@ public final class KnobModel {
         return ok
     }
 
-    /// After a setup: forgets the knob it replaced, then reloads.
     public func didSetUp(_ device: KnobDevice, replacing old: KnobDevice?) async {
         if let old, old.id != device.id { try? await service.forget(id: old.id) }
         await load()
@@ -164,17 +143,12 @@ public final class KnobModel {
 
     public func clearError(_ action: KnobAction) { actionErrors[action] = nil }
 
-    // MARK: USB
-
-    /// The plugged-in board that is this knob (same `hw_id`), else any
-    /// knob-like board.
     public var connectedPort: KnobSerialPort? {
         let candidates = ports.ports
         if let hw = knob?.hwID, let p = candidates.first(where: { portHwID($0) == hw }) { return p }
         return candidates.first
     }
 
-    /// The registered knob is on USB right now.
     public var registeredKnobOnUSB: Bool {
         guard let hw = knob?.hwID else { return false }
         return ports.ports.contains { portHwID($0) == hw }
@@ -185,11 +159,6 @@ public final class KnobModel {
         return p.hwID
     }
 
-    /// Asks the plugged-in boards who they are (Improv device info, then
-    /// closes). Only call it while Settings › Knob is on screen or the user
-    /// acts: the port is shared with idf.py monitor and esptool (download
-    /// mode is `303a:1001` too), so Ember never opens it on its own.
-    /// `retryFailed` probes again boards that weren't cinder or were busy.
     public func probePorts(retryFailed: Bool = false) async {
         await waitForProbe()
         guard !portBusy else { return }
@@ -215,8 +184,6 @@ public final class KnobModel {
         if probeTask == task { probeTask = nil }
     }
 
-    /// Waits for a probe in flight (the setup sheet calls this before it
-    /// opens the port).
     public func waitForProbe() async {
         while let t = probeTask {
             await t.value
@@ -224,8 +191,6 @@ public final class KnobModel {
         }
     }
 
-    /// Erases the knob on `port` over USB: Wi-Fi, Ember settings, token. It
-    /// reboots to its setup face; the registry record stays until forgotten.
     @discardableResult
     public func factoryReset(port: KnobSerialPort) async -> Bool {
         let provisioner = KnobProvisioner(opener: opener, service: service)
@@ -246,7 +211,6 @@ public final class KnobModel {
         return ok
     }
 
-    /// Records what the setup sheet learned, so the pane doesn't probe again.
     public func record(_ status: KnobPortStatus, for port: KnobSerialPort) {
         portStatus[port.path] = status
     }
@@ -263,8 +227,6 @@ public final class KnobModel {
             return .unavailable
         }
     }
-
-    // MARK: Settings model
 
     private static func settingsModel(_ svc: KnobService, id: String?, debounce: Duration,
                                       sleep: @escaping @Sendable (Duration) async throws -> Void)

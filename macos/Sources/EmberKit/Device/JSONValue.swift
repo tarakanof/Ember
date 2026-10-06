@@ -1,8 +1,5 @@
 import Foundation
 
-/// A JSON value that can carry an explicit `null`, for request bodies the
-/// synthesized `Encodable` can't express (a settings patch that resets a
-/// per-app colour to "inherit").
 public enum JSONValue: Equatable, Sendable, Encodable {
     case null
     case bool(Bool)
@@ -12,7 +9,6 @@ public enum JSONValue: Equatable, Sendable, Encodable {
     case array([JSONValue])
     case object([String: JSONValue])
 
-    /// Converts a `JSONSerialization` result.
     public init(_ any: Any) {
         switch any {
         case is NSNull:
@@ -36,7 +32,6 @@ public enum JSONValue: Equatable, Sendable, Encodable {
         }
     }
 
-    /// The object form of any `Encodable` value; nil when it isn't an object.
     public static func object<T: Encodable>(encoding value: T) throws -> [String: JSONValue]? {
         let data = try JSONEncoder().encode(value)
         guard case .object(let o) = JSONValue(try JSONSerialization.jsonObject(with: data)) else { return nil }

@@ -1,6 +1,5 @@
 import Foundation
 
-/// The Agent pane's six producer.env toggles.
 public struct DisplaySettings: Equatable, Sendable {
     public var contextPct: Bool
     public var activityDetail: Bool
@@ -28,8 +27,6 @@ public struct DisplaySettings: Equatable, Sendable {
         env.set(SettingsKeys.sessionBar, b(sessionBar))
     }
 
-    /// The six toggles that affect a single-session render (+ the connection's
-    /// source colour), for GET /v1/preview.
     public func draftDisplay(sourceColor: String) -> DraftDisplay {
         var d = DraftDisplay()
         d.contextPct = contextPct
@@ -42,7 +39,6 @@ public struct DisplaySettings: Equatable, Sendable {
     }
 }
 
-/// Three-way row-7 mode over the two env toggles.
 public enum BottomBarMode: String, CaseIterable, Sendable, Identifiable {
     case session = "Session pixels"
     case rate = "Rate bar"

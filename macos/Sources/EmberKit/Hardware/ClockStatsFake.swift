@@ -1,10 +1,6 @@
 import Foundation
 
-/// Deterministic, plausible clock stats for previews, tests and screenshots.
 public enum ClockStatsFake {
-    /// Stats for `range` ending at `now`: 30 s points for the last 10 min of
-    /// 15m, else the server's spacing. `gap` leaves the clock unreachable
-    /// over that window (seconds back from now); offline, the last 25 min.
     public static func make(range: HardwareRange, now: Date = Date(timeIntervalSinceReferenceDate: 812_000_000),
                             online: Bool = true, gap: ClosedRange<TimeInterval>? = nil) -> ClockStats {
         var points: [ClockStats.Sample] = []

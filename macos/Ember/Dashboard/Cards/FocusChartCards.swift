@@ -65,8 +65,6 @@ private func focusStatsState<T, C: View>(_ feed: Loadable<T>, placeholder: T?, i
                   offSettingsPane: .source(.focus), content: content)
 }
 
-// MARK: Card 6 — Last 7 days
-
 struct LastSevenDaysCard: View {
     let stats: Loadable<PomoStats>
     var focusMinutes: Int?
@@ -137,8 +135,6 @@ struct LastSevenDaysCard: View {
         .accessibilityChartDescriptor(WeekBarsDescriptor(bars: w))
     }
 }
-
-// MARK: Card 7 — 12 weeks
 
 struct TwelveWeeksCard: View {
     let stats: Loadable<PomoStats>
@@ -237,8 +233,6 @@ struct TwelveWeeksCard: View {
     }
 }
 
-// MARK: Card 8 — Work hours
-
 struct WorkHoursCard: View {
     let workhours: Loadable<WorkHours>
     var now = Date()
@@ -328,8 +322,6 @@ struct WorkHoursCard: View {
         .accessibilityChartDescriptor(WorkHoursDescriptor(chart: c, label: dayLabel, summary: summaryString))
     }
 }
-
-// MARK: Card 9 — When you focus
 
 struct WhenYouFocusCard: View {
     let heatmap: Loadable<Heatmap>

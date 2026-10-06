@@ -1,11 +1,8 @@
 import Foundation
 
 extension Session {
-    /// A session's state as a type instead of the wire string, so views never
-    /// print "running" or compare strings.
     public enum State: Hashable, Sendable {
         case running, waiting, done, error, idle
-        /// A state this app doesn't know yet, kept verbatim.
         case unknown(String)
 
         public init(wire: String) {
@@ -19,7 +16,6 @@ extension Session {
             }
         }
 
-        /// The wire string ("running").
         public var wire: String {
             switch self {
             case .running: "running"
@@ -31,7 +27,6 @@ extension Session {
             }
         }
 
-        /// Title-case name for the UI ("Running").
         public var displayName: LocalizedStringResource {
             switch self {
             case .running: "Running"
@@ -44,7 +39,6 @@ extension Session {
             }
         }
 
-        /// Sort order for session lists, lowest first.
         public var sortRank: Int {
             switch self {
             case .waiting: 0
@@ -56,10 +50,8 @@ extension Session {
             }
         }
 
-        /// The state colour shared by the menu-bar icon, the bot and badges.
         public var color: RGB { stateColorRGB(wire) }
     }
 
-    /// `state` as a `Session.State`.
     public var stateEnum: State { State(wire: state) }
 }

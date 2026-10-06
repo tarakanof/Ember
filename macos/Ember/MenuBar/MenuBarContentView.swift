@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// The menu-bar menu; row rules live in `MenuRows`.
 struct MenuBarContentView: View {
 	@Environment(AppEnvironment.self) private var env
 	@Environment(\.openWindow) private var openWindow
@@ -44,8 +43,6 @@ struct MenuBarContentView: View {
 			.keyboardShortcut("q", modifiers: .command)
 	}
 
-	// MARK: Glance
-
 	@ViewBuilder
 	private func glanceRows(_ live: LiveModel, now: Date) -> some View {
 		let header = MenuRows.header(connection: live.connection, hasEverLoaded: live.snapshot.value != nil,
@@ -75,8 +72,6 @@ struct MenuBarContentView: View {
 		return watcher.upcoming.map { MenuRows.Reminder(title: $0.title, due: $0.due) }
 	}
 
-	// MARK: Pomodoro
-
 	@ViewBuilder
 	private func pomodoroRows(_ live: LiveModel) -> some View {
 		if let group = MenuRows.pomodoroControls(live.pomodoro, connection: live.connection) {
@@ -100,8 +95,6 @@ struct MenuBarContentView: View {
 			Text(MenuRows.failure(failure.action, failure.error))
 		}
 	}
-
-	// MARK: Clock
 
 	@ViewBuilder
 	private func clockMenu(_ live: LiveModel) -> some View {

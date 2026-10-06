@@ -1,8 +1,6 @@
 import Foundation
 import Observation
 
-/// Save status for writes that aren't a config model: app visibility and
-/// order, clock buttons.
 @MainActor
 @Observable
 public final class WriteStatus: SaveStatusReporting {
@@ -42,34 +40,23 @@ public final class WriteStatus: SaveStatusReporting {
     }
 }
 
-/// What the Sounds pane can do with the clock's audio routes.
 public enum AudioAvailability: Equatable, Sendable {
-    /// Not asked yet.
     case unknown
     case available
-    /// The clock has no buzzer (the server answered 503).
     case noOutput
-    /// The server predates the audio routes (404).
     case unsupported
 }
 
-/// One-off Settings writes whose failure is shown next to their button.
 public enum DeviceAction: Hashable, Sendable {
     case testChime, stopAudio, useClock, discover, buttons, apps
 }
 
-/// Everything the Clock and Sounds panes edit on the clock, proxied through
-/// the server's `/v1/device/*`: the settings (saved as a patch of the keys
-/// that changed), the overlay, sensor offsets, native apps, buttons, and the
-/// read-only catalogue (capabilities, melodies, address).
 @MainActor
 @Observable
 public final class DeviceSettingsModel {
     public private(set) var settings: ServerConfigModel<DeviceSettings>
-    /// The ambient overlay (`/v1/device/display`).
     public private(set) var display: ServerConfigModel<DeviceDisplay>
     public private(set) var sensors: ServerConfigModel<SensorCalibration>
-    /// Apps and buttons writes.
     public let writes: WriteStatus
 
     public private(set) var capabilities: DeviceCapabilities?
@@ -81,26 +68,17 @@ public final class DeviceSettingsModel {
     public private(set) var audio: AudioAvailability = .unknown
     public private(set) var discovered: [DiscoveredClock]?
     public private(set) var isLoading = false
-    /// Why the last one-off action failed, per action; cleared by its next success.
     public private(set) var actionErrors: [DeviceAction: FeedError] = [:]
     public private(set) var running: Set<DeviceAction> = []
 
-    /// The settings model loaded; the rest of the pane follows it.
     public var isLoaded: Bool { settings.isLoaded }
     public var loadError: FeedError? { settings.loadError }
     public var all: [any SaveStatusReporting] { [settings, display, sensors, writes] }
-    /// The server writes mute, buzzer volume and inherit colours.
     public var supportsNG11: Bool { settings.applied?.serverSupportsNG11 ?? false }
-    /// Unknown counts as yes, so a clock that hasn't answered still shows the
-    /// sound controls.
     public var hasBuzzer: Bool { capabilities?.hasBuzzer ?? true }
-    /// The server has the NG 1.1 control routes (display power, audio): the
-    /// audio route answered, with or without a buzzer.
     public var supportsControlRoutes: Bool { audio == .available || audio == .noOutput }
-    /// The server is new enough but the clock's firmware predates NG 1.1.
     public var firmwareTooOld: Bool { isLoaded && supportsControlRoutes && !supportsNG11 }
     public var nativeApps: [AppInfo] { NativeAppsPlan.listed(apps) }
-    /// The transition names the clock reports, or a fallback list.
     public var transitions: [String] {
         let live = capabilities?.transitions ?? []
         return live.isEmpty ? DeviceKnownValues.fallbackTransitions : live
@@ -119,7 +97,6 @@ public final class DeviceSettingsModel {
     @ObservationIgnored private var forcedLoadQueued = false
     static let secondaryRefresh: TimeInterval = 30
 
-    /// `live` receives the display power each overlay read sees.
     public convenience init(service: DeviceService, live: LiveModel?) {
         self.init(service: service, live: live, debounce: .milliseconds(600),
                   sleep: { try await Task.sleep(for: $0) }, now: { Date() })
@@ -137,7 +114,6 @@ public final class DeviceSettingsModel {
         (settings, display, sensors) = Self.models(service, live: live, debounce: debounce, sleep: sleep)
     }
 
-    /// Points the model at another server.
     public func configure(service next: DeviceService) {
         guard next != service else { return }
         for m in [settings as any PendingSaveCancelling, display, sensors] { m.cancelPendingSave() }
@@ -150,8 +126,6 @@ public final class DeviceSettingsModel {
         Task { await load(force: true) }
     }
 
-    /// Loads the settings, then (when they loaded) the rest one request at a
-    /// time.
     public func load(force: Bool = false) async {
         guard !isLoading else {
             if force { forcedLoadQueued = true }
@@ -203,8 +177,6 @@ public final class DeviceSettingsModel {
         return false
     }
 
-    // MARK: Native apps
-
     public func setApp(_ name: String, enabled: Bool) async {
         let before = apps
         let update = NativeAppsPlan.toggle(name, enabled: enabled, in: apps)
@@ -219,8 +191,6 @@ public final class DeviceSettingsModel {
         apps = next
         await write(.apps, rollback: { self.apps = before }) { try await self.service.updateApps(update) }
     }
-
-    // MARK: Buttons
 
     public func setButtonsEnabled(_ on: Bool) async {
         await write(.buttons, rollback: {}) {
@@ -238,9 +208,6 @@ public final class DeviceSettingsModel {
         }
     }
 
-    // MARK: One-off actions
-
-    /// Runs an action and records its failure; returns whether it worked.
     @discardableResult
     public func perform(_ action: DeviceAction, _ body: @escaping () async throws -> Void) async -> Bool {
         running.insert(action)
@@ -270,7 +237,6 @@ public final class DeviceSettingsModel {
         }
     }
 
-    /// Saves the chosen clock on the server, then reloads from it.
     public func use(_ clock: DiscoveredClock) async {
         if await perform(.useClock, { try await self.service.setConfig(baseURL: clock.baseURL) }) {
             discovered = nil

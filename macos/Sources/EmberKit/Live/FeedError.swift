@@ -1,28 +1,15 @@
 import Foundation
 
-/// Why a feed or an action failed, in the terms the UI distinguishes.
 public enum FeedError: Error, Equatable, Sendable {
-    /// Transport failure: the server (or this Mac's network) is unreachable.
     case offline
-    /// No answer came in time: the server may be up and waiting on the
-    /// clock, so this isn't `offline`.
     case timedOut
-    /// macOS Local Network privacy blocks this app from the LAN server: looks
-    /// like `offline`, but the fix is a permission, not the server.
     case localNetworkDenied
-    /// 401: the token is missing or wrong.
     case unauthorized
-    /// 429: the server's per-IP limiter is throttling this Mac.
     case rateLimited
-    /// 404/405: the feature is off, or the server predates the route.
     case featureOff
-    /// The server answered, but the clock didn't finish in time: a write,
-    /// with its outcome, or a read (nil).
     case clockTimedOut(ClockWriteOutcome?)
-    /// Anything else, with the server's message.
     case server(String)
 
-    /// Maps any error from `APIClient` (or below) to a `FeedError`.
     public init(_ error: Error) {
         if let e = error as? FeedError {
             self = e
@@ -58,7 +45,6 @@ public enum FeedError: Error, Equatable, Sendable {
 }
 
 extension FeedError: LocalizedError {
-    /// What went wrong, for a status row or an alert.
     public var message: LocalizedStringResource {
         switch self {
         case .offline: "Server unreachable"
@@ -87,6 +73,5 @@ extension FeedError: LocalizedError {
 
     public var errorDescription: String? { String(localized: message) }
 
-    /// Whether no answer came from the server at all, for whatever reason.
     public var isUnreachable: Bool { self == .offline || self == .timedOut || self == .localNetworkDenied }
 }

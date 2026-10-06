@@ -1,7 +1,5 @@
 import Foundation
 
-/// The owner side of the server's device registry (`/v1/devices`), with the
-/// app's `EMBER_TOKEN`.
 public struct KnobService: Sendable, Equatable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
@@ -17,8 +15,6 @@ public struct KnobService: Sendable, Equatable {
         return list.devices
     }
 
-    /// Mints a device token; the same `hwID` again re-provisions (new token,
-    /// old one revoked, config kept).
     public func mint(hwID: String, name: String) async throws -> MintedKnob {
         try await client.request("POST", "/v1/devices",
                                  body: ["kind": KnobDevice.knobKind, "hw_id": hwID, "name": name])
@@ -28,7 +24,6 @@ public struct KnobService: Sendable, Equatable {
         try await client.get("/v1/devices/\(Self.escape(id))/config")
     }
 
-    /// Merge PUT: only the given fields change.
     public func updateConfig(id: String, patch: [String: JSONValue]) async throws {
         try await client.put("/v1/devices/\(Self.escape(id))/config", body: JSONValue.object(patch))
     }
@@ -37,12 +32,10 @@ public struct KnobService: Sendable, Equatable {
         try await client.request("PATCH", "/v1/devices/\(Self.escape(id))", body: ["name": name])
     }
 
-    /// Starts a rotation: the knob collects the new token on its next checkin.
     public func rotate(id: String) async throws {
         try await client.send("POST", "/v1/devices/\(Self.escape(id))/rotate")
     }
 
-    /// Revokes the token and forgets the knob.
     public func forget(id: String) async throws {
         try await client.send("DELETE", "/v1/devices/\(Self.escape(id))")
     }

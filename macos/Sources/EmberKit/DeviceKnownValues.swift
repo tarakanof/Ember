@@ -1,7 +1,5 @@
 import Foundation
 
-/// The discrete `timeSeparatorMode` values NG exposes on /v1/device/settings
-/// (replaces AWTRIX3's TFORMAT strings — see the #67 mapping).
 public enum TimeSeparatorMode: String, CaseIterable, Identifiable, Sendable {
     case steady, blink, pulse
 
@@ -9,7 +7,6 @@ public enum TimeSeparatorMode: String, CaseIterable, Identifiable, Sendable {
     public var displayName: String { rawValue.capitalized }
 }
 
-/// The discrete `dateOrder` values NG exposes on /v1/device/settings.
 public enum DateOrder: String, CaseIterable, Identifiable, Sendable {
     case dayMonthYear, monthDayYear, yearMonthDay
 
@@ -23,7 +20,6 @@ public enum DateOrder: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// The discrete `dateSeparator` values NG exposes on /v1/device/settings.
 public enum DateSeparator: String, CaseIterable, Identifiable, Sendable {
     case dot, slash, dash
 
@@ -38,7 +34,6 @@ public enum DateSeparator: String, CaseIterable, Identifiable, Sendable {
     public var displayName: String { "\"\(symbol)\"" }
 }
 
-/// The discrete `dateYearMode` values NG exposes on /v1/device/settings.
 public enum DateYearMode: String, CaseIterable, Identifiable, Sendable {
     case none, twoDigit, fourDigit
 
@@ -52,21 +47,16 @@ public enum DateYearMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Fallback catalogues and preview renderers for the Device tab's pickers.
 public enum DeviceKnownValues {
-    /// Shown when the capabilities endpoint is unreachable or hasn't loaded
-    /// yet, so the transition-effect picker still has something sane to offer.
     public static let fallbackTransitions = [
         "random", "slide", "dim", "zoom", "rotate", "pixelate", "curtain", "ripple", "blink", "reload", "fade",
     ]
 
-    /// Title-cases a device-reported effect/transition name ("random" -> "Random").
     public static func displayName(_ raw: String) -> String {
         guard let first = raw.first else { return raw }
         return String(first).uppercased() + raw.dropFirst()
     }
 
-    /// Renders a live example of the discrete time fields.
     public static func timePreview(hour24: Bool, leadingZero: Bool, showSeconds: Bool, showAmPm: Bool,
                                     at date: Date = .now, timeZone: TimeZone = .current) -> String {
         var calendar = Calendar(identifier: .gregorian)
@@ -83,7 +73,6 @@ public enum DeviceKnownValues {
         return out
     }
 
-    /// Renders a live example of the discrete date fields.
     public static func datePreview(order: DateOrder, separator: DateSeparator, yearMode: DateYearMode,
                                     at date: Date = .now, timeZone: TimeZone = .current) -> String {
         var calendar = Calendar(identifier: .gregorian)

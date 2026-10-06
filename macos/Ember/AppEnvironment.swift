@@ -4,7 +4,6 @@ import OSLog
 import SwiftUI
 import EmberKit
 
-/// App-wide coordinator: owns the server connection and the models built on it.
 @MainActor
 @Observable
 public final class AppEnvironment {
@@ -15,16 +14,12 @@ public final class AppEnvironment {
     public var serverURL: URL? { connection.serverURL }
     public var preview: PreviewService { PreviewService(client: connection.client) }
     public let deviceSettings: DeviceSettingsModel
-    /// Settings › Knob: the registered knob and the boards on USB.
     public let knob: KnobModel
-    /// Settings › Knob › Hardware: stats polled while the page is visible.
     public let knobStats: KnobStatsModel
-    /// Settings › Clock › Hardware: stats polled while the page is visible.
     public let clockStats: ClockStatsModel
     public private(set) var knobDiagnosticsSaving = false
     public private(set) var knobDiagnosticsError: String?
     public private(set) var reminderWatcher: ReminderWatcher
-    /// Settings › Sources › Music: the Apple Music pusher.
     let musicWatcher: MusicNowPlayingWatcher
     public let location = LocationService()
     public let serverDiscovery = ServerDiscovery()
@@ -131,7 +126,6 @@ public final class AppEnvironment {
         permissions = PermissionsModel(sources: AppPermissionSources(
             connection: connection, producers: producers, reminders: watcher, location: location, music: music))
         #if DEBUG
-        // A snapshot run only draws fixtures: no server, producers or USB.
         if HardwareSnapshotRenderer.isRequested { return }
         #endif
         live.configure(client: client)
@@ -152,9 +146,6 @@ public final class AppEnvironment {
         watchKnobPorts()
     }
 
-    /// Watches USB for the knob passively (IOKit: VID:PID and serial
-    /// number). Nothing opens the port until the user opens Settings › Knob
-    /// or starts a setup: idf.py monitor and esptool share it.
     private func watchKnobPorts() {
         knob.ports.start()
     }
@@ -208,8 +199,6 @@ public final class AppEnvironment {
         clockStats.configure(service: ClockStatsClient(client: client))
     }
 
-    /// Sets the knob's diagnostics level from its Hardware page, then
-    /// refetches its stats so the page follows.
     func setKnobDiagnostics(_ level: KnobDiagnostics) async {
         guard !knobDiagnosticsSaving else { return }
         knobDiagnosticsSaving = true

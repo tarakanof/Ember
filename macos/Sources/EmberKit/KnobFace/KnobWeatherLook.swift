@@ -1,7 +1,5 @@
 import Foundation
 
-/// Which of the knob's eight weather faces to draw: a port of cinder's
-/// `weather_face.c` (Ember's bucket split by the provider's raw code).
 public struct KnobWeatherLook: Equatable, Sendable {
     public enum Face: String, Sendable, CaseIterable {
         case clearDay, clearNight, partlyCloudy, overcast, fog, rain, snow, storm
@@ -11,12 +9,9 @@ public struct KnobWeatherLook: Equatable, Sendable {
 
     public var face: Face
     public var intensity: Intensity = .none
-    /// Partly cloudy shows the moon instead of the sun.
     public var night = false
-    /// WMO 48 rime fog: an icy tint.
     public var rime = false
     public var severe = false
-    /// Stale, disabled or no data: one static grey frame.
     public var still = false
 
     public init(face: Face, intensity: Intensity = .none, night: Bool = false, rime: Bool = false,
@@ -25,8 +20,6 @@ public struct KnobWeatherLook: Equatable, Sendable {
         self.severe = severe; self.still = still
     }
 
-    /// The face for a provider, Ember bucket and raw code; `night` nil lets a
-    /// MET Norway `_night` suffix decide, else day.
     public init(provider: String, condition: String, code: String?, night: Bool?) {
         var look: KnobWeatherLook?
         var suffixNight: Bool?
@@ -40,7 +33,6 @@ public struct KnobWeatherLook: Equatable, Sendable {
         self = l
     }
 
-    /// The face for the app's weather state at `now`, as the knob would draw it.
     public init(state: WeatherState?, now: Date, maxAge: TimeInterval, calendar: Calendar = .current) {
         guard let state, let cur = state.current else {
             self.init(face: .overcast, still: true)

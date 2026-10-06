@@ -64,8 +64,6 @@ private struct EnabledProbe: View {
     }
 }
 
-/// The info button lives in a row that is often disabled; `staysEnabled`
-/// must win over the row's `.disabled(true)`.
 @MainActor @Test func staysEnabledOverridesADisabledRow() {
     let log = EnabledLog()
     let row = HStack {

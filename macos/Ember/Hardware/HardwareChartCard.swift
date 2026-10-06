@@ -3,7 +3,6 @@ import Charts
 import SwiftUI
 import EmberKit
 
-/// One named series on a hardware chart: its legend name, colour and stroke.
 struct HardwareLine: Identifiable {
     let name: String
     let color: Color
@@ -11,8 +10,6 @@ struct HardwareLine: Identifiable {
     var id: String { name }
 }
 
-/// Series colours: a categorical set with no good/bad meaning, apart for
-/// common colour-vision deficiencies (blue, orange, purple, grey).
 enum HardwarePalette {
     static let first = Color.blue
     static let second = Color.orange
@@ -20,18 +17,11 @@ enum HardwarePalette {
     static let fourth = Color.gray
 }
 
-/// How a hardware chart draws its series.
 enum HardwareChartStyle {
-    /// Lines over time.
     case lines
-    /// Stacked bars, one per `unit` of time (counts such as publishes;
-    /// the points should already be summed per unit).
     case bars(Calendar.Component)
 }
 
-/// A hardware time-series card: lines (or stacked bars) over the selected
-/// range, the newest value in the accessory, a hover callout and an audio
-/// graph. Both devices' Hardware pages draw every chart with it.
 struct HardwareChartCard: View {
     let title: LocalizedStringKey
     let axTitle: String
@@ -40,16 +30,10 @@ struct HardwareChartCard: View {
     let lines: [HardwareLine]
     let range: HardwareRange
     let now: Date
-    /// The accessory's value; nil shows none.
     var headline: Double?
-    /// The accessory's text instead of `format(headline)`.
     var headlineText: String?
-    /// A fixed y range (CPU 0–100 %); nil fits the data.
     var fixedDomain: ClosedRange<Double>?
-    /// Fitted axes start at zero (bytes, rates); the first line is then
-    /// filled down to it. Without a zero baseline nothing is filled.
     var zeroBaseline = false
-    /// `.stepEnd` for integer readings such as dBm.
     var interpolation: InterpolationMethod = .linear
     var style: HardwareChartStyle = .lines
     var warn = false
@@ -163,8 +147,6 @@ struct HardwareChartCard: View {
                                                                domain: y, continuous: !isBars, format: format))
     }
 
-    /// The legend draws each series' own mark: its stroke, dashes included,
-    /// or a swatch for bars.
     private var legend: some View {
         HStack(spacing: 12) {
             ForEach(lines) { line in
@@ -196,7 +178,6 @@ struct HardwareChartCard: View {
     }
 }
 
-/// VoiceOver chart description and audio graph for a hardware chart.
 struct HardwareSeriesDescriptor: AXChartDescriptorRepresentable {
     let title: String
     let points: [HardwareSeriesPoint]
@@ -229,18 +210,13 @@ struct HardwareSeriesDescriptor: AXChartDescriptorRepresentable {
     }
 }
 
-/// Value formats for hardware readings.
 enum HardwareFormat {
     static func percent(_ v: Double) -> String { Percent.text(v) }
 
-    /// Bytes in decimal units (matching the axis's decimal ticks), in the
-    /// unit the numbers usually need.
     static func bytes(_ v: Double) -> String {
         bytes(scaleTo: v)(v)
     }
 
-    /// A byte format fixed to one unit for a whole chart, so its axis reads
-    /// "0 KB, 20 KB, 40 KB" rather than mixing bytes and KB.
     static func bytes(scaleTo largest: Int) -> (Double) -> String { bytes(scaleTo: Double(largest)) }
 
     static func bytes(scaleTo largest: Double) -> (Double) -> String {

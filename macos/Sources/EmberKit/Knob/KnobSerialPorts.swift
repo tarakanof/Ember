@@ -3,13 +3,10 @@ import IOKit
 import IOKit.serial
 import Observation
 
-/// A serial port whose USB device looks like the knob.
 public struct KnobSerialPort: Equatable, Hashable, Sendable, Identifiable {
-    /// `/dev/cu.usbmodem…`
     public let path: String
     public let vendorID: Int
     public let productID: Int
-    /// The USB serial number: the ESP32-S3's MAC, stable across reboots.
     public let serialNumber: String?
 
     public var id: String { path }
@@ -18,7 +15,6 @@ public struct KnobSerialPort: Equatable, Hashable, Sendable, Identifiable {
         self.path = path; self.vendorID = vendorID; self.productID = productID; self.serialNumber = serialNumber
     }
 
-    /// Espressif's USB-Serial/JTAG (`303a:1001`), which the knob's USB-C is.
     public static let espressifVendorID = 0x303A
     public static let usbSerialJTAGProductID = 0x1001
 
@@ -27,8 +23,6 @@ public struct KnobSerialPort: Equatable, Hashable, Sendable, Identifiable {
             && path.hasPrefix("/dev/cu.")
     }
 
-    /// The MAC as the server's `hw_id`: 12 lower-case hex, separators
-    /// dropped; nil when the serial number isn't one.
     public var hwID: String? {
         guard let s = serialNumber else { return nil }
         let hex = s.lowercased().filter { $0 != ":" && $0 != "-" }
@@ -36,7 +30,6 @@ public struct KnobSerialPort: Equatable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// Finds knob-like serial ports with IOKit and watches for plug/unplug.
 @MainActor
 @Observable
 public final class KnobSerialPorts {
@@ -50,7 +43,6 @@ public final class KnobSerialPorts {
         self.scanner = scanner
     }
 
-    /// Starts watching; idempotent.
     public func start() {
         guard notifyPort == nil else { return }
         guard let port = IONotificationPortCreate(kIOMainPortDefault) else { rescan(); return }
@@ -90,7 +82,6 @@ public final class KnobSerialPorts {
         while case let obj = IOIteratorNext(it), obj != 0 { IOObjectRelease(obj) }
     }
 
-    /// Every serial port whose USB device is `303a:1001`.
     nonisolated public static func scan() -> [KnobSerialPort] {
         var it: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(kIOSerialBSDServiceValue), &it)

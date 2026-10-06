@@ -1,16 +1,12 @@
 import Foundation
 import Observation
 
-/// The Settings window's one save status, derived from every config model:
-/// shown as the window subtitle.
 public enum AggregateSaveStatus: Equatable, Sendable {
     case idle
     case saving
     case saved
-    /// At least one model failed; its message shows inline under its section.
     case failed
 
-    /// Errors win over saving, saving over saved.
     public static func combine(_ states: [SaveState]) -> AggregateSaveStatus {
         if states.contains(where: { if case .error = $0 { true } else { false } }) { return .failed }
         if states.contains(.saving) { return .saving }
@@ -18,7 +14,6 @@ public enum AggregateSaveStatus: Equatable, Sendable {
         return .idle
     }
 
-    /// The window subtitle; nil when there's nothing to say.
     public var subtitle: LocalizedStringResource? {
         switch self {
         case .idle: nil
@@ -29,7 +24,6 @@ public enum AggregateSaveStatus: Equatable, Sendable {
     }
 }
 
-/// One config model per settings area, rebuilt when the server changes.
 @MainActor
 @Observable
 public final class SettingsModels {
@@ -38,16 +32,11 @@ public final class SettingsModels {
     public private(set) var meetings: ServerConfigModel<MeetingsConfig>
     public private(set) var usage: ServerConfigModel<UsageConfig>
     public private(set) var quiet: ServerConfigModel<QuietConfig>
-    /// Server-side display behaviour (`/v1/display/config`).
     public private(set) var display: ServerConfigModel<DisplayConfig>
-    /// The Agents pane's producer.env card toggles.
     public let agentsEnv: EnvConfigModel<DisplaySettings>
-    /// Source, server URL and source colour in producer.env.
     public let connectionEnv: EnvConfigModel<ConnectionSettings>
-    /// The Agents pane's per-agent producer.env settings.
     public let producerTuning: EnvConfigModel<ProducerTuning>
 
-    /// Every model, for the aggregate status.
     public var all: [any SaveStatusReporting] {
         [pomodoro, weather, meetings, usage, quiet, display, agentsEnv, connectionEnv, producerTuning]
     }
@@ -79,7 +68,6 @@ public final class SettingsModels {
             applyChange: { value, previous, env in try value.apply(to: &env, from: previous) })
     }
 
-    /// Points the server-backed models at a new client.
     @discardableResult
     public func configure(client: APIClient) -> Bool {
         let next = ServerIdentity(client)
@@ -103,7 +91,6 @@ public final class SettingsModels {
         _ = await (a, b, c, d, e, f)
     }
 
-    /// Loads every model (Settings opening, ⌘R while Settings is open).
     public func loadAll() async {
         async let server: Void = loadServerModels()
         async let g: Void = agentsEnv.load()
@@ -112,7 +99,6 @@ public final class SettingsModels {
         _ = await (server, g, h, i)
     }
 
-    /// The Focus pane's defaults until the server answers.
     public static let defaultPomoConfig = PomoConfig(
         focusMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15,
         roundsBeforeLongBreak: 4, autoStartNext: false, sound: true,

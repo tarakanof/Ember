@@ -3,8 +3,6 @@ import Foundation
 import Network
 @testable import EmberKit
 
-// MARK: Local Network probe
-
 @Test(arguments: [
     (LocalNetworkProbe.BrowseOutcome.denied, LocalNetworkProbe.ServerOutcome.reachable, LocalNetworkStatus.denied),
     (.ready, .denied, .denied),
@@ -40,8 +38,6 @@ func probeCombines(browse: LocalNetworkProbe.BrowseOutcome, server: LocalNetwork
     let internet = APIClient(baseURL: URL(string: "https://ember.example.com"), token: nil)
     #expect(await LocalNetworkProbe.server(internet) == .notApplicable)
 }
-
-// MARK: Rows
 
 private func snapshot(_ states: [(ProducerAgent, AgentState)], blocked: [ProducerAgent] = []) -> ProducerSnapshot {
     ProducerSnapshot(agents: states.map { (agent: $0.0, state: $0.1) }, toggle: .on, localNetworkBlocked: blocked)
@@ -116,8 +112,6 @@ private func snapshot(_ states: [(ProducerAgent, AgentState)], blocked: [Produce
     #expect(rows.map(\.id) == PermissionID.allCases)
     #expect(rows.first { $0.id == .backgroundItems }?.status == .checking)
 }
-
-// MARK: Model
 
 @MainActor
 private final class FakeSources: PermissionSources {

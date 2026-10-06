@@ -1,8 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// A Clock page: the clock's load state over its sections, which stay
-/// disabled until the clock's settings have loaded.
 struct ClockPage<Content: View>: View {
     @Environment(DeviceSettingsModel.self) private var device
     @ViewBuilder var content: Content
@@ -23,8 +21,6 @@ struct ClockPage<Content: View>: View {
     }
 }
 
-/// Clock › Status: address, firmware, health and discovery, usable while
-/// the clock is unreachable.
 struct ClockStatusPane: View {
     @Environment(DeviceSettingsModel.self) private var device
 

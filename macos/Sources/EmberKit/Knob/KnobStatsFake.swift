@@ -1,11 +1,6 @@
 import Foundation
 
-/// Deterministic, plausible knob stats for previews, tests and screenshots,
-/// so the dashboard can be judged without firmware.
 public enum KnobStatsFake {
-    /// Stats for `range` ending at `now`: 5 s points for the last 10 min
-    /// of 15m, else the server's spacing. `gap` leaves the knob silent
-    /// over that window (seconds back from now).
     public static func make(range: KnobStatsRange, diagnostics: KnobDiagnostics = .full,
                             now: Date = Date(timeIntervalSinceReferenceDate: 812_000_000),
                             online: Bool = true, live: Bool = true, psram: Bool = true,
@@ -30,8 +25,6 @@ public enum KnobStatsFake {
                          resetReason: "poweron", latest: points.last, points: points)
     }
 
-    /// `slow` stretches every wave, standing in for the server's 5-minute
-    /// buckets smoothing a day's worth of reports.
     static func sample(at t: Date, diagnostics: KnobDiagnostics, psram: Bool, slow: Double = 1) -> KnobStats.Sample {
         let x = t.timeIntervalSinceReferenceDate
         func wave(_ p: Double, _ phase: Double = 0) -> Double { sin(x / (p * slow) + phase) }

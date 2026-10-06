@@ -4,17 +4,10 @@ import Network
 public enum APIError: Error, Equatable, Sendable {
     case notConfigured
     case http(status: Int, body: String)
-    /// 429: the server's per-IP limiter throttled this Mac.
     case rateLimited(retryAfter: Duration)
     case transport(String)
-    /// No answer came within the request's budget (`URLError.timedOut`).
     case timedOut
-    /// macOS Local Network privacy refused the connection to a LAN server
-    /// (`LocalNetworkDenial`): the server may be fine.
     case localNetworkDenied
-    /// 504 with code `clock_timeout`: the server answered, but its clock
-    /// work ran out of the server's budget (`clockWriteBudget`, or
-    /// `clockReadBudget` for the settings read).
     case clockTimedOut(ClockWriteOutcome?)
     case decoding(String)
 
@@ -28,21 +21,15 @@ public enum APIError: Error, Equatable, Sendable {
         return false
     }
 
-    /// How long the server asked us to wait; nil for every other error.
     public var retryAfter: Duration? {
         if case .rateLimited(let d) = self { return d }
         return nil
     }
 }
 
-/// What a `clock_timeout` 504 says about the clock write: the server's
-/// `write` field (`writeOutcome` in cmd/ember/clock_access.go).
 public enum ClockWriteOutcome: String, Equatable, Sendable {
-    /// The budget ran out before the write went out: nothing changed.
     case notSent = "not_sent"
-    /// The write went out unanswered: it may or may not have landed.
     case unknown
-    /// The write landed; the work after it didn't finish.
     case applied
 }
 
@@ -56,8 +43,6 @@ extension APIError {
     }
 }
 
-/// Thrown by `APIClient.postIdempotent` when the connection failed before any
-/// bytes of the request reached the server, so it certainly had no effect.
 public struct RequestNotSent: Error, LocalizedError, Equatable, Sendable {
     public let underlying: APIError
     public var errorDescription: String? { underlying.errorDescription }
@@ -96,21 +81,11 @@ extension APIError: LocalizedError {
     }
 }
 
-/// How long a request may wait for the server, by what the server does before
-/// it answers.
 public enum RequestBudget: Sendable, CaseIterable {
-    /// Server-only work (`/healthz`, `/state`, settings): 5s, so a dead server
-    /// shows promptly.
     case server
-    /// One clock call through the server: `menuCallTimeout` is 8s.
     case clock
-    /// Work that chains clock calls or waits on a lock before one: a system
-    /// read-merge-PUT queues behind another (two 8s calls each) and re-reads,
-    /// a settings read or edit waits on the Pomodoro takeover snapshot and can
-    /// re-write over a restore, a reminder fire waits up to 10s.
     case clockLong
 
-    /// Longest wait for the response to start (`timeoutIntervalForRequest`).
     public var requestTimeout: TimeInterval {
         switch self {
         case .server: 5
@@ -119,7 +94,6 @@ public enum RequestBudget: Sendable, CaseIterable {
         }
     }
 
-    /// Longest whole request, retries included (`timeoutIntervalForResource`).
     public var resourceTimeout: TimeInterval {
         switch self {
         case .server: 10
@@ -129,8 +103,6 @@ public enum RequestBudget: Sendable, CaseIterable {
     }
 }
 
-/// Thin URLSession wrapper: injects the bearer token, encodes/decodes JSON, and
-/// maps non-2xx + transport + decode failures to APIError.
 public struct APIClient: Sendable {
     public let baseURL: URL?
     public let token: String?
@@ -259,7 +231,6 @@ public struct APIClient: Sendable {
         catch { throw APIError.decoding(String(describing: error)) }
     }
 
-    /// GET decoding the JSON answer, with the response (for its headers).
     public func getWithResponse<T: Decodable>(_ path: String, query: [URLQueryItem] = [],
                                               budget: RequestBudget = .server) async throws -> (T, HTTPURLResponse) {
         let (data, http) = try await performResponse("GET", path, query: query, body: nil, budget: budget)
@@ -267,12 +238,10 @@ public struct APIClient: Sendable {
         catch { throw APIError.decoding(String(describing: error)) }
     }
 
-    /// GET answering the raw body (an image).
     public func getData(_ path: String, query: [URLQueryItem] = [], budget: RequestBudget = .server) async throws -> Data {
         try await perform("GET", path, query: query, body: nil, budget: budget)
     }
 
-    /// POST/DELETE with no body.
     public func send(_ method: String, _ path: String, budget: RequestBudget = .server) async throws {
         _ = try await perform(method, path, query: [], body: nil, budget: budget)
     }
@@ -287,7 +256,6 @@ public struct APIClient: Sendable {
         _ = try await perform("POST", path, query: [], body: data, budget: budget)
     }
 
-    /// Any method with a JSON body, decoding the JSON answer.
     public func request<B: Encodable, T: Decodable>(_ method: String, _ path: String, body: B,
                                                     budget: RequestBudget = .server) async throws -> T {
         let sent = try JSONEncoder().encode(body)
@@ -296,15 +264,12 @@ public struct APIClient: Sendable {
         catch { throw APIError.decoding(String(describing: error)) }
     }
 
-    /// PUT of raw bytes (an image upload) with its content type and query.
     public func putData(_ path: String, query: [URLQueryItem], data: Data, contentType: String,
                         budget: RequestBudget = .server) async throws {
         _ = try await perform("PUT", path, query: query, body: data,
                               headers: ["Content-Type": contentType], budget: budget)
     }
 
-    /// POST carrying an `Idempotency-Key` so the server can drop a retry, with a
-    /// timeout long enough to hear the server's answer instead of guessing.
     public func postIdempotent<B: Encodable>(_ path: String, body: B, key: String) async throws {
         let data = try JSONEncoder().encode(body)
         _ = try await perform("POST", path, query: [], body: data,
