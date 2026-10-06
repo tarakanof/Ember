@@ -2525,15 +2525,21 @@ phase, its `error`, and the version added to `blocked`, in any active
 phase, `offered` included (a failure before any byte was served, or the
 knob's own guards refusing the offer). Every new offer (another version,
 or a Retry) takes the next `attempt` id, a per-device counter kept in the
-record; repeats of the same offer keep it. The knob stores the id with
+record, always one past the larger of the record's counter and the
+`ota.last.attempt` in the checkin, so a re-paired knob or a registry
+restored from an older backup never gets an id the knob still holds;
+repeats of the same offer keep it. The knob stores the id with
 its attempt and echoes it in `ota.last.attempt`, so a `last` it keeps in
 NVS from an earlier attempt (it does until a new attempt starts) never
-fails or finishes the current one. A manual offer that the knob has been
-sent for 30 minutes of checkins without starting it (the server never saw
-a download) becomes `failed` with `error` `not_started`; the clock is in
-memory and restarts whenever a checkin withholds the offer (Pomodoro, core
-dump, knob not ready). Automatic offers are exempt: they wait for 10 min
-without input, which can take hours.
+fails or finishes the current one. When the knob declines an offer for a
+lasting reason (its bad-image guard, the per-boot attempt cap) it reports
+`last` `{"attempt","result":"failed","error":"refused","version"}`, which
+Ember applies like any failure. An offer that the knob has been sent for
+30 minutes of checkins (manual) or 24 hours (automatic: it waits for 10 min
+without input, which can take hours) without starting it becomes `failed`
+with `error` `not_started`; an automatic one is also blocked. The clock is
+in memory, keyed by attempt, and restarts with a new attempt and whenever
+a checkin withholds the offer (Pomodoro, core dump, knob not ready).
 Then it decides the offer. The candidate is `target` (manual: any stored
 version, downgrades included; none after its own failure until a Retry or
 a new target) or, with no target in auto mode, the newest `release` image

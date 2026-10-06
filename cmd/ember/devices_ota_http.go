@@ -59,12 +59,19 @@ func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) er
 			return false, nil
 		}
 		offer, waiting = stepOTA(o, in)
-		if offer == nil || offer.Auto || o.Phase != otaPhaseOffered {
+		if offer == nil || o.Phase != otaPhaseOffered {
 			a.ota.notOffered(id)
 			return false, nil
 		}
-		if in.now.Sub(a.ota.offeredSince(id, in.now)) >= otaNotStarted {
+		window := otaNotStarted
+		if offer.Auto {
+			window = otaAutoNotStarted
+		}
+		if in.now.Sub(a.ota.offeredSince(id, o.Attempt, in.now)) >= window {
 			o.Phase, o.Error, o.FinishedAt = otaPhaseFailed, "not_started", &in.now
+			if offer.Auto {
+				o.block()
+			}
 			offer, waiting = nil, ""
 			a.ota.notOffered(id)
 		}

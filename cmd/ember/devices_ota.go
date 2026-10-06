@@ -29,10 +29,11 @@ const (
 	otaWaitCoredump  = "coredump"
 	otaWaitIdleInput = "idle_input"
 
-	otaURLPrefix     = "/v1/devices/self/firmware/"
-	otaNotStarted    = 30 * time.Minute
-	otaBlockedMax    = 16
-	otaWriteDeadline = 10 * time.Minute
+	otaURLPrefix      = "/v1/devices/self/firmware/"
+	otaNotStarted     = 30 * time.Minute
+	otaAutoNotStarted = 24 * time.Hour
+	otaBlockedMax     = 16
+	otaWriteDeadline  = 10 * time.Minute
 )
 
 var (
@@ -190,6 +191,9 @@ func stepOTA(o *knobOTA, in otaInput) (*otaOffer, string) {
 	cand, auto := in.target, false
 	if o.Target == "" {
 		cand, auto = in.auto, true
+		if cand != nil && slices.Contains(o.Blocked, cand.Version) {
+			cand = nil
+		}
 	} else if o.Version == o.Target && (o.Phase == otaPhaseFailed || o.Phase == otaPhaseRolledBack) {
 		return nil, ""
 	}
@@ -221,6 +225,9 @@ func stepOTA(o *knobOTA, in otaInput) (*otaOffer, string) {
 	if !o.servable(cand.Version) {
 		o.Phase, o.Version, o.Build, o.Size, o.Auto = otaPhaseOffered, cand.Version, cand.Build, cand.Size, auto
 		o.From, o.Error, o.StartedAt, o.FinishedAt = rep.FW, "", nil, nil
+		if l := r.Last; l != nil && l.Attempt > o.Attempt {
+			o.Attempt = l.Attempt
+		}
 		o.Attempt++
 	}
 	offer := &otaOffer{
@@ -259,12 +266,7 @@ func applyOTAResult(o *knobOTA, rep deviceCheckin, now time.Time) {
 	if l := r.Last; l != nil && l.Attempt != 0 && l.Attempt == o.Attempt && l.Version == o.Version &&
 		(l.Result == otaPhaseFailed || l.Result == otaPhaseRolledBack) {
 		o.Phase, o.Error, o.FinishedAt = l.Result, l.Error, &now
-		if !slices.Contains(o.Blocked, o.Version) {
-			o.Blocked = append(o.Blocked, o.Version)
-			if len(o.Blocked) > otaBlockedMax {
-				o.Blocked = o.Blocked[len(o.Blocked)-otaBlockedMax:]
-			}
-		}
+		o.block()
 		return
 	}
 	switch {
@@ -361,7 +363,12 @@ type otaLive struct {
 	mu          sync.Mutex
 	progress    map[string]otaProgress
 	waiting     map[string]string
-	offeredFrom map[string]time.Time
+	offeredFrom map[string]offerClock
+}
+
+type offerClock struct {
+	attempt int
+	since   time.Time
 }
 
 func (l *otaLive) start(device, version string, size int64, fresh bool) {
@@ -376,16 +383,16 @@ func (l *otaLive) start(device, version string, size int64, fresh bool) {
 	l.progress[device] = otaProgress{version: version, size: size}
 }
 
-func (l *otaLive) offeredSince(device string, now time.Time) time.Time {
+func (l *otaLive) offeredSince(device string, attempt int, now time.Time) time.Time {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.offeredFrom == nil {
-		l.offeredFrom = map[string]time.Time{}
+		l.offeredFrom = map[string]offerClock{}
 	}
-	if t, ok := l.offeredFrom[device]; ok {
-		return t
+	if c, ok := l.offeredFrom[device]; ok && c.attempt == attempt {
+		return c.since
 	}
-	l.offeredFrom[device] = now
+	l.offeredFrom[device] = offerClock{attempt: attempt, since: now}
 	return now
 }
 
@@ -527,4 +534,14 @@ func (a *App) otaStatus(device string, o knobOTA, last *deviceCheckin) otaStatus
 		}
 	}
 	return st
+}
+
+func (o *knobOTA) block() {
+	if slices.Contains(o.Blocked, o.Version) {
+		return
+	}
+	o.Blocked = append(o.Blocked, o.Version)
+	if len(o.Blocked) > otaBlockedMax {
+		o.Blocked = o.Blocked[len(o.Blocked)-otaBlockedMax:]
+	}
 }

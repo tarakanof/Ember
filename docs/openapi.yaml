@@ -585,7 +585,9 @@ components:
           minimum: 1
           description: >-
             Per-device attempt id, monotonic. It stays the same while the same offer
-            repeats and moves on for every new offer (a new version or a Retry). The
+            repeats and moves on for every new offer (a new version or a Retry), always
+            past the `ota.last.attempt` the knob last reported (so a re-pair or a restored
+            registry never reuses an id the knob still holds). The
             knob stores it with the attempt and echoes it in `ota.last.attempt`; Ember
             applies a `last` result only when its `attempt` is the current one.
         auto:
@@ -640,8 +642,9 @@ components:
         error:
           type: [string, "null"]
           description: >-
-            The knob's `ota.last.error` after `failed` or `rolled_back`, or `not_started`
-            when a manual offer was sent for 30 minutes without the knob starting it.
+            The knob's `ota.last.error` after `failed` or `rolled_back` (`refused`: the knob
+            declined the offer for a lasting reason), or `not_started` when an offer was sent
+            for 30 minutes (manual) or 24 hours (automatic) without the knob starting it.
         started_at:
           type: [string, "null"]
           format: date-time
@@ -2173,7 +2176,11 @@ paths:
                         attempt:
                           type: integer
                           minimum: 0
-                          description: The offer's `attempt` this result belongs to. A result without the current attempt is ignored.
+                          description: >-
+                            The offer's `attempt` this result belongs to. A result without the
+                            current attempt is ignored. When the knob declines an offer for a
+                            lasting reason (its bad-image guard, the per-boot attempt cap) it
+                            reports `{"attempt","result":"failed","error":"refused","version"}`.
                         error:
                           type: string
                           pattern: "^[a-z0-9_]{1,24}$"

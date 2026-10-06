@@ -798,3 +798,71 @@ func TestOTAProgressRestartsWithANewAttempt(t *testing.T) {
 		t.Fatalf("after the second download = %+v", st)
 	}
 }
+
+func TestOTANewAttemptSkipsPastTheKnobsLastAttempt(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	stale := lastFor("failed", "sha256", "0.9.14", 1)
+	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, stale))
+	k.target(t, "0.9.14")
+	offer := offerOf(t, k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, stale)))
+	if n := attemptOf(t, offer); n != 2 {
+		t.Fatalf("attempt = %d, want 2 (past the knob's 1)", n)
+	}
+	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, stale))
+	if st := k.status(t); st.Phase != otaPhaseOffered {
+		t.Fatalf("phase = %s, want offered", st.Phase)
+	}
+}
+
+func TestOTANotStartedClockRestartsWithANewAttempt(t *testing.T) {
+	k := newOTAKnob(t)
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	k.app.devices.now = func() time.Time { return now }
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15", seed: 6}), "")
+	k.idle(t)
+	k.target(t, "0.9.14")
+	for range 29 {
+		k.idle(t)
+		now = now.Add(time.Minute)
+	}
+	k.target(t, "0.9.15")
+	for range 3 {
+		k.idle(t)
+		now = now.Add(time.Minute)
+	}
+	if st := k.status(t); st.Phase != otaPhaseOffered || *st.Version != "0.9.15" {
+		t.Fatalf("status = %+v, want 0.9.15 offered", st)
+	}
+}
+
+func TestOTAAutoOfferNotStartedFailsAfter24Hours(t *testing.T) {
+	k := newOTAKnob(t)
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	k.app.devices.now = func() time.Time { return now }
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
+	k.idle(t)
+	k.put(t, `{"mode":"auto"}`)
+	for range 25 {
+		k.idle(t)
+		now = now.Add(time.Hour)
+	}
+	st := k.status(t)
+	if st.Phase != otaPhaseFailed || st.Error == nil || *st.Error != "not_started" || len(st.Blocked) != 1 {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestOTARefusedOfferIsRecorded(t *testing.T) {
+	k := newOTAKnob(t)
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
+	k.idle(t)
+	k.put(t, `{"mode":"auto"}`)
+	n := attemptOf(t, offerOf(t, k.idle(t)))
+	reply := k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, lastFor("failed", "refused", "0.9.14", n)))
+	st := k.status(t)
+	if st.Phase != otaPhaseFailed || *st.Error != "refused" || len(st.Blocked) != 1 || offerOf(t, reply) != nil {
+		t.Fatalf("status = %+v, offer %v", st, offerOf(t, reply))
+	}
+}
