@@ -169,7 +169,7 @@ func TestOpenAPIAuthMatchesServer(t *testing.T) {
 			continue
 		}
 		method, path, _ := strings.Cut(op.route, " ")
-		path = strings.ReplaceAll(strings.ReplaceAll(path, "{id}", knob.ID), "{dump}", "1a2b3c4d")
+		path = strings.NewReplacer("{id}", knob.ID, "{dump}", "1a2b3c4d", "{version}", "0.9.14", "{build}", "a1b2c3d4").Replace(path)
 		for _, c := range creds {
 			want := 0
 			switch {

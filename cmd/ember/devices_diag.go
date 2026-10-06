@@ -25,6 +25,7 @@ type deviceDiag struct {
 }
 
 type deviceCrash struct {
+	ELF    string `json:"elf,omitempty"`
 	ID     string `json:"id,omitempty"`
 	Size   int    `json:"size,omitempty"`
 	PC     string `json:"pc,omitempty"`
@@ -65,6 +66,8 @@ func (d deviceDiag) validate() error {
 			return errors.New("crash.id must be 8 lower-case hex digits")
 		case c.Size < 0 || c.Size > coredumpMaxBytes:
 			return errors.New("crash.size must be 1..131072")
+		case c.ELF != "" && !firmwareBuildPattern.MatchString(c.ELF):
+			return errors.New("crash.elf must be 8 lower-case hex digits")
 		}
 	}
 	for task, free := range d.StackFree {

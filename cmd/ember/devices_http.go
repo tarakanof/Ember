@@ -283,6 +283,8 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	a.knobStats.forget(id)
 	a.wifiDrops.forget(id)
 	a.diagDrops.forget(id)
+	a.otaDrops.forget(id)
+	a.ota.forget(id)
 	if a.coredumps != nil {
 		if err := a.coredumps.removeDevice(id); err != nil {
 			a.logger.WarnContext(r.Context(), "knob coredumps not removed", "device_id", id, "err", err)
@@ -306,6 +308,8 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		Wifi                json.RawMessage `json:"wifi"`
 		Diag                json.RawMessage `json:"diag"`
 		Stats               json.RawMessage `json:"stats"`
+		FWBuild             string          `json:"fw_build"`
+		OTA                 json.RawMessage `json:"ota"`
 	}
 	if !a.decodeOptionalOrReject(w, r, &req, false) {
 		return
@@ -341,6 +345,10 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		LinkFallback:        req.LinkFallback && req.LinkMHz > 0,
 		Wifi:                decodeCheckinPart[deviceWifi](a, r, "wifi", req.Wifi, &a.wifiDrops),
 		Diag:                a.decodeDeviceDiag(r, req.Diag),
+		OTA:                 decodeCheckinPart[knobOTAReport](a, r, "ota", req.OTA, &a.otaDrops),
+	}
+	if firmwareBuildPattern.MatchString(req.FWBuild) {
+		report.FWBuild = req.FWBuild
 	}
 	res, err := a.devices.checkin(id, report)
 	if errors.Is(err, errCheckinNotStored) {
@@ -365,6 +373,9 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		res.DiagLiveUntil = a.knobLiveUnix(id, diag, now)
 	}
 	a.coredumpReply(id, report.Diag, &res)
+	if err := a.otaCheckin(id, report, &res); err != nil {
+		a.logger.WarnContext(r.Context(), "knob ota step failed", "device_id", id, "err", err)
+	}
 	if res.NewToken != "" {
 		a.logger.InfoContext(r.Context(), "device rotation token issued", "device_id", id)
 		w.Header().Set("Cache-Control", "no-store")

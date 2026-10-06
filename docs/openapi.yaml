@@ -55,6 +55,8 @@ tags:
     description: The device registry (knobs) and client tokens. Owner or `admin`.
   - name: device-self
     description: Called by a knob with its own device token.
+  - name: firmware
+    description: Knob firmware images and over-the-air updates. Owner or `admin`.
   - name: settings
     description: Ember.app settings (merge PUT). Internal.
   - name: clock
@@ -103,6 +105,21 @@ components:
       in: path
       required: true
       description: A core dump id, 8 lower-case hex digits.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{8}$"
+    FirmwareVersion:
+      name: version
+      in: path
+      required: true
+      description: A stored firmware version (semantic version, `0.9.14`).
+      schema:
+        type: string
+    FirmwareBuild:
+      name: build
+      in: path
+      required: true
+      description: The first 8 hex digits of the image's `app_elf_sha256`.
       schema:
         type: string
         pattern: "^[0-9a-f]{8}$"
@@ -156,6 +173,18 @@ components:
             type: object
     NoContent:
       description: Done; no body.
+    Conflict:
+      description: The request conflicts with the current state.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unavailable:
+      description: The server has no data dir, so knob firmware and core dump storage are off.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
 
   schemas:
     Error:
@@ -497,9 +526,157 @@ components:
           description: >-
             The reported `diag.crash.id` is stored; the knob may erase its dump.
             Only when the checkin carries `diag.crash.id`.
+        ota:
+          $ref: "#/components/schemas/OTAOffer"
+    FirmwareImage:
+      type: object
+      required: [build, channel, elf, idf_ver, project, sha256, size, uploaded_at, version]
+      properties:
+        build:
+          type: string
+          pattern: "^[0-9a-f]{8}$"
+          description: First 8 hex digits of the image's `app_elf_sha256`; the knob reports it as `fw_build`.
+        channel:
+          type: string
+          enum: [release, test]
+          description: Automatic updates install `release` images only.
+        elf:
+          type: boolean
+          description: The matching ELF is stored (core dump decoding).
+        idf_ver:
+          type: string
+        project:
+          type: string
+          const: cinder
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: SHA-256 of the whole `.bin`, pinned at upload and sent in the offer.
+        size:
+          type: integer
+          minimum: 65536
+          maximum: 4194304
+        uploaded_at:
+          type: string
+          format: date-time
+        version:
+          type: string
+      example:
+        build: a1b2c3d4
+        channel: release
+        elf: true
+        idf_ver: v5.5.5
+        project: cinder
+        sha256: 9f2c4be1d0c3a7f6e5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e
+        size: 1625408
+        uploaded_at: "2026-10-06T12:00:00Z"
+        version: 0.9.14
+    OTAOffer:
+      type: object
+      description: >-
+        Sent in the checkin answer only when the knob may update now: the knob reported
+        `ota.rollback` true, `ota.image` valid and `ota.phase` idle, its `fw_build` differs
+        from the offered build, no Pomodoro runs or is paused, no core dump is wanted, and
+        (automatic offers) the version is a newer `release` image not in `blocked`.
+      required: [auto, build, retry, sha256, size, url, version]
+      properties:
+        auto:
+          type: boolean
+          description: An automatic update; the knob waits for 10 min without input first.
+        build:
+          type: string
+          pattern: "^[0-9a-f]{8}$"
+        retry:
+          type: boolean
+          description: True once after an owner Retry; clears the knob's bad-image guard.
+        sha256:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        size:
+          type: integer
+        url:
+          type: string
+          description: Always relative, `/v1/devices/self/firmware/<version>`.
+        version:
+          type: string
+    OTAStatus:
+      type: object
+      description: A knob's update state, owner view. Times are whole-second RFC 3339; unknown values are null.
+      required: [mode, target, phase, progress_pct, bytes, size, from, error, started_at, finished_at, blocked, running, available, waiting_for]
+      properties:
+        mode:
+          type: string
+          enum: [manual, auto]
+          description: "`manual` (Ask first, the default) or `auto`."
+        target:
+          type: [string, "null"]
+          description: The version the owner asked for; cleared once it runs.
+        phase:
+          type: string
+          enum: [idle, offered, downloading, installing, restarting, verifying, done, failed, rolled_back]
+        progress_pct:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 100
+        bytes:
+          type: [integer, "null"]
+          description: Bytes of the image the server has sent (memory only).
+        size:
+          type: [integer, "null"]
+        from:
+          type: [string, "null"]
+          description: The `fw` the knob ran when the offer started.
+        error:
+          type: [string, "null"]
+          description: The knob's `ota.last.error` after `failed` or `rolled_back`.
+        started_at:
+          type: [string, "null"]
+          format: date-time
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+        blocked:
+          type: array
+          description: Versions that failed or rolled back; automatic mode skips them until a Retry.
+          items:
+            type: string
+        running:
+          type: [object, "null"]
+          properties:
+            fw:
+              type: string
+            build:
+              type: [string, "null"]
+            slot:
+              type: [integer, "null"]
+            image:
+              type: [string, "null"]
+            rollback:
+              type: boolean
+        available:
+          type: [string, "null"]
+          description: The newest stored version above the running one (any channel).
+        waiting_for:
+          type: [string, "null"]
+          enum: [pomodoro, coredump, idle_input, null]
+      example:
+        mode: manual
+        target: 0.9.14
+        phase: downloading
+        progress_pct: 42
+        bytes: 682000
+        size: 1625408
+        from: 0.9.13
+        error: null
+        started_at: "2026-10-06T12:01:00Z"
+        finished_at: null
+        blocked: [0.9.15]
+        running: {fw: 0.9.13, build: 77aa01ff, slot: 0, image: valid, rollback: true}
+        available: 0.9.14
+        waiting_for: null
     CoredumpMeta:
       type: object
-      required: [id, size, fw, received_at, reason, task, pc]
+      required: [id, size, fw, received_at, reason, task, pc, elf]
       properties:
         id:
           type: string
@@ -519,6 +696,9 @@ components:
           type: string
         pc:
           type: string
+        elf:
+          type: string
+          description: The crash's `elf` build (8 hex) when the last checkin reported it, else empty. `GET /v1/firmware/by-build/{elf}/elf` serves the ELF that decodes it.
 
 paths:
   /healthz:
@@ -1593,6 +1773,347 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /v1/devices/{id}/ota:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    get:
+      tags: [firmware]
+      operationId: getKnobOTA
+      summary: A knob's firmware update state
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The update state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OTAStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [firmware]
+      operationId: putKnobOTA
+      summary: Set a knob's update mode or target, or retry
+      description: >-
+        Merge: omitted keys keep their value. Setting a target or a retry bumps
+        `X-Ember-Devices-Epoch`, so the knob checks in within one view poll.
+        `target: null` cancels an offer that has not started downloading.
+        `retry: true` re-offers the last version once with `retry: true` and
+        removes it from `blocked`.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                mode:
+                  type: string
+                  enum: [manual, auto]
+                target:
+                  type: [string, "null"]
+                retry:
+                  type: boolean
+            example:
+              target: 0.9.14
+      responses:
+        "200":
+          description: The new update state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OTAStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: '`{"error":"no_rollback_bootloader"}`: the last checkin has no `ota.rollback` (target or retry only).'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/firmware:
+    get:
+      tags: [firmware]
+      operationId: listFirmware
+      summary: Stored knob images, newest version first
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The images (`[]` when none).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FirmwareImage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      tags: [firmware]
+      operationId: uploadFirmware
+      summary: Upload a knob image (cinder.bin)
+      description: >-
+        Checked from the bytes: 64 KiB to 4 MiB, ESP image magic `0xE9`, chip id 9
+        (ESP32-S3), `esp_app_desc_t` magic, `project_name` `cinder`, a semantic
+        `version`. An image that contains the server's own `EMBER_TOKEN` or the marker
+        `CINDER-DEV-SEED-BUILD` is a dev-seed build and refused. The SHA-256 of the
+        whole file is pinned. The newest 5 versions are kept, plus any version that is
+        a device's target or running firmware.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      parameters:
+        - name: channel
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [release, test]
+            default: test
+        - name: replace
+          in: query
+          required: false
+          description: "`1` replaces a stored version with other bytes unless it is a device's target."
+          schema:
+            type: string
+            enum: ["1"]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              maxLength: 4194304
+      responses:
+        "200":
+          description: The same bytes were already stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmwareImage"
+        "201":
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmwareImage"
+        "400":
+          description: '`{"error":"bad_image|wrong_chip|wrong_project|bad_version|dev_seed_build"}`, or a bad `channel`.'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          description: Body larger than 4 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/firmware/{version}:
+    parameters:
+      - $ref: "#/components/parameters/FirmwareVersion"
+    patch:
+      tags: [firmware]
+      operationId: patchFirmware
+      summary: Move an image to another channel (promote a tested build)
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [channel]
+              properties:
+                channel:
+                  type: string
+                  enum: [release, test]
+      responses:
+        "200":
+          description: The updated image.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmwareImage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      tags: [firmware]
+      operationId: deleteFirmware
+      summary: Delete an image and its ELF
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The version is a device's target or is being offered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/firmware/{version}/bin:
+    parameters:
+      - $ref: "#/components/parameters/FirmwareVersion"
+    get:
+      tags: [firmware]
+      operationId: getFirmwareBin
+      summary: Download a stored image
+      description: '`Content-Disposition: attachment; filename="cinder-<version>.bin"`.'
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The image bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/firmware/{version}/elf:
+    parameters:
+      - $ref: "#/components/parameters/FirmwareVersion"
+    get:
+      tags: [firmware]
+      operationId: getFirmwareELF
+      summary: Download an image's ELF
+      description: '`Content-Disposition: attachment; filename="cinder-<version>.elf"`. 404 when no ELF is stored.'
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The ELF bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    put:
+      tags: [firmware]
+      operationId: putFirmwareELF
+      summary: Upload the ELF that belongs to a stored image
+      description: >-
+        At most 64 MiB, read within 5 minutes. The SHA-256 of the body must equal the
+        image's `app_elf_sha256`. The same dev-seed scan as the image upload applies.
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          description: '`{"error":"elf_mismatch"}` or `{"error":"dev_seed_build"}`.'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: Body larger than 64 MiB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/firmware/by-build/{build}/elf:
+    parameters:
+      - $ref: "#/components/parameters/FirmwareBuild"
+    get:
+      tags: [firmware]
+      operationId: getFirmwareELFByBuild
+      summary: The ELF for a build prefix (decode a core dump by its `elf`)
+      x-internal: true
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The ELF bytes, `filename="cinder-<version>.elf"`.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+
   /v1/devices/self/checkin:
     post:
       tags: [device-self]
@@ -1609,6 +2130,38 @@ paths:
                 fw:
                   type: string
                   maxLength: 32
+                fw_build:
+                  type: string
+                  pattern: "^[0-9a-f]{8}$"
+                  description: First 8 hex digits of the running app's ELF SHA-256; ignored when malformed.
+                ota:
+                  type: object
+                  description: The knob's update state (cinder OTA); dropped when invalid.
+                  properties:
+                    image:
+                      type: string
+                      enum: [valid, pending_verify, new, undefined]
+                    last:
+                      type: object
+                      required: [result]
+                      properties:
+                        error:
+                          type: string
+                          pattern: "^[a-z0-9_]{1,24}$"
+                        result:
+                          type: string
+                          enum: [ok, failed, rolled_back]
+                        version:
+                          type: string
+                    phase:
+                      type: string
+                      enum: [idle, waiting, rebooting]
+                    rollback:
+                      type: boolean
+                      description: The bootloader can roll back (bootloader description version ≥ 2). Without it Ember never offers an image.
+                    slot:
+                      type: integer
+                      enum: [0, 1]
                 ip:
                   type: string
                 rssi:
@@ -1682,6 +2235,10 @@ paths:
                           type: string
                           minLength: 1
                           maxLength: 16
+                        elf:
+                          type: string
+                          pattern: "^[0-9a-f]{8}$"
+                          description: The crashed app's ELF SHA-256 prefix, to pair the dump with its ELF.
                     heap_internal_min:
                       type: integer
                       minimum: 0
@@ -1753,6 +2310,62 @@ paths:
                 $ref: "#/components/schemas/Error"
         "413":
           description: Body larger than 131072 bytes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /v1/devices/self/firmware/{version}:
+    parameters:
+      - $ref: "#/components/parameters/FirmwareVersion"
+    get:
+      tags: [device-self]
+      operationId: deviceFirmwareDownload
+      summary: A knob downloads the image its checkin offered
+      description: >-
+        Only the version currently offered to this device (409 for any other stored
+        version, 404 for an unknown one). `ETag: "<sha256>"`, `Cache-Control: no-store`,
+        `Range` and `If-Range` for resume. The write deadline is 10 minutes. The bytes
+        sent are the progress the owner sees. Per-device rate limit.
+      security: [{deviceToken: []}]
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+            example: bytes=40000-
+        - name: If-Range
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The whole image.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: The requested range.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: This version is not the one offered to this device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Too many downloads from this device.
           content:
             application/json:
               schema:

@@ -31,6 +31,7 @@ type coredumpMeta struct {
 	Reason     string    `json:"reason"`
 	Task       string    `json:"task"`
 	PC         string    `json:"pc"`
+	ELF        string    `json:"elf"`
 }
 
 type coredumpSidecar struct {
@@ -193,29 +194,43 @@ func sweepCoredumpDir(dir string) error {
 	return errors.Join(errs...)
 }
 
-func writeFileAtomic(path string, data []byte) (err error) {
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := createTempFor(path)
+	if err != nil {
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		discardTemp(tmp)
+		return fmt.Errorf("write file: %w", err)
+	}
+	return commitTemp(tmp, path)
+}
+
+func createTempFor(path string) (*os.File, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("create temp core dump file: %w", err)
+		return nil, fmt.Errorf("create temp file: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = os.Remove(tmp.Name())
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write core dump file: %w", err)
-	}
+	return tmp, nil
+}
+
+func discardTemp(tmp *os.File) {
+	_ = tmp.Close()
+	_ = os.Remove(tmp.Name())
+}
+
+func commitTemp(tmp *os.File, path string) error {
 	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("sync core dump file: %w", err)
+		discardTemp(tmp)
+		return fmt.Errorf("sync file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close core dump file: %w", err)
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("close file: %w", err)
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("rename core dump file: %w", err)
+		_ = os.Remove(tmp.Name())
+		return fmt.Errorf("rename file: %w", err)
 	}
 	return nil
 }

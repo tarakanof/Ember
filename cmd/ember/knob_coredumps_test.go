@@ -46,7 +46,7 @@ func putDump(t *testing.T, srv *httptest.Server, token, id string, body io.Reade
 
 func crashCheckin(t *testing.T, srv *httptest.Server, token, id string) map[string]any {
 	t.Helper()
-	body := `{"fw":"0.9.14","diag":{"crash":{"id":"` + id + `","size":4096,"pc":"0x4201a2b3","reason":"panic","task":"ember"}}}`
+	body := `{"fw":"0.9.14","diag":{"crash":{"elf":"a1b2c3d4","id":"` + id + `","size":4096,"pc":"0x4201a2b3","reason":"panic","task":"ember"}}}`
 	resp, b := devReq(t, srv, "POST", "/v1/devices/self/checkin", token, body)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("checkin = %d: %s", resp.StatusCode, b)
@@ -103,6 +103,8 @@ func TestDeviceCheckinDropsADiagWithAnInvalidCrashIDOrSize(t *testing.T) {
 		"size neg":   `{"crash":{"id":"1a2b3c4d","size":-1}}`,
 		"size alone": `{"crash":{"size":10}}`,
 		"id alone":   `{"crash":{"id":"1a2b3c4d"}}`,
+		"elf upper":  `{"crash":{"elf":"A1B2C3D4"}}`,
+		"elf short":  `{"crash":{"elf":"a1b2c3"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			app, post := newDiagKnob(t)
@@ -317,7 +319,7 @@ func TestCoredumpOwnerListDownloadAndDelete(t *testing.T) {
 		t.Fatalf("list = %s", raw)
 	}
 	d := list[0]
-	if d["id"] != id || d["size"] != float64(2048) || d["fw"] != "0.9.14" || d["reason"] != "panic" || d["task"] != "ember" || d["pc"] != "0x4201a2b3" {
+	if d["id"] != id || d["size"] != float64(2048) || d["fw"] != "0.9.14" || d["reason"] != "panic" || d["task"] != "ember" || d["pc"] != "0x4201a2b3" || d["elf"] != "a1b2c3d4" {
 		t.Fatalf("list entry = %v", d)
 	}
 	if _, err := time.Parse(time.RFC3339, d["received_at"].(string)); err != nil {

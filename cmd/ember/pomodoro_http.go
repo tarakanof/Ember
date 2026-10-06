@@ -85,6 +85,10 @@ func (a *App) ensureStore(path string) error {
 	if err := a.coredumps.sweep(); err != nil {
 		a.logger.Warn("core dump leftovers not removed", "err", err)
 	}
+	a.knobFW = newFirmwareStore(filepath.Join(filepath.Dir(path), "firmware", "cinder-knob"))
+	if err := a.knobFW.load(); err != nil {
+		a.logger.Warn("knob firmware store load incomplete", "err", err)
+	}
 	a.coord.setSettingsKV(store)
 	return nil
 }

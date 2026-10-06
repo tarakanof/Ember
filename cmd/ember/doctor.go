@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sort"
@@ -106,6 +107,12 @@ func runDoctorChecks(ctx context.Context, app *App, cfg *Config) DoctorResult {
 		res.Checks["devices"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
 	} else {
 		res.Checks["devices"] = checkDevices(app)
+	}
+
+	if app == nil {
+		res.Checks["firmware"] = CheckResult{Status: StatusSkipped, Detail: "server not running"}
+	} else {
+		res.Checks["firmware"] = checkFirmware(app)
 	}
 
 	if app == nil {
@@ -229,8 +236,28 @@ func checkDevices(app *App) CheckResult {
 			status = StatusWarn
 		}
 		detail += fmt.Sprintf(" %s seen=%v ago", d.ID, age)
+		if o := d.LastCheckin.OTA; o != nil && o.Image == "new" {
+			status = StatusWarn
+			detail += fmt.Sprintf(" %s rollback bootloader not active (ota.image=new)", d.ID)
+		}
 	}
 	return CheckResult{Status: status, Detail: detail}
+}
+
+func checkFirmware(app *App) CheckResult {
+	if app.knobFW == nil {
+		return CheckResult{Status: StatusOK, Detail: "no data dir; knob firmware storage off"}
+	}
+	probe, err := createTempFor(filepath.Join(app.knobFW.dir, "doctor"))
+	if err != nil {
+		return CheckResult{Status: StatusFail, Detail: "firmware dir not writable: " + err.Error()}
+	}
+	discardTemp(probe)
+	n, size, err := app.knobFW.usage()
+	if err != nil {
+		return CheckResult{Status: StatusWarn, Detail: "firmware dir unreadable: " + err.Error()}
+	}
+	return CheckResult{Status: StatusOK, Detail: fmt.Sprintf("images=%d bytes=%d", n, size)}
 }
 
 func checkSessionsSummary(app *App) CheckResult {
