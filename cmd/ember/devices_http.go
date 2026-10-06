@@ -139,10 +139,10 @@ func (a *App) handleDevicesCreate(w http.ResponseWriter, r *http.Request) {
 		Name   string   `json:"name"`
 		Scopes []string `json:"scopes"`
 	}
-	if !a.decodeOrReject(w, r, &req, true) {
+	if !a.requireMasterForClients(w, r) {
 		return
 	}
-	if !a.requireMasterForClients(w, r) {
+	if !a.decodeOrReject(w, r, &req, true) {
 		return
 	}
 	if req.Kind == deviceKindClient {
