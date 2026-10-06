@@ -87,8 +87,8 @@ func normalizeSources(raw, scopes []string) ([]string, error) {
 	if len(raw) == 0 || len(raw) > maxClientSources {
 		return nil, fmt.Errorf("%w: sources must list 1 to %d sources, or be omitted", errDeviceBody, maxClientSources)
 	}
-	if !scopeAllowed(scopes, scopeIngest) {
-		return nil, fmt.Errorf("%w: sources need the ingest or admin scope", errDeviceBody)
+	if !slices.Contains(scopes, scopeIngest) || slices.Contains(scopes, scopeAdmin) {
+		return nil, fmt.Errorf("%w: sources need the ingest scope and can't be combined with admin", errDeviceBody)
 	}
 	out := make([]string, 0, len(raw))
 	for _, s := range raw {

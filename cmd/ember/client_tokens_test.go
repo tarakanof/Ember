@@ -264,6 +264,8 @@ func TestMintClientRejectsInvalidSources(t *testing.T) {
 		"too long":     `{"kind":"client","name":"x","scopes":["ingest"],"sources":["` + strings.Repeat("a", 65) + `"]}`,
 		"too many":     string(tooMany),
 		"no ingest":    `{"kind":"client","name":"x","scopes":["control","read"],"sources":["ci"]}`,
+		"admin":        `{"kind":"client","name":"x","scopes":["admin"],"sources":["ci"]}`,
+		"ingest admin": `{"kind":"client","name":"x","scopes":["admin","ingest"],"sources":["ci"]}`,
 		"knob sources": `{"kind":"cinder-knob","hw_id":"` + testHwID + `","sources":["ci"]}`,
 		"not a list":   `{"kind":"client","name":"x","scopes":["ingest"],"sources":"ci"}`,
 	}

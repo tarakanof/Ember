@@ -21,7 +21,8 @@ info:
     - a knob device token (`deviceToken`, prefix `ekd_`) passes the
       device-self routes and the control routes.
 
-    A client token minted with `sources` is bound to them: `POST`/`DELETE
+    An `ingest` client token minted with `sources` (not allowed with
+    `admin`) is bound to them: `POST`/`DELETE
     /v1/status` and `POST /v1/usage` naming any other `source` (or, for
     usage, none) are 403. Usage stays keyed by tool, so a bound token's usage
     post is also 403 when that tool's stored entry came from a source outside
@@ -437,7 +438,8 @@ components:
                 Optional. Binds the token to these `source` values (no `/`) on
                 `POST`/`DELETE /v1/status` and `POST /v1/usage` (403 for any
                 other). Trimmed, sorted and deduplicated; needs the `ingest`
-                or `admin` scope. Omit for a token that may name any source.
+                scope and is a 400 with `admin` (an admin token could still
+                `POST /v1/clear`). Omit for a token that may name any source.
               minItems: 1
               maxItems: 16
               items:

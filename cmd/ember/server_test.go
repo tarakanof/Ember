@@ -45,7 +45,6 @@ func TestDeviceTokenScope(t *testing.T) {
 	read := mintClient(t, srv, "ha", "read").Token
 	admin := mintClient(t, srv, "ops", "admin").Token
 	bound := mintBoundClient(t, srv, "ci-bound", []string{"ci"}, "ingest").Token
-	boundAdmin := mintBoundClient(t, srv, "ops-bound", []string{"ci"}, "admin").Token
 	status := `{"source":"a","tool":"b","session":"c","state":"running"}`
 
 	cases := []struct {
@@ -137,9 +136,7 @@ func TestDeviceTokenScope(t *testing.T) {
 		{"POST", "/v1/usage", `{"tool":"gemini"}`, bound, http.StatusForbidden},
 		{"POST", "/v1/notify", `{"text":"x"}`, bound, http.StatusOK},
 		{"POST", "/v1/reminders/fire", `{"text":"stretch"}`, bound, http.StatusNoContent},
-		{"POST", "/v1/status", status, boundAdmin, http.StatusForbidden},
-		{"POST", "/v1/status", `{"source":"ci","tool":"gha","session":"2","state":"running"}`, boundAdmin, http.StatusOK},
-		{"PUT", "/v1/display/config", `{}`, boundAdmin, http.StatusOK},
+		{"POST", "/v1/clear", "", bound, http.StatusForbidden},
 		{"POST", "/v1/status", status, ingest, http.StatusOK},
 		{"POST", "/v1/status", status, testToken, http.StatusOK},
 		{"POST", "/v1/usage", `{"tool":"gemini","source":"a"}`, ingest, http.StatusNoContent},
