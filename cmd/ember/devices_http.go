@@ -283,6 +283,11 @@ func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	a.knobStats.forget(id)
 	a.wifiDrops.forget(id)
 	a.diagDrops.forget(id)
+	if a.coredumps != nil {
+		if err := a.coredumps.removeDevice(id); err != nil {
+			a.logger.WarnContext(r.Context(), "knob coredumps not removed", "device_id", id, "err", err)
+		}
+	}
 	a.logger.InfoContext(r.Context(), "device deleted", "device_id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -359,6 +364,7 @@ func (a *App) handleDeviceCheckin(w http.ResponseWriter, r *http.Request) {
 		}
 		res.DiagLiveUntil = a.knobLiveUnix(id, diag, now)
 	}
+	a.coredumpReply(id, report.Diag, &res)
 	if res.NewToken != "" {
 		a.logger.InfoContext(r.Context(), "device rotation token issued", "device_id", id)
 		w.Header().Set("Cache-Control", "no-store")

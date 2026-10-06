@@ -98,6 +98,14 @@ components:
       schema:
         type: string
         maxLength: 256
+    DumpID:
+      name: dump
+      in: path
+      required: true
+      description: A core dump id, 8 lower-case hex digits.
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{8}$"
     StatsRange:
       name: range
       in: query
@@ -477,6 +485,40 @@ components:
         diag_live_until:
           type: integer
           format: int64
+        coredump_wanted:
+          type: string
+          pattern: "^[0-9a-f]{8}$"
+          description: >-
+            The reported `diag.crash.id` is not stored for this device; upload it with
+            `PUT /v1/devices/self/coredump`. Only when the checkin carries `diag.crash.id`.
+        coredump_ack:
+          type: string
+          pattern: "^[0-9a-f]{8}$"
+          description: >-
+            The reported `diag.crash.id` is stored; the knob may erase its dump.
+            Only when the checkin carries `diag.crash.id`.
+    CoredumpMeta:
+      type: object
+      required: [id, size, fw, received_at, reason, task, pc]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{8}$"
+        size:
+          type: integer
+        fw:
+          type: string
+          description: The firmware the knob reported at upload time.
+        received_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          description: From the matching `diag.crash`; empty when unknown.
+        task:
+          type: string
+        pc:
+          type: string
 
 paths:
   /healthz:
@@ -1479,6 +1521,77 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/devices/{id}/coredumps:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+    get:
+      tags: [devices]
+      operationId: listKnobCoredumps
+      summary: A knob's stored core dumps, newest first (at most 3)
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The stored dumps.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CoredumpMeta"
+              example:
+                - id: 1a2b3c4d
+                  size: 65536
+                  fw: 0.9.14
+                  received_at: "2026-10-06T10:00:00Z"
+                  reason: panic
+                  task: ember
+                  pc: "0x4201a2b3"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/devices/{id}/coredumps/{dump}:
+    parameters:
+      - $ref: "#/components/parameters/DeviceID"
+      - $ref: "#/components/parameters/DumpID"
+    get:
+      tags: [devices]
+      operationId: getKnobCoredump
+      summary: Download one core dump
+      description: >-
+        The raw image, `Content-Disposition: attachment; filename="<device>-<fw>-<dump>.bin"`.
+        Decode with `esp-coredump --chip esp32s3 info_corefile -c <file> cinder.elf` from the same firmware build.
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "200":
+          description: The dump bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [devices]
+      operationId: deleteKnobCoredump
+      summary: Delete one core dump
+      security: [{ownerToken: []}, {clientToken: [admin]}]
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /v1/devices/self/checkin:
     post:
@@ -1547,6 +1660,17 @@ paths:
                       type: object
                       description: Present while a core dump is in flash.
                       properties:
+                        id:
+                          type: string
+                          pattern: "^[0-9a-f]{8}$"
+                          description: >-
+                            The dump's IDF checksum: the image's last 4 bytes as a little-endian
+                            u32 in hex, equal to the CRC-32 (IEEE) of the image without them.
+                            Sent with `size`.
+                        size:
+                          type: integer
+                          minimum: 1
+                          maximum: 131072
                         pc:
                           type: string
                           pattern: "^0x[0-9a-f]{1,8}$"
@@ -1589,6 +1713,50 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/devices/self/coredump:
+    put:
+      tags: [device-self]
+      operationId: deviceCoredumpUpload
+      summary: A knob uploads the core dump a checkin asked for
+      description: >-
+        Body: the whole image, at most 131072 bytes. Stored when it is at least 8 bytes,
+        the CRC-32 (IEEE) of all but its last 4 bytes equals `id`, and those last 4 bytes
+        read as a little-endian u32 equal `id`. The newest 3 per device are kept.
+      security: [{deviceToken: []}]
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{8}$"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              maxLength: 131072
+      responses:
+        "204":
+          description: Stored, or this id was already stored.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Another upload for this device is running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body larger than 131072 bytes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /v1/devices/self/config:
     get:
       tags: [device-self]

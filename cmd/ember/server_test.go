@@ -36,6 +36,7 @@ func TestAuthRequiredOnWriteEndpoints(t *testing.T) {
 
 func TestDeviceTokenScope(t *testing.T) {
 	app := newPomodoroApp(t)
+	app.coredumps = newCoredumpStore(t.TempDir())
 	app.updateConfig(func(c *Config) { c.RateLimit.Disabled = true })
 	srv := httptest.NewServer(app.routes())
 	t.Cleanup(srv.Close)
@@ -81,6 +82,12 @@ func TestDeviceTokenScope(t *testing.T) {
 		{"POST", "/v1/devices/" + m.ID + "/rotate", "", m.Token, http.StatusUnauthorized},
 		{"GET", "/v1/devices/" + m.ID + "/stats", "", m.Token, http.StatusUnauthorized},
 		{"POST", "/v1/devices/" + m.ID + "/stats/live", "", m.Token, http.StatusUnauthorized},
+		{"GET", "/v1/devices/" + m.ID + "/coredumps", "", m.Token, http.StatusUnauthorized},
+		{"GET", "/v1/devices/" + m.ID + "/coredumps/1a2b3c4d", "", m.Token, http.StatusUnauthorized},
+		{"DELETE", "/v1/devices/" + m.ID + "/coredumps/1a2b3c4d", "", m.Token, http.StatusUnauthorized},
+		{"PUT", "/v1/devices/self/coredump?id=1a2b3c4d", "", testToken, http.StatusUnauthorized},
+		{"PUT", "/v1/devices/self/coredump?id=1a2b3c4d", "", admin, http.StatusUnauthorized},
+		{"PUT", "/v1/devices/self/coredump?id=1a2b3c4d", "", "", http.StatusUnauthorized},
 		{"DELETE", "/v1/devices/" + m.ID, "", m.Token, http.StatusUnauthorized},
 		{"GET", "/admin/doctor", "", m.Token, http.StatusUnauthorized},
 		{"POST", "/v1/devices/self/checkin", `{}`, testToken, http.StatusUnauthorized},
@@ -115,6 +122,10 @@ func TestDeviceTokenScope(t *testing.T) {
 		{"GET", "/v1/weather/config", "", read, http.StatusForbidden},
 		{"GET", "/v1/meetings/config", "", read, http.StatusForbidden},
 		{"GET", "/v1/devices", "", read, http.StatusForbidden},
+		{"GET", "/v1/devices/" + m.ID + "/coredumps", "", read, http.StatusForbidden},
+		{"GET", "/v1/devices/" + m.ID + "/coredumps/1a2b3c4d", "", read, http.StatusForbidden},
+		{"DELETE", "/v1/devices/" + m.ID + "/coredumps/1a2b3c4d", "", control, http.StatusForbidden},
+		{"PUT", "/v1/devices/self/coredump?id=1a2b3c4d", "", ingest, http.StatusUnauthorized},
 		{"PUT", "/v1/display/config", `{}`, read, http.StatusForbidden},
 		{"POST", "/v1/status", status, read, http.StatusForbidden},
 
@@ -123,6 +134,9 @@ func TestDeviceTokenScope(t *testing.T) {
 		{"POST", "/v1/pomodoro/stop", "", admin, http.StatusOK},
 		{"PUT", "/v1/display/config", `{}`, admin, http.StatusOK},
 		{"GET", "/v1/devices", "", admin, http.StatusOK},
+		{"GET", "/v1/devices/" + m.ID + "/coredumps", "", admin, http.StatusOK},
+		{"GET", "/v1/devices/" + m.ID + "/coredumps/1a2b3c4d", "", admin, http.StatusNotFound},
+		{"GET", "/v1/devices/" + m.ID + "/coredumps", "", testToken, http.StatusOK},
 		{"POST", "/v1/devices", `{"kind":"client","name":"x","scopes":["ingest"]}`, admin, http.StatusForbidden},
 		{"GET", "/v1/devices/self/view", "", admin, http.StatusUnauthorized},
 

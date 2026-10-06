@@ -9,6 +9,7 @@ import (
 const (
 	diagTaskNameMax  = 16
 	diagStackTaskMax = 32
+	coredumpMaxBytes = 128 << 10
 )
 
 type deviceDiag struct {
@@ -24,6 +25,8 @@ type deviceDiag struct {
 }
 
 type deviceCrash struct {
+	ID     string `json:"id,omitempty"`
+	Size   int    `json:"size,omitempty"`
 	PC     string `json:"pc,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	Task   string `json:"task,omitempty"`
@@ -32,6 +35,7 @@ type deviceCrash struct {
 var (
 	diagReasonPattern = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
 	diagPCPattern     = regexp.MustCompile(`^0x[0-9a-f]{1,8}$`)
+	coredumpIDPattern = regexp.MustCompile(`^[0-9a-f]{8}$`)
 )
 
 func (d deviceDiag) validate() error {
@@ -55,6 +59,12 @@ func (d deviceDiag) validate() error {
 			return errors.New("crash.pc must be lower-case 0x plus 1..8 hex digits")
 		case c.Task != "" && !validDiagTaskName(c.Task):
 			return errors.New("crash.task must be 1..16 printable ASCII characters")
+		case (c.ID == "") != (c.Size == 0):
+			return errors.New("crash.id and crash.size come together")
+		case c.ID != "" && !coredumpIDPattern.MatchString(c.ID):
+			return errors.New("crash.id must be 8 lower-case hex digits")
+		case c.Size < 0 || c.Size > coredumpMaxBytes:
+			return errors.New("crash.size must be 1..131072")
 		}
 	}
 	for task, free := range d.StackFree {

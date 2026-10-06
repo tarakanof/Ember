@@ -81,6 +81,7 @@ func (a *App) ensureStore(path string) error {
 		return err
 	}
 	a.store = store
+	a.coredumps = newCoredumpStore(filepath.Join(filepath.Dir(path), "coredumps"))
 	a.coord.setSettingsKV(store)
 	return nil
 }

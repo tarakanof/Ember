@@ -67,6 +67,7 @@ type App struct {
 	knobStats    *knobStatsStore
 	wifiDrops    checkinDropLog
 	diagDrops    checkinDropLog
+	coredumps    *coredumpStore
 	clockStats   *clockStatsStore
 
 	appsMu     sync.Mutex

@@ -137,9 +137,13 @@ func (a *App) routeTable() (http.Handler, []string) {
 	writeMux.Handle("POST /v1/devices/{id}/rotate", http.HandlerFunc(a.handleDeviceRotate))
 	writeMux.Handle("GET /v1/devices/{id}/stats", http.HandlerFunc(a.handleKnobStats))
 	writeMux.Handle("POST /v1/devices/{id}/stats/live", http.HandlerFunc(a.handleKnobStatsLive))
+	writeMux.Handle("GET /v1/devices/{id}/coredumps", http.HandlerFunc(a.handleCoredumpList))
+	writeMux.Handle("GET /v1/devices/{id}/coredumps/{dump}", http.HandlerFunc(a.handleCoredumpGet))
+	writeMux.Handle("DELETE /v1/devices/{id}/coredumps/{dump}", http.HandlerFunc(a.handleCoredumpDelete))
 	mux.Handle("/v1/", rateLimit(a, requireAuth(a, a.logger, writeMux)))
 
 	mux.Handle("POST /v1/devices/self/checkin", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceCheckin))))
+	mux.Handle("PUT /v1/devices/self/coredump", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleCoredumpUpload))))
 	mux.Handle("GET /v1/devices/self/config", rateLimit(a, requireDevice(a, http.HandlerFunc(a.handleDeviceSelfConfig))))
 	mux.Handle("GET /v1/devices/self/view", rateLimitAuthFailures(a, nil, a.perDevice(a.viewLimit, http.HandlerFunc(a.handleDeviceSelfView))))
 	mux.Handle("POST /v1/pomodoro/start", rateLimit(a, requireControl(a, http.HandlerFunc(a.handlePomodoroStart))))
