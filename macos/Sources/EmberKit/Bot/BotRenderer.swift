@@ -1,23 +1,16 @@
 import CoreGraphics
 import Foundation
 
-/// How a `BotPose` is painted: one style for the menu bar, one for the Dock.
 public struct BotStyle: Sendable {
     public var body: CGColor
-    /// nil cuts the eyes out of the body (transparent), which keeps a menu-bar
-    /// image usable as a template.
     public var eyes: CGColor?
     public var rim: CGColor?
     public var badge: CGColor?
     public var shadow: Bool
-    /// Body radius as a fraction of half the canvas; the rest is hop headroom.
     public var fill: Double
-    /// Eyes read too thin at 18 pt, so the menu bar draws them larger.
     public var eyeScale: Double
     public var hopScale: Double
-    /// Extra eye width/height in body radii, so small sizes can add whole pixels.
     public var eyeGrow: CGSize = .zero
-    /// App-icon backing plate (macOS 26+ grid); nil draws the bare ball.
     public var plate: CGColor?
 
     public init(body: CGColor, eyes: CGColor?, rim: CGColor? = nil, badge: CGColor? = nil,
@@ -28,15 +21,12 @@ public struct BotStyle: Sendable {
         self.plate = plate
     }
 
-    /// For a 22 pt image (the HIG's max menu-bar asset height): a 16 pt ball,
-    /// the size at which a circular extra matches the system icons' weight.
     public static func menuBar(tint: CGColor) -> BotStyle {
         var s = BotStyle(body: tint, eyes: nil, fill: 16.0 / 22, eyeScale: 1.25, hopScale: 0.5)
         s.eyeGrow = CGSize(width: 0.5 / 8, height: 0.5 / 8)
         return s
     }
 
-    /// App-icon grid: an 824/1024 rounded plate, the ball filling most of it.
     public static func dock(badge: CGColor?) -> BotStyle {
         var s = BotStyle(body: CGColor(srgbRed: 0.04, green: 0.04, blue: 0.045, alpha: 1),
                          eyes: CGColor(gray: 1, alpha: 1),
@@ -46,15 +36,12 @@ public struct BotStyle: Sendable {
         return s
     }
 
-    /// The ball's radius, in the same units, on a square canvas `side` across.
     public func bodyRadius(side: Double) -> Double { side / 2 * fill }
 
     static let plateSize = 824.0 / 1024
     static let plateCorner = 0.225
 }
 
-/// Draws the bot in code — a 96-point body ring (so shapes morph point by point)
-/// plus capsule/oval/arc eyes.
 public enum BotRenderer {
     public static func draw(_ pose: BotPose, in ctx: CGContext, rect: CGRect, style: BotStyle) {
         let half = min(rect.width, rect.height) / 2
@@ -124,8 +111,6 @@ public enum BotRenderer {
         }
     }
 
-    // MARK: - Body
-
     static let ringPoints = 96
 
     static func bodyPath(triangle k: Double) -> CGPath {
@@ -163,8 +148,6 @@ public enum BotRenderer {
         path.closeSubpath()
         return path
     }
-
-    // MARK: - Eyes
 
     static func drawEyes(_ pose: BotPose, in ctx: CGContext, scale: Double, grow: CGSize = .zero) {
         let reach = 0.6 - 0.2 * pose.triangle

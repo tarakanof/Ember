@@ -1,17 +1,12 @@
 import Foundation
 
-/// The per-agent producer.env settings under Settings › Sources › Agents,
-/// parsed and validated the way the Go producers read them
-/// (`cmd/ember-codex-producer/config.go`, `cmd/ember-claude-producer`).
 public struct ProducerTuning: Equatable, Sendable {
-    /// The Codex `session_meta.source` kinds the pane offers, in display order.
     public static let codexSourceKinds = ["cli", "vscode", "exec", "mcp"]
     static let defaultCodexSources: Set<String> = ["cli", "vscode"]
     static let defaultDoneTTLSeconds = 30
     static let defaultStatuslineTimeoutMs = 10_000
 
     public var codexIncludeClaude: Bool
-    /// Never empty when read: the producer treats an empty list as the default.
     public var codexSources: Set<String>
     public var codexAppServer: Bool
     public var doneTTLSeconds: Int
@@ -28,10 +23,6 @@ public struct ProducerTuning: Equatable, Sendable {
             ?? Self.defaultStatuslineTimeoutMs
     }
 
-    /// Validates every value, then writes each one that differs from
-    /// `previous` (the value last loaded or saved; nil compares with the
-    /// file), so a hand edit to another key survives. A value equal to the
-    /// producer's default removes its key. A throw writes nothing.
     public func apply(to env: inout EnvFile, from previous: ProducerTuning? = nil) throws {
         if codexSources.isEmpty {
             throw ValidationError(message: "Choose at least one kind of Codex session to show.")
@@ -58,20 +49,16 @@ public struct ProducerTuning: Equatable, Sendable {
         write(SettingsKeys.statuslineTimeoutMs, \.statuslineTimeoutMs, String.init)
     }
 
-    /// Whether a Codex setting differs, which the Codex producer only reads
-    /// when it starts.
     public func changesCodex(from other: ProducerTuning) -> Bool {
         codexIncludeClaude != other.codexIncludeClaude
             || codexSources != other.codexSources
             || codexAppServer != other.codexAppServer
     }
 
-    /// Whether unchecking `kind` leaves at least one kind checked.
     public func canUncheckCodexSource(_ kind: String) -> Bool {
         !codexSources.subtracting([kind]).isEmpty
     }
 
-    /// Checks or unchecks a Codex source kind; never unchecks the last one.
     public mutating func setCodexSource(_ kind: String, on: Bool) {
         if on {
             codexSources.insert(kind)
@@ -80,16 +67,12 @@ public struct ProducerTuning: Equatable, Sendable {
         }
     }
 
-    /// Values the producers take from their process environment ahead of
-    /// producer.env; nil where the variable isn't set.
     public struct Overrides: Equatable, Sendable {
         public var claudeAgentsPoll: Bool?
         public var statuslineTimeoutMs: Int?
 
         public init() {}
 
-        /// Reads the variables the producers look up with `os.LookupEnv`: set
-        /// but empty or invalid still wins, with the producer's default.
         public init(environment: [String: String]) {
             if let v = environment[SettingsKeys.claudeAgentsPoll] {
                 claudeAgentsPoll = envTrue(v)

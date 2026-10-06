@@ -2,8 +2,6 @@ import Foundation
 import Network
 import Observation
 
-/// Browses the LAN for Ember servers advertising `_ember._tcp` and resolves each
-/// to a usable host:port.
 @MainActor
 @Observable
 public final class ServerDiscovery {
@@ -22,8 +20,6 @@ public final class ServerDiscovery {
         }
     }
 
-    /// Why the discovered-servers list might be empty, so the UI can stop showing
-    /// an indefinite "Searching…" when the browse can't actually run.
     public enum Status: Equatable, Sendable {
         case searching
         case needsAccess
@@ -38,8 +34,6 @@ public final class ServerDiscovery {
 
     public init() {}
 
-    /// Browses until the calling task is cancelled: use it from a view's
-    /// `.task`.
     public func browse() async {
         if holds.acquire() { start() }
         defer { if holds.release() { stop() } }
@@ -85,7 +79,6 @@ public final class ServerDiscovery {
         browser = b
     }
 
-    /// Tears down and restarts the browse — used by the "Rescan" button.
     public func restart() {
         stop()
         start()

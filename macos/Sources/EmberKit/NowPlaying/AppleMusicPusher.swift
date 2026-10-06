@@ -3,35 +3,22 @@ import ImageIO
 import Observation
 import UniformTypeIdentifiers
 
-/// Reads Music.app. Implementations must never launch Music: every call
-/// answers nil while it isn't running.
 public protocol MusicBridge: Sendable {
     func isRunning() async -> Bool
-    /// The player position in seconds.
     func position() async -> Double?
-    /// The current track's persistent ID and artwork bytes (JPEG or PNG),
-    /// read together so the art can't belong to a track that started since.
     func artwork() async -> (trackID: String, data: Data)?
-    /// The whole player state, for when the pusher turns on mid-track.
     func snapshot() async -> MusicPlayerInfo?
-    /// Music's own `sound volume` (0-100), not the system volume.
     func volume() async -> Int?
-    /// Runs a playback command; false when Music isn't running or refused it.
-    /// Implementations must address the running process only, so a Music
-    /// that quit meanwhile is never launched.
+    /// Address the running process only: a Music that quit meanwhile must not be relaunched.
     func perform(_ command: NowPlayingCommand) async -> Bool
-    /// Whether Ember may already send Apple Events to Music. Never prompts:
-    /// the prompt belongs to the Settings button, not to a knob press.
     func canControl() async -> Bool
 }
 
-/// Where reports and artwork go: the Ember server.
 public protocol NowPlayingSink: Sendable {
     func report(_ r: NowPlayingReport) async throws -> NowPlayingAck
     func putArtwork(_ data: Data, contentType: String, source: String, player: String, trackID: String) async throws
 }
 
-/// `NowPlayingSink` over the server API.
 public struct NowPlayingClient: NowPlayingSink {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
@@ -52,14 +39,11 @@ extension NowPlayingClient: NowPlayingCommandSource {
     public func commands(player: String, wait: Int) async throws -> [NowPlayingCommand] {
         let answer: NowPlayingCommands = try await client.get("/v1/nowplaying/commands", query: [
             URLQueryItem(name: "player", value: player), URLQueryItem(name: "wait", value: String(wait)),
-        ], budget: .clockLong)   // 35 s to the first byte: above the server's 25 s wait
+        ], budget: .clockLong)
         return answer.commands
     }
 }
 
-/// Sends Music.app's state to Ember: one report per player notification,
-/// plus the artwork whenever the server says it lacks it. Bursts (skipping
-/// through tracks) coalesce to the latest state. No timers.
 @MainActor
 @Observable
 public final class AppleMusicPusher {
@@ -80,8 +64,6 @@ public final class AppleMusicPusher {
         self.player = player
     }
 
-    /// Points the pusher at another server, or renames this Mac's player
-    /// (the old name is reported stopped, so it doesn't linger).
     public func configure(sink: NowPlayingSink, player: String) async {
         if player != self.player, let last = lastSent, last.state != .stopped {
             await drain()
@@ -91,7 +73,6 @@ public final class AppleMusicPusher {
         self.player = player
     }
 
-    /// Queues a player state; returns at once.
     public func submit(_ info: MusicPlayerInfo) {
         latest = info
         guard worker == nil else { return }
@@ -104,22 +85,18 @@ public final class AppleMusicPusher {
         }
     }
 
-    /// Reads Music once (when it runs) and pushes that, for a pusher that
-    /// just turned on.
     public func pushSnapshot() async {
         guard await bridge.isRunning(), let info = await bridge.snapshot() else { return }
         submit(info)
         await drain()
     }
 
-    /// Tells the server this Mac stopped playing (pusher turned off).
     public func stop() async {
         await drain()
         guard let last = lastSent, last.state != .stopped else { return }
         await send(MusicPlayerInfo(state: .stopped).report(source: Self.source, player: player))
     }
 
-    /// Waits until queued states are sent.
     public func drain() async {
         while let w = worker { await w.value }
     }
@@ -157,13 +134,10 @@ public final class AppleMusicPusher {
     }
 }
 
-/// Keeps uploads small: artwork over `maxBytes` or `maxSide` is re-encoded
-/// as a JPEG at most `maxSide` px on its longer side.
 public enum ArtworkShrinker {
     public static let maxBytes = 512 * 1024
     public static let maxSide = 1000
 
-    /// The bytes to upload and their content type; nil for unreadable data.
     public static func fit(_ data: Data) -> (data: Data, contentType: String)? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let type = CGImageSourceGetType(src) as String?,

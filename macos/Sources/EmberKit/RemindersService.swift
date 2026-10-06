@@ -1,11 +1,9 @@
 import Foundation
 
-/// Fires an Apple Reminder's alarm on the clock via POST /v1/reminders/fire.
 public struct RemindersService: Sendable {
     let client: APIClient
     public init(client: APIClient) { self.client = client }
 
-    /// Fires one reminder occurrence.
     public func fire(text: String, sound: Bool, duration: Int, nativeIconId: String, hold: Bool,
                      repeatSound: Bool = false, key: String) async throws {
         try await client.postIdempotent("/v1/reminders/fire",

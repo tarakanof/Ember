@@ -1,6 +1,5 @@
 import Foundation
 
-/// One row of the Upcoming card: a calendar meeting or an Apple reminder.
 public struct UpcomingItem: Equatable, Sendable, Identifiable {
     public enum Kind: Hashable, Sendable { case meeting, reminder }
 
@@ -16,14 +15,10 @@ public struct UpcomingItem: Equatable, Sendable, Identifiable {
         self.date = date
     }
 
-    /// The window the card covers.
     public static let horizon: TimeInterval = 36 * 3600
     public static let limit = 5
-    /// Under this, a row shows a relative time ("in 12 min") instead of a clock time.
     public static let relativeBelow: TimeInterval = 3600
 
-    /// Meetings and reminders from `now` to `now + horizon`, soonest first,
-    /// at most `limit`.
     public static func merge(meetings: [MeetingsState.Item], reminders: [UpcomingItem],
                              now: Date) -> [UpcomingItem] {
         let from = now.addingTimeInterval(-5 * 60), to = now.addingTimeInterval(horizon)

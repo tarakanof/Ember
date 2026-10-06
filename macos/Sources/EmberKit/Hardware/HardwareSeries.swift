@@ -1,6 +1,5 @@
 import Foundation
 
-/// The Hardware pages' time ranges (`?range=` on the knob and clock stats).
 public enum HardwareRange: String, CaseIterable, Sendable, Identifiable {
     case fifteenMinutes = "15m"
     case hour = "1h"
@@ -16,8 +15,6 @@ public enum HardwareRange: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// Spacing of the server's points outside the live window: minute
-    /// buckets, five-minute buckets over a day.
     public var spacing: TimeInterval {
         switch self {
         case .fifteenMinutes, .hour: 60
@@ -25,19 +22,15 @@ public enum HardwareRange: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// Gap after which a line breaks: three missed points at `spacing`.
     public var gap: TimeInterval { spacing * 3 }
 }
 
-/// A point of one named line; `segment` changes across a reporting gap so
-/// a chart doesn't draw a line through time the device was silent.
 public struct HardwareSeriesPoint: Equatable, Sendable, Identifiable {
     public var t: Date
     public var series: String
     public var segment: Int
     public var value: Double
     public var id: String { "\(series)|\(t.timeIntervalSinceReferenceDate)" }
-    /// The key that keeps segments of one series apart.
     public var lineKey: String { "\(series)#\(segment)" }
 
     public init(t: Date, series: String, segment: Int, value: Double) {
@@ -46,8 +39,6 @@ public struct HardwareSeriesPoint: Equatable, Sendable, Identifiable {
 }
 
 public enum HardwareSeries {
-    /// One series per named value over `points` (ascending by `time`),
-    /// broken where consecutive values are more than `gap` apart.
     public static func build<P>(_ points: [P], time: (P) -> Date,
                                 values: [(name: String, value: (P) -> Double?)],
                                 gap: TimeInterval) -> [HardwareSeriesPoint] {
@@ -68,8 +59,6 @@ public enum HardwareSeries {
 }
 
 extension HardwareSeries {
-    /// `points` summed per series per `unit` of time (`calendar`'s), each
-    /// sum at its unit's start: counts as bars, one per minute or hour.
     public static func summed(_ points: [HardwareSeriesPoint], per unit: Calendar.Component,
                               calendar: Calendar = .current) -> [HardwareSeriesPoint] {
         var order: [String] = []
@@ -89,10 +78,7 @@ extension HardwareSeries {
     }
 }
 
-/// Wi-Fi signal shared by both devices' pages.
 public enum WiFiReadout {
-    /// At or above this the signal reads good.
     public static let goodRSSI = -67
-    /// Below this the signal is a warning (`ClockHealthReadout.weakRSSI`).
     public static var weakRSSI: Int { ClockHealthReadout.weakRSSI }
 }

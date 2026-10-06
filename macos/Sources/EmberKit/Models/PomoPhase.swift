@@ -1,6 +1,5 @@
 import Foundation
 
-/// A Pomodoro phase as a type.
 public enum PomoPhase: Hashable, Sendable {
     case idle, focus, shortBreak, longBreak
     case unknown(String)
@@ -15,7 +14,6 @@ public enum PomoPhase: Hashable, Sendable {
         }
     }
 
-    /// "Focus", "Short Break", "Long Break".
     public var displayName: LocalizedStringResource {
         switch self {
         case .idle: "Idle"
@@ -31,13 +29,10 @@ public enum PomoPhase: Hashable, Sendable {
 }
 
 extension PomoState {
-    /// What the timer is doing, which decides the controls on offer.
     public enum Mode: Hashable, Sendable {
         case idle
         case running
         case paused
-        /// Not running and not paused, but mid-cycle (a finished phase waiting
-        /// for the next to start when auto-advance is off).
         case parked
     }
 

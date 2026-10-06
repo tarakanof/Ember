@@ -1,9 +1,6 @@
 import Foundation
 
-/// The server's bucket keys as dates.
 public enum DayKey {
-    /// Local midnight of a "yyyy-MM-dd" key in `calendar`'s time zone; nil
-    /// when the key doesn't parse.
     public static func date(_ key: String, in calendar: Calendar) -> Date? {
         let parts = key.split(separator: "-")
         guard parts.count == 3, let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]),
@@ -16,21 +13,17 @@ public enum DayKey {
         return calendar.startOfDay(for: date)
     }
 
-    /// The "yyyy-MM-dd" key of the calendar day containing `date`.
     public static func key(_ date: Date, in calendar: Calendar) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
-    /// The "yyyy-Www" ISO week key of `date` (as Go's `time.ISOWeek`).
     public static func weekKey(_ date: Date, in calendar: Calendar) -> String {
         let iso = isoCalendar(like: calendar)
         let c = iso.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
         return String(format: "%04d-W%02d", c.yearForWeekOfYear ?? 0, c.weekOfYear ?? 0)
     }
 
-    /// Local midnight of the Monday that starts an ISO week key ("2026-W39");
-    /// nil when the key doesn't parse.
     public static func weekStart(_ key: String, in calendar: Calendar) -> Date? {
         let parts = key.split(separator: "-")
         guard parts.count == 2, let y = Int(parts[0]), parts[1].first == "W",
@@ -41,8 +34,6 @@ public enum DayKey {
         return iso.date(from: comps).map { iso.startOfDay(for: $0) }
     }
 
-    /// `n` consecutive calendar days ending with the day of `end`, oldest
-    /// first, each at local midnight.
     public static func days(endingAt end: Date, count n: Int, in calendar: Calendar) -> [Date] {
         let last = calendar.startOfDay(for: end)
         return (0..<max(0, n)).reversed().compactMap {

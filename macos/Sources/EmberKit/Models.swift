@@ -37,16 +37,11 @@ public struct PomoDayStat: Codable, Sendable, Equatable {
 
 public struct PomoStats: Codable, Sendable, Equatable {
     public var today: PomoDayStat
-    /// The last 7 logical days, newest first (index 0 is today).
     public var history: [PomoDayStat]
     public var streak: Int
-    /// Fields below arrived after the original three; each decodes if present
-    /// so an older server still yields a usable value.
     public var longestStreak: Int
-    /// Focus-phase outcomes over the last 30 days.
     public var completion: CompletionStat
     public var goal: GoalStatus
-    /// The last 12 ISO weeks, oldest first ("2026-W32").
     public var weekly: [FocusBucket]
 
     public init(today: PomoDayStat, history: [PomoDayStat], streak: Int,
@@ -90,9 +85,7 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     public var focusColor: String
     public var breakColor: String
     public var maxSessionMinutes: Int
-    /// Completed focus sessions per day; 0 turns the goal off.
     public var dailyGoalSessions: Int
-    /// Active days per week; 0 turns the goal off.
     public var weeklyGoalDays: Int
 
     public init(focusMinutes: Int, shortBreakMinutes: Int, longBreakMinutes: Int,
@@ -149,7 +142,6 @@ public struct PomoConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// Runtime AI-usage-widget toggles (GET/PUT /v1/usage/config).
 public struct UsageConfig: Codable, Sendable, Equatable {
     public var usageWidget: Bool
     public var usagePerModel: Bool
@@ -168,8 +160,6 @@ public struct UsageConfig: Codable, Sendable, Equatable {
         case limitAlarm = "limit_alarm"
         case usageThresholdPct = "usage_threshold_pct"
     }
-    /// Custom decoder so fields absent in older-server payloads default gracefully:
-    /// `limit_alarm` defaults to `true`, `usage_threshold_pct` defaults to 60.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         usageWidget = try c.decode(Bool.self, forKey: .usageWidget)
@@ -179,8 +169,6 @@ public struct UsageConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// Quiet-hours window (GET/PUT /v1/quiet/config): the server mutes all device
-/// sounds during the window (server-local time); visuals are unaffected.
 public struct QuietConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var start: String
@@ -192,7 +180,6 @@ public struct QuietConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// Mirrors the server's runtime display behavior (GET/PUT /v1/display/config).
 public struct DisplayConfig: Codable, Sendable, Equatable {
     public var idleHideMinutes: Int
     public var attentionHoldSeconds: Int
@@ -209,7 +196,6 @@ public struct DisplayConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// Mirrors the server's WeatherConfig (GET/PUT /v1/weather/config).
 public struct WeatherConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var provider: String
@@ -229,18 +215,10 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     public var severeAlert: Bool
     public var severeSound: String
     public var useNativeIcons: Bool
-    /// Per-condition native icon-ID overrides (keyed "clear"/"clouds"/"fog"/
-    /// "rain"/"snow"/"storm"); empty falls back to the server's built-in IDs.
     public var iconIds: [String: String]
-    /// Native animated icon on the rotating weather/forecast tiles (digits and
-    /// strip/bars stay drawn).
     public var tileNativeIcons: Bool
-    /// Rotating air-quality tile (current European AQI + hourly trend strip).
     public var airTile: Bool
-    /// Popup when the European AQI crosses this value; 0 disables it.
     public var airPopupThreshold: Int
-    /// The clock's own animated rain/snow/storm overlay on the conditions tile
-    /// and weather popups while it is precipitating.
     public var overlay: Bool
 
     public init(enabled: Bool = false, provider: String = "open-meteo",
@@ -301,8 +279,6 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
         case overlay
     }
 
-    /// Decode every field if-present (the server omits `icon_ids` when empty, and
-    /// older blobs predate it), so a partial payload never fails to decode.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
@@ -331,7 +307,6 @@ public struct WeatherConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// Mirrors the server's MeetingsConfig (GET/PUT /v1/meetings/config).
 public struct MeetingsConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var tileLeadMinutes: Int
@@ -355,7 +330,6 @@ public struct MeetingsConfig: Codable, Sendable, Equatable {
         case icsUrlsConfigured = "ics_urls_configured"
     }
 
-    /// Older-server tolerance: every field decodeIfPresent ??
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
@@ -366,7 +340,6 @@ public struct MeetingsConfig: Codable, Sendable, Equatable {
     }
 }
 
-/// Mirrors GET /v1/meetings/state — the menu's upcoming-meetings sanity list.
 public struct MeetingsState: Codable, Sendable, Equatable {
     public struct Item: Codable, Sendable, Equatable {
         public var uid: String
@@ -401,7 +374,6 @@ public struct MeetingsState: Codable, Sendable, Equatable {
     }
 }
 
-/// Mirrors internal/render.Session.
 public struct Session: Codable, Sendable, Equatable {
     public var source: String
     public var tool: String

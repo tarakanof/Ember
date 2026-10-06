@@ -1,34 +1,27 @@
 import Foundation
 
-/// The Usage card: one row per tool with its 5-hour and 7-day windows.
 public struct UsageRow: Equatable, Sendable, Identifiable {
     public struct Window: Equatable, Sendable {
-        /// 0...100.
         public let percent: Double
         public let resetsAt: Date?
-        /// The producer's own label ("12:30") when there's no timestamp.
         public let resetLabel: String?
     }
 
     public struct Model: Equatable, Sendable, Identifiable {
-        /// "opus".
         public let name: String
         public let percent: Double
         public var id: String { name }
     }
 
-    /// Wire tool name ("claude").
     public let tool: String
     public let source: String?
     public let fiveHour: Window?
     public let sevenDay: Window?
-    /// Highest use first.
     public let models: [Model]
     public let updatedAt: Date?
     public let stale: Bool
     public var id: String { tool }
 
-    /// Rows from the usage snapshot (`GET /v1/usage`).
     public static func rows(from snapshot: UsageSnapshot) -> [UsageRow] {
         snapshot.tools.map { t in
             UsageRow(tool: t.tool, source: t.source,
@@ -40,9 +33,6 @@ public struct UsageRow: Equatable, Sendable, Identifiable {
         }
     }
 
-    /// The Usage card's rows: the snapshot's fresh tools, and for every
-    /// other tool the `/state` session fallback the menu uses
-    /// (`MenuRows.sessionFiveHour`: a known reset that hasn't passed yet).
     public static func rows(from snapshot: UsageSnapshot?, sessions: [Session], now: Date) -> [UsageRow] {
         var byTool: [String: UsageRow] = [:]
         for row in snapshot.map(rows(from:)) ?? [] {
@@ -68,8 +58,6 @@ public struct UsageRow: Equatable, Sendable, Identifiable {
                  updatedAt: updatedAt, stale: stale ?? self.stale)
     }
 
-    /// Rows from `/state` sessions alone: each tool's 5-hour window per
-    /// `MenuRows.sessionFiveHour`.
     public static func rows(fromSessions sessions: [Session], now: Date) -> [UsageRow] {
         MenuRows.sessionFiveHour(sessions, now: now).map { w in
             UsageRow(tool: w.tool, source: w.session.source.isEmpty ? nil : w.session.source,

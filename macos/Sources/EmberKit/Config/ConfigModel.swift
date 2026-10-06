@@ -1,33 +1,24 @@
 import Foundation
 import Observation
 
-/// Anything with a save status, for `AggregateSaveStatus`.
 @MainActor
 public protocol SaveStatusReporting: AnyObject {
     var status: SaveState { get }
 }
 
-/// One editable configuration with auto-apply.
 @MainActor
 @Observable
 public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
-    /// What the controls show and edit.
     public var draft: T
-    /// The last value loaded from or saved to the store; nil before the
-    /// first successful load.
     public private(set) var applied: T?
     public private(set) var status: SaveState = .idle
-    /// Why the last load failed; nil after a success.
     public private(set) var loadError: FeedError?
-    /// Why the last save failed; nil after a success.
     public private(set) var saveError: FeedError?
 
     public var isLoaded: Bool { applied != nil }
     public var hasUnsavedChanges: Bool { applied.map { $0 != draft } ?? false }
 
-    /// Called on the main actor after each successful save with the saved
-    /// value and the one stored before it (a Connection save rebuilds the
-    /// client).
+    /// Called on the main actor after each successful save.
     @ObservationIgnored public var onSaved: (@MainActor (_ saved: T, _ previous: T?) -> Void)?
 
     @ObservationIgnored private let loader: @Sendable () async throws -> T
@@ -73,7 +64,6 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         self.sleep = sleep
     }
 
-    /// Reads the stored value into `draft` and `applied`.
     public func load() async {
         if let e = saveError, hasUnsavedChanges, pending == nil, !saving {
             if e == .featureOff { revert() } else { await saveNow(); return }
@@ -99,7 +89,6 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         }
     }
 
-    /// Saves `draft` after the debounce, restarting it on every call.
     public func scheduleSave() {
         pending?.cancel()
         pending = nil
@@ -113,7 +102,6 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         }
     }
 
-    /// Saves `draft` now, cancelling a pending debounce.
     public func saveNow() async {
         pending?.cancel()
         pending = nil
@@ -147,18 +135,14 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         if hasUnsavedChanges { scheduleSave() }
     }
 
-    /// Replaces the draft and applied value without saving.
     public func reset(to value: T) {
         cancelPendingSave()
         applied = value
         draft = value
     }
 
-    /// Retries the last failed save now.
     public func retry() async { await saveNow() }
 
-    /// Drops unsaved edits and a save error: the draft goes back to the last
-    /// stored value.
     public func revert() {
         cancelPendingSave()
         if let applied { draft = applied }
@@ -166,7 +150,6 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         if case .error = status { status = .idle }
     }
 
-    /// Drops a debounced save that hasn't started (the server is changing).
     public func cancelPendingSave() {
         pending?.cancel()
         pending = nil
@@ -182,16 +165,11 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     }
 }
 
-/// A config stored on the server (`GET`/`PUT /v1/…/config`).
 public typealias ServerConfigModel<T: Equatable & Sendable> = ConfigModel<T>
 
-/// A setting stored in producer.env, shared with the Go producers.
 public typealias EnvConfigModel<T: Equatable & Sendable> = ConfigModel<T>
 
 extension ConfigModel {
-    /// A model over producer.env: `read` parses the settings out of the file;
-    /// `apply` writes them into it (validating first, so a throw writes
-    /// nothing).
     public convenience init(env store: EnvFileStore,
                             initial: T,
                             read: @escaping @Sendable (EnvFile) -> T,
@@ -201,8 +179,6 @@ extension ConfigModel {
                   applyChange: { value, _, env in try apply(value, &env) }, debounce: debounce)
     }
 
-    /// A model over producer.env whose `applyChange` also gets the value last
-    /// loaded or saved, so it can write only what the user changed.
     public convenience init(env store: EnvFileStore,
                             initial: T,
                             read: @escaping @Sendable (EnvFile) -> T,
@@ -216,7 +192,6 @@ extension ConfigModel {
 }
 
 extension FeedError {
-    /// The inline error under a settings section.
     public var saveMessage: LocalizedStringResource {
         switch self {
         case .offline: "Server unreachable"

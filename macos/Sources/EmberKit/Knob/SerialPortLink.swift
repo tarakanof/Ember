@@ -1,12 +1,7 @@
 import Darwin
 import Foundation
 
-/// A knob over a `/dev/cu.*` tty: raw termios, read with a dispatch source.
-///
-/// The ESP32-S3's USB-Serial/JTAG resets the chip on some DTR/RTS
-/// transitions (that is how esptool resets it; toggling RTS resets the knob).
-/// So the link never sets the modem lines (no `TIOCMBIS`/`TIOCMBIC`/
-/// `TIOCMSET`) and clears `HUPCL`, so closing doesn't drop them either.
+/// Never touches DTR/RTS and clears HUPCL: the ESP32-S3's USB-Serial/JTAG resets the chip on some transitions.
 public final class SerialPortLink: KnobLink, @unchecked Sendable {
     public let path: String
     public let events: AsyncStream<KnobEvent>
@@ -23,8 +18,6 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
         guard fd >= 0 else {
             throw errno == EBUSY ? KnobLinkError.busy : KnobLinkError.openFailed(String(cString: strerror(errno)))
         }
-        // Exclusive, so Ember never splits the byte stream with idf.py
-        // monitor or esptool (pyserial's exclusive=True takes the same flock).
         guard ioctl(fd, TIOCEXCL) == 0, flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             Self.clearHangup(fd)
             Darwin.close(fd)
@@ -47,10 +40,8 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
         source.resume()
     }
 
-    /// Raw 8N1, no flow control, no hang-up on close. The baud rate is
-    /// ignored by USB-Serial/JTAG but set for real UART bridges.
     static func configure(_ fd: Int32) throws {
-        // HUPCL goes first, so a failure below can't drop DTR/RTS on close.
+        // HUPCL first: a failure below must not drop DTR/RTS on close.
         guard clearHangup(fd) else { throw KnobLinkError.openFailed(String(cString: strerror(errno))) }
         var t = termios()
         guard tcgetattr(fd, &t) == 0 else { throw KnobLinkError.openFailed(String(cString: strerror(errno))) }
@@ -82,7 +73,6 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
                 continue
             }
             if n < 0, errno == EAGAIN || errno == EINTR { return }
-            // 0 = EOF, or an error such as ENXIO when the knob unplugs.
             close()
             return
         }
@@ -105,7 +95,6 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
             if n > 0 { offset += n; stalls = 0; continue }
             if n < 0, errno == EAGAIN || errno == EINTR {
                 stalls += 1
-                // Nobody reading on the knob side: give up after ~1 s.
                 guard stalls < 100 else { throw KnobLinkError.writeFailed("timed out") }
                 var p = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
                 _ = poll(&p, 1, 10)
@@ -121,9 +110,7 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
             return !isClosed
         }
         guard first else { return }
-        // Release the port now, not when the cancel handler closes the fd on
-        // its queue: TIOCEXCL lives on the tty and outlasts this fd while
-        // anything else holds it open, and the next opener mustn't race us.
+        // TIOCNXCL now: the tty's exclusive flag outlives this fd while anything else holds it open.
         _ = ioctl(fd, TIOCNXCL)
         _ = flock(fd, LOCK_UN)
         source.cancel()
@@ -131,7 +118,6 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
     }
 }
 
-/// Opens `SerialPortLink`s, finding the knob again by USB serial number.
 public struct SerialPortOpener: KnobLinkOpener {
     let ports: @Sendable () -> [KnobSerialPort]
 

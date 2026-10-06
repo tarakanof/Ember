@@ -1,16 +1,10 @@
 import Foundation
 
-/// A feed's value and how fresh it is.
 public enum Loadable<T: Sendable & Equatable>: Equatable, Sendable {
-    /// Never loaded (or reset by a server change).
     case loading
-    /// `at` is when this value was first fetched: a poll returning the same
-    /// value doesn't change it (see `LiveModel.lastFetched`).
     case loaded(T, at: Date)
-    /// The latest attempt failed.
     case failed(FeedError, last: T?, lastAt: Date?)
 
-    /// The loaded value, or the last good one after a failure.
     public var value: T? {
         switch self {
         case .loading: nil
@@ -19,7 +13,6 @@ public enum Loadable<T: Sendable & Equatable>: Equatable, Sendable {
         }
     }
 
-    /// When `value` was loaded.
     public var loadedAt: Date? {
         switch self {
         case .loading: nil
@@ -28,13 +21,11 @@ public enum Loadable<T: Sendable & Equatable>: Equatable, Sendable {
         }
     }
 
-    /// The error of the latest attempt, nil when it succeeded or none finished.
     public var error: FeedError? {
         if case .failed(let e, _, _) = self { return e }
         return nil
     }
 
-    /// Failed, but still holding an older value.
     public var isStale: Bool {
         if case .failed(_, let last, _) = self { return last != nil }
         return false
@@ -42,12 +33,10 @@ public enum Loadable<T: Sendable & Equatable>: Equatable, Sendable {
 
     public var isLoading: Bool { self == .loading }
 
-    /// The state after a failed load: the error, keeping the last good value.
     public func afterFailure(_ error: FeedError) -> Loadable {
         .failed(error, last: value, lastAt: loadedAt)
     }
 
-    /// Transforms the value, keeping the state.
     public func map<U: Sendable & Equatable>(_ transform: (T) -> U) -> Loadable<U> {
         switch self {
         case .loading: .loading

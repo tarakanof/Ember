@@ -1,19 +1,13 @@
 import Foundation
 import os
 
-/// What a `launchctl print gui/<uid>/<label>` result says about the job.
 public enum LaunchdProbe: Sendable, Equatable {
     case loaded
-    /// Exit 113 / "Could not find service": launchd has no such job.
     case notLoaded
-    /// launchd has the job but keeps failing to spawn it
-    /// (`launchdJobIsStuck`), and won't recover on its own.
     case stuck
-    /// Any other failure: launchctl itself broke, so we can't tell.
     case unknown
 }
 
-/// Classifies a `launchctl print` result.
 public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
     if result.exitCode == 0 { return launchdJobIsStuck(result.stdout) ? .stuck : .loaded }
     if result.exitCode == 113 || (result.stderr + result.stdout).contains("Could not find service") {
@@ -22,9 +16,6 @@ public func launchdProbe(_ result: CommandResult) -> LaunchdProbe {
     return .unknown
 }
 
-/// Whether `launchctl print` output describes a job launchd keeps failing to
-/// spawn: not running, `job state = spawn failed`, and either `needs LWCR
-/// update` in its properties or `last exit code = 78`.
 public func launchdJobIsStuck(_ output: String) -> Bool {
     let fields = launchctlPrintFields(output)
     guard fields["state"] != "running", fields["job state"] == "spawn failed" else { return false }
@@ -47,48 +38,33 @@ func launchctlPrintFields(_ output: String) -> [String: String] {
     return fields
 }
 
-/// Whether launch should record the new bundle fingerprint after
-/// `reconcile(bundleChanged:)`: only when the bundle changed and every
-/// re-registration succeeded, so a failure retries on the next launch.
 public func shouldRecordFingerprint(bundleChanged: Bool, outcomes: [ReconcileOutcome]) -> Bool {
     bundleChanged && outcomes.allSatisfy { $0.error == nil }
 }
 
-/// Whether launch should look at the agents again a little after an update
-/// reconcile re-registered some.
 public func shouldRecheckAfterReconcile(bundleChanged: Bool, outcomes: [ReconcileOutcome]) -> Bool {
     bundleChanged && outcomes.contains { $0.error == nil }
 }
 
-/// How long after an update reconcile the recheck runs: past the new
-/// helper's first spawn, launchd's 10 s respawn throttle and its failed
-/// constraint repair (about 11 s in all, on macOS 27).
+/// About 11 s: the new helper's first spawn, launchd's 10 s respawn throttle and its failed constraint repair (macOS 27).
 public let producerRecheckDelay: Duration = .seconds(30)
 
-/// Decides whether launch should treat the bundle as updated: re-register
-/// every enabled agent's LaunchAgent so the new helpers take over.
 public func shouldReconcileAfterUpdate(currentVersion: String, lastReconciledVersion: String?) -> Bool {
     currentVersion != lastReconciledVersion
 }
 
-/// Why `ProducerInstallService.reconcile(bundleChanged:)` re-registers an agent.
 public enum ReconcileReason: Sendable, Equatable {
-    /// The app bundle (helpers or plists) changed since the last reconcile.
     case bundleChanged
-    /// Enabled in Background Items, but launchd has no job for it: booted out.
     case notRunning
-    /// launchd has the job but keeps failing to spawn it (`launchdJobIsStuck`).
     case stuck
 }
 
-/// What the launchd probe says about an enabled agent's job.
 public enum AgentLiveness: Sendable, Equatable {
     case running
     case notLoaded
     case stuck
 }
 
-/// Whether an agent needs re-registering, and why.
 public func reconcileReason(registration: AgentRegistration, liveness: AgentLiveness,
                             bundleChanged: Bool) -> ReconcileReason? {
     guard registration == .enabled else { return nil }
@@ -100,23 +76,12 @@ public func reconcileReason(registration: AgentRegistration, liveness: AgentLive
     }
 }
 
-/// Errors thrown by `ProducerInstallService` during install/uninstall.
 public enum ProducerInstallError: Error, Equatable, Sendable {
-    /// The producer binary's `configure` subcommand exited non-zero; `detail`
-    /// is its trimmed stderr.
     case configureFailed(exit: Int32, detail: String)
-    /// The agent's CLI-installed LaunchAgent (same label) is in
-    /// `~/Library/LaunchAgents`, so registering the app's copy would clash.
     case cliInstalled
-    /// Move to Ember: the bundled helper's `uninstall` of the CLI agent
-    /// exited non-zero (`detail` is its stderr), so nothing changed.
     case cliUninstallFailed(exit: Int32, detail: String)
-    /// Move to Ember removed the CLI agent but couldn't install the app's
-    /// copy; `restored` says whether the CLI agent was put back.
     case moveFailed(helper: String, reason: String, restored: Bool)
-    /// Claude's settings.json isn't valid JSON, so its helper can't be set up.
     case settingsUnreadable
-    /// `launchctl bootout` of a stuck job failed (exit -1: it didn't run).
     case bootoutFailed(exit: Int32, detail: String)
 }
 
@@ -150,23 +115,15 @@ extension ProducerInstallError: LocalizedError {
     }
 }
 
-/// The per-agent LaunchAgent registration state, derived from
-/// `SMAppServiceControlling.status(plistName:)`.
 public enum AgentState: Sendable, Equatable {
     case off
     case needsApproval
     case on
-    /// Registered and enabled, but launchd has no job for it or can't start
-    /// it, so nothing is reporting.
     case notRunning
-    /// Not registered by the app, but the CLI's own LaunchAgent plist (same
-    /// label) is in `~/Library/LaunchAgents`.
     case cliInstalled
     case error(String)
 }
 
-/// The aggregate toggle state shown in the UI, derived across
-/// `ProducerInstallService.managedAgents()`.
 public enum ToggleState: Sendable, Equatable {
     case off
     case needsApproval
@@ -175,23 +132,17 @@ public enum ToggleState: Sendable, Equatable {
     case error
 }
 
-/// The result of installing or uninstalling a single agent as part of a
-/// batch operation (`installAll`/`uninstallAll`).
 public struct AgentOutcome: Sendable {
     public let agent: ProducerAgent
     public let error: Error?
 }
 
-/// One agent `reconcile(bundleChanged:)` re-registered.
 public struct ReconcileOutcome: Sendable {
     public let agent: ProducerAgent
     public let reason: ReconcileReason
     public let error: Error?
 }
 
-/// Orchestrates detection, install, and uninstall of the unified installer's
-/// producer agents (Claude heartbeat producer, Codex producer, T3 Code
-/// producer).
 public final class ProducerInstallService: Sendable {
     private let sm: SMAppServiceControlling
     private let runner: ProducerCommandRunning
@@ -225,10 +176,6 @@ public final class ProducerInstallService: Sendable {
         self.uid = uid
     }
 
-    /// Returns the subset of `ProducerAgent` cases whose tool is on this Mac,
-    /// in `ProducerAgent`'s declaration order: `$HOME/<detectRelPath>`
-    /// exists, or for T3 Code the directory producer.env's `EMBER_T3_HOME`
-    /// names (where the helper looks; a leading `~/` is the home folder).
     public func detectedAgents() -> [ProducerAgent] {
         ProducerAgent.allCases.filter(isDetected)
     }
@@ -247,9 +194,6 @@ public final class ProducerInstallService: Sendable {
         return EnvFile(parsing: String(decoding: data, as: UTF8.self)).get(key)
     }
 
-    /// The agents the master switch reports on and turns off: every agent
-    /// registered with macOS, plus every detected one the user hasn't turned
-    /// off with its own switch; a CLI-installed agent is never one.
     public func managedAgents() -> [ProducerAgent] {
         ProducerAgent.allCases.filter { isRegistered($0) || (isWanted($0) && !isCLIInstalled($0)) }
     }
@@ -266,10 +210,6 @@ public final class ProducerInstallService: Sendable {
         sm.status(plistName: agent.plistName) == .notRegistered && fileExists(cliPlistPath(agent))
     }
 
-    /// At launch: when a new `ProducerAgent` case appears (T3 Code after the
-    /// update that added it) while reporting is already on for some agent,
-    /// marks it turned off so the master switch doesn't read "partial" or turn
-    /// it on uninvited. Records the cases it has seen.
     @concurrent
     public func seedOptOutForNewAgents() async {
         await serial.run { seedNow() }
@@ -288,8 +228,6 @@ public final class ProducerInstallService: Sendable {
         [.enabled, .requiresApproval].contains(sm.status(plistName: agent.plistName))
     }
 
-    /// Runs the producer binary's `configure` subcommand, then registers its
-    /// LaunchAgent.
     public func install(_ agent: ProducerAgent) throws {
         guard !isCLIInstalled(agent) else { throw ProducerInstallError.cliInstalled }
         try configure(agent)
@@ -310,15 +248,11 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Unregisters the LaunchAgent, then runs the producer binary's
-    /// `deconfigure` subcommand.
     public func uninstall(_ agent: ProducerAgent) throws {
         try sm.unregister(plistName: agent.plistName)
         _ = try runner.run(executable: executablePath(for: agent), arguments: ["deconfigure"])
     }
 
-    /// Whether launchd has a job for `agent` in this user's GUI domain, and
-    /// can start it.
     public func liveness(_ agent: ProducerAgent) -> AgentLiveness {
         let result: CommandResult
         do {
@@ -338,9 +272,6 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Restarts a registered agent whose launchd job is loaded
-    /// (`launchctl kickstart -k`), off the calling actor, so it rereads
-    /// producer.env; does nothing otherwise. True when it restarted.
     @concurrent
     public func restart(_ agent: ProducerAgent) async -> Bool {
         await serial.run {
@@ -373,8 +304,6 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Derives the LaunchAgent state for `agent` from `sm.status(plistName:)`,
-    /// plus a launchd probe when it's enabled.
     public func agentState(_ agent: ProducerAgent) -> AgentState {
         switch sm.status(plistName: agent.plistName) {
         case .enabled:
@@ -389,11 +318,6 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Aggregates `agentState(_:)` across `managedAgents()` into a single
-    /// toggle state (`.notRunning` counts as `.on`: reporting is on, and the
-    /// agent's row shows the problem): all `.on` → `.on`; any `.error` → `.error`; else any
-    /// `.needsApproval` → `.needsApproval`; a mix of `.on`/`.off` →
-    /// `.partial`; all `.off` (or no detected agents) → `.off`.
     public func toggleState() -> ToggleState {
         Self.toggle(for: managedAgents().map(agentState))
     }
@@ -417,10 +341,6 @@ public final class ProducerInstallService: Sendable {
         return .off
     }
 
-    /// Installs every detected agent the user hasn't turned off (all detected
-    /// ones when that leaves none) off the calling actor, skipping
-    /// CLI-installed ones and catching per-agent failures so one agent's error
-    /// never prevents the others from being attempted.
     @concurrent
     public func installAll() async -> [AgentOutcome] {
         await serial.run {
@@ -444,9 +364,6 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Uninstalls every detected or registered agent off the calling actor,
-    /// catching per-agent failures so one agent's error never prevents the
-    /// others from being attempted.
     @concurrent
     public func uninstallAll() async -> [AgentOutcome] {
         await serial.run {
@@ -461,9 +378,6 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Installs (on) or uninstalls (off) one agent off the calling actor,
-    /// whether or not its tool is detected, and records the choice so the
-    /// master switch leaves an agent turned off alone.
     @concurrent
     public func setEnabled(_ agent: ProducerAgent, _ on: Bool) async -> [AgentOutcome] {
         await serial.run {
@@ -477,12 +391,6 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Moves a CLI-installed agent to the app off the calling actor: runs the
-    /// bundled helper's `uninstall` (which boots out and removes only the
-    /// CLI's own LaunchAgent), then installs the app's copy. A failed
-    /// uninstall aborts (`.cliUninstallFailed`); a failed install re-runs the
-    /// CLI binary's `install` and reports `.moveFailed`. Claude is refused
-    /// while its settings.json is unreadable.
     @concurrent
     public func moveToEmber(_ agent: ProducerAgent) async -> [AgentOutcome] {
         await serial.run {
@@ -526,9 +434,6 @@ public final class ProducerInstallService: Sendable {
         return args.first
     }
 
-    /// Runs the Claude helper's `configure` off the calling actor: it removes
-    /// the kill switch and registers the settings.json hooks, or drops them
-    /// while the `ember@ember` plugin is enabled.
     @concurrent
     public func configureClaudeHooks() async -> [AgentOutcome] {
         await serial.run {
@@ -541,16 +446,10 @@ public final class ProducerInstallService: Sendable {
         }
     }
 
-    /// Where the Claude producer's hooks are registered, and whether the kill
-    /// switch silences them.
     public func claudeHookRegistration() -> ClaudeHookRegistration {
         ClaudeHookRegistration.read(home: home, readFile: readFile, fileExists: fileExists)
     }
 
-    /// Re-registers (unregister then register) each enabled agent that
-    /// `reconcileReason` picks: all of them after an app update, so the newly
-    /// bundled helpers take over, otherwise only those launchd has no job for
-    /// or can't start.
     @concurrent
     public func reconcile(bundleChanged: Bool) async -> [ReconcileOutcome] {
         await serial.run { reconcileNow(bundleChanged: bundleChanged) }
@@ -590,17 +489,11 @@ public final class ProducerInstallService: Sendable {
         return .bootoutFailed(exit: exit, detail: detail)
     }
 
-    /// Settings' Repair action: re-registers every enabled agent that isn't
-    /// running (booting out a stuck job first), off the calling actor.
     @concurrent
     public func repairAll() async -> [AgentOutcome] {
         await reconcile(bundleChanged: false).map { AgentOutcome(agent: $0.agent, error: $0.error) }
     }
 
-    /// Reads detection and registration state for every listed agent off the
-    /// calling actor, for a UI that must not do filesystem and `SMAppService`
-    /// reads while rendering. An agent is listed when it's detected, not off,
-    /// or `listedWhenUndetected`; the toggle aggregates `managedAgents()`.
     @concurrent
     public func snapshot() async -> ProducerSnapshot {
         let managedSet = Set(managedAgents())
@@ -619,9 +512,6 @@ public final class ProducerInstallService: Sendable {
                                 localNetworkBlocked: blocked, undetected: undetected, claudeHooks: hooks)
     }
 
-    /// Whether the agent's helper last failed to reach the server with "no
-    /// route to host": how macOS denies a LAN connection it hasn't been given
-    /// Local Network access for.
     public func localNetworkBlocked(_ agent: ProducerAgent) -> Bool {
         guard let data = readFile(home.appendingPathComponent(agent.linkStatusRelPath).path) else { return false }
         return ProducerLinkState.decode(data)?.noRoute ?? false
@@ -632,15 +522,11 @@ public final class ProducerInstallService: Sendable {
     }
 }
 
-/// Whether a `launchctl bootout` result means the job is gone: exit 0, or
-/// launchd had no such job (113, or 3 "No such process").
 public func bootoutSucceeded(_ result: CommandResult) -> Bool {
     result.exitCode == 0 || result.exitCode == 113 || result.exitCode == 3
         || (result.stderr + result.stdout).contains("Could not find service")
 }
 
-/// What a producer helper's LaunchAgent last recorded about reaching the
-/// server (Go `producer.LinkState`, in `~/.config/ember/<name>.link.json`).
 public struct ProducerLinkState: Decodable, Sendable, Equatable {
     public let ok: Bool
     public let noRoute: Bool
@@ -655,7 +541,6 @@ public struct ProducerLinkState: Decodable, Sendable, Equatable {
         self.noRoute = noRoute
     }
 
-    /// nil for anything that isn't the helper's JSON.
     public static func decode(_ data: Data) -> ProducerLinkState? {
         try? JSONDecoder().decode(ProducerLinkState.self, from: data)
     }
@@ -700,19 +585,11 @@ final class SerialGate: Sendable {
     }
 }
 
-/// A point-in-time read of the producer agents, from
-/// `ProducerInstallService.snapshot()`.
 public struct ProducerSnapshot: Sendable {
-    /// Detected agents in `ProducerAgent` declaration order, with their state.
     public let agents: [(agent: ProducerAgent, state: AgentState)]
-    /// The aggregate toggle state across `agents`.
     public let toggle: ToggleState
-    /// Running agents whose helper can't reach the server because macOS
-    /// hasn't given it Local Network access.
     public let localNetworkBlocked: [ProducerAgent]
-    /// Listed agents whose tool isn't found on this Mac.
     public let undetected: Set<ProducerAgent>
-    /// The Claude hooks' registration, when the Claude row is listed.
     public let claudeHooks: ClaudeHookRegistration?
 
     public init(agents: [(agent: ProducerAgent, state: AgentState)], toggle: ToggleState,
@@ -725,21 +602,16 @@ public struct ProducerSnapshot: Sendable {
         self.claudeHooks = claudeHooks
     }
 
-    /// Whether every listed agent's tool is missing from this Mac.
     public var noToolDetected: Bool { agents.allSatisfy { undetected.contains($0.agent) } }
 
-    /// The Claude hooks notice for the Claude row, `.fine` without one.
     public var claudeHooksNotice: ClaudeHooksNotice {
         guard let hooks = claudeHooks,
               let claude = agents.first(where: { $0.agent == .claude }) else { return .fine }
         return ClaudeHooksNotice.notice(for: hooks, reportingOn: claude.state != .off)
     }
 
-    /// Whether an agent is on but not running, so Settings offers Repair.
     public var needsRepair: Bool { agents.contains { $0.state == .notRunning } }
 
-    /// Whether the Agents pane shows an agent's producer.env settings: it's
-    /// listed and either found on this Mac or turned on.
     public func showsSettings(for agent: ProducerAgent) -> Bool {
         guard let row = agents.first(where: { $0.agent == agent }) else { return false }
         return !undetected.contains(agent) || row.state != .off

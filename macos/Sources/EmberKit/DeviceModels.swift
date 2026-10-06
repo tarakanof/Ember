@@ -1,7 +1,5 @@
 import Foundation
 
-/// The nested "scroll" object inside /v1/device/settings — NG's scrolling-text
-/// behavior for apps whose content doesn't fit the panel.
 public struct ScrollSettings: Codable, Equatable, Sendable {
     public var mode: String?
     public var direction: String?
@@ -18,8 +16,6 @@ public struct ScrollSettings: Codable, Equatable, Sendable {
     }
 }
 
-/// The nested "weekdayBar" object inside /v1/device/settings — replaces
-/// AWTRIX3's flat SOM/WD/WDCA/WDCI keys.
 public struct WeekdayBar: Codable, Equatable, Sendable {
     public var show: Bool?
     public var startOnMonday: Bool?
@@ -32,27 +28,17 @@ public struct WeekdayBar: Codable, Equatable, Sendable {
     }
 }
 
-/// Mirror of the awtrix-ng /api/v1/settings keys Ember exposes through
-/// /v1/device/settings.
 public struct DeviceSettings: Codable, Equatable, Sendable {
     public var brightness: Int?
     public var autoBrightness: Bool?
-    /// Device mute (NG 1.1.0).
     public var soundEnabled: Bool?
-    /// Piezo volume, 0–100 (NG 1.1.0 replaced the 0–30 `volume`, which it now
-    /// rejects with 422).
     public var buzzerVolume: Int?
-    /// Milliseconds (NG) — was ATIME in seconds on AWTRIX3.
     public var appDurationMs: Int?
-    /// Pomodoro takeover key; coordinator.go writes this directly.
     public var autoTransition: Bool?
     public var transitionDurationMs: Int?
-    /// A device-reported transition name (GET /v1/device/capabilities), not a
-    /// static enum — see DeviceKnownValues.fallbackTransitions.
     public var transitionEffect: String?
     public var textColor: String?
     public var uppercase: Bool?
-    /// Pomodoro takeover key; coordinator.go writes this directly.
     public var blockNavigation: Bool?
     public var timeMode: Int?
     public var time24h: Bool?
@@ -115,7 +101,6 @@ public struct DeviceSettings: Codable, Equatable, Sendable {
     }
 }
 
-/// The clock's Wi-Fi telemetry, nested inside GET /v1/device/stats.
 public struct WifiInfo: Codable, Equatable, Sendable {
     public var ssid: String?
     public var rssi: Int?
@@ -126,7 +111,6 @@ public struct WifiInfo: Codable, Equatable, Sendable {
     }
 }
 
-/// GET /v1/device/stats, proxying awtrix-ng's GET /api/v1/device.
 public struct DeviceStats: Codable, Equatable, Sendable {
     public var version: String?
     public var uid: String?
@@ -164,9 +148,6 @@ public struct DeviceStats: Codable, Equatable, Sendable {
     }
 }
 
-/// The clock's sensor calibration offsets (GET/PUT /v1/device/sensors) — lives
-/// on the NG /api/v1/system object (tempOffset/humOffset), applied live with no
-/// reboot.
 public struct SensorCalibration: Codable, Equatable, Sendable {
     public var tempOffset: Double?
     public var humOffset: Double?
@@ -188,7 +169,6 @@ public struct SensorCalibration: Codable, Equatable, Sendable {
     }
 }
 
-/// GET/PUT /v1/device/display — NG's ambient-weather overlay control.
 public struct DeviceDisplay: Codable, Equatable, Sendable {
     public var overlay: String?
     public var overlaySettings: OverlaySettings?
@@ -216,7 +196,6 @@ public struct DeviceDisplay: Codable, Equatable, Sendable {
     }
 }
 
-/// The nested "overlaySettings" object alongside DeviceDisplay.overlay.
 public struct OverlaySettings: Codable, Equatable, Sendable {
     public var speed: Double?
     public var palette: String?
@@ -227,8 +206,6 @@ public struct OverlaySettings: Codable, Equatable, Sendable {
     }
 }
 
-/// The valid awtrix-ng overlay names (PUT /v1/device/display), per the #67
-/// mapping.
 public enum OverlayEffect: String, CaseIterable, Identifiable, Sendable {
     case drizzle, frost, rain, snow, storm, thunder
 
@@ -236,17 +213,12 @@ public enum OverlayEffect: String, CaseIterable, Identifiable, Sendable {
     public var displayName: String { rawValue.capitalized }
 }
 
-/// One entry of GET /v1/device/apps — a native app running on the clock
-/// (Time, Date, Temperature, Humidity, Battery, plus any pushed/scripted app).
 public struct AppInfo: Codable, Equatable, Sendable, Identifiable {
     public var name: String
     public var enabled: Bool
     public var inLoop: Bool
     public var origin: String?
-    /// Whether the app is on the clock right now; false for a name NG keeps a
-    /// place for while the app is away.
     public var present: Bool?
-    /// 0-based place in the arranged order; nil when it has none.
     public var slot: Int?
 
     public var id: String { name }
@@ -270,7 +242,6 @@ public struct AppInfo: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// PUT /v1/device/apps body — replaces AWTRIX3's TIM/DAT/TEMP/HUM/BAT toggles.
 public struct AppsUpdate: Codable, Equatable, Sendable {
     public var order: [String]
     public var disabled: [String]
@@ -281,8 +252,6 @@ public struct AppsUpdate: Codable, Equatable, Sendable {
     }
 }
 
-/// capabilities.audio — which sound outputs the clock has (NG 1.1.0 replaced
-/// the top-level `radio` flag with this object).
 public struct DeviceAudioCapabilities: Codable, Equatable, Sendable {
     public var buzzer: Bool
     public var track: Bool
@@ -302,8 +271,6 @@ public struct DeviceAudioCapabilities: Codable, Equatable, Sendable {
     }
 }
 
-/// GET /v1/device/capabilities — the device's live effect/transition/overlay/
-/// palette catalogue, used to feed pickers instead of a hardcoded table.
 public struct DeviceCapabilities: Codable, Equatable, Sendable {
     public var effects: [String]
     public var paletteEffects: [String]
@@ -328,13 +295,9 @@ public struct DeviceCapabilities: Codable, Equatable, Sendable {
         audio = (try? c.decodeIfPresent(DeviceAudioCapabilities.self, forKey: .audio)) ?? nil
     }
 
-    /// Whether the clock has a buzzer.
     public var hasBuzzer: Bool { audio?.buzzer ?? true }
 }
 
-/// The clock's live framebuffer envelope, as served by
-/// GET /v1/device/screen — awtrix-ng wraps the pixel array
-/// ({"width":32,"height":8,"pixels":[…]}); AWTRIX3 returned the bare array.
 public struct ScreenFrame: Codable, Equatable, Sendable {
     public var width: Int
     public var height: Int
@@ -345,7 +308,6 @@ public struct ScreenFrame: Codable, Equatable, Sendable {
     }
 }
 
-/// The effective clock URL and where it came from (store/config/discovered/none).
 public struct DeviceConfig: Codable, Equatable, Sendable {
     public var baseURL: String
     public var source: String
@@ -354,8 +316,6 @@ public struct DeviceConfig: Codable, Equatable, Sendable {
         self.baseURL = baseURL; self.source = source
     }
 
-    /// The clock's own web UI, served at the root of the address the server is
-    /// driving.
     public var webURL: URL? {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -367,7 +327,6 @@ public struct DeviceConfig: Codable, Equatable, Sendable {
     }
 }
 
-/// One awtrix-ng clock found by discovery (the server's or this Mac's).
 public struct DiscoveredClock: Codable, Equatable, Sendable, Identifiable {
     public var host: String
     public var baseURL: String
@@ -380,16 +339,12 @@ public struct DiscoveredClock: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// Result of GET /v1/device/discover.
 public struct DiscoverResult: Codable, Equatable, Sendable {
     public var candidates: [DiscoveredClock]
     public var effective: String
     public var source: String
 }
 
-/// GET/PUT /v1/device/buttons — the button_callback the clock should hold, how
-/// long ago the server last received a button press (nil = never), and whether
-/// the clock's live /api/v1/system.buttonCallback matches what's expected.
 public struct ButtonStatus: Codable, Equatable, Sendable {
     public var expectedCallback: String?
     public var configuredCallback: String?
@@ -414,27 +369,21 @@ public struct ButtonStatus: Codable, Equatable, Sendable {
     }
 }
 
-/// PUT /v1/device/buttons body: enabled:true points the clock's buttonCallback
-/// at this server; enabled:false clears it.
 public struct ButtonsUpdate: Codable, Equatable, Sendable {
     public var enabled: Bool
     public init(enabled: Bool) { self.enabled = enabled }
 }
 
-/// PUT /v1/device/display/power body.
 public struct DisplayPowerUpdate: Codable, Equatable, Sendable {
     public var power: Bool
     public init(power: Bool) { self.power = power }
 }
 
-/// POST /v1/device/audio/test body naming a stored melody to preview.
 public struct AudioTestRequest: Codable, Equatable, Sendable {
     public var melody: String
     public init(melody: String) { self.melody = melody }
 }
 
-/// One melody stored on the clock (GET /v1/device/audio/melodies, NG's own
-/// shape).
 public struct DeviceMelody: Codable, Equatable, Sendable, Identifiable {
     public var name: String
     public var rtttl: String
@@ -454,7 +403,6 @@ public struct DeviceMelody: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// GET /v1/device/audio/melodies.
 public struct DeviceMelodyList: Codable, Equatable, Sendable {
     public var melodies: [DeviceMelody]
     public var usedBytes: Int

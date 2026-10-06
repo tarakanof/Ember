@@ -1,12 +1,6 @@
 import Foundation
 
-/// The firmware's `np_text_fold` (cinder `components/nowplaying/np.c`), table for
-/// table: Montserrat has only ASCII, so the knob folds track text before it
-/// draws. Per Unicode scalar, as the firmware folds per UTF-8 code point.
-/// `KnobNowPlayingFoldTests` checks the tables against np.c when a cinder
-/// checkout is next to this repo (or `CINDER_DIR`).
 enum KnobTextFold {
-    /// U+00C0 ... U+017F.
     static let latin: [String] = [
         "A", "A", "A", "A", "A", "A", "AE", "C", "E", "E", "E", "E", "I", "I", "I", "I",
         "D", "N", "O", "O", "O", "O", "O", "x", "O", "U", "U", "U", "U", "Y", "Th", "ss",
@@ -22,13 +16,11 @@ enum KnobTextFold {
         "U", "u", "U", "u", "W", "w", "Y", "y", "Y", "Z", "z", "Z", "z", "Z", "z", "s",
     ]
 
-    /// U+0410 ... U+042F (Russian, GOST-like).
     static let cyrUpper: [String] = [
         "A", "B", "V", "G", "D", "E", "Zh", "Z", "I", "Y", "K", "L", "M", "N", "O", "P",
         "R", "S", "T", "U", "F", "Kh", "Ts", "Ch", "Sh", "Shch", "", "Y", "", "E", "Yu", "Ya",
     ]
 
-    /// U+0430 ... U+044F.
     static let cyrLower: [String] = [
         "a", "b", "v", "g", "d", "e", "zh", "z", "i", "y", "k", "l", "m", "n", "o", "p",
         "r", "s", "t", "u", "f", "kh", "ts", "ch", "sh", "shch", "", "y", "", "e", "yu", "ya",
@@ -77,7 +69,7 @@ enum KnobTextFold {
         default: break
         }
         if (0x2000...0x200A).contains(cp) { return " " }
-        if (0x300...0x36F).contains(cp) { return "" }   // combining marks: the base letter stays
+        if (0x300...0x36F).contains(cp) { return "" }
         return "?"
     }
 }

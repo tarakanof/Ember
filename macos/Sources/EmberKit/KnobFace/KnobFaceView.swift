@@ -2,20 +2,13 @@ import CoreText
 import ImageIO
 import SwiftUI
 
-/// One frame of a knob page, as data.
 public enum KnobFace: Sendable, Equatable {
-    /// `glint`: the working glint's head angle in screen degrees (0 = 3 o'clock,
-    /// clockwise), nil for none.
     case bot(pose: BotPose, mood: KnobMood, glint: Double? = nil)
     case pomodoro(KnobPomoFace)
     case nowPlaying(KnobNowPlayingFace)
-    /// `tempC` nil prints "--°".
     case weather(look: KnobWeatherLook, draws: [KnobWeatherScene.Draw], tempC: Double?)
 }
 
-/// Draws a `KnobFace` on the knob's 466 px round screen, scaled to fit.
-/// `brightness` (0…1) dims it like the panel's backlight, never to black.
-/// Equal inputs skip the redraw.
 public struct KnobFaceView: View, Equatable {
     let face: KnobFace
     let theme: KnobTheme
@@ -57,14 +50,11 @@ extension Color {
 enum KnobFaceRender {
     static let shapeCache = KnobBotShape(theme: KnobTheme.standard.bot)
 
-    /// Registers the bundled Montserrat once per process.
     static let fontRegistered: Bool = {
         guard let url = KnobTheme.fontURL else { return false }
         return CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
     }()
 
-    /// The firmware's outline images for the standard theme, [shape][variant],
-    /// in screen pixels before the hop offset.
     static let rimPaths: [[Path]] = rimPaths(KnobTheme.standard, shape: shapeCache)
 
     static func rimPaths(_ theme: KnobTheme, shape: KnobBotShape) -> [[Path]] {
@@ -83,8 +73,6 @@ enum KnobFaceRender {
         }
     }
 
-    /// A one-line LVGL label: `top` is its box's top edge; the baseline sits
-    /// the font's line height minus its baseline offset below that.
     static func label(_ s: String, _ px: Double, _ c: RGB, centerX: Double, top: Double, clip: Double? = nil,
                       theme: KnobTheme, in ctx: inout GraphicsContext) {
         guard !s.isEmpty else { return }
@@ -100,7 +88,6 @@ enum KnobFaceRender {
         c2.draw(text, in: rect)
     }
 
-    /// The top of a label LVGL centres on the screen with offset `dy`.
     static func centredTop(_ px: Double, dy: Double, theme: KnobTheme) -> Double {
         let lh = theme.font.metrics(px).lineHeightPx
         return ((theme.screen.diameterPx - lh) / 2).rounded(.down) + dy
@@ -114,8 +101,6 @@ enum KnobFaceRender {
         for q in pts.dropFirst() { p.addLine(to: q) }
         return p
     }
-
-    // MARK: Bot
 
     static func bot(_ p: BotPose, _ mood: KnobMood, glint: Double? = nil, _ theme: KnobTheme,
                     in ctx: inout GraphicsContext) {
@@ -134,7 +119,6 @@ enum KnobFaceRender {
         outline = outline.offsetBy(dx: 0, dy: rimDY)
         ctx.fill(outline, with: .color(Color(b.bodyColor)))
         ctx.stroke(outline, with: .color(Color(rim)), style: StrokeStyle(lineWidth: b.rimPx, lineJoin: .round))
-        // The firmware draws the glint on the base circle only (no hop, no squash).
         if let glint, p.mood == .working, p.triangle < 0.5, rimDY == 0,
            KnobBotShape.rimVariant(for: p, variants: variants) == b.rimSteps {
             Self.glint(head: glint, center: CGPoint(x: c, y: c), radius: r, color: color, b.glint, in: &ctx)
@@ -164,9 +148,6 @@ enum KnobFaceRender {
         }
     }
 
-    /// The working glint (cinder `ring_glint.c`): an arc on the ring's centreline
-    /// from the head back `tailDeg`, alpha falling linearly along the tail (one
-    /// stroke with a conic gradient, so no seams), round head.
     static func glint(head: Double, center: CGPoint, radius: Double, color: RGB, _ g: KnobTheme.Bot.Glint,
                       in ctx: inout GraphicsContext) {
         func mix(_ v: UInt8) -> UInt8 { UInt8((Double(v) + (255 - Double(v)) * g.whiteMix).rounded()) }
@@ -188,12 +169,9 @@ enum KnobFaceRender {
         ctx.fill(Path(ellipseIn: CGRect(x: h.x - hw, y: h.y - hw, width: 2 * hw, height: 2 * hw)), with: .color(c))
     }
 
-    /// T3's 8×8 tool icon (internal/render): body rows, then feature rows. Claude
-    /// (Claude Code's mascot) and Codex (the OpenAI mark) use `knob-mark-*.png` (cinder `tool_marks.c`).
     static let t3Icon = (["........", "XXX.XXX.", ".X....X.", ".X...XX.", ".X....X.", ".X..XXX.", "........", "........"],
                          ["........", "....XXX.", "......X.", ".....XX.", "......X.", "....XXX.", "........", "........"])
 
-    /// The official mark's alpha mask (white on alpha), by tool.
     static let toolMarks: [String: CGImage] = {
         var out: [String: CGImage] = [:]
         for tool in ["claude", "codex"] {
@@ -205,9 +183,6 @@ enum KnobFaceRender {
         return out
     }()
 
-    /// The host label (cinder `arc_text.c` + `bot_view.c` label_draw): the text along the
-    /// bottom of a circle, baseline on it, tops toward the centre, centred on 6 o'clock,
-    /// with the tool's icon upright and centred above it.
     static func arcLabel(_ mood: KnobMood, moodColor: RGB, center: CGPoint, theme: KnobTheme,
                          in ctx: inout GraphicsContext) {
         let h = theme.bot.host
@@ -227,7 +202,6 @@ enum KnobFaceRender {
         }
         let box = CGRect(x: center.x - h.markHPx / 2, y: center.y + h.markBottomPx - h.markHPx, width: h.markHPx, height: h.markHPx)
         if let mark = toolMarks[mood.tool] {
-            // The mark's own pixels, centred in the icon box (Clawd is 72 wide, Codex 48).
             let r = CGRect(x: center.x - Double(mark.width) / 2, y: box.maxY - Double(mark.height),
                            width: Double(mark.width), height: Double(mark.height))
             var c2 = ctx
@@ -258,8 +232,6 @@ enum KnobFaceRender {
         }
     }
 
-    // MARK: Pomodoro
-
     static func pomodoro(_ f: KnobPomoFace, _ theme: KnobTheme, in ctx: inout GraphicsContext) {
         let t = theme.pomodoro
         let c = theme.screen.diameterPx / 2
@@ -280,9 +252,6 @@ enum KnobFaceRender {
         }
     }
 
-    // MARK: Now playing
-
-    /// `text` cut to `width` px with "..." as the firmware's `fit_text` does.
     static func fit(_ text: String, _ px: Double, width: Double, theme: KnobTheme) -> String {
         let font = CTFontCreateWithName(theme.font.family as CFString, px, nil)
         func w(_ s: String) -> Double {
@@ -292,7 +261,7 @@ enum KnobFaceRender {
         guard w(text) > width else { return text }
         let chars = Array(text)
         var lo = 0, hi = chars.count
-        while lo < hi {   // the longest prefix that fits with "..."
+        while lo < hi {
             let mid = (lo + hi + 1) / 2
             if w(String(chars[..<mid]) + "...") <= width { lo = mid } else { hi = mid - 1 }
         }
@@ -313,7 +282,6 @@ enum KnobFaceRender {
         let arc = playing ? t.colors.arc : t.colors.arcPaused
         let center = CGPoint(x: c, y: c)
 
-        // The backdrop is masked to a disk; the ring runs in the black band outside it.
         if let b = f.pictures.backdrop {
             ctx.drawLayer { l in
                 l.clip(to: Path(ellipseIn: CGRect(x: c - t.backdropDiskRadiusPx, y: c - t.backdropDiskRadiusPx,
@@ -344,7 +312,6 @@ enum KnobFaceRender {
             }
         }
 
-        // The artist rides the ring at the progress point (a dot without a picture).
         let a = (-90 + 360 * f.avatarFraction) * .pi / 180
         let at = CGPoint(x: c + t.ringRadiusPx * cos(a), y: c + t.ringRadiusPx * sin(a))
         if let p = f.pictures.artist {
@@ -358,14 +325,11 @@ enum KnobFaceRender {
                      with: .color(Color(arc)))
         }
 
-        // Text last: it may run over the artist picture at 4 to 8 o'clock.
         for (text, l, color) in [(f.title, t.title, t.colors.text), (f.sub, t.sub, t.colors.sub), (f.meta, t.meta, t.colors.meta)] {
             label(fit(text, l.fontPx, width: l.widthPx, theme: theme), l.fontPx, color, centerX: c,
                   top: centredTop(l.fontPx, dy: l.dyPx, theme: theme), clip: l.widthPx, theme: theme, in: &ctx)
         }
     }
-
-    // MARK: Weather
 
     static func weather(_ look: KnobWeatherLook, _ draws: [KnobWeatherScene.Draw], _ tempC: Double?,
                         _ theme: KnobTheme, in ctx: inout GraphicsContext) {

@@ -2,13 +2,9 @@ import Foundation
 import Observation
 import OSLog
 
-/// The app's live view of the server: one `Loadable` per feed, kept fresh by a
-/// `RefreshCoordinator`.
 @MainActor
 @Observable
 public final class LiveModel {
-    /// `/state` misses in a row before the connection counts as offline and
-    /// the snapshot as stale.
     public static let offlineAfterFailures = 3
 
     public private(set) var connection: ConnectionHealth = .unconfigured
@@ -18,28 +14,21 @@ public final class LiveModel {
     public private(set) var usage: Loadable<UsageSnapshot> = .loading
     public private(set) var meetings: Loadable<MeetingsState> = .loading
     public private(set) var apps: Loadable<[AppToggle]> = .loading
-    /// The clock's framebuffer: 24-bit RGB ints, row-major, 32 × 8.
     public private(set) var screen: Loadable<[Int]> = .loading
     public private(set) var clockHealth: Loadable<ClockHealth> = .loading
     public private(set) var weather: Loadable<WeatherState> = .loading
     public private(set) var activity: Loadable<ActivitySummary> = .loading
     public private(set) var workhours: Loadable<WorkHours> = .loading
     public private(set) var heatmap: Loadable<Heatmap> = .loading
-    /// The server's release ("0.29.0", from `GET /version`); nil until read,
-    /// and for a dev build.
     public private(set) var serverVersion: String?
 
-    /// The session the menu-bar icon and bot show.
     public var winningSession: Session? {
         guard case .loaded(let snap, _) = snapshot else { return nil }
         return pickWinning(snap.sessions)
     }
 
-    /// Sessions from the latest snapshot, live or stale.
     public var sessions: [Session] { snapshot.value?.sessions ?? [] }
 
-    /// Whether the clock's LED matrix is lit: the one value the menu, the
-    /// Dashboard and Settings show.
     public var displayPower: Bool? {
         switch (healthPower, reportedPower) {
         case let (h?, r?): h.at > r.at + Self.healthPowerMargin ? h.on : r.on
@@ -51,9 +40,6 @@ public final class LiveModel {
 
     static let healthPowerMargin: TimeInterval = 2
 
-    /// Taken when a power write or a direct read is issued, and handed back
-    /// with its result: a result for a server this model no longer talks to
-    /// is dropped, and a read is dated when it was asked.
     public struct DisplayPowerTicket: Sendable, Equatable {
         fileprivate let generation: Int
         fileprivate let issuedAt: Date
@@ -63,13 +49,10 @@ public final class LiveModel {
         DisplayPowerTicket(generation: generation, issuedAt: clock())
     }
 
-    /// A write (or reboot) left the matrix `on`: true from the moment it
-    /// returned.
     public func reportDisplayPower(_ on: Bool, written ticket: DisplayPowerTicket) {
         recordPower(on, at: clock(), ticket)
     }
 
-    /// A direct read saw `on`.
     public func reportDisplayPower(_ on: Bool, read ticket: DisplayPowerTicket) {
         recordPower(on, at: ticket.issuedAt, ticket)
     }
@@ -111,7 +94,6 @@ public final class LiveModel {
 
     private static let log = Logger(subsystem: "com.ember.Ember", category: "live")
 
-    /// A model on the real clock.
     public convenience init() {
         self.init(now: { Date() }, makeCoordinator: { RefreshCoordinator.live(fetch: $0) })
     }
@@ -125,9 +107,6 @@ public final class LiveModel {
         }
     }
 
-    // MARK: Lifecycle
-
-    /// Points every feed at a new server.
     public func configure(client: APIClient) {
         let identity = ServerIdentity(client)
         guard identity != server else { return }
@@ -153,27 +132,22 @@ public final class LiveModel {
         if coordinator.isStarted { coordinator.restart() } else { coordinator.start() }
     }
 
-    /// Starts polling tiers A and B.
     public func start() {
         wantsStart = true
         guard client != nil else { return }
         coordinator.start()
     }
 
-    /// Stops all polling.
     public func stop() {
         wantsStart = false
         coordinator.stop()
     }
 
-    /// System sleep: stop polling, keep holds.
     public func pause() { coordinator.pause() }
 
-    /// Wake: resume with an immediate fetch of every active feed.
     public func resume() { coordinator.resume() }
 
-    /// Holds the feeds until the calling task is cancelled: use it from a
-    /// view's `.task`.
+    /// Use from a view's `.task`: holds the feeds until the task is cancelled.
     public func track(_ feeds: Feed...) async {
         await track(feeds)
     }
@@ -187,22 +161,16 @@ public final class LiveModel {
         }
     }
 
-    /// Fetches now (⌘R, the menu opening).
     public func refreshNow(_ feeds: Feed...) async {
         await coordinator.refreshNow(feeds)
     }
 
-    /// Fetches the feeds that are older than `age`, for surfaces that open
-    /// often (the menu) and shouldn't refetch what's seconds old.
     public func refreshNow(_ feeds: [Feed], ifOlderThan age: Duration) async {
         await coordinator.refreshNow(feeds, ifOlderThan: age)
     }
 
-    /// Whether a view currently holds the feed.
     public func isTracked(_ feed: Feed) -> Bool { coordinator.holdCount(feed) > 0 }
 
-    /// When the feed last fetched successfully, even if the value didn't
-    /// change (`Loadable.loadedAt` is when the value last changed).
     public func lastFetched(_ feed: Feed) -> Date? { fetchedAt[feed] }
 
     private func resetValues() {
@@ -224,8 +192,6 @@ public final class LiveModel {
         versionFetch?.cancel()
         versionFetch = nil
     }
-
-    // MARK: Fetching
 
     private func fetch(_ feed: Feed) async -> FeedTick {
         guard let c = client else { return .failed(.offline) }

@@ -1,20 +1,12 @@
 import Foundation
 import Observation
 
-/// Observable cache over `ProducerInstallService` for the Agents pane:
-/// detection and registration state are read off the main actor on demand
-/// (pane appear, after an install) instead of on every render, and
-/// install/uninstall run without blocking the UI.
 @MainActor
 @Observable
 public final class ProducerInstallModel {
-    /// nil until the first read lands, so the UI can say "Checking…" rather
-    /// than a false "No agent detected".
     public private(set) var snapshot: ProducerSnapshot?
     public private(set) var isWorking = false
-    /// "Codex failed: …" after an install/uninstall with a failed agent.
     public private(set) var failure: String?
-    /// For the window's save status.
     public private(set) var lastRunSucceeded: Bool?
 
     @ObservationIgnored private let service: ProducerInstallService
@@ -24,10 +16,8 @@ public final class ProducerInstallModel {
         self.service = service
     }
 
-    /// Whether reporting is on for every detected agent.
     public var isOn: Bool { snapshot?.toggle == .on }
 
-    /// Rereads the state.
     public func refresh() async {
         seq += 1
         let mine = seq
@@ -35,27 +25,22 @@ public final class ProducerInstallModel {
         if mine == seq { snapshot = fresh }
     }
 
-    /// Installs (on) or uninstalls (off) every detected agent.
     public func setEnabled(_ on: Bool) async {
         await run { on ? await $0.installAll() : await $0.uninstallAll() }
     }
 
-    /// Installs (on) or uninstalls (off) one agent, detected or not.
     public func setEnabled(_ agent: ProducerAgent, _ on: Bool) async {
         await run { await $0.setEnabled(agent, on) }
     }
 
-    /// Replaces a CLI-installed agent with the app's copy.
     public func moveToEmber(_ agent: ProducerAgent) async {
         await run { await $0.moveToEmber(agent) }
     }
 
-    /// Runs the Claude helper's `configure` to fix the hook registration.
     public func configureClaudeHooks() async {
         await run { await $0.configureClaudeHooks() }
     }
 
-    /// Re-registers every agent that's on but not running.
     public func repair() async {
         await run { await $0.repairAll() }
     }

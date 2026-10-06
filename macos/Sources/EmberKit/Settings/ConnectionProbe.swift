@@ -1,26 +1,17 @@
 import Foundation
 
-/// Settings › Connection's status row: can this Mac reach the server, and
-/// does the token work?
 public enum ConnectionProbe {
     public enum Result: Equatable, Sendable {
-        /// Reached, token accepted.
         case connected(version: String?)
-        /// No (valid) server URL.
         case notConfigured
         case unauthorized
-        /// Reached, but the limiter answered before the token was checked.
         case rateLimited
         case unreachable
-        /// No answer came in time (the server may be up but busy).
         case timedOut
-        /// macOS Local Network privacy blocked the request to a LAN server.
         case localNetworkDenied
         case serverError(status: Int)
     }
 
-    /// Probes an always-mounted, auth-required route (`/v1/apps`; Pomodoro's
-    /// config 404s when that feature is off), then reads the version.
     public static func run(_ client: APIClient) async -> Result {
         do {
             try await client.send("GET", "/v1/apps")

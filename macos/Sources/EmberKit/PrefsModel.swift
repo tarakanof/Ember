@@ -1,14 +1,10 @@
 import Foundation
 
 public let appIconPalettes = ["bot", "spark", "pixel-e"]
-/// Menu-bar icon: the animated bot, or the per-tool glyphs below.
 public let trayStyles = ["bot", "glyphs"]
-/// Menu-bar icon colouring: per-state colour, or a template image that follows
-/// the menu bar's light/dark tint like the system icons.
 public let trayTints = ["color", "mono"]
 public let trayGlyphs = ["ember", "ember-e", "ember-e-pixel", "claude", "codex", "pomodoro", "coffee"]
 
-/// Friendly label for an app-icon id (used by the App-tab picker).
 public func appIconDisplayName(_ id: String) -> String {
     switch id {
     case "bot":     return "Bot (animated)"
@@ -18,17 +14,14 @@ public func appIconDisplayName(_ id: String) -> String {
     }
 }
 
-/// Friendly label for a tray-style id (used by the App-tab picker).
 public func trayStyleDisplayName(_ id: String) -> String {
     id == "bot" ? "Animated bot" : "Tool glyphs"
 }
 
-/// Friendly label for a tray-tint id.
 public func trayTintDisplayName(_ id: String) -> String {
     id == "mono" ? "Monochrome" : "Colored"
 }
 
-/// Friendly label for a tray-glyph id (used by the App-tab glyph pickers).
 public func trayGlyphDisplayName(_ id: String) -> String {
     switch id {
     case "ember":         return "Ember flame"
@@ -46,7 +39,6 @@ public struct RGB: Equatable, Sendable { public var r, g, b: UInt8
     public init(r: UInt8, g: UInt8, b: UInt8) { self.r = r; self.g = g; self.b = b }
 }
 
-/// Menu-app-local icon prefs (was menu.json; now @AppStorage in the app shell).
 public struct MenuPrefs: Equatable, Sendable {
     public var appIcon: String
     public var trayClaudeGlyph: String
@@ -66,7 +58,6 @@ public struct MenuPrefs: Equatable, Sendable {
         appIcon: "bot", trayClaudeGlyph: "claude",
         trayCodexGlyph: "codex", trayIdleGlyph: "ember-e-pixel", trayStyle: "bot", trayTint: "color")
 
-    /// Replaces any unknown value with its default (matches menuprefs.go validate()).
     public func validated() -> MenuPrefs {
         let d = MenuPrefs.default
         return MenuPrefs(
@@ -79,7 +70,6 @@ public struct MenuPrefs: Equatable, Sendable {
     }
 }
 
-/// Tray glyph id for the leading tool (ports glyphForTool).
 public func glyphForTool(_ tool: String, _ p: MenuPrefs) -> String {
     switch tool {
     case "codex": return p.trayCodexGlyph
@@ -88,7 +78,6 @@ public func glyphForTool(_ tool: String, _ p: MenuPrefs) -> String {
     }
 }
 
-/// Menu-bar robot colour for a state (ports icon.go stateColor).
 public func stateColorRGB(_ state: String) -> RGB {
     switch state {
     case "running": return RGB(r: 0x2e, g: 0xe8, b: 0x5e)

@@ -1,28 +1,19 @@
 import Foundation
 
-/// The text behind a Settings row's info button (#290): a one-line `summary`
-/// for the hover tooltip and a 1–3 sentence `detail` for the popover (what the
-/// option does, its trade-off, its default). Every claim comes from the code
-/// or docs it names, so check them when the behaviour changes: the server's
-/// defaults and validation (`cmd/ember`), cinder's `docs/features.md` for the knob.
 public enum SettingsInfo: String, CaseIterable, Sendable {
-    // Devices › Knob
     case knobPoll, knobStatsInterval, knobLiveInterval, knobFastLink
     case knobFollowBrightness, knobMinBrightness, knobStartupBrightness
     case knobSleepy, knobSourceLabel, knobWorkingRing
-    // Devices › Clock
     case clockAutoBrightness, clockUppercase
     case clockTimePerApp, clockAutoTransition, clockScrollSpeed, clockBlockNavigation
     case melody, attentionChime, limitAlarm
     case bottomBar, activityTrail
     case weatherNativeTileIcon, weatherMoonPhase, weatherOverlay, weatherPopupInterval, weatherNativePopupIcons
     case meetingPopupLead, reminderNativeIcon
-    // Sources
     case codexIncludeClaude, codexSources, codexAppServer
     case claudeAgentsPoll, doneTTL, statuslineTimeout
     case focusAutoStart, focusStopAfter, focusWeeklyGoal
     case weatherProvider, weatherSevereAlert
-    // App
     case sourceColor, menuBarIcon
 
     public var summary: LocalizedStringResource {
@@ -73,18 +64,14 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
 
     public var detail: LocalizedStringResource {
         switch self {
-        // cinder docs/features.md "View long-poll" (#27): with a current server the knob
-        // waits on an open view request and polls every poll_ms only without it.
         case .knobPoll:
             "How often the knob asks Ember for updates when it can't wait on an open request, for example with an older server or after an error. A current server answers the moment something changes, so a shorter interval mostly adds requests. Default: 2 s."
         case .knobStatsInterval:
             "How often the knob sends the stats behind its Hardware page. Shorter gives finer charts, but more requests from the knob and more memory on the server. Default: 1 min."
         case .knobLiveInterval:
             "While the knob's Hardware page is open in Ember, the knob checks in this often so the charts move live, then goes back to normal. The real pace rounds up to the check interval, so 5 s can come out near 6 s. Default: 5 s."
-        // cinder docs/features.md "QSPI 80 MHz panel link" (#23).
         case .knobFastLink:
             "Redraws the screen faster (a full frame in about 25 ms instead of 35) and halves the time in which a redraw can tear. 80 MHz is beyond the panel's rated speed, so the knob checks the link at startup and every 5 s and drops back to 40 MHz by itself if a check fails. Changing it restarts the knob; default: on."
-        // ARCHITECTURE "GET /v1/display/brightness".
         case .knobFollowBrightness:
             "The knob has no light sensor, so it uses the level Ember works out from the clock's light sensor, or from sunrise and sunset at the weather location when there's no reading. Off keeps the knob at the Brightness level. Default: on."
         case .knobMinBrightness:
@@ -97,12 +84,10 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "While an agent is working, waiting or in error, the name of its computer curves along the bottom of the bot's face, after the tool's icon. Default: on."
         case .knobWorkingRing:
             "While an agent is working, a glint orbits the bot's outline every 3 s, and after a long stretch the eyes chase it for a few laps. Off keeps the outline still. Default: on."
-        // awtrix-ng docs: guides/brightness and reference/settings (defaults, ranges).
         case .clockAutoBrightness:
             "The clock follows its light sensor within its own minimum and maximum, staying dim until the room is properly bright, and eases changes in over about 10 s. The Brightness slider isn't used while this is on. Default: off."
         case .clockUppercase:
             "The clock capitalizes the text of pushed apps and notifications before drawing them; an app can ask for its own case instead. Default: on."
-        // ARCHITECTURE "Hold precedence": running agents and weather tiles ask for 6 s.
         case .clockTimePerApp:
             "How long the clock shows an app before moving to the next. Apps can ask for their own time: Ember's agent cards and weather tiles stay 6 s. Default: 7 s."
         case .clockAutoTransition:
@@ -115,7 +100,6 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "Built-in plays Ember's own tune. Pick a melody stored on the clock, or choose Custom and type a stored melody's name or an RTTTL tune."
         case .attentionChime:
             "The clock chimes once when a session starts waiting for you or hits an error and takes over the screen. Quiet hours mute it."
-        // ARCHITECTURE "5h limit-reset alarm".
         case .limitAlarm:
             "When Claude's or Codex's 5-hour window is used up, the clock shows a popup with a chime about a minute after it resets, so you know you can carry on. Default: on."
         case .bottomBar:
@@ -136,15 +120,12 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "Shows a popup this many minutes before a meeting starts, with a chime if Meeting popup is on in Clock › Sounds. Default: 2 min."
         case .reminderNativeIcon:
             "Uses the animated icon with this ID from the clock's own icon store. The clock must already have it: Ember uploads only the weather and Pomodoro icons."
-        // RUNBOOK "EMBER_*" toggle reference; cmd/ember-codex-producer/config.go.
         case .codexIncludeClaude:
             "Shows the Codex sessions that Claude Code starts through its Codex plugin, marked via Claude. It's off because the Claude Code session that started them already shows that work. Default: off."
         case .codexSources:
             "CLI is the Codex TUI; VS Code covers the IDE extension and the desktop app. Exec and MCP are runs started by scripts or other agents. Default: CLI and VS Code."
-        // ARCHITECTURE "App-server source".
         case .codexAppServer:
             "When the Codex app-server daemon is running, Ember reads TUI sessions from its socket, including waits for approval. Without the daemon this does nothing, and Ember never starts it. Default: on."
-        // ARCHITECTURE "claude agents --json cross-check".
         case .claudeAgentsPoll:
             "Asks claude agents for each session's state, which ends a wait you answered in a dialog and catches a turn stopped with Esc, where no hook fires. Needs Claude Code 2.1.288 or later. Default: on."
         case .doneTTL:
@@ -159,7 +140,6 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "A day counts as active when it has at least one completed focus session. The Dashboard compares the last 7 days with this goal."
         case .weatherProvider:
             "Conditions and the hourly forecast come from this service. Air quality always comes from Open-Meteo, because MET Norway has none. Default: Open-Meteo."
-        // cmd/ember/weather.go wmoCondition / metSymbolCondition: heavy rain or snow, thunder.
         case .weatherSevereAlert:
             "Shows a weather popup with a sound when heavy rain, heavy snow or a thunderstorm begins, once each time. Pick the sound in Clock › Sounds; quiet hours mute it. Default: on."
         case .sourceColor:
@@ -170,8 +150,6 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
     }
 }
 
-/// Why an info row's control is unavailable, added to its popover while the
-/// row is disabled (the info button itself stays enabled, see `staysEnabled`).
 public enum SettingsInfoRequirement: String, CaseIterable, Sendable {
     case loading, diagnosticsOn, currentConditionsOn, scrolling, weatherOn, meetingsOn, remindersOn
     case focusSoundOn, severeAlertOn, setByEnvironment
@@ -193,7 +171,6 @@ public enum SettingsInfoRequirement: String, CaseIterable, Sendable {
 }
 
 extension SettingsInfo {
-    /// The popover's paragraphs: the detail, then why the row is off while it is.
     public func popover(rowEnabled: Bool, requirement: SettingsInfoRequirement?) -> [LocalizedStringResource] {
         guard !rowEnabled, let requirement else { return [detail] }
         return [detail, requirement.text]

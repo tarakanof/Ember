@@ -1,18 +1,11 @@
 import Foundation
 import os
 
-/// Persists the Agents pane's per-agent choices: which detected agents the
-/// user turned off (the master switch leaves them alone) and which agent
-/// cases the app has already seen (so a newly added one can start opted out).
 public protocol ProducerPrefsStoring: Sendable {
-    /// Raw values of the agents the user turned off with their own switch.
     var optOut: Set<String> { get nonmutating set }
-    /// Raw values of the agent cases known at the last launch; nil before the
-    /// first launch that recorded them.
     var knownAgents: [String]? { get nonmutating set }
 }
 
-/// `ProducerPrefsStoring` in `UserDefaults`.
 public struct UserDefaultsProducerPrefs: ProducerPrefsStoring, @unchecked Sendable {
     private let defaults: UserDefaults
     static let optOutKey = "producers.optOut"
@@ -33,7 +26,6 @@ public struct UserDefaultsProducerPrefs: ProducerPrefsStoring, @unchecked Sendab
     }
 }
 
-/// `ProducerPrefsStoring` in memory, for tests and previews.
 public final class InMemoryProducerPrefs: ProducerPrefsStoring {
     private let state: OSAllocatedUnfairLock<(optOut: Set<String>, known: [String]?)>
 

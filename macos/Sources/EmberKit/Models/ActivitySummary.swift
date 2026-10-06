@@ -1,15 +1,11 @@
 import Foundation
 
-/// GET /v1/activity/summary — agent activity per tool and per source.
 public struct ActivitySummary: Decodable, Sendable, Equatable {
-    /// One rollup row.
     public struct Totals: Decodable, Sendable, Equatable, Identifiable {
         public var key: String?
         public var sourceColor: String?
-        /// Wall-clock working time (running/error only; waiting never counts).
         public var activeSec: Int
         public var sessions: Int
-        /// Waiting episodes: how often an agent stopped to ask for input.
         public var attention: Int
         public var id: String { key ?? "" }
 
@@ -24,9 +20,7 @@ public struct ActivitySummary: Decodable, Sendable, Equatable {
         public var from: Date
         public var to: Date
         public var total: Totals
-        /// Most active first.
         public var byTool: [Totals]
-        /// Most active first.
         public var bySource: [Totals]
 
         enum CodingKeys: String, CodingKey {
@@ -36,11 +30,8 @@ public struct ActivitySummary: Decodable, Sendable, Equatable {
         }
     }
 
-    /// One (day, tool) bar.
     public struct ToolDay: Decodable, Sendable, Equatable, Identifiable {
-        /// Logical day ("2026-09-26"), honouring the server's day-start hour.
         public var day: String
-        /// Local midnight of `day`.
         public var date: Date
         public var tool: String
         public var activeSec: Int
@@ -54,12 +45,10 @@ public struct ActivitySummary: Decodable, Sendable, Equatable {
         }
     }
 
-    /// One (day, source) bar, coloured by the source.
     public struct SourceDay: Decodable, Sendable, Equatable, Identifiable {
         public var day: String
         public var date: Date
         public var source: String
-        /// "#RRGGBB"; nil until the source has posted a colour since server start.
         public var sourceColor: String?
         public var activeSec: Int
         public var sessions: Int
@@ -74,13 +63,10 @@ public struct ActivitySummary: Decodable, Sendable, Equatable {
     }
 
     public var generatedAt: Date
-    /// False while the server's work-hours activity overlay is off: nothing new
-    /// is being stored, so recent windows read as zero.
     public var recording: Bool
     public var days: Int
     public var spanGapSec: Int
     public var today: Window
-    /// The last `days` logical days, today included.
     public var period: Window
     public var daily: [ToolDay]
     public var dailyBySource: [SourceDay]

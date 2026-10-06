@@ -2,22 +2,17 @@ import Foundation
 import Network
 import os
 
-/// Recognises macOS Local Network privacy refusing this app a LAN connection.
 public enum LocalNetworkDenial {
     static let dnsNoAuth: Int32 = -65555
     static let dnsPolicyDenied: Int32 = -65570
     static let posixNetworkDown: Int = 50
     static let posixStreamDomain: Int = 1
 
-    /// What a failed connection's network path says, when it's known.
     public enum PathVerdict: Equatable, Sendable {
-        /// Unsatisfied because Local Network access is off.
         case localNetworkDenied
-        /// Unsatisfied for another reason (no network, say), or satisfied.
         case other
     }
 
-    /// Whether a browse or connection error is a Local Network refusal.
     public static func isDenied(_ error: NWError, host: String? = nil,
                                 pathStatus: NWPath.Status? = nil) -> Bool {
         switch error {
@@ -30,8 +25,6 @@ public enum LocalNetworkDenial {
         }
     }
 
-    /// Whether a URLSession (or Network) error from a request to `host` is a
-    /// Local Network refusal.
     public static func isDenied(_ error: Error, host: String?, pathStatus: NWPath.Status?) -> Bool {
         if let e = error as? NWError { return isDenied(e, host: host, pathStatus: pathStatus) }
         let ns = error as NSError
@@ -56,9 +49,6 @@ public enum LocalNetworkDenial {
 
     static let lanSuffixes = [".local", ".home.arpa", ".internal", ".lan"]
 
-    /// Whether Local Network privacy covers connections to `host`: a
-    /// private, link-local or unique-local address (IPv4-mapped IPv6
-    /// included), a name under a LAN-only suffix, or a bare single-label name.
     public static func isLANHost(_ host: String) -> Bool {
         var h = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
         if h.isEmpty { return false }
@@ -96,7 +86,6 @@ public enum LocalNetworkDenial {
     }
 }
 
-/// This Mac's overall network path, kept current by one `NWPathMonitor`.
 public final class NetworkPathSnapshot: Sendable {
     public static let shared = NetworkPathSnapshot()
 
@@ -108,8 +97,6 @@ public final class NetworkPathSnapshot: Sendable {
         monitor.start(queue: DispatchQueue(label: "com.ember.network-path"))
     }
 
-    /// The last status the monitor reported; nil before its first update,
-    /// which `LocalNetworkDenial` treats as "not a refusal".
     public var status: NWPath.Status? {
         latest.withLock { $0 }
     }

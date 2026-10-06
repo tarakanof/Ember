@@ -1,26 +1,18 @@
 import Foundation
 
-/// The knob's Pomodoro page for one moment: ring and labels as cinder's
-/// `pomo_view.c` draws them.
 public struct KnobPomoFace: Equatable, Sendable {
     public enum Mode: Sendable, Equatable { case idle, running, paused, parked }
 
     public var mode: Mode
-    /// Remaining share of the phase, 0…1; the arc covers it clockwise from 12 o'clock.
     public var fraction: Double
-    /// nil draws no arc (idle or offline).
     public var arc: RGB?
     public var track: RGB
     public var time: String
     public var timeColor: RGB
     public var phase: String
     public var phaseColor: RGB
-    /// "2 DONE", or "" before the first completed focus round.
     public var round: String
 
-    /// The face for `state` (nil: no data, "OFFLINE") at `now`, its countdown
-    /// taken from `fetchedAt` while running. A `note` ("POMODORO OFF")
-    /// replaces the phase line, as the firmware's status notes do.
     public init(state: PomoState?, fetchedAt: Date?, now: Date, note: String? = nil, theme: KnobTheme.Pomodoro) {
         let c = theme.colors
         guard var s = state else {

@@ -1,6 +1,5 @@
 import Foundation
 
-/// Parsed producer.env preserving original lines/comments/order.
 public struct EnvFile: Sendable {
     private struct Line { var raw: String; var key: String?; var value: String }
     private var lines: [Line]
@@ -41,7 +40,6 @@ public struct EnvFile: Sendable {
         }
     }
 
-    /// Removes every line that sets `key`.
     public mutating func remove(_ key: String) {
         lines.removeAll { $0.key == key }
     }
@@ -53,7 +51,6 @@ public struct EnvFile: Sendable {
         }.joined(separator: "\n") + "\n"
     }
 
-    /// Atomic 0600 write via temp file + rename.
     public func write(to path: URL) throws {
         let dir = path.deletingLastPathComponent()
         let fm = FileManager.default
@@ -77,7 +74,6 @@ public struct EnvFile: Sendable {
     }
 }
 
-/// Default-true toggle parse (matches producer isEnvTrue): only false/0/no/off disable.
 public func envTrue(_ v: String) -> Bool {
     switch v.trimmingCharacters(in: .whitespaces).lowercased() {
     case "false", "0", "no", "off": return false
@@ -85,7 +81,6 @@ public func envTrue(_ v: String) -> Bool {
     }
 }
 
-/// Default-false toggle parse (matches isEnvOn): only true/1/yes/on enable.
 public func envOn(_ v: String) -> Bool {
     switch v.trimmingCharacters(in: .whitespaces).lowercased() {
     case "true", "1", "yes", "on": return true

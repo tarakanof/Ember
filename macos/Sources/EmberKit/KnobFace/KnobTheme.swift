@@ -1,24 +1,18 @@
 import Foundation
 
-/// The knob face's geometry, palette, layout and font sizes, decoded from
-/// `knob-theme.json`: the one copy of the numbers cinder's firmware draws with.
 public struct KnobTheme: Decodable, Sendable, Equatable {
     public struct Screen: Decodable, Sendable, Equatable {
         public var diameterPx: Double
     }
 
     public struct Font: Decodable, Sendable, Equatable {
-        /// LVGL's line box for one size: its height and the baseline's distance from its bottom.
         public struct Metrics: Decodable, Sendable, Equatable {
             public var lineHeightPx, baselinePx: Double
         }
-        /// PostScript name.
         public var family: String
         public var file: String
-        /// Keyed by pixel size ("48").
         public var metrics: [String: Metrics]
 
-        /// The line box for `px`; a size the firmware lacks gets a scaled 48.
         public func metrics(_ px: Double) -> Metrics {
             if let m = metrics[String(Int(px))] { return m }
             let k = px / 48
@@ -40,7 +34,6 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             public var durationS, squash, intervalMedianS, intervalSigma, intervalMinS, intervalMaxS: Double
         }
         public struct Eyes: Decodable, Sendable, Equatable {
-            /// Open-to-shut pairs, interpolated by the lid.
             public struct Capsule: Decodable, Sendable, Equatable {
                 public var width, height, angleDeg: [Double]
             }
@@ -58,23 +51,17 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public struct Badge: Decodable, Sendable, Equatable {
             public var at, gap, dot: Double
         }
-        /// The curved host label (cinder#42): baseline on a circle of `radiusPx`
-        /// around the body centre, under the tool's mark: the Claude Code mascot (pixel art) /
-        /// the OpenAI mark (`markHPx` tall, bottom edge `markBottomPx` below the body
-        /// centre, in their colours), or T3's 8×8 glyph of `iconCellPx` cells.
         public struct Host: Decodable, Sendable, Equatable {
             public var fontPx, radiusPx, iconCellPx, markHPx, markBottomPx: Double
             public var claudeColor, codexColor: RGB
             public var maxChars: Int
         }
-        /// The working glint orbiting the outline (cinder#42).
         public struct Glint: Decodable, Sendable, Equatable {
             public var widthPx, tailDeg, whiteMix, periodS, fps: Double
         }
         public var fill: Double
         public var bodyColor, eyeColor: RGB
         public var eyeScale, hopScale, rimPx, rimDimGain: Double
-        /// Outline variants per side along the hop's squash and stretch.
         public var rimSteps: Int
         public var ringPoints: Int
         public var triangle: Triangle
@@ -98,8 +85,6 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         public var time, phase, round: Label
     }
 
-    /// The now-playing page (cinder#14): a backdrop disk, the progress ring,
-    /// the album and the artist picture, and three text lines.
     public struct NowPlaying: Decodable, Sendable, Equatable {
         public struct Colors: Decodable, Sendable, Equatable {
             public var track, arc, arcPaused, text, sub, meta, idle, placeholder, note: RGB
@@ -145,7 +130,6 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
                 public var firstS, gapS, secondS, x: [Double]
                 public var onS, doubleChance, y: Double
             }
-            /// A drifting cloud: x swings by amp over period_s.
             public struct Drift: Decodable, Sendable, Equatable {
                 public var x, y, amp, periodS, phase, alpha: Double
             }
@@ -160,7 +144,6 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
             }
             public var fps: FPS
             public var maxStepS: Double
-            /// Sprite sizes [w, h], keyed by the firmware's sprite name ("cloud_l").
             public var sprites: [String: [Double]]
             public var rayFrames: Int
             public var rayStepsPerS: Double
@@ -188,12 +171,10 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
     public var weather: Weather
     public var nowplaying: NowPlaying
 
-    /// The bundled font's file, for registering it with Core Text.
     public static var fontURL: URL? {
         Bundle.module.url(forResource: standard.font.file, withExtension: nil)
     }
 
-    /// The theme shipped in EmberKit's bundle.
     public static let standard: KnobTheme = {
         do {
             return try load()
@@ -204,7 +185,6 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
 
     static var jsonURL: URL? { Bundle.module.url(forResource: "knob-theme", withExtension: "json") }
 
-    /// Decodes EmberKit's `knob-theme.json`; throws if it is missing or malformed.
     public static func load() throws -> KnobTheme {
         guard let url = jsonURL else {
             throw CocoaError(.fileNoSuchFile)
@@ -212,14 +192,12 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         return try decode(Data(contentsOf: url))
     }
 
-    /// Decodes a theme document; throws on a missing key or a bad colour.
     public static func decode(_ data: Data) throws -> KnobTheme {
         let d = JSONDecoder()
         d.keyDecodingStrategy = .convertFromSnakeCase
         return try d.decode(KnobTheme.self, from: data)
     }
 
-    /// The outline and badge colour for a mood (Ember's `stateColorRGB`).
     public func moodColor(_ mood: BotMood) -> RGB {
         switch mood {
         case .idle, .sleepy: moodColors.idle
@@ -230,7 +208,6 @@ public struct KnobTheme: Decodable, Sendable, Equatable {
         }
     }
 
-    /// The knob's bot timings.
     public var botTuning: BotBehavior.Tuning {
         let h = bot.hop
         return BotBehavior.Tuning(sleepAfter: BotBehavior.sleepAfter, hopLength: h.durationS, hopSquash: h.squash,
@@ -249,7 +226,6 @@ extension RGB: Decodable {
         self = c
     }
 
-    /// Each channel times `gain` (0…1), the way the firmware dims a colour on black.
     public func scaled(_ gain: Double) -> RGB {
         func s(_ v: UInt8) -> UInt8 { UInt8(min(255, max(0, Double(v) * gain))) }
         return RGB(r: s(r), g: s(g), b: s(b))

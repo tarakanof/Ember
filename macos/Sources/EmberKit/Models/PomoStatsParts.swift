@@ -1,14 +1,10 @@
 import Foundation
 
-/// Focus-phase outcomes over a window (`PomoStats.completion`: the last 30
-/// days).
 public struct CompletionStat: Codable, Sendable, Equatable {
     public var completedFocus: Int
     public var abandonedFocus: Int
     public var totalFocus: Int
-    /// completed / total, 0...1; 0 when there were no focus phases.
     public var completionRate: Double
-    /// Actual seconds across completed focus phases.
     public var focusSec: Int
 
     public init(completedFocus: Int = 0, abandonedFocus: Int = 0, totalFocus: Int = 0,
@@ -29,13 +25,11 @@ public struct CompletionStat: Codable, Sendable, Equatable {
     }
 }
 
-/// Progress toward the daily and weekly goals.
 public struct GoalStatus: Codable, Sendable, Equatable {
     public var dailySessions: Int
     public var todayCompleted: Int
     public var dailyMet: Bool
     public var weeklyDays: Int
-    /// Days with at least one completed focus in the last 7 logical days.
     public var weekActiveDays: Int
     public var weeklyMet: Bool
 
@@ -59,8 +53,6 @@ public struct GoalStatus: Codable, Sendable, Equatable {
     }
 }
 
-/// One bucket of completed focus: a day ("2026-09-26") in the heatmap
-/// calendar, an ISO week ("2026-W39") in `PomoStats.weekly`.
 public struct FocusBucket: Codable, Sendable, Equatable, Identifiable {
     public var key: String
     public var focusMin: Int

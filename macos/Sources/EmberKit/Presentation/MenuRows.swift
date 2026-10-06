@@ -1,23 +1,14 @@
 import Foundation
 
-/// The rows of the menu-bar menu, built from `LiveModel` values.
 public enum MenuRows {
 
-    // MARK: Header
-
-    /// The status rows at the top: a title and an optional activity line.
     public struct Header: Sendable {
         public let title: LocalizedStringResource
-        /// Sanitised producer text ("Bash: npm test"); nil when there's none.
         public let detail: String?
     }
 
-    /// The menu cuts the activity line to this many characters.
     public static let activityMaxLength = 48
 
-    /// "Claude on m4 — Running" + activity; "Idle" when connected with no
-    /// session to show; "Offline — server unreachable since 10:42" (or just
-    /// "Offline" when this server never answered).
     public static func header(connection: ConnectionHealth, hasEverLoaded: Bool, winning: Session?,
                               offlineReason: FeedError? = nil,
                               locale: Locale = .current, timeZone: TimeZone = .current) -> Header {
@@ -44,8 +35,6 @@ public enum MenuRows {
         }
     }
 
-    /// What VoiceOver reads for the menu-bar icon after "Ember": the bot's
-    /// colour and eyes show the state, so it has to be said too.
     public static func accessibilityValue(connection: ConnectionHealth, winning: Session?) -> LocalizedStringResource {
         switch connection {
         case .unconfigured: "Not set up"
@@ -55,25 +44,14 @@ public enum MenuRows {
         }
     }
 
-    // MARK: Menu-bar label
-
-    /// Everything the menu-bar icon is drawn from, and nothing more.
     public struct LabelState: Equatable, Sendable {
-        /// The winning session's state, "idle" when there is none.
         public let state: String
-        /// The tray glyph for the winning session's tool under the current
-        /// prefs, so a glyph pref change re-renders and a tool change that
-        /// keeps the same glyph doesn't.
         public let glyph: String
-        /// "bot" draws the animated bot, anything else the tool glyph.
         public let trayStyle: String
-        /// "color" tints the icon by state, anything else leaves it monochrome.
         public let trayTint: String
-        /// What VoiceOver reads after "Ember" (see `accessibilityValue`).
         public let accessibilityValue: String
     }
 
-    /// The label for the session the menu heads (`LiveModel.winningSession`).
     public static func label(connection: ConnectionHealth, winning: Session?, prefs: MenuPrefs) -> LabelState {
         LabelState(state: winning?.state ?? "idle",
                    glyph: glyphForTool(winning?.tool ?? "", prefs),
@@ -82,23 +60,16 @@ public enum MenuRows {
                    accessibilityValue: String(localized: accessibilityValue(connection: connection, winning: winning)))
     }
 
-    // MARK: Other sessions
-
     public struct SessionRow: Identifiable, Sendable {
         public let id: String
-        /// "Codex on m5 — Waiting · 41% context".
         public let text: LocalizedStringResource
     }
 
     public struct OtherSessions: Sendable {
         public let rows: [SessionRow]
-        /// "4 more", when sessions were cut at the limit.
         public let overflow: LocalizedStringResource?
     }
 
-    /// Every session but the one in the header, attention first (waiting,
-    /// error, running, done, idle), newest first within a state, cut at
-    /// `limit`.
     public static func otherSessions(_ sessions: [Session], winning: Session?, limit: Int = 8,
                                      locale: Locale = .current) -> OtherSessions {
         guard sessions.count > 1 else { return OtherSessions(rows: [], overflow: nil) }
@@ -123,28 +94,21 @@ public enum MenuRows {
 
     private static func key(_ s: Session) -> String { "\(s.source)\u{1F}\(s.tool)\u{1F}\(s.session)" }
 
-    // MARK: Usage
-
     public struct UsageRow: Identifiable, Sendable {
         public enum Level: Sendable, Equatable {
             case normal
-            /// At or above `highPercent`.
             case high
-            /// At or above 100 %: the window is used up until it resets.
             case limit
         }
 
         public let tool: String
-        /// "Claude 5h 47% · resets 04:20".
         public let text: LocalizedStringResource
         public let level: Level
         public var id: String { tool }
     }
 
-    /// The share of a 5-hour window from which a row counts as high.
     public static let highPercent: Double = 80
 
-    /// One row per tool with a current 5-hour window, sorted by tool.
     public static func usage(_ usage: Loadable<UsageSnapshot>, sessions: [Session], now: Date,
                              locale: Locale = .current, timeZone: TimeZone = .current) -> [UsageRow] {
         var rows: [String: UsageRow] = [:]
@@ -189,7 +153,6 @@ public enum MenuRows {
         .sorted { $0.tool < $1.tool }
     }
 
-    /// The sessions the menu may show: none unless the snapshot is live.
     public static func liveSessions(_ snapshot: Loadable<Snapshot>) -> [Session] {
         guard case .loaded(let snap, _) = snapshot else { return [] }
         return snap.sessions
@@ -218,9 +181,6 @@ public enum MenuRows {
         return date.formatted(style)
     }
 
-    // MARK: Next event
-
-    /// A due Apple Reminder (the app's `ReminderWatcher.upcoming`).
     public struct Reminder: Equatable, Sendable {
         public let title: String
         public let due: Date
@@ -230,12 +190,9 @@ public enum MenuRows {
         }
     }
 
-    /// How far ahead the next-event row looks.
     public static let nextEventHorizon: TimeInterval = 36 * 3600
     static let startedGrace: TimeInterval = 5 * 60
 
-    /// "Next: Standup in 12 min", "Next: Reminder: Pay rent at 14:30",
-    /// "Next: Retro tomorrow at 09:00".
     public static func nextEvent(meetings: MeetingsState?, reminders: [Reminder], now: Date,
                                  locale: Locale = .current, timeZone: TimeZone = .current) -> LocalizedStringResource? {
         let candidates: [(title: String, start: Date)] =
@@ -266,10 +223,6 @@ public enum MenuRows {
         return "Next: \(title) \(next.start.formatted(style))"
     }
 
-    // MARK: Pomodoro
-
-    /// "Focus · 18:42 left · round 2", "Short Break · paused · 18:42 left",
-    /// "Long Break · ready to start" (parked); nil while idle or unknown.
     public static func pomodoroStatus(_ state: PomoState?, locale: Locale = .current) -> LocalizedStringResource? {
         guard let state else { return nil }
         let phase = String(localized: state.phaseEnum.displayName)
@@ -284,19 +237,14 @@ public enum MenuRows {
 
     public struct PomodoroGroup: Equatable, Sendable {
         public let items: [PomodoroItem]
-        /// False while offline: the controls show but can't be used.
         public let isEnabled: Bool
     }
 
-    /// The Pomodoro controls that apply now; nil when the server has no
-    /// Pomodoro (the group hides).
     public static func pomodoroControls(_ pomodoro: Loadable<PomoState>, connection: ConnectionHealth) -> PomodoroGroup? {
         if pomodoro.error == .featureOff { return nil }
         return PomodoroGroup(items: PomodoroControls.items(for: pomodoro.value), isEnabled: connection.isOnline)
     }
 
-    /// "Today 3 of 8 · 1h 15m"; "Today 3 sessions · 1h 15m" with the daily
-    /// goal off (0, or a server too old to report it).
     public static func today(_ stats: PomoStats?, locale: Locale = .current) -> LocalizedStringResource? {
         guard let stats else { return nil }
         let done = stats.today.completedFocus
@@ -306,9 +254,6 @@ public enum MenuRows {
         return "Today \(done) sessions · \(time)"
     }
 
-    // MARK: Action errors
-
-    /// "Couldn't start: unauthorized", for `ActionRunner.lastError`.
     public static func failure(_ action: EmberAction, _ error: FeedError) -> LocalizedStringResource {
         let reason = String(localized: shortReason(error))
         switch action {
@@ -343,16 +288,12 @@ public enum MenuRows {
         }
     }
 
-    // MARK: Clock
-
     public struct PowerItem: Identifiable, Sendable {
-        /// The state the item switches the matrix to.
         public let on: Bool
         public let title: LocalizedStringResource
         public var id: Bool { on }
     }
 
-    /// Display power items.
     public static func displayPower(usage: Loadable<UsageSnapshot>, clockHealth: Loadable<ClockHealth>,
                                     matrixPower: Bool?) -> [PowerItem] {
         guard usage.value != nil || clockHealth.value != nil else { return [] }
@@ -366,20 +307,15 @@ public enum MenuRows {
     }
 
     public struct AppRow: Identifiable, Sendable {
-        /// Wire name, for `EmberAction.setApp`.
         public let name: String
         public let title: LocalizedStringResource
         public let enabled: Bool
         public var id: String { name }
     }
 
-    /// The Show on Clock toggles, in the server's order; empty (the submenu
-    /// hides) when the server has no `/v1/apps` or no apps yet.
     public static func showOnClock(_ apps: Loadable<[AppToggle]>) -> [AppRow] {
         (apps.value ?? []).map { AppRow(name: $0.name, title: AppNames.display($0.name), enabled: $0.enabled) }
     }
-
-    // MARK: Helpers
 
     private static func time(_ date: Date, locale: Locale, timeZone: TimeZone) -> String {
         var style = Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)

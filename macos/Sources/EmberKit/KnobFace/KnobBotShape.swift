@@ -1,11 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// The knob bot's geometry in body space (y up, body radius 1): a port of
-/// cinder's `bot_shape.c`, which differs from `BotRenderer` in its curved
-/// triangle and in drawing eyes as round-capped strokes.
 public struct KnobBotShape: Sendable {
-    /// A round-capped polyline; `width` is in body radii.
     public struct Stroke: Sendable, Equatable {
         public var points: [CGPoint]
         public var width: Double
@@ -19,8 +15,6 @@ public struct KnobBotShape: Sendable {
         table = Self.triangleTable(theme.triangle)
     }
 
-    /// The outline's squash/stretch variants (sx, sy), squash first, base in
-    /// the middle: the firmware pre-draws these and picks one per frame.
     public static func rimVariants(steps: Int, squash q: Double) -> [(sx: Double, sy: Double)] {
         (0...(2 * steps)).map { k in
             let t = Double(k - steps) / Double(steps)
@@ -28,8 +22,6 @@ public struct KnobBotShape: Sendable {
         }
     }
 
-    /// The variant for a pose: nearest by sy/sx, so the uniform pop never
-    /// scales the outline (`rim_variant_for`).
     public static func rimVariant(for p: BotPose, variants: [(sx: Double, sy: Double)]) -> Int {
         let base = variants.count / 2
         let ratio = p.scaleY / p.scaleX
@@ -41,7 +33,6 @@ public struct KnobBotShape: Sendable {
         return best
     }
 
-    /// The body outline for morph `k` (0 circle … 1 curved triangle).
     public func ring(_ k: Double) -> [CGPoint] {
         (0..<ringPoints).map { i in
             let a = Double(i) / Double(ringPoints) * 2 * .pi
@@ -58,8 +49,6 @@ public struct KnobBotShape: Sendable {
         return table[i % table.count] * (1 - f) + table[(i + 1) % table.count] * f
     }
 
-    /// Three sharp vertices at circumradius R, apex up, joined by arcs bowing
-    /// out by the sagitta, sampled into a polar table and lightly blurred.
     static func triangleTable(_ t: KnobTheme.Bot.Triangle) -> [Double] {
         let bins = t.tableBins, R = t.radius, sag = t.sagitta
         var raw = [Double](repeating: 0, count: bins)
@@ -95,7 +84,6 @@ public struct KnobBotShape: Sendable {
         }
     }
 
-    /// Both eyes for a pose, left then right, with the theme's eye geometry.
     public static func eyes(_ p: BotPose, scale: Double, geometry e: KnobTheme.Bot.Eyes) -> [Stroke] {
         let reach = e.reach + e.reachTriangle * p.triangle
         var cx = p.gazeX * reach, cy = p.gazeY * reach - e.dropTriangle * p.triangle - e.dropSlump * p.slump
@@ -131,7 +119,6 @@ public struct KnobBotShape: Sendable {
         }
     }
 
-    /// A w × h capsule rotated by `angle` as a two-point round-capped stroke.
     static func capsule(_ cx: Double, _ cy: Double, _ w: Double, _ h: Double, _ angle: Double,
                         minHalf: Double) -> Stroke {
         let half: Double, dx: Double, dy: Double, width: Double

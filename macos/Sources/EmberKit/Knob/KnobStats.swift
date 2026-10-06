@@ -1,12 +1,8 @@
 import Foundation
 
-/// What the knob reports in its checkins (`knobSettings.diagnostics`).
 public enum KnobDiagnostics: String, Codable, CaseIterable, Sendable, Identifiable {
-    /// Nothing beyond the checkin's own fields.
     case off
-    /// CPU, memory, temperature, Wi-Fi, reset reason.
     case basic
-    /// Basic plus request and rendering stats.
     case full
 
     public var id: Self { self }
@@ -16,11 +12,9 @@ public enum KnobDiagnostics: String, Codable, CaseIterable, Sendable, Identifiab
     }
 }
 
-/// The knob's ranges are the Hardware pages' ranges.
 public typealias KnobStatsRange = HardwareRange
 
 extension HardwareRange {
-    /// How often the knob page asks while this range is shown.
     public var pollInterval: Duration {
         switch self {
         case .fifteenMinutes: .seconds(5)
@@ -30,9 +24,7 @@ extension HardwareRange {
     }
 }
 
-/// `GET /v1/devices/{id}/stats` (`knobStatsView` in cmd/ember/devices_stats.go).
 public struct KnobStats: Codable, Equatable, Sendable {
-    /// One report, or a bucket of them; nil where the knob didn't report it.
     public struct Sample: Codable, Equatable, Sendable, Identifiable {
         public var t: Date
         public var uptimeSec: Int?
@@ -52,8 +44,6 @@ public struct KnobStats: Codable, Equatable, Sendable {
         public var renderFPS: Double?
         public var frameAvgMS: Double?
         public var frameMaxMS: Int?
-        /// Ember's brightness (0–255) at the checkin: the level a knob
-        /// following Ember shows.
         public var brightnessLevel: Int?
 
         public var id: Date { t }
@@ -82,10 +72,8 @@ public struct KnobStats: Codable, Equatable, Sendable {
 
         public init(t: Date) { self.t = t }
 
-        /// Ember's brightness as 0–100 %.
         public var brightnessPercent: Double? { brightnessLevel.map { Double($0) / 255 * 100 } }
 
-        /// The mean across cores, nil without a CPU reading.
         public var cpuAverage: Double? {
             guard let c = cpuPercent, !c.isEmpty else { return nil }
             return c.reduce(0, +) / Double(c.count)
@@ -99,7 +87,6 @@ public struct KnobStats: Codable, Equatable, Sendable {
     public var lastSeen: Date?
     public var liveUntil: Date?
     public var resetReason: String?
-    /// The knob's stats interval (#249); nil from an older server (60 s).
     public var statsIntervalS: Int?
     public var latest: Sample?
     public var points: [Sample]
@@ -121,33 +108,26 @@ public struct KnobStats: Codable, Equatable, Sendable {
         self.resetReason = resetReason; self.latest = latest; self.points = points
     }
 
-    /// The knob reported PSRAM (boards without it leave it null).
     public var hasPSRAM: Bool { points.contains { $0.psramFreeBytes != nil } || latest?.psramFreeBytes != nil }
 
-    /// The knob reports request and rendering stats.
     public var hasFullStats: Bool {
         points.contains { $0.requestsPerMin != nil || $0.renderFPS != nil }
             || latest?.requestsPerMin != nil || latest?.renderFPS != nil
     }
 
-    /// Live mode is on at `now`.
     public func isLive(now: Date) -> Bool { liveUntil.map { $0 > now } ?? false }
 }
 
 extension KnobStats {
-    /// Gap after which this knob's lines break: three missed reports at
-    /// the range's spacing or the knob's stats interval, whichever is longer.
     public func gap(for range: KnobStatsRange) -> TimeInterval {
         max(range.gap, TimeInterval(3 * (statsIntervalS ?? 0)))
     }
 
-    /// One series per named value, broken at reporting gaps.
     public func series(_ values: [(name: String, value: (Sample) -> Double?)],
                        range: KnobStatsRange) -> [HardwareSeriesPoint] {
         HardwareSeries.build(points, time: \.t, values: values, gap: gap(for: range))
     }
 
-    /// Per-core CPU lines named by `name(core)`.
     public func cpuSeries(range: KnobStatsRange, name: (Int) -> String) -> [HardwareSeriesPoint] {
         let cores = points.map { $0.cpuPercent?.count ?? 0 }.max() ?? 0
         return series((0..<cores).map { core in
@@ -156,14 +136,9 @@ extension KnobStats {
     }
 }
 
-/// Thresholds the dashboard flags.
 public enum KnobReadout {
-    /// Above this chip temperature (°C) the reading is a warning.
     public static let hotC = 70.0
-    /// Above this average CPU (%) the reading is a warning.
     public static let busyCPU = 85.0
-    /// Below this largest free internal block (bytes), pages may fail to draw.
     public static let lowLargestBlock = 24 * 1024
-    /// Frame rate the knob aims for.
     public static let targetFPS = 30.0
 }

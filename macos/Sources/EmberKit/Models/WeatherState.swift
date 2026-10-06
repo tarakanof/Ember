@@ -1,6 +1,5 @@
 import Foundation
 
-/// GET /v1/weather/state — the server's cached weather observation.
 public struct WeatherState: Decodable, Sendable, Equatable {
     public struct TempPoint: Decodable, Sendable, Equatable, Identifiable {
         public var time: Date
@@ -27,14 +26,10 @@ public struct WeatherState: Decodable, Sendable, Equatable {
     public struct Current: Decodable, Sendable, Equatable {
         public var fetchedAt: Date
         public var stale: Bool
-        /// Render bucket: clear, clouds, fog, rain, snow or storm.
         public var condition: String
-        /// The provider's raw code: WMO code for open-meteo ("61"), symbol_code
-        /// for met-no ("rain_showers_day").
         public var conditionCode: String?
         public var severe: Bool
         public var tempC: Double
-        /// Empty when the provider didn't stamp the series' start.
         public var hourly: [TempPoint]
 
         enum CodingKeys: String, CodingKey {
@@ -62,7 +57,6 @@ public struct WeatherState: Decodable, Sendable, Equatable {
         }
     }
 
-    /// Rounded to 5 minutes server-side (to the second they'd pin the location).
     public struct Sun: Decodable, Sendable, Equatable {
         public var sunrise: Date
         public var sunset: Date
@@ -72,14 +66,9 @@ public struct WeatherState: Decodable, Sendable, Equatable {
     public var enabled: Bool
     public var provider: String
     public var units: String
-    /// The label the user typed for the location; the coordinates never leave
-    /// the server.
     public var locationName: String?
-    /// nil until the first successful fetch.
     public var current: Current?
-    /// nil until the first air-quality fetch.
     public var air: Air?
-    /// nil without a location, or during polar day/night.
     public var sun: Sun?
 
     enum CodingKeys: String, CodingKey {

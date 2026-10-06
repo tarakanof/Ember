@@ -1,10 +1,8 @@
 import Foundation
 
-/// The bot's high-level expression.
 public enum BotMood: String, Sendable, CaseIterable {
     case idle, sleepy, working, waiting, error, done
 
-    /// Maps a winning-session state (`stateColorRGB` vocabulary) to a mood.
     public init(state: String) {
         switch state {
         case "running": self = .working
@@ -27,28 +25,19 @@ public enum BotMood: String, Sendable, CaseIterable {
 
 public enum BotEyes: Sendable, Equatable { case dash, round, happy, angry }
 
-/// One rendered frame's worth of animation state.
 public struct BotPose: Equatable, Sendable {
     public var mood: BotMood = .idle
     public var eyes: BotEyes = .dash
-    /// Where the eyes sit on the sphere, -1…1 per axis (0,0 = facing the viewer).
     public var gazeX = BotBehavior.rest.x, gazeY = BotBehavior.rest.y
-    /// Eyelid closure, 0 open … 1 shut.
     public var lidLeft = 0.0, lidRight = 0.0
-    /// Body morph: 0 sphere … 1 rounded triangle (error).
     public var triangle = 0.0
-    /// 0 alert … 1 heavy-lidded, gaze dropped (sleepy).
     public var slump = 0.0
-    /// Notification badge scale, 0 hidden … ~1 (overshoots on appear).
     public var badge = 0.0
     public var scaleX = 1.0, scaleY = 1.0
     public var offsetX = 0.0, offsetY = 0.0
 
     public init() {}
 
-    /// This pose with every continuous field rounded to half a pixel's worth
-    /// for a body `radius` pixels across, so two poses that would rasterise
-    /// the same (sub-pixel gaze or lid drift) compare equal.
     public func quantized(toPixels radius: Double) -> BotPose {
         let step = 0.5 / max(radius, 1)
         func q(_ v: Double, _ s: Double) -> Double { (v / s).rounded() * s }
@@ -62,22 +51,14 @@ public struct BotPose: Equatable, Sendable {
     }
 }
 
-/// Procedural "alive" behaviour for the bot icon: blinks, gaze shifts, hops and
-/// mood morphs, timed after human eye-movement data so it never looks looped.
 public struct BotBehavior: Sendable {
-    /// Resting gaze: up and to the right, like the reference character.
     public static let rest = (x: 0.67, y: 0.77)
     static let viewer = (x: 0.0, y: 0.1)
-    /// Idle this long (seconds) and the bot gets drowsy.
     public static let sleepAfter = 300.0
 
-    /// Timings that differ between the Mac bot and the knob's port of it.
     public struct Tuning: Sendable, Equatable {
-        /// Idle seconds before sleepy; `.infinity` never.
         public var sleepAfter: Double
-        /// Hop length in seconds; the hop curve's phases stretch to fit.
         public var hopLength: Double
-        /// 1 keeps the full squash and stretch; less flattens it toward 1.
         public var hopSquash: Double
         public var hopIntervalMedian: Double
         public var hopIntervalSigma: Double
@@ -90,13 +71,11 @@ public struct BotBehavior: Sendable {
             self.hopIntervalRange = hopIntervalRange
         }
 
-        /// The menu-bar and Dock bot.
         public static let mac = Tuning(sleepAfter: BotBehavior.sleepAfter, hopLength: BotBehavior.hopLength,
                                        hopSquash: 1, hopIntervalMedian: 15, hopIntervalSigma: 0.4,
                                        hopIntervalRange: 8...40)
     }
 
-    /// Accessibility "Reduce motion": keep blinks, drop gaze darts, hops and pops.
     public var reduceMotion = false {
         didSet {
             if reduceMotion {
@@ -108,12 +87,8 @@ public struct BotBehavior: Sendable {
         }
     }
     public private(set) var mood: BotMood = .idle
-    /// True while something is mid-motion and frames should be rendered.
     public private(set) var isAnimating = true
-    /// Earliest time the next scheduled motion starts; nothing moves before it.
     public private(set) var nextEventAt = 0.0
-    /// True for the ~0.7 s after a mood change, while the face morphs; the app
-    /// renders these frames at a higher rate.
     public private(set) var isTransitioning = false
 
     static let transitionLength = 0.7
@@ -151,7 +126,6 @@ public struct BotBehavior: Sendable {
         nextBlinkAt = now + 0.8
     }
 
-    /// Switches expression.
     @discardableResult
     public mutating func setMood(_ m: BotMood, at t: Double) -> Bool {
         if m == mood || (m == .idle && mood == .sleepy) { return false }
@@ -159,7 +133,7 @@ public struct BotBehavior: Sendable {
         return true
     }
 
-    /// Advances the schedules to `t` (monotonic seconds) and returns the frame.
+    /// `t` is monotonic seconds.
     public mutating func pose(at t: Double) -> BotPose {
         if mood == .idle && t - moodSince >= tuning.sleepAfter { enter(.sleepy, at: t) }
         if blinkStart == nil && t >= nextBlinkAt { startBlink(at: t) }
@@ -238,8 +212,6 @@ public struct BotBehavior: Sendable {
         return p
     }
 
-    // MARK: - Transitions
-
     private mutating func enter(_ m: BotMood, at t: Double) {
         let waking = mood == .sleepy
         mood = m
@@ -297,8 +269,6 @@ public struct BotBehavior: Sendable {
         return (gazeFrom.x + (gazeTo.x - gazeFrom.x) * k, gazeFrom.y + (gazeTo.y - gazeFrom.y) * k)
     }
 
-    // MARK: - Schedules
-
     private mutating func nextTarget() -> (x: Double, y: Double) {
         let r = Double.random(in: 0..<1, using: &rng)
         func j(_ a: Double) -> Double { Double.random(in: -a...a, using: &rng) }
@@ -355,8 +325,6 @@ public struct BotBehavior: Sendable {
         let n = (-2 * log(u1)).squareRoot() * cos(2 * .pi * u2)
         return min(max(median * exp(sigma * n), range.lowerBound), range.upperBound)
     }
-
-    // MARK: - Curves
 
     static func lid(_ u: Double, speed: Double) -> Double {
         let close = 0.075 * speed, hold = 0.035 * speed, open = 0.15 * speed

@@ -1,27 +1,17 @@
 import Darwin
 import Foundation
 
-/// The Ember URL the knob gets. The knob's lwIP can't resolve `.local` (no
-/// mdns component) and `localhost` would be the knob itself, so those hosts
-/// become a LAN IPv4.
 public enum KnobEmberURL {
     public struct Suggestion: Equatable, Sendable {
         public let url: String
-        /// The host was replaced (the sheet says so).
         public let replacedHost: String?
     }
 
-    /// Hosts the knob can't use as they are.
     public static func needsLANAddress(_ host: String) -> Bool {
         let h = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]."))
         return h == "localhost" || h.hasPrefix("127.") || h == "::1" || h == "0.0.0.0" || h.hasSuffix(".local")
     }
 
-    /// `server` with its host swapped for `lanIPv4` when the knob can't use
-    /// it; scheme and port kept, path dropped.
-    /// - Parameters:
-    ///   - thisMac: this Mac's LAN IPv4, for a loopback host.
-    ///   - resolve: a `.local` name to IPv4.
     public static func suggest(server: URL?, thisMac: String?,
                                resolve: (String) -> String?) -> Suggestion? {
         guard let server, var c = URLComponents(url: server, resolvingAgainstBaseURL: false),
@@ -40,8 +30,6 @@ public enum KnobEmberURL {
         return Suggestion(url: s, replacedHost: replaced)
     }
 
-    /// This Mac's first private IPv4 on an up, non-loopback interface (en*
-    /// first).
     public static func thisMacLANIPv4() -> String? {
         var head: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&head) == 0, let first = head else { return nil }
@@ -62,8 +50,6 @@ public enum KnobEmberURL {
         return (found.first { $0.0.hasPrefix("en") } ?? found.first)?.1
     }
 
-    /// Resolves a name to its first IPv4 (mDNS names go through the system
-    /// resolver).
     public static func resolveIPv4(_ host: String) -> String? {
         var hints = addrinfo()
         hints.ai_family = AF_INET

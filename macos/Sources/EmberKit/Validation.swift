@@ -1,6 +1,5 @@
 import Foundation
 
-/// A value the user typed that can't be saved.
 public struct ValidationError: Error, Equatable, LocalizedError {
     public let message: LocalizedStringResource
 
@@ -15,18 +14,12 @@ private func rejectControlChars(_ v: String) throws {
     }
 }
 
-/// producer.env's EMBER_SERVER_URL value that makes the Go producers find the
-/// server over mDNS (#255); the app has no URL to call for it.
 public let autoServerURL = "auto"
 
-/// Whether value is the producers' mDNS-discovery keyword ("auto", any case).
 public func isAutoServerURL(_ value: String) -> Bool {
     value.trimmingCharacters(in: .whitespaces).lowercased() == autoServerURL
 }
 
-/// http(s) URL with a host and no embedded credentials, or "auto" (the
-/// headless producers' mDNS discovery, kept as is so a CLI-written
-/// producer.env never blocks saving the Connection pane).
 public func validateServerURL(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)
@@ -45,7 +38,6 @@ public func validateServerURL(_ value: String) throws -> String {
 
 private let hexColor = try! NSRegularExpression(pattern: "^#[0-9a-fA-F]{6}$")
 
-/// #RRGGBB hex, or "" (unset = no tint).
 public func validateSourceColor(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)
@@ -57,7 +49,6 @@ public func validateSourceColor(_ value: String) throws -> String {
     return v
 }
 
-/// Non-empty source name.
 public func validateSource(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)
@@ -65,7 +56,6 @@ public func validateSource(_ value: String) throws -> String {
     return v
 }
 
-/// Token: any value without control chars; blank means "keep current" (caller's job).
 public func validateToken(_ value: String) throws -> String {
     let v = value.trimmingCharacters(in: .whitespaces)
     try rejectControlChars(v)

@@ -1,18 +1,12 @@
 import Foundation
 
-/// What the knob's serial port carries: Improv frames, `CINDER1` lines and
-/// ESP-IDF log lines, interleaved.
 public enum KnobEvent: Equatable, Sendable {
     case improv(ImprovCodec.Message)
     case cinder(CinderLineCodec.Message)
     case log(String)
 }
 
-/// Splits the knob's byte stream into events. Improv frames may hold any
-/// byte (newlines too), so they are cut by their length; everything else is
-/// lines.
 public struct KnobStreamDemuxer: Sendable {
-    /// Drops buffered garbage beyond this (a line that never ends).
     static let maxBuffer = 4096
     private var buffer: [UInt8] = []
 
@@ -28,17 +22,13 @@ public struct KnobStreamDemuxer: Sendable {
         return out
     }
 
-    /// The next event: `.some(nil)` consumed bytes without an event, `nil`
-    /// needs more bytes.
     private mutating func next() -> KnobEvent?? {
         let header = ImprovCodec.header
         let frameAt = Self.findFrame(header, in: buffer)
         let newlineAt = buffer.firstIndex(of: 0x0A)
         if let f = frameAt, newlineAt.map({ f <= $0 }) ?? true {
             if f > 0 {
-                // Wait until version and type show it's really a frame.
                 guard buffer.count >= f + header.count + 2 else { return nil }
-                // Text before a frame on the same line.
                 let text = Array(buffer[0..<f])
                 buffer.removeFirst(f)
                 return .some(Self.lineEvent(text))
@@ -53,7 +43,6 @@ public struct KnobStreamDemuxer: Sendable {
                 if buffer.first == 0x0A { buffer.removeFirst() }
                 return .some(.improv(msg))
             }
-            // Not a frame after all ("IMPROV" in a log line): skip the "I".
             buffer.removeFirst()
             return .some(nil)
         }
@@ -75,9 +64,6 @@ public struct KnobStreamDemuxer: Sendable {
         return .log(line)
     }
 
-    /// The first `IMPROV` that can start a frame: version 1 and a known
-    /// type follow (or haven't arrived yet). "IMPROV" inside a log line is
-    /// skipped.
     static func findFrame(_ needle: [UInt8], in hay: [UInt8]) -> Int? {
         guard hay.count >= needle.count else { return nil }
         for i in 0...(hay.count - needle.count) where hay[i] == needle[0] {

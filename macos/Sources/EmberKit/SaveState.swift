@@ -1,6 +1,5 @@
 import Foundation
 
-/// Ephemeral save status for a settings pane (drives a transient caption).
 public enum SaveState: Equatable, Sendable {
     case idle
     case saving
@@ -8,7 +7,6 @@ public enum SaveState: Equatable, Sendable {
     case error(String)
 }
 
-/// Coalesces rapid edits into a single deferred write.
 @MainActor
 public final class DebouncedWriter {
     private var task: Task<Void, Never>?
