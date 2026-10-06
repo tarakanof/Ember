@@ -1,0 +1,22 @@
+{
+  "mode": "manual",
+  "target": "0.9.14",
+  "phase": "downloading",
+  "progress_pct": 41,
+  "bytes": 30000,
+  "size": 71680,
+  "from": "0.9.13",
+  "error": null,
+  "started_at": "2026-10-06T12:00:00Z",
+  "finished_at": null,
+  "blocked": [],
+  "running": {
+    "fw": "0.9.13",
+    "build": "77aa01ff",
+    "slot": 0,
+    "image": "valid",
+    "rollback": true
+  },
+  "available": "0.9.15-rc1",
+  "waiting_for": null
+}

@@ -236,3 +236,25 @@ func classifierPutsTheRefusalFirst(budget: RequestBudget) {
     #expect(APIClient.classify(URLError(.timedOut), budget: budget, host: "192.168.0.2", pathStatus: .satisfied)
         == .timedOut)
 }
+
+private let serverELFReadDeadline: TimeInterval = 300
+
+@Test func transferBudgetOutlastsTheServersELFReadDeadline() {
+    #expect(RequestBudget.transfer.resourceTimeout > serverELFReadDeadline)
+    #expect(RequestBudget.transfer.requestTimeout > serverWriteTimeout)
+}
+
+@Test func firmwareTransfersRunOnTheTransferSession() async throws {
+    let (client, log) = budgetRecordingClient { req in
+        req.url?.path == "/v1/firmware" ? #"{"build":"a","channel":"test","elf":false,"idf_ver":"v","project":"cinder","sha256":"s","size":1,"uploaded_at":"2026-10-06T12:00:00Z","version":"0.9.14"}"# : "{}"
+    }
+    let svc = KnobService(client: client)
+    _ = try await svc.uploadFirmware(Data([1]), channel: "test")
+    try await svc.uploadELF(version: "0.9.14", Data([1]))
+    _ = try await svc.firmwareELF(version: "0.9.14")
+    _ = try await svc.firmwareELF(build: "a1b2c3d4")
+    #expect(log["POST /v1/firmware"] == "transfer")
+    #expect(log["PUT /v1/firmware/0.9.14/elf"] == "transfer")
+    #expect(log["GET /v1/firmware/0.9.14/elf"] == "transfer")
+    #expect(log["GET /v1/firmware/by-build/a1b2c3d4/elf"] == "transfer")
+}

@@ -198,6 +198,28 @@
       "comment" : "Menu Pomodoro status: phase name, remaining time (\"18:42\"), round number.",
       "extractionState" : "manual"
     },
+    "%@ · %@ · IDF %@ · ELF" : {
+      "comment" : "Knob firmware sheet row details: image size, upload date, ESP-IDF version, and that the ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · ELF\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ · IDF %3$@ · ELF"
+          }
+        }
+      }
+    },
+    "%@ · %@ · IDF %@ · no ELF" : {
+      "comment" : "Knob firmware sheet row details: image size, upload date, ESP-IDF version, and that no ELF is stored (\"1.6 MB · 6 Oct 2026 at 12:00 · IDF v5.5.5 · no ELF\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ · IDF %3$@ · no ELF"
+          }
+        }
+      }
+    },
     "%@ · %lld dBm" : {
       "comment" : "Settings › Clock: Wi-Fi quality in words (\"Good\"), then the signal strength in dBm.",
       "localizations" : {
@@ -615,6 +637,7 @@
     "As of %@" : {
       "comment" : "Hardware page Now card while the device is offline: the time of the readings shown (\"As of 21:43\")."
     },
+    "Ask first" : {},
     "Asks claude agents for each session's state, which ends a wait you answered in a dialog and catches a turn stopped with Esc, where no hook fires. Needs Claude Code 2.1.288 or later. Default: on." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -625,6 +648,7 @@
     },
     "At once" : {},
     "Attention hold" : {},
+    "Automatic (release builds, when the knob is idle)" : {},
     "Automatic brightness" : {},
     "Automation: Music" : {},
     "Available once Ember has loaded this setting." : {
@@ -718,6 +742,7 @@
     "Change Wi-Fi" : {},
     "Change Wi-Fi…" : {},
     "Change what the knob reports in Behavior" : {},
+    "Channel" : {},
     "Check Again" : {},
     "Check Ember every" : {},
     "Checked %@" : {
@@ -726,6 +751,7 @@
     "Checking agents…" : {},
     "Checking permissions" : {},
     "Checking the board…" : {},
+    "Checking the new firmware" : {},
     "Checking…" : {},
     "Checks sessions against claude agents to catch missed changes" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -741,6 +767,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Choose cinder.bin from a release build. If cinder.elf is next to it, Ember stores it too, for decoding crash dumps. Ember refuses builds that contain Wi-Fi or token secrets." : {},
     "Claude" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual",
@@ -828,6 +855,9 @@
       "comment" : "Knob Hardware CPU chart: a processor core (\"Core 1\")."
     },
     "Couldn't change the knob's diagnostics." : {},
+    "Couldn't change the update mode: %@" : {
+      "comment" : "Settings › Knob Firmware section error; the argument is a short reason (\"Server unreachable\")."
+    },
     "Couldn't check" : {},
     "Couldn't delete the crash dump: %@" : {
       "comment" : "Settings › Knob error under Status after deleting a stored crash dump failed; the argument is a short reason (\"Server unreachable\")."
@@ -866,6 +896,9 @@
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
     },
+    "Couldn't save the ELF: %@" : {
+      "comment" : "Knob firmware sheet error after an ELF download; the argument is the file system's reason."
+    },
     "Couldn't save the crash dump: %@" : {
       "comment" : "Settings › Knob error under Status after a crash dump download; the argument is the file system's reason."
     },
@@ -880,6 +913,9 @@
     "Couldn't skip: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
+    },
+    "Couldn't start the update: %@" : {
+      "comment" : "Settings › Knob Firmware row error; the argument is a short reason (\"Server unreachable\")."
     },
     "Couldn't start: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
@@ -900,6 +936,17 @@
     "Couldn't turn the display on: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
+    },
+    "Couldn't update to %@: %@" : {
+      "comment" : "Settings › Knob Firmware row after a failed download or install; the version, then why (\"Couldn't update to 0.9.14: the download failed\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't update to %1$@: %2$@"
+          }
+        }
+      }
     },
     "Crash" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -925,7 +972,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
-    "Decode a crash dump with `esp-coredump info_corefile -c <file> build/cinder.elf` from the matching firmware build." : {},
+    "Decode a crash dump with `esp-coredump info_corefile -c <dump.bin> <cinder.elf>`. Download ELF saves the cinder.elf of the build that crashed when Ember has it; otherwise use build/cinder.elf from the matching firmware build." : {},
     "Delete" : {},
     "Delete this dump?" : {},
     "Delete…" : {},
@@ -951,6 +998,11 @@
     },
     "Done: an agent finished." : {},
     "Download Crash Dump…" : {},
+    "Download ELF…" : {},
+    "Downloading" : {},
+    "Downloading %lld %%" : {
+      "comment" : "Settings › Knob Firmware row while the knob downloads an update; the argument is the percentage sent (\"Downloading 42 %\")."
+    },
     "Drag to reorder" : {},
     "Drag to reorder, or Control-click an app. Changes apply at once." : {},
     "Drawn by Ember from the same data the knob shows." : {},
@@ -975,6 +1027,10 @@
     "Ember E" : {},
     "Ember E (pixel)" : {},
     "Ember address" : {},
+    "Ember answered HTTP %@" : {
+      "comment" : "Knob firmware update error: the download got an HTTP error status from Ember (\"Ember answered HTTP 409\").",
+      "extractionState" : "manual"
+    },
     "Ember brightness" : {},
     "Ember can open at login only when it runs from the Applications folder." : {},
     "Ember can't reach the server. Check that it's running, or change its address in Connection settings." : {},
@@ -995,6 +1051,7 @@
     "Ember isn't connected to a server" : {},
     "Ember needs access to Reminders" : {},
     "Ember needs your approval in System Settings › General › Login Items." : {},
+    "Ember never installs firmware during a Pomodoro. With Automatic, it installs a newer release build after the knob has been untouched for 10 minutes." : {},
     "Ember reads the clock every 30 seconds and keeps the last 24 hours while the server runs." : {},
     "Ember rejected the knob's token." : {},
     "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
@@ -1032,6 +1089,8 @@
     "Fast display link" : {},
     "Find Clock from This Mac…" : {},
     "Firmware" : {},
+    "Firmware images stored on Ember" : {},
+    "Firmware updates" : {},
     "First model" : {},
     "Fix Hooks" : {},
     "Flash cinder onto it first; Ember can't flash firmware." : {},
@@ -1174,6 +1233,7 @@
     "In use" : {},
     "Include Claude Code's Codex runs" : {},
     "Installed from the CLI" : {},
+    "Installing" : {},
     "Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw." : {},
     "Internal memory" : {},
     "Interrupt watchdog" : {
@@ -1197,6 +1257,7 @@
       "extractionState" : "manual"
     },
     "Knob" : {},
+    "Knob Firmware" : {},
     "Knob name" : {},
     "Knob stats unavailable" : {},
     "LED matrix" : {},
@@ -1252,6 +1313,8 @@
     "Lowest free" : {},
     "Lowest free memory" : {},
     "MCP" : {},
+    "Manage Firmware…" : {},
+    "Mark as Release" : {},
     "Matches the brightness Ember works out for displays without a light sensor" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1354,6 +1417,7 @@
     "No daily goal set" : {},
     "No data in this range" : {},
     "No data yet" : {},
+    "No firmware stored on Ember yet." : {},
     "No focus sessions yet — click Start Focus to begin" : {},
     "No info here" : {},
     "No knob connected" : {},
@@ -1596,6 +1660,7 @@
     "Refresh (⌘R)" : {},
     "Refresh every" : {},
     "Registers the background helper with macOS again so it starts reporting." : {},
+    "Release" : {},
     "Reminder" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1651,9 +1716,21 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Retry" : {},
     "Review Permissions…" : {},
     "Ring" : {},
     "Ring the clock for due reminders" : {},
+    "Rolled back to %@: %@" : {
+      "comment" : "Settings › Knob Firmware row after a failed update; the firmware the knob went back to, then why (\"Rolled back to 0.9.13: the knob could not reach Ember after the update\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Rolled back to %1$@: %2$@"
+          }
+        }
+      }
+    },
     "Rotate Token" : {},
     "Rotate Token…" : {},
     "Rotate the knob's token?" : {},
@@ -2061,10 +2138,12 @@
     "This clock has no speaker." : {},
     "This clock style draws no weekday bar; the Date app still does." : {},
     "This clock style has no room for seconds or AM/PM." : {},
+    "This knob's bootloader can't roll back. Flash it once over USB (see cinder docs/workflow.md)." : {},
     "This replaces “%@”. Ember forgets that knob after setup." : {
       "comment" : "Knob setup warning; the argument is the name of the knob already set up."
     },
     "This server can't reach a clock. Check the clock's address below or discover one." : {},
+    "This server can't store knob firmware. Update the Ember server." : {},
     "This server doesn't support meetings. Update the Ember server." : {},
     "This server doesn't support these settings. Update the Ember server." : {},
     "This server doesn't support this setting. Update the server." : {
@@ -2174,12 +2253,21 @@
     "Update the Ember server to see the knob's hardware stats." : {},
     "Update the clock's firmware to NG 1.1 or later to let an app follow the text color again." : {},
     "Update the clock's firmware to NG 1.1 or later to mute it or set its volume here." : {},
+    "Update to %@" : {
+      "comment" : "Settings › Knob Firmware row button; the argument is the newer firmware version stored on Ember (\"Update to 0.9.14\")."
+    },
     "Updated" : {},
     "Updated %@." : {
       "comment" : "Settings › Calendar: when the server last fetched the calendar, relative (\"5 minutes ago\")."
     },
+    "Updated to %@" : {
+      "comment" : "Settings › Knob Firmware row after an update; the argument is the firmware the knob runs now (\"Updated to 0.9.14\")."
+    },
     "Updates and Alerts" : {},
     "Updates delivered" : {},
+    "Uploading the ELF…" : {},
+    "Uploading the image…" : {},
+    "Upload…" : {},
     "Uppercase text" : {},
     "Uptime" : {},
     "Usage" : {
@@ -2217,7 +2305,9 @@
       "extractionState" : "manual"
     },
     "Waiting for its first check-in" : {},
+    "Waiting for the Pomodoro to end" : {},
     "Waiting for the clock's first reading" : {},
+    "Waiting for the crash dump upload" : {},
     "Waiting for the knob (has %lld, latest %lld)" : {
       "comment" : "Settings › Knob: the knob hasn't picked up the latest settings; the settings version it runs, then the latest.",
       "localizations" : {
@@ -2229,7 +2319,10 @@
         }
       }
     },
+    "Waiting for the knob to check in" : {},
+    "Waiting for the knob to start" : {},
     "Waiting for the knob's first report" : {},
+    "Waiting until the knob has been idle for 10 minutes" : {},
     "Waiting: an agent needs you." : {},
     "Waiting: an agent on %@ needs you." : {
       "comment" : "Knob bot preview: the host whose agent is waiting (\"DT-MBP\")."
@@ -2493,6 +2586,42 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by MenuStringCatalogTests).",
       "extractionState" : "manual"
     },
+    "the download did not match its checksum" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the download failed" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the download had the wrong size" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the image does not fit this knob" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the image failed its check" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the knob could not confirm the new firmware" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the knob could not reach Ember after the update" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the knob restarted during the download" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
+    "the new firmware restarted before it was confirmed" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "timeout" : {
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
@@ -2509,6 +2638,10 @@
       "comment" : "Weather card header: how long ago the weather was fetched (\"5 min\", or \"just now\")."
     },
     "very poor" : {},
+    "writing the flash failed" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "~/.claude/settings.json isn't valid JSON, so Ember can't read or fix the hooks. Fix the file by hand." : {},
     "~/.claude/settings.json isn't valid JSON. Fix the file by hand first." : {
       "comment" : "Settings › Agents failure when moving Claude while its settings file can't be parsed.",

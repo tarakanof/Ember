@@ -27,6 +27,7 @@ public final class KnobModel {
     public private(set) var portStatus: [String: KnobPortStatus] = [:]
 
     public let ports: KnobSerialPorts
+    public let ota: KnobOTAModel
     @ObservationIgnored public private(set) var service: KnobService
     @ObservationIgnored public let opener: any KnobLinkOpener
     @ObservationIgnored private let debounce: Duration
@@ -50,6 +51,7 @@ public final class KnobModel {
         self.opener = opener
         self.debounce = debounce
         self.sleep = sleep
+        ota = KnobOTAModel(service: service)
         settings = Self.settingsModel(service, id: nil, debounce: debounce, sleep: sleep)
     }
 
@@ -59,6 +61,7 @@ public final class KnobModel {
         service = next
         knob = nil; devices = []; coredumps = []; isLoaded = false; loadError = nil; actionErrors = [:]
         settings = Self.settingsModel(next, id: nil, debounce: debounce, sleep: sleep)
+        ota.configure(service: next, device: nil)
         Task { await load() }
     }
 
@@ -76,6 +79,8 @@ public final class KnobModel {
         if knob != nil {
             await settings.load()
             await loadCoredumps()
+            await ota.loadStatus()
+            await ota.loadImages()
         }
     }
 
@@ -111,6 +116,7 @@ public final class KnobModel {
             settings = Self.settingsModel(service, id: next?.id, debounce: debounce, sleep: sleep)
             coredumps = []
         }
+        ota.configure(service: service, device: next?.id)
         knob = next
     }
 

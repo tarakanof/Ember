@@ -572,3 +572,30 @@ func TestOTADeleteKnobForgetsProgress(t *testing.T) {
 		t.Fatal("progress kept")
 	}
 }
+
+func TestKnobOTAGolden(t *testing.T) {
+	k := newOTAKnob(t)
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	k.app.devices.now = func() time.Time { return now }
+	k.app.knobFW.now = func() time.Time { return now }
+	get := func(path string) json.RawMessage {
+		t.Helper()
+		resp, b := devReq(t, k.srv, "GET", path, testToken, "")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s = %d", path, resp.StatusCode)
+		}
+		return json.RawMessage(b)
+	}
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.14"}), "?channel=release")
+	k.upload(t, fakeFirmware(fwOpts{version: "0.9.15-rc1", seed: 2}), "")
+	k.idle(t)
+	assertGolden(t, "knob_ota_idle", get("/v1/devices/"+k.knob.ID+"/ota"))
+	assertGolden(t, "firmware_list", get("/v1/firmware"))
+	k.target(t, "0.9.14")
+	k.idle(t)
+	k.download(t, "0.9.14", map[string]string{"Range": "bytes=0-29999"})
+	assertGolden(t, "knob_ota_downloading", get("/v1/devices/"+k.knob.ID+"/ota"))
+	k.download(t, "0.9.14", map[string]string{"Range": "bytes=30000-"})
+	k.checkin(t, otaReport("0.9.13", runningBuild, "valid", "idle", true, `{"error":"no_checkin","result":"rolled_back","version":"0.9.14"}`))
+	assertGolden(t, "knob_ota_rolled_back", get("/v1/devices/"+k.knob.ID+"/ota"))
+}

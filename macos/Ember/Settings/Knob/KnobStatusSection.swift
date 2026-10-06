@@ -18,7 +18,7 @@ struct KnobStatusSection: View {
                 LabeledContent("Address") {
                     Text(verbatim: checkin?.ip.nonEmpty ?? "—").textSelection(.enabled)
                 }
-                LabeledContent("Firmware") { Text(verbatim: checkin?.fw.nonEmpty ?? "—") }
+                KnobFirmwareRow(checkin: checkin)
                 if let c = checkin, c.rssi != 0 || c.wifi?.hasLinkDetails == true {
                     wifiRow(c.rssi, c.wifi)
                 }
@@ -74,7 +74,7 @@ struct KnobStatusSection: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("The knob checks in with Ember every minute and picks up setting changes within a few seconds.")
                     if !model.coredumps.isEmpty {
-                        Text("Decode a crash dump with `esp-coredump info_corefile -c <file> build/cinder.elf` from the matching firmware build.")
+                        Text("Decode a crash dump with `esp-coredump info_corefile -c <dump.bin> <cinder.elf>`. Download ELF saves the cinder.elf of the build that crashed when Ember has it; otherwise use build/cinder.elf from the matching firmware build.")
                             .textSelection(.enabled)
                     }
                     if let e = model.actionErrors[.coredump] {
@@ -181,6 +181,7 @@ struct KnobStatusSection: View {
                     if let dump = env.knob.coredump(for: crash) {
                         downloadButton(dump, device: device)
                     }
+                    elfButton(crash.elf)
                 }
             }
             .help("The knob saved a crash dump in flash. It uploads the dump to Ember and erases it once Ember has it; older firmware reports it on every check-in until it is erased over USB (idf.py coredump-erase or a reflash).")
@@ -214,6 +215,7 @@ struct KnobStatusSection: View {
                         HStack {
                             dumpText(dump).textSelection(.enabled)
                             downloadButton(dump, device: device)
+                            elfButton(dump.elf)
                             deleteControl(dump)
                         }
                     }
@@ -252,6 +254,27 @@ struct KnobStatusSection: View {
     private func downloadButton(_ dump: KnobCoredump, device: String) -> some View {
         Button("Download Crash Dump…") { Task { await saveDump(dump, device: device) } }
             .disabled(env.knob.running.contains(.coredump))
+    }
+
+    @ViewBuilder private func elfButton(_ build: String?) -> some View {
+        if let image = env.knob.ota.elfImage(build: build) {
+            Button("Download ELF…") { Task { await saveELF(image) } }
+                .disabled(env.knob.ota.running.contains(.elf))
+        }
+    }
+
+    private func saveELF(_ image: KnobFirmwareImage) async {
+        dumpWriteError = nil
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = image.elfFilename
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = await env.knob.ota.elfData(build: image.build) else { return }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            dumpWriteError = error.localizedDescription
+        }
     }
 
     private func saveDump(_ dump: KnobCoredump, device: String) async {

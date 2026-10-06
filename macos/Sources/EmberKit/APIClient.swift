@@ -85,12 +85,14 @@ public enum RequestBudget: Sendable, CaseIterable {
     case server
     case clock
     case clockLong
+    case transfer
 
     public var requestTimeout: TimeInterval {
         switch self {
         case .server: 5
         case .clock: 12
         case .clockLong: 35
+        case .transfer: 60
         }
     }
 
@@ -99,6 +101,7 @@ public enum RequestBudget: Sendable, CaseIterable {
         case .server: 10
         case .clock: 15
         case .clockLong: 40
+        case .transfer: 600
         }
     }
 }
@@ -165,7 +168,8 @@ public struct APIClient: Sendable {
     private func performResponse(_ method: String, _ path: String,
                                  query: [URLQueryItem], body: Data?,
                                  headers: [String: String] = [:], budget: RequestBudget,
-                                 reportNotSent: Bool = false) async throws -> (Data, HTTPURLResponse) {
+                                 reportNotSent: Bool = false,
+                                 progress: (@Sendable (Double) -> Void)? = nil) async throws -> (Data, HTTPURLResponse) {
         guard let baseURL else { throw APIError.notConfigured }
         var base = baseURL.absoluteString
         if base.hasSuffix("/") { base.removeLast() }
@@ -178,15 +182,22 @@ public struct APIClient: Sendable {
         if let token, !token.isEmpty {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        if let body {
+        if let body, progress == nil {
             req.httpBody = body
+        }
+        if body != nil {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
         let data: Data
         let resp: URLResponse
         do {
-            (data, resp) = try await sessions(budget).data(for: req)
+            if let body, let progress {
+                (data, resp) = try await sessions(budget).upload(for: req, from: body,
+                                                                 delegate: UploadProgressDelegate(progress))
+            } else {
+                (data, resp) = try await sessions(budget).data(for: req)
+            }
         } catch {
             let apiError = Self.classify(error, budget: budget, host: url.host, pathStatus: pathStatus())
             let denied = apiError == .localNetworkDenied
@@ -270,9 +281,40 @@ public struct APIClient: Sendable {
                               headers: ["Content-Type": contentType], budget: budget)
     }
 
+    public func upload<T: Decodable>(_ method: String, _ path: String, query: [URLQueryItem] = [], data: Data,
+                                     contentType: String = "application/octet-stream",
+                                     progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> T {
+        let (body, _) = try await performResponse(method, path, query: query, body: data,
+                                                  headers: ["Content-Type": contentType], budget: .transfer,
+                                                  progress: progress)
+        progress(1)
+        do { return try Self.makeDecoder().decode(T.self, from: body) }
+        catch { throw APIError.decoding(String(describing: error)) }
+    }
+
+    public func upload(_ method: String, _ path: String, query: [URLQueryItem] = [], data: Data,
+                       contentType: String = "application/octet-stream",
+                       progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
+        _ = try await performResponse(method, path, query: query, body: data,
+                                      headers: ["Content-Type": contentType], budget: .transfer, progress: progress)
+        progress(1)
+    }
+
     public func postIdempotent<B: Encodable>(_ path: String, body: B, key: String) async throws {
         let data = try JSONEncoder().encode(body)
         _ = try await perform("POST", path, query: [], body: data,
                               headers: ["Idempotency-Key": key], budget: .clockLong, reportNotSent: true)
+    }
+}
+
+private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    let report: @Sendable (Double) -> Void
+
+    init(_ report: @escaping @Sendable (Double) -> Void) { self.report = report }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        report(Double(totalBytesSent) / Double(totalBytesExpectedToSend))
     }
 }

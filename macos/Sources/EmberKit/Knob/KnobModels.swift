@@ -13,9 +13,12 @@ public struct KnobCheckin: Codable, Equatable, Sendable {
     public var linkFallback: Bool?
     public var wifi: KnobWifi?
     public var diag: KnobDiag?
+    public var fwBuild: String?
+    public var ota: KnobOTAReport?
 
     enum CodingKeys: String, CodingKey {
-        case fw, ip, rssi, wifi, diag
+        case fw, ip, rssi, wifi, diag, ota
+        case fwBuild = "fw_build"
         case linkMHz = "link_mhz"
         case linkFallback = "link_fallback"
         case seenAt = "seen_at"
@@ -97,15 +100,28 @@ public struct KnobDiag: Codable, Equatable, Sendable {
     }
 }
 
+public struct KnobOTAReport: Codable, Equatable, Sendable {
+    public var image: String?
+    public var phase: String?
+    public var rollback: Bool?
+    public var slot: Int?
+
+    public init(image: String? = nil, phase: String? = nil, rollback: Bool? = nil, slot: Int? = nil) {
+        self.image = image; self.phase = phase; self.rollback = rollback; self.slot = slot
+    }
+}
+
 public struct KnobCrash: Codable, Equatable, Sendable {
+    public var elf: String?
     public var id: String?
     public var size: Int?
     public var pc: String?
     public var reason: String?
     public var task: String?
 
-    public init(id: String? = nil, size: Int? = nil, pc: String? = nil, reason: String? = nil, task: String? = nil) {
-        self.id = id; self.size = size; self.pc = pc; self.reason = reason; self.task = task
+    public init(id: String? = nil, size: Int? = nil, pc: String? = nil, reason: String? = nil, task: String? = nil,
+                elf: String? = nil) {
+        self.id = id; self.size = size; self.pc = pc; self.reason = reason; self.task = task; self.elf = elf
     }
 }
 
