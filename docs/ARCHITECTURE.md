@@ -2094,7 +2094,8 @@ Dashboard rendering constraints:
 ### Device registry — `cmd/ember/devices*.go`, `knob_settings.go` (#221)
 
 Per-device tokens so the master `EMBER_TOKEN` never leaves the Mac/server.
-Today the only kind is `cinder-knob` (the ESP32-S3 knob in the cinder repo);
+Two kinds: `cinder-knob` (the ESP32-S3 knob in the cinder repo) and `client`
+(a scoped API token for a source or controller, below);
 the menu app shows one knob, but the registry keys by `hw_id` so re-provisioning
 the same board finds its record.
 
@@ -2129,6 +2130,23 @@ the same board finds its record.
   `subtle.ConstantTimeCompare` (no early exit). `POST /v1/devices` with a known
   `hw_id` re-provisions: new token, old one and any rotation revoked, config
   and version kept, 200 instead of 201.
+- **Client tokens (#269):** kind `client`, id `client-` + 8 random hex,
+  token `ekc_` + 32 random bytes, `scopes` ⊆ `{ingest, control, read,
+  admin}` (sorted, deduplicated, at least one), a required `name`, no
+  `hw_id`. `POST /v1/devices {"kind":"client","name","scopes"}` mints one
+  (201, token once). `requireAuth` admits a client on an owner route when it
+  holds `requiredScope(pattern)` (`client_tokens.go`; any route not listed
+  needs `admin`, and `admin` satisfies every scope); `requireControl` admits
+  `control` on the Pomodoro actions. Wrong scope is 403, an unknown `ekc_`
+  token 401. Client lookups (`authenticateClient`) are the same constant-time
+  scan over client records only; device auth skips clients, so an `ekc_`
+  token never reaches `/v1/devices/self/*`, now-playing control or
+  `/admin/*`. Rotating a client mints and returns the new token at once (200)
+  and revokes the old one: there is no checkin to deliver it on. Config,
+  stats and checkin lookups use `findKnob`, so a client id is 404 there.
+  Mint, rotate and delete bump the epoch like a knob's. `docs/openapi.yaml`
+  records each operation's credentials; `openapi_test.go` checks every
+  registered route against it (route × credential table).
 - **Rotation:** `POST /v1/devices/{id}/rotate` (202) only marks the record.
   The first checkin made with the old token mints the pending token and returns
   it as `new_token`; later old-token checkins get the **same** token again
@@ -2171,8 +2189,9 @@ the same board finds its record.
   config change, rotate, rotation promotion and delete; checkins don't move it. The knob checks in
   when it changes, else every 60 s, so a settings edit lands in about one
   `/state` poll without putting per-device data in a public response.
-- **Doctor:** `devices` check lists each record's last-checkin age; warns
-  when one never checked in or is silent for more than 5 min.
+- **Doctor:** `devices` check lists each knob's last-checkin age; warns
+  when one never checked in or is silent for more than 5 min. Clients are
+  only counted (`clients=N`).
 - **App (Settings › Knob, #222/#223):** EmberKit `Knob/` holds the protocol
   and models, no UI. `ImprovCodec` (Improv Serial frames + checksum; the host
   appends `\n` after each frame) and `CinderLineCodec` (`CINDER1 {json}` lines,

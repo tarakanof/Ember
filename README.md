@@ -96,6 +96,7 @@ The wire-protocol contract spec lives in the Obsidian vault (`Superpowers Specs/
 - Server reaps idle sessions after `stale_seconds` (default 25s); `done`/`error` linger for `done_ttl_seconds` (default 30s).
 - Write endpoints require `Authorization: Bearer <EMBER_TOKEN>`. Empty `EMBER_TOKEN` disables auth.
 - Read endpoints (`GET /state`, `GET /healthz`) are always unauthenticated.
+- The HTTP contract is [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.1). Third-party sources should hold a scoped client token (`ekc_…`, e.g. `ingest` only) instead of `EMBER_TOKEN`: RUNBOOK → "Integrating a source".
 
 ## Container image
 
