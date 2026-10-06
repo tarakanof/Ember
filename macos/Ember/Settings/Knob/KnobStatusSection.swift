@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import EmberKit
 
@@ -5,6 +6,7 @@ struct KnobStatusSection: View {
     @Environment(AppEnvironment.self) private var env
     let setUp: () -> Void
     @State private var confirmForget = false
+    @State private var dumpWriteError: String?
 
     var body: some View {
         let model = env.knob
@@ -41,8 +43,9 @@ struct KnobStatusSection: View {
                     .help("Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw.")
                 }
                 if let diag = checkin?.diag {
-                    diagRows(diag)
+                    diagRows(diag, device: knob.id)
                 }
+                storedDumpRows(model.coredumps.filter { $0.id != checkin?.diag?.crash?.id }, device: knob.id)
                 if let mhz = checkin?.linkMHz, mhz > 0 {
                     LabeledContent("Display link") {
                         if checkin?.linkFallback == true {
@@ -69,6 +72,22 @@ struct KnobStatusSection: View {
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("The knob checks in with Ember every minute and picks up setting changes within a few seconds.")
+                    if !model.coredumps.isEmpty {
+                        Text("Decode a crash dump with `esp-coredump info_corefile -c <file> build/cinder.elf` from the matching firmware build.")
+                            .textSelection(.enabled)
+                    }
+                    if let e = model.actionErrors[.coredump] {
+                        Label { Text("Couldn't download the crash dump: \(Text(e.message))",
+                                     comment: "Settings › Knob error under Status; the argument is a short reason (\"Server unreachable\").") }
+                            icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                            .foregroundStyle(.red)
+                    }
+                    if let e = dumpWriteError {
+                        Label { Text("Couldn't save the crash dump: \(e)",
+                                     comment: "Settings › Knob error under Status after a crash dump download; the argument is the file system's reason.") }
+                            icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                            .foregroundStyle(.red)
+                    }
                     if let e = model.actionErrors[.forget] {
                         Label { Text("Couldn't forget the knob: \(Text(e.message))",
                                      comment: "Settings › Knob error under Status; the argument is a short reason (\"Server unreachable\").") }
@@ -147,10 +166,17 @@ struct KnobStatusSection: View {
                     comment: "Settings › Knob: Wi-Fi reconnects since the knob started, then the last disconnect's ESP-IDF reason code this app has no words for (\"3 (last: reason 250)\").")
     }
 
-    @ViewBuilder private func diagRows(_ diag: KnobDiag) -> some View {
+    @ViewBuilder private func diagRows(_ diag: KnobDiag, device: String) -> some View {
         if let crash = diag.crash {
-            LabeledContent("Crash") { crashText(crash).foregroundStyle(.orange).textSelection(.enabled) }
-                .help("The knob saved a crash dump in flash. It reports it on every check-in until the dump is erased over USB (idf.py coredump-erase or a reflash).")
+            LabeledContent("Crash") {
+                HStack {
+                    crashText(crash).foregroundStyle(.orange).textSelection(.enabled)
+                    if let dump = env.knob.coredump(for: crash) {
+                        downloadButton(dump, device: device)
+                    }
+                }
+            }
+            .help("The knob saved a crash dump in flash. It uploads the dump to Ember and erases it once Ember has it; older firmware reports it on every check-in until it is erased over USB (idf.py coredump-erase or a reflash).")
         }
         if let reset = diag.resetReason?.nonEmpty {
             LabeledContent("Last restart") { resetText(reset, diag) }
@@ -170,6 +196,48 @@ struct KnobStatusSection: View {
                 }
             }
             .help("The low point of internal RAM since the knob started.")
+        }
+    }
+
+    @ViewBuilder private func storedDumpRows(_ dumps: [KnobCoredump], device: String) -> some View {
+        if !dumps.isEmpty {
+            LabeledContent("Crash dumps") {
+                VStack(alignment: .trailing) {
+                    ForEach(dumps) { dump in
+                        HStack {
+                            dumpText(dump).textSelection(.enabled)
+                            downloadButton(dump, device: device)
+                        }
+                    }
+                }
+            }
+            .help("Crash dumps the knob uploaded to Ember. Ember keeps the newest three.")
+        }
+    }
+
+    private func dumpText(_ dump: KnobCoredump) -> Text {
+        let crash = crashText(KnobCrash(pc: dump.pc.nonEmpty, reason: dump.reason.nonEmpty, task: dump.task.nonEmpty))
+        let when = dump.receivedAt.formatted(date: .abbreviated, time: .shortened)
+        return Text("\(crash), firmware \(dump.fw.nonEmpty ?? "—"), \(when)",
+                    comment: "Settings › Knob Crash dumps row: the crash, the knob firmware when it crashed, and when Ember received the dump (\"Panic in ember, firmware 0.9.14, 6 Oct 2026 at 10:00\").")
+    }
+
+    private func downloadButton(_ dump: KnobCoredump, device: String) -> some View {
+        Button("Download Crash Dump…") { Task { await saveDump(dump, device: device) } }
+            .disabled(env.knob.running.contains(.coredump))
+    }
+
+    private func saveDump(_ dump: KnobCoredump, device: String) async {
+        dumpWriteError = nil
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = dump.filename(device: device)
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = await env.knob.coredumpData(dump) else { return }
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            dumpWriteError = error.localizedDescription
         }
     }
 

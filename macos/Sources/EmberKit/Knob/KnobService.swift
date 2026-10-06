@@ -40,6 +40,18 @@ public struct KnobService: Sendable, Equatable {
         try await client.send("DELETE", "/v1/devices/\(Self.escape(id))")
     }
 
+    public func coredumps(id: String) async throws -> [KnobCoredump] {
+        try await client.get("/v1/devices/\(Self.escape(id))/coredumps")
+    }
+
+    public func coredump(id: String, dump: String) async throws -> Data {
+        try await client.getData("/v1/devices/\(Self.escape(id))/coredumps/\(Self.escape(dump))")
+    }
+
+    public func deleteCoredump(id: String, dump: String) async throws {
+        try await client.send("DELETE", "/v1/devices/\(Self.escape(id))/coredumps/\(Self.escape(dump))")
+    }
+
     static func escape(_ id: String) -> String {
         id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? id
     }
