@@ -133,8 +133,8 @@ func TestDeviceCheckinAcceptsTheMostStacks(t *testing.T) {
 
 func TestDeviceCheckinIgnoresServerDerivedDiagKeysFromTheKnob(t *testing.T) {
 	app, post := newDiagKnob(t)
-	post(`{"boots":3,"reboots":99,"prev_reset_reason":"panic"}`)
-	if got := storedDiag(app); got == nil || got.Reboots != 0 || got.PrevResetReason != "" {
+	post(`{"boots":3,"reboots":99,"prev_reset_reason":"panic","reboots_since_seen":7}`)
+	if got := storedDiag(app); got == nil || got.Reboots != 0 || got.PrevResetReason != "" || got.RebootsSinceSeen != 0 {
 		t.Fatalf("diag = %+v", got)
 	}
 }
@@ -167,15 +167,23 @@ func TestDeviceCheckinCountsRebootsFromBoots(t *testing.T) {
 		t.Fatalf("same boot keeps the count = %+v", got)
 	}
 	post(`{"boots":44,"reset_reason":"task_wdt"}`)
-	if got := storedDiag(app); got.Reboots != 4 || got.PrevResetReason != "panic" {
-		t.Fatalf("after three missed reboots = %+v", got)
+	if got := storedDiag(app); got.Reboots != 4 || got.PrevResetReason != "" || got.RebootsSinceSeen != 3 {
+		t.Fatalf("after three reboots between checkins = %+v", got)
+	}
+	post(`{"boots":44,"reset_reason":"task_wdt"}`)
+	if got := storedDiag(app); got.Reboots != 4 || got.PrevResetReason != "" || got.RebootsSinceSeen != 3 {
+		t.Fatalf("same boot keeps the gap = %+v", got)
+	}
+	post(`{"boots":45,"reset_reason":"sw"}`)
+	if got := storedDiag(app); got.Reboots != 5 || got.PrevResetReason != "task_wdt" || got.RebootsSinceSeen != 0 {
+		t.Fatalf("one reboot after a gap = %+v", got)
 	}
 	post(`{"boots":1,"reset_reason":"sw"}`)
-	if got := storedDiag(app); got.Reboots != 5 || got.PrevResetReason != "task_wdt" {
+	if got := storedDiag(app); got.Reboots != 6 || got.PrevResetReason != "sw" || got.RebootsSinceSeen != 0 {
 		t.Fatalf("boots counter reset = %+v", got)
 	}
 	post(`{"reset_reason":"sw"}`)
-	if got := storedDiag(app); got.Reboots != 5 || got.PrevResetReason != "task_wdt" {
+	if got := storedDiag(app); got.Reboots != 6 || got.PrevResetReason != "sw" {
 		t.Fatalf("unknown boots = %+v", got)
 	}
 }

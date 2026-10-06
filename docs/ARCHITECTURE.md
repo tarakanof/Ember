@@ -2738,16 +2738,21 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `stack_free` maps a task to its free stack in bytes. Stored as
   `last_checkin.diag` plus two server fields carried from the previous
   checkin's diag: `reboots`, the boots increases Ember has seen (a drop in
-  `boots`, an erased counter, counts one), and `prev_reset_reason`, the reset
-  reason before the latest reboot; both restart from zero after a checkin
-  without a diag, and keys of those names sent by the knob are ignored. A
+  `boots`, an erased counter, counts one); `prev_reset_reason`, the reset
+  reason before the latest reboot, set only when `boots` rose by exactly one
+  (or dropped) since the previous checkin; and `reboots_since_seen`, the jump
+  when `boots` rose by more than one, since the reasons of the reboots in
+  between are unknown (`prev_reset_reason` is then left out). All three restart
+  from zero after a checkin without a valid diag (a single dropped object
+  loses them; carrying them across would need a store of its own), and keys of
+  those names sent by the knob are ignored. A
   crash logs once at Warn (`knob crash reported`) when it first appears or its
   pc, task or reason changes against the previous checkin. Dropped like
   `wifi`, with the same Info/Debug logging, when invalid: a negative count, a
   reason not 1..24 of `a-z0-9_`, a `pc` not lower-case `0x` plus 1..8 hex
   digits, a task name not 1..16 printable ASCII characters, more than 32
   `stack_free` tasks, a wrong type. The app shows Crash (only while present),
-  Last reset, Boots and Lowest free memory rows)
+  Last restart, Boots and Lowest free memory rows)
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus

@@ -12,14 +12,15 @@ const (
 )
 
 type deviceDiag struct {
-	Boots           int64          `json:"boots,omitempty"`
-	Crash           *deviceCrash   `json:"crash,omitempty"`
-	HeapInternalMin int            `json:"heap_internal_min,omitempty"`
-	HeapLargestMin  int            `json:"heap_largest_min,omitempty"`
-	ResetReason     string         `json:"reset_reason,omitempty"`
-	StackFree       map[string]int `json:"stack_free,omitempty"`
-	Reboots         int64          `json:"reboots,omitempty"`
-	PrevResetReason string         `json:"prev_reset_reason,omitempty"`
+	Boots            int64          `json:"boots,omitempty"`
+	Crash            *deviceCrash   `json:"crash,omitempty"`
+	HeapInternalMin  int            `json:"heap_internal_min,omitempty"`
+	HeapLargestMin   int            `json:"heap_largest_min,omitempty"`
+	ResetReason      string         `json:"reset_reason,omitempty"`
+	StackFree        map[string]int `json:"stack_free,omitempty"`
+	Reboots          int64          `json:"reboots,omitempty"`
+	PrevResetReason  string         `json:"prev_reset_reason,omitempty"`
+	RebootsSinceSeen int64          `json:"reboots_since_seen,omitempty"`
 }
 
 type deviceCrash struct {
@@ -96,16 +97,19 @@ func (d *deviceDiag) carryFrom(prev *deviceDiag) {
 	if prev == nil {
 		return
 	}
-	d.Reboots, d.PrevResetReason = prev.Reboots, prev.PrevResetReason
+	d.Reboots, d.PrevResetReason, d.RebootsSinceSeen = prev.Reboots, prev.PrevResetReason, prev.RebootsSinceSeen
 	if prev.Boots == 0 || d.Boots == 0 || d.Boots == prev.Boots {
 		return
 	}
+	jump := int64(1)
 	if d.Boots > prev.Boots {
-		d.Reboots += d.Boots - prev.Boots
-	} else {
-		d.Reboots++
+		jump = d.Boots - prev.Boots
 	}
-	d.PrevResetReason = prev.ResetReason
+	d.Reboots += jump
+	d.PrevResetReason, d.RebootsSinceSeen = prev.ResetReason, 0
+	if jump > 1 {
+		d.PrevResetReason, d.RebootsSinceSeen = "", jump
+	}
 }
 
 func newDiagCrash(prev, cur *deviceDiag) *deviceCrash {

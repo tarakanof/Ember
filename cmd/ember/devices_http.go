@@ -389,7 +389,7 @@ func decodeCheckinPart[T checkinPart](a *App, r *http.Request, name string, raw 
 func (a *App) decodeDeviceDiag(r *http.Request, raw json.RawMessage) *deviceDiag {
 	d := decodeCheckinPart[deviceDiag](a, r, "diag", raw, &a.diagDrops)
 	if d != nil {
-		d.Reboots, d.PrevResetReason = 0, ""
+		d.Reboots, d.PrevResetReason, d.RebootsSinceSeen = 0, "", 0
 	}
 	return d
 }
