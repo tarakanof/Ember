@@ -30,12 +30,14 @@ const (
 	otaWaitIdleInput = "idle_input"
 
 	otaURLPrefix     = "/v1/devices/self/firmware/"
+	otaNotStarted    = 30 * time.Minute
 	otaBlockedMax    = 16
 	otaWriteDeadline = 10 * time.Minute
 )
 
 var (
 	errNoRollback      = errors.New("no_rollback_bootloader")
+	errOTAInProgress   = errors.New("ota_in_progress")
 	errOTANotOffered   = errors.New("this firmware version is not offered to this device")
 	errOTAUnknownImage = fmt.Errorf("%w: unknown firmware version", errDeviceBody)
 
@@ -54,6 +56,7 @@ type knobOTA struct {
 	Build      string     `json:"build,omitempty"`
 	Size       int        `json:"size,omitempty"`
 	Auto       bool       `json:"auto,omitempty"`
+	Attempt    int        `json:"attempt,omitempty"`
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 }
@@ -110,6 +113,7 @@ type knobOTAReport struct {
 }
 
 type knobOTALast struct {
+	Attempt int    `json:"attempt,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Result  string `json:"result"`
 	Version string `json:"version,omitempty"`
@@ -135,6 +139,8 @@ func (r knobOTAReport) validate() error {
 			return errors.New("last.result must be ok, failed or rolled_back")
 		case l.Error != "" && !otaErrorPattern.MatchString(l.Error):
 			return errors.New("last.error must be 1..24 of a-z, 0-9, _")
+		case l.Attempt < 0:
+			return errors.New("last.attempt must be >= 0")
 		case l.Version != "" && !semverPattern.MatchString(l.Version):
 			return errors.New("last.version must be a semantic version")
 		}
@@ -159,6 +165,7 @@ func (r *knobOTAReport) clone() *knobOTAReport {
 }
 
 type otaOffer struct {
+	Attempt int    `json:"attempt"`
 	Auto    bool   `json:"auto"`
 	Build   string `json:"build"`
 	Retry   bool   `json:"retry"`
@@ -214,8 +221,10 @@ func stepOTA(o *knobOTA, in otaInput) (*otaOffer, string) {
 	if !o.servable(cand.Version) {
 		o.Phase, o.Version, o.Build, o.Size, o.Auto = otaPhaseOffered, cand.Version, cand.Build, cand.Size, auto
 		o.From, o.Error, o.StartedAt, o.FinishedAt = rep.FW, "", nil, nil
+		o.Attempt++
 	}
 	offer := &otaOffer{
+		Attempt: o.Attempt,
 		Auto:    auto,
 		Build:   cand.Build,
 		Retry:   o.Retry,
@@ -247,7 +256,7 @@ func applyOTAResult(o *knobOTA, rep deviceCheckin, now time.Time) {
 		}
 		return
 	}
-	if l := r.Last; l != nil && l.Version == o.Version && o.Phase != otaPhaseOffered &&
+	if l := r.Last; l != nil && l.Attempt != 0 && l.Attempt == o.Attempt && l.Version == o.Version &&
 		(l.Result == otaPhaseFailed || l.Result == otaPhaseRolledBack) {
 		o.Phase, o.Error, o.FinishedAt = l.Result, l.Error, &now
 		if !slices.Contains(o.Blocked, o.Version) {
@@ -349,21 +358,41 @@ type otaProgress struct {
 }
 
 type otaLive struct {
-	mu       sync.Mutex
-	progress map[string]otaProgress
-	waiting  map[string]string
+	mu          sync.Mutex
+	progress    map[string]otaProgress
+	waiting     map[string]string
+	offeredFrom map[string]time.Time
 }
 
-func (l *otaLive) start(device, version string, size int64) {
+func (l *otaLive) start(device, version string, size int64, fresh bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.progress == nil {
 		l.progress = map[string]otaProgress{}
 	}
-	if p, ok := l.progress[device]; ok && p.version == version {
+	if p, ok := l.progress[device]; ok && p.version == version && !fresh {
 		return
 	}
 	l.progress[device] = otaProgress{version: version, size: size}
+}
+
+func (l *otaLive) offeredSince(device string, now time.Time) time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.offeredFrom == nil {
+		l.offeredFrom = map[string]time.Time{}
+	}
+	if t, ok := l.offeredFrom[device]; ok {
+		return t
+	}
+	l.offeredFrom[device] = now
+	return now
+}
+
+func (l *otaLive) notOffered(device string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.offeredFrom, device)
 }
 
 func (l *otaLive) advance(device, version string, pos int64, now time.Time) {
@@ -411,11 +440,13 @@ func (l *otaLive) forget(device string) {
 	defer l.mu.Unlock()
 	delete(l.progress, device)
 	delete(l.waiting, device)
+	delete(l.offeredFrom, device)
 }
 
 type otaStatus struct {
 	Mode        string      `json:"mode"`
 	Target      *string     `json:"target"`
+	Version     *string     `json:"version"`
 	Phase       string      `json:"phase"`
 	ProgressPct *int        `json:"progress_pct"`
 	Bytes       *int64      `json:"bytes"`
@@ -457,6 +488,7 @@ func (a *App) otaStatus(device string, o knobOTA, last *deviceCheckin) otaStatus
 	st := otaStatus{
 		Mode:       o.mode(),
 		Target:     nonEmpty(o.Target),
+		Version:    nonEmpty(o.Version),
 		Phase:      o.phase(),
 		From:       nonEmpty(o.From),
 		Error:      nonEmpty(o.Error),

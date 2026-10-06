@@ -59,6 +59,15 @@ func (a *App) otaCheckin(id string, report deviceCheckin, res *checkinResult) er
 			return false, nil
 		}
 		offer, waiting = stepOTA(o, in)
+		if offer == nil || offer.Auto || o.Phase != otaPhaseOffered {
+			a.ota.notOffered(id)
+			return false, nil
+		}
+		if in.now.Sub(a.ota.offeredSince(id, in.now)) >= otaNotStarted {
+			o.Phase, o.Error, o.FinishedAt = otaPhaseFailed, "not_started", &in.now
+			offer, waiting = nil, ""
+			a.ota.notOffered(id)
+		}
 		return false, nil
 	})
 	if err != nil {
@@ -81,11 +90,11 @@ func (a *App) handleFirmwareDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := a.devices.now().UTC()
-	served := false
+	served, fresh := false, false
 	o, _, err := a.devices.updateOTA(id, func(o *knobOTA, _ *deviceCheckin) (bool, error) {
 		served = o.servable(version)
 		if served && o.Phase == otaPhaseOffered {
-			o.Phase, o.StartedAt = otaPhaseDownloading, &now
+			o.Phase, o.StartedAt, fresh = otaPhaseDownloading, &now, true
 		}
 		return false, nil
 	})
@@ -104,7 +113,7 @@ func (a *App) handleFirmwareDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = f.Close() }()
-	a.ota.start(id, version, int64(meta.Size))
+	a.ota.start(id, version, int64(meta.Size), fresh)
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(otaWriteDeadline))
 	h := w.Header()
 	h.Set("Content-Type", "application/octet-stream")
@@ -187,7 +196,7 @@ func (a *App) handleDeviceOTAPut(w http.ResponseWriter, r *http.Request) {
 		return applyOTAPut(o, last, req.Mode, target, clearTarget, retry)
 	})
 	switch {
-	case errors.Is(err, errNoRollback):
+	case errors.Is(err, errNoRollback), errors.Is(err, errOTAInProgress):
 		writeError(w, http.StatusConflict, err)
 		return
 	case err != nil:
@@ -204,6 +213,13 @@ func applyOTAPut(o *knobOTA, last *deviceCheckin, mode, target *string, clearTar
 	}
 	if retry && target == nil && o.Target == "" && o.Version == "" {
 		return false, fmt.Errorf("%w: nothing to retry", errDeviceBody)
+	}
+	committed := o.Phase == otaPhaseInstalling || o.Phase == otaPhaseRestarting || o.Phase == otaPhaseVerifying
+	if committed && (retry || (clearTarget && o.Target != "") || (target != nil && *target != o.Version)) {
+		return false, errOTAInProgress
+	}
+	if target != nil && *target == o.Version && (o.Phase == otaPhaseFailed || o.Phase == otaPhaseRolledBack) {
+		retry = true
 	}
 	bump := false
 	if mode != nil && *mode != o.mode() {

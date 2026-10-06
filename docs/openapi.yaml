@@ -578,8 +578,16 @@ components:
         `ota.rollback` true, `ota.image` valid and `ota.phase` idle, its `fw_build` differs
         from the offered build, no Pomodoro runs or is paused, no core dump is wanted, and
         (automatic offers) the version is a newer `release` image not in `blocked`.
-      required: [auto, build, retry, sha256, size, url, version]
+      required: [attempt, auto, build, retry, sha256, size, url, version]
       properties:
+        attempt:
+          type: integer
+          minimum: 1
+          description: >-
+            Per-device attempt id, monotonic. It stays the same while the same offer
+            repeats and moves on for every new offer (a new version or a Retry). The
+            knob stores it with the attempt and echoes it in `ota.last.attempt`; Ember
+            applies a `last` result only when its `attempt` is the current one.
         auto:
           type: boolean
           description: An automatic update; the knob waits for 10 min without input first.
@@ -611,6 +619,9 @@ components:
         target:
           type: [string, "null"]
           description: The version the owner asked for; cleared once it runs.
+        version:
+          type: [string, "null"]
+          description: The version of the current or last attempt (manual or automatic).
         phase:
           type: string
           enum: [idle, offered, downloading, installing, restarting, verifying, done, failed, rolled_back]
@@ -628,7 +639,9 @@ components:
           description: The `fw` the knob ran when the offer started.
         error:
           type: [string, "null"]
-          description: The knob's `ota.last.error` after `failed` or `rolled_back`.
+          description: >-
+            The knob's `ota.last.error` after `failed` or `rolled_back`, or `not_started`
+            when a manual offer was sent for 30 minutes without the knob starting it.
         started_at:
           type: [string, "null"]
           format: date-time
@@ -662,6 +675,7 @@ components:
       example:
         mode: manual
         target: 0.9.14
+        version: 0.9.14
         phase: downloading
         progress_pct: 42
         bytes: 682000
@@ -1804,7 +1818,8 @@ paths:
         `X-Ember-Devices-Epoch`, so the knob checks in within one view poll.
         `target: null` cancels an offer that has not started downloading.
         `retry: true` re-offers the last version once with `retry: true` and
-        removes it from `blocked`.
+        removes it from `blocked`; setting the target to the version that just
+        failed or rolled back does the same.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
@@ -1840,7 +1855,11 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: '`{"error":"no_rollback_bootloader"}`: the last checkin has no `ota.rollback` (target or retry only).'
+          description: >-
+            `{"error":"no_rollback_bootloader"}`: the last checkin has no `ota.rollback`
+            (target or retry only). `{"error":"ota_in_progress"}`: the knob is installing,
+            restarting or verifying, so a new target, clearing the target or a retry waits
+            until the attempt ends.
           content:
             application/json:
               schema:
@@ -2015,6 +2034,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        "416":
+          description: The `Range` starts past the end of the file.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2041,6 +2062,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        "416":
+          description: The `Range` starts past the end of the file.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2105,6 +2128,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        "416":
+          description: The `Range` starts past the end of the file.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2145,6 +2170,10 @@ paths:
                       type: object
                       required: [result]
                       properties:
+                        attempt:
+                          type: integer
+                          minimum: 0
+                          description: The offer's `attempt` this result belongs to. A result without the current attempt is ignored.
                         error:
                           type: string
                           pattern: "^[a-z0-9_]{1,24}$"
@@ -2354,6 +2383,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        "416":
+          description: The `Range` starts past the end of the file.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

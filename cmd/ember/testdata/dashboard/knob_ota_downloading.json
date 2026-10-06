@@ -1,6 +1,7 @@
 {
   "mode": "manual",
   "target": "0.9.14",
+  "version": "0.9.14",
   "phase": "downloading",
   "progress_pct": 41,
   "bytes": 30000,

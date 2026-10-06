@@ -2482,7 +2482,12 @@ the bytes: 64 KiB-4 MiB, byte 0 `0xE9`, `chip_id` (offset 12, u16 LE)
 9 = ESP32-S3, `esp_app_desc_t` magic `0xABCD5432` at 32, `version` (48,
 strict semver, no build metadata), `project_name` (80) `cinder`,
 `idf_ver` (144), `app_elf_sha256` (176; `build` = its first 4 bytes as
-hex, the knob's `fw_build`). A dev-seed build (cinder's local default with
+hex, the knob's `fw_build`). A new version is written into a
+`.tmp-<version>-*` directory and renamed into place; a replace moves the
+old directory aside to `.old-<version>-*` first and deletes it after the
+rename, so a failed write keeps the old version, and a crash between the
+two renames is undone at boot (an `.old-` directory whose version is
+missing is moved back). A dev-seed build (cinder's local default with
 `sdkconfig.secrets`) has the Wi-Fi password and the master token compiled
 in, so an image or ELF containing the server's own `EMBER_TOKEN` or the
 marker `CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
@@ -2499,30 +2504,41 @@ the registry lock (the in-use checks), never the other way round.
 `mode` (`manual` = "Ask first", the default, or `auto`), `target`, a
 one-shot `retry`, `blocked` (versions that failed or rolled back, at most
 16; auto mode skips them), `phase`, `error`, `from`, and the offered
-`version`/`build`/`size`/`auto` with `started_at`/`finished_at`. It is
+`version`/`build`/`size`/`auto`, the `attempt` id and
+`started_at`/`finished_at`. It is
 written only when it changes (never per progress tick): the checkin
 computes the step on a copy under the registry lock and persists only a
 difference. Progress (`bytes`) and `waiting_for` live in memory.
 `last_checkin` keeps the knob's `fw_build` and `ota` report as sent.
 
 **Checkin.** The knob adds `fw_build` (8 hex; ignored when malformed) and
-`ota` `{"image":"valid|pending_verify|new|undefined","last":{"error","result":"ok|failed|rolled_back","version"},"phase":"idle|waiting|rebooting","rollback":bool,"slot":0|1}`
+`ota` `{"image":"valid|pending_verify|new|undefined","last":{"attempt","error","result":"ok|failed|rolled_back","version"},"phase":"idle|waiting|rebooting","rollback":bool,"slot":0|1}`
 (dropped and logged like `wifi` when invalid). `diag.crash` gains `elf`
 (8 hex, the crashed app's ELF prefix), copied into the core dump sidecar
 so `GET /v1/firmware/by-build/{elf}/elf` finds the ELF that decodes it.
 Each checkin first applies the knob's result to an active offer:
 `fw_build` = offered build with `pending_verify` → `verifying`, with any
 other image state → `done` (target cleared); `ota.phase` `waiting` →
-`installing`, `rebooting` → `restarting`; `last` with the offered version
-and `failed`/`rolled_back` → that phase, its `error`, and the version
-added to `blocked`. A `last` result is ignored while the phase is still
-`offered`: the knob keeps `last` in NVS until a new attempt starts, so an
-old result would otherwise fail a fresh offer before any byte was served.
+`installing`, `rebooting` → `restarting`; `last` with the current
+`attempt` and the offered version and `failed`/`rolled_back` → that
+phase, its `error`, and the version added to `blocked`, in any active
+phase, `offered` included (a failure before any byte was served, or the
+knob's own guards refusing the offer). Every new offer (another version,
+or a Retry) takes the next `attempt` id, a per-device counter kept in the
+record; repeats of the same offer keep it. The knob stores the id with
+its attempt and echoes it in `ota.last.attempt`, so a `last` it keeps in
+NVS from an earlier attempt (it does until a new attempt starts) never
+fails or finishes the current one. A manual offer that the knob has been
+sent for 30 minutes of checkins without starting it (the server never saw
+a download) becomes `failed` with `error` `not_started`; the clock is in
+memory and restarts whenever a checkin withholds the offer (Pomodoro, core
+dump, knob not ready). Automatic offers are exempt: they wait for 10 min
+without input, which can take hours.
 Then it decides the offer. The candidate is `target` (manual: any stored
 version, downgrades included; none after its own failure until a Retry or
 a new target) or, with no target in auto mode, the newest `release` image
 above the running `fw` that is not blocked. The answer carries
-`"ota":{"auto","build","retry","sha256","size","url":"/v1/devices/self/firmware/<v>","version"}`
+`"ota":{"attempt","auto","build","retry","sha256","size","url":"/v1/devices/self/firmware/<v>","version"}`
 (keys sorted) only when the knob reported `rollback` true (the bootloader
 can roll back; without it the first OTA would have no safety net),
 `image` `valid`, `phase` idle, a `fw_build` other than the candidate's,
@@ -2539,9 +2555,10 @@ per-device limiter: burst 6, one per 10 s) answers 404 for an unknown
 version and 409 unless the version is this device's offer in phase
 `offered` or `downloading`, so a device token reads one image and only
 during its own update. The first request moves the phase to
-`downloading`. `http.ServeContent` serves the file with `ETag:
+`downloading` and resets the progress (a Retry of the same version starts
+from zero). `http.ServeContent` serves the file with `ETag:
 "<sha256>"` and `Cache-Control: no-store`, so `Range` and `If-Range`
-resume work (a stale `If-Range` gets the whole file). The write deadline
+resume work (a stale `If-Range` gets the whole file, a `Range` past the end 416). The write deadline
 is raised to 10 min through `http.NewResponseController` (the server's
 `WriteTimeout` is 30 s and a slow knob stalls the writer through TCP
 back-pressure). A counting `ResponseWriter` (unwrappable, so the
@@ -2551,14 +2568,20 @@ checked in since, the owner view shows `restarting`: the knob verifies,
 switches the boot slot and restarts right after the stream ends.
 
 **Owner view.** `GET /v1/devices/{id}/ota` answers
-`{"mode","target","phase","progress_pct","bytes","size","from","error","started_at","finished_at","blocked","running":{"fw","build","slot","image","rollback"},"available","waiting_for"}`
+`{"mode","target","version","phase","progress_pct","bytes","size","from","error","started_at","finished_at","blocked","running":{"fw","build","slot","image","rollback"},"available","waiting_for"}`
 (dashboard style: whole-second RFC 3339, null when unknown; `available` =
-the newest stored version above the running one, any channel). `PUT`
+the newest stored version above the running one, any channel; `version` =
+the current or last attempt's version, also for automatic ones). `PUT`
 merges `mode`, `target` (`null` clears it and cancels an offer that has
 not started downloading) and `retry` (re-offers the last version once with
 `retry:true`, which clears the knob's own bad-image guard, and unblocks
-it); a target or retry is 409 `no_rollback_bootloader` while the last
-checkin has no `ota.rollback`, and an unknown version is 400. Goldens:
+it). Setting the target to the version that just failed or rolled back is
+a retry too: without `retry:true` the knob would ignore its own bad image
+forever. A target or retry is 409 `no_rollback_bootloader` while the last
+checkin has no `ota.rollback`; a new target, clearing the target or a
+retry is 409 `ota_in_progress` while the phase is `installing`,
+`restarting` or `verifying` (the knob holds the staged or unconfirmed
+image, and its result would be lost); an unknown version is 400. Goldens:
 `knob_ota_idle.json`, `knob_ota_downloading.json`,
 `knob_ota_rolled_back.json`, `firmware_list.json` in
 `cmd/ember/testdata/dashboard` (EmberKit decodes them).
@@ -2570,10 +2593,14 @@ without rollback, so the one-time USB flash was skipped.
 
 **App.** Settings › Devices › Knob › Status "Firmware" shows `fw (build)`,
 "Update to X" when `available` is set (disabled without a rollback
-bootloader, with the USB note), then a progress bar and the phase line,
-or the failure line and Retry. It polls `GET …/ota` every second while
-the phase is in progress and the pane is open; the pane's 15 s reload
-covers the rest. Behavior › Firmware has Ask first / Automatic and the
+bootloader, with the USB note; hidden after a failure when it would name
+the failed version, where Retry does the same), then a progress bar and
+the phase line, or the failure line (naming the attempt's `version`) and
+Retry. It polls `GET …/ota` every second only while the phase is
+`downloading`, `installing` or `restarting` and the pane is open; the
+pane's 15 s reload covers the rest. Deleting the version a knob runs is
+allowed (the knob keeps both images in flash), but the confirmation says
+that its ELF, needed to decode that build's crash dumps, goes too. Behavior › Firmware has Ask first / Automatic and the
 Manage Firmware sheet (upload `cinder.bin` plus a `cinder.elf` or
 `<name>.elf` next to it, channel Test by default, upload progress from
 the `URLSession` upload task; Mark as Release, Delete, Download ELF).

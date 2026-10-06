@@ -730,7 +730,11 @@ contacts GitHub: images arrive only through the owner routes.
   `docs/workflow.md`). Watch `GET /v1/devices/knob-61fc8c/ota`: `phase`,
   `progress_pct` (bytes Ember has sent), `waiting_for` (`pomodoro`,
   `coredump`, `idle_input`). After `failed` or `rolled_back`, `error` holds
-  the knob's reason; `{"retry":true}` offers the version again once.
+  the knob's reason (`not_started`: the knob was offered the image for
+  30 min and never started); `{"retry":true}` (or the same target again)
+  offers the version again once. While the knob is `installing`,
+  `restarting` or `verifying`, another target, `null` or a retry is 409
+  `ota_in_progress`: wait for `done`, `failed` or `rolled_back`.
   `{"mode":"auto"}` makes the knob take newer release builds after 10 min
   without input; `{"mode":"manual"}` (the default, "Ask first") stops that.
 - **Delete** a test build once no knob targets it:

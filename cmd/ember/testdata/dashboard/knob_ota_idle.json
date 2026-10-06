@@ -1,6 +1,7 @@
 {
   "mode": "manual",
   "target": null,
+  "version": null,
   "phase": "idle",
   "progress_pct": null,
   "bytes": null,
