@@ -66,6 +66,7 @@ public struct KnobDiag: Codable, Equatable, Sendable {
     public var stackFree: [String: Int]?
     public var reboots: Int?
     public var prevResetReason: String?
+    public var rebootsSinceSeen: Int?
 
     enum CodingKeys: String, CodingKey {
         case boots, crash, reboots
@@ -74,14 +75,25 @@ public struct KnobDiag: Codable, Equatable, Sendable {
         case resetReason = "reset_reason"
         case stackFree = "stack_free"
         case prevResetReason = "prev_reset_reason"
+        case rebootsSinceSeen = "reboots_since_seen"
     }
 
     public init(boots: Int? = nil, crash: KnobCrash? = nil, heapInternalMin: Int? = nil,
                 heapLargestMin: Int? = nil, resetReason: String? = nil, stackFree: [String: Int]? = nil,
-                reboots: Int? = nil, prevResetReason: String? = nil) {
+                reboots: Int? = nil, prevResetReason: String? = nil, rebootsSinceSeen: Int? = nil) {
         self.boots = boots; self.crash = crash; self.heapInternalMin = heapInternalMin
         self.heapLargestMin = heapLargestMin; self.resetReason = resetReason; self.stackFree = stackFree
-        self.reboots = reboots; self.prevResetReason = prevResetReason
+        self.reboots = reboots; self.prevResetReason = prevResetReason; self.rebootsSinceSeen = rebootsSinceSeen
+    }
+
+    public var unseenRestarts: Int? {
+        guard let n = rebootsSinceSeen, n > 1 else { return nil }
+        return n
+    }
+
+    public var largestBlockMin: Int? {
+        guard let n = heapLargestMin, n > 0 else { return nil }
+        return n
     }
 }
 

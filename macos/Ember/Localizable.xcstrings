@@ -17,8 +17,19 @@
         }
       }
     },
+    "%@ (%lld restarts since last seen)" : {
+      "comment" : "Settings › Knob Last restart row: why the knob last started, then how many times it restarted between two check-ins, so the earlier reasons are unknown (\"Crash (2 restarts since last seen)\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$lld restarts since last seen)"
+          }
+        }
+      }
+    },
     "%@ (before: %@)" : {
-      "comment" : "Settings › Knob Last reset row: why the knob last started, then why it started the time before (\"Crash (before: Power on)\").",
+      "comment" : "Settings › Knob Last restart row: why the knob last started, then why it started the time before (\"Crash (before: Power on)\").",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1165,7 +1176,6 @@
     "Last reminder didn't reach the clock: %@" : {
       "comment" : "Settings › Calendar: why the last reminder failed (a short error message)."
     },
-    "Last reset" : {},
     "Last restart" : {},
     "Last update didn't reach the server: %@" : {
       "comment" : "Settings › Music: why the last Apple Music update failed (a short error message)."
@@ -1956,7 +1966,7 @@
       "comment" : "Knob setup error; the argument is the Improv error code number."
     },
     "The knob reports every 5 seconds while this page is open." : {},
-    "The knob saved a crash dump in flash. It reports it on every check-in until the dump is read or erased over USB." : {},
+    "The knob saved a crash dump in flash. It reports it on every check-in until the dump is erased over USB (idf.py coredump-erase or a reflash)." : {},
     "The knob sends hardware stats every minute, and every 5 seconds while this page is open. It needs firmware with diagnostics." : {},
     "The knob sends no hardware stats." : {},
     "The knob stays at this brightness. It never goes below the minimum." : {},

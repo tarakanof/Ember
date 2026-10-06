@@ -94,8 +94,19 @@ import Foundation
                                   reboots: 3, prevResetReason: "task_wdt"))
     let sparse = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","diag":{}}"#).utf8))
     #expect(sparse.diag == KnobDiag())
+    let gap = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","diag":{"boots":44,"reset_reason":"sw","reboots":4,"reboots_since_seen":3}}"#).utf8))
+    #expect(gap.diag?.rebootsSinceSeen == 3 && gap.diag?.prevResetReason == nil)
     let old = try d.decode(KnobCheckin.self, from: Data(("{" + base + "}").utf8))
     #expect(old.diag == nil)
+}
+
+@Test func knobDiagHidesUnknownDetails() {
+    #expect(KnobDiag().unseenRestarts == nil)
+    #expect(KnobDiag(rebootsSinceSeen: 1).unseenRestarts == nil)
+    #expect(KnobDiag(rebootsSinceSeen: 2).unseenRestarts == 2)
+    #expect(KnobDiag(heapInternalMin: 70000).largestBlockMin == nil)
+    #expect(KnobDiag(heapInternalMin: 70000, heapLargestMin: 0).largestBlockMin == nil)
+    #expect(KnobDiag(heapInternalMin: 70000, heapLargestMin: 30720).largestBlockMin == 30720)
 }
 
 @Test func knobCheckinWifiDecodes() throws {
