@@ -9,6 +9,7 @@ struct ClockStatusSection: View {
     @State private var showDiscover = false
 
     private var health: ClockHealth? { env.live.clockHealth.value }
+    private var disabledNotice: LocalizedStringResource? { ClockHealthReadout.disabledNotice(env.live.clockHealth) }
     private var probe: ClockHealth.Device? { health?.device }
     private var celsius: Bool { device.settings.draft.useCelsius ?? true }
 
@@ -19,8 +20,8 @@ struct ClockStatusSection: View {
 
     var body: some View {
         Section {
-            if health?.isDisabled == true {
-                Label(String(localized: ClockHealthReadout.disabledTitle), systemImage: "poweroff")
+            if let notice = disabledNotice {
+                Label(String(localized: notice), systemImage: "poweroff")
                     .foregroundStyle(.secondary)
             } else if serverLostClock {
                 LabeledContent {
@@ -81,19 +82,24 @@ struct ClockStatusSection: View {
             }
             HStack {
                 Button("Discover Clocks…") { openDiscover() }
+                    .disabled(disabledNotice != nil)
                 Button("Open Web UI") {
                     if let url = device.config?.webURL { NSWorkspace.shared.open(url) }
                 }
                 .disabled(device.config?.webURL == nil)
                 Spacer()
                 Button("Restart Clock…", role: .destructive) { confirmRestart = true }
-                    .disabled(!device.isLoaded || env.actions.running.contains(.clock(.reboot)))
+                    .disabled(disabledNotice != nil || !device.isLoaded || env.actions.running.contains(.clock(.reboot)))
             }
         } header: {
             Text("Status")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server; this Mac searches too, for when the server can't.")
+                if disabledNotice != nil {
+                    Text("The server was started with the clock turned off (EMBER_CLOCK=off). Turn it back on to manage the clock here.")
+                } else {
+                    Text("Ember finds the clock on its own. Pick one with Discover Clocks to pin it on the server; this Mac searches too, for when the server can't.")
+                }
                 if let failure = env.actions.lastError, failure.action == .clock(.reboot) {
                     Label { Text("Couldn't restart the clock: \(Text(failure.error.message))") } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")

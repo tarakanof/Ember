@@ -60,10 +60,10 @@ struct ClockHardwareContent: View {
     }
 
     @ViewBuilder private func loaded(_ s: ClockStats) -> some View {
-        if input.health?.isDisabled == true {
+        if let notice = ClockHealthReadout.disabledNotice(input.health.map { .loaded($0, at: now) } ?? .loading) {
             HardwareStateBox {
                 ContentUnavailableView {
-                    Label(String(localized: ClockHealthReadout.disabledTitle), systemImage: "poweroff")
+                    Label(String(localized: notice), systemImage: "poweroff")
                 }
             }
         } else if !s.configured {

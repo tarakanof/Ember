@@ -63,7 +63,7 @@ public struct ClockHealth: Decodable, Sendable, Equatable {
 
     public var generatedAt: Date
     public var publish: Publish
-    public var disabled: Bool?
+    private var disabled: Bool?
     public var device: Device?
     public var latestFirmware: String?
     public var updateAvailable: Bool?

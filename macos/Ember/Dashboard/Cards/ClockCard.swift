@@ -4,6 +4,7 @@ import EmberKit
 struct ClockCard: View {
     let screen: Loadable<[Int]>
     var actions = DashboardActions()
+    var disabledNotice: LocalizedStringResource?
 
     var body: some View {
         DashboardCard(title: "Clock", systemImage: "clock", height: DashboardCardHeight.mirror) {
@@ -11,6 +12,7 @@ struct ClockCard: View {
                 mirror
                 controls
                     .fixedSize()
+                    .disabled(disabledNotice != nil)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } accessory: {
@@ -24,7 +26,11 @@ struct ClockCard: View {
         MatrixScreenView(pixels: pixels)
             .ledBezel(padding: 10, cornerRadius: 10)
             .overlay {
-                if screen.value == nil, !screen.isLoading {
+                if let disabledNotice {
+                    Label(String(localized: disabledNotice), systemImage: "poweroff")
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.7))
+                } else if screen.value == nil, !screen.isLoading {
                     Label("Clock unreachable", systemImage: "wifi.slash")
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.7))

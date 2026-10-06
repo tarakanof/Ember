@@ -36,6 +36,16 @@ enum HardwareFixtures {
         return try! d.decode(ClockHealth.self, from: Data(json.utf8))
     }
 
+    static func disabledClock(now: Date) -> ClockHardwareInput {
+        let iso = now.formatted(.iso8601)
+        let json = #"{"generated_at":"\#(iso)","publish":{"counting_since":"\#(iso)","ok_24h":0,"fail_24h":0,"success_ratio_24h":null,"ok_total":0,"fail_total":0,"retries_total":0,"last_at":null,"last_ok":false},"disabled":true,"device":null}"#
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        let health = try! d.decode(ClockHealth.self, from: Data(json.utf8))
+        let stats = ClockStats(range: .hour, configured: false, reachable: nil, checkedAt: nil, latest: nil, points: [])
+        return ClockHardwareInput(stats: .loaded(stats, at: now), health: health, range: .hour)
+    }
+
     enum Scenario {
         case knob(KnobHardwareInput)
         case clock(ClockHardwareInput)
@@ -49,6 +59,8 @@ enum HardwareFixtures {
             ("clock-24h-dark-offline", .clock(clock(.day, now: now, online: false, gap: 30_000...36_000)), .dark),
             ("clock-waiting-light", .clock(clock(.loaded(ClockStats(range: .hour, reachable: nil, checkedAt: nil,
                                                                     latest: nil, points: []), at: now), now: now)), .light),
+            ("clock-disabled-light", .clock(disabledClock(now: now)), .light),
+            ("clock-disabled-dark", .clock(disabledClock(now: now)), .dark),
             ("knob-full-15m-light", .knob(knob(.fifteenMinutes, now: now)), .light),
             ("knob-full-15m-dark", .knob(knob(.fifteenMinutes, now: now)), .dark),
             ("knob-basic-1h-light", .knob(knob(.hour, .basic, now: now, gap: 1500...2100)), .light),

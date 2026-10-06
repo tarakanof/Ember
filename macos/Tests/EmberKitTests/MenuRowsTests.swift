@@ -331,6 +331,15 @@ private func stats(done: Int, minutes: Int, goal: Int) -> PomoStats {
     #expect(MenuRows.failure(.clock(.next), .server("boom")).text == "Couldn't switch apps: server error")
 }
 
+@Test func displayPowerHiddenWhenTheClockIsDisabled() throws {
+    let usage = Loadable<UsageSnapshot>.loaded(usageSnapshot([]), at: now)
+    let json = #"{"generated_at":"2026-09-26T10:00:00Z","publish":{"counting_since":"2026-09-26T09:00:00Z","ok_24h":0,"fail_24h":0,"success_ratio_24h":null,"ok_total":0,"fail_total":0,"retries_total":0,"last_at":null,"last_ok":false},"disabled":true,"device":null}"#
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let health = try d.decode(ClockHealth.self, from: Data(json.utf8))
+    #expect(MenuRows.displayPower(usage: usage, clockHealth: .loaded(health, at: now), matrixPower: nil).isEmpty)
+}
+
 @Test func displayPowerHiddenUntilTheServerSupportsIt() {
     let off = Loadable<UsageSnapshot>.failed(.featureOff, last: nil, lastAt: nil)
     let health = Loadable<ClockHealth>.loading

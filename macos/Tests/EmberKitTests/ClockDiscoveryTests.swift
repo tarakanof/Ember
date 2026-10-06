@@ -154,8 +154,11 @@ private func loaded(_ h: ClockHealth) -> Loadable<ClockHealth> { .loaded(h, at: 
     #expect(try healthJSON(#""device":null"#).isDisabled == false)
 }
 
-@Test func disabledClockTitleSaysTheServerDisabledIt() {
-    #expect(ClockHealthReadout.disabledTitle.text == "Clock disabled on this server")
+@Test func disabledNoticeIsShownOnlyForADisabledClock() throws {
+    let disabled = loaded(try healthJSON(#""disabled":true,"device":null"#))
+    #expect(ClockHealthReadout.disabledNotice(disabled)?.text == "Clock disabled on this server")
+    #expect(ClockHealthReadout.disabledNotice(loaded(try healthJSON(reachableFalse))) == nil)
+    #expect(ClockHealthReadout.disabledNotice(.loading) == nil)
 }
 
 @Test func serverLostClockNeedsAFailedProbeAndAFailedPush() throws {

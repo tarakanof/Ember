@@ -212,6 +212,9 @@ func TestDashboardGolden(t *testing.T) {
 	dead := closedURL(t)
 	empty.updateConfig(func(c *Config) { c.AWTRIX.HTTPBaseURL = dead })
 	assertGolden(t, "clock_health_unreachable", empty.buildClockHealth(t.Context(), goldenNow))
+
+	t.Setenv("EMBER_CLOCK", "off")
+	assertGolden(t, "clock_health_disabled", empty.buildClockHealth(t.Context(), goldenNow))
 }
 
 func TestDashboardEndpointsAreOpenAndWholeSecond(t *testing.T) {

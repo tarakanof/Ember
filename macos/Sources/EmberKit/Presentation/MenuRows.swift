@@ -297,6 +297,7 @@ public enum MenuRows {
     public static func displayPower(usage: Loadable<UsageSnapshot>, clockHealth: Loadable<ClockHealth>,
                                     matrixPower: Bool?) -> [PowerItem] {
         guard usage.value != nil || clockHealth.value != nil else { return [] }
+        guard clockHealth.value?.isDisabled != true else { return [] }
         let off = PowerItem(on: false, title: "Turn Display Off")
         let on = PowerItem(on: true, title: "Turn Display On")
         switch matrixPower {
