@@ -118,6 +118,12 @@ private func iso(_ s: String) -> Date { try! Date(s, strategy: .iso8601) }
     #expect(dev.wifiRssiDbm == nil)
 }
 
+@Test func clockHealthDecodesDisabledGolden() async throws {
+    let h: ClockHealth = try await decode(try golden("clock_health_disabled"))
+    #expect(h.isDisabled)
+    #expect(h.device == nil)
+}
+
 private let workHoursJSON = #"""
 {"days":[{"date":"2026-09-26","work_start":"2026-09-26T04:00:00+02:00","work_end":"2026-09-26T08:34:12+02:00","span_sec":16452,"active_sec":2100,"break_sec":14352,"sessions":2,"longest_sec":1500},{"date":"2026-09-25","work_start":null,"work_end":null,"span_sec":0,"active_sec":0,"break_sec":0,"sessions":0,"longest_sec":0}],"gap_min":15,"include_activity":true}
 """#

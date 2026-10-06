@@ -113,7 +113,8 @@ struct DashboardCardSlot<Source: DashboardSource>: View {
         let s = source
         switch id {
         case .clock:
-            ClockCard(screen: s.screen, actions: s.actions)
+            ClockCard(screen: s.screen, actions: s.actions,
+                      disabledNotice: ClockHealthReadout.disabledNotice(s.clockHealth))
         case .focus:
             FocusCard(stats: s.stats, pomodoro: s.pomodoro, config: s.pomoConfig, now: now)
         case .usage:

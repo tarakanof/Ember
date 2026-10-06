@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-09-26T10:30:00+02:00",
+  "publish": {
+    "counting_since": "2026-09-26T10:29:00+02:00",
+    "ok_24h": 0,
+    "fail_24h": 0,
+    "success_ratio_24h": null,
+    "ok_total": 0,
+    "fail_total": 0,
+    "retries_total": 0,
+    "last_at": null,
+    "last_ok": false
+  },
+  "disabled": true,
+  "device": null,
+  "latest_firmware": null,
+  "update_available": null
+}

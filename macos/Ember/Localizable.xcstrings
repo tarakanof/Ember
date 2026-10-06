@@ -667,6 +667,10 @@
     "Clock Sounds…" : {},
     "Clock Web UI" : {},
     "Clock buttons control Pomodoro" : {},
+    "Clock disabled on this server" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Clock display" : {},
     "Clock stats unavailable" : {},
     "Clock style" : {},
@@ -1914,6 +1918,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The server was started with the clock turned off (EMBER_CLOCK=off). Turn it back on to manage the clock here." : {},
     "The server's activity overlay is off, so new agent time isn't stored." : {},
     "The source names this Mac on the clock; up to 4 characters fit best. The token must match the server's EMBER_TOKEN." : {},
     "The tune the clock plays" : {

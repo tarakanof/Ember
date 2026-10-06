@@ -63,14 +63,17 @@ public struct ClockHealth: Decodable, Sendable, Equatable {
 
     public var generatedAt: Date
     public var publish: Publish
+    private var disabled: Bool?
     public var device: Device?
     public var latestFirmware: String?
     public var updateAvailable: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case publish, device
+        case publish, device, disabled
         case generatedAt = "generated_at"
         case latestFirmware = "latest_firmware"
         case updateAvailable = "update_available"
     }
+
+    public var isDisabled: Bool { disabled == true }
 }

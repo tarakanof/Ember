@@ -145,6 +145,22 @@ private func loaded(_ h: ClockHealth) -> Loadable<ClockHealth> { .loaded(h, at: 
     #expect(lost(loaded(try healthJSON(#""device":null"#))))
 }
 
+@Test func serverLostClockIsFalseWhenTheServerDisabledTheClock() throws {
+    #expect(!lost(loaded(try healthJSON(#""disabled":true,"device":null"#))))
+}
+
+@Test func clockHealthDecodesDisabled() throws {
+    #expect(try healthJSON(#""disabled":true,"device":null"#).isDisabled)
+    #expect(try healthJSON(#""device":null"#).isDisabled == false)
+}
+
+@Test func disabledNoticeIsShownOnlyForADisabledClock() throws {
+    let disabled = loaded(try healthJSON(#""disabled":true,"device":null"#))
+    #expect(ClockHealthReadout.disabledNotice(disabled)?.text == "Clock disabled on this server")
+    #expect(ClockHealthReadout.disabledNotice(loaded(try healthJSON(reachableFalse))) == nil)
+    #expect(ClockHealthReadout.disabledNotice(.loading) == nil)
+}
+
 @Test func serverLostClockNeedsAFailedProbeAndAFailedPush() throws {
     #expect(!lost(loaded(try healthJSON(reachableFalse, lastOk: true))))
     #expect(lost(loaded(try healthJSON(reachableFalse, lastOk: false))))
