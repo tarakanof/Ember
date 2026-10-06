@@ -48,6 +48,10 @@ on Unraid, kept small: stdlib Go plus `modernc.org/sqlite`.
   `firmware/tools` (they leave DTR/RTS alone) or for a flash; never toggle
   DTR/RTS yourself (RTS resets the board).
 - **Install software only with the user's approval.**
+- **No code comments.** The why goes in the commit message, PR description or
+  docs. Only the exceptions in STYLE §9 get one line: a quirk that looks like
+  a bug, a hidden API contract, and required text (build directives,
+  functional or generated headers, licences).
 - **Scratch files**: unique names per task (parallel agents share one scratchpad).
 - Conventional Commits, no `Co-Authored-By`. If a rule conflicts with a user
   instruction, say so before complying.
