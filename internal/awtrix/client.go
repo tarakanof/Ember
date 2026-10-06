@@ -1,5 +1,3 @@
-// Package awtrix is the HTTP client for the awtrix-ng firmware's API v1
-// (https://blueforcer.github.io/awtrix-ng/reference/http/).
 package awtrix
 
 import (
@@ -17,7 +15,6 @@ import (
 	"time"
 )
 
-// Client talks to one awtrix-ng device.
 type Client struct {
 	base string
 	hc   *http.Client
@@ -32,13 +29,11 @@ func NewClient(baseURL string, timeout time.Duration) *Client {
 
 func (c *Client) BaseURL() string { return c.base }
 
-// APIError is a non-2xx response, carrying the NG error envelope
-// ({"error":{"code","message","field"}}) when the device supplied one.
 type APIError struct {
 	StatusCode int
-	Code       string // e.g. "validationFailed"; empty if no envelope
+	Code       string
 	Message    string
-	Field      string // offending payload key on validation errors
+	Field      string
 }
 
 func (e *APIError) Error() string {
@@ -56,7 +51,6 @@ func (e *APIError) Error() string {
 	return b.String()
 }
 
-// AppInfo is one entry of GET /api/v1/apps.
 type AppInfo struct {
 	Name    string `json:"name"`
 	Enabled bool   `json:"enabled"`
@@ -64,7 +58,6 @@ type AppInfo struct {
 	Origin  string `json:"origin"`
 }
 
-// DeviceInfo is the subset of GET /api/v1/device Ember relies on.
 type DeviceInfo struct {
 	Version       string  `json:"version"`
 	UID           string  `json:"uid"`
@@ -75,18 +68,14 @@ type DeviceInfo struct {
 	BatteryPct    float64 `json:"batteryPercent"`
 }
 
-// PushApp creates or replaces a pushed app (PUT /api/v1/apps/pushed/{name}).
 func (c *Client) PushApp(ctx context.Context, name string, payload map[string]any) error {
 	return c.doJSON(ctx, http.MethodPut, "/api/v1/apps/pushed/"+url.PathEscape(name), payload, nil)
 }
 
-// DeleteApp removes a pushed app (DELETE /api/v1/apps/{name}).
 func (c *Client) DeleteApp(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodDelete, "/api/v1/apps/"+url.PathEscape(name), nil, nil)
 }
 
-// ListApps returns every app on the device (GET /api/v1/apps), builtin and
-// pushed alike.
 func (c *Client) ListApps(ctx context.Context) ([]AppInfo, error) {
 	var apps []AppInfo
 	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/apps", nil, &apps); err != nil {
@@ -99,14 +88,10 @@ func (c *Client) Notify(ctx context.Context, payload map[string]any) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/notifications", payload, nil)
 }
 
-// DismissNotify clears the currently-shown notification.
 func (c *Client) DismissNotify(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodDelete, "/api/v1/notifications/active", nil, nil)
 }
 
-// DismissNotifyByName clears the notification carrying name, wherever it sits
-// in the queue (DELETE /api/v1/notifications/{name}; names are matched
-// exactly).
 func (c *Client) DismissNotifyByName(ctx context.Context, name string) error {
 	if name == "" {
 		return errors.New("notification name is required")
@@ -114,25 +99,19 @@ func (c *Client) DismissNotifyByName(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodDelete, "/api/v1/notifications/"+url.PathEscape(name), nil, nil)
 }
 
-// Capabilities is GET /api/v1/capabilities: the name lists this firmware build
-// supports, to be read rather than hardcoded.
 type Capabilities struct {
-	Effects        []string `json:"effects"`
-	PaletteEffects []string `json:"paletteEffects"`
-	Transitions    []string `json:"transitions"`
-	Overlays       []string `json:"overlays"`
-	Palettes       []string `json:"palettes"`
-	// Audio lists the sound outputs the board has (NG 1.1.0 replaced the
-	// top-level radio flag with this object).
-	Audio         AudioCaps       `json:"audio"`
-	ScriptUpdates bool            `json:"scriptUpdates"`
-	GPIO          json.RawMessage `json:"gpio,omitempty"`
+	Effects        []string        `json:"effects"`
+	PaletteEffects []string        `json:"paletteEffects"`
+	Transitions    []string        `json:"transitions"`
+	Overlays       []string        `json:"overlays"`
+	Palettes       []string        `json:"palettes"`
+	Audio          AudioCaps       `json:"audio"`
+	ScriptUpdates  bool            `json:"scriptUpdates"`
+	GPIO           json.RawMessage `json:"gpio,omitempty"`
 
 	raw json.RawMessage
 }
 
-// AudioCaps is capabilities.audio: which outputs answer POST
-// /api/v1/audio/play.
 type AudioCaps struct {
 	Buzzer bool `json:"buzzer"`
 	Track  bool `json:"track"`
@@ -152,8 +131,6 @@ func (c *Capabilities) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// MarshalJSON returns the device's own document when the value was decoded
-// from one, and the typed fields otherwise.
 func (c Capabilities) MarshalJSON() ([]byte, error) {
 	if len(c.raw) > 0 {
 		return c.raw, nil
@@ -161,39 +138,28 @@ func (c Capabilities) MarshalJSON() ([]byte, error) {
 	return json.Marshal(capabilitiesFields(c))
 }
 
-// Capabilities fetches the firmware's supported name lists
-// (GET /api/v1/capabilities).
 func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
 	var caps Capabilities
 	err := c.doJSON(ctx, http.MethodGet, "/api/v1/capabilities", nil, &caps)
 	return caps, err
 }
 
-// PlayRTTTL plays an inline RTTTL melody on the buzzer (POST /api/v1/audio/play
-// {"rtttl"}; NG 1.1.0 moved audio off /sounds/play).
 func (c *Client) PlayRTTTL(ctx context.Context, rtttl string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"rtttl": rtttl}, nil)
 }
 
-// PlaySound plays a sound stored on the device by name (POST /api/v1/audio/play
-// {"sound"}).
 func (c *Client) PlaySound(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"sound": name}, nil)
 }
 
-// PlayMelody plays a melody stored on the device by name (POST
-// /api/v1/audio/play {"melody"}).
 func (c *Client) PlayMelody(ctx context.Context, name string) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/play", map[string]any{"melody": name}, nil)
 }
 
-// StopAudio silences every output, radio included (POST /api/v1/audio/stop with
-// no body, which is scope "all").
 func (c *Client) StopAudio(ctx context.Context) error {
 	return c.doJSON(ctx, http.MethodPost, "/api/v1/audio/stop", nil, nil)
 }
 
-// Melody is one entry of GET /api/v1/audio/melodies.
 type Melody struct {
 	Name       string `json:"name"`
 	RTTTL      string `json:"rtttl"`
@@ -205,15 +171,12 @@ type Melody struct {
 	Index      *int   `json:"index,omitempty"`
 }
 
-// MelodyList is GET /api/v1/audio/melodies.
 type MelodyList struct {
 	Melodies   []Melody `json:"melodies"`
 	UsedBytes  int64    `json:"usedBytes"`
 	TotalBytes int64    `json:"totalBytes"`
 }
 
-// Melodies lists the melody files stored on the device (GET
-// /api/v1/audio/melodies).
 func (c *Client) Melodies(ctx context.Context) (MelodyList, error) {
 	var out MelodyList
 	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/audio/melodies", nil, &out); err != nil {
@@ -225,8 +188,6 @@ func (c *Client) Melodies(ctx context.Context) (MelodyList, error) {
 	return out, nil
 }
 
-// SetDisplayPower blanks (false) or relights (true) the LED matrix (PATCH
-// /api/v1/display {"power"}).
 func (c *Client) SetDisplayPower(ctx context.Context, on bool) error {
 	return c.doJSON(ctx, http.MethodPatch, "/api/v1/display", map[string]any{"power": on}, nil)
 }
@@ -238,8 +199,6 @@ func indicatorPath(index int) (string, error) {
 	return "/api/v1/indicators/" + strconv.Itoa(index), nil
 }
 
-// SetIndicator lights one of the three corner LEDs
-// (PUT /api/v1/indicators/{1-3}; payload: color, blinkMs, fadeMs).
 func (c *Client) SetIndicator(ctx context.Context, index int, payload map[string]any) error {
 	p, err := indicatorPath(index)
 	if err != nil {
@@ -248,7 +207,6 @@ func (c *Client) SetIndicator(ctx context.Context, index int, payload map[string
 	return c.doJSON(ctx, http.MethodPut, p, payload, nil)
 }
 
-// ClearIndicator turns a corner LED off (DELETE /api/v1/indicators/{1-3}).
 func (c *Client) ClearIndicator(ctx context.Context, index int) error {
 	p, err := indicatorPath(index)
 	if err != nil {
@@ -257,12 +215,10 @@ func (c *Client) ClearIndicator(ctx context.Context, index int) error {
 	return c.doJSON(ctx, http.MethodDelete, p, nil, nil)
 }
 
-// PatchSettings partially updates display settings (PATCH /api/v1/settings).
 func (c *Client) PatchSettings(ctx context.Context, payload map[string]any) error {
 	return c.doJSON(ctx, http.MethodPatch, "/api/v1/settings", payload, nil)
 }
 
-// GetSettings reads the full settings resource (GET /api/v1/settings).
 func (c *Client) GetSettings(ctx context.Context) (map[string]any, error) {
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, "/api/v1/settings", nil, &out); err != nil {
@@ -271,17 +227,13 @@ func (c *Client) GetSettings(ctx context.Context) (map[string]any, error) {
 	return out, nil
 }
 
-// SwitchMode picks how SwitchApp moves the display to an app.
 type SwitchMode int
 
 const (
-	// SwitchAnimated plays the device's configured transition.
 	SwitchAnimated SwitchMode = iota
-	// SwitchInstant jumps with no transition (NG's "fast":true).
 	SwitchInstant
 )
 
-// SwitchApp forces the display to the named app (PUT /api/v1/apps/active).
 func (c *Client) SwitchApp(ctx context.Context, name string, mode SwitchMode) error {
 	body := map[string]any{"name": name}
 	if mode == SwitchInstant {
@@ -290,7 +242,6 @@ func (c *Client) SwitchApp(ctx context.Context, name string, mode SwitchMode) er
 	return c.doJSON(ctx, http.MethodPut, "/api/v1/apps/active", body, nil)
 }
 
-// ListIcons returns the filenames in /ICONS (GET /api/v1/files?dir=/ICONS).
 func (c *Client) ListIcons(ctx context.Context) ([]string, error) {
 	var out struct {
 		Files []struct {
@@ -307,8 +258,6 @@ func (c *Client) ListIcons(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// PutIcon uploads an icon into /ICONS (multipart POST
-// /api/v1/files?dir=/ICONS).
 func (c *Client) PutIcon(ctx context.Context, filename string, data []byte) error {
 	if c.base == "" {
 		return errors.New("awtrix base URL is required")
@@ -339,7 +288,6 @@ func (c *Client) PutIcon(ctx context.Context, filename string, data []byte) erro
 	return checkStatus(resp)
 }
 
-// DeviceInfo fetches device identity/telemetry (GET /api/v1/device).
 func (c *Client) DeviceInfo(ctx context.Context) (DeviceInfo, error) {
 	var info DeviceInfo
 	err := c.doJSON(ctx, http.MethodGet, DevicePath, nil, &info)
@@ -398,9 +346,6 @@ func checkStatus(resp *http.Response) error {
 	return ParseAPIError(resp.StatusCode, raw)
 }
 
-// ParseAPIError builds the *APIError for a non-2xx device reply from its status
-// and body: the NG envelope ({"error":{code,message,field}}) when the body
-// carries one, the trimmed raw body as the message otherwise.
 func ParseAPIError(status int, body []byte) *APIError {
 	apiErr := &APIError{StatusCode: status}
 	var envelope struct {

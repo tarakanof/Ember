@@ -1,5 +1,3 @@
-// Command device-walk pushes throwaway preview frames of the Phase-1 display
-// rework to the physical clock so a human can judge legibility.
 package main
 
 import (

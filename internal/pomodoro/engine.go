@@ -1,5 +1,3 @@
-// Package pomodoro implements a clock-injected Pomodoro timer state machine and
-// its statistics store.
 package pomodoro
 
 import (
@@ -7,7 +5,6 @@ import (
 	"time"
 )
 
-// Phase is the current timer phase.
 type Phase string
 
 const (
@@ -17,40 +14,34 @@ const (
 	PhaseLong  Phase = "long_break"
 )
 
-// Settings are the user-configurable durations and behaviour.
 type Settings struct {
 	FocusMin         int
 	ShortMin         int
 	LongMin          int
 	RoundsBeforeLong int
 	AutoStartNext    bool
-	// MaxSessionMin auto-stops the whole cycle after this many wall-clock minutes, pauses included (0 = no cap).
-	MaxSessionMin int
+	MaxSessionMin    int
 }
 
-// Status is a point-in-time snapshot of the engine, computed for a given now.
 type Status struct {
 	Phase        Phase `json:"phase"`
 	Running      bool  `json:"running"`
 	Paused       bool  `json:"paused"`
 	RemainingSec int   `json:"remaining_sec"`
 	PlannedSec   int   `json:"planned_sec"`
-	Round        int   `json:"round"` // completed focus phases in the current cycle
+	Round        int   `json:"round"`
 }
 
-// PhaseResult is emitted whenever a phase ends (completed, skipped, stopped).
 type PhaseResult struct {
 	Phase      Phase
 	PlannedSec int
 	ActualSec  int
 	Completed  bool
-	Reason     string // "completed" | "skipped" | "stopped"
+	Reason     string
 }
 
-// Clock abstracts wall time so the engine is deterministic in tests.
 type Clock interface{ Now() time.Time }
 
-// Engine is the Pomodoro state machine.
 type Engine struct {
 	mu       sync.Mutex
 	settings Settings
@@ -69,19 +60,16 @@ type Engine struct {
 	sessionStartedAt time.Time
 }
 
-// New constructs an idle engine with the given settings.
 func New(s Settings, clk Clock) *Engine {
 	return &Engine{settings: s, clk: clk, phase: PhaseIdle}
 }
 
-// UpdateSettings replaces the settings.
 func (e *Engine) UpdateSettings(s Settings) {
 	e.mu.Lock()
 	e.settings = s
 	e.mu.Unlock()
 }
 
-// CurrentSettings returns the active settings.
 func (e *Engine) CurrentSettings() Settings {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -133,7 +121,6 @@ func (e *Engine) elapsedLocked(now time.Time) time.Duration {
 	return d
 }
 
-// Start begins phase p (typically PhaseFocus) running from a full duration.
 func (e *Engine) Start(p Phase) {
 	e.mu.Lock()
 	wasIdle := e.phase == PhaseIdle
@@ -145,7 +132,6 @@ func (e *Engine) Start(p Phase) {
 	e.mu.Unlock()
 }
 
-// Pause freezes the countdown.
 func (e *Engine) Pause(now time.Time) {
 	e.mu.Lock()
 	if e.running && !e.paused {
@@ -155,7 +141,6 @@ func (e *Engine) Pause(now time.Time) {
 	e.mu.Unlock()
 }
 
-// Resume continues a paused phase, or starts a parked (pending) phase.
 func (e *Engine) Resume(now time.Time) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -169,7 +154,6 @@ func (e *Engine) Resume(now time.Time) {
 	}
 }
 
-// Stop ends the current phase early and returns to idle.
 func (e *Engine) Stop(now time.Time) *PhaseResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -185,8 +169,6 @@ func (e *Engine) Stop(now time.Time) *PhaseResult {
 	return res
 }
 
-// Skip ends the current phase (not completed) and advances to the next phase,
-// auto-starting it.
 func (e *Engine) Skip(now time.Time) *PhaseResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -199,7 +181,6 @@ func (e *Engine) Skip(now time.Time) *PhaseResult {
 	return res
 }
 
-// Tick advances the engine to now.
 func (e *Engine) Tick(now time.Time) *PhaseResult {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -262,7 +243,6 @@ func (e *Engine) advanceLocked(ended Phase) Phase {
 	}
 }
 
-// Status returns a snapshot computed at now.
 func (e *Engine) Status(now time.Time) Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -288,9 +268,6 @@ func (e *Engine) statusLocked(now time.Time) Status {
 	}
 }
 
-// Snapshot returns Status(now) and, read under the same lock, when the
-// current phase reaches zero; ok is false unless a phase is counting down
-// (idle, parked and paused have no end time).
 func (e *Engine) Snapshot(now time.Time) (st Status, end time.Time, ok bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -301,8 +278,6 @@ func (e *Engine) Snapshot(now time.Time) (st Status, end time.Time, ok bool) {
 	return st, e.startedAt.Add(e.accumPaused + time.Duration(st.PlannedSec)*time.Second), true
 }
 
-// Active reports whether the engine currently owns the display (any non-idle
-// phase, running or parked).
 func (e *Engine) Active() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()

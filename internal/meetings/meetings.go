@@ -1,5 +1,3 @@
-// Package meetings parses ICS calendar feeds and expands recurring events into
-// concrete occurrences.
 package meetings
 
 import (
@@ -13,7 +11,6 @@ import (
 	"github.com/teambition/rrule-go"
 )
 
-// Occurrence is a single concrete instance of a calendar event.
 type Occurrence struct {
 	UID   string
 	Title string
@@ -21,8 +18,6 @@ type Occurrence struct {
 	End   time.Time
 }
 
-// Expand parses an ICS calendar from data, expands all recurring events, and
-// returns occurrences whose Start falls in [from, from+horizon).
 func Expand(data []byte, from time.Time, horizon time.Duration) ([]Occurrence, error) {
 	cal, err := ics.ParseCalendar(bytes.NewReader(data))
 	if err != nil {
@@ -215,8 +210,6 @@ func applyOverride(ov *ics.VEvent, uid string, from, until time.Time) (Occurrenc
 	}, true
 }
 
-// Merge concatenates any number of occurrence lists, sorts by Start then
-// Title, and deduplicates on UID + Start (UTC, RFC3339 precision).
 func Merge(lists ...[]Occurrence) []Occurrence {
 	total := 0
 	for _, l := range lists {

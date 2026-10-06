@@ -9,7 +9,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Store persists completed/ended phases and key/value settings in SQLite.
 type Store struct {
 	db       *sql.DB
 	phaseGen atomic.Uint64
@@ -42,8 +41,6 @@ CREATE TABLE IF NOT EXISTS activity (
 CREATE INDEX IF NOT EXISTS idx_activity_recorded ON activity(recorded_at);
 `
 
-// Open opens (creating if needed) the SQLite database at path and ensures the
-// schema exists.
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -61,10 +58,8 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
-// RecordPhase inserts a row for an ended phase.
 func (s *Store) RecordPhase(r PhaseResult, started, ended time.Time) error {
 	completed := 0
 	if r.Completed {
@@ -82,12 +77,10 @@ func (s *Store) RecordPhase(r PhaseResult, started, ended time.Time) error {
 	return nil
 }
 
-// PhaseGen returns a counter that advances on every successful RecordPhase.
 func (s *Store) PhaseGen() uint64 { return s.phaseGen.Load() }
 
-// DayStat is a per-day rollup of completed focus phases.
 type DayStat struct {
-	Date           string `json:"date"` // YYYY-MM-DD in the query's timezone
+	Date           string `json:"date"`
 	CompletedFocus int    `json:"completed_focus"`
 	FocusMin       int    `json:"focus_min"`
 }
@@ -116,13 +109,10 @@ func (s *Store) dayStat(t time.Time) (DayStat, error) {
 	}, nil
 }
 
-// Today returns the rollup for the day containing now.
 func (s *Store) Today(now time.Time) (DayStat, error) {
 	return s.dayStat(now)
 }
 
-// History returns per-day rollups for the most recent `days` days, most recent
-// first (index 0 is the day containing now).
 func (s *Store) History(now time.Time, days int) ([]DayStat, error) {
 	if days < 1 {
 		days = 1
@@ -138,8 +128,6 @@ func (s *Store) History(now time.Time, days int) ([]DayStat, error) {
 	return out, nil
 }
 
-// Streak returns the number of consecutive days (ending today) that have at
-// least one completed focus phase.
 func (s *Store) Streak(now time.Time) (int, error) {
 	streak := 0
 	for i := 0; ; i++ {
@@ -155,7 +143,6 @@ func (s *Store) Streak(now time.Time) (int, error) {
 	return streak, nil
 }
 
-// GetSetting returns the stored value for key.
 func (s *Store) GetSetting(key string) (value string, ok bool, err error) {
 	row := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key)
 	switch err := row.Scan(&value); err {
@@ -168,7 +155,6 @@ func (s *Store) GetSetting(key string) (value string, ok bool, err error) {
 	}
 }
 
-// PutSetting upserts a setting.
 func (s *Store) PutSetting(key, value string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO settings (key, value) VALUES (?, ?)

@@ -27,8 +27,6 @@ func testPNG(t *testing.T, w, h int, fill func(x, y int) color.Color) []byte {
 
 func solid(c color.Color) func(int, int) color.Color { return func(int, int) color.Color { return c } }
 
-// isBaseline reports whether a JPEG uses SOF0 (baseline DCT), the only frame
-// type TJpgDec on the knob decodes.
 func isBaseline(b []byte) bool {
 	for i := 0; i+1 < len(b); i++ {
 		if b[i] == 0xFF {

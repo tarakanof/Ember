@@ -277,7 +277,7 @@ func TestVolumeIsValidatedAndAChange(t *testing.T) {
 	rep := song("music", "mbp", Playing, "one", 0)
 	rep.Volume = vol(40)
 	mustReport(t, r, rep, t0)
-	rep.Volume = vol(40) // another pointer, same value: a heartbeat
+	rep.Volume = vol(40)
 	mustReport(t, r, rep, t0.Add(time.Second))
 	if changes != 1 {
 		t.Fatalf("same volume: %d changes, want 1", changes)
@@ -287,7 +287,7 @@ func TestVolumeIsValidatedAndAChange(t *testing.T) {
 	if e, _ := r.Get("music", "mbp"); changes != 2 || e.Volume == nil || *e.Volume != 45 {
 		t.Fatalf("new volume: %d changes, entry %v", changes, e.Volume)
 	}
-	rep.Volume = nil // unknown this time: keeps 45, no change
+	rep.Volume = nil
 	mustReport(t, r, rep, t0.Add(3*time.Second))
 	if e, _ := r.Get("music", "mbp"); changes != 2 || e.Volume == nil || *e.Volume != 45 {
 		t.Fatalf("no volume: %d changes, entry %v", changes, e.Volume)

@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// PhaseRecord is one persisted phase row decoded for analysis.
 type PhaseRecord struct {
 	StartedAt  time.Time
 	EndedAt    time.Time
@@ -17,8 +16,6 @@ type PhaseRecord struct {
 	Reason     string
 }
 
-// PhasesBetween returns the phase rows whose ended_at falls in [lo, hi), oldest
-// first.
 func (s *Store) PhasesBetween(lo, hi time.Time) ([]PhaseRecord, error) {
 	rows, err := s.db.Query(
 		`SELECT started_at, ended_at, phase, planned_sec, actual_sec, completed, reason
@@ -56,8 +53,6 @@ func (s *Store) PhasesBetween(lo, hi time.Time) ([]PhaseRecord, error) {
 	return out, rows.Err()
 }
 
-// ActivityRecord is one persisted AI-coding-session activity heartbeat —
-// evidence that a session was actively working at recorded_at.
 type ActivityRecord struct {
 	At         time.Time
 	Source     string
@@ -66,7 +61,6 @@ type ActivityRecord struct {
 	State      string
 }
 
-// RecordActivity inserts one activity heartbeat.
 func (s *Store) RecordActivity(at time.Time, source, tool, sessionKey, state string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO activity (recorded_at, source, tool, session_key, state)
@@ -79,8 +73,6 @@ func (s *Store) RecordActivity(at time.Time, source, tool, sessionKey, state str
 	return nil
 }
 
-// PruneActivity deletes activity heartbeats recorded before cutoff and
-// returns how many rows it removed.
 func (s *Store) PruneActivity(cutoff time.Time) (int64, error) {
 	res, err := s.db.Exec(`DELETE FROM activity WHERE recorded_at < ?`, cutoff.Unix())
 	if err != nil {
@@ -93,7 +85,6 @@ func (s *Store) PruneActivity(cutoff time.Time) (int64, error) {
 	return n, nil
 }
 
-// ActivityBetween returns activity heartbeats in [lo, hi), oldest first.
 func (s *Store) ActivityBetween(lo, hi time.Time) ([]ActivityRecord, error) {
 	rows, err := s.db.Query(
 		`SELECT recorded_at, source, tool, session_key, state
@@ -123,16 +114,14 @@ func (s *Store) ActivityBetween(lo, hi time.Time) ([]ActivityRecord, error) {
 	return out, rows.Err()
 }
 
-// CompletionStat summarises focus-phase outcomes over a record set.
 type CompletionStat struct {
 	CompletedFocus int     `json:"completed_focus"`
 	AbandonedFocus int     `json:"abandoned_focus"`
 	TotalFocus     int     `json:"total_focus"`
-	CompletionRate float64 `json:"completion_rate"` // 0..1; 0 when no focus phases
-	FocusSec       int     `json:"focus_sec"`       // actual seconds across completed focus
+	CompletionRate float64 `json:"completion_rate"`
+	FocusSec       int     `json:"focus_sec"`
 }
 
-// CompletionStats computes the focus completion summary.
 func CompletionStats(recs []PhaseRecord) CompletionStat {
 	var c CompletionStat
 	for _, r := range recs {
@@ -153,19 +142,15 @@ func CompletionStats(recs []PhaseRecord) CompletionStat {
 	return c
 }
 
-// WorkSession is a run of focus blocks with no internal gap longer than the
-// sessionization threshold.
 type WorkSession struct {
 	Start     time.Time `json:"start"`
 	End       time.Time `json:"end"`
-	ActiveSec int       `json:"active_sec"` // summed focus time inside the session
-	Blocks    int       `json:"blocks"`     // number of focus phases merged
+	ActiveSec int       `json:"active_sec"`
+	Blocks    int       `json:"blocks"`
 }
 
-// SpanSec is wall-clock length start→end (active + bridged breaks).
 func (w WorkSession) SpanSec() int { return int(w.End.Sub(w.Start) / time.Second) }
 
-// BreakSec is the bridged idle time inside the session (span − active).
 func (w WorkSession) BreakSec() int {
 	if b := w.SpanSec() - w.ActiveSec; b > 0 {
 		return b
@@ -173,8 +158,6 @@ func (w WorkSession) BreakSec() int {
 	return 0
 }
 
-// WorkSessions groups focus phases into work sessions, bridging any gap ≤ gap
-// into the current session and starting a new one otherwise.
 func WorkSessions(recs []PhaseRecord, gap time.Duration) []WorkSession {
 	type iv struct{ s, e time.Time }
 	var ivs []iv
@@ -202,7 +185,6 @@ func WorkSessions(recs []PhaseRecord, gap time.Duration) []WorkSession {
 	return out
 }
 
-// Interval is a time span [Start, End].
 type Interval struct {
 	Start time.Time
 	End   time.Time
@@ -249,24 +231,21 @@ func activitySpans(acts []ActivityRecord, maxGap time.Duration) []Interval {
 	return mergeIntervals(ivs, maxGap)
 }
 
-// DaySummary is the headline work-hours rollup for one calendar day.
 type DaySummary struct {
 	Date       string     `json:"date"`
 	WorkStart  *time.Time `json:"work_start"`
 	WorkEnd    *time.Time `json:"work_end"`
-	SpanSec    int        `json:"span_sec"`    // work_end − work_start
-	ActiveSec  int        `json:"active_sec"`  // summed focus across sessions
-	BreakSec   int        `json:"break_sec"`   // span − active
-	Sessions   int        `json:"sessions"`    // number of work sessions
-	LongestSec int        `json:"longest_sec"` // longest single session's active time
+	SpanSec    int        `json:"span_sec"`
+	ActiveSec  int        `json:"active_sec"`
+	BreakSec   int        `json:"break_sec"`
+	Sessions   int        `json:"sessions"`
+	LongestSec int        `json:"longest_sec"`
 }
 
 func dayKey(t time.Time, dayStartHour int, loc *time.Location) string {
 	return t.In(loc).Add(-time.Duration(dayStartHour) * time.Hour).Format("2006-01-02")
 }
 
-// DayWork sessionizes the focus phases on the logical day of `day` (per
-// dayStartHour, in loc) and summarises them.
 func DayWork(recs []PhaseRecord, day time.Time, gap time.Duration, dayStartHour int, loc *time.Location) DaySummary {
 	key := dayKey(day, dayStartHour, loc)
 	var inDay []PhaseRecord
@@ -296,10 +275,6 @@ func DayWork(recs []PhaseRecord, day time.Time, gap time.Duration, dayStartHour 
 	return d
 }
 
-// DayWorkOverlay is DayWork extended with AI-coding-session activity: focus
-// blocks and reconstructed activity spans (heartbeats merged within
-// activityGap) are unioned — so overlap is never double-counted — then
-// sessionized with gap.
 func DayWorkOverlay(focus []PhaseRecord, acts []ActivityRecord, day time.Time, gap, activityGap time.Duration, dayStartHour int, loc *time.Location) DaySummary {
 	key := dayKey(day, dayStartHour, loc)
 
@@ -347,9 +322,6 @@ func DayWorkOverlay(focus []PhaseRecord, acts []ActivityRecord, day time.Time, g
 	return d
 }
 
-// WeekdayHourHeatmap returns completed-focus minutes bucketed by
-// [weekday][hour] (weekday 0=Sunday..6=Saturday), attributed to the hour the
-// phase started in loc.
 func WeekdayHourHeatmap(recs []PhaseRecord, loc *time.Location) [7][24]int {
 	var h [7][24]int
 	for _, r := range recs {
@@ -362,14 +334,11 @@ func WeekdayHourHeatmap(recs []PhaseRecord, loc *time.Location) [7][24]int {
 	return h
 }
 
-// StreakInfo is the current and best run of qualifying days.
 type StreakInfo struct {
 	Current int `json:"current"`
 	Longest int `json:"longest"`
 }
 
-// ActiveFocusDays returns the set of logical days (YYYY-MM-DD, per dayStartHour
-// in loc) that have at least one completed focus phase.
 func ActiveFocusDays(recs []PhaseRecord, dayStartHour int, loc *time.Location) map[string]bool {
 	m := make(map[string]bool)
 	for _, r := range recs {
@@ -380,9 +349,6 @@ func ActiveFocusDays(recs []PhaseRecord, dayStartHour int, loc *time.Location) m
 	return m
 }
 
-// Streaks computes the current and longest streak from a set of active days
-// (keyed YYYY-MM-DD, as produced by ActiveFocusDays with the same
-// dayStartHour).
 func Streaks(active map[string]bool, today time.Time, dayStartHour, graceDays int) StreakInfo {
 	loc := today.Location()
 	d, _ := time.ParseInLocation("2006-01-02", dayKey(today, dayStartHour, loc), loc)
@@ -428,7 +394,6 @@ func longestRun(active map[string]bool) int {
 	return best
 }
 
-// Granularity selects the bucket size for Rollup.
 type Granularity int
 
 const (
@@ -437,15 +402,12 @@ const (
 	GranMonth
 )
 
-// Bucket is one time bucket of completed-focus activity.
 type Bucket struct {
-	Key      string `json:"key"` // "2006-01-02" | "2006-W%02d" (ISO) | "2006-01"
+	Key      string `json:"key"`
 	FocusMin int    `json:"focus_min"`
 	Sessions int    `json:"sessions"`
 }
 
-// Rollup aggregates completed focus phases into chronologically-ordered buckets
-// at the requested granularity, honouring dayStartHour for the day boundary.
 func Rollup(recs []PhaseRecord, gran Granularity, dayStartHour int, loc *time.Location) []Bucket {
 	idx := make(map[string]*Bucket)
 	var order []string

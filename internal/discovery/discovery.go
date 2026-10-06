@@ -1,5 +1,3 @@
-// Package discovery finds awtrix-ng clocks on the LAN and advertises the Ember
-// server so the macOS app can find it.
 package discovery
 
 import (
@@ -17,10 +15,9 @@ import (
 	"github.com/tarakanof/ember/internal/awtrix"
 )
 
-// Candidate is a discovered awtrix-ng device on the LAN.
 type Candidate struct {
-	Host    string `json:"host"`     // mDNS host or UDP-reported hostname (e.g. "Awtrix")
-	BaseURL string `json:"base_url"` // http://<ip>:<port>
+	Host    string `json:"host"`
+	BaseURL string `json:"base_url"`
 	UID     string `json:"uid"`
 	Version string `json:"version"`
 }
@@ -49,8 +46,6 @@ func probe(ctx context.Context, timeout time.Duration, baseURL string) (awtrix.D
 	return info, true
 }
 
-// Reachable reports whether baseURL is an awtrix-ng device responding right
-// now, returning its firmware version.
 func Reachable(ctx context.Context, cl *http.Client, baseURL string) (string, bool) {
 	var timeout time.Duration
 	if cl != nil {
@@ -206,9 +201,6 @@ func broadcastAddrs() []net.IP {
 	return out
 }
 
-// BrowseAWTRIX browses the LAN for `timeout`, resolves _awtrixng._tcp
-// instances, then fingerprints each and returns those that are awtrix-ng
-// devices.
 func BrowseAWTRIX(ctx context.Context, timeout time.Duration) ([]Candidate, error) {
 	bctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
