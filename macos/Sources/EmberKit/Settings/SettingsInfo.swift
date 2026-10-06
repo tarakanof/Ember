@@ -65,7 +65,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
 
     public var detail: LocalizedStringResource {
         switch self {
-        // cinder docs/features.md "Long-poll" (#27): with a current server the knob
+        // cinder docs/features.md "View long-poll" (#27): with a current server the knob
         // waits on an open view request and polls every poll_ms only without it.
         case .knobPoll:
             "How often the knob asks Ember for updates when it can't wait on an open request, for example with an older server or after an error. A current server answers the moment something changes, so a shorter interval mostly adds requests. Default: 2 s."
