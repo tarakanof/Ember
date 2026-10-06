@@ -684,6 +684,21 @@ curl -s -XPOST localhost:3627/v1/devices/client-1a2b3c4d/rotate -H "$H"  # new t
 curl -s -XDELETE localhost:3627/v1/devices/client-1a2b3c4d -H "$H"       # revoke
 ```
 
+**Bind it to its source.** Add `"sources":["ci"]` at mint and the token can only
+`POST`/`DELETE /v1/status` and `POST /v1/usage` with one of those `source`
+values: any other (and a usage post with no `source`) is 403, so a leaked CI
+or Home Assistant token can't overwrite or delete the Mac's Claude/Codex
+sessions. Without `sources` the token may name any source. The list (1-16
+names, each at most 64 characters, trimmed and deduplicated) needs the
+`ingest` or `admin` scope, shows in `GET /v1/devices`, survives rotation and
+can't be changed: mint a new token instead. `notify` and `reminders/fire`
+carry no source and stay unbound.
+
+```sh
+curl -s -XPOST localhost:3627/v1/devices -H "$H" \
+  -d '{"kind":"client","name":"CI runner","scopes":["ingest"],"sources":["ci"]}'
+```
+
 Only `EMBER_TOKEN` mints tokens (client or knob) and manages client tokens
 (any client token gets 403), and
 there are at most 64 (400 past that). Only the token's SHA-256 is stored (the knob registry, `devices_json`). Rotating
@@ -696,7 +711,9 @@ with curl.
 **Rolling back past this release: delete every client token first**
 (`DELETE /v1/devices/client-…`). Older servers don't know the `client` kind and
 accept any registry token as a knob's, so an ingest-only `ekc_` token would pass
-`/v1/devices/self/*`, now-playing control and the Pomodoro actions there.
+`/v1/devices/self/*`, now-playing control and the Pomodoro actions there. A
+server from before source binding drops a client's `sources` on load, so its
+bound tokens may then name any source.
 
 **Report a session.** One `POST /v1/status` per state change, plus a heartbeat
 every ~10 s while `running` or `waiting`: a session not refreshed for

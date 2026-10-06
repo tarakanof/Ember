@@ -44,6 +44,8 @@ func TestDeviceTokenScope(t *testing.T) {
 	control := mintClient(t, srv, "deck", "control").Token
 	read := mintClient(t, srv, "ha", "read").Token
 	admin := mintClient(t, srv, "ops", "admin").Token
+	bound := mintBoundClient(t, srv, "ci-bound", []string{"ci"}, "ingest").Token
+	boundAdmin := mintBoundClient(t, srv, "ops-bound", []string{"ci"}, "admin").Token
 	status := `{"source":"a","tool":"b","session":"c","state":"running"}`
 
 	cases := []struct {
@@ -124,6 +126,22 @@ func TestDeviceTokenScope(t *testing.T) {
 		{"GET", "/v1/devices", "", admin, http.StatusOK},
 		{"POST", "/v1/devices", `{"kind":"client","name":"x","scopes":["ingest"]}`, admin, http.StatusForbidden},
 		{"GET", "/v1/devices/self/view", "", admin, http.StatusUnauthorized},
+
+		{"POST", "/v1/status", `{"source":"ci","tool":"gha","session":"1","state":"running"}`, bound, http.StatusOK},
+		{"POST", "/v1/status", status, bound, http.StatusForbidden},
+		{"DELETE", "/v1/status", `{"source":"ci","tool":"gha","session":"1"}`, bound, http.StatusNoContent},
+		{"DELETE", "/v1/status", `{"source":"a","tool":"b","session":"c"}`, bound, http.StatusForbidden},
+		{"POST", "/v1/usage", `{"tool":"gemini","source":"ci"}`, bound, http.StatusNoContent},
+		{"POST", "/v1/usage", `{"tool":"gemini","source":"a"}`, bound, http.StatusForbidden},
+		{"POST", "/v1/usage", `{"tool":"gemini"}`, bound, http.StatusForbidden},
+		{"POST", "/v1/notify", `{"text":"x"}`, bound, http.StatusOK},
+		{"POST", "/v1/reminders/fire", `{"text":"stretch"}`, bound, http.StatusNoContent},
+		{"POST", "/v1/status", status, boundAdmin, http.StatusForbidden},
+		{"POST", "/v1/status", `{"source":"ci","tool":"gha","session":"2","state":"running"}`, boundAdmin, http.StatusOK},
+		{"PUT", "/v1/display/config", `{}`, boundAdmin, http.StatusOK},
+		{"POST", "/v1/status", status, ingest, http.StatusOK},
+		{"POST", "/v1/status", status, testToken, http.StatusOK},
+		{"POST", "/v1/usage", `{"tool":"gemini","source":"a"}`, ingest, http.StatusNoContent},
 	}
 	for _, c := range cases {
 		t.Run(c.method+" "+c.path, func(t *testing.T) {

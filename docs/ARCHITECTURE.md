@@ -2180,7 +2180,12 @@ the same board finds its record.
   Mint, rotate and delete bump the epoch like a knob's, take the master
   token (a client caller, admin included, is 403: `requireAuth` marks
   client callers in the request context), and mint stops at 64 clients
-  (400). `docs/openapi.yaml`
+  (400). An optional `sources` list (#299, 1-16 trimmed names ≤64 chars,
+  needs `ingest` or `admin`) is stored on the record (`omitempty`, so older
+  records load unbound) and kept across rotation; `requireAuth` puts the
+  caller's id and sources in the request context and `allowSource` makes
+  `POST`/`DELETE /v1/status` and `POST /v1/usage` 403 for any other
+  `source` after body validation. `docs/openapi.yaml`
   records each operation's credentials; `openapi_test.go` checks every
   registered route against it (route × credential table).
 - **Rotation:** `POST /v1/devices/{id}/rotate` (202) only marks the record.

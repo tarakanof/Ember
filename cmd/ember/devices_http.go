@@ -75,7 +75,7 @@ func deviceAuthWith(a *App, owner, device http.Handler, clientScope string, char
 			return
 		}
 		if clientScope != "" && isClientBearer(r) {
-			if a.clientAuth(w, r, clientScope) {
+			if _, ok := a.clientAuth(w, r, clientScope); ok {
 				owner.ServeHTTP(w, r)
 			}
 			return
@@ -121,10 +121,11 @@ type mintedDevice struct {
 
 func (a *App) handleDevicesCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Kind   string   `json:"kind"`
-		HwID   string   `json:"hw_id"`
-		Name   string   `json:"name"`
-		Scopes []string `json:"scopes"`
+		Kind    string   `json:"kind"`
+		HwID    string   `json:"hw_id"`
+		Name    string   `json:"name"`
+		Scopes  []string `json:"scopes"`
+		Sources []string `json:"sources"`
 	}
 	if !a.requireMasterForClients(w, r) {
 		return
@@ -133,15 +134,15 @@ func (a *App) handleDevicesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Kind == deviceKindClient {
-		a.createClient(w, r, req.HwID, req.Name, req.Scopes)
+		a.createClient(w, r, req.HwID, req.Name, req.Scopes, req.Sources)
 		return
 	}
 	if req.Kind != deviceKindKnob {
 		a.writeDeviceError(w, r, fmt.Errorf("%w: kind must be %q or %q", errDeviceBody, deviceKindKnob, deviceKindClient))
 		return
 	}
-	if req.Scopes != nil {
-		a.writeDeviceError(w, r, fmt.Errorf("%w: scopes apply to kind %q only", errDeviceBody, deviceKindClient))
+	if req.Scopes != nil || req.Sources != nil {
+		a.writeDeviceError(w, r, fmt.Errorf("%w: scopes and sources apply to kind %q only", errDeviceBody, deviceKindClient))
 		return
 	}
 	hwID, err := normalizeHwID(req.HwID)
@@ -168,7 +169,7 @@ func (a *App) handleDevicesCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, mintedDevice{deviceView: view, Token: token})
 }
 
-func (a *App) createClient(w http.ResponseWriter, r *http.Request, hwID, rawName string, rawScopes []string) {
+func (a *App) createClient(w http.ResponseWriter, r *http.Request, hwID, rawName string, rawScopes, rawSources []string) {
 	if hwID != "" {
 		a.writeDeviceError(w, r, fmt.Errorf("%w: a client has no hw_id", errDeviceBody))
 		return
@@ -183,12 +184,18 @@ func (a *App) createClient(w http.ResponseWriter, r *http.Request, hwID, rawName
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	view, token, err := a.devices.provisionClient(name, scopes)
+	sources, err := normalizeSources(rawSources, scopes)
 	if err != nil {
 		a.writeDeviceError(w, r, err)
 		return
 	}
-	a.logger.InfoContext(r.Context(), "client token minted", "device_id", view.ID, "scopes", strings.Join(scopes, ","))
+	view, token, err := a.devices.provisionClient(name, scopes, sources)
+	if err != nil {
+		a.writeDeviceError(w, r, err)
+		return
+	}
+	a.logger.InfoContext(r.Context(), "client token minted", "device_id", view.ID,
+		"scopes", strings.Join(scopes, ","), "sources", strings.Join(sources, ","))
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusCreated, mintedDevice{deviceView: view, Token: token})
 }

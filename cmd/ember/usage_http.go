@@ -43,6 +43,9 @@ func (a *App) handleUsage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("tool must match ^[a-z0-9_-]{1,32}$"))
 		return
 	}
+	if !a.allowSource(w, r, req.Source) {
+		return
+	}
 	clampUsageWindow(req.FiveHour)
 	clampUsageWindow(req.SevenDay)
 	for _, win := range req.Models {

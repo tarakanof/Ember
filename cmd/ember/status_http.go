@@ -153,6 +153,9 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if !a.allowSource(w, r, req.Source) {
+		return
+	}
 	normalized := req.normalized()
 	render, prior := a.Upsert(req)
 	a.recordActivityHeartbeat(normalized, time.Now())
@@ -225,6 +228,9 @@ func (a *App) handleDeleteStatus(w http.ResponseWriter, r *http.Request) {
 			"field", validationField(err),
 		)
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !a.allowSource(w, r, req.Source) {
 		return
 	}
 	a.Delete(req.key())

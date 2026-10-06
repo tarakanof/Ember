@@ -230,8 +230,8 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 		}
 		master := subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) == 1
 		if !master && isClientBearer(r) {
-			if app.clientAuth(w, r, requiredScope(routePattern(next, r))) {
-				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientCallerKey{}, true)))
+			if c, ok := app.clientAuth(w, r, requiredScope(routePattern(next, r))); ok {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientCallerKey{}, c)))
 			}
 			return
 		}

@@ -11,12 +11,13 @@ import (
 )
 
 type clientMint struct {
-	ID     string   `json:"id"`
-	Kind   string   `json:"kind"`
-	HwID   string   `json:"hw_id"`
-	Name   string   `json:"name"`
-	Scopes []string `json:"scopes"`
-	Token  string   `json:"token"`
+	ID      string   `json:"id"`
+	Kind    string   `json:"kind"`
+	HwID    string   `json:"hw_id"`
+	Name    string   `json:"name"`
+	Scopes  []string `json:"scopes"`
+	Sources []string `json:"sources"`
+	Token   string   `json:"token"`
 }
 
 func mintClient(t *testing.T, srv *httptest.Server, name string, scopes ...string) clientMint {
@@ -216,5 +217,137 @@ func TestDoctorDoesNotWarnAboutClients(t *testing.T) {
 	res := checkDevices(app)
 	if res.Status != StatusOK || !strings.Contains(res.Detail, "clients=1") {
 		t.Fatalf("doctor = %+v", res)
+	}
+}
+
+func mintBoundClient(t *testing.T, srv *httptest.Server, name string, sources []string, scopes ...string) clientMint {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"kind": "client", "name": name, "scopes": scopes, "sources": sources})
+	resp, b := devReq(t, srv, "POST", "/v1/devices", testToken, string(body))
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("mint bound client status = %d, want 201: %s", resp.StatusCode, b)
+	}
+	var m clientMint
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestMintClientNormalizesSources(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintBoundClient(t, srv, "ha", []string{" homeassistant ", "ci", "ci"}, "ingest")
+	if !slices.Equal(m.Sources, []string{"ci", "homeassistant"}) {
+		t.Fatalf("sources = %v, want trimmed, sorted and deduplicated", m.Sources)
+	}
+	resp, b := devReq(t, srv, "GET", "/v1/devices", testToken, "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(b), `"sources":["ci","homeassistant"]`) {
+		t.Fatalf("list = %d %s", resp.StatusCode, b)
+	}
+	u := mintClient(t, srv, "ci", "ingest")
+	if u.Sources != nil {
+		t.Fatalf("unbound sources = %v, want absent", u.Sources)
+	}
+}
+
+func TestMintClientRejectsInvalidSources(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	many := make([]string, maxClientSources+1)
+	for i := range many {
+		many[i] = "s" + strconv.Itoa(i)
+	}
+	tooMany, _ := json.Marshal(map[string]any{"kind": "client", "name": "x", "scopes": []string{"ingest"}, "sources": many})
+	cases := map[string]string{
+		"empty list":   `{"kind":"client","name":"x","scopes":["ingest"],"sources":[]}`,
+		"blank source": `{"kind":"client","name":"x","scopes":["ingest"],"sources":["ci","  "]}`,
+		"too long":     `{"kind":"client","name":"x","scopes":["ingest"],"sources":["` + strings.Repeat("a", 65) + `"]}`,
+		"too many":     string(tooMany),
+		"no ingest":    `{"kind":"client","name":"x","scopes":["control","read"],"sources":["ci"]}`,
+		"knob sources": `{"kind":"cinder-knob","hw_id":"` + testHwID + `","sources":["ci"]}`,
+		"not a list":   `{"kind":"client","name":"x","scopes":["ingest"],"sources":"ci"}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			resp, b := devReq(t, srv, "POST", "/v1/devices", testToken, body)
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", resp.StatusCode, b)
+			}
+		})
+	}
+}
+
+func TestBoundClientRejectsOtherSources(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
+	if resp, b := devReq(t, srv, "POST", "/v1/status", m.Token, `{"source":"dt-mbp","tool":"claude","session":"1","state":"running"}`); resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), `\"dt-mbp\"`) {
+		t.Fatalf("other source = %d %s, want 403 naming the source", resp.StatusCode, b)
+	}
+	resp, b := devReq(t, srv, "GET", "/state", "", "")
+	if resp.StatusCode != http.StatusOK || strings.Contains(string(b), "dt-mbp") {
+		t.Fatalf("rejected status reached the registry: %s", b)
+	}
+	if resp, b := devReq(t, srv, "POST", "/v1/status", m.Token, `{"source":" ci ","tool":"gha","session":"1","state":"running"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("own source with spaces = %d %s, want 200", resp.StatusCode, b)
+	}
+}
+
+func TestMasterDeleteOfOtherSourceUnaffectedByBoundClients(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
+	status := `{"source":"dt-mbp","tool":"claude","session":"1","state":"running"}`
+	if resp, b := devReq(t, srv, "POST", "/v1/status", testToken, status); resp.StatusCode != http.StatusOK {
+		t.Fatalf("master post = %d %s", resp.StatusCode, b)
+	}
+	if resp, b := devReq(t, srv, "DELETE", "/v1/status", m.Token, `{"source":"dt-mbp","tool":"claude","session":"1"}`); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("bound delete of other source = %d %s, want 403", resp.StatusCode, b)
+	}
+	if _, b := devReq(t, srv, "GET", "/state", "", ""); !strings.Contains(string(b), "dt-mbp") {
+		t.Fatalf("session gone after a rejected delete: %s", b)
+	}
+	if resp, b := devReq(t, srv, "DELETE", "/v1/status", testToken, `{"source":"dt-mbp","tool":"claude","session":"1"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("master delete = %d %s", resp.StatusCode, b)
+	}
+}
+
+func TestBoundClientSourcesSurviveRotateAndRestart(t *testing.T) {
+	db := t.TempDir() + "/s.db"
+	app, srv := newDevicesApp(t, db)
+	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
+	resp, b := devReq(t, srv, "POST", "/v1/devices/"+m.ID+"/rotate", testToken, "")
+	var r clientMint
+	if err := json.Unmarshal(b, &r); err != nil || resp.StatusCode != http.StatusOK || !slices.Equal(r.Sources, []string{"ci"}) {
+		t.Fatalf("rotate = %d %s", resp.StatusCode, b)
+	}
+	srv.Close()
+	_ = app.store.Close()
+	_, srv2 := newDevicesApp(t, db)
+	if resp, b := devReq(t, srv2, "POST", "/v1/status", r.Token, `{"source":"other","tool":"gha","session":"1","state":"running"}`); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("other source after restart = %d %s, want 403", resp.StatusCode, b)
+	}
+	if resp, b := devReq(t, srv2, "POST", "/v1/status", r.Token, `{"source":"ci","tool":"gha","session":"1","state":"running"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("own source after restart = %d %s, want 200", resp.StatusCode, b)
+	}
+}
+
+func TestLegacyClientRecordWithoutSourcesStaysUnbound(t *testing.T) {
+	db := t.TempDir() + "/s.db"
+	app, srv := newDevicesApp(t, db)
+	token := clientTokenPrefix + strings.Repeat("A", 43)
+	legacy := `{"epoch":3,"devices":[{"id":"client-0a0b0c0d","kind":"client","hw_id":"","name":"old ci","token_sha256":"` +
+		tokenHash(token) + `","config":{},"config_version":0,"created_at":"2026-09-01T00:00:00Z","scopes":["ingest"]}]}`
+	if err := app.store.PutSetting(devicesKey, legacy); err != nil {
+		t.Fatal(err)
+	}
+	srv.Close()
+	_ = app.store.Close()
+	_, srv2 := newDevicesApp(t, db)
+	for _, source := range []string{"ci", "dt-mbp"} {
+		body := `{"source":"` + source + `","tool":"gha","session":"1","state":"running"}`
+		if resp, b := devReq(t, srv2, "POST", "/v1/status", token, body); resp.StatusCode != http.StatusOK {
+			t.Fatalf("legacy token, source %s = %d %s, want 200", source, resp.StatusCode, b)
+		}
+	}
+	if _, b := devReq(t, srv2, "GET", "/v1/devices", testToken, ""); strings.Contains(string(b), `"sources"`) {
+		t.Fatalf("legacy client lists sources: %s", b)
 	}
 }

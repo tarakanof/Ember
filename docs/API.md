@@ -12,7 +12,10 @@ and pass only their scopes: `ingest` (`POST`/`DELETE /v1/status`,
 (`POST /v1/pomodoro/{start,pause,resume,stop,skip}`), `read` (the non-secret
 settings GETs: apps, pomodoro/usage/display/brightness/quiet config,
 `/v1/clock/stats`), `admin` (every bearer `/v1/` route except client-token
-management). Wrong scope is 403. Client tokens never pass the knob-only
+management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
+each ≤64 chars, needs `ingest` or `admin`) binds the token: `POST`/`DELETE
+/v1/status` and `POST /v1/usage` naming another `source` (usage: or none) are
+403; without it any source passes. Client tokens never pass the knob-only
 routes, now-playing control or `/admin/*`. Details: RUNBOOK "Integrating a
 source".
 
