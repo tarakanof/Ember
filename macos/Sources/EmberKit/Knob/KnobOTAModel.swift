@@ -36,7 +36,7 @@ public final class KnobOTAModel {
     }
 
     public var pollInterval: Duration {
-        status?.phase.isInProgress == true ? .seconds(1) : .seconds(15)
+        status?.phase.pollsFast == true ? .seconds(1) : .seconds(15)
     }
 
     public func loadStatus() async {
@@ -166,6 +166,10 @@ public final class KnobOTAModel {
         var data: Data?
         await perform(.elf) { data = try await self.service.firmwareELF(build: build) }
         return data
+    }
+
+    public func runsOnKnob(_ image: KnobFirmwareImage) -> Bool {
+        status?.running?.fw == image.version
     }
 
     public func elfImage(build: String?) -> KnobFirmwareImage? {

@@ -13,7 +13,7 @@ struct KnobFirmwareRow: View {
             VStack(alignment: .trailing, spacing: 4) {
                 HStack {
                     versionText.textSelection(.enabled)
-                    if let status = ota.status, let version = status.available, !status.isBusy {
+                    if let status = ota.status, let version = status.updateVersion {
                         Button {
                             Task { await ota.update(to: version) }
                         } label: {
@@ -41,9 +41,9 @@ struct KnobFirmwareRow: View {
         let ota = env.knob.ota
         while !Task.isCancelled {
             try? await Task.sleep(for: ota.pollInterval)
-            guard ota.status?.phase.isInProgress == true else { continue }
+            guard ota.status?.phase.pollsFast == true else { continue }
             await ota.loadStatus()
-            if ota.status?.phase.isInProgress == false { await env.knob.load() }
+            if ota.status?.phase.pollsFast == false { await env.knob.load() }
         }
     }
 }
@@ -118,7 +118,7 @@ struct KnobOTAProgress: View {
             return Text("Rolled back to \(fw): \(reason)",
                         comment: "Settings › Knob Firmware row after a failed update; the firmware the knob went back to, then why (\"Rolled back to 0.9.13: the knob could not reach Ember after the update\").")
         }
-        let version = status.target ?? "—"
+        let version = status.attemptVersion ?? "—"
         return Text("Couldn't update to \(version): \(reason)",
                     comment: "Settings › Knob Firmware row after a failed download or install; the version, then why (\"Couldn't update to 0.9.14: the download failed\").")
     }
@@ -238,6 +238,11 @@ struct KnobFirmwareSheet: View {
                         .disabled(ota.running.contains(.elf))
                 }
                 if confirmDelete == image.version {
+                    if ota.runsOnKnob(image) {
+                        Text("The knob runs this version. Without its ELF, crash dumps from it can't be decoded.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     Button("Delete", role: .destructive) {
                         Task { if await ota.delete(image) { confirmDelete = nil } }
                     }

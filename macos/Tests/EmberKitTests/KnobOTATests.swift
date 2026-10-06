@@ -207,3 +207,51 @@ private func otaModel(_ server: OTAServer) -> KnobModel {
     await m.load()
     #expect(m.ota.unsupported && m.ota.status == nil)
 }
+
+@Test func otaStatusCarriesTheAttemptVersion() throws {
+    #expect(try decode(KnobOTAStatus.self, otaGolden("knob_ota_idle")).version == nil)
+    #expect(try decode(KnobOTAStatus.self, otaGolden("knob_ota_downloading")).version == "0.9.14")
+    let auto = try decode(KnobOTAStatus.self, Data(#"{"mode":"auto","target":null,"version":"0.9.15","phase":"failed","error":"net"}"#.utf8))
+    #expect(auto.attemptVersion == "0.9.15")
+    #expect(KnobOTAStatus(target: "0.9.14", phase: .failed).attemptVersion == "0.9.14")
+}
+
+@Test func otaPollsFastOnlyWhileTheKnobIsBusyWithTheImage() {
+    let fast: [KnobOTAPhase] = [.downloading, .installing, .restarting]
+    for phase in [KnobOTAPhase.idle, .offered, .downloading, .installing, .restarting, .verifying, .done, .failed, .rolledBack] {
+        #expect(phase.pollsFast == fast.contains(phase), "\(phase)")
+    }
+}
+
+@MainActor
+@Test func otaPollIntervalFollowsThePhase() async {
+    let server = OTAServer()
+    let m = otaModel(server)
+    await m.load()
+    #expect(m.ota.pollInterval == .seconds(15))
+    _ = await m.ota.update(to: "0.9.14")
+    #expect(m.ota.status?.phase == .downloading && m.ota.pollInterval == .seconds(1))
+}
+
+@Test func otaHidesUpdateForTheVersionThatJustFailed() {
+    let failed = KnobOTAStatus(target: "0.9.14", phase: .rolledBack, available: "0.9.14", version: "0.9.14")
+    #expect(failed.updateVersion == nil)
+    let newer = KnobOTAStatus(phase: .failed, available: "0.9.16", version: "0.9.15")
+    #expect(newer.updateVersion == "0.9.16")
+    #expect(KnobOTAStatus(phase: .downloading, available: "0.9.16").updateVersion == nil)
+    #expect(KnobOTAStatus(phase: .idle, available: "0.9.16").updateVersion == "0.9.16")
+}
+
+@MainActor
+@Test func otaKnowsWhichImageTheKnobRuns() async throws {
+    let server = OTAServer()
+    let m = otaModel(server)
+    await m.load()
+    let images = m.ota.images
+    #expect(m.ota.runsOnKnob(try #require(images.first { $0.version == "0.9.14" })) == false)
+    _ = await m.ota.update(to: "0.9.14")
+    #expect(m.ota.status?.running?.fw == "0.9.13")
+    let running = KnobFirmwareImage(build: "77aa01ff", channel: "release", elf: true, idfVer: "v5.5.5",
+                                    sha256: "x", size: 1, uploadedAt: .now, version: "0.9.13")
+    #expect(m.ota.runsOnKnob(running))
+}

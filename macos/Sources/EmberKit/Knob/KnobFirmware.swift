@@ -54,6 +54,8 @@ public enum KnobOTAPhase: String, Codable, Sendable {
     }
 
     public var isFailure: Bool { self == .failed || self == .rolledBack }
+
+    public var pollsFast: Bool { self == .downloading || self == .installing || self == .restarting }
 }
 
 public enum KnobOTAWait: String, Codable, Sendable {
@@ -76,6 +78,7 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
 
     public var mode: KnobOTAMode
     public var target: String?
+    public var version: String?
     public var phase: KnobOTAPhase
     public var progressPct: Int?
     public var bytes: Int?
@@ -90,7 +93,7 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
     public var waitingFor: KnobOTAWait?
 
     enum CodingKeys: String, CodingKey {
-        case mode, target, phase, bytes, size, from, error, blocked, running, available
+        case mode, target, version, phase, bytes, size, from, error, blocked, running, available
         case progressPct = "progress_pct"
         case startedAt = "started_at"
         case finishedAt = "finished_at"
@@ -100,8 +103,9 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
     public init(mode: KnobOTAMode = .manual, target: String? = nil, phase: KnobOTAPhase = .idle,
                 progressPct: Int? = nil, bytes: Int? = nil, size: Int? = nil, from: String? = nil,
                 error: String? = nil, startedAt: Date? = nil, finishedAt: Date? = nil, blocked: [String] = [],
-                running: Running? = nil, available: String? = nil, waitingFor: KnobOTAWait? = nil) {
-        self.mode = mode; self.target = target; self.phase = phase; self.progressPct = progressPct
+                running: Running? = nil, available: String? = nil, waitingFor: KnobOTAWait? = nil,
+                version: String? = nil) {
+        self.mode = mode; self.target = target; self.version = version; self.phase = phase; self.progressPct = progressPct
         self.bytes = bytes; self.size = size; self.from = from; self.error = error
         self.startedAt = startedAt; self.finishedAt = finishedAt; self.blocked = blocked
         self.running = running; self.available = available; self.waitingFor = waitingFor
@@ -111,6 +115,7 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         mode = (try? c.decode(KnobOTAMode.self, forKey: .mode)) ?? .manual
         target = try c.decodeIfPresent(String.self, forKey: .target)
+        version = try c.decodeIfPresent(String.self, forKey: .version)
         phase = try c.decodeIfPresent(KnobOTAPhase.self, forKey: .phase) ?? .idle
         progressPct = try c.decodeIfPresent(Int.self, forKey: .progressPct)
         bytes = try c.decodeIfPresent(Int.self, forKey: .bytes)
@@ -134,7 +139,13 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
         return Double(min(max(pct, 0), 100)) / 100
     }
 
-    public var offeredVersion: String? { target ?? available }
+    public var attemptVersion: String? { version ?? target }
+
+    public var updateVersion: String? {
+        guard let available, !isBusy else { return nil }
+        if phase.isFailure, available == attemptVersion { return nil }
+        return available
+    }
 }
 
 public enum KnobOTAError {
