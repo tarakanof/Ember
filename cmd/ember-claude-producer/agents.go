@@ -21,30 +21,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// `claude agents --json` (Claude Code ≥ 2.1.288) is the documented way to read
-// session state from outside Claude Code: per live session it reports
-// status busy|waiting|idle, what a waiting session waits for, pid and
-// sessionId. The hooks remain the primary source (tool, messages, usage);
-// this watcher only corrects what the hooks cannot see (#266):
-//   - a wait that ended without a hook: an approved dialog stays "waiting"
-//     until the tool finishes, a dialog dismissed with Esc forever;
-//   - a turn interrupted with Esc, which fires no Stop and stays "running";
-//   - an active session whose owner died, when the list no longer has it
-//     (mostly the heartbeat's 10 s owner check gets there first: a killed
-//     process can't rewrite its sessions file, so no trigger fires);
-//   - a session whose hooks went quiet (#285) while its marker says done:
-//     busy promotes it to running "working".
-//
-// Each call costs ~0.1 s CPU and a ~75 MB transient process, so the CLI runs
-// only while a marker is running or waiting, and then only when a file under
-// ~/.claude/sessions changes (Claude rewrites its <pid>.json on every status
-// change) or agentsFallbackEvery has passed; for a done marker, only when its
-// owner's <pid>.json or the statusline changed and the file proves a busy
-// that began after the marker went done (dormantDue). A disagreement is applied only
-// after a second call agrees and the marker did not change in between, so a
-// hook that is merely late (Stop lands just before the status goes idle)
-// never flips the display.
-
 const (
 	agentsWatchEvery    = time.Second
 	agentsFallbackEvery = 60 * time.Second
@@ -56,8 +32,6 @@ const (
 	interruptedMessage  = "interrupted"
 )
 
-// minAgentsVersion is the first Claude Code release this was verified on;
-// an older CLI could take "agents" for a prompt.
 var minAgentsVersion = [3]int{2, 1, 288}
 
 type agentRow struct {
@@ -74,7 +48,6 @@ func parseAgents(out []byte) (map[string]agentRow, error) {
 	}
 	m := make(map[string]agentRow, len(rows))
 	for _, r := range rows {
-		// Only rows with a live process carry a status.
 		if r.SessionID == "" || r.Status == "" {
 			continue
 		}
@@ -83,8 +56,6 @@ func parseAgents(out []byte) (map[string]agentRow, error) {
 	return m, nil
 }
 
-// agentsPollEnabled reads EMBER_CLAUDE_AGENTS_POLL from the environment, then
-// producer.env. Default on.
 func agentsPollEnabled() bool {
 	v, ok := os.LookupEnv("EMBER_CLAUDE_AGENTS_POLL")
 	if !ok {
@@ -97,10 +68,6 @@ func agentsPollEnabled() bool {
 	return producer.Bool(strings.TrimSpace(v), true)
 }
 
-// claudeCandidates lists where the claude CLI may be, best first. The
-// native installer's ~/.local/bin/claude is what the user runs; the
-// LaunchAgent PATH puts /opt/homebrew/bin first, where a stale copy may sit.
-// nvm/npm-global installs aren't on a daemon PATH and aren't found.
 func claudeCandidates() []string {
 	var out []string
 	if home, err := os.UserHomeDir(); err == nil {
@@ -114,7 +81,6 @@ func claudeCandidates() []string {
 
 var claudeVersionRe = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
 
-// parseClaudeVersion reads "2.1.289 (Claude Code)".
 func parseClaudeVersion(out string) ([3]int, bool) {
 	m := claudeVersionRe.FindStringSubmatch(out)
 	if m == nil {
@@ -143,7 +109,6 @@ type claudeCLI struct {
 	reason  string
 }
 
-// claudeVersionCache keeps one `claude --version` per binary path and mtime.
 var claudeVersionCache = struct {
 	sync.Mutex
 	m map[string]claudeCLI
@@ -151,8 +116,6 @@ var claudeVersionCache = struct {
 
 var runCLI = runBounded
 
-// resolveClaudeCLI picks the first executable candidate and gates it on
-// minAgentsVersion.
 func resolveClaudeCLI(ctx context.Context) claudeCLI {
 	for _, p := range claudeCandidates() {
 		fi, err := os.Stat(p)
@@ -187,9 +150,6 @@ func resolveClaudeCLI(ctx context.Context) claudeCLI {
 	return claudeCLI{reason: "no claude CLI in ~/.local/bin, PATH, /opt/homebrew/bin or /usr/local/bin"}
 }
 
-// runBounded runs bin in its own process group and returns its stdout. The
-// timeout kills the whole group, and WaitDelay stops a grandchild that holds
-// stdout open from blocking the call past the timeout.
 func runBounded(ctx context.Context, timeout time.Duration, bin string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -201,7 +161,6 @@ func runBounded(ctx context.Context, timeout time.Duration, bin string, args ...
 	cmd.WaitDelay = agentsKillGrace
 	out, err := cmd.Output()
 	if err != nil && cmd.Process != nil {
-		// Reap anything the call left behind (pgid == leader pid).
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	return out, err
@@ -215,7 +174,6 @@ var runClaudeAgents = func(ctx context.Context) ([]byte, error) {
 	return runCLI(ctx, agentsCallTimeout, c.path, "agents", "--json")
 }
 
-// agentsDoctorLine reports the cross-check for `doctor`.
 func agentsDoctorLine(ctx context.Context) string {
 	if !agentsPollEnabled() {
 		return "off (EMBER_CLAUDE_AGENTS_POLL)"
@@ -227,8 +185,6 @@ func agentsDoctorLine(ctx context.Context) string {
 	return fmt.Sprintf("on (claude %s at %s)", c.version, c.path)
 }
 
-// claudeSessionsDir is where Claude Code keeps one <pid>.json per live
-// session. Its layout is internal, so it is only a trigger for the CLI.
 func claudeSessionsDir() string {
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
 		return filepath.Join(d, "sessions")
@@ -271,14 +227,10 @@ type activeMarker struct {
 	sessionID      string
 	markerP, lockP string
 	body           []byte
-	// view is body without the statusline's fields: what "the marker did
-	// not change between snapshots" compares, since the statusline rewrites
-	// the marker on every assistant message of a busy session.
-	view []byte
-	m    marker
+	view           []byte
+	m              marker
 }
 
-// hookView is body with the statusline-owned fields zeroed.
 func hookView(body []byte) ([]byte, marker, bool) {
 	var m marker
 	if json.Unmarshal(body, &m) != nil {
@@ -296,15 +248,10 @@ func hookView(body []byte) ([]byte, marker, bool) {
 	return b, m, true
 }
 
-// dormantState is a marker state that a busy session contradicts: the
-// hooks said the turn ended, so none will say the next one started if they
-// went quiet (#285).
 func dormantState(s string) bool {
 	return s == "done" || s == "idle"
 }
 
-// scanClaudeMarkers lists Claude markers in running or waiting (active) and
-// in done or idle (dormant).
 func scanClaudeMarkers(dir string) (active, dormant []activeMarker) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -336,14 +283,9 @@ func scanClaudeMarkers(dir string) (active, dormant []activeMarker) {
 	return active, dormant
 }
 
-// claudeSession is what the watcher reads from Claude's sessions/<pid>.json.
-// The layout is internal: it gates when the CLI is asked and whether a done
-// marker may be promoted, never what is written.
 type claudeSession struct {
-	// Status is busy, idle, waiting, or shell: idle with a background
-	// shell, which `claude agents` reports as busy.
 	Status string `json:"status"`
-	// StatusUpdatedAt (unix ms) is when Status last changed.
+	// unix ms
 	StatusUpdatedAt int64 `json:"statusUpdatedAt"`
 }
 
@@ -363,35 +305,22 @@ func (w *agentsWatcher) claudeSessionPath(m marker) string {
 	return filepath.Join(w.sessionsDir, strconv.Itoa(m.OwnerPID)+".json")
 }
 
-// statuslineAfterDone is how long after a marker went dormant a statusline
-// change counts as the session working again; the statusline re-renders for
-// a moment after Stop.
 const statuslineAfterDone = 5 * time.Second
 
-// busyAfterDormant reports evidence that the session started a turn after
-// its marker went dormant. A turn that is merely still finishing (a slow Stop
-// hook of another plugin keeps the session busy) or a session idle with a
-// background shell (status "shell") is not one.
 func busyAfterDormant(m marker, s claudeSession) bool {
 	if s.Status != "busy" {
 		return false
 	}
 	if s.StatusUpdatedAt > 0 {
-		// state_changed_at has whole seconds: a busy that began in the same
-		// second as the Stop counts as the old turn.
 		return s.StatusUpdatedAt >= (m.StateChangedAt+1)*1000
 	}
 	return m.StatuslineChangedMs >= m.StateChangedAt*1000+statuslineAfterDone.Milliseconds()
 }
 
-// seenKey keys the per-session trigger bookkeeping: two markers may share
-// one owner pid.
 func seenKey(m marker, sessionID string) string {
 	return strconv.Itoa(m.OwnerPID) + "/" + sessionID
 }
 
-// noteSessionFile records the mtime of a marker's sessions/<pid>.json and
-// reports whether it changed since the last pass (or was first seen).
 func (w *agentsWatcher) noteSessionFile(a activeMarker) (path string, changed bool) {
 	path = w.claudeSessionPath(a.m)
 	if path == "" {
@@ -407,13 +336,6 @@ func (w *agentsWatcher) noteSessionFile(a activeMarker) (path string, changed bo
 	return path, !seen || !prev.Equal(fi.ModTime())
 }
 
-// dormantDue reports whether a dormant marker's session shows a turn the
-// hooks didn't report: its sessions/<pid>.json changed (Claude rewrites it
-// on every status flip) or the statusline wrote new figures, and the file
-// proves a busy that began after the marker went dormant. A session without
-// that file (nested, SDK) is never promoted. Each change is acted on once,
-// and a healthy turn end (busy since before the Stop) fails the proof, so
-// neither costs a CLI call.
 func (w *agentsWatcher) dormantDue(d activeMarker) bool {
 	path, changed := w.noteSessionFile(d)
 	if path == "" {
@@ -431,35 +353,21 @@ func (w *agentsWatcher) dormantDue(d activeMarker) bool {
 	return ok && busyAfterDormant(d.m, s)
 }
 
-// correction is the state a marker should take from one agents snapshot.
 type correction struct {
 	state, message string
 }
 
-// workingMessage is the message of a run the watcher opened: no hook names
-// the tool.
 const workingMessage = "working"
 
-// correctableWait reports a wait whose end the agents status can tell: a
-// permission dialog (PendingPermission survives the permission_prompt
-// Notification that follows it) or a wait this watcher opened. Waits that
-// come only from a Notification (quota_auto_resume_stale, agent_needs_input
-// for another session, MCP elicitation) are left to the hooks.
 func correctableWait(m marker) bool {
 	return m.PendingPermission != "" || m.AgentsWait
 }
 
-// wantFor compares a marker with its session's agents row; ok is false when
-// they agree, the row says nothing the hooks don't, or the marker's state
-// came from something the status can't speak for.
 func wantFor(m marker, row agentRow) (correction, bool) {
 	if m.State == "waiting" && !correctableWait(m) {
 		return correction{}, false
 	}
 	if dormantState(m.State) {
-		// A busy session whose turn the hooks ended: its hooks went quiet
-		// (#285). Idle agrees; a wait is left for a busy snapshot to open
-		// the run first.
 		if row.Status == "busy" {
 			return correction{"running", workingMessage}, true
 		}
@@ -475,14 +383,10 @@ func wantFor(m marker, row agentRow) (correction, bool) {
 			return correction{"waiting", pickFirstNonEmpty(row.WaitingFor, "waiting")}, true
 		}
 	case "idle":
-		// Stop kept the session running for a background subagent,
-		// workflow, teammate or cloud session that will wake it; the
-		// process may well be idle meanwhile.
 		if m.BackgroundWake {
 			return correction{}, false
 		}
 		if m.AgentsRun {
-			// No Stop will come for a run no hook opened: it simply ended.
 			return correction{"done", "done"}, true
 		}
 		return correction{"done", interruptedMessage}, true
@@ -490,10 +394,6 @@ func wantFor(m marker, row agentRow) (correction, bool) {
 	return correction{}, false
 }
 
-// wantForSession is wantFor plus what only Claude's sessions file can tell:
-// a dormant marker is promoted only on proof of a turn begun after it went
-// dormant, and a run the watcher opened ends when the session is idle with a
-// background shell, which `claude agents` still calls busy.
 func (w *agentsWatcher) wantForSession(a activeMarker, row agentRow) (correction, bool) {
 	want, ok := wantFor(a.m, row)
 	var s claudeSession
@@ -511,7 +411,6 @@ func (w *agentsWatcher) wantForSession(a activeMarker, row agentRow) (correction
 	return want, ok
 }
 
-// approvedTool is the tool a PermissionRequest message names, or "".
 func approvedTool(msg string) string {
 	if t, ok := strings.CutPrefix(msg, "approve "); ok {
 		return t
@@ -526,24 +425,19 @@ type pendingCorrection struct {
 }
 
 type agentsWatcher struct {
-	now         func() time.Time
-	run         func(context.Context) ([]byte, error)
-	stateDir    string
-	sessionsDir string
-	lastPrint   uint64
-	wasActive   bool
-	// unlisted holds active sessions the last call didn't list while their
-	// owner lived (headless, SDK, nested): the fallback skips a pass that
-	// has nothing else to check.
+	now          func() time.Time
+	run          func(context.Context) ([]byte, error)
+	stateDir     string
+	sessionsDir  string
+	lastPrint    uint64
+	wasActive    bool
 	unlisted     map[string]bool
 	lastCall     time.Time
 	backoffUntil time.Time
 	pending      map[string]pendingCorrection
-	// fileSeen and slSeen are the last sessions/<pid>.json mtime and
-	// statusline change seen per marker (dormantDue), keyed by seenKey.
-	fileSeen map[string]time.Time
-	slSeen   map[string]int64
-	failLog  *producer.FailureLogger
+	fileSeen     map[string]time.Time
+	slSeen       map[string]int64
+	failLog      *producer.FailureLogger
 }
 
 func newAgentsWatcher(stateDir, sessionsDir string) *agentsWatcher {
@@ -560,7 +454,6 @@ func newAgentsWatcher(stateDir, sessionsDir string) *agentsWatcher {
 	}
 }
 
-// step runs one watch pass. It reports whether it called the CLI.
 func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bool {
 	now := w.now()
 	active, dormant := w.scan()
@@ -578,11 +471,6 @@ func (w *agentsWatcher) step(ctx context.Context, cfg Config, client *Client) bo
 		changed = fp != w.lastPrint
 		w.lastPrint = fp
 		if !w.wasActive {
-			// A turn just started: the hook that marked it is fresh, so take
-			// the current sessions state as the baseline and wait for a change.
-			// A turn interrupted within this same 1 s tick is swallowed by the
-			// baseline and caught by the fallback instead. A marker that was
-			// already stale (daemon restart) is checked now.
 			w.wasActive = true
 			changed = false
 			stale := false
@@ -639,11 +527,6 @@ func (w *agentsWatcher) scan() (active, dormant []activeMarker) {
 	return scanClaudeMarkers(w.stateDir)
 }
 
-// wakeCandidates picks the dormant markers this pass checks: those with a
-// fresh sign of a turn (due reports any) and those awaiting confirmation.
-// Active markers only record their sessions file, so the flip at their turn
-// end isn't news once they go dormant. Bookkeeping for markers that are gone
-// is dropped.
 func (w *agentsWatcher) wakeCandidates(active, dormant []activeMarker) (wake []activeMarker, due bool) {
 	keys := map[string]bool{}
 	for _, a := range active {
@@ -679,8 +562,6 @@ func (w *agentsWatcher) reconcile(ctx context.Context, cfg Config, client *Clien
 	for _, a := range active {
 		row, listed := rows[a.sessionID]
 		if !listed {
-			// Nested and SDK sessions aren't listed, so absence alone
-			// proves nothing: check the owner process.
 			if pid, start, ok := markerOwner(a.markerP); ok && !ownerAlive(pid, start) {
 				reapMarker(ctx, client, a.markerP, a.lockP)
 			} else {
@@ -707,9 +588,6 @@ func (w *agentsWatcher) reconcile(ctx context.Context, cfg Config, client *Clien
 	w.pending = next
 }
 
-// applyCorrection rewrites the marker only if it still holds what both
-// snapshots saw (statusline figures aside, which it keeps), then POSTs
-// outside the lock like every other writer.
 func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMarker, want correction) {
 	var body []byte
 	from := a.m.State
@@ -723,8 +601,6 @@ func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMa
 			return nil
 		}
 		if dormantState(m.State) && want.state == "running" {
-			// A run no hook reported: the old tool trail is not what it
-			// does now, and a later idle ends it without "interrupted".
 			m.AgentsRun = true
 			m.BackgroundWake = false
 			if cfg.ActivityDetailEnabled {
@@ -737,10 +613,6 @@ func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMa
 			m.AgentsRun = false
 		}
 		if m.State == "waiting" && want.state != "waiting" {
-			// Like a tool outcome ending the wait: a late permission_prompt
-			// Notification for this dialog must not re-enter waiting.
-			// An empty ResumedTool matches any prompt (a Notification may
-			// have replaced the "approve <tool>" message).
 			m.ResumedTool = approvedTool(m.Message)
 			m.ResumedAt = hookNow().Unix()
 		}
@@ -770,8 +642,6 @@ func applyCorrection(ctx context.Context, cfg Config, client *Client, a activeMa
 	}
 }
 
-// agentsLoop holds the daemon loop's config gate, re-read every
-// agentsConfigEvery like the heartbeat's.
 type agentsLoop struct {
 	w       *agentsWatcher
 	enabled func() bool
@@ -795,7 +665,6 @@ func (l *agentsLoop) pass(ctx context.Context) bool {
 	return l.w.step(ctx, l.cfg, NewDaemonClient(l.cfg))
 }
 
-// agentsWatchLoop runs beside the heartbeat in the daemon.
 func agentsWatchLoop(ctx context.Context) {
 	dir, err := stateDir()
 	if err != nil {
@@ -814,22 +683,14 @@ func agentsWatchLoop(ctx context.Context) {
 	}
 }
 
-// hooksStaleAfter is how long a busy session may go with a working
-// statusline but no hook write before doctor calls its hooks stale.
 const hooksStaleAfter = 10 * time.Minute
 
-// staleHookSession is a session doctor warns about.
 type staleHookSession struct {
 	sessionID string
 	pid       int
 	hookAge   time.Duration
 }
 
-// staleHookSessions finds busy sessions whose statusline still writes the
-// marker but whose hooks have not for hooksStaleAfter: a session that started
-// before the ember plugin was installed, or lost its settings.json hooks when
-// `configure` moved them to the plugin, reports through no hook at all until
-// it is restarted or runs /reload-plugins (#285).
 func staleHookSessions(markers []marker, rows map[string]agentRow, now time.Time) []staleHookSession {
 	var out []staleHookSession
 	for _, m := range markers {
@@ -837,8 +698,6 @@ func staleHookSessions(markers []marker, rows map[string]agentRow, now time.Time
 		if !ok || row.Status != "busy" {
 			continue
 		}
-		// No hook_at: an older producer wrote the marker last, and its
-		// state_changed_at doesn't move on same-state hook writes.
 		hookAt := m.HookAt
 		slAt := max(m.StatuslineAt, m.StatuslineChangedMs/1000)
 		if hookAt == 0 || slAt == 0 {
@@ -853,8 +712,6 @@ func staleHookSessions(markers []marker, rows map[string]agentRow, now time.Time
 	return out
 }
 
-// staleHooksDoctorLines runs the CLI once and reports sessions whose hooks
-// look stale; nothing when the CLI is unavailable.
 func staleHooksDoctorLines(ctx context.Context, stateDir string) []string {
 	if !agentsPollEnabled() || !resolveClaudeCLI(ctx).ok {
 		return nil

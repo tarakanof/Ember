@@ -328,8 +328,6 @@ func TestConfigureAt_RewritesPlaceholderSource(t *testing.T) {
 	}
 }
 
-// Without a timeout Claude Code allows a settings hook 600 s, so a wedged
-// producer would stall the session (#258).
 func TestMergeSettings_BlockingHooksHaveTimeouts(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)

@@ -7,20 +7,14 @@ import (
 	"path/filepath"
 )
 
-// pluginID is the Ember plugin's install id (<plugin>@<marketplace>), the key
-// Claude Code writes under enabledPlugins. See .claude-plugin/marketplace.json.
 const pluginID = "ember@ember"
 
-// pluginEnabled reports whether the user settings enable the Ember plugin.
-// Project-scoped enables are not seen here; doctor says so.
 func pluginEnabled(root map[string]any) bool {
 	ep, _ := root["enabledPlugins"].(map[string]any)
 	on, _ := ep[pluginID].(bool)
 	return on
 }
 
-// stripProducerHooks removes every producer entry from a settings.json hooks
-// map, dropping events left empty.
 func stripProducerHooks(hooksRoot map[string]any) {
 	for ev, entries := range hooksRoot {
 		list, ok := entries.([]any)
@@ -41,8 +35,6 @@ func stripProducerHooks(hooksRoot map[string]any) {
 	}
 }
 
-// countSettingsProducerHooks counts hook events in settings.json that carry a
-// producer entry.
 func countSettingsProducerHooks(root map[string]any) int {
 	hooksRoot, _ := root["hooks"].(map[string]any)
 	n := 0
@@ -71,9 +63,6 @@ func pluginEnabledAt(home string) bool {
 	return pluginEnabled(readUserSettings(home))
 }
 
-// hookRegistrationReport describes where the producer's Claude hooks are
-// registered. double is true when both the plugin and settings.json register
-// them, which makes every hook POST twice.
 func hookRegistrationReport(home string) (line string, double bool) {
 	line, double = hookRegistrationSources(home)
 	if !hooksEnabledAt(home) {
@@ -110,9 +99,6 @@ func printPluginNote() {
 	}
 }
 
-// hooksDisabledPath is the hook kill switch. deconfigure/uninstall write it
-// and configure removes it, because they can't unregister the plugin's hooks:
-// without it, turning Ember off would leave an enabled plugin reporting.
 func hooksDisabledPath(home string) string {
 	return filepath.Join(home, ".config", "ember", "claude-hooks.disabled")
 }

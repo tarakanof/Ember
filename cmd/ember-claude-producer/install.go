@@ -135,8 +135,6 @@ func mergeSettingsJSON(home, binPath string) error {
 		hooksRoot = map[string]any{}
 	}
 
-	// With the Ember plugin enabled the plugin owns the hooks; registering them
-	// here too would run each one twice (one POST per copy).
 	stripProducerHooks(hooksRoot)
 	var entries []producerHookEntry
 	if !pluginEnabled(root) {
@@ -185,21 +183,14 @@ type producerHookEntry struct {
 	timeout int
 }
 
-// producerHookSpec is one hook the producer registers. The settings.json
-// installer and the Claude Code plugin (producers/claude-code/plugin) both
-// register exactly this list; plugin_test.go keeps hooks.json in sync.
 type producerHookSpec struct {
 	event      string
 	subcommand string
 	matcher    string
 	async      bool
-	// timeout (seconds) caps a blocking hook so a wedged producer can't
-	// stall a session for Claude Code's 600 s default. Async hooks get none:
-	// Claude Code doesn't enforce it on them.
-	timeout int
+	timeout    int
 }
 
-// notificationMatcher lists the Notification types the producer maps to a state.
 const notificationMatcher = "permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|" +
 	"elicitation_complete|elicitation_response|agent_needs_input|agent_completed|" +
 	"quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled"
@@ -215,9 +206,6 @@ var producerHookSpecs = []producerHookSpec{
 	{event: "Notification", subcommand: "notification", matcher: notificationMatcher, timeout: 5},
 	{event: "Stop", subcommand: "stop", timeout: 5},
 	{event: "StopFailure", subcommand: "stop-failure", timeout: 5},
-	// SessionEnd hooks share a 1.5 s budget, which a settings-hook timeout
-	// raises to match; 2 s covers the producer's own ~1 s cap without making
-	// exit wait long on a wedged hook.
 	{event: "SessionEnd", subcommand: "session-end", matcher: "logout|prompt_input_exit|other|clear|resume", timeout: 2},
 }
 

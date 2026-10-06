@@ -6,21 +6,18 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// Client, StatusRequest and DeleteRequest alias the internal/producer wire types.
 type (
 	StatusRequest = producer.StatusRequest
 	DeleteRequest = producer.DeleteRequest
 	Client        = producer.Client
 )
 
-// NewClient builds the hook-path client using HookTimeoutMs.
 func NewClient(cfg Config) *Client {
 	return producer.NewClient(cfg.ServerURL, cfg.Token, time.Duration(cfg.HookTimeoutMs)*time.Millisecond)
 }
 
 const daemonHTTPTimeout = 5 * time.Second
 
-// NewDaemonClient builds the client for background daemon traffic, independent of HookTimeoutMs.
 func NewDaemonClient(cfg Config) *Client {
 	c := producer.NewClient(cfg.ServerURL, cfg.Token, daemonHTTPTimeout).WithLinkStatus(daemonLink)
 	if cfg.ServerAuto {
@@ -31,8 +28,6 @@ func NewDaemonClient(cfg Config) *Client {
 
 var daemonLink *producer.LinkStatus
 
-// daemonServer is the heartbeat daemon's discovered server (nil with an
-// explicit EMBER_SERVER_URL); it outlives the per-pass clients.
 var daemonServer *producer.AutoServer
 
 func wireRequest(cfg Config, req StatusRequest) StatusRequest {

@@ -25,7 +25,6 @@ func TestMergeSettingsKeepsOneBackupAndLegacyFiles(t *testing.T) {
 	if err := os.WriteFile(sp, []byte(`{"model":"opus"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Older producers' pid backups and a hand-made date backup: not ours to delete.
 	legacy := []string{"settings.json.bak.1", "settings.json.bak.20260105", "settings.json.bak.keep-me"}
 	for _, name := range legacy {
 		if err := os.WriteFile(filepath.Join(home, ".claude", name), []byte("{}"), 0o600); err != nil {
@@ -64,7 +63,6 @@ func TestUninstallSettingsBackupFailureOnlyWarns(t *testing.T) {
 		t.Fatal(err)
 	}
 	sp := filepath.Join(home, ".claude", "settings.json")
-	// A directory where the backup goes makes the backup write fail.
 	_ = os.Remove(settingsBackupPath(sp))
 	if err := os.Mkdir(settingsBackupPath(sp), 0o700); err != nil {
 		t.Fatal(err)

@@ -12,8 +12,7 @@ import (
 const (
 	defaultHeartbeatTTLHours = 6
 	defaultHookTimeoutMs     = 500
-	// defaultDoneTTLSeconds matches the server's display.done_ttl_seconds.
-	defaultDoneTTLSeconds = 30
+	defaultDoneTTLSeconds    = 30
 )
 
 type Config struct {
@@ -25,7 +24,6 @@ type Config struct {
 	ActivityDetailEnabled bool
 }
 
-// LogValue redacts the token.
 func (c Config) LogValue() slog.Value {
 	attrs := append(c.Common.LogAttrs(), c.Gauges.LogAttrs()...)
 	return slog.GroupValue(append(attrs,

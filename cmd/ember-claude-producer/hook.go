@@ -44,8 +44,6 @@ func runHook(args []string) {
 	if err != nil || cfg.Source == "" || cfg.ServerURL == "" {
 		os.Exit(0)
 	}
-	// The HTTP client caps the request at HookTimeoutMs; the context also
-	// covers a bounded wait for the session lock.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.HookTimeoutMs)*time.Millisecond+hookLockWait(cfg))
 	defer cancel()
 	dispatchHookFrom(ctx, event, io.LimitReader(os.Stdin, hookStdinMax), cfg)
@@ -152,11 +150,6 @@ func dispatchHookFrom(ctx context.Context, event string, r io.Reader, cfg Config
 	case "notification":
 		handleNotification(ctx, cfg, client, sessionID, in, markerP, lockP)
 	case "stop":
-		// A turn ended. Only work that wakes the session with a new turn
-		// (subagent, workflow, teammate, cloud session) keeps it running; a
-		// background shell, monitor or dev server can run for the whole idle
-		// period. session_crons are ignored: a scheduled prompt fires
-		// UserPromptSubmit, which marks the session running again.
 		if hasWakingBackgroundTasks(in.BackgroundTasks) {
 			markBackgroundWake(cfg, markerP, lockP)
 			return
@@ -176,8 +169,6 @@ func handleSessionStart(cfg Config, in hookInput, markerP, lockP string) {
 	if in.Source == "startup" {
 		return
 	}
-	// A resumed/cleared/compacted session starts over: drop the old marker
-	// even if the lock is busy, as SessionEnd does.
 	if err := withLockExWait(lockP, hookLockWait(cfg), func() error {
 		_ = os.Remove(markerP)
 		return nil
@@ -191,7 +182,6 @@ func handleUpsert(ctx context.Context, cfg Config, client *Client, sessionID, st
 }
 
 type upsertExtra struct {
-	// newTurn (UserPromptSubmit) ends any background-wake hold.
 	newTurn             bool
 	pending             string
 	preToolUseID, preFP string
@@ -270,8 +260,6 @@ func handleUpsertWith(ctx context.Context, cfg Config, client *Client, sessionID
 	}
 }
 
-// markBackgroundWake records on the marker, without a POST (nothing visible
-// changes), that Stop kept the session running for waking background work.
 func markBackgroundWake(cfg Config, markerP, lockP string) {
 	_ = withLockExWait(lockP, hookLockWait(cfg), func() error {
 		old, err := readMarker(markerP)
@@ -292,16 +280,12 @@ func markBackgroundWake(cfg Config, markerP, lockP string) {
 	})
 }
 
-// SessionEnd hooks share a 1.5 s budget (plugin hook timeouts don't raise
-// it), so the shim, the lock and the DELETE must all fit well inside it.
 const (
 	sessionEndLockWait   = 200 * time.Millisecond
 	sessionEndHTTPBudget = 800 * time.Millisecond
 )
 
 func handleDelete(ctx context.Context, cfg Config, sessionID, markerP, lockP string) {
-	// Never wait out another holder: the marker goes either way, and the
-	// DELETE runs outside the lock so nothing else stalls behind it.
 	if err := withLockExWait(lockP, sessionEndLockWait, func() error {
 		_ = os.Remove(markerP)
 		return nil
@@ -319,10 +303,6 @@ func handleDelete(ctx context.Context, cfg Config, sessionID, markerP, lockP str
 	})
 }
 
-// hookLockWait bounds how long a hook waits for the session lock. Every
-// holder keeps it only for marker file I/O (requests run after release), so
-// running out means a wedged holder; the update, marker write included, is
-// then dropped and the next hook carries the state.
 func hookLockWait(cfg Config) time.Duration {
 	return time.Duration(cfg.HookTimeoutMs)*time.Millisecond + 100*time.Millisecond
 }
@@ -337,7 +317,6 @@ func handleNotification(ctx context.Context, cfg Config, client *Client, session
 	case "agent_needs_input", "elicitation_dialog", "elicitation_url_dialog", "quota_auto_resume_stale":
 		handleUpsert(ctx, cfg, client, sessionID, "waiting", msg, "", markerP, lockP)
 	case "elicitation_complete", "elicitation_response":
-		// The MCP dialog was answered: end the wait it opened, nothing else.
 		handleUpsertWith(ctx, cfg, client, sessionID, "running", msg, "", markerP, lockP, upsertExtra{
 			skip: func(prev marker) bool { return prev.State != "waiting" || prev.PendingPermission != "" },
 		})
@@ -348,15 +327,12 @@ func handleNotification(ctx context.Context, cfg Config, client *Client, session
 	case "agent_completed":
 		handleUpsert(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP)
 	case "idle_prompt":
-		// Rescues a session whose Stop was missed; never turns an error into
-		// done or replaces the reply line Stop stored.
 		handleUpsertWith(ctx, cfg, client, sessionID, "done", msg, "", markerP, lockP, upsertExtra{
 			skip: func(prev marker) bool { return prev.State == "done" || prev.State == "error" },
 		})
 	}
 }
 
-// stopFailureLabels names StopFailure's `error` values for a small display.
 var stopFailureLabels = map[string]string{
 	"rate_limit":             "rate limited",
 	"overloaded":             "API overloaded",
@@ -388,9 +364,6 @@ func stopFailureMessage(in hookInput) string {
 	return "error"
 }
 
-// hasWakingBackgroundTasks reports a background task that ends by starting a
-// new turn. background_tasks is kept raw so an unexpected shape can't fail
-// the whole hook decode.
 func hasWakingBackgroundTasks(raw json.RawMessage) bool {
 	var tasks []struct {
 		Type string `json:"type"`

@@ -10,7 +10,6 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// slowServer answers every request after delay.
 func slowServer(t *testing.T, delay time.Duration) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
