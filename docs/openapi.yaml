@@ -23,7 +23,10 @@ info:
 
     A client token minted with `sources` is bound to them: `POST`/`DELETE
     /v1/status` and `POST /v1/usage` naming any other `source` (or, for
-    usage, none) are 403. A token without `sources` may name any source.
+    usage, none) are 403. Usage stays keyed by tool, so a bound token's usage
+    post is also 403 when that tool's stored entry came from a source outside
+    its list (no entry yet: accepted). A token without `sources` may name any
+    source.
 
     A missing or unknown token is 401; a known client token without the
     scope, or bound to other sources, is 403. Errors are `{"error": "…"}`. Request bodies are capped at
@@ -634,7 +637,11 @@ paths:
       tags: [ingest]
       operationId: postUsage
       summary: Report a tool's account usage windows
-      description: A client token bound to `sources` gets 403 for any other `source`, or none.
+      description: |
+        Usage is one entry per tool. A client token bound to `sources` gets
+        403 for any other `source`, for none, and when the tool's stored entry
+        came from a source outside its list; a tool with no entry yet is
+        accepted (the next unbound post overwrites it).
       security: [{ownerToken: []}, {clientToken: [ingest]}]
       requestBody:
         required: true

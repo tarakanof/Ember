@@ -688,7 +688,11 @@ curl -s -XDELETE localhost:3627/v1/devices/client-1a2b3c4d -H "$H"       # revok
 `POST`/`DELETE /v1/status` and `POST /v1/usage` with one of those `source`
 values: any other (and a usage post with no `source`) is 403, so a leaked CI
 or Home Assistant token can't overwrite or delete the Mac's Claude/Codex
-sessions. Without `sources` the token may name any source. The list (1-16
+sessions. Usage stays one entry per tool (the dashboard is unchanged), so a
+bound token's usage post is also 403 when that tool's stored entry came from
+another source; a tool with no entry yet is accepted, and the Mac's unbound
+producer overwrites it on its next post. Without `sources` the token may name
+any source. The list (1-16
 names, each at most 64 characters, trimmed and deduplicated) needs the
 `ingest` or `admin` scope, shows in `GET /v1/devices`, survives rotation and
 can't be changed: mint a new token instead. `notify` and `reminders/fire`

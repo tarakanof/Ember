@@ -2185,7 +2185,10 @@ the same board finds its record.
   records load unbound) and kept across rotation; `requireAuth` puts the
   caller's id and sources in the request context and `allowSource` makes
   `POST`/`DELETE /v1/status` and `POST /v1/usage` 403 for any other
-  `source` after body validation. `docs/openapi.yaml`
+  `source` after body validation. Usage stays keyed by tool:
+  `UsageStore.PutIfOwned` checks the stored entry's `Source` against the
+  caller's sources and writes under the same lock, so a bound token can't
+  overwrite another source's tool (absent tool: allowed). `docs/openapi.yaml`
   records each operation's credentials; `openapi_test.go` checks every
   registered route against it (route × credential table).
 - **Rotation:** `POST /v1/devices/{id}/rotate` (202) only marks the record.

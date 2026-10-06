@@ -15,7 +15,9 @@ settings GETs: apps, pomodoro/usage/display/brightness/quiet config,
 management). Wrong scope is 403. An optional `"sources":[…]` at mint (1-16,
 each ≤64 chars, needs `ingest` or `admin`) binds the token: `POST`/`DELETE
 /v1/status` and `POST /v1/usage` naming another `source` (usage: or none) are
-403; without it any source passes. Client tokens never pass the knob-only
+403; without it any source passes. Usage stays keyed by tool, so a bound
+token's usage post is also 403 when that tool's stored entry came from a
+source outside its list (no entry yet: accepted). Client tokens never pass the knob-only
 routes, now-playing control or `/admin/*`. Details: RUNBOOK "Integrating a
 source".
 

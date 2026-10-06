@@ -2,6 +2,8 @@ package main
 
 import (
 	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,6 +33,19 @@ func (s *UsageStore) Put(tool string, u ToolUsage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.byTool[tool] = u
+}
+
+func (s *UsageStore) PutIfOwned(tool string, u ToolUsage, sources []string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if prev, ok := s.byTool[tool]; ok && len(sources) > 0 {
+		owner := strings.TrimSpace(prev.Source)
+		if !slices.Contains(sources, owner) {
+			return owner, false
+		}
+	}
+	s.byTool[tool] = u
+	return "", true
 }
 
 func (s *UsageStore) Get(tool string) (ToolUsage, bool) {

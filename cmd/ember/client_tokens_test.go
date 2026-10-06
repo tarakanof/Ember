@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -349,5 +350,59 @@ func TestLegacyClientRecordWithoutSourcesStaysUnbound(t *testing.T) {
 	}
 	if _, b := devReq(t, srv2, "GET", "/v1/devices", testToken, ""); strings.Contains(string(b), `"sources"`) {
 		t.Fatalf("legacy client lists sources: %s", b)
+	}
+}
+
+func TestBoundClientCannotOverwriteAnotherSourcesUsage(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintBoundClient(t, srv, "ci", []string{"ci"}, "ingest")
+	if resp, b := devReq(t, srv, "POST", "/v1/usage", testToken, `{"tool":"claude","source":"dt-mbp","five_hour":{"used_percent":14}}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("master usage = %d %s", resp.StatusCode, b)
+	}
+	resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, `{"tool":"claude","source":"ci","five_hour":{"used_percent":99}}`)
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), `\"dt-mbp\"`) {
+		t.Fatalf("bound overwrite of dt-mbp usage = %d %s, want 403", resp.StatusCode, b)
+	}
+	u, ok := app.usage.Get("claude")
+	if !ok || u.Source != "dt-mbp" || u.FiveHour == nil || u.FiveHour.UsedPercent != 14 {
+		t.Fatalf("claude usage changed: %+v", u)
+	}
+	for i := range 2 {
+		if resp, b := devReq(t, srv, "POST", "/v1/usage", m.Token, `{"tool":"gha","source":"ci"}`); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("bound usage for a new tool, post %d = %d %s, want 204", i, resp.StatusCode, b)
+		}
+	}
+	if resp, b := devReq(t, srv, "POST", "/v1/usage", testToken, `{"tool":"gha","source":"dt-mbp"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("unbound overwrite of ci usage = %d %s, want 204", resp.StatusCode, b)
+	}
+}
+
+func TestUsagePutIfOwnedIsAtomic(t *testing.T) {
+	s := newUsageStore()
+	s.Put("claude", ToolUsage{Source: "dt-mbp"})
+	if owner, ok := s.PutIfOwned("claude", ToolUsage{Source: "ci"}, []string{"ci"}); ok || owner != "dt-mbp" {
+		t.Fatalf("PutIfOwned over dt-mbp = %q %v, want refused", owner, ok)
+	}
+	if _, ok := s.PutIfOwned("claude", ToolUsage{Source: "dt-mbp"}, nil); !ok {
+		t.Fatal("unbound PutIfOwned refused")
+	}
+	if _, ok := s.PutIfOwned("codex", ToolUsage{Source: "ci"}, []string{"ci"}); !ok {
+		t.Fatal("bound PutIfOwned on an absent tool refused")
+	}
+	var wg sync.WaitGroup
+	wins := make(chan string, 2)
+	for _, src := range []string{"a", "b"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, ok := s.PutIfOwned("race", ToolUsage{Source: src}, []string{src}); ok {
+				wins <- src
+			}
+		}()
+	}
+	wg.Wait()
+	close(wins)
+	if n := len(wins); n != 1 {
+		t.Fatalf("%d bound writers won an absent tool, want exactly 1", n)
 	}
 }

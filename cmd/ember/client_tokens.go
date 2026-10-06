@@ -124,16 +124,26 @@ func (a *App) clientAuth(w http.ResponseWriter, r *http.Request, scope string) (
 	return clientCaller{id: c.id, sources: c.sources}, true
 }
 
-func (a *App) allowSource(w http.ResponseWriter, r *http.Request, source string) bool {
+func boundSources(r *http.Request) []string {
 	c, _ := r.Context().Value(clientCallerKey{}).(clientCaller)
+	return c.sources
+}
+
+func (a *App) allowSource(w http.ResponseWriter, r *http.Request, source string) bool {
+	sources := boundSources(r)
 	source = strings.TrimSpace(source)
-	if len(c.sources) == 0 || slices.Contains(c.sources, source) {
+	if len(sources) == 0 || slices.Contains(sources, source) {
 		return true
 	}
+	a.denySource(w, r, source)
+	return false
+}
+
+func (a *App) denySource(w http.ResponseWriter, r *http.Request, source string) {
+	c, _ := r.Context().Value(clientCallerKey{}).(clientCaller)
 	a.logger.InfoContext(r.Context(), "auth source denied",
 		"client_id", c.id, "source", source, "path", r.URL.Path, "method", r.Method)
 	writeError(w, http.StatusForbidden, fmt.Errorf("%w %q", errSourceDenied, source))
-	return false
 }
 
 func isClientBearer(r *http.Request) bool {
