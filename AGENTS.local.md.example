@@ -10,6 +10,11 @@ live in the public repo.
 - AWTRIX HTTP URL: `http://<awtrix-ip>`
 - Home Assistant: `http://<home-assistant-host>:8123`
 
+## Unraid MCP
+
+- `export UNRAID_MCP_DIR=<path-to-unraid-mcp-checkout>` in the shell that runs
+  the agent (see `docs/WORKFLOW.md` step 6).
+
 ## Documentation / vault
 
 - Obsidian AI control-plane vault path: `<path-to-vault>`

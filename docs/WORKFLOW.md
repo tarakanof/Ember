@@ -70,9 +70,19 @@ they apply at every step.
 
 ## 6. Deploy and install
 
-- **Server**: the user updates the Unraid container and says "server updated".
-  Then check `/healthz` and `/version` on the live server (`EMBER_SERVER_URL`
-  in `producer.env`, or mDNS `_ember._tcp`).
+- **Server**: once `docker-publish.yml` for the tag succeeds, update the
+  container through the `unraid` MCP (`.mcp.json`): `refresh_docker_digests`,
+  then `list_docker_containers` with `name: "ember"` until `update_available`
+  is true, then `update_docker_container` with its id and `confirm: true` (pull
+  + recreate from the Unraid template, a few seconds down). Then check
+  `/healthz` and `/version` on the live server (`EMBER_SERVER_URL` in
+  `producer.env`, or mDNS `_ember._tcp`) for the new tag. Without the MCP, the
+  user updates the container and says "server updated".
+  - The MCP is the user's `tarakanof/Unraid-MCP` checkout, run over stdio
+    (`UNRAID_MCP_DIR` points at it; its gitignored `.env` holds the Unraid API
+    URL and key, which needs `DOCKER` `UPDATE_ANY`). `.claude/settings.json`
+    denies every write tool except `refresh_docker_digests` and
+    `update_docker_container`; update only the Ember container.
 - **Mac app** (after a release that changed it):
   ```sh
   scripts/build-local.sh <scratch>/ember-build

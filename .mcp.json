@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "unraid": {
+      "command": "uv",
+      "args": ["run", "--directory", "${UNRAID_MCP_DIR}", "unraid-mcp"],
+      "env": {
+        "UNRAID_MCP_ALLOW_MUTATIONS": "true"
+      }
+    }
+  }
+}
