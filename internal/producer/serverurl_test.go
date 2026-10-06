@@ -156,7 +156,7 @@ func TestAutoServerRebrowsesAfterRepeatedTransportFailures(t *testing.T) {
 	if calls != 0 || a.URL() != srvA.URL {
 		t.Fatalf("browsed too early: calls=%d url=%s", calls, a.URL())
 	}
-	a.Report(nil) // a success resets the streak
+	a.Report(nil)
 	for i := 0; i < autoServerFailureThreshold; i++ {
 		a.Report(transport)
 	}
@@ -168,7 +168,6 @@ func TestAutoServerRebrowsesAfterRepeatedTransportFailures(t *testing.T) {
 		t.Errorf("cache not updated: %+v", c)
 	}
 
-	// Still failing: no new browse until the min interval passes.
 	for i := 0; i < 2*autoServerFailureThreshold; i++ {
 		a.Report(transport)
 	}

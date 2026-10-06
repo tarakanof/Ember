@@ -225,9 +225,7 @@ func (a *App) handlePomodoroStats(w http.ResponseWriter, r *http.Request) {
 }
 
 type pomodoroHeatmap struct {
-	// Grid is completed-focus minutes indexed [weekday 0=Sun][hour].
-	Grid [7][24]int `json:"grid"`
-	// Calendar is per-day completed focus, chronological.
+	Grid     [7][24]int        `json:"grid"`
 	Calendar []pomodoro.Bucket `json:"calendar"`
 	Days     int               `json:"days"`
 }
@@ -255,11 +253,9 @@ func (a *App) handlePomodoroHeatmap(w http.ResponseWriter, r *http.Request) {
 const activitySpanGap = 5 * time.Minute
 
 type pomodoroWorkHours struct {
-	// Days is ordered most recent first.
-	Days   []pomodoro.DaySummary `json:"days"`
-	GapMin int                   `json:"gap_min"`
-	// IncludeActivity reports AI-session activity overlaid onto focus blocks.
-	IncludeActivity bool `json:"include_activity"`
+	Days            []pomodoro.DaySummary `json:"days"`
+	GapMin          int                   `json:"gap_min"`
+	IncludeActivity bool                  `json:"include_activity"`
 }
 
 func (a *App) handlePomodoroWorkHours(w http.ResponseWriter, r *http.Request) {

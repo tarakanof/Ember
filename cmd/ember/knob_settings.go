@@ -7,9 +7,6 @@ import (
 	"slices"
 )
 
-// knobPageIDs are the pages the server knows, in default order. Pages in
-// knobPagesOffByDefault start off (nowplaying: its view block is only sent
-// while the page is on, so off costs nothing).
 var knobPageIDs = []string{"bot", "pomodoro", "weather", "nowplaying"}
 
 // knobMaxPages is the firmware's KS_MAX_PAGES: it drops pages past the 8th.
@@ -20,27 +17,19 @@ var knobPagesOffByDefault = []string{"nowplaying"}
 var knobPageIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,15}$`)
 
 type knobSettings struct {
-	Brightness knobBrightness `json:"brightness"`
-	Pages      []knobPage     `json:"pages"`
-	Home       string         `json:"home"`
-	PollMS     int            `json:"poll_ms"`
-	Bot        knobBot        `json:"bot"`
-	// Diagnostics is what the knob reports in a checkin's stats object:
-	// off (nothing), basic or full. See ARCHITECTURE "Knob diagnostics".
-	Diagnostics string `json:"diagnostics"`
-	// StatsIntervalS is how often the knob sends stats (one of
-	// knobStatsIntervals); LiveIntervalS its checkin period in live mode
-	// (one of knobLiveIntervals). Chosen by measurement, see #249.
-	StatsIntervalS int `json:"stats_interval_s"`
-	LiveIntervalS  int `json:"live_interval_s"`
-	// Display: panel options (cinder#23).
-	Display knobDisplay `json:"display"`
+	Brightness     knobBrightness `json:"brightness"`
+	Pages          []knobPage     `json:"pages"`
+	Home           string         `json:"home"`
+	PollMS         int            `json:"poll_ms"`
+	Bot            knobBot        `json:"bot"`
+	Diagnostics    string         `json:"diagnostics"`
+	StatsIntervalS int            `json:"stats_interval_s"`
+	LiveIntervalS  int            `json:"live_interval_s"`
+	Display        knobDisplay    `json:"display"`
 }
 
-// knobDisplay.FastLink runs the knob's panel QSPI link at 80 MHz (out of the
-// panel's write spec, measured stable; the knob falls back to 40 MHz by itself
-// when a link check fails). Pointer so a stored record without it reads as on.
 type knobDisplay struct {
+	// Pointer: a record stored without it reads as on.
 	FastLink *bool `json:"fast_link,omitempty"`
 }
 
@@ -52,7 +41,6 @@ func (d knobDisplay) clone() knobDisplay {
 	return d
 }
 
-// Allowed stats and live-mode intervals, in seconds, and their defaults.
 var (
 	knobStatsIntervals = []int{30, 60, 120, 300}
 	knobLiveIntervals  = []int{2, 5, 10}
@@ -76,7 +64,6 @@ type knobBrightness struct {
 	Startup     int  `json:"startup"`
 }
 
-// pageOn reports whether the page id is in the list and on.
 func (s knobSettings) pageOn(id string) bool {
 	for _, p := range s.Pages {
 		if p.ID == id {
@@ -94,15 +81,12 @@ type knobPage struct {
 type knobBot struct {
 	SleepyAfterS int `json:"sleepy_after_s"`
 	DemoHoldS    int `json:"demo_hold_s"`
-	// SourceLabel: the curved host label under the face (working, waiting,
-	// error); WorkingRing: the glint orbiting the outline while working
-	// (cinder#42). Pointers so a record stored before them reads as on.
+	// Pointers: a record stored before them reads as on.
 	SourceLabel *bool `json:"source_label,omitempty"`
 	WorkingRing *bool `json:"working_ring,omitempty"`
 }
 
-// clone copies the flags, so decoding a patch into a copy never writes
-// through a pointer the stored record shares.
+// Copies the flag pointers so a decoded patch never writes through the stored record.
 func (b knobBot) clone() knobBot {
 	if b.SourceLabel != nil {
 		v := *b.SourceLabel
@@ -141,7 +125,6 @@ func defaultKnobSettings() knobSettings {
 	}
 }
 
-// fillDefaults sets fields a stored config from an older server lacks.
 func (s *knobSettings) fillDefaults() {
 	if s.Diagnostics == "" {
 		s.Diagnostics = knobDiagOff
@@ -157,9 +140,6 @@ func (s *knobSettings) fillDefaults() {
 	s.addKnownPages()
 }
 
-// addKnownPages appends known pages a stored list lacks, as off, so a knob
-// configured before a page existed can turn it on in the app (#284). An
-// empty list is left to validation.
 func (s *knobSettings) addKnownPages() {
 	if len(s.Pages) == 0 {
 		return

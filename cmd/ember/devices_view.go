@@ -11,18 +11,8 @@ import (
 	"time"
 )
 
-// knobNowHeader carries the server's Unix time on every view answer, 304s
-// included, so the knob can count down to ends_at without a clock of its own.
 const knobNowHeader = "X-Ember-Now"
 
-// knobView is GET /v1/devices/self/view: everything the knob shows, per poll.
-// Field order is the wire order. Nothing in it moves with the clock alone
-// (a counting Pomodoro has an absolute ends_at instead of remaining_sec), so
-// an unchanged view keeps its ETag. pomo is null with the Pomodoro off,
-// weather null when disabled or never fetched. weather.night is the sun
-// schedule's call; sunrise/sunset are the location's local day, informational.
-// nowplaying appears only when the device's pages turn "nowplaying" on, so
-// a knob without that page gets the same bytes and ETag as before.
 type knobView struct {
 	V             int             `json:"v"`
 	Epoch         uint64          `json:"epoch"`
@@ -35,10 +25,6 @@ type knobView struct {
 	DiagLiveUntil *int64          `json:"diag_live_until,omitempty"`
 }
 
-// knobMood: the /state render counters and source, then who leads the
-// winning state (cinder#42, knobLeadOf). lead is left out when it equals
-// source but for case (one host), hosts when it is 0 or 1; all four are omitted for an
-// idle view, so its bytes and ETag are as before.
 type knobMood struct {
 	Waiting   int    `json:"waiting"`
 	Errors    int    `json:"errors"`
@@ -85,18 +71,12 @@ type knobWeather struct {
 	Sunset   *int64  `json:"sunset"`
 }
 
-// knobNowPlaying is the view's music block. state none carries nothing
-// else. position_ms is the position at position_at (server Unix ms), so the
-// block moves only on a real change and the knob extrapolates; art_version
-// changes when the pictures do (fetch /v1/nowplaying/art then).
 type knobNowPlaying struct {
-	State  string `json:"state"`
-	Source string `json:"source,omitempty"`
-	Title  string `json:"title,omitempty"`
-	Artist string `json:"artist,omitempty"`
-	Album  string `json:"album,omitempty"`
-	// TrackID names the track for POST /v1/nowplaying/control (#280), so a
-	// press acts only on what the knob shows.
+	State      string `json:"state"`
+	Source     string `json:"source,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Artist     string `json:"artist,omitempty"`
+	Album      string `json:"album,omitempty"`
 	TrackID    string `json:"track_id,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 	PositionMS int64  `json:"position_ms,omitempty"`
@@ -104,11 +84,9 @@ type knobNowPlaying struct {
 	ArtVersion string `json:"art_version,omitempty"`
 	AlbumArt   bool   `json:"album_art,omitempty"`
 	ArtistArt  bool   `json:"artist_art,omitempty"`
-	// Volume is the player's level 0-100 (#280), left out when unknown.
-	Volume *int `json:"volume,omitempty"`
+	Volume     *int   `json:"volume,omitempty"`
 }
 
-// knobNowPlayingPage is the knob page id that opts a device into the block.
 const knobNowPlayingPage = "nowplaying"
 
 type knobLight struct {
@@ -116,8 +94,6 @@ type knobLight struct {
 	Night bool `json:"night"`
 }
 
-// knobView encodes device id's view at now and its strong ETag. It reads only
-// in-memory state: no store write, no clock probe, no session marshal.
 func (a *App) knobView(id string, now time.Time) ([]byte, string, error) {
 	epoch, version, err := a.devices.versions(id)
 	if err != nil {
@@ -220,9 +196,6 @@ func (a *App) knobWeather(now time.Time) *knobWeather {
 	return w
 }
 
-// localNoon is noon on the location's own date at now, as an instant, so
-// sunTimes (which works per UTC date) yields that local day's events. The
-// offset is the observation's, else the longitude's hour.
 func localNoon(now time.Time, obs weatherObservation, lon float64) time.Time {
 	off := time.Duration(math.Round(lon/15)) * time.Hour
 	if obs.TZKnown {
@@ -252,9 +225,6 @@ func (a *App) handleDeviceSelfView(w http.ResponseWriter, r *http.Request) {
 	a.writeKnobView(w, r, body, etag, now)
 }
 
-// writeKnobView answers body, or 304 when the request's If-None-Match
-// matches etag. X-Ember-Now is now: the moment the answer leaves, so a
-// long-poll's 304 carries the time at its end, not its start.
 func (a *App) writeKnobView(w http.ResponseWriter, r *http.Request, body []byte, etag string, now time.Time) {
 	h := w.Header()
 	h.Set("ETag", etag)
@@ -270,7 +240,6 @@ func (a *App) writeKnobView(w http.ResponseWriter, r *http.Request, body []byte,
 	_, _ = w.Write(body)
 }
 
-// etagMatches applies If-None-Match's weak comparison (RFC 9110 13.1.2).
 func etagMatches(header, etag string) bool {
 	for _, tag := range strings.Split(header, ",") {
 		tag = strings.TrimSpace(tag)

@@ -1,4 +1,3 @@
-// Package producer holds the shared HTTP client, env-file parser, and log rotation used by both the Claude and Codex ember producers.
 package producer
 
 import (
@@ -12,32 +11,29 @@ import (
 	"time"
 )
 
-// StatusRequest is the POST /v1/status body.
 type StatusRequest struct {
-	Source        string  `json:"source"`
-	Tool          string  `json:"tool"`
-	Session       string  `json:"session"`
-	State         string  `json:"state"`
-	Message       string  `json:"message,omitempty"`
-	ContextPct    *int    `json:"context_pct,omitempty"`
-	SourceColor   *string `json:"source_color,omitempty"`
-	RateWindowPct *int    `json:"rate_window_pct,omitempty"`
-	Activity      string  `json:"activity,omitempty"`
-	ContextNumber bool    `json:"context_number,omitempty"`
-	RateBottomBar bool    `json:"rate_bottom_bar,omitempty"`
-	RateResetAt   int64   `json:"rate_reset_at,omitempty"`
-	RateReset     bool    `json:"rate_reset,omitempty"`
-	// RateResetLabel is the host-local "HH:MM" 5h-reset label set by the Claude statusline path, so the UTC server needs no timezone math.
-	RateResetLabel string `json:"rate_reset_label,omitempty"`
-	SourceCard     *bool  `json:"source_card,omitempty"`
-	SessionBar     *bool  `json:"session_bar,omitempty"`
-	// RateWeekPct, RateWeekResetAt and RateWeekResetLabel carry the statusline's weekly window from the statusline process to the heartbeat daemon for POST /v1/usage; they never reach POST /v1/status.
+	Source         string  `json:"source"`
+	Tool           string  `json:"tool"`
+	Session        string  `json:"session"`
+	State          string  `json:"state"`
+	Message        string  `json:"message,omitempty"`
+	ContextPct     *int    `json:"context_pct,omitempty"`
+	SourceColor    *string `json:"source_color,omitempty"`
+	RateWindowPct  *int    `json:"rate_window_pct,omitempty"`
+	Activity       string  `json:"activity,omitempty"`
+	ContextNumber  bool    `json:"context_number,omitempty"`
+	RateBottomBar  bool    `json:"rate_bottom_bar,omitempty"`
+	RateResetAt    int64   `json:"rate_reset_at,omitempty"`
+	RateReset      bool    `json:"rate_reset,omitempty"`
+	RateResetLabel string  `json:"rate_reset_label,omitempty"`
+	SourceCard     *bool   `json:"source_card,omitempty"`
+	SessionBar     *bool   `json:"session_bar,omitempty"`
+	// Never reach POST /v1/status.
 	RateWeekPct        *int   `json:"rate_week_pct,omitempty"`
 	RateWeekResetAt    int64  `json:"rate_week_reset_at,omitempty"`
 	RateWeekResetLabel string `json:"rate_week_reset_label,omitempty"`
 }
 
-// DeleteRequest is the DELETE /v1/status body.
 type DeleteRequest struct {
 	Source  string `json:"source"`
 	Tool    string `json:"tool"`
@@ -52,7 +48,6 @@ type Client struct {
 	auto       *AutoServer
 }
 
-// NewClient builds a Client.
 func NewClient(serverURL, token string, timeout time.Duration) *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: timeout},
@@ -61,14 +56,11 @@ func NewClient(serverURL, token string, timeout time.Duration) *Client {
 	}
 }
 
-// WithLinkStatus makes c record each request's reachability into link and returns c.
 func (c *Client) WithLinkStatus(link *LinkStatus) *Client {
 	c.link = link
 	return c
 }
 
-// WithAutoServer makes c send to a's discovered URL (re-browsed after
-// repeated transport failures) instead of the fixed serverURL, and returns c.
 func (c *Client) WithAutoServer(a *AutoServer) *Client {
 	c.auto = a
 	return c
@@ -90,21 +82,18 @@ func (c *Client) Delete(ctx context.Context, req DeleteRequest) error {
 	return c.send(ctx, http.MethodDelete, "/v1/status", body)
 }
 
-// UsageWindow is one usage window (5h or weekly).
 type UsageWindow struct {
 	UsedPercent float64 `json:"used_percent"`
 	ResetsAt    int64   `json:"resets_at,omitempty"`
 	ResetLabel  string  `json:"reset_label,omitempty"`
 }
 
-// UsageRequest is the POST /v1/usage body.
 type UsageRequest struct {
-	Tool     string       `json:"tool"`
-	Source   string       `json:"source"`
-	FiveHour *UsageWindow `json:"five_hour,omitempty"`
-	SevenDay *UsageWindow `json:"seven_day,omitempty"`
-	// Models is the per-model usage, keyed by name such as "opus" or "sonnet".
-	Models map[string]*UsageWindow `json:"models,omitempty"`
+	Tool     string                  `json:"tool"`
+	Source   string                  `json:"source"`
+	FiveHour *UsageWindow            `json:"five_hour,omitempty"`
+	SevenDay *UsageWindow            `json:"seven_day,omitempty"`
+	Models   map[string]*UsageWindow `json:"models,omitempty"`
 }
 
 func (c *Client) Usage(ctx context.Context, req UsageRequest) error {
@@ -138,7 +127,6 @@ func (c *Client) send(ctx context.Context, method, path string, body []byte) err
 		return err
 	}
 	defer func() {
-		// Drain a short body so the connection goes back to the keep-alive pool.
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 		resp.Body.Close()
 	}()

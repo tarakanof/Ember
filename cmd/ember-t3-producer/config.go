@@ -26,7 +26,6 @@ type Config struct {
 	StateDir              string
 }
 
-// LogValue redacts the token.
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(append(c.Common.LogAttrs(),
 		slog.Int("poll_interval_ms", c.PollIntervalMs),
@@ -36,9 +35,6 @@ func (c Config) LogValue() slog.Value {
 	)...)
 }
 
-// loadConfig reads ~/.config/ember/producer.env (shared with the other
-// producers). EMBER_T3_HOME mirrors T3's own T3CODE_HOME; T3CODE_HOME itself
-// is not read because a LaunchAgent does not inherit the user's shell env.
 func loadConfig() (Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

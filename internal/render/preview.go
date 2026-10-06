@@ -10,14 +10,10 @@ const (
 	sampleActivity = "Bash: npm test"
 )
 
-// SampleBaseSession is the placeholder shown when /state is unreachable or
-// empty.
 func SampleBaseSession() Session {
 	return Session{Source: "mbp", Tool: "claude", Session: "sample", State: "running"}
 }
 
-// SampleUsageView is the representative usage card shown in the preview
-// (87% — amber, over the default threshold — resetting 17:30; 7d at 42%).
 func SampleUsageView() *UsageView {
 	p := 42
 	return &UsageView{FiveHourPct: 87, ResetLabel: "17:30", SevenDayPct: &p}
@@ -25,19 +21,15 @@ func SampleUsageView() *UsageView {
 
 func ptrInt(v int) *int { return &v }
 
-// DraftDisplay is the set of display toggles the Settings "Agent" pane edits
-// that affect a single-session render.
 type DraftDisplay struct {
 	ContextPct     bool
 	RateBottomBar  bool
 	ActivityDetail bool
 	SourceCard     bool
 	SessionBar     bool
-	SourceColor    string // "" = no tint
+	SourceColor    string
 }
 
-// PreviewSession applies draft toggles to a base session and returns the
-// Session the renderer should draw.
 func PreviewSession(d DraftDisplay, base Session) Session {
 	s := base
 
@@ -79,16 +71,11 @@ func PreviewSession(d DraftDisplay, base Session) Session {
 	return s
 }
 
-// CardFrame is one rendered rotation card as a 32x8 grid of row-major "#rrggbb"
-// strings (256 entries).
 type CardFrame struct {
 	Card   string   `json:"card"`
 	Pixels []string `json:"pixels"`
 }
 
-// Preview is the /v1/preview response: every renderable card for the session
-// plus the activity string for the scrolling text/tool card (which has no
-// static grid form, so it is not included in Frames).
 type Preview struct {
 	Width    int         `json:"width"`
 	Height   int         `json:"height"`
@@ -96,16 +83,11 @@ type Preview struct {
 	Frames   []CardFrame `json:"frames"`
 }
 
-// HexPixels exports a frame as the row-major "#rrggbb" strings preview JSON
-// consumers expect (see CardFrame.Pixels).
 func HexPixels(f *Frame) []string {
 	approx := withNativeApproximated(f)
 	return hexPixels(&approx)
 }
 
-// PreviewFrames renders each card in AvailableCards(s, u) except the scrolling
-// tool card, using the robot colour from state and the single session as the
-// bottom-bar source.
 func PreviewFrames(s Session, u *UsageView, now time.Time) Preview {
 	p := Preview{Width: 32, Height: 8, Frames: []CardFrame{}}
 	for _, c := range AvailableCards(s, u) {

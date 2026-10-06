@@ -125,7 +125,6 @@ func TestDropAllDeletesEveryLiveThread(t *testing.T) {
 
 func TestTickDoneAfterLongHoldStillShows(t *testing.T) {
 	w := testWatcher()
-	// Completed run held "running" by background work for far longer than the window.
 	th := thread{ID: "h", Title: "T", Schema: 2, Status: "completed", HoldsCompletion: true, ChangedAt: t0}
 	late := t0.Add(time.Hour)
 	if posts, _ := w.tick([]thread{th}, late.Add(-time.Second)); len(posts) != 1 || posts[0].State != "running" {
@@ -136,7 +135,6 @@ func TestTickDoneAfterLongHoldStillShows(t *testing.T) {
 	if len(deletes) != 0 || len(posts) != 1 || posts[0].State != "done" {
 		t.Fatalf("hold end: posts=%+v deletes=%+v", posts, deletes)
 	}
-	// Stays for the window, then goes.
 	if _, d := w.tick([]thread{th}, late.Add(299*time.Second)); len(d) != 0 {
 		t.Fatal("done dropped inside the window")
 	}

@@ -13,26 +13,17 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-// EmberServer is an Ember server found by browsing _ember._tcp (what
-// Advertise announces): headless producers use it to find their server.
 type EmberServer struct {
-	Name    string // mDNS instance name, "Ember" (or "Ember (2)" after a conflict)
-	Host    string // advertising host, e.g. "unraid.local."
-	URL     string // http://<ipv4>:<port>
-	Version string // TXT "version"
+	Name    string
+	Host    string
+	URL     string
+	Version string
 }
 
 const emberBrowseName = emberServiceType + ".local."
 
 var mdnsGroup = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
-// BrowseEmber looks for Ember servers for timeout and returns one entry per
-// (instance name, URL): two hosts answering as "Ember" come back as two
-// servers, so a spoofed answer surfaces as an ambiguity instead of silently
-// replacing the real server. It runs two browses side by side: an RFC 6762 §6.7 "legacy
-// unicast" query from an ephemeral port, answered straight to that port, which
-// works where a process can't receive multicast (macOS without Local Network
-// multicast access, sandboxes), and the regular dnssd multicast browse.
 func BrowseEmber(ctx context.Context, timeout time.Duration) ([]EmberServer, error) {
 	bctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -97,10 +88,6 @@ func emberServerFrom(e dnssd.BrowseEntry) (EmberServer, bool) {
 	return EmberServer{Name: e.Name, Host: e.Host, URL: url, Version: e.Text["version"]}, true
 }
 
-// legacyUnicastBrowse sends a PTR query for _ember._tcp from an ephemeral
-// port on every multicast-capable IPv4 interface (resent once after a
-// second), asks for a missing A record, and collects the unicast replies
-// until ctx ends.
 func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{})
 	if err != nil {
@@ -173,8 +160,6 @@ func legacyUnicastBrowse(ctx context.Context) ([]EmberServer, error) {
 	return parseEmberAnswers(msgs), nil
 }
 
-// acceptReply keeps only responses (QR set) to a query this browse sent
-// (legacy unicast replies echo the query ID).
 func acceptReply(m *dns.Msg, ids map[uint16]bool) bool {
 	return m.Response && ids[m.Id]
 }
@@ -259,10 +244,6 @@ func srvTargetsWithoutA(msgs []*dns.Msg) []string {
 	return out
 }
 
-// parseEmberAnswers turns legacy-unicast replies into servers, one per
-// (instance, target, address): conflicting answers for one instance name all
-// come back so the caller sees the ambiguity. Instances missing an SRV or an
-// A record are skipped.
 func parseEmberAnswers(msgs []*dns.Msg) []EmberServer {
 	r := collectEmberRecords(msgs)
 	var out []EmberServer
@@ -296,7 +277,6 @@ func parseEmberAnswers(msgs []*dns.Msg) []EmberServer {
 	return out
 }
 
-// instanceLabel is the unescaped instance name: "Ember\ \(2\)._ember._tcp.local." -> "Ember (2)".
 func instanceLabel(fqdn string) string {
 	label := fqdn
 	if i := strings.Index(strings.ToLower(fqdn), "."+emberBrowseName); i >= 0 {

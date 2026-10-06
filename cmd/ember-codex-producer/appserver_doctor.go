@@ -8,9 +8,6 @@ import (
 	"path/filepath"
 )
 
-// appServerReport is the doctor section for the Codex app-server daemon. It
-// only reads: a stat of the socket, one short-lived passive connection
-// (initialize + thread/loaded/list), and the daemon's settings.json.
 func appServerReport(ctx context.Context, cfg Config) []string {
 	out := []string{fmt.Sprintf("codex app-server: source %s (EMBER_CODEX_APPSERVER)", onOff(cfg.AppServerEnabled))}
 	if _, err := os.Lstat(cfg.AppServerSocket); err != nil {
@@ -59,8 +56,6 @@ func probeAppServer(ctx context.Context, sock string) string {
 	return fmt.Sprintf("connect: OK, daemon %q, %s loaded threads", init.UserAgent, loaded)
 }
 
-// updaterState reads $CODEX_HOME/app-server-daemon/settings.json; the daemon's
-// self-updater is on unless updater.autoUpdateEnabled is false.
 func updaterState(codexHome string) string {
 	dir := filepath.Join(codexHome, "app-server-daemon")
 	if _, err := os.Stat(dir); err != nil {

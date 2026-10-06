@@ -91,7 +91,6 @@ func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
 	if err := d.validate(); err != nil {
 		t.Fatal(err)
 	}
-	// A record stored before the page existed gains it, off, last.
 	s := knobSettings{Pages: []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "x", On: true}}}
 	s.fillDefaults()
 	want := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "x", On: true},
@@ -104,7 +103,6 @@ func TestKnobNowPlayingPageIsKnownAndOffByDefault(t *testing.T) {
 			t.Fatalf("pages = %+v, want %+v", s.Pages, want)
 		}
 	}
-	// A page already listed (on) keeps its place and state.
 	s = defaultKnobSettings()
 	s.Pages = []knobPage{{ID: "nowplaying", On: true}, {ID: "bot", On: true}, {ID: "pomodoro", On: true}, {ID: "weather", On: true}}
 	s.fillDefaults()
@@ -123,7 +121,7 @@ func TestKnobPagesCapAtEight(t *testing.T) {
 	if err := s.validate(); err != nil {
 		t.Fatalf("8 pages: %v", err)
 	}
-	s.fillDefaults() // full list: nothing appended
+	s.fillDefaults()
 	if len(s.Pages) != 8 {
 		t.Fatalf("fill grew a full list: %d", len(s.Pages))
 	}

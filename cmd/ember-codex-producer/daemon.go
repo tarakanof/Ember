@@ -62,10 +62,6 @@ func runDaemon() {
 	}
 }
 
-// cycle merges one poll of the app-server source (nil when disabled) and the
-// rollout watcher. The app-server wins for the threads it sees; on a
-// disconnect its sessions go back to the watcher, or get a DELETE when the
-// watcher has no live rollout for them.
 func cycle(w *watcher, as *appServer) (posts []producer.StatusRequest, deletes []producer.DeleteRequest, usages []producer.UsageRequest) {
 	var ap apTick
 	if as != nil {
@@ -80,8 +76,6 @@ func cycle(w *watcher, as *appServer) (posts []producer.StatusRequest, deletes [
 			deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: id})
 		}
 	}
-	// A session the watcher posted and the app-server now owns but does not
-	// post (no turn yet, or idle past the window) would linger on the server.
 	for _, id := range w.handedOver {
 		if !ap.held[id] {
 			deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: id})

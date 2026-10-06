@@ -61,11 +61,8 @@ func withLock(lockPath string, op int, fn func() error) error {
 	return withLockWait(lockPath, op, -1, fn)
 }
 
-// errLockBusy reports that a bounded lock wait ran out; the caller drops its update.
 var errLockBusy = errors.New("session lock busy")
 
-// withLockExWait is withLockEx for the hook path: it gives up after wait
-// rather than blocking the claude CLI behind another holder.
 func withLockExWait(lockPath string, wait time.Duration, fn func() error) error {
 	return withLockWait(lockPath, syscall.LOCK_EX, wait, fn)
 }
@@ -74,8 +71,6 @@ func withLockShWait(lockPath string, wait time.Duration, fn func() error) error 
 	return withLockWait(lockPath, syscall.LOCK_SH, wait, fn)
 }
 
-// withLockWait takes the flock, retrying LOCK_NB until wait elapses; a
-// negative wait blocks.
 func withLockWait(lockPath string, op int, wait time.Duration, fn func() error) error {
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 		return err

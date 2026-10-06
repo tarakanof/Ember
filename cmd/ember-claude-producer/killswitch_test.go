@@ -11,9 +11,6 @@ import (
 	"testing"
 )
 
-// Turning Ember off (deconfigure/uninstall, Ember.app's Agents toggle) must
-// silence the hooks even when the plugin, which deconfigure can't remove,
-// still registers them.
 func TestDeconfigureDisablesHooks_ConfigureReenables(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

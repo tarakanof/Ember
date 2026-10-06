@@ -1,6 +1,3 @@
-// Package sessions is the server's session registry: the live set of AI
-// sessions producers report, keyed by (source, tool, session), and the lifetime
-// rules that drop them when their producer goes quiet.
 package sessions
 
 import (
@@ -11,7 +8,6 @@ import (
 	"github.com/tarakanof/ember/internal/render"
 )
 
-// Policy is how long a session lives without an update.
 type Policy struct {
 	StaleAfter time.Duration
 	DoneTTL    time.Duration
@@ -26,14 +22,11 @@ func (p Policy) ttl(state string) time.Duration {
 	}
 }
 
-// Reaped describes a session the registry dropped, and how long it had gone
-// without an update.
 type Reaped struct {
 	Session render.Session
 	Age     time.Duration
 }
 
-// Registry is safe for concurrent use.
 type Registry struct {
 	now    func() time.Time
 	policy func() Policy
@@ -43,7 +36,6 @@ type Registry struct {
 	sessions map[string]render.Session
 }
 
-// New returns an empty registry.
 func New(now func() time.Time, policy func() Policy, onReap func(Reaped)) *Registry {
 	return &Registry{
 		now:      now,
@@ -53,20 +45,16 @@ func New(now func() time.Time, policy func() Policy, onReap func(Reaped)) *Regis
 	}
 }
 
-// View is a point-in-time copy of the live sessions.
 type View struct {
 	Now      time.Time
-	Sessions []render.Session // newest UpdatedAt first
+	Sessions []render.Session
 }
 
-// Winner is the session the display should lead with (render.PickWinning);
-// nil when no session is active.
 func (v View) Winner() *render.Session {
 	win, _, _ := render.PickWinning(v.Sessions)
 	return win
 }
 
-// Count is the number of sessions in state.
 func (v View) Count(state string) int {
 	n := 0
 	for _, s := range v.Sessions {
@@ -77,9 +65,6 @@ func (v View) Count(state string) int {
 	return n
 }
 
-// Upsert stores s under s.Key(), stamping UpdatedAt with the registry clock,
-// and returns the resulting view plus the state that key held before ("" if it
-// was new or had been reaped).
 func (r *Registry) Upsert(s render.Session) (View, string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -90,7 +75,6 @@ func (r *Registry) Upsert(s render.Session) (View, string) {
 	return r.viewLocked(now), prior
 }
 
-// Delete drops the session with key, if present.
 func (r *Registry) Delete(key string) View {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -98,7 +82,6 @@ func (r *Registry) Delete(key string) View {
 	return r.viewLocked(r.reapLocked())
 }
 
-// Clear drops every session.
 func (r *Registry) Clear() View {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -106,7 +89,6 @@ func (r *Registry) Clear() View {
 	return r.viewLocked(r.now())
 }
 
-// View returns the live sessions.
 func (r *Registry) View() View {
 	r.mu.Lock()
 	defer r.mu.Unlock()

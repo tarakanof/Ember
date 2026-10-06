@@ -9,17 +9,12 @@ import (
 	"strings"
 )
 
-// SourcePlaceholder is the value older templates shipped for EMBER_SOURCE.
 const SourcePlaceholder = "set-me-to-this-laptop-id"
 
 const maxSourceLen = 24
 
-// hostNameFuncs are tried in order; tests replace them.
 var hostNameFuncs = hostNameFuncsFor(runtime.GOOS)
 
-// hostNameFuncsFor asks scutil for the macOS LocalHostName (the Bonjour name,
-// stable across networks) and falls back to os.Hostname; off macOS (Linux)
-// os.Hostname is the only source.
 func hostNameFuncsFor(goos string) []func() (string, error) {
 	if goos != "darwin" {
 		return []func() (string, error){os.Hostname}
@@ -33,14 +28,11 @@ func hostNameFuncsFor(goos string) []func() (string, error) {
 	}
 }
 
-// IsPlaceholderSource reports whether v is unset or the template placeholder.
 func IsPlaceholderSource(v string) bool {
 	v = strings.TrimSpace(v)
 	return v == "" || strings.EqualFold(v, SourcePlaceholder)
 }
 
-// DefaultSource returns the short host name (macOS LocalHostName, else the OS
-// hostname), lowercased and trimmed to a sane length; "" when unknown.
 func DefaultSource() string {
 	for _, f := range hostNameFuncs {
 		if h, err := f(); err == nil {
@@ -52,8 +44,6 @@ func DefaultSource() string {
 	return ""
 }
 
-// ResolveSource keeps an explicit EMBER_SOURCE and defaults an empty or
-// placeholder one to DefaultSource.
 func ResolveSource(v string) string {
 	if !IsPlaceholderSource(v) {
 		return strings.TrimSpace(v)
@@ -99,9 +89,6 @@ var (
 	modelRe = regexp.MustCompile(`(?:^|-)(macbook-pro|macbook-air|macbook|mac-mini|mac-studio|mac-pro|imac|mbp|mba)(?:-(.+))?$`)
 )
 
-// shortHostID shortens a macOS default name ("dmitrys-macbook-pro") to a
-// model id ("mbp") so different Macs stay distinct on the 4-glyph clock card.
-// A trailing disambiguator ("-2") is kept.
 func shortHostID(h string) string {
 	if m := modelRe.FindStringSubmatch(h); m != nil {
 		id := modelAbbrev[m[1]]
@@ -115,11 +102,6 @@ func shortHostID(h string) string {
 	return h
 }
 
-// EnsureSourceInEnv rewrites an empty or placeholder EMBER_SOURCE in the env
-// file at path to the host default (appending the key when absent), so hot
-// paths read an explicit value instead of forking scutil. It returns the
-// effective source and whether the file changed. A missing file is a no-op;
-// the file must pass the same 0600/ownership checks as ReadEnvFile.
 func EnsureSourceInEnv(path string) (string, bool, error) {
 	if _, err := os.Lstat(path); os.IsNotExist(err) {
 		return "", false, nil
@@ -165,12 +147,10 @@ func EnsureSourceInEnv(path string) (string, bool, error) {
 	return def, true, nil
 }
 
-// SourceHint is the install/doctor line naming the resolved source.
 func SourceHint(src string) string {
 	return fmt.Sprintf("EMBER_SOURCE = %q (shown on the clock card, ~4 glyphs); set EMBER_SOURCE in ~/.config/ember/producer.env to choose a different short id", src)
 }
 
-// SetHostNameForTest replaces the host name lookup and returns a restore func.
 func SetHostNameForTest(name string) (restore func()) {
 	orig := hostNameFuncs
 	hostNameFuncs = []func() (string, error){func() (string, error) { return name, nil }}

@@ -15,65 +15,42 @@ import (
 )
 
 var (
-	// errNoDatabase means T3 Code has never run under this home (not installed, or another T3CODE_HOME).
-	errNoDatabase = errors.New("no T3 Code database")
-	// errUnknownSchema means the database exists but lacks the tables or columns this producer reads.
+	errNoDatabase    = errors.New("no T3 Code database")
 	errUnknownSchema = errors.New("unrecognised T3 Code schema")
 )
 
-// thread is one T3 thread, normalised across the v1 and v2 orchestration schemas.
 type thread struct {
-	ID     string
-	Title  string
-	Schema int // 1 = projection_* (T3 <= 0.0.45), 2 = orchestration_v2_* (T3 >= 0.0.46)
-	// Status is the v1 session status or the v2 latest-run status; "" when the thread never ran.
-	Status string
-	// Active is the v2 newest run in preparing/starting/running/waiting (any
-	// run, not just the presented one); T3's activityRunStatus. "" = none.
-	Active string
-	// HoldsCompletion is v2 only: the presented run completed but background
-	// work that wakes the agent (subagent, monitor, unnamed task) is still
-	// open, so T3 keeps it "running" (backgroundWorkHoldsCompletion).
+	ID              string
+	Title           string
+	Schema          int
+	Status          string
+	Active          string
 	HoldsCompletion bool
-	// PendingKind is the kind of the newest open request blocking on the user ("" = none).
-	PendingKind string
-	LastError   string
-	Archived    bool
-	// ChangedAt is when the thread last reached its current state: the v1
-	// session update, or the v2 presented run's completion (else request)
-	// and the pending request. The thread's own updated_at is left out:
-	// settling (also automatic, days later), renaming and archiving bump it.
+	PendingKind     string
+	LastError       string
+	Archived        bool
+	// updated_at is deliberately unused: settling, renaming and archiving bump it.
 	ChangedAt time.Time
 }
 
 type snapshot struct {
 	Schema    int
-	Migration int // highest effect_sql_migrations id; 0 when the table is unreadable
+	Migration int
 	Threads   []thread
 }
 
-// readSnapshot reads every non-deleted thread from the T3 database under home
-// with a throwaway reader; the daemon keeps a storeReader across polls instead.
 func readSnapshot(ctx context.Context, home string) (snapshot, error) {
 	r := &storeReader{}
 	defer r.Close()
 	return r.Read(ctx, home)
 }
 
-// storeReader keeps one read-only handle per database file across polls (the
-// daemon reads every 2 s) and reopens it when the file is replaced, the
-// producer switches between the v1 and v2 files, or a read fails (a WAL or
-// I/O error leaves a handle worth discarding). It never writes to T3's files.
 type storeReader struct {
 	path string
-	info os.FileInfo // identity of the file the handle was opened on
+	info os.FileInfo
 	db   *sql.DB
 }
 
-// Read reads every non-deleted thread from the T3 database under home. When
-// both files exist the most recently written one wins: the v2 server
-// (T3 >= 0.0.46) imports state.sqlite and then leaves it untouched, and after
-// a downgrade to 0.0.45 statev2.sqlite is the stale one.
 func (r *storeReader) Read(ctx context.Context, home string) (snapshot, error) {
 	dir := filepath.Join(home, "userdata")
 	v1, v2 := filepath.Join(dir, "state.sqlite"), filepath.Join(dir, "statev2.sqlite")
@@ -89,7 +66,6 @@ func (r *storeReader) Read(ctx context.Context, home string) (snapshot, error) {
 	return snapshot{}, errNoDatabase
 }
 
-// Close drops the open handle, if any.
 func (r *storeReader) Close() {
 	if r.db != nil {
 		r.db.Close()
@@ -97,11 +73,7 @@ func (r *storeReader) Close() {
 	r.db, r.path, r.info = nil, "", nil
 }
 
-// handle returns the open handle for path, reopening it when path changed or
-// the file at path is no longer the one the handle was opened on.
 func (r *storeReader) handle(path string) (*sql.DB, error) {
-	// sql.Open is lazy: a file replaced between this Stat and the first query
-	// records the old identity and costs one extra reopen on the next poll.
 	info, err := os.Stat(path)
 	if err != nil {
 		r.Close()
@@ -120,8 +92,6 @@ func (r *storeReader) handle(path string) (*sql.DB, error) {
 	return r.db, nil
 }
 
-// dbModTime is the newer mtime of a database and its WAL; in WAL mode
-// commits land in the -wal file and the main file changes only at checkpoint.
 func dbModTime(path string) (time.Time, bool) {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
@@ -151,7 +121,6 @@ func (r *storeReader) readWith(ctx context.Context, path string, schema int, tab
 	}
 	snap, err := readTables(ctx, db, path, schema, tables, query)
 	if err != nil && !errors.Is(err, errUnknownSchema) {
-		// Not a schema problem: the handle may be the broken part.
 		r.Close()
 	}
 	return snap, err
@@ -207,9 +176,7 @@ func readTables(ctx context.Context, db *sql.DB, path string, schema int, tables
 	return snap, rows.Err()
 }
 
-// openReadOnly opens a T3 database without ever writing to it. mode=ro still
-// reads the live WAL (immutable=1 would not), and query_only refuses writes
-// even if the driver ignored the mode.
+// mode=ro still reads the live WAL (immutable=1 would not).
 func openReadOnly(path string) (*sql.DB, error) {
 	u := url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro&_pragma=busy_timeout(2000)&_pragma=query_only(1)"}
 	db, err := sql.Open("sqlite", u.String())
@@ -220,8 +187,6 @@ func openReadOnly(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// queryV1 mirrors the T3 0.0.45 shell: session status from projection_thread_sessions,
-// hasPendingApprovals / hasPendingUserInput from the projection_threads counters.
 const queryV1 = `
 SELECT
   t.thread_id,
@@ -242,21 +207,6 @@ FROM projection_threads t
 LEFT JOIN projection_thread_sessions s ON s.thread_id = t.thread_id
 WHERE t.deleted_at IS NULL`
 
-// queryV2 is a reduced copy of ProjectionStore.selectShellThreadRows in T3
-// 0.0.46: the presented run is the newest one not held in the queue, and a
-// pending runtime request counts even after its run settled (Codex
-// user_input requests outlive the turn). auth_refresh requests are skipped
-// as T3's awareness does, so one cannot hide an older approval. active is
-// T3's activityRunStatus (newest preparing/starting/running/waiting run of
-// any ordinal) and holds approximates backgroundWorkHoldsCompletion for a
-// completed presented run: an open roster task of the active provider thread
-// whose kind is not "command" (unknown or missing kinds hold, as in T3), or
-// an active subagent / non-persistent dynamic_tool turn item outside a
-// rolled-back run. Subagent
-// child threads are rows of their own here but not threads in T3's UI. The
-// error text prefers the newest bound provider session of the thread's
-// provider instance, then the failed run's root error item (T3 shows
-// sessionError ?? failure.message).
 const queryV2 = `
 SELECT
   t.thread_id,

@@ -10,10 +10,6 @@ import (
 	"time"
 )
 
-// Hookless sessions (#285): a session that started before the ember plugin
-// was installed, or lost its settings.json hooks to `configure`, reports
-// nothing, so its marker stays done while `claude agents` says busy.
-
 const promotePID = 4242
 
 func doneMarker(f *agentsFixture) marker {
@@ -25,8 +21,6 @@ func doneMarker(f *agentsFixture) marker {
 	return m
 }
 
-// setClaudeStatus rewrites ~/.claude/sessions/<pid>.json like Claude does on
-// a status flip, the flip happening now (f.clock), with a distinct mtime.
 func (f *agentsFixture) setClaudeStatus(t *testing.T, status string) {
 	t.Helper()
 	f.setClaudeStatusAt(t, status, f.clock)
@@ -39,7 +33,6 @@ func (f *agentsFixture) setClaudeStatusAt(t *testing.T, status string, at time.T
 	if err := os.WriteFile(p, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Each flip gets its own mtime, however fast the test runs.
 	f.sessionsMtime = f.sessionsMtime.Add(time.Second)
 	mt := time.Unix(1_700_000_000, 0).Add(f.sessionsMtime.Sub(time.Time{}))
 	if err := os.Chtimes(p, mt, mt); err != nil {
@@ -106,8 +99,6 @@ func TestAgents_DoneButBusy_PromotedAfterConfirmation(t *testing.T) {
 	}
 }
 
-// The statusline rewrites the marker on every assistant message of a busy
-// session; that must not reset the confirmation.
 func TestAgents_DoneButBusy_StatuslineWritesDoNotBlock(t *testing.T) {
 	f := newAgentsFixture(t)
 	m := doneMarker(f)
@@ -129,8 +120,6 @@ func TestAgents_DoneButBusy_StatuslineWritesDoNotBlock(t *testing.T) {
 	}
 }
 
-// A hook that lands between snapshots (UserPromptSubmit racing the flip)
-// wins, as with every other correction.
 func TestAgents_DoneButBusy_HookBetweenSnapshotsWins(t *testing.T) {
 	f := newAgentsFixture(t)
 	m := doneMarker(f)
@@ -161,8 +150,6 @@ func TestAgents_DoneButBusy_OneOffBusyNotApplied(t *testing.T) {
 	}
 }
 
-// A healthy session ending its turn flips its file to idle: no CLI call.
-// A quiet session costs nothing.
 func TestAgents_Dormant_IdleFlipOrQuiet_NoCall(t *testing.T) {
 	f := newAgentsFixture(t)
 	f.writeMarker(t, "s1", doneMarker(f))
@@ -177,8 +164,6 @@ func TestAgents_Dormant_IdleFlipOrQuiet_NoCall(t *testing.T) {
 	}
 }
 
-// A promoted run follows the session: busy -> idle ends it as done (not
-// "interrupted"), and the next busy flip promotes again.
 func TestAgents_PromotedRunEndsAndReopens(t *testing.T) {
 	f := newAgentsFixture(t)
 	f.writeMarker(t, "s1", doneMarker(f))
@@ -206,8 +191,6 @@ func TestAgents_PromotedRunEndsAndReopens(t *testing.T) {
 	}
 }
 
-// A file without statusUpdatedAt (an older Claude) falls back to the
-// statusline: a change >=5 s after the marker went done is the proof.
 func TestAgents_Dormant_StatuslineFallback(t *testing.T) {
 	f := newAgentsFixture(t)
 	m := doneMarker(f)
@@ -231,8 +214,6 @@ func TestAgents_Dormant_StatuslineFallback(t *testing.T) {
 	}
 }
 
-// Nested and SDK sessions have no sessions file: never promoted, and their
-// statusline changes cost no CLI call.
 func TestAgents_Dormant_NoSessionsFile_NoCall(t *testing.T) {
 	f := newAgentsFixture(t)
 	m := doneMarker(f)
@@ -248,9 +229,6 @@ func TestAgents_Dormant_NoSessionsFile_NoCall(t *testing.T) {
 	}
 }
 
-// A slow Stop hook of another plugin keeps the session busy past the
-// confirmation window after our Stop marked it done; the busy began before
-// the done, so it is the old turn: no call, no flap.
 func TestAgents_SlowStop_NoPromotion(t *testing.T) {
 	f := newAgentsFixture(t)
 	var m marker
@@ -266,8 +244,6 @@ func TestAgents_SlowStop_NoPromotion(t *testing.T) {
 	m.State, m.Message, m.StateChangedAt = "done", "all set", f.clock.Unix()
 	f.writeMarker(t, "s1", m)
 	for i := 0; i < 4; i++ {
-		// The statusline keeps writing (a trigger), and Claude rewrites
-		// the file with the same busy: neither proves a new turn.
 		m.StatuslineChangedMs = f.clock.UnixMilli()
 		f.writeMarker(t, "s1", m)
 		f.setClaudeStatusAt(t, "busy", turnStart)
@@ -285,8 +261,6 @@ func TestAgents_SlowStop_NoPromotion(t *testing.T) {
 	}
 }
 
-// Same second: the busy began just before the Stop, inside the second
-// state_changed_at truncates to.
 func TestBusyAfterDormant(t *testing.T) {
 	var m marker
 	m.State, m.StateChangedAt = "done", 1_800_000_000
@@ -309,9 +283,6 @@ func TestBusyAfterDormant(t *testing.T) {
 	}
 }
 
-// Measured (2.1.289): after Stop with a background Bash running, the file
-// says "shell" while `claude agents` says busy. A done marker stays done,
-// and a run the watcher opened ends.
 func TestAgents_BackgroundShell_NeverWorking(t *testing.T) {
 	f := newAgentsFixture(t)
 	f.writeMarker(t, "s1", doneMarker(f))
@@ -341,7 +312,6 @@ func TestAgents_BackgroundShell_NeverWorking(t *testing.T) {
 	}
 }
 
-// Two markers on one owner pid each see the flip.
 func TestAgents_SharedOwnerPID_BothWake(t *testing.T) {
 	f := newAgentsFixture(t)
 	f.writeMarker(t, "s1", doneMarker(f))
@@ -397,7 +367,7 @@ func TestStaleHookSessions(t *testing.T) {
 		mk("stale", 2*time.Hour, time.Minute),
 		mk("fresh", time.Minute, 0),
 		mk("idle", 2*time.Hour, time.Minute),
-		mk("gone", 2*time.Hour, time.Hour), // statusline quiet too
+		mk("gone", 2*time.Hour, time.Hour),
 		legacy,
 		mk("nostats", 2*time.Hour, 0),
 	}

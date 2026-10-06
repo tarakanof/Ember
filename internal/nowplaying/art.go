@@ -9,29 +9,23 @@ import (
 	"image/color"
 	"image/draw"
 	"image/jpeg"
-	_ "image/png" // PNG artwork from Music.app and Deezer
+	_ "image/png"
 	"sync"
 )
 
-// Art limits: source bytes, source dimensions, and the sizes served.
 const (
 	MaxArtBytes   = 2 << 20
 	MaxArtSidePx  = 2048
 	jpegQuality   = 80
 	backdropDim   = 0.35
 	backdropPass  = 3
-	backdropRatio = 40 // blur radius = size / backdropRatio
+	backdropRatio = 40
 )
 
-// Sizes lists the sizes served per kind, the first being the default
-// (the knob's layout). A fixed set keeps an unauthenticated client from
-// forcing a fresh render per request.
 var Sizes = map[Kind][]int{Album: {240, 120}, Artist: {64, 120}, Backdrop: {466}}
 
-// ErrBadImage is a source picture that is not a JPEG/PNG within the limits.
 var ErrBadImage = errors.New("artwork must be a JPEG or PNG of at most 2 MB and 2048x2048 px")
 
-// CheckImage validates source bytes without decoding the pixels.
 func CheckImage(data []byte) error {
 	if len(data) == 0 || len(data) > MaxArtBytes {
 		return ErrBadImage
@@ -46,8 +40,6 @@ func CheckImage(data []byte) error {
 	return nil
 }
 
-// Validate fully decodes a source picture once, at ingest, so a corrupt
-// body behind a valid header is refused instead of failing every render.
 func Validate(data []byte) error {
 	if err := CheckImage(data); err != nil {
 		return err
@@ -58,9 +50,6 @@ func Validate(data []byte) error {
 	return nil
 }
 
-// Render turns a source picture into a square baseline JPEG of size px:
-// centre-cropped, resampled, and for Backdrop blurred and dimmed. Alpha is
-// flattened onto black.
 func Render(data []byte, kind Kind, size int) ([]byte, error) {
 	if err := CheckImage(data); err != nil {
 		return nil, err
@@ -88,18 +77,14 @@ func Render(data []byte, kind Kind, size int) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// plane is an RGB float image, n×n.
 type plane struct {
 	n   int
-	pix []float32 // r,g,b per pixel
+	pix []float32
 }
 
-// resample scales a square RGBA to n×n by area averaging (each output
-// pixel is the coverage-weighted mean of the source pixels under it), which
-// also degrades to a two-pixel blend when enlarging.
 func resample(src *image.RGBA, n int) plane {
 	s := src.Bounds().Dx()
-	tmp := make([]float32, n*s*3) // n wide, s tall
+	tmp := make([]float32, n*s*3)
 	wx := weights(s, n)
 	for y := 0; y < s; y++ {
 		row := src.Pix[y*src.Stride:]
@@ -137,8 +122,6 @@ type tap struct {
 	w float32
 }
 
-// weights lists, for each of n outputs, the source pixels it covers out of
-// s and their normalised overlap.
 func weights(s, n int) [][]tap {
 	out := make([][]tap, n)
 	scale := float64(s) / float64(n)
@@ -167,8 +150,6 @@ func weights(s, n int) [][]tap {
 	return out
 }
 
-// blur applies passes of a separable box blur of radius r (three passes
-// approximate a Gaussian), clamping at the edges.
 func (p plane) blur(r, passes int) {
 	n := p.n
 	line := make([]float32, n*3)
@@ -215,10 +196,8 @@ func (p plane) rgba() *image.RGBA {
 	return img
 }
 
-// Cache holds rendered pictures in RAM, bounded by entry count and bytes,
-// least recently used first out. Safe for concurrent use.
 type Cache struct {
-	mu         sync.Mutex // protects ll, items, bytes
+	mu         sync.Mutex
 	maxEntries int
 	maxBytes   int
 	bytes      int
@@ -231,12 +210,10 @@ type cacheItem struct {
 	data []byte
 }
 
-// NewCache returns a cache bounded at maxEntries and maxBytes.
 func NewCache(maxEntries, maxBytes int) *Cache {
 	return &Cache{maxEntries: maxEntries, maxBytes: maxBytes, ll: list.New(), items: make(map[string]*list.Element)}
 }
 
-// Get returns a cached value and marks it recently used.
 func (c *Cache) Get(key string) ([]byte, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -248,8 +225,6 @@ func (c *Cache) Get(key string) ([]byte, bool) {
 	return el.Value.(*cacheItem).data, true
 }
 
-// Put stores a value, evicting the least recently used past either bound.
-// A value larger than maxBytes is not stored.
 func (c *Cache) Put(key string, data []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -272,7 +247,6 @@ func (c *Cache) Put(key string, data []byte) {
 	}
 }
 
-// Len reports the number of cached values and their total bytes.
 func (c *Cache) Len() (int, int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

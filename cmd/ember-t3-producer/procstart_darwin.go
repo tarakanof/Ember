@@ -6,7 +6,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// processStart is pid's start time from the kernel's process table.
 func processStart(pid int) (time.Time, bool) {
 	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {

@@ -30,10 +30,8 @@ type ctxLock chan struct{}
 
 func newCtxLock() ctxLock { return make(ctxLock, 1) }
 
-// Lock waits for the lock however long it takes.
 func (l ctxLock) Lock() { l <- struct{}{} }
 
-// Unlock releases a held lock.
 func (l ctxLock) Unlock() {
 	select {
 	case <-l:
@@ -42,7 +40,6 @@ func (l ctxLock) Unlock() {
 	}
 }
 
-// LockContext waits for the lock until ctx ends, and then returns ctx.Err() without it.
 func (l ctxLock) LockContext(ctx context.Context) error {
 	select {
 	case l <- struct{}{}:
@@ -92,7 +89,6 @@ func (c callClass) timeout(cfg *Config) time.Duration {
 
 var errClockNotConfigured = errors.New("clock not configured")
 
-// errClockDisabled is every clock call's answer under EMBER_CLOCK=off.
 var errClockDisabled = errors.New("clock disabled (EMBER_CLOCK=off)")
 
 func clockBaseURL(cfg *Config) (string, error) {

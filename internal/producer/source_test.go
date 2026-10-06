@@ -27,20 +27,19 @@ func TestIsPlaceholderSource(t *testing.T) {
 func TestNormalizeHostName(t *testing.T) {
 	long := strings.Repeat("a", 40)
 	for in, want := range map[string]string{
-		"  Dmitrys-M4\n":        "dmitrys-m4",
-		"MacBook Pro":           "mbp",
-		"m4.local":              "m4",
-		"dmitrys-macbook-pro":   "mbp",
-		"Dmitrys-MacBook-Air":   "mba",
-		"dmitrys-mac-mini":      "mini",
-		"Dmitrys-iMac":          "imac",
-		"dmitrys-macbook-pro-2": "mbp-2",
-		"dmitrys-laptop":        "dmitrys-laptop",
-		"ops-1":                 "ops-1",
-		"Akitaka-mbp-14":        "mbp-14",
-		"akitaka-mbp":           "mbp",
-		"build-box":             "build-box",
-		// Linux hostnames (os.Hostname): plain, FQDN, cloud, Raspberry Pi.
+		"  Dmitrys-M4\n":             "dmitrys-m4",
+		"MacBook Pro":                "mbp",
+		"m4.local":                   "m4",
+		"dmitrys-macbook-pro":        "mbp",
+		"Dmitrys-MacBook-Air":        "mba",
+		"dmitrys-mac-mini":           "mini",
+		"Dmitrys-iMac":               "imac",
+		"dmitrys-macbook-pro-2":      "mbp-2",
+		"dmitrys-laptop":             "dmitrys-laptop",
+		"ops-1":                      "ops-1",
+		"Akitaka-mbp-14":             "mbp-14",
+		"akitaka-mbp":                "mbp",
+		"build-box":                  "build-box",
 		"build-1":                    "build-1",
 		"build-1.example.com":        "build-1",
 		"ip-10-0-1-5.ec2.internal":   "ip-10-0-1-5",
@@ -131,14 +130,12 @@ func TestEnsureSourceInEnv(t *testing.T) {
 		t.Errorf("perm %v", st.Mode().Perm())
 	}
 
-	// explicit untouched
 	p = envPathIn(t, "EMBER_SOURCE=m5\n", 0o600)
 	got, changed, _ = EnsureSourceInEnv(p)
 	if changed || got != "m5" {
 		t.Errorf("explicit: %q %v", got, changed)
 	}
 
-	// missing key appended
 	p = envPathIn(t, "EMBER_TOKEN=t\n", 0o600)
 	got, changed, _ = EnsureSourceInEnv(p)
 	b, _ = os.ReadFile(p)
@@ -146,13 +143,11 @@ func TestEnsureSourceInEnv(t *testing.T) {
 		t.Errorf("append: %q %v %q", got, changed, b)
 	}
 
-	// bad perms: error, untouched
 	p = envPathIn(t, "EMBER_SOURCE=\n", 0o644)
 	if _, changed, err = EnsureSourceInEnv(p); err == nil || changed {
 		t.Errorf("bad perms should error, changed=%v", changed)
 	}
 
-	// missing file: no-op
 	if _, changed, err = EnsureSourceInEnv(filepath.Join(t.TempDir(), "nope")); err != nil || changed {
 		t.Errorf("missing: %v %v", changed, err)
 	}

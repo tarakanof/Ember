@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// inbound is any message the app-server sends: a response (id, no method), a
-// notification (method, no id) or a server request (method and id).
 type inbound struct {
 	ID     json.RawMessage `json:"id,omitempty"`
 	Method string          `json:"method,omitempty"`
@@ -27,27 +25,20 @@ type rpcError struct {
 
 func (e *rpcError) Error() string { return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message) }
 
-// outbound is the only message shape this client writes: a request (id from
-// rpcConn.next) or a notification (no id). It has no result or error field,
-// so the client cannot express a JSON-RPC response, and no id it writes is
-// ever taken from a received message. A server request (an approval, a user
-// input prompt, an elicitation) is therefore never answered: on the shared
-// daemon any response counts as the user's decision.
+// No response shape on purpose: on the shared daemon any response counts as the user's decision.
 type outbound struct {
 	ID     int64  `json:"id,omitempty"`
 	Method string `json:"method"`
 	Params any    `json:"params,omitempty"`
 }
 
-// rpcConn is a JSON-RPC 2.0 client over one WebSocket.
 type rpcConn struct {
-	ws   *wsConn
-	next atomic.Int64
-	// lastRead is the UnixNano of the last inbound message.
+	ws       *wsConn
+	next     atomic.Int64
 	lastRead atomic.Int64
-	done     chan struct{} // closed when readLoop exits
+	done     chan struct{}
 
-	mu      sync.Mutex // protects pending and err
+	mu      sync.Mutex
 	pending map[int64]chan inbound
 	err     error
 }
@@ -66,7 +57,6 @@ func (c *rpcConn) send(m outbound) error {
 
 func (c *rpcConn) notify(method string) error { return c.send(outbound{Method: method}) }
 
-// call sends a request and decodes its result into out (when non-nil).
 func (c *rpcConn) call(ctx context.Context, method string, params, out any) error {
 	id := c.next.Add(1)
 	ch := make(chan inbound, 1)
@@ -110,8 +100,6 @@ func (c *rpcConn) closeErr() error {
 	return c.err
 }
 
-// readLoop dispatches responses to their callers and notifications to
-// onNotify until the connection fails. Server requests are dropped.
 func (c *rpcConn) readLoop(onNotify func(method string, params json.RawMessage)) {
 	defer close(c.done)
 	for {
@@ -143,7 +131,7 @@ func (c *rpcConn) readLoop(onNotify func(method string, params json.RawMessage))
 				}
 			}
 		case m.Method != "" && len(m.ID) > 0:
-			// A server request: deliberately unanswered (see outbound).
+			// Server requests are never answered: see outbound.
 		case m.Method != "":
 			onNotify(m.Method, m.Params)
 		}

@@ -573,7 +573,9 @@ markers still get reaped.
   connection stays up. It **never starts the daemon**. It
   initializes as `codex_app_server_daemon`: the first client name outside
   the server's non-originating list becomes the daemon-wide originator, which
-  Codex records in every TUI rollout. It opts out of the delta notifications.
+  Codex records in every TUI rollout; the name is on that list
+  (`NON_ORIGINATING_CLIENT_NAMES`, codex-rs `initialize_processor.rs`), so
+  sessions stay labelled `codex-tui` (spike #263). It opts out of the delta notifications.
   Bootstrap: `thread/loaded/list` + `thread/read`. Ephemeral per-turn helper
   threads are skipped, and `source`/`originator` go through the same
   `EMBER_CODEX_SOURCES` / `EMBER_CODEX_INCLUDE_CLAUDE` filter (TUI-via-daemon
@@ -636,7 +638,7 @@ markers still get reaped.
   in-memory decode, not a copy of its code; the only known difference is that
   it does not dedupe roster vs item by task id. The turn-item lookup repeats
   the type/status lists of T3's partial `turn_items_recovery_idx` verbatim so
-  SQLite uses it. When a hold ends after the activity window, the watcher
+  SQLite uses it (a scan of every item costs ~0.5 s per poll at 600k items). When a hold ends after the activity window, the watcher
   times `done` from the moment it saw running → done, so it still shows. Deliberate difference: the `auth_refresh` filter
   runs in the request query, so such a request never hides an older approval.
   failed → `error`
@@ -692,6 +694,9 @@ Claude producer constraints:
   500 ms) because the hook blocks the `claude` CLI. The daemon uses a separate,
   longer `daemonHTTPTimeout` (5 s) so a slow link doesn't flap heartbeat
   re-POSTs and reap DELETEs.
+  A settings.json hook without `timeout` gets Claude Code's 600 s default
+  (async hooks get none enforced), so installed blocking hooks always carry
+  one.
 - **Stop upserts `done`, never deletes**, because deleting on every Stop
   dropped the display to the idle robot between turns. The marker keeps
   `done` (the reply's first line as message) until the next prompt,
@@ -804,7 +809,8 @@ Claude producer constraints:
   5 s timeout that kills the group and a 1 s `WaitDelay`, so a helper holding
   stdout can't wedge the watcher. The binary is `~/.local/bin/claude`, then
   PATH, then Homebrew paths, gated once per path+mtime on `claude --version` ≥
-  2.1.288; a failed call backs off 5 min. `doctor` prints the state.
+  2.1.288 (an older CLI would take `agents` as a prompt, so the gate is a
+  safety check, not a feature probe); a failed call backs off 5 min. `doctor` prints the state.
   **Hookless sessions** (#285): a session started before the ember plugin was
   installed never loads it, and when `configure` strips the old
   `settings.json` hooks a running session hot-reloads settings and loses them
@@ -1161,7 +1167,11 @@ current value; `daily_goal_sessions`/`weekly_goal_days` round-trip here too,
 validated against `[0, 50]`/`[0, 7]`, `0` = goal off); open
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}` (`stats.goal` reports
 progress against those two config fields — `workhours` reports
-`work_start`/`work_end` as `null` on a day with no work);
+`work_start`/`work_end` as `null` on a day with no work). The stats handlers
+read these knobs per request: `day_start_hour` (0-23, default 4: earlier
+activity counts to the previous day), `streak_grace_days` (missed days a
+streak tolerates, default 1, `0` = strict), `work_hours_gap_minutes` (default
+15), `work_hours_include_activity`;
 **unauthenticated**
 `POST /hooks/awtrix/button` (the device can't send a token) mapping
 middle=pause/resume/start, right=skip, left=stop — all on press (the AWTRIX3-era
@@ -1427,7 +1437,10 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   alpha — the knob applies its own circle mask). Sources must be JPEG/PNG,
   ≤2 MB, ≤2048 px a side, checked with `DecodeConfig` and then fully
   decoded once at ingest (`nowplaying.Validate`), so a corrupt body is a
-  400, not a failure on every render. Served sizes are a fixed set per kind
+  400, not a failure on every render. Renders are serialised (`renderMu`):
+  a 2048 px source is ~50 MB of transient decode buffers, which concurrent
+  cache misses would multiply; a miss costs ~40 ms, so art routes are
+  rate-limited. Served sizes are a fixed set per kind
   (`nowplaying.Sizes`: album 240/120, artist 64/120, backdrop 466; first =
   default), so a client can't force a fresh render per request. 466 isn't
   a multiple of the 16 px MCU; TJpgDec handles the partial MCU, but the
@@ -2133,7 +2146,8 @@ the same board finds its record.
 - **Client tokens (#269):** kind `client`, id `client-` + 8 random hex,
   token `ekc_` + 32 random bytes, `scopes` ⊆ `{ingest, control, read,
   admin}` (sorted, deduplicated, at least one), a required `name`, no
-  `hw_id`. `POST /v1/devices {"kind":"client","name","scopes"}` mints one
+  `hw_id`; at most 64 client records (every mint rewrites the registry blob).
+  `POST /v1/devices {"kind":"client","name","scopes"}` mints one
   (201, token once). `requireAuth` admits a client on an owner route when it
   holds `requiredScope(pattern)` (`client_tokens.go`; any route not listed
   needs `admin`, and `admin` satisfies every scope); `requireControl` admits
@@ -3082,6 +3096,14 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   and a first registration may report `.requiresApproval`.
 
 ### Producer / deploy
+
+- **Linux producer plumbing.** `/proc/<pid>/stat` `comm` is cut to 15 bytes
+  (`ember-claude-pr`), so owner checks match on the cut name. Process start
+  time is read as clock ticks after boot with `USER_HZ` fixed at 100 (sysconf
+  needs cgo). Log redirection uses `unix.Dup2`, not `syscall.Dup2`:
+  linux/arm64 has only `dup3`.
+- **Unix socket paths in tests.** `t.TempDir()` paths can exceed `sun_path`
+  (104 bytes on macOS); tests that listen on a Unix socket use a short path.
 - **Process-liveness, not file-existence, detects session close.** A heartbeat
   that re-posts any young marker keeps dead sessions alive for hours and defeats
   every server staleness window. `SessionEnd` is unreliable (skipped on

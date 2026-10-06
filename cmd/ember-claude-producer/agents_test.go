@@ -76,8 +76,6 @@ func (f *agentsFixture) step(d time.Duration) bool {
 	return f.w.step(context.Background(), f.cfg, NewDaemonClient(f.cfg))
 }
 
-// activate runs the pass that sees the marker become active (a baseline, no
-// call), then changes ~/.claude/sessions so the next pass calls the CLI.
 func (f *agentsFixture) activate(t *testing.T) {
 	t.Helper()
 	f.step(time.Second)
@@ -87,7 +85,6 @@ func (f *agentsFixture) activate(t *testing.T) {
 	f.touchSessions(t, f.clock.String())
 }
 
-// touchSessions changes ~/.claude/sessions the way Claude does on a status change.
 func (f *agentsFixture) touchSessions(t *testing.T, content string) {
 	t.Helper()
 	p := filepath.Join(f.h.home, ".claude", "sessions", "4242.json")
@@ -206,7 +203,7 @@ func TestAgents_CallsOnSessionsChangeOrFallback(t *testing.T) {
 	m.State = "running"
 	f.writeMarker(t, "s1", m)
 	f.out = `[{"pid":1,"sessionId":"s1","status":"busy"}]`
-	f.step(time.Second) // becomes active: baseline only
+	f.step(time.Second)
 	f.step(time.Second)
 	f.step(time.Second)
 	if f.calls != 0 {
@@ -238,7 +235,7 @@ func TestAgents_ApprovedWaitTurnsRunningAfterConfirmation(t *testing.T) {
 	if got := f.readMarker(t, "s1"); got.State != "waiting" || f.h.posts.Load() != 0 {
 		t.Fatalf("one snapshot must not change anything; state=%s posts=%d", got.State, f.h.posts.Load())
 	}
-	f.step(time.Second) // confirmation due at 1.5 s
+	f.step(time.Second)
 	f.step(time.Second)
 	got := f.readMarker(t, "s1")
 	if got.State != "running" || got.Message != "Bash" || got.PendingPermission != "" {
@@ -269,8 +266,6 @@ func TestAgents_InterruptedTurnBecomesDone(t *testing.T) {
 	}
 }
 
-// A hook that lands between the two snapshots (Stop just before the status
-// goes idle) wins: the correction is dropped.
 func TestAgents_MarkerChangedBetweenSnapshots_NoCorrection(t *testing.T) {
 	f := newAgentsFixture(t)
 	var m marker
@@ -436,9 +431,6 @@ func TestHook_StopWithWakingTasks_HoldsAgainstIdle(t *testing.T) {
 	}
 }
 
-// A correction out of a Notification-worded wait has no tool name, so any
-// permission_prompt Notification in the next 15 s is taken as that dialog's
-// late echo; a real new dialog still enters waiting via PermissionRequest.
 func TestAgents_ResumedWithoutToolName(t *testing.T) {
 	f := newAgentsFixture(t)
 	m := waitingMarker()

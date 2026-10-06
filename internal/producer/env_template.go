@@ -2,7 +2,6 @@ package producer
 
 import "strings"
 
-// EnvExample returns the canonical body seeded into ~/.config/ember/producer.env on first install.
 func EnvExample() string {
 	return strings.Replace(`# ember producer configuration (shared by Claude + Codex producers)
 # EMBER_SOURCE: machine label on the clock card (~4 glyphs); empty = short host id.

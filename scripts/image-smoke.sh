@@ -51,7 +51,6 @@ if echo "$ver" | grep -q "unknown"; then
   exit 1
 fi
 
-# - /version HTTP endpoint should return JSON with our binary name.
 ver_http="$(curl -fsS http://localhost:13627/version)"
 echo "smoke: /version output: $ver_http"
 if ! echo "$ver_http" | grep -q '"binary":"ember"'; then

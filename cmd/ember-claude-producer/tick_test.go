@@ -76,9 +76,6 @@ func TestTick_StaleMarker_RemovedAndDeleted(t *testing.T) {
 	}
 }
 
-// SessionEnd landing while the heartbeat POST is in flight must not leave a
-// ghost session: the last request the server sees is a DELETE, also when the
-// POST errors (a timed-out POST may still have been applied).
 func TestTick_NoResurrectionWhenSessionEndsDuringPost(t *testing.T) {
 	for _, status := range []int{204, 500} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
@@ -141,8 +138,6 @@ func TestHeartbeatDue_DoneAndErrorExpire(t *testing.T) {
 	}
 }
 
-// An expired done marker stays on disk (local state) but isn't re-posted, so
-// the server's done linger runs out and the idle screen returns.
 func TestTick_ExpiredDoneNotReposted(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -165,8 +160,6 @@ func TestTick_ExpiredDoneNotReposted(t *testing.T) {
 	}
 }
 
-// The daemon must not hold the session lock across its POST (#258), or every
-// hook stalls for the daemon's HTTP timeout when the server is unreachable.
 func TestProcessOneMarker_PostsOutsideLock(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -193,8 +186,6 @@ func TestProcessOneMarker_PostsOutsideLock(t *testing.T) {
 	}
 }
 
-// A hook that changes the marker while the heartbeat POST is in flight must
-// win: the daemon re-sends the newer marker rather than leave its stale copy.
 func TestProcessOneMarker_ResendsMarkerChangedDuringPost(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -668,15 +659,12 @@ func TestProcessOneMarker_ReGatesSourceCardAndSessionBarWhenDisabled(t *testing.
 func TestDispatchTick_FreshestByStatuslineChange(t *testing.T) {
 	cases := []struct {
 		name               string
-		changedA, changedB int64 // statusline_changed_ms
+		changedA, changedB int64
 		mtimeANewer        bool
 		want               float64
 	}{
-		// A's figures changed most recently, though B was written later.
 		{"newest change wins over mtime", 2_000_500, 2_000_000, false, 90},
-		// Sub-second stamps: 1 ms apart still orders.
 		{"millisecond resolution", 2_000_001, 2_000_000, false, 90},
-		// Same change time: the later write breaks the tie.
 		{"tie broken by mtime", 2_000_000, 2_000_000, true, 90},
 	}
 	for _, tc := range cases {

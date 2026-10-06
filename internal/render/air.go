@@ -29,10 +29,8 @@ func aqiBucket(aqi float64) aqiStop {
 	return aqiBuckets[len(aqiBuckets)-1]
 }
 
-// AQIColor returns the EEA bucket colour for a European AQI reading.
 func AQIColor(aqi float64) RGB { return aqiBucket(aqi).c }
 
-// AQIWord returns the EEA bucket word ("GOOD".."EXTREME") for a reading.
 func AQIWord(aqi float64) string { return aqiBucket(aqi).word }
 
 var airIcon = []string{
@@ -50,10 +48,6 @@ func drawAQIStrip(f *Frame, hourly []float64) {
 	drawHourlyStrip(f, len(hourly), func(i int) RGB { return AQIColor(hourly[i]) })
 }
 
-// AirTileFrame composes the drawn air-quality tile: wind icon at cols 0–7 and
-// the rounded AQI value centred in the content area (rows 1–5), both in the
-// current bucket colour, plus the hourly-AQI strip on the bottom bar (row 7,
-// cols 8–31).
 func AirTileFrame(aqi float64, hourly []float64) Frame {
 	var f Frame
 	col := AQIColor(aqi)
@@ -64,7 +58,6 @@ func AirTileFrame(aqi float64, hourly []float64) Frame {
 	return f
 }
 
-// AirPayload renders the rotating air-quality tile.
 func AirPayload(aqi float64, hourly []float64, lifetime int) map[string]any {
 	f := AirTileFrame(aqi, hourly)
 	return map[string]any{
@@ -73,8 +66,6 @@ func AirPayload(aqi float64, hourly []float64, lifetime int) map[string]any {
 	}
 }
 
-// AirPopupPayload returns the threshold-crossing popup: drawn icon at cols
-// 0–7 + native scrolling "AIR <WORD> <N>" text, both in the bucket colour.
 func AirPopupPayload(aqi float64, durationSec int) map[string]any {
 	col := AQIColor(aqi)
 	iconPx := bitmap8(airIcon, col)

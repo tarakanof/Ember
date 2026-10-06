@@ -16,8 +16,6 @@ import (
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
-// Plex polling cadence: fast while a track plays (position, track changes),
-// slow otherwise. The webhook wakes the loop at once.
 const (
 	plexPollPlaying = 2 * time.Second
 	plexPollIdle    = 10 * time.Second
@@ -26,8 +24,6 @@ const (
 	plexSourceID    = "plex"
 )
 
-// plexConfig is the Plex source's env configuration. Token is a secret:
-// it travels only in the X-Plex-Token header and is never logged.
 type plexConfig struct {
 	URL, Token, User, Player, WebhookKey string
 }
@@ -37,7 +33,6 @@ func (c plexConfig) LogValue() slog.Value {
 		slog.String("user", c.User), slog.String("player", c.Player), slog.Bool("webhook", c.WebhookKey != ""))
 }
 
-// plexConfigFromEnv reads EMBER_PLEX_*; ok is false unless URL and token are set.
 func plexConfigFromEnv(getenv func(string) string) (plexConfig, bool) {
 	c := plexConfig{
 		URL:        strings.TrimRight(strings.TrimSpace(getenv("EMBER_PLEX_URL")), "/"),
@@ -53,27 +48,25 @@ func plexConfigFromEnv(getenv func(string) string) (plexConfig, bool) {
 	return c, true
 }
 
-// plexSource polls Plex's /status/sessions. Its fields after cfg are owned
-// by the run goroutine.
 type plexSource struct {
 	cfg    plexConfig
 	client *http.Client
-	nudge  chan struct{} // cap 1: one pending wake-up is enough
+	nudge  chan struct{}
 
-	player     string // player last reported, removed when it stops
+	player     string
 	albumPath  string
 	artistPath string
 	album      *nowplaying.Image
 	artist     *nowplaying.Image
 	lastErr    string
-	artFailed  map[string]bool // art paths that failed; logged once, retried each poll
-	track      string          // ratingKey and viewOffset of the last poll, to tell a
-	offset     int64           // fresh timeline update from a repeated stale one
+	artFailed  map[string]bool
+	track      string
+	offset     int64
 
-	volTried  time.Time // last timeline read for a report (volumeFor)
+	volTried  time.Time
 	volTarget string
 
-	ctl plexControl // shared with the control requests
+	ctl plexControl
 }
 
 func newPlexSource(cfg plexConfig) *plexSource {
@@ -87,7 +80,6 @@ func newPlexSource(cfg plexConfig) *plexSource {
 		ctl: newPlexControl()}
 }
 
-// wake asks the poller to poll now.
 func (p *plexSource) wake() {
 	select {
 	case p.nudge <- struct{}{}:
@@ -135,8 +127,6 @@ type plexSession struct {
 	} `json:"Player"`
 }
 
-// poll reads the sessions once, updates the registry and reports whether a
-// track is playing.
 func (p *plexSource) poll(ctx context.Context, np *nowPlayingService, logger *slog.Logger, now time.Time) bool {
 	s, err := p.session(ctx)
 	if err != nil {
@@ -207,9 +197,6 @@ func (p *plexSource) poll(ctx context.Context, np *nowPlayingService, logger *sl
 	return state == nowplaying.Playing
 }
 
-// volumeFor is the target's level for a report: re-read from its timeline
-// every plexVolumeRefresh while it plays (a change on the player shows), nil
-// when unknown (the registry keeps the last one).
 func (p *plexSource) volumeFor(ctx context.Context, target string, playing bool) *int {
 	if target == "" {
 		return nil
@@ -217,8 +204,6 @@ func (p *plexSource) volumeFor(ctx context.Context, target string, playing bool)
 	if v := p.ctl.volume(target, plexVolumeRefresh); v != nil || !playing {
 		return v
 	}
-	// One read per refresh period, success or not (a player without a
-	// timeline would cost a request every poll).
 	if now := p.ctl.now(); now.Sub(p.volTried) >= plexVolumeRefresh || p.volTarget != target {
 		p.volTried, p.volTarget = now, target
 	} else {
@@ -230,8 +215,6 @@ func (p *plexSource) volumeFor(ctx context.Context, target string, playing bool)
 	return nil
 }
 
-// art fetches a Plex image through the photo transcoder when its path
-// changed, else keeps the previous one.
 func (p *plexSource) art(ctx context.Context, path string, last *string, prev *nowplaying.Image, logger *slog.Logger) *nowplaying.Image {
 	if path == *last {
 		return prev
@@ -261,8 +244,6 @@ func (p *plexSource) headers() http.Header {
 	return http.Header{"X-Plex-Token": {p.cfg.Token}, "Accept": {"application/json"}}
 }
 
-// session returns the music session to show: the first playing track
-// matching the filters, else the first paused one; nil when none.
 func (p *plexSource) session(ctx context.Context) (*plexSession, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.cfg.URL+"/status/sessions", nil)
 	if err != nil {
@@ -321,8 +302,6 @@ func truncRunes(s string, n int) string {
 	return string([]rune(s)[:n])
 }
 
-// handlePlexWebhook is Plex's webhook target (Plex Pass): it only wakes the
-// poller. 404 unless EMBER_PLEX_WEBHOOK_KEY is set.
 func (a *App) handlePlexWebhook(w http.ResponseWriter, r *http.Request) {
 	plex := a.nowPlaying.plex
 	if plex == nil || plex.cfg.WebhookKey == "" {

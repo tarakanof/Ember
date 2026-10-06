@@ -2,8 +2,6 @@ package main
 
 import "time"
 
-// statsRanges maps a stats endpoint's ?range= to its window and point
-// spacing (0 = as stored). Knob and clock stats share them.
 var statsRanges = map[string]struct {
 	window, bucket time.Duration
 }{
@@ -12,26 +10,18 @@ var statsRanges = map[string]struct {
 	"24h": {24 * time.Hour, 5 * time.Minute},
 }
 
-// statsMinuteCap holds 24 h of one-minute buckets; buckets older than
-// statsMinuteWindow also leave the ring, so a device reporting every 5 min
-// keeps 288, not 5 days.
 const (
 	statsMinuteCap    = 24 * 60
 	statsMinuteWindow = 24 * time.Hour
 )
 
-// statsLiveWindow is how far back the live ring (finer than a minute) reaches.
 const statsLiveWindow = 10 * time.Minute
 
-// statsSample is a stored reading: its time, and how it folds a newer one
-// into a bucket.
 type statsSample[T any] interface {
 	stamp() time.Time
 	merge(newer T) T
 }
 
-// sampleRing is a FIFO of at most capacity samples, oldest first. Its
-// buffer grows with use up to capacity, so a device costs what it reports.
 type sampleRing[T statsSample[T]] struct {
 	buf        []T
 	capacity   int
@@ -52,8 +42,6 @@ func (r *sampleRing[T]) push(s T) {
 	}
 	if len(r.buf) < r.capacity {
 		if r.start != 0 || len(r.buf) == cap(r.buf) {
-			// Grow (doubling, never past capacity) and put the samples in
-			// order: after a dropBefore they may wrap.
 			r.resize(min(r.capacity, max(16, 2*r.len)))
 		}
 		r.buf = append(r.buf, s)
@@ -64,12 +52,10 @@ func (r *sampleRing[T]) push(s T) {
 	r.start = (r.start + 1) % len(r.buf)
 }
 
-// dropBefore removes samples older than from at the oldest end, and gives
-// the buffer back when it is under a quarter full (a live session ended).
 func (r *sampleRing[T]) dropBefore(from time.Time) {
 	var zero T
 	for r.len > 0 && (*r.at(0)).stamp().Before(from) {
-		*r.at(0) = zero // release its pointers
+		*r.at(0) = zero
 		r.start = (r.start + 1) % len(r.buf)
 		r.len--
 	}
@@ -78,7 +64,6 @@ func (r *sampleRing[T]) dropBefore(from time.Time) {
 	}
 }
 
-// resize moves the samples, in order, into a buffer of capacity n >= len.
 func (r *sampleRing[T]) resize(n int) {
 	grown := make([]T, r.len, n)
 	for i := range r.len {
@@ -94,7 +79,6 @@ func (r *sampleRing[T]) last() *T {
 	return r.at(r.len - 1)
 }
 
-// since returns copies of the samples at or after from, oldest first.
 func (r *sampleRing[T]) since(from time.Time) []T {
 	var out []T
 	for i := range r.len {
@@ -105,9 +89,6 @@ func (r *sampleRing[T]) since(from time.Time) []T {
 	return out
 }
 
-// sampleSeries is one device's samples: every one in the live ring, and
-// folded per minute into the minute ring. Not safe for concurrent use; the
-// owning store locks.
 type sampleSeries[T statsSample[T]] struct {
 	minutes sampleRing[T]
 	live    sampleRing[T]
@@ -117,8 +98,6 @@ func newSampleSeries[T statsSample[T]](liveCap int) sampleSeries[T] {
 	return sampleSeries[T]{minutes: newSampleRing[T](statsMinuteCap), live: newSampleRing[T](liveCap)}
 }
 
-// record adds s (already stamped): whole to the live ring, folded into the
-// current minute's bucket in the minute ring.
 func (s *sampleSeries[T]) record(x T) {
 	s.live.dropBefore(x.stamp().Add(-statsLiveWindow))
 	s.live.push(x)
@@ -130,8 +109,6 @@ func (s *sampleSeries[T]) record(x T) {
 	s.minutes.push(x)
 }
 
-// points returns the samples in rng's window ending at now, oldest first.
-// 15m uses live samples where it has them; 24h folds into 5-minute buckets.
 func (s *sampleSeries[T]) points(rng string, now time.Time) []T {
 	r := statsRanges[rng]
 	from := now.Add(-r.window)

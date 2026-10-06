@@ -9,13 +9,6 @@ import (
 	"time"
 )
 
-// serverAlive reports whether the T3 server that owns home is running. T3
-// writes <home>/userdata/server-runtime.json at startup and removes it on a
-// clean exit; a crash leaves it behind, so the recorded pid is checked too,
-// along with its start time where the OS reports it (the pid may have been
-// reused after a reboot).
-// Without this, a thread caught "running" when T3 quit would stay on the
-// clock forever, because the database is never updated again.
 func serverAlive(home string, alive func(pid int, startedAt time.Time) bool) bool {
 	body, err := os.ReadFile(filepath.Join(home, "userdata", "server-runtime.json"))
 	if err != nil {
@@ -32,9 +25,7 @@ func serverAlive(home string, alive func(pid int, startedAt time.Time) bool) boo
 	return alive(st.PID, started)
 }
 
-// pidAlive reports whether pid exists and, when startedAt is known and the OS
-// reports process start times, started no later than startedAt (+1 s slack:
-// T3 records startedAt after its process is already running).
+// T3 records startedAt after its process is running, hence the 1 s slack.
 func pidAlive(pid int, startedAt time.Time) bool {
 	if pid <= 0 {
 		return false

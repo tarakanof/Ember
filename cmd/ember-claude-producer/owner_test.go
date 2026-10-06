@@ -158,7 +158,7 @@ func TestResolveOwnerSkipsLinuxTruncatedProducerComm(t *testing.T) {
 		ppid int
 		comm string
 	}{
-		300: {200, "ember-claude-pr"}, // /proc comm of the hook binary on Linux
+		300: {200, "ember-claude-pr"},
 		200: {100, "sh"},
 		100: {1, "claude"},
 	}
@@ -202,7 +202,7 @@ func TestPidExists(t *testing.T) {
 	if pidExists(0) || pidExists(-1) {
 		t.Error("non-positive pid reported live")
 	}
-	if pidExists(1 << 22) { // above every default pid_max
+	if pidExists(1 << 22) {
 		t.Error("absent pid reported live")
 	}
 }

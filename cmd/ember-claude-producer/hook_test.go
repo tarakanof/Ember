@@ -84,8 +84,6 @@ func TestHook_UserPromptSubmit_UpsertsRunning(t *testing.T) {
 	}
 }
 
-// A normal turn end must leave `running`: agent_completed fires only for
-// background sessions under agent view (#257).
 func TestHook_Stop_UpsertsDoneAndKeepsMarker(t *testing.T) {
 	h := newHookHarness(t)
 	dir := h.sessionsDir()
@@ -154,16 +152,16 @@ func TestHook_Stop_BackgroundTasks(t *testing.T) {
 
 func TestHook_Notification_TypeMapping(t *testing.T) {
 	cases := []struct {
-		typ, prev, want string // want "" = no POST
+		typ, prev, want string
 	}{
 		{"idle_prompt", "running", "done"},
 		{"elicitation_dialog", "running", "waiting"},
 		{"elicitation_url_dialog", "running", "waiting"},
 		{"elicitation_complete", "waiting", "running"},
 		{"elicitation_response", "waiting", "running"},
-		{"elicitation_response", "done", ""}, // only ends a wait
-		{"idle_prompt", "done", ""},          // keeps Stop's reply line
-		{"idle_prompt", "error", ""},         // never hides an error
+		{"elicitation_response", "done", ""},
+		{"idle_prompt", "done", ""},
+		{"idle_prompt", "error", ""},
 		{"permission_prompt", "running", "waiting"},
 		{"agent_needs_input", "running", "waiting"},
 		{"agent_completed", "running", "done"},
@@ -200,8 +198,6 @@ func TestHook_Notification_TypeMapping(t *testing.T) {
 	}
 }
 
-// Claude Code's StopFailure input is error / error_details /
-// last_assistant_message; error_type and error_message don't exist.
 func TestHook_StopFailure_Message(t *testing.T) {
 	cases := []struct{ body, want string }{
 		{`"error":"rate_limit","error_details":"429 Too Many Requests","last_assistant_message":"API Error: Rate limit reached"`, "rate limited: 429 Too Many Requests"},
@@ -227,8 +223,6 @@ func TestHook_StopFailure_Message(t *testing.T) {
 	}
 }
 
-// holdLock takes the session lock from another open file description (as a
-// separate hook process would) until the returned func is called.
 func holdLock(t *testing.T, lockP string) func() {
 	t.Helper()
 	held := make(chan struct{})
@@ -247,8 +241,6 @@ func holdLock(t *testing.T, lockP string) func() {
 	return stop
 }
 
-// A hook must not queue behind a wedged lock holder for seconds (#258): it
-// gives up after hookLockWait and drops the update.
 func TestHook_LockWaitIsBounded(t *testing.T) {
 	h := newHookHarness(t)
 	if err := os.MkdirAll(h.sessionsDir(), 0o700); err != nil {
@@ -266,9 +258,6 @@ func TestHook_LockWaitIsBounded(t *testing.T) {
 	}
 }
 
-// SessionEnd shares a 1.5 s budget: it never waits out the lock and still
-// sends its DELETE.
-// An MCP elicitation answer must not end a permission wait.
 func TestHook_ElicitationResponse_KeepsPermissionWait(t *testing.T) {
 	h := newHookHarness(t)
 	if err := os.MkdirAll(h.sessionsDir(), 0o700); err != nil {
@@ -301,8 +290,6 @@ func TestHook_SessionStart_ClearsMarkerWhenLockBusy(t *testing.T) {
 	}
 }
 
-// The upsert stamps state_changed_at on a state change and keeps it while
-// the state holds, so done/error expire from when they began.
 func TestHandleUpsert_StateChangedAt(t *testing.T) {
 	h := newHookHarness(t)
 	_ = h
@@ -357,7 +344,6 @@ func TestHook_SessionEnd_DoesNotBlockOnLock(t *testing.T) {
 	}
 }
 
-// The DELETE gets at most sessionEndHTTPBudget even with a long HookTimeoutMs.
 func TestHook_SessionEnd_CapsDeleteTimeout(t *testing.T) {
 	h := newHookHarness(t)
 	release := make(chan struct{})
@@ -379,8 +365,6 @@ func TestHook_SessionEnd_CapsDeleteTimeout(t *testing.T) {
 	}
 }
 
-// Bodies are raw JSON in Claude Code's wire shape (SessionEnd sends "reason"),
-// not a marshalled hookInput, so a wrong struct tag can't round-trip and pass.
 func TestHook_SessionEnd_DeletesMarker(t *testing.T) {
 	for _, reason := range []string{"prompt_input_exit", "clear", "resume", "logout", "other"} {
 		t.Run(reason, func(t *testing.T) {
@@ -837,9 +821,6 @@ func TestDispatchHook_DeletePathUnchanged(t *testing.T) {
 	}
 }
 
-// Hooks write the marker under the lock and POST after releasing it, so a
-// slow server can't make a parallel hook (say Stop) drop its marker write
-// and leave the heartbeat re-posting a stale running.
 func TestHook_PostsOutsideLock(t *testing.T) {
 	h := newHookHarness(t)
 	lockP := filepath.Join(h.sessionsDir(), "abc.lock")

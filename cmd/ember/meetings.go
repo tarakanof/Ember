@@ -5,23 +5,19 @@ import (
 	"strings"
 )
 
-// MeetingsConfig holds the next-meeting widget's runtime-editable settings.
 type MeetingsConfig struct {
-	Enabled *bool `json:"enabled"`
-	// TileLeadMinutes is the window in which a meeting joins the tile rotation.
-	TileLeadMinutes int `json:"tile_lead_minutes"`
-	// PopupLeadMinutes is the popup lead time (0 = no popup).
+	Enabled          *bool `json:"enabled"`
+	TileLeadMinutes  int   `json:"tile_lead_minutes"`
 	PopupLeadMinutes *int  `json:"popup_lead_minutes"`
 	Chime            *bool `json:"chime"`
 }
 
 const defaultMeetingsPopupLeadMinutes = 2
 
-// IsEnabled / ChimeEnabled: nil (absent from JSON) means the friendly default (on); an explicit false is respected.
 func (c MeetingsConfig) IsEnabled() bool    { return c.Enabled == nil || *c.Enabled }
 func (c MeetingsConfig) ChimeEnabled() bool { return c.Chime == nil || *c.Chime }
 
-// PopupLeadMins resolves the popup lead: nil → default 2, explicit 0 → off, negatives clamp to 0 (validate rejects them on the PUT path anyway).
+// nil means 2, explicit 0 turns the popup off.
 func (c MeetingsConfig) PopupLeadMins() int {
 	if c.PopupLeadMinutes == nil {
 		return defaultMeetingsPopupLeadMinutes

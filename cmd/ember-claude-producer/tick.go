@@ -62,8 +62,6 @@ func runDaemon() {
 	}
 }
 
-// loadDaemonConfig is loadConfig with the daemon's discovered server URL
-// (fresher than the cache file when a re-browse just moved it).
 func loadDaemonConfig() (Config, error) {
 	cfg, err := loadConfig()
 	if err == nil && cfg.ServerAuto && daemonServer != nil {
@@ -91,8 +89,8 @@ type statuslineUsageSnapshot struct {
 	sevenDayPct        *int
 	sevenDayResetAt    int64
 	sevenDayResetLabel string
-	updatedAt          time.Time // when the figures last changed
-	mtime              time.Time // tie-break: the marker's last write
+	updatedAt          time.Time
+	mtime              time.Time
 }
 
 func dispatchTick(ctx context.Context, cfg Config) {
@@ -148,9 +146,6 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	if err != nil {
 		return nil
 	}
-	// Network calls never run under the session lock: hooks take it on the
-	// claude CLI's hot path, and a POST to an unreachable server would stall
-	// every one of them for the full daemon timeout (#258).
 	if pid, start, ok := markerOwner(markerP); ok && !ownerAlive(pid, start) {
 		reapMarker(ctx, client, markerP, lockP)
 		return nil
@@ -202,10 +197,6 @@ func processOneMarker(ctx context.Context, cfg Config, client *Client, markerP, 
 	return snap
 }
 
-// heartbeatDue reports whether the heartbeat should re-post the marker.
-// done and error are re-posted only until DoneTTLSeconds after the state
-// changed (covering a lost hook POST), so the server's done_ttl linger can
-// expire and the idle screen return; running and waiting always are.
 func heartbeatDue(cfg Config, m marker, mtime, now time.Time) bool {
 	if m.State != "done" && m.State != "error" {
 		return true
@@ -217,14 +208,6 @@ func heartbeatDue(cfg Config, m marker, mtime, now time.Time) bool {
 	return now.Sub(changed) < time.Duration(cfg.DoneTTLSeconds)*time.Second
 }
 
-// postReconciled POSTs the marker body, then re-reads the marker (lockWait
-// bounds the shared lock; negative blocks). The POST ran outside the lock, so
-// a hook may have changed or removed the marker, and told the server, while
-// it was in flight: a changed marker is re-sent once (a later change racing
-// that re-send heals at the next heartbeat), and a vanished one means
-// SessionEnd deleted the session, so it is DELETEd again rather than left as
-// a ghost. The check runs even when the POST failed: a timed-out POST may
-// still have been applied.
 func postReconciled(ctx context.Context, cfg Config, client *Client, markerP, lockP string, body []byte, lockWait time.Duration) error {
 	var req StatusRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -248,8 +231,6 @@ func postReconciled(ctx context.Context, cfg Config, client *Client, markerP, lo
 	return postErr
 }
 
-// snapshotMarker reads the marker under a shared lock; ok is false when it is
-// gone or the lock stayed busy for wait (negative blocks).
 func snapshotMarker(markerP, lockP string, wait time.Duration) (body []byte, ok bool) {
 	_ = withLockShWait(lockP, wait, func() error {
 		b, err := os.ReadFile(markerP)
@@ -261,8 +242,6 @@ func snapshotMarker(markerP, lockP string, wait time.Duration) (body []byte, ok 
 	return body, ok
 }
 
-// reapMarker removes a marker whose owner process is gone, re-checking the
-// owner under the lock, and DELETEs the session after releasing it.
 func reapMarker(ctx context.Context, client *Client, markerP, lockP string) {
 	var gone *StatusRequest
 	_ = withLockEx(lockP, func() error {
@@ -276,8 +255,6 @@ func reapMarker(ctx context.Context, client *Client, markerP, lockP string) {
 	deleteSession(ctx, client, gone)
 }
 
-// removeMarker deletes the marker (caller holds the lock) and returns the
-// session it described, for a DELETE after the lock is released.
 func removeMarker(markerP string) *StatusRequest {
 	body, err := os.ReadFile(markerP)
 	_ = os.Remove(markerP)

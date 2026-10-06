@@ -19,14 +19,12 @@ import (
 )
 
 const (
-	devicesKey          = "devices_json"
-	deviceKindKnob      = "cinder-knob"
-	deviceKindClient    = "client"
-	deviceTokenPrefix   = "ekd_"
-	clientTokenPrefix   = "ekc_"
-	deviceRotationGrace = 24 * time.Hour
-	// deviceCheckinPersistInterval bounds how often checkins alone rewrite the
-	// stored registry; other changes are written at once.
+	devicesKey                   = "devices_json"
+	deviceKindKnob               = "cinder-knob"
+	deviceKindClient             = "client"
+	deviceTokenPrefix            = "ekd_"
+	clientTokenPrefix            = "ekc_"
+	deviceRotationGrace          = 24 * time.Hour
 	deviceCheckinPersistInterval = 10 * time.Minute
 	deviceNameMaxRunes           = 64
 	devicesEpochHeader           = "X-Ember-Devices-Epoch"
@@ -34,34 +32,26 @@ const (
 )
 
 var (
-	errDeviceNotFound = errors.New("device not found")
-	errDeviceBody     = errors.New("invalid device body")
-	errNoChange       = errors.New("no change")
-	// errCheckinNotStored marks a checkin that succeeded in memory but whose
-	// periodic write failed; the result is still valid.
+	errDeviceNotFound   = errors.New("device not found")
+	errDeviceBody       = errors.New("invalid device body")
+	errNoChange         = errors.New("no change")
 	errCheckinNotStored = errors.New("checkin kept in memory, store write failed")
 )
 
 type deviceCheckin struct {
-	SeenAt              time.Time `json:"seen_at"`
-	FW                  string    `json:"fw"`
-	IP                  string    `json:"ip"`
-	RSSI                int       `json:"rssi"`
-	HeapInternalFree    int       `json:"heap_internal_free"`
-	HeapInternalLargest int       `json:"heap_internal_largest"`
-	UptimeS             int64     `json:"uptime_s"`
-	AppliedVersion      int       `json:"applied_version"`
-	// LinkMHz is the knob's panel QSPI clock (cinder#23: 80, or 40 when
-	// display.fast_link is off or LinkFallback says a link check failed).
-	LinkMHz      int  `json:"link_mhz,omitempty"`
-	LinkFallback bool `json:"link_fallback,omitempty"`
-	// Wifi is the knob's Wi-Fi link (cinder#21); nil before firmware 0.9.8
-	// or when the knob sent an invalid object.
-	Wifi *deviceWifi `json:"wifi,omitempty"`
+	SeenAt              time.Time   `json:"seen_at"`
+	FW                  string      `json:"fw"`
+	IP                  string      `json:"ip"`
+	RSSI                int         `json:"rssi"`
+	HeapInternalFree    int         `json:"heap_internal_free"`
+	HeapInternalLargest int         `json:"heap_internal_largest"`
+	UptimeS             int64       `json:"uptime_s"`
+	AppliedVersion      int         `json:"applied_version"`
+	LinkMHz             int         `json:"link_mhz,omitempty"`
+	LinkFallback        bool        `json:"link_fallback,omitempty"`
+	Wifi                *deviceWifi `json:"wifi,omitempty"`
 }
 
-// deviceWifi is the knob's Wi-Fi link telemetry: zero fields are unknown,
-// except Disconnects.
 type deviceWifi struct {
 	BSSID       string `json:"bssid,omitempty"`
 	Channel     int    `json:"channel,omitempty"`
@@ -143,7 +133,6 @@ func (s *deviceState) find(id string) *deviceRecord {
 	return nil
 }
 
-// findKnob is find limited to devices that pull a config: a client has none.
 func (s *deviceState) findKnob(id string) *deviceRecord {
 	if d := s.find(id); d != nil && d.Kind != deviceKindClient {
 		return d
@@ -151,7 +140,6 @@ func (s *deviceState) findKnob(id string) *deviceRecord {
 	return nil
 }
 
-// deviceView is the owner-facing wire shape of a device: no token material.
 type deviceView struct {
 	ID              string         `json:"id"`
 	Kind            string         `json:"kind"`
@@ -188,20 +176,18 @@ func (d deviceRecord) view() deviceView {
 	return v
 }
 
-// deviceRegistry holds provisioned devices and persists them to the settings KV.
 type deviceRegistry struct {
 	kv  func() settingsKV
 	now func() time.Time
 
-	mu           sync.Mutex // protects state, pendingPlain, loadErr, persistedAt, dirty
+	mu           sync.Mutex
 	state        deviceState
 	pendingPlain map[string]string
 	loadErr      error
 	persistedAt  time.Time
 	dirty        bool
 
-	// onChange runs after every committed mutation, under mu; it must not
-	// block or call back into the registry.
+	// Runs under mu: it must not block or call back into the registry.
 	onChange func()
 }
 
@@ -299,8 +285,6 @@ func (r *deviceRegistry) persistLocked(st deviceState) error {
 	return nil
 }
 
-// flush writes checkins still held only in memory; it is a no-op when the
-// stored registry is current.
 func (r *deviceRegistry) flush() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -326,7 +310,6 @@ func (r *deviceRegistry) list() []deviceView {
 	return out
 }
 
-// versions returns the registry epoch and device id's config version.
 func (r *deviceRegistry) versions(id string) (uint64, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -337,7 +320,6 @@ func (r *deviceRegistry) versions(id string) (uint64, int, error) {
 	return r.state.Epoch, d.ConfigVersion, nil
 }
 
-// diagnostics returns device id's diagnostics level and its last checkin.
 func (r *deviceRegistry) diagnostics(id string) (string, *deviceCheckin, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -349,8 +331,6 @@ func (r *deviceRegistry) diagnostics(id string) (string, *deviceCheckin, error) 
 	return c.Config.Diagnostics, c.LastCheckin, nil
 }
 
-// settingsAndCheckin returns device id's config and last checkin from one
-// read, so a concurrent PUT can't mix old and new settings.
 func (r *deviceRegistry) settingsAndCheckin(id string) (knobSettings, *deviceCheckin, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -373,9 +353,7 @@ func (r *deviceRegistry) config(id string) (knobSettings, int, error) {
 	return c.Config, c.ConfigVersion, nil
 }
 
-// provision mints a token for hwID, creating the device or re-provisioning it
-// (old token and any rotation revoked, config kept). It returns the plaintext
-// token, which is never stored.
+// The plaintext token is returned once and never stored.
 func (r *deviceRegistry) provision(hwID, name string) (deviceView, string, bool, error) {
 	token := newToken(deviceTokenPrefix)
 	var view deviceView
@@ -419,8 +397,7 @@ func (r *deviceRegistry) provision(hwID, name string) (deviceView, string, bool,
 	return view, token, created, err
 }
 
-// provisionClient mints a client record with scopes and returns its view and
-// plaintext token, which is never stored.
+// The plaintext token is returned once and never stored.
 func (r *deviceRegistry) provisionClient(name string, scopes []string) (deviceView, string, error) {
 	token := newToken(clientTokenPrefix)
 	var view deviceView
@@ -490,9 +467,6 @@ func (r *deviceRegistry) rename(id, name string) (deviceView, error) {
 	return view, err
 }
 
-// rotate starts a knob's token rotation, delivered on its next checkin. A
-// client has no checkin, so its new token is minted at once, returned, and the
-// old one revoked.
 func (r *deviceRegistry) rotate(id string) (deviceView, string, error) {
 	var view deviceView
 	var token string
@@ -531,9 +505,6 @@ func (r *deviceRegistry) remove(id string) error {
 	})
 }
 
-// putConfig deep-merges patch over the device's config (nested objects merge
-// field by field, arrays replace); an invalid result wraps errSettingBody and
-// changes nothing. The version and epoch move only when the config changes.
 func (r *deviceRegistry) putConfig(id string, patch []byte) (knobSettings, int, bool, error) {
 	var out knobSettings
 	var version int
@@ -566,10 +537,6 @@ func (r *deviceRegistry) putConfig(id string, patch []byte) (knobSettings, int, 
 	return out, version, changed, err
 }
 
-// authenticate maps a device bearer token to its device id in constant time
-// over all devices. The first use of a pending rotation token promotes it and
-// retires the old one; the old token also stops working deviceRotationGrace
-// after the rotation began. Only a promotion writes the store.
 func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	if !strings.HasPrefix(token, deviceTokenPrefix) {
 		return "", false, nil
@@ -617,8 +584,6 @@ func (r *deviceRegistry) authenticate(token string) (string, bool, error) {
 	return id, true, nil
 }
 
-// authenticateClient maps a client bearer token to its id and scopes in
-// constant time over all clients; it never writes.
 func (r *deviceRegistry) authenticateClient(token string) (string, []string, bool, error) {
 	if !strings.HasPrefix(token, clientTokenPrefix) {
 		return "", nil, false, nil
@@ -646,19 +611,10 @@ type checkinResult struct {
 	ConfigVersion int           `json:"config_version"`
 	Config        *knobSettings `json:"config,omitempty"`
 	NewToken      string        `json:"new_token,omitempty"`
-	// DiagLiveUntil is the live-mode deadline (server Unix seconds) while
-	// the owner's dashboard asks for 5 s stats.
+	// server Unix seconds.
 	DiagLiveUntil *int64 `json:"diag_live_until,omitempty"`
 }
 
-// checkin records the device's status report. The result carries the config
-// when the device's applied version is stale and, while a rotation is pending,
-// the pending token: minted on first delivery, then redelivered unchanged. Its
-// plaintext lives only in memory, so after a restart the next delivery mints
-// a replacement. A mint is written at once; the report itself stays in memory
-// and reaches the store at most every deviceCheckinPersistInterval, with any
-// other registry write, or on flush. A failed periodic write returns the
-// valid result with an errCheckinNotStored error and stays pending.
 func (r *deviceRegistry) checkin(id string, report deviceCheckin) (checkinResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -717,9 +673,9 @@ func mergeKnobSettings(cur knobSettings, patch []byte) (knobSettings, error) {
 	if err := dec.Decode(&cur); err != nil {
 		return cur, fmt.Errorf("%w: %w", errSettingBody, err)
 	}
-	cur.Bot.fillDefaults() // a null flag reads as on, as when absent
+	cur.Bot.fillDefaults()
 	cur.Display.fillDefaults()
-	cur.addKnownPages() // a PUT that leaves out a known page gets it back, off (#284)
+	cur.addKnownPages()
 	return cur, nil
 }
 

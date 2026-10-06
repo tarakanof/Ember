@@ -34,14 +34,11 @@ func (a *App) onSessionReaped(r sessions.Reaped) {
 	)
 }
 
-// Upsert stores req's session and returns the resulting /state Render plus the state the session held before this upsert ("" if new).
 func (a *App) Upsert(req StatusRequest) (Render, string) {
 	bv := a.sessions.View()
 	before := a.legacyRender(bv)
 	v, prior := a.sessions.Upsert(req.normalized())
 	after := a.legacyRender(v)
-	// Heartbeats and statusline ticks repeat the same state: wake pull clients
-	// only when what they render moved (the knob view's lead included).
 	if after != before || knobLeadOf(v) != knobLeadOf(bv) {
 		a.changes.notify(topicSessions)
 	}
@@ -60,7 +57,6 @@ func (a *App) Delete(key string) Render {
 	return a.legacyRender(v)
 }
 
-// Snapshot is the GET /state body and the coordinator's view of the sessions.
 func (a *App) Snapshot() Snapshot {
 	v := a.sessions.View()
 	return Snapshot{
@@ -88,8 +84,6 @@ func (a *App) legacyRender(v sessions.View) Render {
 		text = aggregateLabel(waiting, running, errored, done)
 	}
 
-	// An aggregate (several sessions in the winning state) names no single
-	// host or tool unless they all agree.
 	src, tool := win.Source, win.Tool
 	for _, o := range v.Sessions {
 		if o.State != win.State {

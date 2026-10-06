@@ -19,8 +19,6 @@ func handleMetrics(app *App) http.HandlerFunc {
 	}
 }
 
-// routeMux is a ServeMux that records every pattern registered on it, so
-// the route-coverage test can hold the mux to docs/openapi.yaml.
 type routeMux struct {
 	*http.ServeMux
 	patterns *[]string
@@ -44,8 +42,6 @@ func (a *App) routes() http.Handler {
 	return h
 }
 
-// routeTable builds the server's handler and lists every registered pattern,
-// mounts ("/v1/", "/admin/") included.
 func (a *App) routeTable() (http.Handler, []string) {
 	var patterns []string
 	mux := newRouteMux(&patterns)
@@ -74,11 +70,8 @@ func (a *App) routeTable() (http.Handler, []string) {
 	mux.Handle("GET /v1/activity/summary", rateLimit(a, http.HandlerFunc(a.handleActivitySummary)))
 	mux.HandleFunc("GET /v1/weather/state", a.handleWeatherState)
 	mux.HandleFunc("GET /v1/nowplaying/state", a.handleNowPlayingState)
-	// Art renders can cost ~40 ms and ~20 MB on a cache miss: rate-limited.
 	mux.Handle("GET /v1/nowplaying/art", rateLimit(a, http.HandlerFunc(a.handleNowPlayingArt)))
 	mux.Handle("POST /hooks/plex", rateLimit(a, http.HandlerFunc(a.handlePlexWebhook)))
-	// Brightness for sensorless displays; the clock probe is the shared 30s cache,
-	// but it can still reach the clock, so rate-limit like the health read.
 	mux.Handle("GET /v1/display/brightness", rateLimit(a, http.HandlerFunc(a.handleDisplayBrightness)))
 	mux.Handle("GET /v1/clock/health", rateLimit(a, http.HandlerFunc(a.handleClockHealth)))
 	mux.Handle("POST /hooks/awtrix/button", rateLimit(a, http.HandlerFunc(a.handleAwtrixButton)))
@@ -223,9 +216,6 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-// requireAuth admits the master EMBER_TOKEN, or a client token holding the
-// scope requiredScope names for the route next would serve (admin when next
-// can't say).
 func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := app.cfg.Load().Auth.StatusToken

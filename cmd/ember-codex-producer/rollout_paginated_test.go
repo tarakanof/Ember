@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// The fixture is a sanitized codex-cli 0.160.0 rollout (history_mode "paginated"):
-// state and tool activity arrive only as item_completed TurnItems.
 func foldFixture(t *testing.T, name string) (derived, []derived) {
 	t.Helper()
 	data, err := os.ReadFile("testdata/" + name)
@@ -56,7 +54,6 @@ func TestFold_PaginatedRolloutFixture(t *testing.T) {
 
 func TestFold_PaginatedTrailIntermediate(t *testing.T) {
 	_, steps := foldFixture(t, "rollout-paginated-0.160.jsonl")
-	// The oldest item (exec: go test ./...) falls off the 80-char cap.
 	want := "web: codex rollout · mcp: search_docs · edit: rollout.go +1"
 	if got := steps[12].activity; got != want {
 		t.Errorf("activity = %q, want %q", got, want)

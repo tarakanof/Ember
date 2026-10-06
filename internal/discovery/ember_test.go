@@ -40,7 +40,6 @@ func mustRR(t *testing.T, s string) dns.RR {
 }
 
 func TestParseEmberAnswersFromLegacyUnicastReply(t *testing.T) {
-	// The shape the server's dnssd responder sends to a legacy unicast query.
 	m := &dns.Msg{
 		Answer: []dns.RR{mustRR(t, `_ember._tcp.local. 450 IN PTR Ember._ember._tcp.local.`)},
 		Extra: []dns.RR{

@@ -16,8 +16,6 @@ import (
 	"github.com/tarakanof/ember/internal/pomodoro"
 )
 
-// --- broadcaster ---
-
 func TestChangeBroadcasterWakesAllWaitersAndReportsTopics(t *testing.T) {
 	b := newChangeBroadcaster()
 	seq, ch1 := b.subscribe()
@@ -51,12 +49,10 @@ func TestChangeBroadcasterWakesAllWaitersAndReportsTopics(t *testing.T) {
 	}
 }
 
-// A notify between subscribe and the wait must not be lost: the channel
-// taken before the read is the one it closes.
 func TestChangeBroadcasterNoLostWakeupBetweenReadAndWait(t *testing.T) {
 	b := newChangeBroadcaster()
 	_, ch := b.subscribe()
-	b.notify(topicSessions) // lands "between the hash check and the wait"
+	b.notify(topicSessions)
 	select {
 	case <-ch:
 	case <-time.After(time.Second):
@@ -68,17 +64,16 @@ func TestChangeBroadcasterCloseEndsWaitsAndIsIdempotent(t *testing.T) {
 	b := newChangeBroadcaster()
 	b.close()
 	b.close()
-	b.notify(topicSessions) // no panic after close
+	b.notify(topicSessions)
 	select {
 	case <-b.stopped():
 	default:
 		t.Fatal("stopped not closed")
 	}
 	var nilB *changeBroadcaster
-	nilB.notify(topicSessions) // nil-safe
+	nilB.notify(topicSessions)
 }
 
-// Every source the knob view reads notifies the broadcaster.
 func TestChangeSourcesNotify(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -147,8 +142,6 @@ func TestWeatherFetchNotifies(t *testing.T) {
 	}
 }
 
-// --- wait parameter ---
-
 func TestParseViewWait(t *testing.T) {
 	for raw, want := range map[string]time.Duration{"": 0, "0": 0, "1": time.Second, "25": 25 * time.Second, "999": knobViewWaitMax} {
 		got, err := parseViewWait(raw)
@@ -162,8 +155,6 @@ func TestParseViewWait(t *testing.T) {
 		}
 	}
 }
-
-// --- HTTP ---
 
 func (f *viewFixture) wait(ctx context.Context, t *testing.T, etag, wait string) (*http.Response, []byte, time.Duration, error) {
 	t.Helper()
@@ -185,8 +176,6 @@ func (f *viewFixture) wait(ctx context.Context, t *testing.T, etag, wait string)
 	return resp, b, time.Since(start), err
 }
 
-// newWaitFixture never rechecks on its own, so a wake can only come from a
-// notify (or the wait running out).
 func newWaitFixture(t *testing.T) (*viewFixture, string) {
 	f := newViewFixture(t)
 	f.app.viewRecheck = time.Hour
@@ -247,8 +236,6 @@ func TestKnobViewWaitRejectsBadWait(t *testing.T) {
 	}
 }
 
-// waitThenAct starts a long-poll, waits until it blocks, runs act, and returns
-// the answer and how long after act it came.
 func waitThenAct(t *testing.T, f *viewFixture, etag string, act func()) (*http.Response, []byte, time.Duration) {
 	t.Helper()
 	type res struct {
@@ -317,7 +304,7 @@ func TestKnobViewWaitWakesOnEachSource(t *testing.T) {
 			if resp.Header.Get("ETag") == etag {
 				t.Fatal("ETag unchanged")
 			}
-			if after > 5*time.Second { // the wait is 10 s; a 200 at all already proves the wake
+			if after > 5*time.Second {
 				t.Fatalf("woke %v after the change", after)
 			}
 			waitForWaiters(t, f.app, 0)
@@ -325,8 +312,6 @@ func TestKnobViewWaitWakesOnEachSource(t *testing.T) {
 	}
 }
 
-// State that moves without a notify (here: written straight into the store)
-// is still picked up by the periodic recheck.
 func TestKnobViewWaitRecheckCatchesSilentChanges(t *testing.T) {
 	f := newViewFixture(t)
 	f.app.viewRecheck = 20 * time.Millisecond
@@ -344,9 +329,6 @@ func TestKnobViewWaitRecheckCatchesSilentChanges(t *testing.T) {
 	}
 }
 
-// A change that lands after the long-poll's read but before it blocks (the
-// hook runs exactly there) must still wake it: a lost one would end in 304
-// when the wait runs out.
 func TestKnobViewWaitNoLostWakeupBetweenReadAndBlock(t *testing.T) {
 	f, _ := newWaitFixture(t)
 	for i := range 10 {
@@ -389,7 +371,6 @@ func TestKnobViewWaitersAreBoundedPerDevice(t *testing.T) {
 	waitForWaiters(t, f.app, 0)
 }
 
-// A client that goes away releases its slot and its goroutine.
 func TestKnobViewWaitReleasesOnClientDisconnect(t *testing.T) {
 	f, etag := newWaitFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -487,8 +468,6 @@ func grepLines(s, sub string) string {
 	return strings.Join(out, "\n")
 }
 
-// The server's Read/WriteTimeout (30 s in main) count from the request; a
-// wait must extend both, or the answer is lost and the context cancelled.
 func TestKnobViewWaitOutlivesServerTimeouts(t *testing.T) {
 	f, etag := newWaitFixture(t)
 	srv := httptest.NewUnstartedServer(f.app.routes())
@@ -550,7 +529,6 @@ func TestBrightnessUnchangedOutputDoesNotNotify(t *testing.T) {
 	}
 }
 
-// At the waiter cap a stale tag still gets its 200 at once, not 429.
 func TestKnobViewWaitStaleTagAtCapAnswers200(t *testing.T) {
 	f, etag := newWaitFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -567,7 +545,6 @@ func TestKnobViewWaitStaleTagAtCapAnswers200(t *testing.T) {
 	waitForWaiters(t, f.app, 0)
 }
 
-// If-None-Match: * matches any view; with wait it answers 304 at once.
 func TestKnobViewWaitStarDoesNotWait(t *testing.T) {
 	f, _ := newWaitFixture(t)
 	resp, _, took, err := f.wait(t.Context(), t, "*", "20")
@@ -579,7 +556,6 @@ func TestKnobViewWaitStarDoesNotWait(t *testing.T) {
 	}
 }
 
-// A now-playing report wakes a knob that shows the page.
 func TestKnobViewWaitWakesOnNowPlaying(t *testing.T) {
 	f := newViewFixture(t)
 	f.app.viewRecheck = time.Hour

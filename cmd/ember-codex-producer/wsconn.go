@@ -1,9 +1,5 @@
 package main
 
-// A minimal RFC 6455 WebSocket over a Unix socket, stdlib only. The Codex
-// app-server control socket speaks WebSocket (handshake GET ws://localhost/rpc)
-// with one JSON-RPC message per text frame.
-
 import (
 	"bufio"
 	"context"
@@ -21,9 +17,7 @@ import (
 )
 
 const (
-	wsGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-	// wsMaxMessage bounds one inbound message; thread/read and resume
-	// without turns are a few KB.
+	wsGUID       = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 	wsMaxMessage = 16 << 20
 
 	opCont  = 0
@@ -33,18 +27,15 @@ const (
 	opPong  = 10
 )
 
-// wsWriteTimeout bounds one frame write, so a daemon that stops reading
-// fails the session instead of blocking it.
 const wsWriteTimeout = 10 * time.Second
 
 type wsConn struct {
-	c      net.Conn
-	br     *bufio.Reader
-	client bool   // a client masks its frames; a server must not
-	max    uint64 // message size limit; 0 means wsMaxMessage
-	// writeTimeout bounds one frame write; 0 means wsWriteTimeout.
+	c            net.Conn
+	br           *bufio.Reader
+	client       bool
+	max          uint64
 	writeTimeout time.Duration
-	mu           sync.Mutex // serializes frame writes
+	mu           sync.Mutex
 }
 
 func wsAccept(key string) string {
@@ -52,7 +43,6 @@ func wsAccept(key string) string {
 	return base64.StdEncoding.EncodeToString(h[:])
 }
 
-// dialWS opens the Unix socket at path and performs the client handshake.
 func dialWS(ctx context.Context, path string) (*wsConn, error) {
 	var d net.Dialer
 	c, err := d.DialContext(ctx, "unix", path)
@@ -127,13 +117,8 @@ func (w *wsConn) writeFrame(op byte, p []byte) error {
 	return err
 }
 
-// WriteText sends one text message.
 func (w *wsConn) WriteText(p []byte) error { return w.writeFrame(opText, p) }
 
-// ReadMessage returns the next complete data message. It answers pings with a
-// pong (a WebSocket control frame, not a JSON-RPC message), echoes a close
-// frame and reports it as io.EOF, and drains and skips a message larger than
-// wsMaxMessage instead of failing the connection.
 func (w *wsConn) ReadMessage() ([]byte, error) {
 	limit := w.max
 	if limit == 0 {

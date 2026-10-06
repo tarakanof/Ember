@@ -31,8 +31,6 @@ func newClockStatsFixture(t *testing.T) *clockStatsFixture {
 	return f
 }
 
-// probe runs one probe at t0+at; each call is past the cache TTL when at
-// steps by clockProbeTTL or more.
 func (f *clockStatsFixture) probe(at time.Duration) {
 	f.app.probeClockHealth(context.Background(), f.t0.Add(at))
 }
@@ -137,7 +135,7 @@ func TestClockStatsMinuteBucketsAndLiveSamples(t *testing.T) {
 
 func TestClockStats15mUsesMinutesBeforeTheLiveWindow(t *testing.T) {
 	f := newClockStatsFixture(t)
-	for i := range 28 { // 14 min of 30 s probes; the live ring keeps 10 min
+	for i := range 28 {
 		f.probe(time.Duration(i) * 30 * time.Second)
 	}
 	got := f.stats(t, "15m", 14*time.Minute)
@@ -155,7 +153,7 @@ func TestClockStats15mUsesMinutesBeforeTheLiveWindow(t *testing.T) {
 
 func TestClockStats24hDownsamplesToFiveMinutes(t *testing.T) {
 	f := newClockStatsFixture(t)
-	for i := range 40 { // 20 min
+	for i := range 40 {
 		f.probe(time.Duration(i) * 30 * time.Second)
 	}
 	if got := f.stats(t, "24h", 20*time.Minute); len(got.Points) != 4 {

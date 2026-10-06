@@ -55,13 +55,13 @@ func TestBrightnessValidate(t *testing.T) {
 }
 
 func TestLuxToLevel(t *testing.T) {
-	c := BrightnessConfig{}.resolved() // dark 1 lux, bright 200 lux, 10..255
+	c := BrightnessConfig{}.resolved()
 	cases := []struct {
 		lux  float64
 		want int
 	}{
 		{-3, 10}, {0, 10}, {1, 10}, {200, 255}, {5000, 255},
-		{14, 132}, // geometric midpoint of 1 and 200 is ~14.1 lux: halfway up
+		{14, 132},
 	}
 	for _, tc := range cases {
 		if got := luxToLevel(c, tc.lux); got != tc.want {
@@ -107,14 +107,13 @@ func TestHoldWithinBand(t *testing.T) {
 	}
 }
 
-// London midsummer: sun is up from ~03:43Z to ~20:21Z.
 var (
 	lonLat, lonLon = 51.5, -0.12
 	jun21          = time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC)
 )
 
 func TestSunLevel(t *testing.T) {
-	c := BrightnessConfig{}.resolved() // night 20, day 255, twilight 45 min
+	c := BrightnessConfig{}.resolved()
 	rise, set, ok := sunTimes(lonLat, lonLon, jun21)
 	if !ok {
 		t.Fatal("no sun times")
@@ -148,15 +147,11 @@ func TestSunLevel(t *testing.T) {
 	}
 }
 
-// Western longitudes cross the UTC date line between sunrise and sunset;
-// the level must still be right in the local evening (next UTC day).
 func TestSunLevelAcrossUTCDate(t *testing.T) {
 	c := BrightnessConfig{}.resolved()
-	// Los Angeles, 2026-06-21 20:00 local (PDT) = 03:00Z on the 22nd: night.
 	if got, night := sunLevel(c, 34.05, -118.24, time.Date(2026, 6, 22, 5, 0, 0, 0, time.UTC)); !night || got != 20 {
 		t.Errorf("LA night = %d,%v", got, night)
 	}
-	// 19:00 local = 02:00Z the 22nd: sun is still up.
 	if got, night := sunLevel(c, 34.05, -118.24, time.Date(2026, 6, 22, 2, 0, 0, 0, time.UTC)); night || got != 255 {
 		t.Errorf("LA evening = %d,%v", got, night)
 	}
@@ -172,7 +167,6 @@ func TestSunLevelPolarNight(t *testing.T) {
 
 func TestSunLevelPolar(t *testing.T) {
 	c := BrightnessConfig{}.resolved()
-	// Svalbard midsummer: midnight sun, no rise/set. Stays day.
 	if got, night := sunLevel(c, 78.2, 15.6, jun21.Add(23*time.Hour)); night || got != 255 {
 		t.Errorf("polar day = %d,%v", got, night)
 	}
@@ -230,17 +224,14 @@ func TestDecideSmoothsAndHolds(t *testing.T) {
 	if first.Level != 255 {
 		t.Fatalf("first = %d, want 255 (seeded from first sample)", first.Level)
 	}
-	// One dark reading is halved by the EMA (200 -> 100 lux), not obeyed.
 	second := step(0.5, t0.Add(30*time.Second))
 	if second.Level < 200 {
 		t.Errorf("EMA should damp a single dim sample: level %d", second.Level)
 	}
-	// Re-asking with the same sample timestamp must not feed the EMA twice.
 	again, st2 := decideBrightness(c, st, luxAt(0.5, t0.Add(30*time.Second)), geo, t0.Add(31*time.Second))
 	if again.Level != second.Level || st2.EMA != st.EMA {
 		t.Errorf("same sample re-applied: %d vs %d, ema %v vs %v", again.Level, second.Level, st2.EMA, st.EMA)
 	}
-	// Sustained dark converges to the floor.
 	var last brightnessOut
 	for i := 2; i < 30; i++ {
 		last = step(0.5, t0.Add(time.Duration(i)*30*time.Second))
@@ -248,7 +239,6 @@ func TestDecideSmoothsAndHolds(t *testing.T) {
 	if last.Level != 10 {
 		t.Errorf("sustained dark = %d, want floor 10", last.Level)
 	}
-	// Jitter around a steady level (within band) does not move it.
 	st = brightnessState{}
 	base := step(40, t0)
 	for i, lux := range []float64{42, 38, 41, 39, 43} {
@@ -271,7 +261,6 @@ func TestDecideStaleResetsEMA(t *testing.T) {
 	if st.HasEMA || st.HasLevel {
 		t.Errorf("state should reset when clock is gone: %+v", st)
 	}
-	// Coming back dark starts from the new reading, not the old bright EMA.
 	out, _ := decideBrightness(c, st, luxAt(0.5, noon.Add(2*time.Hour)), geo, noon.Add(2*time.Hour))
 	if out.Level != 10 {
 		t.Errorf("after reset level = %d, want 10", out.Level)
@@ -331,8 +320,6 @@ func abs(a int) int {
 	return a
 }
 
-// ---- through the real routes ----
-
 func lightClock(t *testing.T, body string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +341,7 @@ func TestBrightnessEndpointLuxFromClock(t *testing.T) {
 	srv := httptest.NewServer(app.routes())
 	defer srv.Close()
 
-	status, body := getOpen(t, srv, "/v1/display/brightness") // no token
+	status, body := getOpen(t, srv, "/v1/display/brightness")
 	if status != http.StatusOK {
 		t.Fatalf("status %d", status)
 	}
@@ -491,7 +478,6 @@ func TestBrightnessConfigMergePut(t *testing.T) {
 	if code != http.StatusOK || d.Floor != 30 || d.NightLevel != 40 || d.Ceiling != 255 || d.DayLevel != 255 {
 		t.Fatalf("merge PUT = %d %+v", code, d)
 	}
-	// Raising the floor above the stored night level is rejected, not clamped.
 	if code, _ := put(`{"floor":50}`, true); code != http.StatusBadRequest {
 		t.Errorf("invalid PUT = %d, want 400", code)
 	}

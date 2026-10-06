@@ -43,8 +43,6 @@ func readPluginHooks(t *testing.T) map[string][]pluginGroup {
 	return file.Hooks
 }
 
-// The plugin and the settings.json installer must register the same hook set,
-// or a Mac's behavior would depend on how the producer was installed.
 func TestPluginHooksMatchInstaller(t *testing.T) {
 	hooks := readPluginHooks(t)
 	seen := map[string]bool{}

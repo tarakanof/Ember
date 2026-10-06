@@ -1,6 +1,3 @@
-// Package nowplaying holds what music is playing, reported by sources (Plex,
-// Ember.app's Apple Music pusher), the rule that picks one, and the album and
-// artist pictures served to displays.
 package nowplaying
 
 import (
@@ -16,35 +13,27 @@ import (
 	"unicode/utf8"
 )
 
-// State is a player's transport state.
 type State string
 
-// Player states a source reports.
 const (
 	Playing State = "playing"
 	Paused  State = "paused"
 	Stopped State = "stopped"
 )
 
-// Kind names one picture of an entry.
 type Kind string
 
-// Picture kinds. Backdrop is rendered from the artist picture (else the album).
 const (
 	Album    Kind = "album"
 	Artist   Kind = "artist"
 	Backdrop Kind = "backdrop"
 )
 
-// Lifetimes of an entry without a fresh report.
 const (
-	PausedTTL     = 10 * time.Minute
-	PlayingGrace  = 5 * time.Minute
-	NoDurationTTL = 30 * time.Minute
-	SeekTolerance = 3 * time.Second
-	// ForgetAfter drops an entry with no report for this long; until then an
-	// expired entry is kept (hidden) so a source re-reporting the same
-	// paused track doesn't bring it back.
+	PausedTTL       = 10 * time.Minute
+	PlayingGrace    = 5 * time.Minute
+	NoDurationTTL   = 30 * time.Minute
+	SeekTolerance   = 3 * time.Second
 	ForgetAfter     = time.Hour
 	maxEntries      = 32
 	maxTextRunes    = 200
@@ -52,7 +41,6 @@ const (
 	maxTrackIDRunes = 128
 )
 
-// Errors from Report and SetArt.
 var (
 	ErrInvalid       = errors.New("invalid now-playing report")
 	ErrNoEntry       = errors.New("no now-playing entry for this source and player")
@@ -61,7 +49,6 @@ var (
 
 var sourcePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
-// Report is one source's view of its player.
 type Report struct {
 	Source     string `json:"source"`
 	Player     string `json:"player"`
@@ -72,13 +59,10 @@ type Report struct {
 	TrackID    string `json:"track_id"`
 	DurationMS int64  `json:"duration_ms"`
 	PositionMS int64  `json:"position_ms"`
-	// Volume is the player's own volume, 0-100 (Music's sound volume, not
-	// the Mac's); nil when the source can't tell, which keeps the player's
-	// last known volume.
+	// 0-100; nil keeps the player's last known volume.
 	Volume *int `json:"volume,omitempty"`
 }
 
-// Validate checks a report's identity, state and text lengths.
 func (r Report) Validate() error {
 	if !sourcePattern.MatchString(r.Source) {
 		return fmt.Errorf("%w: source must match %s", ErrInvalid, sourcePattern)
@@ -111,7 +95,6 @@ func (r Report) Validate() error {
 	return nil
 }
 
-// equal compares two reports by value (Volume is a pointer).
 func (r Report) equal(o Report) bool {
 	rv, ov := r.Volume, o.Volume
 	r.Volume, o.Volume = nil, nil
@@ -128,19 +111,16 @@ func (r Report) track() string {
 	return "tag:" + r.Title + "\x00" + r.Artist + "\x00" + r.Album
 }
 
-// Image is a source picture: its bytes and a content hash. Never mutated.
 type Image struct {
 	Data []byte
 	Hash string
 }
 
-// NewImage wraps data with its content hash.
 func NewImage(data []byte) *Image {
 	sum := sha256.Sum256(data)
 	return &Image{Data: data, Hash: hex.EncodeToString(sum[:8])}
 }
 
-// Entry is a player's latest state. PositionMS is the position at PositionAt.
 type Entry struct {
 	Report
 	PositionAt time.Time
@@ -150,7 +130,6 @@ type Entry struct {
 	ArtistArt  *Image
 }
 
-// Position extrapolates the playback position at now, capped at the duration.
 func (e Entry) Position(now time.Time) int64 {
 	p := e.PositionMS
 	if e.State == Playing && now.After(e.PositionAt) {
@@ -162,7 +141,6 @@ func (e Entry) Position(now time.Time) int64 {
 	return p
 }
 
-// ArtVersion changes exactly when the entry's pictures do; empty without any.
 func (e Entry) ArtVersion() string {
 	if e.AlbumArt == nil && e.ArtistArt == nil {
 		return ""
@@ -178,7 +156,6 @@ func (e Entry) ArtVersion() string {
 	return hex.EncodeToString(sum[:6])
 }
 
-// Picture returns the source image a kind is rendered from.
 func (e Entry) Picture(k Kind) *Image {
 	switch k {
 	case Album:
@@ -210,14 +187,10 @@ func (e Entry) expired(now time.Time) bool {
 
 type key struct{ source, player string }
 
-// Registry is safe for concurrent use.
 type Registry struct {
-	mu      sync.Mutex // protects entries
+	mu      sync.Mutex
 	entries map[key]*Entry
-	// OnChange, when set before use, runs after every mutation a reader could
-	// see (not after a heartbeat that repeats the same report), under mu: it
-	// must not block or call back into the registry. Expiry with time alone
-	// (Current) does not call it.
+	// Runs under mu: it must not block or call back into the registry.
 	OnChange func()
 }
 
@@ -227,13 +200,10 @@ func (r *Registry) changedLocked() {
 	}
 }
 
-// NewRegistry returns an empty registry.
 func NewRegistry() *Registry {
 	return &Registry{entries: make(map[key]*Entry)}
 }
 
-// Report records rep at now; stopped removes the player. It reports whether
-// the player's track changed (a new track drops its pictures).
 func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 	if err := rep.Validate(); err != nil {
 		return false, err
@@ -254,7 +224,7 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 		r.evictLocked(now)
 	}
 	if rep.Volume == nil && old != nil {
-		rep.Volume = old.Volume // a report without a volume keeps the last known one
+		rep.Volume = old.Volume
 	}
 	next := &Entry{Report: rep, PositionAt: now, StateSince: now, UpdatedAt: now}
 	if old == nil || old.track() != rep.track() {
@@ -271,7 +241,6 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 		}
 	}
 	r.entries[k] = next
-	// A heartbeat: same report, position within the seek tolerance (kept).
 	same := rep
 	same.PositionMS = old.PositionMS
 	if !same.equal(old.Report) || !next.PositionAt.Equal(old.PositionAt) {
@@ -280,8 +249,6 @@ func (r *Registry) Report(rep Report, now time.Time) (bool, error) {
 	return false, nil
 }
 
-// SetArt attaches a picture to the player's current track. An empty trackID
-// skips the track check.
 func (r *Registry) SetArt(source, player, trackID string, kind Kind, img *Image) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -306,9 +273,6 @@ func (r *Registry) SetArt(source, player, trackID string, kind Kind, img *Image)
 	return nil
 }
 
-// SetArtistArt attaches an artist picture found by name, only while the
-// player still plays that artist and has no artist picture. It reports
-// whether the picture was attached.
 func (r *Registry) SetArtistArt(source, player, artist string, img *Image) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -323,7 +287,6 @@ func (r *Registry) SetArtistArt(source, player, artist string, img *Image) bool 
 	return true
 }
 
-// Get returns one player's entry.
 func (r *Registry) Get(source, player string) (Entry, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -334,7 +297,6 @@ func (r *Registry) Get(source, player string) (Entry, bool) {
 	return *e, true
 }
 
-// Remove drops a player.
 func (r *Registry) Remove(source, player string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -344,8 +306,6 @@ func (r *Registry) Remove(source, player string) {
 	}
 }
 
-// evictLocked forgets silent entries and, at the cap, the least recently
-// updated one, so a misbehaving pusher can't grow the map without bound.
 func (r *Registry) evictLocked(now time.Time) {
 	var oldest key
 	var oldestAt time.Time
@@ -363,8 +323,6 @@ func (r *Registry) evictLocked(now time.Time) {
 	}
 }
 
-// Current returns the entry displays show at now: the most recently started
-// playing entry, else the most recently paused one, skipping expired ones.
 func (r *Registry) Current(now time.Time) (Entry, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

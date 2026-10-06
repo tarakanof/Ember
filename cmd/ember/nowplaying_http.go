@@ -11,10 +11,6 @@ import (
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
-// nowPlayingState is GET /v1/nowplaying/state, readable by anyone on the
-// LAN, so it leaves out the player (a Mac's name). state is playing, paused
-// or none; every other field is null with none. position_ms is the position
-// at position_at (Unix ms): clients extrapolate while playing.
 type nowPlayingState struct {
 	State        string  `json:"state"`
 	Source       *string `json:"source"`
@@ -65,14 +61,10 @@ func (a *App) nowPlayingState(now time.Time) nowPlayingState {
 func (a *App) handleNowPlayingState(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	w.Header().Set("Cache-Control", "no-cache")
-	// The server's Unix seconds, so a client with a skewed clock extrapolates
-	// position_at the way the knob does.
 	w.Header().Set(knobNowHeader, strconv.FormatInt(now.Unix(), 10))
 	writeJSON(w, http.StatusOK, a.nowPlayingState(now))
 }
 
-// handleNowPlayingArt serves the current entry's picture as a square
-// baseline JPEG. ?v= naming the current art_version makes it cacheable.
 func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	kind := nowplaying.Kind(q.Get("kind"))
@@ -123,15 +115,11 @@ func (a *App) handleNowPlayingArt(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-// nowPlayingAck answers an ingest: which pictures the server holds for the
-// player, so a pusher sends artwork only when it is missing.
 type nowPlayingAck struct {
 	HasAlbumArt  bool `json:"has_album_art"`
 	HasArtistArt bool `json:"has_artist_art"`
 }
 
-// handleNowPlayingReport is POST /v1/nowplaying. Unknown fields are
-// ignored, like /v1/status, so newer pushers work with older servers.
 func (a *App) handleNowPlayingReport(w http.ResponseWriter, r *http.Request) {
 	var rep nowplaying.Report
 	if !a.decodeOrReject(w, r, &rep, false) {
@@ -145,8 +133,6 @@ func (a *App) handleNowPlayingReport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, nowPlayingAck{HasAlbumArt: e.AlbumArt != nil, HasArtistArt: e.ArtistArt != nil})
 }
 
-// handleNowPlayingArtPut is PUT /v1/nowplaying/art: a raw JPEG or PNG for
-// one player's current track (409 when track_id is no longer current).
 func (a *App) handleNowPlayingArtPut(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	kind := nowplaying.Kind(q.Get("kind"))

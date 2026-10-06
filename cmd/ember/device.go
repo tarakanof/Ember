@@ -121,9 +121,6 @@ func rebootDetected(last, cur deviceProbe) bool {
 	return cur.uptimeSec+int64(rebootUptimeSlack/time.Second) < expected
 }
 
-// probeDevice reads the clock through the shared health probe (a cached
-// answer younger than maxAge will do), so the watch, the health endpoint,
-// brightness and clock stats cost the clock one GET /api/v1/device.
 func (a *App) probeDevice(ctx context.Context, maxAge time.Duration) deviceProbe {
 	dev := a.probeClockHealthWithin(ctx, time.Now(), maxAge)
 	if dev == nil || !dev.Reachable || dev.UptimeSec == nil {
@@ -132,9 +129,6 @@ func (a *App) probeDevice(ctx context.Context, maxAge time.Duration) deviceProbe
 	return deviceProbe{reachable: true, uptimeSec: *dev.UptimeSec, at: dev.CheckedAt}
 }
 
-// StartDeviceWatch runs the periodic self-healing probe loop until ctx is
-// done. Its probe is also the clock stats sampler (StartClockSampler runs
-// only when the watch is off).
 func (a *App) StartDeviceWatch(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -198,7 +192,6 @@ func (g *republishGate) admit(now time.Time, deferred func()) bool {
 	return false
 }
 
-// RepublishAll asks the coordinator to forget what it believes the device is showing and push everything again on its next (immediate) cycle: the active app frame, the standalone tiles, and the Pomodoro takeover if a timer is running.
 func (a *App) RepublishAll(reason string) {
 	if a.coord == nil {
 		return

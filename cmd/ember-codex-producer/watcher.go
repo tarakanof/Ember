@@ -13,8 +13,6 @@ import (
 )
 
 const (
-	// resumeScanInterval paces the walk of the whole sessions tree that finds
-	// resumed sessions: Codex appends them to their original, older day dir.
 	resumeScanInterval = 30 * time.Second
 )
 
@@ -25,11 +23,9 @@ type sessionState struct {
 	derived      derived
 	lastModified time.Time
 	post         producer.Repost
-	// viaClaude marks a session Claude Code's Codex plugin started.
-	viaClaude bool
+	viaClaude    bool
 }
 
-// fileStamp identifies a file version, so an idle rollout is skipped until it changes.
 type fileStamp struct {
 	modTime time.Time
 	size    int64
@@ -41,29 +37,15 @@ type watcher struct {
 	activityWindow time.Duration
 	sessions       map[string]*sessionState
 	ignored        map[string]bool
-	// loc is the zone Codex names day dirs in (recorder.rs uses local time).
-	loc *time.Location
-	// recent holds rollouts outside the day-dir scan modified within the
-	// activity window, refreshed by a tree walk every resumeScanInterval.
-	recent   map[string]bool
-	lastWalk time.Time
-	// idle caches rollouts found already past the activity window, so they
-	// are not re-read every tick; a new mtime or size re-opens them.
-	idle map[string]fileStamp
-	// usagePost dedupes POST /v1/usage, which carries the newest
-	// rate-limit snapshot across all sessions.
-	usagePost producer.Repost
-	// owned are session ids the app-server source covers; the watcher keeps
-	// folding their rollouts but posts nothing for them (set before tick).
-	owned map[string]bool
-	// rateExtra is the app-server's account rate snapshot, a candidate for
-	// the newest /v1/usage snapshot (set before tick; nil when absent).
-	rateExtra *derived
-	// handedOver are ids the watcher had posted when the app-server took
-	// them over (reset each tick); cycle DELETEs those it does not post.
-	handedOver []string
-	// reads counts rollout opens, for tests.
-	reads int
+	loc            *time.Location
+	recent         map[string]bool
+	lastWalk       time.Time
+	idle           map[string]fileStamp
+	usagePost      producer.Repost
+	owned          map[string]bool
+	rateExtra      *derived
+	handedOver     []string
+	reads          int
 }
 
 func newWatcher(cfg Config) *watcher {
@@ -83,9 +65,6 @@ func isRolloutName(name string) bool {
 	return strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, ".jsonl")
 }
 
-// candidateFiles lists rollouts in the local yesterday/today/tomorrow day dirs
-// (tomorrow covers a clock or zone change) plus recently modified ones found
-// by the periodic tree walk.
 func (w *watcher) candidateFiles(now time.Time) []string {
 	if now.Sub(w.lastWalk) >= resumeScanInterval || now.Before(w.lastWalk) {
 		w.recent = w.recentFiles(now)
@@ -118,9 +97,6 @@ func (w *watcher) candidateFiles(now time.Time) []string {
 	return out
 }
 
-// recentFiles walks the sessions tree for rollouts modified within the
-// activity window, wherever their day dir is. Codex never prunes the tree, so
-// the walk grows with it (about 7 ms for 580 files every 30 s).
 func (w *watcher) recentFiles(now time.Time) map[string]bool {
 	out := map[string]bool{}
 	_ = filepath.WalkDir(w.cfg.SessionsDir, func(path string, d os.DirEntry, err error) error {
@@ -139,8 +115,6 @@ func (w *watcher) recentFiles(now time.Time) map[string]bool {
 	return out
 }
 
-// buildUsageRequest reports the windows seen so far; either may be absent
-// (Codex sends null for a window the plan does not have).
 func buildUsageRequest(d derived) (producer.UsageRequest, bool) {
 	if d.weeklyResetAt == 0 && d.rateResetAt == 0 {
 		return producer.UsageRequest{}, false
@@ -188,7 +162,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 		if ss == nil {
 			stamp := fileStamp{modTime: info.ModTime(), size: info.Size()}
 			if now.Sub(stamp.modTime) > w.activityWindow {
-				w.idle[path] = stamp // finished long ago: skip until it changes
+				w.idle[path] = stamp
 				continue
 			}
 			delete(w.idle, path)
@@ -196,7 +170,7 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 			meta, ok, complete := readFirstMeta(path)
 			if !ok {
 				if complete {
-					w.ignored[path] = true // a whole first line that is not session_meta
+					w.ignored[path] = true
 				}
 				continue
 			}
@@ -224,8 +198,6 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 			if ss.post.Posted() {
 				w.handedOver = append(w.handedOver, ss.uuid)
 			}
-			// The app-server source posts this session. Forget the watcher's
-			// post so it neither DELETEs it nor waits to post on release.
 			ss.post.Reset()
 			continue
 		}
@@ -248,7 +220,6 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 	}
 	for path, ss := range w.sessions {
 		if gone[path] || now.Sub(ss.lastModified) > w.activityWindow {
-			// Only a session this producer posted exists on the server.
 			if ss.post.Posted() {
 				deletes = append(deletes, producer.DeleteRequest{Source: w.cfg.Source, Tool: "codex", Session: ss.uuid})
 			}
@@ -268,9 +239,6 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 	return posts, deletes, usages
 }
 
-// usage returns the newest rate-limit snapshot across live sessions when it
-// changed or the keepalive interval passed; an older session's last-seen
-// limits never overwrite a newer one's.
 func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 	var newest *derived
 	for _, ss := range w.sessions {
@@ -302,7 +270,6 @@ func (w *watcher) usage(now time.Time) (producer.UsageRequest, bool) {
 	return u, true
 }
 
-// posted reports whether the watcher holds a posted session with this id.
 func (w *watcher) posted(id string) bool {
 	for _, ss := range w.sessions {
 		if ss.uuid == id && ss.post.Posted() {

@@ -66,8 +66,6 @@ func TestPidAliveSelf(t *testing.T) {
 	}
 }
 
-// A crash leaves server-runtime.json behind; after a reboot its pid can
-// belong to an unrelated process that started after T3 did.
 func TestPidAliveRejectsReusedPid(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("process start time is checked on darwin only")

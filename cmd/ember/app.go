@@ -27,9 +27,7 @@ type App struct {
 	versionInfo  versionInfo
 	startedAt    time.Time
 	limiter      *IPLimiter
-	// viewLimit caps view requests per knob (they skip the per-IP charge
-	// once authenticated, see rateLimitAuthFailures).
-	viewLimit *callerLimiter
+	viewLimit    *callerLimiter
 
 	sessions *sessions.Registry
 
@@ -61,21 +59,14 @@ type App struct {
 
 	settings appSettings
 
-	devices *deviceRegistry
-	// changes wakes pull clients waiting on state (the knob view long-poll,
-	// #235; a later SSE stream). viewWaiters bounds the blocked view requests;
-	// viewRecheck overrides knobViewRecheck in tests.
-	changes     *changeBroadcaster
-	viewWaiters viewWaiters
-	viewRecheck time.Duration
-	// viewWaitHook runs in a long-poll between its read and its block (tests).
+	devices      *deviceRegistry
+	changes      *changeBroadcaster
+	viewWaiters  viewWaiters
+	viewRecheck  time.Duration
 	viewWaitHook func()
-	// knobStats holds knob diagnostics samples and live mode, memory only.
-	knobStats *knobStatsStore
-	// wifiDrops remembers why each knob's last wifi object was dropped.
-	wifiDrops wifiDropLog
-	// clockStats holds the clock's probe samples, memory only.
-	clockStats *clockStatsStore
+	knobStats    *knobStatsStore
+	wifiDrops    wifiDropLog
+	clockStats   *clockStatsStore
 
 	appsMu     sync.Mutex
 	hiddenApps map[string]bool
@@ -115,7 +106,6 @@ type App struct {
 	bootPingMu sync.Mutex
 }
 
-// NewApp builds the App.
 func NewApp(cfg Config, publisher Publisher, logger *slog.Logger) *App {
 	a := &App{
 		publisher:    publisher,
@@ -188,7 +178,7 @@ func (a *App) tryUpdateConfig(mutate func(*Config) error) error {
 
 func (a *App) recordPublish(snap Snapshot, err error) {
 	if clockDisabled() {
-		return // publishes went to a no-op sink: not counted as clock health
+		return
 	}
 	now := time.Now()
 	a.publishWindow.add(now, err == nil)
@@ -204,7 +194,6 @@ func (a *App) recordPublish(snap Snapshot, err error) {
 	a.mu.Unlock()
 }
 
-// ClearIndicators turns off all three right-side indicator LEDs.
 func (a *App) ClearIndicators(ctx context.Context) error {
 	for i := 1; i <= 3; i++ {
 		if err := a.publisher.ClearIndicator(ctx, i); err != nil {
@@ -214,7 +203,6 @@ func (a *App) ClearIndicators(ctx context.Context) error {
 	return nil
 }
 
-// StartCoordinator runs the display coordinator goroutine + a dwell ticker that sends cmdTick on each interval.
 func (a *App) StartCoordinator(ctx context.Context) {
 	cfg := a.cfg.Load()
 	dwell := time.Duration(cfg.Display.RotationDwellSeconds) * time.Second

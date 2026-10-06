@@ -218,7 +218,7 @@ func TestPrintSetupHintsForConfigure(t *testing.T) {
 func TestDoctorPreludeDefaultsSource(t *testing.T) {
 	defer SetHostNameForTest("Dmitrys-Mac-mini")()
 	home := t.TempDir()
-	DoctorPrelude("") // no home: nothing to do
+	DoctorPrelude("")
 	if err := os.MkdirAll(filepath.Dir(EnvFilePath(home)), 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -123,7 +123,6 @@ func TestNoteMigrationWarnsOncePerUntestedVersion(t *testing.T) {
 
 func TestNoteMigrationKeyedBySchema(t *testing.T) {
 	d := newDaemon(Config{}, nil)
-	// The same id above both pins is a distinct warning per schema.
 	if !d.noteMigration(1, 60) {
 		t.Fatal("v1 migration 60 must warn")
 	}

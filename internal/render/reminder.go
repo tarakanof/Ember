@@ -15,8 +15,6 @@ var reminderBell = []string{
 
 var reminderGold = RGB{0xff, 0xcc, 0x33}
 
-// ReminderPopupFrame composes the preview-only drawn alarm popup: gold bell
-// plus the uppercased text in the 3×5 font.
 func ReminderPopupFrame(text string) Frame {
 	var f Frame
 	paintBitmap(&f, 0, 0, reminderBell, reminderGold)
@@ -24,8 +22,6 @@ func ReminderPopupFrame(text string) Frame {
 	return f
 }
 
-// ReminderPopupPayload returns the alarm notification payload: a drawn bell
-// icon at cols 0–7 plus the reminder text scrolling from col 9.
 func ReminderPopupPayload(text, iconID string, durationSec int, hold bool) map[string]any {
 	p := pinText(map[string]any{
 		"text":       text,

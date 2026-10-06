@@ -10,25 +10,19 @@ import (
 	"time"
 )
 
-// SetupHintsInput is what install/configure report after setting up.
 type SetupHintsInput struct {
 	Source     string
 	Token      string
-	Configured string // EMBER_SERVER_URL as written
-	Prefer     string // EMBER_SERVER_INSTANCE
+	Configured string
+	Prefer     string
 	Home       string
 	Headless   bool
-	// Discover allows network I/O: the mDNS browse and /healthz probe. Only a
-	// headless install sets it; configure (which Ember.app runs) stays offline.
-	Discover bool
-	// LingerUser, when set on Linux, adds the enable-linger hint.
+	Discover   bool
 	LingerUser string
-	Run        Runner        // ExecRunner when nil
-	Browse     ServerBrowser // MDNSBrowser when nil
+	Run        Runner
+	Browse     ServerBrowser
 }
 
-// PrintSetupHints prints the post-install checklist: mode, source, token and
-// the server (discovered and probed only when Discover is set).
 func PrintSetupHints(w io.Writer, in SetupHintsInput) {
 	switch {
 	case in.Headless && runtime.GOOS == "darwin":
@@ -66,7 +60,6 @@ func PrintSetupHints(w io.Writer, in SetupHintsInput) {
 	}
 }
 
-// CurrentUser is the login name for loginctl ("" when unknown).
 func CurrentUser() string {
 	if u, err := user.Current(); err == nil {
 		return u.Username
@@ -74,8 +67,6 @@ func CurrentUser() string {
 	return os.Getenv("USER")
 }
 
-// PrintDiscover is the `discover` subcommand: browse (when auto), pick,
-// cache and probe the server, as doctor does.
 func PrintDiscover(w io.Writer, configured, prefer, home string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*DefaultBrowseTimeout+time.Second)
 	defer cancel()

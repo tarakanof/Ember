@@ -6,14 +6,12 @@ import (
 	"time"
 )
 
-// UsageWindow mirrors producer.UsageWindow on the server side.
 type UsageWindow struct {
 	UsedPercent float64 `json:"used_percent"`
 	ResetsAt    int64   `json:"resets_at,omitempty"`
 	ResetLabel  string  `json:"reset_label,omitempty"`
 }
 
-// ToolUsage is the latest usage snapshot for one tool.
 type ToolUsage struct {
 	FiveHour  *UsageWindow            `json:"five_hour,omitempty"`
 	SevenDay  *UsageWindow            `json:"seven_day,omitempty"`
@@ -22,7 +20,6 @@ type ToolUsage struct {
 	UpdatedAt time.Time               `json:"updated_at"`
 }
 
-// UsageStore is an in-memory, concurrency-safe per-tool usage cache.
 type UsageStore struct {
 	mu     sync.RWMutex
 	byTool map[string]ToolUsage
@@ -43,14 +40,12 @@ func (s *UsageStore) Get(tool string) (ToolUsage, bool) {
 	return u, ok
 }
 
-// All returns a copy of every stored snapshot, keyed by tool.
 func (s *UsageStore) All() map[string]ToolUsage {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return maps.Clone(s.byTool)
 }
 
-// Fresh reports whether tool's entry was updated within ttl before now.
 func (s *UsageStore) Fresh(tool string, now time.Time, ttl time.Duration) bool {
 	u, ok := s.Get(tool)
 	if !ok {

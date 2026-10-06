@@ -146,7 +146,6 @@ func newCoordinator(cfg Config, loadCfg func() *Config, publisher Publisher, clk
 	}
 }
 
-// Send enqueues a command.
 func (c *coordinator) Send(cmd coordCmd) {
 	if cmd.kind == cmdTick {
 		select {
@@ -176,7 +175,6 @@ func (c *coordinator) warnDropThrottled(cmd coordCmd) {
 		"kind", cmd.kind, "session_key", cmd.sessionKey)
 }
 
-// Run is the goroutine entry point.
 func (c *coordinator) Run(ctx context.Context) {
 	c.ctx = ctx
 	defer c.restorePomoTakeoverOnExit()

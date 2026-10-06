@@ -12,19 +12,10 @@ import (
 	"github.com/tarakanof/ember/internal/producer"
 )
 
-// settingsBackupPath is the one backup configure/deconfigure keep: each write
-// overwrites it, so backups never pile up. Older producers wrote
-// settings.json.bak.<pid> on every run; those are left alone (a hand-made
-// settings.json.bak.<date> looks the same) and doctor counts them.
 func settingsBackupPath(settingsPath string) string {
 	return settingsPath + ".ember-bak"
 }
 
-// saveSettings saves root as settings.json when it differs from old (the
-// file's current bytes), backing old up to settingsBackupPath first. With
-// bestEffortBackup a failed backup only warns (uninstall must still remove
-// the hooks); otherwise it aborts. A symlinked settings.json (dotfiles) is
-// written through, keeping the link.
 func saveSettings(settingsPath string, old []byte, root map[string]any, bestEffortBackup bool) error {
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
@@ -45,8 +36,6 @@ func saveSettings(settingsPath string, old []byte, root map[string]any, bestEffo
 	return producer.WriteFileAtomic(settingsPath, out, 0o600)
 }
 
-// legacySettingsBackups counts settings.json.bak.<number> files, which older
-// producers wrote on every configure.
 func legacySettingsBackups(settingsPath string) int {
 	matches, _ := filepath.Glob(settingsPath + ".bak.*")
 	n := 0

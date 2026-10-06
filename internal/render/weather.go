@@ -2,7 +2,6 @@ package render
 
 import "strings"
 
-// Weather condition keys.
 const (
 	WeatherClear  = "clear"
 	WeatherClouds = "clouds"
@@ -104,7 +103,6 @@ func weatherIcon(cond string) []string {
 	}
 }
 
-// WeatherColor returns the icon colour for a condition.
 func WeatherColor(cond string) RGB {
 	switch cond {
 	case WeatherClear:
@@ -122,16 +120,10 @@ func WeatherColor(cond string) RGB {
 	}
 }
 
-// WeatherPayload returns the rotating-tile frame: the 8×8 condition icon at
-// cols 0–7 + the temperature text (e.g. "21°") centred right of it, plus a
-// compact hourly-forecast strip on the bottom bar (colour-coded hours stretched
-// over cols 8–31) when `hourly` is supplied.
 func WeatherPayload(cond, tempText string, tempC float64, hourly []float64, lifetime int) map[string]any {
 	return weatherTile(cond, tempText, tempC, hourly, nil, lifetime)
 }
 
-// WeatherPayloadMoon is the clear-night variant: the left 8×8 icon shows the
-// moon phase (see MoonView) instead of the condition icon.
 func WeatherPayloadMoon(tempText string, tempC float64, hourly []float64, moon MoonView, lifetime int) map[string]any {
 	return weatherTile("", tempText, tempC, hourly, &moon, lifetime)
 }
@@ -146,9 +138,6 @@ func drawWeatherBody(f *Frame, tempText string, tempC float64, hourly []float64)
 	drawForecastStrip(f, hourly)
 }
 
-// WeatherTileFrame composes the drawn rotating-tile frame: condition icon (or
-// moon phase when moon is non-nil), centred temperature digits, hourly strip on
-// the bottom bar.
 func WeatherTileFrame(cond, tempText string, tempC float64, hourly []float64, moon *MoonView) Frame {
 	var f Frame
 	if moon != nil {
@@ -168,11 +157,6 @@ func weatherTile(cond, tempText string, tempC float64, hourly []float64, moon *M
 	}
 }
 
-// WeatherPayloadNative is the native-icon variant of WeatherPayload: the
-// animated AWTRIX/LaMetric icon (resolved by the caller via the popup icon-ID
-// mapping) occupies cols 0-7 while the temperature digits and the hourly strip
-// stay drawn, emitted as a partial bitmap over cols 8-31 — identical layout
-// to the drawn tile, no firmware text layout involved.
 func WeatherPayloadNative(iconID, tempText string, tempC float64, hourly []float64, lifetime int) map[string]any {
 	var f Frame
 	drawWeatherBody(&f, tempText, tempC, hourly)
@@ -183,8 +167,6 @@ func WeatherPayloadNative(iconID, tempText string, tempC float64, hourly []float
 	}
 }
 
-// WeatherPopupPayload returns a notification payload (drawn 8×8 icon + native
-// scrolling label) for an ad-hoc weather popup.
 func WeatherPopupPayload(cond, label, iconID string, durationSec int) map[string]any {
 	p := readOnce(map[string]any{
 		"text":       label,

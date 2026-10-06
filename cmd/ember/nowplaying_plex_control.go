@@ -15,29 +15,20 @@ import (
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
-// plexClientID names Ember to Plex as the controller (X-Plex-Client-Identifier).
 const plexClientID = "ember-nowplaying"
 
-// Plex volume freshness. Sessions carry no volume; the player's timeline
-// does. A step adds to a level read or set within plexVolumeTTL (a
-// continuous turn), else reads the timeline again: the level may have
-// changed on the player, and a step from a stale one could blast. The
-// poller re-reads it every plexVolumeRefresh while a track plays.
 const (
 	plexVolumeTTL     = 5 * time.Second
 	plexVolumeRefresh = 30 * time.Second
 )
 
-// plexControl is the Plex state control requests share with the poller:
-// each player's machine identifier (the command target), the last volume
-// read or set per target and the play state Ember last commanded.
 type plexControl struct {
 	now       func() time.Time
 	mu        sync.Mutex
-	targets   map[string]string      // player title → machineIdentifier
-	volumes   map[string]plexLevel   // machineIdentifier → level
-	commanded map[string]plexCommand // machineIdentifier → last play/pause sent
-	volMu     sync.Mutex             // one volume read-modify-write at a time
+	targets   map[string]string
+	volumes   map[string]plexLevel
+	commanded map[string]plexCommand
+	volMu     sync.Mutex
 	cmdID     atomic.Int64
 }
 
@@ -71,7 +62,6 @@ func (c *plexControl) target(player string) string {
 	return c.targets[player]
 }
 
-// volume returns the target's level read or set within maxAge, else nil.
 func (c *plexControl) volume(target string, maxAge time.Duration) *int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -91,9 +81,6 @@ func (c *plexControl) setVolume(target string, v int) {
 	c.volumes[target] = plexLevel{v, c.now()}
 }
 
-// playState is the state a play/pause toggle starts from: the one Ember
-// commanded within plexCommandedTTL (the poller may not have seen it), else
-// the entry's.
 func (c *plexControl) playState(target string, shown nowplaying.State) nowplaying.State {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -112,8 +99,6 @@ func (c *plexControl) setCommanded(target string, st nowplaying.State) {
 	c.commanded[target] = plexCommand{st, c.now()}
 }
 
-// control sends req to the Plex player of e through the server's player
-// proxy (/player/playback/*, X-Plex-Target-Client-Identifier).
 func (p *plexSource) control(ctx context.Context, e nowplaying.Entry, req controlRequest) (controlResult, error) {
 	target := p.ctl.target(e.Player)
 	if target == "" {
@@ -149,13 +134,10 @@ func (p *plexSource) control(ctx context.Context, e nowplaying.Entry, req contro
 	if err != nil {
 		return controlResult{}, fmt.Errorf("%w: %w", errControlFailed, err)
 	}
-	p.wake() // the next poll shows the result
+	p.wake()
 	return res, nil
 }
 
-// stepVolume moves the target's volume by delta from the last known level,
-// read from its timeline first when not known: a step from a guessed level
-// could blast.
 func (p *plexSource) stepVolume(ctx context.Context, target string, delta int) (int, error) {
 	p.ctl.volMu.Lock()
 	defer p.ctl.volMu.Unlock()
@@ -186,7 +168,7 @@ func (p *plexSource) playerRequest(ctx context.Context, target, path string, q u
 		return nil, err
 	}
 	req.Header = p.headers()
-	req.Header.Del("Accept") // player answers are XML
+	req.Header.Del("Accept")
 	req.Header.Set("X-Plex-Target-Client-Identifier", target)
 	req.Header.Set("X-Plex-Client-Identifier", plexClientID)
 	return p.client.Do(req)
@@ -205,7 +187,6 @@ func (p *plexSource) command(ctx context.Context, target, cmd string, q url.Valu
 	return nil
 }
 
-// timelineVolume reads the player's music timeline volume.
 func (p *plexSource) timelineVolume(ctx context.Context, target string) (int, error) {
 	resp, err := p.playerRequest(ctx, target, "/player/timeline/poll", url.Values{"wait": {"0"}})
 	if err != nil {

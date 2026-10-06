@@ -597,7 +597,7 @@ func TestKnobCheckinDeliversIntervals(t *testing.T) {
 func TestKnobStatsLiveRingHoldsTenMinutesAtTwoSeconds(t *testing.T) {
 	f := newStatsFixture(t)
 	f.setDiagnostics(t, "basic")
-	for range 330 { // 11 min at 2 s
+	for range 330 {
 		f.clk.advance(2 * time.Second)
 		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(deviceCheckin{RSSI: -60}, &knobStatsReport{PeriodMS: 2000}))
 	}
@@ -617,7 +617,7 @@ func TestKnobStatsLiveRingHoldsTenMinutesAtTwoSeconds(t *testing.T) {
 func TestKnobStatsMinuteRingDropsOlderThanADay(t *testing.T) {
 	f := newStatsFixture(t)
 	f.setDiagnostics(t, "basic")
-	for range 2 * 24 * 12 { // two days at 5 min
+	for range 2 * 24 * 12 {
 		f.clk.advance(5 * time.Minute)
 		f.app.knobStats.record(f.m.ID, f.clk.Now(), knobSampleFromReport(deviceCheckin{RSSI: -60}, &knobStatsReport{PeriodMS: 300000}))
 	}
@@ -636,7 +636,7 @@ func TestSampleRingKeepsOrderWhenGrowingAfterDrops(t *testing.T) {
 	for i := range 4 {
 		r.push(at(i))
 	}
-	r.dropBefore(at(2).T) // start 2, len 2
+	r.dropBefore(at(2).T)
 	for i := 4; i < 11; i++ {
 		r.push(at(i))
 	}
@@ -654,15 +654,15 @@ func TestSampleRingKeepsOrderWhenGrowingAfterDrops(t *testing.T) {
 func TestSampleRingGivesBackItsBufferAfterALiveSession(t *testing.T) {
 	r := newSampleRing[knobSample](300)
 	t0 := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
-	for i := range 300 { // 10 min at 2 s
+	for i := range 300 {
 		r.push(knobSample{T: t0.Add(time.Duration(i) * 2 * time.Second)})
 	}
 	if cap(r.buf) < 300 {
 		t.Fatalf("cap = %d, want the full live window", cap(r.buf))
 	}
 	end := t0.Add(600 * time.Second)
-	r.push(knobSample{T: end.Add(5 * time.Minute)}) // back to 5 min reports
-	r.dropBefore(end.Add(time.Second))              // the session is older than the live window now
+	r.push(knobSample{T: end.Add(5 * time.Minute)})
+	r.dropBefore(end.Add(time.Second))
 	if r.len != 1 || cap(r.buf) > 32 {
 		t.Fatalf("len %d cap %d after the session aged out, want 1 sample in a small buffer", r.len, cap(r.buf))
 	}

@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// The fixtures in testdata/hook-registration are shared with Ember.app's
-// ClaudeHookRegistration tests (macos/Tests), which must read them the same way.
 func TestHookRegistrationFixturesMatchExpected(t *testing.T) {
 	dir := filepath.Join("testdata", "hook-registration")
 	raw, err := os.ReadFile(filepath.Join(dir, "expected.json"))

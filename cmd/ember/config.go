@@ -173,24 +173,20 @@ func (a AuthConfig) LogValue() slog.Value {
 }
 
 type Config struct {
-	HTTP      HTTPConfig      `json:"http"`
-	AWTRIX    AWTRIXConfig    `json:"awtrix"`
-	Auth      AuthConfig      `json:"auth"`
-	Display   DisplayConfig   `json:"display"`
-	RateLimit RateLimitConfig `json:"rate_limit"`
-	Pomodoro  PomodoroConfig  `json:"pomodoro"`
-	Weather   WeatherConfig   `json:"weather"`
-	Meetings  MeetingsConfig  `json:"meetings"`
-	// Usage-widget toggles.
-	UsageWidget   *bool `json:"usage_widget,omitempty"`
-	UsagePerModel *bool `json:"usage_per_model,omitempty"`
-	LimitAlarm    *bool `json:"limit_alarm,omitempty"`
-	// UsageThresholdPct gates the in-app usage card (and the idle usage frame): the card shows only when a tool's 5h window is >= this percent.
-	UsageThresholdPct *int `json:"usage_threshold_pct,omitempty"`
-	// QuietHours mutes all device sounds during the window (server-local time).
-	QuietHours QuietHoursConfig `json:"quiet_hours"`
-	// Brightness is the display-brightness policy behind GET /v1/display/brightness.
-	Brightness BrightnessConfig `json:"brightness"`
+	HTTP              HTTPConfig       `json:"http"`
+	AWTRIX            AWTRIXConfig     `json:"awtrix"`
+	Auth              AuthConfig       `json:"auth"`
+	Display           DisplayConfig    `json:"display"`
+	RateLimit         RateLimitConfig  `json:"rate_limit"`
+	Pomodoro          PomodoroConfig   `json:"pomodoro"`
+	Weather           WeatherConfig    `json:"weather"`
+	Meetings          MeetingsConfig   `json:"meetings"`
+	UsageWidget       *bool            `json:"usage_widget,omitempty"`
+	UsagePerModel     *bool            `json:"usage_per_model,omitempty"`
+	LimitAlarm        *bool            `json:"limit_alarm,omitempty"`
+	UsageThresholdPct *int             `json:"usage_threshold_pct,omitempty"`
+	QuietHours        QuietHoursConfig `json:"quiet_hours"`
+	Brightness        BrightnessConfig `json:"brightness"`
 }
 
 func (c Config) usageWidgetEnabled() bool { return c.UsageWidget == nil || *c.UsageWidget }
@@ -213,7 +209,6 @@ func (c Config) usageThresholdPct() int {
 	return v
 }
 
-// PomodoroConfig holds the Pomodoro feature's static defaults.
 type PomodoroConfig struct {
 	Enabled               bool   `json:"enabled"`
 	FocusMinutes          int    `json:"focus_minutes"`
@@ -226,22 +221,14 @@ type PomodoroConfig struct {
 	FocusColor            string `json:"focus_color"`
 	BreakColor            string `json:"break_color"`
 	DBPath                string `json:"db_path"`
-	// ButtonCallback enables mapping device button presses (delivered to /hooks/awtrix/button) to timer actions.
-	ButtonCallback bool `json:"button_callback"`
-	// MaxSessionMinutes auto-stops the whole cycle after this many minutes (0 = no cap).
-	MaxSessionMinutes int `json:"max_session_minutes"`
+	ButtonCallback        bool   `json:"button_callback"`
+	MaxSessionMinutes     int    `json:"max_session_minutes"`
 
-	// Stats/dashboard knobs (read at request time by the stats handlers; not part of the runtime DTO).
-	WorkHoursGapMinutes int `json:"work_hours_gap_minutes"`
-	// DayStartHour is the logical day boundary (0-23); earlier activity counts to the previous day (default 4).
-	DayStartHour int `json:"day_start_hour"`
-	// StreakGraceDays is the number of missed days tolerated within the current streak (default 1; 0 is strict).
-	StreakGraceDays int `json:"streak_grace_days"`
-	// DailyGoalSessions is the completed-focus target per day (default 8; 0 disables it).
-	DailyGoalSessions int `json:"daily_goal_sessions"`
-	// WeeklyGoalDays is the active-day target per week (default 5; 0 disables it).
-	WeeklyGoalDays int `json:"weekly_goal_days"`
-	// WorkHoursIncludeActivity overlays AI-coding-session activity (from /v1/status) onto the work-hours view and enables persisting that activity timeline.
+	WorkHoursGapMinutes      int  `json:"work_hours_gap_minutes"`
+	DayStartHour             int  `json:"day_start_hour"`
+	StreakGraceDays          int  `json:"streak_grace_days"`
+	DailyGoalSessions        int  `json:"daily_goal_sessions"`
+	WeeklyGoalDays           int  `json:"weekly_goal_days"`
 	WorkHoursIncludeActivity bool `json:"work_hours_include_activity"`
 }
 
@@ -265,20 +252,16 @@ type HTTPConfig struct {
 }
 
 type AWTRIXConfig struct {
-	// HTTPBaseURL is the config.json baseline only.
 	HTTPBaseURL     string `json:"http_base_url"`
 	clockOverride   string
 	clockDiscovered string
 
 	AppName        string `json:"app_name"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
-	// AutoRediscover gates the periodic StartDeviceWatch probe loop (see device.go).
-	AutoRediscover *bool `json:"auto_rediscover,omitempty"`
-	// BootPing installs the ember-boot-ping Berry script on the clock (see boot_ping.go): on reboot it POSTs /hooks/awtrix/boot so Ember re-pushes its tiles in seconds instead of waiting for StartDeviceWatch to notice.
-	BootPing bool `json:"boot_ping"`
+	AutoRediscover *bool  `json:"auto_rediscover,omitempty"`
+	BootPing       bool   `json:"boot_ping"`
 }
 
-// AutoRediscoverEnabled reports whether the periodic clock re-discovery probe (StartDeviceWatch) should run.
 func (c AWTRIXConfig) AutoRediscoverEnabled() bool {
 	return c.AutoRediscover == nil || *c.AutoRediscover
 }
@@ -289,18 +272,14 @@ type DisplayConfig struct {
 	DoneTTLSeconds       int    `json:"done_ttl_seconds"`
 	RotationDwellSeconds int    `json:"rotation_dwell_seconds"`
 	AckTimeoutSeconds    int    `json:"ack_timeout_seconds"`
-	// G.2:
-	FrameLifetimeSeconds int  `json:"frame_lifetime_seconds"`
-	IdleRestoreSeconds   int  `json:"idle_restore_seconds"`
-	AttentionChime       bool `json:"attention_chime"`
-	// Indicators turns on the three corner-LED ambient status lights (see coordinator_indicators.go).
-	Indicators bool `json:"indicators"`
-	// PulseStyle is parsed but ignored.
-	PulseStyle string `json:"pulse_style,omitempty"`
-	// HeartbeatSeconds, RefreshSeconds and NotifyOnWaiting were parsed and defaulted but never read by anything.
-	HeartbeatSeconds *int  `json:"heartbeat_seconds,omitempty"`
-	RefreshSeconds   *int  `json:"refresh_seconds,omitempty"`
-	NotifyOnWaiting  *bool `json:"notify_on_waiting,omitempty"`
+	FrameLifetimeSeconds int    `json:"frame_lifetime_seconds"`
+	IdleRestoreSeconds   int    `json:"idle_restore_seconds"`
+	AttentionChime       bool   `json:"attention_chime"`
+	Indicators           bool   `json:"indicators"`
+	PulseStyle           string `json:"pulse_style,omitempty"`
+	HeartbeatSeconds     *int   `json:"heartbeat_seconds,omitempty"`
+	RefreshSeconds       *int   `json:"refresh_seconds,omitempty"`
+	NotifyOnWaiting      *bool  `json:"notify_on_waiting,omitempty"`
 }
 
 func defaultConfig() Config {

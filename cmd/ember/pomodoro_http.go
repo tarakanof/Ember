@@ -98,7 +98,6 @@ func (a *App) initPomodoro(p PomodoroConfig) error {
 	return nil
 }
 
-// EnablePomodoro wires the engine + store into the app and connects the coordinator's preempt hook.
 func (a *App) EnablePomodoro(engine *pomodoro.Engine, store *pomodoro.Store) {
 	a.engine = engine
 	a.store = store
@@ -136,7 +135,6 @@ func (a *App) nudgePomo() {
 	}
 }
 
-// pomoChanged tells pull clients and the coordinator that the engine moved.
 func (a *App) pomoChanged() {
 	a.changes.notify(topicPomodoro)
 	a.nudgePomo()

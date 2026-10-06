@@ -7,8 +7,6 @@ import (
 	"strings"
 )
 
-// Bool parses a producer.env toggle: true/1/yes/on and false/0/no/off (any
-// case); an empty or unrecognised value keeps def.
 func Bool(v string, def bool) bool {
 	switch strings.ToLower(v) {
 	case "true", "1", "yes", "on":
@@ -19,19 +17,16 @@ func Bool(v string, def bool) bool {
 	return def
 }
 
-// EnvFilePath is ~/.config/ember/producer.env, shared by every producer.
 func EnvFilePath(home string) string {
 	return filepath.Join(home, ".config", "ember", "producer.env")
 }
 
-// Common is the producer.env configuration every producer reads: identity,
-// server, token and the clock-card toggles.
 type Common struct {
 	Source           string
-	ServerURL        string // effective URL: explicit, else the cached discovery
-	ServerConfigured string // EMBER_SERVER_URL as written
-	ServerAuto       bool   // EMBER_SERVER_URL empty or "auto": discover over mDNS
-	ServerInstance   string // EMBER_SERVER_INSTANCE: which server when several answer
+	ServerURL        string
+	ServerConfigured string
+	ServerAuto       bool
+	ServerInstance   string
 	Token            string
 	SourceColor      string
 
@@ -40,12 +35,10 @@ type Common struct {
 	SessionBarEnabled    bool
 }
 
-// DefaultCommon is Common before producer.env is applied.
 func DefaultCommon() Common {
 	return Common{ActivityTrailEnabled: true, SourceCardEnabled: true, SessionBarEnabled: true}
 }
 
-// Set applies one producer.env key and reports whether it was a Common key.
 func (c *Common) Set(k, v string) bool {
 	switch k {
 	case "EMBER_SOURCE":
@@ -70,9 +63,6 @@ func (c *Common) Set(k, v string) bool {
 	return true
 }
 
-// Resolve fills the derived fields once producer.env is applied: the
-// default source, the effective server URL, and EMBER_TOKEN from the process
-// environment when producer.env has none.
 func (c *Common) Resolve(home string) {
 	c.Source = ResolveSource(c.Source)
 	c.ServerConfigured = c.ServerURL
@@ -82,7 +72,6 @@ func (c *Common) Resolve(home string) {
 	}
 }
 
-// LogAttrs are Common's log fields, with the token redacted to set/unset.
 func (c Common) LogAttrs() []slog.Attr {
 	tok := "unset"
 	if c.Token != "" {
@@ -100,8 +89,6 @@ func (c Common) LogAttrs() []slog.Attr {
 	}
 }
 
-// StatusRequest starts a POST /v1/status body for a session with the
-// source identity and card toggles filled in.
 func (c Common) StatusRequest(tool, session, state string) StatusRequest {
 	req := StatusRequest{Source: c.Source, Tool: tool, Session: session, State: state}
 	if c.SourceColor != "" {
@@ -113,8 +100,6 @@ func (c Common) StatusRequest(tool, session, state string) StatusRequest {
 	return req
 }
 
-// Gauges are the context/rate display toggles of the producers that report
-// context and rate-limit figures (Claude Code, Codex).
 type Gauges struct {
 	ContextPctEnabled    bool
 	ContextNumberEnabled bool
@@ -122,12 +107,10 @@ type Gauges struct {
 	RateResetEnabled     bool
 }
 
-// DefaultGauges is Gauges before producer.env is applied.
 func DefaultGauges() Gauges {
 	return Gauges{ContextPctEnabled: true}
 }
 
-// Set applies one producer.env key and reports whether it was a Gauges key.
 func (g *Gauges) Set(k, v string) bool {
 	switch k {
 	case "EMBER_CONTEXT_PCT_ENABLED":
@@ -144,7 +127,6 @@ func (g *Gauges) Set(k, v string) bool {
 	return true
 }
 
-// LogAttrs are Gauges' log fields.
 func (g Gauges) LogAttrs() []slog.Attr {
 	return []slog.Attr{
 		slog.Bool("context_pct_enabled", g.ContextPctEnabled),
@@ -154,7 +136,6 @@ func (g Gauges) LogAttrs() []slog.Attr {
 	}
 }
 
-// Apply sets req's per-request display flags.
 func (g Gauges) Apply(req *StatusRequest) {
 	req.ContextNumber = g.ContextNumberEnabled
 	req.RateBottomBar = g.RateBottomBarEnabled

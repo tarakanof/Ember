@@ -25,7 +25,6 @@ type statuslineInput struct {
 			UsedPercentage float64 `json:"used_percentage"`
 			ResetsAt       int64   `json:"resets_at"`
 		} `json:"five_hour"`
-		// SevenDay is the weekly rate-limit window, shaped like five_hour and parsed leniently.
 		SevenDay *struct {
 			UsedPercentage float64 `json:"used_percentage"`
 			ResetsAt       int64   `json:"resets_at"`
@@ -99,8 +98,6 @@ func extractContextPct(in statuslineInput) (*int, bool) {
 	return &pct, true
 }
 
-// statuslineEnv reads producer.env for the statusline, which never calls
-// loadConfig; nil when it is unreadable.
 func statuslineEnv() map[string]string {
 	path, err := envFilePath()
 	if err != nil {
@@ -117,12 +114,8 @@ func contextPctEnabled(env map[string]string) bool {
 	return producer.Bool(env["EMBER_CONTEXT_PCT_ENABLED"], true)
 }
 
-// defaultWrappedTimeout bounds the user's own status line command, so a
-// hung one cannot hang ours (Claude Code waits on our stdout).
 const defaultWrappedTimeout = 10 * time.Second
 
-// wrappedTimeout is EMBER_STATUSLINE_TIMEOUT_MS from the environment, else
-// producer.env, else defaultWrappedTimeout.
 func wrappedTimeout(env map[string]string) time.Duration {
 	v, ok := os.LookupEnv("EMBER_STATUSLINE_TIMEOUT_MS")
 	if !ok {
@@ -158,13 +151,8 @@ func readWrappedCommand(path string) (string, bool) {
 	return "", false
 }
 
-// errWrappedTimeout means the wrapped command ran past its timeout.
 var errWrappedTimeout = errors.New("wrapped status line timed out")
 
-// runWrapped runs the wrapped status line command with stdin. On timeout its
-// whole process group is killed, so a background child still holding stdout
-// cannot keep the read open. A command that exited 0 but left such a child
-// returns its complete output with exec.ErrWaitDelay.
 func runWrapped(command string, stdin []byte, timeout time.Duration) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -180,10 +168,6 @@ func runWrapped(command string, stdin []byte, timeout time.Duration) ([]byte, er
 	return out, err
 }
 
-// wrappedOutput is what the wrapped command printed. A good run is cached
-// per session (rewritten only when it changed); a timed-out run shows the
-// cached output rather than a blank status line. A failing command prints
-// nothing, as before.
 func wrappedOutput(command string, stdin []byte, timeout time.Duration, cachePath string) []byte {
 	out, err := runWrapped(command, stdin, timeout)
 	switch {
@@ -203,7 +187,6 @@ func wrappedOutput(command string, stdin []byte, timeout time.Duration, cachePat
 	return nil
 }
 
-// statuslineCacheTTL is how long a session's cached wrapped output is kept.
 const statuslineCacheTTL = 24 * time.Hour
 
 func statuslineCachePath(sessionID string) string {
@@ -294,17 +277,12 @@ func runStatusline() {
 
 const statuslineLockWait = 250 * time.Millisecond
 
-// statuslineRefresh is how long (by file mtime) an unchanged marker goes
-// without a statusline rewrite: Claude Code refreshes the status line many times a
-// second while streaming, and each write was an fsync.
 const statuslineRefresh = time.Minute
 
 func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int64, resetLabel string,
 	weekPct *int, weekResetAt *int64, weekResetLabel string) error {
 	mp := markerPath(stateDir, sessionID)
 	lp := lockPath(stateDir, sessionID)
-	// The status line renders synchronously: drop this sample rather than
-	// wait behind a hook's in-flight POST; the next refresh carries it.
 	return withLockExWait(lp, statuslineLockWait, func() error {
 		body, err := readMarker(mp)
 		if err != nil {
@@ -337,7 +315,6 @@ func enrichMarker(stateDir, sessionID string, ratePct, ctxPct *int, resetAt *int
 		}
 		now := hookNow()
 		if same, err := json.Marshal(m); err == nil && bytes.Equal(same, body) {
-			// Unchanged: rewrite only to keep the mtime fresh for the TTL.
 			if fi, err := os.Stat(mp); err == nil && now.Sub(fi.ModTime()) < statuslineRefresh {
 				return nil
 			}

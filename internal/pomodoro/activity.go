@@ -5,22 +5,12 @@ import (
 	"time"
 )
 
-// ActivityTotals is an AI-coding-activity rollup for one group (a tool, a
-// source, or everything) over a window of heartbeats.
 type ActivityTotals struct {
-	// ActiveSec is wall-clock working time: each session's running/error
-	// heartbeats are merged into spans (see activitySpans), and the spans of all
-	// sessions in the group are unioned per logical day, so two concurrent
-	// sessions don't count twice.
 	ActiveSec int
-	// Sessions is the number of distinct session keys seen.
-	Sessions int
-	// Attention is the number of waiting episodes: a run of consecutive
-	// "waiting" heartbeats within one session counts once.
+	Sessions  int
 	Attention int
 }
 
-// SummarizeActivity rolls heartbeats up per group(a).
 func SummarizeActivity(acts []ActivityRecord, group func(ActivityRecord) string, spanGap time.Duration, dayStartHour int, loc *time.Location) map[string]ActivityTotals {
 	out := map[string]ActivityTotals{}
 	for _, perGroup := range DailyActiveSec(acts, group, spanGap, dayStartHour, loc) {
@@ -58,8 +48,6 @@ func SummarizeActivity(acts []ActivityRecord, group func(ActivityRecord) string,
 
 func workingState(state string) bool { return state == "running" || state == "error" }
 
-// DailyActivity is SummarizeActivity per logical day: day ("2006-01-02") →
-// group → totals.
 func DailyActivity(acts []ActivityRecord, group func(ActivityRecord) string, spanGap time.Duration, dayStartHour int, loc *time.Location) map[string]map[string]ActivityTotals {
 	byDay := map[string][]ActivityRecord{}
 	for _, a := range acts {
@@ -73,8 +61,6 @@ func DailyActivity(acts []ActivityRecord, group func(ActivityRecord) string, spa
 	return out
 }
 
-// DailyActiveSec returns wall-clock working seconds keyed by logical day
-// ("2006-01-02") and then by group(a).
 func DailyActiveSec(acts []ActivityRecord, group func(ActivityRecord) string, spanGap time.Duration, dayStartHour int, loc *time.Location) map[string]map[string]int {
 	type bucket struct{ day, group, session string }
 	bySession := map[bucket][]ActivityRecord{}

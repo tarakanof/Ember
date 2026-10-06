@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// frame encodes one unmasked server frame.
 func frame(fin bool, op byte, p []byte) []byte {
 	b0 := op
 	if fin {
@@ -31,7 +30,6 @@ func frame(fin bool, op byte, p []byte) []byte {
 	return append(out, p...)
 }
 
-// pipeClient returns a client wsConn and the raw server end.
 func pipeClient(t *testing.T) (*wsConn, net.Conn) {
 	t.Helper()
 	cli, srv := net.Pipe()
@@ -50,7 +48,6 @@ func serverWrite(t *testing.T, srv net.Conn, frames ...[]byte) {
 	}()
 }
 
-// readClientFrame decodes one masked client frame from the server end.
 func readClientFrame(t *testing.T, srv net.Conn) (op byte, p []byte) {
 	t.Helper()
 	_ = srv.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -119,8 +116,8 @@ func TestWS_OversizeMessageIsSkippedNotFatal(t *testing.T) {
 	ws, srv := pipeClient(t)
 	ws.max = 10
 	serverWrite(t, srv,
-		frame(true, opText, bytes.Repeat([]byte("a"), 50)), // one big frame
-		frame(false, opText, []byte("0123456")),            // fragments that add up too much
+		frame(true, opText, bytes.Repeat([]byte("a"), 50)),
+		frame(false, opText, []byte("0123456")),
 		frame(false, opCont, []byte("789abc")),
 		frame(true, opCont, []byte("def")),
 		frame(true, opText, []byte(`ok`)))
@@ -152,7 +149,7 @@ func TestWS_RejectsProtocolViolations(t *testing.T) {
 }
 
 func TestWS_WriteTimesOutWhenPeerStopsReading(t *testing.T) {
-	ws, _ := pipeClient(t) // nobody reads the server end
+	ws, _ := pipeClient(t)
 	ws.writeTimeout = 50 * time.Millisecond
 	start := time.Now()
 	err := ws.WriteText([]byte(strings.Repeat("x", 10)))
