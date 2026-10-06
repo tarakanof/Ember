@@ -68,3 +68,19 @@ import Foundation
     env.set("EMBER_X", "90")
     #expect(env.serialize() == "# note\nEMBER_CLAUDE_AGENTS_POLL=0\nEMBER_SOURCE=mbp\nEMBER_X=90\n")
 }
+
+@Test func envTrueAndEnvOnTrimNewlines() {
+    #expect(!envTrue("0\n"))
+    #expect(!envTrue("false\r\n"))
+    #expect(envOn("1\r\n"))
+    #expect(envOn("on\n"))
+    let off = ProducerTuning.Overrides(environment: [SettingsKeys.claudeAgentsPoll: "0\r\n"])
+    #expect(off.claudeAgentsPoll == false)
+}
+
+@Test func lineWhoseTrimmedFormStartsWithEqualsIsSkippedLikeGo() {
+    let env = EnvFile(parsing: "  =x\nA=1\n")
+    #expect(env.get("") == "")
+    #expect(env.get("A") == "1")
+    #expect(env.serialize() == "  =x\nA=1\n")
+}

@@ -9,11 +9,11 @@ public struct EnvFile: Sendable {
         for raw in text.split(omittingEmptySubsequences: false, whereSeparator: { $0 == "\n" || $0 == "\r\n" }).map(String.init) {
             let stripped = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if stripped.isEmpty || stripped.hasPrefix("#") { out.append(Line(raw: raw, key: nil, value: "")); continue }
-            guard let eq = raw.firstIndex(of: "="), eq != raw.startIndex else {
+            guard let eq = stripped.firstIndex(of: "="), eq != stripped.startIndex else {
                 out.append(Line(raw: raw, key: nil, value: "")); continue
             }
-            let key = String(raw[raw.startIndex..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
-            var val = String(raw[raw.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = String(stripped[stripped.startIndex..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+            var val = String(stripped[stripped.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
             if val.count >= 2, let f = val.first, (f == "\"" || f == "'"), val.last == f {
                 val = String(val.dropFirst().dropLast())
             }
