@@ -12,9 +12,10 @@ public struct KnobCheckin: Codable, Equatable, Sendable {
     public var linkMHz: Int?
     public var linkFallback: Bool?
     public var wifi: KnobWifi?
+    public var diag: KnobDiag?
 
     enum CodingKeys: String, CodingKey {
-        case fw, ip, rssi, wifi
+        case fw, ip, rssi, wifi, diag
         case linkMHz = "link_mhz"
         case linkFallback = "link_fallback"
         case seenAt = "seen_at"
@@ -53,6 +54,44 @@ public struct KnobWifi: Codable, Equatable, Sendable {
                 lastReason: Int? = nil, rssiMin: Int? = nil) {
         self.bssid = bssid; self.channel = channel; self.disconnects = disconnects
         self.lastReason = lastReason; self.rssiMin = rssiMin
+    }
+}
+
+public struct KnobDiag: Codable, Equatable, Sendable {
+    public var boots: Int?
+    public var crash: KnobCrash?
+    public var heapInternalMin: Int?
+    public var heapLargestMin: Int?
+    public var resetReason: String?
+    public var stackFree: [String: Int]?
+    public var reboots: Int?
+    public var prevResetReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case boots, crash, reboots
+        case heapInternalMin = "heap_internal_min"
+        case heapLargestMin = "heap_largest_min"
+        case resetReason = "reset_reason"
+        case stackFree = "stack_free"
+        case prevResetReason = "prev_reset_reason"
+    }
+
+    public init(boots: Int? = nil, crash: KnobCrash? = nil, heapInternalMin: Int? = nil,
+                heapLargestMin: Int? = nil, resetReason: String? = nil, stackFree: [String: Int]? = nil,
+                reboots: Int? = nil, prevResetReason: String? = nil) {
+        self.boots = boots; self.crash = crash; self.heapInternalMin = heapInternalMin
+        self.heapLargestMin = heapLargestMin; self.resetReason = resetReason; self.stackFree = stackFree
+        self.reboots = reboots; self.prevResetReason = prevResetReason
+    }
+}
+
+public struct KnobCrash: Codable, Equatable, Sendable {
+    public var pc: String?
+    public var reason: String?
+    public var task: String?
+
+    public init(pc: String? = nil, reason: String? = nil, task: String? = nil) {
+        self.pc = pc; self.reason = reason; self.task = task
     }
 }
 

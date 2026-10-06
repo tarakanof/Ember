@@ -83,6 +83,21 @@ import Foundation
     #expect(c.linkMHz == 40 && c.linkFallback == true)
 }
 
+@Test func knobCheckinDiagDecodes() throws {
+    let d = JSONDecoder()
+    d.dateDecodingStrategy = .iso8601
+    let base = #""seen_at":"2026-10-06T10:00:00Z","fw":"0.9.13","ip":"","rssi":-74,"heap_internal_free":1,"heap_internal_largest":1,"uptime_s":1,"applied_version":1"#
+    let full = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","diag":{"boots":42,"crash":{"pc":"0x4201a2b3","reason":"panic","task":"ember"},"heap_internal_min":71234,"heap_largest_min":30720,"reset_reason":"poweron","stack_free":{"ember":1880,"eye":900,"lvgl":2304},"reboots":3,"prev_reset_reason":"task_wdt"}}"#).utf8))
+    #expect(full.diag == KnobDiag(boots: 42, crash: KnobCrash(pc: "0x4201a2b3", reason: "panic", task: "ember"),
+                                  heapInternalMin: 71234, heapLargestMin: 30720, resetReason: "poweron",
+                                  stackFree: ["ember": 1880, "eye": 900, "lvgl": 2304],
+                                  reboots: 3, prevResetReason: "task_wdt"))
+    let sparse = try d.decode(KnobCheckin.self, from: Data(("{" + base + #","diag":{}}"#).utf8))
+    #expect(sparse.diag == KnobDiag())
+    let old = try d.decode(KnobCheckin.self, from: Data(("{" + base + "}").utf8))
+    #expect(old.diag == nil)
+}
+
 @Test func knobCheckinWifiDecodes() throws {
     let d = JSONDecoder()
     d.dateDecodingStrategy = .iso8601

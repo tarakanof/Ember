@@ -17,6 +17,17 @@
         }
       }
     },
+    "%@ (before: %@)" : {
+      "comment" : "Settings › Knob Last reset row: why the knob last started, then why it started the time before (\"Crash (before: Power on)\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (before: %2$@)"
+          }
+        }
+      }
+    },
     "%@ (min %lld dBm)" : {
       "comment" : "Settings › Knob Wi-Fi row: the signal, then its lowest value since the last check-in (\"Weak · -74 dBm (min -83 dBm)\").",
       "localizations" : {
@@ -55,6 +66,17 @@
         }
       }
     },
+    "%@ at %@" : {
+      "comment" : "Settings › Knob Crash row: the crash reason and the program counter (\"Panic at 0x4201a2b3\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ at %2$@"
+          }
+        }
+      }
+    },
     "%@ available" : {
       "comment" : "Clock firmware fact: a newer release (\"1.1.2 available\")."
     },
@@ -70,6 +92,28 @@
     },
     "%@ fps" : {
       "comment" : "Frames per second (\"29.5 fps\")."
+    },
+    "%@ in %@" : {
+      "comment" : "Settings › Knob Crash row: the crash reason and the task that crashed (\"Panic in ember\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ in %2$@"
+          }
+        }
+      }
+    },
+    "%@ in %@ at %@" : {
+      "comment" : "Settings › Knob Crash row: the crash reason, the task that crashed and the program counter (\"Panic in ember at 0x4201a2b3\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ in %2$@ at %3$@"
+          }
+        }
+      }
     },
     "%@ in 24 h" : {
       "comment" : "Settings › Clock: share of the server's pushes that reached the clock over the last 24 hours (\"98% in 24 h\")."
@@ -254,6 +298,17 @@
         }
       }
     },
+    "%@, largest block down to %@" : {
+      "comment" : "Settings › Knob: the lowest free internal RAM since the knob started, then the smallest its largest free block got (\"69 KB, largest block down to 30 KB\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, largest block down to %2$@"
+          }
+        }
+      }
+    },
     "%@, not set up" : {
       "comment" : "VoiceOver label of a Settings sidebar device that isn't set up: its name (and kind, \"Desk knob, Knob\")."
     },
@@ -326,6 +381,17 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$lld (last: reason %2$lld)"
+          }
+        }
+      }
+    },
+    "%lld (restarts seen by Ember: %lld)" : {
+      "comment" : "Settings › Knob Boots row: times the knob has started, then the restarts Ember noticed between check-ins (\"42 (restarts seen by Ember: 3)\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld (restarts seen by Ember: %2$lld)"
           }
         }
       }
@@ -590,6 +656,7 @@
     "Binary" : {},
     "Blinking" : {},
     "Block button navigation" : {},
+    "Boots" : {},
     "Bot" : {},
     "Bot (animated)" : {},
     "Bot gets sleepy after" : {},
@@ -1067,6 +1134,10 @@
     "Installed from the CLI" : {},
     "Internal RAM on the knob. Below about 24 KB in one block, pages may fail to draw." : {},
     "Internal memory" : {},
+    "Interrupt watchdog" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "It's installed from the command line. Use Move to Ember first." : {
       "comment" : "Settings › Agents failure when turning on an agent whose CLI LaunchAgent is loaded.",
       "extractionState" : "manual"
@@ -1094,6 +1165,7 @@
     "Last reminder didn't reach the clock: %@" : {
       "comment" : "Settings › Calendar: why the last reminder failed (a short error message)."
     },
+    "Last reset" : {},
     "Last restart" : {},
     "Last update didn't reach the server: %@" : {
       "comment" : "Settings › Music: why the last Apple Music update failed (a short error message)."
@@ -1137,6 +1209,7 @@
       "extractionState" : "manual"
     },
     "Lowest free" : {},
+    "Lowest free memory" : {},
     "MCP" : {},
     "Matches the brightness Ember works out for displays without a light sensor" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1382,6 +1455,10 @@
       }
     },
     "Pages" : {},
+    "Panic" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Partly cloudy" : {},
     "Password" : {},
     "Pause" : {
@@ -1751,6 +1828,10 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Task watchdog" : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Tells you when a used-up 5-hour limit resets" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -1875,6 +1956,7 @@
       "comment" : "Knob setup error; the argument is the Improv error code number."
     },
     "The knob reports every 5 seconds while this page is open." : {},
+    "The knob saved a crash dump in flash. It reports it on every check-in until the dump is read or erased over USB." : {},
     "The knob sends hardware stats every minute, and every 5 seconds while this page is open. It needs firmware with diagnostics." : {},
     "The knob sends no hardware stats." : {},
     "The knob stays at this brightness. It never goes below the minimum." : {},
@@ -1885,6 +1967,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The low point of internal RAM since the knob started." : {},
     "The menu bar shows the glyph of the tool that's most active." : {},
     "The overlay draws rain, snow or storms over whatever is showing." : {},
     "The reminder shows for the time above, then the clock carries on." : {},
@@ -1955,6 +2038,7 @@
     "Time per app" : {},
     "Time range" : {},
     "Time until the 5-hour window resets." : {},
+    "Times the knob has started since its flash was erased." : {},
     "Times the knob lost Wi-Fi since it started. Each one starts a reconnect." : {},
     "Tints this Mac's agent icon and name on the clock" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -2182,6 +2266,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "Why the knob last started, as ESP-IDF reports it." : {},
     "Wi-Fi" : {},
     "Wi-Fi passwords are 8 to 63 characters." : {},
     "Wi-Fi signal" : {},
