@@ -10,4 +10,10 @@ public enum SettingsKeys {
     public static let rateBottomBar = "EMBER_RATE_BOTTOM_BAR"
     public static let sourceCard = "EMBER_SOURCE_CARD"
     public static let sessionBar = "EMBER_SESSION_BAR"
+    public static let codexIncludeClaude = "EMBER_CODEX_INCLUDE_CLAUDE"
+    public static let codexSources = "EMBER_CODEX_SOURCES"
+    public static let codexAppServer = "EMBER_CODEX_APPSERVER"
+    public static let doneTTLSeconds = "EMBER_DONE_TTL_SECONDS"
+    public static let claudeAgentsPoll = "EMBER_CLAUDE_AGENTS_POLL"
+    public static let statuslineTimeoutMs = "EMBER_STATUSLINE_TIMEOUT_MS"
 }

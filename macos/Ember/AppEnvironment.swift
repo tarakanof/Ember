@@ -135,7 +135,11 @@ public final class AppEnvironment {
         if HardwareSnapshotRenderer.isRequested { return }
         #endif
         live.configure(client: client)
-        settings.connectionEnv.onSaved = { [weak self] _ in self?.reloadConnection() }
+        settings.connectionEnv.onSaved = { [weak self] _, _ in self?.reloadConnection() }
+        settings.producerTuning.onSaved = { [producers] saved, previous in
+            guard let previous, saved.changesCodex(from: previous) else { return }
+            Task { await producers.restart(.codex) }
+        }
         live.start()
         observeSleep()
         reminderWatcher.start()

@@ -18,6 +18,8 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
     case weatherNativeTileIcon, weatherMoonPhase, weatherOverlay, weatherPopupInterval, weatherNativePopupIcons
     case meetingPopupLead, reminderNativeIcon
     // Sources
+    case codexIncludeClaude, codexSources, codexAppServer
+    case claudeAgentsPoll, doneTTL, statuslineTimeout
     case focusAutoStart, focusStopAfter, focusWeeklyGoal
     case weatherProvider, weatherSevereAlert
     // App
@@ -53,6 +55,12 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
         case .weatherNativePopupIcons: "Uses animated icons in weather popups"
         case .meetingPopupLead: "A popup shortly before each meeting"
         case .reminderNativeIcon: "Shows an icon stored on the clock instead of the bell"
+        case .codexIncludeClaude: "Also shows Codex runs that Claude Code's Codex plugin starts"
+        case .codexSources: "Which kinds of Codex sessions report"
+        case .codexAppServer: "Follows Codex TUI sessions through the app-server daemon"
+        case .claudeAgentsPoll: "Checks sessions against claude agents to catch missed changes"
+        case .doneTTL: "How long a finished session keeps reporting"
+        case .statuslineTimeout: "How long your own status line command may run"
         case .focusAutoStart: "Runs breaks and focus phases back to back"
         case .focusStopAfter: "Stops the whole Pomodoro after this long"
         case .focusWeeklyGoal: "Active days to aim for in the last 7"
@@ -128,6 +136,21 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
             "Shows a popup this many minutes before a meeting starts, with a chime if Meeting popup is on in Clock › Sounds. Default: 2 min."
         case .reminderNativeIcon:
             "Uses the animated icon with this ID from the clock's own icon store. The clock must already have it: Ember uploads only the weather and Pomodoro icons."
+        // RUNBOOK "EMBER_*" toggle reference; cmd/ember-codex-producer/config.go.
+        case .codexIncludeClaude:
+            "Shows the Codex sessions that Claude Code starts through its Codex plugin, marked via Claude. It's off because the Claude Code session that started them already shows that work. Default: off."
+        case .codexSources:
+            "CLI is the Codex TUI; VS Code covers the IDE extension and the desktop app. Exec and MCP are runs started by scripts or other agents. Default: CLI and VS Code."
+        // ARCHITECTURE "App-server source".
+        case .codexAppServer:
+            "When the Codex app-server daemon is running, Ember reads TUI sessions from its socket, including waits for approval. Without the daemon this does nothing, and Ember never starts it. Default: on."
+        // ARCHITECTURE "claude agents --json cross-check".
+        case .claudeAgentsPoll:
+            "Asks claude agents for each session's state, which ends a wait you answered in a dialog and catches a turn stopped with Esc, where no hook fires. Needs Claude Code 2.1.288 or later. Default: on."
+        case .doneTTL:
+            "After a Claude Code session finishes or fails, the heartbeat keeps reporting it this long in case a hook's report was lost. Keep it equal to the server's done_ttl_seconds. Default: 30 s."
+        case .statuslineTimeout:
+            "When Ember wraps your own Claude Code status line, a command that runs longer is stopped and its last good output is shown. An EMBER_STATUSLINE_TIMEOUT_MS exported in the shell that runs claude wins over this, and Ember can't see it. Default: 10 s."
         case .focusAutoStart:
             "When a phase ends, the next one starts at once. Off leaves the next phase waiting until you start it. Default: off."
         case .focusStopAfter:
@@ -151,7 +174,7 @@ public enum SettingsInfo: String, CaseIterable, Sendable {
 /// row is disabled (the info button itself stays enabled, see `staysEnabled`).
 public enum SettingsInfoRequirement: String, CaseIterable, Sendable {
     case loading, diagnosticsOn, currentConditionsOn, scrolling, weatherOn, meetingsOn, remindersOn
-    case focusSoundOn, severeAlertOn
+    case focusSoundOn, severeAlertOn, setByEnvironment
 
     public var text: LocalizedStringResource {
         switch self {
@@ -164,6 +187,7 @@ public enum SettingsInfoRequirement: String, CaseIterable, Sendable {
         case .remindersOn: "Available when Ring the clock for due reminders is on in Sources › Calendar."
         case .focusSoundOn: "Available when Focus phase ends is on."
         case .severeAlertOn: "Available when Severe weather alert is on in Sources › Weather."
+        case .setByEnvironment: "An environment variable sets this, and it wins over the setting here."
         }
     }
 }

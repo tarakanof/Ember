@@ -50,3 +50,10 @@ import Foundation
     #expect(perms?.int16Value == 0o600)
     #expect(EnvFile(parsing: try String(contentsOf: path, encoding: .utf8)).get("EMBER_SOURCE") == "mbp")
 }
+
+@Test func removeDropsEveryOccurrenceAndKeepsTheRest() {
+    var env = EnvFile(parsing: "# c\nA=1\nB=2\nA=3\n")
+    env.remove("A")
+    #expect(env.get("A") == "")
+    #expect(env.serialize() == "# c\nB=2\n")
+}

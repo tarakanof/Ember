@@ -41,6 +41,11 @@ public struct EnvFile: Sendable {
         }
     }
 
+    /// Removes every line that sets `key`.
+    public mutating func remove(_ key: String) {
+        lines.removeAll { $0.key == key }
+    }
+
     public func serialize() -> String {
         lines.map { l in
             if let key = l.key { return "\(key)=\(l.value)" }

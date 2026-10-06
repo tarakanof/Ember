@@ -15,7 +15,8 @@ struct AgentsSourcePane: View {
         @Bindable var behavior = behavior
         Form {
             if let producers {
-                ProducersToggleSection(model: producers)
+                ProducersToggleSection(model: producers, tuning: env.settings.producerTuning,
+                                       overrides: ProducerTuning.Overrides(environment: ProcessInfo.processInfo.environment))
             }
 
             Section {
@@ -50,12 +51,14 @@ struct AgentsSourcePane: View {
         .formStyle(.grouped)
         .autosaves(usage)
         .autosaves(behavior)
+        .autosaves(env.settings.producerTuning)
         .onAppear { if producers == nil { producers = ProducerInstallModel(service: env.producers) } }
         .reloads {
             let s = env.settings
+            async let a: Void = s.producerTuning.load()
             async let b: Void = s.usage.load()
             async let c: Void = s.display.load()
-            _ = await (b, c)
+            _ = await (a, b, c)
         }
     }
 }

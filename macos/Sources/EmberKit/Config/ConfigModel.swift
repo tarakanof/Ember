@@ -25,12 +25,13 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
     public var isLoaded: Bool { applied != nil }
     public var hasUnsavedChanges: Bool { applied.map { $0 != draft } ?? false }
 
-    /// Called on the main actor after each successful save (a Connection save
-    /// rebuilds the client).
-    @ObservationIgnored public var onSaved: (@MainActor (T) -> Void)?
+    /// Called on the main actor after each successful save with the saved
+    /// value and the one stored before it (a Connection save rebuilds the
+    /// client).
+    @ObservationIgnored public var onSaved: (@MainActor (_ saved: T, _ previous: T?) -> Void)?
 
     @ObservationIgnored private let loader: @Sendable () async throws -> T
-    @ObservationIgnored private let saver: @Sendable (T) async throws -> Void
+    @ObservationIgnored private let saver: @Sendable (T, T?) async throws -> Void
     @ObservationIgnored private let debounce: Duration
     @ObservationIgnored private let savedHold: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
@@ -48,9 +49,19 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
                   savedHold: .seconds(2), sleep: { try await Task.sleep(for: $0) })
     }
 
+    convenience init(initial: T,
+                     load: @escaping @Sendable () async throws -> T,
+                     save: @escaping @Sendable (T) async throws -> Void,
+                     debounce: Duration,
+                     savedHold: Duration,
+                     sleep: @escaping @Sendable (Duration) async throws -> Void) {
+        self.init(initial: initial, load: load, saveChange: { value, _ in try await save(value) },
+                  debounce: debounce, savedHold: savedHold, sleep: sleep)
+    }
+
     init(initial: T,
          load: @escaping @Sendable () async throws -> T,
-         save: @escaping @Sendable (T) async throws -> Void,
+         saveChange save: @escaping @Sendable (T, T?) async throws -> Void,
          debounce: Duration,
          savedHold: Duration,
          sleep: @escaping @Sendable (Duration) async throws -> Void) {
@@ -110,15 +121,16 @@ public final class ConfigModel<T: Equatable & Sendable>: SaveStatusReporting {
         saving = true
         defer { saving = false }
         let sent = draft
+        let previous = applied
         savedReset?.cancel()
         status = .saving
         for attempt in 1...Self.rateLimitAttempts {
             do {
-                try await saver(sent)
+                try await saver(sent, previous)
                 applied = sent
                 saveError = nil
                 status = .saved
-                onSaved?(sent)
+                onSaved?(sent, previous)
                 holdSaved()
                 break
             } catch {
@@ -185,10 +197,21 @@ extension ConfigModel {
                             read: @escaping @Sendable (EnvFile) -> T,
                             apply: @escaping @Sendable (T, inout EnvFile) throws -> Void,
                             debounce: Duration = .milliseconds(600)) {
+        self.init(env: store, initial: initial, read: read,
+                  applyChange: { value, _, env in try apply(value, &env) }, debounce: debounce)
+    }
+
+    /// A model over producer.env whose `applyChange` also gets the value last
+    /// loaded or saved, so it can write only what the user changed.
+    public convenience init(env store: EnvFileStore,
+                            initial: T,
+                            read: @escaping @Sendable (EnvFile) -> T,
+                            applyChange: @escaping @Sendable (T, T?, inout EnvFile) throws -> Void,
+                            debounce: Duration = .milliseconds(600)) {
         self.init(initial: initial,
                   load: { read(await store.read()) },
-                  save: { value in try await store.update { try apply(value, &$0) } },
-                  debounce: debounce)
+                  saveChange: { value, previous in try await store.update { try applyChange(value, previous, &$0) } },
+                  debounce: debounce, savedHold: .seconds(2), sleep: { try await Task.sleep(for: $0) })
     }
 }
 

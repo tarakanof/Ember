@@ -44,10 +44,12 @@ public final class SettingsModels {
     public let agentsEnv: EnvConfigModel<DisplaySettings>
     /// Source, server URL and source colour in producer.env.
     public let connectionEnv: EnvConfigModel<ConnectionSettings>
+    /// The Agents pane's per-agent producer.env settings.
+    public let producerTuning: EnvConfigModel<ProducerTuning>
 
     /// Every model, for the aggregate status.
     public var all: [any SaveStatusReporting] {
-        [pomodoro, weather, meetings, usage, quiet, display, agentsEnv, connectionEnv]
+        [pomodoro, weather, meetings, usage, quiet, display, agentsEnv, connectionEnv, producerTuning]
     }
 
     public var aggregateStatus: AggregateSaveStatus {
@@ -67,6 +69,14 @@ public final class SettingsModels {
             env: envStore, initial: ConnectionSettings(reading: EnvFile(parsing: "")),
             read: { ConnectionSettings(reading: $0) },
             apply: { value, env in try value.applyTolerant(to: &env, token: nil) })
+        producerTuning = Self.producerTuningModel(envStore)
+    }
+
+    static func producerTuningModel(_ store: EnvFileStore) -> EnvConfigModel<ProducerTuning> {
+        EnvConfigModel(
+            env: store, initial: ProducerTuning(reading: EnvFile(parsing: "")),
+            read: { ProducerTuning(reading: $0) },
+            applyChange: { value, previous, env in try value.apply(to: &env, from: previous) })
     }
 
     /// Points the server-backed models at a new client.
@@ -98,7 +108,8 @@ public final class SettingsModels {
         async let server: Void = loadServerModels()
         async let g: Void = agentsEnv.load()
         async let h: Void = connectionEnv.load()
-        _ = await (server, g, h)
+        async let i: Void = producerTuning.load()
+        _ = await (server, g, h, i)
     }
 
     /// The Focus pane's defaults until the server answers.

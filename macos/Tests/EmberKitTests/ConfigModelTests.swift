@@ -210,11 +210,13 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
     let store = Store(1)
     let (m, _) = makeModel(store)
     var seen: [Int] = []
-    m.onSaved = { seen.append($0) }
+    var previous: [Int?] = []
+    m.onSaved = { saved, before in seen.append(saved); previous.append(before) }
     await m.load()
     m.draft = 5
     await m.saveNow()
     #expect(seen == [5])
+    #expect(previous == [1])
 }
 
 @Test func aggregateStatusPrefersErrorsThenSaving() {
@@ -254,7 +256,7 @@ private let throttled = APIError.rateLimited(retryAfter: .seconds(1))
 @MainActor @Test func settingsModelsAggregateTheirStatus() async {
     let client = stubbedClient { req in (okResponse(req.url!, status: 404), Data()) }
     let s = SettingsModels(client: client, envStore: EnvFileStore(path: URL(fileURLWithPath: "/nonexistent/producer.env")))
-    #expect(s.all.count == 8)
+    #expect(s.all.count == 9)
     #expect(s.aggregateStatus == .idle)
     await s.pomodoro.load()
     #expect(s.pomodoro.loadError == .featureOff)
