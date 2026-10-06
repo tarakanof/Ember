@@ -2796,8 +2796,13 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `<id>.json` sidecar (`id`, `size`, `fw` from the last checkin, `received_at`,
   and `reason`/`task`/`pc` when the last checkin's crash had this id), each
   written to a temp file and renamed, the sidecar last (its presence means
-  stored); the newest 3 by `received_at` are kept, older ones pruned on
-  insert. The data dir is the directory of the Pomodoro DB (`ensureStore`).
+  stored). The sidecar also holds `seq`, a per-device insert counter (highest
+  stored plus one): the list and pruning order by it, not by `received_at`, so
+  a clock stepping back or several uploads in one second can't misorder them.
+  The newest 3 are kept, older ones pruned on insert, and the dump just
+  written is never pruned. Before each insert, and for every device at
+  startup, leftovers are removed: `.*.tmp-*` files from a killed write, a
+  `.bin` without its sidecar and a sidecar without its `.bin`. The data dir is the directory of the Pomodoro DB (`ensureStore`).
   The device-exists check and the write run under the store lock, so a knob
   deleted mid-upload leaves no files, and `DELETE /v1/devices/{id}` removes
   the device's directory. Owner or admin client: `GET

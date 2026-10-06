@@ -459,3 +459,111 @@ func TestCheckinWithoutCoredumpStorageAsksForNothing(t *testing.T) {
 		t.Fatalf("upload without storage = %d, want 503", resp.StatusCode)
 	}
 }
+
+func uploadDumps(t *testing.T, srv *httptest.Server, token string, seeds ...byte) []string {
+	t.Helper()
+	var ids []string
+	for _, seed := range seeds {
+		body, id := fakeDump(seed, 1024)
+		if resp, b := putDump(t, srv, token, id, bytes.NewReader(body)); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("upload %s = %d: %s", id, resp.StatusCode, b)
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func dumpIDs(t *testing.T, srv *httptest.Server, device string) string {
+	t.Helper()
+	_, list := listDumps(t, srv, testToken, device)
+	ids := make([]string, 0, len(list))
+	for _, d := range list {
+		ids = append(ids, d.ID)
+	}
+	return strings.Join(ids, ",")
+}
+
+func TestCoredumpPruningKeepsTheNewUploadWhenTheClockStepsBack(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	base := time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC)
+	steps := []time.Duration{time.Hour, 2 * time.Hour, 3 * time.Hour, 0}
+	n := 0
+	app.coredumps.now = func() time.Time { d := steps[min(n, len(steps)-1)]; n++; return base.Add(d) }
+	ids := uploadDumps(t, srv, m.Token, 1, 2, 3, 4)
+	if got, want := dumpIDs(t, srv, m.ID), strings.Join([]string{ids[3], ids[2], ids[1]}, ","); got != want {
+		t.Fatalf("list = %s, want %s", got, want)
+	}
+	if res := crashCheckin(t, srv, m.Token, ids[3]); res["coredump_ack"] != ids[3] {
+		t.Fatalf("checkin after the 4th upload = %v, want ack", res)
+	}
+}
+
+func TestCoredumpPruningKeepsTheNewUploadInTheSameSecond(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	same := time.Date(2026, 10, 6, 10, 0, 0, 0, time.UTC)
+	app.coredumps.now = func() time.Time { return same }
+	ids := uploadDumps(t, srv, m.Token, 9, 8, 7, 6)
+	if got, want := dumpIDs(t, srv, m.ID), strings.Join([]string{ids[3], ids[2], ids[1]}, ","); got != want {
+		t.Fatalf("list = %s, want %s", got, want)
+	}
+	if res := crashCheckin(t, srv, m.Token, ids[3]); res["coredump_ack"] != ids[3] {
+		t.Fatalf("checkin after the 4th upload = %v, want ack", res)
+	}
+}
+
+func plantCoredumpLeftovers(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".0badc0de.bin.tmp-123", ".0badc0de.json.tmp-456", "0badc0de.bin", "deadbeef.json"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func dirNames(t *testing.T, dir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return strings.Join(names, ",")
+}
+
+func TestCoredumpInsertSweepsLeftoverFiles(t *testing.T) {
+	app, srv := newDevicesApp(t, "")
+	m := mintKnob(t, srv, http.StatusCreated)
+	dir := filepath.Join(app.coredumps.dir, m.ID)
+	plantCoredumpLeftovers(t, dir)
+	id := uploadDumps(t, srv, m.Token, 1)[0]
+	if got, want := dirNames(t, dir), id+".bin,"+id+".json"; got != want {
+		t.Fatalf("files = %s, want %s", got, want)
+	}
+}
+
+func TestCoredumpStartupSweepsLeftoverFiles(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "s.db")
+	app1, srv1 := newDevicesApp(t, db)
+	m := mintKnob(t, srv1, http.StatusCreated)
+	id := uploadDumps(t, srv1, m.Token, 1)[0]
+	dir := filepath.Join(app1.coredumps.dir, m.ID)
+	plantCoredumpLeftovers(t, dir)
+	other := filepath.Join(app1.coredumps.dir, "knob-aabbcc")
+	plantCoredumpLeftovers(t, other)
+
+	newDevicesApp(t, db)
+	if got, want := dirNames(t, dir), id+".bin,"+id+".json"; got != want {
+		t.Fatalf("files after restart = %s, want %s", got, want)
+	}
+	if got := dirNames(t, other); got != "" {
+		t.Fatalf("other device files after restart = %s", got)
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,11 @@ type coredumpMeta struct {
 	Reason     string    `json:"reason"`
 	Task       string    `json:"task"`
 	PC         string    `json:"pc"`
+}
+
+type coredumpSidecar struct {
+	coredumpMeta
+	Seq uint64 `json:"seq"`
 }
 
 type coredumpStore struct {
@@ -100,8 +106,19 @@ func (s *coredumpStore) put(device string, meta coredumpMeta, body []byte, exist
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create core dump dir: %w", err)
 	}
+	if err := sweepCoredumpDir(dir); err != nil {
+		return err
+	}
+	stored, err := s.storedLocked(device)
+	if err != nil {
+		return err
+	}
 	meta.ReceivedAt = s.now().UTC().Truncate(time.Second)
-	blob, err := json.Marshal(meta)
+	next := coredumpSidecar{coredumpMeta: meta, Seq: 1}
+	if len(stored) > 0 {
+		next.Seq = stored[0].Seq + 1
+	}
+	blob, err := json.Marshal(next)
 	if err != nil {
 		return fmt.Errorf("encode core dump meta: %w", err)
 	}
@@ -112,16 +129,68 @@ func (s *coredumpStore) put(device string, meta coredumpMeta, body []byte, exist
 		_ = os.Remove(filepath.Join(dir, meta.ID+".bin"))
 		return err
 	}
-	list, err := s.listLocked(device)
-	if err != nil {
-		return err
-	}
-	for _, old := range list[min(len(list), coredumpsKept):] {
+	kept := 1
+	for _, old := range stored {
+		if old.ID == meta.ID {
+			continue
+		}
+		if kept < coredumpsKept {
+			kept++
+			continue
+		}
 		if err := s.removeLocked(device, old.ID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *coredumpStore) sweep() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries, err := os.ReadDir(s.dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read core dump dir: %w", err)
+	}
+	var errs []error
+	for _, e := range entries {
+		if e.IsDir() {
+			errs = append(errs, sweepCoredumpDir(filepath.Join(s.dir, e.Name())))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func sweepCoredumpDir(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read core dump dir: %w", err)
+	}
+	present := map[string]bool{}
+	for _, e := range entries {
+		present[e.Name()] = true
+	}
+	var errs []error
+	for _, e := range entries {
+		name := e.Name()
+		stale := strings.HasPrefix(name, ".") && strings.Contains(name, ".tmp-")
+		if id, ok := strings.CutSuffix(name, ".bin"); ok && coredumpIDPattern.MatchString(id) {
+			stale = !present[id+".json"]
+		}
+		if id, ok := strings.CutSuffix(name, ".json"); ok && coredumpIDPattern.MatchString(id) {
+			stale = !present[id+".bin"]
+		}
+		if !stale {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			errs = append(errs, fmt.Errorf("remove leftover core dump file: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func writeFileAtomic(path string, data []byte) (err error) {
@@ -158,14 +227,26 @@ func (s *coredumpStore) list(device string) ([]coredumpMeta, error) {
 }
 
 func (s *coredumpStore) listLocked(device string) ([]coredumpMeta, error) {
+	stored, err := s.storedLocked(device)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]coredumpMeta, 0, len(stored))
+	for _, d := range stored {
+		out = append(out, d.coredumpMeta)
+	}
+	return out, nil
+}
+
+func (s *coredumpStore) storedLocked(device string) ([]coredumpSidecar, error) {
 	entries, err := os.ReadDir(s.deviceDir(device))
 	if errors.Is(err, os.ErrNotExist) {
-		return []coredumpMeta{}, nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read core dump dir: %w", err)
 	}
-	out := []coredumpMeta{}
+	var out []coredumpSidecar
 	for _, e := range entries {
 		id, ok := strings.CutSuffix(e.Name(), ".json")
 		if !ok || !coredumpIDPattern.MatchString(id) {
@@ -175,17 +256,17 @@ func (s *coredumpStore) listLocked(device string) ([]coredumpMeta, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read core dump meta: %w", err)
 		}
-		var m coredumpMeta
+		var m coredumpSidecar
 		if err := json.Unmarshal(blob, &m); err != nil || m.ID != id {
 			continue
 		}
 		out = append(out, m)
 	}
-	slices.SortFunc(out, func(a, b coredumpMeta) int {
-		if c := b.ReceivedAt.Compare(a.ReceivedAt); c != 0 {
+	slices.SortFunc(out, func(a, b coredumpSidecar) int {
+		if c := cmp.Compare(b.Seq, a.Seq); c != 0 {
 			return c
 		}
-		return strings.Compare(a.ID, b.ID)
+		return b.ReceivedAt.Compare(a.ReceivedAt)
 	})
 	return out, nil
 }
