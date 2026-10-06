@@ -161,6 +161,8 @@ public enum KnobOTAError {
         case "flash": String(localized: "writing the flash failed")
         case "interrupted": String(localized: "the knob restarted during the download")
         case "mark_valid": String(localized: "the knob could not confirm the new firmware")
+        case "refused": String(localized: "the knob refused this image after it failed there before")
+        case "not_started": String(localized: "the knob never started the download")
         default:
             if let status = code.split(separator: "_").last, code.hasPrefix("http_") {
                 String(localized: "Ember answered HTTP \(String(status))",

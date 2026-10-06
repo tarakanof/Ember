@@ -66,6 +66,8 @@ private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
     #expect(KnobOTAError.label("no_checkin") == "the knob could not reach Ember after the update")
     #expect(KnobOTAError.label("http_409") == "Ember answered HTTP 409")
     #expect(KnobOTAError.label("weird") == "weird")
+    #expect(KnobOTAError.label("refused") == "the knob refused this image after it failed there before")
+    #expect(KnobOTAError.label("not_started") == "the knob never started the download")
 }
 
 @Test func elfIsFoundNextToTheBinary() {
