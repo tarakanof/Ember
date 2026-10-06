@@ -692,6 +692,9 @@ Claude producer constraints:
   500 ms) because the hook blocks the `claude` CLI. The daemon uses a separate,
   longer `daemonHTTPTimeout` (5 s) so a slow link doesn't flap heartbeat
   re-POSTs and reap DELETEs.
+  A settings.json hook without `timeout` gets Claude Code's 600 s default
+  (async hooks get none enforced), so installed blocking hooks always carry
+  one.
 - **Stop upserts `done`, never deletes**, because deleting on every Stop
   dropped the display to the idle robot between turns. The marker keeps
   `done` (the reply's first line as message) until the next prompt,
@@ -1158,7 +1161,10 @@ change durations/colours/cap/goals without a writable config file. API:
 `POST /v1/pomodoro/{start,pause,resume,stop,skip}` + `GET/PUT /v1/pomodoro/config`
 (bearer; PUT is **merge semantics** since #84 — omitted fields keep their
 current value; `daily_goal_sessions`/`weekly_goal_days` round-trip here too,
-validated against `[0, 50]`/`[0, 7]`, `0` = goal off); open
+validated against `[0, 50]`/`[0, 7]`, `0` = goal off). Stats knobs read at request time:
+`day_start_hour` (0-23, default 4: earlier activity counts to the previous
+day), `streak_grace_days` (missed days a streak tolerates, default 1, `0` =
+strict), `work_hours_gap_minutes` (default 15), `work_hours_include_activity`; open
 `GET /v1/pomodoro/{state,stats,heatmap,workhours}` (`stats.goal` reports
 progress against those two config fields — `workhours` reports
 `work_start`/`work_end` as `null` on a day with no work);
@@ -1427,7 +1433,9 @@ Design note: Obsidian `Superpowers Specs/ember/2026-10-05-now-playing-design.md`
   alpha — the knob applies its own circle mask). Sources must be JPEG/PNG,
   ≤2 MB, ≤2048 px a side, checked with `DecodeConfig` and then fully
   decoded once at ingest (`nowplaying.Validate`), so a corrupt body is a
-  400, not a failure on every render. Served sizes are a fixed set per kind
+  400, not a failure on every render. Renders are serialised (`renderMu`):
+  a 2048 px source is ~50 MB of transient decode buffers, which concurrent
+  cache misses would multiply. Served sizes are a fixed set per kind
   (`nowplaying.Sizes`: album 240/120, artist 64/120, backdrop 466; first =
   default), so a client can't force a fresh render per request. 466 isn't
   a multiple of the 16 px MCU; TJpgDec handles the partial MCU, but the
@@ -3082,6 +3090,22 @@ uncommitted `NSTextField` edits) are no longer live constraints.
   and a first registration may report `.requiresApproval`.
 
 ### Producer / deploy
+
+- **Linux producer plumbing.** `/proc/<pid>/stat` `comm` is cut to 15 bytes
+  (`ember-claude-pr`), so owner checks match on the cut name. Process start
+  time is read as clock ticks after boot with `USER_HZ` fixed at 100 (sysconf
+  needs cgo). Log redirection uses `unix.Dup2`, not `syscall.Dup2`:
+  linux/arm64 has only `dup3`.
+- **Codex app-server client name.** `clientInfo.name` on `initialize` is
+  internal and on the server's `NON_ORIGINATING_CLIENT_NAMES` list
+  (codex-rs `initialize_processor.rs`), so the first client to connect does
+  not become the daemon-wide originator and the user's sessions stay labelled
+  `codex-tui` (spike #263).
+- **T3 recovery index.** The v2 turn-item `EXISTS` must hit T3's partial
+  `turn_items_recovery_idx`; scanning every item of every completed thread
+  costs ~0.5 s per poll at 600k items (guarded by a test).
+- **Unix socket paths in tests.** `t.TempDir()` paths can exceed `sun_path`
+  (104 bytes on macOS); tests that listen on a Unix socket use a short path.
 - **Process-liveness, not file-existence, detects session close.** A heartbeat
   that re-posts any young marker keeps dead sessions alive for hours and defeats
   every server staleness window. `SessionEnd` is unreliable (skipped on
