@@ -12,8 +12,9 @@ live in the public repo.
 
 ## Unraid MCP
 
-- `export UNRAID_MCP_DIR=<path-to-unraid-mcp-checkout>` in the shell that runs
-  the agent (see `docs/WORKFLOW.md` step 6).
+- In the shell that runs the agent: `export UNRAID_MCP_URL=http://<unraid-host>:6750/mcp`
+  and `UNRAID_MCP_TOKEN=<the container's UNRAID_MCP_BEARER_TOKEN>` (see
+  `docs/WORKFLOW.md` step 6). Never commit the token.
 
 ## Documentation / vault
 

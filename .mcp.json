@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "unraid": {
-      "command": "uv",
-      "args": ["run", "--directory", "${UNRAID_MCP_DIR}", "unraid-mcp"],
-      "env": {
-        "UNRAID_MCP_ALLOW_MUTATIONS": "true"
+      "type": "http",
+      "url": "${UNRAID_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${UNRAID_MCP_TOKEN}"
       }
     }
   }

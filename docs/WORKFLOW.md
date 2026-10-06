@@ -78,9 +78,10 @@ they apply at every step.
   `/healthz` and `/version` on the live server (`EMBER_SERVER_URL` in
   `producer.env`, or mDNS `_ember._tcp`) for the new tag. Without the MCP, the
   user updates the container and says "server updated".
-  - The MCP is the user's `tarakanof/Unraid-MCP` checkout, run over stdio
-    (`UNRAID_MCP_DIR` points at it; its gitignored `.env` holds the Unraid API
-    URL and key). The key is the boundary: it holds only `DOCKER` `READ_ANY`
+  - The MCP is the user's `tarakanof/Unraid-MCP` container on the Unraid box
+    (streamable HTTP, `UNRAID_MCP_URL`, bearer `UNRAID_MCP_TOKEN` from the
+    shell env; mutations on in the container). Its Unraid API key is the
+    boundary: it holds only `DOCKER` `READ_ANY`
     + `UPDATE_ANY`, so array, VM, parity and notification calls fail at the
     API whatever tools the server registers. `.claude/settings.json` also
     denies the known write tools except `refresh_docker_digests` and
