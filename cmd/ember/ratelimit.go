@@ -11,7 +11,6 @@ import (
 	"time"
 )
 
-// IPLimiter is a per-IP token-bucket rate limiter.
 type IPLimiter struct {
 	app     *App
 	clock   func() time.Time
@@ -34,7 +33,6 @@ func NewIPLimiter(app *App) *IPLimiter {
 	}
 }
 
-// Allow consumes one token from the bucket for the given IP.
 func (l *IPLimiter) Allow(ip string) (bool, int) {
 	rl := l.app.cfg.Load().RateLimit
 	if rl.Disabled || rl.Burst <= 0 || rl.RefillPerSec <= 0 {
@@ -75,7 +73,6 @@ func (l *IPLimiter) Allow(ip string) (bool, int) {
 	return false, retryAfterSeconds(b.tokens, rl.RefillPerSec)
 }
 
-// Has reports whether ip's bucket holds a token now, without spending it.
 func (l *IPLimiter) Has(ip string) bool {
 	rl := l.app.cfg.Load().RateLimit
 	if rl.Disabled || rl.Burst <= 0 || rl.RefillPerSec <= 0 {

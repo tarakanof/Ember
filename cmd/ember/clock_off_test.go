@@ -23,12 +23,7 @@ func (c *countingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return c.next.RoundTrip(r)
 }
 
-// TestClockOffMakesNoClockRequests drives every clock-facing path of a server
-// run with EMBER_CLOCK=off and proves nothing leaves the process: neither a
-// stub standing in for the clock nor the default transport sees a request, and
-// no mDNS browse starts.
 func TestClockOffMakesNoClockRequests(t *testing.T) {
-	// Swaps the global http.DefaultTransport: do not add t.Parallel() here.
 	t.Setenv("EMBER_CLOCK", "off")
 
 	var stubHits atomic.Int64
@@ -154,8 +149,6 @@ func TestClockOffMakesNoClockRequests(t *testing.T) {
 	}
 }
 
-// With the switch unset the same stub is reached, so the test above is not
-// passing for want of wiring.
 func TestClockOnReachesClock(t *testing.T) {
 	t.Setenv("EMBER_CLOCK", "")
 	var hits atomic.Int64

@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// QuietHoursConfig is the global night-mute window.
 type QuietHoursConfig struct {
 	Enabled bool   `json:"enabled"`
 	Start   string `json:"start,omitempty"`

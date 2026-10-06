@@ -27,7 +27,6 @@ func control(t *testing.T, srv *httptest.Server, token, body, key string) (int, 
 	return resp.StatusCode, res, string(b)
 }
 
-// pollCommands is Ember.app's long-poll for player.
 func pollCommands(t *testing.T, srv *httptest.Server, player string, wait int) []queuedCommand {
 	t.Helper()
 	resp, b := npDo(t, srv, "GET", "/v1/nowplaying/commands?player="+player+"&wait="+strconv.Itoa(wait), testToken, nil, nil)
@@ -73,7 +72,6 @@ func TestControlAcceptsKnobDeviceToken(t *testing.T) {
 	}
 	go func() { _, _ = app.nowPlaying.commands.take(context.Background(), "M4", 2*time.Second) }()
 	waitPolling(t, app.nowPlaying.commands, "M4")
-	// Least privilege: only a knob showing the now-playing page may control.
 	if code, _, b := control(t, srv, knob.Token, `{"action":"play_pause"}`, "k1"); code != http.StatusForbidden {
 		t.Fatalf("page off: %d %s", code, b)
 	}
@@ -116,7 +114,6 @@ func TestControlMusicNeedsAListeningMac(t *testing.T) {
 	if code, _, b := control(t, srv, testToken, `{"action":"next"}`, "a"); code != http.StatusServiceUnavailable {
 		t.Fatalf("no Mac polling: %d %s", code, b)
 	}
-	// The key was released: once the Mac polls, the same retry goes through.
 	pollCommands(t, srv, "M4", 0)
 	if code, _, b := control(t, srv, testToken, `{"action":"next"}`, "a"); code != http.StatusAccepted {
 		t.Fatalf("after a poll: %d %s", code, b)
@@ -127,7 +124,6 @@ func TestControlMusicNeedsAListeningMac(t *testing.T) {
 	if got := pollCommands(t, srv, "M4", 0); len(got) != 0 {
 		t.Fatalf("delivered twice: %+v", got)
 	}
-	// Another Mac's poll doesn't take M4's commands.
 	control(t, srv, testToken, `{"action":"previous"}`, "")
 	if got := pollCommands(t, srv, "Other", 0); len(got) != 0 {
 		t.Fatalf("other player got %+v", got)
@@ -166,7 +162,6 @@ func TestControlKeysAreScopedPerCaller(t *testing.T) {
 	if !k.claim("owner", "k", now.Add(controlKeyTTL)) {
 		t.Fatal("key not forgotten after the TTL")
 	}
-	// A busy caller fills only its own share: the knob's key survives.
 	k.claim("device:knob", "press-1", now)
 	for i := range controlKeysPerCaller * 3 {
 		k.claim("owner", "x"+strconv.Itoa(i), now)
@@ -247,7 +242,6 @@ func TestControlIsRateLimitedPerCaller(t *testing.T) {
 	if limited == 0 {
 		t.Fatal("no step was limited")
 	}
-	// A limited key was released: a later retry of it is not a "duplicate".
 	app.nowPlaying.controlLimit = &callerLimiter{burst: controlBurst, perSec: controlPerSec}
 	if code, res, _ := control(t, srv, testToken, `{"action":"next"}`, "v"+strconv.Itoa(controlBurst+4)); code != http.StatusAccepted ||
 		res.Status != "queued" {
@@ -270,7 +264,7 @@ func plexControlApp(t *testing.T) (*App, *httptest.Server, *fakePlex) {
 func TestControlPlexSendsPlayerCommands(t *testing.T) {
 	app, srv, fake := plexControlApp(t)
 	for _, c := range []struct{ body, want string }{
-		{`{"action":"play_pause"}`, "/player/playback/pause amp-1 type=music"}, // it plays: pause
+		{`{"action":"play_pause"}`, "/player/playback/pause amp-1 type=music"},
 		{`{"action":"next"}`, "/player/playback/skipNext amp-1 type=music"},
 		{`{"action":"previous"}`, "/player/playback/skipPrevious amp-1 type=music"},
 	} {
@@ -304,14 +298,13 @@ func TestControlPlexVolumeReadsTimelineThenSteps(t *testing.T) {
 	fake.mu.Lock()
 	hits := strings.Join(fake.playerHits, "\n")
 	fake.mu.Unlock()
-	want := "/player/timeline/poll amp-1\n" + // the setup poll: no level yet
+	want := "/player/timeline/poll amp-1\n" +
 		"/player/timeline/poll amp-1\n" +
 		"/player/playback/setParameters amp-1 type=music volume=100\n" +
 		"/player/playback/setParameters amp-1 type=music volume=90"
 	if hits != want {
 		t.Fatalf("hits:\n%s\nwant:\n%s", hits, want)
 	}
-	// The poller reports the level, so the knob reconciles to it.
 	app.nowPlaying.plex.poll(context.Background(), app.nowPlaying, testLogger(), time.Now())
 	if e, _ := app.nowPlaying.reg.Current(time.Now()); e.Volume == nil || *e.Volume != 90 {
 		t.Fatalf("entry volume = %v", e.Volume)
@@ -326,7 +319,6 @@ func TestControlPlexFailures(t *testing.T) {
 	if code, _, _ := control(t, srv, testToken, `{"action":"next"}`, "p1"); code != http.StatusBadGateway {
 		t.Fatalf("player refused: %d, want 502", code)
 	}
-	// A 502 keeps the key: the player may have taken it.
 	if code, res, _ := control(t, srv, testToken, `{"action":"next"}`, "p1"); code != http.StatusOK || res.Status != "duplicate" {
 		t.Fatalf("retry after 502: %d %+v", code, res)
 	}
@@ -371,8 +363,7 @@ func TestControlPlexVolumeRereadsAStaleLevel(t *testing.T) {
 	fake.mu.Lock()
 	fake.timelineVol = "80"
 	fake.mu.Unlock()
-	control(t, srv, testToken, `{"action":"volume","delta":2}`, "") // 80 -> 82
-	// The level is changed on the phone; past the TTL a step reads it again.
+	control(t, srv, testToken, `{"action":"volume","delta":2}`, "")
 	fake.mu.Lock()
 	fake.timelineVol = "10"
 	fake.mu.Unlock()
@@ -381,7 +372,6 @@ func TestControlPlexVolumeRereadsAStaleLevel(t *testing.T) {
 	if code != http.StatusOK || res.Volume == nil || *res.Volume != 12 {
 		t.Fatalf("stale level: %d %s, want 12 (never 84)", code, b)
 	}
-	// Within the TTL (a continuous turn) the level set is the base.
 	code, res, _ = control(t, srv, testToken, `{"action":"volume","delta":2}`, "")
 	if code != http.StatusOK || *res.Volume != 14 {
 		t.Fatalf("continuous turn: %d %v", code, res.Volume)
@@ -395,7 +385,6 @@ func TestControlPlexPlayPauseFollowsWhatWasCommanded(t *testing.T) {
 		defer fake.mu.Unlock()
 		return fake.playerHits[len(fake.playerHits)-1]
 	}
-	// Two quick toggles before the poller sees the first: pause, then play.
 	control(t, srv, testToken, `{"action":"play_pause"}`, "")
 	if l := last(); l != "/player/playback/pause amp-1 type=music" {
 		t.Fatalf("first toggle: %s", l)
@@ -424,7 +413,6 @@ func TestControlRefusesWhenTheShownTrackChanged(t *testing.T) {
 			t.Fatalf("%s: %d %s", body, code, b)
 		}
 	}
-	// The key was released (nothing sent): the corrected press goes through.
 	if code, _, b := control(t, srv, testToken, `{"action":"next","source":"music","track_id":"T1"}`, "same"); code != http.StatusAccepted {
 		t.Fatalf("matching target: %d %s", code, b)
 	}
@@ -446,8 +434,6 @@ func TestCommandsCarryTheirAge(t *testing.T) {
 	}
 }
 
-// A knob turning at 5 Hz for 20 s with a view re-arm after each step must
-// never be limited per IP (its token is valid); bad tokens still are.
 func TestKnobBurstIsNotChargedPerIP(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	cfg := *app.cfg.Load()

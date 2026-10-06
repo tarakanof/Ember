@@ -107,7 +107,6 @@ func (f *icsFetcher) fetch(ctx context.Context, rawURL string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 }
 
-// StartMeetings runs the ICS polling loop until ctx is cancelled.
 func (a *App) StartMeetings(ctx context.Context) {
 	if a.meetings == nil {
 		return

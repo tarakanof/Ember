@@ -16,12 +16,10 @@ import (
 const fakePlexToken = "plex-fake-token"
 
 type fakePlex struct {
-	mu        sync.Mutex
-	sessions  string
-	photoHits []string
-	badToken  bool
-	// Player control (#280): requests to /player/*, as "path?query target",
-	// the timeline volume (empty: none) and a status for playback commands.
+	mu          sync.Mutex
+	sessions    string
+	photoHits   []string
+	badToken    bool
 	playerHits  []string
 	timelineVol string
 	playerCode  int

@@ -17,9 +17,6 @@ import (
 
 const clockProbeTTL = 30 * time.Second
 
-// clockProbeTimeout bounds the shared clock probe (health, brightness,
-// clock stats and the device watch's reboot check): long enough for a busy
-// ESP32, short enough that a hung clock can't stall the 30 s cadence.
 const clockProbeTimeout = 2500 * time.Millisecond
 
 const ngReleasesURL = "https://api.github.com/repos/Blueforcer/awtrix-ng/releases/latest"
@@ -31,7 +28,7 @@ const (
 )
 
 type clockProbeCache struct {
-	mu       sync.Mutex // protects at, base, dev, inflight; never held across the probe
+	mu       sync.Mutex
 	at       time.Time
 	base     string
 	dev      clockDeviceOut
@@ -202,47 +199,38 @@ type clockDeviceOut struct {
 	FreeHeapBytes    *int64    `json:"free_heap_bytes"`
 	MinFreeHeapBytes *int64    `json:"min_free_heap_bytes"`
 	WifiRSSIDbm      *int      `json:"wifi_rssi_dbm"`
-	// WifiConnects counts (re)connects since boot; more than one means the link dropped.
-	WifiConnects    *int     `json:"wifi_connects"`
-	ResetReason     *string  `json:"reset_reason"`
-	FPS             *float64 `json:"fps"`
-	MatrixPower     *bool    `json:"matrix_power"`
-	BatteryPercent  *float64 `json:"battery_percent"`
-	LowBattery      *bool    `json:"low_battery"`
-	TemperatureC    *float64 `json:"temperature_c"`
-	HumidityPercent *float64 `json:"humidity_percent"`
+	WifiConnects     *int      `json:"wifi_connects"`
+	ResetReason      *string   `json:"reset_reason"`
+	FPS              *float64  `json:"fps"`
+	MatrixPower      *bool     `json:"matrix_power"`
+	BatteryPercent   *float64  `json:"battery_percent"`
+	LowBattery       *bool     `json:"low_battery"`
+	TemperatureC     *float64  `json:"temperature_c"`
+	HumidityPercent  *float64  `json:"humidity_percent"`
 
 	lightLevel *float64
-	// ip stays out of the open health read; GET /v1/clock/stats has it.
-	ip string
+	ip         string
 }
 
 type publishHealthOut struct {
-	// CountingSince is the server start; every counter resets on restart.
-	CountingSince time.Time `json:"counting_since"`
-	OK24h         int64     `json:"ok_24h"`
-	Fail24h       int64     `json:"fail_24h"`
-	// SuccessRatio24h is ok/(ok+fail) over the last 24h, 0..1; null without publishes in that window.
-	SuccessRatio24h *float64 `json:"success_ratio_24h"`
-	OKTotal         int64    `json:"ok_total"`
-	FailTotal       int64    `json:"fail_total"`
-	// RetriesTotal counts lost first attempts that a retry recovered.
-	RetriesTotal int64      `json:"retries_total"`
-	LastAt       *time.Time `json:"last_at"`
-	LastOK       bool       `json:"last_ok"`
+	CountingSince   time.Time  `json:"counting_since"`
+	OK24h           int64      `json:"ok_24h"`
+	Fail24h         int64      `json:"fail_24h"`
+	SuccessRatio24h *float64   `json:"success_ratio_24h"`
+	OKTotal         int64      `json:"ok_total"`
+	FailTotal       int64      `json:"fail_total"`
+	RetriesTotal    int64      `json:"retries_total"`
+	LastAt          *time.Time `json:"last_at"`
+	LastOK          bool       `json:"last_ok"`
 }
 
 type clockHealthOut struct {
-	GeneratedAt time.Time        `json:"generated_at"`
-	Publish     publishHealthOut `json:"publish"`
-	// Disabled: the server runs with EMBER_CLOCK=off and does no clock I/O; device stays null.
-	Disabled bool `json:"disabled,omitempty"`
-	// Device is null when no clock is configured.
-	Device *clockDeviceOut `json:"device"`
-	// LatestFirmware is the newest awtrix-ng release ("1.1.2"), looked up on GitHub in the background at most every 6h; null when unknown (the first request after start, offline, rate-limited, or EMBER_FIRMWARE_CHECK=0).
-	LatestFirmware *string `json:"latest_firmware"`
-	// UpdateAvailable compares LatestFirmware with device.firmware; null when either is unknown.
-	UpdateAvailable *bool `json:"update_available"`
+	GeneratedAt     time.Time        `json:"generated_at"`
+	Publish         publishHealthOut `json:"publish"`
+	Disabled        bool             `json:"disabled,omitempty"`
+	Device          *clockDeviceOut  `json:"device"`
+	LatestFirmware  *string          `json:"latest_firmware"`
+	UpdateAvailable *bool            `json:"update_available"`
 }
 
 type clockDeviceWire struct {
@@ -270,9 +258,6 @@ func (a *App) probeClockHealth(ctx context.Context, now time.Time) *clockDeviceO
 	return a.probeClockHealthWithin(ctx, now, clockProbeTTL)
 }
 
-// probeClockHealthWithin answers from the probe cache when it is younger
-// than maxAge, else probes the clock (one probe at a time; see
-// ARCHITECTURE). Every fresh probe is also a clock stats sample.
 func (a *App) probeClockHealthWithin(ctx context.Context, now time.Time, maxAge time.Duration) *clockDeviceOut {
 	base := a.cfg.Load().effectiveClockURL()
 	if base == "" || clockDisabled() {

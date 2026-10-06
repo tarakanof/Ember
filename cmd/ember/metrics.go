@@ -27,7 +27,6 @@ type metrics struct {
 	longPoll         [len(longPollResults)]atomic.Int64
 }
 
-// longPollResults is the label order of ember_knob_view_longpoll_total.
 var longPollResults = [...]string{longPollChange, longPollTimeout, longPollShutdown, longPollGone, longPollBusy}
 
 func newMetrics() *metrics { return &metrics{} }
@@ -216,7 +215,6 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// Write triggers an implicit WriteHeader(200) per Go's contract; capture it so handlers that skip an explicit WriteHeader still record 200.
 func (r *statusRecorder) Write(b []byte) (int, error) {
 	if !r.wrote {
 		r.WriteHeader(http.StatusOK)

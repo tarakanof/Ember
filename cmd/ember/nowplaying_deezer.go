@@ -13,8 +13,7 @@ import (
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
-// Deezer artist search: no key; non-commercial use, and its images must not
-// be stored, so hits live only in this RAM map (and the render cache).
+// Deezer terms: non-commercial use, images never stored; hits live only in RAM.
 const (
 	deezerAPIBase       = "https://api.deezer.com"
 	artistLookupMax     = 64
@@ -24,22 +23,19 @@ const (
 	artistLookupTimeout = 10 * time.Second
 )
 
-// artistLookup finds an artist picture by name and remembers the answer.
 type artistLookup struct {
-	base   string
-	client *http.Client
-	now    func() time.Time
-	// pictureOK vets a picture URL from a search answer before it is
-	// fetched (and later served publicly): https on Deezer's CDN only.
+	base      string
+	client    *http.Client
+	now       func() time.Time
 	pictureOK func(*url.URL) bool
 
-	mu   sync.Mutex // protects hits
+	mu   sync.Mutex
 	hits map[string]artistHit
 }
 
 type artistHit struct {
-	img *nowplaying.Image // nil = no picture
-	err error             // a failed lookup, retried after artistErrTTL
+	img *nowplaying.Image
+	err error
 	at  time.Time
 }
 
@@ -63,7 +59,6 @@ func deezerCDN(u *url.URL) bool {
 	return u.Scheme == "https" && (h == "dzcdn.net" || strings.HasSuffix(h, ".dzcdn.net"))
 }
 
-// find returns the artist's picture, nil when Deezer has none.
 func (l *artistLookup) find(ctx context.Context, artist string) (*nowplaying.Image, error) {
 	name := strings.ToLower(strings.TrimSpace(artist))
 	if name == "" {

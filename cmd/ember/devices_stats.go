@@ -13,23 +13,15 @@ import (
 )
 
 const (
-	// knobStatsLiveCap holds 10 min of samples at the shortest live
-	// interval (2 s, #249).
 	knobStatsLiveCap = int(statsLiveWindow / (2 * time.Second))
-	// knobLiveMax caps one POST /stats/live; the app extends it while its
-	// dashboard is open.
-	knobLiveMax     = 10 * time.Minute
-	knobLiveDefault = 180 * time.Second
-	// knobOnlineWindow is two missed 60 s checkins.
+	knobLiveMax      = 10 * time.Minute
+	knobLiveDefault  = 180 * time.Second
 	knobOnlineWindow = 150 * time.Second
 	knobMaxCores     = 8
 )
 
 var knobResetReasonPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,15}$`)
 
-// knobStatsReport is a checkin's optional "stats" object: deltas and
-// averages over period_ms, plus gauges. Every field is optional; see
-// ARCHITECTURE "Knob diagnostics" for which level sends which.
 type knobStatsReport struct {
 	PeriodMS        int64     `json:"period_ms"`
 	CPUPct          []float64 `json:"cpu_pct"`
@@ -83,9 +75,6 @@ func (s *knobStatsReport) validate() error {
 	return nil
 }
 
-// forLevel keeps what diagnostics level diag asks for: nothing at off, no
-// request or rendering fields at basic. The knob may lag a level change by
-// a checkin, so the server, not the firmware, has the last word.
 func (s *knobStatsReport) forLevel(diag string) *knobStatsReport {
 	if s == nil || diag == knobDiagOff {
 		return nil
@@ -99,8 +88,6 @@ func (s *knobStatsReport) forLevel(diag string) *knobStatsReport {
 	return &c
 }
 
-// knobSample is one stored point and its wire shape in GET .../stats: units
-// in keys, null when the knob didn't report it (level too low, or no PSRAM).
 type knobSample struct {
 	T                     time.Time `json:"t"`
 	UptimeSec             *int64    `json:"uptime_sec"`
@@ -120,9 +107,7 @@ type knobSample struct {
 	RenderFPS             *float64  `json:"render_fps"`
 	FrameAvgMS            *float64  `json:"frame_avg_ms"`
 	FrameMaxMS            *int64    `json:"frame_max_ms"`
-	// BrightnessLevel is Ember's brightness (0–255, /v1/display/brightness)
-	// at the checkin: the level a knob following Ember shows.
-	BrightnessLevel *int `json:"brightness_level"`
+	BrightnessLevel       *int      `json:"brightness_level"`
 
 	periodMS    int64
 	resetReason string
@@ -130,8 +115,6 @@ type knobSample struct {
 
 func refOf[T any](v T) *T { return &v }
 
-// knobSampleFromReport builds a sample from a checkin's top-level fields
-// (RSSI, internal heap, uptime) and its stats object.
 func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 	out := knobSample{T: c.SeenAt, periodMS: s.PeriodMS, resetReason: s.ResetReason}
 	if out.periodMS == 0 {
@@ -171,8 +154,6 @@ func knobSampleFromReport(c deviceCheckin, s *knobStatsReport) knobSample {
 	return out
 }
 
-// merge folds b (newer) into a: gauges take b, low-water marks the min,
-// maxima the max, averages and rates the period-weighted mean.
 func (a knobSample) merge(b knobSample) knobSample {
 	wa, wb := float64(a.periodMS), float64(b.periodMS)
 	out := b
@@ -248,13 +229,10 @@ type knobSeries struct {
 	liveUntil time.Time
 }
 
-// knobStatsStore keeps each knob's diagnostics samples and live-mode
-// deadline in memory only: a restart loses them, and a checkin never writes
-// the store for them.
 type knobStatsStore struct {
 	now func() time.Time
 
-	mu     sync.Mutex // protects series
+	mu     sync.Mutex
 	series map[string]*knobSeries
 }
 
@@ -271,8 +249,6 @@ func (k *knobStatsStore) seriesLocked(id string) *knobSeries {
 	return s
 }
 
-// record adds a sample at now: whole to the live ring, folded into the
-// current minute's bucket in the minute ring.
 func (k *knobStatsStore) record(id string, now time.Time, s knobSample) {
 	s.T = now.UTC().Truncate(time.Second)
 	k.mu.Lock()
@@ -280,14 +256,12 @@ func (k *knobStatsStore) record(id string, now time.Time, s knobSample) {
 	k.seriesLocked(id).record(s)
 }
 
-// setLive sets id's live-mode deadline; a zero time stops it.
 func (k *knobStatsStore) setLive(id string, until time.Time) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.seriesLocked(id).liveUntil = until
 }
 
-// liveUntil is id's live-mode deadline, nil when not live at now.
 func (k *knobStatsStore) liveUntil(id string, now time.Time) *time.Time {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -314,8 +288,6 @@ func (k *knobStatsStore) minuteLen(id string) int {
 	return 0
 }
 
-// points returns id's samples in rng's window ending at now, oldest
-// first, and the newest sample.
 func (k *knobStatsStore) points(id, rng string, now time.Time) ([]knobSample, *knobSample) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -331,12 +303,9 @@ func (k *knobStatsStore) points(id, rng string, now time.Time) ([]knobSample, *k
 	return s.points(rng, now), latest
 }
 
-// knobStatsView is GET /v1/devices/{id}/stats.
 type knobStatsView struct {
-	DeviceID    string `json:"device_id"`
-	Diagnostics string `json:"diagnostics"`
-	// The knob's configured intervals, so a client can poll and break its
-	// lines at the cadence the samples arrive.
+	DeviceID       string       `json:"device_id"`
+	Diagnostics    string       `json:"diagnostics"`
 	StatsIntervalS int          `json:"stats_interval_s"`
 	LiveIntervalS  int          `json:"live_interval_s"`
 	Range          string       `json:"range"`
@@ -366,7 +335,6 @@ func (a *App) handleKnobStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-// buildKnobStats is device id's stats over rng (a statsRanges key) at now.
 func (a *App) buildKnobStats(id, rng string, now time.Time) (knobStatsView, error) {
 	cfg, last, err := a.devices.settingsAndCheckin(id)
 	if err != nil {
@@ -434,8 +402,6 @@ func (a *App) handleKnobStatsLive(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]*time.Time{"live_until": a.knobStats.liveUntil(id, now)})
 }
 
-// knobLiveUnix is id's live-mode deadline in Unix seconds for the knob, nil
-// when not live or diagnostics are off.
 func (a *App) knobLiveUnix(id, diag string, now time.Time) *int64 {
 	if diag == knobDiagOff {
 		return nil
@@ -446,8 +412,6 @@ func (a *App) knobLiveUnix(id, diag string, now time.Time) *int64 {
 	return nil
 }
 
-// decodeKnobStats parses a checkin's raw stats object; nil when absent or
-// invalid (logged), so a firmware bug never costs the checkin itself.
 func (a *App) decodeKnobStats(r *http.Request, raw json.RawMessage) *knobStatsReport {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil

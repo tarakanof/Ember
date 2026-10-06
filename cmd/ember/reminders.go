@@ -25,10 +25,8 @@ type reminderFireRequest struct {
 	Sound        bool   `json:"sound"`
 	Duration     int    `json:"duration"`
 	NativeIconID string `json:"native_icon_id"`
-	// Hold makes the alarm take over the display until the user dismisses it, rather than auto-dismissing after Duration.
-	Hold bool `json:"hold"`
-	// RepeatSound (opt-in) replays the chime of a held alarm until it is dismissed or the hold window or quiet hours end it.
-	RepeatSound bool `json:"repeat_sound"`
+	Hold         bool   `json:"hold"`
+	RepeatSound  bool   `json:"repeat_sound"`
 }
 
 func (a *App) handleReminderFire(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +121,6 @@ func (a *App) quietNow(now time.Time) bool {
 	return enabled && quietActive(start, end, now)
 }
 
-// StartReminderLoopGuard stops a looping reminder chime the user has not dismissed, every reminderLoopCheckInterval until ctx ends.
 func (a *App) StartReminderLoopGuard(ctx context.Context) {
 	t := time.NewTicker(reminderLoopCheckInterval)
 	defer t.Stop()

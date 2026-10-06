@@ -13,7 +13,7 @@ import (
 func leadView(ss ...render.Session) sessions.View {
 	t0 := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	for i := range ss {
-		ss[i].UpdatedAt = t0.Add(-time.Duration(i) * time.Second) // newest first
+		ss[i].UpdatedAt = t0.Add(-time.Duration(i) * time.Second)
 	}
 	return sessions.View{Now: t0, Sessions: ss}
 }
@@ -86,8 +86,6 @@ func TestKnobViewMoodNamesTheLeadOfSeveralHosts(t *testing.T) {
 	}
 }
 
-// A new source colour changes the view but not the /state render: it must
-// still wake long-polls.
 func TestUpsertNotifiesWhenOnlyTheLeadMoves(t *testing.T) {
 	f := newViewFixture(t)
 	f.app.Upsert(StatusRequest{Source: "M4", Tool: "claude", Session: "s1", State: "running"})

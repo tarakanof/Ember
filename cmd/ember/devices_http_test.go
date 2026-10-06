@@ -492,7 +492,6 @@ func TestDeviceConfigPutMergesNestedObjects(t *testing.T) {
 		t.Fatalf("pages put = %d: %s", resp.StatusCode, b)
 	}
 	_ = json.Unmarshal(b, &got)
-	// Known pages the PUT left out come back off, last (#284).
 	wantPages := []knobPage{{ID: "weather", On: true}, {ID: "bot", On: false}, {ID: "pomodoro"}, {ID: "nowplaying"}}
 	if len(got.Pages) != 4 || got.Pages[0] != wantPages[0] || got.Pages[1] != wantPages[1] ||
 		got.Pages[2] != wantPages[2] || got.Pages[3] != wantPages[3] {
@@ -671,7 +670,6 @@ func TestDoctorReportsDevices(t *testing.T) {
 	}
 }
 
-// cinder#23: the panel link clock and its fallback ride the checkin into the record.
 func TestDeviceCheckinRecordsTheDisplayLink(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)
@@ -691,7 +689,6 @@ func TestDeviceCheckinRecordsTheDisplayLink(t *testing.T) {
 	}
 }
 
-// cinder#21: the knob's Wi-Fi link telemetry rides the checkin into the record.
 func TestDeviceCheckinRecordsTheWifiLink(t *testing.T) {
 	app, srv := newDevicesApp(t, "")
 	m := mintKnob(t, srv, http.StatusCreated)

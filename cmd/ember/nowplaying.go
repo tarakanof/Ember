@@ -11,30 +11,18 @@ import (
 	"github.com/tarakanof/ember/internal/nowplaying"
 )
 
-// Rendered-art cache bounds: three kinds per track for a few tracks, plus
-// odd sizes, well under the container's memory budget.
 const (
 	nowPlayingCacheEntries = 32
 	nowPlayingCacheBytes   = 8 << 20
 )
 
-// nowPlayingService owns the now-playing registry, the rendered-art cache
-// and the background artist lookups.
 type nowPlayingService struct {
-	reg   *nowplaying.Registry
-	cache *nowplaying.Cache
-	// renderMu serialises art renders so concurrent cache misses can't
-	// multiply the decode buffers (a 2048 px source is ~50 MB transient).
-	renderMu sync.Mutex
-	// artists finds artist pictures by name; nil turns lookups off.
-	artists *artistLookup
-	// jobs queues artist lookups; 4 absorbs a burst of track changes from
-	// several sources, and a full queue drops the job (the next report
-	// for that player queues it again).
-	jobs chan artistJob
-	plex *plexSource
-	// Playback control (#280): Music commands waiting for their Mac, the
-	// Idempotency-Keys seen, and the volume-step limit.
+	reg          *nowplaying.Registry
+	cache        *nowplaying.Cache
+	renderMu     sync.Mutex
+	artists      *artistLookup
+	jobs         chan artistJob
+	plex         *plexSource
 	commands     *commandQueue
 	controlKeys  controlKeys
 	controlLimit *callerLimiter
@@ -52,8 +40,6 @@ func newNowPlayingService() *nowPlayingService {
 	}
 }
 
-// report records a source's report and queues an artist lookup when the
-// player has an artist but no picture.
 func (s *nowPlayingService) report(rep nowplaying.Report, now time.Time) error {
 	if _, err := s.reg.Report(rep, now); err != nil {
 		return err
@@ -76,8 +62,6 @@ func (s *nowPlayingService) wantArtist(source, player string) {
 	}
 }
 
-// render returns the JPEG for the current entry's picture of kind at size,
-// from the cache when it can.
 func (s *nowPlayingService) render(img *nowplaying.Image, kind nowplaying.Kind, size int) ([]byte, error) {
 	k := artETag(img, kind, size)
 	if b, ok := s.cache.Get(k); ok {
@@ -100,8 +84,6 @@ func artETag(img *nowplaying.Image, kind nowplaying.Kind, size int) string {
 	return fmt.Sprintf(`"%s-%s-%d"`, img.Hash, kind, size)
 }
 
-// StartNowPlaying runs the artist lookups and, when configured, the Plex
-// poller until ctx ends.
 func (a *App) StartNowPlaying(ctx context.Context) {
 	np := a.nowPlaying
 	var plex sync.WaitGroup
@@ -132,8 +114,6 @@ func (s *nowPlayingService) lookupArtist(ctx context.Context, j artistJob, a *Ap
 	}
 }
 
-// readArt reads at most nowplaying.MaxArtBytes from r and checks the result
-// is a decodable JPEG or PNG within the limits.
 func readArt(r io.Reader) (*nowplaying.Image, error) {
 	b, err := io.ReadAll(io.LimitReader(r, nowplaying.MaxArtBytes+1))
 	if err != nil {
@@ -145,7 +125,6 @@ func readArt(r io.Reader) (*nowplaying.Image, error) {
 	return nowplaying.NewImage(b), nil
 }
 
-// fetchArt GETs an image URL with optional headers.
 func fetchArt(ctx context.Context, client *http.Client, url string, header http.Header) (*nowplaying.Image, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

@@ -6,22 +6,13 @@ import (
 	"github.com/tarakanof/ember/internal/sessions"
 )
 
-// knobLead is who the knob names under its face (cinder#42): the host that
-// leads the winning state, how many hosts share that state, the lead's
-// colour and tool. Comparable, so Upsert can tell when it moved.
 type knobLead struct {
-	Lead  string // "" when no session in the winning state has a source
-	Hosts int    // distinct non-empty sources in the winning state
-	Color string // first valid source_color of the lead's sessions, "" none
-	Tool  string // the lead's tool when its sessions agree, else ""
+	Lead  string
+	Hosts int
+	Color string
+	Tool  string
 }
 
-// knobLeadOf picks the lead from the sessions in the winning state: the
-// source with the most sessions, ties to the smaller name. Sources are
-// compared case-insensitively (the knob uppercases them, so "m4" and "M4"
-// are one host); the lead is returned uppercased. Unlike
-// PickWinning's newest-wins this does not flip between hosts as their
-// sessions heartbeat, so the view (and its long-poll) stays still.
 func knobLeadOf(v sessions.View) knobLead {
 	win := v.Winner()
 	if win == nil {
