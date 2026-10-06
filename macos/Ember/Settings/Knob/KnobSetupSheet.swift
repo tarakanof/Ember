@@ -2,8 +2,6 @@ import SwiftUI
 import CoreWLAN
 import EmberKit
 
-/// Sets the knob up over USB: Improv for Wi-Fi, `CINDER1` for Ember, a
-/// token minted by the server. Also changes Wi-Fi only.
 struct KnobSetupSheet: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
@@ -87,7 +85,6 @@ struct KnobSetupSheet: View {
                                name: mode == .setup ? "" : (knob.knob?.name ?? ""), preferredSSID: nil)
         m.registered = { [weak knob] in knob?.knob }
         model = m
-        // A probe from the pane may hold the port: wait, then take it.
         await knob.waitForProbe()
         m.attach(knob.connectedPort)
         let server = env.serverURL
@@ -316,7 +313,6 @@ private struct KnobSetupContent: View {
     }
 }
 
-/// The setup errors from the spec, in words.
 struct KnobSetupErrorText: View {
     let error: KnobSetupError
 

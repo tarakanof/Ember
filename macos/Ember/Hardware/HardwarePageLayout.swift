@@ -1,15 +1,12 @@
 import SwiftUI
 import EmberKit
 
-/// Whether a device is reporting, as a Hardware page's header shows it.
 enum HardwareStatus: Equatable {
     case online
-    /// Reporting faster while the page is open (the knob's live mode).
     case live
     case offline(lastSeen: Date?)
 }
 
-/// The top of a Hardware page: the device's status, then the range picker.
 struct HardwarePageHeader<Trailing: View>: View {
     let status: HardwareStatus?
     let range: HardwareRange
@@ -87,8 +84,6 @@ private struct StatusDotLabelStyle: LabelStyle {
     }
 }
 
-/// A Hardware page's cards: wide ones alone on a row, standard ones in
-/// `columns` columns.
 struct HardwareCardGrid<ID: Hashable & Sendable, Card: View>: View {
     let cards: [(id: ID, size: CardSize)]
     let columns: Int
@@ -112,7 +107,6 @@ struct HardwareCardGrid<ID: Hashable & Sendable, Card: View>: View {
     }
 }
 
-/// A box for a Hardware page's state when it has no cards to show.
 struct HardwareStateBox<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
@@ -121,8 +115,6 @@ struct HardwareStateBox<Content: View>: View {
     }
 }
 
-/// Settings › Devices › {device} › Hardware: a scrolling page of cards whose
-/// column count follows its width.
 struct HardwareScrollPage<Content: View>: View {
     @ViewBuilder let content: (_ columns: Int) -> Content
 
@@ -142,6 +134,5 @@ struct HardwareScrollPage<Content: View>: View {
 enum HardwareMetrics {
     static let spacing: CGFloat = 16
 
-    /// 2 columns from 520 pt (the Settings detail is about 560 wide), else 1.
     static func columns(forWidth width: Double) -> Int { width >= 520 ? 2 : 1 }
 }

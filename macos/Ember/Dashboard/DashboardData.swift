@@ -2,7 +2,6 @@ import Foundation
 import SwiftUI
 import EmberKit
 
-/// Everything the Dashboard's cards read.
 @MainActor
 protocol DashboardSource {
     var connection: ConnectionHealth { get }
@@ -48,7 +47,6 @@ extension DashboardSource {
     }
 }
 
-/// Plain values: previews, fixtures, snapshot renders.
 struct DashboardData: DashboardSource {
     var connection: ConnectionHealth = .online(since: .distantPast)
     var snapshot: Loadable<Snapshot> = .loading

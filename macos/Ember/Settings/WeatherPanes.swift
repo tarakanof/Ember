@@ -2,7 +2,6 @@ import SwiftUI
 import CoreLocation
 import EmberKit
 
-/// Sources › Weather: where and how often the server fetches conditions.
 struct WeatherSourcePane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var locating = false
@@ -49,8 +48,6 @@ struct WeatherSourcePane: View {
             }
         }
     }
-
-    // MARK: Sections
 
     private func locationSection(_ model: ServerConfigModel<WeatherConfig>) -> some View {
         @Bindable var model = model
@@ -141,8 +138,6 @@ struct WeatherSourcePane: View {
         }
     }
 
-    // MARK: Helpers
-
     private func locate(quietly: Bool = false) async {
         locating = true
         locateError = nil
@@ -169,7 +164,6 @@ struct WeatherSourcePane: View {
     }
 }
 
-/// Clock › Apps › Weather: the TC001's weather tiles and popups.
 struct ClockWeatherAppPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var preview = PreviewModel()

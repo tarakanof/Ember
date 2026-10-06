@@ -1,7 +1,6 @@
 import AppKit
 import EmberKit
 
-/// Runs the bot's single frame loop for the menu-bar status item and the Dock tile.
 @MainActor
 final class BotAnimator {
     static let shared = BotAnimator()
@@ -174,8 +173,6 @@ final class BotAnimator {
         dockView.needsDisplay = true
         tile.display()
     }
-
-    // MARK: - Images
 
     static func tint(for mood: BotMood) -> NSColor? {
         switch mood {

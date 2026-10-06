@@ -1,8 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// A knob page's round face, like `PanelPreview` for the clock: drawn here
-/// from the live data the knob shows, dimmed with "Off" when the page is off.
 struct KnobPreview<Face: View>: View {
     let title: LocalizedStringKey
     let caption: Text
@@ -37,18 +35,14 @@ enum KnobPreviewSizes {
     static let overview: CGFloat = 120
 }
 
-/// The live inputs every knob face reads.
 @MainActor
 struct KnobPreviewData {
     let env: AppEnvironment
     let brightnessLevel: Int?
-    /// The mood to keep while Ember can't be read, as the knob does.
     let lastMood: KnobMood
-    /// Reads what the server says is playing; nil until the preview is on screen.
     let nowPlaying: KnobNowPlayingFeed?
 
     var settings: KnobSettings { env.knob.settings.draft }
-    /// The mood from the latest good `/state`; with none, the last one shown.
     var mood: KnobMood { liveMood ?? lastMood }
 
     var liveMood: KnobMood? {
@@ -64,7 +58,6 @@ struct KnobPreviewData {
         return p.isLoaded && !p.draft.enabled ? "POMODORO OFF" : nil
     }
 
-    /// The knob's backlight, 0…1: Ember's level (or its own), never below the floor.
     var brightness: Double {
         let b = settings.brightness
         let level = b.followEmber ? (brightnessLevel ?? b.level) : b.level
@@ -174,7 +167,6 @@ struct KnobPreviewData {
     }
 }
 
-/// The round face for one knob app's page, above its settings.
 struct KnobAppPreviewSection: View {
     @Environment(AppEnvironment.self) private var env
     let page: String
@@ -198,7 +190,6 @@ struct KnobAppPreviewSection: View {
     }
 }
 
-/// Every knob page side by side, in the knob's order.
 struct KnobPagesPreviewSection: View {
     @Environment(AppEnvironment.self) private var env
     @State private var brightness: Int?
@@ -233,7 +224,6 @@ struct KnobPagesPreviewSection: View {
 }
 
 extension View {
-    /// Keeps the feeds a knob preview reads fresh while it is on screen.
     func knobPreviewFeeds(page: String?, brightness: Binding<Int?>,
                           nowPlaying: Binding<KnobNowPlayingFeed?>) -> some View {
         modifier(KnobPreviewFeeds(page: page, brightness: brightness, nowPlaying: nowPlaying))
@@ -259,8 +249,6 @@ private struct KnobPreviewFeeds: ViewModifier {
                 await env.live.track(.weather)
             }
             .task(id: "\(env.connection.serverURL?.absoluteString ?? "")|\(overviewNeedsNowPlaying)") {
-                // The overview draws a thumbnail and only when the page is on; the page's own
-                // preview shows even when it is off.
                 let overview = page == nil
                 guard page == "nowplaying" || (overview && overviewNeedsNowPlaying) else { return }
                 let feed = KnobNowPlayingFeed(client: env.connection.client, thumbnail: overview)

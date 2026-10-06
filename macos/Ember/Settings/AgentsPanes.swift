@@ -1,8 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Sources › Agents: which agents report, and the server-wide timing that
-/// every device's agent app follows.
 struct AgentsSourcePane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var producers: ProducerInstallModel?
@@ -63,7 +61,6 @@ struct AgentsSourcePane: View {
     }
 }
 
-/// Clock › Apps › Agents: the agent cards on the TC001.
 struct ClockAgentsAppPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var preview = PreviewModel()
@@ -179,7 +176,6 @@ struct ClockAgentsAppPane: View {
     }
 }
 
-/// Which tools' sessions the clock shows (the menu's Show on Clock).
 private struct ShowOnClockSection: View {
     @Environment(AppEnvironment.self) private var env
 

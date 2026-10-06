@@ -1,18 +1,11 @@
 import SwiftUI
 import EmberKit
 
-/// An ⓘ button that trails a Settings row's label (#290): hovering shows the
-/// one-line summary, clicking opens a popover with the details. It stays
-/// enabled in a disabled row, and then its popover also says why the row is
-/// off (`requirement`). Use it
-/// through `InfoRow`, which also gives VoiceOver a named action on the row,
-/// since a control's label isn't always reachable on its own.
 struct InfoButton: View {
     let info: SettingsInfo
     let title: LocalizedStringKey
     var requirement: SettingsInfoRequirement?
     @Binding var isPresented: Bool
-    /// The row's state, read before `staysEnabled` overrides it.
     @Environment(\.isEnabled) private var rowEnabled
 
     var body: some View {
@@ -41,7 +34,6 @@ struct InfoButton: View {
     }
 }
 
-/// A row's title with its info button, if it has one.
 struct InfoLabel: View {
     let title: LocalizedStringKey
     let info: SettingsInfo?
@@ -60,8 +52,6 @@ struct InfoLabel: View {
     }
 }
 
-/// Builds a row around an `InfoLabel` and owns its popover state:
-/// `InfoRow("Bottom bar", info: .bottomBar) { label in Picker(…) { … } label: { label } }`.
 struct InfoRow<Row: View>: View {
     private let title: LocalizedStringKey
     private let info: SettingsInfo?
@@ -91,7 +81,6 @@ struct InfoRow<Row: View>: View {
     }
 }
 
-/// A switch whose label carries an info button.
 struct InfoToggle: View {
     let title: LocalizedStringKey
     @Binding var isOn: Bool

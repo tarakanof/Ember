@@ -2,8 +2,6 @@ import Charts
 import SwiftUI
 import EmberKit
 
-/// What the knob's Hardware page reads: plain values and callbacks, so
-/// previews and snapshot renders use `KnobStatsFake`.
 struct KnobHardwareInput {
     var knobID: String
     var firmware: String?
@@ -20,8 +18,6 @@ enum KnobCardID: Hashable, Sendable {
     case overview, cpu, memory, psram, temperature, wifi, brightness, requests, latency, rendering
 }
 
-/// Settings › Devices › Knob › Hardware: the range picker, then gauges and
-/// charts, or the state that explains why there are none.
 struct KnobHardwareContent: View {
     let input: KnobHardwareInput
     var columns = 2
@@ -46,8 +42,6 @@ struct KnobHardwareContent: View {
         if !s.online { return .offline(lastSeen: s.lastSeen) }
         return s.isLive(now: now) ? .live : .online
     }
-
-    // MARK: Content
 
     @ViewBuilder private var content: some View {
         switch input.stats {
@@ -118,8 +112,6 @@ struct KnobHardwareContent: View {
         }
     }
 
-    // MARK: Cards
-
     private func cards(_ s: KnobStats, level: KnobDiagnostics) -> [(id: KnobCardID, size: CardSize)] {
         var out: [(id: KnobCardID, size: CardSize)] = [(.overview, .wide), (.cpu, .standard), (.memory, .standard)]
         if s.hasPSRAM { out.append((.psram, .standard)) }
@@ -136,7 +128,6 @@ struct KnobHardwareContent: View {
         }
     }
 
-    /// At basic level, one row offers what full adds instead of three empty cards.
     private var fullDiagnosticsBanner: some View {
         GroupBox {
             HStack(spacing: 10) {
@@ -200,8 +191,6 @@ struct KnobHardwareContent: View {
                   interpolation: input.range == .day ? .linear : .stepEnd,
                   warn: l?.rssiDBm.map { ClockHealthReadout.wifi(rssi: $0).weak } ?? false, format: HardwareFormat.dbm)
         case .brightness:
-            // Ember's level from the clock's light sensor; the knob shows it
-            // while it follows Ember (Display settings).
             chart("Ember brightness", ax: String(localized: "Ember brightness"), systemImage: "sun.max", s,
                   [(HardwareLine(name: String(localized: "Brightness"), color: HardwarePalette.first), { $0.brightnessPercent })],
                   fixedDomain: 0...100, interpolation: input.range == .day ? .linear : .stepEnd, format: HardwareFormat.percent)
@@ -231,8 +220,6 @@ struct KnobHardwareContent: View {
              { sample in sample.cpuPercent.flatMap { $0.indices.contains(core) ? $0[core] : nil } })
         }
     }
-
-    // MARK: Now card
 
     private func gauges(_ s: KnobStats) -> [HardwareGauge] {
         let l = s.latest
@@ -271,8 +258,6 @@ struct KnobHardwareContent: View {
     static func resetReason(_ raw: String) -> String { KnobResetReason.label(raw) }
 }
 
-/// The page as Settings shows it: the knob's stats polled while the page is
-/// on screen and its window visible.
 struct KnobHardwarePane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var isVisible = true

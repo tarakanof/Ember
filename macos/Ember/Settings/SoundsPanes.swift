@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Clock › Sounds: the clock's buzzer and every chime it plays.
 struct ClockSoundsPane: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(DeviceSettingsModel.self) private var device
@@ -131,7 +130,6 @@ struct ClockSoundsPane: View {
     }
 }
 
-/// App › Sounds & Alerts: quiet hours, which mute every device.
 struct QuietHoursPane: View {
     @Environment(AppEnvironment.self) private var env
 
@@ -171,7 +169,6 @@ struct QuietHoursPane: View {
     }
 }
 
-/// A melody choice: the built-in chime, a melody stored on the clock, or an RTTTL string.
 private struct MelodyRow: View {
     let title: LocalizedStringKey
     @Binding var value: String

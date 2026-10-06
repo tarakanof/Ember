@@ -1,8 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Sources › Music: this Mac's Apple Music, and what the server shows now
-/// (Plex is set up on the server with `EMBER_PLEX_URL`/`EMBER_PLEX_TOKEN`).
 struct MusicSourcePane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var now: NowPlayingState?

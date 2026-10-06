@@ -1,9 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// A page under the Knob node: the one knob registered on the server
-/// (cinder, the ESP32-S3 round display), set up over USB. With no knob
-/// every page shows the setup state.
 struct KnobDetail: View {
     @Environment(AppEnvironment.self) private var env
     let page: DevicePage
@@ -41,14 +38,11 @@ struct KnobDetail: View {
             _ = await (a, b)
         }
         .task {
-            // Last check-in, uptime and RSSI move on their own.
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(15))
                 await knob.load()
             }
         }
-        // The only automatic port opens: while a knob page is on screen, once
-        // on appear (retrying boards that weren't cinder) and for new boards.
         .onAppear { Task { await knob.probePorts(retryFailed: true) } }
         .onChange(of: knob.ports.ports) { _, _ in Task { await knob.probePorts() } }
         .sheet(item: $setup) { mode in
@@ -94,8 +88,6 @@ extension KnobSetupModel.Mode: @retroactive Identifiable {
     public var id: Self { self }
 }
 
-// MARK: Empty state
-
 struct KnobEmptySection: View {
     @Environment(AppEnvironment.self) private var env
     let setUp: () -> Void
@@ -123,7 +115,6 @@ struct KnobEmptySection: View {
     }
 }
 
-/// What's on USB right now.
 struct KnobUSBRow: View {
     @Environment(AppEnvironment.self) private var env
 

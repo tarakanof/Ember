@@ -2,15 +2,12 @@ import AppKit
 import OSLog
 import EmberKit
 
-/// Reads Music.app over Apple Events. Every script is guarded by a running
-/// check, because `tell application "Music"` launches it otherwise. Scripts
-/// run on one serial queue (NSAppleScript isn't thread-safe).
+/// `tell application "Music"` launches it, so every script is guarded; NSAppleScript isn't thread-safe, so one serial queue.
 final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     static let bundleID = "com.apple.Music"
     private static let log = Logger(subsystem: "com.ember.Ember", category: "music")
 
     private let queue = DispatchQueue(label: "com.ember.Ember.music-applescript", qos: .utility)
-    /// Compiled scripts by source; touched only on `queue`.
     private var compiled: [String: NSAppleScript] = [:]
 
     func isRunning() async -> Bool {
@@ -54,9 +51,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         await automationStatus(ask: false) == .granted
     }
 
-    /// The knob's controls (Ember #280), as Apple Events addressed to the
-    /// running Music's PID: an event to a process that quit meanwhile fails
-    /// (procNotFound) and launches nothing, unlike `tell application`.
+    /// Addressed by PID: an event to a Music that quit fails (procNotFound), where `tell application` would relaunch it.
     func perform(_ command: NowPlayingCommand) async -> Bool {
         guard let action = command.action else { return false }
         return await onQueue {
@@ -75,8 +70,6 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         }
     }
 
-    // MARK: Apple Events to the running process (on `queue`)
-
     private func onQueue<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { cont in queue.async { cont.resume(returning: work()) } }
     }
@@ -85,12 +78,10 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         s.utf8.reduce(0) { ($0 << 8) | FourCharCode($1) }
     }
 
-    /// An event builder: the class/ID pair, sent to the target given later.
     private struct Event { let cls: FourCharCode; let id: FourCharCode; var params: [(AEKeyword, NSAppleEventDescriptor)] = [] }
 
     private static func hook(_ id: String) -> Event { Event(cls: fourCC("hook"), id: fourCC(id)) }
 
-    /// The application's `sound volume` property specifier.
     private static var volumeProperty: NSAppleEventDescriptor {
         let spec = NSAppleEventDescriptor.record().coerce(toDescriptorType: DescType(typeObjectSpecifier))!
         spec.setDescriptor(NSAppleEventDescriptor.null(), forKeyword: AEKeyword(keyAEContainer))
@@ -114,7 +105,6 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         return send(e) != nil
     }
 
-    /// Sends to Music's PID; nil when Music isn't running or the event failed.
     private func send(_ e: Event) -> NSAppleEventDescriptor? {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID).first else { return nil }
         let target = NSAppleEventDescriptor(processIdentifier: app.processIdentifier)
@@ -131,10 +121,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         }
     }
 
-    /// Ember's Automation permission for Music: nil when macOS can't say
-    /// (Music isn't running). `ask` shows the prompt when not decided yet;
-    /// it names a concrete event (core/getd, what the scripts send), since
-    /// wildcard event codes are reported not to prompt.
+    /// Names core/getd: wildcard event codes reportedly don't prompt.
     func automationStatus(ask: Bool) async -> AccessStatus? {
         await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .utility).async {
@@ -173,7 +160,6 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         }
     }
 
-    /// errAENoSuchObject: no artwork, or nothing playing; expected, not logged.
     private static let noSuchObject = -1728
 
     private static let positionScript = #"tell application id "com.apple.Music" to get player position"#

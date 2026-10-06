@@ -3,7 +3,6 @@ import Foundation
 import Observation
 import EmberKit
 
-/// Bridges Apple Reminders to the clock's bell popup.
 @MainActor
 @Observable
 public final class ReminderWatcher {

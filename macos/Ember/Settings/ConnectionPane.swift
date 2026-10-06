@@ -105,8 +105,6 @@ struct ConnectionPane: View {
         }
     }
 
-    // MARK: Status
-
     @ViewBuilder private var statusLabel: some View {
         if probing {
             ProgressView().controlSize(.small)
@@ -164,8 +162,6 @@ struct ConnectionPane: View {
         probe = await ConnectionProbe.run(APIClient(producerEnv: file))
     }
 
-    // MARK: Discovered servers
-
     @ViewBuilder private var discoveredSection: some View {
         Section {
             if env.serverDiscovery.servers.isEmpty {
@@ -219,8 +215,6 @@ struct ConnectionPane: View {
             Text("Found via Bonjour. Click Use to fill in the server URL. The server must run on host networking, and Ember needs Local Network access.")
         }
     }
-
-    // MARK: Saving
 
     private var tokenIsBlank: Bool { token.trimmingCharacters(in: .whitespaces).isEmpty }
 

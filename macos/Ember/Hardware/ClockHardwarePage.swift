@@ -2,11 +2,8 @@ import Charts
 import SwiftUI
 import EmberKit
 
-/// What the clock's Hardware page reads: plain values and callbacks, so
-/// previews and snapshot renders use `ClockStatsFake`.
 struct ClockHardwareInput {
     var stats: Loadable<ClockStats>
-    /// `/v1/clock/health`: firmware, current app, uptime, publish counts.
     var health: ClockHealth?
     var range: HardwareRange
     var setRange: @MainActor @Sendable (HardwareRange) -> Void = { _ in }
@@ -17,8 +14,6 @@ enum ClockCardID: Hashable, Sendable {
     case overview, wifi, memory, temperature, humidity, light, publishing
 }
 
-/// Settings › Devices › Clock › Hardware: the range picker, then gauges and
-/// charts, or the state that explains why there are none.
 struct ClockHardwareContent: View {
     let input: ClockHardwareInput
     var columns = 2
@@ -43,8 +38,6 @@ struct ClockHardwareContent: View {
         guard let s = input.stats.value, s.configured, let reachable = s.reachable else { return nil }
         return reachable ? .online : .offline(lastSeen: s.latest?.t)
     }
-
-    // MARK: Content
 
     @ViewBuilder private var content: some View {
         switch input.stats {
@@ -100,8 +93,6 @@ struct ClockHardwareContent: View {
                 }
         }
     }
-
-    // MARK: Cards
 
     private func cards(_ s: ClockStats) -> [(id: ClockCardID, size: CardSize)] {
         var out: [(id: ClockCardID, size: CardSize)] = [(.overview, .wide), (.wifi, .standard), (.memory, .standard)]
@@ -165,8 +156,6 @@ struct ClockHardwareContent: View {
         }
     }
 
-    /// Publishes to the clock as stacked bars per minute (per hour over a
-    /// day), and the share delivered over the range.
     private func publishing(_ s: ClockStats) -> some View {
         let unit: Calendar.Component = input.range == .day ? .hour : .minute
         let delivered = HardwareLine(name: String(localized: "Delivered"), color: HardwarePalette.first)
@@ -184,12 +173,9 @@ struct ClockHardwareContent: View {
                                  warn: poor, format: HardwareFormat.count)
     }
 
-    /// Publishes delivered and failed over the selected range.
     static func publishes(_ s: ClockStats) -> (ok: Int, fail: Int) {
         (s.points.reduce(0) { $0 + $1.publishOK }, s.points.reduce(0) { $0 + $1.publishFail })
     }
-
-    // MARK: Now card
 
     private func gauges(_ s: ClockStats) -> [HardwareGauge] {
         let l = s.latest
@@ -213,7 +199,6 @@ struct ClockHardwareContent: View {
                                                                  fair: { (20...70).contains($0) })))
         }
         if s.has(\.lightLux) {
-            // Light has no good or bad level: one neutral tint.
             out.append(HardwareGauge(id: "light", title: "Light", value: l?.lightLux, range: 0...200,
                                      text: l?.lightLux.map(HardwareFormat.lux), tint: .blue))
         }
@@ -240,7 +225,6 @@ struct ClockHardwareContent: View {
             HardwareFact(id: "app", title: "Current app", value: d?.currentApp),
             HardwareFact(id: "ip", title: "IP address", value: s.ipAddress),
             HardwareFact(id: "reset", title: "Last restart", value: d?.resetReason),
-            // Over the selected range, like the Publishing chart.
             HardwareFact(id: "delivered", title: "Delivered", value: ClockReadout.delivered(ok: ok, fail: fail),
                          note: ok + fail > 0 ? String(localized: "\(ok) of \(ok + fail)") : nil,
                          warn: ok + fail > 0 && ClockHealthReadout.publishIsPoor(Double(ok) / Double(ok + fail))),
@@ -248,8 +232,6 @@ struct ClockHardwareContent: View {
     }
 }
 
-/// The page as Settings shows it: the clock's stats polled while the page
-/// is on screen and its window visible.
 struct ClockHardwarePane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var isVisible = true

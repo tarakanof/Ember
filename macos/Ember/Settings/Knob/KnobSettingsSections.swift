@@ -2,13 +2,11 @@ import SwiftUI
 import EmberKit
 
 extension KnobModel {
-    /// A binding that edits through `edit`, so every change stays valid.
     func binding<V>(_ key: WritableKeyPath<KnobSettings, V>) -> Binding<V> {
         Binding(get: { self.settings.draft[keyPath: key] },
                 set: { v in self.edit { $0[keyPath: key] = v } })
     }
 
-    /// A 0–255 level shown as a percentage.
     func percent(_ key: WritableKeyPath<KnobSettings, Int>) -> Binding<Int> {
         Binding(get: { DeviceUnits.brightnessPercent(raw: self.settings.draft[keyPath: key]) },
                 set: { p in self.edit { $0[keyPath: key] = DeviceUnits.brightnessRaw(percent: p) } })
@@ -97,7 +95,6 @@ struct KnobPagesSection: View {
     }
 }
 
-/// A page row being dragged to a new place in the knob's order.
 struct KnobPageDrag: Codable, Transferable {
     let id: String
     static var transferRepresentation: some TransferRepresentation {
@@ -105,7 +102,6 @@ struct KnobPageDrag: Codable, Transferable {
     }
 }
 
-/// Selects the knob's Hardware page in Settings.
 @MainActor
 func showKnobHardware(_ knobID: String) {
     showSettings(.device(knobID, .hardware(.health)))
@@ -228,7 +224,6 @@ struct KnobBotSection: View {
     }
 }
 
-/// An app's page on the knob: on or off, and where it sits in the order.
 struct KnobPageSection: View {
     @Environment(AppEnvironment.self) private var env
     let app: AppID

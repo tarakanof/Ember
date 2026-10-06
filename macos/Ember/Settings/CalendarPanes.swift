@@ -2,7 +2,6 @@ import SwiftUI
 import EventKit
 import EmberKit
 
-/// Sources › Calendar: the server's meeting feeds and this Mac's Reminders.
 struct CalendarSourcePane: View {
     @Environment(AppEnvironment.self) private var env
 
@@ -123,7 +122,6 @@ struct CalendarSourcePane: View {
     }
 }
 
-/// Clock › Apps › Calendar: the TC001's meeting tile and reminder popup.
 struct ClockCalendarAppPane: View {
     @Environment(AppEnvironment.self) private var env
     @State private var meetingPreview = PreviewModel()

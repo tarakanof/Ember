@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Live mirror of the clock's 32×8 LED matrix.
 struct MatrixScreenView: View {
     let pixels: [Int]
     var width: Int = 32

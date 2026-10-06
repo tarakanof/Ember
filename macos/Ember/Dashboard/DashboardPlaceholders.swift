@@ -1,7 +1,6 @@
 import Foundation
 import EmberKit
 
-/// Shape-only sample data shown redacted while a feed loads.
 @MainActor
 enum DashboardPlaceholders {
     private static let decoder: JSONDecoder = {

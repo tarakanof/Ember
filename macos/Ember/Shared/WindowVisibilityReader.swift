@@ -1,8 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Reports whether the hosting window is on screen (shown and not fully
-/// occluded), so pages poll only while someone can see them.
 struct WindowVisibilityReader: NSViewRepresentable {
     @Binding var isVisible: Bool
 

@@ -3,11 +3,6 @@ import Observation
 import SystemConfiguration
 import EmberKit
 
-/// Settings › Sources › Music: forwards Music.app's now playing to the
-/// server while the user has it on. Event-driven: it listens for Music's
-/// `com.apple.Music.playerInfo` distributed notification and does nothing
-/// in between; with the toggle off it doesn't even listen. While on, it also
-/// runs the knob's playback commands (`MusicCommandListener`, Ember #280).
 @MainActor
 @Observable
 final class MusicNowPlayingWatcher {
@@ -55,7 +50,6 @@ final class MusicNowPlayingWatcher {
         }
     }
 
-    /// Shows macOS's Automation prompt for Music (only while Music runs).
     func requestAutomation() async -> AccessStatus? {
         await bridge.automationStatus(ask: true)
     }
@@ -67,7 +61,6 @@ final class MusicNowPlayingWatcher {
         await pusher.configure(sink: NowPlayingClient(client: client), player: player)
     }
 
-    /// (Re)starts the command long-poll with the current server and name.
     private func listen() {
         commands.start(source: NowPlayingClient(client: client), player: player)
     }

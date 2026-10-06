@@ -3,8 +3,6 @@ import AppKit
 import SwiftUI
 import EmberKit
 
-/// Hardware page scenarios built on `KnobStatsFake` and `ClockStatsFake`,
-/// for previews and the snapshot render.
 @MainActor
 enum HardwareFixtures {
     static func knob(_ stats: Loadable<KnobStats>, range: HardwareRange = .fifteenMinutes) -> KnobHardwareInput {
@@ -26,7 +24,6 @@ enum HardwareFixtures {
         clock(.loaded(ClockStatsFake.make(range: range, now: now, online: online, gap: gap), at: now), range: range, now: now)
     }
 
-    /// `/v1/clock/health` for the facts: an update waiting, 99 % delivered.
     static func health(now: Date) -> ClockHealth {
         let iso = { (d: Date) in d.formatted(.iso8601) }
         let json = #"""
@@ -44,7 +41,6 @@ enum HardwareFixtures {
         case clock(ClockHardwareInput)
     }
 
-    /// Name, scenario and colour scheme of every snapshot.
     static func scenarios(now: Date) -> [(name: String, scenario: Scenario, scheme: ColorScheme)] {
         [
             ("clock-1h-light", .clock(clock(.hour, now: now)), .light),
@@ -62,8 +58,6 @@ enum HardwareFixtures {
     }
 }
 
-/// The content of a Hardware page as Settings lays it out, for previews and
-/// snapshots.
 struct HardwareFixtureView: View {
     let scenario: HardwareFixtures.Scenario
     var columns = 2
@@ -80,11 +74,7 @@ struct HardwareFixtureView: View {
     }
 }
 
-/// Renders the Hardware pages' scenarios to PNGs and quits: launch a Debug
-/// build with `EMBER_HARDWARE_SNAPSHOTS=<dir>`. It draws through an
-/// off-screen window so AppKit-backed controls (the segmented picker)
-/// render too, which `ImageRenderer` leaves blank, and makes it key so the
-/// default button draws prominent.
+/// Off-screen key window: `ImageRenderer` leaves AppKit-backed controls (the segmented picker) blank.
 @MainActor
 enum HardwareSnapshotRenderer {
     nonisolated static let environmentKey = "EMBER_HARDWARE_SNAPSHOTS"
@@ -104,7 +94,6 @@ enum HardwareSnapshotRenderer {
         }
     }
 
-    /// The Settings window's detail column width.
     static let width: CGFloat = 580
 
     private static func render(_ scenario: HardwareFixtures.Scenario, scheme: ColorScheme, now: Date, to url: URL) async {

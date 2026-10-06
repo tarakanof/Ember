@@ -1,7 +1,6 @@
 import SwiftUI
 import EmberKit
 
-/// Renders a feed in whichever state it's in, so every Dashboard card handles them alike.
 struct FeedStateView<T: Sendable & Equatable, Content: View>: View {
     let feed: Loadable<T>
     var placeholder: T? = nil
