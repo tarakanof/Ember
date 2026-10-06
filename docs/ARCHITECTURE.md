@@ -2814,7 +2814,8 @@ draws-if-present in `internal/render`, add a menu checkbox.
   `unknown` when empty), `DELETE` the same path answers 204. A device token
   gets 401 on these, so a knob cannot read any dump, its own included.
   Ember.app lists them in the Knob pane (Crash row and "Crash dumps" rows,
-  "Download Crash Dump…" through `NSSavePanel`). Decoding: RUNBOOK "Decoding a
+  "Download Crash Dump…" through `NSSavePanel`; each "Crash dumps" row also
+  has "Delete…", confirmed in the row, which deletes and reloads the list). Decoding: RUNBOOK "Decoding a
   knob core dump".
 - **Knob view (device token, #234).** `GET /v1/devices/self/view` is the
   knob's one poll (`devices_view.go`): everything it shows, about 400 B with

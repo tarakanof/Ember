@@ -829,6 +829,9 @@
     },
     "Couldn't change the knob's diagnostics." : {},
     "Couldn't check" : {},
+    "Couldn't delete the crash dump: %@" : {
+      "comment" : "Settings › Knob error under Status after deleting a stored crash dump failed; the argument is a short reason (\"Server unreachable\")."
+    },
     "Couldn't dismiss the notification: %@" : {
       "comment" : "Menu error row for a failed action; the argument is a short reason (\"unauthorized\").",
       "extractionState" : "manual"
@@ -923,6 +926,9 @@
       "extractionState" : "manual"
     },
     "Decode a crash dump with `esp-coredump info_corefile -c <file> build/cinder.elf` from the matching firmware build." : {},
+    "Delete" : {},
+    "Delete this dump?" : {},
+    "Delete…" : {},
     "Delivered" : {},
     "Desk knob" : {},
     "Devices" : {},

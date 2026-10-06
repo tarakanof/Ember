@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 public enum KnobAction: Hashable, Sendable {
-    case rename, rotate, forget, factoryReset, coredump
+    case rename, rotate, forget, factoryReset, coredump, deleteCoredump
 }
 
 public enum KnobPortStatus: Equatable, Sendable {
@@ -88,6 +88,14 @@ public final class KnobModel {
     public func coredump(for crash: KnobCrash) -> KnobCoredump? {
         guard let id = crash.id else { return nil }
         return coredumps.first { $0.id == id }
+    }
+
+    @discardableResult
+    public func deleteCoredump(_ dump: KnobCoredump) async -> Bool {
+        guard let id = knob?.id else { return false }
+        let ok = await perform(.deleteCoredump) { try await self.service.deleteCoredump(id: id, dump: dump.id) }
+        if ok { await loadCoredumps() }
+        return ok
     }
 
     public func coredumpData(_ dump: KnobCoredump) async -> Data? {

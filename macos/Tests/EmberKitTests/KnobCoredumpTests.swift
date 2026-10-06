@@ -10,6 +10,7 @@ private final class CoredumpServer: @unchecked Sendable {
     private var _log: [(String, String)] = []
     var list = coredumpList
     var dumpStatus = 200
+    var deleteStatus = 204
     var log: [(String, String)] { lock.withLock { _log } }
 
     func handle(_ req: URLRequest) -> (HTTPURLResponse, Data) {
@@ -23,11 +24,15 @@ private final class CoredumpServer: @unchecked Sendable {
         case ("GET", "/v1/devices/knob-61fc8c/config"):
             return (okResponse(req.url!), Data(#"{"home":"bot","poll_ms":2000}"#.utf8))
         case ("GET", "/v1/devices/knob-61fc8c/coredumps"):
-            return (okResponse(req.url!), Data(list.utf8))
+            return (okResponse(req.url!), Data(lock.withLock { list }.utf8))
         case ("GET", "/v1/devices/knob-61fc8c/coredumps/1a2b3c4d"):
             return (okResponse(req.url!, status: dumpStatus), Data([0xde, 0xad, 0xbe, 0xef]))
         case ("DELETE", "/v1/devices/knob-61fc8c/coredumps/1a2b3c4d"):
-            return (okResponse(req.url!, status: 204), Data())
+            let status = lock.withLock { deleteStatus }
+            if status == 204 {
+                lock.withLock { list = #"[{"id":"0badc0de","size":4096,"fw":"","received_at":"2026-10-05T09:00:00Z","reason":"","task":"","pc":""}]"# }
+            }
+            return (okResponse(req.url!, status: status), Data())
         default:
             return (okResponse(req.url!, status: 404), Data(#"{"error":"not found"}"#.utf8))
         }
@@ -117,4 +122,29 @@ private func coredumpModel(_ server: CoredumpServer) -> KnobModel {
     let m = coredumpModel(server)
     await m.load()
     #expect(m.isLoaded && m.coredumps.isEmpty)
+}
+
+@MainActor
+@Test func knobModelDeletesACoredumpAndRefreshesTheList() async throws {
+    let server = CoredumpServer()
+    let m = coredumpModel(server)
+    await m.load()
+    let dump = try #require(m.coredumps.first { $0.id == "1a2b3c4d" })
+    #expect(await m.deleteCoredump(dump))
+    #expect(m.actionErrors[.deleteCoredump] == nil)
+    #expect(m.coredumps.map(\.id) == ["0badc0de"])
+    let tail = server.log.suffix(2).map { "\($0.0) \($0.1)" }
+    #expect(tail == ["DELETE /v1/devices/knob-61fc8c/coredumps/1a2b3c4d", "GET /v1/devices/knob-61fc8c/coredumps"])
+}
+
+@MainActor
+@Test func knobModelReportsAFailedCoredumpDelete() async throws {
+    let server = CoredumpServer()
+    server.deleteStatus = 500
+    let m = coredumpModel(server)
+    await m.load()
+    let dump = try #require(m.coredumps.first { $0.id == "1a2b3c4d" })
+    #expect(await m.deleteCoredump(dump) == false)
+    #expect(m.actionErrors[.deleteCoredump] != nil)
+    #expect(m.coredumps.count == 2)
 }

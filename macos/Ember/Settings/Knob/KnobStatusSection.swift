@@ -7,6 +7,7 @@ struct KnobStatusSection: View {
     let setUp: () -> Void
     @State private var confirmForget = false
     @State private var dumpWriteError: String?
+    @State private var confirmDeleteDump: String?
 
     var body: some View {
         let model = env.knob
@@ -79,6 +80,12 @@ struct KnobStatusSection: View {
                     if let e = model.actionErrors[.coredump] {
                         Label { Text("Couldn't download the crash dump: \(Text(e.message))",
                                      comment: "Settings › Knob error under Status; the argument is a short reason (\"Server unreachable\").") }
+                            icon: { Image(systemName: "exclamationmark.triangle.fill") }
+                            .foregroundStyle(.red)
+                    }
+                    if let e = model.actionErrors[.deleteCoredump] {
+                        Label { Text("Couldn't delete the crash dump: \(Text(e.message))",
+                                     comment: "Settings › Knob error under Status after deleting a stored crash dump failed; the argument is a short reason (\"Server unreachable\").") }
                             icon: { Image(systemName: "exclamationmark.triangle.fill") }
                             .foregroundStyle(.red)
                     }
@@ -207,6 +214,7 @@ struct KnobStatusSection: View {
                         HStack {
                             dumpText(dump).textSelection(.enabled)
                             downloadButton(dump, device: device)
+                            deleteControl(dump)
                         }
                     }
                 }
@@ -220,6 +228,25 @@ struct KnobStatusSection: View {
         let when = dump.receivedAt.formatted(date: .abbreviated, time: .shortened)
         return Text("\(crash), firmware \(dump.fw.nonEmpty ?? "—"), \(when)",
                     comment: "Settings › Knob Crash dumps row: the crash, the knob firmware when it crashed, and when Ember received the dump (\"Panic in ember, firmware 0.9.14, 6 Oct 2026 at 10:00\").")
+    }
+
+    @ViewBuilder private func deleteControl(_ dump: KnobCoredump) -> some View {
+        if confirmDeleteDump == dump.id {
+            Text("Delete this dump?").foregroundStyle(.secondary)
+            Button("Delete", role: .destructive) {
+                Task {
+                    if await env.knob.deleteCoredump(dump) { confirmDeleteDump = nil }
+                }
+            }
+            .disabled(env.knob.running.contains(.deleteCoredump))
+            Button("Cancel") { confirmDeleteDump = nil }
+        } else {
+            Button("Delete…") {
+                env.knob.clearError(.deleteCoredump)
+                confirmDeleteDump = dump.id
+            }
+            .disabled(env.knob.running.contains(.deleteCoredump))
+        }
     }
 
     private func downloadButton(_ dump: KnobCoredump, device: String) -> some View {
