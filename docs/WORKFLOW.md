@@ -71,13 +71,17 @@ they apply at every step.
 ## 6. Deploy and install
 
 - **Server**: once `docker-publish.yml` for the tag succeeds, update the
-  container through the `unraid` MCP (`.mcp.json`): `refresh_docker_digests`,
-  then `list_docker_containers` with `name: "ember"` until `update_available`
-  is true, then `update_docker_container` with its id and `confirm: true` (pull
-  + recreate from the Unraid template, a few seconds down). Then check
-  `/healthz` and `/version` on the live server (`EMBER_SERVER_URL` in
-  `producer.env`, or mDNS `_ember._tcp`) for the new tag. Without the MCP, the
-  user updates the container and says "server updated".
+  container through the `unraid` MCP (`.mcp.json`; approve it once when
+  Claude Code asks): `refresh_docker_digests` with `confirm: true`, then
+  `list_docker_containers` with `name: "ember"` (a substring filter: act only
+  on the one container named `Ember`). If `update_available` isn't true after
+  3 tries 20 s apart, or a tool is missing or unsupported, stop and ask the
+  user to update by hand. Otherwise `update_docker_container` with its id and
+  `confirm: true` (pull + recreate from the Unraid template, a few seconds
+  down), then check `/healthz` and `/version` on the live server
+  (`EMBER_SERVER_URL` in `producer.env`, or mDNS `_ember._tcp`) for the new
+  tag. Without the MCP, the user updates the container and says "server
+  updated".
   - The MCP is the user's `tarakanof/Unraid-MCP` container on the Unraid box
     (streamable HTTP, `UNRAID_MCP_URL`, bearer `UNRAID_MCP_TOKEN` from the
     shell env; mutations on in the container). Its Unraid API key is the
@@ -86,7 +90,8 @@ they apply at every step.
     API whatever tools the server registers. `.claude/settings.json` also
     denies the known write tools except `refresh_docker_digests` and
     `update_docker_container` (a denylist: a write tool added by a newer
-    unraid-mcp is not in it, so it falls back to a permission prompt). Update
+    unraid-mcp is not in it: a prompt in manual mode, the classifier in auto
+    mode, nothing in bypass mode). Update
     only the Ember container.
 - **Mac app** (after a release that changed it):
   ```sh
