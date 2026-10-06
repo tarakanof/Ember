@@ -143,6 +143,9 @@ func (a *App) handleDevicesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Kind == deviceKindClient {
+		if !a.requireMasterForClients(w, r) {
+			return
+		}
 		a.createClient(w, r, req.HwID, req.Name, req.Scopes)
 		return
 	}
@@ -256,6 +259,9 @@ func (a *App) handleDevicePatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeviceRotate(w http.ResponseWriter, r *http.Request) {
+	if a.devices.isClient(r.PathValue("id")) && !a.requireMasterForClients(w, r) {
+		return
+	}
 	view, token, err := a.devices.rotate(r.PathValue("id"))
 	if err != nil {
 		a.writeDeviceError(w, r, err)
@@ -273,6 +279,9 @@ func (a *App) handleDeviceRotate(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if a.devices.isClient(id) && !a.requireMasterForClients(w, r) {
+		return
+	}
 	if err := a.devices.remove(id); err != nil {
 		a.writeDeviceError(w, r, err)
 		return

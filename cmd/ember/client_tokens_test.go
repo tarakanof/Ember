@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -167,6 +168,44 @@ func TestForgedClientTokenIsUnauthorized(t *testing.T) {
 	resp, _ := devReq(t, srv, "POST", "/v1/status", "ekc_forged", `{"source":"a","tool":"b","session":"c","state":"running"}`)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestAdminClientCannotManageClients(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	admin := mintClient(t, srv, "ops", "admin")
+	other := mintClient(t, srv, "ci", "ingest")
+	for _, c := range []struct{ method, path, body string }{
+		{"POST", "/v1/devices", `{"kind":"client","name":"x","scopes":["admin"]}`},
+		{"POST", "/v1/devices/" + other.ID + "/rotate", ""},
+		{"POST", "/v1/devices/" + admin.ID + "/rotate", ""},
+		{"DELETE", "/v1/devices/" + other.ID, ""},
+	} {
+		resp, b := devReq(t, srv, c.method, c.path, admin.Token, c.body)
+		if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(b), "EMBER_TOKEN") {
+			t.Errorf("%s %s as admin client = %d %s, want 403", c.method, c.path, resp.StatusCode, b)
+		}
+	}
+	status := `{"source":"ci","tool":"gha","session":"1","state":"running"}`
+	if resp, b := devReq(t, srv, "POST", "/v1/status", other.Token, status); resp.StatusCode != http.StatusOK {
+		t.Fatalf("victim token changed: %d %s", resp.StatusCode, b)
+	}
+	if resp, _ := devReq(t, srv, "GET", "/v1/devices", admin.Token, ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin client list = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestClientMintCapped(t *testing.T) {
+	_, srv := newDevicesApp(t, "")
+	for i := range maxClients {
+		mintClient(t, srv, "c"+strconv.Itoa(i), "ingest")
+	}
+	resp, b := devReq(t, srv, "POST", "/v1/devices", testToken, `{"kind":"client","name":"one too many","scopes":["ingest"]}`)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(b), "at most 64") {
+		t.Fatalf("mint past cap = %d %s, want 400", resp.StatusCode, b)
+	}
+	if resp, b := devReq(t, srv, "POST", "/v1/devices", testToken, `{"kind":"cinder-knob","hw_id":"`+testHwID+`"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("knob mint at client cap = %d %s", resp.StatusCode, b)
 	}
 }
 

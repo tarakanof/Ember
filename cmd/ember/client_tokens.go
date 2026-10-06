@@ -17,7 +17,28 @@ const (
 	scopeAdmin   = "admin"
 )
 
-var errScopeDenied = errors.New("token lacks the required scope")
+// maxClients bounds the client records; every mint rewrites the registry blob.
+const maxClients = 64
+
+var (
+	errScopeDenied    = errors.New("token lacks the required scope")
+	errMasterRequired = errors.New("managing client tokens requires EMBER_TOKEN")
+	errTooManyClients = fmt.Errorf("%w: at most %d client tokens; delete one first", errDeviceBody, maxClients)
+)
+
+type clientCallerKey struct{}
+
+// requireMasterForClients answers 403 and returns false when a client token
+// (even an admin one) tries to mint, rotate or delete a client: a leaked
+// client must not be able to outlive its own revocation.
+func (a *App) requireMasterForClients(w http.ResponseWriter, r *http.Request) bool {
+	if isClient, _ := r.Context().Value(clientCallerKey{}).(bool); !isClient {
+		return true
+	}
+	a.logger.InfoContext(r.Context(), "auth scope denied", "reason", "master_required", "path", r.URL.Path, "method", r.Method)
+	writeError(w, http.StatusForbidden, errMasterRequired)
+	return false
+}
 
 // requiredScope is the client scope that admits an owner route (a pattern
 // registered on the authenticated /v1 mux). Anything not listed needs admin.

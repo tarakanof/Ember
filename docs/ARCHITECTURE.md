@@ -2144,7 +2144,10 @@ the same board finds its record.
   `/admin/*`. Rotating a client mints and returns the new token at once (200)
   and revokes the old one: there is no checkin to deliver it on. Config,
   stats and checkin lookups use `findKnob`, so a client id is 404 there.
-  Mint, rotate and delete bump the epoch like a knob's. `docs/openapi.yaml`
+  Mint, rotate and delete bump the epoch like a knob's, take the master
+  token (a client caller, admin included, is 403: `requireAuth` marks
+  client callers in the request context), and mint stops at 64 clients
+  (400). `docs/openapi.yaml`
   records each operation's credentials; `openapi_test.go` checks every
   registered route against it (route × credential table).
 - **Rotation:** `POST /v1/devices/{id}/rotate` (202) only marks the record.

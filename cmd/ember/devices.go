@@ -425,6 +425,15 @@ func (r *deviceRegistry) provisionClient(name string, scopes []string) (deviceVi
 	token := newToken(clientTokenPrefix)
 	var view deviceView
 	err := r.mutate(func(st *deviceState) error {
+		n := 0
+		for _, d := range st.Devices {
+			if d.Kind == deviceKindClient {
+				n++
+			}
+		}
+		if n >= maxClients {
+			return errTooManyClients
+		}
 		st.Epoch++
 		id := clientID()
 		for st.find(id) != nil {
@@ -444,6 +453,13 @@ func (r *deviceRegistry) provisionClient(name string, scopes []string) (deviceVi
 		return nil
 	})
 	return view, token, err
+}
+
+func (r *deviceRegistry) isClient(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.state.find(id)
+	return d != nil && d.Kind == deviceKindClient
 }
 
 func clientID() string {

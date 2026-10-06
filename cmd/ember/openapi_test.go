@@ -148,8 +148,10 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 // TestOpenAPIAuthMatchesServer is the route × credential table: every
 // credential the spec does not admit on an operation must be refused there,
 // 401 for a credential of the wrong kind and 403 for a client token lacking
-// the scope. Admitted credentials are covered by TestDeviceTokenScope, so no
-// handler runs here.
+// the scope; a client token holding a scope the spec names must not be
+// (any other status, a 400 for the empty body included, is fine). Admin-only
+// operations get no positive request, so no clock-proxy handler runs here;
+// TestDeviceTokenScope covers admitted master, knob and admin calls.
 func TestOpenAPIAuthMatchesServer(t *testing.T) {
 	ops := readSpecOps(t)
 	app := newPomodoroApp(t)
@@ -192,6 +194,14 @@ func TestOpenAPIAuthMatchesServer(t *testing.T) {
 				want = http.StatusUnauthorized
 			}
 			if want == 0 {
+				if len(c.scopes) == 1 && c.scopes[0] != scopeAdmin && slices.Contains(op.auth.clientScopes, c.scopes[0]) {
+					t.Run(op.route+" as "+c.name+" admitted", func(t *testing.T) {
+						resp, b := devReq(t, srv, method, path, c.token, "")
+						if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+							t.Fatalf("status = %d, want admitted: %s", resp.StatusCode, b)
+						}
+					})
+				}
 				continue
 			}
 			t.Run(op.route+" as "+c.name, func(t *testing.T) {

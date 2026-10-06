@@ -665,7 +665,7 @@ carries only the scopes it was minted with:
 | `ingest` | `POST`/`DELETE /v1/status`, `POST /v1/usage`, `POST /v1/notify`, `POST /v1/reminders/fire` |
 | `control` | `POST /v1/pomodoro/{start,pause,resume,stop,skip}` |
 | `read` | the non-secret settings reads: `GET /v1/{apps,pomodoro/config,usage/config,display/config,brightness/config,quiet/config,clock/stats}` (weather and meetings config hold a location or a calendar URL: `admin` only) |
-| `admin` | every route `EMBER_TOKEN` passes under `/v1/`, minting tokens included |
+| `admin` | every route `EMBER_TOKEN` passes under `/v1/`, except minting, rotating or deleting client tokens (master only, so a leaked client can't outlive its revocation) |
 
 Public reads (`/state`, `/v1/*/state`, previews, dashboard reads) need no
 token. A missing or unknown token is 401; a client token without the scope is
@@ -681,12 +681,18 @@ curl -s -XPOST localhost:3627/v1/devices/client-1a2b3c4d/rotate -H "$H"  # new t
 curl -s -XDELETE localhost:3627/v1/devices/client-1a2b3c4d -H "$H"       # revoke
 ```
 
-Only the token's SHA-256 is stored (the knob registry, `devices_json`). Rotating
+Only `EMBER_TOKEN` manages client tokens (any client token gets 403), and
+there are at most 64 (400 past that). Only the token's SHA-256 is stored (the knob registry, `devices_json`). Rotating
 a client answers 200 with the new token and revokes the old one at once (a knob
 rotation is 202 and waits for its checkin). Clients are not knobs: they have no
 config or stats (404) and `/admin/doctor` counts them as `clients=N` without
 checkin warnings. There is no Ember.app UI for client tokens yet; mint them
 with curl.
+
+**Rolling back past this release: delete every client token first**
+(`DELETE /v1/devices/client-…`). Older servers don't know the `client` kind and
+accept any registry token as a knob's, so an ingest-only `ekc_` token would pass
+`/v1/devices/self/*`, now-playing control and the Pomodoro actions there.
 
 **Report a session.** One `POST /v1/status` per state change, plus a heartbeat
 every ~10 s while `running` or `waiting`: a session not refreshed for
@@ -716,10 +722,12 @@ curl -s -XPOST http://ember.local:3627/v1/notify -H "Authorization: Bearer $EKC"
 - Unknown fields are ignored on `/v1/status`, so a source written against a
   newer server still works on an older one.
 
-**Producers with a client token.** The bundled producers only call
-`/v1/status` and `/v1/usage`, so an `ingest` token is enough: put it in
-`producer.env` instead of the master token (handy on a headless Linux box,
-"Headless / Linux producers"):
+**Producers with a client token (headless hosts only).** The bundled
+producers only call `/v1/status` and `/v1/usage`, so an `ingest` token is
+enough on a host without Ember.app (a Linux box, "Headless / Linux
+producers"). **Not on a Mac with Ember.app:** the app reads `EMBER_TOKEN` from
+the same `producer.env` for settings, the knob registry and the clock proxy,
+which need the master token.
 
 ```sh
 # ~/.config/ember/producer.env (0600)

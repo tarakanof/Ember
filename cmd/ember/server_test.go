@@ -122,6 +122,7 @@ func TestDeviceTokenScope(t *testing.T) {
 		{"POST", "/v1/pomodoro/stop", "", admin, http.StatusOK},
 		{"PUT", "/v1/display/config", `{}`, admin, http.StatusOK},
 		{"GET", "/v1/devices", "", admin, http.StatusOK},
+		{"POST", "/v1/devices", `{"kind":"client","name":"x","scopes":["ingest"]}`, admin, http.StatusForbidden},
 		{"GET", "/v1/devices/self/view", "", admin, http.StatusUnauthorized},
 	}
 	for _, c := range cases {

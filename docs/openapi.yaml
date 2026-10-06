@@ -1229,6 +1229,8 @@ paths:
         `{"kind":"client","name":"CI","scopes":["ingest"]}` mints an `ekc_`
         client token; `{"kind":"cinder-knob","hw_id":"…"}` provisions a knob.
         The response carries the token once (`Cache-Control: no-store`).
+        Minting a client takes the master token: a client token, admin
+        included, gets 403. At most 64 clients (400 past that).
       security: [{ownerToken: []}, {clientToken: [admin]}]
       requestBody:
         required: true
@@ -1298,6 +1300,7 @@ paths:
       tags: [devices]
       operationId: deleteDevice
       summary: Revoke a knob or client token
+      description: Deleting a client takes the master token (403 for any client token).
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
         "204":
@@ -1318,7 +1321,8 @@ paths:
       description: |
         A client's new token is minted at once and returned (200); the old
         one stops working. A knob's rotation is only marked (202) and its
-        next checkin collects the new token.
+        next checkin collects the new token. Rotating a client takes the
+        master token (403 for any client token).
       security: [{ownerToken: []}, {clientToken: [admin]}]
       responses:
         "200":

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -240,7 +241,7 @@ func requireAuth(app *App, logger *slog.Logger, next http.Handler) http.Handler 
 		master := subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+token)) == 1
 		if !master && isClientBearer(r) {
 			if app.clientAuth(w, r, requiredScope(routePattern(next, r))) {
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientCallerKey{}, true)))
 			}
 			return
 		}
