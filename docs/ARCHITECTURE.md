@@ -2729,7 +2729,25 @@ draws-if-present in `internal/render`, add a menu checkbox.
   0..14, `rssi_min` outside -127..0, `last_reason` outside 0..255, negative
   `disconnects`, a `bssid` not lower-case `aa:bb:cc:dd:ee:ff`, a wrong type) is
   dropped (logged at Info when the device's drop reason changes, Debug when it
-  repeats), the rest of the checkin kept; a checkin without one clears it)
+  repeats), the rest of the checkin kept; a checkin without one clears it;
+  since cinder 0.9.13 (cinder#22, Ember#307) a `diag` object,
+  `{"boots":42,"crash":{"pc":"0x4201a2b3","reason":"panic","task":"ember"},"heap_internal_min":71234,"heap_largest_min":30720,"reset_reason":"poweron","stack_free":{"ember":1880,"eye":900,"lvgl":2304}}`,
+  every key optional (`devices_diag.go`): `crash` repeats on every checkin
+  while a core dump sits in flash (`reason` panic, int_wdt, task_wdt, wdt,
+  unknown), `reset_reason` is ESP-IDF's reset reason as a short name,
+  `stack_free` maps a task to its free stack in bytes. Stored as
+  `last_checkin.diag` plus two server fields carried from the previous
+  checkin's diag: `reboots`, the boots increases Ember has seen (a drop in
+  `boots`, an erased counter, counts one), and `prev_reset_reason`, the reset
+  reason before the latest reboot; both restart from zero after a checkin
+  without a diag, and keys of those names sent by the knob are ignored. A
+  crash logs once at Warn (`knob crash reported`) when it first appears or its
+  pc, task or reason changes against the previous checkin. Dropped like
+  `wifi`, with the same Info/Debug logging, when invalid: a negative count, a
+  reason not 1..24 of `a-z0-9_`, a `pc` not lower-case `0x` plus 1..8 hex
+  digits, a task name not 1..16 printable ASCII characters, more than 32
+  `stack_free` tasks, a wrong type. The app shows Crash (only while present),
+  Last reset, Boots and Lowest free memory rows)
   (every field optional; `ip` must parse when present, else the remote address
   is recorded; `fw` ≤32 chars). Answer: `{"config_version":7}` when the
   reported version is current, plus `"config":{…}` when it isn't, plus
