@@ -46,7 +46,6 @@ public func shouldRecheckAfterReconcile(bundleChanged: Bool, outcomes: [Reconcil
     bundleChanged && outcomes.contains { $0.error == nil }
 }
 
-/// About 11 s: the new helper's first spawn, launchd's 10 s respawn throttle and its failed constraint repair (macOS 27).
 public let producerRecheckDelay: Duration = .seconds(30)
 
 public func shouldReconcileAfterUpdate(currentVersion: String, lastReconciledVersion: String?) -> Bool {

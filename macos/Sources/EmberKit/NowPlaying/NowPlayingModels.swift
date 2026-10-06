@@ -61,7 +61,6 @@ public struct NowPlayingState: Decodable, Equatable, Sendable {
     public var isActive: Bool { state != "none" }
 }
 
-/// Apple doesn't document the userInfo keys; the ones read are stable since iTunes.
 public struct MusicPlayerInfo: Equatable, Sendable {
     public var state: NowPlayingReport.State
     public var name: String
@@ -95,12 +94,14 @@ public struct MusicPlayerInfo: Equatable, Sendable {
         volume = nil
     }
 
+    public static let playerNameLimit = 64
+
     public static func hexID(_ id: Int64) -> String {
         String(format: "%016llX", UInt64(bitPattern: id))
     }
 
     public func report(source: String, player: String) -> NowPlayingReport {
-        let player = Self.clip(player, 64)
+        let player = Self.clip(player, Self.playerNameLimit)
         guard state != .stopped else { return NowPlayingReport(source: source, player: player, state: .stopped) }
         return NowPlayingReport(
             source: source, player: player, state: state,

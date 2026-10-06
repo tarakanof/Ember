@@ -343,3 +343,9 @@ private func waitUntil(_ cond: () async -> Bool) async {
     listener.stop()
     await listener.join()
 }
+
+@Test func playerNameIsClippedToTheSharedLimit() {
+    let info = MusicPlayerInfo(state: .playing, name: "x", artist: "", album: "", durationMs: 0, persistentID: "")
+    let long = String(repeating: "p", count: MusicPlayerInfo.playerNameLimit + 10)
+    #expect(info.report(source: "s", player: long).player.count == MusicPlayerInfo.playerNameLimit)
+}

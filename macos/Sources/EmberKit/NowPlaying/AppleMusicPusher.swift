@@ -9,7 +9,7 @@ public protocol MusicBridge: Sendable {
     func artwork() async -> (trackID: String, data: Data)?
     func snapshot() async -> MusicPlayerInfo?
     func volume() async -> Int?
-    /// Address the running process only: a Music that quit meanwhile must not be relaunched.
+    /// Address the running process only, never relaunch Music (ARCHITECTURE "Now playing" › Music).
     func perform(_ command: NowPlayingCommand) async -> Bool
     func canControl() async -> Bool
 }

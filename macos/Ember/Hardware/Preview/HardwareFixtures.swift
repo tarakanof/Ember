@@ -74,7 +74,7 @@ struct HardwareFixtureView: View {
     }
 }
 
-/// Off-screen key window: `ImageRenderer` leaves AppKit-backed controls (the segmented picker) blank.
+/// Off-screen key window: `ImageRenderer` blanks AppKit controls (ARCHITECTURE gotchas, "Hardware snapshot tool").
 @MainActor
 enum HardwareSnapshotRenderer {
     nonisolated static let environmentKey = "EMBER_HARDWARE_SNAPSHOTS"

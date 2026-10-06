@@ -128,7 +128,7 @@ struct HardwareNowCard: View {
     }
 }
 
-/// Hand-drawn: the system accessory gauge style is fixed at watch-complication size.
+/// Hand-drawn: the system accessory style is fixed-size (ARCHITECTURE gotchas, "Ring gauges").
 struct HardwareRingGaugeStyle: GaugeStyle {
     let tint: Color
     var diameter: CGFloat = 76

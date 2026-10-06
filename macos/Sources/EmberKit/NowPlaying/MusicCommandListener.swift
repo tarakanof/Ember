@@ -34,7 +34,7 @@ public final class MusicCommandListener {
 
     public func start(source: NowPlayingCommandSource, player: String) {
         stop()
-        let player = MusicPlayerInfo.clip(player, 64)
+        let player = MusicPlayerInfo.clip(player, MusicPlayerInfo.playerNameLimit)
         task = Task { [weak self] in await self?.run(source: source, player: player) }
     }
 

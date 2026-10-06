@@ -22,7 +22,10 @@ public struct KnobWeatherScene: Sendable {
         public var fillRect: CGRect?
     }
 
-    static let rainSlant = -4.0 / 14.0
+    static var rainSlant: Double {
+        let s = KnobTheme.standard.weather.scene.rain.slant
+        return s[0] / s[1]
+    }
 
     let sc: KnobTheme.Weather.Scene
     let width: Double, height: Double

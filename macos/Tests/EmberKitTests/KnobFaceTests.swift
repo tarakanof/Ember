@@ -423,3 +423,9 @@ private extension Double { var asInt: Int { Int(self) } }
     await feed.refresh()
     #expect(calls.art == ["album/120", "artist/64"] && feed.pictures.backdrop == nil && feed.pictures.album != nil)
 }
+
+@Test func rainSpriteSlantsByTheThemeSlant() throws {
+    let slant = try KnobTheme.load().weather.scene.rain.slant
+    let end = try #require(KnobWeatherScene.shape(.rain, frame: 0).strokes.first?.last)
+    #expect(abs(end.x - (6 + 14 * slant[0] / slant[1])) < 1e-9)
+}

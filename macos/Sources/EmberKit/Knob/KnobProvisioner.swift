@@ -202,7 +202,7 @@ public struct KnobProvisioner: Sendable {
             return try await body()
         } catch {
             if minted.device.lastCheckin == nil {
-                // Unstructured: a cancelled setup must still send the DELETE.
+                // Unstructured so a cancel still DELETEs (ARCHITECTURE "App (Settings › Knob)").
                 let forget = self.forget, id = minted.device.id
                 await Task.detached { await forget(id) }.value
             }

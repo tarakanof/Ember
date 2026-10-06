@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// Never touches DTR/RTS and clears HUPCL: the ESP32-S3's USB-Serial/JTAG resets the chip on some transitions.
+/// Never touches DTR/RTS: toggling RTS resets the knob (ARCHITECTURE "App (Settings › Knob)").
 public final class SerialPortLink: KnobLink, @unchecked Sendable {
     public let path: String
     public let events: AsyncStream<KnobEvent>
@@ -41,7 +41,7 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
     }
 
     static func configure(_ fd: Int32) throws {
-        // HUPCL first: a failure below must not drop DTR/RTS on close.
+        // HUPCL first, so close can't drop DTR/RTS (ARCHITECTURE "App (Settings › Knob)").
         guard clearHangup(fd) else { throw KnobLinkError.openFailed(String(cString: strerror(errno))) }
         var t = termios()
         guard tcgetattr(fd, &t) == 0 else { throw KnobLinkError.openFailed(String(cString: strerror(errno))) }
@@ -110,7 +110,7 @@ public final class SerialPortLink: KnobLink, @unchecked Sendable {
             return !isClosed
         }
         guard first else { return }
-        // TIOCNXCL now: the tty's exclusive flag outlives this fd while anything else holds it open.
+        // TIOCNXCL: the exclusive flag outlives the fd (ARCHITECTURE "App (Settings › Knob)").
         _ = ioctl(fd, TIOCNXCL)
         _ = flock(fd, LOCK_UN)
         source.cancel()

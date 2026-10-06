@@ -2,7 +2,7 @@ import AppKit
 import OSLog
 import EmberKit
 
-/// `tell application "Music"` launches it, so every script is guarded; NSAppleScript isn't thread-safe, so one serial queue.
+/// Guarded `tell` and one serial queue, or Music launches / NSAppleScript races (ARCHITECTURE "Apple Music pusher").
 final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
     static let bundleID = "com.apple.Music"
     private static let log = Logger(subsystem: "com.ember.Ember", category: "music")
@@ -51,7 +51,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         await automationStatus(ask: false) == .granted
     }
 
-    /// Addressed by PID: an event to a Music that quit fails (procNotFound), where `tell application` would relaunch it.
+    /// Addressed by PID so a quit Music isn't relaunched (ARCHITECTURE "Now playing" › Music).
     func perform(_ command: NowPlayingCommand) async -> Bool {
         guard let action = command.action else { return false }
         return await onQueue {
@@ -121,7 +121,7 @@ final class AppleScriptMusicBridge: MusicBridge, @unchecked Sendable {
         }
     }
 
-    /// Names core/getd: wildcard event codes reportedly don't prompt.
+    /// Names core/getd: wildcard codes don't prompt (ARCHITECTURE "Apple Music pusher").
     func automationStatus(ask: Bool) async -> AccessStatus? {
         await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .utility).async {
