@@ -1251,7 +1251,7 @@ docker rm -f ember && docker run -d --name ember --restart unless-stopped \
 Verify: `GET /version` reports `dirty:false`; `docker exec ember /ember doctor`
 all `[OK]`. For Unraid, see `README.md` → "Unraid install" + the
 `deploy/unraid/ember.xml` template. Spec/plan history lives in the Obsidian vault
-(`Superpowers Specs/ember/`).
+(`Specs/ember/`).
 
 ## Upgrade notes
 

@@ -89,7 +89,7 @@ curl http://localhost:3627/state | jq
 
 ## Protocol
 
-The wire-protocol contract spec lives in the Obsidian vault (`Superpowers Specs/ember/`). Summary:
+The wire-protocol contract spec lives in the Obsidian vault (`Specs/ember/`). Summary:
 
 - Required fields: `source` (laptop ID), `tool` (`claude` | `codex` | …), `session`, `state` (`idle` | `running` | `waiting` | `done` | `error`).
 - Producer emit policy: event on every transition, plus a 10s heartbeat while `running`/`waiting`.
