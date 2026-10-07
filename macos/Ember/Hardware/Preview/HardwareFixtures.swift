@@ -102,6 +102,7 @@ enum HardwareSnapshotRenderer {
             for s in HardwareFixtures.scenarios(now: now) {
                 await render(s.scenario, scheme: s.scheme, now: now, to: out.appending(path: "\(s.name).png"))
             }
+            await KnobPaneFixtures.render(to: out, now: now)
             exit(0)
         }
     }
