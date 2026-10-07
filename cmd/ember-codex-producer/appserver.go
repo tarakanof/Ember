@@ -702,6 +702,7 @@ type apTick struct {
 	posts    []producer.StatusRequest
 	deletes  []producer.DeleteRequest
 	owned    map[string]bool
+	pending  map[string]bool
 	released []string
 	held     map[string]bool
 	rate     *derived
@@ -747,9 +748,10 @@ func (as *appServer) tick() apTick {
 			out.held[id] = true
 		}
 	}
+	out.pending = map[string]bool{}
 	for id, p := range as.unread {
 		if !p.closed {
-			out.owned[id] = true
+			out.pending[id] = true
 		}
 	}
 	for id, at := range as.ephemeral {

@@ -593,7 +593,7 @@ func TestAppServer_StatusDuringInFlightReadWins(t *testing.T) {
 	waitFor(t, "resume", func() bool { return len(f.calls("thread/resume")) == 1 })
 }
 
-func TestAppServer_OwnsLoadedThreadsBeforeTheirRead(t *testing.T) {
+func TestAppServer_MarksLoadedThreadsPendingUntilTheirRead(t *testing.T) {
 	sock := filepath.Join(shortSockDir(t), "s.sock")
 	f := newFakeAppServer(t, sock)
 	f.addThread("t1", "cli", active(), nil)
@@ -604,13 +604,21 @@ func TestAppServer_OwnsLoadedThreadsBeforeTheirRead(t *testing.T) {
 		<-release
 	}
 	as := startAppServer(t, testAppServerConfig(sock))
-	<-reading
-	owned := as.tick().owned["t1"]
+	select {
+	case <-reading:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("timed out waiting for thread/read")
+	}
+	tk := as.tick()
 	close(release)
-	if !owned {
-		t.Error("a loaded thread awaiting its read is not owned, so the rollout watcher posts it meanwhile")
+	if !tk.pending["t1"] || tk.owned["t1"] {
+		t.Errorf("awaiting its read: pending=%v owned=%v, want pending and not owned", tk.pending["t1"], tk.owned["t1"])
 	}
 	waitState(t, as, "t1", "running")
+	if tk := as.tick(); tk.pending["t1"] || !tk.owned["t1"] {
+		t.Errorf("after its read: pending=%v owned=%v, want owned", tk.pending["t1"], tk.owned["t1"])
+	}
 }
 
 func TestAppServer_CloseDuringInFlightReadWins(t *testing.T) {

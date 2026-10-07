@@ -216,3 +216,52 @@ func TestCycle_HandoverFromWatcherLeavesNoGhost(t *testing.T) {
 		})
 	}
 }
+
+func watcherPostedThenPendingRead(t *testing.T) (*watcher, *appServer) {
+	t.Helper()
+	dir := t.TempDir()
+	now := time.Now()
+	writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted)
+	w := newTestWatcher(dir, now)
+	if posts, _, _ := cycle(w, nil); len(posts) != 1 {
+		t.Fatalf("watcher did not post first: %+v", posts)
+	}
+	as := newAppServer(w.cfg)
+	as.mu.Lock()
+	as.connected = true
+	as.unread["u-123"] = &apPending{inflight: true}
+	as.mu.Unlock()
+	posts, deletes, _ := cycle(w, as)
+	if _, ok := postFor(posts, "u-123"); ok || len(deletes) != 0 {
+		t.Fatalf("during the pending read: posts=%+v deletes=%+v, want neither", posts, deletes)
+	}
+	return w, as
+}
+
+func TestCycle_PendingReadThenTakeoverSendsNoDelete(t *testing.T) {
+	w, as := watcherPostedThenPendingRead(t)
+	as.mu.Lock()
+	delete(as.unread, "u-123")
+	as.addThreadLocked(wireThread{ID: "u-123", Source: json.RawMessage(`"cli"`), Status: wireStatus{Type: "active"}})
+	as.mu.Unlock()
+	posts, deletes, _ := cycle(w, as)
+	if p, ok := postFor(posts, "u-123"); !ok || p.State != "running" {
+		t.Errorf("app-server did not take over u-123: %+v", posts)
+	}
+	if len(deletes) != 0 {
+		t.Errorf("deletes = %+v, want none", deletes)
+	}
+}
+
+func TestCycle_FailedPendingReadLeavesTheWatcherSession(t *testing.T) {
+	w, as := watcherPostedThenPendingRead(t)
+	as.mu.Lock()
+	delete(as.unread, "u-123")
+	as.mu.Unlock()
+	if _, deletes, _ := cycle(w, as); len(deletes) != 0 {
+		t.Errorf("deletes = %+v, want none", deletes)
+	}
+	if !w.posted("u-123") {
+		t.Error("watcher lost its post for u-123")
+	}
+}

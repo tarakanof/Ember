@@ -598,11 +598,13 @@ markers still get reaped.
   done/error thread posts for one activity window after its last change. A
   running or waiting thread posts for as long as it runs. **Dedupe** by
   thread id (= rollout `session_meta.id`): while connected, the app-server
-  owns every loaded thread, from `thread/loaded/list` on (not only once its
-  `thread/read` returns), and recently closed ones for one activity window
-  more. The watcher still folds those rollouts but posts or DELETEs nothing
-  for them. A session the watcher had posted is DELETEd at takeover unless
-  the app-server posts it. A status change or close that arrives while a
+  owns every loaded thread it has read, and recently closed ones for one
+  activity window more. The watcher still folds those rollouts but posts or
+  DELETEs nothing for them. A loaded thread whose `thread/read` is still
+  pending is only held back: the watcher stops posting it but keeps its post,
+  so the takeover runs once the read lands, and a failed read leaves the
+  session with the watcher, with no DELETE. A session the watcher had
+  posted is DELETEd at takeover unless the app-server posts it. A status change or close that arrives while a
   `thread/read` is in flight overrides the read's snapshot. On disconnect,
   sessions it posted go back to the watcher, or get a DELETE when the
   watcher has no live rollout for them. After the reconnect, released ids
