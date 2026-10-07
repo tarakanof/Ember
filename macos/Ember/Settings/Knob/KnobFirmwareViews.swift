@@ -38,30 +38,37 @@ struct KnobFirmwareRow: View {
     }
 
     private func poll() async {
-        let ota = env.knob.ota
-        while !Task.isCancelled {
-            try? await Task.sleep(for: ota.pollInterval)
-            guard ota.status?.phase.pollsFast == true else { continue }
-            await ota.loadStatus()
-            if ota.status?.phase.pollsFast == false { await env.knob.load() }
-        }
+        await env.knob.ota.followProgress { await env.knob.load() }
     }
 }
 
 struct KnobOTAProgress: View {
     @Environment(AppEnvironment.self) private var env
     let status: KnobOTAStatus
+    var compact = false
 
     var body: some View {
+        if compact {
+            if status.isBusy { busy }
+        } else {
+            full
+        }
+    }
+
+    @ViewBuilder private var busy: some View {
+        if status.phase == .downloading, let p = status.progress {
+            ProgressView(value: p).frame(width: 180)
+        } else {
+            ProgressView().progressViewStyle(.linear).frame(width: 180)
+        }
+        phaseText.foregroundStyle(.secondary)
+    }
+
+    private var full: some View {
         let ota = env.knob.ota
-        VStack(alignment: .trailing, spacing: 4) {
+        return VStack(alignment: .trailing, spacing: 4) {
             if status.isBusy {
-                if status.phase == .downloading, let p = status.progress {
-                    ProgressView(value: p).frame(width: 180)
-                } else {
-                    ProgressView().progressViewStyle(.linear).frame(width: 180)
-                }
-                phaseText.foregroundStyle(.secondary)
+                busy
             } else if status.phase.isFailure {
                 failureText.foregroundStyle(.red)
                 Button("Retry") { Task { await ota.retry() } }
@@ -167,7 +174,8 @@ struct KnobFirmwareSheet: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.dismiss) private var dismiss
     @State private var channel = KnobFirmwareImage.test
-    @State private var confirmDelete: String?
+    @State private var confirmDelete: KnobFirmwareImage?
+    @State private var confirmRelease: KnobFirmwareImage?
     @State private var writeError: String?
 
     var body: some View {
@@ -181,12 +189,25 @@ struct KnobFirmwareSheet: View {
                 ForEach(ota.images) { image in row(image) }
             }
             .formStyle(.grouped)
+            if let status = ota.status, status.isBusy {
+                HStack {
+                    Text("Updating to \(status.attemptVersion ?? "—")",
+                         comment: "Knob firmware sheet while the knob installs an image; the argument is the version (\"Updating to 0.9.17\").")
+                    Spacer()
+                    KnobOTAProgress(status: status, compact: true)
+                }
+                .font(.callout)
+            }
             if let p = ota.uploadProgress {
                 HStack {
                     ProgressView(value: p)
                     Text(ota.uploadStage == .elf ? "Uploading the ELF…" : "Uploading the image…")
                         .foregroundStyle(.secondary)
                 }
+            }
+            if let status = ota.status, status.running != nil, !status.canRollBack,
+               ota.images.contains(where: status.canInstall) {
+                Text(KnobOTAError.noRollback).font(.callout).foregroundStyle(.secondary)
             }
             errors
             HStack {
@@ -205,13 +226,42 @@ struct KnobFirmwareSheet: View {
                 .foregroundStyle(.secondary)
         }
         .padding(20)
-        .frame(width: 560, height: 480)
+        .frame(width: 600, height: 480)
         .task { await ota.loadImages() }
+        .task { await ota.followProgress { await env.knob.load() } }
+        .confirmationDialog(deleteTitle, isPresented: Binding(
+            get: { confirmDelete != nil },
+            set: { if !$0 { confirmDelete = nil } }), presenting: confirmDelete) { image in
+            Button("Delete", role: .destructive) { Task { await ota.delete(image) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { image in
+            if ota.runsOnKnob(image), image.elf {
+                Text("The knob runs this build. Without its ELF, crash dumps from it can't be decoded.")
+            } else if image.elf {
+                Text("Ember removes the image and its ELF.")
+            } else {
+                Text("Ember removes the image.")
+            }
+        }
+        .confirmationDialog(releaseTitle, isPresented: Binding(
+            get: { confirmRelease != nil },
+            set: { if !$0 { confirmRelease = nil } }), presenting: confirmRelease) { image in
+            Button("Mark as Release") { Task { await ota.setChannel(image, to: KnobFirmwareImage.release) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { image in
+            if ota.status?.mode == .auto {
+                Text("Automatic updates are on: if \(image.version) is newer than the knob's firmware, the knob installs it once it has been idle for 10 minutes.",
+                     comment: "Knob firmware sheet: confirmation before marking an image as Release while Automatic updates are on; the argument is its version.")
+            } else {
+                Text("With Automatic updates on, the knob would install \(image.version) once it has been idle for 10 minutes, if it is newer than the knob's firmware.",
+                     comment: "Knob firmware sheet: confirmation before marking an image as Release while updates are set to Ask first; the argument is its version.")
+            }
+        }
     }
 
     @ViewBuilder private var errors: some View {
         let ota = env.knob.ota
-        ForEach([KnobOTAAction.upload, .promote, .delete, .elf], id: \.self) { action in
+        ForEach([KnobOTAAction.upload, .install, .channel, .delete, .elf], id: \.self) { action in
             if let e = ota.errors[action] {
                 Label { Text(e.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                     .foregroundStyle(.red)
@@ -229,41 +279,58 @@ struct KnobFirmwareSheet: View {
         let ota = env.knob.ota
         LabeledContent {
             HStack {
-                if !image.isRelease {
-                    Button("Mark as Release") { Task { await ota.promote(image) } }
-                        .disabled(ota.running.contains(.promote))
+                if let status = ota.status, status.canInstall(image) {
+                    Button("Install") { Task { await ota.install(image) } }
+                        .disabled(!status.canRollBack || ota.running.contains(.install))
+                        .help(status.canRollBack ? Text("Install this build on the knob.") : Text(KnobOTAError.noRollback))
                 }
+                Picker("Channel", selection: Binding(
+                    get: { image.channel },
+                    set: { channel in
+                        if KnobFirmwareImage.needsConfirmation(from: image.channel, to: channel) {
+                            confirmRelease = image
+                        } else {
+                            Task { await ota.setChannel(image, to: channel) }
+                        }
+                    })) {
+                    Text("Test").tag(KnobFirmwareImage.test)
+                    Text("Release").tag(KnobFirmwareImage.release)
+                }
+                .labelsHidden()
+                .fixedSize()
+                .disabled(ota.running.contains(.channel))
+                .help("Automatic updates install only Release builds.")
                 if image.elf {
                     Button("Download ELF…") { Task { await saveELF(image) } }
                         .disabled(ota.running.contains(.elf))
                 }
-                if confirmDelete == image.version {
-                    if ota.runsOnKnob(image) {
-                        Text("The knob runs this version. Without its ELF, crash dumps from it can't be decoded.")
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Button("Delete", role: .destructive) {
-                        Task { if await ota.delete(image) { confirmDelete = nil } }
-                    }
-                    Button("Cancel") { confirmDelete = nil }
-                } else {
-                    Button("Delete…") { confirmDelete = image.version }
-                        .disabled(ota.running.contains(.delete))
-                }
+                Button("Delete…") { confirmDelete = image }
+                    .disabled(ota.running.contains(.delete))
             }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
                     Text(verbatim: image.version).font(.body.monospacedDigit())
-                    Text(image.isRelease ? "Release" : "Test")
-                        .font(.caption)
-                        .padding(.horizontal, 5)
-                        .background(Capsule().fill(image.isRelease ? Color.green.opacity(0.2) : Color.secondary.opacity(0.2)))
+                    if ota.runsOnKnob(image) {
+                        Text("On the knob")
+                            .font(.caption)
+                            .padding(.horizontal, 5)
+                            .background(Capsule().fill(Color.secondary.opacity(0.2)))
+                    }
                 }
                 details(image).font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var releaseTitle: Text {
+        Text("Mark \(confirmRelease?.version ?? "") as Release?",
+             comment: "Knob firmware sheet: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\").")
+    }
+
+    private var deleteTitle: Text {
+        Text("Delete \(confirmDelete?.version ?? "") from Ember?",
+             comment: "Knob firmware sheet: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\").")
     }
 
     private func details(_ image: KnobFirmwareImage) -> Text {

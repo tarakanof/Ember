@@ -201,6 +201,7 @@ extension FeedError {
         case .rateLimited: "The server is rate-limiting this Mac. Try again in a moment."
         case .featureOff: "This server doesn't support this setting. Update the server."
         case .server(let message): "Server error: \(message)"
+        case .rejected(let reason): reason
         }
     }
 }

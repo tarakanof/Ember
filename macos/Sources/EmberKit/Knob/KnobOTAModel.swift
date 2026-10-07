@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 public enum KnobOTAAction: Hashable, Sendable {
-    case update, retry, mode, upload, promote, delete, elf
+    case update, install, retry, mode, upload, channel, delete, elf
 }
 
 @MainActor
@@ -39,6 +39,16 @@ public final class KnobOTAModel {
         status?.phase.pollsFast == true ? .seconds(1) : .seconds(15)
     }
 
+    public func followProgress(sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+                               finished: () async -> Void) async {
+        while !Task.isCancelled {
+            do { try await sleep(pollInterval) } catch { return }
+            guard status?.phase.pollsFast == true else { continue }
+            await loadStatus()
+            if status?.phase.pollsFast == false { await finished() }
+        }
+    }
+
     public func loadStatus() async {
         guard let id = deviceID else { status = nil; return }
         do {
@@ -60,7 +70,8 @@ public final class KnobOTAModel {
     }
 
     @discardableResult
-    func perform(_ action: KnobOTAAction, _ body: () async throws -> Void) async -> Bool {
+    func perform(_ action: KnobOTAAction, map: (Error) -> FeedError = { FeedError($0) },
+                 _ body: () async throws -> Void) async -> Bool {
         running.insert(action)
         defer { running.remove(action) }
         do {
@@ -68,7 +79,7 @@ public final class KnobOTAModel {
             errors[action] = nil
             return true
         } catch {
-            errors[action] = FeedError(error)
+            errors[action] = map(error)
             return false
         }
     }
@@ -98,10 +109,12 @@ public final class KnobOTAModel {
 
     private func put(_ action: KnobOTAAction, _ patch: [String: JSONValue]) async -> Bool {
         guard let id = deviceID else { return false }
-        return await perform(action) {
+        let ok = await perform(action, map: KnobOTAError.updateFailure) {
             let next = try await self.service.updateOTA(id: id, patch: patch)
             if self.deviceID == id { self.status = next }
         }
+        if !ok { await loadStatus() }
+        return ok
     }
 
     nonisolated public static func elfURL(besides binary: URL, exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }) -> URL? {
@@ -138,21 +151,30 @@ public final class KnobOTAModel {
     }
 
     @discardableResult
-    public func promote(_ image: KnobFirmwareImage) async -> Bool {
-        let ok = await perform(.promote) {
-            _ = try await self.service.setFirmwareChannel(version: image.version, channel: KnobFirmwareImage.release)
+    public func setChannel(_ image: KnobFirmwareImage, to channel: String) async -> Bool {
+        guard channel == KnobFirmwareImage.release || channel == KnobFirmwareImage.test else { return false }
+        guard channel != image.channel else { return true }
+        let ok = await perform(.channel) {
+            _ = try await self.service.setFirmwareChannel(version: image.version, channel: channel)
         }
-        if ok { await loadImages() }
+        await loadImages()
         return ok
     }
 
     @discardableResult
+    public func install(_ image: KnobFirmwareImage) async -> Bool {
+        await put(.install, ["target": .string(image.version)])
+    }
+
+    @discardableResult
     public func delete(_ image: KnobFirmwareImage) async -> Bool {
-        let ok = await perform(.delete) { try await self.service.deleteFirmware(version: image.version) }
-        if ok {
-            await loadImages()
-            await loadStatus()
+        let ok = await perform(.delete) {
+            do {
+                try await self.service.deleteFirmware(version: image.version)
+            } catch APIError.http(404, _) {}
         }
+        await loadImages()
+        await loadStatus()
         return ok
     }
 
@@ -169,7 +191,7 @@ public final class KnobOTAModel {
     }
 
     public func runsOnKnob(_ image: KnobFirmwareImage) -> Bool {
-        status?.running?.fw == image.version
+        status?.runs(image) == true
     }
 
     public func elfImage(build: String?) -> KnobFirmwareImage? {

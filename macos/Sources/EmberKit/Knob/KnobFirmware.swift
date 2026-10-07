@@ -31,6 +31,10 @@ public struct KnobFirmwareImage: Codable, Equatable, Sendable, Identifiable {
     }
 
     public var elfFilename: String { "cinder-\(version).elf" }
+
+    public static func needsConfirmation(from: String, to: String) -> Bool {
+        from != release && to == release
+    }
 }
 
 public enum KnobOTAMode: String, Codable, Sendable, CaseIterable {
@@ -141,6 +145,16 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
 
     public var attemptVersion: String? { version ?? target }
 
+    public func runs(_ image: KnobFirmwareImage) -> Bool {
+        guard let running else { return false }
+        if let build = running.build, !build.isEmpty { return image.build == build }
+        return image.version == running.fw
+    }
+
+    public func canInstall(_ image: KnobFirmwareImage) -> Bool {
+        running != nil && !isBusy && !runs(image)
+    }
+
     public var updateVersion: String? {
         guard let available, !isBusy else { return nil }
         if phase.isFailure, available == attemptVersion { return nil }
@@ -149,6 +163,22 @@ public struct KnobOTAStatus: Codable, Equatable, Sendable {
 }
 
 public enum KnobOTAError {
+    public static let inProgress = LocalizedStringResource("The knob is already installing an update. Try again when it has finished.")
+    public static let noRollback = LocalizedStringResource("This knob's bootloader can't roll back. Flash it once over USB (see cinder docs/workflow.md).")
+    public static let unknownImage = LocalizedStringResource("Ember no longer stores this image.")
+
+    public static func updateFailure(_ error: Error) -> FeedError {
+        if case .http(let status, let body)? = error as? APIError {
+            switch status {
+            case 409 where body.contains("ota_in_progress"): return .rejected(inProgress)
+            case 409 where body.contains("no_rollback_bootloader"): return .rejected(noRollback)
+            case 400 where body.contains("unknown firmware version"): return .rejected(unknownImage)
+            default: break
+            }
+        }
+        return FeedError(error)
+    }
+
     public static func label(_ code: String) -> String {
         switch code {
         case "no_checkin": String(localized: "the knob could not reach Ember after the update")
