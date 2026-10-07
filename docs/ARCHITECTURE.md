@@ -2513,11 +2513,17 @@ boot restores it. Once the new directory is in place the replace is done
 (index, SHA and unblock follow it, also on a retry after such a hidden
 version) even if deleting the `.old-` copy fails: the upload answers 201,
 the server logs the leftover, and boot deletes it. A DELETE, an eviction
-and an upload of a version the index does not hold all remove the
-version's `.old-` copies before `<version>/` and stop if one fails (the
-version stays indexed and the call can be retried), so a failure never
-leaves the pre-replace bytes as the only copy on disk for boot to restore
-without their block. A dev-seed build (cinder's local default with
+and an upload of a version the index does not hold retire the version's
+copies by renaming each to a `.tmp-<version>-*` name, `.old-` copies
+first and `<version>/` last, and stop at the first rename that fails. A
+failed rename has touched nothing: an indexed version stays indexed,
+whole and blocked, and the call can be retried. Once `<version>/` is
+renamed away the version is gone (index entry dropped, block cleared)
+and the retired dirs are deleted best effort; a leftover is logged and
+swept at boot, which never restores a `.tmp-` dir. So the index never
+holds a half-removed version, and a failure never leaves the pre-replace
+bytes as the only copy for boot to restore without their block. A
+dev-seed build (cinder's local default with
 `sdkconfig.secrets`) has the Wi-Fi password and the master token compiled
 in, so an image or ELF containing the server's own `EMBER_TOKEN` or the
 marker `CINDER-DEV-SEED-BUILD` is refused (`dev_seed_build`); the ELF is
@@ -2540,9 +2546,8 @@ deleted (204, or 404 for a stale entry, whose leftover `<version>` or
 `.old-<version>-*` directories are removed first; 409 for a knob's
 target either way), only once its files are gone, and under the store
 lock so no upload or block can slip in between), `phase`, `error`,
-`from`, and the offered
-`version`/`build`/`size`/`auto`, the `attempt` id and
-`started_at`/`finished_at`. It is
+`from`, and the offered `version`/`build`/`size`/`auto`, the `attempt`
+id and `started_at`/`finished_at`. It is
 written only when it changes (never per progress tick): the checkin
 computes the step on a copy under the registry lock and persists only a
 difference. Progress (`bytes`) and `waiting_for` live in memory.

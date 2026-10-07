@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -200,8 +201,9 @@ type firmwareMeta struct {
 }
 
 type firmwareStore struct {
-	dir string
-	now func() time.Time
+	dir    string
+	now    func() time.Time
+	logger *slog.Logger
 
 	mu        sync.Mutex
 	index     map[string]firmwareMeta
@@ -211,8 +213,8 @@ type firmwareStore struct {
 	readDir   func(name string) ([]os.DirEntry, error)
 }
 
-func newFirmwareStore(dir string) *firmwareStore {
-	return &firmwareStore{dir: dir, now: time.Now, index: map[string]firmwareMeta{}, writeFile: writeFileAtomic, rename: os.Rename, removeAll: os.RemoveAll, readDir: os.ReadDir}
+func newFirmwareStore(dir string, logger *slog.Logger) *firmwareStore {
+	return &firmwareStore{dir: dir, now: time.Now, logger: logger, index: map[string]firmwareMeta{}, writeFile: writeFileAtomic, rename: os.Rename, removeAll: os.RemoveAll, readDir: os.ReadDir}
 }
 
 func validChannel(ch string) bool {
@@ -361,14 +363,42 @@ func (s *firmwareStore) purgeLocked(version string) error {
 	if err != nil {
 		return err
 	}
-	var errs []error
+	if live {
+		asides = append(asides, s.versionDir(version))
+	}
+	var doomed []string
 	for _, dir := range asides {
-		errs = append(errs, s.removeAllErr(dir))
+		gone, err := s.retireLocked(dir, version)
+		if err != nil {
+			s.dropRetiredLocked(doomed)
+			return err
+		}
+		doomed = append(doomed, gone)
 	}
-	if err := errors.Join(errs...); err != nil || !live {
-		return err
+	s.dropRetiredLocked(doomed)
+	return nil
+}
+
+func (s *firmwareStore) retireLocked(dir, version string) (string, error) {
+	gone, err := os.MkdirTemp(s.dir, firmwareTempPrefix+version+"-*")
+	if err != nil {
+		return "", fmt.Errorf("create firmware retire dir: %w", err)
 	}
-	return s.removeAllErr(s.versionDir(version))
+	if err := os.Remove(gone); err != nil {
+		return "", fmt.Errorf("reserve firmware retire name: %w", err)
+	}
+	if err := s.rename(dir, gone); err != nil {
+		return "", fmt.Errorf("remove firmware version: %w", err)
+	}
+	return gone, nil
+}
+
+func (s *firmwareStore) dropRetiredLocked(dirs []string) {
+	for _, dir := range dirs {
+		if err := s.removeAll(dir); err != nil {
+			s.logger.Warn("knob firmware leftover not removed", "dir", filepath.Base(dir), "err", err)
+		}
+	}
 }
 
 func (s *firmwareStore) writeMetaLocked(m firmwareMeta) error {

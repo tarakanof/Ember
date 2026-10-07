@@ -169,7 +169,7 @@ func TestCompareSemver(t *testing.T) {
 
 func newFWStore(t *testing.T) *firmwareStore {
 	t.Helper()
-	s := newFirmwareStore(filepath.Join(t.TempDir(), "firmware", "cinder-knob"))
+	s := newFirmwareStore(filepath.Join(t.TempDir(), "firmware", "cinder-knob"), discardLogger())
 	s.now = func() time.Time { return time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC) }
 	if err := s.load(); err != nil {
 		t.Fatal(err)
@@ -219,7 +219,7 @@ func TestFirmwareStoreSurvivesARestart(t *testing.T) {
 	s := newFWStore(t)
 	img := fakeFirmware(fwOpts{version: "0.9.14"})
 	want, _ := putFW(t, s, img, "release")
-	again := newFirmwareStore(s.dir)
+	again := newFirmwareStore(s.dir, discardLogger())
 	if err := again.load(); err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +243,7 @@ func TestFirmwareStoreSweepsHalfWrittenVersions(t *testing.T) {
 	if err := os.WriteFile(tmp, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	again := newFirmwareStore(s.dir)
+	again := newFirmwareStore(s.dir, discardLogger())
 	if err := again.load(); err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ func TestFirmwareStoreReplaceKeepsTheOldVersionWhenTheWriteFails(t *testing.T) {
 	if err != nil || sha256.Sum256(got) != sha256.Sum256(fakeFirmware(fwOpts{version: "0.9.14"})) {
 		t.Fatalf("old bin on disk changed: %v", err)
 	}
-	again := newFirmwareStore(s.dir)
+	again := newFirmwareStore(s.dir, discardLogger())
 	if err := again.load(); err != nil || len(again.list()) != 1 || again.list()[0].SHA256 != old.SHA256 {
 		t.Fatalf("after reload: %+v %v", again.list(), err)
 	}
@@ -410,7 +410,7 @@ func TestFirmwareStoreRestoresAnOldVersionMovedAsideByACrash(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(s.dir, ".tmp-0.9.14-rc1-456"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	again := newFirmwareStore(s.dir)
+	again := newFirmwareStore(s.dir, discardLogger())
 	if err := again.load(); err != nil {
 		t.Fatal(err)
 	}
@@ -493,12 +493,14 @@ func TestFirmwareStoreUnblocksOnlyRemovedOrReplacedVersionsUnderItsLock(t *testi
 	}
 }
 
-func failRemoveOf(s *firmwareStore, version string) {
-	s.removeAll = func(path string) error {
-		if filepath.Base(path) == version {
-			return errors.New("injected failure")
+func failRenamesOf(s *firmwareStore, prefixes ...string) {
+	s.rename = func(oldpath, newpath string) error {
+		for _, p := range prefixes {
+			if strings.HasPrefix(filepath.Base(oldpath), p) {
+				return errors.New("injected failure")
+			}
 		}
-		return os.RemoveAll(path)
+		return os.Rename(oldpath, newpath)
 	}
 }
 
@@ -506,7 +508,7 @@ func TestFirmwareStoreKeepsTheBlockWhenRemoveAllFails(t *testing.T) {
 	s := newFWStore(t)
 	u := &unblockRecorder{t: t, s: s}
 	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "test")
-	failRemoveOf(s, "0.9.14")
+	failRenamesOf(s, "0.9.14")
 	if err := s.remove("0.9.14", nil, u.unblock); err == nil {
 		t.Fatal("remove succeeded")
 	}
@@ -516,7 +518,7 @@ func TestFirmwareStoreKeepsTheBlockWhenRemoveAllFails(t *testing.T) {
 	if _, ok := s.get("0.9.14"); !ok || len(s.list()) != 1 {
 		t.Fatalf("failed remove dropped the entry: %+v", s.list())
 	}
-	s.removeAll = os.RemoveAll
+	s.rename = os.Rename
 	if err := s.remove("0.9.14", nil, u.unblock); err != nil {
 		t.Fatalf("retry = %v", err)
 	}
@@ -530,7 +532,7 @@ func TestFirmwareStoreKeepsTheBlockWhenAnEvictionFails(t *testing.T) {
 	u := &unblockRecorder{t: t, s: s}
 	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.1"}), "test")
 	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.2"}), "test")
-	failRemoveOf(s, "0.9.1")
+	failRenamesOf(s, "0.9.1")
 	for i := 3; i <= firmwareKept+2; i++ {
 		img := fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)})
 		d, _ := parseFirmwareImage(img)
@@ -545,7 +547,7 @@ func TestFirmwareStoreKeepsTheBlockWhenAnEvictionFails(t *testing.T) {
 	if _, ok := s.get("0.9.1"); !ok {
 		t.Fatal("failed eviction dropped the entry")
 	}
-	s.removeAll = os.RemoveAll
+	s.rename = os.Rename
 	if err := putFWUnblock(t, s, fakeFirmware(fwOpts{version: "0.9.8"}), false, u); err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +580,7 @@ func binSHA(t *testing.T, s *firmwareStore, version string) string {
 
 func reloadFW(t *testing.T, s *firmwareStore) *firmwareStore {
 	t.Helper()
-	again := newFirmwareStore(s.dir)
+	again := newFirmwareStore(s.dir, discardLogger())
 	if err := again.load(); err != nil {
 		t.Fatal(err)
 	}
@@ -590,6 +592,7 @@ func replaceWithStuckAside(t *testing.T, s *firmwareStore, version string, u *un
 	other := fakeFirmware(fwOpts{version: version, seed: 9})
 	d, _ := parseFirmwareImage(other)
 	s.removeAll = failOnBase(firmwareAsidePrefix, os.RemoveAll)
+	failRenamesOf(s, firmwareAsidePrefix)
 	img, created, err := s.put(d, other, "test", true, nil, nil, u.unblock)
 	if err == nil || !created {
 		t.Fatalf("put = %v %v, want created with a cleanup error", created, err)
@@ -612,7 +615,7 @@ func TestFirmwareStoreDeleteOfAnUnindexedVersionPurgesItsFilesThenUnblocks(t *te
 	if err := os.MkdirAll(filepath.Join(s.dir, ".old-0.9.16-123"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s.removeAll = failOnBase(".old-0.9.16", os.RemoveAll)
+	failRenamesOf(s, ".old-0.9.16")
 	if err := s.remove("0.9.16", nil, u.unblock); err == nil || errors.Is(err, errFirmwareNotFound) {
 		t.Fatalf("remove with a stuck copy = %v, want a storage error", err)
 	}
@@ -710,7 +713,7 @@ func TestFirmwareStoreEvictionRemovesALeftoverOldCopy(t *testing.T) {
 	u := &unblockRecorder{t: t, s: s}
 	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.1"}), "test")
 	replaceWithStuckAside(t, s, "0.9.1", u)
-	s.removeAll = os.RemoveAll
+	s.removeAll, s.rename = os.RemoveAll, os.Rename
 	for i := 2; i <= firmwareKept+1; i++ {
 		if err := putFWUnblock(t, s, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), false, u); err != nil {
 			t.Fatal(err)
@@ -834,12 +837,7 @@ func TestFirmwareStoreUploadOverAnUnindexedVersionNeverLeavesOnlyThePreReplaceCo
 	a, _ := putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "test")
 	b := replaceWithStuckAside(t, s, "0.9.14", u)
 	delete(s.index, "0.9.14")
-	s.rename = func(oldpath, newpath string) error {
-		if strings.HasPrefix(filepath.Base(oldpath), firmwareTempPrefix) {
-			return errors.New("injected failure")
-		}
-		return os.Rename(oldpath, newpath)
-	}
+	failRenamesOf(s, firmwareAsidePrefix, firmwareTempPrefix)
 	c := fakeFirmware(fwOpts{version: "0.9.14", seed: 11})
 	d, _ := parseFirmwareImage(c)
 	if _, created, err := s.put(d, c, "test", false, nil, nil, u.unblock); err == nil || created {
@@ -849,6 +847,7 @@ func TestFirmwareStoreUploadOverAnUnindexedVersionNeverLeavesOnlyThePreReplaceCo
 		t.Fatalf("after restart 0.9.14 = %+v %v, want B %s (A is %s)", m, ok, b.SHA256, a.SHA256)
 	}
 	s.removeAll = os.RemoveAll
+	failRenamesOf(s, firmwareTempPrefix)
 	if _, _, err := s.put(d, c, "test", false, nil, nil, u.unblock); err == nil {
 		t.Fatal("upload with a failing rename succeeded")
 	}
@@ -881,5 +880,98 @@ func TestFirmwareStoreFailedEvictionKeepsTheReplacementIndexed(t *testing.T) {
 	}
 	if m, ok := reloadFW(t, s).get("0.9.1"); !ok || m.SHA256 == a.SHA256 {
 		t.Fatalf("after restart 0.9.1 = %+v %v, want not A", m, ok)
+	}
+}
+
+func removeBinThenFail(path string) error {
+	_ = os.Remove(filepath.Join(path, firmwareBinName))
+	return errors.New("injected failure")
+}
+
+func TestFirmwareStoreDeleteThatStopsPartWayLeavesNoHalfVersion(t *testing.T) {
+	s := newFWStore(t)
+	u := &unblockRecorder{t: t, s: s}
+	img := fakeFirmware(fwOpts{version: "0.9.14"})
+	want, _ := putFW(t, s, img, "release")
+	s.removeAll = removeBinThenFail
+	if err := s.remove("0.9.14", nil, u.unblock); err != nil {
+		t.Fatalf("remove = %v", err)
+	}
+	if got := u.take(); !slices.EqualFunc(got, [][]string{{"0.9.14"}}, slices.Equal) {
+		t.Fatalf("remove unblocked %v, want [[0.9.14]]", got)
+	}
+	if _, ok := s.get("0.9.14"); ok || len(s.list()) != 0 {
+		t.Fatalf("half-removed version still indexed: %+v", s.list())
+	}
+	if _, ok := s.newestAbove("0.9.13", nil); ok {
+		t.Fatal("half-removed version still offered")
+	}
+	s.removeAll = os.RemoveAll
+	got, created := putFW(t, s, img, "release")
+	if !created || got.SHA256 != want.SHA256 {
+		t.Fatalf("re-upload = %+v %v", got, created)
+	}
+	if _, f, err := s.open("0.9.14", firmwareBinName); err != nil {
+		t.Fatalf("re-uploaded bin = %v", err)
+	} else {
+		_ = f.Close()
+	}
+	again := reloadFW(t, s)
+	if m, ok := again.get("0.9.14"); !ok || m.SHA256 != want.SHA256 {
+		t.Fatalf("after restart: %+v %v", m, ok)
+	}
+	if names := dirNames(t, s.dir); names != "0.9.14" {
+		t.Fatalf("entries after restart = %v", names)
+	}
+}
+
+func TestFirmwareStoreEvictionThatStopsPartWayLeavesNoHalfVersion(t *testing.T) {
+	s := newFWStore(t)
+	u := &unblockRecorder{t: t, s: s}
+	for i := 1; i <= firmwareKept; i++ {
+		putFW(t, s, fakeFirmware(fwOpts{version: fmt.Sprintf("0.9.%d", i)}), "release")
+	}
+	s.removeAll = removeBinThenFail
+	img := fakeFirmware(fwOpts{version: "0.9.6"})
+	d, _ := parseFirmwareImage(img)
+	if _, created, err := s.put(d, img, "release", false, nil, nil, u.unblock); err != nil || !created {
+		t.Fatalf("put = %v %v", created, err)
+	}
+	if got := u.take(); !slices.EqualFunc(got, [][]string{{"0.9.1"}}, slices.Equal) {
+		t.Fatalf("eviction unblocked %v, want [[0.9.1]]", got)
+	}
+	if _, ok := s.get("0.9.1"); ok {
+		t.Fatal("half-evicted version still indexed")
+	}
+	s.removeAll = os.RemoveAll
+	again := reloadFW(t, s)
+	if _, ok := again.get("0.9.1"); ok || len(again.list()) != firmwareKept {
+		t.Fatalf("after restart: %+v", again.list())
+	}
+	for _, name := range strings.Split(dirNames(t, s.dir), ",") {
+		if strings.HasPrefix(name, ".") {
+			t.Fatalf("leftover %s after restart", name)
+		}
+	}
+}
+
+func TestFirmwareStoreBootNeverRestoresARetiredCopy(t *testing.T) {
+	s := newFWStore(t)
+	u := &unblockRecorder{t: t, s: s}
+	putFW(t, s, fakeFirmware(fwOpts{version: "0.9.14"}), "release")
+	s.removeAll = func(string) error { return errors.New("injected failure") }
+	if err := s.remove("0.9.14", nil, u.unblock); err != nil {
+		t.Fatalf("remove = %v", err)
+	}
+	names := dirNames(t, s.dir)
+	if !strings.HasPrefix(names, firmwareTempPrefix+"0.9.14-") || strings.Contains(names, ",") {
+		t.Fatalf("entries = %v, want one whole retired copy", names)
+	}
+	again := reloadFW(t, s)
+	if _, ok := again.get("0.9.14"); ok {
+		t.Fatal("boot restored a retired copy")
+	}
+	if names := dirNames(t, s.dir); names != "" {
+		t.Fatalf("entries after restart = %v, want none", names)
 	}
 }

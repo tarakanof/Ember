@@ -1902,9 +1902,9 @@ paths:
         whole file is pinned. The newest 5 versions are kept, plus any version that is
         a device's target or running firmware. Every version evicted this way, and a
         version replaced with `?replace=1`, is dropped from every knob's OTA `blocked`
-        list; a version whose files could not be removed stays blocked. A replace
-        writes the new bytes beside the old ones and swaps them in with a rename. If
-        the swap fails the answer is an error and the old bytes are moved back; if
+        list; a version whose files could not be removed stays blocked and listed.
+        A replace writes the new bytes beside the old ones and swaps them in with a
+        rename. If the swap fails the answer is an error and the old bytes are moved back; if
         even that fails the version is hidden until the next restart restores the old
         bytes. Once the swap succeeds the answer is 201 even if removing the old copy
         or an evicted version failed (the server logs it).
@@ -2010,11 +2010,11 @@ paths:
       summary: Delete an image and its ELF
       description: >-
         Removes the version's directory and any `.old-<version>-*` copy a replace
-        left, also for a version the store does not index (a directory that failed
-        to load, or an earlier failed removal; the answer is then 404). Once they
-        are gone, on 204 or 404, the version is dropped from every knob's OTA
-        `blocked` list. A 409 (the version is targeted, indexed or not) or a failed
-        removal (500) keeps it blocked; after a 500 the version stays listed so the
+        left, also for a version the store does not index (for example a directory
+        that failed to load at boot; the answer is then 404). Once they are gone,
+        on 204 or 404, the version is dropped from every knob's OTA `blocked` list.
+        A 409 (the version is targeted, indexed or not) or a failed removal (500)
+        keeps it blocked; after a 500 the version stays listed and whole, so the
         DELETE can be retried.
       x-internal: true
       security: [{ownerToken: []}, {clientToken: [admin]}]
