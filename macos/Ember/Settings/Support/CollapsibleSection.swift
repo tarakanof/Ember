@@ -4,15 +4,19 @@ import EmberKit
 struct CollapsibleSection<Content: View, Footer: View>: View {
     let title: LocalizedStringKey
     let group: SettingsGroup
+    var summary: Text?
+    var contentDisabled = false
     @ViewBuilder let content: () -> Content
     @ViewBuilder let footer: () -> Footer
     @AppStorage(SettingsGroup.storageKey) private var collapsedGroups = ""
 
-    init(_ title: LocalizedStringKey, group: SettingsGroup,
+    init(_ title: LocalizedStringKey, group: SettingsGroup, summary: Text? = nil, contentDisabled: Bool = false,
          @ViewBuilder content: @escaping () -> Content,
          @ViewBuilder footer: @escaping () -> Footer = { EmptyView() }) {
         self.title = title
         self.group = group
+        self.summary = summary
+        self.contentDisabled = contentDisabled
         self.content = content
         self.footer = footer
     }
@@ -21,7 +25,7 @@ struct CollapsibleSection<Content: View, Footer: View>: View {
 
     var body: some View {
         Section {
-            if expanded { content() }
+            if expanded { content().disabled(contentDisabled) }
         } header: {
             Button {
                 withAnimation(.snappy(duration: 0.2)) {
@@ -38,6 +42,12 @@ struct CollapsibleSection<Content: View, Footer: View>: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                     Spacer()
+                    if !expanded, let summary {
+                        summary
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .padding(.bottom, expanded ? 0 : 12)
                 .contentShape(Rectangle())

@@ -220,6 +220,42 @@
         }
       }
     },
+    "%@ · Update to %@ available" : {
+      "comment" : "Settings › Knob Firmware & updates header while collapsed: the running firmware, then the newer version stored on Ember (\"0.9.15 · Update to 0.9.16 available\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · Update to %2$@ available"
+          }
+        }
+      }
+    },
+    "%@ · Update to %@ failed" : {
+      "comment" : "Settings › Knob Firmware & updates header while collapsed after an update failed: the running firmware, then the version it tried (\"0.9.15 · Update to 0.9.16 failed\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · Update to %2$@ failed"
+          }
+        }
+      }
+    },
+    "%@ · Updating" : {
+      "comment" : "Settings › Knob Firmware & updates header while collapsed and an update runs: the running firmware (\"0.9.15 · Updating\")."
+    },
+    "%@ · Updating, %lld %%" : {
+      "comment" : "Settings › Knob Firmware & updates header while collapsed and the knob downloads an update: the running firmware, then the percentage sent (\"0.9.15 · Updating, 42 %\").",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · Updating, %2$lld %%"
+          }
+        }
+      }
+    },
     "%@ · ^[%lld session](inflect: true)" : {
       "comment" : "Chart callout: focus time (\"1h 15m\"), then the number of focus sessions.",
       "localizations" : {
@@ -595,6 +631,10 @@
     "Attention hold" : {},
     "Automatic (release builds, when the knob is idle)" : {},
     "Automatic brightness" : {},
+    "Automatic updates are on: if %@ is newer than the knob's firmware, the knob installs it once it has been idle for 10 minutes." : {
+      "comment" : "Knob firmware sheet: confirmation before marking an image as Release while Automatic updates are on; the argument is its version."
+    },
+    "Automatic updates install only Release builds." : {},
     "Automation: Music" : {},
     "Available once Ember has loaded this setting." : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -922,6 +962,9 @@
       "extractionState" : "manual"
     },
     "Delete" : {},
+    "Delete %@ from Ember?" : {
+      "comment" : "Knob firmware sheet: confirmation before deleting a stored image; the argument is its version (\"Delete 0.9.17 from Ember?\")."
+    },
     "Delete this dump?" : {},
     "Delete…" : {},
     "Delivered" : {},
@@ -1001,8 +1044,14 @@
     "Ember needs access to Reminders" : {},
     "Ember needs your approval in System Settings › General › Login Items." : {},
     "Ember never installs firmware during a Pomodoro. With Automatic, it installs a newer release build after the knob has been untouched for 10 minutes." : {},
+    "Ember no longer stores this image." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "Ember reads the clock every 30 seconds and keeps the last 24 hours while the server runs." : {},
     "Ember rejected the knob's token." : {},
+    "Ember removes the image and its ELF." : {},
+    "Ember removes the image." : {},
     "Ember revokes the knob's token at once. The knob keeps showing the mood and weather but can't start a Pomodoro until you set it up again over USB." : {},
     "Ember shows one knob. After this setup it forgets the other knob and revokes its token." : {},
     "Enable Pomodoro" : {},
@@ -1063,7 +1112,6 @@
       }
     },
     "Firmware & updates" : {},
-    "Firmware images stored on Ember" : {},
     "Firmware updates" : {},
     "First model" : {},
     "Fix Hooks" : {},
@@ -1206,6 +1254,8 @@
     "Imperial (°F)" : {},
     "In use" : {},
     "Include Claude Code's Codex runs" : {},
+    "Install" : {},
+    "Install this build on the knob." : {},
     "Installed from the CLI" : {},
     "Installing" : {},
     "Internal memory" : {},
@@ -1230,7 +1280,6 @@
       "extractionState" : "manual"
     },
     "Knob" : {},
-    "Knob Firmware" : {},
     "Knob name" : {},
     "Knob stats unavailable" : {},
     "LED matrix" : {},
@@ -1284,8 +1333,11 @@
       "extractionState" : "manual"
     },
     "Lowest free" : {},
+    "Lowest since start" : {},
     "MCP" : {},
-    "Manage Firmware…" : {},
+    "Mark %@ as Release?" : {
+      "comment" : "Knob firmware sheet: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\")."
+    },
     "Mark as Release" : {},
     "Matches the brightness Ember works out for displays without a light sensor" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
@@ -1485,6 +1537,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "On the knob" : {},
     "Online" : {},
     "Only on this Mac, while Ember is running. Ember reacts when Music changes track or pauses; it never starts Music and doesn't poll it." : {},
     "Only some agents are reporting." : {},
@@ -1993,6 +2046,7 @@
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
     },
+    "The figures above come from the knob's check-in. Turn on diagnostics for processor and temperature and for history charts. Full diagnostics add network requests and rendering." : {},
     "The helper's setup failed (exit %d)." : {
       "comment" : "Settings › Agents failure when a producer helper's configure exits non-zero without a message; the exit code.",
       "extractionState" : "manual"
@@ -2011,6 +2065,10 @@
       "extractionState" : "manual"
     },
     "The knob has to run cinder. Settings change here once it's set up; Wi-Fi changes need the cable again." : {},
+    "The knob is already installing an update. Try again when it has finished." : {
+      "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
+      "extractionState" : "manual"
+    },
     "The knob is offline" : {},
     "The knob is on Wi-Fi (%@) but can't reach %@." : {
       "comment" : "Knob setup error; the knob's IP address, then the Ember URL it tried.",
@@ -2044,7 +2102,7 @@
       "comment" : "Knob setup error; the argument is the Improv error code number."
     },
     "The knob reports every 5 seconds while this page is open." : {},
-    "The knob runs this version. Without its ELF, crash dumps from it can't be decoded." : {},
+    "The knob runs this build. Without its ELF, crash dumps from it can't be decoded." : {},
     "The knob saved a crash dump in flash. It uploads the dump to Ember and erases it once Ember has it; older firmware reports it on every check-in until it is erased over USB (idf.py coredump-erase or a reflash)." : {},
     "The knob sends hardware stats every minute, and every 5 seconds while this page is open. It needs firmware with diagnostics." : {},
     "The knob sends no hardware stats." : {},
@@ -2190,7 +2248,6 @@
     "Turn On Diagnostics" : {},
     "Turn On Full Diagnostics" : {},
     "Turn it on in Settings › Sources › Focus." : {},
-    "Turn on diagnostics to have the knob report its processor, memory, temperature and Wi-Fi. Full diagnostics add network requests and rendering." : {},
     "Turning Sound off silences the clock completely, chimes included." : {},
     "USB" : {},
     "USB reset (flashing or serial)" : {
@@ -2235,6 +2292,7 @@
     },
     "Updates and Alerts" : {},
     "Updates delivered" : {},
+    "Upload a build" : {},
     "Uploaded by %@ · %@ · %@" : {
       "comment" : "Settings › Knob Crash dumps row details: the firmware that uploaded the dump (the crashed build is unknown), the dump's size and when Ember received it (\"Uploaded by 0.9.14 · 64 KB · 6 Oct 2026 at 10:00\").",
       "localizations" : {
@@ -2313,6 +2371,7 @@
       "extractionState" : "manual"
     },
     "Weak" : {},
+    "Weakest signal" : {},
     "Weather" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2387,6 +2446,9 @@
     "Wi-Fi passwords are 8 to 63 characters." : {},
     "Wi-Fi signal" : {},
     "Wi-Fi signal, memory and uptime are in Hardware." : {},
+    "With Automatic updates on, the knob would install %@ once it has been idle for 10 minutes, if it is newer than the knob's firmware." : {
+      "comment" : "Knob firmware sheet: confirmation before marking an image as Release while updates are set to Ask first; the argument is its version."
+    },
     "Woke from sleep" : {
       "comment" : "From EmberKit (not extracted automatically; kept in step by StringCatalogTests).",
       "extractionState" : "manual"
@@ -2451,6 +2513,9 @@
     "beacon timeout" : {
       "comment" : "Settings › Knob Reconnects row: an ESP-IDF Wi-Fi disconnect reason, after its code (\"3 (last: 203 association failed)\").",
       "extractionState" : "manual"
+    },
+    "block %@" : {
+      "comment" : "Knob Hardware Now card: the smallest the largest free block got since the knob started, after the lowest free memory (\"block 30 KB\")."
     },
     "clock didn't finish in time" : {
       "comment" : "Short reason after a failed menu action: the clock was too slow to finish it.",

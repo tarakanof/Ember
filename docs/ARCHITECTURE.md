@@ -2463,11 +2463,18 @@ points draw as dots until they leave the range.
 
 **Knob pane layout (#318).** The knob's Settings pages are collapsible
 groups: Status (Connection, Address, Last check-in, Settings, USB, Set Up /
-Forget), Firmware & updates, Diagnostics (Wi-Fi channel and access point,
+Forget), Firmware & updates (the firmware row, update mode and the stored
+images inline; collapsed, its header shows the running version and "Update
+to X available", progress or the failure, and it expands when an update
+starts or fails), Diagnostics (Wi-Fi channel and access point,
 Reconnects, Last restart, Boots, Display link) and Crash dumps; Display;
 Behavior and Advanced. Each fact has one owner: Wi-Fi signal, memory,
 uptime and CPU live on Hardware (charts and the Now card); firmware,
-address and restart history live on Status, which links to Hardware. A
+address and restart history live on Status, which links to Hardware.
+With diagnostics off, Hardware still shows a Now card from the last
+check-in (signal, free memory and largest block, uptime, the lowest free
+memory and weakest signal since start; `KnobNowReadout`), because cinder
+sends those in every check-in. A
 collapsed group is stored in `settings.collapsed` (UserDefaults, comma-
 separated `SettingsGroup` ids, the same shape as `settings.expanded`).
 

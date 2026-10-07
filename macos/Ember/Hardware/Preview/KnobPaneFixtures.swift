@@ -6,7 +6,7 @@ import EmberKit
 @MainActor
 enum KnobPaneFixtures {
     static let pages: [(name: String, page: DevicePage, height: CGFloat)] = [
-        ("knob-pane-status", .hardware(.status), 1200),
+        ("knob-pane-status", .hardware(.status), 1800),
         ("knob-pane-display", .hardware(.display), 420),
         ("knob-pane-behavior", .hardware(.behavior), 560),
     ]
