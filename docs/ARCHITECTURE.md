@@ -2607,15 +2607,17 @@ Retry. It polls `GET …/ota` every second only while the phase is
 `downloading`, `installing` or `restarting` and the pane is open; the
 pane's 15 s reload covers the rest. Deleting the version a knob runs is
 allowed (the knob keeps both images in flash), but the confirmation says
-that its ELF, needed to decode that build's crash dumps, goes too. Behavior › Firmware repeats the same
-Firmware row (so the Update button sits next to where images are
-uploaded), then Ask first / Automatic and the Manage Firmware sheet
+that its ELF, needed to decode that build's crash dumps, goes too. Behavior › Firmware has Ask first /
+Automatic and the Manage Firmware sheet
 (upload `cinder.bin` plus a `cinder.elf` or `<name>.elf` next to it,
 channel Test by default, upload progress from the `URLSession` upload
 task). Each image row has Install (any stored build except the one the
-knob runs, downgrades included; `PUT …/ota {"target"}`), a Test/Release
-channel menu that `PATCH`es either way, Download ELF and Delete…, which
-asks in a dialog naming the version.
+knob runs, matched by `build`, downgrades included; `PUT …/ota
+{"target"}`; disabled with the USB note without a rollback bootloader;
+a refused install reloads the status and names the reason), a
+Test/Release channel menu that `PATCH`es either way (Test to Release
+asks first and says what Automatic would do with it), Download ELF and
+Delete…, which asks in a dialog naming the version.
 Uploads and ELF downloads use the `transfer` request budget (60 s per
 request, 10 min per resource). The Crash rows get "Download ELF…" when
 Ember holds the ELF for the crash's build.

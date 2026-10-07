@@ -131,7 +131,6 @@ struct KnobFirmwareSection: View {
     var body: some View {
         let ota = env.knob.ota
         Section {
-            KnobFirmwareRow(checkin: env.knob.knob?.lastCheckin)
             Picker("Firmware updates", selection: Binding(
                 get: { ota.status?.mode ?? .manual },
                 set: { mode in Task { await ota.setMode(mode) } })) {
@@ -169,6 +168,7 @@ struct KnobFirmwareSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var channel = KnobFirmwareImage.test
     @State private var confirmDelete: KnobFirmwareImage?
+    @State private var confirmRelease: KnobFirmwareImage?
     @State private var writeError: String?
 
     var body: some View {
@@ -188,6 +188,10 @@ struct KnobFirmwareSheet: View {
                     Text(ota.uploadStage == .elf ? "Uploading the ELF…" : "Uploading the image…")
                         .foregroundStyle(.secondary)
                 }
+            }
+            if let status = ota.status, status.running != nil, !status.canRollBack,
+               ota.images.contains(where: status.canInstall) {
+                Text(KnobOTAError.noRollback).font(.callout).foregroundStyle(.secondary)
             }
             errors
             HStack {
@@ -214,17 +218,33 @@ struct KnobFirmwareSheet: View {
             Button("Delete", role: .destructive) { Task { await ota.delete(image) } }
             Button("Cancel", role: .cancel) {}
         } message: { image in
-            if ota.runsOnKnob(image) {
-                Text("The knob runs this version. Without its ELF, crash dumps from it can't be decoded.")
-            } else {
+            if ota.runsOnKnob(image), image.elf {
+                Text("The knob runs this build. Without its ELF, crash dumps from it can't be decoded.")
+            } else if image.elf {
                 Text("Ember removes the image and its ELF.")
+            } else {
+                Text("Ember removes the image.")
+            }
+        }
+        .confirmationDialog(releaseTitle, isPresented: Binding(
+            get: { confirmRelease != nil },
+            set: { if !$0 { confirmRelease = nil } }), presenting: confirmRelease) { image in
+            Button("Mark as Release") { Task { await ota.setChannel(image, to: KnobFirmwareImage.release) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { image in
+            if ota.status?.mode == .auto {
+                Text("Automatic updates are on: if \(image.version) is newer than the knob's firmware, the knob installs it once it has been idle for 10 minutes.",
+                     comment: "Knob firmware sheet: confirmation before marking an image as Release while Automatic updates are on; the argument is its version.")
+            } else {
+                Text("With Automatic updates on, the knob would install \(image.version) once it has been idle for 10 minutes, if it is newer than the knob's firmware.",
+                     comment: "Knob firmware sheet: confirmation before marking an image as Release while updates are set to Ask first; the argument is its version.")
             }
         }
     }
 
     @ViewBuilder private var errors: some View {
         let ota = env.knob.ota
-        ForEach([KnobOTAAction.upload, .update, .channel, .delete, .elf], id: \.self) { action in
+        ForEach([KnobOTAAction.upload, .install, .channel, .delete, .elf], id: \.self) { action in
             if let e = ota.errors[action] {
                 Label { Text(e.message) } icon: { Image(systemName: "exclamationmark.triangle.fill") }
                     .foregroundStyle(.red)
@@ -244,11 +264,18 @@ struct KnobFirmwareSheet: View {
             HStack {
                 if let status = ota.status, status.canInstall(image) {
                     Button("Install") { Task { await ota.install(image) } }
-                        .disabled(!status.canRollBack || ota.running.contains(.update))
+                        .disabled(!status.canRollBack || ota.running.contains(.install))
+                        .help(status.canRollBack ? Text("Install this build on the knob.") : Text(KnobOTAError.noRollback))
                 }
                 Picker("Channel", selection: Binding(
                     get: { image.channel },
-                    set: { channel in Task { await ota.setChannel(image, to: channel) } })) {
+                    set: { channel in
+                        if KnobFirmwareImage.needsConfirmation(from: image.channel, to: channel) {
+                            confirmRelease = image
+                        } else {
+                            Task { await ota.setChannel(image, to: channel) }
+                        }
+                    })) {
                     Text("Test").tag(KnobFirmwareImage.test)
                     Text("Release").tag(KnobFirmwareImage.release)
                 }
@@ -277,6 +304,11 @@ struct KnobFirmwareSheet: View {
                 details(image).font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var releaseTitle: Text {
+        Text("Mark \(confirmRelease?.version ?? "") as Release?",
+             comment: "Knob firmware sheet: confirmation title before moving a stored image to the Release channel; the argument is its version (\"Mark 0.9.17 as Release?\").")
     }
 
     private var deleteTitle: Text {
