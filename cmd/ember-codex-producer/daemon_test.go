@@ -265,3 +265,28 @@ func TestCycle_FailedPendingReadLeavesTheWatcherSession(t *testing.T) {
 		t.Error("watcher lost its post for u-123")
 	}
 }
+
+func TestCycle_PendingReadHoldsBackAnUnpostedSession(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	writeRollout(t, dir, "rollout-cli.jsonl", now, metaCLI, evStarted)
+	w := newTestWatcher(dir, now)
+	as := newAppServer(w.cfg)
+	as.mu.Lock()
+	as.connected = true
+	as.unread["u-123"] = &apPending{inflight: true}
+	as.mu.Unlock()
+	posts, deletes, _ := cycle(w, as)
+	if p, ok := postFor(posts, "u-123"); ok {
+		t.Errorf("watcher posted u-123 while its read is pending: %+v", p)
+	}
+	if len(deletes) != 0 {
+		t.Errorf("deletes = %+v, want none", deletes)
+	}
+	as.mu.Lock()
+	delete(as.unread, "u-123")
+	as.mu.Unlock()
+	if posts, _, _ := cycle(w, as); len(posts) != 1 || posts[0].Session != "u-123" {
+		t.Errorf("after a failed read the watcher should post u-123: %+v", posts)
+	}
+}
