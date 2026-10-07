@@ -67,7 +67,7 @@ func cycle(w *watcher, as *appServer) (posts []producer.StatusRequest, deletes [
 	if as != nil {
 		ap = as.tick()
 	}
-	w.owned, w.rateExtra = ap.owned, ap.rate
+	w.owned, w.pending, w.rateExtra = ap.owned, ap.pending, ap.rate
 	posts, deletes, usages = w.tick()
 	posts = append(ap.posts, posts...)
 	deletes = append(deletes, ap.deletes...)

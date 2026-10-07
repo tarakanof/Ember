@@ -43,6 +43,7 @@ type watcher struct {
 	idle           map[string]fileStamp
 	usagePost      producer.Repost
 	owned          map[string]bool
+	pending        map[string]bool
 	rateExtra      *derived
 	handedOver     []string
 	reads          int
@@ -199,6 +200,9 @@ func (w *watcher) tick() (posts []producer.StatusRequest, deletes []producer.Del
 				w.handedOver = append(w.handedOver, ss.uuid)
 			}
 			ss.post.Reset()
+			continue
+		}
+		if w.pending[ss.uuid] {
 			continue
 		}
 		if ss.derived.state == "" {

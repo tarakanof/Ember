@@ -240,6 +240,15 @@ func connected(as *appServer) func() bool {
 	return func() bool { ok, _ := as.status(); return ok }
 }
 
+func subscribed(as *appServer, id string) func() bool {
+	return func() bool {
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		th := as.threads[id]
+		return th != nil && th.subscribed
+	}
+}
+
 func postFor(posts []producer.StatusRequest, id string) (producer.StatusRequest, bool) {
 	for i := len(posts) - 1; i >= 0; i-- {
 		if posts[i].Session == id {
@@ -432,6 +441,7 @@ func TestAppServer_RespectsSourceAndClaudeFilters(t *testing.T) {
 	f.loaded = []string{"t-exec", "t-claude", "t-sub", "t-tui"}
 	as := startAppServer(t, testAppServerConfig(sock))
 	waitState(t, as, "t-tui", "running")
+	waitFor(t, "t-tui subscribed", subscribed(as, "t-tui"))
 	tk := as.tick()
 	for _, id := range []string{"t-exec", "t-claude", "t-sub"} {
 		if _, ok := postFor(tk.posts, id); ok {
@@ -444,12 +454,20 @@ func TestAppServer_RespectsSourceAndClaudeFilters(t *testing.T) {
 	if n := len(f.calls("thread/resume")); n != 1 {
 		t.Errorf("resume calls = %d, want only the tracked thread", n)
 	}
+	as.mu.Lock()
+	for _, id := range []string{"t-exec", "t-claude", "t-sub"} {
+		if th := as.threads[id]; th == nil || th.tracked {
+			t.Errorf("%s tracked or missing: %+v", id, th)
+		}
+	}
+	as.mu.Unlock()
 
 	cfg := testAppServerConfig(sock)
 	cfg.Sources = parseSources("cli,vscode,exec")
 	cfg.IncludeClaude = true
 	as2 := startAppServer(t, cfg)
 	waitState(t, as2, "t-exec", "running")
+	waitFor(t, "t-claude subscribed", subscribed(as2, "t-claude"))
 	f.notify("item/completed", map[string]any{"threadId": "t-claude", "turnId": "u", "item": map[string]any{"type": "agentMessage", "id": "m", "text": "Doing it"}})
 	waitFor(t, "via Claude", func() bool {
 		p := waitState(t, as2, "t-claude", "running")
@@ -573,6 +591,34 @@ func TestAppServer_StatusDuringInFlightReadWins(t *testing.T) {
 	as := startAppServer(t, testAppServerConfig(sock))
 	waitState(t, as, "t1", "running")
 	waitFor(t, "resume", func() bool { return len(f.calls("thread/resume")) == 1 })
+}
+
+func TestAppServer_MarksLoadedThreadsPendingUntilTheirRead(t *testing.T) {
+	sock := filepath.Join(shortSockDir(t), "s.sock")
+	f := newFakeAppServer(t, sock)
+	f.addThread("t1", "cli", active(), nil)
+	f.loaded = []string{"t1"}
+	reading, release := make(chan struct{}), make(chan struct{})
+	f.beforeRead = func(string) {
+		close(reading)
+		<-release
+	}
+	as := startAppServer(t, testAppServerConfig(sock))
+	select {
+	case <-reading:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("timed out waiting for thread/read")
+	}
+	tk := as.tick()
+	close(release)
+	if !tk.pending["t1"] || tk.owned["t1"] {
+		t.Errorf("awaiting its read: pending=%v owned=%v, want pending and not owned", tk.pending["t1"], tk.owned["t1"])
+	}
+	waitState(t, as, "t1", "running")
+	if tk := as.tick(); tk.pending["t1"] || !tk.owned["t1"] {
+		t.Errorf("after its read: pending=%v owned=%v, want owned", tk.pending["t1"], tk.owned["t1"])
+	}
 }
 
 func TestAppServer_CloseDuringInFlightReadWins(t *testing.T) {
