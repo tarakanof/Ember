@@ -208,10 +208,11 @@ type firmwareStore struct {
 	writeFile func(path string, data []byte) error
 	rename    func(oldpath, newpath string) error
 	removeAll func(path string) error
+	readDir   func(name string) ([]os.DirEntry, error)
 }
 
 func newFirmwareStore(dir string) *firmwareStore {
-	return &firmwareStore{dir: dir, now: time.Now, index: map[string]firmwareMeta{}, writeFile: writeFileAtomic, rename: os.Rename, removeAll: os.RemoveAll}
+	return &firmwareStore{dir: dir, now: time.Now, index: map[string]firmwareMeta{}, writeFile: writeFileAtomic, rename: os.Rename, removeAll: os.RemoveAll, readDir: os.ReadDir}
 }
 
 func validChannel(ch string) bool {
@@ -340,30 +341,34 @@ func (s *firmwareStore) removeAllErr(dir string) error {
 	return nil
 }
 
-func (s *firmwareStore) copiesLocked(version string) ([]string, error) {
-	entries, err := os.ReadDir(s.dir)
+func (s *firmwareStore) copiesLocked(version string) (asides []string, live bool, err error) {
+	entries, err := s.readDir(s.dir)
 	if err != nil {
-		return nil, fmt.Errorf("read firmware dir: %w", err)
+		return nil, false, fmt.Errorf("read firmware dir: %w", err)
 	}
-	var out []string
 	for _, e := range entries {
-		if v, ok := asideVersion(e.Name()); e.Name() == version || (ok && v == version) {
-			out = append(out, filepath.Join(s.dir, e.Name()))
+		if e.Name() == version {
+			live = true
+		} else if v, ok := asideVersion(e.Name()); ok && v == version {
+			asides = append(asides, filepath.Join(s.dir, e.Name()))
 		}
 	}
-	return out, nil
+	return asides, live, nil
 }
 
 func (s *firmwareStore) purgeLocked(version string) error {
-	copies, err := s.copiesLocked(version)
+	asides, live, err := s.copiesLocked(version)
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for _, dir := range copies {
+	for _, dir := range asides {
 		errs = append(errs, s.removeAllErr(dir))
 	}
-	return errors.Join(errs...)
+	if err := errors.Join(errs...); err != nil || !live {
+		return err
+	}
+	return s.removeAllErr(s.versionDir(version))
 }
 
 func (s *firmwareStore) writeMetaLocked(m firmwareMeta) error {
@@ -426,7 +431,7 @@ func (s *firmwareStore) put(d firmwareDesc, body []byte, channel string, replace
 	}
 	s.index[d.Version] = m
 	evicted, pruneErr := s.pruneLocked(d.Version, keep)
-	if exists {
+	if exists || replace {
 		evicted = append(evicted, d.Version)
 	}
 	if unblock != nil && len(evicted) > 0 {
@@ -605,7 +610,10 @@ func (s *firmwareStore) remove(version string, inUse func(string) bool, unblock 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.index[version]; !ok {
-		if copies, err := s.copiesLocked(version); err == nil && len(copies) == 0 && unblock != nil {
+		if err := s.purgeLocked(version); err != nil {
+			return err
+		}
+		if unblock != nil {
 			unblock([]string{version})
 		}
 		return errFirmwareNotFound

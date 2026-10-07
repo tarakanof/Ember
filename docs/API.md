@@ -35,14 +35,17 @@ registry"), `GET /v1/devices/{id}/stats?range=15m|1h|24h`,
 `GET`/`PUT /v1/devices/{id}/ota` (knob firmware update: `{"mode":"manual|auto","target":"0.9.14"|null,"retry":true}` merge;
 409 `no_rollback_bootloader`, or `ota_in_progress` while installing, restarting or verifying), `POST /v1/firmware?channel=release|test`
 (raw cinder `.bin` ≤4 MiB: 201 stored, 200 same bytes, 409 other bytes,
-400 `bad_image|wrong_chip|wrong_project|bad_version|dev_seed_build`; a
-`?replace=1` upload, and each version retention evicts, are dropped from
-every knob's OTA `blocked` list; 201 once the new bytes are in place, even if
-the old copy's cleanup failed),
+400 `bad_image|wrong_chip|wrong_project|bad_version|dev_seed_build`; the
+version a `?replace=1` upload stores, and each version retention evicts, is
+dropped from every knob's OTA `blocked` list; 201 once the new bytes are in
+place, even if removing the old copy or an evicted version failed, which the
+server logs),
 `GET /v1/firmware` (newest first), `PATCH`/`DELETE /v1/firmware/{version}`
-(channel; 409 while targeted; DELETE's 204, or a 404 with no directory for
-the version on disk, also drops the version from every knob's OTA `blocked`
-list, which the OTA `available` field skips), `PUT`/`GET /v1/firmware/{version}/elf`
+(channel; 409 while targeted; DELETE removes the version's directory and
+any `.old-<version>-*` copy a replace left, also when the store does not
+index it (404); once they are gone it drops the version from every knob's OTA
+`blocked` list, which the OTA `available` field skips; a removal that fails
+answers 500 and keeps the block), `PUT`/`GET /v1/firmware/{version}/elf`
 (≤64 MiB, 400 `elf_mismatch`), `GET /v1/firmware/{version}/bin`,
 `GET /v1/firmware/by-build/{build}/elf` (ARCHITECTURE "Knob firmware
 updates"),
